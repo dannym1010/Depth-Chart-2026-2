@@ -1,0 +1,1893 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Half-step shades the components already use. Tailwind has no 650/750/850
+   steps, so utilities like `dark:bg-slate-850` were compiling to nothing and
+   leaving the element on its light `bg-white` base in dark mode. Each value is
+   the midpoint of its two neighbouring default shades. */
+@theme {
+  --color-slate-650: #3d4a5f;
+  --color-slate-750: #293548;
+  --color-slate-850: #172033;
+  --color-zinc-850: #1f1f23;
+  --color-neutral-850: #1f1f1f;
+  --color-stone-850: #221f1e;
+  --color-indigo-850: #342f92;
+  --color-emerald-550: #0aa376;
+  --color-emerald-650: #058761;
+  --color-amber-450: #f8af18;
+}
+
+:root {
+  --print-font-size: 12px;
+}
+
+/* Surface ramp for the light theme. Everything sits a step below pure white so
+   large panels stop glaring; the tokens keep the whole ramp in one place.
+   Print rules below deliberately keep their own #ffffff — paper is white. */
+.theme-light {
+  --surface-canvas: #e7edf5;
+  --surface-raised: #f8fafd;
+  --surface-sunken: #eef2f8;
+  --surface-hover: #e2e9f2;
+  --surface-line: #d2dbe8;
+  --surface-line-strong: #bac5d6;
+}
+
+/* The dark theme's surfaces come from Tailwind's slate scale, so re-pointing the
+   colour variables inside .theme-dark lifts every dark: utility off near-black
+   at once instead of overriding utilities one by one. */
+.theme-dark {
+  --color-slate-950: #141c2e;
+  --color-slate-900: #1c2436;
+  --color-slate-850: #232c41;
+  --color-slate-800: #2a344b;
+  --color-slate-750: #333e57;
+  --color-slate-700: #3d4963;
+  --color-slate-650: #47546f;
+  --color-zinc-950: #1a1a20;
+  --color-zinc-900: #212128;
+  --color-zinc-850: #282830;
+  --color-zinc-800: #2f2f38;
+  --color-gray-900: #1e2432;
+  --color-gray-800: #2b3244;
+  --color-neutral-900: #212123;
+  --color-neutral-850: #28282a;
+  --color-black: #10141f;
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  background-color: var(--color-slate-900, #0f172a);
+  color: var(--color-slate-100, #f8fafc);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* =========================================================================
+   EXECUTIVE MODERN LIGHT THEME
+   A luminous, high-contrast, professional design system for daylight coaching
+   ========================================================================= */
+html.theme-light,
+body.theme-light,
+.theme-light {
+  color-scheme: light;
+}
+
+body.theme-light {
+  background-color: var(--surface-canvas) !important;
+  color: #0f172a !important;
+}
+
+/* 1. Surfaces & Cards in Light Mode: Turn hardcoded dark panels into clean white cards */
+.theme-light .bg-slate-950:not([class*="dark:"]):not(button):not([data-solid-badge="true"]):not([data-solid-dark="true"]),
+.theme-light .bg-slate-900:not([class*="dark:"]):not(button):not([data-solid-badge="true"]):not([data-solid-dark="true"]),
+.theme-light .bg-slate-850:not([class*="dark:"]):not(button):not([data-solid-badge="true"]):not([data-solid-dark="true"]),
+.theme-light .bg-slate-800:not([class*="dark:"]):not(button):not([data-solid-badge="true"]):not([data-solid-dark="true"]),
+.theme-light .bg-zinc-950:not([class*="dark:"]):not(button):not([data-solid-badge="true"]):not([data-solid-dark="true"]),
+.theme-light .bg-zinc-900:not([class*="dark:"]):not(button):not([data-solid-badge="true"]):not([data-solid-dark="true"]),
+.theme-light .bg-zinc-850:not([class*="dark:"]):not(button):not([data-solid-badge="true"]):not([data-solid-dark="true"]),
+.theme-light .bg-zinc-800:not([class*="dark:"]):not(button):not([data-solid-badge="true"]):not([data-solid-dark="true"]),
+.theme-light [class*="bg-slate-900/"]:not([class*="dark:"]):not(button):not([class*="from-"]):not([class*="to-"]):not([class*="ring-"]),
+.theme-light [class*="bg-slate-850/"]:not([class*="dark:"]):not(button):not([class*="from-"]):not([class*="to-"]):not([class*="ring-"]),
+.theme-light [class*="bg-slate-800/"]:not([class*="dark:"]):not(button):not([class*="from-"]):not([class*="to-"]):not([class*="ring-"]),
+.theme-light [class*="bg-zinc-900/"]:not([class*="dark:"]):not(button):not([class*="from-"]):not([class*="to-"]):not([class*="ring-"]),
+.theme-light [class*="bg-zinc-800/"]:not([class*="dark:"]):not(button):not([class*="from-"]):not([class*="to-"]):not([class*="ring-"]) {
+  background-color: var(--surface-raised) !important;
+  border-color: var(--surface-line) !important;
+  color: #0f172a !important;
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.03);
+}
+
+/* Secondary & Inset Surfaces (Wells, Pills, Inner search bars) */
+.theme-light .bg-slate-700:not([class*="dark:"]):not(button):not([data-solid-badge="true"]),
+.theme-light .bg-slate-750:not([class*="dark:"]):not(button):not([data-solid-badge="true"]),
+.theme-light .bg-zinc-700:not([class*="dark:"]):not(button):not([data-solid-badge="true"]),
+.theme-light .bg-zinc-750:not([class*="dark:"]):not(button):not([data-solid-badge="true"]),
+.theme-light .bg-slate-950\/40:not([class*="dark:"]):not(button),
+.theme-light .bg-slate-950\/60:not([class*="dark:"]):not(button),
+.theme-light .bg-slate-950\/80:not([class*="dark:"]):not(button) {
+  background-color: var(--surface-sunken) !important;
+  border-color: var(--surface-line) !important;
+}
+
+/* Legacy dark buttons with no dark: variant become light controls.
+   Without this their label is re-coloured to ink while the button stays near-black. */
+@media screen {
+  .theme-light button:is(.bg-slate-950, .bg-slate-900, .bg-slate-850, .bg-slate-800, .bg-slate-750, .bg-slate-700, .bg-zinc-900, .bg-zinc-800, .bg-zinc-700):not([class*="dark:"]):not([data-solid-dark="true"]):not([data-solid-badge="true"]) {
+    background-color: var(--surface-sunken) !important;
+    border-color: var(--surface-line-strong) !important;
+    color: #0f172a !important;
+  }
+
+  .theme-light :is([class*="hover:bg-slate-7"], [class*="hover:bg-slate-8"], [class*="hover:bg-slate-9"], [class*="hover:bg-zinc-7"], [class*="hover:bg-zinc-8"], [class*="hover:bg-zinc-9"]):hover:not([class*="dark:"]):not([class*="bg-indigo-"]):not([class*="bg-blue-"]):not([class*="bg-emerald-"]):not([class*="bg-rose-"]):not([class*="bg-red-"]):not([class*="bg-purple-"]):not([class*="bg-amber-"]):not([class*="bg-black"]):not([class*="bg-gradient-to"]) {
+    background-color: var(--surface-hover) !important;
+  }
+
+  /* Accent hovers become a light tint of the same hue. Keeping the saturated
+     hover would demand a white label, which fights the ink text rules in
+     section 2; a tint keeps the hue signal and stays readable with ink.
+     The :not(:is(...)) guard skips controls that are already solid colour —
+     their own hover shade is correct and their label is white. */
+  .theme-light [class*="hover:bg-red-"]:hover:not([class*="dark:"]):not([data-solid-dark="true"]):not([data-solid-badge="true"]):not(:disabled):not(:is(.bg-red-500, .bg-red-600, .bg-red-700, .bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-pink-500, .bg-pink-600, .bg-black)),
+  .theme-light [class*="hover:bg-rose-"]:hover:not([class*="dark:"]):not([data-solid-dark="true"]):not([data-solid-badge="true"]):not(:disabled):not(:is(.bg-red-500, .bg-red-600, .bg-red-700, .bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-pink-500, .bg-pink-600, .bg-black)),
+  .theme-light [class*="hover:bg-pink-"]:hover:not([class*="dark:"]):not([data-solid-dark="true"]):not([data-solid-badge="true"]):not(:disabled):not(:is(.bg-red-500, .bg-red-600, .bg-red-700, .bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-pink-500, .bg-pink-600, .bg-black)) {
+    background-color: #fee2e2 !important;
+    border-color: #fecaca !important;
+  }
+
+  .theme-light [class*="hover:bg-emerald-"]:hover:not([class*="dark:"]):not([data-solid-dark="true"]):not([data-solid-badge="true"]):not(:disabled):not(:is(.bg-emerald-500, .bg-emerald-600, .bg-emerald-700, .bg-green-500, .bg-green-600, .bg-green-700, .bg-teal-600, .bg-teal-700, .bg-black)),
+  .theme-light [class*="hover:bg-green-"]:hover:not([class*="dark:"]):not([data-solid-dark="true"]):not([data-solid-badge="true"]):not(:disabled):not(:is(.bg-emerald-500, .bg-emerald-600, .bg-emerald-700, .bg-green-500, .bg-green-600, .bg-green-700, .bg-teal-600, .bg-teal-700, .bg-black)),
+  .theme-light [class*="hover:bg-teal-"]:hover:not([class*="dark:"]):not([data-solid-dark="true"]):not([data-solid-badge="true"]):not(:disabled):not(:is(.bg-emerald-500, .bg-emerald-600, .bg-emerald-700, .bg-green-500, .bg-green-600, .bg-green-700, .bg-teal-600, .bg-teal-700, .bg-black)) {
+    background-color: #d1fae5 !important;
+    border-color: #a7f3d0 !important;
+  }
+
+  .theme-light [class*="hover:bg-amber-"]:hover:not([class*="dark:"]):not([data-solid-dark="true"]):not([data-solid-badge="true"]):not(:disabled):not(:is(.bg-amber-500, .bg-amber-600, .bg-amber-700, .bg-orange-500, .bg-orange-600, .bg-yellow-500, .bg-black)),
+  .theme-light [class*="hover:bg-orange-"]:hover:not([class*="dark:"]):not([data-solid-dark="true"]):not([data-solid-badge="true"]):not(:disabled):not(:is(.bg-amber-500, .bg-amber-600, .bg-amber-700, .bg-orange-500, .bg-orange-600, .bg-yellow-500, .bg-black)),
+  .theme-light [class*="hover:bg-yellow-"]:hover:not([class*="dark:"]):not([data-solid-dark="true"]):not([data-solid-badge="true"]):not(:disabled):not(:is(.bg-amber-500, .bg-amber-600, .bg-amber-700, .bg-orange-500, .bg-orange-600, .bg-yellow-500, .bg-black)) {
+    background-color: #fef3c7 !important;
+    border-color: #fde68a !important;
+  }
+
+  .theme-light [class*="hover:bg-indigo-"]:hover:not([class*="dark:"]):not([data-solid-dark="true"]):not([data-solid-badge="true"]):not(:disabled):not(:is(.bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-violet-500, .bg-violet-600, .bg-purple-500, .bg-purple-600, .bg-purple-700, .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-sky-600, .bg-cyan-600, .bg-black)),
+  .theme-light [class*="hover:bg-violet-"]:hover:not([class*="dark:"]):not([data-solid-dark="true"]):not([data-solid-badge="true"]):not(:disabled):not(:is(.bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-violet-500, .bg-violet-600, .bg-purple-500, .bg-purple-600, .bg-purple-700, .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-sky-600, .bg-cyan-600, .bg-black)),
+  .theme-light [class*="hover:bg-purple-"]:hover:not([class*="dark:"]):not([data-solid-dark="true"]):not([data-solid-badge="true"]):not(:disabled):not(:is(.bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-violet-500, .bg-violet-600, .bg-purple-500, .bg-purple-600, .bg-purple-700, .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-sky-600, .bg-cyan-600, .bg-black)),
+  .theme-light [class*="hover:bg-blue-"]:hover:not([class*="dark:"]):not([data-solid-dark="true"]):not([data-solid-badge="true"]):not(:disabled):not(:is(.bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-violet-500, .bg-violet-600, .bg-purple-500, .bg-purple-600, .bg-purple-700, .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-sky-600, .bg-cyan-600, .bg-black)),
+  .theme-light [class*="hover:bg-sky-"]:hover:not([class*="dark:"]):not([data-solid-dark="true"]):not([data-solid-badge="true"]):not(:disabled):not(:is(.bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-violet-500, .bg-violet-600, .bg-purple-500, .bg-purple-600, .bg-purple-700, .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-sky-600, .bg-cyan-600, .bg-black)),
+  .theme-light [class*="hover:bg-cyan-"]:hover:not([class*="dark:"]):not([data-solid-dark="true"]):not([data-solid-badge="true"]):not(:disabled):not(:is(.bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-violet-500, .bg-violet-600, .bg-purple-500, .bg-purple-600, .bg-purple-700, .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-sky-600, .bg-cyan-600, .bg-black)) {
+    background-color: #e0e7ff !important;
+    border-color: #c7d2fe !important;
+  }
+}
+
+/* Sidebar & Header layout rules */
+.theme-light aside {
+  background-color: var(--surface-raised) !important;
+  border-right-color: var(--surface-line) !important;
+}
+
+.theme-light header {
+  background-color: var(--surface-raised) !important;
+  border-bottom-color: var(--surface-line) !important;
+  box-shadow: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+}
+
+/* 2. Text Legibility & Contrast in Light Mode */
+.theme-light .text-slate-100:not([class*="dark:"]):not([data-row-text-white="true"]):not(button.bg-indigo-600 *):not(button.bg-blue-600 *):not(button.bg-emerald-600 *):not(button.bg-rose-600 *):not(button.bg-red-600 *):not(button.bg-purple-600 *):not(.badge-text-white):not([data-solid-badge="true"] *):not([data-wristband-badge="true"] *),
+.theme-light .text-slate-200:not([class*="dark:"]):not([data-row-text-white="true"]):not(button.bg-indigo-600 *):not(button.bg-blue-600 *):not(button.bg-emerald-600 *):not(button.bg-rose-600 *):not(button.bg-red-600 *):not(button.bg-purple-600 *):not(.badge-text-white):not([data-solid-badge="true"] *):not([data-wristband-badge="true"] *),
+.theme-light .text-zinc-100:not([class*="dark:"]):not([data-row-text-white="true"]),
+.theme-light .text-zinc-200:not([class*="dark:"]):not([data-row-text-white="true"]) {
+  color: #0f172a !important;
+}
+
+.theme-light .text-slate-300:not([class*="dark:"]):not([data-row-text-white="true"]):not(button.bg-indigo-600 *):not(button.bg-blue-600 *):not(button.bg-emerald-600 *):not(button.bg-rose-600 *):not(button.bg-red-600 *):not(button.bg-purple-600 *):not(.badge-text-white):not([data-wristband-badge="true"] *),
+.theme-light .text-zinc-300:not([class*="dark:"]):not([data-row-text-white="true"]) {
+  color: #334155 !important;
+}
+
+.theme-light .text-slate-400:not([class*="dark:"]):not([data-row-text-white="true"]):not(button.bg-indigo-600 *):not(button.bg-blue-600 *):not(button.bg-emerald-600 *):not(button.bg-rose-600 *):not(button.bg-red-600 *):not(button.bg-purple-600 *),
+.theme-light .text-zinc-400:not([class*="dark:"]):not([data-row-text-white="true"]) {
+  color: #64748b !important;
+}
+
+/* Fallback for hardcoded text-white when inside un-prefixed light card surfaces */
+.theme-light .bg-white > .text-white,
+.theme-light .bg-slate-50 > .text-white,
+.theme-light .bg-slate-100 > .text-white,
+.theme-light td > .text-white:not([data-wristband-badge]):not(.wristband-number-badge):not(.badge-text-white) {
+  color: #0f172a !important;
+}
+
+/* Hover States on light mode */
+.theme-light .hover\:text-white:hover:not(button.bg-indigo-600):not(button.bg-blue-600):not(button.bg-emerald-600):not(button.bg-rose-600):not(button.bg-purple-600):not(button.bg-red-600) {
+  color: #0f172a !important;
+}
+
+/* Headings with text-transparent bg-clip-text are sharp and readable */
+.theme-light h1.bg-clip-text {
+  background-image: linear-gradient(to right, #0f172a, #312e81, #4338ca) !important;
+}
+
+/* 2b. Universal white-text safety net.
+   Every hardcoded white label drops to ink; sections 7, 7b and 7c put it back
+   on the surfaces that stay dark or saturated in light mode. */
+@media screen {
+  .theme-light :is(.text-white, [class*="text-white/"], .text-slate-50, .text-zinc-50, .text-gray-50, .text-neutral-50, .text-stone-50):not([class*="dark:"]) {
+    color: #0f172a !important;
+  }
+}
+
+/* 2c. Pale accent labels are washed out once their panel turns white.
+   Each hue drops to its 600/700 step so section headers and menu captions read. */
+@media screen {
+  .theme-light :is(.text-indigo-200, .text-indigo-300, .text-indigo-400, .text-violet-300, .text-violet-400, .text-purple-300, .text-purple-400):not([class*="dark:"]) {
+    color: #4f46e5 !important;
+  }
+  .theme-light :is(.text-blue-200, .text-blue-300, .text-blue-400, .text-sky-300, .text-sky-400, .text-cyan-300, .text-cyan-400):not([class*="dark:"]) {
+    color: #0284c7 !important;
+  }
+  .theme-light :is(.text-emerald-200, .text-emerald-300, .text-emerald-400, .text-green-300, .text-green-400, .text-teal-300, .text-teal-400, .text-lime-300, .text-lime-400):not([class*="dark:"]) {
+    color: #047857 !important;
+  }
+  .theme-light :is(.text-amber-200, .text-amber-300, .text-amber-400, .text-yellow-300, .text-yellow-400, .text-orange-300, .text-orange-400):not([class*="dark:"]) {
+    color: #b45309 !important;
+  }
+  .theme-light :is(.text-rose-200, .text-rose-300, .text-rose-400, .text-red-300, .text-red-400, .text-pink-300, .text-pink-400):not([class*="dark:"]) {
+    color: #be123c !important;
+  }
+}
+
+/* 3. Borders in Light Mode */
+.theme-light .border-slate-900:not([class*="dark:"]),
+.theme-light .border-slate-850:not([class*="dark:"]),
+.theme-light .border-slate-800:not([class*="dark:"]),
+.theme-light [class*="border-slate-800/"]:not([class*="dark:"]),
+.theme-light .border-slate-750:not([class*="dark:"]),
+.theme-light [class*="border-slate-750/"]:not([class*="dark:"]),
+.theme-light .border-slate-700:not([class*="dark:"]),
+.theme-light [class*="border-slate-700/"]:not([class*="dark:"]),
+.theme-light .border-zinc-800:not([class*="dark:"]),
+.theme-light .border-zinc-700:not([class*="dark:"]) {
+  border-color: var(--surface-line) !important;
+}
+
+/* 4. Form Controls: Inputs, Selects, Textareas */
+.theme-light input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+.theme-light select,
+.theme-light textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: var(--surface-line-strong) !important;
+}
+
+.theme-light input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):disabled,
+.theme-light select:disabled,
+.theme-light textarea:disabled {
+  background-color: var(--surface-sunken) !important;
+  color: #64748b !important;
+  border-color: var(--surface-line) !important;
+}
+
+.theme-light input:focus,
+.theme-light select:focus,
+.theme-light textarea:focus {
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
+  outline: none !important;
+}
+
+.theme-light select option {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+.theme-light input::placeholder,
+.theme-light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* 5. Clean Modern Tables (Practice Plans, Call Sheets, Rosters, Attendance) */
+.theme-light table {
+  background-color: var(--surface-raised);
+}
+
+.theme-light table thead tr {
+  background-color: var(--surface-sunken) !important;
+  border-bottom: 1px solid var(--surface-line-strong) !important;
+}
+
+.theme-light table th {
+  background-color: var(--surface-sunken) !important;
+  color: #0f172a !important;
+  border-color: var(--surface-line) !important;
+  font-weight: 800 !important;
+}
+
+.theme-light table td {
+  border-color: var(--surface-line) !important;
+  color: #1e293b !important;
+}
+
+.theme-light table tbody tr:nth-child(even) {
+  background-color: var(--surface-sunken) !important;
+}
+
+.theme-light table tbody tr:nth-child(odd) {
+  background-color: var(--surface-raised) !important;
+}
+
+.theme-light table tbody tr:hover {
+  background-color: var(--surface-hover) !important;
+}
+
+/* 6. Modals & Dialogs in Light Mode */
+.theme-light .fixed.inset-0[class*="bg-slate-950"],
+.theme-light .fixed.inset-0[class*="bg-black"] {
+  background-color: rgba(15, 23, 42, 0.5) !important;
+  backdrop-filter: blur(4px) !important;
+}
+
+.theme-light .fixed.inset-0 > div:not(.absolute) {
+  background-color: var(--surface-raised) !important;
+  border-color: var(--surface-line) !important;
+  color: #0f172a !important;
+  box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.1), 0 8px 10px -6px rgba(15, 23, 42, 0.05) !important;
+}
+
+/* 6b. Tailwind's own white and near-white panels join the same ramp, so a light
+   page reads as one surface family instead of a patchwork of pure white.
+   Inputs keep true white to stay distinct from the cards they sit on, and
+   .print-page is untouched because paper really is white. */
+@media screen {
+  .theme-light :is(.bg-white, .bg-slate-50, .bg-zinc-50, .bg-gray-50, .bg-neutral-50, .bg-stone-50):not(.print-page):not(.print-page *):not(input):not(select):not(textarea) {
+    background-color: var(--surface-raised) !important;
+  }
+
+  .theme-light :is(.bg-slate-100, .bg-zinc-100, .bg-gray-100, .bg-neutral-100):not(.print-page):not(.print-page *) {
+    background-color: var(--surface-sunken) !important;
+  }
+
+  /* The app shell sits a shade below its cards so panels still lift off it */
+  .theme-light #root,
+  .theme-light #root > div,
+  .theme-light main {
+    background-color: var(--surface-canvas) !important;
+  }
+}
+
+/* 7. Solid Buttons & Badges: Always preserve crisp white text */
+.theme-light button.bg-indigo-600,
+.theme-light button.bg-indigo-700,
+.theme-light button.bg-blue-600,
+.theme-light button.bg-blue-700,
+.theme-light button.bg-emerald-600,
+.theme-light button.bg-emerald-700,
+.theme-light button.bg-rose-600,
+.theme-light button.bg-rose-700,
+.theme-light button.bg-purple-600,
+.theme-light button.bg-purple-700,
+.theme-light button.bg-red-600,
+.theme-light button.bg-red-700,
+.theme-light button.bg-teal-600,
+.theme-light button.bg-amber-600,
+.theme-light button.bg-black,
+.theme-light a.bg-indigo-600,
+.theme-light a.bg-blue-600,
+.theme-light div.bg-indigo-600:not([class*="bg-indigo-600/"]),
+.theme-light span.bg-indigo-600:not([class*="bg-indigo-600/"]),
+.theme-light .bg-indigo-600:not([class*="bg-indigo-600/"]),
+.theme-light .bg-indigo-700,
+.theme-light .bg-blue-600:not([class*="bg-blue-600/"]),
+.theme-light .bg-blue-700,
+.theme-light .bg-blue-500:not([class*="bg-blue-500/"]),
+.theme-light .bg-emerald-600:not([class*="bg-emerald-600/"]),
+.theme-light .bg-emerald-700,
+.theme-light .bg-rose-600:not([class*="bg-rose-600/"]),
+.theme-light .bg-rose-700,
+.theme-light .bg-purple-600:not([class*="bg-purple-600/"]),
+.theme-light .bg-purple-700,
+.theme-light .bg-red-600:not([class*="bg-red-600/"]),
+.theme-light .badge-text-white,
+.theme-light [data-wristband-badge][data-text-color="white"],
+.theme-light .wristband-number-badge.badge-text-white,
+.theme-light .has-dark-row-highlight,
+.theme-light [data-row-text-white="true"],
+.theme-light [data-solid-badge="true"] {
+  color: #ffffff !important;
+}
+
+/* Children of solid colored buttons and solid badges stay white */
+.theme-light button.bg-indigo-600 *,
+.theme-light button.bg-indigo-700 *,
+.theme-light button.bg-blue-600 *,
+.theme-light button.bg-blue-700 *,
+.theme-light button.bg-emerald-600 *,
+.theme-light button.bg-emerald-700 *,
+.theme-light button.bg-rose-600 *,
+.theme-light button.bg-rose-700 *,
+.theme-light button.bg-purple-600 *,
+.theme-light button.bg-purple-700 *,
+.theme-light button.bg-red-600 *,
+.theme-light button.bg-black *,
+.theme-light .bg-indigo-600:not([class*="bg-indigo-600/"]) *,
+.theme-light .bg-indigo-700 *,
+.theme-light .bg-blue-600:not([class*="bg-blue-600/"]) *,
+.theme-light .bg-blue-700 *,
+.theme-light .bg-blue-500:not([class*="bg-blue-500/"]) *,
+.theme-light .bg-emerald-600:not([class*="bg-emerald-600/"]) *,
+.theme-light .bg-emerald-700 *,
+.theme-light .bg-rose-600:not([class*="bg-rose-600/"]) *,
+.theme-light .bg-rose-700 *,
+.theme-light .bg-purple-600:not([class*="bg-purple-600/"]) *,
+.theme-light .bg-purple-700 *,
+.theme-light .bg-red-600:not([class*="bg-red-600/"]) *,
+.theme-light .bg-black *,
+.theme-light [class*="from-indigo-600"] *,
+.theme-light [class*="from-purple-600"] *,
+.theme-light .has-dark-row-highlight *,
+.theme-light [data-row-text-white="true"] * {
+  color: #ffffff !important;
+}
+
+/* 7b. Surfaces that keep a dark or saturated background in light mode.
+   Slash-opacity utilities (bg-indigo-600/20 and friends) are deliberately absent:
+   section 8 turns those into pastels that need ink text. */
+@media screen {
+  .theme-light :is(
+    .bg-black, [class*="bg-black/"], .bg-slate-600, .bg-zinc-600,
+    [data-solid-dark="true"], [data-solid-badge="true"], .badge-text-white,
+    [data-row-text-white="true"], .has-dark-row-highlight, [style*="background"],
+    [class*="bg-gradient-to"]:not([class*="from-white"]):not([class*="from-slate-50"]):not([class*="from-slate-100"]),
+    .bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-indigo-800, .bg-indigo-900, .bg-indigo-950,
+    .bg-violet-500, .bg-violet-600, .bg-violet-700, .bg-violet-800, .bg-violet-900,
+    .bg-purple-500, .bg-purple-600, .bg-purple-700, .bg-purple-800, .bg-purple-900,
+    .bg-fuchsia-500, .bg-fuchsia-600, .bg-fuchsia-700, .bg-fuchsia-800,
+    .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-blue-800, .bg-blue-900,
+    .bg-sky-600, .bg-sky-700, .bg-sky-800, .bg-sky-900,
+    .bg-cyan-600, .bg-cyan-700, .bg-cyan-800, .bg-cyan-900,
+    .bg-teal-600, .bg-teal-700, .bg-teal-800, .bg-teal-900,
+    .bg-emerald-600, .bg-emerald-700, .bg-emerald-800, .bg-emerald-900,
+    .bg-green-600, .bg-green-700, .bg-green-800, .bg-green-900,
+    .bg-lime-700, .bg-lime-800, .bg-lime-900,
+    .bg-amber-600, .bg-amber-700, .bg-amber-800, .bg-amber-900,
+    .bg-orange-500, .bg-orange-600, .bg-orange-700, .bg-orange-800,
+    .bg-red-500, .bg-red-600, .bg-red-700, .bg-red-800, .bg-red-900,
+    .bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-rose-800, .bg-rose-900,
+    .bg-pink-500, .bg-pink-600, .bg-pink-700, .bg-pink-800
+  ):is(.text-white, [class*="text-white/"], .text-slate-50, .text-zinc-50, .text-gray-50, .text-neutral-50, .text-stone-50),
+  .theme-light :is(
+    .bg-black, [class*="bg-black/"], .bg-slate-600, .bg-zinc-600,
+    [data-solid-dark="true"], [data-solid-badge="true"], .badge-text-white,
+    [data-row-text-white="true"], .has-dark-row-highlight, [style*="background"],
+    [class*="bg-gradient-to"]:not([class*="from-white"]):not([class*="from-slate-50"]):not([class*="from-slate-100"]),
+    .bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-indigo-800, .bg-indigo-900, .bg-indigo-950,
+    .bg-violet-500, .bg-violet-600, .bg-violet-700, .bg-violet-800, .bg-violet-900,
+    .bg-purple-500, .bg-purple-600, .bg-purple-700, .bg-purple-800, .bg-purple-900,
+    .bg-fuchsia-500, .bg-fuchsia-600, .bg-fuchsia-700, .bg-fuchsia-800,
+    .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-blue-800, .bg-blue-900,
+    .bg-sky-600, .bg-sky-700, .bg-sky-800, .bg-sky-900,
+    .bg-cyan-600, .bg-cyan-700, .bg-cyan-800, .bg-cyan-900,
+    .bg-teal-600, .bg-teal-700, .bg-teal-800, .bg-teal-900,
+    .bg-emerald-600, .bg-emerald-700, .bg-emerald-800, .bg-emerald-900,
+    .bg-green-600, .bg-green-700, .bg-green-800, .bg-green-900,
+    .bg-lime-700, .bg-lime-800, .bg-lime-900,
+    .bg-amber-600, .bg-amber-700, .bg-amber-800, .bg-amber-900,
+    .bg-orange-500, .bg-orange-600, .bg-orange-700, .bg-orange-800,
+    .bg-red-500, .bg-red-600, .bg-red-700, .bg-red-800, .bg-red-900,
+    .bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-rose-800, .bg-rose-900,
+    .bg-pink-500, .bg-pink-600, .bg-pink-700, .bg-pink-800
+  ) :is(.text-white, [class*="text-white/"], .text-slate-50, .text-zinc-50, .text-gray-50, .text-neutral-50, .text-stone-50) {
+    color: #ffffff !important;
+  }
+}
+
+/* 7c. Bright hues need ink, not white, even when the markup asks for white */
+@media screen {
+  .theme-light :is(.bg-amber-300, .bg-amber-400, .bg-amber-500, .bg-yellow-300, .bg-yellow-400, .bg-yellow-500, .bg-lime-300, .bg-lime-400, .bg-lime-500, .bg-cyan-400, .bg-sky-400, .bg-emerald-400, .bg-green-400, .bg-teal-400):is(.text-white, [class*="text-white/"]),
+  .theme-light :is(.bg-amber-300, .bg-amber-400, .bg-amber-500, .bg-yellow-300, .bg-yellow-400, .bg-yellow-500, .bg-lime-300, .bg-lime-400, .bg-lime-500, .bg-cyan-400, .bg-sky-400, .bg-emerald-400, .bg-green-400, .bg-teal-400) :is(.text-white, [class*="text-white/"]) {
+    color: #0f172a !important;
+  }
+}
+
+/* 7f. A light chip nested inside a saturated panel keeps ink text. Section 7
+   whitens every descendant of a solid colour, which erases pills written as
+   e.g. "bg-white text-blue-700" sitting inside an indigo header. */
+@media screen {
+  .theme-light :is(
+    .bg-black, [class*="bg-black/"], .bg-slate-600, .bg-zinc-600,
+    [class*="bg-gradient-to"],
+    .bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-indigo-800, .bg-indigo-900, .bg-indigo-950,
+    .bg-violet-500, .bg-violet-600, .bg-purple-500, .bg-purple-600, .bg-purple-700,
+    .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-sky-600, .bg-cyan-600, .bg-teal-600,
+    .bg-emerald-600, .bg-emerald-700, .bg-green-600, .bg-amber-600, .bg-orange-600,
+    .bg-red-500, .bg-red-600, .bg-red-700, .bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-pink-600
+  ) :is(.bg-white, [class*="bg-white/7"], [class*="bg-white/8"], [class*="bg-white/9"], .bg-slate-50, .bg-slate-100, .bg-amber-300, .bg-amber-400, .bg-yellow-300, .bg-yellow-400, .bg-lime-300, .bg-lime-400),
+  .theme-light :is(
+    .bg-black, [class*="bg-black/"], .bg-slate-600, .bg-zinc-600,
+    [class*="bg-gradient-to"],
+    .bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-indigo-800, .bg-indigo-900, .bg-indigo-950,
+    .bg-violet-500, .bg-violet-600, .bg-purple-500, .bg-purple-600, .bg-purple-700,
+    .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-sky-600, .bg-cyan-600, .bg-teal-600,
+    .bg-emerald-600, .bg-emerald-700, .bg-green-600, .bg-amber-600, .bg-orange-600,
+    .bg-red-500, .bg-red-600, .bg-red-700, .bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-pink-600
+  ) :is(.bg-white, [class*="bg-white/7"], [class*="bg-white/8"], [class*="bg-white/9"], .bg-slate-50, .bg-slate-100, .bg-amber-300, .bg-amber-400, .bg-yellow-300, .bg-yellow-400, .bg-lime-300, .bg-lime-400) * {
+    color: #0f172a !important;
+  }
+}
+
+/* 7d. Pale accent labels stay pale when their panel is still dark (see 2c) */
+@media screen {
+  .theme-light :is(
+    .bg-black, [class*="bg-black/"], [data-solid-dark="true"], [data-solid-badge="true"],
+    [data-row-text-white="true"], .has-dark-row-highlight, [style*="background"],
+    [class*="bg-gradient-to"]:not([class*="from-white"]):not([class*="from-slate-50"]):not([class*="from-slate-100"]),
+    .bg-indigo-600, .bg-indigo-700, .bg-indigo-800, .bg-indigo-900, .bg-indigo-950,
+    .bg-purple-600, .bg-purple-700, .bg-blue-600, .bg-blue-700, .bg-emerald-600, .bg-emerald-700,
+    .bg-red-600, .bg-red-700, .bg-rose-600, .bg-rose-700, .bg-slate-600, .bg-zinc-600
+  ) :is(.text-indigo-200, .text-indigo-300, .text-indigo-400, .text-violet-300, .text-violet-400, .text-purple-300, .text-purple-400, .text-blue-200, .text-blue-300, .text-blue-400, .text-sky-300, .text-sky-400, .text-cyan-300, .text-cyan-400, .text-emerald-200, .text-emerald-300, .text-emerald-400, .text-green-300, .text-green-400, .text-teal-300, .text-teal-400, .text-lime-300, .text-lime-400, .text-amber-200, .text-amber-300, .text-amber-400, .text-yellow-300, .text-yellow-400, .text-orange-300, .text-orange-400, .text-rose-200, .text-rose-300, .text-rose-400, .text-red-300, .text-red-400, .text-pink-300, .text-pink-400) {
+    color: rgba(255, 255, 255, 0.88) !important;
+  }
+}
+
+/* Amber / Yellow Badges: Crisp Black text */
+.theme-light .bg-amber-400,
+.theme-light .bg-yellow-400,
+.theme-light .bg-amber-300,
+.theme-light .bg-yellow-300,
+.theme-light [class*="bg-amber-400"]:not([class*="bg-amber-400/"]),
+.theme-light [class*="bg-amber-300"]:not([class*="bg-amber-300/"]),
+.theme-light [class*="bg-yellow-400"]:not([class*="bg-yellow-400/"]),
+.theme-light [class*="bg-yellow-300"]:not([class*="bg-yellow-300/"]) {
+  color: #020617 !important;
+}
+.theme-light .bg-amber-400 *,
+.theme-light .bg-yellow-400 *,
+.theme-light .bg-amber-300 *,
+.theme-light .bg-yellow-300 *,
+.theme-light [class*="bg-amber-400"]:not([class*="bg-amber-400/"]) *,
+.theme-light [class*="bg-amber-300"]:not([class*="bg-amber-300/"]) *,
+.theme-light [class*="bg-yellow-400"]:not([class*="bg-yellow-400/"]) *,
+.theme-light [class*="bg-yellow-300"]:not([class*="bg-yellow-300/"]) * {
+  color: #020617 !important;
+}
+
+/* 8. Modern Pastel Badges & Pill Chips in Light Mode */
+.theme-light [class*="bg-indigo-500/"],
+.theme-light [class*="bg-indigo-600/"] {
+  background-color: #eef2ff !important;
+  color: #3730a3 !important;
+  border-color: #c7d2fe !important;
+}
+.theme-light [class*="bg-indigo-500/"] *,
+.theme-light [class*="bg-indigo-600/"] * {
+  color: #3730a3 !important;
+}
+
+.theme-light [class*="bg-emerald-500/"],
+.theme-light [class*="bg-emerald-600/"] {
+  background-color: #ecfdf5 !important;
+  color: #065f46 !important;
+  border-color: #a7f3d0 !important;
+}
+.theme-light [class*="bg-emerald-500/"] *,
+.theme-light [class*="bg-emerald-600/"] * {
+  color: #065f46 !important;
+}
+
+.theme-light [class*="bg-amber-500/"],
+.theme-light [class*="bg-amber-600/"],
+.theme-light [class*="bg-yellow-500/"],
+.theme-light [class*="bg-yellow-600/"],
+.theme-light [class*="bg-amber-400/"] {
+  background-color: #fef3c7 !important;
+  color: #92400e !important;
+  border-color: #fde68a !important;
+}
+.theme-light [class*="bg-amber-500/"] *,
+.theme-light [class*="bg-amber-600/"] *,
+.theme-light [class*="bg-yellow-500/"] *,
+.theme-light [class*="bg-yellow-600/"] *,
+.theme-light [class*="bg-amber-400/"] * {
+  color: #92400e !important;
+}
+
+.theme-light [class*="bg-rose-500/"],
+.theme-light [class*="bg-rose-600/"],
+.theme-light [class*="bg-red-500/"],
+.theme-light [class*="bg-red-600/"] {
+  background-color: #fff1f2 !important;
+  color: #9f1239 !important;
+  border-color: #fecdd3 !important;
+}
+.theme-light [class*="bg-rose-500/"] *,
+.theme-light [class*="bg-rose-600/"] *,
+.theme-light [class*="bg-red-500/"] *,
+.theme-light [class*="bg-red-600/"] * {
+  color: #9f1239 !important;
+}
+
+.theme-light [class*="bg-blue-500/"],
+.theme-light [class*="bg-blue-600/"],
+.theme-light [class*="bg-sky-500/"],
+.theme-light [class*="bg-sky-600/"] {
+  background-color: #eff6ff !important;
+  color: #1e40af !important;
+  border-color: #bfdbfe !important;
+}
+.theme-light [class*="bg-blue-500/"] *,
+.theme-light [class*="bg-blue-600/"] *,
+.theme-light [class*="bg-sky-500/"] *,
+.theme-light [class*="bg-sky-600/"] * {
+  color: #1e40af !important;
+}
+
+.theme-light [class*="bg-purple-500/"],
+.theme-light [class*="bg-purple-600/"] {
+  background-color: #faf5ff !important;
+  color: #6b21a8 !important;
+  border-color: #e9d5ff !important;
+}
+.theme-light [class*="bg-purple-500/"] *,
+.theme-light [class*="bg-purple-600/"] * {
+  color: #6b21a8 !important;
+}
+
+/* 8b. Dark tone badges/pills (950s) adapted into crisp tinted pastels */
+.theme-light [class*="bg-sky-950"] {
+  background-color: #f0f9ff !important;
+  color: #0369a1 !important;
+  border-color: #bae6fd !important;
+}
+.theme-light [class*="bg-sky-950"] * {
+  color: #0369a1 !important;
+}
+.theme-light [class*="bg-sky-950"]:hover {
+  background-color: #e0f2fe !important;
+  color: #0284c7 !important;
+}
+
+.theme-light [class*="bg-rose-950"] {
+  background-color: #fff1f2 !important;
+  color: #be123c !important;
+  border-color: #fecdd3 !important;
+}
+.theme-light [class*="bg-rose-950"] * {
+  color: #be123c !important;
+}
+.theme-light [class*="bg-rose-950"]:hover {
+  background-color: #ffe4e6 !important;
+  color: #9f1239 !important;
+}
+
+.theme-light [class*="bg-indigo-950"] {
+  background-color: #eef2ff !important;
+  color: #4338ca !important;
+  border-color: #c7d2fe !important;
+}
+.theme-light [class*="bg-indigo-950"] * {
+  color: #4338ca !important;
+}
+.theme-light [class*="bg-indigo-950"]:hover {
+  background-color: #e0e7ff !important;
+  color: #3730a3 !important;
+}
+
+.theme-light [class*="bg-emerald-950"] {
+  background-color: #ecfdf5 !important;
+  color: #047857 !important;
+  border-color: #a7f3d0 !important;
+}
+.theme-light [class*="bg-emerald-950"] * {
+  color: #047857 !important;
+}
+.theme-light [class*="bg-emerald-950"]:hover {
+  background-color: #d1fae5 !important;
+  color: #065f46 !important;
+}
+
+.theme-light [class*="bg-amber-950"] {
+  background-color: #fffbeb !important;
+  color: #b45309 !important;
+  border-color: #fde68a !important;
+}
+.theme-light [class*="bg-amber-950"] * {
+  color: #b45309 !important;
+}
+.theme-light [class*="bg-amber-950"]:hover {
+  background-color: #fef3c7 !important;
+  color: #92400e !important;
+}
+
+/* =========================================================================
+   MIDNIGHT DARK THEME CONTRAST LAYER
+   Dark mode relies on Tailwind dark: variants, so anything authored without a
+   variant keeps its light-mode ink colour and disappears on a dark panel.
+   Backgrounds are left untouched here on purpose: print previews and paper
+   mock-ups are genuinely white and must stay that way.
+   ========================================================================= */
+@media screen {
+  body.theme-dark {
+    background-color: #171f30;
+    color: #e2e8f0;
+  }
+
+  .theme-dark :is(.text-black, .text-slate-950, .text-slate-900, .text-slate-800, .text-zinc-900, .text-zinc-800, .text-gray-900, .text-gray-800, .text-neutral-900, .text-neutral-800, .text-stone-900, .text-stone-800):not([class*="dark:"]) {
+    color: #e2e8f0 !important;
+  }
+
+  .theme-dark :is(.text-slate-700, .text-slate-600, .text-zinc-700, .text-zinc-600, .text-gray-700, .text-gray-600, .text-neutral-700, .text-stone-700):not([class*="dark:"]) {
+    color: #cbd5e1 !important;
+  }
+
+  /* Genuinely light surfaces keep ink text, including any stray white labels.
+     body and the app shell are excluded: index.html puts bg-slate-50 on <body>,
+     which would otherwise make the whole page count as a light surface. */
+  .theme-dark :is(
+    .bg-white, [class*="bg-white/"], .bg-slate-50, .bg-slate-100, .bg-slate-200,
+    .bg-zinc-50, .bg-zinc-100, .bg-gray-50, .bg-gray-100, .bg-neutral-50, .bg-neutral-100,
+    .bg-amber-300, .bg-amber-400, .bg-yellow-300, .bg-yellow-400, .bg-lime-300, .bg-lime-400,
+    .bg-cyan-400, .bg-sky-300, .bg-emerald-400, .bg-green-400,
+    .badge-text-black, [data-solid-light="true"], .print-page
+  ):not([class*="dark:bg-"]):not(body):not(html):not(#root):not(main) :is(.text-white, [class*="text-white/"], .text-slate-50, .text-slate-100, .text-slate-200, .text-black, .text-slate-900, .text-slate-800, .text-slate-700, .text-gray-900, .text-gray-800, .text-zinc-900),
+  .theme-dark :is(
+    .bg-white, [class*="bg-white/"], .bg-slate-50, .bg-slate-100, .bg-slate-200,
+    .bg-zinc-50, .bg-zinc-100, .bg-gray-50, .bg-gray-100, .bg-neutral-50, .bg-neutral-100,
+    .bg-amber-300, .bg-amber-400, .bg-yellow-300, .bg-yellow-400, .bg-lime-300, .bg-lime-400,
+    .bg-cyan-400, .bg-sky-300, .bg-emerald-400, .bg-green-400,
+    .badge-text-black, [data-solid-light="true"], .print-page
+  ):not([class*="dark:bg-"]):not(body):not(html):not(#root):not(main):is(.text-white, [class*="text-white/"], .text-slate-50, .text-slate-100, .text-slate-200, .text-black, .text-slate-950, .text-slate-900, .text-slate-800, .text-slate-700, .text-gray-900, .text-gray-800, .text-zinc-900, .text-zinc-800) {
+    color: #0f172a !important;
+  }
+
+  .theme-dark :is(.bg-white, [class*="bg-white/"], .bg-slate-50, .bg-slate-100, .bg-slate-200, .bg-gray-50, .bg-gray-100):not([class*="dark:bg-"]):not(body):not(html):not(#root):not(main) :is(.text-slate-300, .text-slate-400, .text-zinc-400, .text-gray-400) {
+    color: #475569 !important;
+  }
+
+  /* Dark chrome nested inside a light card (play-sheet headers, navy toolbars)
+     must keep light labels. The rules above paint every descendant of .bg-white
+     as ink, which made titles like "4-4 BASE STACK LIZ" unreadable. */
+  html.theme-dark.dark #root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-850, .bg-zinc-900, .bg-zinc-950, .bg-black, [class*="bg-slate-900"], [class*="bg-slate-800"]) :is(.text-white, [class*="text-white/"], .text-slate-50, .text-slate-100, .text-slate-200, .text-slate-300, .text-slate-400),
+  html.theme-dark.dark #root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-850, .bg-zinc-900, .bg-zinc-950, .bg-black):is(.text-white, [class*="text-white/"], .text-slate-50, .text-slate-100, .text-slate-200) {
+    color: #f1f5f9 !important;
+  }
+
+  html.theme-dark.dark #root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-zinc-900, .bg-black) :is(.text-amber-300, .text-amber-400, .text-amber-200) {
+    color: #fbbf24 !important;
+  }
+
+  .theme-dark select option {
+    background-color: #1e293b;
+    color: #e2e8f0;
+  }
+
+  /* Hairline borders authored for light mode vanish against dark panels */
+  .theme-dark :is(.border-slate-200, .border-slate-300, .border-zinc-200, .border-gray-200, .border-gray-300):not([class*="dark:"]):not(.bg-white):not([class*="bg-white/"]):not(.bg-slate-50):not(.bg-slate-100) {
+    border-color: #334155 !important;
+  }
+}
+
+/* 9. Light Mode Scrollbars */
+.theme-light ::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+.theme-light ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+.theme-light ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Custom Hide Scrollbar Utilities */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Bento custom scrollbars for dark mode */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #6366f1;
+}
+
+/* Custom Formation & Bento Card Print Boundaries */
+.formation-container {
+  page-break-inside: avoid;
+}
+
+/* Print Optimization & Physical Printer Driver Reliability */
+@media print {
+  @page {
+    size: auto;
+    margin: 0.2in;
+  }
+
+  /* Reset outer container constraints so physical printer drivers and browser preview can paginate smoothly */
+  html,
+  body {
+    background-color: #ffffff !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: var(--print-font-size, 11px) !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    position: static !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  #root,
+  #root > div,
+  main,
+  .min-h-screen,
+  [class*="min-h-screen"],
+  .h-screen,
+  [class*="h-screen"],
+  [class*="overflow-y-auto"],
+  [class*="overflow-x-hidden"],
+  [class*="overflow-x-auto"],
+  [class*="overflow-hidden"],
+  [class*="overflow-auto"] {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+  }
+
+  body.is-printing,
+  body.is-printing-formations {
+    background-color: #ffffff !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  #root,
+  main {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: block !important;
+  }
+
+  /* When printing formations or general print, suppress interactive shell UI, sticky headers, and navigation */
+  body.is-printing-formations header,
+  body.is-printing-formations nav,
+  body.is-printing-formations aside,
+  body.is-printing-formations #side-navigation-folder-system,
+  body.is-printing-formations .mobile-bottom-nav,
+  body.is-printing-formations [role="navigation"],
+  body.is-printing-formations [role="dialog"],
+  body.is-printing header,
+  body.is-printing-drills header,
+  body.is-printing nav,
+  body.is-printing-drills nav,
+  body.is-printing aside,
+  body.is-printing-drills aside,
+  body.is-printing #side-navigation-folder-system,
+  body.is-printing-drills #side-navigation-folder-system,
+  body.is-printing .mobile-bottom-nav,
+  body.is-printing-drills .mobile-bottom-nav,
+  body.is-printing [role="navigation"],
+  body.is-printing-drills [role="navigation"] {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* Call Sheet and multi-page print container resets (Prevents height/overflow clipping) */
+  body.is-printing-callsheet,
+  body.is-printing-callsheet #root,
+  body.is-printing-callsheet main,
+  body.is-printing-callsheet div,
+  .callsheet-root-container,
+  .callsheet-inner-container,
+  .callsheet-scroll-container,
+  .callsheet-main-content {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+  }
+
+  /* Table and card break-inside avoidance: Never cut tables in half across page breaks */
+  .callsheet-section-card,
+  .callsheet-table-box,
+  .callsheet-scripts-box,
+  .callsheet-twopoint-box,
+  .callsheet-timeouts-box,
+  .callsheet-avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    overflow: visible !important;
+    margin-bottom: 6px !important;
+    background-color: #ffffff !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  body.is-printing-callsheet .callsheet-main-content,
+  body.is-printing-callsheet .callsheet-section-card,
+  body.is-printing-callsheet .callsheet-table-box,
+  body.is-printing-callsheet .callsheet-scripts-box,
+  body.is-printing-callsheet .callsheet-twopoint-box,
+  body.is-printing-callsheet .callsheet-timeouts-box,
+  body.is-printing-callsheet .callsheet-cell-slot,
+  body.is-printing-callsheet [class*="bg-slate-"],
+  body.is-printing-callsheet [class*="dark:bg-slate-"] {
+    background-color: #ffffff !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Row container */
+  .callsheet-row-container {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+    overflow: visible !important;
+    margin-bottom: 8px !important;
+  }
+
+  /* Page break before red zone when in 2-page fit mode */
+  body.callsheet-split-2page .callsheet-redzone-container,
+  .callsheet-split-2page .callsheet-redzone-container {
+    break-before: page !important;
+    page-break-before: always !important;
+  }
+
+  /* Compact density */
+  body.callsheet-density-compact,
+  .callsheet-density-compact {
+    font-size: 9.5px !important;
+  }
+  body.callsheet-density-compact .callsheet-cell-slot,
+  .callsheet-density-compact .callsheet-cell-slot {
+    min-height: 22px !important;
+    padding-top: 1px !important;
+    padding-bottom: 1px !important;
+  }
+
+  /* Ultra compact (Fit 1 page) */
+  body.callsheet-density-ultra,
+  .callsheet-density-ultra {
+    font-size: 8.5px !important;
+  }
+  body.callsheet-density-ultra .callsheet-cell-slot,
+  .callsheet-density-ultra .callsheet-cell-slot {
+    min-height: 18px !important;
+    padding-top: 0.5px !important;
+    padding-bottom: 0.5px !important;
+    padding-left: 2px !important;
+    padding-right: 2px !important;
+  }
+  body.callsheet-density-ultra .wristband-number-badge,
+  .callsheet-density-ultra .wristband-number-badge {
+    font-size: 7.5px !important;
+    padding: 0px 2px !important;
+  }
+
+  /* Hide empty slots when toggled */
+  body.callsheet-hide-empty .callsheet-slot-empty,
+  .callsheet-hide-empty .callsheet-slot-empty {
+    display: none !important;
+  }
+
+  /* Section hide rules for direct call sheet print */
+  body.callsheet-hide-top-situations .callsheet-top-situations-container,
+  .callsheet-hide-top-situations .callsheet-top-situations-container {
+    display: none !important;
+  }
+  body.callsheet-hide-redzone .callsheet-redzone-container,
+  .callsheet-hide-redzone .callsheet-redzone-container {
+    display: none !important;
+  }
+  body.callsheet-hide-tempo .callsheet-tempo-container,
+  .callsheet-hide-tempo .callsheet-tempo-container {
+    display: none !important;
+  }
+  body.callsheet-hide-custom .callsheet-custom-container,
+  .callsheet-hide-custom .callsheet-custom-container {
+    display: none !important;
+  }
+  body.callsheet-hide-scripts .callsheet-scripts-box,
+  .callsheet-hide-scripts .callsheet-scripts-box {
+    display: none !important;
+  }
+  body.callsheet-hide-twopoint .callsheet-twopoint-box,
+  .callsheet-hide-twopoint .callsheet-twopoint-box {
+    display: none !important;
+  }
+  body.callsheet-hide-timeouts .callsheet-timeouts-box,
+  .callsheet-hide-timeouts .callsheet-timeouts-box {
+    display: none !important;
+  }
+
+  /* When empty slots are kept in print, suppress all placeholder text and edit buttons */
+  .callsheet-slot-empty span,
+  .callsheet-slot-empty button,
+  .callsheet-slot-empty div {
+    display: none !important;
+  }
+  .callsheet-slot-empty {
+    min-height: 20px !important;
+    background: #ffffff !important;
+    border-bottom: 1px solid #e2e8f0 !important;
+  }
+
+  /* Disable transitions, animations, backdrop filters, and heavy shadows that hang hardware printer spoolers */
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    filter: none !important;
+    backdrop-filter: none !important;
+    will-change: auto !important;
+  }
+
+  /* Prevent any hover or active text color changes (e.g. purple/indigo hover) from appearing in printed output */
+  *:hover,
+  *:active,
+  *:focus,
+  .group:hover *,
+  .group:focus * {
+    color: inherit;
+  }
+
+  /* Force play name text and standard labels to print crisp black unless on a dark/blue highlighted row */
+  .callsheet-cell-slot:not(.has-dark-row-highlight):not([data-row-text-white="true"]),
+  .callsheet-cell-slot:not(.has-dark-row-highlight):not([data-row-text-white="true"]) p,
+  .callsheet-cell-slot:not(.has-dark-row-highlight):not([data-row-text-white="true"]) > div > span:not(.wristband-number-badge),
+  .callsheet-cell-slot:not(.has-dark-row-highlight):not([data-row-text-white="true"]) > span:not(.wristband-number-badge) {
+    color: #000000 !important;
+  }
+
+  /* Wristband number badges MUST retain their exact background and text colors (e.g. white text on blue/dark background) */
+  .callsheet-cell-slot .wristband-number-badge,
+  .callsheet-cell-slot [data-wristband-badge="true"],
+  .wristband-number-badge,
+  [data-wristband-badge="true"],
+  .wrist-badge {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .callsheet-cell-slot .wristband-number-badge.badge-text-white,
+  .callsheet-cell-slot [data-wristband-badge="true"].badge-text-white,
+  .callsheet-cell-slot [data-wristband-badge="true"][data-text-color="white"],
+  .wristband-number-badge.badge-text-white,
+  [data-wristband-badge="true"].badge-text-white,
+  [data-wristband-badge="true"][data-text-color="white"],
+  .badge-text-white {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+  }
+
+  .callsheet-cell-slot .wristband-number-badge.badge-text-black,
+  .callsheet-cell-slot [data-wristband-badge="true"].badge-text-black,
+  .callsheet-cell-slot [data-wristband-badge="true"][data-text-color="black"],
+  .wristband-number-badge.badge-text-black,
+  [data-wristband-badge="true"].badge-text-black,
+  [data-wristband-badge="true"][data-text-color="black"],
+  .badge-text-black {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+  }
+
+  /* Dark highlighted rows (blue/dark backgrounds) MUST retain white text in print just like on the wristband */
+  .callsheet-cell-slot.has-dark-row-highlight,
+  .callsheet-cell-slot.has-dark-row-highlight span:not(.badge-text-black),
+  .callsheet-cell-slot.has-dark-row-highlight p,
+  .callsheet-cell-slot[data-row-text-white="true"],
+  .callsheet-cell-slot[data-row-text-white="true"] span:not(.badge-text-black),
+  .callsheet-cell-slot[data-row-text-white="true"] p {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .callsheet-section-header,
+  .callsheet-section-header * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide navigation, toolbars, buttons, inputs, and modals in print */
+  header,
+  nav,
+  aside,
+  button,
+  input,
+  select,
+  textarea,
+  .print\:hidden,
+  .hidden-print,
+  [class*="print:hidden"],
+  [class*="hidden-print"] {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    height: 0 !important;
+    max-height: 0 !important;
+    min-height: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+  }
+
+
+  /* Dedicated Game Day Matchup Banner Print Rules: Compact, light background, low height */
+  .gameday-matchup-banner {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    background-image: none !important;
+    border: 1px solid #cbd5e1 !important;
+    box-shadow: none !important;
+    padding: 4px 8px !important;
+    margin: 0 0 6px 0 !important;
+    border-radius: 4px !important;
+    color: #0f172a !important;
+  }
+
+  .gameday-matchup-banner * {
+    color: #0f172a !important;
+    text-shadow: none !important;
+  }
+
+  .gameday-matchup-banner h1 {
+    font-size: 12pt !important;
+    font-weight: 900 !important;
+    line-height: 1.2 !important;
+    margin: 2px 0 !important;
+    color: #0f172a !important;
+  }
+
+  /* Dedicated Wristband Cutouts Print Rules: ONLY cutouts spaced out */
+  body.is-printing-wristbands #wristband-print-section,
+  #wristband-print-section {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    padding: 0.25in 0 !important;
+    margin: 0 auto !important;
+  }
+
+  body.is-printing-wristbands #wristband-print-section *,
+  #wristband-print-section * {
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  /* When printing wristbands, suppress all interactive web UI and modal layers */
+  body.is-printing-wristbands #root > div > *:not(main),
+  body.is-printing-wristbands header,
+  body.is-printing-wristbands nav,
+  body.is-printing-wristbands aside,
+  body.is-printing-wristbands #side-navigation-folder-system,
+  body.is-printing-wristbands .wristband-builder-screen,
+  body.is-printing-wristbands [role="dialog"],
+  body.is-printing-wristbands .fixed.inset-0,
+  body.is-printing-wristbands .print\:hidden {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  body.is-printing-wristbands .wristband-root-view {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    display: block !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  body.is-printing-wristbands .wristband-root-view > header,
+  body.is-printing-wristbands .wristband-root-view > .wristband-builder-screen {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .wristband-cutout-item {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    margin-bottom: 0.5in !important;
+    width: 4.5in !important;
+  }
+
+  .wristband-cutout-item:last-child {
+    margin-bottom: 0 !important;
+  }
+
+  /* Printable formation cards: crisp white, clean borders, dedicated page breaks between formations */
+  .formation-container {
+    border: 2px solid #000000 !important;
+    border-radius: 6px !important;
+    box-shadow: none !important;
+    padding: 8px 10px !important;
+    margin: 0 0 16px 0 !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    display: block !important;
+    clear: both !important;
+    position: static !important;
+    float: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    filter: none !important;
+    transform: none !important;
+    color: #0f172a !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .formation-container:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+    margin-bottom: 0 !important;
+  }
+
+  .formation-card-header {
+    border-bottom: 2.5px solid #000000 !important;
+    padding-bottom: 4px !important;
+    margin-bottom: 6px !important;
+    background-color: #ffffff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .formation-card-header h2 {
+    font-size: 15pt !important;
+    font-weight: 900 !important;
+    letter-spacing: 0.03em !important;
+    color: #000000 !important;
+    text-transform: uppercase !important;
+  }
+
+  .formation-unit-badge {
+    background-color: #000000 !important;
+    color: #facc15 !important; /* Team Gold */
+    border: 1.5px solid #000000 !important;
+    font-weight: 900 !important;
+    font-size: 10px !important;
+    padding: 2px 6px !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .formation-row-header {
+    background-color: #f1f5f9 !important;
+    border: 1.5px solid #94a3b8 !important;
+    border-left: 6px solid #0f172a !important;
+    color: #0f172a !important;
+    font-size: 10.5px !important;
+    font-weight: 900 !important;
+    padding: 2.5px 6px !important;
+    margin-bottom: 4px !important;
+    border-radius: 4px !important;
+    letter-spacing: 0.02em !important;
+    text-transform: uppercase !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .formation-grid-row {
+    background-color: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+    padding: 4px !important;
+    gap: 5px !important;
+    overflow: visible !important;
+    display: grid !important;
+    border-radius: 4px !important;
+  }
+
+  .position-slot-card {
+    border: 2px solid #000000 !important;
+    background-color: #ffffff !important;
+    border-radius: 4px !important;
+    min-height: 52px !important;
+    overflow: hidden !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .position-slot-empty {
+    border: 1.5px dashed #cbd5e1 !important;
+    background-color: transparent !important;
+    min-height: 52px !important;
+  }
+
+  .position-card-title {
+    background-color: #ffffff !important; /* 1st line: White background */
+    color: #000000 !important; /* 1st line: Black text with position */
+    font-size: 11px !important;
+    font-weight: 900 !important;
+    padding: 2.5px 4px !important;
+    border-bottom: 2px solid #000000 !important;
+    text-align: center !important;
+    border-top-left-radius: 2px !important;
+    border-top-right-radius: 2px !important;
+    letter-spacing: 0.03em !important;
+    text-transform: uppercase !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .position-card-title span,
+  .position-card-title div {
+    color: #000000 !important;
+    font-weight: 900 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 2nd line: Starter badge on print (White background, Black player text, Black ST box with White text) */
+  .print-player-badge-starter {
+    background-color: #ffffff !important; /* 2nd line: White player badge */
+    color: #000000 !important; /* Black player text */
+    border: 1.5px solid #000000 !important;
+    font-size: 10px !important;
+    font-weight: 900 !important;
+    padding: 2px 4px !important;
+    border-radius: 3px !important;
+    margin-bottom: 2px !important;
+    min-height: 20px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-player-badge-starter span:not(.print-tag-st),
+  .print-player-badge-starter div {
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 2nd line ST Box: White text with black inside that little box containing ST */
+  .print-player-badge-starter span.print-tag-st,
+  .print-player-badge-starter .print-tag-st,
+  span.print-tag-st,
+  .print-tag-st {
+    background-color: #000000 !important; /* Black inside little box */
+    color: #ffffff !important; /* White text */
+    border: 1px solid #000000 !important;
+    font-size: 8.5px !important;
+    font-weight: 900 !important;
+    padding: 1px 3.5px !important;
+    border-radius: 3px !important;
+    display: inline-block !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 3rd line: D2 should be Gold with black text */
+  .print-player-badge-d2 {
+    background-color: #facc15 !important; /* 2nd String: Gold */
+    color: #000000 !important; /* Black Text */
+    border: 1.5px solid #ca8a04 !important; /* Deep Gold Border */
+    font-size: 10px !important;
+    font-weight: 900 !important;
+    padding: 2px 4px !important;
+    border-radius: 3px !important;
+    margin-bottom: 2px !important;
+    min-height: 20px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-player-badge-d2 span:not(.print-tag-d2),
+  .print-player-badge-d2 div {
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-player-badge-d2 span.print-tag-d2,
+  .print-player-badge-d2 .print-tag-d2,
+  span.print-tag-d2,
+  .print-tag-d2 {
+    background-color: #000000 !important; /* Black Pill inside D2 */
+    color: #facc15 !important; /* Gold D2 Text */
+    border: 1px solid #000000 !important;
+    font-size: 8.5px !important;
+    font-weight: 900 !important;
+    padding: 1px 3.5px !important;
+    border-radius: 3px !important;
+    display: inline-block !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 4th line: D3 should be Blue with white text */
+  .print-player-badge-d3 {
+    background-color: #1d4ed8 !important; /* 3rd String: Royal Blue */
+    color: #ffffff !important; /* Pure White Text */
+    border: 1.5px solid #1e40af !important; /* Deep Blue Border */
+    font-size: 10px !important;
+    font-weight: 900 !important;
+    padding: 2px 4px !important;
+    border-radius: 3px !important;
+    margin-bottom: 2px !important;
+    min-height: 20px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-player-badge-d3 span:not(.print-tag-d3),
+  .print-player-badge-d3 div:not(.print-tag-d3),
+  .print-player-badge-d3 strong {
+    color: #ffffff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-player-badge-d3 span.print-tag-d3,
+  .print-player-badge-d3 .print-tag-d3,
+  span.print-tag-d3,
+  .print-tag-d3 {
+    background-color: #ffffff !important; /* White Tag */
+    color: #1d4ed8 !important; /* Blue D3 Text */
+    border: 1px solid #ffffff !important;
+    font-size: 8.5px !important;
+    font-weight: 900 !important;
+    padding: 1px 3.5px !important;
+    border-radius: 3px !important;
+    display: inline-block !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* High-Impact Cell / Badge Highlighting for Printouts */
+  .print-highlight-gold,
+  [data-print-highlight="gold"] {
+    background-color: #fef08a !important; /* Soft bright gold */
+    border: 2px solid #ca8a04 !important; /* Rich amber border */
+    box-shadow: 0 0 0 2px #facc15 !important;
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-highlight-gold span,
+  .print-highlight-gold div,
+  [data-print-highlight="gold"] span,
+  [data-print-highlight="gold"] div {
+    color: #000000 !important;
+    font-weight: 900 !important;
+  }
+
+  .print-highlight-blue,
+  [data-print-highlight="blue"] {
+    background-color: #bfdbfe !important; /* Soft sky blue */
+    border: 2px solid #1d4ed8 !important; /* Royal blue border */
+    box-shadow: 0 0 0 2px #3b82f6 !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-highlight-blue span,
+  .print-highlight-blue div,
+  [data-print-highlight="blue"] span,
+  [data-print-highlight="blue"] div {
+    color: #0f172a !important;
+    font-weight: 900 !important;
+  }
+
+  .print-highlight-black,
+  [data-print-highlight="black"] {
+    background-color: #e2e8f0 !important; /* High contrast slate */
+    border: 2px solid #09090b !important; /* Deep black border */
+    box-shadow: 0 0 0 2px #0f172a !important;
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-highlight-black span,
+  .print-highlight-black div,
+  [data-print-highlight="black"] span,
+  [data-print-highlight="black"] div {
+    color: #000000 !important;
+    font-weight: 900 !important;
+  }
+
+  /* 5th line+: D4 is good (White with black text and slate border) */
+  .print-player-badge-d4 {
+    background-color: #ffffff !important; /* 4th+ String / Additional: Pure White */
+    color: #000000 !important; /* Solid Black Text */
+    border: 1.5px solid #64748b !important; /* Slate Border */
+    font-size: 9.5px !important;
+    font-weight: 800 !important;
+    padding: 2px 4px !important;
+    border-radius: 3px !important;
+    margin-bottom: 2px !important;
+    min-height: 20px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-player-badge-d4 span,
+  .print-player-badge-d4 div {
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-player-badge-d4 span.print-tag-d4,
+  .print-player-badge-d4 .print-tag-d4,
+  span.print-tag-d4,
+  .print-tag-d4 {
+    background-color: #e2e8f0 !important; /* Light Slate Tag */
+    color: #0f172a !important; /* Dark Tag Text */
+    border: 1px solid #cbd5e1 !important;
+    font-size: 8px !important;
+    font-weight: 800 !important;
+    padding: 1px 3px !important;
+    border-radius: 3px !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Scrimmage Badges - Team Colors (Gold & Blue) */
+  .print-scrimmage-gold {
+    background-color: #fefce8 !important;
+    color: #000000 !important;
+    border: 1.5px solid #ca8a04 !important;
+    font-size: 9.5px !important;
+    font-weight: 900 !important;
+    padding: 2px 4px !important;
+    border-radius: 3px !important;
+    margin-bottom: 2px !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-tag-gold {
+    background-color: #facc15 !important; /* Team Gold */
+    color: #000000 !important;
+    border: 1px solid #ca8a04 !important;
+    font-size: 8.5px !important;
+    font-weight: 900 !important;
+    padding: 1px 3.5px !important;
+    border-radius: 3px !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-scrimmage-blue {
+    background-color: #eff6ff !important;
+    color: #1e3a8a !important;
+    border: 1.5px solid #2563eb !important;
+    font-size: 9.5px !important;
+    font-weight: 900 !important;
+    padding: 2px 4px !important;
+    border-radius: 3px !important;
+    margin-bottom: 2px !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-tag-blue {
+    background-color: #2563eb !important;
+    color: #ffffff !important;
+    border: 1px solid #1d4ed8 !important;
+    font-size: 8.5px !important;
+    font-weight: 900 !important;
+    padding: 1px 3.5px !important;
+    border-radius: 3px !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-scrimmage-white {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    border: 1.5px solid #000000 !important;
+    font-size: 8px !important;
+    font-weight: 800 !important;
+    padding: 1px 3px !important;
+    border-radius: 3px !important;
+    margin-bottom: 1px !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-tag-white {
+    background-color: #000000 !important;
+    color: #facc15 !important;
+    border: 1px solid #000000 !important;
+    font-size: 7px !important;
+    font-weight: 800 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Wristband 4.5" x 2.25" Print Card Formatting */
+  .wristband-print-container {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    width: 100% !important;
+    background-color: #ffffff !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .wristband-insert-print-box {
+    width: 4.5in !important;
+    height: 2.25in !important;
+    min-width: 4.5in !important;
+    max-width: 4.5in !important;
+    min-height: 2.25in !important;
+    max-height: 2.25in !important;
+    box-sizing: border-box !important;
+    border: 2px solid #000000 !important;
+    background-color: #ffffff !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    overflow: hidden !important;
+    position: relative !important;
+    display: flex !important;
+    flex-direction: column !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .wristband-cutout-wrapper {
+    position: relative !important;
+    padding: 6px !important;
+    border: 1px dashed #94a3b8 !important;
+    display: inline-block !important;
+    margin: 12px auto !important;
+    background: #ffffff !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .wristband-cutout-label {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    font-size: 8px !important;
+    font-family: monospace !important;
+    font-weight: 700 !important;
+    color: #64748b !important;
+    text-transform: uppercase !important;
+    margin-bottom: 3px !important;
+  }
+
+  .wristband-print-play-text {
+    display: block !important;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+    font-size: 8.5px !important;
+    font-weight: 800 !important;
+    text-transform: uppercase !important;
+    color: #000000 !important;
+    line-height: 1 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  /* Call Sheet Clean Print Rules */
+  .call-sheet-print-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .call-sheet-section-box {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    border: 1.5px solid #000000 !important;
+    background-color: #ffffff !important;
+    margin-bottom: 8px !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .wristband-num-pill-yellow {
+    background-color: #facc15 !important;
+    color: #000000 !important;
+    font-weight: 900 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .wristband-num-pill-blue {
+    background-color: #2563eb !important;
+    color: #ffffff !important;
+    font-weight: 900 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .wristband-num-pill-neon-cyan {
+    background-color: #06b6d4 !important;
+    color: #000000 !important;
+    font-weight: 900 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .wristband-num-pill-black {
+    background-color: #0f172a !important;
+    color: #facc15 !important;
+    font-weight: 900 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .wristband-print-table {
+    border: 2px solid #000000 !important;
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  .wristband-print-table th,
+  .wristband-print-table td {
+    border: 1.5px solid #000000 !important;
+    color: #000000 !important;
+  }
+
+  /* Practice table print formatting - highly legible & coach-friendly */
+  .practice-table {
+    font-size: var(--print-font-size, 12px) !important;
+    border: 1.5px solid #000000 !important;
+    width: 100% !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    line-height: 1.3 !important;
+  }
+
+  .practice-table thead {
+    display: table-header-group !important;
+  }
+
+  .practice-table th {
+    font-size: calc(var(--print-font-size, 12px) * 1.05) !important;
+    background-color: #f1f5f9 !important;
+    color: #000000 !important;
+    border: 1.2px solid #000000 !important;
+    border-bottom: 2.5px solid #000000 !important;
+    padding: 5px 6px !important;
+    font-weight: 900 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.02em !important;
+    line-height: 1.25 !important;
+  }
+
+  .practice-table td {
+    font-size: var(--print-font-size, 12px) !important;
+    border: 1.2px solid #334155 !important;
+    padding: 4px 6px !important;
+    color: #000000 !important;
+    vertical-align: top !important;
+    word-break: break-word !important;
+    background-color: #ffffff !important;
+    font-weight: 600 !important;
+    line-height: 1.3 !important;
+  }
+
+  .practice-table tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Make sure internal print text containers inherit or scale with print font size */
+  .practice-table .print-text-title {
+    font-size: calc(var(--print-font-size, 12px) * 1.1) !important;
+    font-weight: 900 !important;
+    color: #000000 !important;
+    line-height: 1.25 !important;
+  }
+
+  .practice-table .print-text-body {
+    font-size: var(--print-font-size, 12px) !important;
+    font-weight: 500 !important;
+    color: #0f172a !important;
+    line-height: 1.35 !important;
+  }
+
+  .practice-table .print-text-sub {
+    font-size: calc(var(--print-font-size, 12px) * 0.9) !important;
+    font-weight: 700 !important;
+    color: #334155 !important;
+    line-height: 1.2 !important;
+  }
+
+  .practice-table .print-text-badge {
+    font-size: calc(var(--print-font-size, 12px) * 0.88) !important;
+    font-weight: 800 !important;
+    color: #000000 !important;
+    line-height: 1.2 !important;
+  }
+
+  /* Absolute print suppression guarantee for hidden-print and print:hidden */
+  .print\:hidden,
+  .hidden-print,
+  [class*="print:hidden"],
+  [class*="hidden-print"],
+  button,
+  input,
+  select,
+  textarea {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    height: 0 !important;
+    width: 0 !important;
+    max-height: 0 !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+  }
+}
