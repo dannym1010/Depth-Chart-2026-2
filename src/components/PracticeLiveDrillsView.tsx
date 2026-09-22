@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Swords,
   Scale,
@@ -61,6 +61,10 @@ import {
   canAssignPlayerToDrillUnit,
   getPlayerLinedUpUnit,
   isFilledPlayer,
+  captureLiveDrillSlotLayout,
+  applyLayoutToDrillGroup,
+  drillGroupsStamp,
+  bootstrapLiveDrillSlotLayout,
 } from './practiceDrillsUtils';
 
 const FOOTBALL_PLAYER_DRAG = 'application/x-football-player';
@@ -112,26 +116,36 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
 }) => {
   // Ensure we have at least one drill group and initialize if empty
   const [localGroups, setLocalGroups] = useState<LiveDrillGroup[]>(() => {
-    if (Array.isArray(practiceDrillGroups) && practiceDrillGroups.length > 0) {
-      return practiceDrillGroups;
-    }
-    return createInitialPracticeDrillGroups();
+    const source =
+      Array.isArray(practiceDrillGroups) && practiceDrillGroups.length > 0
+        ? practiceDrillGroups
+        : createInitialPracticeDrillGroups();
+    source.forEach((g) => bootstrapLiveDrillSlotLayout(g));
+    return source.map((g) => applyLayoutToDrillGroup(g));
   });
 
+  const weekRef = useRef(currentWeek);
+  const groupsRef = useRef(localGroups);
+  groupsRef.current = localGroups;
   useEffect(() => {
-    if (Array.isArray(practiceDrillGroups) && practiceDrillGroups.length > 0) {
-      setLocalGroups(practiceDrillGroups);
+    if (weekRef.current !== currentWeek) {
+      weekRef.current = currentWeek;
+      const source =
+        Array.isArray(practiceDrillGroups) && practiceDrillGroups.length > 0
+          ? practiceDrillGroups
+          : createInitialPracticeDrillGroups();
+      source.forEach((g) => bootstrapLiveDrillSlotLayout(g));
+      setLocalGroups(source.map((g) => applyLayoutToDrillGroup(g)));
+      return;
     }
-  }, [practiceDrillGroups]);
+    if (!Array.isArray(practiceDrillGroups) || practiceDrillGroups.length === 0) return;
+    setLocalGroups((prev) => {
+      if (drillGroupsStamp(prev) > drillGroupsStamp(practiceDrillGroups)) return prev;
+      return practiceDrillGroups.map((g) => applyLayoutToDrillGroup(g));
+    });
+  }, [currentWeek, practiceDrillGroups]);
 
   const groups = localGroups;
-
-  // Sync initial groups to parent if empty initially
-  useEffect(() => {
-    if (!practiceDrillGroups || practiceDrillGroups.length === 0) {
-      onUpdatePracticeDrillGroups(groups);
-    }
-  }, []);
 
   const [activeGroupId, setActiveGroupId] = useState<string>(() => {
     return groups[0]?.id || '';
@@ -390,9 +404,19 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
 
   // Helper to commit updated groups and notify parent
   const updateGroup = (updated: LiveDrillGroup) => {
-    const next = localGroups.map((g) => (g.id === updated.id ? updated : g));
-    setLocalGroups(next);
-    onUpdatePracticeDrillGroups(next);
+    const stamped = { ...updated, lastEdited: Date.now() };
+    setLocalGroups((prev) => {
+      const previous = prev.find((g) => g.id === stamped.id);
+      const slotsChanged =
+        !previous ||
+        JSON.stringify(previous.offensePositions) !== JSON.stringify(stamped.offensePositions) ||
+        JSON.stringify(previous.defensePositions) !== JSON.stringify(stamped.defensePositions);
+      if (slotsChanged) captureLiveDrillSlotLayout(stamped);
+      const next = prev.map((g) => (g.id === stamped.id ? stamped : g));
+      groupsRef.current = next;
+      onUpdatePracticeDrillGroups(next);
+      return next;
+    });
   };
 
   const handleAddOffenseLabel = (labelToAdd?: string) => {
@@ -767,20 +791,22 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
   };
 
   const handleSaveRenamePosition = () => {
-    if (!currentGroup || !editingPosId) return;
+    if (!editingPosId) return;
     const clean = editingPosName.trim();
     if (!clean) {
       setEditingPosId(null);
       return;
     }
 
+    const current = groupsRef.current.find((g) => g.id === activeGroupId) || currentGroup;
+    if (!current) return;
     const updateList = (list: LiveDrillPosition[]) =>
       list.map((p) => (p.id === editingPosId ? { ...p, name: clean } : p));
 
     updateGroup({
-      ...currentGroup,
-      offensePositions: updateList(currentGroup.offensePositions),
-      defensePositions: updateList(currentGroup.defensePositions),
+      ...current,
+      offensePositions: updateList(current.offensePositions),
+      defensePositions: updateList(current.defensePositions),
     });
     setEditingPosId(null);
   };
@@ -801,11 +827,12 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
   };
 
   const handleAssignPlayer = (posId: string, player: PlacedPlayer, targetIdx?: number): boolean => {
-    if (!currentGroup) return false;
+    const liveGroup = groupsRef.current.find((g) => g.id === activeGroupId) || currentGroup;
+    if (!liveGroup) return false;
     const unit = resolveAssignUnit(posId);
     if (!unit) return false;
 
-    const check = canAssignPlayerToDrillUnit(currentGroup, player.num, unit);
+    const check = canAssignPlayerToDrillUnit(liveGroup, player.num, unit);
     if (!check.ok) {
       showDropFeedback(
         `#${player.num} ${player.name} is already on ${check.blockedUnit}. Players can fill multiple ${unit} spots, but not offense and defense.`
@@ -813,7 +840,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
       return false;
     }
 
-    const currentList = [...(currentGroup.lineup[posId] || [])];
+    const currentList = [...(liveGroup.lineup[posId] || [])];
 
     if (targetIdx !== undefined && targetIdx >= 0) {
       while (currentList.length <= targetIdx) {
@@ -821,9 +848,9 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
       }
       currentList[targetIdx] = player;
       updateGroup({
-        ...currentGroup,
+        ...liveGroup,
         lineup: {
-          ...currentGroup.lineup,
+          ...liveGroup.lineup,
           [posId]: currentList,
         },
       });
@@ -831,9 +858,9 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
     }
 
     updateGroup({
-      ...currentGroup,
+      ...liveGroup,
       lineup: {
-        ...currentGroup.lineup,
+        ...liveGroup.lineup,
         [posId]: [...currentList, player],
       },
     });

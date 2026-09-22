@@ -31,6 +31,10 @@ import {
   mergePffReviews,
   mergePprPlayCounts,
 } from './src/utils/remoteStateMerge';
+import {
+  mergeLiveDrillSlotLayouts,
+  mergePracticeDrillGroups,
+} from './src/components/practiceDrillsUtils';
 
 // Server-side State Persistence Directory
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -577,6 +581,10 @@ export function mergeServerState(current: any, incoming: any, metadata?: any): a
         pffReviews: mergedPffReviews,
         filmSession: mergedFilmSession,
         pprPlayCounts: mergedPprCounts,
+        practiceDrillGroups: mergePracticeDrillGroups(
+          curWeekState.practiceDrillGroups,
+          incWeekState.practiceDrillGroups
+        ),
       };
     }
 
@@ -833,6 +841,12 @@ export function mergeServerState(current: any, incoming: any, metadata?: any): a
   }
   if (incoming.pffPlayerGroups && typeof incoming.pffPlayerGroups === 'object') {
     merged.pffPlayerGroups = mergePffPlayerGroups(current.pffPlayerGroups, incoming.pffPlayerGroups);
+  }
+  if (incoming.liveDrillSlotLayouts && typeof incoming.liveDrillSlotLayouts === 'object') {
+    merged.liveDrillSlotLayouts = mergeLiveDrillSlotLayouts(
+      current.liveDrillSlotLayouts,
+      incoming.liveDrillSlotLayouts
+    );
   }
   if (incoming.guideTree) merged.guideTree = incoming.guideTree;
   if (incoming.guideOrder) merged.guideOrder = incoming.guideOrder;

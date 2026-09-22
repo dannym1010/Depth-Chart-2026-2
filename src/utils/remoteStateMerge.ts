@@ -10,6 +10,7 @@ import {
 } from '../types';
 import { INITIAL_DEFAULT_FORMATIONS } from '../data/initialData';
 import { deepClone } from '../services/storageService';
+import { mergePracticeDrillGroups, scorePracticeDrillGroups } from '../components/practiceDrillsUtils';
 import {
   allPffPlays,
   emptyPffPlay,
@@ -648,7 +649,9 @@ export function mergeRemoteWeeklyData(
     }
 
     const keepLocalDrills =
-      isActivelyEditingLocally && isCurrentActiveWeek && activeUnit === 'practice_live';
+      isActivelyEditingLocally &&
+      isCurrentActiveWeek &&
+      (activeUnit === 'practice_live' || scorePracticeDrillGroups(localState.practiceDrillGroups) > scorePracticeDrillGroups(remoteState.practiceDrillGroups));
 
     merged[weekKey] = {
       ...localState,
@@ -659,9 +662,9 @@ export function mergeRemoteWeeklyData(
       opponent: remoteState.opponent || localState.opponent || '',
       wristbandData: safeWristbandData,
       scouting: remoteState.scouting || localState.scouting,
-      practiceDrillGroups: keepLocalDrills
-        ? localState.practiceDrillGroups || remoteState.practiceDrillGroups
-        : remoteState.practiceDrillGroups || localState.practiceDrillGroups,
+      practiceDrillGroups: keepLocalDrills && (localState.practiceDrillGroups || []).length
+        ? localState.practiceDrillGroups
+        : mergePracticeDrillGroups(localState.practiceDrillGroups, remoteState.practiceDrillGroups),
       pprPlayCounts: mergePprPlayCounts(localState.pprPlayCounts, remoteState.pprPlayCounts),
       pffReviews: mergePffReviews(localState.pffReviews, remoteState.pffReviews),
       filmSession: mergeFilmSession(localState.filmSession, remoteState.filmSession),

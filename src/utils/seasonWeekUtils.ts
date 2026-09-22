@@ -2,6 +2,7 @@ import { ScheduleEvent, FormationBoard, PlacedPlayer, WeekState, SeasonConfig, W
 export { formatWeekLabel } from '../types';
 import { INITIAL_DEFAULT_FORMATIONS } from '../data/initialData';
 import { deepClone } from '../services/storageService';
+import { mergePracticeDrillGroups } from '../components/practiceDrillsUtils';
 
 export interface AutoWeekResult {
   activeWeek: string;
@@ -169,13 +170,20 @@ export function normalizeWeeklyData(
         reconciledSC = scopedState.scrimmageChart;
       }
 
+      const reconciledDrills = mergePracticeDrillGroups(
+        scopedState.practiceDrillGroups,
+        legacyState.practiceDrillGroups
+      );
+
       scopedState.formations = combinedFormations;
       scopedState.depthChart = reconciledDC;
       scopedState.scrimmageChart = reconciledSC;
+      scopedState.practiceDrillGroups = reconciledDrills;
 
       legacyState.formations = deepClone(combinedFormations);
       legacyState.depthChart = deepClone(reconciledDC);
       legacyState.scrimmageChart = deepClone(reconciledSC);
+      legacyState.practiceDrillGroups = deepClone(reconciledDrills);
     } else if (scopedState && !legacyState) {
       result[legacyKey] = deepClone(scopedState);
     } else if (legacyState && !scopedState) {

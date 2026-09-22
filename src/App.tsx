@@ -162,6 +162,12 @@ import {
   shouldRejectStaleRemote,
 } from './utils/remoteStateMerge';
 import { applyCopiedFormationsToDeletedIds, copyWeekCharts } from './utils/copyWeek';
+import {
+  loadLiveDrillSlotLayouts,
+  mergeLiveDrillSlotLayouts,
+  persistLiveDrillSlotLayouts,
+  scorePracticeDrillGroups,
+} from './components/practiceDrillsUtils';
 import { SeasonConfigModal } from './components/SeasonConfigModal';
 import { ActiveCoachesModal } from './components/ActiveCoachesModal';
 import { IdleTimeoutModal } from './components/IdleTimeoutModal';
@@ -871,6 +877,7 @@ export default function App() {
   // Debounced Cloud Sync Timeout
   const saveTimeoutRef = useRef<any>(null);
   const initialCloudLoadDoneRef = useRef<boolean>(false);
+  const pendingPracticeDrillSaveRef = useRef<boolean>(false);
   const isImportingRef = useRef<boolean>(false);
   const isRemoteSyncRef = useRef<boolean>(false);
   const lastSavedPayloadRef = useRef<string>('');
@@ -957,6 +964,7 @@ export default function App() {
     attendanceLogs,
     pffGradeCriteria,
     pffPlayerGroups,
+    liveDrillSlotLayouts: loadLiveDrillSlotLayouts(),
   });
 
   useEffect(() => {
@@ -988,6 +996,7 @@ export default function App() {
       attendanceLogs,
       pffGradeCriteria,
       pffPlayerGroups,
+      liveDrillSlotLayouts: loadLiveDrillSlotLayouts(),
     };
   });
 
@@ -1299,20 +1308,17 @@ export default function App() {
       scrimmageChart = {};
     }
 
-    // Practice drill groups resolution: prioritize state with valid drill groups
+    // Practice drill groups: keep the sheet with real names/assignments, not empty factory seeds
+    const drillCandidates = [
+      scopedState?.practiceDrillGroups,
+      is10U ? legacyState?.practiceDrillGroups : undefined,
+      is10U ? defScopedState?.practiceDrillGroups : undefined,
+    ].filter((groups): groups is LiveDrillGroup[] => Array.isArray(groups) && groups.length > 0);
     let practiceDrillGroups: LiveDrillGroup[] = [];
-    if (Array.isArray(scopedState?.practiceDrillGroups) && scopedState.practiceDrillGroups.length > 0) {
-      practiceDrillGroups = scopedState.practiceDrillGroups;
-    } else if (is10U && Array.isArray(legacyState?.practiceDrillGroups) && legacyState.practiceDrillGroups.length > 0) {
-      practiceDrillGroups = legacyState.practiceDrillGroups;
-    } else if (is10U && Array.isArray(defScopedState?.practiceDrillGroups) && defScopedState.practiceDrillGroups.length > 0) {
-      practiceDrillGroups = defScopedState.practiceDrillGroups;
-    } else if (Array.isArray(scopedState?.practiceDrillGroups)) {
-      practiceDrillGroups = scopedState.practiceDrillGroups;
-    } else if (is10U && Array.isArray(legacyState?.practiceDrillGroups)) {
-      practiceDrillGroups = legacyState.practiceDrillGroups;
-    } else if (is10U && Array.isArray(defScopedState?.practiceDrillGroups)) {
-      practiceDrillGroups = defScopedState.practiceDrillGroups;
+    if (drillCandidates.length > 0) {
+      practiceDrillGroups = drillCandidates.reduce((best, groups) =>
+        scorePracticeDrillGroups(groups) > scorePracticeDrillGroups(best) ? groups : best
+      );
     }
 
     return {
@@ -1527,20 +1533,22 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         data.weeklyData,
         data.defaultFormations || latestStateRef.current.defaultFormations
       );
-      const mergedWeekly = mergeRemoteWeeklyData(
-        latestStateRef.current.weeklyData,
-        normalizedWeekly,
-        activeTeamIdRef.current,
-        currentWeekRef.current,
-        effectiveUnit,
-        lastLocalEditTimeRef.current,
-        recentlyModifiedPositionsRef.current,
-        Array.from(effectiveDeletedFormIds),
-        recentlyModifiedFormationsRef.current
-      );
-      setWeeklyData(mergedWeekly);
-      latestStateRef.current.weeklyData = mergedWeekly;
-      safeJSONSet('footballWeeklyData', mergedWeekly);
+      setWeeklyData((prev) => {
+        const mergedWeekly = mergeRemoteWeeklyData(
+          prev && Object.keys(prev).length ? prev : latestStateRef.current.weeklyData,
+          normalizedWeekly,
+          activeTeamIdRef.current,
+          currentWeekRef.current,
+          effectiveUnit,
+          lastLocalEditTimeRef.current,
+          recentlyModifiedPositionsRef.current,
+          Array.from(effectiveDeletedFormIds),
+          recentlyModifiedFormationsRef.current
+        );
+        latestStateRef.current.weeklyData = mergedWeekly;
+        safeJSONSet('footballWeeklyData', mergedWeekly);
+        return mergedWeekly;
+      });
     }
     if (
       data.defaultFormations &&
@@ -1903,9 +1911,23 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       latestStateRef.current.pffPlayerGroups = mergedGroups;
       safeJSONSet('footballPffPlayerGroups', mergedGroups);
     }
+    if (data.liveDrillSlotLayouts && typeof data.liveDrillSlotLayouts === 'object') {
+      const mergedLayouts = mergeLiveDrillSlotLayouts(
+        loadLiveDrillSlotLayouts(),
+        data.liveDrillSlotLayouts
+      );
+      persistLiveDrillSlotLayouts(mergedLayouts);
+      safeJSONSet('footballLiveDrillSlotLayouts', mergedLayouts);
+    }
 
     lastSavedPayloadRef.current = safeJSONStringify(latestStateRef.current);
     initialCloudLoadDoneRef.current = true;
+    if (pendingPracticeDrillSaveRef.current) {
+      pendingPracticeDrillSaveRef.current = false;
+      setTimeout(() => {
+        saveStateToStorage('practice_drill_update');
+      }, 300);
+    }
 
     // Reset isRemoteSyncRef quickly after the React state cycle
     setTimeout(() => {
@@ -1946,6 +1968,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     safeJSONSet('footballAttendanceLogs', currentState.attendanceLogs);
     safeJSONSet('footballPffGradeCriteria', currentState.pffGradeCriteria);
     safeJSONSet('footballPffPlayerGroups', currentState.pffPlayerGroups);
+    safeJSONSet('footballLiveDrillSlotLayouts', loadLiveDrillSlotLayouts());
     safeJSONSet('footballCurrentWeek', currentWeekRef.current);
     safeJSONSet('footballActiveTeamId', activeTeamIdRef.current);
     safeJSONSet('footballLastLocalEditTime', lastLocalEditTimeRef.current);
@@ -1980,6 +2003,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       attendanceLogs: currentState.attendanceLogs,
       pffGradeCriteria: currentState.pffGradeCriteria,
       pffPlayerGroups: currentState.pffPlayerGroups,
+      liveDrillSlotLayouts: loadLiveDrillSlotLayouts(),
     };
 
     const payloadJson = safeJSONStringify(payload);
@@ -2007,6 +2031,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
 
     // Never overwrite cloud if initial cloud pull has not completed yet
     if (!initialCloudLoadDoneRef.current && scope !== 'force') {
+      if (scope.startsWith('practice_drill')) pendingPracticeDrillSaveRef.current = true;
       return;
     }
 

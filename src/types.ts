@@ -419,6 +419,7 @@ export interface LiveDrillGroup {
   defensePositions: LiveDrillPosition[];
   lineup: Record<string, PlacedPlayer[]>; // position.id -> PlacedPlayer[]
   createdAt?: number;
+  lastEdited?: number;
 }
 
 export type FilmUnitColor = 'gold' | 'blue' | 'black';

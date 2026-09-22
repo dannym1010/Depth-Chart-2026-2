@@ -338,30 +338,259 @@ export const SUGGESTED_DEFENSE_TAGS = [
 // ============================================================================
 // 3. DEFAULT DRILL POSITIONS GENERATOR
 // ============================================================================
-export function generateDefaultPositions(format: LiveDrillFormat): {
+export const LIVE_DRILL_SLOT_LAYOUT_KEY = 'footballLiveDrillSlotLayouts';
+
+export interface LiveDrillSlotLayouts {
+  updatedAt: number;
+  byFormat: Partial<Record<LiveDrillFormat, { offense: string[]; defense: string[] }>>;
+}
+
+export function loadLiveDrillSlotLayouts(): LiveDrillSlotLayouts {
+  if (typeof localStorage === 'undefined') return { updatedAt: 0, byFormat: {} };
+  try {
+    const raw = localStorage.getItem(LIVE_DRILL_SLOT_LAYOUT_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && parsed.byFormat) {
+        return {
+          updatedAt: Number(parsed.updatedAt) || 0,
+          byFormat: parsed.byFormat,
+        };
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return { updatedAt: 0, byFormat: {} };
+}
+
+export function persistLiveDrillSlotLayouts(layouts: LiveDrillSlotLayouts): LiveDrillSlotLayouts {
+  if (typeof localStorage === 'undefined') return layouts;
+  try {
+    localStorage.setItem(LIVE_DRILL_SLOT_LAYOUT_KEY, JSON.stringify(layouts));
+  } catch {
+    // ignore
+  }
+  return layouts;
+}
+
+export function saveLiveDrillSlotLayouts(layouts: LiveDrillSlotLayouts): LiveDrillSlotLayouts {
+  return persistLiveDrillSlotLayouts({ ...layouts, updatedAt: Date.now() });
+}
+
+export function mergeLiveDrillSlotLayouts(
+  local?: LiveDrillSlotLayouts | null,
+  remote?: LiveDrillSlotLayouts | null
+): LiveDrillSlotLayouts {
+  const left = local && local.byFormat ? local : { updatedAt: 0, byFormat: {} };
+  const right = remote && remote.byFormat ? remote : { updatedAt: 0, byFormat: {} };
+  if ((right.updatedAt || 0) > (left.updatedAt || 0)) {
+    return {
+      updatedAt: right.updatedAt,
+      byFormat: { ...left.byFormat, ...right.byFormat },
+    };
+  }
+  return {
+    updatedAt: Math.max(left.updatedAt || 0, right.updatedAt || 0),
+    byFormat: { ...right.byFormat, ...left.byFormat },
+  };
+}
+
+export function bootstrapLiveDrillSlotLayout(group: LiveDrillGroup): LiveDrillSlotLayouts {
+  const current = loadLiveDrillSlotLayouts();
+  if ((current.byFormat[group.format]?.offense || []).length > 0) return current;
+  if (isFactoryDrillGroup(group)) return current;
+  return captureLiveDrillSlotLayout(group, current);
+}
+
+export function captureLiveDrillSlotLayout(
+  group: LiveDrillGroup,
+  layouts?: LiveDrillSlotLayouts
+): LiveDrillSlotLayouts {
+  const current = layouts || loadLiveDrillSlotLayouts();
+  return saveLiveDrillSlotLayouts({
+    ...current,
+    byFormat: {
+      ...current.byFormat,
+      [group.format]: {
+        offense: (group.offensePositions || []).map((p) => p.name),
+        defense: (group.defensePositions || []).map((p) => p.name),
+      },
+    },
+  });
+}
+
+function normalizeSlotLabel(name?: string): string {
+  return String(name || '').trim().toLowerCase();
+}
+
+function applyNamesToSlots(
+  slots: LiveDrillPosition[],
+  names?: string[],
+  factorySlots?: LiveDrillPosition[]
+): LiveDrillPosition[] {
+  if (!names || !names.length) return slots;
+  return slots.map((slot, idx) => {
+    const nextName = names[idx] ? String(names[idx]).trim() : '';
+    if (!nextName) return slot;
+    const current = String(slot.name || '').trim();
+    const factoryName = String(factorySlots?.[idx]?.name || '').trim();
+    const currentIsFactory = !current || normalizeSlotLabel(current) === normalizeSlotLabel(factoryName);
+    if (!currentIsFactory) return slot;
+    return { ...slot, name: nextName };
+  });
+}
+
+export function applyLiveDrillSlotLayout(
+  format: LiveDrillFormat,
+  generated: { offense: LiveDrillPosition[]; defense: LiveDrillPosition[] },
+  layouts?: LiveDrillSlotLayouts
+): { offense: LiveDrillPosition[]; defense: LiveDrillPosition[] } {
+  const saved = (layouts || loadLiveDrillSlotLayouts()).byFormat[format];
+  if (!saved) return generated;
+  return {
+    offense: applyNamesToSlots(generated.offense, saved.offense, generated.offense),
+    defense: applyNamesToSlots(generated.defense, saved.defense, generated.defense),
+  };
+}
+
+export function applyLayoutToDrillGroup(group: LiveDrillGroup, layouts?: LiveDrillSlotLayouts): LiveDrillGroup {
+  const saved = (layouts || loadLiveDrillSlotLayouts()).byFormat[group.format];
+  if (!saved) return group;
+  const factory = generateFactoryPositions(group.format);
+  return {
+    ...group,
+    offensePositions: applyNamesToSlots(group.offensePositions || [], saved.offense, factory.offense),
+    defensePositions: applyNamesToSlots(group.defensePositions || [], saved.defense, factory.defense),
+  };
+}
+
+export function drillGroupsStamp(groups: LiveDrillGroup[] | undefined): number {
+  if (!groups?.length) return 0;
+  return Math.max(0, ...groups.map((g) => Number(g.lastEdited || g.createdAt || 0)));
+}
+
+export function countFilledDrillAssignments(group?: LiveDrillGroup): number {
+  if (!group?.lineup) return 0;
+  return Object.values(group.lineup).reduce((sum, list) => {
+    if (!Array.isArray(list)) return sum;
+    return sum + list.filter((player) => isFilledPlayer(player)).length;
+  }, 0);
+}
+
+export function isFactoryDrillGroup(group?: LiveDrillGroup | null): boolean {
+  if (!group) return true;
+  if (countFilledDrillAssignments(group) > 0) return false;
+  const factory = generateFactoryPositions(group.format);
+  const namesMatch = (slots: LiveDrillPosition[] | undefined, factorySlots: LiveDrillPosition[]) => {
+    const list = slots || [];
+    if (!list.length) return true;
+    return list.every((slot, idx) => {
+      const current = normalizeSlotLabel(slot.name);
+      const factoryName = normalizeSlotLabel(factorySlots[idx]?.name);
+      return !current || !factoryName || current === factoryName;
+    });
+  };
+  return (
+    namesMatch(group.offensePositions, factory.offense) &&
+    namesMatch(group.defensePositions, factory.defense)
+  );
+}
+
+export function scoreDrillGroup(group?: LiveDrillGroup | null): number {
+  if (!group) return 0;
+  const time = Number(group.lastEdited || group.createdAt || 0);
+  if (isFactoryDrillGroup(group)) return time;
+  return countFilledDrillAssignments(group) * 1e12 + time;
+}
+
+export function scorePracticeDrillGroups(groups?: LiveDrillGroup[] | null): number {
+  if (!groups?.length) return 0;
+  return groups.reduce((sum, group) => sum + scoreDrillGroup(group), 0);
+}
+
+export function pickBetterDrillGroup(
+  left?: LiveDrillGroup | null,
+  right?: LiveDrillGroup | null
+): LiveDrillGroup | undefined {
+  if (!left) return right || undefined;
+  if (!right) return left;
+  const leftFactory = isFactoryDrillGroup(left);
+  const rightFactory = isFactoryDrillGroup(right);
+  if (leftFactory !== rightFactory) return leftFactory ? right : left;
+  const leftTime = Number(left.lastEdited || left.createdAt || 0);
+  const rightTime = Number(right.lastEdited || right.createdAt || 0);
+  if (leftTime !== rightTime) return leftTime >= rightTime ? left : right;
+  return scoreDrillGroup(left) >= scoreDrillGroup(right) ? left : right;
+}
+
+export function mergePracticeDrillGroups(
+  local?: LiveDrillGroup[],
+  remote?: LiveDrillGroup[]
+): LiveDrillGroup[] {
+  const byId = new Map<string, LiveDrillGroup>();
+  const add = (group?: LiveDrillGroup) => {
+    if (!group?.id) return;
+    const existing = byId.get(group.id);
+    const next = pickBetterDrillGroup(existing, group);
+    if (next) byId.set(group.id, next);
+  };
+  (remote || []).forEach(add);
+  (local || []).forEach(add);
+
+  const merged: LiveDrillGroup[] = [];
+  const seen = new Set<string>();
+  const formats = Array.from(new Set(Array.from(byId.values()).map((group) => group.format)));
+  for (const format of formats) {
+    const candidates = Array.from(byId.values()).filter((group) => group.format === format);
+    const real = candidates.filter((group) => !isFactoryDrillGroup(group));
+    const pool = (real.length ? real : candidates).slice().sort((a, b) => {
+      const scoreDiff = scoreDrillGroup(b) - scoreDrillGroup(a);
+      if (scoreDiff !== 0) return scoreDiff;
+      return Number(b.lastEdited || b.createdAt || 0) - Number(a.lastEdited || a.createdAt || 0);
+    });
+    if (real.length) {
+      pool.forEach((group) => {
+        if (seen.has(group.id)) return;
+        merged.push(group);
+        seen.add(group.id);
+      });
+    } else if (pool[0]) {
+      merged.push(pool[0]);
+      seen.add(pool[0].id);
+    }
+  }
+  if (merged.length > 0) return merged;
+  return (local || []).length ? local! : remote || [];
+}
+
+function slot(id: string, name: string, unit: 'offense' | 'defense'): LiveDrillPosition {
+  return { id, name, unit };
+}
+
+function generateFactoryPositions(format: LiveDrillFormat): {
   offense: LiveDrillPosition[];
   defense: LiveDrillPosition[];
 } {
-  const ts = Date.now();
   if (format === '7v7') {
     return {
       offense: [
-        { id: `off_qb_${ts}`, name: 'QB', unit: 'offense' },
-        { id: `off_rb_${ts}`, name: 'RB', unit: 'offense' },
-        { id: `off_x_${ts}`, name: 'WR (X)', unit: 'offense' },
-        { id: `off_z_${ts}`, name: 'WR (Z)', unit: 'offense' },
-        { id: `off_w_${ts}`, name: 'Slot (W)', unit: 'offense' },
-        { id: `off_y_${ts}`, name: 'TE (Y)', unit: 'offense' },
-        { id: `off_h_${ts}`, name: 'H / Slot', unit: 'offense' },
+        slot('7v7_off_qb', 'QB', 'offense'),
+        slot('7v7_off_rb', 'RB', 'offense'),
+        slot('7v7_off_x', 'WR (X)', 'offense'),
+        slot('7v7_off_z', 'WR (Z)', 'offense'),
+        slot('7v7_off_w', 'Slot (W)', 'offense'),
+        slot('7v7_off_y', 'TE (Y)', 'offense'),
+        slot('7v7_off_h', 'H / Slot', 'offense'),
       ],
       defense: [
-        { id: `def_cb1_${ts}`, name: 'CB1', unit: 'defense' },
-        { id: `def_cb2_${ts}`, name: 'CB2', unit: 'defense' },
-        { id: `def_fs_${ts}`, name: 'FS', unit: 'defense' },
-        { id: `def_ss_${ts}`, name: 'SS', unit: 'defense' },
-        { id: `def_mlb_${ts}`, name: 'MLB', unit: 'defense' },
-        { id: `def_wlb_${ts}`, name: 'WLB', unit: 'defense' },
-        { id: `def_slb_${ts}`, name: 'SLB / Nickel', unit: 'defense' },
+        slot('7v7_def_cb1', 'CB1', 'defense'),
+        slot('7v7_def_cb2', 'CB2', 'defense'),
+        slot('7v7_def_fs', 'FS', 'defense'),
+        slot('7v7_def_ss', 'SS', 'defense'),
+        slot('7v7_def_mlb', 'MLB', 'defense'),
+        slot('7v7_def_wlb', 'WLB', 'defense'),
+        slot('7v7_def_slb', 'SLB / Nickel', 'defense'),
       ],
     };
   }
@@ -369,30 +598,30 @@ export function generateDefaultPositions(format: LiveDrillFormat): {
   if (format === '11v11') {
     return {
       offense: [
-        { id: `off_lt_${ts}`, name: 'LT', unit: 'offense' },
-        { id: `off_lg_${ts}`, name: 'LG', unit: 'offense' },
-        { id: `off_c_${ts}`, name: 'C', unit: 'offense' },
-        { id: `off_rg_${ts}`, name: 'RG', unit: 'offense' },
-        { id: `off_rt_${ts}`, name: 'RT', unit: 'offense' },
-        { id: `off_te_${ts}`, name: 'TE (Y)', unit: 'offense' },
-        { id: `off_qb_${ts}`, name: 'QB', unit: 'offense' },
-        { id: `off_rb_${ts}`, name: 'RB', unit: 'offense' },
-        { id: `off_x_${ts}`, name: 'WR (X)', unit: 'offense' },
-        { id: `off_z_${ts}`, name: 'WR (Z)', unit: 'offense' },
-        { id: `off_w_${ts}`, name: 'Slot (W)', unit: 'offense' },
+        slot('11v11_off_lt', 'LT', 'offense'),
+        slot('11v11_off_lg', 'LG', 'offense'),
+        slot('11v11_off_c', 'C', 'offense'),
+        slot('11v11_off_rg', 'RG', 'offense'),
+        slot('11v11_off_rt', 'RT', 'offense'),
+        slot('11v11_off_te', 'TE (Y)', 'offense'),
+        slot('11v11_off_qb', 'QB', 'offense'),
+        slot('11v11_off_rb', 'RB', 'offense'),
+        slot('11v11_off_x', 'WR (X)', 'offense'),
+        slot('11v11_off_z', 'WR (Z)', 'offense'),
+        slot('11v11_off_w', 'Slot (W)', 'offense'),
       ],
       defense: [
-        { id: `def_lde_${ts}`, name: 'LDE', unit: 'defense' },
-        { id: `def_ldt_${ts}`, name: 'LDT', unit: 'defense' },
-        { id: `def_rdt_${ts}`, name: 'RDT', unit: 'defense' },
-        { id: `def_rde_${ts}`, name: 'RDE', unit: 'defense' },
-        { id: `def_wlb_${ts}`, name: 'WLB', unit: 'defense' },
-        { id: `def_mlb_${ts}`, name: 'MLB', unit: 'defense' },
-        { id: `def_slb_${ts}`, name: 'SLB', unit: 'defense' },
-        { id: `def_cb1_${ts}`, name: 'CB1', unit: 'defense' },
-        { id: `def_cb2_${ts}`, name: 'CB2', unit: 'defense' },
-        { id: `def_fs_${ts}`, name: 'FS', unit: 'defense' },
-        { id: `def_ss_${ts}`, name: 'SS', unit: 'defense' },
+        slot('11v11_def_lde', 'LDE', 'defense'),
+        slot('11v11_def_ldt', 'LDT', 'defense'),
+        slot('11v11_def_rdt', 'RDT', 'defense'),
+        slot('11v11_def_rde', 'RDE', 'defense'),
+        slot('11v11_def_wlb', 'WLB', 'defense'),
+        slot('11v11_def_mlb', 'MLB', 'defense'),
+        slot('11v11_def_slb', 'SLB', 'defense'),
+        slot('11v11_def_cb1', 'CB1', 'defense'),
+        slot('11v11_def_cb2', 'CB2', 'defense'),
+        slot('11v11_def_fs', 'FS', 'defense'),
+        slot('11v11_def_ss', 'SS', 'defense'),
       ],
     };
   }
@@ -400,26 +629,26 @@ export function generateDefaultPositions(format: LiveDrillFormat): {
   if (format === '9v9') {
     return {
       offense: [
-        { id: `off_lt_${ts}`, name: 'LT', unit: 'offense' },
-        { id: `off_lg_${ts}`, name: 'LG', unit: 'offense' },
-        { id: `off_c_${ts}`, name: 'C', unit: 'offense' },
-        { id: `off_rg_${ts}`, name: 'RG', unit: 'offense' },
-        { id: `off_rt_${ts}`, name: 'RT', unit: 'offense' },
-        { id: `off_te_${ts}`, name: 'TE (Y)', unit: 'offense' },
-        { id: `off_qb_${ts}`, name: 'QB', unit: 'offense' },
-        { id: `off_fb_${ts}`, name: 'FB', unit: 'offense' },
-        { id: `off_rb_${ts}`, name: 'RB', unit: 'offense' },
+        slot('9v9_off_lt', 'LT', 'offense'),
+        slot('9v9_off_lg', 'LG', 'offense'),
+        slot('9v9_off_c', 'C', 'offense'),
+        slot('9v9_off_rg', 'RG', 'offense'),
+        slot('9v9_off_rt', 'RT', 'offense'),
+        slot('9v9_off_te', 'TE (Y)', 'offense'),
+        slot('9v9_off_qb', 'QB', 'offense'),
+        slot('9v9_off_fb', 'FB', 'offense'),
+        slot('9v9_off_rb', 'RB', 'offense'),
       ],
       defense: [
-        { id: `def_lde_${ts}`, name: 'LDE', unit: 'defense' },
-        { id: `def_ldt_${ts}`, name: 'LDT', unit: 'defense' },
-        { id: `def_rdt_${ts}`, name: 'RDT', unit: 'defense' },
-        { id: `def_rde_${ts}`, name: 'RDE', unit: 'defense' },
-        { id: `def_wlb_${ts}`, name: 'WLB', unit: 'defense' },
-        { id: `def_mlb_${ts}`, name: 'MLB', unit: 'defense' },
-        { id: `def_slb_${ts}`, name: 'SLB', unit: 'defense' },
-        { id: `def_fs_${ts}`, name: 'FS', unit: 'defense' },
-        { id: `def_ss_${ts}`, name: 'SS', unit: 'defense' },
+        slot('9v9_def_lde', 'LDE', 'defense'),
+        slot('9v9_def_ldt', 'LDT', 'defense'),
+        slot('9v9_def_rdt', 'RDT', 'defense'),
+        slot('9v9_def_rde', 'RDE', 'defense'),
+        slot('9v9_def_wlb', 'WLB', 'defense'),
+        slot('9v9_def_mlb', 'MLB', 'defense'),
+        slot('9v9_def_slb', 'SLB', 'defense'),
+        slot('9v9_def_fs', 'FS', 'defense'),
+        slot('9v9_def_ss', 'SS', 'defense'),
       ],
     };
   }
@@ -427,46 +656,53 @@ export function generateDefaultPositions(format: LiveDrillFormat): {
   if (format === '1v1') {
     return {
       offense: [
-        { id: `off_wr1_${ts}`, name: 'WR 1', unit: 'offense' },
-        { id: `off_wr2_${ts}`, name: 'WR 2', unit: 'offense' },
-        { id: `off_wr3_${ts}`, name: 'WR 3', unit: 'offense' },
-        { id: `off_te1_${ts}`, name: 'TE (Y)', unit: 'offense' },
+        slot('1v1_off_wr1', 'WR 1', 'offense'),
+        slot('1v1_off_wr2', 'WR 2', 'offense'),
+        slot('1v1_off_wr3', 'WR 3', 'offense'),
+        slot('1v1_off_te1', 'TE (Y)', 'offense'),
       ],
       defense: [
-        { id: `def_cb1_${ts}`, name: 'CB 1', unit: 'defense' },
-        { id: `def_cb2_${ts}`, name: 'CB 2', unit: 'defense' },
-        { id: `def_nb1_${ts}`, name: 'Nickel / DB', unit: 'defense' },
-        { id: `def_s1_${ts}`, name: 'Safety', unit: 'defense' },
+        slot('1v1_def_cb1', 'CB 1', 'defense'),
+        slot('1v1_def_cb2', 'CB 2', 'defense'),
+        slot('1v1_def_nb1', 'Nickel / DB', 'defense'),
+        slot('1v1_def_s1', 'Safety', 'defense'),
       ],
     };
   }
 
-  // Custom default (5v5 Trenches / Linemen)
   return {
     offense: [
-      { id: `off_lt_${ts}`, name: 'LT', unit: 'offense' },
-      { id: `off_lg_${ts}`, name: 'LG', unit: 'offense' },
-      { id: `off_c_${ts}`, name: 'C', unit: 'offense' },
-      { id: `off_rg_${ts}`, name: 'RG', unit: 'offense' },
-      { id: `off_rt_${ts}`, name: 'RT', unit: 'offense' },
+      slot('trenches_off_lt', 'LT', 'offense'),
+      slot('trenches_off_lg', 'LG', 'offense'),
+      slot('trenches_off_c', 'C', 'offense'),
+      slot('trenches_off_rg', 'RG', 'offense'),
+      slot('trenches_off_rt', 'RT', 'offense'),
     ],
     defense: [
-      { id: `def_lde_${ts}`, name: 'LDE', unit: 'defense' },
-      { id: `def_ldt_${ts}`, name: 'LDT', unit: 'defense' },
-      { id: `def_nt_${ts}`, name: 'NT', unit: 'defense' },
-      { id: `def_rdt_${ts}`, name: 'RDT', unit: 'defense' },
-      { id: `def_rde_${ts}`, name: 'RDE', unit: 'defense' },
+      slot('trenches_def_lde', 'LDE', 'defense'),
+      slot('trenches_def_ldt', 'LDT', 'defense'),
+      slot('trenches_def_nt', 'NT', 'defense'),
+      slot('trenches_def_rdt', 'RDT', 'defense'),
+      slot('trenches_def_rde', 'RDE', 'defense'),
     ],
   };
 }
 
+export function generateDefaultPositions(format: LiveDrillFormat): {
+  offense: LiveDrillPosition[];
+  defense: LiveDrillPosition[];
+} {
+  return applyLiveDrillSlotLayout(format, generateFactoryPositions(format));
+}
+
 export function createInitialPracticeDrillGroups(): LiveDrillGroup[] {
+  const now = Date.now();
   const g7 = generateDefaultPositions('7v7');
   const g11 = generateDefaultPositions('11v11');
 
   return [
     {
-      id: `live_group_7v7_${Date.now()}`,
+      id: 'live_group_7v7',
       name: 'Period 4: 7v7 Pass Skeleton',
       format: '7v7',
       offenseLabel: '1st Team Offense',
@@ -477,10 +713,11 @@ export function createInitialPracticeDrillGroups(): LiveDrillGroup[] {
       offensePositions: g7.offense,
       defensePositions: g7.defense,
       lineup: {},
-      createdAt: Date.now(),
+      createdAt: now,
+      lastEdited: 0,
     },
     {
-      id: `live_group_11v11_${Date.now() + 1}`,
+      id: 'live_group_11v11',
       name: 'Period 6: 11v11 Team Live',
       format: '11v11',
       offenseLabel: 'Varsity Offense',
@@ -491,7 +728,8 @@ export function createInitialPracticeDrillGroups(): LiveDrillGroup[] {
       offensePositions: g11.offense,
       defensePositions: g11.defense,
       lineup: {},
-      createdAt: Date.now() + 1,
+      createdAt: now + 1,
+      lastEdited: 0,
     },
   ];
 }

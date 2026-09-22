@@ -510,4 +510,74 @@ describe('live drill multi-spot assignment', () => {
     assert.equal(canAssignPlayerToDrillUnit(group, '12', 'defense').ok, false);
     assert.equal(canAssignPlayerToDrillUnit(group, '88', 'defense').ok, true);
   });
+
+  it('keeps renamed drill slots when merging remote factory defaults', async () => {
+    const { mergePracticeDrillGroups } = await import('../components/practiceDrillsUtils.ts');
+    const local: LiveDrillGroup[] = [{
+      id: 'g1',
+      name: '7v7',
+      format: '7v7',
+      offenseLabel: 'O',
+      defenseLabel: 'D',
+      lastEdited: 200,
+      offensePositions: [{ id: 'qb', name: 'QB1 Gun', unit: 'offense' }],
+      defensePositions: [{ id: 'cb', name: 'Boundary CB', unit: 'defense' }],
+      lineup: {},
+    }];
+    const remote: LiveDrillGroup[] = [{
+      id: 'g1',
+      name: '7v7',
+      format: '7v7',
+      offenseLabel: 'O',
+      defenseLabel: 'D',
+      lastEdited: 100,
+      offensePositions: [{ id: 'qb', name: 'QB', unit: 'offense' }],
+      defensePositions: [{ id: 'cb', name: 'CB1', unit: 'defense' }],
+      lineup: {},
+    }];
+    const merged = mergePracticeDrillGroups(local, remote);
+    assert.equal(merged[0].offensePositions[0].name, 'QB1 Gun');
+    assert.equal(merged[0].defensePositions[0].name, 'Boundary CB');
+  });
+
+  it('keeps filled 7v7 lineups when a newer factory sheet arrives', async () => {
+    const { mergePracticeDrillGroups } = await import('../components/practiceDrillsUtils.ts');
+    const local: any[] = [{
+      id: 'live_group_7v7_old',
+      name: '7v7',
+      format: '7v7',
+      lastEdited: 100,
+      offensePositions: [{ id: 'qb', name: 'Gun QB', unit: 'offense' }],
+      defensePositions: [{ id: 'cb', name: 'CB1', unit: 'defense' }],
+      lineup: { qb: [{ num: '12', name: 'Dan' }] },
+    }];
+    const remote: any[] = [{
+      id: 'live_group_7v7',
+      name: '7v7',
+      format: '7v7',
+      lastEdited: 999999,
+      offensePositions: [{ id: 'qb', name: 'QB', unit: 'offense' }],
+      defensePositions: [{ id: 'cb', name: 'CB1', unit: 'defense' }],
+      lineup: {},
+    }];
+    const merged = mergePracticeDrillGroups(local, remote);
+    assert.equal(merged.length, 1);
+    assert.equal(merged[0].lineup.qb[0].num, '12');
+    assert.equal(merged[0].offensePositions[0].name, 'Gun QB');
+  });
+
+  it('does not let an empty remote week wipe saved drill assignments', async () => {
+    const { mergePracticeDrillGroups } = await import('../components/practiceDrillsUtils.ts');
+    const local: any[] = [{
+      id: 'live_group_11v11',
+      name: '11v11',
+      format: '11v11',
+      lastEdited: 50,
+      offensePositions: [{ id: 'lt', name: 'LT', unit: 'offense' }],
+      defensePositions: [{ id: 'de', name: 'LDE', unit: 'defense' }],
+      lineup: { lt: [{ num: '55', name: 'Mike' }] },
+    }];
+    const merged = mergePracticeDrillGroups(local, []);
+    assert.equal(merged[0].lineup.lt[0].num, '55');
+  });
 });
