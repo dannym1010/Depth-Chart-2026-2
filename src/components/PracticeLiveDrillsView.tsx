@@ -61,7 +61,6 @@ import {
   getPlayerLinedUpUnit,
   bothSideJerseysByTeam,
   normalizeJerseyNum,
-  prepareDrillGroupForUnitAssign,
   drillSpotLastName,
   isFilledPlayer,
   captureLiveDrillSlotLayout,
@@ -362,7 +361,6 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
 
   // Auto-fill feedback toast
   const [autoFillFeedback, setAutoFillFeedback] = useState<string | null>(null);
-  const [dropFeedback, setDropFeedback] = useState<string | null>(null);
   const [dropHoverKey, setDropHoverKey] = useState<string | null>(null);
 
   // Auto-fill options modal
@@ -834,11 +832,6 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
   // --------------------------------------------------------------------------
   // PLAYER ASSIGNMENTS & AUTO-FILL
   // --------------------------------------------------------------------------
-  const showDropFeedback = (msg: string) => {
-    setDropFeedback(msg);
-    setTimeout(() => setDropFeedback(null), 4000);
-  };
-
   const resolveAssignUnit = (posId: string, group = currentGroup): 'offense' | 'defense' | null => {
     if (!group) return null;
     if (group.offensePositions.some((p) => p.id === posId)) return 'offense';
@@ -852,18 +845,12 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
     const unit = resolveAssignUnit(posId, liveGroup);
     if (!unit) return false;
 
-    const prepared = prepareDrillGroupForUnitAssign(liveGroup, player.num, unit);
     const linedUpPlayer: PlacedPlayer = {
       num: player.num,
       name: drillSpotLastName(player, roster),
     };
-    if (prepared.movedFrom) {
-      showDropFeedback(
-        `#${linedUpPlayer.num} ${linedUpPlayer.name} moved off ${prepared.movedFrom} and onto ${unit}.`
-      );
-    }
 
-    const currentList = [...(prepared.group.lineup[posId] || [])];
+    const currentList = [...(liveGroup.lineup[posId] || [])];
 
     if (targetIdx !== undefined && targetIdx >= 0) {
       while (currentList.length <= targetIdx) {
@@ -871,9 +858,9 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
       }
       currentList[targetIdx] = linedUpPlayer;
       updateGroup({
-        ...prepared.group,
+        ...liveGroup,
         lineup: {
-          ...prepared.group.lineup,
+          ...liveGroup.lineup,
           [posId]: currentList,
         },
       });
@@ -881,9 +868,9 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
     }
 
     updateGroup({
-      ...prepared.group,
+      ...liveGroup,
       lineup: {
-        ...prepared.group.lineup,
+        ...liveGroup.lineup,
         [posId]: [...currentList, linedUpPlayer],
       },
     });
@@ -1127,14 +1114,6 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
           <div className="mt-3 p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 text-emerald-900 dark:text-emerald-200 text-xs font-bold flex items-center justify-between">
             <span>{autoFillFeedback}</span>
             <button type="button" onClick={() => setAutoFillFeedback(null)} className="cursor-pointer">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
-        {dropFeedback && (
-          <div className="mt-3 p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 text-rose-900 dark:text-rose-200 text-xs font-bold flex items-center justify-between">
-            <span>{dropFeedback}</span>
-            <button type="button" onClick={() => setDropFeedback(null)} className="cursor-pointer">
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -1385,7 +1364,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                                         onDragStart={(e) => handleStartPlacedDrag(e, player)}
                                         title={
                                           onBothSides
-                                            ? `#${player.num} is on offense and defense for team ${num}`
+                                            ? `#${player.num} is on both sides of this matchup (O-${num} vs D-${num})`
                                             : undefined
                                         }
                                         className={`flex items-center gap-1.5 min-w-0 rounded-md px-1 py-0.5 ${
@@ -1649,7 +1628,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                   </span>
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Same player can take multiple {assigningPos.unit} spots. Putting them on this side moves them off the other side.
+                  Same player can take spots on both sides. A red box marks a jersey on both sides of the same matchup (O-1 vs D-1, O-2 vs D-2, O-3 vs D-3).
                 </p>
               </div>
               <button
@@ -1680,7 +1659,6 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                   groupsRef.current.find((g) => g.id === activeGroupId) || currentGroup,
                   player.num
                 );
-                const willMove = Boolean(linedUp && linedUp !== assigningPos.unit);
                 return (
                 <button
                   key={player.num}
@@ -1712,7 +1690,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                     </div>
                   </div>
                   <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
-                    {willMove ? 'Move off other side' : linedUp === assigningPos.unit ? '+ Another spot' : '+ Assign'}
+                    {linedUp === assigningPos.unit ? '+ Another spot' : '+ Assign'}
                   </span>
                 </button>
                 );

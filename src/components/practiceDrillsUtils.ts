@@ -87,14 +87,10 @@ export function getPlayerLinedUpUnit(
 }
 
 export function canAssignPlayerToDrillUnit(
-  group: LiveDrillGroup | undefined,
-  num: string | number | undefined | null,
-  unit: 'offense' | 'defense'
+  _group: LiveDrillGroup | undefined,
+  _num: string | number | undefined | null,
+  _unit: 'offense' | 'defense'
 ): { ok: boolean; blockedUnit?: 'offense' | 'defense' } {
-  const existing = getPlayerLinedUpUnit(group, num);
-  if (existing && existing !== unit) {
-    return { ok: false, blockedUnit: existing };
-  }
   return { ok: true };
 }
 
@@ -129,15 +125,10 @@ export function removeJerseyFromDrillUnit(
 
 export function prepareDrillGroupForUnitAssign(
   group: LiveDrillGroup,
-  num: string | number | undefined | null,
-  unit: 'offense' | 'defense'
+  _num: string | number | undefined | null,
+  _unit: 'offense' | 'defense'
 ): { group: LiveDrillGroup; movedFrom?: 'offense' | 'defense' } {
-  const existing = getPlayerLinedUpUnit(group, num);
-  if (!existing || existing === unit) return { group };
-  return {
-    group: removeJerseyFromDrillUnit(group, num, existing),
-    movedFrom: existing,
-  };
+  return { group };
 }
 
 // ============================================================================

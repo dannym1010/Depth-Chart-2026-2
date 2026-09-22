@@ -488,7 +488,7 @@ describe('hudlFilmImport', () => {
 });
 
 describe('live drill multi-spot assignment', () => {
-  it('allows the same jersey on multiple offense spots and moves them off offense when lined up on defense', async () => {
+  it('allows the same jersey on multiple offense spots and on defense without removing them', async () => {
     const {
       canAssignPlayerToDrillUnit,
       getPlayerLinedUpUnit,
@@ -512,12 +512,33 @@ describe('live drill multi-spot assignment', () => {
     };
     assert.equal(getPlayerLinedUpUnit(group, '12'), 'offense');
     assert.equal(canAssignPlayerToDrillUnit(group, '12', 'offense').ok, true);
-    assert.equal(canAssignPlayerToDrillUnit(group, '12', 'defense').ok, false);
-    const moved = prepareDrillGroupForUnitAssign(group, '12', 'defense');
-    assert.equal(moved.movedFrom, 'offense');
-    assert.equal(getPlayerLinedUpUnit(moved.group, '12'), null);
-    assert.equal(canAssignPlayerToDrillUnit(moved.group, '12', 'defense').ok, true);
+    assert.equal(canAssignPlayerToDrillUnit(group, '12', 'defense').ok, true);
+    const prepared = prepareDrillGroupForUnitAssign(group, '12', 'defense');
+    assert.equal(prepared.movedFrom, undefined);
+    assert.equal(getPlayerLinedUpUnit(prepared.group, '12'), 'offense');
     assert.equal(canAssignPlayerToDrillUnit(group, '88', 'defense').ok, true);
+  });
+
+  it('red-boxes a jersey only when it is on both sides of the same matchup', async () => {
+    const { bothSideJerseysByTeam } = await import('../components/practiceDrillsUtils.ts');
+    const group: LiveDrillGroup = {
+      id: 'g1',
+      name: '7v7',
+      format: '7v7',
+      offenseLabel: 'O',
+      defenseLabel: 'D',
+      teamCount: 2,
+      offensePositions: [{ id: 'wr', name: 'WR', unit: 'offense' }],
+      defensePositions: [{ id: 'cb', name: 'CB', unit: 'defense' }],
+      lineup: {
+        wr: [{ num: '12', name: 'Dan' }, { num: '12', name: 'Dan' }],
+        cb: [{ num: '12', name: 'Dan' }, { num: '88', name: 'Pat' }],
+      },
+    };
+    const flags = bothSideJerseysByTeam(group);
+    assert.equal(flags[0].has('12'), true);
+    assert.equal(flags[1].has('12'), false);
+    assert.equal(flags[2].size, 0);
   });
 
   it('auto-fill does not put the same jersey on matching offense and defense teams', async () => {
