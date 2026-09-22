@@ -1590,10 +1590,46 @@ export function executeIntelligentAutoFill(params: {
   let filledDefense = 0;
   let startersMixed = 0;
   let backupsAdded = 0;
+  const teamLimit = getDrillTeamCount(group);
+  const matchupUsed: [Set<string>, Set<string>, Set<string>] = [
+    new Set<string>(),
+    new Set<string>(),
+    new Set<string>(),
+  ];
+
+  const jerseyKey = (num: string | number | undefined | null) => normalizeJerseyNum(num);
+  const canUseOnTeam = (usedByTeam: [Set<string>, Set<string>, Set<string>], teamIdx: number, num: string) => {
+    const jersey = jerseyKey(num);
+    if (!jersey || jersey === '?' || teamIdx < 0 || teamIdx >= teamLimit) return false;
+    if (usedByTeam[teamIdx].has(jersey)) return false;
+    if (matchupUsed[teamIdx].has(jersey)) return false;
+    return true;
+  };
+  const markUsedOnTeam = (usedByTeam: [Set<string>, Set<string>, Set<string>], teamIdx: number, num: string) => {
+    const jersey = jerseyKey(num);
+    if (!jersey || jersey === '?' || teamIdx < 0 || teamIdx >= teamLimit) return;
+    usedByTeam[teamIdx].add(jersey);
+    matchupUsed[teamIdx].add(jersey);
+  };
+  const seedMatchupFromUnit = (positions: LiveDrillPosition[], onlyIdx?: number) => {
+    for (let idx = 0; idx < teamLimit; idx++) {
+      if (onlyIdx !== undefined && idx !== onlyIdx) continue;
+      for (const pos of positions || []) {
+        const player = (nextLineup[pos.id] || [])[idx];
+        if (isFilledPlayer(player)) matchupUsed[idx].add(jerseyKey(player.num));
+      }
+    }
+  };
 
   // Process a unit (offense or defense)
   const processUnit = (unit: 'offense' | 'defense') => {
     const positions = unit === 'offense' ? group.offensePositions : group.defensePositions;
+    const oppositePositions = unit === 'offense' ? group.defensePositions : group.offensePositions;
+    if (fillUnit !== 'both') {
+      seedMatchupFromUnit(oppositePositions, targetString === 'all' ? undefined : targetString - 1);
+    } else if (unit === 'defense') {
+      seedMatchupFromUnit(group.offensePositions, targetString === 'all' ? undefined : targetString - 1);
+    }
 
     // Track players assigned per team to avoid jersey conflicts within the same team on the field
     const usedByTeam: [Set<string>, Set<string>, Set<string>] = [
@@ -1608,7 +1644,7 @@ export function executeIntelligentAutoFill(params: {
         const assigned = nextLineup[p.id] || [];
         [0, 1, 2].forEach((tIdx) => {
           if (tIdx !== (targetString - 1) && assigned[tIdx] && assigned[tIdx].num !== '?') {
-            usedByTeam[tIdx].add(String(assigned[tIdx].num));
+            markUsedOnTeam(usedByTeam, tIdx, assigned[tIdx].num);
           }
         });
       });
@@ -1646,11 +1682,13 @@ export function executeIntelligentAutoFill(params: {
           if (candidates.length === 1) {
             const cand = candidates[0];
             const targetTeam = pIdx % 2 === 0 ? 0 : 1;
-            currentList[targetTeam] = { num: cand.num, name: cand.name };
-            usedByTeam[targetTeam].add(cand.num);
-            assignedCandidates.add(cand.num);
-            if (unit === 'offense') filledOffense++;
-            else filledDefense++;
+            if (canUseOnTeam(usedByTeam, targetTeam, cand.num)) {
+              currentList[targetTeam] = { num: cand.num, name: cand.name };
+              markUsedOnTeam(usedByTeam, targetTeam, cand.num);
+              assignedCandidates.add(cand.num);
+              if (unit === 'offense') filledOffense++;
+              else filledDefense++;
+            }
           } else if (candidates.length >= 2) {
             // Even index: Team 1 gets Starter (0), Team 2 gets 2nd string (1)
             // Odd index:  Team 2 gets Starter (0), Team 1 gets 2nd string (1)
@@ -1660,18 +1698,18 @@ export function executeIntelligentAutoFill(params: {
             const starterCand = candidates[0];
             const backupCand = candidates[1];
 
-            if (!usedByTeam[teamForStarter].has(starterCand.num)) {
+            if (canUseOnTeam(usedByTeam, teamForStarter, starterCand.num)) {
               currentList[teamForStarter] = { num: starterCand.num, name: starterCand.name };
-              usedByTeam[teamForStarter].add(starterCand.num);
+              markUsedOnTeam(usedByTeam, teamForStarter, starterCand.num);
               assignedCandidates.add(starterCand.num);
               startersMixed++;
               if (unit === 'offense') filledOffense++;
               else filledDefense++;
             }
 
-            if (!usedByTeam[teamForBackup].has(backupCand.num)) {
+            if (canUseOnTeam(usedByTeam, teamForBackup, backupCand.num)) {
               currentList[teamForBackup] = { num: backupCand.num, name: backupCand.name };
-              usedByTeam[teamForBackup].add(backupCand.num);
+              markUsedOnTeam(usedByTeam, teamForBackup, backupCand.num);
               assignedCandidates.add(backupCand.num);
               startersMixed++;
               if (unit === 'offense') filledOffense++;
@@ -1679,9 +1717,9 @@ export function executeIntelligentAutoFill(params: {
             }
 
             // Team 3 (slot 2) receives the 3rd string candidate (Blue)
-            if (candidates[2] && !usedByTeam[2].has(candidates[2].num) && !assignedCandidates.has(candidates[2].num)) {
+            if (candidates[2] && !assignedCandidates.has(candidates[2].num) && canUseOnTeam(usedByTeam, 2, candidates[2].num)) {
               currentList[2] = { num: candidates[2].num, name: candidates[2].name };
-              usedByTeam[2].add(candidates[2].num);
+              markUsedOnTeam(usedByTeam, 2, candidates[2].num);
               assignedCandidates.add(candidates[2].num);
               if (unit === 'offense') filledOffense++;
               else filledDefense++;
@@ -1712,40 +1750,25 @@ export function executeIntelligentAutoFill(params: {
           // That starter stays on Team 1!
           if (candidates.length === 1) {
             const cand = candidates[0];
-            currentList[0] = { num: cand.num, name: cand.name };
-            usedByTeam[0].add(cand.num);
-            assignedCandidates.add(cand.num);
-            if (unit === 'offense') filledOffense++;
-            else filledDefense++;
+            if (canUseOnTeam(usedByTeam, 0, cand.num)) {
+              currentList[0] = { num: cand.num, name: cand.name };
+              markUsedOnTeam(usedByTeam, 0, cand.num);
+              assignedCandidates.add(cand.num);
+              if (unit === 'offense') filledOffense++;
+              else filledDefense++;
+            }
           } else {
-            const shift = pIdx % 3;
-            const tierToTeam: [number, number, number] = [
-              (0 + shift) % 3,
-              (1 + shift) % 3,
-              (2 + shift) % 3,
-            ];
-
-            for (let tier = 0; tier < 3; tier++) {
-              const teamIdx = tierToTeam[tier];
+            const shift = pIdx % teamLimit;
+            for (let tier = 0; tier < teamLimit; tier++) {
+              const teamIdx = (tier + shift) % teamLimit;
               let pickedCand: CandidateRecord | null = null;
 
-              // Try matching candidate corresponding to this tier (0 = Black/1st, 1 = Gold/2nd, 2 = Blue/3rd)
-              if (candidates[tier] && !usedByTeam[teamIdx].has(candidates[tier].num) && !assignedCandidates.has(candidates[tier].num)) {
+              if (candidates[tier] && !assignedCandidates.has(candidates[tier].num) && canUseOnTeam(usedByTeam, teamIdx, candidates[tier].num)) {
                 pickedCand = candidates[tier];
               } else {
                 for (const cand of candidates) {
-                  if (!usedByTeam[teamIdx].has(cand.num) && !assignedCandidates.has(cand.num)) {
+                  if (!assignedCandidates.has(cand.num) && canUseOnTeam(usedByTeam, teamIdx, cand.num)) {
                     pickedCand = cand;
-                    break;
-                  }
-                }
-              }
-
-              // Backups can step in for playing time
-              if (!pickedCand && candidates.length > 3) {
-                for (let b = 3; b < candidates.length; b++) {
-                  if (!usedByTeam[teamIdx].has(candidates[b].num) && !assignedCandidates.has(candidates[b].num)) {
-                    pickedCand = candidates[b];
                     break;
                   }
                 }
@@ -1753,7 +1776,7 @@ export function executeIntelligentAutoFill(params: {
 
               if (pickedCand) {
                 currentList[teamIdx] = { num: pickedCand.num, name: pickedCand.name };
-                usedByTeam[teamIdx].add(pickedCand.num);
+                markUsedOnTeam(usedByTeam, teamIdx, pickedCand.num);
                 assignedCandidates.add(pickedCand.num);
                 startersMixed++;
                 if (unit === 'offense') filledOffense++;
@@ -1787,17 +1810,20 @@ export function executeIntelligentAutoFill(params: {
           // ================================================================
           const assignedCandidates = new Set<string>();
 
-          for (let teamIdx = 0; teamIdx < 3; teamIdx++) {
+          for (let teamIdx = 0; teamIdx < teamLimit; teamIdx++) {
             const expectedDepthString = teamIdx + 1; // 1 = Black, 2 = Gold, 3 = Blue
 
-            // Find candidate with exact depthString for this team slot
             let pickedCand: CandidateRecord | null =
-              candidates.find((c) => c.depthString === expectedDepthString && !usedByTeam[teamIdx].has(c.num) && !assignedCandidates.has(c.num)) || null;
+              candidates.find(
+                (c) =>
+                  c.depthString === expectedDepthString &&
+                  !assignedCandidates.has(c.num) &&
+                  canUseOnTeam(usedByTeam, teamIdx, c.num)
+              ) || null;
 
-            // If no exact depth tier candidate, find first available candidate for this position
             if (!pickedCand) {
               for (const cand of candidates) {
-                if (!usedByTeam[teamIdx].has(cand.num) && !assignedCandidates.has(cand.num)) {
+                if (!assignedCandidates.has(cand.num) && canUseOnTeam(usedByTeam, teamIdx, cand.num)) {
                   pickedCand = cand;
                   break;
                 }
@@ -1806,7 +1832,7 @@ export function executeIntelligentAutoFill(params: {
 
             if (pickedCand) {
               currentList[teamIdx] = { num: pickedCand.num, name: pickedCand.name };
-              usedByTeam[teamIdx].add(pickedCand.num);
+              markUsedOnTeam(usedByTeam, teamIdx, pickedCand.num);
               assignedCandidates.add(pickedCand.num);
               if (unit === 'offense') filledOffense++;
               else filledDefense++;
@@ -1840,14 +1866,17 @@ export function executeIntelligentAutoFill(params: {
         // 3 = Team 3 (Blue / 3rd String)
         const targetIdx = targetString - 1;
         const expectedDepth = targetString;
+        if (targetIdx >= teamLimit) {
+          nextLineup[pos.id] = currentList;
+          return;
+        }
 
-        // Find candidate matching this exact depth tier (Black=1, Gold=2, Blue=3)
         let pickedCand: CandidateRecord | null =
-          candidates.find((c) => c.depthString === expectedDepth && !usedByTeam[targetIdx].has(c.num)) || null;
+          candidates.find((c) => c.depthString === expectedDepth && canUseOnTeam(usedByTeam, targetIdx, c.num)) || null;
 
         if (!pickedCand) {
           for (const cand of candidates) {
-            if (!usedByTeam[targetIdx].has(cand.num)) {
+            if (canUseOnTeam(usedByTeam, targetIdx, cand.num)) {
               pickedCand = cand;
               break;
             }
@@ -1856,7 +1885,7 @@ export function executeIntelligentAutoFill(params: {
 
         if (pickedCand) {
           currentList[targetIdx] = { num: pickedCand.num, name: pickedCand.name };
-          usedByTeam[targetIdx].add(pickedCand.num);
+          markUsedOnTeam(usedByTeam, targetIdx, pickedCand.num);
           if (unit === 'offense') filledOffense++;
           else filledDefense++;
         }

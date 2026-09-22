@@ -520,6 +520,39 @@ describe('live drill multi-spot assignment', () => {
     assert.equal(canAssignPlayerToDrillUnit(group, '88', 'defense').ok, true);
   });
 
+  it('auto-fill does not put the same jersey on matching offense and defense teams', async () => {
+    const { executeIntelligentAutoFill } = await import('../components/practiceDrillsUtils.ts');
+    const group: LiveDrillGroup = {
+      id: 'g1',
+      name: '7v7',
+      format: '7v7',
+      offenseLabel: 'O',
+      defenseLabel: 'D',
+      teamCount: 2,
+      offensePositions: [{ id: 'wr', name: 'WR (X)', unit: 'offense' }],
+      defensePositions: [{ id: 'cb', name: 'CB1', unit: 'defense' }],
+      lineup: {},
+    };
+    const formations: any[] = [
+      { id: 'off', unit: 'offense', rows: [{ positions: [{ id: 'dc-wr', name: 'WR (X)' }] }] },
+      { id: 'def', unit: 'defense', rows: [{ positions: [{ id: 'dc-cb', name: 'CB1' }] }] },
+    ];
+    const result = executeIntelligentAutoFill({
+      group,
+      formations,
+      depthChart: {
+        'dc-wr': [{ num: '11', name: 'Berish' }],
+        'dc-cb': [{ num: '11', name: 'Berish' }],
+      },
+      roster: [],
+      targetString: 'all',
+      fillUnit: 'both',
+    });
+    const o1 = result.nextLineup.wr?.[0]?.num;
+    const d1 = result.nextLineup.cb?.[0]?.num;
+    assert.notEqual(o1 === '11' && d1 === '11', true);
+  });
+
   it('keeps renamed drill slots when merging remote factory defaults', async () => {
     const { mergePracticeDrillGroups } = await import('../components/practiceDrillsUtils.ts');
     const local: LiveDrillGroup[] = [{
