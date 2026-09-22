@@ -414,6 +414,8 @@ export interface LiveDrillGroup {
   defenseTeam2Color?: string;
   offenseTeam3Color?: string;
   defenseTeam3Color?: string;
+  /** How many 1s/2s/3s teams to show. Missing means 3. */
+  teamCount?: 1 | 2 | 3;
   notes?: string;
   offensePositions: LiveDrillPosition[];
   defensePositions: LiveDrillPosition[];

@@ -45,6 +45,32 @@ export function drillSpotLastName(
 }
 
 /** Which side of a 7v7/11v11 drill a jersey is already lined up on. */
+/** Jerseys that appear on both offense and defense for the same 1s/2s/3s team. */
+export function bothSideJerseysByTeam(
+  group?: LiveDrillGroup | null
+): [Set<string>, Set<string>, Set<string>] {
+  const teams: [Set<string>, Set<string>, Set<string>] = [new Set(), new Set(), new Set()];
+  if (!group) return teams;
+
+  const jerseysOnSide = (positions: LiveDrillPosition[] | undefined, idx: number) => {
+    const found = new Set<string>();
+    for (const pos of positions || []) {
+      const player = (group.lineup?.[pos.id] || [])[idx];
+      if (isFilledPlayer(player)) found.add(normalizeJerseyNum(player.num));
+    }
+    return found;
+  };
+
+  for (let idx = 0; idx < 3; idx++) {
+    const offense = jerseysOnSide(group.offensePositions, idx);
+    const defense = jerseysOnSide(group.defensePositions, idx);
+    for (const jersey of offense) {
+      if (defense.has(jersey)) teams[idx].add(jersey);
+    }
+  }
+  return teams;
+}
+
 export function getPlayerLinedUpUnit(
   group: LiveDrillGroup | undefined,
   num: string | number | undefined | null
@@ -533,6 +559,16 @@ export function applyLayoutToDrillGroup(group: LiveDrillGroup, layouts?: LiveDri
     offensePositions: applyNamesToSlots(group.offensePositions || [], saved.offense, factory.offense),
     defensePositions: applyNamesToSlots(group.defensePositions || [], saved.defense, factory.defense),
   };
+}
+
+export function getDrillTeamCount(group?: LiveDrillGroup | null): 1 | 2 | 3 {
+  const n = Number(group?.teamCount);
+  if (n === 1 || n === 2 || n === 3) return n;
+  return 3;
+}
+
+export function drillTeamNumbers(count: 1 | 2 | 3 = 3): Array<1 | 2 | 3> {
+  return ([1, 2, 3] as const).filter((num) => num <= count);
 }
 
 export function drillGroupsStamp(groups: LiveDrillGroup[] | undefined): number {

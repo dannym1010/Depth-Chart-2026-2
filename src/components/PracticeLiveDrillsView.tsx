@@ -59,6 +59,8 @@ import {
   executeIntelligentAutoFill,
   AutoFillSummary,
   getPlayerLinedUpUnit,
+  bothSideJerseysByTeam,
+  normalizeJerseyNum,
   prepareDrillGroupForUnitAssign,
   drillSpotLastName,
   isFilledPlayer,
@@ -66,6 +68,8 @@ import {
   applyLayoutToDrillGroup,
   drillGroupsStamp,
   bootstrapLiveDrillSlotLayout,
+  getDrillTeamCount,
+  drillTeamNumbers,
 } from './practiceDrillsUtils';
 
 const FOOTBALL_PLAYER_DRAG = 'application/x-football-player';
@@ -156,6 +160,8 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
   const currentGroup = useMemo(() => {
     return groups.find((g) => g.id === activeGroupId) || groups[0] || createInitialPracticeDrillGroups()[0];
   }, [groups, activeGroupId]);
+
+  const bothSideByTeam = useMemo(() => bothSideJerseysByTeam(currentGroup), [currentGroup]);
 
   // Active Matchup selection: 1 (1s vs 1s), 2 (2s vs 2s), 3 (3s vs 3s), '1v2' (Team 1 vs Team 2), '2v1' (Team 2 vs Team 1), or 'all'
   const [activeMatchup, setActiveMatchup] = useState<1 | 2 | 3 | '1v2' | '2v1' | 'all'>('all');
@@ -514,16 +520,29 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
     }).length;
   };
 
+  const teamCount = getDrillTeamCount(currentGroup);
+  const teamNums = drillTeamNumbers(teamCount);
+  const togetherTitle =
+    teamCount === 1 ? '1 Team' : teamCount === 2 ? 'Both Teams' : 'All 3 Together';
+  const togetherPairs = teamNums.map((num) => `O-${num} vs D-${num}`).join(', ');
+
   const matchupBoardCards: {
     key: 1 | 2 | 3 | '1v2' | '2v1' | 'all';
     title: string;
     off?: 1 | 2 | 3;
     def?: 1 | 2 | 3;
-  }[] = [
-    { key: 1, title: 'O-1 vs D-1', off: 1, def: 1 },
-    { key: 2, title: 'O-2 vs D-2', off: 2, def: 2 },
-    { key: 3, title: 'O-3 vs D-3', off: 3, def: 3 },
-  ];
+  }[] = teamNums.map((num) => ({
+    key: num,
+    title: `O-${num} vs D-${num}`,
+    off: num,
+    def: num,
+  }));
+
+  const handleSetTeamCount = (count: 1 | 2 | 3) => {
+    updateGroup({ ...currentGroup, teamCount: count });
+    if (activeOffenseString > count) setActiveOffenseString(count);
+    if (activeDefenseString > count) setActiveDefenseString(count);
+  };
 
   // Active color configs for currently active on-field units
   const activeOffenseLabel = getOffenseLabelForString(activeOffenseString);
@@ -594,6 +613,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
       offensePositions: gen.offense,
       defensePositions: gen.defense,
       lineup: {},
+      teamCount: 3,
       createdAt: Date.now(),
     };
     const next = [...groups, newGroup];
@@ -1132,9 +1152,9 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
       >
                 <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h4 className="font-black text-slate-900 dark:text-slate-100 text-base">All 3 Together</h4>
+            <h4 className="font-black text-slate-900 dark:text-slate-100 text-base">{togetherTitle}</h4>
             <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-              O-1 vs D-1, O-2 vs D-2, O-3 vs D-3. Drag from the roster on the right, or tap a cell to assign.
+              {togetherPairs}. Drag from the roster on the right, or tap a cell to assign.
             </p>
           </div>
           <div className="flex items-center flex-wrap gap-2">
@@ -1148,7 +1168,55 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+        <div className="mb-4 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+            <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">Teams</span>
+            <div className="inline-flex rounded-xl bg-white dark:bg-slate-900 p-0.5 border border-slate-200 dark:border-slate-700 text-xs font-bold">
+              {([1, 2, 3] as const).map((count) => (
+                <button
+                  key={count}
+                  type="button"
+                  onClick={() => handleSetTeamCount(count)}
+                  className={`px-2.5 py-1 rounded-lg cursor-pointer ${
+                    teamCount === count
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  {count} {count === 1 ? 'team' : 'teams'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {(['offense', 'defense'] as const).map((unit) => (
+              <div key={unit}>
+                <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5">
+                  {unit === 'offense' ? 'Offense names' : 'Defense names'}
+                </div>
+                <div className="space-y-1.5">
+                  {teamNums.map((num) => (
+                    <div key={`${unit}_${num}`} className="flex items-center gap-2">
+                      <span className="w-6 text-[10px] font-black text-slate-400">{num}</span>
+                      <input
+                        value={unit === 'offense' ? getOffenseLabelForString(num) : getDefenseLabelForString(num)}
+                        onChange={(e) =>
+                          unit === 'offense'
+                            ? handleUpdateOffenseLabel(e.target.value, num)
+                            : handleUpdateDefenseLabel(e.target.value, num)
+                        }
+                        className="flex-1 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-bold text-slate-900 dark:text-white"
+                        aria-label={`${unit} team ${num} name`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className={`grid grid-cols-1 ${teamCount === 1 ? 'sm:grid-cols-1' : teamCount === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-2 mb-4`}>
           {matchupBoardCards.map((card) => {
             const offCfg = getTeamColorConfig(getOffenseColorForString(card.off!), 'gold');
             const defCfg = getTeamColorConfig(getDefenseColorForString(card.def!), 'blue');
@@ -1183,15 +1251,15 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
         )}
 
 {/* ------------------------------------------------------------------ */}
-        {/* VIEW ALL 3 MATCHUPS TOGETHER MODE */}
+        {/* VIEW ALL MATCHUPS TOGETHER MODE */}
         {/* ------------------------------------------------------------------ */}
         <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
               <h5 className="font-black text-sm text-slate-900 dark:text-white uppercase tracking-wider">
-                All teams · who they match up against
+                {togetherTitle} · who they match up against
               </h5>
               <span className="text-xs text-slate-500 font-medium">
-                O-1 vs D-1 · O-2 vs D-2 · O-3 vs D-3. Same player can take multiple spots on one side only.
+                {togetherPairs}. Red box = same player on offense and defense for that team.
               </span>
             </div>
 
@@ -1218,7 +1286,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                         <thead>
                           <tr className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400">
                             <th className="px-3 py-2 text-left font-black w-20">Slot</th>
-                            {([1, 2, 3] as const).map((num) => {
+                            {teamNums.map((num) => {
                               const cfg = getTeamColorConfig(
                                 unit === 'offense' ? getOffenseColorForString(num) : getDefenseColorForString(num),
                                 unit === 'offense' ? 'gold' : 'blue'
@@ -1287,7 +1355,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                                   </button>
                                 )}
                               </td>
-                              {([1, 2, 3] as const).map((num) => {
+                              {teamNums.map((num) => {
                                 const player = (currentGroup.lineup[pos.id] || [])[num - 1];
                                 const cfg = getTeamColorConfig(
                                   unit === 'offense' ? getOffenseColorForString(num) : getDefenseColorForString(num),
@@ -1295,6 +1363,9 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                                 );
                                 const cellKey = `${pos.id}_${num}`;
                                 const isHover = dropHoverKey === cellKey;
+                                const onBothSides =
+                                  Boolean(player && isFilledPlayer(player)) &&
+                                  bothSideByTeam[num - 1].has(normalizeJerseyNum(player.num));
                                 return (
                                   <td
                                     key={cellKey}
@@ -1312,7 +1383,14 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                                       <div
                                         draggable={userRole === 'admin'}
                                         onDragStart={(e) => handleStartPlacedDrag(e, player)}
-                                        className={`flex items-center gap-1.5 min-w-0 ${userRole === 'admin' ? 'cursor-grab' : ''}`}
+                                        title={
+                                          onBothSides
+                                            ? `#${player.num} is on offense and defense for team ${num}`
+                                            : undefined
+                                        }
+                                        className={`flex items-center gap-1.5 min-w-0 rounded-md px-1 py-0.5 ${
+                                          userRole === 'admin' ? 'cursor-grab' : ''
+                                        } ${onBothSides ? 'ring-2 ring-rose-600 border border-rose-600 bg-rose-50 dark:bg-rose-950/40' : ''}`}
                                       >
                                         <span
                                           className="w-6 h-6 rounded text-[10px] font-black flex items-center justify-center shrink-0"
@@ -1792,37 +1870,35 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                     <thead>
                       <tr className="bg-slate-200">
                         <th className="p-1 text-left border border-slate-400 w-14">Slot</th>
-                        <th className="p-1 text-left border border-slate-400">
-                          {drill.offenseTeam1Label || drill.offenseLabel || '1st String'}
-                        </th>
-                        <th className="p-1 text-left border border-slate-400">
-                          {drill.offenseTeam2Label || '2nd String'}
-                        </th>
-                        <th className="p-1 text-left border border-slate-400">
-                          {drill.offenseTeam3Label || '3rd String'}
-                        </th>
+                        {drillTeamNumbers(getDrillTeamCount(drill)).map((num) => (
+                          <th key={num} className="p-1 text-left border border-slate-400">
+                            {num === 1
+                              ? drill.offenseTeam1Label || drill.offenseLabel || '1st String'
+                              : num === 2
+                                ? drill.offenseTeam2Label || '2nd String'
+                                : drill.offenseTeam3Label || '3rd String'}
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
                       {drill.offensePositions.map((pos) => {
                         const assigned = drill.lineup[pos.id] || [];
-                        const starter = assigned[0];
-                        const backup1 = assigned[1];
-                        const backup2 = assigned[2];
                         return (
                           <tr key={pos.id} className="border-b border-slate-300">
                             <td className="p-1 font-bold border border-slate-300 bg-slate-50">
                               {pos.name}
                             </td>
-                            <td className="p-1 font-black border border-slate-300">
-                              {starter && starter.num !== '?' ? `#${starter.num} ${drillSpotLastName(starter, roster)}` : '—'}
-                            </td>
-                            <td className="p-1 text-slate-700 border border-slate-300">
-                              {backup1 && backup1.num !== '?' ? `#${backup1.num} ${drillSpotLastName(backup1, roster)}` : '—'}
-                            </td>
-                            <td className="p-1 text-slate-500 border border-slate-300">
-                              {backup2 && backup2.num !== '?' ? `#${backup2.num} ${drillSpotLastName(backup2, roster)}` : '—'}
-                            </td>
+                            {drillTeamNumbers(getDrillTeamCount(drill)).map((num) => {
+                              const player = assigned[num - 1];
+                              return (
+                                <td key={num} className="p-1 font-black border border-slate-300">
+                                  {player && player.num !== '?'
+                                    ? `#${player.num} ${drillSpotLastName(player, roster)}`
+                                    : '—'}
+                                </td>
+                              );
+                            })}
                           </tr>
                         );
                       })}
@@ -1845,37 +1921,35 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                     <thead>
                       <tr className="bg-slate-200">
                         <th className="p-1 text-left border border-slate-400 w-14">Slot</th>
-                        <th className="p-1 text-left border border-slate-400">
-                          {drill.defenseTeam1Label || drill.defenseLabel || '1st String'}
-                        </th>
-                        <th className="p-1 text-left border border-slate-400">
-                          {drill.defenseTeam2Label || '2nd String'}
-                        </th>
-                        <th className="p-1 text-left border border-slate-400">
-                          {drill.defenseTeam3Label || '3rd String'}
-                        </th>
+                        {drillTeamNumbers(getDrillTeamCount(drill)).map((num) => (
+                          <th key={num} className="p-1 text-left border border-slate-400">
+                            {num === 1
+                              ? drill.defenseTeam1Label || drill.defenseLabel || '1st String'
+                              : num === 2
+                                ? drill.defenseTeam2Label || '2nd String'
+                                : drill.defenseTeam3Label || '3rd String'}
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
                       {drill.defensePositions.map((pos) => {
                         const assigned = drill.lineup[pos.id] || [];
-                        const starter = assigned[0];
-                        const backup1 = assigned[1];
-                        const backup2 = assigned[2];
                         return (
                           <tr key={pos.id} className="border-b border-slate-300">
                             <td className="p-1 font-bold border border-slate-300 bg-slate-50">
                               {pos.name}
                             </td>
-                            <td className="p-1 font-black border border-slate-300">
-                              {starter && starter.num !== '?' ? `#${starter.num} ${drillSpotLastName(starter, roster)}` : '—'}
-                            </td>
-                            <td className="p-1 text-slate-700 border border-slate-300">
-                              {backup1 && backup1.num !== '?' ? `#${backup1.num} ${drillSpotLastName(backup1, roster)}` : '—'}
-                            </td>
-                            <td className="p-1 text-slate-500 border border-slate-300">
-                              {backup2 && backup2.num !== '?' ? `#${backup2.num} ${drillSpotLastName(backup2, roster)}` : '—'}
-                            </td>
+                            {drillTeamNumbers(getDrillTeamCount(drill)).map((num) => {
+                              const player = assigned[num - 1];
+                              return (
+                                <td key={num} className="p-1 font-black border border-slate-300">
+                                  {player && player.num !== '?'
+                                    ? `#${player.num} ${drillSpotLastName(player, roster)}`
+                                    : '—'}
+                                </td>
+                              );
+                            })}
                           </tr>
                         );
                       })}
