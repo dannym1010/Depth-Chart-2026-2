@@ -9,9 +9,7 @@ import {
   ExternalLink,
   Shield,
   Zap,
-  PenTool,
   Dumbbell,
-  BookOpen,
   FileSpreadsheet,
   Watch,
   Printer,
@@ -711,20 +709,20 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </div>
           </button>
 
-          {/* Whiteboard Playbook */}
+          {/* Wristbands */}
           <button
             type="button"
-            onClick={() => onNavigateToUnit('whiteboard')}
+            onClick={() => onNavigateToUnit('wristband')}
             className="p-3 sm:p-4 bg-white hover:bg-slate-50 active:bg-slate-100 dark:bg-slate-900/80 dark:hover:bg-slate-850 dark:active:bg-slate-800 border border-slate-200 dark:border-slate-800 hover:border-blue-500/50 rounded-2xl flex flex-col items-center text-center gap-2 transition-all group cursor-pointer shadow-xs dark:shadow-md active:scale-98"
           >
             <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-blue-100 text-blue-700 dark:bg-blue-600/20 dark:text-blue-300 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <PenTool className="w-4 h-4 sm:w-5 sm:h-5" />
+              <Watch className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <div>
               <div className="text-xs font-black text-slate-800 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-300 transition-colors">
-                Whiteboard
+                Wristband
               </div>
-              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">2D Play Animator</div>
+              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">Player cards</div>
             </div>
           </button>
 
@@ -745,22 +743,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </div>
           </button>
 
-          {/* Playbook Guides */}
-          <button
-            type="button"
-            onClick={() => onNavigateToUnit('guide')}
-            className="p-3 sm:p-4 bg-white hover:bg-slate-50 active:bg-slate-100 dark:bg-slate-900/80 dark:hover:bg-slate-850 dark:active:bg-slate-800 border border-slate-200 dark:border-slate-800 hover:border-cyan-500/50 rounded-2xl flex flex-col items-center text-center gap-2 transition-all group cursor-pointer shadow-xs dark:shadow-md col-span-2 sm:col-span-1 active:scale-98"
-          >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-cyan-100 text-cyan-800 dark:bg-cyan-600/20 dark:text-cyan-300 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <BookOpen className="w-4 h-4 sm:w-5 sm:h-5" />
-            </div>
-            <div>
-              <div className="text-xs font-black text-slate-800 dark:text-slate-100 group-hover:text-cyan-600 dark:group-hover:text-cyan-300 transition-colors">
-                Playbooks
-              </div>
-              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">Schemes & PDFs</div>
-            </div>
-          </button>
         </div>
       </div>
     </div>

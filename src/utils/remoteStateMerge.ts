@@ -300,6 +300,9 @@ export function mergeFilmSession(
     packagesColorOrder: preferRightPackages
       ? right.packagesColorOrder || left.packagesColorOrder
       : left.packagesColorOrder || right.packagesColorOrder,
+    slotLabels: preferRightPackages
+      ? { ...(left.slotLabels || {}), ...(right.slotLabels || {}) }
+      : { ...(right.slotLabels || {}), ...(left.slotLabels || {}) },
     assignments,
   };
 }

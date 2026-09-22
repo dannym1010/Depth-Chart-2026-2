@@ -28,9 +28,9 @@ export const FILM_OFFENSE_SLOTS: FilmSlotDef[] = [
   { id: 'RG', name: 'RG', group: 'OL', aliases: ['RG'] },
   { id: 'RT', name: 'RT', group: 'OL', aliases: ['RT'] },
   { id: 'Y', name: 'Y / TE', group: 'WR', aliases: ['Y', 'Y1', 'TE'] },
-  { id: 'QB', name: 'QB', group: 'QB', aliases: ['QB', '1'] },
-  { id: 'FB', name: 'FB', group: 'RB', aliases: ['FB', '2'] },
-  { id: 'RB', name: 'RB', group: 'RB', aliases: ['RB', '4', 'HB'] },
+  { id: 'QB', name: '1 (QB)', group: 'QB', aliases: ['QB', '1', '1QB'] },
+  { id: 'FB', name: '2 (FB)', group: 'RB', aliases: ['FB', '2', '2FB'] },
+  { id: 'RB', name: '3 (RB)', group: 'RB', aliases: ['RB', '3', '3RB', '4', '4RB', 'HB', 'TB'] },
   { id: 'X', name: 'X', group: 'WR', aliases: ['X'] },
   { id: 'Z', name: 'Z', group: 'WR', aliases: ['Z', 'W'] },
 ];
@@ -261,6 +261,7 @@ export function hydrateFilmSession(session?: Partial<FilmSession> | null): FilmS
     fileName: session?.fileName,
     packagesUpdatedAt: session?.packagesUpdatedAt,
     packagesColorOrder: session?.packagesColorOrder,
+    slotLabels: session?.slotLabels && typeof session.slotLabels === 'object' ? { ...session.slotLabels } : {},
   };
 }
 
@@ -372,15 +373,37 @@ export function isStSourceFormation(form: FormationBoard | undefined, kind: Film
   return /field goal|\bfg\b|pat|extra|2\s*pt|form_fg/.test(name);
 }
 
+function slotNameCandidates(rawName: string): string[] {
+  const upper = String(rawName || '').toUpperCase();
+  const paren = upper.match(/\(([^)]+)\)/);
+  const stripped = upper.replace(/[^A-Z0-9]/g, '');
+  const leading = (upper.match(/^\s*(\d+)/) || [])[1] || '';
+  const parenClean = paren ? paren[1].replace(/[^A-Z0-9]/g, '') : '';
+  return Array.from(new Set([stripped, parenClean, leading].filter(Boolean)));
+}
+
 export function matchFilmSlotId(rawName: string, side: PprSide): string | null {
   const slots = filmSlotsForSide(side);
-  const cleaned = String(rawName || '')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '');
+  const candidates = slotNameCandidates(rawName);
   for (const slot of slots) {
-    if (slot.id === cleaned || slot.aliases.includes(cleaned)) return slot.id;
+    if (candidates.some((candidate) => slot.id === candidate || slot.aliases.includes(candidate))) {
+      return slot.id;
+    }
   }
   return null;
+}
+
+export function filmSlotLabelKey(scope: string, slotId: string): string {
+  return `${scope}:${slotId}`;
+}
+
+export function filmSlotLabel(
+  scope: string,
+  slot: FilmSlotDef,
+  labels?: Record<string, string>
+): string {
+  const custom = labels?.[filmSlotLabelKey(scope, slot.id)];
+  return custom?.trim() || slot.name;
 }
 
 function rosterPlayerRef(player: RosterPlayer): FilmPlayerRef {

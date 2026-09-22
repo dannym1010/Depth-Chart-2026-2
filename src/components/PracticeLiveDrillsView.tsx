@@ -1165,7 +1165,31 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                         <tbody>
                           {positions.map((pos) => (
                             <tr key={`${unit}_${pos.id}`} className="border-t border-slate-100 dark:border-slate-800">
-                              <td className="px-3 py-1.5 font-black text-slate-600 dark:text-slate-300">{pos.name}</td>
+                              <td className="px-3 py-1.5 font-black text-slate-600 dark:text-slate-300">
+                                {editingPosId === pos.id ? (
+                                  <input
+                                    autoFocus
+                                    value={editingPosName}
+                                    onChange={(e) => setEditingPosName(e.target.value)}
+                                    onBlur={handleSaveRenamePosition}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') handleSaveRenamePosition();
+                                      if (e.key === 'Escape') setEditingPosId(null);
+                                    }}
+                                    className="w-24 px-1.5 py-0.5 rounded border border-indigo-300 dark:border-indigo-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                                    aria-label="Slot name"
+                                  />
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStartRenamePosition(pos)}
+                                    title="Rename this slot"
+                                    className="font-black text-left hover:text-indigo-600 dark:hover:text-indigo-300 cursor-pointer"
+                                  >
+                                    {pos.name}
+                                  </button>
+                                )}
+                              </td>
                               {([1, 2, 3] as const).map((num) => {
                                 const player = (currentGroup.lineup[pos.id] || [])[num - 1];
                                 const cfg = getTeamColorConfig(

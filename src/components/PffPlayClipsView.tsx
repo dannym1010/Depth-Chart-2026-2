@@ -21,6 +21,8 @@ import {
   FilmStKind,
   fillPackagesFromDepth,
   filmPlayLabel,
+  filmSlotLabel,
+  filmSlotLabelKey,
   filmSlotsForSide,
   filmSlotsForSt,
   filmStKindFromPlay,
@@ -350,9 +352,31 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {(packageSide === 'special' ? filmSlotsForSt(stKind) : filmSlotsForSide(packageSide)).map((slot) => (
+                  {(packageSide === 'special' ? filmSlotsForSt(stKind) : filmSlotsForSide(packageSide)).map((slot) => {
+                    const labelScope = packageSide === 'special' ? `special:${stKind}` : packageSide;
+                    return (
                     <tr key={slot.id} className="border-t border-slate-100 dark:border-slate-800">
-                      <td className="py-1.5 font-black">{slot.name}</td>
+                      <td className="py-1.5 font-black">
+                        {canEdit ? (
+                          <input
+                            value={filmSlotLabel(labelScope, slot, session.slotLabels)}
+                            onChange={(e) =>
+                              updateSession({
+                                ...session,
+                                packagesUpdatedAt: Date.now(),
+                                slotLabels: {
+                                  ...(session.slotLabels || {}),
+                                  [filmSlotLabelKey(labelScope, slot.id)]: e.target.value,
+                                },
+                              })
+                            }
+                            className="w-24 px-1.5 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-black"
+                            aria-label={`Rename ${slot.name}`}
+                          />
+                        ) : (
+                          filmSlotLabel(labelScope, slot, session.slotLabels)
+                        )}
+                      </td>
                       {FILM_UNIT_COLORS.map((color) => {
                         const lineup =
                           packageSide === 'special'
@@ -416,7 +440,8 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
                         );
                       })}
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -567,7 +592,9 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
                         const grades = (playerKey && assignment.grades[playerKey]) || {};
                         return (
                           <tr key={slot.id} className="border-t border-slate-100 dark:border-slate-800 align-top">
-                            <td className="py-2 pr-2 font-black whitespace-nowrap">{slot.name}</td>
+                            <td className="py-2 pr-2 font-black whitespace-nowrap">
+                              {filmSlotLabel(side === 'special' ? `special:${playStKind}` : side, slot, session.slotLabels)}
+                            </td>
                             <td className="py-2 pr-2 min-w-[160px]">
                               <select
                                 disabled={!canEdit}

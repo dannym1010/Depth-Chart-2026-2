@@ -139,7 +139,7 @@ interface FormationsViewProps {
 }
 
 const OFFENSE_PRESET_TAGS = [
-  'QB', '1 (QB)', 'RB', '4 (RB)', 'FB', '2 (FB)', 'TB', '3 (TB)',
+  'QB', '1 (QB)', 'FB', '2 (FB)', 'RB', '3 (RB)', '4 (RB)',
   'X', 'Z', 'W', 'Y', 'TE', 'Y1', 'Slot', 'H-Back',
   'LT', 'LG', 'C', 'RG', 'RT', 'OL',
 ];

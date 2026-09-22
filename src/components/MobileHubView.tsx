@@ -1568,7 +1568,7 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
           <span className="text-[11px] font-semibold text-slate-500">Quick Navigation</span>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2.5 sm:gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3">
           {/* Attendance & Compliance Hours */}
           <button
             type="button"
@@ -1638,20 +1638,20 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
             </div>
           </button>
 
-          {/* Whiteboard Playbook */}
+          {/* Wristbands */}
           <button
             type="button"
-            onClick={() => onNavigateToUnit('whiteboard')}
+            onClick={() => onNavigateToUnit('wristband')}
             className="p-3 sm:p-4 bg-slate-900/80 hover:bg-slate-850 active:bg-slate-800 border border-slate-800 hover:border-blue-500/50 rounded-2xl flex flex-col items-center text-center gap-2 transition-all group cursor-pointer shadow-md active:scale-98"
           >
             <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-blue-600/20 text-blue-300 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <PenTool className="w-4 h-4 sm:w-5 sm:h-5" />
+              <Watch className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <div>
               <div className="text-xs font-black text-slate-100 group-hover:text-blue-300 transition-colors">
-                Whiteboard
+                Wristband
               </div>
-              <div className="text-[10px] text-slate-400 font-medium mt-0.5">2D Play Animator</div>
+              <div className="text-[10px] text-slate-400 font-medium mt-0.5">Player cards</div>
             </div>
           </button>
 
@@ -1672,22 +1672,6 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
             </div>
           </button>
 
-          {/* Playbook Guides */}
-          <button
-            type="button"
-            onClick={() => onNavigateToUnit('guide')}
-            className="p-3 sm:p-4 bg-slate-900/80 hover:bg-slate-850 active:bg-slate-800 border border-slate-800 hover:border-cyan-500/50 rounded-2xl flex flex-col items-center text-center gap-2 transition-all group cursor-pointer shadow-md col-span-2 sm:col-span-1 active:scale-98"
-          >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-cyan-600/20 text-cyan-300 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <BookOpen className="w-4 h-4 sm:w-5 sm:h-5" />
-            </div>
-            <div>
-              <div className="text-xs font-black text-slate-100 group-hover:text-cyan-300 transition-colors">
-                Playbooks
-              </div>
-              <div className="text-[10px] text-slate-400 font-medium mt-0.5">Schemes &amp; PDFs</div>
-            </div>
-          </button>
         </div>
       </div>
 

@@ -476,6 +476,8 @@ export interface FilmSession {
   packagesUpdatedAt?: number;
   /** Depth index 0/1/2 maps to black/gold/blue. Missing = older gold/blue/black fill. */
   packagesColorOrder?: string;
+  /** Custom display names for PFF slots, keyed as "offense:QB" or "special:kickoff:L1". */
+  slotLabels?: Record<string, string>;
 }
 
 export interface WeekState {

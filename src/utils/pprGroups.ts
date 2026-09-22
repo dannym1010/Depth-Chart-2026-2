@@ -80,7 +80,8 @@ export function classifyPositionToken(
   }
 
   if (t === 'QB' || t === '1') return { side: 'offense', group: 'QB' };
-  if (['RB', 'FB', 'HB', 'TB', 'SB', '2', '4'].includes(t)) return { side: 'offense', group: 'RB' };
+  // Depth-chart backfield numbers: 1 QB, 2 FB, 3 RB. 4 stays an older RB tag.
+  if (['RB', 'FB', 'HB', 'TB', 'SB', '2', '3', '4'].includes(t)) return { side: 'offense', group: 'RB' };
   if (['WR', 'TE', 'SE', 'FL', 'SLOT', 'X', 'Y', 'Y1', 'Y2', 'Z', 'H', 'W'].includes(t)) return { side: 'offense', group: 'WR' };
   if (['OL', 'C', 'OG', 'OT', 'G', 'T', 'LT', 'RT', 'LG', 'RG', 'OC', 'CENTER', 'GUARD', 'TACKLE'].includes(t)) {
     return { side: 'offense', group: 'OL' };
