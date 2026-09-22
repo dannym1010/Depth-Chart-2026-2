@@ -8,6 +8,42 @@ import {
 } from '../types';
 import { cleanTruncatedPosition } from '../utils/depthChartUtils';
 
+export function normalizeJerseyNum(num: string | number | undefined | null): string {
+  return String(num ?? '').trim();
+}
+
+export function isFilledPlayer(player?: PlacedPlayer | null): boolean {
+  return Boolean(player && normalizeJerseyNum(player.num) && player.num !== '?');
+}
+
+/** Which side of a 7v7/11v11 drill a jersey is already lined up on. */
+export function getPlayerLinedUpUnit(
+  group: LiveDrillGroup | undefined,
+  num: string | number | undefined | null
+): 'offense' | 'defense' | null {
+  const jersey = normalizeJerseyNum(num);
+  if (!group || !jersey || jersey === '?') return null;
+
+  const isOnSide = (positions: LiveDrillPosition[]) =>
+    positions.some((pos) => (group.lineup?.[pos.id] || []).some((p) => isFilledPlayer(p) && normalizeJerseyNum(p.num) === jersey));
+
+  if (isOnSide(group.offensePositions || [])) return 'offense';
+  if (isOnSide(group.defensePositions || [])) return 'defense';
+  return null;
+}
+
+export function canAssignPlayerToDrillUnit(
+  group: LiveDrillGroup | undefined,
+  num: string | number | undefined | null,
+  unit: 'offense' | 'defense'
+): { ok: boolean; blockedUnit?: 'offense' | 'defense' } {
+  const existing = getPlayerLinedUpUnit(group, num);
+  if (existing && existing !== unit) {
+    return { ok: false, blockedUnit: existing };
+  }
+  return { ok: true };
+}
+
 // ============================================================================
 // 1. TEAM COLORS SYSTEM
 // ============================================================================

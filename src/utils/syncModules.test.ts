@@ -486,3 +486,28 @@ describe('hudlFilmImport', () => {
     assert.equal(packages.defense.blue.WDE?.num, '8');
   });
 });
+
+describe('live drill multi-spot assignment', () => {
+  it('allows the same jersey on multiple offense spots but not on defense too', async () => {
+    const { canAssignPlayerToDrillUnit, getPlayerLinedUpUnit } = await import('../components/practiceDrillsUtils.ts');
+    const group: LiveDrillGroup = {
+      id: 'g1',
+      name: '7v7',
+      format: '7v7',
+      offenseLabel: 'O',
+      defenseLabel: 'D',
+      offensePositions: [
+        { id: 'qb', name: 'QB', unit: 'offense' },
+        { id: 'wr', name: 'WR', unit: 'offense' },
+      ],
+      defensePositions: [{ id: 'cb', name: 'CB', unit: 'defense' }],
+      lineup: {
+        qb: [{ num: '12', name: 'Dan' }],
+      },
+    };
+    assert.equal(getPlayerLinedUpUnit(group, '12'), 'offense');
+    assert.equal(canAssignPlayerToDrillUnit(group, '12', 'offense').ok, true);
+    assert.equal(canAssignPlayerToDrillUnit(group, '12', 'defense').ok, false);
+    assert.equal(canAssignPlayerToDrillUnit(group, '88', 'defense').ok, true);
+  });
+});

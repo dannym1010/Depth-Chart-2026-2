@@ -58,7 +58,27 @@ import {
   createInitialPracticeDrillGroups,
   executeIntelligentAutoFill,
   AutoFillSummary,
+  canAssignPlayerToDrillUnit,
+  getPlayerLinedUpUnit,
+  isFilledPlayer,
 } from './practiceDrillsUtils';
+
+const FOOTBALL_PLAYER_DRAG = 'application/x-football-player';
+
+function parseDraggedPlacedPlayer(e: React.DragEvent): PlacedPlayer | null {
+  const typed = e.dataTransfer.getData(FOOTBALL_PLAYER_DRAG);
+  if (typed) {
+    try {
+      const parsed = JSON.parse(typed);
+      if (parsed?.num && parsed.num !== '?') {
+        return { num: String(parsed.num), name: String(parsed.name || parsed.num) };
+      }
+    } catch {
+      // fall through
+    }
+  }
+  return null;
+}
 
 interface PracticeLiveDrillsViewProps {
   currentWeek: string;
@@ -321,6 +341,9 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
 
   // Auto-fill feedback toast
   const [autoFillFeedback, setAutoFillFeedback] = useState<string | null>(null);
+  const [dropFeedback, setDropFeedback] = useState<string | null>(null);
+  const [dropHoverKey, setDropHoverKey] = useState<string | null>(null);
+  const [rosterTrayQuery, setRosterTrayQuery] = useState('');
 
   // Auto-fill options modal
   const [showAutoFillModal, setShowAutoFillModal] = useState<boolean>(false);
@@ -473,12 +496,9 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
     off?: 1 | 2 | 3;
     def?: 1 | 2 | 3;
   }[] = [
-    { key: 'all', title: 'All teams' },
-    { key: 1, title: '1s vs 1s', off: 1, def: 1 },
-    { key: 2, title: '2s vs 2s', off: 2, def: 2 },
-    { key: 3, title: '3s vs 3s', off: 3, def: 3 },
-    { key: '1v2', title: 'T1 O vs T2 D', off: 1, def: 2 },
-    { key: '2v1', title: 'T2 O vs T1 D', off: 2, def: 1 },
+    { key: 1, title: 'O-1 vs D-1', off: 1, def: 1 },
+    { key: 2, title: 'O-2 vs D-2', off: 2, def: 2 },
+    { key: 3, title: 'O-3 vs D-3', off: 3, def: 3 },
   ];
 
   // Active color configs for currently active on-field units
@@ -768,39 +788,56 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
   // --------------------------------------------------------------------------
   // PLAYER ASSIGNMENTS & AUTO-FILL
   // --------------------------------------------------------------------------
-  const handleAssignPlayer = (posId: string, player: PlacedPlayer, targetIdx?: number) => {
-    if (!currentGroup) return;
+  const showDropFeedback = (msg: string) => {
+    setDropFeedback(msg);
+    setTimeout(() => setDropFeedback(null), 4000);
+  };
+
+  const resolveAssignUnit = (posId: string): 'offense' | 'defense' | null => {
+    if (!currentGroup) return null;
+    if (currentGroup.offensePositions.some((p) => p.id === posId)) return 'offense';
+    if (currentGroup.defensePositions.some((p) => p.id === posId)) return 'defense';
+    return null;
+  };
+
+  const handleAssignPlayer = (posId: string, player: PlacedPlayer, targetIdx?: number): boolean => {
+    if (!currentGroup) return false;
+    const unit = resolveAssignUnit(posId);
+    if (!unit) return false;
+
+    const check = canAssignPlayerToDrillUnit(currentGroup, player.num, unit);
+    if (!check.ok) {
+      showDropFeedback(
+        `#${player.num} ${player.name} is already on ${check.blockedUnit}. Players can fill multiple ${unit} spots, but not offense and defense.`
+      );
+      return false;
+    }
+
     const currentList = [...(currentGroup.lineup[posId] || [])];
-    
-    // If targetIdx is provided, place or replace at that specific depth slot
+
     if (targetIdx !== undefined && targetIdx >= 0) {
       while (currentList.length <= targetIdx) {
         currentList.push({ num: '?', name: 'TBD' });
       }
-      // Remove this player if they already exist elsewhere in this slot
-      const filtered = currentList.map((p, idx) => (idx === targetIdx ? player : (String(p.num) === String(player.num) ? { num: '?', name: 'TBD' } : p)));
+      currentList[targetIdx] = player;
       updateGroup({
         ...currentGroup,
         lineup: {
           ...currentGroup.lineup,
-          [posId]: filtered,
+          [posId]: currentList,
         },
       });
-      return;
+      return true;
     }
 
-    // Default append/add
-    if (currentList.some((p) => String(p.num) === String(player.num))) {
-      return;
-    }
-    const updatedLineup = {
-      ...currentGroup.lineup,
-      [posId]: [...currentList, player],
-    };
     updateGroup({
       ...currentGroup,
-      lineup: updatedLineup,
+      lineup: {
+        ...currentGroup.lineup,
+        [posId]: [...currentList, player],
+      },
     });
+    return true;
   };
 
   const handlePromoteToActive = (posId: string, fromIndex: number, specificTargetIdx?: number) => {
@@ -830,14 +867,20 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
   const handleRemovePlayer = (posId: string, playerIndex: number) => {
     if (!currentGroup) return;
     const currentList = [...(currentGroup.lineup[posId] || [])];
-    currentList.splice(playerIndex, 1);
-    const updatedLineup = {
-      ...currentGroup.lineup,
-      [posId]: currentList,
-    };
+    if (playerIndex >= 0 && playerIndex < 3) {
+      while (currentList.length <= playerIndex) {
+        currentList.push({ num: '?', name: 'TBD' });
+      }
+      currentList[playerIndex] = { num: '?', name: 'TBD' };
+    } else {
+      currentList.splice(playerIndex, 1);
+    }
     updateGroup({
       ...currentGroup,
-      lineup: updatedLineup,
+      lineup: {
+        ...currentGroup.lineup,
+        [posId]: currentList,
+      },
     });
   };
 
@@ -923,28 +966,50 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
     e.dataTransfer.dropEffect = 'copy';
   };
 
-  const handleDropOnPosition = (e: React.DragEvent, posId: string) => {
+  const handleDropOnPosition = (e: React.DragEvent, posId: string, targetIdx?: number) => {
     e.preventDefault();
     e.stopPropagation();
+    setDropHoverKey(null);
     if (userRole !== 'admin') return;
 
-    try {
-      const plainText = e.dataTransfer.getData('text/plain');
-      const rosterPlayer = roster.find(
-        (p) =>
-          p.rosterName === plainText ||
-          `${p.firstName} ${p.lastName}` === plainText ||
-          p.lastName === plainText
-      );
-      if (rosterPlayer) {
-        handleAssignPlayer(posId, {
-          name: `${rosterPlayer.firstName} ${rosterPlayer.lastName}`.trim() || rosterPlayer.rosterName,
-          num: rosterPlayer.num,
-        });
-      }
-    } catch {
-      // ignore
+    const dragged = parseDraggedPlacedPlayer(e);
+    if (dragged) {
+      handleAssignPlayer(posId, dragged, targetIdx);
+      return;
     }
+
+    const plainText = e.dataTransfer.getData('text/plain');
+    const rosterPlayer = roster.find(
+      (p) =>
+        p.rosterName === plainText ||
+        `${p.firstName} ${p.lastName}` === plainText ||
+        p.lastName === plainText
+    );
+    if (rosterPlayer) {
+      handleAssignPlayer(
+        posId,
+        {
+          name: `${rosterPlayer.firstName} ${rosterPlayer.lastName}`.trim() || rosterPlayer.rosterName || '',
+          num: rosterPlayer.num,
+        },
+        targetIdx
+      );
+    }
+  };
+
+  const handleStartRosterDrag = (e: React.DragEvent, player: RosterPlayer) => {
+    if (userRole !== 'admin') return;
+    const name = `${player.firstName} ${player.lastName}`.trim() || player.rosterName || player.lastName;
+    e.dataTransfer.setData(FOOTBALL_PLAYER_DRAG, JSON.stringify({ num: player.num, name }));
+    e.dataTransfer.setData('text/plain', name);
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
+  const handleStartPlacedDrag = (e: React.DragEvent, player: PlacedPlayer) => {
+    if (userRole !== 'admin' || !isFilledPlayer(player)) return;
+    e.dataTransfer.setData(FOOTBALL_PLAYER_DRAG, JSON.stringify({ num: player.num, name: player.name }));
+    e.dataTransfer.setData('text/plain', player.name);
+    e.dataTransfer.effectAllowed = 'copy';
   };
 
   const handleSwapOffenseDefense = () => {
@@ -1022,6 +1087,82 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
             </button>
           </div>
         )}
+        {dropFeedback && (
+          <div className="mt-3 p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 text-rose-900 dark:text-rose-200 text-xs font-bold flex items-center justify-between">
+            <span>{dropFeedback}</span>
+            <button type="button" onClick={() => setDropFeedback(null)} className="cursor-pointer">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 shadow-sm print:hidden">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+          <div>
+            <h4 className="font-black text-slate-900 dark:text-slate-100 text-sm">Roster — drag onto a spot</h4>
+            <p className="text-xs text-slate-500 font-medium">
+              Same player can fill multiple offense spots or multiple defense spots. Not both sides. Matchups are O-1 vs D-1, O-2 vs D-2, O-3 vs D-3.
+            </p>
+          </div>
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+            <input
+              type="text"
+              value={rosterTrayQuery}
+              onChange={(e) => setRosterTrayQuery(e.target.value)}
+              placeholder="Filter roster..."
+              className="pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white w-48"
+            />
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+          {roster
+            .filter((p) => {
+              if (!rosterTrayQuery.trim()) return true;
+              const q = rosterTrayQuery.toLowerCase().trim();
+              return (
+                p.firstName.toLowerCase().includes(q) ||
+                p.lastName.toLowerCase().includes(q) ||
+                p.num.toLowerCase().includes(q) ||
+                (p.primaryPosition || '').toLowerCase().includes(q)
+              );
+            })
+            .map((player) => {
+              const linedUp = getPlayerLinedUpUnit(currentGroup, player.num);
+              return (
+                <div
+                  key={player.num}
+                  draggable={userRole === 'admin'}
+                  onDragStart={(e) => handleStartRosterDrag(e, player)}
+                  title={
+                    linedUp
+                      ? `#${player.num} is on ${linedUp}. Drop on more ${linedUp} spots, not the other side.`
+                      : `Drag #${player.num} onto an O or D cell`
+                  }
+                  className={`px-2 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 select-none ${
+                    userRole === 'admin' ? 'cursor-grab active:cursor-grabbing' : ''
+                  } ${
+                    linedUp === 'offense'
+                      ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 text-amber-900 dark:text-amber-200'
+                      : linedUp === 'defense'
+                        ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-300 text-blue-900 dark:text-blue-200'
+                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200'
+                  }`}
+                >
+                  <span className="font-black">#{player.num}</span>
+                  <span className="truncate max-w-[7rem]">
+                    {player.firstName} {player.lastName}
+                  </span>
+                  {linedUp && (
+                    <span className="uppercase text-[9px] tracking-wider opacity-70">
+                      {linedUp === 'offense' ? 'O' : 'D'}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+        </div>
       </div>
 
       {/* ==================================================================== */}
@@ -1037,7 +1178,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
           <div>
             <h4 className="font-black text-slate-900 dark:text-slate-100 text-base">All 3 Together</h4>
             <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-              Every string and who they match up against. Tap a cell to assign.
+              O-1 vs D-1, O-2 vs D-2, O-3 vs D-3. Drag a roster name onto a cell, or tap to assign.
             </p>
           </div>
           <div className="flex items-center flex-wrap gap-2">
@@ -1051,8 +1192,8 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 xl:grid-cols-5 gap-2 mb-4">
-          {matchupBoardCards.filter((card) => card.key !== 'all').map((card) => {
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+          {matchupBoardCards.map((card) => {
             const offCfg = getTeamColorConfig(getOffenseColorForString(card.off!), 'gold');
             const defCfg = getTeamColorConfig(getDefenseColorForString(card.def!), 'blue');
             const offFilled = countFilledForString('offense', card.off!);
@@ -1094,7 +1235,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                 All teams · who they match up against
               </h5>
               <span className="text-xs text-slate-500 font-medium">
-                1s vs 1s, 2s vs 2s, 3s vs 3s, plus T1 vs T2. Tap a cell to assign.
+                O-1 vs D-1 · O-2 vs D-2 · O-3 vs D-3. Same player can take multiple spots on one side only.
               </span>
             </div>
 
@@ -1196,10 +1337,27 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                                   unit === 'offense' ? getOffenseColorForString(num) : getDefenseColorForString(num),
                                   unit === 'offense' ? 'gold' : 'blue'
                                 );
+                                const cellKey = `${pos.id}_${num}`;
+                                const isHover = dropHoverKey === cellKey;
                                 return (
-                                  <td key={`${pos.id}_${num}`} className="px-3 py-1.5">
+                                  <td
+                                    key={cellKey}
+                                    className={`px-3 py-1.5 ${isHover ? 'bg-indigo-50 dark:bg-indigo-950/40 ring-2 ring-inset ring-indigo-400' : ''}`}
+                                    onDragOver={(e) => {
+                                      handleDragOver(e);
+                                      setDropHoverKey(cellKey);
+                                    }}
+                                    onDragLeave={() => {
+                                      setDropHoverKey((prev) => (prev === cellKey ? null : prev));
+                                    }}
+                                    onDrop={(e) => handleDropOnPosition(e, pos.id, num - 1)}
+                                  >
                                     {player && player.num !== '?' ? (
-                                      <div className="flex items-center gap-1.5 min-w-0">
+                                      <div
+                                        draggable={userRole === 'admin'}
+                                        onDragStart={(e) => handleStartPlacedDrag(e, player)}
+                                        className={`flex items-center gap-1.5 min-w-0 ${userRole === 'admin' ? 'cursor-grab' : ''}`}
+                                      >
                                         <span
                                           className="w-6 h-6 rounded text-[10px] font-black flex items-center justify-center shrink-0"
                                           style={{
@@ -1234,7 +1392,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                                         }
                                         className="w-full text-left py-1 text-[11px] font-bold text-slate-400 hover:text-indigo-600 cursor-pointer"
                                       >
-                                        + Assign
+                                        + Drop or assign
                                       </button>
                                     )}
                                   </td>
@@ -1457,7 +1615,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                   </span>
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Select a roster athlete to add as starter or rotation depth
+                  Same player can take multiple {assigningPos.unit} spots. They cannot also be on the other side.
                 </p>
               </div>
               <button
@@ -1483,21 +1641,29 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
 
             {/* Roster list */}
             <div className="max-h-64 overflow-y-auto space-y-1.5 pr-1">
-              {filteredRoster.map((player) => (
+              {filteredRoster.map((player) => {
+                const linedUp = getPlayerLinedUpUnit(currentGroup, player.num);
+                const blocked = Boolean(linedUp && linedUp !== assigningPos.unit);
+                return (
                 <button
                   key={player.num}
+                  disabled={blocked}
                   onClick={() => {
-                    handleAssignPlayer(
+                    const ok = handleAssignPlayer(
                       assigningPos.id,
                       {
-                        name: `${player.firstName} ${player.lastName}`.trim() || player.rosterName,
+                        name: `${player.firstName} ${player.lastName}`.trim() || player.rosterName || '',
                         num: player.num,
                       },
                       assigningPos.targetIdx
                     );
-                    setAssigningPos(null);
+                    if (ok) setAssigningPos(null);
                   }}
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-slate-50 hover:bg-indigo-50 dark:bg-slate-800/80 dark:hover:bg-indigo-950/50 border border-slate-200 dark:border-slate-700 text-left transition-all cursor-pointer group"
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl border text-left transition-all group ${
+                    blocked
+                      ? 'bg-slate-100 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 opacity-50 cursor-not-allowed'
+                      : 'bg-slate-50 hover:bg-indigo-50 dark:bg-slate-800/80 dark:hover:bg-indigo-950/50 border-slate-200 dark:border-slate-700 cursor-pointer'
+                  }`}
                 >
                   <div className="flex items-center gap-2.5">
                     <span className="w-7 h-7 rounded-lg bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0">
@@ -1509,14 +1675,16 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                       </div>
                       <div className="text-[10px] text-slate-500 dark:text-slate-400">
                         Pos: {player.primaryPosition || 'ATH'}
+                        {linedUp ? ` · on ${linedUp}` : ''}
                       </div>
                     </div>
                   </div>
-                  <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                    + Assign
+                  <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                    {blocked ? 'Other side' : linedUp === assigningPos.unit ? '+ Another spot' : '+ Assign'}
                   </span>
                 </button>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

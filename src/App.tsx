@@ -3805,6 +3805,14 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       num: player.num,
     };
     e.dataTransfer.setData('text/plain', rosterDisplayName);
+    e.dataTransfer.setData(
+      'application/x-football-player',
+      JSON.stringify({
+        num: player.num,
+        name: `${player.firstName} ${player.lastName}`.trim() || rosterDisplayName,
+      })
+    );
+    e.dataTransfer.effectAllowed = 'copy';
   };
 
   const handleDragStartPlacedPlayer = (
