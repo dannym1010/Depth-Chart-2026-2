@@ -44,6 +44,48 @@ export function canAssignPlayerToDrillUnit(
   return { ok: true };
 }
 
+export function removeJerseyFromDrillUnit(
+  group: LiveDrillGroup,
+  num: string | number | undefined | null,
+  unit: 'offense' | 'defense'
+): LiveDrillGroup {
+  const jersey = normalizeJerseyNum(num);
+  if (!group || !jersey || jersey === '?') return group;
+  const positions = unit === 'offense' ? group.offensePositions : group.defensePositions;
+  const nextLineup = { ...(group.lineup || {}) };
+  let changed = false;
+  for (const pos of positions || []) {
+    const list = nextLineup[pos.id];
+    if (!Array.isArray(list)) continue;
+    let slotChanged = false;
+    const nextList = list.map((player) => {
+      if (isFilledPlayer(player) && normalizeJerseyNum(player.num) === jersey) {
+        slotChanged = true;
+        return { num: '?', name: 'TBD' };
+      }
+      return player;
+    });
+    if (slotChanged) {
+      nextLineup[pos.id] = nextList;
+      changed = true;
+    }
+  }
+  return changed ? { ...group, lineup: nextLineup } : group;
+}
+
+export function prepareDrillGroupForUnitAssign(
+  group: LiveDrillGroup,
+  num: string | number | undefined | null,
+  unit: 'offense' | 'defense'
+): { group: LiveDrillGroup; movedFrom?: 'offense' | 'defense' } {
+  const existing = getPlayerLinedUpUnit(group, num);
+  if (!existing || existing === unit) return { group };
+  return {
+    group: removeJerseyFromDrillUnit(group, num, existing),
+    movedFrom: existing,
+  };
+}
+
 // ============================================================================
 // 1. TEAM COLORS SYSTEM
 // ============================================================================

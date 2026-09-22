@@ -58,8 +58,8 @@ import {
   createInitialPracticeDrillGroups,
   executeIntelligentAutoFill,
   AutoFillSummary,
-  canAssignPlayerToDrillUnit,
   getPlayerLinedUpUnit,
+  prepareDrillGroupForUnitAssign,
   isFilledPlayer,
   captureLiveDrillSlotLayout,
   applyLayoutToDrillGroup,
@@ -819,28 +819,27 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
     setTimeout(() => setDropFeedback(null), 4000);
   };
 
-  const resolveAssignUnit = (posId: string): 'offense' | 'defense' | null => {
-    if (!currentGroup) return null;
-    if (currentGroup.offensePositions.some((p) => p.id === posId)) return 'offense';
-    if (currentGroup.defensePositions.some((p) => p.id === posId)) return 'defense';
+  const resolveAssignUnit = (posId: string, group = currentGroup): 'offense' | 'defense' | null => {
+    if (!group) return null;
+    if (group.offensePositions.some((p) => p.id === posId)) return 'offense';
+    if (group.defensePositions.some((p) => p.id === posId)) return 'defense';
     return null;
   };
 
   const handleAssignPlayer = (posId: string, player: PlacedPlayer, targetIdx?: number): boolean => {
     const liveGroup = groupsRef.current.find((g) => g.id === activeGroupId) || currentGroup;
     if (!liveGroup) return false;
-    const unit = resolveAssignUnit(posId);
+    const unit = resolveAssignUnit(posId, liveGroup);
     if (!unit) return false;
 
-    const check = canAssignPlayerToDrillUnit(liveGroup, player.num, unit);
-    if (!check.ok) {
+    const prepared = prepareDrillGroupForUnitAssign(liveGroup, player.num, unit);
+    if (prepared.movedFrom) {
       showDropFeedback(
-        `#${player.num} ${player.name} is already on ${check.blockedUnit}. Players can fill multiple ${unit} spots, but not offense and defense.`
+        `#${player.num} ${player.name} moved off ${prepared.movedFrom} and onto ${unit}.`
       );
-      return false;
     }
 
-    const currentList = [...(liveGroup.lineup[posId] || [])];
+    const currentList = [...(prepared.group.lineup[posId] || [])];
 
     if (targetIdx !== undefined && targetIdx >= 0) {
       while (currentList.length <= targetIdx) {
@@ -848,9 +847,9 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
       }
       currentList[targetIdx] = player;
       updateGroup({
-        ...liveGroup,
+        ...prepared.group,
         lineup: {
-          ...liveGroup.lineup,
+          ...prepared.group.lineup,
           [posId]: currentList,
         },
       });
@@ -858,9 +857,9 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
     }
 
     updateGroup({
-      ...liveGroup,
+      ...prepared.group,
       lineup: {
-        ...liveGroup.lineup,
+        ...prepared.group.lineup,
         [posId]: [...currentList, player],
       },
     });
@@ -892,8 +891,9 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
   };
 
   const handleRemovePlayer = (posId: string, playerIndex: number) => {
-    if (!currentGroup) return;
-    const currentList = [...(currentGroup.lineup[posId] || [])];
+    const liveGroup = groupsRef.current.find((g) => g.id === activeGroupId) || currentGroup;
+    if (!liveGroup) return;
+    const currentList = [...(liveGroup.lineup[posId] || [])];
     if (playerIndex >= 0 && playerIndex < 3) {
       while (currentList.length <= playerIndex) {
         currentList.push({ num: '?', name: 'TBD' });
@@ -903,9 +903,9 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
       currentList.splice(playerIndex, 1);
     }
     updateGroup({
-      ...currentGroup,
+      ...liveGroup,
       lineup: {
-        ...currentGroup.lineup,
+        ...liveGroup.lineup,
         [posId]: currentList,
       },
     });
@@ -1129,7 +1129,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
           <div>
             <h4 className="font-black text-slate-900 dark:text-slate-100 text-sm">Roster — drag onto a spot</h4>
             <p className="text-xs text-slate-500 font-medium">
-              Same player can fill multiple offense spots or multiple defense spots. Not both sides. Matchups are O-1 vs D-1, O-2 vs D-2, O-3 vs D-3.
+              Same player can fill multiple offense spots or multiple defense spots. Putting them on the other side moves them off the first side. Matchups are O-1 vs D-1, O-2 vs D-2, O-3 vs D-3.
             </p>
           </div>
           <div className="relative">
@@ -1164,7 +1164,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                   onDragStart={(e) => handleStartRosterDrag(e, player)}
                   title={
                     linedUp
-                      ? `#${player.num} is on ${linedUp}. Drop on more ${linedUp} spots, not the other side.`
+                      ? `#${player.num} is on ${linedUp}. Drop on the other side to move them off ${linedUp}.`
                       : `Drag #${player.num} onto an O or D cell`
                   }
                   className={`px-2 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 select-none ${
@@ -1642,7 +1642,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                   </span>
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Same player can take multiple {assigningPos.unit} spots. They cannot also be on the other side.
+                  Same player can take multiple {assigningPos.unit} spots. Putting them on this side moves them off the other side.
                 </p>
               </div>
               <button
@@ -1669,12 +1669,14 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
             {/* Roster list */}
             <div className="max-h-64 overflow-y-auto space-y-1.5 pr-1">
               {filteredRoster.map((player) => {
-                const linedUp = getPlayerLinedUpUnit(currentGroup, player.num);
-                const blocked = Boolean(linedUp && linedUp !== assigningPos.unit);
+                const linedUp = getPlayerLinedUpUnit(
+                  groupsRef.current.find((g) => g.id === activeGroupId) || currentGroup,
+                  player.num
+                );
+                const willMove = Boolean(linedUp && linedUp !== assigningPos.unit);
                 return (
                 <button
                   key={player.num}
-                  disabled={blocked}
                   onClick={() => {
                     const ok = handleAssignPlayer(
                       assigningPos.id,
@@ -1686,11 +1688,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                     );
                     if (ok) setAssigningPos(null);
                   }}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl border text-left transition-all group ${
-                    blocked
-                      ? 'bg-slate-100 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 opacity-50 cursor-not-allowed'
-                      : 'bg-slate-50 hover:bg-indigo-50 dark:bg-slate-800/80 dark:hover:bg-indigo-950/50 border-slate-200 dark:border-slate-700 cursor-pointer'
-                  }`}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl border text-left transition-all group bg-slate-50 hover:bg-indigo-50 dark:bg-slate-800/80 dark:hover:bg-indigo-950/50 border-slate-200 dark:border-slate-700 cursor-pointer"
                 >
                   <div className="flex items-center gap-2.5">
                     <span className="w-7 h-7 rounded-lg bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0">
@@ -1707,7 +1705,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                     </div>
                   </div>
                   <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
-                    {blocked ? 'Other side' : linedUp === assigningPos.unit ? '+ Another spot' : '+ Assign'}
+                    {willMove ? 'Move off other side' : linedUp === assigningPos.unit ? '+ Another spot' : '+ Assign'}
                   </span>
                 </button>
                 );
