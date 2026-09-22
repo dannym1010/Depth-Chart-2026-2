@@ -6,4 +6,5 @@ coverage/
 *.log
 .env*
 !.env.example
-data/
+# Runtime saved state only. Do not ignore src/data (app seed files).
+/data/
