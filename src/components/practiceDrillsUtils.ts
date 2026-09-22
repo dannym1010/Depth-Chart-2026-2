@@ -16,6 +16,34 @@ export function isFilledPlayer(player?: PlacedPlayer | null): boolean {
   return Boolean(player && normalizeJerseyNum(player.num) && player.num !== '?');
 }
 
+function lastNameToken(name?: string): string {
+  const parts = String(name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  return parts[parts.length - 1] || '';
+}
+
+/** Last name only for 7v7/11v11 spots, regardless of drag/drop/auto-fill source. */
+export function drillSpotLastName(
+  player?: { num?: string | number; name?: string } | null,
+  roster?: RosterPlayer[] | null
+): string {
+  const jersey = normalizeJerseyNum(player?.num);
+  if (jersey && jersey !== '?' && roster?.length) {
+    const match = roster.find((r) => normalizeJerseyNum(r.num) === jersey);
+    if (match) {
+      const last = String(match.lastName || '').trim();
+      if (last) return last;
+      const fromRosterName = lastNameToken(match.rosterName);
+      if (fromRosterName) return fromRosterName;
+    }
+  }
+  const raw = String(player?.name || '').trim();
+  if (!raw || raw === '?' || raw.toUpperCase() === 'TBD') return raw;
+  return lastNameToken(raw) || raw;
+}
+
 /** Which side of a 7v7/11v11 drill a jersey is already lined up on. */
 export function getPlayerLinedUpUnit(
   group: LiveDrillGroup | undefined,
@@ -1327,7 +1355,7 @@ function getCandidatesForDrillPosition(params: {
             ) {
               candidateMap.set(playerNum, {
                 num: playerNum,
-                name: player.name || `Player #${playerNum}`,
+                name: drillSpotLastName(player, roster),
                 depthString,
                 category: pClass.category,
                 subRole: pClass.subRole,
@@ -1365,7 +1393,7 @@ function getCandidatesForDrillPosition(params: {
         ) {
           candidateMap.set(playerNum, {
             num: playerNum,
-            name: player.name || `Player #${playerNum}`,
+            name: drillSpotLastName(player, roster),
             depthString,
             category: pClass.category,
             subRole: pClass.subRole,
@@ -1404,7 +1432,7 @@ function getCandidatesForDrillPosition(params: {
           if (!candidateMap.has(playerNum)) {
             candidateList.push({
               num: playerNum,
-              name: player.name || `Player #${playerNum}`,
+              name: drillSpotLastName(player, roster),
               depthString: depthString + 1,
               category: pClass.category,
               subRole: pClass.subRole,
@@ -1437,7 +1465,7 @@ function getCandidatesForDrillPosition(params: {
         if (isRosterQB) {
           candidateList.push({
             num: pNum,
-            name: `${r.firstName} ${r.lastName}`.trim() || r.rosterName,
+            name: drillSpotLastName({ num: pNum, name: r.lastName || r.rosterName }, roster),
             depthString: 1,
             category: 'QB',
             subRole: 'QB',
@@ -1456,7 +1484,7 @@ function getCandidatesForDrillPosition(params: {
             const pClass = getPositionCategory(testPos);
             candidateList.push({
               num: pNum,
-              name: `${r.firstName} ${r.lastName}`.trim() || r.rosterName,
+              name: drillSpotLastName({ num: pNum, name: r.lastName || r.rosterName }, roster),
               depthString: 3,
               category: pClass.category,
               subRole: pClass.subRole,

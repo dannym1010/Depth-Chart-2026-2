@@ -60,6 +60,7 @@ import {
   AutoFillSummary,
   getPlayerLinedUpUnit,
   prepareDrillGroupForUnitAssign,
+  drillSpotLastName,
   isFilledPlayer,
   captureLiveDrillSlotLayout,
   applyLayoutToDrillGroup,
@@ -75,7 +76,7 @@ function parseDraggedPlacedPlayer(e: React.DragEvent): PlacedPlayer | null {
     try {
       const parsed = JSON.parse(typed);
       if (parsed?.num && parsed.num !== '?') {
-        return { num: String(parsed.num), name: String(parsed.name || parsed.num) };
+        return { num: String(parsed.num), name: drillSpotLastName({ num: parsed.num, name: parsed.name }) };
       }
     } catch {
       // fall through
@@ -357,7 +358,6 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
   const [autoFillFeedback, setAutoFillFeedback] = useState<string | null>(null);
   const [dropFeedback, setDropFeedback] = useState<string | null>(null);
   const [dropHoverKey, setDropHoverKey] = useState<string | null>(null);
-  const [rosterTrayQuery, setRosterTrayQuery] = useState('');
 
   // Auto-fill options modal
   const [showAutoFillModal, setShowAutoFillModal] = useState<boolean>(false);
@@ -833,9 +833,13 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
     if (!unit) return false;
 
     const prepared = prepareDrillGroupForUnitAssign(liveGroup, player.num, unit);
+    const linedUpPlayer: PlacedPlayer = {
+      num: player.num,
+      name: drillSpotLastName(player, roster),
+    };
     if (prepared.movedFrom) {
       showDropFeedback(
-        `#${player.num} ${player.name} moved off ${prepared.movedFrom} and onto ${unit}.`
+        `#${linedUpPlayer.num} ${linedUpPlayer.name} moved off ${prepared.movedFrom} and onto ${unit}.`
       );
     }
 
@@ -845,7 +849,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
       while (currentList.length <= targetIdx) {
         currentList.push({ num: '?', name: 'TBD' });
       }
-      currentList[targetIdx] = player;
+      currentList[targetIdx] = linedUpPlayer;
       updateGroup({
         ...prepared.group,
         lineup: {
@@ -860,7 +864,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
       ...prepared.group,
       lineup: {
         ...prepared.group.lineup,
-        [posId]: [...currentList, player],
+        [posId]: [...currentList, linedUpPlayer],
       },
     });
     return true;
@@ -1016,7 +1020,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
       handleAssignPlayer(
         posId,
         {
-          name: `${rosterPlayer.firstName} ${rosterPlayer.lastName}`.trim() || rosterPlayer.rosterName || '',
+          name: drillSpotLastName(rosterPlayer, roster),
           num: rosterPlayer.num,
         },
         targetIdx
@@ -1024,18 +1028,11 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
     }
   };
 
-  const handleStartRosterDrag = (e: React.DragEvent, player: RosterPlayer) => {
-    if (userRole !== 'admin') return;
-    const name = `${player.firstName} ${player.lastName}`.trim() || player.rosterName || player.lastName;
-    e.dataTransfer.setData(FOOTBALL_PLAYER_DRAG, JSON.stringify({ num: player.num, name }));
-    e.dataTransfer.setData('text/plain', name);
-    e.dataTransfer.effectAllowed = 'copy';
-  };
-
   const handleStartPlacedDrag = (e: React.DragEvent, player: PlacedPlayer) => {
     if (userRole !== 'admin' || !isFilledPlayer(player)) return;
-    e.dataTransfer.setData(FOOTBALL_PLAYER_DRAG, JSON.stringify({ num: player.num, name: player.name }));
-    e.dataTransfer.setData('text/plain', player.name);
+    const name = drillSpotLastName(player, roster);
+    e.dataTransfer.setData(FOOTBALL_PLAYER_DRAG, JSON.stringify({ num: player.num, name }));
+    e.dataTransfer.setData('text/plain', name);
     e.dataTransfer.effectAllowed = 'copy';
   };
 
@@ -1124,74 +1121,6 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
         )}
       </div>
 
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 shadow-sm print:hidden">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-          <div>
-            <h4 className="font-black text-slate-900 dark:text-slate-100 text-sm">Roster — drag onto a spot</h4>
-            <p className="text-xs text-slate-500 font-medium">
-              Same player can fill multiple offense spots or multiple defense spots. Putting them on the other side moves them off the first side. Matchups are O-1 vs D-1, O-2 vs D-2, O-3 vs D-3.
-            </p>
-          </div>
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
-            <input
-              type="text"
-              value={rosterTrayQuery}
-              onChange={(e) => setRosterTrayQuery(e.target.value)}
-              placeholder="Filter roster..."
-              className="pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white w-48"
-            />
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
-          {roster
-            .filter((p) => {
-              if (!rosterTrayQuery.trim()) return true;
-              const q = rosterTrayQuery.toLowerCase().trim();
-              return (
-                p.firstName.toLowerCase().includes(q) ||
-                p.lastName.toLowerCase().includes(q) ||
-                p.num.toLowerCase().includes(q) ||
-                (p.primaryPosition || '').toLowerCase().includes(q)
-              );
-            })
-            .map((player) => {
-              const linedUp = getPlayerLinedUpUnit(currentGroup, player.num);
-              return (
-                <div
-                  key={player.num}
-                  draggable={userRole === 'admin'}
-                  onDragStart={(e) => handleStartRosterDrag(e, player)}
-                  title={
-                    linedUp
-                      ? `#${player.num} is on ${linedUp}. Drop on the other side to move them off ${linedUp}.`
-                      : `Drag #${player.num} onto an O or D cell`
-                  }
-                  className={`px-2 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 select-none ${
-                    userRole === 'admin' ? 'cursor-grab active:cursor-grabbing' : ''
-                  } ${
-                    linedUp === 'offense'
-                      ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 text-amber-900 dark:text-amber-200'
-                      : linedUp === 'defense'
-                        ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-300 text-blue-900 dark:text-blue-200'
-                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200'
-                  }`}
-                >
-                  <span className="font-black">#{player.num}</span>
-                  <span className="truncate max-w-[7rem]">
-                    {player.firstName} {player.lastName}
-                  </span>
-                  {linedUp && (
-                    <span className="uppercase text-[9px] tracking-wider opacity-70">
-                      {linedUp === 'offense' ? 'O' : 'D'}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-        </div>
-      </div>
-
       {/* ==================================================================== */}
       {/* 3. INTERACTIVE MATCHUP BOARD (OFFENSE VS DEFENSE - 3-TEAM DEPTH) */}
       {/* ==================================================================== */}
@@ -1205,7 +1134,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
           <div>
             <h4 className="font-black text-slate-900 dark:text-slate-100 text-base">All 3 Together</h4>
             <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-              O-1 vs D-1, O-2 vs D-2, O-3 vs D-3. Drag a roster name onto a cell, or tap to assign.
+              O-1 vs D-1, O-2 vs D-2, O-3 vs D-3. Drag from the roster on the right, or tap a cell to assign.
             </p>
           </div>
           <div className="flex items-center flex-wrap gap-2">
@@ -1395,7 +1324,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                                           {player.num}
                                         </span>
                                         <span className="font-bold text-slate-900 dark:text-white truncate">
-                                          {player.name}
+                                          {drillSpotLastName(player, roster)}
                                         </span>
                                         <button
                                           type="button"
@@ -1681,7 +1610,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                     const ok = handleAssignPlayer(
                       assigningPos.id,
                       {
-                        name: `${player.firstName} ${player.lastName}`.trim() || player.rosterName || '',
+                        name: drillSpotLastName(player, roster),
                         num: player.num,
                       },
                       assigningPos.targetIdx
@@ -1886,13 +1815,13 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                               {pos.name}
                             </td>
                             <td className="p-1 font-black border border-slate-300">
-                              {starter && starter.num !== '?' ? `#${starter.num} ${starter.name}` : '—'}
+                              {starter && starter.num !== '?' ? `#${starter.num} ${drillSpotLastName(starter, roster)}` : '—'}
                             </td>
                             <td className="p-1 text-slate-700 border border-slate-300">
-                              {backup1 && backup1.num !== '?' ? `#${backup1.num} ${backup1.name}` : '—'}
+                              {backup1 && backup1.num !== '?' ? `#${backup1.num} ${drillSpotLastName(backup1, roster)}` : '—'}
                             </td>
                             <td className="p-1 text-slate-500 border border-slate-300">
-                              {backup2 && backup2.num !== '?' ? `#${backup2.num} ${backup2.name}` : '—'}
+                              {backup2 && backup2.num !== '?' ? `#${backup2.num} ${drillSpotLastName(backup2, roster)}` : '—'}
                             </td>
                           </tr>
                         );
@@ -1939,13 +1868,13 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                               {pos.name}
                             </td>
                             <td className="p-1 font-black border border-slate-300">
-                              {starter && starter.num !== '?' ? `#${starter.num} ${starter.name}` : '—'}
+                              {starter && starter.num !== '?' ? `#${starter.num} ${drillSpotLastName(starter, roster)}` : '—'}
                             </td>
                             <td className="p-1 text-slate-700 border border-slate-300">
-                              {backup1 && backup1.num !== '?' ? `#${backup1.num} ${backup1.name}` : '—'}
+                              {backup1 && backup1.num !== '?' ? `#${backup1.num} ${drillSpotLastName(backup1, roster)}` : '—'}
                             </td>
                             <td className="p-1 text-slate-500 border border-slate-300">
-                              {backup2 && backup2.num !== '?' ? `#${backup2.num} ${backup2.name}` : '—'}
+                              {backup2 && backup2.num !== '?' ? `#${backup2.num} ${drillSpotLastName(backup2, roster)}` : '—'}
                             </td>
                           </tr>
                         );

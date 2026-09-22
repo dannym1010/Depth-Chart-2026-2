@@ -3834,7 +3834,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       'application/x-football-player',
       JSON.stringify({
         num: player.num,
-        name: `${player.firstName} ${player.lastName}`.trim() || rosterDisplayName,
+        name: player.lastName || rosterDisplayName,
       })
     );
     e.dataTransfer.effectAllowed = 'copy';
