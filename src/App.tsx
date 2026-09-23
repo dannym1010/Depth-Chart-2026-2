@@ -167,6 +167,7 @@ import {
   normalizeScoutWeekKey,
   pickScoutBundle,
   pickRichestScouting,
+  scoutFingerprint,
   shouldKeepLocalCallSheet,
   shouldRejectStaleRemote,
 } from './utils/remoteStateMerge';
@@ -2256,6 +2257,9 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     if (remote.ownTeamScout) {
       setOwnTeamHudlScout((prev) => {
         const updated = mergeOwnTeamHudlMap(prev, { [teamId]: remote.ownTeamScout });
+        if (scoutFingerprint(prev?.[teamId]) === scoutFingerprint(updated?.[teamId])) {
+          return prev;
+        }
         latestStateRef.current.ownTeamHudlScout = updated;
         safeJSONSet('footballOwnTeamHudlScout', updated);
         return updated;
@@ -2272,16 +2276,25 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
             scrimmageChart: {},
             opponent: '',
           };
-          const scouting = {
-            ...(existingWeek.scouting || {}),
-            hudlScout: pickScoutBundle(existingWeek.scouting?.hudlScout, remote.opponentScout),
+          const nextHudl = pickScoutBundle(existingWeek.scouting?.hudlScout, remote.opponentScout);
+          if (scoutFingerprint(existingWeek.scouting?.hudlScout) === scoutFingerprint(nextHudl)) {
+            return existingWeek;
+          }
+          return {
+            ...existingWeek,
+            scouting: {
+              ...(existingWeek.scouting || {}),
+              hudlScout: nextHudl,
+            },
           };
-          return { ...existingWeek, scouting };
         };
+        const nextScoped = patchWeek(scopedKey, prev);
+        const nextWeek = patchWeek(wk, prev);
+        if (nextScoped === prev[scopedKey] && nextWeek === prev[wk]) return prev;
         const updatedAll = {
           ...prev,
-          [scopedKey]: patchWeek(scopedKey, prev),
-          [wk]: patchWeek(wk, prev),
+          [scopedKey]: nextScoped,
+          [wk]: nextWeek,
         };
         latestStateRef.current.weeklyData = updatedAll;
         safeJSONSet('footballWeeklyData', updatedAll);
@@ -2294,6 +2307,14 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     const wk = normalizeScoutWeekKey(week);
     const remote = await fetchHudlScoutCloud(teamId, wk);
     if (!remote.opponentScout && !remote.ownTeamScout) return;
+    const scopedKey = getScopedWeekKey(teamId, wk);
+    const localOpp =
+      latestStateRef.current.weeklyData?.[scopedKey]?.scouting?.hudlScout ||
+      latestStateRef.current.weeklyData?.[wk]?.scouting?.hudlScout;
+    const localOwn = latestStateRef.current.ownTeamHudlScout?.[teamId];
+    const oppSame = !remote.opponentScout || scoutFingerprint(localOpp) === scoutFingerprint(pickScoutBundle(localOpp, remote.opponentScout));
+    const ownSame = !remote.ownTeamScout || scoutFingerprint(localOwn) === scoutFingerprint(pickScoutBundle(localOwn, remote.ownTeamScout));
+    if (oppSame && ownSame) return;
     applyHudlScoutFromCloud(teamId, wk, remote);
   };
 
@@ -2327,9 +2348,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     });
     await flushAndSaveStateToStorage('hudl_scout_update', { activeUnit: 'hudl_scout', scope: 'hudl_scout_update' });
     if (!result.ok) {
-      setSyncStatus({ text: '⚠️ Hudl Scout did not reach other devices. Try again on Wi-Fi.', color: '#ef4444' });
-    } else {
-      setSyncStatus({ text: '✅ Hudl Scout saved for all coaches', color: '#22c55e' });
+      setSyncStatus({ text: '⚠️ Scout not shared', color: '#ef4444' });
     }
   };
 
@@ -2505,7 +2524,6 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
               }
             }
           }
-          await hydrateHudlScoutFromCloud();
         } catch {
           // silent catch during polling
         }

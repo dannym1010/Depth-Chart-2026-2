@@ -318,13 +318,13 @@ export const Header: React.FC<HeaderProps> = ({
           <div
             onClick={onForceSave}
             title="Click to force immediate cloud save & sync"
-            className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-indigo-500/40 px-2.5 py-1.5 rounded-2xl shadow-xs dark:shadow-inner cursor-pointer transition-all active:scale-95 group"
+            className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-indigo-500/40 px-2.5 py-1.5 rounded-2xl shadow-xs dark:shadow-inner cursor-pointer transition-all active:scale-95 group h-8 min-w-[10.5rem]"
           >
             <span
               className="w-2 h-2 rounded-full shrink-0 animate-pulse shadow-xs"
               style={{ backgroundColor: syncStatus.color || '#6366f1' }}
             />
-            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors hidden lg:inline">
+            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors hidden lg:inline truncate whitespace-nowrap max-w-[9.5rem]">
               {syncStatus.text}
             </span>
             {onForceSave && (

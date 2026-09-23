@@ -65,6 +65,13 @@ export function pickBetterFormation(
   return local;
 }
 
+export function scoutFingerprint(scout: any): string {
+  if (!scout || typeof scout !== 'object') return '';
+  const plays = Array.isArray(scout.plays) ? scout.plays.length : 0;
+  const games = Array.isArray(scout.games) ? scout.games.length : 0;
+  return `${Number(scout.updatedAt) || 0}|${plays}|${games}|${scout.datasetName || ''}|${scout.sourceCleared ? 1 : 0}`;
+}
+
 export function hudlScoutWeight(scout: any): number {
   if (!scout || typeof scout !== 'object') return 0;
   const plays = Array.isArray(scout.plays) ? scout.plays.length : 0;
