@@ -162,7 +162,6 @@ import {
   mergeStaffByEmail,
   mergeOwnTeamHudlMap,
   collectOwnTeamHudlFromWeekly,
-  unionScoutBundles,
   mergeScheduleEvents,
   normalizeScoutWeekKey,
   pickScoutBundle,
@@ -211,7 +210,10 @@ export default function App() {
     const fromWeeks = collectOwnTeamHudlFromWeekly(weekly);
     const out: Record<string, any> = { ...disk };
     for (const [teamId, bundle] of Object.entries(fromWeeks)) {
-      out[teamId] = unionScoutBundles(disk[teamId], bundle);
+      const local = disk[teamId];
+      const localPlays = Array.isArray(local?.plays) ? local.plays.length : 0;
+      if (local?.sourceCleared || localPlays > 0) continue;
+      out[teamId] = bundle;
     }
     return out;
   });
@@ -1031,7 +1033,7 @@ export default function App() {
   const currentDepthUnit =
     activeUnit === 'depth_chart'
       ? (depthSubUnit === 'scrimmage' ? 'offense' : (depthSubUnit || 'offense'))
-      : (['offense', 'defense', 'st', 'groups'].includes(activeUnit)
+      : (['offense', 'defense', 'st', 'groups', 'practice_live', 'scrimmage'].includes(activeUnit)
           ? (activeUnit as 'offense' | 'defense' | 'st' | 'groups')
           : 'offense');
 
@@ -4054,7 +4056,11 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     e: React.DragEvent,
     player: RosterPlayer
   ) => {
-    if (userRole !== 'admin') return;
+    const liveDrillBoard =
+      activeUnit === 'practice_live' ||
+      activeUnit === 'scrimmage' ||
+      (activeUnit === 'depth_chart' && depthSubUnit === 'practice_live');
+    if (userRole !== 'admin' && !liveDrillBoard) return;
     const rosterDisplayName = (player.rosterName || player.lastName || `${player.firstName} ${player.lastName}`).trim();
     draggedPlayerRef.current = {
       type: 'roster',

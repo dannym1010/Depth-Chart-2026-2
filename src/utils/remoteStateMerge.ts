@@ -134,8 +134,8 @@ export function unionScoutBundles(a?: any, b?: any) {
   const bClear = Boolean(b.sourceCleared) && bPlays.length === 0;
   const aT = Number(a.updatedAt) || 0;
   const bT = Number(b.updatedAt) || 0;
-  if (aClear && aT >= bT && bPlays.length === 0) return a;
-  if (bClear && bT >= aT && aPlays.length === 0) return b;
+  if (aClear && aT >= bT) return a;
+  if (bClear && bT >= aT) return b;
   const gameIds = new Set<string>();
   const games: any[] = [];
   for (const g of [...(Array.isArray(a.games) ? a.games : []), ...(Array.isArray(b.games) ? b.games : [])]) {

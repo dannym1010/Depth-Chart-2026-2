@@ -285,55 +285,6 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
     else if (nextOff === nextDef) setActiveMatchup(nextOff);
   };
 
-  const handleNextSlide = () => {
-    if (activeMatchup === 1) handleSelectMatchup('1v2');
-    else if (activeMatchup === '1v2') handleSelectMatchup(2);
-    else if (activeMatchup === 2) handleSelectMatchup('2v1');
-    else if (activeMatchup === '2v1') handleSelectMatchup(3);
-    else if (activeMatchup === 3) handleSelectMatchup('all');
-    else handleSelectMatchup(1);
-  };
-
-  const handlePrevSlide = () => {
-    if (activeMatchup === 'all') handleSelectMatchup(3);
-    else if (activeMatchup === 3) handleSelectMatchup('2v1');
-    else if (activeMatchup === '2v1') handleSelectMatchup(2);
-    else if (activeMatchup === 2) handleSelectMatchup('1v2');
-    else if (activeMatchup === '1v2') handleSelectMatchup(1);
-    else handleSelectMatchup('all');
-  };
-
-  const handleNextMatchup = handleNextSlide;
-  const handlePrevMatchup = handlePrevSlide;
-
-  // Touch Swipe detection for mobile screen sliding
-  const [touchStartX, setTouchStartX] = useState<number | null>(null);
-  const [touchEndX, setTouchEndX] = useState<number | null>(null);
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    setTouchStartX(e.targetTouches[0].clientX);
-    setTouchEndX(null);
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    setTouchEndX(e.targetTouches[0].clientX);
-  };
-
-  const handleTouchEnd = () => {
-    if (touchStartX === null || touchEndX === null) return;
-    const distance = touchStartX - touchEndX;
-    const isLeftSwipe = distance > 45;
-    const isRightSwipe = distance < -45;
-
-    if (isLeftSwipe) {
-      handleNextSlide();
-    } else if (isRightSwipe) {
-      handlePrevSlide();
-    }
-    setTouchStartX(null);
-    setTouchEndX(null);
-  };
-
   // View presentation mode: 'side_by_side' | 'grid' | 'table'
   const [viewMode, setViewMode] = useState<'side_by_side' | 'grid' | 'table'>('side_by_side');
 
@@ -989,7 +940,6 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
     e.preventDefault();
     e.stopPropagation();
     setDropHoverKey(null);
-    if (userRole !== 'admin') return;
 
     const dragged = parseDraggedPlacedPlayer(e);
     if (dragged) {
@@ -1017,7 +967,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
   };
 
   const handleStartPlacedDrag = (e: React.DragEvent, player: PlacedPlayer) => {
-    if (userRole !== 'admin' || !isFilledPlayer(player)) return;
+    if (!isFilledPlayer(player)) return;
     const name = drillSpotLastName(player, roster);
     e.dataTransfer.setData(FOOTBALL_PLAYER_DRAG, JSON.stringify({ num: player.num, name }));
     e.dataTransfer.setData('text/plain', name);
@@ -1106,12 +1056,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
       {/* ==================================================================== */}
       {/* 3. INTERACTIVE MATCHUP BOARD (OFFENSE VS DEFENSE - 3-TEAM DEPTH) */}
       {/* ==================================================================== */}
-      <div
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm transition-all"
-      >
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm transition-all">
                 <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h4 className="font-black text-slate-900 dark:text-slate-100 text-base">{togetherTitle}</h4>
@@ -1299,10 +1244,18 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                             Boolean(player && isFilledPlayer(player)) &&
                             bothSideByTeam[mobileTeamNum - 1].has(normalizeJerseyNum(player.num));
                           return (
-                            <div key={`phone-${pos.id}`} className="flex items-center gap-2 px-3 py-2.5">
+                            <div
+                              key={`phone-${pos.id}`}
+                              className="flex items-center gap-2 px-3 py-2.5"
+                              onDragOver={handleDragOver}
+                              onDrop={(e) => handleDropOnPosition(e, pos.id, mobileTeamNum - 1)}
+                            >
                               <span className="w-16 shrink-0 text-xs font-black text-slate-600 dark:text-slate-300">{pos.name}</span>
                               {player && player.num !== '?' ? (
-                                <div className={`flex-1 flex items-center gap-2 min-w-0 rounded-lg px-2 py-1.5 ${onBothSides ? 'ring-2 ring-rose-600 bg-rose-50 dark:bg-rose-950/40' : 'bg-slate-50 dark:bg-slate-800'}`}>
+                                <div className={`flex-1 flex items-center gap-2 min-w-0 rounded-lg px-2 py-1.5 cursor-grab ${onBothSides ? 'ring-2 ring-rose-600 bg-rose-50 dark:bg-rose-950/40' : 'bg-slate-50 dark:bg-slate-800'}`}
+                                  draggable
+                                  onDragStart={(e) => handleStartPlacedDrag(e, player)}
+                                >
                                   <span
                                     className="w-8 h-8 rounded-lg text-xs font-black flex items-center justify-center shrink-0"
                                     style={{ backgroundColor: cfg.hex, color: cfg.badgeText.includes('white') ? '#fff' : '#000' }}
@@ -1463,16 +1416,16 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                                   >
                                     {player && player.num !== '?' ? (
                                       <div
-                                        draggable={userRole === 'admin'}
+                                        draggable
                                         onDragStart={(e) => handleStartPlacedDrag(e, player)}
                                         title={
                                           onBothSides
                                             ? `#${player.num} is on both sides of this matchup (O-${num} vs D-${num})`
                                             : undefined
                                         }
-                                        className={`flex items-center gap-1.5 min-w-0 rounded-md px-1 py-0.5 ${
-                                          userRole === 'admin' ? 'cursor-grab' : ''
-                                        } ${onBothSides ? 'ring-2 ring-rose-600 border border-rose-600 bg-rose-50 dark:bg-rose-950/40' : ''}`}
+                                        className={`flex items-center gap-1.5 min-w-0 rounded-md px-1 py-0.5 cursor-grab ${
+                                          onBothSides ? 'ring-2 ring-rose-600 border border-rose-600 bg-rose-50 dark:bg-rose-950/40' : ''
+                                        }`}
                                       >
                                         <span
                                           className="w-6 h-6 rounded text-[10px] font-black flex items-center justify-center shrink-0"

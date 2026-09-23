@@ -48,6 +48,10 @@ export const RosterSidebar: React.FC<RosterSidebarProps> = ({
   onRestoreDefaultRoster,
   onOpenExcelPlayImport,
 }) => {
+  const canDragPlayers =
+    userRole === 'admin' ||
+    activeUnit === 'practice_live' ||
+    activeUnit === 'scrimmage';
   // If Wristband tab is active, show Play Library
   if (activeUnit === 'wristband') {
     const filteredPlays = playLibrary.filter((p) =>
@@ -279,11 +283,11 @@ export const RosterSidebar: React.FC<RosterSidebarProps> = ({
           return (
             <li
               key={player.num}
-              draggable={userRole === 'admin'}
+              draggable={canDragPlayers}
               onDragStart={(e) => onDragStartPlayer(e, player)}
               onClick={() => onSelectPlayerForEdit && onSelectPlayerForEdit(player)}
               className={`p-2 bg-slate-850 hover:bg-slate-800 border border-slate-750 hover:border-indigo-400/50 rounded-xl flex items-center justify-between text-xs transition-all select-none ${
-                userRole === 'admin' ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
+                canDragPlayers ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
               }`}
             >
               <div className="flex items-center gap-2 min-w-0">

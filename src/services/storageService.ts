@@ -568,6 +568,24 @@ export async function saveHudlScoutCloud(payload: {
   return { ok: apiOk || firestoreOk };
 }
 
+function pickNewerScout(a?: any, b?: any) {
+  if (!a) return b;
+  if (!b) return a;
+  const aPlays = Array.isArray(a.plays) ? a.plays.length : 0;
+  const bPlays = Array.isArray(b.plays) ? b.plays.length : 0;
+  const aT = Number(a.updatedAt) || 0;
+  const bT = Number(b.updatedAt) || 0;
+  const aClear = Boolean(a.sourceCleared) && aPlays === 0;
+  const bClear = Boolean(b.sourceCleared) && bPlays === 0;
+  if (aClear && aT >= bT) return a;
+  if (bClear && bT >= aT) return b;
+  if (aT !== bT) return aT >= bT ? a : b;
+  if (aPlays > 0 && bPlays > 0) return aPlays >= bPlays ? a : b;
+  if (aPlays > 0) return a;
+  if (bPlays > 0) return b;
+  return aT >= bT ? a : b;
+}
+
 export async function fetchHudlScoutCloud(
   teamId: string,
   week: string
@@ -597,12 +615,8 @@ export async function fetchHudlScoutCloud(
         readScoutBundleDocs(db, hudlOwnDocId(teamId)),
         readScoutBundleDocs(db, hudlOppDocId(teamId, wk)),
       ]);
-      const ownPlays = Array.isArray(ownBundle?.plays) ? ownBundle.plays.length : 0;
-      const curOwn = Array.isArray(ownTeamScout?.plays) ? ownTeamScout.plays.length : 0;
-      if (ownBundle && (ownPlays >= curOwn || ownBundle.sourceCleared)) ownTeamScout = ownBundle;
-      const oppPlays = Array.isArray(oppBundle?.plays) ? oppBundle.plays.length : 0;
-      const curOpp = Array.isArray(opponentScout?.plays) ? opponentScout.plays.length : 0;
-      if (oppBundle && (oppPlays >= curOpp || oppBundle.sourceCleared)) opponentScout = oppBundle;
+      ownTeamScout = pickNewerScout(ownTeamScout, ownBundle);
+      opponentScout = pickNewerScout(opponentScout, oppBundle);
     }
   } catch (err) {
     console.warn('fetchHudlScoutCloud Firestore error:', err);

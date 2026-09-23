@@ -220,6 +220,30 @@ describe('remoteStateMerge', () => {
     assert.equal(mapped.team_10u.plays[0].id, 'b');
   });
 
+  it('does not put a deleted our-team Hudl file back when a newer upload has fewer plays', async () => {
+    const { pickScoutBundle, unionScoutBundles } = await import('./remoteStateMerge.ts');
+    const oldTwo = {
+      plays: [{ id: 'old' }, { id: 'keep' }],
+      games: [{ id: 'g-old' }, { id: 'g-new' }],
+      datasetName: 'Old film',
+      updatedAt: 10,
+    };
+    const reupload = {
+      plays: [{ id: 'keep' }],
+      games: [{ id: 'g-new' }],
+      datasetName: 'This week',
+      updatedAt: 90,
+      sourceCleared: false,
+    };
+    const picked = pickScoutBundle(reupload, oldTwo);
+    assert.equal(picked.plays.length, 1);
+    assert.equal(picked.games[0].id, 'g-new');
+    const cleared = { plays: [], games: [], updatedAt: 80, sourceCleared: true };
+    const afterClear = unionScoutBundles(cleared, oldTwo);
+    assert.equal(afterClear.plays.length, 0);
+    assert.equal(afterClear.sourceCleared, true);
+  });
+
   it('writes opponent Hudl film onto the weekly scout so other coaches can load it', async () => {
     const { applyHudlScoutPatch } = await import('./remoteStateMerge.ts');
     const state = applyHudlScoutPatch(

@@ -18,6 +18,7 @@ import { UploadModal } from '../../hudlScout/components/UploadModal';
 import { CallSheetModal } from '../../hudlScout/components/CallSheetModal';
 import { buildLocalGameplan } from '../../hudlScout/utils/buildLocalGameplan';
 import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
+import { pickScoutBundle, scoutFingerprint } from '../../utils/remoteStateMerge';
 
 const DEFAULT_FILTERS: FilterState = {
   odk: 'O',
@@ -224,26 +225,21 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   }, [currentWeek]);
 
   useEffect(() => {
-    const remotePlays = Array.isArray(saved?.plays) ? saved.plays.length : 0;
-    const localPlays = oppBundle.plays.length;
-    const remoteAt = Number(saved?.updatedAt) || 0;
-    const localAt = oppBundle.updatedAt || 0;
-    if (remotePlays > localPlays || (remoteAt > localAt && remotePlays >= localPlays && remotePlays > 0)) {
-      skipSave.current = true;
-      setOppBundle(bundleFromSaved(saved, opponentFallback));
-    }
+    const remote = saved;
+    if (!remote) return;
+    const picked = pickScoutBundle(oppBundle, remote);
+    if (scoutFingerprint(picked) === scoutFingerprint(oppBundle)) return;
+    skipSave.current = true;
+    setOppBundle(bundleFromSaved(picked, opponentFallback));
   }, [saved]);
 
   useEffect(() => {
     const remote = ownTeamScout || saved?.ownTeam;
-    const remotePlays = Array.isArray(remote?.plays) ? remote.plays.length : 0;
-    const localPlays = ownBundle.plays.length;
-    const remoteAt = Number(remote?.updatedAt) || 0;
-    const localAt = ownBundle.updatedAt || 0;
-    if (remotePlays > localPlays || (remoteAt > localAt && remotePlays >= localPlays && remotePlays > 0)) {
-      skipOwnSave.current = true;
-      setOwnBundle(bundleFromSaved(remote, ownFallback));
-    }
+    if (!remote) return;
+    const picked = pickScoutBundle(ownBundle, remote);
+    if (scoutFingerprint(picked) === scoutFingerprint(ownBundle)) return;
+    skipOwnSave.current = true;
+    setOwnBundle(bundleFromSaved(picked, ownFallback));
   }, [ownTeamScout, saved?.ownTeam]);
 
   useEffect(() => {
