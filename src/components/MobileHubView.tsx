@@ -2643,11 +2643,11 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
 
         <button
           type="button"
-          onClick={() => onNavigateToUnit('scouting')}
+          onClick={() => onNavigateToUnit('hudl_scout')}
           className="bg-slate-900/90 border border-slate-800 p-2.5 rounded-2xl flex flex-col items-center text-center gap-1 hover:border-slate-700 active:scale-95 transition-all cursor-pointer"
         >
           <Target className="w-4 h-4 text-rose-400" />
-          <span className="text-[10px] font-bold text-slate-300">Scouting</span>
+          <span className="text-[10px] font-bold text-slate-300">Hudl Scout</span>
         </button>
 
         <button

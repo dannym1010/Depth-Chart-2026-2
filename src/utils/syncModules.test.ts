@@ -15,6 +15,8 @@ import {
   mergeScoutingReports,
   mergeStaffByEmail,
   pickBetterFormation,
+  pickRichestScouting,
+  weekHasIncomingScout,
   shouldKeepLocalCallSheet,
   shouldRejectStaleRemote,
 } from './remoteStateMerge.ts';
@@ -191,6 +193,45 @@ describe('remoteStateMerge', () => {
     const merged = mergeScoutingReports({ hudlScout: oneGame }, { hudlScout: twoGames });
     assert.equal(merged.hudlScout.plays.length, 1);
     assert.equal(merged.hudlScout.games.length, 1);
+  });
+
+  it('picks the scouting report that actually has Hudl plays', () => {
+    const empty = { hudlScout: { plays: [], updatedAt: 9 } };
+    const filled = { hudlScout: { plays: [{ id: '1' }], datasetName: 'Carmel', updatedAt: 2 } };
+    assert.equal(pickRichestScouting(empty, filled)?.hudlScout.datasetName, 'Carmel');
+    assert.equal(weekHasIncomingScout({ scouting: filled }), true);
+    assert.equal(weekHasIncomingScout({ scouting: empty }), false);
+  });
+
+  it('unions our-team Hudl games from weekly reports into one season bundle', async () => {
+    const { unionScoutBundles, collectOwnTeamHudlFromWeekly, mergeOwnTeamHudlMap } = await import('./remoteStateMerge.ts');
+    const week1 = { plays: [{ id: 'a' }], games: [{ id: 'g1', name: 'Scrimmage' }], updatedAt: 1 };
+    const week2 = { plays: [{ id: 'b' }], games: [{ id: 'g2', name: 'Carmel' }], updatedAt: 2 };
+    const unioned = unionScoutBundles(week1, week2);
+    assert.equal(unioned.plays.length, 2);
+    assert.equal(unioned.games.length, 2);
+    const collected = collectOwnTeamHudlFromWeekly({
+      'team_10u__week_1': { scouting: { hudlScout: { ownTeam: week1 } } },
+      'team_10u__week_2': { scouting: { hudlScout: { ownTeam: week2 } } },
+    });
+    assert.equal(collected.team_10u.plays.length, 2);
+    const mapped = mergeOwnTeamHudlMap({ team_10u: week1 }, { team_10u: week2 });
+    assert.equal(mapped.team_10u.plays.length, 1);
+    assert.equal(mapped.team_10u.plays[0].id, 'b');
+  });
+
+  it('keeps TeamSnap practices when a refresh sends an older shorter schedule', async () => {
+    const { mergeScheduleEvents } = await import('./remoteStateMerge.ts');
+    const local = [
+      { id: 'evt_old', date: '2026-09-03', startTime: '17:30', title: 'Week 1 Practice', type: 'practice', lastEdited: 1 },
+      { id: 'evt_ts_1', date: '2026-09-10', startTime: '17:30', title: 'TeamSnap Practice', type: 'practice', lastEdited: 50 },
+    ];
+    const remote = [
+      { id: 'evt_old', date: '2026-09-03', startTime: '17:30', title: 'Week 1 Practice', type: 'practice', lastEdited: 1 },
+    ];
+    const merged = mergeScheduleEvents(local, remote);
+    assert.equal(merged.some((e: any) => e.id === 'evt_ts_1'), true);
+    assert.equal(merged.length, 2);
   });
 
   it('keeps edited positional-group boards and GRP- depth spots over factory remote', () => {

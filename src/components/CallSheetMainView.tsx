@@ -65,6 +65,8 @@ interface CallSheetMainViewProps {
   deletedPlayIds?: string[];
   onUpdateDeletedPlayIds?: (ids: string[]) => void;
   wristbandData?: WristbandData;
+  /** When true, height leaves room for Game Day hub tabs on phones. */
+  embedded?: boolean;
 }
 
 export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
@@ -78,6 +80,7 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
   deletedPlayIds: propDeletedPlayIds,
   onUpdateDeletedPlayIds,
   wristbandData: propWristbandData,
+  embedded = false,
 }) => {
   // Permanently deleted play IDs tracking (guarantees deleted plays never reappear on refresh)
   const [deletedPlayIds, setDeletedPlayIds] = useState<string[]>(() => {
@@ -1083,7 +1086,7 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
   };
 
   return (
-    <div className="h-[calc(100vh-4.5rem)] bg-slate-950 text-slate-100 flex flex-col font-sans overflow-hidden callsheet-root-container print:h-auto print:overflow-visible print:bg-white print:text-black">
+    <div className={`${embedded ? 'h-[calc(100dvh-13rem)] md:h-[calc(100vh-10rem)]' : 'h-[calc(100vh-4.5rem)]'} bg-slate-950 text-slate-100 flex flex-col font-sans overflow-hidden callsheet-root-container print:h-auto print:overflow-visible print:bg-white print:text-black`}>
       {/* 1. Main Navigation Toolbar (Hidden when printing) */}
       <header className="bg-slate-900 border-b border-slate-800 px-3 sm:px-5 py-1.5 shrink-0 shadow-xs print:hidden">
         <div className="max-w-[1500px] mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-2">

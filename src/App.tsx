@@ -158,6 +158,11 @@ import {
   mergePracticePlansByLastEdited,
   mergeRemoteWeeklyData,
   mergeStaffByEmail,
+  mergeOwnTeamHudlMap,
+  collectOwnTeamHudlFromWeekly,
+  unionScoutBundles,
+  mergeScheduleEvents,
+  pickRichestScouting,
   shouldKeepLocalCallSheet,
   shouldRejectStaleRemote,
 } from './utils/remoteStateMerge';
@@ -194,6 +199,16 @@ export default function App() {
       }
     }
     return normalized;
+  });
+  const [ownTeamHudlScout, setOwnTeamHudlScout] = useState<Record<string, any>>(() => {
+    const disk = safeJSONParse<Record<string, any>>('footballOwnTeamHudlScout', {}) || {};
+    const weekly = safeJSONParse<Record<string, any>>('footballWeeklyData', {}) || {};
+    const fromWeeks = collectOwnTeamHudlFromWeekly(weekly);
+    const out: Record<string, any> = { ...disk };
+    for (const [teamId, bundle] of Object.entries(fromWeeks)) {
+      out[teamId] = unionScoutBundles(disk[teamId], bundle);
+    }
+    return out;
   });
   const [defaultFormations, setDefaultFormations] = useState<FormationBoard[]>(() => {
     const raw = safeJSONParse('footballDefaultFormations', INITIAL_DEFAULT_FORMATIONS);
@@ -878,6 +893,8 @@ export default function App() {
   const saveTimeoutRef = useRef<any>(null);
   const initialCloudLoadDoneRef = useRef<boolean>(false);
   const pendingPracticeDrillSaveRef = useRef<boolean>(false);
+  const pendingScoutingSaveRef = useRef<boolean>(false);
+  const pendingScheduleSaveRef = useRef<boolean>(false);
   const isImportingRef = useRef<boolean>(false);
   const isRemoteSyncRef = useRef<boolean>(false);
   const lastSavedPayloadRef = useRef<string>('');
@@ -938,6 +955,7 @@ export default function App() {
 
   const latestStateRef = useRef({
     weeklyData,
+    ownTeamHudlScout,
     defaultFormations,
     practiceData,
     practiceTemplates,
@@ -970,6 +988,7 @@ export default function App() {
   useEffect(() => {
     latestStateRef.current = {
       weeklyData,
+      ownTeamHudlScout,
       defaultFormations,
       practiceData,
       practiceTemplates,
@@ -1339,6 +1358,7 @@ export default function App() {
         safeJSONParse<WristbandData | null>('footballWristbandData', null) ||
         INITIAL_TWO_WRISTBANDS_DATA,
       scouting:
+        pickRichestScouting(scopedState?.scouting, legacyState?.scouting, defScopedState?.scouting) ||
         scopedState?.scouting ||
         legacyState?.scouting ||
         defScopedState?.scouting,
@@ -1550,6 +1570,17 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         return mergedWeekly;
       });
     }
+    if (data.ownTeamHudlScout && typeof data.ownTeamHudlScout === 'object') {
+      setOwnTeamHudlScout((prev) => {
+        const merged = mergeOwnTeamHudlMap(
+          prev && Object.keys(prev).length ? prev : latestStateRef.current.ownTeamHudlScout,
+          data.ownTeamHudlScout
+        );
+        latestStateRef.current.ownTeamHudlScout = merged;
+        safeJSONSet('footballOwnTeamHudlScout', merged);
+        return merged;
+      });
+    }
     if (
       data.defaultFormations &&
       Array.isArray(data.defaultFormations) &&
@@ -1629,10 +1660,22 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       });
     }
 
+    const mergedScheduleEvents = mergeScheduleEvents(
+      latestStateRef.current.scheduleEvents,
+      Array.isArray(data.scheduleEvents) ? data.scheduleEvents : undefined
+    );
+    if (data.scheduleEvents && Array.isArray(data.scheduleEvents)) {
+      setScheduleEvents(mergedScheduleEvents);
+      latestStateRef.current.scheduleEvents = mergedScheduleEvents;
+      safeJSONSet('footballScheduleEvents', mergedScheduleEvents);
+    }
+
     if (data.practiceData && Array.isArray(data.practiceData)) {
       const sanitized = sanitizePracticePlans(
         data.practiceData,
-        data.scheduleEvents || latestStateRef.current.scheduleEvents || DEFAULT_SCHEDULE_EVENTS
+        mergedScheduleEvents.length
+          ? mergedScheduleEvents
+          : data.scheduleEvents || latestStateRef.current.scheduleEvents || DEFAULT_SCHEDULE_EVENTS
       );
       const mergedPlans = mergePracticePlansByLastEdited(
         latestStateRef.current.practiceData || [],
@@ -1868,11 +1911,6 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       latestStateRef.current.collapsedFolders = data.collapsedFolders;
       safeJSONSet('footballCollapsedFolders', data.collapsedFolders);
     }
-    if (data.scheduleEvents && Array.isArray(data.scheduleEvents)) {
-      setScheduleEvents(data.scheduleEvents);
-      latestStateRef.current.scheduleEvents = data.scheduleEvents;
-      safeJSONSet('footballScheduleEvents', data.scheduleEvents);
-    }
     if (data.roster && Array.isArray(data.roster)) {
       const normalized = normalizeRoster(data.roster, true);
       setRoster(normalized);
@@ -1928,6 +1966,18 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         saveStateToStorage('practice_drill_update');
       }, 300);
     }
+    if (pendingScoutingSaveRef.current) {
+      pendingScoutingSaveRef.current = false;
+      setTimeout(() => {
+        saveStateToStorage('scouting_update', { activeUnit: 'scouting', scope: 'scouting_update' });
+      }, 350);
+    }
+    if (pendingScheduleSaveRef.current) {
+      pendingScheduleSaveRef.current = false;
+      setTimeout(() => {
+        saveStateToStorage('schedule_update', { scope: 'schedule_update' });
+      }, 400);
+    }
 
     // Reset isRemoteSyncRef quickly after the React state cycle
     setTimeout(() => {
@@ -1944,6 +1994,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
 
     // 1. LocalStorage update
     safeJSONSet('footballWeeklyData', currentState.weeklyData);
+    safeJSONSet('footballOwnTeamHudlScout', currentState.ownTeamHudlScout || ownTeamHudlScout);
     safeJSONSet('footballDefaultFormations', currentState.defaultFormations);
     safeJSONSet('footballDeletedFormationIds', currentState.deletedFormationIds || []);
     safeJSONSet('footballPracticeData', currentState.practiceData);
@@ -1979,6 +2030,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
 
     const payload = {
       weeklyData: currentState.weeklyData,
+      ownTeamHudlScout: currentState.ownTeamHudlScout || ownTeamHudlScout,
       defaultFormations: currentState.defaultFormations,
       deletedFormationIds: currentState.deletedFormationIds || [],
       practiceData: currentState.practiceData,
@@ -2025,6 +2077,8 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       scope.startsWith('ppr') ||
       scope === 'scouting_update' ||
       scope.startsWith('scouting') ||
+      scope === 'hudl_scout_update' ||
+      scope === 'schedule_update' ||
       (Array.isArray(extraMeta?.modifiedPosIds) && extraMeta.modifiedPosIds.length > 0);
 
     if (payloadJson === lastSavedPayloadRef.current && !isExplicitUserAction) {
@@ -2034,6 +2088,8 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     // Never overwrite cloud if initial cloud pull has not completed yet
     if (!initialCloudLoadDoneRef.current && scope !== 'force') {
       if (scope.startsWith('practice_drill')) pendingPracticeDrillSaveRef.current = true;
+      if (scope === 'scouting_update' || scope.startsWith('scouting') || scope === 'hudl_scout_update') pendingScoutingSaveRef.current = true;
+      if (scope === 'schedule_update') pendingScheduleSaveRef.current = true;
       return;
     }
 
@@ -2128,9 +2184,11 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
 
   const persistWeekScouting = (field: any, val?: any) => {
     lastLocalEditTimeRef.current = Date.now();
+    const teamId = activeTeamIdRef.current;
+    const week = currentWeekRef.current;
     setWeeklyData((prev) => {
-      const scopedKey = getScopedWeekKey(activeTeamId, currentWeek);
-      const existingWeek = prev[scopedKey] || prev[currentWeek] || {
+      const scopedKey = getScopedWeekKey(teamId, week);
+      const existingWeek = prev[scopedKey] || prev[week] || {
         formations: defaultFormations,
         depthChart: {},
         scrimmageChart: {},
@@ -2149,13 +2207,25 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       const updatedAll = {
         ...prev,
         [scopedKey]: updatedWeek,
-        [currentWeek]: updatedWeek,
+        [week]: updatedWeek,
       };
       safeJSONSet('footballWeeklyData', updatedAll);
       latestStateRef.current.weeklyData = updatedAll;
       return updatedAll;
     });
-    flushAndSaveStateToStorage('scouting_update', { activeUnit: 'scouting', scope: 'scouting_update' });
+    flushAndSaveStateToStorage('scouting_update', { activeUnit: 'hudl_scout', scope: 'scouting_update' });
+  };
+
+  const persistOwnTeamHudlScout = (bundle: any) => {
+    lastLocalEditTimeRef.current = Date.now();
+    const teamId = activeTeamIdRef.current;
+    setOwnTeamHudlScout((prev) => {
+      const updated = { ...prev, [teamId]: bundle };
+      latestStateRef.current.ownTeamHudlScout = updated;
+      safeJSONSet('footballOwnTeamHudlScout', updated);
+      return updated;
+    });
+    flushAndSaveStateToStorage('hudl_scout_update', { activeUnit: 'hudl_scout', scope: 'hudl_scout_update' });
   };
 
   const handleForceRefresh = async () => {
@@ -7296,6 +7366,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
 
     setScheduleEvents((prev) => {
       const updated = [...prev, ...created];
+      latestStateRef.current.scheduleEvents = updated;
       safeJSONSet('footballScheduleEvents', updated);
       return updated;
     });
@@ -7346,8 +7417,11 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
           ...created,
         ];
       } else {
-        nextEvents = [...prev, ...created];
+      nextEvents = [...prev, ...created];
       }
+      latestStateRef.current.scheduleEvents = nextEvents;
+      lastLocalEditTimeRef.current = Date.now();
+      safeJSONSet('footballLastLocalEditTime', lastLocalEditTimeRef.current);
       safeJSONSet('footballScheduleEvents', nextEvents);
       return nextEvents;
     });
@@ -7361,7 +7435,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       }
     });
 
-    debouncedSave('all');
+    flushAndSaveStateToStorage('schedule_update', { scope: 'schedule_update' });
   };
 
   const handlePracticeWizardGenerate = (result: PracticeWizardGeneratedResult) => {
@@ -8380,6 +8454,8 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
                 onUpdateWristbandData={handleUpdateWristbandData}
                 scouting={currentWeekState.scouting || {}}
                 onUpdateScouting={persistWeekScouting}
+                ownTeamScout={ownTeamHudlScout[activeTeamId] || ownTeamHudlScout.team_10u}
+                onUpdateOwnTeamScout={persistOwnTeamHudlScout}
                 staffList={staffList}
                 savedCoaches={savedCoaches}
                 scheduleEvents={activeTeamScheduleEvents}
@@ -8448,10 +8524,10 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
               />
             )}
 
-            {/* 4. Scouting Report */}
-            {activeUnit === 'scouting' && (
+            {/* 4. Hudl Scout */}
+            {(activeUnit === 'hudl_scout' || activeUnit === 'scouting') && (
               <ScoutingView
-                key={`scout-${activeTeamId}-${currentWeek}`}
+                key={`hudl-${activeTeamId}`}
                 scouting={currentWeekState.scouting || {}}
                 userRole={userRole}
                 currentUser={currentUser}
@@ -8459,6 +8535,9 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
                 savedCoaches={savedCoaches}
                 scheduleEvents={activeTeamScheduleEvents}
                 currentWeek={currentWeek}
+                activeTeamName={currentActiveTeam?.name || 'Mahopac 10U'}
+                ownTeamScout={ownTeamHudlScout[activeTeamId] || ownTeamHudlScout.team_10u}
+                onUpdateOwnTeamScout={persistOwnTeamHudlScout}
                 onUpdateScouting={persistWeekScouting}
                 onNavigateToSchedule={() => setActiveUnit('schedule')}
                 onNavigateToTendencies={() => setActiveUnit('tendencies')}
@@ -8968,7 +9047,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
           </div>
 
           {/* Master Roster Sidebar (Shown on Depth Charts and Scrimmage) */}
-          {!['home', 'mobile_hub', 'game_day', 'wristband', 'drills', 'scouting', 'guide', 'practice', 'users', 'schedule', 'compliance', 'call_sheet', 'whiteboard', 'ppr'].includes(
+          {!['home', 'mobile_hub', 'game_day', 'wristband', 'drills', 'scouting', 'hudl_scout', 'guide', 'practice', 'users', 'schedule', 'compliance', 'call_sheet', 'whiteboard', 'ppr'].includes(
             activeUnit
           ) && (
             <div className="hidden lg:block shrink-0">
@@ -9055,7 +9134,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
           type="button"
           onClick={() => setActiveUnit('game_day')}
           className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl transition-all cursor-pointer ${
-            ['game_day', 'wristband', 'call_sheet', 'scouting', 'tendencies', 'html_tendencies'].includes(activeUnit)
+            ['game_day', 'wristband', 'call_sheet', 'scouting', 'hudl_scout', 'tendencies', 'html_tendencies'].includes(activeUnit)
               ? 'text-red-400 font-black'
               : 'text-slate-400 font-semibold'
           }`}

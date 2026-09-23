@@ -31,7 +31,10 @@ import {
   mergePffReviews,
   mergePprPlayCounts,
   mergeScoutingReports,
+  weekHasIncomingScout,
   isGroupsPositionId,
+  mergeOwnTeamHudlMap,
+  mergeScheduleEvents,
 } from './src/utils/remoteStateMerge';
 import {
   mergeLiveDrillSlotLayouts,
@@ -283,11 +286,13 @@ export function mergeServerState(current: any, incoming: any, metadata?: any): a
 
       const isScoutingSave =
         metadata?.scope === 'scouting_update' ||
+        metadata?.scope === 'hudl_scout_update' ||
         metadata?.activeUnit === 'scouting' ||
+        metadata?.activeUnit === 'hudl_scout' ||
         String(metadata?.scope || '').startsWith('scouting');
 
       if (isScoutingSave) {
-        if (isTargetWeek) {
+        if (isTargetWeek || weekHasIncomingScout(incWeekState)) {
           merged.weeklyData[weekKey] = {
             ...curWeekState,
             opponent: incWeekState.opponent || curWeekState.opponent || '',
@@ -715,6 +720,10 @@ export function mergeServerState(current: any, incoming: any, metadata?: any): a
     }
   }
 
+  if (incoming.ownTeamHudlScout && typeof incoming.ownTeamHudlScout === 'object') {
+    merged.ownTeamHudlScout = mergeOwnTeamHudlMap(current.ownTeamHudlScout, incoming.ownTeamHudlScout);
+  }
+
   // 3. Merge Roster preserving incoming order
   if (Array.isArray(incoming.roster) && incoming.roster.length > 0) {
     const rosterMap = new Map<string, any>();
@@ -819,20 +828,7 @@ export function mergeServerState(current: any, incoming: any, metadata?: any): a
 
   // 6. Merge Schedule & Attendance
   if (Array.isArray(incoming.scheduleEvents)) {
-    const seenIds = new Set<string>();
-    const result: any[] = [];
-    incoming.scheduleEvents.forEach((e: any) => {
-      if (e.id) {
-        seenIds.add(e.id);
-        result.push(e);
-      }
-    });
-    (current.scheduleEvents || []).forEach((e: any) => {
-      if (e.id && !seenIds.has(e.id)) {
-        result.push(e);
-      }
-    });
-    merged.scheduleEvents = result;
+    merged.scheduleEvents = mergeScheduleEvents(current.scheduleEvents, incoming.scheduleEvents);
   }
   if (Array.isArray(incoming.attendanceLogs)) {
     const logMap = new Map<string, any>();

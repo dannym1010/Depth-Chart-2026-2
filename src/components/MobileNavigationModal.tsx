@@ -94,9 +94,9 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
             accentColor: 'border-amber-500/40 hover:bg-amber-950/40 text-amber-300',
           },
           {
-            id: 'scouting',
-            label: '📊 Scouting Report & Notes',
-            subtitle: 'Opponent tendencies, keys to victory & gameplan',
+            id: 'hudl_scout',
+            label: '📊 Hudl Scout',
+            subtitle: 'Our team by game plus this week’s opponent Hudl film',
             icon: BarChart3,
             accentColor: 'border-blue-500/40 hover:bg-blue-950/40 text-blue-300',
           },

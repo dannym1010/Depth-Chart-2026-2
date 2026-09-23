@@ -117,6 +117,14 @@ export const MAIN_NAV_ITEMS: NavItemConfig[] = [
     hasCascadingFolders: true,
   },
   {
+    id: 'hudl_scout',
+    label: 'Hudl Scout',
+    shortLabel: 'Hudl Scout',
+    icon: Target,
+    description: 'Our-team film by game plus this week’s opponent Hudl CSV/Excel tendencies',
+    badgeText: 'Film',
+  },
+  {
     id: 'practice',
     label: 'Practice Planner',
     shortLabel: 'Practice',
@@ -1380,7 +1388,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                         { id: 'game_day', label: '⚡ Sideline HUD & Clock' },
                         { id: 'call_sheet', label: '🏈 Sideline Call Sheet' },
                         { id: 'wristband', label: '⌚ Wristband Inserts' },
-                        { id: 'scouting', label: '📊 Scouting Report & Notes' },
+                        { id: 'hudl_scout', label: '📊 Hudl Scout' },
                         { id: 'tendencies', label: '📈 Formations & Tendencies' },
                       ].map((sub) => {
                         const isSubActive = activeUnit === sub.id;
@@ -1431,7 +1439,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                             { id: 'game_day', label: '⚡ Sideline HUD' },
                             { id: 'call_sheet', label: '🏈 Call Sheet' },
                             { id: 'wristband', label: '⌚ Wristbands' },
-                            { id: 'scouting', label: '📊 Scouting' },
+                            { id: 'hudl_scout', label: '📊 Hudl Scout' },
                             { id: 'tendencies', label: '📈 Tendencies' },
                           ].map((s) => (
                             <button

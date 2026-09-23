@@ -111,6 +111,9 @@ export interface HudlScoutViewProps {
   savedCoaches?: string[];
   scheduleEvents?: ScheduleEvent[];
   currentWeek?: string;
+  activeTeamName?: string;
+  ownTeamScout?: any;
+  onUpdateOwnTeamScout?: (bundle: ScoutBundle) => void;
   onUpdateScouting: (field: keyof ScoutingData | Record<string, unknown>, val?: any) => void;
   onNavigateToSchedule?: () => void;
   onNavigateToTendencies?: () => void;
@@ -120,25 +123,53 @@ export interface HudlScoutViewProps {
 export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   scouting,
   currentWeek = '1',
+  activeTeamName = 'Mahopac',
+  ownTeamScout,
+  onUpdateOwnTeamScout,
   onUpdateScouting,
 }) => {
   const saved = scouting.hudlScout;
-  const weekLabel = scouting.week || (String(currentWeek).startsWith('Week') ? String(currentWeek) : `Week ${currentWeek}`);
+  const weekLabel = (() => {
+    const raw = String(currentWeek || '').trim();
+    if (/^week\s/i.test(raw)) return raw;
+    if (/^\d+$/.test(raw)) return `Week ${raw}`;
+    const scoutWeek = String(scouting.week || '').trim();
+    if (scoutWeek && !scoutWeek.includes('__week_')) {
+      return /^week\s/i.test(scoutWeek) ? scoutWeek : `Week ${scoutWeek}`;
+    }
+    const fromScoped = raw.includes('__week_') ? raw.split('__week_').pop() : raw;
+    return fromScoped ? `Week ${fromScoped}` : 'This week';
+  })();
   const opponentFallback = scouting.opponent || 'This week opponent';
+  const ownFallback = activeTeamName || 'Mahopac';
 
   const [scoutTarget, setScoutTarget] = useState<ScoutTarget>('opponent');
+  const [selectedGameId, setSelectedGameId] = useState<string>('all');
   const [oppBundle, setOppBundle] = useState<ScoutBundle>(() => bundleFromSaved(saved, opponentFallback));
-  const [ownBundle, setOwnBundle] = useState<ScoutBundle>(() => bundleFromSaved(saved?.ownTeam, 'Mahopac'));
+  const [ownBundle, setOwnBundle] = useState<ScoutBundle>(() =>
+    bundleFromSaved(ownTeamScout || saved?.ownTeam, ownFallback)
+  );
   const [currentDataset, setCurrentDataset] = useState<SampleDataset | null>(null);
   const [activeTab, setActiveTab] = useState<string>('situational');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isCallSheetOpen, setIsCallSheetOpen] = useState(false);
   const skipSave = useRef(true);
+  const skipOwnSave = useRef(true);
 
   const bundle = scoutTarget === 'own' ? ownBundle : oppBundle;
   const setBundle = scoutTarget === 'own' ? setOwnBundle : setOppBundle;
-  const plays = bundle.plays;
-  const datasetName = bundle.datasetName;
+  const allPlays = bundle.plays;
+  const plays = useMemo(() => {
+    if (selectedGameId === 'all') return allPlays;
+    return allPlays.filter((p) => {
+      if (p.gameId) return p.gameId === selectedGameId;
+      return bundle.games[0]?.id === selectedGameId;
+    });
+  }, [allPlays, selectedGameId, bundle.games]);
+  const datasetName =
+    selectedGameId !== 'all'
+      ? bundle.games.find((g) => g.id === selectedGameId)?.name || bundle.datasetName
+      : bundle.datasetName;
   const filters = bundle.filters;
   const coachNotes = bundle.coachNotes;
 
@@ -187,9 +218,38 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   );
 
   useEffect(() => {
+    skipSave.current = true;
+    setOppBundle(bundleFromSaved(saved, opponentFallback));
+    setSelectedGameId('all');
+  }, [currentWeek]);
+
+  useEffect(() => {
+    const remotePlays = Array.isArray(saved?.plays) ? saved.plays.length : 0;
+    const localPlays = oppBundle.plays.length;
+    const remoteAt = Number(saved?.updatedAt) || 0;
+    const localAt = oppBundle.updatedAt || 0;
+    if (remotePlays > localPlays || (remoteAt > localAt && remotePlays >= localPlays && remotePlays > 0)) {
+      skipSave.current = true;
+      setOppBundle(bundleFromSaved(saved, opponentFallback));
+    }
+  }, [saved]);
+
+  useEffect(() => {
+    const remote = ownTeamScout || saved?.ownTeam;
+    const remotePlays = Array.isArray(remote?.plays) ? remote.plays.length : 0;
+    const localPlays = ownBundle.plays.length;
+    const remoteAt = Number(remote?.updatedAt) || 0;
+    const localAt = ownBundle.updatedAt || 0;
+    if (remotePlays > localPlays || (remoteAt > localAt && remotePlays >= localPlays && remotePlays > 0)) {
+      skipOwnSave.current = true;
+      setOwnBundle(bundleFromSaved(remote, ownFallback));
+    }
+  }, [ownTeamScout, saved?.ownTeam]);
+
+  useEffect(() => {
     if (skipSave.current) {
       skipSave.current = false;
-      if (!oppBundle.plays.length && !ownBundle.plays.length) return;
+      if (!oppBundle.plays.length && !oppBundle.sourceCleared) return;
     }
     onUpdateScouting('hudlScout', {
       plays: oppBundle.plays,
@@ -200,21 +260,27 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       games: oppBundle.games,
       sourceCleared: oppBundle.sourceCleared,
       updatedAt: oppBundle.updatedAt,
-      ownTeam: {
-        plays: ownBundle.plays,
-        datasetName: ownBundle.datasetName,
-        offensiveScheme: ownBundle.offensiveScheme,
-        coachNotes: ownBundle.coachNotes,
-        filters: ownBundle.filters,
-        games: ownBundle.games,
-        sourceCleared: ownBundle.sourceCleared,
-        updatedAt: ownBundle.updatedAt,
-      },
     });
     if (oppBundle.datasetName && oppBundle.datasetName !== opponentFallback) {
       onUpdateScouting('opponent', oppBundle.datasetName);
     }
-  }, [oppBundle, ownBundle]);
+  }, [oppBundle]);
+
+  useEffect(() => {
+    if (skipOwnSave.current) {
+      skipOwnSave.current = false;
+      if (!ownBundle.plays.length && !ownBundle.sourceCleared) return;
+    }
+    if (onUpdateOwnTeamScout) {
+      onUpdateOwnTeamScout(ownBundle);
+    } else {
+      onUpdateScouting('hudlScout', {
+        ...(saved || {}),
+        ownTeam: ownBundle,
+        updatedAt: Math.max(Number(saved?.updatedAt) || 0, ownBundle.updatedAt),
+      });
+    }
+  }, [ownBundle]);
 
   const handleResetFilters = (resetOdk = false) => {
     setBundle((prev) => ({
@@ -278,7 +344,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     const newPlays = rows.map((r, i) => normalizeHudlRow(r, mapping, i));
     const name =
       opponent ||
-      (scoutTarget === 'own' ? 'Mahopac' : scouting.opponent || `Week ${currentWeek} opponent`);
+      (scoutTarget === 'own' ? ownFallback : scouting.opponent || `Week ${currentWeek} opponent`);
     setCurrentDataset(null);
     applyPlays(newPlays, name, Boolean(append));
     if (scoutTarget === 'opponent') onUpdateScouting('opponent', name);
@@ -287,15 +353,17 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   const handleRemoveGame = (gameId: string) => {
     const game = bundle.games.find((g) => g.id === gameId);
     const label = game?.name || 'this file';
-    if (!window.confirm(`Remove "${label}" from this scouting report?`)) return;
-    setBundle((prev) => removeScoutGame(prev, gameId, scoutTarget === 'own' ? 'Mahopac' : opponentFallback));
+    if (!window.confirm(`Remove "${label}" from this Hudl Scout report?`)) return;
+    setBundle((prev) => removeScoutGame(prev, gameId, scoutTarget === 'own' ? ownFallback : opponentFallback));
+    if (selectedGameId === gameId) setSelectedGameId('all');
   };
 
   const handleClearUploads = () => {
-    const who = scoutTarget === 'own' ? 'our team' : 'the opponent';
-    if (!window.confirm(`Remove all CSV/Excel uploads from ${who} for this week?`)) return;
+    const who = scoutTarget === 'own' ? 'our team (all games this season)' : `this week's opponent (${weekLabel})`;
+    if (!window.confirm(`Remove all CSV/Excel uploads from ${who}?`)) return;
     setCurrentDataset(null);
-    setBundle((prev) => clearScoutUploads(prev, scoutTarget === 'own' ? 'Mahopac' : opponentFallback));
+    setSelectedGameId('all');
+    setBundle((prev) => clearScoutUploads(prev, scoutTarget === 'own' ? ownFallback : opponentFallback));
   };
 
   const emptyLabel = scoutTarget === 'own' ? 'our team' : weekLabel;
@@ -304,7 +372,13 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     <div className="bg-slate-950 text-slate-100 rounded-2xl border border-slate-800 overflow-hidden flex flex-col font-sans selection:bg-emerald-500/30 selection:text-emerald-200">
       <Header
         currentDataset={currentDataset}
-        datasetName={`${datasetName} · ${weekLabel}`}
+        datasetName={
+          scoutTarget === 'own'
+            ? selectedGameId === 'all'
+              ? `${ownFallback} · all games`
+              : datasetName
+            : `${datasetName} · ${weekLabel}`
+        }
         totalPlays={plays.length}
         onOpenUpload={() => setIsUploadOpen(true)}
         onSelectSample={handleSelectSample}
@@ -312,10 +386,16 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         scoutTarget={scoutTarget}
-        onScoutTargetChange={setScoutTarget}
+        onScoutTargetChange={(target) => {
+          setScoutTarget(target);
+          setSelectedGameId('all');
+        }}
         games={bundle.games}
+        selectedGameId={selectedGameId}
+        onSelectGame={setSelectedGameId}
         onRemoveGame={handleRemoveGame}
         onClearUploads={handleClearUploads}
+        weekLabel={weekLabel}
       />
 
       <FilterBar
@@ -337,8 +417,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
             </p>
             <p className="text-xs text-slate-400 mt-1">
               {scoutTarget === 'own'
-                ? 'Upload one or more Hudl CSVs of Mahopac so the staff can see our own hash and run tendencies.'
-                : 'Upload a Hudl CSV for this week’s opponent. Add more games to the same report.'}
+                ? 'Upload Hudl CSVs of our team. Each file is a game. Tap a game chip or All games.'
+                : `Upload Hudl CSV/Excel for this week's opponent (${weekLabel}). Change the week above to scout next week's team.`}
             </p>
             <button
               type="button"

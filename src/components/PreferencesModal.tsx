@@ -165,10 +165,10 @@ const SCREEN_OPTIONS: ScreenOption[] = [
     icon: Dumbbell,
   },
   {
-    id: 'scouting',
-    name: 'Scouting & Tendencies',
+    id: 'hudl_scout',
+    name: 'Hudl Scout',
     category: 'Game Day Operations',
-    description: 'Opponent tendencies, down & distance matrices, personnel breakdowns, and defensive fronts',
+    description: 'Our-team Hudl film by game and all games, plus this week’s opponent report from the schedule',
     icon: FileSpreadsheet,
   },
   {

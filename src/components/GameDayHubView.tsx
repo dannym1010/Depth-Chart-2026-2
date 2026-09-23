@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Swords,
   FileSpreadsheet,
@@ -66,6 +66,8 @@ interface GameDayHubViewProps {
   onUpdateWristbandData?: (data: WristbandData) => void;
   scouting?: ScoutingData;
   onUpdateScouting: (field: keyof ScoutingData, val: any) => void;
+  ownTeamScout?: any;
+  onUpdateOwnTeamScout?: (bundle: any) => void;
   staffList?: StaffCoach[];
   savedCoaches?: string[];
   scheduleEvents?: ScheduleEvent[];
@@ -97,6 +99,8 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
   onUpdateWristbandData,
   scouting = {},
   onUpdateScouting,
+  ownTeamScout,
+  onUpdateOwnTeamScout,
   staffList = [],
   savedCoaches = [],
   scheduleEvents = [],
@@ -108,6 +112,14 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
   onUpdateScheduleEvent,
 }) => {
   const [activeTab, setActiveTab] = useState<GameDayTab>('command');
+  const [isPhone, setIsPhone] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < 768
+  );
+  useEffect(() => {
+    const onResize = () => setIsPhone(window.innerWidth < 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const [isQuickOpponentEditing, setIsQuickOpponentEditing] = useState(false);
   const [tempOpponent, setTempOpponent] = useState(opponent || '');
   const [selectedTemplate, setSelectedTemplate] = useState('Pre-Game Warmup & Routine');
@@ -235,7 +247,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
   return (
     <div id="game-day-hub-content" className="space-y-6">
       {/* Top Game Day Matchup Banner */}
-      <div className="gameday-matchup-banner bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 border border-slate-700/80 rounded-xl p-3 sm:p-4 shadow-xl relative overflow-hidden print:bg-white print:bg-none print:border-b print:border-slate-300 print:border-t-0 print:border-l-0 print:border-r-0 print:rounded-none print:p-1.5 print:pb-2 print:my-0 print:mb-2 print:shadow-none">
+      <div className="gameday-matchup-banner max-md:hidden print:block bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 border border-slate-700/80 rounded-xl p-3 sm:p-4 shadow-xl relative overflow-hidden print:bg-white print:bg-none print:border-b print:border-slate-300 print:border-t-0 print:border-l-0 print:border-r-0 print:rounded-none print:p-1.5 print:pb-2 print:my-0 print:mb-2 print:shadow-none">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 print:gap-1">
           <div className="space-y-1 print:space-y-0.5">
             <div className="flex flex-wrap items-center gap-2 print:gap-1.5">
@@ -292,13 +304,13 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
               </h1>
             </div>
 
-            <p className="text-xs text-slate-400 print:hidden">
+            <p className="text-xs text-slate-400 print:hidden hidden md:block">
               Unified Sideline HUD &bull; Pre-Game Practice Plan ({linkedPreGamePlan ? `${linkedPreGamePlan.plan?.length || 0} Periods` : 'Not Created'}) &bull; Call Sheet ({totalCallSheetPlays} plays) &bull; Wristbands ({totalWristbands} active inserts) &bull; Scouting Report &bull; Play Bank ({playDatabase.length} plays)
             </p>
           </div>
 
           {/* Quick Metrics & Actions */}
-          <div className="flex flex-wrap items-center gap-2 print:hidden">
+          <div className="hidden md:flex flex-wrap items-center gap-2 print:hidden">
             <button
               type="button"
               onClick={handlePrintAll}
@@ -310,8 +322,8 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
           </div>
         </div>
 
-        {/* Sub-Navigation Tabs */}
-        <div className="mt-4 pt-3 border-t border-slate-800 flex flex-wrap items-center gap-2 print:hidden">
+        {/* Desktop sub-navigation */}
+        <div className="mt-4 pt-3 border-t border-slate-800 hidden md:flex flex-wrap items-center gap-2 print:hidden">
           <button
             type="button"
             onClick={() => setActiveTab('command')}
@@ -384,7 +396,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
             }`}
           >
             <BarChart3 className="w-4 h-4 text-blue-300" />
-            <span>📊 Scouting Report</span>
+            <span>📊 Hudl Scout</span>
           </button>
 
           <button
@@ -407,8 +419,90 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
         </div>
       </div>
 
+      <div className="md:hidden sticky top-0 z-50 -mx-4 px-4 py-2 bg-slate-950 border-b border-slate-800 print:hidden">
+        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">
+          Game Day sections
+        </p>
+        <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+          <button
+            type="button"
+            onClick={() => setActiveTab('command')}
+            className={`shrink-0 min-h-[44px] px-3 py-2 rounded-xl text-[11px] font-black uppercase tracking-wide border ${
+              activeTab === 'command'
+                ? 'bg-indigo-600 text-white border-indigo-400'
+                : 'bg-slate-800 text-slate-200 border-slate-700'
+            }`}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('pregame')}
+            className={`shrink-0 min-h-[44px] px-3 py-2 rounded-xl text-[11px] font-black uppercase tracking-wide border ${
+              activeTab === 'pregame'
+                ? 'bg-purple-600 text-white border-purple-400'
+                : 'bg-slate-800 text-slate-200 border-slate-700'
+            }`}
+          >
+            Pre-Game
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('call_sheet')}
+            className={`shrink-0 min-h-[44px] px-3 py-2 rounded-xl text-[11px] font-black uppercase tracking-wide border ${
+              activeTab === 'call_sheet'
+                ? 'bg-red-600 text-white border-red-400'
+                : 'bg-slate-800 text-slate-200 border-slate-700'
+            }`}
+          >
+            Call Sheet
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('wristband')}
+            className={`shrink-0 min-h-[44px] px-3 py-2 rounded-xl text-[11px] font-black uppercase tracking-wide border ${
+              activeTab === 'wristband'
+                ? 'bg-amber-600 text-white border-amber-400'
+                : 'bg-slate-800 text-slate-200 border-slate-700'
+            }`}
+          >
+            Wristbands ({totalWristbands})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('scouting')}
+            className={`shrink-0 min-h-[44px] px-3 py-2 rounded-xl text-[11px] font-black uppercase tracking-wide border ${
+              activeTab === 'scouting'
+                ? 'bg-blue-600 text-white border-blue-400'
+                : 'bg-slate-800 text-slate-200 border-slate-700'
+            }`}
+          >
+            Hudl Scout
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('tendencies')}
+            className={`shrink-0 min-h-[44px] px-3 py-2 rounded-xl text-[11px] font-black uppercase tracking-wide border ${
+              activeTab === 'tendencies' || activeTab === 'html_tendencies'
+                ? 'bg-amber-400 text-slate-950 border-amber-300'
+                : 'bg-slate-800 text-slate-200 border-slate-700'
+            }`}
+          >
+            Tendencies
+          </button>
+        </div>
+      </div>
+
       {/* Main Tab Views */}
-      {activeTab === 'command' && (
+      {activeTab === 'command' && isPhone && (
+        <div className="md:hidden rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-8 text-center">
+          <p className="text-white font-black text-base">Pick what you want to run</p>
+          <p className="text-slate-400 text-sm mt-2 leading-relaxed">
+            Use the buttons above for call sheet, wristbands, scouting, tendencies, or pre-game. Nothing opens until you tap one.
+          </p>
+        </div>
+      )}
+      {activeTab === 'command' && !isPhone && (
         <div className="space-y-6">
           {/* Quick Summary Bento Grid (4 Cards) */}
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -944,6 +1038,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
           deletedPlayIds={deletedPlayIds}
           onUpdateDeletedPlayIds={onUpdateDeletedPlayIds}
           wristbandData={wristbandData}
+          embedded
         />
       )}
 
@@ -958,13 +1053,13 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
           onUpdateCallSheetData={onUpdateCallSheetData}
           onUpdatePlayDatabase={onUpdatePlayDatabase}
           onUpdateWristbandData={onUpdateWristbandData}
+          embedded
         />
       )}
 
       {/* Embedded Scouting Tab */}
       {activeTab === 'scouting' && (
         <ScoutingView
-          key={`scout-${currentWeek}`}
           scouting={scouting}
           userRole={userRole}
           currentUser={currentUser}
@@ -972,6 +1067,9 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
           savedCoaches={savedCoaches}
           scheduleEvents={scheduleEvents}
           currentWeek={currentWeek}
+          activeTeamName={activeTeamName}
+          ownTeamScout={ownTeamScout}
+          onUpdateOwnTeamScout={onUpdateOwnTeamScout}
           onUpdateScouting={onUpdateScouting}
           onNavigateToSchedule={onNavigateToSchedule}
           onNavigateToHtmlTendencies={() => setActiveTab('tendencies')}

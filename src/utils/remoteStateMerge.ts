@@ -74,6 +74,30 @@ export function hudlScoutWeight(scout: any): number {
   return (plays + ownPlays) * 1000 + (notes > 0 ? 80 : 0) + (name > 0 ? 20 : 0) + Math.min(Number(scout.updatedAt) || 0, 999);
 }
 
+export function weekHasIncomingScout(weekState?: any): boolean {
+  const hudl = weekState?.scouting?.hudlScout;
+  if (!hudl || typeof hudl !== 'object') return false;
+  if (hudl.sourceCleared) return true;
+  if (Array.isArray(hudl.plays) && hudl.plays.length > 0) return true;
+  if (Array.isArray(hudl.ownTeam?.plays) && hudl.ownTeam.plays.length > 0) return true;
+  if (hudl.ownTeam?.sourceCleared) return true;
+  return false;
+}
+
+export function pickRichestScouting(...reports: any[]): any {
+  let best: any;
+  let bestW = -1;
+  for (const report of reports) {
+    if (!report) continue;
+    const w = hudlScoutWeight(report.hudlScout);
+    if (w > bestW) {
+      best = report;
+      bestW = w;
+    }
+  }
+  return best;
+}
+
 export function pickScoutBundle(a?: any, b?: any) {
   if (!a) return b;
   if (!b) return a;
@@ -92,6 +116,119 @@ export function pickScoutBundle(a?: any, b?: any) {
   if (aPlays > 0) return a;
   if (bPlays > 0) return b;
   return aT >= bT ? a : b;
+}
+
+export function unionScoutBundles(a?: any, b?: any) {
+  if (!a) return b;
+  if (!b) return a;
+  const aPlays = Array.isArray(a.plays) ? a.plays : [];
+  const bPlays = Array.isArray(b.plays) ? b.plays : [];
+  const aClear = Boolean(a.sourceCleared) && aPlays.length === 0;
+  const bClear = Boolean(b.sourceCleared) && bPlays.length === 0;
+  const aT = Number(a.updatedAt) || 0;
+  const bT = Number(b.updatedAt) || 0;
+  if (aClear && aT >= bT && bPlays.length === 0) return a;
+  if (bClear && bT >= aT && aPlays.length === 0) return b;
+  const gameIds = new Set<string>();
+  const games: any[] = [];
+  for (const g of [...(Array.isArray(a.games) ? a.games : []), ...(Array.isArray(b.games) ? b.games : [])]) {
+    if (!g?.id || gameIds.has(g.id)) continue;
+    gameIds.add(g.id);
+    games.push(g);
+  }
+  const playIds = new Set<string>();
+  const plays: any[] = [];
+  for (const p of [...aPlays, ...bPlays]) {
+    const id = String(p?.id || '');
+    if (id && playIds.has(id)) continue;
+    if (id) playIds.add(id);
+    plays.push(p);
+  }
+  return {
+    ...a,
+    ...b,
+    plays,
+    games,
+    datasetName: String(a.datasetName || '').trim() || String(b.datasetName || '').trim() || 'Our team',
+    sourceCleared: plays.length === 0 && (aClear || bClear),
+    updatedAt: Math.max(aT, bT),
+  };
+}
+
+export function mergeOwnTeamHudlMap(local?: Record<string, any>, remote?: Record<string, any>) {
+  const loc = local && typeof local === 'object' ? local : {};
+  const rem = remote && typeof remote === 'object' ? remote : {};
+  const out: Record<string, any> = { ...loc };
+  for (const teamId of new Set([...Object.keys(loc), ...Object.keys(rem)])) {
+    out[teamId] = pickScoutBundle(loc[teamId], rem[teamId]);
+  }
+  return out;
+}
+
+export function collectOwnTeamHudlFromWeekly(weeklyData?: Record<string, any>) {
+  const byTeam: Record<string, any> = {};
+  if (!weeklyData || typeof weeklyData !== 'object') return byTeam;
+  for (const [key, week] of Object.entries(weeklyData)) {
+    const own = (week as any)?.scouting?.hudlScout?.ownTeam;
+    if (!own) continue;
+    const teamId = key.includes('__week_') ? key.split('__week_')[0] : 'team_10u';
+    byTeam[teamId] = unionScoutBundles(byTeam[teamId], own);
+  }
+  return byTeam;
+}
+
+export function scheduleEventDedupeKey(ev: any): string {
+  const uid = String(ev?.raw?.UID || ev?.uid || ev?.teamSnapUid || '').trim().toLowerCase();
+  if (uid) return `uid:${uid}`;
+  const team = String(ev?.teamId || '').trim();
+  const date = String(ev?.date || '').trim();
+  const time = String(ev?.startTime || ev?.time || '').trim();
+  const type = String(ev?.type || '').trim().toLowerCase();
+  const title = String(ev?.title || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+  return `dt:${team}|${date}|${time}|${type}|${title}`;
+}
+
+export function mergeScheduleEvents(local?: any[], remote?: any[]): any[] {
+  const loc = Array.isArray(local) ? local : [];
+  const rem = Array.isArray(remote) ? remote : [];
+  if (!loc.length) return rem;
+  if (!rem.length) return loc;
+
+  const byId = new Map<string, any>();
+  const byKey = new Map<string, any>();
+
+  const ingest = (ev: any) => {
+    if (!ev || typeof ev !== 'object') return;
+    const id = ev.id ? String(ev.id) : '';
+    const key = scheduleEventDedupeKey(ev);
+    const prev = (id && byId.get(id)) || byKey.get(key);
+    if (prev) {
+      const prevEdited = Number(prev.lastEdited) || Number(prev.createdAt) || 0;
+      const nextEdited = Number(ev.lastEdited) || Number(ev.createdAt) || 0;
+      const merged = nextEdited >= prevEdited ? { ...prev, ...ev } : { ...ev, ...prev };
+      if (id) byId.set(id, merged);
+      if (prev.id) byId.set(String(prev.id), merged);
+      byKey.set(key, merged);
+      return;
+    }
+    if (id) byId.set(id, ev);
+    byKey.set(key, ev);
+  };
+
+  loc.forEach(ingest);
+  rem.forEach(ingest);
+
+  const seen = new Set<string>();
+  const out: any[] = [];
+  for (const ev of [...byId.values(), ...byKey.values()]) {
+    const token = ev?.id ? `id:${ev.id}` : scheduleEventDedupeKey(ev);
+    if (!token || seen.has(token)) continue;
+    seen.add(token);
+    out.push(ev);
+  }
+  return out;
 }
 
 function opponentScoutSlice(scout: any) {

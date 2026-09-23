@@ -134,6 +134,8 @@ interface WristbandViewProps {
   onUpdateTitle?: (title: string) => void;
   onClearPlays?: () => void;
   onBulkFillPlays?: (plays: string[]) => void;
+  /** When true, height leaves room for Game Day hub tabs on phones. */
+  embedded?: boolean;
 }
 
 export const STANDARD_WRISTBAND_COLOR_PAIRS = [
@@ -336,6 +338,7 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
   onUpdateCallSheetData,
   onUpdatePlayDatabase,
   onUpdateWristbandData,
+  embedded = false,
 }) => {
   // Internal state for resilient, instantaneous editing and printing
   const [internalData, setInternalData] = useState<WristbandData>(() => {
@@ -1443,7 +1446,7 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
   };
 
   return (
-    <div className="wristband-root-view h-[calc(100vh-4.5rem)] print:h-auto print:overflow-visible bg-slate-950 text-slate-100 flex flex-col font-sans overflow-hidden">
+    <div className={`wristband-root-view ${embedded ? 'h-[calc(100dvh-13rem)] md:h-[calc(100vh-10rem)]' : 'h-[calc(100vh-4.5rem)]'} print:h-auto print:overflow-visible bg-slate-950 text-slate-100 flex flex-col font-sans overflow-hidden`}>
       {/* 1. Main Navigation Toolbar (Hidden when printing - matching CallSheetMainView) */}
       <header className="bg-slate-900 border-b border-slate-800 px-3 sm:px-6 py-2.5 shrink-0 shadow-md print:hidden">
         <div className="max-w-[1500px] mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-3">

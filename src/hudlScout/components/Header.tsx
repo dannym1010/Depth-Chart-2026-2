@@ -23,8 +23,11 @@ interface HeaderProps {
   scoutTarget: ScoutTarget;
   onScoutTargetChange: (target: ScoutTarget) => void;
   games: ScoutGame[];
+  selectedGameId?: string;
+  onSelectGame?: (gameId: string) => void;
   onRemoveGame: (gameId: string) => void;
   onClearUploads: () => void;
+  weekLabel?: string;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -37,8 +40,11 @@ export const Header: React.FC<HeaderProps> = ({
   scoutTarget,
   onScoutTargetChange,
   games,
+  selectedGameId = 'all',
+  onSelectGame,
   onRemoveGame,
   onClearUploads,
+  weekLabel,
 }) => {
   return (
     <header className="border-b border-slate-800 bg-slate-950/90 backdrop-blur sticky top-0 z-30">
@@ -67,6 +73,16 @@ export const Header: React.FC<HeaderProps> = ({
                 </>
               )}
             </div>
+            {scoutTarget === 'opponent' && (
+              <p className="text-[10px] text-slate-500 mt-0.5">
+                Opponent film follows the weekly schedule{weekLabel ? ` (${weekLabel})` : ''}. Change the week in the header to scout a different team.
+              </p>
+            )}
+            {scoutTarget === 'own' && (
+              <p className="text-[10px] text-slate-500 mt-0.5">
+                Our-team film is season-wide. Open one game or All games.
+              </p>
+            )}
           </div>
         </div>
 
@@ -118,12 +134,29 @@ export const Header: React.FC<HeaderProps> = ({
 
       {games.length > 0 && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-1 flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={() => onSelectGame?.('all')}
+            className={`inline-flex items-center text-[10px] font-black uppercase tracking-wide px-2 py-1 rounded-full border ${
+              selectedGameId === 'all'
+                ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                : 'bg-slate-900 border-slate-700 text-slate-300'
+            }`}
+          >
+            All games
+          </button>
           {games.map((g) => (
             <span
               key={g.id}
-              className="inline-flex items-center gap-1 text-[10px] font-mono pl-2 pr-1 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-slate-300"
+              className={`inline-flex items-center gap-1 text-[10px] font-mono pl-2 pr-1 py-0.5 rounded-full border ${
+                selectedGameId === g.id
+                  ? 'bg-sky-500 text-slate-950 border-sky-300'
+                  : 'bg-slate-900 border-slate-700 text-slate-300'
+              }`}
             >
-              {g.name} · {g.playCount} snaps
+              <button type="button" onClick={() => onSelectGame?.(g.id)} className="text-left">
+                {g.name} · {g.playCount} snaps
+              </button>
               <button
                 type="button"
                 onClick={() => onRemoveGame(g.id)}
