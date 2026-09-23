@@ -867,6 +867,70 @@ export function numberedSkillRole(raw: string): 'qb' | 'fb' | 'rb' | null {
   return null;
 }
 
+export function isPositionalGroupBoard(form: { id?: string; unit?: string }): boolean {
+  return form.unit === 'groups' || /grp/i.test(form.id || '');
+}
+
+export function positionalGroupSide(form: { id?: string; name?: string; unit?: string }): 'offense' | 'defense' | null {
+  const id = (form.id || '').toLowerCase();
+  const name = (form.name || '').toLowerCase();
+  if (id.includes('def') || name.includes('defen')) return 'defense';
+  if (id.includes('off') || name.includes('offen')) return 'offense';
+  return null;
+}
+
+/** X, W, and Z can swap receiver spots. H / Slot stays the FB on 7v7. */
+export function isReceiverFamily(raw: string): boolean {
+  const skill = sevenOnSevenSlotRole(raw);
+  if (skill === 'qb' || skill === 'fb' || skill === 'rb') return false;
+  const token = normalizePositionToken(raw);
+  const clean = cleanTruncatedPosition(raw).toUpperCase();
+  if (clean === 'X' || clean === 'Z' || clean === 'W') return true;
+  if (token === 'x' || token === 'z' || token === 'w') return true;
+  if (token.startsWith('wr')) return true;
+  if (token.includes('slot') && token !== 'hslot' && !token.startsWith('hslot')) return true;
+  return false;
+}
+
+export function isSamOrRover(raw: string): boolean {
+  const token = normalizePositionToken(raw);
+  const clean = cleanTruncatedPosition(raw).toUpperCase();
+  return clean === 'SAM' || clean === 'ROVER' || token === 'sam' || token === 'rover' || token === 'rov' || token === 'slb';
+}
+
+function isCoverageDrillSlot(raw: string): boolean {
+  const skill = sevenOnSevenSlotRole(raw);
+  if (skill) return false;
+  const category = getPositionCategory(raw).category;
+  return category === 'DB' || category === 'LB';
+}
+
+function allowsOutOfPosition(drillName: string): boolean {
+  return isReceiverFamily(drillName) || isCoverageDrillSlot(drillName);
+}
+
+function outOfPositionFlex(drillName: string, formName: string): boolean {
+  if (isReceiverFamily(drillName) && isReceiverFamily(formName)) return true;
+  if (isCoverageDrillSlot(drillName) && isSamOrRover(formName)) return true;
+  return false;
+}
+
+function seededShuffle<T>(items: T[], seed: number): T[] {
+  let state = seed >>> 0 || 1;
+  const next = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(next() * (i + 1));
+    const swap = copy[i];
+    copy[i] = copy[j];
+    copy[j] = swap;
+  }
+  return copy;
+}
+
 /** 7v7 drill column for a numbered skill. H / Slot is the FB (2) rep. */
 export function sevenOnSevenSlotRole(raw: string): 'qb' | 'fb' | 'rb' | null {
   const role = numberedSkillRole(raw);
@@ -1398,8 +1462,10 @@ function getCandidatesForDrillPosition(params: {
   roster: RosterPlayer[];
   format?: LiveDrillFormat;
   restrictSkill?: 'qb' | 'fb' | 'rb' | null;
+  roll?: number;
+  slotSalt?: number;
 }): CandidateRecord[] {
-  const { pos, unit, formations, depthChart, scrimmageChart = {}, roster, format, restrictSkill } = params;
+  const { pos, unit, formations, depthChart, scrimmageChart = {}, roster, format, restrictSkill, roll = 0, slotSalt = 0 } = params;
   const restrict =
     restrictSkill !== undefined
       ? restrictSkill
@@ -1409,10 +1475,25 @@ function getCandidatesForDrillPosition(params: {
   const candidateMap = new Map<string, CandidateRecord>();
 
   const isQB = restrict === 'qb' || getPositionCategory(pos.name).category === 'QB';
+  const groupBoards = formations.filter(isPositionalGroupBoard);
+  const useGroups = groupBoards.length > 0;
+  const groupPosIds = useGroups
+    ? new Set(
+        groupBoards.flatMap((form) =>
+          (form.rows || []).flatMap((row) => (row.positions || []).filter(Boolean).map((p) => p!.id))
+        )
+      )
+    : null;
 
-  // 1. Scan Formations on the Depth Chart matching this unit
+  // 1. Scan Formations on the Depth Chart matching this unit.
+  // Position-group boards win over 21/22/44 formations when they are present.
   for (const form of formations) {
-    const formUnit = form.unit || (form.id.includes('def') ? 'defense' : 'offense');
+    if (useGroups && !isPositionalGroupBoard(form)) continue;
+    const formUnit = useGroups
+      ? positionalGroupSide(form)
+      : form.unit === 'groups'
+        ? positionalGroupSide(form)
+        : form.unit || (form.id.includes('def') ? 'defense' : 'offense');
     if (formUnit !== unit) continue;
 
     for (const row of form.rows || []) {
@@ -1421,7 +1502,10 @@ function getCandidatesForDrillPosition(params: {
         const players = depthChart[p.id] || [];
         if (players.length === 0) continue;
 
-        const matched = slotMatch(pos.name, p.name, p.id, unit, formUnit, restrict);
+        let matched = slotMatch(pos.name, p.name, p.id, unit, formUnit, restrict);
+        if (!matched.ok && outOfPositionFlex(pos.name, p.name)) {
+          matched = { ok: true, exact: false, score: 40 };
+        }
         const isExact = matched.exact;
         const score = matched.score;
 
@@ -1461,7 +1545,11 @@ function getCandidatesForDrillPosition(params: {
   // Also check direct depthChart keys (e.g. depthChart["QB"] or depthChart["LT"])
   for (const [key, players] of Object.entries(depthChart)) {
     if (!players || players.length === 0) continue;
-    const matched = slotMatch(pos.name, key, key, unit, undefined, restrict);
+    if (groupPosIds && !groupPosIds.has(key)) continue;
+    let matched = slotMatch(pos.name, key, key, unit, undefined, restrict);
+    if (!matched.ok && outOfPositionFlex(pos.name, key)) {
+      matched = { ok: true, exact: false, score: 40 };
+    }
     const isExact = matched.exact;
     const score = matched.score;
 
@@ -1501,8 +1589,9 @@ function getCandidatesForDrillPosition(params: {
   // STRIKE ALL non-exact position candidates so players from other positions (e.g. guards at tackle,
   // or safeties at cornerback) NEVER displace or precede actual depth chart players of that position!
   const hasExactMatches = Array.from(candidateMap.values()).some((c) => c.isExactPosition);
+  const flexSlot = allowsOutOfPosition(pos.name);
   let candidateList = Array.from(candidateMap.values());
-  if (hasExactMatches) {
+  if (hasExactMatches && !flexSlot) {
     candidateList = candidateList.filter((c) => c.isExactPosition);
   }
 
@@ -1607,6 +1696,12 @@ function getCandidatesForDrillPosition(params: {
     return getCandidatesForDrillPosition({ ...params, restrictSkill: null });
   }
 
+  if (roll > 0 && sorted.length > 1 && !isQB) {
+    if (flexSlot) return seededShuffle(sorted, roll * 997 + slotSalt);
+    const shift = roll % sorted.length;
+    return [...sorted.slice(shift), ...sorted.slice(0, shift)];
+  }
+
   return sorted;
 }
 
@@ -1666,7 +1761,7 @@ function depthOneStarters(params: {
       format: params.group.format,
     });
     for (const cand of candidates) {
-      if (cand.depthString !== 1) continue;
+      if (cand.depthString !== 1 || !cand.isExactPosition) continue;
       const jersey = normalizeJerseyNum(cand.num);
       const list = map.get(jersey) || [];
       if (!list.some((item) => item.posId === pos.id)) {
@@ -1886,6 +1981,7 @@ export function executeIntelligentAutoFill(params: {
   targetString?: 1 | 2 | 3 | 'all'; // 1 = Starters (Black), 2 = 2nd Team (Gold), 3 = 3rd Team (Blue), 'all' = All 3
   balanceMode?: 'pure_depth' | 'semi_balanced_head_to_head' | 'even_mix';
   fillUnit?: 'both' | 'offense' | 'defense';
+  roll?: number;
 }): { nextLineup: Record<string, PlacedPlayer[]>; summary: AutoFillSummary } {
   const {
     group,
@@ -1896,6 +1992,7 @@ export function executeIntelligentAutoFill(params: {
     targetString = 'all',
     balanceMode = 'pure_depth',
     fillUnit = 'both',
+    roll = 0,
   } = params;
 
   let nextLineup: Record<string, PlacedPlayer[]> = { ...group.lineup };
@@ -1973,6 +2070,8 @@ export function executeIntelligentAutoFill(params: {
         scrimmageChart,
         roster,
         format: group.format,
+        roll,
+        slotSalt: pIdx + (unit === 'defense' ? 50 : 0),
       });
 
       const currentList = [...(nextLineup[pos.id] || [])];
@@ -2250,7 +2349,9 @@ export function executeIntelligentAutoFill(params: {
       totalDefense: group.defensePositions.length,
       startersMixed,
       backupsAdded,
-      sourceDescription: `${modeDescription} from Formation Depth Chart`,
+      sourceDescription: `${modeDescription} from ${
+        formations.some(isPositionalGroupBoard) ? 'Position Groups' : 'Formation Depth Chart'
+      }`,
     },
   };
 }

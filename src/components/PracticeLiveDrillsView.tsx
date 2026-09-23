@@ -1,7 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
-  Swords,
-  Scale,
   Plus,
   Trash2,
   Copy,
@@ -364,7 +362,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
   const [dropHoverKey, setDropHoverKey] = useState<string | null>(null);
 
   // Auto-fill options modal
-  const [showAutoFillModal, setShowAutoFillModal] = useState<boolean>(false);
+  const autoFillRollRef = useRef(0);
 
   // Color picker open states
   const [showColorPicker, setShowColorPicker] = useState<'offense' | 'defense' | null>(null);
@@ -939,21 +937,20 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
     updateGroup({ ...currentGroup, lineup: nextLineup });
   };
 
-  const handleRunAutoFill = (options: {
-    targetString: 1 | 2 | 3 | 'all';
-    balanceMode?: 'pure_depth' | 'semi_balanced_head_to_head' | 'even_mix';
-    fillUnit: 'both' | 'offense' | 'defense';
-  }) => {
+  const handleAutoFillBoth = () => {
     if (!currentGroup) return;
+    autoFillRollRef.current += 1;
+    const roll = autoFillRollRef.current;
     const result = executeIntelligentAutoFill({
-      group: currentGroup,
+      group: { ...currentGroup, lineup: {} },
       formations,
       depthChart,
       scrimmageChart,
       roster,
-      targetString: options.targetString,
-      balanceMode: options.balanceMode || 'pure_depth',
-      fillUnit: options.fillUnit,
+      targetString: 'all',
+      balanceMode: 'pure_depth',
+      fillUnit: 'both',
+      roll,
     });
 
     updateGroup({
@@ -961,30 +958,12 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
       lineup: result.nextLineup,
     });
 
-    if (options.balanceMode === 'semi_balanced_head_to_head') {
-      setActiveOffenseString(1);
-      setActiveDefenseString(2);
-      setActiveMatchup('1v2');
-    }
-
-    const parts: string[] = [];
-    if (options.balanceMode === 'semi_balanced_head_to_head') {
-      parts.push(`⚔️ Semi-Balanced Teams Created: Team 1 and Team 2 are evenly matched with a 50/50 mix of 1st & 2nd stringers to go against each other.`);
-    } else {
-      parts.push(`Auto-filled ${result.summary.filledOffense}/${result.summary.totalOffense} Offense & ${result.summary.filledDefense}/${result.summary.totalDefense} Defense slots.`);
-    }
-    if (result.summary.startersMixed > 0 && options.balanceMode !== 'semi_balanced_head_to_head') {
-      parts.push(`Balanced ${result.summary.startersMixed} starters evenly across 1s, 2s & 3s.`);
-    }
-    if (result.summary.backupsAdded > 0) {
-      parts.push(`Assigned ${result.summary.backupsAdded} rotation backups (4th & 5th strings) for live playing time.`);
-    }
-    parts.push(`(${result.summary.sourceDescription})`);
-
-    const msg = parts.join(' ');
-    setAutoFillFeedback(msg);
-    setTimeout(() => setAutoFillFeedback(null), 6000);
-    setShowAutoFillModal(false);
+    setAutoFillFeedback(
+      roll === 1
+        ? 'Filled both teams from the position groups. Click Auto-Fill again to re-roll.'
+        : `Re-roll ${roll}. Click Auto-Fill again for another look.`
+    );
+    setTimeout(() => setAutoFillFeedback(null), 4000);
   };
 
   const handleTriggerPrint = () => {
@@ -1096,9 +1075,11 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
           <div className="flex items-center flex-wrap gap-2 shrink-0">
             <button
               type="button"
-              onClick={() => setShowAutoFillModal(true)}
-              className="px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700/60 font-bold text-xs cursor-pointer"
+              onClick={handleAutoFillBoth}
+              title="Fill offense and defense from the position groups. Click again to re-roll."
+              className="px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700/60 font-bold text-xs cursor-pointer inline-flex items-center gap-1.5"
             >
+              <Sparkles className="w-3.5 h-3.5" />
               Auto-Fill
             </button>
             <button
@@ -1422,199 +1403,6 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
           </div>
               </div>
 
-      {/* ==================================================================== */}
-      {/* 4. AUTO-FILL INTELLIGENT MODAL */}
-      {/* ==================================================================== */}
-      {showAutoFillModal && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-2xl bg-amber-500/20 text-amber-600 flex items-center justify-center shrink-0">
-                  <Sparkles className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-black text-slate-900 dark:text-white text-base">
-                    Auto-Fill Drill Matchups
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Smart Depth Chart population with balanced competition
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowAutoFillModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Depth Chart Rules Verification Notice */}
-            <div className="mt-4 p-3.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/50 text-xs">
-              <div className="font-black text-indigo-950 dark:text-indigo-200 flex items-center gap-1.5 mb-1">
-                <span>🛡️ Formation Depth Chart Rules:</span>
-              </div>
-              <ul className="text-indigo-800/90 dark:text-indigo-300/80 space-y-1 text-[11px] list-disc list-inside">
-                <li><strong>Strict Position Mapping (QB is QB, etc.)</strong>: Players are only placed into drill slots that match their exact position on your offensive or defensive formations.</li>
-                {currentGroup?.format === '7v7' && (
-                  <li><strong>7v7 backfield</strong>: 1 is QB, 2 is FB (H), and 3/4 are RB. A player who starts two positions gets reps at both. The top QB gets most of the QB reps.</li>
-                )}
-                <li><strong>Formation Colors to Teams</strong>: <strong>Black (1st string)</strong> fills Team 1, <strong>Gold (2nd string)</strong> fills Team 2, and <strong>Blue (3rd string)</strong> fills Team 3.</li>
-                <li><strong>4th & 5th String Backups</strong>: Deep formation backups populate active rotation slots so all athletes get practice reps.</li>
-              </ul>
-            </div>
-
-            <div className="space-y-3.5 py-4">
-              {/* PRIMARY: FORMATION DEPTH AUTO-FILL (Black=1, Gold=2, Blue=3) */}
-              <div className="p-4 rounded-2xl bg-gradient-to-br from-indigo-50 to-blue-50/40 dark:from-indigo-950/40 dark:to-blue-950/30 border-2 border-indigo-500/80 dark:border-indigo-500/70 shadow-xs">
-                <div className="flex items-center justify-between gap-2 mb-1.5">
-                  <span className="px-2 py-0.5 rounded-md bg-indigo-600 text-white font-black text-[10px] uppercase tracking-wider">
-                    Primary Formation Mapping
-                  </span>
-                  <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
-                    Black=1 • Gold=2 • Blue=3
-                  </span>
-                </div>
-                <h4 className="font-black text-slate-900 dark:text-white text-sm">
-                  📋 Auto-Fill from Formation Depth Chart
-                </h4>
-                <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 mb-3">
-                  Directly loads players from your offensive & defensive formations into their exact positions (QB is QB, RB is RB, LT is LT, MLB is MLB). Black (1st string) goes to Team 1, Gold (2nd string) goes to Team 2, Blue (3rd string) goes to Team 3, and 4th/5th strings populate backup rotations.
-                </p>
-
-                <div className="space-y-2">
-                  <button
-                    onClick={() => handleRunAutoFill({ targetString: 'all', balanceMode: 'pure_depth', fillUnit: 'both' })}
-                    className="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-all"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    <span>Auto-Fill All 3 Teams (Offense & Defense)</span>
-                  </button>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => handleRunAutoFill({ targetString: 'all', balanceMode: 'pure_depth', fillUnit: 'offense' })}
-                      className="py-1.5 px-3 rounded-lg bg-white dark:bg-slate-800 hover:bg-indigo-100/60 dark:hover:bg-indigo-950/60 border border-indigo-300 dark:border-indigo-700 font-bold text-xs text-indigo-900 dark:text-indigo-200 cursor-pointer text-center transition-all"
-                    >
-                      Offense Only (Formations)
-                    </button>
-                    <button
-                      onClick={() => handleRunAutoFill({ targetString: 'all', balanceMode: 'pure_depth', fillUnit: 'defense' })}
-                      className="py-1.5 px-3 rounded-lg bg-white dark:bg-slate-800 hover:bg-blue-100/60 dark:hover:bg-blue-950/60 border border-blue-300 dark:border-blue-700 font-bold text-xs text-blue-900 dark:text-blue-200 cursor-pointer text-center transition-all"
-                    >
-                      Defense Only (Formations)
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* USER REQUESTED: SEMI-BALANCED HEAD-TO-HEAD SCRIMMAGE (Team 1 vs Team 2) */}
-              <div className="p-4 rounded-2xl bg-gradient-to-br from-purple-50 to-indigo-50/50 dark:from-purple-950/40 dark:to-indigo-950/40 border-2 border-purple-400 dark:border-purple-600/80 shadow-xs">
-                <div className="flex items-center justify-between gap-2 mb-1.5">
-                  <span className="px-2 py-0.5 rounded-md bg-purple-600 text-white font-black text-[10px] uppercase tracking-wider flex items-center gap-1">
-                    <Swords className="w-3 h-3" />
-                    <span>Head-to-Head Scrimmage</span>
-                  </span>
-                  <span className="text-[11px] font-bold text-purple-800 dark:text-purple-300 flex items-center gap-1">
-                    <Scale className="w-3.5 h-3.5" />
-                    <span>50/50 Talent Split</span>
-                  </span>
-                </div>
-                <h4 className="font-black text-slate-900 dark:text-white text-sm">
-                  ⚔️ Make Semi-Balanced Teams (Team 1 vs Team 2)
-                </h4>
-                <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 mb-3">
-                  Distributes 1st string (Black) and 2nd string (Gold) players evenly 50/50 across Team 1 and Team 2 by position group so both squads are competitive to go against each other. Team 3 retains 3rd string (Blue), and 4th/5th string backups get rotation reps.
-                </p>
-
-                <div className="space-y-2">
-                  <button
-                    onClick={() => handleRunAutoFill({ targetString: 'all', balanceMode: 'semi_balanced_head_to_head', fillUnit: 'both' })}
-                    className="w-full py-2.5 px-4 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-black text-xs shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-all"
-                  >
-                    <Swords className="w-4 h-4" />
-                    <span>Generate Semi-Balanced Teams (Offense & Defense)</span>
-                  </button>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => handleRunAutoFill({ targetString: 'all', balanceMode: 'semi_balanced_head_to_head', fillUnit: 'offense' })}
-                      className="py-1.5 px-3 rounded-lg bg-white dark:bg-slate-800 hover:bg-purple-100/60 dark:hover:bg-purple-950/60 border border-purple-300 dark:border-purple-700 font-bold text-xs text-purple-900 dark:text-purple-200 cursor-pointer text-center transition-all"
-                    >
-                      Semi-Balance Offense Only
-                    </button>
-                    <button
-                      onClick={() => handleRunAutoFill({ targetString: 'all', balanceMode: 'semi_balanced_head_to_head', fillUnit: 'defense' })}
-                      className="py-1.5 px-3 rounded-lg bg-white dark:bg-slate-800 hover:bg-purple-100/60 dark:hover:bg-purple-950/60 border border-purple-300 dark:border-purple-700 font-bold text-xs text-purple-900 dark:text-purple-200 cursor-pointer text-center transition-all"
-                    >
-                      Semi-Balance Defense Only
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* SECONDARY: BALANCED 3-TEAM MIX */}
-              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
-                <div className="flex items-center justify-between mb-1">
-                  <h4 className="font-black text-slate-900 dark:text-white text-xs">
-                    ⚖️ 3-Way Even Mix (Evenly Mix Across 1s, 2s & 3s)
-                  </h4>
-                  <span className="text-[10px] text-slate-500 font-bold">All 3 Teams</span>
-                </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2.5">
-                  Mixes 1st, 2nd, and 3rd string depth evenly across all 3 teams so every squad has equal starter representation.
-                </p>
-                <button
-                  onClick={() => handleRunAutoFill({ targetString: 'all', balanceMode: 'even_mix', fillUnit: 'both' })}
-                  className="w-full py-2 px-3 rounded-xl bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 font-bold text-xs text-slate-800 dark:text-slate-100 cursor-pointer text-center transition-all"
-                >
-                  Run 3-Way Even Mix
-                </button>
-              </div>
-
-              {/* INDIVIDUAL STRING QUICK FILLS */}
-              <div>
-                <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5">
-                  Fill Specific String from Formations:
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    onClick={() => handleRunAutoFill({ targetString: 1, balanceMode: 'pure_depth', fillUnit: 'both' })}
-                    className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-center cursor-pointer transition-all"
-                  >
-                    <div className="font-black text-xs text-slate-900 dark:text-white">Team 1</div>
-                    <div className="text-[10px] font-bold text-slate-500">Black (1st String)</div>
-                  </button>
-                  <button
-                    onClick={() => handleRunAutoFill({ targetString: 2, balanceMode: 'pure_depth', fillUnit: 'both' })}
-                    className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-center cursor-pointer transition-all"
-                  >
-                    <div className="font-black text-xs text-slate-900 dark:text-white">Team 2</div>
-                    <div className="text-[10px] font-bold text-amber-600 dark:text-amber-400">Gold (2nd String)</div>
-                  </button>
-                  <button
-                    onClick={() => handleRunAutoFill({ targetString: 3, balanceMode: 'pure_depth', fillUnit: 'both' })}
-                    className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-center cursor-pointer transition-all"
-                  >
-                    <div className="font-black text-xs text-slate-900 dark:text-white">Team 3</div>
-                    <div className="text-[10px] font-bold text-blue-600 dark:text-blue-400">Blue (3rd String)</div>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end">
-              <button
-                onClick={() => setShowAutoFillModal(false)}
-                className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs cursor-pointer"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ==================================================================== */}
       {/* 5. PLAYER ASSIGNMENT SEARCH MODAL */}

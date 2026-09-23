@@ -665,6 +665,105 @@ describe('live drill multi-spot assignment', () => {
     assert.equal(cbTeams.some((team) => fsTeams.includes(team)), false);
   });
 
+  it('fills 7v7 from position groups and can re-roll receivers, Sam, and Rover', async () => {
+    const { executeIntelligentAutoFill } = await import('../components/practiceDrillsUtils.ts');
+    const group: LiveDrillGroup = {
+      id: 'g1',
+      name: '7v7',
+      format: '7v7',
+      offenseLabel: 'O',
+      defenseLabel: 'D',
+      teamCount: 2,
+      offensePositions: [
+        { id: 'qb', name: 'QB', unit: 'offense' },
+        { id: 'x', name: 'WR (X)', unit: 'offense' },
+        { id: 'z', name: 'WR (Z)', unit: 'offense' },
+        { id: 'w', name: 'Slot (W)', unit: 'offense' },
+      ],
+      defensePositions: [
+        { id: 'cb', name: 'CB1', unit: 'defense' },
+        { id: 'will', name: 'WLB', unit: 'defense' },
+        { id: 'sam', name: 'SLB / Nickel', unit: 'defense' },
+        { id: 'rover', name: 'SS', unit: 'defense' },
+      ],
+      lineup: {},
+    };
+    const formations: any[] = [
+      { id: 'form_21', unit: 'offense', name: '21 Offense', rows: [{ positions: [{ id: '21-1', name: '1 (QB)' }] }] },
+      {
+        id: 'form_grp_off',
+        unit: 'groups',
+        name: 'Offensive Depth Chart',
+        rows: [{
+          positions: [
+            { id: 'GRP-QB', name: 'QB' },
+            { id: 'GRP-X', name: 'X' },
+            { id: 'GRP-Z', name: 'Z' },
+            { id: 'GRP-W', name: 'W' },
+          ],
+        }],
+      },
+      {
+        id: 'form_grp_def',
+        unit: 'groups',
+        name: 'Defensive Depth Chart',
+        rows: [{
+          positions: [
+            { id: 'GRP-CB1', name: 'CB 1' },
+            { id: 'GRP-WILL', name: 'WILL' },
+            { id: 'GRP-SAM', name: 'SAM' },
+            { id: 'GRP-ROVER', name: 'ROVER' },
+          ],
+        }],
+      },
+    ];
+    const depthChart = {
+      '21-1': [{ num: '99', name: 'Wrong' }],
+      'GRP-QB': [{ num: '10', name: 'Ace' }],
+      'GRP-X': [{ num: '11', name: 'Berish' }],
+      'GRP-Z': [{ num: '12', name: 'Barry' }],
+      'GRP-W': [{ num: '4', name: 'Vince' }],
+      'GRP-CB1': [{ num: '22', name: 'Pestone' }],
+      'GRP-WILL': [{ num: '7', name: 'Silva' }],
+      'GRP-SAM': [{ num: '6', name: 'Henderson' }],
+      'GRP-ROVER': [{ num: '8', name: 'Kilkenny' }],
+    };
+    const run = (roll: number) => executeIntelligentAutoFill({
+      group,
+      formations,
+      depthChart,
+      roster: [],
+      targetString: 'all',
+      fillUnit: 'both',
+      roll,
+    });
+    const first = run(1);
+    const qbNums = [0, 1].map((idx) => first.nextLineup.qb?.[idx]?.num);
+    assert.equal(qbNums.includes('99'), false);
+    assert.ok(qbNums.includes('10'));
+
+    let xOnZ = false;
+    let samOut = false;
+    let roverOut = false;
+    let changed = false;
+    const snap = (lineup: Record<string, { num?: string }[] | undefined>) =>
+      ['x', 'z', 'w', 'cb', 'will', 'sam', 'rover'].map((id) => (lineup[id] || []).map((p) => p?.num).join(',')).join('|');
+    const firstSnap = snap(first.nextLineup);
+    for (let roll = 1; roll <= 24; roll++) {
+      const result = run(roll);
+      const on = (posId: string, jersey: string) =>
+        [0, 1].some((idx) => result.nextLineup[posId]?.[idx]?.num === jersey);
+      if (on('z', '11') || on('w', '11')) xOnZ = true;
+      if (on('cb', '6') || on('will', '6') || on('rover', '6')) samOut = true;
+      if (on('cb', '8') || on('will', '8') || on('sam', '8')) roverOut = true;
+      if (snap(result.nextLineup) !== firstSnap) changed = true;
+    }
+    assert.equal(xOnZ, true);
+    assert.equal(samOut, true);
+    assert.equal(roverOut, true);
+    assert.equal(changed, true);
+  });
+
   it('keeps renamed drill slots when merging remote factory defaults', async () => {
     const { mergePracticeDrillGroups } = await import('../components/practiceDrillsUtils.ts');
     const local: LiveDrillGroup[] = [{
