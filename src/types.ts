@@ -390,6 +390,7 @@ export interface ScoutingData {
     coachNotes?: string;
     filters?: any;
     games?: { id: string; name: string; playCount: number; addedAt: number }[];
+    sourceCleared?: boolean;
     ownTeam?: {
       plays?: any[];
       datasetName?: string;
@@ -397,6 +398,8 @@ export interface ScoutingData {
       coachNotes?: string;
       filters?: any;
       games?: { id: string; name: string; playCount: number; addedAt: number }[];
+      sourceCleared?: boolean;
+      updatedAt?: number;
     };
     updatedAt?: number;
   };

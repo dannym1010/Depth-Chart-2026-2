@@ -93,8 +93,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="bg-slate-900 border border-slate-800 rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[94vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Modal Header */}
         <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/70">
           <div className="flex items-center gap-2">
@@ -154,7 +154,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 Drop a Hudl CSV or Excel file here, or browse
               </p>
               <p className="text-[11px] text-slate-400">
-                .csv, .xlsx, .xls — Down, Distance, Yard Line, Hash, Play Dir, Formation, Gain/Loss
+                .csv, .xlsx, .xls — Down, Distance, Yard Line, Hash, Play Dir, Formation, Gain/Loss.
+                Wrong file? Remove it from the chips on the scouting report after import.
               </p>
               <input
                 ref={fileInputRef}

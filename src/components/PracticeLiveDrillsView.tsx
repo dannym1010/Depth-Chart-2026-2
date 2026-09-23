@@ -339,6 +339,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
 
   // Filter unit: 'both' | 'offense' | 'defense'
   const [filterUnit, setFilterUnit] = useState<'both' | 'offense' | 'defense'>('both');
+  const [mobileTeamNum, setMobileTeamNum] = useState<1 | 2 | 3>(1);
 
   // Inline editing state for drill title
   const [isEditingTitle, setIsEditingTitle] = useState<boolean>(false);
@@ -538,6 +539,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
     updateGroup({ ...currentGroup, teamCount: count });
     if (activeOffenseString > count) setActiveOffenseString(count);
     if (activeDefenseString > count) setActiveDefenseString(count);
+    if (mobileTeamNum > count) setMobileTeamNum(count);
   };
 
   // Active color configs for currently active on-field units
@@ -1113,8 +1115,11 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                 <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h4 className="font-black text-slate-900 dark:text-slate-100 text-base">{togetherTitle}</h4>
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5 hidden md:block">
               {togetherPairs}. Drag from the roster on the right, or tap a cell to assign.
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5 md:hidden">
+              Pick a team, then tap a slot to put a player in.
             </p>
           </div>
           <div className="flex items-center flex-wrap gap-2">
@@ -1123,12 +1128,12 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
               <button type="button" onClick={() => setFilterUnit('offense')} className={`px-2.5 py-1 rounded-lg ${filterUnit === 'offense' ? 'bg-white dark:bg-slate-700 text-amber-600 shadow-xs' : 'text-slate-500'}`}>Offense</button>
               <button type="button" onClick={() => setFilterUnit('defense')} className={`px-2.5 py-1 rounded-lg ${filterUnit === 'defense' ? 'bg-white dark:bg-slate-700 text-blue-600 shadow-xs' : 'text-slate-500'}`}>Defense</button>
             </div>
-            <button type="button" onClick={() => setShowAddSlotUnit(showAddSlotUnit === 'offense' ? null : 'offense')} className="px-2.5 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700/60 font-bold text-xs cursor-pointer">+ Offense Slot</button>
-            <button type="button" onClick={() => setShowAddSlotUnit(showAddSlotUnit === 'defense' ? null : 'defense')} className="px-2.5 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-900 dark:text-blue-200 border border-blue-300 dark:border-blue-700/60 font-bold text-xs cursor-pointer">+ Defense Slot</button>
+            <button type="button" onClick={() => setShowAddSlotUnit(showAddSlotUnit === 'offense' ? null : 'offense')} className="hidden md:inline-flex px-2.5 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700/60 font-bold text-xs cursor-pointer">+ Offense Slot</button>
+            <button type="button" onClick={() => setShowAddSlotUnit(showAddSlotUnit === 'defense' ? null : 'defense')} className="hidden md:inline-flex px-2.5 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-900 dark:text-blue-200 border border-blue-300 dark:border-blue-700/60 font-bold text-xs cursor-pointer">+ Defense Slot</button>
           </div>
         </div>
 
-        <div className="mb-4 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60">
+        <div className="mb-4 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 hidden md:block">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
             <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">Teams</span>
             <div className="inline-flex rounded-xl bg-white dark:bg-slate-900 p-0.5 border border-slate-200 dark:border-slate-700 text-xs font-bold">
@@ -1218,11 +1223,128 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
               <h5 className="font-black text-sm text-slate-900 dark:text-white uppercase tracking-wider">
                 {togetherTitle} · who they match up against
               </h5>
-              <span className="text-xs text-slate-500 font-medium">
+              <span className="text-xs text-slate-500 font-medium hidden md:inline">
                 {togetherPairs}. Red box = same player on offense and defense for that team.
               </span>
             </div>
 
+            <div className="md:hidden space-y-3">
+              <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-0.5 border border-slate-200 dark:border-slate-700 text-xs font-bold">
+                {([1, 2, 3] as const).map((count) => (
+                  <button
+                    key={`phone-count-${count}`}
+                    type="button"
+                    onClick={() => handleSetTeamCount(count)}
+                    className={`px-2.5 py-1 rounded-lg ${
+                      teamCount === count ? 'bg-indigo-600 text-white' : 'text-slate-500'
+                    }`}
+                  >
+                    {count} {count === 1 ? 'team' : 'teams'}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+                {teamNums.map((num) => {
+                  const offCfg = getTeamColorConfig(getOffenseColorForString(num), 'gold');
+                  const defCfg = getTeamColorConfig(getDefenseColorForString(num), 'blue');
+                  const selected = mobileTeamNum === num;
+                  return (
+                    <button
+                      key={`phone-team-${num}`}
+                      type="button"
+                      onClick={() => setMobileTeamNum(num)}
+                      className={`shrink-0 px-3 py-2 rounded-xl border text-left ${
+                        selected
+                          ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40'
+                          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
+                      }`}
+                    >
+                      <div className="text-[10px] font-black uppercase text-slate-500">Team {num}</div>
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-black" style={{ backgroundColor: offCfg.hex, color: offCfg.badgeText.includes('white') ? '#fff' : '#000' }}>
+                          {getOffenseLabelForString(num)}
+                        </span>
+                        <span className="text-[10px] text-slate-400">vs</span>
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-black" style={{ backgroundColor: defCfg.hex, color: defCfg.badgeText.includes('white') ? '#fff' : '#000' }}>
+                          {getDefenseLabelForString(num)}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              {(['offense', 'defense'] as const)
+                .filter((unit) => filterUnit === 'both' || filterUnit === unit)
+                .map((unit) => {
+                  const positions = unit === 'offense' ? currentGroup.offensePositions : currentGroup.defensePositions;
+                  const cfg = getTeamColorConfig(
+                    unit === 'offense' ? getOffenseColorForString(mobileTeamNum) : getDefenseColorForString(mobileTeamNum),
+                    unit === 'offense' ? 'gold' : 'blue'
+                  );
+                  return (
+                    <div key={`phone-${unit}`} className="rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                      <div
+                        className={`px-3 py-2 text-[11px] font-black uppercase tracking-wider ${
+                          unit === 'offense'
+                            ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200'
+                            : 'bg-blue-50 dark:bg-blue-950/30 text-blue-900 dark:text-blue-200'
+                        }`}
+                      >
+                        {unit === 'offense' ? getOffenseLabelForString(mobileTeamNum) : getDefenseLabelForString(mobileTeamNum)}
+                      </div>
+                      <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {positions.map((pos) => {
+                          const player = (currentGroup.lineup[pos.id] || [])[mobileTeamNum - 1];
+                          const onBothSides =
+                            Boolean(player && isFilledPlayer(player)) &&
+                            bothSideByTeam[mobileTeamNum - 1].has(normalizeJerseyNum(player.num));
+                          return (
+                            <div key={`phone-${pos.id}`} className="flex items-center gap-2 px-3 py-2.5">
+                              <span className="w-16 shrink-0 text-xs font-black text-slate-600 dark:text-slate-300">{pos.name}</span>
+                              {player && player.num !== '?' ? (
+                                <div className={`flex-1 flex items-center gap-2 min-w-0 rounded-lg px-2 py-1.5 ${onBothSides ? 'ring-2 ring-rose-600 bg-rose-50 dark:bg-rose-950/40' : 'bg-slate-50 dark:bg-slate-800'}`}>
+                                  <span
+                                    className="w-8 h-8 rounded-lg text-xs font-black flex items-center justify-center shrink-0"
+                                    style={{ backgroundColor: cfg.hex, color: cfg.badgeText.includes('white') ? '#fff' : '#000' }}
+                                  >
+                                    {player.num}
+                                  </span>
+                                  <span className="font-bold text-sm text-slate-900 dark:text-white truncate">{drillSpotLastName(player, roster)}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemovePlayer(pos.id, mobileTeamNum - 1)}
+                                    className="ml-auto text-slate-400 p-1"
+                                    aria-label="Remove player"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setAssigningPos({
+                                      id: pos.id,
+                                      name: pos.name,
+                                      unit,
+                                      targetIdx: mobileTeamNum - 1,
+                                    })
+                                  }
+                                  className="flex-1 text-left py-2 px-3 rounded-lg border border-dashed border-slate-300 dark:border-slate-600 text-xs font-bold text-slate-500"
+                                >
+                                  Tap to assign
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+
+            <div className="hidden md:block space-y-4">
             {(['offense', 'defense'] as const)
               .filter((unit) => filterUnit === 'both' || filterUnit === unit)
               .map((unit) => {
@@ -1400,6 +1522,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                   </div>
                 );
               })}
+            </div>
           </div>
               </div>
 

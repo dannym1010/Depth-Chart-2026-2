@@ -2622,7 +2622,7 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
       {/* =========================================================================
           4. COACHING SHORTCUTS STRIP
           ========================================================================= */}
-      <div className="grid grid-cols-4 gap-2 pt-1">
+      <div className="grid grid-cols-3 gap-2 pt-1">
         <button
           type="button"
           onClick={() => onNavigateToUnit('schedule')}
@@ -2648,6 +2648,15 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
         >
           <Target className="w-4 h-4 text-rose-400" />
           <span className="text-[10px] font-bold text-slate-300">Scouting</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onNavigateToUnit('practice_live', 'practice_live')}
+          className="bg-slate-900/90 border border-slate-800 p-2.5 rounded-2xl flex flex-col items-center text-center gap-1 hover:border-slate-700 active:scale-95 transition-all cursor-pointer"
+        >
+          <Swords className="w-4 h-4 text-orange-400" />
+          <span className="text-[10px] font-bold text-slate-300">7v7</span>
         </button>
 
         <button

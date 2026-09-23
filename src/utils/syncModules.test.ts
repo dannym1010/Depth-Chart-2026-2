@@ -162,6 +162,37 @@ describe('remoteStateMerge', () => {
     assert.equal(merged.hudlScout.datasetName, 'Carmel');
   });
 
+  it('keeps an intentional scout file removal over an older filled copy', () => {
+    const filled = {
+      plays: [{ id: '1' }, { id: '2' }],
+      games: [{ id: 'g1' }, { id: 'g2' }],
+      datasetName: 'Carmel',
+      updatedAt: 10,
+    };
+    const cleared = { plays: [], games: [], datasetName: '', updatedAt: 50, sourceCleared: true };
+    const merged = mergeScoutingReports({ hudlScout: filled }, { hudlScout: cleared });
+    assert.equal(merged.hudlScout.plays.length, 0);
+    assert.equal(merged.hudlScout.sourceCleared, true);
+  });
+
+  it('keeps the newer scout after one of two uploaded games is removed', () => {
+    const twoGames = {
+      plays: [{ id: '1' }, { id: '2' }],
+      games: [{ id: 'g1' }, { id: 'g2' }],
+      datasetName: 'Carmel',
+      updatedAt: 10,
+    };
+    const oneGame = {
+      plays: [{ id: '2' }],
+      games: [{ id: 'g2' }],
+      datasetName: 'Carmel',
+      updatedAt: 80,
+    };
+    const merged = mergeScoutingReports({ hudlScout: oneGame }, { hudlScout: twoGames });
+    assert.equal(merged.hudlScout.plays.length, 1);
+    assert.equal(merged.hudlScout.games.length, 1);
+  });
+
   it('keeps edited positional-group boards and GRP- depth spots over factory remote', () => {
     const localForm = {
       id: 'form_grp_off',
@@ -997,5 +1028,34 @@ describe('hudl scout', () => {
     const motionTell = analysis.tells.find((t) => t.id === 'tell-motion');
     assert.ok(motionTell);
     assert.ok(motionTell.title.includes('Pass'));
+  });
+
+  it('drops one tagged upload from a stacked scout report', async () => {
+    const { removeScoutGame, clearScoutUploads } = await import('../components/scouting/HudlScoutView.tsx');
+    const bundle = {
+      plays: [
+        { id: 'a', gameId: 'g1' },
+        { id: 'b', gameId: 'g2' },
+      ],
+      datasetName: 'Carmel',
+      offensiveScheme: '',
+      coachNotes: '',
+      filters: { odk: 'O', quarter: 'ALL', down: 'ALL', fieldZone: 'ALL', hash: 'ALL', playType: 'ALL', formation: 'ALL' },
+      games: [
+        { id: 'g1', name: 'wrong.xlsx', playCount: 1, addedAt: 1 },
+        { id: 'g2', name: 'right.csv', playCount: 1, addedAt: 2 },
+      ],
+      updatedAt: 1,
+      sourceCleared: false,
+    } as any;
+    const afterOne = removeScoutGame(bundle, 'g1', 'Opponent');
+    assert.equal(afterOne.plays.length, 1);
+    assert.equal(afterOne.plays[0].id, 'b');
+    assert.equal(afterOne.games.length, 1);
+    assert.equal(afterOne.games[0].name, 'right.csv');
+    const cleared = clearScoutUploads(afterOne, 'Opponent');
+    assert.equal(cleared.plays.length, 0);
+    assert.equal(cleared.games.length, 0);
+    assert.equal(cleared.sourceCleared, true);
   });
 });

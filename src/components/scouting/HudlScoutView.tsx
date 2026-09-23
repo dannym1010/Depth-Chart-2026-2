@@ -29,13 +29,15 @@ const DEFAULT_FILTERS: FilterState = {
   formation: 'ALL',
 };
 
-interface ScoutBundle {
+export interface ScoutBundle {
   plays: Play[];
   datasetName: string;
   offensiveScheme: string;
   coachNotes: string;
   filters: FilterState;
   games: ScoutGame[];
+  updatedAt: number;
+  sourceCleared: boolean;
 }
 
 function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
@@ -51,6 +53,53 @@ function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
       : plays.length
         ? [{ id: 'game-1', name: saved?.datasetName || fallbackName, playCount: plays.length, addedAt: saved?.updatedAt || Date.now() }]
         : [],
+    updatedAt: Number(saved?.updatedAt) || 0,
+    sourceCleared: Boolean(saved?.sourceCleared) && plays.length === 0,
+  };
+}
+
+export function removeScoutGame(bundle: ScoutBundle, gameId: string, fallbackName: string): ScoutBundle {
+  const remainingGames = bundle.games.filter((g) => g.id !== gameId);
+  const remainingPlays = bundle.plays.filter((p) => {
+    if (p.gameId) return p.gameId !== gameId;
+    return bundle.games[0]?.id !== gameId;
+  });
+  if (!remainingGames.length) {
+    return {
+      ...bundle,
+      plays: [],
+      games: [],
+      datasetName: fallbackName,
+      filters: DEFAULT_FILTERS,
+      sourceCleared: true,
+      updatedAt: Date.now(),
+    };
+  }
+  return {
+    ...bundle,
+    plays: remainingPlays,
+    games: remainingGames.map((g) => ({
+      ...g,
+      playCount: remainingPlays.filter((p) => {
+        if (p.gameId) return p.gameId === g.id;
+        return remainingGames[0]?.id === g.id;
+      }).length,
+    })),
+    datasetName: remainingGames[0]?.name || fallbackName,
+    sourceCleared: false,
+    updatedAt: Date.now(),
+  };
+}
+
+export function clearScoutUploads(bundle: ScoutBundle, fallbackName: string): ScoutBundle {
+  return {
+    ...bundle,
+    plays: [],
+    games: [],
+    datasetName: fallbackName,
+    filters: DEFAULT_FILTERS,
+    sourceCleared: true,
+    updatedAt: Date.now(),
   };
 }
 
@@ -149,6 +198,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       coachNotes: oppBundle.coachNotes,
       filters: oppBundle.filters,
       games: oppBundle.games,
+      sourceCleared: oppBundle.sourceCleared,
+      updatedAt: oppBundle.updatedAt,
       ownTeam: {
         plays: ownBundle.plays,
         datasetName: ownBundle.datasetName,
@@ -156,8 +207,9 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         coachNotes: ownBundle.coachNotes,
         filters: ownBundle.filters,
         games: ownBundle.games,
+        sourceCleared: ownBundle.sourceCleared,
+        updatedAt: ownBundle.updatedAt,
       },
-      updatedAt: Date.now(),
     });
     if (oppBundle.datasetName && oppBundle.datasetName !== opponentFallback) {
       onUpdateScouting('opponent', oppBundle.datasetName);
@@ -195,6 +247,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
           datasetName: prev.datasetName && prev.datasetName !== opponentFallback ? prev.datasetName : name,
           games: [...prev.games, game],
           filters: DEFAULT_FILTERS,
+          sourceCleared: false,
+          updatedAt: Date.now(),
         };
       }
       return {
@@ -204,6 +258,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         offensiveScheme: scheme,
         games: [game],
         filters: DEFAULT_FILTERS,
+        sourceCleared: false,
+        updatedAt: Date.now(),
       };
     });
   };
@@ -228,6 +284,20 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     if (scoutTarget === 'opponent') onUpdateScouting('opponent', name);
   };
 
+  const handleRemoveGame = (gameId: string) => {
+    const game = bundle.games.find((g) => g.id === gameId);
+    const label = game?.name || 'this file';
+    if (!window.confirm(`Remove "${label}" from this scouting report?`)) return;
+    setBundle((prev) => removeScoutGame(prev, gameId, scoutTarget === 'own' ? 'Mahopac' : opponentFallback));
+  };
+
+  const handleClearUploads = () => {
+    const who = scoutTarget === 'own' ? 'our team' : 'the opponent';
+    if (!window.confirm(`Remove all CSV/Excel uploads from ${who} for this week?`)) return;
+    setCurrentDataset(null);
+    setBundle((prev) => clearScoutUploads(prev, scoutTarget === 'own' ? 'Mahopac' : opponentFallback));
+  };
+
   const emptyLabel = scoutTarget === 'own' ? 'our team' : weekLabel;
 
   return (
@@ -244,6 +314,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         scoutTarget={scoutTarget}
         onScoutTargetChange={setScoutTarget}
         games={bundle.games}
+        onRemoveGame={handleRemoveGame}
+        onClearUploads={handleClearUploads}
       />
 
       <FilterBar
@@ -257,7 +329,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         teamName={datasetName}
       />
 
-      <main className="flex-1 w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
+      <main className="flex-1 w-full mx-auto px-3 sm:px-6 py-4 md:py-6 space-y-4 md:space-y-6">
         {plays.length === 0 && (
           <div className="rounded-xl border border-dashed border-emerald-500/40 bg-emerald-950/20 p-6 text-center">
             <p className="text-sm font-black text-emerald-200">
@@ -287,9 +359,11 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
           </div>
         )}
 
-        <OverviewCards analysis={analysis} />
-        <HashWideSideBoard analysis={analysis} />
-        <OpponentTellsBanner tells={analysis.tells} />
+        <div className={`${activeTab === 'situational' ? 'space-y-4 md:space-y-6' : 'hidden md:block md:space-y-6'}`}>
+          <OverviewCards analysis={analysis} />
+          <HashWideSideBoard analysis={analysis} />
+          <OpponentTellsBanner tells={analysis.tells} />
+        </div>
 
         {activeTab === 'situational' && <SituationalMatrix groups={analysis.situationalGroups} />}
         {activeTab === 'formations' && (

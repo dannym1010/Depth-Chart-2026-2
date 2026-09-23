@@ -8971,6 +8971,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
           {!['home', 'mobile_hub', 'game_day', 'wristband', 'drills', 'scouting', 'guide', 'practice', 'users', 'schedule', 'compliance', 'call_sheet', 'whiteboard', 'ppr'].includes(
             activeUnit
           ) && (
+            <div className="hidden lg:block shrink-0">
             <RosterSidebar
               roster={activeTeamRoster}
               activeTeamName={currentActiveTeam.name}
@@ -9015,6 +9016,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
                 setIsRosterModalOpen(true);
               }}
             />
+            </div>
           )}
         </div>
       </main>

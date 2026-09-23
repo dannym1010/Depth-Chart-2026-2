@@ -27,7 +27,54 @@ export const SituationalMatrix: React.FC<SituationalMatrixProps> = ({ groups }) 
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="md:hidden divide-y divide-slate-800">
+        {groups.map((group) => {
+          const isExpanded = expandedRow === group.label;
+          const hasData = group.count > 0;
+          return (
+            <button
+              key={`m-${group.label}`}
+              type="button"
+              onClick={() => toggleRow(group.label)}
+              className="w-full text-left p-3"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold text-slate-100 text-sm">{group.label}</span>
+                <span className="font-mono text-xs text-slate-400">{group.count} pl</span>
+              </div>
+              {hasData ? (
+                <>
+                  <div className="mt-1.5 flex justify-between text-[10px] font-mono">
+                    <span className="text-emerald-400">{group.runPct}% RUN</span>
+                    <span className="text-sky-400">{group.passPct}% PASS</span>
+                  </div>
+                  <div className="w-full h-1.5 bg-slate-950 rounded-full flex overflow-hidden mt-1">
+                    <div className="bg-emerald-500" style={{ width: `${group.runPct}%` }} />
+                    <div className="bg-sky-500" style={{ width: `${group.passPct}%` }} />
+                  </div>
+                  <div className="mt-1.5 text-[11px] text-slate-400">
+                    {group.topPlays[0]?.name || '—'} · avg {hasData ? `${group.avgGain}` : '-'} yds
+                  </div>
+                  {isExpanded && (
+                    <div className="mt-2 space-y-1 text-[11px] text-slate-300">
+                      {group.topPlays.slice(0, 3).map((p, idx) => (
+                        <div key={idx} className="flex justify-between">
+                          <span>{idx + 1}. {p.name}</span>
+                          <span className="font-mono text-slate-400">{p.count}x</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-[11px] text-slate-500 mt-1">No plays</div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-left text-xs text-slate-300">
           <thead className="bg-slate-950 text-slate-400 font-semibold border-b border-slate-800 uppercase tracking-wider text-[11px]">
             <tr>

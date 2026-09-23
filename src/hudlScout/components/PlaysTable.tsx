@@ -90,8 +90,41 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays }) => {
         </div>
       </div>
 
+      {/* Phone cards */}
+      <div className="md:hidden divide-y divide-slate-800">
+        {paginatedPlays.map((play) => {
+          const isGain = play.gainLoss > 0;
+          const isLoss = play.gainLoss < 0;
+          return (
+            <div key={play.id} className="p-3 space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-black text-slate-100 text-sm truncate">{play.playName}</span>
+                <span className={`font-mono font-bold text-sm ${isGain ? 'text-emerald-400' : isLoss ? 'text-rose-400' : 'text-slate-400'}`}>
+                  {play.gainLoss > 0 ? `+${play.gainLoss}` : play.gainLoss}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-400">
+                <span>#{play.playNumber}</span>
+                <span>{play.odk}</span>
+                <span>Q{play.quarter}</span>
+                <span>{play.down} &amp; {play.distance}</span>
+                <span>Hash {play.hash}</span>
+                <span className={play.playType === 'RUN' ? 'text-emerald-400' : play.playType === 'PASS' ? 'text-sky-400' : 'text-amber-400'}>
+                  {play.playType}
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-300">
+                {play.formation && play.formation !== '-' ? play.formation : 'No formation'}
+                {play.direction ? ` · ${play.direction}` : ''}
+                {play.carrierOrTarget ? ` · ${play.carrierOrTarget}` : ''}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
       {/* Table */}
-      <div className="overflow-x-auto">
+      <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-left text-xs text-slate-300">
           <thead className="bg-slate-950 text-slate-400 font-semibold border-b border-slate-800 uppercase tracking-wider text-[11px] select-none">
             <tr>

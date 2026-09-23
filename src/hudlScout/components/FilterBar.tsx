@@ -48,7 +48,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
       {/* Primary ODK Unit Mode Selector */}
       <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2.5">
         <div className="flex items-center flex-wrap gap-2">
-          <div className="flex items-center bg-slate-950 p-0.5 rounded-lg border border-slate-800">
+        <div className="flex items-center bg-slate-950 p-0.5 rounded-lg border border-slate-800 overflow-x-auto no-scrollbar">
             <span className="text-[11px] font-bold text-slate-400 px-2.5 py-1 uppercase tracking-wider flex items-center gap-1.5">
               <Shield className="w-3.5 h-3.5 text-emerald-400" />
               <span>Unit (ODK):</span>
@@ -63,7 +63,8 @@ export const FilterBar: React.FC<FilterBarProps> = ({
                   : 'text-slate-300 hover:text-white hover:bg-slate-900'
               }`}
             >
-              <span>{shortTeam} Offense (ODK: O)</span>
+            <span className="sm:hidden">O</span>
+              <span className="hidden sm:inline">{shortTeam} Offense (ODK: O)</span>
               <span
                 className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-bold ${
                   filters.odk === 'O' ? 'bg-emerald-950/40 text-slate-950' : 'bg-slate-800 text-slate-300'
@@ -82,7 +83,8 @@ export const FilterBar: React.FC<FilterBarProps> = ({
                   : 'text-slate-300 hover:text-white hover:bg-slate-900'
               }`}
             >
-              <span>{shortTeam} Defense (ODK: D)</span>
+            <span className="sm:hidden">D</span>
+              <span className="hidden sm:inline">{shortTeam} Defense (ODK: D)</span>
               <span
                 className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-bold ${
                   filters.odk === 'D' ? 'bg-sky-950/40 text-slate-950' : 'bg-slate-800 text-slate-300'
@@ -122,7 +124,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
         </div>
 
         {/* Rule explanation badge */}
-        <div className="flex items-center gap-2">
+        <div className="hidden md:flex items-center gap-2">
           {filters.odk === 'O' && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-950/40 border border-emerald-500/30 text-[11px] text-emerald-300 font-medium">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />

@@ -74,12 +74,30 @@ export function hudlScoutWeight(scout: any): number {
   return (plays + ownPlays) * 1000 + (notes > 0 ? 80 : 0) + (name > 0 ? 20 : 0) + Math.min(Number(scout.updatedAt) || 0, 999);
 }
 
-function pickScoutBundle(a?: any, b?: any) {
-  const aPlays = Array.isArray(a?.plays) ? a.plays.length : 0;
-  const bPlays = Array.isArray(b?.plays) ? b.plays.length : 0;
-  if (bPlays > aPlays) return { ...(a || {}), ...(b || {}), plays: b.plays, games: b.games?.length ? b.games : a?.games };
-  if (aPlays > 0) return { ...(b || {}), ...(a || {}), plays: a.plays, games: a.games?.length ? a.games : b?.games };
-  return a || b;
+export function pickScoutBundle(a?: any, b?: any) {
+  if (!a) return b;
+  if (!b) return a;
+  const aPlays = Array.isArray(a.plays) ? a.plays.length : 0;
+  const bPlays = Array.isArray(b.plays) ? b.plays.length : 0;
+  const aT = Number(a.updatedAt) || 0;
+  const bT = Number(b.updatedAt) || 0;
+  const aClear = Boolean(a.sourceCleared) && aPlays === 0;
+  const bClear = Boolean(b.sourceCleared) && bPlays === 0;
+  if (aClear && aT >= bT) return a;
+  if (bClear && bT >= aT) return b;
+  if (aPlays > 0 && bPlays > 0) {
+    if (aT !== bT) return aT >= bT ? a : b;
+    return aPlays >= bPlays ? a : b;
+  }
+  if (aPlays > 0) return a;
+  if (bPlays > 0) return b;
+  return aT >= bT ? a : b;
+}
+
+function opponentScoutSlice(scout: any) {
+  if (!scout || typeof scout !== 'object') return undefined;
+  const { ownTeam: _own, ...rest } = scout;
+  return rest;
 }
 
 export function mergeScoutingReports(local?: any, remote?: any): any {
@@ -87,23 +105,23 @@ export function mergeScoutingReports(local?: any, remote?: any): any {
   const rem = remote && typeof remote === 'object' ? remote : {};
   const locH = loc.hudlScout;
   const remH = rem.hudlScout;
-  const locW = hudlScoutWeight(locH);
-  const remW = hudlScoutWeight(remH);
-  let hudlScout = remW > locW ? remH : locH || remH;
-  if (locH && remH) {
-    const other = hudlScout === remH ? locH : remH;
+  const locOpp = opponentScoutSlice(locH);
+  const remOpp = opponentScoutSlice(remH);
+  const picked = pickScoutBundle(locOpp, remOpp);
+  const other = picked === locOpp ? remOpp : locOpp;
+  const ownTeam = pickScoutBundle(locH?.ownTeam, remH?.ownTeam);
+  let hudlScout = picked || locH || remH;
+  if (picked) {
     hudlScout = {
-      ...other,
-      ...hudlScout,
-      plays:
-        Array.isArray(hudlScout?.plays) && hudlScout.plays.length
-          ? hudlScout.plays
-          : other.plays,
-      games: (hudlScout?.games?.length || 0) >= (other.games?.length || 0) ? hudlScout?.games : other.games,
-      ownTeam: pickScoutBundle(locH.ownTeam, remH.ownTeam),
-      coachNotes: String(hudlScout?.coachNotes || '').trim() || String(other.coachNotes || ''),
-      datasetName: String(hudlScout?.datasetName || '').trim() || String(other.datasetName || ''),
-      updatedAt: Math.max(Number(locH.updatedAt) || 0, Number(remH.updatedAt) || 0),
+      ...(other || {}),
+      ...picked,
+      plays: Array.isArray(picked.plays) ? picked.plays : other?.plays,
+      games: Array.isArray(picked.games) ? picked.games : other?.games,
+      sourceCleared: Boolean(picked.sourceCleared) && !(Array.isArray(picked.plays) && picked.plays.length),
+      ownTeam,
+      coachNotes: String(picked.coachNotes || '').trim() || String(other?.coachNotes || ''),
+      datasetName: String(picked.datasetName || '').trim() || String(other?.datasetName || ''),
+      updatedAt: Math.max(Number(locH?.updatedAt) || 0, Number(remH?.updatedAt) || 0, Number(picked.updatedAt) || 0),
     };
   }
   const merged = { ...loc, ...rem };
