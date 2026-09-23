@@ -12,7 +12,9 @@ import {
   mergePffReviews,
   mergePracticePlansByLastEdited,
   mergeRemoteWeeklyData,
+  mergeScoutingReports,
   mergeStaffByEmail,
+  pickBetterFormation,
   shouldKeepLocalCallSheet,
   shouldRejectStaleRemote,
 } from './remoteStateMerge.ts';
@@ -150,6 +152,50 @@ describe('remoteStateMerge', () => {
     const merged = mergeRemoteWeeklyData(local, remote, 'team_10u', '3', 'offense', 0);
     assert.equal(merged['team_10u__week_2'].depthChart['21-qb'][0].name, 'Pat');
     assert.equal(merged['team_10u__week_1'].depthChart['21-qb'][0].name, 'Dan');
+  });
+
+  it('keeps a filled Hudl scout when the other side is empty', () => {
+    const filled = { plays: [{ id: '1' }, { id: '2' }], datasetName: 'Carmel', updatedAt: 10, coachNotes: '' };
+    const empty = { plays: [], updatedAt: 99 };
+    const merged = mergeScoutingReports({ hudlScout: filled }, { hudlScout: empty });
+    assert.equal(merged.hudlScout.plays.length, 2);
+    assert.equal(merged.hudlScout.datasetName, 'Carmel');
+  });
+
+  it('keeps edited positional-group boards and GRP- depth spots over factory remote', () => {
+    const localForm = {
+      id: 'form_grp_off',
+      unit: 'groups' as const,
+      name: 'Offensive Depth Chart',
+      rows: [{ id: 'r1', positions: [{ id: 'GRP-QB', name: 'QB 1s' }, { id: 'GRP-X', name: 'X' }, { id: 'GRP-NEW', name: 'Slot' }] }],
+    };
+    const remoteForm = {
+      id: 'form_grp_off',
+      unit: 'groups' as const,
+      name: 'Offensive Depth Chart',
+      rows: [{ id: 'r1', positions: [{ id: 'GRP-QB', name: 'QB' }] }],
+    };
+    assert.equal(pickBetterFormation(localForm as any, remoteForm as any)?.rows[0].positions.length, 3);
+    const local: Record<string, WeekState> = {
+      'team_10u__week_1': {
+        formations: [localForm as any],
+        depthChart: { 'GRP-QB': [player('p1', 'Ace')] },
+        scrimmageChart: {},
+        scouting: { hudlScout: { plays: [{ id: 'p' }], datasetName: 'Carmel', updatedAt: 5 } },
+      } as WeekState,
+    };
+    const remote: Record<string, WeekState> = {
+      'team_10u__week_1': {
+        formations: [remoteForm as any],
+        depthChart: { 'GRP-QB': [] },
+        scrimmageChart: {},
+        scouting: { hudlScout: { plays: [], updatedAt: 50 } },
+      } as WeekState,
+    };
+    const merged = mergeRemoteWeeklyData(local, remote, 'team_10u', '1', 'groups', 0);
+    assert.equal(merged['team_10u__week_1'].formations.find((f) => f.id === 'form_grp_off')?.rows[0].positions.length, 3);
+    assert.equal(merged['team_10u__week_1'].depthChart['GRP-QB'][0].name, 'Ace');
+    assert.equal(merged['team_10u__week_1'].scouting?.hudlScout?.plays?.length, 1);
   });
 
   it('keeps the newer practice plan and local-only plans', () => {
@@ -866,5 +912,90 @@ describe('hudl scout', () => {
     assert.ok(report.wristbandCallSheet.firstDownCalls.length > 0);
     const answer = answerCoachQuestion('What do they do on 1st down?', analysis, plays, 'Carmel', report);
     assert.ok(answer.toLowerCase().includes('1st'));
+  });
+
+  it('counts left-hash field runs as wide side and middle-hash favor without double-counting', async () => {
+    const { parseCsvRows, autoDetectColumnMapping, normalizeHudlRow, classifyRunSide } = await import('../hudlScout/utils/csvParser.ts');
+    const { calculateTendencies } = await import('../hudlScout/utils/tendencyEngine.ts');
+    assert.equal(classifyRunSide('Right', 'L'), 'R');
+    assert.equal(classifyRunSide('Field', 'L'), 'R');
+    assert.equal(classifyRunSide('Boundary', 'R'), 'R');
+    assert.equal(classifyRunSide('Left', 'R'), 'L');
+    const csv = `PLAY #,QTR,ODK,PLAY TYPE,DN,DIST,GN/LS,HASH,YARD LN,PLAY DIR
+1,1,O,Run,1,10,5,L,-35,Right
+2,1,O,Run,1,10,4,L,-30,Left
+3,1,O,Run,1,10,3,R,-25,Left
+4,1,O,Run,1,10,2,M,-20,Left
+5,1,O,Run,1,10,6,M,-15,Right
+6,1,O,Run,1,10,1,R,-10,Right`;
+    const { headers, rows } = parseCsvRows(csv);
+    const mapping = autoDetectColumnMapping(headers);
+    const plays = rows.map((r, i) => normalizeHudlRow(r, mapping, i));
+    const analysis = calculateTendencies(plays);
+    assert.equal(analysis.runPlays, 6);
+    const dirSum = Object.values(analysis.runDirections).reduce((a, b) => a + b, 0);
+    assert.equal(dirSum, 6);
+    assert.equal(analysis.wideSide.wideCount, 2);
+    assert.equal(analysis.wideSide.boundaryCount, 2);
+    assert.equal(analysis.hashTendencies.left.widePct, 50);
+    assert.equal(analysis.hashTendencies.left.boundaryPct, 50);
+    assert.equal(analysis.hashTendencies.middle.runLeftPct, 50);
+    assert.equal(analysis.hashTendencies.middle.runRightPct, 50);
+    assert.equal(analysis.hashTendencies.right.widePct, 50);
+    assert.equal(analysis.hashTendencies.right.boundaryPct, 50);
+  });
+
+  it('converts an Excel workbook into Hudl CSV rows', async () => {
+    const XLSX = await import('xlsx');
+    const { workbookBufferToCsv, parseCsvRows, autoDetectColumnMapping, normalizeHudlRow } = await import('../hudlScout/utils/csvParser.ts');
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['PLAY #', 'QTR', 'ODK', 'PLAY TYPE', 'DN', 'DIST', 'GN/LS', 'HASH', 'YARD LN', 'PLAY DIR'],
+      [1, 1, 'O', 'Run', 1, 10, 5, 'L', -35, 'Right'],
+    ]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Hudl');
+    const buffer = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+    const csv = workbookBufferToCsv(buffer);
+    const { headers, rows } = parseCsvRows(csv);
+    const play = normalizeHudlRow(rows[0], autoDetectColumnMapping(headers), 0);
+    assert.equal(play.odk, 'O');
+    assert.equal(play.hash, 'L');
+    assert.equal(play.runSide, 'R');
+  });
+
+  it('does not invent a motion tell when the export has no motion direction', async () => {
+    const { parseCsvRows, autoDetectColumnMapping, normalizeHudlRow, hasMotionDirectionData } = await import('../hudlScout/utils/csvParser.ts');
+    const { calculateTendencies } = await import('../hudlScout/utils/tendencyEngine.ts');
+    const header = 'PLAY #,QTR,ODK,PLAY TYPE,DN,DIST,GN/LS,HASH,YARD LN';
+    const rowsCsv = [1, 2, 3, 4, 5, 6]
+      .map((n) => `${n},1,O,Pass,1,10,8,L,-30`)
+      .join('\n');
+    const { headers, rows } = parseCsvRows(`${header}\n${rowsCsv}`);
+    const mapping = autoDetectColumnMapping(headers);
+    assert.equal(mapping.motion, '');
+    const plays = rows.map((r, i) => normalizeHudlRow(r, mapping, i));
+    assert.equal(hasMotionDirectionData(plays), false);
+    const analysis = calculateTendencies(plays);
+    assert.ok(!analysis.tells.some((t) => t.category === 'MOTION'));
+    assert.ok(analysis.formations.every((f) => f.motionPct === 0));
+  });
+
+  it('flags a motion tell only when motion direction is tagged', async () => {
+    const { parseCsvRows, autoDetectColumnMapping, normalizeHudlRow, hasMotionDirectionData } = await import('../hudlScout/utils/csvParser.ts');
+    const { calculateTendencies } = await import('../hudlScout/utils/tendencyEngine.ts');
+    const csv = `PLAY #,QTR,ODK,PLAY TYPE,DN,DIST,GN/LS,HASH,YARD LN,MOTION DIR
+1,1,O,Pass,1,10,8,L,-30,Jet L
+2,1,O,Pass,1,10,12,L,-25,Jet L
+3,1,O,Pass,1,10,6,R,-20,Orbit R
+4,1,O,Pass,1,10,9,R,-15,Orbit R`;
+    const { headers, rows } = parseCsvRows(csv);
+    const mapping = autoDetectColumnMapping(headers);
+    assert.equal(mapping.motion, 'MOTION DIR');
+    const plays = rows.map((r, i) => normalizeHudlRow(r, mapping, i));
+    assert.equal(hasMotionDirectionData(plays), true);
+    const analysis = calculateTendencies(plays);
+    const motionTell = analysis.tells.find((t) => t.id === 'tell-motion');
+    assert.ok(motionTell);
+    assert.ok(motionTell.title.includes('Pass'));
   });
 });

@@ -1,4 +1,5 @@
-import { DownDistGroup, FormationStat, OpponentTell, Play, TendencyAnalysis } from '../types/football';
+import { DownDistGroup, FormationStat, HashPosition, OpponentTell, Play, TendencyAnalysis } from '../types/football';
+import { classifyRunSide, hasMotionDirectionData, isBoundaryRun, isRecordedMotion, isWideSideRun } from './csvParser';
 
 export function calculateTendencies(plays: Play[]): TendencyAnalysis {
   // Filter out special teams (K) and stoppages (S) so scrimmage run/pass down & distance stats are clean
@@ -122,7 +123,7 @@ export function calculateTendencies(plays: Play[]): TendencyAnalysis {
       const fYards = fPlays.reduce((acc, p) => acc + p.gainLoss, 0);
       const fEfficient = fPlays.filter((p) => p.isEfficient).length;
       const fExplosive = fPlays.filter((p) => p.isExplosive).length;
-      const fMotion = fPlays.filter((p) => p.motion && p.motion.toLowerCase() !== 'none' && p.motion.trim() !== '').length;
+      const fMotion = fPlays.filter((p) => isRecordedMotion(p.motion)).length;
 
       // Top plays
       const playFreq: Record<string, { count: number; totalGain: number; runOrPass: string }> = {};
@@ -171,48 +172,20 @@ export function calculateTendencies(plays: Play[]): TendencyAnalysis {
     })
     .sort((a, b) => b.count - a.count);
 
-  // Hash Tendencies
+  // Hash Tendencies (L/M/R ball spot × run direction)
   const leftHashPlays = offensivePlays.filter((p) => p.hash === 'L');
   const midHashPlays = offensivePlays.filter((p) => p.hash === 'M');
   const rightHashPlays = offensivePlays.filter((p) => p.hash === 'R');
 
-  const calcHashSplits = (sub: Play[]) => {
-    const total = sub.length;
-    const runs = sub.filter((p) => p.playType === 'RUN');
-    const passes = sub.filter((p) => p.playType !== 'RUN');
-    const runLeft = runs.filter((p) => p.direction.toLowerCase().includes('left') || p.direction.toLowerCase().includes('boundary')).length;
-    const runRight = runs.filter((p) => p.direction.toLowerCase().includes('right') || p.direction.toLowerCase().includes('field')).length;
-
-    return {
-      total,
-      runPct: total > 0 ? Math.round((runs.length / total) * 100) : 0,
-      passPct: total > 0 ? Math.round((passes.length / total) * 100) : 0,
-      runLeftPct: runs.length > 0 ? Math.round((runLeft / runs.length) * 100) : 0,
-      runRightPct: runs.length > 0 ? Math.round((runRight / runs.length) * 100) : 0,
-    };
-  };
-
   const hashTendencies = {
-    left: calcHashSplits(leftHashPlays),
-    middle: {
-      total: midHashPlays.length,
-      runPct: midHashPlays.length > 0 ? Math.round((midHashPlays.filter((p) => p.playType === 'RUN').length / midHashPlays.length) * 100) : 0,
-      passPct: midHashPlays.length > 0 ? Math.round((midHashPlays.filter((p) => p.playType !== 'RUN').length / midHashPlays.length) * 100) : 0,
-    },
-    right: calcHashSplits(rightHashPlays),
+    left: calcHashSplits(leftHashPlays, 'L'),
+    middle: calcHashSplits(midHashPlays, 'M'),
+    right: calcHashSplits(rightHashPlays, 'R'),
   };
 
-  // Run directions
   const allRuns = offensivePlays.filter((p) => p.playType === 'RUN');
-  const runDirections = {
-    leftPerimeter: allRuns.filter((p) => p.direction.toLowerCase().includes('left') && (p.direction.toLowerCase().includes('sweep') || p.direction.toLowerCase().includes('perim') || p.direction.toLowerCase().includes('outside'))).length,
-    offTackleLeft: allRuns.filter((p) => p.direction.toLowerCase().includes('left') && !p.direction.toLowerCase().includes('sweep')).length,
-    aGapLeft: allRuns.filter((p) => p.direction.toLowerCase().includes('a-gap') || p.direction.toLowerCase().includes('a gap')).length,
-    middle: allRuns.filter((p) => p.direction.toLowerCase().includes('mid') || p.direction.toLowerCase().includes('inside')).length,
-    aGapRight: allRuns.filter((p) => p.direction.toLowerCase().includes('b-gap') || p.direction.toLowerCase().includes('c-gap')).length,
-    offTackleRight: allRuns.filter((p) => p.direction.toLowerCase().includes('right') && !p.direction.toLowerCase().includes('sweep')).length,
-    rightPerimeter: allRuns.filter((p) => p.direction.toLowerCase().includes('right') && (p.direction.toLowerCase().includes('sweep') || p.direction.toLowerCase().includes('perim') || p.direction.toLowerCase().includes('toss'))).length,
-  };
+  const runDirections = exclusiveRunDirections(allRuns);
+  const wideSide = calcWideSide(allRuns);
 
   // Detect Opponent Tells
   const tells = detectOpponentTells(offensivePlays, formations, situationalGroups, hashTendencies);
@@ -235,8 +208,97 @@ export function calculateTendencies(plays: Play[]): TendencyAnalysis {
     formations,
     hashTendencies,
     runDirections,
+    wideSide,
     tells,
   };
+}
+
+function playRunSide(p: Play): HashPosition {
+  if (p.runSide === 'L' || p.runSide === 'R' || p.runSide === 'M') return p.runSide;
+  return classifyRunSide(p.direction || '', p.hash);
+}
+
+function pct(part: number, whole: number) {
+  return whole > 0 ? Math.round((part / whole) * 100) : 0;
+}
+
+function calcHashSplits(sub: Play[], hash: HashPosition) {
+  const total = sub.length;
+  const runs = sub.filter((p) => p.playType === 'RUN');
+  const passes = sub.filter((p) => p.playType !== 'RUN');
+  const left = runs.filter((p) => playRunSide(p) === 'L').length;
+  const right = runs.filter((p) => playRunSide(p) === 'R').length;
+  const inside = runs.filter((p) => playRunSide(p) === 'M').length;
+  const wide = runs.filter((p) => isWideSideRun(hash, playRunSide(p))).length;
+  const boundary = runs.filter((p) => isBoundaryRun(hash, playRunSide(p))).length;
+  return {
+    total,
+    runPct: pct(runs.length, total),
+    passPct: pct(passes.length, total),
+    runLeftPct: pct(left, runs.length),
+    runRightPct: pct(right, runs.length),
+    runInsidePct: pct(inside, runs.length),
+    widePct: pct(wide, runs.length),
+    boundaryPct: pct(boundary, runs.length),
+  };
+}
+
+function calcWideSide(allRuns: Play[]): TendencyAnalysis['wideSide'] {
+  const runCount = allRuns.length;
+  const hashRuns = allRuns.filter((p) => p.hash === 'L' || p.hash === 'R');
+  const wideCount = allRuns.filter((p) => isWideSideRun(p.hash, playRunSide(p))).length;
+  const boundaryCount = allRuns.filter((p) => isBoundaryRun(p.hash, playRunSide(p))).length;
+  const insideCount = allRuns.filter((p) => playRunSide(p) === 'M').length;
+  const midRuns = allRuns.filter((p) => p.hash === 'M');
+  const midLeft = midRuns.filter((p) => playRunSide(p) === 'L').length;
+  const midRight = midRuns.filter((p) => playRunSide(p) === 'R').length;
+  let middleFavor: TendencyAnalysis['wideSide']['middleFavor'] = 'none';
+  if (midRuns.length > 0) {
+    if (midLeft === midRight) middleFavor = midLeft === 0 ? 'balanced' : 'balanced';
+    else middleFavor = midLeft > midRight ? 'left' : 'right';
+  }
+  return {
+    runCount,
+    hashRunCount: hashRuns.length,
+    wideCount,
+    boundaryCount,
+    insideCount,
+    widePct: pct(wideCount, hashRuns.length || runCount),
+    boundaryPct: pct(boundaryCount, hashRuns.length || runCount),
+    insidePct: pct(insideCount, runCount),
+    middleFavor,
+    middleLeftPct: pct(midLeft, midRuns.length),
+    middleRightPct: pct(midRight, midRuns.length),
+  };
+}
+
+function exclusiveRunDirections(allRuns: Play[]) {
+  const buckets = {
+    leftPerimeter: 0,
+    offTackleLeft: 0,
+    aGapLeft: 0,
+    middle: 0,
+    aGapRight: 0,
+    offTackleRight: 0,
+    rightPerimeter: 0,
+  };
+  allRuns.forEach((p) => {
+    const text = `${p.direction} ${p.playName}`.toLowerCase();
+    const side = playRunSide(p);
+    const perimeter = /sweep|toss|jet|pitch|perim|outside|edge|end around/.test(text);
+    if (side === 'M') {
+      buckets.middle += 1;
+      return;
+    }
+    if (perimeter) {
+      if (side === 'L') buckets.leftPerimeter += 1;
+      else buckets.rightPerimeter += 1;
+      return;
+    }
+    if (side === 'L') buckets.offTackleLeft += 1;
+    else buckets.offTackleRight += 1;
+  });
+  return buckets;
 }
 
 function buildDownDistGroup(
@@ -395,14 +457,14 @@ function detectOpponentTells(
   }
 
   // Tell 3: Left Hash Boundary Run Tell
-  if (hash.left.total >= 5 && hash.left.runPct >= 60 && hash.left.runLeftPct >= 70) {
+  if (hash.left.total >= 5 && hash.left.runPct >= 60 && hash.left.boundaryPct >= 70) {
     tells.push({
       id: 'tell-hash-boundary',
       category: 'HASH',
       title: 'Left Hash Boundary Run Preference',
       trigger: 'Ball spotted on the Left Hash',
-      statEvidence: `${hash.left.runLeftPct}% of runs attack the boundary (short side of the field). Opponent avoids wide field runs in tight quarters.`,
-      confidencePct: hash.left.runLeftPct,
+      statEvidence: `${hash.left.boundaryPct}% of left-hash runs attack the boundary (short side). ${hash.left.widePct}% go wide/field.`,
+      confidencePct: hash.left.boundaryPct,
       sampleSize: hash.left.total,
       recommendedCounter: 'Set defensive strength / 3-technique to boundary. Walk boundary OLB down to set hard edge and spill ball back inside to pursuit.',
       severity: 'HIGH',
@@ -440,8 +502,8 @@ function detectOpponentTells(
     }
   });
 
-  // Tell 5: Motion Indicator
-  const motionPlays = plays.filter((p) => p.motion && p.motion.toLowerCase() !== 'none' && p.motion.trim() !== '');
+  // Tell 5: Motion Indicator — only if the export actually tagged motion direction
+  const motionPlays = hasMotionDirectionData(plays) ? plays.filter((p) => isRecordedMotion(p.motion)) : [];
   if (motionPlays.length >= 4) {
     const motionPasses = motionPlays.filter((p) => p.playType !== 'RUN').length;
     const motionPassPct = Math.round((motionPasses / motionPlays.length) * 100);
@@ -520,9 +582,9 @@ function getEmptyAnalysis(): TendencyAnalysis {
     situationalGroups: [],
     formations: [],
     hashTendencies: {
-      left: { total: 0, runPct: 0, passPct: 0, runLeftPct: 0, runRightPct: 0 },
-      middle: { total: 0, runPct: 0, passPct: 0 },
-      right: { total: 0, runPct: 0, passPct: 0, runLeftPct: 0, runRightPct: 0 },
+      left: { total: 0, runPct: 0, passPct: 0, runLeftPct: 0, runRightPct: 0, runInsidePct: 0, widePct: 0, boundaryPct: 0 },
+      middle: { total: 0, runPct: 0, passPct: 0, runLeftPct: 0, runRightPct: 0, runInsidePct: 0 },
+      right: { total: 0, runPct: 0, passPct: 0, runLeftPct: 0, runRightPct: 0, runInsidePct: 0, widePct: 0, boundaryPct: 0 },
     },
     runDirections: {
       leftPerimeter: 0,
@@ -532,6 +594,19 @@ function getEmptyAnalysis(): TendencyAnalysis {
       aGapRight: 0,
       offTackleRight: 0,
       rightPerimeter: 0,
+    },
+    wideSide: {
+      runCount: 0,
+      hashRunCount: 0,
+      wideCount: 0,
+      boundaryCount: 0,
+      insideCount: 0,
+      widePct: 0,
+      boundaryPct: 0,
+      insidePct: 0,
+      middleFavor: 'none',
+      middleLeftPct: 0,
+      middleRightPct: 0,
     },
     tells: [],
   };

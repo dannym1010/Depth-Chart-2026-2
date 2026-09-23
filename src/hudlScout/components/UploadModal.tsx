@@ -1,13 +1,14 @@
 import React, { useState, useRef } from 'react';
-import { ColumnMapping, autoDetectColumnMapping, parseCsvRows } from '../utils/csvParser';
+import { ColumnMapping, autoDetectColumnMapping, isSpreadsheetFilename, parseCsvRows, workbookBufferToCsv } from '../utils/csvParser';
 import { SAMPLE_DATASETS, SampleDataset } from '../data/sampleDatasets';
 import { Upload, X, FileText, CheckCircle2, ChevronRight, AlertCircle } from 'lucide-react';
 
 interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onLoadCsv: (csvContent: string, opponentName: string, customMapping?: ColumnMapping) => void;
+  onLoadCsv: (csvContent: string, opponentName: string, customMapping?: ColumnMapping, append?: boolean) => void;
   onSelectSample: (sample: SampleDataset) => void;
+  hasExistingPlays?: boolean;
 }
 
 export const UploadModal: React.FC<UploadModalProps> = ({
@@ -15,6 +16,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   onClose,
   onLoadCsv,
   onSelectSample,
+  hasExistingPlays = false,
 }) => {
   const [csvText, setCsvText] = useState('');
   const [opponentName, setOpponentName] = useState('');
@@ -23,33 +25,53 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const [previewRows, setPreviewRows] = useState<Record<string, string>[]>([]);
   const [mapping, setMapping] = useState<ColumnMapping | null>(null);
   const [showAdvancedMapping, setShowAdvancedMapping] = useState(false);
+  const [appendGame, setAppendGame] = useState(true);
+  const [fileError, setFileError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
+  const loadFile = (file: File) => {
+    setFileError('');
+    const suggestedName = file.name.replace(/\.[^/.]+$/, '');
+    if (isSpreadsheetFilename(file.name)) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const buffer = event.target?.result as ArrayBuffer;
+          const csv = workbookBufferToCsv(buffer);
+          if (!csv.trim()) {
+            setFileError('That spreadsheet has no play rows. Try another sheet or export CSV from Hudl.');
+            return;
+          }
+          processCsvContent(csv, suggestedName);
+        } catch {
+          setFileError('Could not read that Excel file. Save as .xlsx or .csv and try again.');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = String(event.target?.result || '');
+      processCsvContent(content, suggestedName);
+    };
+    reader.readAsText(file);
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result as string;
-      processCsvContent(content, file.name.replace(/\.[^/.]+$/, ''));
-    };
-    reader.readAsText(file);
+    loadFile(file);
+    e.target.value = '';
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result as string;
-      processCsvContent(content, file.name.replace(/\.[^/.]+$/, ''));
-    };
-    reader.readAsText(file);
+    loadFile(file);
   };
 
   const processCsvContent = (content: string, suggestedName: string) => {
@@ -66,7 +88,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
   const handleImport = () => {
     if (!csvText || rowsCount === 0) return;
-    onLoadCsv(csvText, opponentName || 'Opponent', mapping || undefined);
+    onLoadCsv(csvText, opponentName || 'Opponent', mapping || undefined, Boolean(hasExistingPlays && appendGame));
     onClose();
   };
 
@@ -77,7 +99,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/70">
           <div className="flex items-center gap-2">
             <Upload className="w-5 h-5 text-emerald-400" />
-            <h2 className="text-base font-bold text-white">Upload Hudl Breakdown CSV</h2>
+            <h2 className="text-base font-bold text-white">Upload Hudl CSV or Excel</h2>
           </div>
           <button
             onClick={onClose}
@@ -117,7 +139,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
           <div>
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
-              Upload New Opponent Hudl CSV:
+              Upload New Hudl CSV or XLSX:
             </span>
 
             {/* Drag & Drop Box */}
@@ -129,20 +151,27 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             >
               <FileText className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
               <p className="text-slate-200 font-bold mb-1">
-                Drop your Hudl CSV file here, or browse
+                Drop a Hudl CSV or Excel file here, or browse
               </p>
               <p className="text-[11px] text-slate-400">
-                Supports standard Hudl breakdown columns (Down, Distance, Yard Line, Hash, Formation, Play Call, Gain/Loss, Result)
+                .csv, .xlsx, .xls — Down, Distance, Yard Line, Hash, Play Dir, Formation, Gain/Loss
               </p>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,text/csv"
+                accept=".csv,.xlsx,.xls,.xlsm,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 onChange={handleFileChange}
                 className="hidden"
               />
             </div>
           </div>
+
+          {fileError && (
+            <div className="flex items-start gap-2 text-rose-300 bg-rose-950/40 border border-rose-800 rounded px-3 py-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{fileError}</span>
+            </div>
+          )}
 
           {/* File Parsed Preview */}
           {rowsCount > 0 && mapping && (
@@ -150,7 +179,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-emerald-400 font-bold">
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>CSV Successfully Read: {rowsCount} Plays Loaded</span>
+                  <span>File read: {rowsCount} plays loaded</span>
                 </div>
                 <button
                   type="button"
@@ -163,7 +192,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
               <div>
                 <label className="text-[11px] text-slate-400 font-medium block mb-1">
-                  Opponent / Team Name:
+                  Game / team name:
                 </label>
                 <input
                   type="text"
@@ -172,6 +201,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   className="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
                 />
               </div>
+
+              {hasExistingPlays && (
+                <label className="flex items-center gap-2 text-xs text-slate-200 bg-slate-900 border border-slate-800 rounded px-2.5 py-2">
+                  <input
+                    type="checkbox"
+                    checked={appendGame}
+                    onChange={(e) => setAppendGame(e.target.checked)}
+                  />
+                  Add this game to the current report (keep existing snaps)
+                </label>
+              )}
 
               {/* Column Mapping Table */}
               {showAdvancedMapping && (
@@ -248,7 +288,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             disabled={rowsCount === 0}
             className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-md shadow disabled:opacity-40 transition-colors flex items-center gap-1.5"
           >
-            <span>Analyze Dataset</span>
+            <span>{hasExistingPlays && appendGame ? 'Add game to report' : 'Analyze Dataset'}</span>
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>

@@ -26,6 +26,92 @@ export function shouldRejectStaleRemote(remoteTimestamp: number, localTimestamp:
   return remoteTimestamp > 0 && localTimestamp > 0 && remoteTimestamp < localTimestamp;
 }
 
+export function isGroupsPositionId(posId: string): boolean {
+  const id = String(posId || '');
+  return (
+    id.startsWith('form_grp') ||
+    id.startsWith('grp_') ||
+    id.startsWith('GRP-') ||
+    id.startsWith('GRP_')
+  );
+}
+
+export function formationFillScore(form?: FormationBoard | null): number {
+  if (!form || !Array.isArray(form.rows)) return 0;
+  let n = 0;
+  for (const row of form.rows) {
+    if (!row || !Array.isArray(row.positions)) continue;
+    for (const pos of row.positions) {
+      if (pos && pos.id) n += 2;
+      if (pos && String(pos.name || '').trim()) n += 1;
+    }
+  }
+  return n;
+}
+
+export function pickBetterFormation(
+  local?: FormationBoard | null,
+  remote?: FormationBoard | null
+): FormationBoard | undefined {
+  if (!local) return remote || undefined;
+  if (!remote) return local;
+  const localScore = formationFillScore(local);
+  const remoteScore = formationFillScore(remote);
+  if (localScore !== remoteScore) return localScore >= remoteScore ? local : remote;
+  const init = INITIAL_DEFAULT_FORMATIONS.find((f) => f.id === local.id);
+  const initScore = formationFillScore(init);
+  if (localScore > initScore && remoteScore === initScore) return local;
+  if (remoteScore > initScore && localScore === initScore) return remote;
+  return local;
+}
+
+export function hudlScoutWeight(scout: any): number {
+  if (!scout || typeof scout !== 'object') return 0;
+  const plays = Array.isArray(scout.plays) ? scout.plays.length : 0;
+  const ownPlays = Array.isArray(scout.ownTeam?.plays) ? scout.ownTeam.plays.length : 0;
+  const notes = String(scout.coachNotes || '').trim().length;
+  const name = String(scout.datasetName || '').trim().length;
+  return (plays + ownPlays) * 1000 + (notes > 0 ? 80 : 0) + (name > 0 ? 20 : 0) + Math.min(Number(scout.updatedAt) || 0, 999);
+}
+
+function pickScoutBundle(a?: any, b?: any) {
+  const aPlays = Array.isArray(a?.plays) ? a.plays.length : 0;
+  const bPlays = Array.isArray(b?.plays) ? b.plays.length : 0;
+  if (bPlays > aPlays) return { ...(a || {}), ...(b || {}), plays: b.plays, games: b.games?.length ? b.games : a?.games };
+  if (aPlays > 0) return { ...(b || {}), ...(a || {}), plays: a.plays, games: a.games?.length ? a.games : b?.games };
+  return a || b;
+}
+
+export function mergeScoutingReports(local?: any, remote?: any): any {
+  const loc = local && typeof local === 'object' ? local : {};
+  const rem = remote && typeof remote === 'object' ? remote : {};
+  const locH = loc.hudlScout;
+  const remH = rem.hudlScout;
+  const locW = hudlScoutWeight(locH);
+  const remW = hudlScoutWeight(remH);
+  let hudlScout = remW > locW ? remH : locH || remH;
+  if (locH && remH) {
+    const other = hudlScout === remH ? locH : remH;
+    hudlScout = {
+      ...other,
+      ...hudlScout,
+      plays:
+        Array.isArray(hudlScout?.plays) && hudlScout.plays.length
+          ? hudlScout.plays
+          : other.plays,
+      games: (hudlScout?.games?.length || 0) >= (other.games?.length || 0) ? hudlScout?.games : other.games,
+      ownTeam: pickScoutBundle(locH.ownTeam, remH.ownTeam),
+      coachNotes: String(hudlScout?.coachNotes || '').trim() || String(other.coachNotes || ''),
+      datasetName: String(hudlScout?.datasetName || '').trim() || String(other.datasetName || ''),
+      updatedAt: Math.max(Number(locH.updatedAt) || 0, Number(remH.updatedAt) || 0),
+    };
+  }
+  const merged = { ...loc, ...rem };
+  if (hudlScout) merged.hudlScout = hudlScout;
+  else delete merged.hudlScout;
+  return merged;
+}
+
 function filledCount(grades?: Record<string, string> | null): number {
   return Object.values(grades || {}).filter((value) => String(value || '').trim()).length;
 }
@@ -462,7 +548,7 @@ export function mergeRemoteWeeklyData(
       return posId.startsWith('form_ko') || posId.startsWith('form_kr') || posId.startsWith('form_punt') || posId.startsWith('form_fg') || posId.startsWith('ko-') || posId.startsWith('kr-') || posId.startsWith('punt-') || posId.startsWith('fg-');
     }
     if (unit === 'groups') {
-      return posId.startsWith('form_grp') || posId.startsWith('grp_');
+      return isGroupsPositionId(posId);
     }
     if (unit === 'offense') {
       return posId.startsWith('21-') || posId.startsWith('form_21') || posId.startsWith('form_1787') || posId.startsWith('form_1788');
@@ -532,6 +618,14 @@ export function mergeRemoteWeeklyData(
         seenIds.add(lf.id);
       }
     });
+
+    for (let i = 0; i < mergedFormations.length; i++) {
+      const id = mergedFormations[i]?.id;
+      if (!id) continue;
+      const loc = localFormations.find((f) => f && f.id === id);
+      const rem = remoteFormations.find((f) => f && f.id === id);
+      mergedFormations[i] = pickBetterFormation(loc, rem) || mergedFormations[i];
+    }
 
     for (const u of ['offense', 'defense', 'st', 'groups'] as const) {
       if (!mergedFormations.some((f) => f && f.unit === u)) {
@@ -661,14 +755,7 @@ export function mergeRemoteWeeklyData(
       scrimmageChart: mergedSC,
       opponent: remoteState.opponent || localState.opponent || '',
       wristbandData: safeWristbandData,
-      scouting: {
-        ...localState.scouting,
-        ...remoteState.scouting,
-        hudlScout:
-          (remoteState.scouting?.hudlScout?.updatedAt || 0) >= (localState.scouting?.hudlScout?.updatedAt || 0)
-            ? remoteState.scouting?.hudlScout || localState.scouting?.hudlScout
-            : localState.scouting?.hudlScout || remoteState.scouting?.hudlScout,
-      },
+      scouting: mergeScoutingReports(localState.scouting, remoteState.scouting),
       practiceDrillGroups: keepLocalDrills && (localState.practiceDrillGroups || []).length
         ? localState.practiceDrillGroups
         : mergePracticeDrillGroups(localState.practiceDrillGroups, remoteState.practiceDrillGroups),

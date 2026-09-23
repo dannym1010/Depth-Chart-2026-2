@@ -1,4 +1,5 @@
 import { FieldZone, HashPosition, Play, PlayType } from '../types/football';
+import * as XLSX from 'xlsx';
 
 export interface ColumnMapping {
   playNumber: string;
@@ -135,7 +136,7 @@ export function autoDetectColumnMapping(headers: string[]): ColumnMapping {
     result: findMatch(['RESULT', 'PASS RESULT', 'PLAY RESULT', 'OUTCOME']),
     personnel: findMatch(['PERSONNEL', 'P-GROUP', 'PERS', 'PERSONNEL GROUP']),
     carrierOrTarget: findMatch(['CARRIER/TARGET', 'CARRIER', 'TARGET', 'BALL CARRIER', 'PASSER', 'BALL']),
-    motion: findMatch(['MOTION', 'SHIFT', 'PRE-SNAP MOTION']),
+    motion: findMotionColumn(headers),
     backfield: findMatch(['BACKFIELD', 'SET', 'BACKFIELD SET']),
     efficiency: findMatch(['EFF', 'EFFICIENCY', 'SUCCESS', 'EFF.']),
     series: findMatch(['SERIES', 'DRIVE']),
@@ -143,6 +144,32 @@ export function autoDetectColumnMapping(headers: string[]): ColumnMapping {
     oppPasser: findMatch(['OPP PASSER', 'PASSER', 'QB']),
     oppReceiver: findMatch(['OPP RECEIVER', 'RECEIVER', 'REC']),
   };
+}
+
+function findMotionColumn(headers: string[]): string {
+  const preferred = ['MOTION DIR', 'MOTION DIRECTION', 'MOTION TYPE', 'PRE-SNAP MOTION', 'PRE SNAP MOTION', 'MOTION'];
+  for (const cand of preferred) {
+    const cleaned = cand.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const exact = headers.find((h) => h.toLowerCase().replace(/[^a-z0-9]/g, '') === cleaned);
+    if (exact) return exact;
+  }
+  return headers.find((h) => /\bmotion\b/i.test(h)) || '';
+}
+
+/** True only when Hudl actually tagged a motion (not blank / dash / none). */
+export function isRecordedMotion(value?: string): boolean {
+  const v = (value || '').trim().toLowerCase();
+  if (!v) return false;
+  return !['-', '–', '—', 'none', 'n/a', 'na', 'null', 'no', 'n', '0', 'false', 'off'].includes(v);
+}
+
+/** True when the file has real motion-direction labels, not just yes/no or empty dashes. */
+export function hasMotionDirectionData(plays: Play[]): boolean {
+  const labeled = plays.map((p) => p.motion).filter(isRecordedMotion);
+  if (labeled.length < 4) return false;
+  const unique = [...new Set(labeled.map((v) => v.trim().toLowerCase()))];
+  const presenceOnly = unique.every((v) => ['y', 'yes', 'true', '1', 'motion', 'mot', 'shift', 'on'].includes(v));
+  return !presenceOnly;
 }
 
 function stringFinder(headers: string[], candidates: string[]): string {
@@ -198,11 +225,7 @@ export function normalizeHudlRow(row: Record<string, string>, mapping: ColumnMap
   const rawYd = getVal(mapping.yardLine, '-25');
   const { normalizedYd, side, zone } = parseYardLine(rawYd);
 
-  // Hash
-  const hashRaw = getVal(mapping.hash, 'M').toUpperCase();
-  let hash: HashPosition = 'M';
-  if (hashRaw.startsWith('L')) hash = 'L';
-  else if (hashRaw.startsWith('R')) hash = 'R';
+  const hash = classifyHash(getVal(mapping.hash, ''));
 
   // Gain / Loss
   const gnStr = getVal(mapping.gainLoss, '0');
@@ -234,9 +257,9 @@ export function normalizeHudlRow(row: Record<string, string>, mapping: ColumnMap
     }
   }
 
-  // Direction
-  const rawDir = getVal(mapping.direction, 'Middle');
-  const direction = normalizeDirection(rawDir, hash);
+  const rawDir = getVal(mapping.direction, '');
+  const runSide = classifyRunSide(rawDir, hash);
+  const direction = directionLabel(runSide, hash, rawDir);
 
   // Opponent player attribution (from Hudl columns OPP RUSHER, OPP PASSER, OPP RECEIVER)
   const oppRusher = getVal(mapping.oppRusher, '');
@@ -304,6 +327,7 @@ export function normalizeHudlRow(row: Record<string, string>, mapping: ColumnMap
     motion: getVal(mapping.motion, '') || '-',
     playName,
     direction,
+    runSide,
     gainLoss,
     result,
     personnel: getVal(mapping.personnel, '') || '-',
@@ -387,16 +411,94 @@ function determinePlayType(rawType: string, rawPlay: string): PlayType {
   return 'RUN';
 }
 
-function normalizeDirection(rawDir: string, hash: HashPosition): string {
-  const dir = rawDir.trim().toLowerCase();
-  if (dir.includes('bound') || dir === 'b') {
-    return hash === 'L' ? 'Left (Boundary)' : hash === 'R' ? 'Right (Boundary)' : 'Boundary';
+export function classifyHash(raw: string): HashPosition {
+  const h = String(raw || '').trim().toUpperCase();
+  if (!h) return 'M';
+  if (h === 'L' || h.startsWith('L ') || h.startsWith('LEFT') || h === 'LH' || h.startsWith('L-')) return 'L';
+  if (h === 'R' || h.startsWith('R ') || h.startsWith('RIGHT') || h === 'RH' || h.startsWith('R-')) return 'R';
+  return 'M';
+}
+
+export function classifyRunSide(rawDir: string, hash: HashPosition): HashPosition {
+  const d = String(rawDir || '').trim().toLowerCase();
+  if (!d) return 'M';
+  if (d === 'l' || d === 'lt' || d === 'lh' || d.startsWith('left') || /(^|[^a-z])left([^a-z]|$)/.test(d)) return 'L';
+  if (d === 'r' || d === 'rt' || d === 'rh' || d.startsWith('right') || /(^|[^a-z])right([^a-z]|$)/.test(d)) return 'R';
+  if (
+    d === 'm' ||
+    d.includes('mid') ||
+    d.includes('inside') ||
+    d.includes('a-gap') ||
+    d.includes('a gap') ||
+    d.includes('iso') ||
+    d.includes('dive') ||
+    d.includes('sneak')
+  ) {
+    return 'M';
   }
-  if (dir.includes('field') || dir === 'f') {
-    return hash === 'L' ? 'Right (Field)' : hash === 'R' ? 'Left (Field)' : 'Field';
+  if (d.includes('bound') || d === 'b' || d === 'short') {
+    if (hash === 'L') return 'L';
+    if (hash === 'R') return 'R';
+    return 'M';
   }
-  if (dir.includes('left') || dir === 'l') return 'Left';
-  if (dir.includes('right') || dir === 'r') return 'Right';
-  if (dir.includes('mid') || dir.includes('inside') || dir === 'm') return 'Middle';
-  return 'Middle';
+  if (d.includes('field') || d === 'f' || d.includes('wide')) {
+    if (hash === 'L') return 'R';
+    if (hash === 'R') return 'L';
+    return 'M';
+  }
+  return 'M';
+}
+
+export function directionLabel(runSide: HashPosition, hash: HashPosition, rawDir: string): string {
+  if (runSide === 'M') return 'Middle / Inside';
+  const isWide = (hash === 'L' && runSide === 'R') || (hash === 'R' && runSide === 'L');
+  const isBoundary = (hash === 'L' && runSide === 'L') || (hash === 'R' && runSide === 'R');
+  const side = runSide === 'L' ? 'Left' : 'Right';
+  if (hash === 'M') return side;
+  if (isWide) return `${side} (Wide / Field)`;
+  if (isBoundary) return `${side} (Boundary)`;
+  return side || rawDir || 'Middle / Inside';
+}
+
+export function isWideSideRun(hash: HashPosition, runSide: HashPosition): boolean {
+  return (hash === 'L' && runSide === 'R') || (hash === 'R' && runSide === 'L');
+}
+
+export function isBoundaryRun(hash: HashPosition, runSide: HashPosition): boolean {
+  return (hash === 'L' && runSide === 'L') || (hash === 'R' && runSide === 'R');
+}
+
+export function isSpreadsheetFilename(name: string): boolean {
+  return /\.(xlsx|xls|xlsm)$/i.test(name || '');
+}
+
+export function workbookBufferToCsv(buffer: ArrayBuffer): string {
+  const workbook = XLSX.read(buffer, { type: 'array', cellDates: false, raw: false });
+  const names = workbook.SheetNames || [];
+  if (!names.length) return '';
+
+  const scoreSheet = (csv: string) => {
+    const header = (csv.split(/\r?\n/)[0] || '').toLowerCase();
+    let score = 0;
+    if (header.includes('odk')) score += 5;
+    if (header.includes('hash')) score += 3;
+    if (header.includes('play')) score += 2;
+    if (header.includes('down') || header.includes('dn')) score += 2;
+    if (header.includes('dir')) score += 2;
+    return score;
+  };
+
+  let best = '';
+  let bestScore = -1;
+  for (const name of names) {
+    const sheet = workbook.Sheets[name];
+    if (!sheet) continue;
+    const csv = XLSX.utils.sheet_to_csv(sheet, { blankrows: false });
+    const score = scoreSheet(csv);
+    if (score > bestScore) {
+      best = csv;
+      bestScore = score;
+    }
+  }
+  return best;
 }

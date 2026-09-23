@@ -64,10 +64,10 @@ export const FieldChalkboard: React.FC<FieldChalkboardProps> = ({ analysis }) =>
                 </div>
               </div>
               <div className="text-[11px] text-slate-300 bg-slate-900/90 p-1.5 rounded border border-slate-800">
-                <span className="text-amber-400 font-bold block text-[10px] uppercase">Run Direction Skew:</span>
+                <span className="text-amber-400 font-bold block text-[10px] uppercase">Run direction (each run once)</span>
                 <div className="flex justify-between font-mono mt-0.5">
-                  <span className="text-emerald-300">{hashTendencies.left.runLeftPct}% Boundary (Left)</span>
-                  <span className="text-slate-400">{hashTendencies.left.runRightPct}% Field</span>
+                  <span className="text-amber-300">{hashTendencies.left.boundaryPct}% Boundary</span>
+                  <span className="text-emerald-300">{hashTendencies.left.widePct}% Wide / Field</span>
                 </div>
               </div>
             </div>
@@ -87,8 +87,10 @@ export const FieldChalkboard: React.FC<FieldChalkboardProps> = ({ analysis }) =>
                 </div>
               </div>
               <div className="text-[11px] text-slate-300 bg-slate-900/90 p-1.5 rounded border border-slate-800 text-center">
-                <span className="text-slate-400 text-[10px] uppercase block">Spatial Balance</span>
-                <span className="text-slate-200 font-medium">Full playbook open; no boundary constraint</span>
+                <span className="text-slate-400 text-[10px] uppercase block">Middle-hash favor</span>
+                <span className="text-slate-200 font-medium">
+                  Left {hashTendencies.middle.runLeftPct}% · Right {hashTendencies.middle.runRightPct}% · Inside {hashTendencies.middle.runInsidePct}%
+                </span>
               </div>
             </div>
 
@@ -107,10 +109,10 @@ export const FieldChalkboard: React.FC<FieldChalkboardProps> = ({ analysis }) =>
                 </div>
               </div>
               <div className="text-[11px] text-slate-300 bg-slate-900/90 p-1.5 rounded border border-slate-800">
-                <span className="text-amber-400 font-bold block text-[10px] uppercase">Run Direction Skew:</span>
+                <span className="text-amber-400 font-bold block text-[10px] uppercase">Run direction (each run once)</span>
                 <div className="flex justify-between font-mono mt-0.5">
-                  <span className="text-slate-400">{hashTendencies.right.runLeftPct}% Field</span>
-                  <span className="text-purple-300">{hashTendencies.right.runRightPct}% Boundary (Right)</span>
+                  <span className="text-emerald-300">{hashTendencies.right.widePct}% Wide / Field</span>
+                  <span className="text-purple-300">{hashTendencies.right.boundaryPct}% Boundary</span>
                 </div>
               </div>
             </div>

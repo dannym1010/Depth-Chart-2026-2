@@ -2023,6 +2023,8 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       scope === 'initial_seed' ||
       scope === 'ppr_update' ||
       scope.startsWith('ppr') ||
+      scope === 'scouting_update' ||
+      scope.startsWith('scouting') ||
       (Array.isArray(extraMeta?.modifiedPosIds) && extraMeta.modifiedPosIds.length > 0);
 
     if (payloadJson === lastSavedPayloadRef.current && !isExplicitUserAction) {
@@ -2122,6 +2124,38 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     lastSavedPayloadRef.current = '';
     setSyncStatus({ text: '☁️ Saving to Cloud & Server...', color: '#f59e0b' });
     await saveStateToStorage('force');
+  };
+
+  const persistWeekScouting = (field: any, val?: any) => {
+    lastLocalEditTimeRef.current = Date.now();
+    setWeeklyData((prev) => {
+      const scopedKey = getScopedWeekKey(activeTeamId, currentWeek);
+      const existingWeek = prev[scopedKey] || prev[currentWeek] || {
+        formations: defaultFormations,
+        depthChart: {},
+        scrimmageChart: {},
+        opponent: '',
+      };
+      const updates = typeof field === 'object' && field !== null ? field : { [field]: val };
+      const updatedScouting = {
+        ...(existingWeek.scouting || {}),
+        ...updates,
+      };
+      const updatedWeek = {
+        ...existingWeek,
+        opponent: updates.opponent !== undefined ? updates.opponent : (existingWeek.opponent || ''),
+        scouting: updatedScouting,
+      };
+      const updatedAll = {
+        ...prev,
+        [scopedKey]: updatedWeek,
+        [currentWeek]: updatedWeek,
+      };
+      safeJSONSet('footballWeeklyData', updatedAll);
+      latestStateRef.current.weeklyData = updatedAll;
+      return updatedAll;
+    });
+    flushAndSaveStateToStorage('scouting_update', { activeUnit: 'scouting', scope: 'scouting_update' });
   };
 
   const handleForceRefresh = async () => {
@@ -3902,7 +3936,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     }
 
     draggedPlayerRef.current = null;
-    flushAndSaveStateToStorage('player_move', { modifiedPosIds });
+    flushAndSaveStateToStorage('player_move', { modifiedPosIds, activeUnit: currentDepthUnit });
   };
 
   const handleRemovePlayerFromCard = (posId: string, playerIndex: number) => {
@@ -3917,7 +3951,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       recordPositionEdit(posId);
       if (isScrimmage) updateCurrentWeekScrimmageChart(chart);
       else updateCurrentWeekDepthChart(chart);
-      flushAndSaveStateToStorage('player_remove', { modifiedPosIds: [posId] });
+      flushAndSaveStateToStorage('player_remove', { modifiedPosIds: [posId], activeUnit: currentDepthUnit });
     }
   };
 
@@ -3949,7 +3983,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     } else {
       updateCurrentWeekDepthChart(chart);
     }
-    flushAndSaveStateToStorage('player_assign_direct', { modifiedPosIds: [posId] });
+    flushAndSaveStateToStorage('player_assign_direct', { modifiedPosIds: [posId], activeUnit: currentDepthUnit });
   };
 
   const handleReorderDepthPlayer = (
@@ -3976,7 +4010,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     } else {
       updateCurrentWeekDepthChart(chart);
     }
-    flushAndSaveStateToStorage('player_reorder_depth', { modifiedPosIds: [posId] });
+    flushAndSaveStateToStorage('player_reorder_depth', { modifiedPosIds: [posId], activeUnit: currentDepthUnit });
   };
 
   // Drag and Drop Position Cards Across Rows & Slots
@@ -8345,32 +8379,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
                 wristbandData={effectiveWristbandData}
                 onUpdateWristbandData={handleUpdateWristbandData}
                 scouting={currentWeekState.scouting || {}}
-                onUpdateScouting={(field: any, val?: any) => {
-                  setWeeklyData((prev) => {
-                    const scopedKey = getScopedWeekKey(activeTeamId, currentWeek);
-                    const existingWeek = prev[scopedKey] || prev[currentWeek] || {
-                      formations: defaultFormations,
-                      depthChart: {},
-                      scrimmageChart: {},
-                      opponent: '',
-                    };
-                    const updates = typeof field === 'object' && field !== null ? field : { [field]: val };
-                    const updatedScouting = {
-                      ...(existingWeek.scouting || {}),
-                      ...updates,
-                    };
-                    const updatedWeek = {
-                      ...existingWeek,
-                      opponent: updates.opponent !== undefined ? updates.opponent : (existingWeek.opponent || ''),
-                      scouting: updatedScouting,
-                    };
-                    return {
-                      ...prev,
-                      [scopedKey]: updatedWeek,
-                      [currentWeek]: updatedWeek,
-                    };
-                  });
-                }}
+                onUpdateScouting={persistWeekScouting}
                 staffList={staffList}
                 savedCoaches={savedCoaches}
                 scheduleEvents={activeTeamScheduleEvents}
@@ -8450,37 +8459,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
                 savedCoaches={savedCoaches}
                 scheduleEvents={activeTeamScheduleEvents}
                 currentWeek={currentWeek}
-                onUpdateScouting={(field: any, val?: any) => {
-                  lastLocalEditTimeRef.current = Date.now();
-                  setWeeklyData((prev) => {
-                    const scopedKey = getScopedWeekKey(activeTeamId, currentWeek);
-                    const existingWeek = prev[scopedKey] || prev[currentWeek] || {
-                      formations: defaultFormations,
-                      depthChart: {},
-                      scrimmageChart: {},
-                      opponent: '',
-                    };
-                    const updates = typeof field === 'object' && field !== null ? field : { [field]: val };
-                    const updatedScouting = {
-                      ...(existingWeek.scouting || {}),
-                      ...updates,
-                    };
-                    const updatedWeek = {
-                      ...existingWeek,
-                      opponent: updates.opponent !== undefined ? updates.opponent : (existingWeek.opponent || ''),
-                      scouting: updatedScouting,
-                    };
-                    const updatedAll = {
-                      ...prev,
-                      [scopedKey]: updatedWeek,
-                      [currentWeek]: updatedWeek,
-                    };
-                    safeJSONSet('footballWeeklyData', updatedAll);
-                    latestStateRef.current.weeklyData = updatedAll;
-                    return updatedAll;
-                  });
-                  flushAndSaveStateToStorage('scouting_update');
-                }}
+                onUpdateScouting={persistWeekScouting}
                 onNavigateToSchedule={() => setActiveUnit('schedule')}
                 onNavigateToTendencies={() => setActiveUnit('tendencies')}
                 onNavigateToHtmlTendencies={() => setActiveUnit('tendencies')}
@@ -8491,37 +8470,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
             {(activeUnit === 'tendencies' || activeUnit === 'html_tendencies') && (
               <TendenciesView
                 scouting={currentWeekState.scouting || {}}
-                onUpdateScouting={(field: any, val?: any) => {
-                  lastLocalEditTimeRef.current = Date.now();
-                  setWeeklyData((prev) => {
-                    const scopedKey = getScopedWeekKey(activeTeamId, currentWeek);
-                    const existingWeek = prev[scopedKey] || prev[currentWeek] || {
-                      formations: defaultFormations,
-                      depthChart: {},
-                      scrimmageChart: {},
-                      opponent: '',
-                    };
-                    const updates = typeof field === 'object' && field !== null ? field : { [field]: val };
-                    const updatedScouting = {
-                      ...(existingWeek.scouting || {}),
-                      ...updates,
-                    };
-                    const updatedWeek = {
-                      ...existingWeek,
-                      opponent: updates.opponent !== undefined ? updates.opponent : (existingWeek.opponent || ''),
-                      scouting: updatedScouting,
-                    };
-                    const updatedAll = {
-                      ...prev,
-                      [scopedKey]: updatedWeek,
-                      [currentWeek]: updatedWeek,
-                    };
-                    safeJSONSet('footballWeeklyData', updatedAll);
-                    latestStateRef.current.weeklyData = updatedAll;
-                    return updatedAll;
-                  });
-                  flushAndSaveStateToStorage('scouting_update');
-                }}
+                onUpdateScouting={persistWeekScouting}
                 opponentName={currentWeekState.opponent || currentWeekState.scouting?.opponent || 'Opponent'}
                 weekName={currentWeek.startsWith('Week') ? currentWeek : `Week ${currentWeek}`}
                 userRole={userRole}

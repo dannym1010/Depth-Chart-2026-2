@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Play } from '../types/football';
+import { isRecordedMotion } from '../utils/csvParser';
 import { Search, ChevronDown, ChevronUp, Zap, Flame, CheckCircle2 } from 'lucide-react';
 
 interface PlaysTableProps {
@@ -237,7 +238,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays }) => {
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                         </span>
                       )}
-                      {play.motion && play.motion !== 'None' && (
+                      {isRecordedMotion(play.motion) && (
                         <span title={`Motion: ${play.motion}`}>
                           <Zap className="w-3.5 h-3.5 text-cyan-400" />
                         </span>

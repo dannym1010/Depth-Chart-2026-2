@@ -219,9 +219,11 @@ export const FormationAnalytics: React.FC<FormationAnalyticsProps> = ({ formatio
                 <li className="flex items-start gap-2">
                   <ChevronRight className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
                   <span>
-                    {selectedFormation.motionPct >= 40
-                      ? 'Alert pre-snap motion! High probability of jet action or orbit backfield shift.'
-                      : 'Low pre-snap motion rate. Opponent attacks straight from initial alignment.'}
+                    {selectedFormation.motionPct <= 0
+                      ? 'Motion direction is not tagged in this export for this set.'
+                      : selectedFormation.motionPct >= 40
+                        ? 'Alert pre-snap motion! High probability of jet action or orbit backfield shift.'
+                        : 'Low pre-snap motion rate. Opponent attacks straight from initial alignment.'}
                   </span>
                 </li>
               </ul>

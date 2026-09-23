@@ -1,4 +1,5 @@
 import { AIScoutingReport, Play, TendencyAnalysis } from '../types/football';
+import { isRecordedMotion } from './csvParser';
 
 function groupName(plays: Play[], pick: (p: Play) => string, limit = 4) {
   const counts: Record<string, { count: number; yards: number }> = {};
@@ -250,7 +251,7 @@ export function personnelPackages(plays: Play[]) {
 
 export function motionSummary(plays: Play[]) {
   const snaps = plays.filter((p) => p.odk !== 'K' && p.playType !== 'SPECIAL');
-  const withMotion = snaps.filter((p) => p.motion && p.motion !== '-' && p.motion.toLowerCase() !== 'none');
+  const withMotion = snaps.filter((p) => isRecordedMotion(p.motion));
   return {
     total: snaps.length,
     motionCount: withMotion.length,

@@ -1,6 +1,15 @@
 import React from 'react';
-import { Upload, Printer, Shield } from 'lucide-react';
+import { Upload, Printer, Shield, Plus } from 'lucide-react';
 import { SampleDataset } from '../data/sampleDatasets';
+
+export type ScoutTarget = 'opponent' | 'own';
+
+export interface ScoutGame {
+  id: string;
+  name: string;
+  playCount: number;
+  addedAt: number;
+}
 
 interface HeaderProps {
   currentDataset: SampleDataset | null;
@@ -11,6 +20,9 @@ interface HeaderProps {
   onOpenCallSheet: () => void;
   activeTab: string;
   setActiveTab: (tab: string) => void;
+  scoutTarget: ScoutTarget;
+  onScoutTargetChange: (target: ScoutTarget) => void;
+  games: ScoutGame[];
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -20,6 +32,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenCallSheet,
   activeTab,
   setActiveTab,
+  scoutTarget,
+  onScoutTargetChange,
+  games,
 }) => {
   return (
     <header className="border-b border-slate-800 bg-slate-950/90 backdrop-blur sticky top-0 z-30">
@@ -33,7 +48,7 @@ export const Header: React.FC<HeaderProps> = ({
               <h1 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
                 HudlScout
                 <span className="text-xs font-mono font-medium px-2 py-0.5 rounded bg-slate-800 text-emerald-400 border border-slate-700">
-                  DEFENSIVE DC
+                  {scoutTarget === 'own' ? 'OUR TEAM' : 'OPPONENT'}
                 </span>
               </h1>
             </div>
@@ -41,23 +56,39 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="font-medium text-slate-200">{datasetName}</span>
               <span aria-hidden="true">·</span>
               <span>{totalPlays} Plays Logged</span>
-              <span aria-hidden="true">·</span>
-              <span className="text-emerald-400/90 font-mono">Local tendency engine</span>
+              {games.length > 1 && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>{games.length} games</span>
+                </>
+              )}
             </div>
           </div>
         </div>
 
         <div className="flex items-center flex-wrap gap-2">
-          <div className="flex items-center gap-2 px-3 py-1.5 text-xs bg-slate-900 border border-slate-800 rounded-md">
-            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-            <span className="font-semibold text-slate-200 truncate max-w-[220px]">{datasetName}</span>
+          <div className="flex rounded-md overflow-hidden border border-slate-700 text-xs font-bold">
+            <button
+              type="button"
+              onClick={() => onScoutTargetChange('opponent')}
+              className={`px-3 py-1.5 ${scoutTarget === 'opponent' ? 'bg-emerald-500 text-slate-950' : 'bg-slate-900 text-slate-300'}`}
+            >
+              Opponent
+            </button>
+            <button
+              type="button"
+              onClick={() => onScoutTargetChange('own')}
+              className={`px-3 py-1.5 ${scoutTarget === 'own' ? 'bg-sky-500 text-slate-950' : 'bg-slate-900 text-slate-300'}`}
+            >
+              Our team
+            </button>
           </div>
           <button
             onClick={onOpenUpload}
             className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-slate-950 bg-emerald-500 hover:bg-emerald-400 rounded-md transition-colors shadow-sm"
           >
-            <Upload className="w-3.5 h-3.5 text-slate-950" />
-            <span>Upload Hudl CSV</span>
+            {totalPlays > 0 ? <Plus className="w-3.5 h-3.5" /> : <Upload className="w-3.5 h-3.5" />}
+            <span>{totalPlays > 0 ? 'Add game' : 'Upload CSV / Excel'}</span>
           </button>
           <button
             onClick={onOpenCallSheet}
@@ -69,6 +100,19 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
       </div>
+
+      {games.length > 0 && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-1 flex flex-wrap gap-1.5">
+          {games.map((g) => (
+            <span
+              key={g.id}
+              className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-slate-300"
+            >
+              {g.name} · {g.playCount} snaps
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center gap-1 overflow-x-auto border-t border-slate-800/80 pt-1 pb-0 text-xs scrollbar-none">
         {[

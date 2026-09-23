@@ -37,6 +37,9 @@ export interface Play {
   isExplosive: boolean;
   isEfficient: boolean;
   notes?: string;
+  /** L/R/M of the run/pass attack, independent of field/boundary wording. */
+  runSide: HashPosition;
+  gameId?: string;
 }
 
 export interface DownDistGroup {
@@ -115,9 +118,22 @@ export interface TendencyAnalysis {
   situationalGroups: DownDistGroup[];
   formations: FormationStat[];
   hashTendencies: {
-    left: { total: number; runPct: number; passPct: number; runLeftPct: number; runRightPct: number };
-    middle: { total: number; runPct: number; passPct: number };
-    right: { total: number; runPct: number; passPct: number; runLeftPct: number; runRightPct: number };
+    left: { total: number; runPct: number; passPct: number; runLeftPct: number; runRightPct: number; runInsidePct: number; widePct: number; boundaryPct: number };
+    middle: { total: number; runPct: number; passPct: number; runLeftPct: number; runRightPct: number; runInsidePct: number };
+    right: { total: number; runPct: number; passPct: number; runLeftPct: number; runRightPct: number; runInsidePct: number; widePct: number; boundaryPct: number };
+  };
+  wideSide: {
+    runCount: number;
+    hashRunCount: number;
+    wideCount: number;
+    boundaryCount: number;
+    insideCount: number;
+    widePct: number;
+    boundaryPct: number;
+    insidePct: number;
+    middleFavor: 'left' | 'right' | 'balanced' | 'none';
+    middleLeftPct: number;
+    middleRightPct: number;
   };
   runDirections: {
     leftPerimeter: number;

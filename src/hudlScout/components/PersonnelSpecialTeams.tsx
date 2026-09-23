@@ -36,8 +36,9 @@ export const PersonnelSpecialTeams: React.FC<PersonnelSpecialTeamsProps> = ({ pl
           </ul>
         )}
         <p className="text-[11px] text-slate-400 mt-3">
-          Motion on {motion.motionPct}% of snaps ({motion.motionCount}/{motion.total}).
-          {motion.topMotions[0] ? ` Top: ${motion.topMotions[0].name}.` : ''}
+          {motion.motionCount === 0
+            ? 'No motion direction tagged in this Hudl export.'
+            : `Motion on ${motion.motionPct}% of snaps (${motion.motionCount}/${motion.total}).${motion.topMotions[0] ? ` Top: ${motion.topMotions[0].name}.` : ''}`}
         </p>
       </div>
 

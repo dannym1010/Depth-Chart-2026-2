@@ -389,6 +389,15 @@ export interface ScoutingData {
     offensiveScheme?: string;
     coachNotes?: string;
     filters?: any;
+    games?: { id: string; name: string; playCount: number; addedAt: number }[];
+    ownTeam?: {
+      plays?: any[];
+      datasetName?: string;
+      offensiveScheme?: string;
+      coachNotes?: string;
+      filters?: any;
+      games?: { id: string; name: string; playCount: number; addedAt: number }[];
+    };
     updatedAt?: number;
   };
 }

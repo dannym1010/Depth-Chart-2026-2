@@ -30,6 +30,8 @@ import {
   mergePffPlayerGroups,
   mergePffReviews,
   mergePprPlayCounts,
+  mergeScoutingReports,
+  isGroupsPositionId,
 } from './src/utils/remoteStateMerge';
 import {
   mergeLiveDrillSlotLayouts,
@@ -279,6 +281,22 @@ export function mergeServerState(current: any, incoming: any, metadata?: any): a
              (metadata.activeTeamId === 'team_10u' && weekKey === metadata.currentWeek))
           : (weekKey === metadata.currentWeek || weekKey.endsWith(`__week_${metadata.currentWeek}`)));
 
+      const isScoutingSave =
+        metadata?.scope === 'scouting_update' ||
+        metadata?.activeUnit === 'scouting' ||
+        String(metadata?.scope || '').startsWith('scouting');
+
+      if (isScoutingSave) {
+        if (isTargetWeek) {
+          merged.weeklyData[weekKey] = {
+            ...curWeekState,
+            opponent: incWeekState.opponent || curWeekState.opponent || '',
+            scouting: mergeScoutingReports(curWeekState.scouting, incWeekState.scouting),
+          };
+        }
+        continue;
+      }
+
       // Merge formations array preserving the incoming requested order
       let mergedFormations = curWeekState.formations || [];
 
@@ -427,7 +445,7 @@ export function mergeServerState(current: any, incoming: any, metadata?: any): a
               return posId.startsWith('form_ko') || posId.startsWith('form_kr') || posId.startsWith('form_punt') || posId.startsWith('form_fg') || posId.startsWith('ko-') || posId.startsWith('kr-') || posId.startsWith('punt-') || posId.startsWith('fg-');
             }
             if (u === 'groups') {
-              return posId.startsWith('form_grp') || posId.startsWith('grp_');
+              return isGroupsPositionId(posId);
             }
             if (u === 'offense') {
               return posId.startsWith('21-') || posId.startsWith('form_21') || posId.startsWith('form_1787') || posId.startsWith('form_1788');
@@ -443,8 +461,18 @@ export function mergeServerState(current: any, incoming: any, metadata?: any): a
           }
 
           // Take incoming positions for active unit (explicitly setting empty or updated arrays)
+          const explicitPos = new Set(
+            Array.isArray(metadata?.modifiedPosIds) ? metadata.modifiedPosIds.filter(Boolean) : []
+          );
           for (const [posId, players] of Object.entries(incDC)) {
-            if (isUnitPos(posId) || !mergedDC[posId]) {
+            if (!(isUnitPos(posId) || !mergedDC[posId])) continue;
+            const incomingEmpty = Array.isArray(players) && players.length === 0;
+            const currentFilled = Array.isArray(mergedDC[posId]) && mergedDC[posId].length > 0;
+            if (incomingEmpty && currentFilled && !explicitPos.has(posId)) continue;
+            mergedDC[posId] = players;
+          }
+          for (const [posId, players] of Object.entries(incDC)) {
+            if (Array.isArray(players) && players.length > 0 && (!Array.isArray(mergedDC[posId]) || mergedDC[posId].length === 0)) {
               mergedDC[posId] = players;
             }
           }
@@ -580,7 +608,7 @@ export function mergeServerState(current: any, incoming: any, metadata?: any): a
         scrimmageChart: mergedSC,
         opponent: incWeekState.opponent || curWeekState.opponent || '',
         wristbandData: mergedWb,
-        scouting: incWeekState.scouting || curWeekState.scouting,
+        scouting: mergeScoutingReports(curWeekState.scouting, incWeekState.scouting),
         pffReviews: mergedPffReviews,
         filmSession: mergedFilmSession,
         pprPlayCounts: mergedPprCounts,
