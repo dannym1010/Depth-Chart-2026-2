@@ -25,7 +25,8 @@ export const HashWideSideBoard: React.FC<HashWideSideBoardProps> = ({ analysis }
           <h2 className="text-base font-bold text-slate-100">Hash (L / M / R) &amp; run direction</h2>
         </div>
         <p className="text-[11px] text-slate-400">
-          Wide side = field. Left hash field is right; right hash field is left. Each run counts once.
+          Wide side = field. Left hash field is right; right hash field is left.
+          % is of L/R-hash runs that actually went left or right — inside/dive is kept separate.
         </p>
       </div>
 
@@ -34,7 +35,7 @@ export const HashWideSideBoard: React.FC<HashWideSideBoardProps> = ({ analysis }
           <div className="text-[10px] uppercase tracking-wider text-emerald-300 font-bold">Wide-side runs</div>
           <div className="text-2xl font-black text-emerald-400 font-mono">{wideSide.widePct}%</div>
           <div className="text-[11px] text-slate-400">
-            {wideSide.wideCount} of {wideSide.hashRunCount || wideSide.runCount} hash L/R runs
+            {wideSide.wideCount} of {wideSide.hashRunCount || 0} directed L/R-hash runs
           </div>
         </div>
         <div className="bg-amber-950/30 border border-amber-500/30 rounded-lg p-3">

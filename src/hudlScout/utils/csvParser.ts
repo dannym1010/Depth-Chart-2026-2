@@ -390,6 +390,9 @@ function parseYardLine(raw: string): { normalizedYd: number; side: 'OWN' | 'OPP'
 function determinePlayType(rawType: string, rawPlay: string): PlayType {
   const combined = (rawType + ' ' + rawPlay).toUpperCase();
 
+  if (combined.includes('PENAL') || combined.includes('NO PLAY') || combined.includes('FALSE START')) {
+    return 'PENALTY';
+  }
   if (combined.includes('PUNT') || combined.includes('FIELD GOAL') || combined.includes('FG') || combined.includes('KICKOFF') || combined.includes('PAT') || combined.includes('EXTRA POINT')) {
     return 'SPECIAL';
   }
@@ -422,8 +425,14 @@ export function classifyHash(raw: string): HashPosition {
 export function classifyRunSide(rawDir: string, hash: HashPosition): HashPosition {
   const d = String(rawDir || '').trim().toLowerCase();
   if (!d) return 'M';
-  if (d === 'l' || d === 'lt' || d === 'lh' || d.startsWith('left') || /(^|[^a-z])left([^a-z]|$)/.test(d)) return 'L';
-  if (d === 'r' || d === 'rt' || d === 'rh' || d.startsWith('right') || /(^|[^a-z])right([^a-z]|$)/.test(d)) return 'R';
+  const compact = d.replace(/[^a-z0-9]/g, '');
+  if (/^[1-3]$/.test(compact)) return 'L';
+  if (/^[4-6]$/.test(compact)) return 'M';
+  if (/^[7-9]$/.test(compact)) return 'R';
+  if (d === 'l' || d === 'lt' || d === 'le' || d === 'lo' || d === 'lh' || compact === 'lt' || compact === 'le' || compact.startsWith('left')) return 'L';
+  if (d === 'r' || d === 'rt' || d === 're' || d === 'ro' || d === 'rh' || compact === 'rt' || compact === 're' || compact.startsWith('right')) return 'R';
+  if (d.startsWith('left') || /(^|[^a-z])left([^a-z]|$)/.test(d)) return 'L';
+  if (d.startsWith('right') || /(^|[^a-z])right([^a-z]|$)/.test(d)) return 'R';
   if (
     d === 'm' ||
     d.includes('mid') ||

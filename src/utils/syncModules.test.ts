@@ -976,6 +976,26 @@ describe('hudl scout', () => {
     assert.equal(analysis.hashTendencies.right.boundaryPct, 50);
   });
 
+  it('does not let inside-hash dives shrink wide-side percentage', async () => {
+    const { parseCsvRows, autoDetectColumnMapping, normalizeHudlRow, classifyRunSide } = await import('../hudlScout/utils/csvParser.ts');
+    const { calculateTendencies } = await import('../hudlScout/utils/tendencyEngine.ts');
+    assert.equal(classifyRunSide('8', 'L'), 'R');
+    assert.equal(classifyRunSide('2', 'R'), 'L');
+    const csv = `PLAY #,QTR,ODK,PLAY TYPE,DN,DIST,GN/LS,HASH,YARD LN,PLAY DIR,RESULT
+1,1,O,Run,1,10,5,L,-35,Right,Gain
+2,1,O,Run,1,10,4,L,-30,M,Gain
+3,1,O,Run,1,10,3,L,-25,M,Gain
+4,1,O,Penalty,1,10,0,L,-20,Right,Penalty`;
+    const { headers, rows } = parseCsvRows(csv);
+    const mapping = autoDetectColumnMapping(headers);
+    const plays = rows.map((r, i) => normalizeHudlRow(r, mapping, i));
+    const analysis = calculateTendencies(plays);
+    assert.equal(analysis.wideSide.wideCount, 1);
+    assert.equal(analysis.wideSide.boundaryCount, 0);
+    assert.equal(analysis.wideSide.widePct, 100);
+    assert.equal(analysis.hashTendencies.left.widePct, 100);
+  });
+
   it('converts an Excel workbook into Hudl CSV rows', async () => {
     const XLSX = await import('xlsx');
     const { workbookBufferToCsv, parseCsvRows, autoDetectColumnMapping, normalizeHudlRow } = await import('../hudlScout/utils/csvParser.ts');

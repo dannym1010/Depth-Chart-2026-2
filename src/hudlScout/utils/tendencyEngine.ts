@@ -183,7 +183,7 @@ export function calculateTendencies(plays: Play[]): TendencyAnalysis {
     right: calcHashSplits(rightHashPlays, 'R'),
   };
 
-  const allRuns = offensivePlays.filter((p) => p.playType === 'RUN');
+  const allRuns = offensivePlays.filter((p) => p.playType === 'RUN' && !isPenaltySnap(p));
   const runDirections = exclusiveRunDirections(allRuns);
   const wideSide = calcWideSide(allRuns);
 
@@ -213,6 +213,11 @@ export function calculateTendencies(plays: Play[]): TendencyAnalysis {
   };
 }
 
+function isPenaltySnap(p: Play): boolean {
+  const text = `${p.playType} ${p.result || ''} ${p.playName || ''}`;
+  return /penal|no play|false start/i.test(text);
+}
+
 function playRunSide(p: Play): HashPosition {
   if (p.runSide === 'L' || p.runSide === 'R' || p.runSide === 'M') return p.runSide;
   return classifyRunSide(p.direction || '', p.hash);
@@ -224,13 +229,14 @@ function pct(part: number, whole: number) {
 
 function calcHashSplits(sub: Play[], hash: HashPosition) {
   const total = sub.length;
-  const runs = sub.filter((p) => p.playType === 'RUN');
-  const passes = sub.filter((p) => p.playType !== 'RUN');
+  const runs = sub.filter((p) => p.playType === 'RUN' && !isPenaltySnap(p));
+  const passes = sub.filter((p) => p.playType !== 'RUN' && p.playType !== 'PENALTY' && !isPenaltySnap(p));
   const left = runs.filter((p) => playRunSide(p) === 'L').length;
   const right = runs.filter((p) => playRunSide(p) === 'R').length;
   const inside = runs.filter((p) => playRunSide(p) === 'M').length;
   const wide = runs.filter((p) => isWideSideRun(hash, playRunSide(p))).length;
   const boundary = runs.filter((p) => isBoundaryRun(hash, playRunSide(p))).length;
+  const directed = wide + boundary;
   return {
     total,
     runPct: pct(runs.length, total),
@@ -238,33 +244,34 @@ function calcHashSplits(sub: Play[], hash: HashPosition) {
     runLeftPct: pct(left, runs.length),
     runRightPct: pct(right, runs.length),
     runInsidePct: pct(inside, runs.length),
-    widePct: pct(wide, runs.length),
-    boundaryPct: pct(boundary, runs.length),
+    widePct: pct(wide, directed),
+    boundaryPct: pct(boundary, directed),
   };
 }
 
 function calcWideSide(allRuns: Play[]): TendencyAnalysis['wideSide'] {
   const runCount = allRuns.length;
   const hashRuns = allRuns.filter((p) => p.hash === 'L' || p.hash === 'R');
-  const wideCount = allRuns.filter((p) => isWideSideRun(p.hash, playRunSide(p))).length;
-  const boundaryCount = allRuns.filter((p) => isBoundaryRun(p.hash, playRunSide(p))).length;
+  const wideCount = hashRuns.filter((p) => isWideSideRun(p.hash, playRunSide(p))).length;
+  const boundaryCount = hashRuns.filter((p) => isBoundaryRun(p.hash, playRunSide(p))).length;
+  const directed = wideCount + boundaryCount;
   const insideCount = allRuns.filter((p) => playRunSide(p) === 'M').length;
   const midRuns = allRuns.filter((p) => p.hash === 'M');
   const midLeft = midRuns.filter((p) => playRunSide(p) === 'L').length;
   const midRight = midRuns.filter((p) => playRunSide(p) === 'R').length;
   let middleFavor: TendencyAnalysis['wideSide']['middleFavor'] = 'none';
   if (midRuns.length > 0) {
-    if (midLeft === midRight) middleFavor = midLeft === 0 ? 'balanced' : 'balanced';
+    if (midLeft === midRight) middleFavor = 'balanced';
     else middleFavor = midLeft > midRight ? 'left' : 'right';
   }
   return {
     runCount,
-    hashRunCount: hashRuns.length,
+    hashRunCount: directed,
     wideCount,
     boundaryCount,
     insideCount,
-    widePct: pct(wideCount, hashRuns.length || runCount),
-    boundaryPct: pct(boundaryCount, hashRuns.length || runCount),
+    widePct: pct(wideCount, directed),
+    boundaryPct: pct(boundaryCount, directed),
     insidePct: pct(insideCount, runCount),
     middleFavor,
     middleLeftPct: pct(midLeft, midRuns.length),
