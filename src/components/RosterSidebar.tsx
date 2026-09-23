@@ -284,8 +284,14 @@ export const RosterSidebar: React.FC<RosterSidebarProps> = ({
             <li
               key={player.num}
               draggable={canDragPlayers}
-              onDragStart={(e) => onDragStartPlayer(e, player)}
-              onClick={() => onSelectPlayerForEdit && onSelectPlayerForEdit(player)}
+              onDragStart={(e) => {
+                e.stopPropagation();
+                onDragStartPlayer(e, player);
+              }}
+              onClick={() => {
+                if (activeUnit === 'practice_live' || activeUnit === 'scrimmage') return;
+                onSelectPlayerForEdit && onSelectPlayerForEdit(player);
+              }}
               className={`p-2 bg-slate-850 hover:bg-slate-800 border border-slate-750 hover:border-indigo-400/50 rounded-xl flex items-center justify-between text-xs transition-all select-none ${
                 canDragPlayers ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
               }`}

@@ -783,18 +783,9 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
   // --------------------------------------------------------------------------
   // PLAYER ASSIGNMENTS & AUTO-FILL
   // --------------------------------------------------------------------------
-  const resolveAssignUnit = (posId: string, group = currentGroup): 'offense' | 'defense' | null => {
-    if (!group) return null;
-    if (group.offensePositions.some((p) => p.id === posId)) return 'offense';
-    if (group.defensePositions.some((p) => p.id === posId)) return 'defense';
-    return null;
-  };
-
   const handleAssignPlayer = (posId: string, player: PlacedPlayer, targetIdx?: number): boolean => {
     const liveGroup = groupsRef.current.find((g) => g.id === activeGroupId) || currentGroup;
     if (!liveGroup) return false;
-    const unit = resolveAssignUnit(posId, liveGroup);
-    if (!unit) return false;
 
     const linedUpPlayer: PlacedPlayer = {
       num: player.num,
@@ -933,8 +924,27 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
   // Drag & drop handling
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = 'copy';
   };
+
+  const dropHandlers = (posId: string, targetIdx: number, cellKey?: string) => ({
+    onDragEnter: (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (cellKey) setDropHoverKey(cellKey);
+    },
+    onDragOver: (e: React.DragEvent) => {
+      handleDragOver(e);
+      if (cellKey) setDropHoverKey(cellKey);
+    },
+    onDragLeave: () => {
+      if (cellKey) {
+        setDropHoverKey((prev) => (prev === cellKey ? null : prev));
+      }
+    },
+    onDrop: (e: React.DragEvent) => handleDropOnPosition(e, posId, targetIdx),
+  });
 
   const handleDropOnPosition = (e: React.DragEvent, posId: string, targetIdx?: number) => {
     e.preventDefault();
@@ -952,7 +962,8 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
       (p) =>
         p.rosterName === plainText ||
         `${p.firstName} ${p.lastName}` === plainText ||
-        p.lastName === plainText
+        p.lastName === plainText ||
+        String(p.num) === String(plainText)
     );
     if (rosterPlayer) {
       handleAssignPlayer(
@@ -969,6 +980,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
   const handleStartPlacedDrag = (e: React.DragEvent, player: PlacedPlayer) => {
     if (!isFilledPlayer(player)) return;
     const name = drillSpotLastName(player, roster);
+    e.stopPropagation();
     e.dataTransfer.setData(FOOTBALL_PLAYER_DRAG, JSON.stringify({ num: player.num, name }));
     e.dataTransfer.setData('text/plain', name);
     e.dataTransfer.effectAllowed = 'copy';
@@ -1247,8 +1259,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                             <div
                               key={`phone-${pos.id}`}
                               className="flex items-center gap-2 px-3 py-2.5"
-                              onDragOver={handleDragOver}
-                              onDrop={(e) => handleDropOnPosition(e, pos.id, mobileTeamNum - 1)}
+                              {...dropHandlers(pos.id, mobileTeamNum - 1)}
                             >
                               <span className="w-16 shrink-0 text-xs font-black text-slate-600 dark:text-slate-300">{pos.name}</span>
                               {player && player.num !== '?' ? (
@@ -1405,14 +1416,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                                   <td
                                     key={cellKey}
                                     className={`px-3 py-1.5 ${isHover ? 'bg-indigo-50 dark:bg-indigo-950/40 ring-2 ring-inset ring-indigo-400' : ''}`}
-                                    onDragOver={(e) => {
-                                      handleDragOver(e);
-                                      setDropHoverKey(cellKey);
-                                    }}
-                                    onDragLeave={() => {
-                                      setDropHoverKey((prev) => (prev === cellKey ? null : prev));
-                                    }}
-                                    onDrop={(e) => handleDropOnPosition(e, pos.id, num - 1)}
+                                    {...dropHandlers(pos.id, num - 1, cellKey)}
                                   >
                                     {player && player.num !== '?' ? (
                                       <div
@@ -1426,6 +1430,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                                         className={`flex items-center gap-1.5 min-w-0 rounded-md px-1 py-0.5 cursor-grab ${
                                           onBothSides ? 'ring-2 ring-rose-600 border border-rose-600 bg-rose-50 dark:bg-rose-950/40' : ''
                                         }`}
+                                        {...dropHandlers(pos.id, num - 1, cellKey)}
                                       >
                                         <span
                                           className="w-6 h-6 rounded text-[10px] font-black flex items-center justify-center shrink-0"
@@ -1451,6 +1456,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                                     ) : (
                                       <button
                                         type="button"
+                                        {...dropHandlers(pos.id, num - 1, cellKey)}
                                         onClick={() =>
                                           setAssigningPos({
                                             id: pos.id,
