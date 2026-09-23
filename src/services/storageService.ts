@@ -432,6 +432,185 @@ export async function saveServerState(
   return null;
 }
 
+const HUDL_CHUNK_CHARS = 700000;
+
+function splitScoutBundle(bundle: any): { meta: any; chunks: any[][] } {
+  const plays = Array.isArray(bundle?.plays) ? bundle.plays : [];
+  const { plays: _omit, ...rest } = bundle || {};
+  const chunks: any[][] = [];
+  let current: any[] = [];
+  let size = 0;
+  for (const play of plays) {
+    const playSize = JSON.stringify(play).length + 1;
+    if (current.length && size + playSize > HUDL_CHUNK_CHARS) {
+      chunks.push(current);
+      current = [];
+      size = 0;
+    }
+    current.push(play);
+    size += playSize;
+  }
+  if (current.length || chunks.length === 0) chunks.push(current);
+  return {
+    meta: { ...rest, playCount: plays.length, chunkCount: chunks.length, updatedAt: Date.now() },
+    chunks,
+  };
+}
+
+function hudlOwnDocId(teamId: string) {
+  return `hudlScout_own_${teamId}`;
+}
+
+function hudlOppDocId(teamId: string, week: string) {
+  return `hudlScout_opp_${teamId}_w${week}`;
+}
+
+async function writeScoutBundleDocs(db: any, docId: string, extra: Record<string, any>, bundle: any) {
+  const { meta, chunks } = splitScoutBundle(bundle);
+  const writes: Promise<any>[] = [
+    db.collection('teamData').doc(docId).set({
+      ...extra,
+      ...meta,
+      updatedAt: Date.now(),
+    }),
+  ];
+  chunks.forEach((plays, index) => {
+    writes.push(
+      db.collection('teamData').doc(`${docId}_c${index}`).set({
+        plays,
+        index,
+        parentId: docId,
+        updatedAt: Date.now(),
+      })
+    );
+  });
+  const previousChunks = Number(extra.previousChunkCount || 0);
+  for (let i = chunks.length; i < previousChunks; i++) {
+    writes.push(db.collection('teamData').doc(`${docId}_c${i}`).delete().catch(() => null));
+  }
+  await Promise.all(writes);
+}
+
+async function readScoutBundleDocs(db: any, docId: string): Promise<any | undefined> {
+  const snap = await db.collection('teamData').doc(docId).get();
+  if (!snap?.exists) return undefined;
+  const meta = snap.data() || {};
+  const chunkCount = Math.max(1, Number(meta.chunkCount) || 1);
+  const chunkSnaps = await Promise.all(
+    Array.from({ length: chunkCount }, (_, i) => db.collection('teamData').doc(`${docId}_c${i}`).get())
+  );
+  const plays: any[] = [];
+  for (const chunk of chunkSnaps) {
+    if (chunk?.exists && Array.isArray(chunk.data()?.plays)) {
+      plays.push(...chunk.data().plays);
+    }
+  }
+  if (Array.isArray(meta.plays) && meta.plays.length && plays.length === 0) {
+    plays.push(...meta.plays);
+  }
+  const { chunkCount: _c, playCount: _p, previousChunkCount: _prev, plays: _inline, ...rest } = meta;
+  return { ...rest, plays };
+}
+
+export async function saveHudlScoutCloud(payload: {
+  teamId: string;
+  week: string;
+  opponentScout?: any;
+  ownTeamScout?: any;
+}): Promise<{ ok: boolean }> {
+  let apiOk = false;
+  let firestoreOk = false;
+  const week = String(payload.week || '1').replace(/\D/g, '') || '1';
+  const teamId = payload.teamId || 'team_10u';
+
+  try {
+    const res = await opsFetch('/api/hudl-scout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: safeJSONStringify({ ...payload, teamId, week }),
+    });
+    apiOk = res.ok;
+    if (!res.ok) {
+      console.warn('saveHudlScoutCloud API failed with status:', res.status);
+    }
+  } catch (err) {
+    console.warn('saveHudlScoutCloud API error:', err);
+  }
+
+  try {
+    const { db } = getFirebaseServices();
+    if (db) {
+      const writes: Promise<any>[] = [];
+      if (payload.ownTeamScout) {
+        writes.push(
+          writeScoutBundleDocs(db, hudlOwnDocId(teamId), { teamId, kind: 'own' }, payload.ownTeamScout)
+        );
+      }
+      if (payload.opponentScout) {
+        writes.push(
+          writeScoutBundleDocs(
+            db,
+            hudlOppDocId(teamId, week),
+            { teamId, week, kind: 'opponent' },
+            payload.opponentScout
+          )
+        );
+      }
+      if (writes.length) {
+        await Promise.all(writes);
+        firestoreOk = true;
+      }
+    }
+  } catch (err) {
+    console.warn('saveHudlScoutCloud Firestore error:', err);
+  }
+
+  return { ok: apiOk || firestoreOk };
+}
+
+export async function fetchHudlScoutCloud(
+  teamId: string,
+  week: string
+): Promise<{ opponentScout?: any; ownTeamScout?: any }> {
+  let opponentScout: any;
+  let ownTeamScout: any;
+  const wk = String(week || '1').replace(/\D/g, '') || '1';
+
+  try {
+    const params = new URLSearchParams({ teamId, week: wk });
+    const res = await opsFetch(`/api/hudl-scout?${params.toString()}`, {
+      headers: { Accept: 'application/json' },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.opponentScout) opponentScout = data.opponentScout;
+      if (data?.ownTeamScout) ownTeamScout = data.ownTeamScout;
+    }
+  } catch (err) {
+    console.warn('fetchHudlScoutCloud API error:', err);
+  }
+
+  try {
+    const { db } = getFirebaseServices();
+    if (db) {
+      const [ownBundle, oppBundle] = await Promise.all([
+        readScoutBundleDocs(db, hudlOwnDocId(teamId)),
+        readScoutBundleDocs(db, hudlOppDocId(teamId, wk)),
+      ]);
+      const ownPlays = Array.isArray(ownBundle?.plays) ? ownBundle.plays.length : 0;
+      const curOwn = Array.isArray(ownTeamScout?.plays) ? ownTeamScout.plays.length : 0;
+      if (ownBundle && (ownPlays >= curOwn || ownBundle.sourceCleared)) ownTeamScout = ownBundle;
+      const oppPlays = Array.isArray(oppBundle?.plays) ? oppBundle.plays.length : 0;
+      const curOpp = Array.isArray(opponentScout?.plays) ? opponentScout.plays.length : 0;
+      if (oppBundle && (oppPlays >= curOpp || oppBundle.sourceCleared)) opponentScout = oppBundle;
+    }
+  } catch (err) {
+    console.warn('fetchHudlScoutCloud Firestore error:', err);
+  }
+
+  return { opponentScout, ownTeamScout };
+}
+
 export function subscribeServerEvents(onMessage: (eventData: any) => void): () => void {
   if (
     typeof window === 'undefined' ||

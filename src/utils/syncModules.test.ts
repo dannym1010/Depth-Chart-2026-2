@@ -220,6 +220,22 @@ describe('remoteStateMerge', () => {
     assert.equal(mapped.team_10u.plays[0].id, 'b');
   });
 
+  it('writes opponent Hudl film onto the weekly scout so other coaches can load it', async () => {
+    const { applyHudlScoutPatch } = await import('./remoteStateMerge.ts');
+    const state = applyHudlScoutPatch(
+      { weeklyData: {}, ownTeamHudlScout: {} },
+      {
+        teamId: 'team_10u',
+        week: 'Week 2',
+        opponentScout: { plays: [{ id: 'p1' }], datasetName: 'Carmel', updatedAt: 9 },
+        ownTeamScout: { plays: [{ id: 'ours' }], datasetName: 'Mahopac', updatedAt: 9 },
+      }
+    );
+    assert.equal(state.weeklyData['team_10u__week_2'].scouting.hudlScout.plays.length, 1);
+    assert.equal(state.weeklyData['2'].scouting.hudlScout.datasetName, 'Carmel');
+    assert.equal(state.ownTeamHudlScout.team_10u.plays[0].id, 'ours');
+  });
+
   it('keeps TeamSnap practices when a refresh sends an older shorter schedule', async () => {
     const { mergeScheduleEvents } = await import('./remoteStateMerge.ts');
     const local = [

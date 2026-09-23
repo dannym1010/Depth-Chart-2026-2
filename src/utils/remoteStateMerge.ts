@@ -177,6 +177,43 @@ export function collectOwnTeamHudlFromWeekly(weeklyData?: Record<string, any>) {
   return byTeam;
 }
 
+export function normalizeScoutWeekKey(week: string): string {
+  const raw = String(week || '').trim();
+  const match = raw.match(/(\d+)/);
+  return match ? match[1] : raw || '1';
+}
+
+export function applyHudlScoutPatch(
+  state: any,
+  patch: { teamId?: string; week?: string; opponentScout?: any; ownTeamScout?: any }
+) {
+  const next = state && typeof state === 'object' ? { ...state } : {};
+  const teamId = String(patch.teamId || 'team_10u');
+  const week = normalizeScoutWeekKey(String(patch.week || '1'));
+  const scoped = `${teamId}__week_${week}`;
+  const weekly = { ...(next.weeklyData || {}) };
+
+  const writeWeek = (key: string) => {
+    const cur = weekly[key] && typeof weekly[key] === 'object' ? weekly[key] : {};
+    const scouting = { ...(cur.scouting || {}) };
+    if (patch.opponentScout) {
+      scouting.hudlScout = pickScoutBundle(scouting.hudlScout, patch.opponentScout);
+    }
+    weekly[key] = { ...cur, scouting };
+  };
+
+  if (patch.opponentScout) {
+    writeWeek(scoped);
+    writeWeek(week);
+  }
+  next.weeklyData = weekly;
+
+  if (patch.ownTeamScout) {
+    next.ownTeamHudlScout = mergeOwnTeamHudlMap(next.ownTeamHudlScout, { [teamId]: patch.ownTeamScout });
+  }
+  return next;
+}
+
 export function scheduleEventDedupeKey(ev: any): string {
   const uid = String(ev?.raw?.UID || ev?.uid || ev?.teamSnapUid || '').trim().toLowerCase();
   if (uid) return `uid:${uid}`;

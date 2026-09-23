@@ -74,6 +74,8 @@ import {
   fetchServerState,
   checkServerHealth,
   saveServerState,
+  saveHudlScoutCloud,
+  fetchHudlScoutCloud,
   subscribeServerEvents,
   fetchServerLocks,
   acquireServerLock,
@@ -162,6 +164,8 @@ import {
   collectOwnTeamHudlFromWeekly,
   unionScoutBundles,
   mergeScheduleEvents,
+  normalizeScoutWeekKey,
+  pickScoutBundle,
   pickRichestScouting,
   shouldKeepLocalCallSheet,
   shouldRejectStaleRemote,
@@ -2139,10 +2143,21 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         const cleanPayload = JSON.parse(
           safeJSONStringify({
             ...payload,
+            ownTeamHudlScout: undefined,
             updatedAt: Date.now(),
             lastAuthor: authorEmail,
           })
         );
+        if (cleanPayload.weeklyData && typeof cleanPayload.weeklyData === 'object') {
+          for (const key of Object.keys(cleanPayload.weeklyData)) {
+            const week = cleanPayload.weeklyData[key];
+            if (week?.scouting?.hudlScout) {
+              const { hudlScout: _omit, ...restScout } = week.scouting;
+              cleanPayload.weeklyData[key] = { ...week, scouting: restScout };
+            }
+          }
+        }
+        delete cleanPayload.ownTeamHudlScout;
         await db
           .collection('teamData')
           .doc('depthChartData')
@@ -2213,7 +2228,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       latestStateRef.current.weeklyData = updatedAll;
       return updatedAll;
     });
-    flushAndSaveStateToStorage('scouting_update', { activeUnit: 'hudl_scout', scope: 'scouting_update' });
+    queueHudlScoutPublish();
   };
 
   const persistOwnTeamHudlScout = (bundle: any) => {
@@ -2225,7 +2240,97 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       safeJSONSet('footballOwnTeamHudlScout', updated);
       return updated;
     });
-    flushAndSaveStateToStorage('hudl_scout_update', { activeUnit: 'hudl_scout', scope: 'hudl_scout_update' });
+    queueHudlScoutPublish();
+  };
+
+  const hudlPublishTimerRef = useRef<any>(null);
+  const queueHudlScoutPublish = () => {
+    if (hudlPublishTimerRef.current) clearTimeout(hudlPublishTimerRef.current);
+    hudlPublishTimerRef.current = setTimeout(() => {
+      hudlPublishTimerRef.current = null;
+      void publishHudlScoutToCloud();
+    }, 300);
+  };
+
+  const applyHudlScoutFromCloud = (teamId: string, week: string, remote: { opponentScout?: any; ownTeamScout?: any }) => {
+    if (remote.ownTeamScout) {
+      setOwnTeamHudlScout((prev) => {
+        const updated = mergeOwnTeamHudlMap(prev, { [teamId]: remote.ownTeamScout });
+        latestStateRef.current.ownTeamHudlScout = updated;
+        safeJSONSet('footballOwnTeamHudlScout', updated);
+        return updated;
+      });
+    }
+    if (remote.opponentScout) {
+      setWeeklyData((prev) => {
+        const wk = normalizeScoutWeekKey(week);
+        const scopedKey = getScopedWeekKey(teamId, wk);
+        const patchWeek = (key: string, source: typeof prev) => {
+          const existingWeek = source[key] || {
+            formations: defaultFormations,
+            depthChart: {},
+            scrimmageChart: {},
+            opponent: '',
+          };
+          const scouting = {
+            ...(existingWeek.scouting || {}),
+            hudlScout: pickScoutBundle(existingWeek.scouting?.hudlScout, remote.opponentScout),
+          };
+          return { ...existingWeek, scouting };
+        };
+        const updatedAll = {
+          ...prev,
+          [scopedKey]: patchWeek(scopedKey, prev),
+          [wk]: patchWeek(wk, prev),
+        };
+        latestStateRef.current.weeklyData = updatedAll;
+        safeJSONSet('footballWeeklyData', updatedAll);
+        return updatedAll;
+      });
+    }
+  };
+
+  const hydrateHudlScoutFromCloud = async (teamId = activeTeamIdRef.current, week = currentWeekRef.current) => {
+    const wk = normalizeScoutWeekKey(week);
+    const remote = await fetchHudlScoutCloud(teamId, wk);
+    if (!remote.opponentScout && !remote.ownTeamScout) return;
+    applyHudlScoutFromCloud(teamId, wk, remote);
+  };
+
+  const publishHudlScoutToCloud = async () => {
+    const teamId = activeTeamIdRef.current;
+    const week = normalizeScoutWeekKey(currentWeekRef.current);
+    const scopedKey = getScopedWeekKey(teamId, week);
+    const weekState =
+      latestStateRef.current.weeklyData?.[scopedKey] ||
+      latestStateRef.current.weeklyData?.[week] ||
+      latestStateRef.current.weeklyData?.[currentWeekRef.current];
+    const opponentScout = weekState?.scouting?.hudlScout;
+    const ownTeamScout =
+      latestStateRef.current.ownTeamHudlScout?.[teamId] ||
+      latestStateRef.current.ownTeamHudlScout?.team_10u;
+    const hasOpp =
+      (Array.isArray(opponentScout?.plays) && opponentScout.plays.length > 0) ||
+      Boolean(opponentScout?.sourceCleared);
+    const hasOwn =
+      (Array.isArray(ownTeamScout?.plays) && ownTeamScout.plays.length > 0) ||
+      Boolean(ownTeamScout?.sourceCleared);
+    if (!hasOpp && !hasOwn) {
+      await flushAndSaveStateToStorage('hudl_scout_update', { activeUnit: 'hudl_scout', scope: 'hudl_scout_update' });
+      return;
+    }
+    const result = await saveHudlScoutCloud({
+      teamId,
+      week,
+      opponentScout: hasOpp ? opponentScout : undefined,
+      ownTeamScout: hasOwn ? ownTeamScout : undefined,
+    });
+    await flushAndSaveStateToStorage('hudl_scout_update', { activeUnit: 'hudl_scout', scope: 'hudl_scout_update' });
+    if (!result.ok) {
+      setSyncStatus({ text: '⚠️ Hudl Scout did not reach other devices. Try again on Wi-Fi.', color: '#ef4444' });
+    } else {
+      setSyncStatus({ text: '✅ Hudl Scout saved for all coaches', color: '#22c55e' });
+    }
   };
 
   const handleForceRefresh = async () => {
@@ -2236,14 +2341,13 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         const doc = await db.collection('teamData').doc('depthChartData').get();
         if (doc.exists) {
           applyRemoteState(doc.data(), 'manual_firestore_refresh');
-          return;
         }
       }
       const serverRes = await fetchServerState();
       if (serverRes && serverRes.hasData && serverRes.state) {
         applyRemoteState(serverRes.state, 'manual_server_refresh', serverRes.version, serverRes.updatedAt);
-        return;
       }
+      await hydrateHudlScoutFromCloud();
       setSyncStatus({ text: '✅ Up to Date', color: '#22c55e' });
     } catch (err) {
       console.warn('Manual refresh error:', err);
@@ -2258,6 +2362,11 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       `${printFontSize}px`
     );
   }, [printFontSize]);
+
+  useEffect(() => {
+    if (!initialCloudLoadDoneRef.current) return;
+    void hydrateHudlScoutFromCloud(activeTeamId, currentWeek);
+  }, [activeTeamId, currentWeek]);
 
   // Global blur / focusout sync listener: whenever a coach clicks out of any input/box/dropdown,
   // immediately flush changes to Firestore & Server so other coaches see them instantly
@@ -2328,12 +2437,12 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         if (serverRes && serverRes.hasData && serverRes.state) {
           applyRemoteState(serverRes.state, 'server_init', serverRes.version, serverRes.updatedAt);
           initialCloudLoadDoneRef.current = true;
-          // Synchronize local edit time with server so refresh never causes stale auto-overwrites
           lastLocalEditTimeRef.current = Math.max(lastLocalEditTimeRef.current, serverRes.updatedAt || 0);
           safeJSONSet('footballLastLocalEditTime', lastLocalEditTimeRef.current);
         } else if (!firestoreLoaded) {
           initialCloudLoadDoneRef.current = true;
         }
+        await hydrateHudlScoutFromCloud();
       } catch (err) {
         console.warn('Initial server state fetch warning:', err);
         initialCloudLoadDoneRef.current = true;
@@ -2396,6 +2505,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
               }
             }
           }
+          await hydrateHudlScoutFromCloud();
         } catch {
           // silent catch during polling
         }
@@ -2416,7 +2526,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         lastFocusCheckTime = now;
 
         try {
-          // Lightweight health check: only fetch server state if server version/updatedAt actually changed
+          await hydrateHudlScoutFromCloud();
           const health = await checkServerHealth();
           if (health && typeof health.stateVersion === 'number') {
             if (

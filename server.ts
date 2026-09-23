@@ -35,6 +35,8 @@ import {
   isGroupsPositionId,
   mergeOwnTeamHudlMap,
   mergeScheduleEvents,
+  applyHudlScoutPatch,
+  normalizeScoutWeekKey,
 } from './src/utils/remoteStateMerge';
 import {
   mergeLiveDrillSlotLayouts,
@@ -1281,6 +1283,53 @@ async function startServer() {
   });
 
   // State Persistence: Get current server-side state
+  app.get('/api/hudl-scout', requireOpsSession, (req, res) => {
+    const teamId = String(req.query.teamId || 'team_10u');
+    const week = normalizeScoutWeekKey(String(req.query.week || '1'));
+    const scoped = `${teamId}__week_${week}`;
+    const weekState =
+      cachedState?.weeklyData?.[scoped] ||
+      cachedState?.weeklyData?.[week] ||
+      {};
+    res.json({
+      success: true,
+      opponentScout: weekState?.scouting?.hudlScout || null,
+      ownTeamScout: cachedState?.ownTeamHudlScout?.[teamId] || cachedState?.ownTeamHudlScout?.team_10u || null,
+    });
+  });
+
+  app.post('/api/hudl-scout', requireOpsSession, (req, res) => {
+    try {
+      const { teamId, week, opponentScout, ownTeamScout } = req.body || {};
+      cachedState = applyHudlScoutPatch(cachedState || {}, {
+        teamId: teamId || 'team_10u',
+        week: week || '1',
+        opponentScout,
+        ownTeamScout,
+      });
+      const saveResult = saveStateToDisk(cachedState, (req as any).opsSession?.email || 'coach', {
+        scope: 'hudl_scout_update',
+        activeUnit: 'hudl_scout',
+        activeTeamId: teamId || 'team_10u',
+        currentWeek: normalizeScoutWeekKey(String(week || '1')),
+      });
+      if (!saveResult.success) {
+        return res.status(500).json({ error: 'Failed to save Hudl Scout.' });
+      }
+      broadcastStateUpdate({
+        version: stateVersion,
+        updatedAt: stateUpdatedAt,
+        lastAuthor: (req as any).opsSession?.email || 'coach',
+        state: cachedState,
+        metadata: { scope: 'hudl_scout_update' },
+      });
+      return res.json({ success: true, version: stateVersion, updatedAt: stateUpdatedAt });
+    } catch (err: any) {
+      console.error('[Server] /api/hudl-scout POST error:', err);
+      return res.status(500).json({ error: err?.message || 'Hudl Scout save error' });
+    }
+  });
+
   app.get('/api/state', requireOpsSession, (req, res) => {
     res.json({
       success: true,
