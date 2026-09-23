@@ -842,6 +842,40 @@ export function normalizePositionToken(str: string): string {
   return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+/** Mahopac backfield numbers: 1 = QB, 2 = FB, 3 and 4 = RB. */
+export function numberedSkillRole(raw: string): 'qb' | 'fb' | 'rb' | null {
+  const token = normalizePositionToken(raw);
+  const clean = cleanTruncatedPosition(raw).toUpperCase();
+  if (clean === 'QB' || token === 'qb' || token === '1' || token === '1qb' || token.includes('quarterback')) return 'qb';
+  if (clean === 'FB' || token === 'fb' || token === '2' || token === '2fb' || token.includes('fullback')) return 'fb';
+  if (
+    clean === 'RB' ||
+    clean === 'HB' ||
+    token === 'rb' ||
+    token === 'hb' ||
+    token === '3' ||
+    token === '4' ||
+    token === '3hb' ||
+    token === '4rb' ||
+    token === '3tb' ||
+    token.includes('halfback') ||
+    token.includes('tailback') ||
+    token.includes('runningback')
+  ) {
+    return 'rb';
+  }
+  return null;
+}
+
+/** 7v7 drill column for a numbered skill. H / Slot is the FB (2) rep. */
+export function sevenOnSevenSlotRole(raw: string): 'qb' | 'fb' | 'rb' | null {
+  const role = numberedSkillRole(raw);
+  if (role) return role;
+  const token = normalizePositionToken(raw);
+  if (token === 'h' || token === 'hslot' || token.startsWith('hslot')) return 'fb';
+  return null;
+}
+
 export type PositionCategory =
   | 'QB'
   | 'RB'
@@ -1336,6 +1370,25 @@ export interface CandidateRecord {
  * "the offensive and defensive formation has positions black, gold and blue(1,2,3).
  *  To autofill the use the postions they are in, so QB is QB, etc"
  */
+function slotMatch(
+  drillName: string,
+  formName: string,
+  formId: string,
+  unit: 'offense' | 'defense',
+  formUnit: string | undefined,
+  restrict: 'qb' | 'fb' | 'rb' | null
+): { ok: boolean; exact: boolean; score: number } {
+  if (restrict) {
+    const role = numberedSkillRole(formName) || numberedSkillRole(formId);
+    if (role !== restrict) return { ok: false, exact: false, score: 0 };
+    return { ok: true, exact: true, score: 10000 };
+  }
+  const exact = isExactPositionSlotMatch(drillName, formName, formId);
+  const eligible = isPositionEligible(drillName, formName, unit, formUnit, formId);
+  if (exact || eligible.eligible) return { ok: true, exact, score: eligible.score };
+  return { ok: false, exact: false, score: 0 };
+}
+
 function getCandidatesForDrillPosition(params: {
   pos: LiveDrillPosition;
   unit: 'offense' | 'defense';
@@ -1343,11 +1396,19 @@ function getCandidatesForDrillPosition(params: {
   depthChart: Record<string, PlacedPlayer[]>;
   scrimmageChart?: Record<string, PlacedPlayer[]>;
   roster: RosterPlayer[];
+  format?: LiveDrillFormat;
+  restrictSkill?: 'qb' | 'fb' | 'rb' | null;
 }): CandidateRecord[] {
-  const { pos, unit, formations, depthChart, scrimmageChart = {}, roster } = params;
+  const { pos, unit, formations, depthChart, scrimmageChart = {}, roster, format, restrictSkill } = params;
+  const restrict =
+    restrictSkill !== undefined
+      ? restrictSkill
+      : format === '7v7'
+        ? sevenOnSevenSlotRole(pos.name)
+        : null;
   const candidateMap = new Map<string, CandidateRecord>();
 
-  const isQB = getPositionCategory(pos.name).category === 'QB';
+  const isQB = restrict === 'qb' || getPositionCategory(pos.name).category === 'QB';
 
   // 1. Scan Formations on the Depth Chart matching this unit
   for (const form of formations) {
@@ -1360,11 +1421,11 @@ function getCandidatesForDrillPosition(params: {
         const players = depthChart[p.id] || [];
         if (players.length === 0) continue;
 
-        // Check if this formation position is an exact match for the drill slot
-        const isExact = isExactPositionSlotMatch(pos.name, p.name, p.id);
-        const { eligible, score } = isPositionEligible(pos.name, p.name, unit, formUnit, p.id);
+        const matched = slotMatch(pos.name, p.name, p.id, unit, formUnit, restrict);
+        const isExact = matched.exact;
+        const score = matched.score;
 
-        if (isExact || eligible) {
+        if (matched.ok) {
           players.forEach((player, idx) => {
             if (!player || !player.num || player.num === '?') return;
             const playerNum = String(player.num);
@@ -1400,10 +1461,11 @@ function getCandidatesForDrillPosition(params: {
   // Also check direct depthChart keys (e.g. depthChart["QB"] or depthChart["LT"])
   for (const [key, players] of Object.entries(depthChart)) {
     if (!players || players.length === 0) continue;
-    const isExact = isExactPositionSlotMatch(pos.name, key, key);
-    const { eligible, score } = isPositionEligible(pos.name, key, unit, undefined, key);
+    const matched = slotMatch(pos.name, key, key, unit, undefined, restrict);
+    const isExact = matched.exact;
+    const score = matched.score;
 
-    if (isExact || eligible) {
+    if (matched.ok) {
       players.forEach((player, idx) => {
         if (!player || !player.num || player.num === '?') return;
         const playerNum = String(player.num);
@@ -1448,9 +1510,10 @@ function getCandidatesForDrillPosition(params: {
   if (candidateList.length === 0) {
     for (const [posId, players] of Object.entries(scrimmageChart)) {
       if (!players || players.length === 0) continue;
-      const isExact = isExactPositionSlotMatch(pos.name, posId, posId);
-      const { eligible, score } = isPositionEligible(pos.name, posId, unit, undefined, posId);
-      if (isExact || eligible) {
+      const matched = slotMatch(pos.name, posId, posId, unit, undefined, restrict);
+      const isExact = matched.exact;
+      const score = matched.score;
+      if (matched.ok) {
         players.forEach((player, idx) => {
           if (!player || !player.num || player.num === '?') return;
           const playerNum = String(player.num);
@@ -1540,7 +1603,267 @@ function getCandidatesForDrillPosition(params: {
     return b.score - a.score;
   });
 
+  if (format === '7v7' && restrict === 'fb' && sorted.length === 0 && restrictSkill === undefined) {
+    return getCandidatesForDrillPosition({ ...params, restrictSkill: null });
+  }
+
   return sorted;
+}
+
+function ensureDrillSlots(lineup: Record<string, PlacedPlayer[]>, posId: string): PlacedPlayer[] {
+  const list = [...(lineup[posId] || [])];
+  while (list.length < 5) list.push({ num: '?', name: 'TBD' });
+  lineup[posId] = list;
+  return list;
+}
+
+function jerseyOnDrillTeam(
+  lineup: Record<string, PlacedPlayer[]>,
+  positions: LiveDrillPosition[] | undefined,
+  teamIdx: number,
+  jersey: string
+): boolean {
+  return (positions || []).some(
+    (pos) => normalizeJerseyNum((lineup[pos.id] || [])[teamIdx]?.num) === jersey
+  );
+}
+
+function canPlaceJerseyOnTeam(args: {
+  lineup: Record<string, PlacedPlayer[]>;
+  unitPositions: LiveDrillPosition[];
+  oppositePositions: LiveDrillPosition[];
+  posId: string;
+  teamIdx: number;
+  jersey: string;
+  teamLimit: number;
+}): boolean {
+  const { lineup, unitPositions, oppositePositions, posId, teamIdx, jersey, teamLimit } = args;
+  if (!jersey || jersey === '?' || teamIdx < 0 || teamIdx >= teamLimit) return false;
+  if (normalizeJerseyNum((lineup[posId] || [])[teamIdx]?.num) === jersey) return true;
+  if (jerseyOnDrillTeam(lineup, unitPositions, teamIdx, jersey)) return false;
+  if (jerseyOnDrillTeam(lineup, oppositePositions, teamIdx, jersey)) return false;
+  return true;
+}
+
+function depthOneStarters(params: {
+  group: LiveDrillGroup;
+  unit: 'offense' | 'defense';
+  formations: FormationBoard[];
+  depthChart: Record<string, PlacedPlayer[]>;
+  scrimmageChart: Record<string, PlacedPlayer[]>;
+  roster: RosterPlayer[];
+}): Map<string, { posId: string; num: string; name: string }[]> {
+  const positions = params.unit === 'offense' ? params.group.offensePositions : params.group.defensePositions;
+  const map = new Map<string, { posId: string; num: string; name: string }[]>();
+  for (const pos of positions || []) {
+    const candidates = getCandidatesForDrillPosition({
+      pos,
+      unit: params.unit,
+      formations: params.formations,
+      depthChart: params.depthChart,
+      scrimmageChart: params.scrimmageChart,
+      roster: params.roster,
+      format: params.group.format,
+    });
+    for (const cand of candidates) {
+      if (cand.depthString !== 1) continue;
+      const jersey = normalizeJerseyNum(cand.num);
+      const list = map.get(jersey) || [];
+      if (!list.some((item) => item.posId === pos.id)) {
+        list.push({ posId: pos.id, num: jersey, name: cand.name });
+      }
+      map.set(jersey, list);
+    }
+  }
+  return map;
+}
+
+function repsOnSlot(
+  lineup: Record<string, PlacedPlayer[]>,
+  posId: string,
+  jersey: string,
+  teamLimit: number
+): number {
+  let count = 0;
+  for (let teamIdx = 0; teamIdx < teamLimit; teamIdx++) {
+    if (normalizeJerseyNum((lineup[posId] || [])[teamIdx]?.num) === jersey) count++;
+  }
+  return count;
+}
+
+function placeDrillRep(args: {
+  lineup: Record<string, PlacedPlayer[]>;
+  group: LiveDrillGroup;
+  unit: 'offense' | 'defense';
+  posId: string;
+  teamIdx: number;
+  player: { num: string; name: string };
+  teamLimit: number;
+}): boolean {
+  const { lineup, group, unit, posId, teamIdx, player, teamLimit } = args;
+  const unitPositions = unit === 'offense' ? group.offensePositions : group.defensePositions;
+  const oppositePositions = unit === 'offense' ? group.defensePositions : group.offensePositions;
+  const jersey = normalizeJerseyNum(player.num);
+  if (
+    !canPlaceJerseyOnTeam({
+      lineup,
+      unitPositions,
+      oppositePositions,
+      posId,
+      teamIdx,
+      jersey,
+      teamLimit,
+    })
+  ) {
+    return false;
+  }
+  const list = ensureDrillSlots(lineup, posId);
+  const prev = list[teamIdx];
+  list[teamIdx] = { num: jersey, name: player.name };
+  if (!isFilledPlayer(prev) || normalizeJerseyNum(prev.num) === jersey) return true;
+
+  for (let other = 0; other < teamLimit; other++) {
+    if (other === teamIdx) continue;
+    if (isFilledPlayer(list[other])) continue;
+    if (
+      !canPlaceJerseyOnTeam({
+        lineup,
+        unitPositions,
+        oppositePositions,
+        posId,
+        teamIdx: other,
+        jersey: normalizeJerseyNum(prev.num),
+        teamLimit,
+      })
+    ) {
+      continue;
+    }
+    list[other] = { num: normalizeJerseyNum(prev.num), name: prev.name };
+    return true;
+  }
+  for (const backupIdx of [3, 4]) {
+    if (!isFilledPlayer(list[backupIdx])) {
+      list[backupIdx] = { num: normalizeJerseyNum(prev.num), name: prev.name };
+      break;
+    }
+  }
+  return true;
+}
+
+function ensureMultiPositionReps(args: {
+  lineup: Record<string, PlacedPlayer[]>;
+  group: LiveDrillGroup;
+  unit: 'offense' | 'defense';
+  formations: FormationBoard[];
+  depthChart: Record<string, PlacedPlayer[]>;
+  scrimmageChart: Record<string, PlacedPlayer[]>;
+  roster: RosterPlayer[];
+  teamLimit: number;
+}) {
+  const positions = args.unit === 'offense' ? args.group.offensePositions : args.group.defensePositions;
+  const starters = depthOneStarters(args);
+  const roleOf = (posId: string) => sevenOnSevenSlotRole(positions.find((pos) => pos.id === posId)?.name || '');
+  for (const slots of starters.values()) {
+    if (slots.length < 2) continue;
+    const ordered = [...slots].sort((a, b) => {
+      const rank = (role: 'qb' | 'fb' | 'rb' | null) => (role === 'qb' ? 0 : role === 'fb' ? 1 : role === 'rb' ? 2 : 3);
+      return rank(roleOf(a.posId)) - rank(roleOf(b.posId));
+    });
+    for (const slot of ordered) {
+      if (repsOnSlot(args.lineup, slot.posId, slot.num, args.teamLimit) > 0) continue;
+      let chosen = -1;
+      for (let teamIdx = 0; teamIdx < args.teamLimit; teamIdx++) {
+        const unitPositions = args.unit === 'offense' ? args.group.offensePositions : args.group.defensePositions;
+        const oppositePositions = args.unit === 'offense' ? args.group.defensePositions : args.group.offensePositions;
+        if (
+          !canPlaceJerseyOnTeam({
+            lineup: args.lineup,
+            unitPositions,
+            oppositePositions,
+            posId: slot.posId,
+            teamIdx,
+            jersey: slot.num,
+            teamLimit: args.teamLimit,
+          })
+        ) {
+          continue;
+        }
+        const occupant = normalizeJerseyNum((args.lineup[slot.posId] || [])[teamIdx]?.num);
+        const occupantStartsHere =
+          Boolean(occupant) && (starters.get(occupant) || []).some((item) => item.posId === slot.posId);
+        if (!occupant || occupant === '?' || !occupantStartsHere) {
+          chosen = teamIdx;
+          break;
+        }
+      }
+      if (chosen >= 0) {
+        placeDrillRep({
+          lineup: args.lineup,
+          group: args.group,
+          unit: args.unit,
+          posId: slot.posId,
+          teamIdx: chosen,
+          player: slot,
+          teamLimit: args.teamLimit,
+        });
+      }
+    }
+  }
+}
+
+/** 7v7: multi-position starters get both spots, and the top QB gets most QB reps. */
+function applySevenOnSevenReps(params: {
+  lineup: Record<string, PlacedPlayer[]>;
+  group: LiveDrillGroup;
+  formations: FormationBoard[];
+  depthChart: Record<string, PlacedPlayer[]>;
+  scrimmageChart: Record<string, PlacedPlayer[]>;
+  roster: RosterPlayer[];
+  fillUnit: 'both' | 'offense' | 'defense';
+  side: 'offense' | 'defense';
+}) {
+  if (params.group.format !== '7v7') return;
+  const teamLimit = getDrillTeamCount(params.group);
+  if (params.side === 'offense' && params.fillUnit !== 'defense') {
+    const qbPos = (params.group.offensePositions || []).find((pos) => sevenOnSevenSlotRole(pos.name) === 'qb');
+    if (qbPos) {
+      const candidates = getCandidatesForDrillPosition({
+        pos: qbPos,
+        unit: 'offense',
+        formations: params.formations,
+        depthChart: params.depthChart,
+        scrimmageChart: params.scrimmageChart,
+        roster: params.roster,
+        format: '7v7',
+      });
+      const top = candidates.find((cand) => cand.depthString === 1) || candidates[0];
+      if (top) {
+        const jersey = normalizeJerseyNum(top.num);
+        const starts = depthOneStarters({ ...params, unit: 'offense' }).get(jersey) || [];
+        const hasOtherStart = starts.some((slot) => slot.posId !== qbPos.id);
+        let targetReps = Math.floor(teamLimit / 2) + 1;
+        if (hasOtherStart) targetReps = Math.max(1, Math.min(targetReps, teamLimit - 1));
+        let placed = repsOnSlot(params.lineup, qbPos.id, jersey, teamLimit);
+        for (let teamIdx = 0; teamIdx < teamLimit && placed < targetReps; teamIdx++) {
+          if (normalizeJerseyNum((params.lineup[qbPos.id] || [])[teamIdx]?.num) === jersey) continue;
+          const didPlace = placeDrillRep({
+            lineup: params.lineup,
+            group: params.group,
+            unit: 'offense',
+            posId: qbPos.id,
+            teamIdx,
+            player: { num: jersey, name: top.name },
+            teamLimit,
+          });
+          if (didPlace) placed++;
+        }
+      }
+    }
+    ensureMultiPositionReps({ ...params, unit: 'offense', teamLimit });
+  }
+  if (params.side === 'defense' && params.fillUnit !== 'offense') {
+    ensureMultiPositionReps({ ...params, unit: 'defense', teamLimit });
+  }
 }
 
 /**
@@ -1649,6 +1972,7 @@ export function executeIntelligentAutoFill(params: {
         depthChart,
         scrimmageChart,
         roster,
+        format: group.format,
       });
 
       const currentList = [...(nextLineup[pos.id] || [])];
@@ -1886,11 +2210,22 @@ export function executeIntelligentAutoFill(params: {
     });
   };
 
+  const repArgs = {
+    lineup: nextLineup,
+    group,
+    formations,
+    depthChart,
+    scrimmageChart,
+    roster,
+    fillUnit,
+  };
   if (fillUnit === 'both' || fillUnit === 'offense') {
     processUnit('offense');
+    if (targetString === 'all') applySevenOnSevenReps({ ...repArgs, side: 'offense' });
   }
   if (fillUnit === 'both' || fillUnit === 'defense') {
     processUnit('defense');
+    if (targetString === 'all') applySevenOnSevenReps({ ...repArgs, side: 'defense' });
   }
 
   const modeDescription =

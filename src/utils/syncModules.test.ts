@@ -574,6 +574,97 @@ describe('live drill multi-spot assignment', () => {
     assert.notEqual(o1 === '11' && d1 === '11', true);
   });
 
+  it('gives 7v7 multi-position starters both spots and the top QB most QB reps', async () => {
+    const { executeIntelligentAutoFill } = await import('../components/practiceDrillsUtils.ts');
+    const group: LiveDrillGroup = {
+      id: 'g1',
+      name: '7v7',
+      format: '7v7',
+      offenseLabel: 'O',
+      defenseLabel: 'D',
+      teamCount: 3,
+      offensePositions: [
+        { id: 'qb', name: 'QB', unit: 'offense' },
+        { id: 'rb', name: 'RB', unit: 'offense' },
+        { id: 'h', name: 'H / Slot', unit: 'offense' },
+        { id: 'x', name: 'WR (X)', unit: 'offense' },
+        { id: 'z', name: 'WR (Z)', unit: 'offense' },
+      ],
+      defensePositions: [
+        { id: 'cb', name: 'CB1', unit: 'defense' },
+        { id: 'fs', name: 'FS', unit: 'defense' },
+      ],
+      lineup: {},
+    };
+    const formations: any[] = [
+      {
+        id: 'off',
+        unit: 'offense',
+        rows: [{
+          positions: [
+            { id: 'p1', name: '1 (QB)' },
+            { id: 'p2', name: '2 (FB)' },
+            { id: 'p3', name: '3 (HB)' },
+            { id: 'p4', name: '4 (RB)' },
+            { id: 'px', name: 'X' },
+            { id: 'pz', name: 'Z' },
+          ],
+        }],
+      },
+      {
+        id: 'def',
+        unit: 'defense',
+        rows: [{
+          positions: [
+            { id: 'cb', name: 'CB1' },
+            { id: 'fs', name: 'FS' },
+          ],
+        }],
+      },
+    ];
+    const result = executeIntelligentAutoFill({
+      group,
+      formations,
+      depthChart: {
+        p1: [{ num: '10', name: 'Ace' }, { num: '19', name: 'Nardella' }, { num: '8', name: 'Kilkenny' }],
+        p2: [{ num: '10', name: 'Ace' }, { num: '34', name: 'Flemming' }],
+        p3: [{ num: '7', name: 'Silva' }],
+        p4: [{ num: '13', name: 'Veto' }],
+        px: [{ num: '11', name: 'Berish' }],
+        pz: [{ num: '11', name: 'Berish' }, { num: '12', name: 'Barry' }],
+        cb: [{ num: '4', name: 'Vince' }, { num: '22', name: 'Pestone' }],
+        fs: [{ num: '4', name: 'Vince' }, { num: '20', name: 'Furfaro' }],
+      },
+      roster: [],
+      targetString: 'all',
+      fillUnit: 'both',
+    });
+    const nums = (posId: string) =>
+      [0, 1, 2].map((idx) => result.nextLineup[posId]?.[idx]?.num).filter((num) => num && num !== '?');
+    const qb = nums('qb');
+    const rb = nums('rb');
+    const fb = nums('h');
+    const qbReps = qb.filter((num) => num === '10').length;
+    const otherQbReps = Math.max(...['19', '8'].map((num) => qb.filter((spot) => spot === num).length), 0);
+    assert.ok(qbReps > otherQbReps, `top QB reps ${qbReps} should beat ${otherQbReps}`);
+    assert.ok(fb.includes('10'), 'QB/FB starter gets FB reps');
+    assert.equal(fb.includes('34') || fb.includes('10'), true);
+    assert.equal(rb.includes('10'), false);
+    assert.equal(rb.includes('34'), false);
+    assert.ok(rb.includes('7') || rb.includes('13'));
+    for (let team = 0; team < 3; team++) {
+      const qbNum = result.nextLineup.qb?.[team]?.num;
+      const fbNum = result.nextLineup.h?.[team]?.num;
+      assert.equal(qbNum === '10' && fbNum === '10', false);
+    }
+    assert.ok(nums('x').includes('11'));
+    assert.ok(nums('z').includes('11'));
+    const cbTeams = [0, 1, 2].filter((idx) => result.nextLineup.cb?.[idx]?.num === '4');
+    const fsTeams = [0, 1, 2].filter((idx) => result.nextLineup.fs?.[idx]?.num === '4');
+    assert.ok(cbTeams.length > 0 && fsTeams.length > 0);
+    assert.equal(cbTeams.some((team) => fsTeams.includes(team)), false);
+  });
+
   it('keeps renamed drill slots when merging remote factory defaults', async () => {
     const { mergePracticeDrillGroups } = await import('../components/practiceDrillsUtils.ts');
     const local: LiveDrillGroup[] = [{

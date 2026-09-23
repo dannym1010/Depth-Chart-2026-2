@@ -1457,6 +1457,9 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
               </div>
               <ul className="text-indigo-800/90 dark:text-indigo-300/80 space-y-1 text-[11px] list-disc list-inside">
                 <li><strong>Strict Position Mapping (QB is QB, etc.)</strong>: Players are only placed into drill slots that match their exact position on your offensive or defensive formations.</li>
+                {currentGroup?.format === '7v7' && (
+                  <li><strong>7v7 backfield</strong>: 1 is QB, 2 is FB (H), and 3/4 are RB. A player who starts two positions gets reps at both. The top QB gets most of the QB reps.</li>
+                )}
                 <li><strong>Formation Colors to Teams</strong>: <strong>Black (1st string)</strong> fills Team 1, <strong>Gold (2nd string)</strong> fills Team 2, and <strong>Blue (3rd string)</strong> fills Team 3.</li>
                 <li><strong>4th & 5th String Backups</strong>: Deep formation backups populate active rotation slots so all athletes get practice reps.</li>
               </ul>
