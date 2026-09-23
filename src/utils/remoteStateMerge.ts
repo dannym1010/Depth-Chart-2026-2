@@ -661,7 +661,14 @@ export function mergeRemoteWeeklyData(
       scrimmageChart: mergedSC,
       opponent: remoteState.opponent || localState.opponent || '',
       wristbandData: safeWristbandData,
-      scouting: remoteState.scouting || localState.scouting,
+      scouting: {
+        ...localState.scouting,
+        ...remoteState.scouting,
+        hudlScout:
+          (remoteState.scouting?.hudlScout?.updatedAt || 0) >= (localState.scouting?.hudlScout?.updatedAt || 0)
+            ? remoteState.scouting?.hudlScout || localState.scouting?.hudlScout
+            : localState.scouting?.hudlScout || remoteState.scouting?.hudlScout,
+      },
       practiceDrillGroups: keepLocalDrills && (localState.practiceDrillGroups || []).length
         ? localState.practiceDrillGroups
         : mergePracticeDrillGroups(localState.practiceDrillGroups, remoteState.practiceDrillGroups),

@@ -964,6 +964,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
       {/* Embedded Scouting Tab */}
       {activeTab === 'scouting' && (
         <ScoutingView
+          key={`scout-${currentWeek}`}
           scouting={scouting}
           userRole={userRole}
           currentUser={currentUser}

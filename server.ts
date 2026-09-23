@@ -35,6 +35,9 @@ import {
   mergeLiveDrillSlotLayouts,
   mergePracticeDrillGroups,
 } from './src/components/practiceDrillsUtils';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 // Server-side State Persistence Directory
 const DATA_DIR = path.join(process.cwd(), 'data');

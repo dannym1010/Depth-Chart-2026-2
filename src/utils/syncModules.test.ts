@@ -834,3 +834,37 @@ describe('live drill multi-spot assignment', () => {
     assert.equal(merged[0].lineup.lt[0].num, '55');
   });
 });
+
+describe('hudl scout', () => {
+  it('parses a Hudl CSV play into offense run tendencies', async () => {
+    const { parseCsvRows, autoDetectColumnMapping, normalizeHudlRow } = await import('../hudlScout/utils/csvParser.ts');
+    const { calculateTendencies } = await import('../hudlScout/utils/tendencyEngine.ts');
+    const csv = `PLAY #,QTR,ODK,PLAY TYPE,DN,DIST,GN/LS,HASH,YARD LN
+1,1,O,Run,1,10,5,R,-35`;
+    const { headers, rows } = parseCsvRows(csv);
+    const mapping = autoDetectColumnMapping(headers);
+    const play = normalizeHudlRow(rows[0], mapping, 0);
+    assert.equal(play.odk, 'O');
+    const analysis = calculateTendencies([play]);
+    assert.equal(analysis.totalPlays, 1);
+    assert.equal(analysis.runPlays, 1);
+  });
+
+  it('builds a local gameplan from Hudl tendencies', async () => {
+    const { parseCsvRows, autoDetectColumnMapping, normalizeHudlRow } = await import('../hudlScout/utils/csvParser.ts');
+    const { calculateTendencies } = await import('../hudlScout/utils/tendencyEngine.ts');
+    const { buildLocalGameplan, answerCoachQuestion } = await import('../hudlScout/utils/buildLocalGameplan.ts');
+    const csv = `PLAY #,QTR,ODK,PLAY TYPE,DN,DIST,GN/LS,HASH,YARD LN
+1,1,O,Run,1,10,5,R,-35
+2,1,O,Pass,3,8,12,L,+40`;
+    const { headers, rows } = parseCsvRows(csv);
+    const mapping = autoDetectColumnMapping(headers);
+    const plays = rows.map((r, i) => normalizeHudlRow(r, mapping, i));
+    const analysis = calculateTendencies(plays);
+    const report = buildLocalGameplan(analysis, plays, 'Carmel');
+    assert.ok(report.executiveSummary.includes('Carmel'));
+    assert.ok(report.wristbandCallSheet.firstDownCalls.length > 0);
+    const answer = answerCoachQuestion('What do they do on 1st down?', analysis, plays, 'Carmel', report);
+    assert.ok(answer.toLowerCase().includes('1st'));
+  });
+});

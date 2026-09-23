@@ -8442,6 +8442,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
             {/* 4. Scouting Report */}
             {activeUnit === 'scouting' && (
               <ScoutingView
+                key={`scout-${activeTeamId}-${currentWeek}`}
                 scouting={currentWeekState.scouting || {}}
                 userRole={userRole}
                 currentUser={currentUser}

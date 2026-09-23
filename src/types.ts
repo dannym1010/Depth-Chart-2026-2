@@ -383,6 +383,14 @@ export interface ScoutingData {
   customHtmlReport?: string;
   tendenciesTree?: PlaybookGuideTree;
   tendenciesOrder?: PlaybookGuideOrder;
+  hudlScout?: {
+    plays?: any[];
+    datasetName?: string;
+    offensiveScheme?: string;
+    coachNotes?: string;
+    filters?: any;
+    updatedAt?: number;
+  };
 }
 
 export type DepthSubUnit = 'offense' | 'defense' | 'st' | 'groups' | 'scrimmage' | 'practice_live';

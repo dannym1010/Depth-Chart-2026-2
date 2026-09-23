@@ -2,5 +2,5 @@
   "name": "Mahopac 10U Operations Manager",
   "description": "Comprehensive youth football operations manager with Game Day Hub, Call Sheet, multi-wristband generator, scouting reports, playbook organizer, and practice planner.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": []
 }
