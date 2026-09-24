@@ -1468,11 +1468,10 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
                   Template:
                 </span>
                 <select
-                  defaultValue=""
+                  value=""
                   onChange={(e) => {
                     if (e.target.value) {
                       onApplyTemplate(e.target.value);
-                      e.target.value = '';
                     }
                   }}
                   className="bg-slate-800 border border-slate-600 text-xs font-semibold text-slate-200 rounded-lg px-2 py-1 focus:outline-none"

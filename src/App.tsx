@@ -92,6 +92,8 @@ import {
   setAdminPasscodeOnServer,
   ActiveUserSession,
   normalizePracticeTemplates,
+  mergePracticeTemplates,
+  practiceTemplatesFingerprint,
   normalizeCascadingDrills,
   CLIENT_ID,
   parseTimeString,
@@ -1727,10 +1729,19 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       }
     }
     if (!skipBoardFromGiantDoc && data.practiceTemplates) {
-      const normalizedTemplates = normalizePracticeTemplates(data.practiceTemplates);
-      setPracticeTemplates(normalizedTemplates);
-      latestStateRef.current.practiceTemplates = normalizedTemplates;
-      safeJSONSet('footballPracticeTemplates', normalizedTemplates);
+      const mergedTemplates = mergePracticeTemplates(
+        latestStateRef.current.practiceTemplates,
+        data.practiceTemplates,
+        { lastLocalEditTime: lastLocalEditTimeRef.current }
+      );
+      if (
+        practiceTemplatesFingerprint(mergedTemplates) !==
+        practiceTemplatesFingerprint(latestStateRef.current.practiceTemplates)
+      ) {
+        setPracticeTemplates(mergedTemplates);
+        latestStateRef.current.practiceTemplates = mergedTemplates;
+        safeJSONSet('footballPracticeTemplates', mergedTemplates);
+      }
     }
     if (!skipBoardFromGiantDoc && data.cascadingDrills) {
       if (Date.now() - lastLocalEditTimeRef.current < 15000 && activeUnitRef.current === 'drills') {
@@ -2524,10 +2535,19 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         safeJSONSet('footballCascadingDrills', normalizedDrills);
       }
       if (remote.practiceTemplates) {
-        const normalizedTemplates = normalizePracticeTemplates(remote.practiceTemplates);
-        setPracticeTemplates(normalizedTemplates);
-        latestStateRef.current.practiceTemplates = normalizedTemplates;
-        safeJSONSet('footballPracticeTemplates', normalizedTemplates);
+        const mergedTemplates = mergePracticeTemplates(
+          latestStateRef.current.practiceTemplates,
+          remote.practiceTemplates,
+          { lastLocalEditTime: lastLocalEditTimeRef.current }
+        );
+        if (
+          practiceTemplatesFingerprint(mergedTemplates) !==
+          practiceTemplatesFingerprint(latestStateRef.current.practiceTemplates)
+        ) {
+          setPracticeTemplates(mergedTemplates);
+          latestStateRef.current.practiceTemplates = mergedTemplates;
+          safeJSONSet('footballPracticeTemplates', mergedTemplates);
+        }
       }
       if (remote.liveDrillSlotLayouts && typeof remote.liveDrillSlotLayouts === 'object') {
         const mergedLayouts = mergeLiveDrillSlotLayouts(
@@ -6139,18 +6159,11 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         ...practiceTemplates,
         [trimmed]: deepClone(periodsToSave),
       };
+      lastLocalEditTimeRef.current = Date.now();
       setPracticeTemplates(next);
       latestStateRef.current.practiceTemplates = next;
       safeJSONSet('footballPracticeTemplates', next);
       debouncedSave('practice');
-
-      const { db } = getFirebaseServices();
-      if (db) {
-        db.collection('teamData')
-          .doc('depthChartData')
-          .set({ practiceTemplates: next, updatedAt: Date.now() }, { merge: true })
-          .catch((err: any) => console.warn('Firestore practice template save error:', err));
-      }
 
       alert(`Practice Template "${trimmed}" saved! You can now apply it to any practice plan.`);
     }
@@ -7650,10 +7663,15 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     // 5. Create new plan auto-populated with date, time, week folder, and day
     const newPracticeId = 'prac_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
     const defaultTemplateKey = isGame ? 'Pre-Game Warmup & Routine' : 'Standard Practice';
+    const allPracticeTemplates = {
+      ...DEFAULT_PRACTICE_TEMPLATES,
+      ...(latestStateRef.current.practiceTemplates || practiceTemplates || {}),
+    };
     const planTemplate =
-      templateName && DEFAULT_PRACTICE_TEMPLATES[templateName]
-        ? DEFAULT_PRACTICE_TEMPLATES[templateName]
-        : (DEFAULT_PRACTICE_TEMPLATES[defaultTemplateKey] || DEFAULT_PRACTICE_TEMPLATES['Standard Practice'] || []);
+      (templateName && allPracticeTemplates[templateName]) ||
+      allPracticeTemplates[defaultTemplateKey] ||
+      DEFAULT_PRACTICE_TEMPLATES['Standard Practice'] ||
+      [];
 
     const newPlan: PracticePlan = {
       id: newPracticeId,
@@ -9770,16 +9788,10 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
             const updated = { ...prev };
             updated[newName] = updated[oldName];
             delete updated[oldName];
+            lastLocalEditTimeRef.current = Date.now();
             safeJSONSet('footballPracticeTemplates', updated);
             latestStateRef.current.practiceTemplates = updated;
             debouncedSave('practice');
-            const { db } = getFirebaseServices();
-            if (db) {
-              db.collection('teamData')
-                .doc('depthChartData')
-                .set({ practiceTemplates: updated, updatedAt: Date.now() }, { merge: true })
-                .catch((err: any) => console.warn('Firestore template rename error:', err));
-            }
             return updated;
           });
         }}
@@ -9787,16 +9799,10 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
           setPracticeTemplates((prev) => {
             const updated = { ...prev };
             delete updated[name];
+            lastLocalEditTimeRef.current = Date.now();
             safeJSONSet('footballPracticeTemplates', updated);
             latestStateRef.current.practiceTemplates = updated;
             debouncedSave('practice');
-            const { db } = getFirebaseServices();
-            if (db) {
-              db.collection('teamData')
-                .doc('depthChartData')
-                .set({ practiceTemplates: updated, updatedAt: Date.now() }, { merge: true })
-                .catch((err: any) => console.warn('Firestore template delete error:', err));
-            }
             return updated;
           });
         }}

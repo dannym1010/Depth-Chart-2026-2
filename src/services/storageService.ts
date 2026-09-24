@@ -197,6 +197,59 @@ export function normalizePracticeTemplates(raw: any): Record<string, PracticePer
   return result;
 }
 
+function templateContentScore(periods: PracticePeriod[] | undefined): number {
+  if (!Array.isArray(periods)) return 0;
+  return periods.reduce((sum, p) => {
+    const stations = Array.isArray(p?.stations) ? p.stations.length : 0;
+    return sum + 1 + stations + (p?.category ? 1 : 0);
+  }, 0);
+}
+
+export function practiceTemplatesFingerprint(templates: Record<string, PracticePeriod[]> | undefined): string {
+  return Object.keys(templates || {})
+    .sort()
+    .map((name) => `${name}:${templateContentScore(templates?.[name])}`)
+    .join('|');
+}
+
+/**
+ * Union-merge practice templates so a stale/default cloud snapshot cannot wipe
+ * custom templates another coach still has locally.
+ */
+export function mergePracticeTemplates(
+  localRaw: any,
+  remoteRaw: any,
+  opts?: { lastLocalEditTime?: number; now?: number; protectMs?: number }
+): Record<string, PracticePeriod[]> {
+  const local = normalizePracticeTemplates(localRaw || {});
+  const remote = normalizePracticeTemplates(remoteRaw || {});
+  const now = opts?.now ?? Date.now();
+  const protect = now - (Number(opts?.lastLocalEditTime) || 0) < (opts?.protectMs ?? 25000);
+
+  const names = new Set([...Object.keys(local), ...Object.keys(remote)]);
+  const result: Record<string, PracticePeriod[]> = {};
+  names.forEach((name) => {
+    const localPlan = local[name];
+    const remotePlan = remote[name];
+    if (localPlan && !remotePlan) {
+      result[name] = localPlan;
+      return;
+    }
+    if (!localPlan && remotePlan) {
+      result[name] = remotePlan;
+      return;
+    }
+    const localScore = templateContentScore(localPlan);
+    const remoteScore = templateContentScore(remotePlan);
+    if (protect && localScore >= remoteScore) {
+      result[name] = localPlan;
+      return;
+    }
+    result[name] = remoteScore > localScore ? remotePlan : localPlan;
+  });
+  return result;
+}
+
 function findDefaultDrillsForFolder(folderName: string, defaults: DrillFolder[]): DrillItem[] {
   for (const def of defaults) {
     if (def.name.toLowerCase().trim() === folderName.toLowerCase().trim()) return def.drills || [];

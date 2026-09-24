@@ -1244,3 +1244,52 @@ describe('hudl scout', () => {
     assert.equal(cleared.sourceCleared, true);
   });
 });
+
+describe('practice template merge', () => {
+  it('keeps custom templates when a default-only cloud snapshot arrives', async () => {
+    const { mergePracticeTemplates } = await import('../services/storageService.ts');
+    const customPeriod = {
+      time: 12,
+      category: 'Indy',
+      format: 'static',
+      stations: [{ name: 'Inside run', desc: '', coach: '', focus: '' }],
+    };
+    const merged = mergePracticeTemplates(
+      { 'Tuesday Pads': [customPeriod] },
+      {}
+    );
+    assert.ok(merged['Tuesday Pads']);
+    assert.equal(merged['Tuesday Pads'].length, 1);
+    assert.equal(merged['Tuesday Pads'][0].category, 'Indy');
+    assert.ok(merged['Standard Practice']);
+  });
+
+  it('keeps the richer copy of a shared template name', async () => {
+    const { mergePracticeTemplates } = await import('../services/storageService.ts');
+    const thin = [{ time: 5, category: 'Stretch', format: 'static', stations: [] }];
+    const rich = [
+      { time: 10, category: 'Stretch', format: 'static', stations: [{ name: 'A', desc: '', coach: '', focus: '' }] },
+      { time: 15, category: 'Indy', format: 'static', stations: [{ name: 'B', desc: '', coach: '', focus: '' }] },
+    ];
+    const merged = mergePracticeTemplates(
+      { 'Team Script': thin },
+      { 'Team Script': rich }
+    );
+    assert.equal(merged['Team Script'].length, 2);
+  });
+
+  it('does not swap a just-saved template for a thinner remote copy', async () => {
+    const { mergePracticeTemplates } = await import('../services/storageService.ts');
+    const local = [
+      { time: 10, category: 'Install', format: 'static', stations: [{ name: '11s', desc: '', coach: '', focus: '' }] },
+      { time: 10, category: 'Team', format: 'static', stations: [{ name: 'Skelly', desc: '', coach: '', focus: '' }] },
+    ];
+    const remote = [{ time: 5, category: 'Stretch', format: 'static', stations: [] }];
+    const merged = mergePracticeTemplates(
+      { 'Game Week': local },
+      { 'Game Week': remote },
+      { lastLocalEditTime: Date.now() - 1000, now: Date.now() }
+    );
+    assert.equal(merged['Game Week'].length, 2);
+  });
+});

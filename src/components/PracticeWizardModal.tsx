@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   X,
   Sparkles,
@@ -174,10 +174,34 @@ export const PracticeWizardModal: React.FC<PracticeWizardModalProps> = ({
   const [autoNumberSessions, setAutoNumberSessions] = useState<boolean>(true);
   const [showPreviewList, setShowPreviewList] = useState<boolean>(false);
 
-  const availableTemplatesList = Object.keys({
-    ...DEFAULT_PRACTICE_TEMPLATES,
-    ...practiceTemplates,
-  });
+  const [openTemplateNames, setOpenTemplateNames] = useState<string[]>([]);
+  useEffect(() => {
+    if (!isOpen) {
+      setOpenTemplateNames([]);
+      return;
+    }
+    setOpenTemplateNames(
+      Object.keys({
+        ...DEFAULT_PRACTICE_TEMPLATES,
+        ...practiceTemplates,
+      })
+    );
+  }, [isOpen]);
+
+  const availableTemplatesList = useMemo(() => {
+    const names = new Set(
+      openTemplateNames.length
+        ? openTemplateNames
+        : Object.keys({
+            ...DEFAULT_PRACTICE_TEMPLATES,
+            ...practiceTemplates,
+          })
+    );
+    Object.values(daysConfig).forEach((day) => {
+      if (day?.templateName) names.add(day.templateName);
+    });
+    return Array.from(names);
+  }, [openTemplateNames, practiceTemplates, daysConfig]);
 
   // Toggle Week selection
   const handleToggleWeek = (wk: string) => {
