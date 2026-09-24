@@ -80,7 +80,6 @@ import {
   patchSharedWeekCloud,
   isBoardPatchScope,
   fetchSharedBoardCloud,
-  fetchSharedWeekCloud,
   subscribeSharedBoardCloud,
   subscribeServerEvents,
   fetchServerLocks,
@@ -2782,13 +2781,6 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     applySharedBoardFromRemote(remote);
   };
 
-  const hydrateWeekBoardFromCloud = async () => {
-    const teamId = activeTeamIdRef.current;
-    const week = normalizeScoutWeekKey(currentWeekRef.current);
-    const remote = await fetchSharedWeekCloud(teamId, week);
-    if (remote.weekSlice) applySharedBoardFromRemote(remote);
-  };
-
   const publishHudlScoutToCloud = async () => {
     const teamId = activeTeamIdRef.current;
     const week = normalizeScoutWeekKey(currentWeekRef.current);
@@ -3014,12 +3006,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         }
       });
 
-      // 4. Week board poll every 1.2s so a missed live snapshot still shows up quickly
-      const weekPollInterval = setInterval(() => {
-        if (!isMounted || document.hidden) return;
-        void hydrateWeekBoardFromCloud();
-      }, 1200);
-
+      // 4. Resilient polling fallback every 4 seconds (throttled when tab is hidden or idle)
       const pollInterval = setInterval(async () => {
         if (!isMounted) return;
         // Optimization: pause polling when browser tab is hidden or user is idle to save CPU & memory
@@ -3102,7 +3089,6 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
 
       return () => {
         if (typeof unsubscribeSSE === 'function') unsubscribeSSE();
-        clearInterval(weekPollInterval);
         clearInterval(pollInterval);
         window.removeEventListener('focus', handleWindowFocus);
         document.removeEventListener('visibilitychange', handleWindowFocus);

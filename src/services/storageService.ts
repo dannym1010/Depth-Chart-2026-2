@@ -968,34 +968,6 @@ export async function patchSharedWeekCloud(payload: {
   }
 }
 
-export async function fetchSharedWeekCloud(
-  teamId: string,
-  week: string
-): Promise<SharedBoardCloudUpdate> {
-  try {
-    const { db } = getFirebaseServices();
-    if (!db) return {};
-    const ref = db.collection('teamData').doc(opsWeekDocId(teamId, week));
-    let snap: any;
-    try {
-      snap = await ref.get({ source: 'server' });
-    } catch {
-      snap = await ref.get();
-    }
-    if (!snap?.exists) return {};
-    const weekSnap = snap.data();
-    if (!weekSnap) return {};
-    return {
-      weekSlice: weekSnap,
-      weekUpdatedAt: weekSnap.updatedAt,
-      writerClientId: weekSnap.writerClientId,
-    };
-  } catch (err) {
-    console.warn('fetchSharedWeekCloud error:', err);
-    return {};
-  }
-}
-
 export async function fetchSharedBoardCloud(
   teamId: string,
   week: string
@@ -1097,7 +1069,6 @@ export function subscribeSharedBoardCloud(
 
   const listen = (docId: string, mapFn: (data: any) => SharedBoardCloudUpdate) =>
     db.collection('teamData').doc(docId).onSnapshot(
-      { includeMetadataChanges: true },
       (snap: any) => {
         if (!snap?.exists) return;
         const data = snap.data();
