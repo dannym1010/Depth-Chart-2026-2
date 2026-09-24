@@ -12,6 +12,7 @@ import {
   mergePffReviews,
   mergePracticePlansByLastEdited,
   applySharedWeekSliceDepth,
+  applySharedFormations,
   mergeRemoteWeeklyData,
   mergeScoutingReports,
   mergeStaffByEmail,
@@ -392,6 +393,22 @@ describe('remoteStateMerge', () => {
       now
     );
     assert.equal(fromSlice['21-qb'].length, 0);
+  });
+
+  it('keeps a renamed position and formation order while this device is still editing', () => {
+    const now = Date.now();
+    const recent = new Map<string, number>([['form_a', now], ['form_b', now]]);
+    const local = [
+      form('form_b', '22', 'offense', 'b-qb'),
+      { ...form('form_a', '21', 'offense', 'a-qb'), rows: [{ id: 'r', positions: [{ id: 'a-qb', name: 'QB 1s' }] }] },
+    ] as FormationBoard[];
+    const remote = [
+      form('form_a', '21', 'offense', 'a-qb'),
+      form('form_b', '22', 'offense', 'b-qb'),
+    ];
+    const merged = applySharedFormations(local, remote, recent, now, now);
+    assert.equal(merged[0].id, 'form_b');
+    assert.equal(merged[1].rows[0].positions[0]?.name, 'QB 1s');
   });
 
   it('merges staff by email without dropping local idle timeout', () => {

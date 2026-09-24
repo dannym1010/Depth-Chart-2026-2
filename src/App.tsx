@@ -168,6 +168,7 @@ import {
   collectOwnTeamHudlFromWeekly,
   mergeScheduleEvents,
   applySharedWeekSliceDepth,
+  applySharedFormations,
   mergeScoutingReports,
   normalizeScoutWeekKey,
   pickScoutBundle,
@@ -2089,6 +2090,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       scope.startsWith('position_') ||
       scope.startsWith('player_') ||
       scope.startsWith('formation_') ||
+      scope.startsWith('row_') ||
       scope.startsWith('practice') ||
       scope.startsWith('wristband') ||
       scope.startsWith('call_sheet') ||
@@ -2416,7 +2418,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
   const applySharedBoardFromRemote = (remote: SharedBoardCloudUpdate) => {
     const take = (key: string, at?: number) => {
       const n = Number(at) || 0;
-      if (n && n < (lastAppliedOpsAtRef.current[key] || 0)) return false;
+      if (n && n <= (lastAppliedOpsAtRef.current[key] || 0)) return false;
       if (n) lastAppliedOpsAtRef.current[key] = n;
       return true;
     };
@@ -2462,8 +2464,12 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
               slice.scrimmageChart,
               recentSpots
             ),
-            formations:
-              Array.isArray(slice.formations) && slice.formations.length ? slice.formations : cur.formations,
+            formations: applySharedFormations(
+              cur.formations,
+              slice.formations,
+              recentlyModifiedFormationsRef.current,
+              lastLocalEditTimeRef.current
+            ),
             opponent: slice.opponent || cur.opponent || '',
             wristbandData: slice.wristbandData || cur.wristbandData,
             scouting: mergeScoutingReports(cur.scouting, slice.scouting),
@@ -2616,9 +2622,15 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     }
     if (take('formations', remote.formationsUpdatedAt)) {
       if (Array.isArray(remote.defaultFormations) && remote.defaultFormations.length) {
-        setDefaultFormations(remote.defaultFormations);
-        latestStateRef.current.defaultFormations = remote.defaultFormations;
-        safeJSONSet('footballDefaultFormations', remote.defaultFormations);
+        const nextDefaults = applySharedFormations(
+          latestStateRef.current.defaultFormations,
+          remote.defaultFormations,
+          recentlyModifiedFormationsRef.current,
+          lastLocalEditTimeRef.current
+        );
+        setDefaultFormations(nextDefaults);
+        latestStateRef.current.defaultFormations = nextDefaults;
+        safeJSONSet('footballDefaultFormations', nextDefaults);
       }
       if (Array.isArray(remote.deletedFormationIds)) {
         setDeletedFormationIds(remote.deletedFormationIds);
@@ -5394,6 +5406,9 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     });
 
     lastLocalEditTimeRef.current = Date.now();
+    reorderedUnitForms.forEach((f) => {
+      if (f?.id) recentlyModifiedFormationsRef.current.set(f.id, lastLocalEditTimeRef.current);
+    });
     const scopedKey = getScopedWeekKey(activeTeamId, currentWeek);
 
     // Synchronize across all weeks for active team and legacy key

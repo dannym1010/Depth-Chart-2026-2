@@ -83,6 +83,34 @@ export function pickBetterFormation(
   return local;
 }
 
+export function applySharedFormations(
+  localForms: FormationBoard[] | undefined,
+  remoteForms: FormationBoard[] | undefined,
+  recentlyModifiedFormations?: Map<string, number>,
+  lastLocalEditTime: number = 0,
+  now: number = Date.now()
+): FormationBoard[] {
+  const local = Array.isArray(localForms) ? localForms.filter((f) => f && f.id) : [];
+  const remote = Array.isArray(remoteForms) ? remoteForms.filter((f) => f && f.id) : [];
+  if (!remote.length) return local;
+  if (!local.length) return remote;
+
+  const keepLocalLayout =
+    now - lastLocalEditTime < RECENT_POSITION_PROTECT_MS ||
+    [...(recentlyModifiedFormations?.values() || [])].some((t) => now - t < RECENT_POSITION_PROTECT_MS);
+
+  if (keepLocalLayout) {
+    const remoteById = new Map(remote.map((f) => [f.id, f]));
+    return local.map((lf) => {
+      const editedAt = recentlyModifiedFormations?.get(lf.id);
+      if (editedAt !== undefined && now - editedAt < RECENT_POSITION_PROTECT_MS) return lf;
+      return pickBetterFormation(lf, remoteById.get(lf.id)) || lf;
+    });
+  }
+
+  return remote;
+}
+
 export function scoutFingerprint(scout: any): string {
   if (!scout || typeof scout !== 'object') return '';
   const plays = Array.isArray(scout.plays) ? scout.plays.length : 0;
