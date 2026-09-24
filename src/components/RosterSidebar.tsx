@@ -59,7 +59,7 @@ export const RosterSidebar: React.FC<RosterSidebarProps> = ({
     );
 
     return (
-      <div className="w-full lg:w-72 bg-slate-900 rounded-2xl border border-slate-800 shadow-xl p-4 sticky top-[170px] flex flex-col max-h-[calc(100vh-190px)] print:hidden">
+      <div className="w-full h-full min-h-0 bg-slate-900 rounded-2xl border border-slate-800 shadow-xl p-4 flex flex-col print:hidden">
         <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-300">
@@ -97,7 +97,7 @@ export const RosterSidebar: React.FC<RosterSidebarProps> = ({
           />
         </div>
 
-        <ul className="flex-1 overflow-y-auto space-y-1.5 pr-1 no-scrollbar">
+        <ul className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-1.5 pr-1 no-scrollbar">
           {filteredPlays.map((play, idx) => {
             const playNum = idx + 1;
             const isLeft = playNum <= 16;
@@ -166,7 +166,7 @@ export const RosterSidebar: React.FC<RosterSidebarProps> = ({
     : currentWeekState.depthChart || {};
 
   return (
-    <div className="w-full lg:w-80 bg-slate-900 rounded-2xl border border-slate-800 shadow-xl p-4 sticky top-[170px] flex flex-col max-h-[calc(100vh-190px)] print:hidden">
+    <div className="w-full h-full min-h-0 bg-slate-900 rounded-2xl border border-slate-800 shadow-xl p-4 flex flex-col print:hidden">
       {/* Header */}
       <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-2">
         <div className="flex items-center gap-2 min-w-0">
@@ -220,7 +220,7 @@ export const RosterSidebar: React.FC<RosterSidebarProps> = ({
       </div>
 
       {/* Roster List */}
-      <ul className="flex-1 overflow-y-auto space-y-1.5 pr-1 no-scrollbar">
+      <ul className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-1.5 pr-1 no-scrollbar">
         {filteredRoster.map((player) => {
           const comp = calculatePlayerCompliance(player);
           // Calculate placements in current view

@@ -9527,7 +9527,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
           {!['home', 'mobile_hub', 'game_day', 'wristband', 'drills', 'scouting', 'hudl_scout', 'guide', 'practice', 'users', 'schedule', 'compliance', 'call_sheet', 'whiteboard', 'ppr'].includes(
             activeUnit
           ) && (
-            <div className="hidden lg:block shrink-0">
+            <div className="hidden lg:block shrink-0 w-80 self-start sticky top-[10rem] z-20 h-[calc(100dvh-11rem)] print:hidden">
             <RosterSidebar
               roster={activeTeamRoster}
               activeTeamName={currentActiveTeam.name}
