@@ -508,6 +508,14 @@ describe('remoteStateMerge', () => {
       2500
     );
     assert.equal(spots['a-qb'][0].name, 'Sam');
+    const liveOtherCoach = applySharedWeekSliceDepth(
+      { 'a-qb': [player('p1', 'Dan')] },
+      { 'a-qb': [player('p3', 'Sam')] },
+      recent,
+      now,
+      0
+    );
+    assert.equal(liveOtherCoach['a-qb'][0].name, 'Sam');
   });
 
   it('keeps a moved 4-4 first after refresh when cloud still has factory order', () => {

@@ -927,6 +927,7 @@ export default function App() {
   const pendingScheduleSaveRef = useRef<boolean>(false);
   const isImportingRef = useRef<boolean>(false);
   const isRemoteSyncRef = useRef<boolean>(false);
+  const remoteSyncGenRef = useRef(0);
   const pendingSaveRef = useRef<{ scope: string; extraMeta?: Record<string, any> } | null>(null);
   const lastAppliedOpsAtRef = useRef<Record<string, number>>({});
   const lastWeekPatchSigRef = useRef('');
@@ -1993,15 +1994,16 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       }, 400);
     }
 
-    // Reset isRemoteSyncRef quickly after the React state cycle
-    setTimeout(() => {
+    const gen = ++remoteSyncGenRef.current;
+    window.setTimeout(() => {
+      if (gen !== remoteSyncGenRef.current) return;
       isRemoteSyncRef.current = false;
       const pending = pendingSaveRef.current;
-      if (pending) {
-        pendingSaveRef.current = null;
+      pendingSaveRef.current = null;
+      if (pending && isBoardPatchScope(pending.scope)) {
         void saveStateToStorage(pending.scope, pending.extraMeta);
       }
-    }, 150);
+    }, 800);
 
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     setSyncStatus({ text: `✅ Live Synced (${timeStr})`, color: '#22c55e' });
@@ -2009,6 +2011,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
 
   // Trigger Save to LocalStorage, Server API & Firestore
   const saveStateToStorage = async (scope: string = 'all', extraMeta?: Record<string, any>) => {
+    if (isRemoteSyncRef.current && (scope === 'all' || scope === 'formation')) return;
     const currentState = latestStateRef.current;
 
     if (isBoardPatchScope(scope)) {
@@ -2470,6 +2473,18 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
   };
 
   const applySharedBoardFromRemote = (remote: SharedBoardCloudUpdate) => {
+    isRemoteSyncRef.current = true;
+    const remoteGen = ++remoteSyncGenRef.current;
+    window.setTimeout(() => {
+      if (remoteGen !== remoteSyncGenRef.current) return;
+      isRemoteSyncRef.current = false;
+      const pending = pendingSaveRef.current;
+      pendingSaveRef.current = null;
+      if (pending && isBoardPatchScope(pending.scope)) {
+        void saveStateToStorage(pending.scope, pending.extraMeta);
+      }
+    }, 800);
+
     const take = (key: string, at?: number) => {
       const n = Number(at) || 0;
       if (remote.writerClientId && remote.writerClientId === CLIENT_ID) {
@@ -2529,7 +2544,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       const scopedKey = getScopedWeekKey(teamId, week);
       const recentSpots = recentlyModifiedPositionsRef.current;
       const recentForms = recentlyModifiedFormationsRef.current;
-      const liveProtectMs = 2500;
+      const liveProtectMs = otherWriter ? 0 : 2500;
       const now = Date.now();
       setWeeklyData((prev) => {
         const patch = (key: string) => {
@@ -3583,8 +3598,9 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     }
   }, [scheduleEvents]);
 
-  // Sync state changes
+  // Sync state changes (skip while applying another coach so this screen does not write the old board back)
   useEffect(() => {
+    if (isRemoteSyncRef.current) return;
     debouncedSave('all');
   }, [
     weeklyData,
