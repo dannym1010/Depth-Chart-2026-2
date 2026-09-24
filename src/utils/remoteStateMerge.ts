@@ -67,15 +67,39 @@ export function formationFillScore(form?: FormationBoard | null): number {
   return n;
 }
 
+export function formationLayoutKey(form?: FormationBoard | null): string {
+  if (!form) return '';
+  const rows = Array.isArray(form.rows)
+    ? form.rows
+        .map((row) => {
+          const slots = Array.isArray(row?.positions)
+            ? row.positions.map((pos) => (pos ? `${pos.id}:${String(pos.name || '').trim()}` : '_')).join(',')
+            : '';
+          return `${row?.label || ''}:${slots}`;
+        })
+        .join('|')
+    : '';
+  return `${form.name || ''}|${form.unit || ''}|${rows}`;
+}
+
 export function pickBetterFormation(
   local?: FormationBoard | null,
   remote?: FormationBoard | null
 ): FormationBoard | undefined {
   if (!local) return remote || undefined;
   if (!remote) return local;
+  const localEdited = Number(local.lastEdited) || 0;
+  const remoteEdited = Number(remote.lastEdited) || 0;
+  if (localEdited !== remoteEdited) return localEdited >= remoteEdited ? local : remote;
   const localScore = formationFillScore(local);
   const remoteScore = formationFillScore(remote);
   if (localScore !== remoteScore) return localScore >= remoteScore ? local : remote;
+  if (formationLayoutKey(local) !== formationLayoutKey(remote)) {
+    const init = INITIAL_DEFAULT_FORMATIONS.find((f) => f.id === local.id);
+    if (init && formationLayoutKey(remote) === formationLayoutKey(init)) return local;
+    if (init && formationLayoutKey(local) === formationLayoutKey(init)) return remote;
+    return local;
+  }
   const init = INITIAL_DEFAULT_FORMATIONS.find((f) => f.id === local.id);
   const initScore = formationFillScore(init);
   if (localScore > initScore && remoteScore === initScore) return local;
@@ -99,16 +123,34 @@ export function applySharedFormations(
     now - lastLocalEditTime < RECENT_POSITION_PROTECT_MS ||
     [...(recentlyModifiedFormations?.values() || [])].some((t) => now - t < RECENT_POSITION_PROTECT_MS);
 
-  if (keepLocalLayout) {
-    const remoteById = new Map(remote.map((f) => [f.id, f]));
-    return local.map((lf) => {
-      const editedAt = recentlyModifiedFormations?.get(lf.id);
-      if (editedAt !== undefined && now - editedAt < RECENT_POSITION_PROTECT_MS) return lf;
-      return pickBetterFormation(lf, remoteById.get(lf.id)) || lf;
-    });
-  }
-
-  return remote;
+  const localById = new Map(local.map((f) => [f.id, f]));
+  const remoteById = new Map(remote.map((f) => [f.id, f]));
+  const maxEdited = (forms: FormationBoard[]) =>
+    forms.reduce((max, f) => Math.max(max, Number(f.lastEdited) || 0), 0);
+  const order = keepLocalLayout || maxEdited(local) >= maxEdited(remote) ? local : remote;
+  const seen = new Set<string>();
+  const merged: FormationBoard[] = [];
+  order.forEach((base) => {
+    const loc = localById.get(base.id);
+    const rem = remoteById.get(base.id);
+    const editedAt = recentlyModifiedFormations?.get(base.id);
+    const keepThis = keepLocalLayout && editedAt !== undefined && now - editedAt < RECENT_POSITION_PROTECT_MS;
+    const next = keepThis ? loc || base : pickBetterFormation(loc, rem) || loc || rem;
+    if (next && !seen.has(next.id)) {
+      seen.add(next.id);
+      merged.push(next);
+    }
+  });
+  const leftover = keepLocalLayout || maxEdited(local) >= maxEdited(remote) ? remote : local;
+  leftover.forEach((form) => {
+    if (seen.has(form.id)) return;
+    const next = pickBetterFormation(localById.get(form.id), remoteById.get(form.id)) || form;
+    if (next && !seen.has(next.id)) {
+      seen.add(next.id);
+      merged.push(next);
+    }
+  });
+  return merged;
 }
 
 export function scoutFingerprint(scout: any): string {
@@ -216,6 +258,89 @@ export function mergeOwnTeamHudlMap(local?: Record<string, any>, remote?: Record
     out[teamId] = pickScoutBundle(loc[teamId], rem[teamId]);
   }
   return out;
+}
+
+function hudlBundleHasContent(bundle: any): boolean {
+  if (!bundle || typeof bundle !== 'object') return false;
+  if (Array.isArray(bundle.plays) && bundle.plays.length > 0) return true;
+  if (Array.isArray(bundle.games) && bundle.games.length > 0) return true;
+  if (Array.isArray(bundle.ownTeam?.plays) && bundle.ownTeam.plays.length > 0) return true;
+  return Boolean(bundle.sourceCleared || bundle.ownTeam?.sourceCleared);
+}
+
+export function collectHudlScoutBackup(
+  weeklyData?: Record<string, any>,
+  ownTeamHudlScout?: Record<string, any>
+): { ownTeam: Record<string, any>; opponentByWeek: Record<string, any> } {
+  const ownTeam: Record<string, any> = { ...(ownTeamHudlScout && typeof ownTeamHudlScout === 'object' ? ownTeamHudlScout : {}) };
+  const opponentByWeek: Record<string, any> = {};
+  Object.entries(weeklyData || {}).forEach(([key, week]) => {
+    const scout = (week as any)?.scouting?.hudlScout;
+    if (hudlBundleHasContent(scout)) opponentByWeek[key] = scout;
+    if (hudlBundleHasContent(scout?.ownTeam)) {
+      const teamId = key.includes('__week_') ? key.split('__week_')[0] : 'team_10u';
+      ownTeam[teamId] = pickScoutBundle(ownTeam[teamId], scout.ownTeam);
+    }
+  });
+  return { ownTeam, opponentByWeek };
+}
+
+export function summarizeHudlScoutBackup(parsed: any): {
+  playCount: number;
+  weekCount: number;
+  teamCount: number;
+  isAvailable: boolean;
+} {
+  const uploads = parsed?.hudlScoutUploads;
+  const own = (uploads?.ownTeam || parsed?.ownTeamHudlScout || {}) as Record<string, any>;
+  const byWeek = (uploads?.opponentByWeek || {}) as Record<string, any>;
+  let playCount = 0;
+  const weekKeys = new Set<string>();
+  const addWeek = (key: string, scout: any) => {
+    if (!hudlBundleHasContent(scout)) return;
+    weekKeys.add(key);
+    playCount += Array.isArray(scout.plays) ? scout.plays.length : 0;
+  };
+  Object.entries(byWeek).forEach(([key, scout]) => addWeek(key, scout));
+  if (!weekKeys.size && parsed?.weeklyData && typeof parsed.weeklyData === 'object') {
+    Object.entries(parsed.weeklyData).forEach(([key, week]: [string, any]) => {
+      addWeek(key, week?.scouting?.hudlScout);
+    });
+  }
+  let teamCount = 0;
+  Object.values(own).forEach((scout) => {
+    if (!hudlBundleHasContent(scout)) return;
+    teamCount += 1;
+    playCount += Array.isArray((scout as any).plays) ? (scout as any).plays.length : 0;
+  });
+  return {
+    playCount,
+    weekCount: weekKeys.size,
+    teamCount,
+    isAvailable: playCount > 0 || weekKeys.size > 0 || teamCount > 0,
+  };
+}
+
+export function applyHudlScoutBackup(
+  weeklyData: Record<string, any> | undefined,
+  currentOwn: Record<string, any> | undefined,
+  backup: { ownTeam?: Record<string, any>; opponentByWeek?: Record<string, any> } | undefined
+): { weeklyData: Record<string, any>; ownTeamHudlScout: Record<string, any> } {
+  const nextWeekly: Record<string, any> = { ...(weeklyData || {}) };
+  Object.entries(backup?.opponentByWeek || {}).forEach(([key, scout]) => {
+    const cur = nextWeekly[key] && typeof nextWeekly[key] === 'object' ? nextWeekly[key] : {};
+    nextWeekly[key] = {
+      ...cur,
+      scouting: {
+        ...(cur.scouting || {}),
+        hudlScout: pickScoutBundle(cur.scouting?.hudlScout, scout),
+      },
+    };
+  });
+  return {
+    weeklyData: nextWeekly,
+    ownTeamHudlScout: mergeOwnTeamHudlMap(currentOwn, backup?.ownTeam),
+  };
 }
 
 export function collectOwnTeamHudlFromWeekly(weeklyData?: Record<string, any>) {

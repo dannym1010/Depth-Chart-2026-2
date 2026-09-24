@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { FormationBoard, PracticePeriod, StaffCoach, Team, DrillFolder, SeasonConfig, ScheduleEvent, WeekState } from '../types';
 import { getSeasonWeekList, getWeekDisplayLabelWithOpponent, formatWeekLabel } from '../utils/seasonWeekUtils';
+import { summarizeHudlScoutBackup } from '../utils/remoteStateMerge';
 import { canUseLocalDeveloperLogin } from '../utils/localDeveloperAuth';
 
 /* =========================================================================
@@ -1805,6 +1806,7 @@ export function inspectBackupModules(raw: any): ModuleInfo[] {
   // Game Day Play Database
   const hasPlayDb = Array.isArray(parsed.playDatabase) && parsed.playDatabase.length > 0;
   const playDbCount = hasPlayDb ? parsed.playDatabase.length : 0;
+  const hudlSummary = summarizeHudlScoutBackup(parsed);
 
   return [
     {
@@ -1918,6 +1920,17 @@ export function inspectBackupModules(raw: any): ModuleInfo[] {
       countLabel: hasPlayDb ? `${playDbCount} game day plays` : 'Not found in file',
       description: 'Master catalog of tagged plays with personnel groupings, motions, and run/pass tags',
       isAvailable: hasPlayDb,
+    },
+    {
+      key: 'hudlScout',
+      name: 'Hudl Scout uploads',
+      category: 'Scouting',
+      icon: <FileText className="w-5 h-5 text-orange-400" />,
+      countLabel: hudlSummary.isAvailable
+        ? `${hudlSummary.playCount} plays • ${hudlSummary.weekCount} opponent weeks • ${hudlSummary.teamCount} our-team files`
+        : 'Not found in file',
+      description: 'Uploaded Hudl CSV/Excel scout reports for opponents and our team',
+      isAvailable: hudlSummary.isAvailable,
     },
     {
       key: 'roster',

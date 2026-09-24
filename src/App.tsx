@@ -168,6 +168,8 @@ import {
   mergeStaffByEmail,
   mergeOwnTeamHudlMap,
   collectOwnTeamHudlFromWeekly,
+  collectHudlScoutBackup,
+  applyHudlScoutBackup,
   mergeScheduleEvents,
   applySharedWeekSliceDepth,
   applySharedFormations,
@@ -934,7 +936,13 @@ export default function App() {
         : []
     )
   );
-  const recentlyModifiedFormationsRef = useRef<Map<string, number>>(new Map());
+  const recentlyModifiedFormationsRef = useRef<Map<string, number>>(
+    new Map(
+      typeof window !== 'undefined'
+        ? (safeJSONParse('footballRecentlyModifiedFormations', []) || [])
+        : []
+    )
+  );
 
   // Helper to persistently record local position modifications
   const recordPositionEdit = (posId: string) => {
@@ -2701,6 +2709,51 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     }
   };
 
+  const republishRestoredHudlScout = async (
+    weekly: Record<string, any>,
+    ownMap: Record<string, any>
+  ) => {
+    const seen = new Set<string>();
+    for (const [key, week] of Object.entries(weekly || {})) {
+      const scout = (week as any)?.scouting?.hudlScout;
+      const hasOpp =
+        (Array.isArray(scout?.plays) && scout.plays.length > 0) || Boolean(scout?.sourceCleared);
+      if (!hasOpp) continue;
+      let teamId = activeTeamIdRef.current;
+      let weekKey = normalizeScoutWeekKey(key);
+      if (key.includes('__week_')) {
+        const [t, w] = key.split('__week_');
+        teamId = t || teamId;
+        weekKey = normalizeScoutWeekKey(w);
+      }
+      const stamp = `${teamId}|${weekKey}`;
+      if (seen.has(stamp)) continue;
+      seen.add(stamp);
+      const ownTeamScout = ownMap?.[teamId] || ownMap?.team_10u;
+      const hasOwn =
+        (Array.isArray(ownTeamScout?.plays) && ownTeamScout.plays.length > 0) ||
+        Boolean(ownTeamScout?.sourceCleared);
+      await saveHudlScoutCloud({
+        teamId,
+        week: weekKey,
+        opponentScout: scout,
+        ownTeamScout: hasOwn ? ownTeamScout : undefined,
+      });
+    }
+    for (const [teamId, ownTeamScout] of Object.entries(ownMap || {})) {
+      const hasOwn =
+        (Array.isArray(ownTeamScout?.plays) && ownTeamScout.plays.length > 0) ||
+        Boolean(ownTeamScout?.sourceCleared);
+      if (!hasOwn) continue;
+      if ([...seen].some((stamp) => stamp.startsWith(`${teamId}|`))) continue;
+      await saveHudlScoutCloud({
+        teamId,
+        week: normalizeScoutWeekKey(currentWeekRef.current),
+        ownTeamScout,
+      });
+    }
+  };
+
   const handleForceRefresh = async () => {
     setSyncStatus({ text: '🔄 Fetching Latest Cloud Data...', color: '#f59e0b' });
     try {
@@ -4255,9 +4308,14 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
   ) => {
     const now = Date.now();
     lastLocalEditTimeRef.current = now;
+    safeJSONSet('footballLastLocalEditTime', now);
 
-    if (Array.isArray(newFormations)) {
-      newFormations.forEach((f) => {
+    const stampedFormations = Array.isArray(newFormations)
+      ? newFormations.map((f) => (f && f.id ? { ...f, lastEdited: now } : f))
+      : newFormations;
+
+    if (Array.isArray(stampedFormations)) {
+      stampedFormations.forEach((f) => {
         if (f && f.id) {
           recentlyModifiedFormationsRef.current.set(f.id, now);
           if (Array.isArray(f.rows)) {
@@ -4280,13 +4338,21 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         if (pid) recentlyModifiedPositionsRef.current.set(pid, now);
       });
     }
+    safeJSONSet(
+      'footballRecentlyModifiedPositions',
+      Array.from(recentlyModifiedPositionsRef.current.entries())
+    );
+    safeJSONSet(
+      'footballRecentlyModifiedFormations',
+      Array.from(recentlyModifiedFormationsRef.current.entries())
+    );
 
     const scopedKey = getScopedWeekKey(activeTeamId, currentWeek);
     const prev = latestStateRef.current.weeklyData || weeklyData;
     const existing = resolveWeekState(prev, activeTeamId, currentWeek);
     const updatedWeekState: WeekState = {
       ...existing,
-      formations: newFormations,
+      formations: stampedFormations,
     };
     const updatedAll: Record<string, WeekState> = {
       ...prev,
@@ -4302,9 +4368,9 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     setWeeklyData(updatedAll);
 
     if (syncToDefaults) {
-      setDefaultFormations(newFormations);
-      safeJSONSet('footballDefaultFormations', newFormations);
-      latestStateRef.current.defaultFormations = newFormations;
+      setDefaultFormations(stampedFormations);
+      safeJSONSet('footballDefaultFormations', stampedFormations);
+      latestStateRef.current.defaultFormations = stampedFormations;
     }
 
     const fallbackUnit =
@@ -6936,8 +7002,15 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         currentWeekState.wristbandData ||
         INITIAL_TWO_WRISTBANDS_DATA;
 
+      const weeklyForBackup = latestStateRef.current.weeklyData || weeklyData;
+      const ownHudlForBackup =
+        latestStateRef.current.ownTeamHudlScout || ownTeamHudlScout || {};
+      const hudlScoutUploads = collectHudlScoutBackup(weeklyForBackup, ownHudlForBackup);
+
       const fullBackup = {
-        weeklyData,
+        weeklyData: weeklyForBackup,
+        ownTeamHudlScout: ownHudlForBackup,
+        hudlScoutUploads,
         defaultFormations,
         practiceData,
         practiceTemplates,
@@ -7046,6 +7119,13 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       const importedTeams = shouldImport('roster') ? parsed.teams || null : null;
       const importedSeasonConfig = shouldImport('scheduleEvents') ? parsed.seasonConfig || null : null;
       const importedAttendance = shouldImport('scheduleEvents') ? parsed.attendanceLogs || null : null;
+      const shouldImportHudl = shouldImport('hudlScout') || shouldImport('hudlScoutUploads');
+      const importedHudlUploads = shouldImportHudl
+        ? parsed.hudlScoutUploads ||
+          (parsed.ownTeamHudlScout || parsed.weeklyData
+            ? collectHudlScoutBackup(parsed.weeklyData, parsed.ownTeamHudlScout)
+            : null)
+        : null;
 
       // Un-delete formations and ensure no formations are suppressed by stale deletedFormationIds
       const restoredFormationIds = new Set<string>();
@@ -7215,6 +7295,22 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       if (importedAttendance) {
         setAttendanceLogs(importedAttendance);
         safeJSONSet('footballAttendanceLogs', importedAttendance);
+      }
+
+      if (importedHudlUploads) {
+        const applied = applyHudlScoutBackup(
+          latestStateRef.current.weeklyData || weeklyData,
+          latestStateRef.current.ownTeamHudlScout || ownTeamHudlScout,
+          importedHudlUploads
+        );
+        setWeeklyData(applied.weeklyData);
+        latestStateRef.current.weeklyData = applied.weeklyData;
+        safeJSONSet('footballWeeklyData', applied.weeklyData);
+        setOwnTeamHudlScout(applied.ownTeamHudlScout);
+        latestStateRef.current.ownTeamHudlScout = applied.ownTeamHudlScout;
+        safeJSONSet('footballOwnTeamHudlScout', applied.ownTeamHudlScout);
+        restoredList.push('Hudl Scout uploads');
+        void republishRestoredHudlScout(applied.weeklyData, applied.ownTeamHudlScout);
       }
 
       // Direct synchronous push to Cloud Firestore keeping unselected fields intact

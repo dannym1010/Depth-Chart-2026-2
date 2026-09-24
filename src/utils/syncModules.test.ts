@@ -411,6 +411,46 @@ describe('remoteStateMerge', () => {
     assert.equal(merged[1].rows[0].positions[0]?.name, 'QB 1s');
   });
 
+  it('keeps a moved depth-chart position after refresh when cloud still has the old layout', () => {
+    const now = 1_700_000_000_000;
+    const moved = {
+      ...form('form_a', '21', 'offense', 'a-qb'),
+      lastEdited: now,
+      rows: [
+        { id: 'r1', positions: [null, { id: 'a-qb', name: 'QB' }] },
+        { id: 'r2', positions: [{ id: 'a-rb', name: 'RB' }] },
+      ],
+    } as FormationBoard;
+    const stale = {
+      ...form('form_a', '21', 'offense', 'a-qb'),
+      lastEdited: now - 60_000,
+      rows: [
+        { id: 'r1', positions: [{ id: 'a-qb', name: 'QB' }] },
+        { id: 'r2', positions: [{ id: 'a-rb', name: 'RB' }] },
+      ],
+    } as FormationBoard;
+    const merged = applySharedFormations([moved], [stale], new Map(), 0, now + 120_000);
+    assert.equal(merged[0].rows[0].positions[0], null);
+    assert.equal(merged[0].rows[0].positions[1]?.id, 'a-qb');
+  });
+
+  it('takes a newer remote position layout so other coaches see the move', () => {
+    const now = 1_700_000_000_000;
+    const localOld = {
+      ...form('form_a', '21', 'offense', 'a-qb'),
+      lastEdited: now - 60_000,
+      rows: [{ id: 'r1', positions: [{ id: 'a-qb', name: 'QB' }] }],
+    } as FormationBoard;
+    const remoteMoved = {
+      ...form('form_a', '21', 'offense', 'a-qb'),
+      lastEdited: now,
+      rows: [{ id: 'r1', positions: [null, { id: 'a-qb', name: 'QB' }] }],
+    } as FormationBoard;
+    const merged = applySharedFormations([localOld], [remoteMoved], new Map(), 0, now + 120_000);
+    assert.equal(merged[0].rows[0].positions[0], null);
+    assert.equal(merged[0].rows[0].positions[1]?.id, 'a-qb');
+  });
+
   it('merges staff by email without dropping local idle timeout', () => {
     const merged = mergeStaffByEmail(
       [{ email: 'a@x.com', idleTimeoutMinutes: 40, role: 'Assistant Coach', status: 'Active' } as any],
@@ -1291,5 +1331,29 @@ describe('practice template merge', () => {
       { lastLocalEditTime: Date.now() - 1000, now: Date.now() }
     );
     assert.equal(merged['Game Week'].length, 2);
+  });
+});
+
+describe('hudl scout backup', () => {
+  it('packs opponent week uploads and our-team files into the backup snapshot', async () => {
+    const { collectHudlScoutBackup, summarizeHudlScoutBackup, applyHudlScoutBackup } = await import(
+      '../utils/remoteStateMerge.ts'
+    );
+    const opp = { plays: [{ id: 'p1' }], games: [{ id: 'g1', name: 'carmel.csv' }], datasetName: 'Carmel', updatedAt: 9 };
+    const own = { plays: [{ id: 'p2' }, { id: 'p3' }], games: [{ id: 'g2', name: 'us.csv' }], datasetName: 'Mahopac', updatedAt: 8 };
+    const packed = collectHudlScoutBackup(
+      { 'team_10u__week_4': { scouting: { hudlScout: opp } } },
+      { team_10u: own }
+    );
+    assert.equal(packed.opponentByWeek['team_10u__week_4'].plays.length, 1);
+    assert.equal(packed.ownTeam.team_10u.plays.length, 2);
+    const summary = summarizeHudlScoutBackup({ hudlScoutUploads: packed });
+    assert.equal(summary.isAvailable, true);
+    assert.equal(summary.playCount, 3);
+    assert.equal(summary.weekCount, 1);
+    assert.equal(summary.teamCount, 1);
+    const restored = applyHudlScoutBackup({}, {}, packed);
+    assert.equal(restored.weeklyData['team_10u__week_4'].scouting.hudlScout.datasetName, 'Carmel');
+    assert.equal(restored.ownTeamHudlScout.team_10u.plays.length, 2);
   });
 });

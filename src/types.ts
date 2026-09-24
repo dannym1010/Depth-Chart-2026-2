@@ -271,6 +271,7 @@ export interface FormationBoard {
   name: string;
   subtitle?: string;
   collapsed?: boolean;
+  lastEdited?: number;
   rows: FormationRow[];
 }
 
