@@ -929,6 +929,7 @@ export default function App() {
   const isRemoteSyncRef = useRef<boolean>(false);
   const pendingSaveRef = useRef<{ scope: string; extraMeta?: Record<string, any> } | null>(null);
   const lastAppliedOpsAtRef = useRef<Record<string, number>>({});
+  const lastWeekPatchSigRef = useRef('');
   const lastSavedPayloadRef = useRef<string>('');
   const localServerVersionRef = useRef<number>(0);
   const localServerUpdatedAtRef = useRef<number>(0);
@@ -2000,7 +2001,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         pendingSaveRef.current = null;
         void saveStateToStorage(pending.scope, pending.extraMeta);
       }
-    }, 800);
+    }, 150);
 
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     setSyncStatus({ text: `✅ Live Synced (${timeStr})`, color: '#22c55e' });
@@ -2258,26 +2259,32 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     const weekScout = weekState?.scouting
       ? { ...weekState.scouting, hudlScout: undefined }
       : undefined;
+    const weekForms = Array.isArray(weekState?.formations) ? weekState.formations.filter((f: any) => f && f.id) : [];
     const sharedOk = await saveSharedBoardCloud({
       teamId: activeTeamIdRef.current,
       week: weekKey,
       scheduleEvents: currentState.scheduleEvents,
       practiceData: currentState.practiceData,
       deletedPracticePlanIds: currentState.deletedPracticePlanIds,
-      weekSlice: weekState
-        ? {
-            depthChart: weekState.depthChart || {},
-            formations: weekState.formations || [],
-            scrimmageChart: weekState.scrimmageChart || {},
-            opponent: weekState.opponent || '',
-            wristbandData: weekState.wristbandData,
-            scouting: weekScout,
-            practiceDrillGroups: weekState.practiceDrillGroups,
-            pprPlayCounts: weekState.pprPlayCounts,
-            pffReviews: weekState.pffReviews,
-            filmSession: weekState.filmSession,
-          }
-        : undefined,
+      weekSlice:
+        scope === 'focusout' || !weekState
+          ? undefined
+          : {
+              depthChart: weekState.depthChart || {},
+              formations: weekForms,
+              scrimmageChart: weekState.scrimmageChart || {},
+              opponent: weekState.opponent || '',
+              wristbandData: weekState.wristbandData,
+              scouting: weekScout,
+              practiceDrillGroups: weekState.practiceDrillGroups,
+              pprPlayCounts: weekState.pprPlayCounts,
+              pffReviews: weekState.pffReviews,
+              filmSession: weekState.filmSession,
+              depthSpots: weekState.depthChart || {},
+              scrimmageSpots: weekState.scrimmageChart || {},
+              formationBoards: Object.fromEntries(weekForms.map((f: any) => [f.id, f])),
+              formationOrder: weekForms.map((f: any) => f.id),
+            },
       roster: currentState.roster,
       teams: currentState.teams,
       seasonConfig: currentState.seasonConfig,
@@ -2299,7 +2306,11 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       teamSavedCoaches: currentState.teamSavedCoaches,
       defaultFormations: currentState.defaultFormations,
       deletedFormationIds: currentState.deletedFormationIds,
-      modules: isBoardPatchScope(scope) ? ['week'] : undefined,
+      modules: isBoardPatchScope(scope)
+        ? ['week']
+        : scope === 'focusout'
+          ? ['schedule', 'practice', 'call_sheet', 'wristband']
+          : undefined,
     });
 
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -2453,9 +2464,6 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     const take = (key: string, at?: number) => {
       const n = Number(at) || 0;
       if (remote.writerClientId && remote.writerClientId === CLIENT_ID) {
-        if (n) {
-          lastAppliedOpsAtRef.current[key] = Math.max(lastAppliedOpsAtRef.current[key] || 0, n);
-        }
         return false;
       }
       if (n && n <= (lastAppliedOpsAtRef.current[key] || 0)) return false;
@@ -2483,38 +2491,67 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       safeJSONSet('footballPracticeData', mergedPlans);
     }
     const slice = remote.weekSlice;
-    if (slice && (slice.depthChart || slice.formations || slice.scrimmageChart || slice.wristbandData || slice.depthSpots || slice.scrimmageSpots || slice.formationBoards) && take('week', remote.weekUpdatedAt || slice.updatedAt)) {
+    const isPatch = slice?.weekWriteKind === 'patch';
+    const otherWriter = !remote.writerClientId || remote.writerClientId !== CLIENT_ID;
+    const weekAt = Number(remote.weekUpdatedAt || slice?.updatedAt) || 0;
+    const patchSig = isPatch
+      ? `${weekAt}|${remote.writerClientId || ''}|${JSON.stringify(slice?.depthSpots || {})}|${JSON.stringify(slice?.scrimmageSpots || {})}|${JSON.stringify(slice?.formationBoards || {})}|${JSON.stringify(slice?.formationOrder || [])}`
+      : '';
+    let takeWeek =
+      Boolean(slice) &&
+      (slice.depthChart ||
+        slice.formations ||
+        slice.scrimmageChart ||
+        slice.wristbandData ||
+        slice.depthSpots ||
+        slice.scrimmageSpots ||
+        slice.formationBoards) &&
+      (isPatch && otherWriter ? true : take('week', weekAt));
+    if (isPatch && otherWriter && patchSig && lastWeekPatchSigRef.current === patchSig) {
+      takeWeek = false;
+    }
+    if (takeWeek) {
+      if (patchSig) lastWeekPatchSigRef.current = patchSig;
+      if (weekAt > (lastAppliedOpsAtRef.current.week || 0)) {
+        lastAppliedOpsAtRef.current.week = weekAt;
+      }
       const teamId = activeTeamIdRef.current;
       const week = normalizeScoutWeekKey(currentWeekRef.current);
       const scopedKey = getScopedWeekKey(teamId, week);
       const recentSpots = recentlyModifiedPositionsRef.current;
       const recentForms = recentlyModifiedFormationsRef.current;
-      const isPatch = slice.weekWriteKind === 'patch';
+      const liveProtectMs = 2500;
+      const now = Date.now();
       setWeeklyData((prev) => {
         const patch = (key: string) => {
           const weekId = key.includes('__week_') ? key.split('__week_').slice(1).join('__week_') : key;
           const cur = storedWeekForWrite(prev, teamId, weekId);
           const nextDepth = isPatch
-            ? applySharedWeekSliceDepth(cur.depthChart || {}, slice.depthSpots, recentSpots)
+            ? applySharedWeekSliceDepth(cur.depthChart || {}, slice.depthSpots, recentSpots, now, liveProtectMs)
             : applySharedWeekSliceDepth(
-                applySharedWeekSliceDepth(cur.depthChart || {}, slice.depthChart, recentSpots),
+                applySharedWeekSliceDepth(cur.depthChart || {}, slice.depthChart, recentSpots, now, liveProtectMs),
                 slice.depthSpots,
-                recentSpots
+                recentSpots,
+                now,
+                liveProtectMs
               );
           const nextScrim = isPatch
-            ? applySharedWeekSliceDepth(cur.scrimmageChart || {}, slice.scrimmageSpots, recentSpots)
+            ? applySharedWeekSliceDepth(cur.scrimmageChart || {}, slice.scrimmageSpots, recentSpots, now, liveProtectMs)
             : applySharedWeekSliceDepth(
-                applySharedWeekSliceDepth(cur.scrimmageChart || {}, slice.scrimmageChart, recentSpots),
+                applySharedWeekSliceDepth(cur.scrimmageChart || {}, slice.scrimmageChart, recentSpots, now, liveProtectMs),
                 slice.scrimmageSpots,
-                recentSpots
+                recentSpots,
+                now,
+                liveProtectMs
               );
           const nextForms = isPatch
             ? applyFormationBoardPatches(
                 cur.formations,
                 slice.formationBoards,
                 recentForms,
-                Date.now(),
-                slice.formationOrder
+                now,
+                slice.formationOrder,
+                liveProtectMs
               )
             : applyFormationBoardPatches(
                 applySharedFormations(
@@ -2522,13 +2559,14 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
                   slice.formations,
                   recentForms,
                   lastLocalEditTimeRef.current,
-                  Date.now(),
+                  now,
                   true
                 ),
                 slice.formationBoards,
                 recentForms,
-                Date.now(),
-                slice.formationOrder
+                now,
+                slice.formationOrder,
+                liveProtectMs
               );
           if (isPatch) {
             return {

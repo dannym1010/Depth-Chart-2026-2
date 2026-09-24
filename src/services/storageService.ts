@@ -829,10 +829,11 @@ export async function saveSharedBoardCloud(payload: {
         col.doc(opsWeekDocId(payload.teamId, payload.week)).set(
           opsMeta({
             ...payload.weekSlice,
-            weekWriteKind: 'full',
+            weekWriteKind: payload.weekSlice.weekWriteKind || 'full',
             teamId: payload.teamId,
             week: String(payload.week).replace(/[^a-zA-Z0-9_-]/g, '') || '1',
-          })
+          }),
+          { merge: true }
         )
       );
     }

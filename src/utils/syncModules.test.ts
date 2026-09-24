@@ -497,6 +497,19 @@ describe('remoteStateMerge', () => {
     assert.equal(spots['b-rb'][0].name, 'Pat');
   });
 
+  it('takes another coach live patch even if this screen still has a 25s protect stamp', () => {
+    const now = 1_700_000_000_000;
+    const recent = new Map<string, number>([['a-qb', now - 5000]]);
+    const spots = applySharedWeekSliceDepth(
+      { 'a-qb': [player('p1', 'Dan')] },
+      { 'a-qb': [player('p3', 'Sam')] },
+      recent,
+      now,
+      2500
+    );
+    assert.equal(spots['a-qb'][0].name, 'Sam');
+  });
+
   it('keeps a moved 4-4 first after refresh when cloud still has factory order', () => {
     const now = 1_700_000_000_000;
     const local = {

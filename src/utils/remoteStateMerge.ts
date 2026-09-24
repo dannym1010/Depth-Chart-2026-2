@@ -33,13 +33,14 @@ export function applySharedWeekSliceDepth(
   localDC: Record<string, PlacedPlayer[]>,
   remoteDC: Record<string, PlacedPlayer[] | undefined> | undefined,
   recentlyModifiedPositions?: Map<string, number>,
-  now: number = Date.now()
+  now: number = Date.now(),
+  protectMs: number = RECENT_POSITION_PROTECT_MS
 ): Record<string, PlacedPlayer[]> {
   const next: Record<string, PlacedPlayer[]> = { ...(localDC || {}) };
   Object.entries(remoteDC || {}).forEach(([posId, players]) => {
     if (!Array.isArray(players)) return;
     const editedAt = recentlyModifiedPositions?.get(posId);
-    if (editedAt !== undefined && now - editedAt < RECENT_POSITION_PROTECT_MS) return;
+    if (editedAt !== undefined && now - editedAt < protectMs) return;
     next[posId] = players;
   });
   return next;
@@ -170,7 +171,8 @@ export function applyFormationBoardPatches(
   patches: Record<string, FormationBoard | null | undefined> | undefined,
   recentlyModifiedFormations?: Map<string, number>,
   now: number = Date.now(),
-  formationOrder?: string[]
+  formationOrder?: string[],
+  protectMs: number = RECENT_POSITION_PROTECT_MS
 ): FormationBoard[] {
   const local = Array.isArray(localForms) ? localForms.filter((f) => f && f.id) : [];
   if (!patches || !Object.keys(patches).length) {
@@ -204,7 +206,7 @@ export function applyFormationBoardPatches(
       return;
     }
     const editedAt = recentlyModifiedFormations?.get(id);
-    if (editedAt !== undefined && now - editedAt < RECENT_POSITION_PROTECT_MS) return;
+    if (editedAt !== undefined && now - editedAt < protectMs) return;
     byId.set(id, rem);
   });
 
