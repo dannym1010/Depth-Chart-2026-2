@@ -293,6 +293,13 @@ export function mergeServerState(current: any, incoming: any, metadata?: any): a
         metadata?.activeUnit === 'hudl_scout' ||
         String(metadata?.scope || '').startsWith('scouting');
 
+      const isPracticeOrScheduleSave =
+        metadata?.scope === 'schedule' ||
+        metadata?.scope === 'schedule_update' ||
+        metadata?.activeUnit === 'schedule' ||
+        metadata?.activeUnit === 'practice' ||
+        String(metadata?.scope || '').startsWith('practice');
+
       if (isScoutingSave) {
         if (isTargetWeek || weekHasIncomingScout(incWeekState)) {
           merged.weeklyData[weekKey] = {
@@ -301,6 +308,10 @@ export function mergeServerState(current: any, incoming: any, metadata?: any): a
             scouting: mergeScoutingReports(curWeekState.scouting, incWeekState.scouting),
           };
         }
+        continue;
+      }
+
+      if (isPracticeOrScheduleSave) {
         continue;
       }
 

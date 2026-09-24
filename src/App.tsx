@@ -76,6 +76,8 @@ import {
   saveServerState,
   saveHudlScoutCloud,
   fetchHudlScoutCloud,
+  saveSharedBoardCloud,
+  fetchSharedBoardCloud,
   subscribeServerEvents,
   fetchServerLocks,
   acquireServerLock,
@@ -904,6 +906,7 @@ export default function App() {
   const pendingScheduleSaveRef = useRef<boolean>(false);
   const isImportingRef = useRef<boolean>(false);
   const isRemoteSyncRef = useRef<boolean>(false);
+  const pendingSaveRef = useRef<{ scope: string; extraMeta?: Record<string, any> } | null>(null);
   const lastSavedPayloadRef = useRef<string>('');
   const localServerVersionRef = useRef<number>(0);
   const localServerUpdatedAtRef = useRef<number>(0);
@@ -1989,6 +1992,11 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     // Reset isRemoteSyncRef quickly after the React state cycle
     setTimeout(() => {
       isRemoteSyncRef.current = false;
+      const pending = pendingSaveRef.current;
+      if (pending) {
+        pendingSaveRef.current = null;
+        void saveStateToStorage(pending.scope, pending.extraMeta);
+      }
     }, 250);
 
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -2085,6 +2093,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       scope === 'scouting_update' ||
       scope.startsWith('scouting') ||
       scope === 'hudl_scout_update' ||
+      scope === 'schedule' ||
       scope === 'schedule_update' ||
       (Array.isArray(extraMeta?.modifiedPosIds) && extraMeta.modifiedPosIds.length > 0);
 
@@ -2096,7 +2105,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     if (!initialCloudLoadDoneRef.current && scope !== 'force') {
       if (scope.startsWith('practice_drill')) pendingPracticeDrillSaveRef.current = true;
       if (scope === 'scouting_update' || scope.startsWith('scouting') || scope === 'hudl_scout_update') pendingScoutingSaveRef.current = true;
-      if (scope === 'schedule_update') pendingScheduleSaveRef.current = true;
+      if (scope === 'schedule_update' || scope === 'schedule') pendingScheduleSaveRef.current = true;
       return;
     }
 
@@ -2105,6 +2114,10 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     setSyncStatus({ text: '☁️ Syncing...', color: '#f59e0b' });
 
     const authorEmail = currentUser?.email || 'Coach';
+    const scopeIsPractice = String(scope).startsWith('practice');
+    const scopeIsSchedule = scope === 'schedule' || scope === 'schedule_update';
+    let serverOk = false;
+    let firestoreOk = false;
 
     // 2. Persistent Server Sync
     try {
@@ -2114,10 +2127,12 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
           : (['offense', 'defense', 'st', 'groups'].includes(activeUnitRef.current)
               ? activeUnitRef.current
               : 'offense');
-      const effectiveUnit =
+      let effectiveUnit =
         extraMeta?.activeUnit && ['offense', 'defense', 'st', 'groups'].includes(extraMeta.activeUnit)
           ? extraMeta.activeUnit
           : fallbackUnit;
+      if (scopeIsPractice) effectiveUnit = 'practice';
+      if (scopeIsSchedule) effectiveUnit = 'schedule';
       const metadata = {
         activeTeamId: activeTeamIdRef.current,
         currentWeek: currentWeekRef.current,
@@ -2126,13 +2141,17 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         timestamp: Date.now(),
         ...(extraMeta || {}),
         ...(scope === 'ppr_update' || extraMeta?.activeUnit === 'ppr' ? { activeUnit: 'ppr' } : {}),
+        ...(scopeIsPractice ? { activeUnit: 'practice' } : {}),
+        ...(scopeIsSchedule ? { activeUnit: 'schedule' } : {}),
       };
       const sResult = await saveServerState(payload, authorEmail, metadata);
       if (sResult && typeof sResult.version === 'number') {
         localServerVersionRef.current = sResult.version;
+        serverOk = true;
       }
       if (sResult && typeof sResult.updatedAt === 'number') {
         localServerUpdatedAtRef.current = sResult.updatedAt;
+        serverOk = true;
       }
     } catch (err) {
       console.warn('Server save warning:', err);
@@ -2165,13 +2184,46 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
           .collection('teamData')
           .doc('depthChartData')
           .set(cleanPayload, { merge: true });
+        firestoreOk = true;
       } catch (err: any) {
         console.warn('Firestore sync warning:', err);
       }
     }
 
+    const weekKey = normalizeScoutWeekKey(currentWeekRef.current);
+    const scopedKey = getScopedWeekKey(activeTeamIdRef.current, weekKey);
+    const weekState =
+      currentState.weeklyData?.[scopedKey] || currentState.weeklyData?.[weekKey];
+    const shouldSharePractice = scopeIsPractice || scope === 'all' || scope === 'force' || scope === 'immediate';
+    const shouldShareSchedule = scopeIsSchedule || scope === 'all' || scope === 'force' || scope === 'immediate';
+    const shouldShareWeek =
+      !scopeIsPractice &&
+      !scopeIsSchedule &&
+      scope !== 'hudl_scout_update' &&
+      scope !== 'ppr_update' &&
+      !String(scope).startsWith('scouting');
+    const sharedOk = await saveSharedBoardCloud({
+      scheduleEvents: shouldShareSchedule ? currentState.scheduleEvents : undefined,
+      practiceData: shouldSharePractice ? currentState.practiceData : undefined,
+      deletedPracticePlanIds: shouldSharePractice ? currentState.deletedPracticePlanIds : undefined,
+      teamId: activeTeamIdRef.current,
+      week: weekKey,
+      weekSlice: shouldShareWeek && weekState
+        ? {
+            depthChart: weekState.depthChart || {},
+            formations: weekState.formations || [],
+            scrimmageChart: weekState.scrimmageChart || {},
+            opponent: weekState.opponent || '',
+          }
+        : undefined,
+    });
+
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    setSyncStatus({ text: `✅ Saved & Synced (${timeStr})`, color: '#22c55e' });
+    if (serverOk || firestoreOk || sharedOk) {
+      setSyncStatus({ text: `✅ Saved & Synced (${timeStr})`, color: '#22c55e' });
+    } else {
+      setSyncStatus({ text: '⚠️ Saved on this device only', color: '#ef4444' });
+    }
   };
 
   // Immediate non-debounced flush to storage & cloud
@@ -2185,6 +2237,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
 
   const debouncedSave = (scope: string = 'all', extraMeta?: Record<string, any>) => {
     if (isRemoteSyncRef.current) {
+      pendingSaveRef.current = { scope, extraMeta };
       return;
     }
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -2320,6 +2373,65 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     applyHudlScoutFromCloud(teamId, wk, remote);
   };
 
+  const hydrateSharedBoardFromCloud = async () => {
+    const teamId = activeTeamIdRef.current;
+    const week = normalizeScoutWeekKey(currentWeekRef.current);
+    const remote = await fetchSharedBoardCloud(teamId, week);
+    if (Array.isArray(remote.scheduleEvents) && remote.scheduleEvents.length) {
+      const merged = mergeScheduleEvents(latestStateRef.current.scheduleEvents, remote.scheduleEvents);
+      setScheduleEvents(merged);
+      latestStateRef.current.scheduleEvents = merged;
+      safeJSONSet('footballScheduleEvents', merged);
+    }
+    if (Array.isArray(remote.practiceData) && remote.practiceData.length) {
+      const mergedPlans = mergePracticePlansByLastEdited(
+        latestStateRef.current.practiceData || [],
+        sanitizePracticePlans(remote.practiceData, latestStateRef.current.scheduleEvents || []),
+        new Set([
+          ...(latestStateRef.current.deletedPracticePlanIds || []),
+          ...(remote.deletedPracticePlanIds || []),
+        ])
+      );
+      setPracticeData(mergedPlans);
+      latestStateRef.current.practiceData = mergedPlans;
+      safeJSONSet('footballPracticeData', mergedPlans);
+    }
+    const slice = remote.weekSlice;
+    if (slice && (slice.depthChart || slice.formations)) {
+      const scopedKey = getScopedWeekKey(teamId, week);
+      setWeeklyData((prev) => {
+        const patch = (key: string) => {
+          const cur = prev[key] || {
+            formations: defaultFormations,
+            depthChart: {},
+            scrimmageChart: {},
+            opponent: '',
+          };
+          const nextDC = { ...(cur.depthChart || {}) };
+          Object.entries(slice.depthChart || {}).forEach(([posId, players]) => {
+            if (Array.isArray(players) && players.length) nextDC[posId] = players as any;
+          });
+          const nextSC = { ...(cur.scrimmageChart || {}) };
+          Object.entries(slice.scrimmageChart || {}).forEach(([posId, players]) => {
+            if (Array.isArray(players) && players.length) nextSC[posId] = players as any;
+          });
+          return {
+            ...cur,
+            depthChart: nextDC,
+            scrimmageChart: nextSC,
+            formations:
+              Array.isArray(slice.formations) && slice.formations.length ? slice.formations : cur.formations,
+            opponent: slice.opponent || cur.opponent || '',
+          };
+        };
+        const updatedAll = { ...prev, [scopedKey]: patch(scopedKey), [week]: patch(week) };
+        latestStateRef.current.weeklyData = updatedAll;
+        safeJSONSet('footballWeeklyData', updatedAll);
+        return updatedAll;
+      });
+    }
+  };
+
   const publishHudlScoutToCloud = async () => {
     const teamId = activeTeamIdRef.current;
     const week = normalizeScoutWeekKey(currentWeekRef.current);
@@ -2369,6 +2481,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         applyRemoteState(serverRes.state, 'manual_server_refresh', serverRes.version, serverRes.updatedAt);
       }
       await hydrateHudlScoutFromCloud();
+      await hydrateSharedBoardFromCloud();
       setSyncStatus({ text: '✅ Up to Date', color: '#22c55e' });
     } catch (err) {
       console.warn('Manual refresh error:', err);
@@ -2387,6 +2500,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
   useEffect(() => {
     if (!initialCloudLoadDoneRef.current) return;
     void hydrateHudlScoutFromCloud(activeTeamId, currentWeek);
+    void hydrateSharedBoardFromCloud();
   }, [activeTeamId, currentWeek]);
 
   // Global blur / focusout sync listener: whenever a coach clicks out of any input/box/dropdown,
@@ -2458,12 +2572,11 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         if (serverRes && serverRes.hasData && serverRes.state) {
           applyRemoteState(serverRes.state, 'server_init', serverRes.version, serverRes.updatedAt);
           initialCloudLoadDoneRef.current = true;
-          lastLocalEditTimeRef.current = Math.max(lastLocalEditTimeRef.current, serverRes.updatedAt || 0);
-          safeJSONSet('footballLastLocalEditTime', lastLocalEditTimeRef.current);
         } else if (!firestoreLoaded) {
           initialCloudLoadDoneRef.current = true;
         }
         await hydrateHudlScoutFromCloud();
+        await hydrateSharedBoardFromCloud();
       } catch (err) {
         console.warn('Initial server state fetch warning:', err);
         initialCloudLoadDoneRef.current = true;
@@ -2486,6 +2599,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         } else if (eventData.type === 'sync' && eventData.state) {
           if (eventData.senderClientId === CLIENT_ID) return;
           applyRemoteState(eventData.state, 'sse_live_update', eventData.version, eventData.updatedAt);
+          void hydrateSharedBoardFromCloud();
         }
       });
 
@@ -2501,6 +2615,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
             checkServerHealth(),
             fetchServerLocks(),
           ]);
+          await hydrateSharedBoardFromCloud();
           if (Array.isArray(currentLocks)) {
             setActiveLocks((prev) => {
               if (prev.length === currentLocks.length) {
@@ -2547,6 +2662,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
 
         try {
           await hydrateHudlScoutFromCloud();
+          await hydrateSharedBoardFromCloud();
           const health = await checkServerHealth();
           if (health && typeof health.stateVersion === 'number') {
             if (

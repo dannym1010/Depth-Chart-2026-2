@@ -327,6 +327,36 @@ describe('remoteStateMerge', () => {
     assert.ok(merged.some((p) => p.id === 'c'));
   });
 
+  it('lets another coach see a newer practice plan even if this device is on the practice screen', () => {
+    const merged = mergePracticePlansByLastEdited(
+      [{ id: 'a', lastEdited: 10, title: 'old-on-this-phone' } as any],
+      [{ id: 'a', lastEdited: 90, title: 'new-from-other-coach' } as any],
+      new Set(),
+      { isPracticeView: true, lastLocalEditTime: Date.now(), activePracticeId: 'a' }
+    );
+    assert.equal(merged.find((p) => p.id === 'a')?.title, 'new-from-other-coach');
+  });
+
+  it('applies another coach depth spots on the same week instead of keeping the idle local chart', () => {
+    const qbForm = form('form_21', '21', 'offense', '21-qb');
+    const local: Record<string, WeekState> = {
+      'team_10u__week_1': {
+        formations: [qbForm],
+        depthChart: { '21-qb': [player('p1', 'Dan')] },
+        scrimmageChart: {},
+      } as WeekState,
+    };
+    const remote: Record<string, WeekState> = {
+      'team_10u__week_1': {
+        formations: [qbForm],
+        depthChart: { '21-qb': [player('p2', 'Pat')] },
+        scrimmageChart: {},
+      } as WeekState,
+    };
+    const merged = mergeRemoteWeeklyData(local, remote, 'team_10u', '1', 'offense', 0);
+    assert.equal(merged['team_10u__week_1'].depthChart['21-qb'][0].name, 'Pat');
+  });
+
   it('merges staff by email without dropping local idle timeout', () => {
     const merged = mergeStaffByEmail(
       [{ email: 'a@x.com', idleTimeoutMinutes: 40, role: 'Assistant Coach', status: 'Active' } as any],

@@ -625,6 +625,86 @@ export async function fetchHudlScoutCloud(
   return { opponentScout, ownTeamScout };
 }
 
+export async function saveSharedBoardCloud(payload: {
+  scheduleEvents?: any[];
+  practiceData?: any[];
+  deletedPracticePlanIds?: string[];
+  teamId?: string;
+  week?: string;
+  weekSlice?: { depthChart?: any; formations?: any; scrimmageChart?: any; opponent?: string };
+}): Promise<boolean> {
+  try {
+    const { db } = getFirebaseServices();
+    if (!db) return false;
+    const updatedAt = Date.now();
+    const writes: Promise<any>[] = [];
+    if (payload.scheduleEvents) {
+      writes.push(
+        db.collection('teamData').doc('ops_schedule').set({
+          events: payload.scheduleEvents,
+          updatedAt,
+        })
+      );
+    }
+    if (payload.practiceData) {
+      writes.push(
+        db.collection('teamData').doc('ops_practice').set({
+          plans: payload.practiceData,
+          deletedPracticePlanIds: payload.deletedPracticePlanIds || [],
+          updatedAt,
+        })
+      );
+    }
+    if (payload.weekSlice && payload.teamId && payload.week) {
+      const week = String(payload.week).replace(/\D/g, '') || '1';
+      writes.push(
+        db.collection('teamData').doc(`ops_week_${payload.teamId}_w${week}`).set({
+          ...payload.weekSlice,
+          teamId: payload.teamId,
+          week,
+          updatedAt,
+        })
+      );
+    }
+    if (!writes.length) return false;
+    await Promise.all(writes);
+    return true;
+  } catch (err) {
+    console.warn('saveSharedBoardCloud error:', err);
+    return false;
+  }
+}
+
+export async function fetchSharedBoardCloud(
+  teamId: string,
+  week: string
+): Promise<{
+  scheduleEvents?: any[];
+  practiceData?: any[];
+  deletedPracticePlanIds?: string[];
+  weekSlice?: any;
+}> {
+  try {
+    const { db } = getFirebaseServices();
+    if (!db) return {};
+    const wk = String(week || '1').replace(/\D/g, '') || '1';
+    const [sched, prac, weekSnap] = await Promise.all([
+      db.collection('teamData').doc('ops_schedule').get(),
+      db.collection('teamData').doc('ops_practice').get(),
+      db.collection('teamData').doc(`ops_week_${teamId}_w${wk}`).get(),
+    ]);
+    return {
+      scheduleEvents: sched?.exists ? sched.data()?.events : undefined,
+      practiceData: prac?.exists ? prac.data()?.plans : undefined,
+      deletedPracticePlanIds: prac?.exists ? prac.data()?.deletedPracticePlanIds : undefined,
+      weekSlice: weekSnap?.exists ? weekSnap.data() : undefined,
+    };
+  } catch (err) {
+    console.warn('fetchSharedBoardCloud error:', err);
+    return {};
+  }
+}
+
 export function subscribeServerEvents(onMessage: (eventData: any) => void): () => void {
   if (
     typeof window === 'undefined' ||

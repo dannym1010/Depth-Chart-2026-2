@@ -615,9 +615,8 @@ export function mergePracticePlansByLastEdited(
   localPlans: PracticePlan[],
   remotePlans: PracticePlan[],
   deletedIds: Set<string>,
-  opts?: { lastLocalEditTime?: number; activePracticeId?: string; isPracticeView?: boolean; now?: number }
+  _opts?: { lastLocalEditTime?: number; activePracticeId?: string; isPracticeView?: boolean; now?: number }
 ): PracticePlan[] {
-  const now = opts?.now ?? Date.now();
   const localFiltered = (localPlans || []).filter((lp) => lp && lp.id && !deletedIds.has(lp.id));
   const remoteFiltered = (remotePlans || []).filter((rp) => rp && rp.id && !deletedIds.has(rp.id));
   const localMap = new Map<string, PracticePlan>();
@@ -632,11 +631,7 @@ export function mergePracticePlansByLastEdited(
     seen.add(rp.id);
     const localP = localMap.get(rp.id);
     if (localP) {
-      const localIsNewer = (localP.lastEdited || 0) >= (rp.lastEdited || 0);
-      const isActivelyEditingLocal =
-        now - (opts?.lastLocalEditTime || 0) < 60000 &&
-        (localP.id === opts?.activePracticeId || Boolean(opts?.isPracticeView));
-      merged.push(localIsNewer || isActivelyEditingLocal ? localP : rp);
+      merged.push((localP.lastEdited || 0) >= (rp.lastEdited || 0) ? localP : rp);
     } else {
       merged.push(rp);
     }
@@ -698,7 +693,7 @@ export function mergeRemoteWeeklyData(
   const merged: Record<string, WeekState> = { ...remoteWeekly };
   const scopedKey = `${activeTeamId}__week_${currentWeek}`;
   const timeSinceEdit = Date.now() - lastLocalEditTime;
-  const isActivelyEditingLocally = timeSinceEdit < 120000;
+  const isActivelyEditingLocally = timeSinceEdit < 20000;
   const deletedSet = new Set<string>(deletedFormationIds || []);
   const CORE_DEFAULT_FORMATION_IDS = new Set([
     'form_21', 'form_1787860064353', 'form_1787860077403', 'form_1788270435286',
@@ -727,34 +722,6 @@ export function mergeRemoteWeeklyData(
     return res;
   };
 
-  const isUnitPosition = (posId: string, unit: string, forms: FormationBoard[]): boolean => {
-    if (!posId || !unit) return false;
-    for (const f of forms) {
-      if (f && f.unit === unit && Array.isArray(f.rows)) {
-        for (const r of f.rows) {
-          if (r && Array.isArray(r.positions)) {
-            for (const p of r.positions) {
-              if (p && p.id === posId) return true;
-            }
-          }
-        }
-      }
-    }
-    if (unit === 'defense') {
-      return posId.startsWith('53-') || posId.startsWith('44-') || posId.includes('form_53') || posId.includes('form_44') || posId.startsWith('def-');
-    }
-    if (unit === 'st') {
-      return posId.startsWith('form_ko') || posId.startsWith('form_kr') || posId.startsWith('form_punt') || posId.startsWith('form_fg') || posId.startsWith('ko-') || posId.startsWith('kr-') || posId.startsWith('punt-') || posId.startsWith('fg-');
-    }
-    if (unit === 'groups') {
-      return isGroupsPositionId(posId);
-    }
-    if (unit === 'offense') {
-      return posId.startsWith('21-') || posId.startsWith('form_21') || posId.startsWith('form_1787') || posId.startsWith('form_1788');
-    }
-    return false;
-  };
-
   for (const weekKey of Object.keys(localWeekly)) {
     const localState = localWeekly[weekKey];
     const remoteState = remoteWeekly[weekKey];
@@ -780,29 +747,18 @@ export function mergeRemoteWeeklyData(
     const isRecentlyModifiedFormation = (formId: string) => {
       if (!recentlyModifiedFormations) return false;
       const t = recentlyModifiedFormations.get(formId);
-      return t !== undefined && now - t < 120000;
+      return t !== undefined && now - t < 25000;
     };
 
     const mergedFormations: FormationBoard[] = [];
     const seenIds = new Set<string>();
 
-    if (isActivelyEditingLocally && isCurrentActiveWeek) {
-      localFormations.forEach((lf) => {
-        if (lf && lf.id && !deletedSet.has(lf.id)) {
-          if (lf.unit === activeUnit || isRecentlyModifiedFormation(lf.id)) {
-            mergedFormations.push(lf);
-            seenIds.add(lf.id);
-          }
-        }
-      });
-    } else {
-      localFormations.forEach((lf) => {
-        if (lf && lf.id && !deletedSet.has(lf.id) && isRecentlyModifiedFormation(lf.id)) {
-          mergedFormations.push(lf);
-          seenIds.add(lf.id);
-        }
-      });
-    }
+    localFormations.forEach((lf) => {
+      if (lf && lf.id && !deletedSet.has(lf.id) && isRecentlyModifiedFormation(lf.id)) {
+        mergedFormations.push(lf);
+        seenIds.add(lf.id);
+      }
+    });
 
     remoteFormations.forEach((rf) => {
       if (rf && rf.id && !deletedSet.has(rf.id) && !seenIds.has(rf.id)) {
@@ -847,67 +803,28 @@ export function mergeRemoteWeeklyData(
     const remoteSC = remoteState.scrimmageChart || {};
     const mergedSC: Record<string, PlacedPlayer[]> = { ...remoteSC };
 
-    if (isActivelyEditingLocally && isCurrentActiveWeek) {
-      if (recentlyModifiedPositions && recentlyModifiedPositions.size > 0) {
-        for (const [posId, editTime] of recentlyModifiedPositions.entries()) {
-          if (now - editTime < 120000 && localDC[posId] !== undefined) mergedDC[posId] = localDC[posId];
-          if (now - editTime < 120000 && localSC[posId] !== undefined) mergedSC[posId] = localSC[posId];
-        }
+    if (recentlyModifiedPositions && recentlyModifiedPositions.size > 0) {
+      for (const [posId, editTime] of recentlyModifiedPositions.entries()) {
+        if (now - editTime < 25000 && localDC[posId] !== undefined) mergedDC[posId] = localDC[posId];
+        if (now - editTime < 25000 && localSC[posId] !== undefined) mergedSC[posId] = localSC[posId];
       }
-      if (activeUnit === 'scrimmage') {
-        for (const [posId, players] of Object.entries(localSC)) {
-          if (players !== undefined) mergedSC[posId] = players;
-        }
-      } else if (['offense', 'defense', 'st', 'groups'].includes(activeUnit)) {
-        const allRelevantForms = [...mergedFormations, ...localFormations];
-        for (const [posId, players] of Object.entries(localDC)) {
-          if (isUnitPosition(posId, activeUnit, allRelevantForms) && players !== undefined) {
-            mergedDC[posId] = players;
-          }
-        }
+    }
+    for (const [posId, players] of Object.entries(localDC)) {
+      if (
+        (remoteDC[posId] === undefined || (Array.isArray(remoteDC[posId]) && remoteDC[posId].length === 0)) &&
+        Array.isArray(players) &&
+        players.length > 0
+      ) {
+        mergedDC[posId] = players;
       }
-      for (const [posId, players] of Object.entries(localDC)) {
-        if (
-          (remoteDC[posId] === undefined || (Array.isArray(remoteDC[posId]) && remoteDC[posId].length === 0)) &&
-          Array.isArray(players) &&
-          players.length > 0
-        ) {
-          mergedDC[posId] = players;
-        }
-      }
-      for (const [posId, players] of Object.entries(localSC)) {
-        if (
-          (remoteSC[posId] === undefined || (Array.isArray(remoteSC[posId]) && remoteSC[posId].length === 0)) &&
-          Array.isArray(players) &&
-          players.length > 0
-        ) {
-          mergedSC[posId] = players;
-        }
-      }
-    } else {
-      if (recentlyModifiedPositions && recentlyModifiedPositions.size > 0) {
-        for (const [posId, editTime] of recentlyModifiedPositions.entries()) {
-          if (now - editTime < 120000 && localDC[posId] !== undefined) mergedDC[posId] = localDC[posId];
-          if (now - editTime < 120000 && localSC[posId] !== undefined) mergedSC[posId] = localSC[posId];
-        }
-      }
-      for (const [posId, players] of Object.entries(localDC)) {
-        if (
-          (remoteDC[posId] === undefined || (Array.isArray(remoteDC[posId]) && remoteDC[posId].length === 0)) &&
-          Array.isArray(players) &&
-          players.length > 0
-        ) {
-          mergedDC[posId] = players;
-        }
-      }
-      for (const [posId, players] of Object.entries(localSC)) {
-        if (
-          (remoteSC[posId] === undefined || (Array.isArray(remoteSC[posId]) && remoteSC[posId].length === 0)) &&
-          Array.isArray(players) &&
-          players.length > 0
-        ) {
-          mergedSC[posId] = players;
-        }
+    }
+    for (const [posId, players] of Object.entries(localSC)) {
+      if (
+        (remoteSC[posId] === undefined || (Array.isArray(remoteSC[posId]) && remoteSC[posId].length === 0)) &&
+        Array.isArray(players) &&
+        players.length > 0
+      ) {
+        mergedSC[posId] = players;
       }
     }
 
