@@ -80,6 +80,7 @@ import {
   patchSharedWeekCloud,
   isBoardPatchScope,
   fetchSharedBoardCloud,
+  fetchSharedWeekCloud,
   subscribeSharedBoardCloud,
   subscribeServerEvents,
   fetchServerLocks,
@@ -2011,6 +2012,66 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
   const saveStateToStorage = async (scope: string = 'all', extraMeta?: Record<string, any>) => {
     const currentState = latestStateRef.current;
 
+    if (isBoardPatchScope(scope)) {
+      const weekKey = normalizeScoutWeekKey(currentWeekRef.current);
+      const scopedKey = getScopedWeekKey(activeTeamIdRef.current, weekKey);
+      const weekState =
+        currentState.weeklyData?.[scopedKey] || currentState.weeklyData?.[weekKey];
+      const { db } = getFirebaseServices();
+      const posIds = (Array.isArray(extraMeta?.modifiedPosIds) ? extraMeta.modifiedPosIds : []).filter(Boolean);
+      const formIds = (Array.isArray(extraMeta?.modifiedFormIds) ? extraMeta.modifiedFormIds : []).filter(Boolean);
+      if (extraMeta?.formId && !formIds.includes(extraMeta.formId)) formIds.push(extraMeta.formId);
+      if (extraMeta?.movedFormationId && !formIds.includes(extraMeta.movedFormationId)) formIds.push(extraMeta.movedFormationId);
+      if (extraMeta?.deletedFormationId && !formIds.includes(extraMeta.deletedFormationId)) {
+        formIds.push(extraMeta.deletedFormationId);
+      }
+      const wantsOrder =
+        scope === 'move_formation' ||
+        scope === 'formation_add' ||
+        scope === 'delete_formation' ||
+        scope === 'formation_duplicate';
+      if (db && (posIds.length || formIds.length || wantsOrder)) {
+        const depthSpots: Record<string, any[]> = {};
+        const scrimmageSpots: Record<string, any[]> = {};
+        const formationBoards: Record<string, any | null> = {};
+        const chartKind = extraMeta?.chartKind === 'scrimmage' ? 'scrimmage' : 'depth';
+        posIds.forEach((id: string) => {
+          if (chartKind === 'scrimmage') scrimmageSpots[id] = weekState?.scrimmageChart?.[id] || [];
+          else depthSpots[id] = weekState?.depthChart?.[id] || [];
+        });
+        formIds.forEach((id: string) => {
+          if (scope === 'delete_formation' && extraMeta?.deletedFormationId === id) {
+            formationBoards[id] = null;
+            return;
+          }
+          const board = (weekState?.formations || []).find((f: any) => f && f.id === id);
+          if (board) formationBoards[id] = board;
+        });
+        const sharedOk = await patchSharedWeekCloud({
+          teamId: activeTeamIdRef.current,
+          week: weekKey,
+          depthSpots,
+          scrimmageSpots,
+          formationBoards,
+          formationOrder: wantsOrder
+            ? (weekState?.formations || []).map((f: any) => f.id).filter(Boolean)
+            : undefined,
+          deletedFormationIds: extraMeta?.deletedFormationId ? [extraMeta.deletedFormationId] : undefined,
+        });
+        try {
+          safeJSONSet('footballWeeklyData', currentState.weeklyData);
+        } catch {
+          /* local cache is best-effort after the live patch */
+        }
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        setSyncStatus({
+          text: sharedOk ? `✅ Saved & Synced (${timeStr})` : '⚠️ Saved on this device only',
+          color: sharedOk ? '#22c55e' : '#ef4444',
+        });
+        return;
+      }
+    }
+
     // 1. LocalStorage update
     safeJSONSet('footballWeeklyData', currentState.weeklyData);
     safeJSONSet('footballOwnTeamHudlScout', currentState.ownTeamHudlScout || ownTeamHudlScout);
@@ -2114,64 +2175,13 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       return;
     }
 
+    lastSavedPayloadRef.current = payloadJson;
+
     const weekKey = normalizeScoutWeekKey(currentWeekRef.current);
     const scopedKey = getScopedWeekKey(activeTeamIdRef.current, weekKey);
     const weekState =
       currentState.weeklyData?.[scopedKey] || currentState.weeklyData?.[weekKey];
     const { db } = getFirebaseServices();
-
-    if (isBoardPatchScope(scope) && db) {
-      const posIds = (Array.isArray(extraMeta?.modifiedPosIds) ? extraMeta.modifiedPosIds : []).filter(Boolean);
-      const formIds = (Array.isArray(extraMeta?.modifiedFormIds) ? extraMeta.modifiedFormIds : []).filter(Boolean);
-      if (extraMeta?.formId && !formIds.includes(extraMeta.formId)) formIds.push(extraMeta.formId);
-      if (extraMeta?.movedFormationId && !formIds.includes(extraMeta.movedFormationId)) formIds.push(extraMeta.movedFormationId);
-      if (extraMeta?.deletedFormationId && !formIds.includes(extraMeta.deletedFormationId)) {
-        formIds.push(extraMeta.deletedFormationId);
-      }
-      const wantsOrder =
-        scope === 'move_formation' ||
-        scope === 'formation_add' ||
-        scope === 'delete_formation' ||
-        scope === 'formation_duplicate';
-      if (posIds.length || formIds.length || wantsOrder) {
-        setSyncStatus({ text: '☁️ Syncing...', color: '#f59e0b' });
-        const depthSpots: Record<string, any[]> = {};
-        const scrimmageSpots: Record<string, any[]> = {};
-        const formationBoards: Record<string, any | null> = {};
-        const chartKind = extraMeta?.chartKind === 'scrimmage' ? 'scrimmage' : 'depth';
-        posIds.forEach((id: string) => {
-          if (chartKind === 'scrimmage') scrimmageSpots[id] = weekState?.scrimmageChart?.[id] || [];
-          else depthSpots[id] = weekState?.depthChart?.[id] || [];
-        });
-        formIds.forEach((id: string) => {
-          if (scope === 'delete_formation' && extraMeta?.deletedFormationId === id) {
-            formationBoards[id] = null;
-            return;
-          }
-          const board = (weekState?.formations || []).find((f: any) => f && f.id === id);
-          if (board) formationBoards[id] = board;
-        });
-        const sharedOk = await patchSharedWeekCloud({
-          teamId: activeTeamIdRef.current,
-          week: weekKey,
-          depthSpots,
-          scrimmageSpots,
-          formationBoards,
-          formationOrder: wantsOrder
-            ? (weekState?.formations || []).map((f: any) => f.id).filter(Boolean)
-            : undefined,
-          deletedFormationIds: extraMeta?.deletedFormationId ? [extraMeta.deletedFormationId] : undefined,
-        });
-        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        setSyncStatus({
-          text: sharedOk ? `✅ Saved & Synced (${timeStr})` : '⚠️ Saved on this device only',
-          color: sharedOk ? '#22c55e' : '#ef4444',
-        });
-        return;
-      }
-    }
-
-    lastSavedPayloadRef.current = payloadJson;
 
     setSyncStatus({ text: '☁️ Syncing...', color: '#f59e0b' });
 
@@ -2772,6 +2782,13 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     applySharedBoardFromRemote(remote);
   };
 
+  const hydrateWeekBoardFromCloud = async () => {
+    const teamId = activeTeamIdRef.current;
+    const week = normalizeScoutWeekKey(currentWeekRef.current);
+    const remote = await fetchSharedWeekCloud(teamId, week);
+    if (remote.weekSlice) applySharedBoardFromRemote(remote);
+  };
+
   const publishHudlScoutToCloud = async () => {
     const teamId = activeTeamIdRef.current;
     const week = normalizeScoutWeekKey(currentWeekRef.current);
@@ -2997,7 +3014,12 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         }
       });
 
-      // 4. Resilient polling fallback every 4 seconds (throttled when tab is hidden or idle)
+      // 4. Week board poll every 1.2s so a missed live snapshot still shows up quickly
+      const weekPollInterval = setInterval(() => {
+        if (!isMounted || document.hidden) return;
+        void hydrateWeekBoardFromCloud();
+      }, 1200);
+
       const pollInterval = setInterval(async () => {
         if (!isMounted) return;
         // Optimization: pause polling when browser tab is hidden or user is idle to save CPU & memory
@@ -3009,7 +3031,6 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
             checkServerHealth(),
             fetchServerLocks(),
           ]);
-          await hydrateSharedBoardFromCloud();
           if (Array.isArray(currentLocks)) {
             setActiveLocks((prev) => {
               if (prev.length === currentLocks.length) {
@@ -3081,6 +3102,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
 
       return () => {
         if (typeof unsubscribeSSE === 'function') unsubscribeSSE();
+        clearInterval(weekPollInterval);
         clearInterval(pollInterval);
         window.removeEventListener('focus', handleWindowFocus);
         document.removeEventListener('visibilitychange', handleWindowFocus);
