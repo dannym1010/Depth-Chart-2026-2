@@ -186,6 +186,7 @@ import { applyCopiedFormationsToDeletedIds, copyWeekCharts } from './utils/copyW
 import {
   loadLiveDrillSlotLayouts,
   mergeLiveDrillSlotLayouts,
+  mergePracticeDrillGroups,
   persistLiveDrillSlotLayouts,
   scorePracticeDrillGroups,
 } from './components/practiceDrillsUtils';
@@ -1995,7 +1996,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         pendingSaveRef.current = null;
         void saveStateToStorage(pending.scope, pending.extraMeta);
       }
-    }, 250);
+    }, 800);
 
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     setSyncStatus({ text: `✅ Live Synced (${timeStr})`, color: '#22c55e' });
@@ -2394,6 +2395,12 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
   const applySharedBoardFromRemote = (remote: SharedBoardCloudUpdate) => {
     const take = (key: string, at?: number) => {
       const n = Number(at) || 0;
+      if (remote.writerClientId && remote.writerClientId === CLIENT_ID) {
+        if (n) {
+          lastAppliedOpsAtRef.current[key] = Math.max(lastAppliedOpsAtRef.current[key] || 0, n);
+        }
+        return false;
+      }
       if (n && n <= (lastAppliedOpsAtRef.current[key] || 0)) return false;
       if (n) lastAppliedOpsAtRef.current[key] = n;
       return true;
@@ -2440,12 +2447,17 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
               cur.formations,
               slice.formations,
               recentlyModifiedFormationsRef.current,
-              lastLocalEditTimeRef.current
+              lastLocalEditTimeRef.current,
+              Date.now(),
+              true
             ),
             opponent: slice.opponent || cur.opponent || '',
             wristbandData: slice.wristbandData || cur.wristbandData,
             scouting: mergeScoutingReports(cur.scouting, slice.scouting),
-            practiceDrillGroups: slice.practiceDrillGroups || cur.practiceDrillGroups,
+            practiceDrillGroups: mergePracticeDrillGroups(
+              cur.practiceDrillGroups,
+              slice.practiceDrillGroups
+            ),
             pprPlayCounts: slice.pprPlayCounts || cur.pprPlayCounts,
             pffReviews: slice.pffReviews || cur.pffReviews,
             filmSession: slice.filmSession || cur.filmSession,
@@ -2607,7 +2619,9 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
           latestStateRef.current.defaultFormations,
           remote.defaultFormations,
           recentlyModifiedFormationsRef.current,
-          lastLocalEditTimeRef.current
+          lastLocalEditTimeRef.current,
+          Date.now(),
+          true
         );
         setDefaultFormations(nextDefaults);
         latestStateRef.current.defaultFormations = nextDefaults;

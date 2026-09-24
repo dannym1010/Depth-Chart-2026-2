@@ -724,7 +724,7 @@ export type SharedBoardCloudUpdate = {
 };
 
 function opsWeekDocId(teamId: string, week: string) {
-  const wk = String(week || '1').replace(/\D/g, '') || '1';
+  const wk = String(week || '1').replace(/[^a-zA-Z0-9_-]/g, '') || '1';
   return `ops_week_${teamId}_w${wk}`;
 }
 
@@ -789,7 +789,7 @@ export async function saveSharedBoardCloud(payload: {
           opsMeta({
             ...payload.weekSlice,
             teamId: payload.teamId,
-            week: String(payload.week).replace(/\D/g, '') || '1',
+            week: String(payload.week).replace(/[^a-zA-Z0-9_-]/g, '') || '1',
           })
         )
       );
@@ -922,6 +922,7 @@ export async function fetchSharedBoardCloud(
       practiceUpdatedAt: prac?.updatedAt,
       weekSlice: weekSnap,
       weekUpdatedAt: weekSnap?.updatedAt,
+      writerClientId: weekSnap?.writerClientId,
       roster: roster?.roster,
       rosterUpdatedAt: roster?.updatedAt,
       teams: season?.teams,
@@ -974,10 +975,10 @@ export function subscribeSharedBoardCloud(
     db.collection('teamData').doc(docId).onSnapshot(
       (snap: any) => {
         if (!snap?.exists) return;
-        if (snap.metadata?.hasPendingWrites) return;
         const data = snap.data();
         if (!data) return;
-        onUpdate(mapFn(data));
+        if (snap.metadata?.hasPendingWrites && data.writerClientId === CLIENT_ID) return;
+        onUpdate({ ...mapFn(data), writerClientId: data.writerClientId });
       },
       (err: any) => {
         console.warn(`subscribeSharedBoardCloud ${docId} error:`, err);

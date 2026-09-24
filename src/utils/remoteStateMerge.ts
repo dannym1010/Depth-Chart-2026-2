@@ -113,7 +113,8 @@ export function applySharedFormations(
   remoteForms: FormationBoard[] | undefined,
   recentlyModifiedFormations?: Map<string, number>,
   lastLocalEditTime: number = 0,
-  now: number = Date.now()
+  now: number = Date.now(),
+  preferRemoteContent: boolean = false
 ): FormationBoard[] {
   const local = Array.isArray(localForms) ? localForms.filter((f) => f && f.id) : [];
   const remote = Array.isArray(remoteForms) ? remoteForms.filter((f) => f && f.id) : [];
@@ -121,31 +122,41 @@ export function applySharedFormations(
   if (!local.length) return remote;
 
   const keepLocalLayout =
-    now - lastLocalEditTime < RECENT_POSITION_PROTECT_MS ||
+    (!preferRemoteContent && now - lastLocalEditTime < RECENT_POSITION_PROTECT_MS) ||
     [...(recentlyModifiedFormations?.values() || [])].some((t) => now - t < RECENT_POSITION_PROTECT_MS);
 
   const localById = new Map(local.map((f) => [f.id, f]));
   const remoteById = new Map(remote.map((f) => [f.id, f]));
   const maxEdited = (forms: FormationBoard[]) =>
     forms.reduce((max, f) => Math.max(max, Number(f.lastEdited) || 0), 0);
-  const order = keepLocalLayout || maxEdited(local) >= maxEdited(remote) ? local : remote;
+  const order =
+    keepLocalLayout || (!preferRemoteContent && maxEdited(local) >= maxEdited(remote)) ? local : remote;
   const seen = new Set<string>();
   const merged: FormationBoard[] = [];
   order.forEach((base) => {
     const loc = localById.get(base.id);
     const rem = remoteById.get(base.id);
     const editedAt = recentlyModifiedFormations?.get(base.id);
-    const keepThis = keepLocalLayout && editedAt !== undefined && now - editedAt < RECENT_POSITION_PROTECT_MS;
-    const next = keepThis ? loc || base : pickBetterFormation(loc, rem) || loc || rem;
+    const keepThis = editedAt !== undefined && now - editedAt < RECENT_POSITION_PROTECT_MS;
+    const next = keepThis
+      ? loc || base
+      : preferRemoteContent
+        ? rem || loc || base
+        : pickBetterFormation(loc, rem) || loc || rem;
     if (next && !seen.has(next.id)) {
       seen.add(next.id);
       merged.push(next);
     }
   });
-  const leftover = keepLocalLayout || maxEdited(local) >= maxEdited(remote) ? remote : local;
+  const leftover =
+    keepLocalLayout || (!preferRemoteContent && maxEdited(local) >= maxEdited(remote)) ? remote : local;
   leftover.forEach((form) => {
     if (seen.has(form.id)) return;
-    const next = pickBetterFormation(localById.get(form.id), remoteById.get(form.id)) || form;
+    const loc = localById.get(form.id);
+    const rem = remoteById.get(form.id);
+    const next = preferRemoteContent
+      ? rem || loc || form
+      : pickBetterFormation(loc, rem) || form;
     if (next && !seen.has(next.id)) {
       seen.add(next.id);
       merged.push(next);

@@ -453,6 +453,22 @@ describe('remoteStateMerge', () => {
     assert.equal(merged[0].rows[0].positions[1]?.id, 'a-qb');
   });
 
+  it('takes another coach newer board when this device only has an older lastEdited stamp', () => {
+    const now = 1_700_000_000_000;
+    const local = {
+      ...form('form_a', '21', 'offense', 'a-qb'),
+      lastEdited: now,
+      rows: [{ id: 'r1', positions: [{ id: 'a-qb', name: 'QB' }] }],
+    } as FormationBoard;
+    const remote = {
+      ...form('form_a', '21', 'offense', 'a-qb'),
+      lastEdited: now - 1,
+      rows: [{ id: 'r1', positions: [null, { id: 'a-qb', name: 'QB 1s' }] }],
+    } as FormationBoard;
+    const merged = applySharedFormations([local], [remote], new Map(), now, now + 120_000, true);
+    assert.equal(merged[0].rows[0].positions[1]?.name, 'QB 1s');
+  });
+
   it('keeps a moved 4-4 first after refresh when cloud still has factory order', () => {
     const now = 1_700_000_000_000;
     const local = {
