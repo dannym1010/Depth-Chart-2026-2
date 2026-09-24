@@ -107,7 +107,7 @@ import {
   sanitizePracticePlans,
   findBestActivePracticeId,
 } from './utils/practiceUtils';
-import { getAutoActiveWeek, normalizeWeeklyData, extractBackupFormations, normalizeFormationUnit, getSeasonWeekList } from './utils/seasonWeekUtils';
+import { getAutoActiveWeek, normalizeWeeklyData, extractBackupFormations, normalizeFormationUnit, getSeasonWeekList, isDroppedFormation } from './utils/seasonWeekUtils';
 import { getPreviousWeekKey, mergePffGradeCriteria, PffPlayerGroupOverrides } from './utils/pprGroups';
 import { hydrateFilmSession } from './utils/hudlFilmImport';
 import { normalizeRoster } from './utils/depthChartUtils';
@@ -173,6 +173,7 @@ import {
   mergeScheduleEvents,
   applySharedWeekSliceDepth,
   applySharedFormations,
+  reorderFormationsInUnit,
   mergeScoutingReports,
   normalizeScoutWeekKey,
   pickScoutBundle,
@@ -204,12 +205,16 @@ export default function App() {
   // State Initialization from LocalStorage or Defaults
   const [weeklyData, setWeeklyData] = useState<Record<string, WeekState>>(() => {
     const raw = safeJSONParse('footballWeeklyData', {});
-    const normalized = normalizeWeeklyData(raw);
+    const savedDefaults = safeJSONParse('footballDefaultFormations', INITIAL_DEFAULT_FORMATIONS);
+    const normalized = normalizeWeeklyData(
+      raw,
+      Array.isArray(savedDefaults) && savedDefaults.length ? savedDefaults : INITIAL_DEFAULT_FORMATIONS
+    );
     // Sanitize any existing form_10_spread or 10 Spread Offense entries
     for (const w of Object.values(normalized)) {
       if (w && Array.isArray(w.formations)) {
         w.formations = w.formations.filter(
-          (f) => f && f.id !== 'form_10_spread' && f.name !== '10 Spread Offense'
+          (f) => f && !isDroppedFormation(f)
         );
       }
     }
@@ -231,9 +236,7 @@ export default function App() {
   const [defaultFormations, setDefaultFormations] = useState<FormationBoard[]>(() => {
     const raw = safeJSONParse('footballDefaultFormations', INITIAL_DEFAULT_FORMATIONS);
     const forms = Array.isArray(raw) ? raw : INITIAL_DEFAULT_FORMATIONS;
-    return forms.filter(
-      (f: any) => f && f.id !== 'form_10_spread' && f.name !== '10 Spread Offense'
-    );
+    return forms.filter((f: any) => f && !isDroppedFormation(f));
   });
   const [practiceData, setPracticeData] = useState<PracticePlan[]>(() => {
     const saved = safeJSONParse('footballPracticeData', null);
@@ -336,6 +339,10 @@ export default function App() {
     if (!sanitized.includes('form_10_spread')) {
       sanitized.push('form_10_spread');
     }
+    if (!sanitized.includes('form_base_def')) {
+      sanitized.push('form_base_def');
+    }
+    safeJSONSet('footballDeletedFormationIds', sanitized);
     return sanitized;
   });
   const [deletedPracticePlanIds, setDeletedPracticePlanIds] = useState<string[]>(() => {
@@ -1229,6 +1236,7 @@ export default function App() {
     ].filter((id) => !coreDefaultIds.has(id));
     const curDeletedSet = new Set<string>(rawDeleted);
     curDeletedSet.add('form_10_spread');
+    curDeletedSet.add('form_base_def');
 
     let rawCandidateForms: FormationBoard[] = [];
     let hasExplicitFormations = false;
@@ -1263,14 +1271,7 @@ export default function App() {
     let formations: FormationBoard[] = [];
 
     for (const f of rawCandidateForms) {
-      if (
-        !f ||
-        !f.id ||
-        curDeletedSet.has(f.id) ||
-        f.id === 'form_10_spread' ||
-        f.name === '10 Spread Offense'
-      )
-        continue;
+      if (!f || !f.id || curDeletedSet.has(f.id) || isDroppedFormation(f)) continue;
       if (seenFormIds.has(f.id)) continue;
       seenFormIds.add(f.id);
       formations.push(f);
@@ -1280,27 +1281,15 @@ export default function App() {
     for (const u of ['offense', 'defense', 'st', 'groups'] as const) {
       if (!formations.some((f) => f && f.unit === u)) {
         let defsForUnit = (defaultFormations || []).filter(
-          (f) =>
-            f &&
-            f.unit === u &&
-            !curDeletedSet.has(f.id) &&
-            f.id !== 'form_10_spread' &&
-            f.name !== '10 Spread Offense'
+          (f) => f && f.unit === u && !curDeletedSet.has(f.id) && !isDroppedFormation(f)
         );
         if (defsForUnit.length === 0) {
           defsForUnit = INITIAL_DEFAULT_FORMATIONS.filter(
-            (f) =>
-              f &&
-              f.unit === u &&
-              f.id !== 'form_10_spread' &&
-              f.name !== '10 Spread Offense'
+            (f) => f && f.unit === u && !isDroppedFormation(f)
           );
         }
         for (const df of defsForUnit) {
-          if (
-            !seenFormIds.has(df.id) &&
-            df.id !== 'form_10_spread'
-          ) {
+          if (!seenFormIds.has(df.id) && !isDroppedFormation(df)) {
             formations.push(deepClone(df));
             seenFormIds.add(df.id);
           }
@@ -1418,6 +1407,27 @@ export default function App() {
           pick(scopedFilm) || (is10U ? pick(legacyFilm) || pick(defFilm) : undefined) || scopedFilm || (is10U ? legacyFilm || defFilm : undefined)
         );
       })(),
+    };
+  };
+
+  const storedWeekForWrite = (
+    wData: Record<string, WeekState>,
+    teamId: string,
+    week: string
+  ): WeekState => {
+    const scopedKey = getScopedWeekKey(teamId, week);
+    const scoped = wData[scopedKey];
+    const legacy = wData[week];
+    const resolved = resolveWeekState(wData, teamId, week);
+    const hasBoards = (s?: WeekState) =>
+      Array.isArray(s?.formations) && s.formations.some((f) => f && f.id);
+    const base = hasBoards(scoped) ? scoped! : hasBoards(legacy) ? legacy! : resolved;
+    return {
+      ...resolved,
+      ...base,
+      formations: hasBoards(base)
+        ? base.formations.filter((f) => f && f.id)
+        : resolved.formations,
     };
   };
 
@@ -1582,7 +1592,12 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
 
       const normalizedWeekly = normalizeWeeklyData(
         data.weeklyData,
-        data.defaultFormations || latestStateRef.current.defaultFormations
+        applySharedFormations(
+          latestStateRef.current.defaultFormations,
+          data.defaultFormations,
+          recentlyModifiedFormationsRef.current,
+          lastLocalEditTimeRef.current
+        )
       );
       setWeeklyData((prev) => {
         const mergedWeekly = mergeRemoteWeeklyData(
@@ -1618,65 +1633,17 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       Array.isArray(data.defaultFormations) &&
       data.defaultFormations.length > 0
     ) {
-      const rawUnit =
-        activeUnitRef.current === 'depth_chart'
-          ? currentDepthUnitRef.current
-          : activeUnitRef.current;
-      const effectiveUnit: 'offense' | 'defense' | 'st' | 'groups' =
-        ['offense', 'defense', 'st', 'groups'].includes(rawUnit)
-          ? (rawUnit as 'offense' | 'defense' | 'st' | 'groups')
-          : (['offense', 'defense', 'st', 'groups'].includes(currentDepthUnitRef.current)
-              ? (currentDepthUnitRef.current as 'offense' | 'defense' | 'st' | 'groups')
-              : 'offense');
-
-      if (Date.now() - lastLocalEditTimeRef.current < 25000) {
-        const localDefs = latestStateRef.current.defaultFormations || [];
-        const mergedDefs: FormationBoard[] = [];
-        const usedIds = new Set<string>();
-        localDefs.forEach((lf) => {
-          if (lf && lf.id && !effectiveDeletedFormIds.has(lf.id)) {
-            const isRecent =
-              recentlyModifiedFormationsRef.current.has(lf.id) &&
-              Date.now() - (recentlyModifiedFormationsRef.current.get(lf.id) || 0) < 25000;
-            if (lf.unit === effectiveUnit || isRecent) {
-              mergedDefs.push(lf);
-              usedIds.add(lf.id);
-            }
-          }
-        });
-        data.defaultFormations.forEach((rf: any) => {
-          if (rf && rf.id && !usedIds.has(rf.id) && !effectiveDeletedFormIds.has(rf.id)) {
-            mergedDefs.push(rf);
-            usedIds.add(rf.id);
-          }
-        });
-        setDefaultFormations(mergedDefs);
-        latestStateRef.current.defaultFormations = mergedDefs;
-        safeJSONSet('footballDefaultFormations', mergedDefs);
-      } else {
-        const localDefs = latestStateRef.current.defaultFormations || [];
-        const filteredDefs = data.defaultFormations.filter(
+      const mergedDefs = applySharedFormations(
+        latestStateRef.current.defaultFormations,
+        data.defaultFormations.filter(
           (df: any) => df && df.id && !effectiveDeletedFormIds.has(df.id)
-        );
-        localDefs.forEach((lf) => {
-          if (lf && lf.id && !effectiveDeletedFormIds.has(lf.id)) {
-            const isRecent =
-              recentlyModifiedFormationsRef.current.has(lf.id) &&
-              Date.now() - (recentlyModifiedFormationsRef.current.get(lf.id) || 0) < 25000;
-            if (isRecent) {
-              const idx = filteredDefs.findIndex((f: any) => f.id === lf.id);
-              if (idx !== -1) {
-                filteredDefs[idx] = lf;
-              } else {
-                filteredDefs.push(lf);
-              }
-            }
-          }
-        });
-        setDefaultFormations(filteredDefs);
-        latestStateRef.current.defaultFormations = filteredDefs;
-        safeJSONSet('footballDefaultFormations', filteredDefs);
-      }
+        ),
+        recentlyModifiedFormationsRef.current,
+        lastLocalEditTimeRef.current
+      );
+      setDefaultFormations(mergedDefs);
+      latestStateRef.current.defaultFormations = mergedDefs;
+      safeJSONSet('footballDefaultFormations', mergedDefs);
     }
 
     const effectiveDeletedPlanIds = new Set<string>([
@@ -2320,12 +2287,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     const week = currentWeekRef.current;
     setWeeklyData((prev) => {
       const scopedKey = getScopedWeekKey(teamId, week);
-      const existingWeek = prev[scopedKey] || prev[week] || {
-        formations: defaultFormations,
-        depthChart: {},
-        scrimmageChart: {},
-        opponent: '',
-      };
+      const existingWeek = storedWeekForWrite(prev, teamId, week);
       const updates = typeof field === 'object' && field !== null ? field : { [field]: val };
       const updatedScouting = {
         ...(existingWeek.scouting || {}),
@@ -2386,12 +2348,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         const wk = normalizeScoutWeekKey(week);
         const scopedKey = getScopedWeekKey(teamId, wk);
         const patchWeek = (key: string, source: typeof prev) => {
-          const existingWeek = source[key] || {
-            formations: defaultFormations,
-            depthChart: {},
-            scrimmageChart: {},
-            opponent: '',
-          };
+          const existingWeek = storedWeekForWrite(source, teamId, wk);
           const nextHudl = pickScoutBundle(existingWeek.scouting?.hudlScout, remote.opponentScout);
           if (scoutFingerprint(existingWeek.scouting?.hudlScout) === scoutFingerprint(nextHudl)) {
             return existingWeek;
@@ -2469,12 +2426,8 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       const recentSpots = recentlyModifiedPositionsRef.current;
       setWeeklyData((prev) => {
         const patch = (key: string) => {
-          const cur = prev[key] || {
-            formations: defaultFormations,
-            depthChart: {},
-            scrimmageChart: {},
-            opponent: '',
-          };
+          const weekId = key.includes('__week_') ? key.split('__week_').slice(1).join('__week_') : key;
+          const cur = storedWeekForWrite(prev, teamId, weekId);
           return {
             ...cur,
             depthChart: applySharedWeekSliceDepth(cur.depthChart || {}, slice.depthChart, recentSpots),
@@ -3606,7 +3559,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
 
   const currentFormations: FormationBoard[] = useMemo(() => {
     return (rawFormations || [])
-      .filter((f): f is FormationBoard => Boolean(f && typeof f === 'object' && f.id))
+      .filter((f): f is FormationBoard => Boolean(f && typeof f === 'object' && f.id && !isDroppedFormation(f)))
       .map((f) => ({
         ...f,
         rows: (f.rows || []).map((r, rIdx) => {
@@ -5475,83 +5428,67 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     const targetUIdx = uIdx + direction;
     if (targetUIdx < 0 || targetUIdx >= unitForms.length) return;
 
-    // Create cleanly reordered array for this unit
+    const now = Date.now();
+    lastLocalEditTimeRef.current = now;
+    safeJSONSet('footballLastLocalEditTime', now);
+
     const reorderedUnitForms = [...unitForms];
     const [movedItem] = reorderedUnitForms.splice(uIdx, 1);
     reorderedUnitForms.splice(targetUIdx, 0, movedItem);
-
-    // Reconstruct full formations array replacing targetUnit formations in-place
-    let repIdx = 0;
-    const nextFormations = forms.map((f) => {
-      if (f.unit === targetUnit) {
-        const rep = reorderedUnitForms[repIdx];
-        repIdx++;
-        return rep || f;
-      }
-      return f;
+    const stampedUnit = reorderedUnitForms.map((f) => (f ? { ...f, lastEdited: now } : f));
+    stampedUnit.forEach((f) => {
+      if (f?.id) recentlyModifiedFormationsRef.current.set(f.id, now);
     });
+    safeJSONSet(
+      'footballRecentlyModifiedFormations',
+      Array.from(recentlyModifiedFormationsRef.current.entries())
+    );
 
-    lastLocalEditTimeRef.current = Date.now();
-    reorderedUnitForms.forEach((f) => {
-      if (f?.id) recentlyModifiedFormationsRef.current.set(f.id, lastLocalEditTimeRef.current);
-    });
+    const nextFormations = reorderFormationsInUnit(forms, targetUnit, stampedUnit);
     const scopedKey = getScopedWeekKey(activeTeamId, currentWeek);
 
-    // Synchronize across all weeks for active team and legacy key
-    setWeeklyData((prev) => {
-      const updatedAll: Record<string, WeekState> = {};
+    const stampMovedOrder = (prev: Record<string, WeekState>) => {
+      const updatedAll: Record<string, WeekState> = { ...prev };
       for (const [wKey, wState] of Object.entries(prev)) {
         if (!wState) continue;
         const isCurrentTeamWeek =
           wKey.startsWith(`${activeTeamId}__`) ||
           (!wKey.includes('__') && activeTeamId === 'team_10u');
-
-        if (isCurrentTeamWeek && Array.isArray(wState.formations)) {
-          // Reorder unit formations in this week to match new order
-          const weekUnitForms = wState.formations.filter((f) => f && f.unit === targetUnit);
-          const thisUnitOrdered = reorderedUnitForms.filter((rf) =>
-            weekUnitForms.some((f) => f && f.id === rf.id)
-          );
-          let wRepIdx = 0;
-          const finalWeekForms = wState.formations.map((f) => {
-            if (f && f.unit === targetUnit) {
-              const rep = thisUnitOrdered[wRepIdx];
-              wRepIdx++;
-              return rep || f;
-            }
-            return f;
-          });
-
+        const compact = (wState.formations || []).filter((f) => f && f.id);
+        const hasUnit = compact.some((f) => f.unit === targetUnit);
+        if (isCurrentTeamWeek && hasUnit) {
           updatedAll[wKey] = {
             ...wState,
-            formations: finalWeekForms,
+            formations: deepClone(
+              reorderFormationsInUnit(
+                compact,
+                targetUnit,
+                stampedUnit.filter((rf) => compact.some((f) => f.id === rf.id))
+              )
+            ),
           };
-        } else {
-          updatedAll[wKey] = wState;
         }
       }
+      const curState = storedWeekForWrite(prev, activeTeamId, currentWeek);
+      const savedForms = deepClone(nextFormations);
+      updatedAll[scopedKey] = { ...curState, formations: savedForms };
+      updatedAll[currentWeek] = { ...curState, formations: deepClone(nextFormations) };
+      return updatedAll;
+    };
 
-      // Explicitly set target scoped week and currentWeek
-      const curState = resolveWeekState(prev, activeTeamId, currentWeek);
-      updatedAll[scopedKey] = { ...curState, formations: nextFormations };
-      updatedAll[currentWeek] = { ...curState, formations: nextFormations };
-
+    setWeeklyData((prev) => {
+      const updatedAll = stampMovedOrder(prev);
       latestStateRef.current.weeklyData = updatedAll;
       safeJSONSet('footballWeeklyData', updatedAll);
       return updatedAll;
     });
+    latestStateRef.current.weeklyData = stampMovedOrder(
+      latestStateRef.current.weeklyData || weeklyData
+    );
+    safeJSONSet('footballWeeklyData', latestStateRef.current.weeklyData);
 
-    // Reorder defaultFormations
     const curDefaults = latestStateRef.current.defaultFormations || defaultFormations || [];
-    let dRepIdx = 0;
-    const nextDefaults = curDefaults.map((df) => {
-      if (df.unit === targetUnit) {
-        const rep = reorderedUnitForms[dRepIdx];
-        dRepIdx++;
-        return rep || df;
-      }
-      return df;
-    });
+    const nextDefaults = deepClone(reorderFormationsInUnit(curDefaults, targetUnit, stampedUnit));
     setDefaultFormations(nextDefaults);
     latestStateRef.current.defaultFormations = nextDefaults;
     safeJSONSet('footballDefaultFormations', nextDefaults);
@@ -7539,26 +7476,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
 
     setWeeklyData((prev) => {
       const scopedKey = getScopedWeekKey(activeTeamId, weekKey);
-      const existingWeek = prev[scopedKey] || prev[weekKey] || {
-        formations: deepClone(defaultFormations),
-        depthChart: {},
-        scrimmageChart: {},
-        opponent: oppName,
-        scouting: {
-          year: '2026',
-          week: `Week ${weekKey}`,
-          opponent: oppName,
-          gameDate: gameDateTime,
-          gameLocation: location,
-          teamOverview: '',
-          offensiveTendencies: '',
-          defensiveFronts: '',
-          specialTeamsNotes: '',
-          keysToVictory: [],
-          keyPlayersList: [],
-          coachNotes: [],
-        },
-      };
+      const existingWeek = storedWeekForWrite(prev, activeTeamId, weekKey);
 
       const updatedWeekState = {
         ...existingWeek,
@@ -8415,12 +8333,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         onOpponentChange={(opp) => {
           setWeeklyData((prev) => {
             const scopedKey = getScopedWeekKey(activeTeamId, currentWeek);
-            const existingWeek = prev[scopedKey] || prev[currentWeek] || {
-              formations: defaultFormations,
-              depthChart: {},
-              scrimmageChart: {},
-              opponent: opp,
-            };
+            const existingWeek = storedWeekForWrite(prev, activeTeamId, currentWeek);
             const updatedWeek = {
               ...existingWeek,
               opponent: opp,
@@ -8429,11 +8342,14 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
                 opponent: opp,
               },
             };
-            return {
+            const updatedAll = {
               ...prev,
               [scopedKey]: updatedWeek,
               [currentWeek]: updatedWeek,
             };
+            latestStateRef.current.weeklyData = updatedAll;
+            safeJSONSet('footballWeeklyData', updatedAll);
+            return updatedAll;
           });
         }}
         scheduleEvents={activeTeamScheduleEvents}
@@ -9009,12 +8925,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
                 onUpdateOpponent={(newOpponent) => {
                   setWeeklyData((prev) => {
                     const scopedKey = getScopedWeekKey(activeTeamId, currentWeek);
-                    const existingWeek = prev[scopedKey] || prev[currentWeek] || {
-                      formations: defaultFormations,
-                      depthChart: {},
-                      scrimmageChart: {},
-                      opponent: '',
-                    };
+                    const existingWeek = storedWeekForWrite(prev, activeTeamId, currentWeek);
                     const updatedWeek = {
                       ...existingWeek,
                       opponent: newOpponent,

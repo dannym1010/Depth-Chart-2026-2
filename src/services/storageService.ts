@@ -80,7 +80,8 @@ export function safeJSONStringify(data: any, space?: number): string {
               return undefined;
             }
             if (seen.has(val)) {
-              return undefined;
+              if (Array.isArray(val)) return val.slice();
+              return { ...val };
             }
             seen.add(val);
           } catch {

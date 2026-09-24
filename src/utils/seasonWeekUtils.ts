@@ -16,6 +16,13 @@ export interface AutoWeekResult {
  * and team-scoped keys ('team_10u__week_0', ...), guaranteeing that depth charts,
  * formations, scrimmage charts, scouting, and opponent details are preserved and synced.
  */
+export function isDroppedFormation(f?: { id?: string; name?: string } | null): boolean {
+  if (!f || !f.id) return true;
+  if (f.id === 'form_10_spread' || f.id === 'form_base_def') return true;
+  const n = String(f.name || '').trim().toLowerCase();
+  return n === '10 spread offense' || n === 'base' || n === 'base defense';
+}
+
 export function normalizeWeeklyData(
   wData: Record<string, WeekState> | undefined,
   defaultForms: FormationBoard[] = INITIAL_DEFAULT_FORMATIONS,
@@ -35,45 +42,19 @@ export function normalizeWeeklyData(
   for (const [key, weekState] of Object.entries(wData)) {
     if (!weekState || typeof weekState !== 'object') continue;
 
-    const hasExplicitFormations = Array.isArray(weekState.formations);
-    let rawFormations =
-      hasExplicitFormations
-        ? deepClone(weekState.formations)
-        : deepClone(fallbackFormations);
+    const hasExplicitFormations =
+      Array.isArray(weekState.formations) &&
+      weekState.formations.some((f) => f && f.id && !isDroppedFormation(f));
 
-    // Deduplicate by ID and filter out deleted formations
     const seenIds = new Set<string>();
     let formations: FormationBoard[] = [];
 
-    for (const f of rawFormations) {
-      if (!f || !f.id || deletedSet.has(f.id)) continue;
-      if (seenIds.has(f.id)) continue;
-      seenIds.add(f.id);
-      formations.push(f);
-    }
-
-    // Ensure every week has core units (Offense, Defense, ST, Groups) populated
-    for (const u of ['offense', 'defense', 'st', 'groups'] as const) {
-      if (!formations.some((f) => f && f.unit === u)) {
-        const defsForUnit = fallbackFormations.filter(
-          (f) => f && f.unit === u && !deletedSet.has(f.id)
-        );
-        const toAdd =
-          defsForUnit.length > 0
-            ? defsForUnit
-            : INITIAL_DEFAULT_FORMATIONS.filter(
-                (f) =>
-                  f &&
-                  f.unit === u &&
-                  f.id !== 'form_10_spread' &&
-                  f.name !== '10 Spread Offense'
-              );
-        for (const df of toAdd) {
-          if (!seenIds.has(df.id)) {
-            formations.push(deepClone(df));
-            seenIds.add(df.id);
-          }
-        }
+    if (hasExplicitFormations) {
+      for (const f of weekState.formations) {
+        if (!f || !f.id || deletedSet.has(f.id) || isDroppedFormation(f)) continue;
+        if (seenIds.has(f.id)) continue;
+        seenIds.add(f.id);
+        formations.push(deepClone(f));
       }
     }
 
@@ -143,7 +124,7 @@ export function normalizeWeeklyData(
       const seenKeys = new Set<string>();
 
       const addFormationIfValid = (f: FormationBoard) => {
-        if (!f || !f.id || deletedSet.has(f.id)) return;
+        if (!f || !f.id || deletedSet.has(f.id) || isDroppedFormation(f)) return;
         const normalizedName = (f.name || '').toLowerCase().trim();
         const uKey = `${f.unit}__${normalizedName}`;
         if (seenIds.has(f.id) || seenKeys.has(uKey)) return;
@@ -152,8 +133,17 @@ export function normalizeWeeklyData(
         combinedFormations.push(f);
       };
 
-      (scopedState.formations || []).forEach(addFormationIfValid);
-      (legacyState.formations || []).forEach(addFormationIfValid);
+      const scopedForms = (scopedState.formations || []).filter((f) => f && f.id && !deletedSet.has(f.id));
+      const legacyForms = (legacyState.formations || []).filter((f) => f && f.id && !deletedSet.has(f.id));
+      const maxEdited = (forms: FormationBoard[]) =>
+        forms.reduce((max, f) => Math.max(max, Number(f.lastEdited) || 0), 0);
+      const preferLegacy =
+        (maxEdited(legacyForms) > maxEdited(scopedForms) && legacyForms.length > 0) ||
+        (scopedForms.length === 0 && legacyForms.length > 0);
+      const first = preferLegacy ? legacyForms : scopedForms;
+      const second = preferLegacy ? scopedForms : legacyForms;
+      first.forEach(addFormationIfValid);
+      second.forEach(addFormationIfValid);
 
       // Prefer the scopedState depth chart if it exists, falling back to legacyState only if scoped is completely missing
       let reconciledDC = scopedState.depthChart;
@@ -189,6 +179,57 @@ export function normalizeWeeklyData(
     } else if (legacyState && !scopedState) {
       result[scopedKey] = deepClone(legacyState);
     }
+  }
+
+  for (const weekState of Object.values(result)) {
+    if (!weekState) continue;
+    const formations = (weekState.formations || []).filter(
+      (f) => f && f.id && !deletedSet.has(f.id) && !isDroppedFormation(f)
+    );
+    const byId = new Map(formations.map((f) => [f.id, f]));
+    const next: FormationBoard[] = [];
+    const used = new Set<string>();
+    const emitUnit = (u: 'offense' | 'defense' | 'st' | 'groups') => {
+      const present = formations.filter((f) => f.unit === u && !used.has(f.id));
+      const core = INITIAL_DEFAULT_FORMATIONS.filter(
+        (f) => f && f.unit === u && !deletedSet.has(f.id) && !isDroppedFormation(f)
+      );
+      const missing = core.filter((d) => !byId.has(d.id));
+      if (!missing.length) {
+        present.forEach((f) => {
+          next.push(f);
+          used.add(f.id);
+        });
+        return;
+      }
+      const guide = fallbackFormations.filter(
+        (f) => f && f.unit === u && core.some((c) => c.id === f.id) && !isDroppedFormation(f)
+      );
+      const order = (guide.length ? guide : core).filter(
+        (f) => core.some((c) => c.id === f.id) && !deletedSet.has(f.id)
+      );
+      for (const g of order) {
+        if (used.has(g.id)) continue;
+        const existing = byId.get(g.id);
+        next.push(existing || deepClone(core.find((c) => c.id === g.id) || g));
+        used.add(g.id);
+      }
+      present.forEach((f) => {
+        if (used.has(f.id)) return;
+        next.push(f);
+        used.add(f.id);
+      });
+    };
+    emitUnit('offense');
+    emitUnit('defense');
+    emitUnit('st');
+    emitUnit('groups');
+    for (const f of formations) {
+      if (used.has(f.id)) continue;
+      next.push(f);
+      used.add(f.id);
+    }
+    weekState.formations = next;
   }
 
   return result;

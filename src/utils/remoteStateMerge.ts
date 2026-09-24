@@ -10,6 +10,7 @@ import {
 } from '../types';
 import { INITIAL_DEFAULT_FORMATIONS } from '../data/initialData';
 import { deepClone } from '../services/storageService';
+import { isDroppedFormation } from './seasonWeekUtils';
 import { mergePracticeDrillGroups, scorePracticeDrillGroups } from '../components/practiceDrillsUtils';
 import {
   allPffPlays,
@@ -151,6 +152,34 @@ export function applySharedFormations(
     }
   });
   return merged;
+}
+
+export function formationListFromWeek(state?: WeekState | null): FormationBoard[] {
+  return (Array.isArray(state?.formations) ? state.formations : []).filter((f) => Boolean(f && f.id));
+}
+
+export function reorderFormationsInUnit(
+  list: FormationBoard[] | undefined,
+  unit: string,
+  orderedUnitForms: FormationBoard[]
+): FormationBoard[] {
+  const source = Array.isArray(list) ? list.filter((f) => f && f.id) : [];
+  const ordered = (orderedUnitForms || []).filter((f) => f && f.id && f.unit === unit);
+  const orderedIds = new Set(ordered.map((f) => f.id));
+  const extras = source.filter((f) => f.unit === unit && !orderedIds.has(f.id));
+  const unitQueue = [...ordered, ...extras];
+  let i = 0;
+  const next: FormationBoard[] = [];
+  source.forEach((form) => {
+    if (form.unit === unit) {
+      const rep = unitQueue[i++];
+      next.push(rep || form);
+      return;
+    }
+    next.push(form);
+  });
+  if (i < unitQueue.length) next.push(...unitQueue.slice(i));
+  return next;
 }
 
 export function scoutFingerprint(scout: any): string {
@@ -779,6 +808,7 @@ export function mergeDeletedFormationIds(
     (id) => !coreDefaultIds.has(id)
   );
   if (!merged.includes('form_10_spread')) merged.push('form_10_spread');
+  if (!merged.includes('form_base_def')) merged.push('form_base_def');
   return merged;
 }
 
@@ -876,13 +906,14 @@ export function mergeRemoteWeeklyData(
     deletedSet.delete(cid);
   }
   deletedSet.add('form_10_spread');
+  deletedSet.add('form_base_def');
 
   const dedupeForms = (forms: FormationBoard[]): FormationBoard[] => {
     const seenIds = new Set<string>();
     const seenKeys = new Set<string>();
     const res: FormationBoard[] = [];
     for (const f of forms) {
-      if (!f || !f.id || deletedSet.has(f.id)) continue;
+      if (!f || !f.id || deletedSet.has(f.id) || isDroppedFormation(f)) continue;
       const normName = (f.name || '').toLowerCase().trim();
       const uKey = `${f.unit}__${normName}`;
       if (seenIds.has(f.id) || seenKeys.has(uKey)) continue;
@@ -907,52 +938,28 @@ export function mergeRemoteWeeklyData(
     }
 
     const isCurrentActiveWeek = weekKey === scopedKey || weekKey === currentWeek;
-    const localFormations = (Array.isArray(localState.formations) ? localState.formations : []).filter(
-      (f) => f && f.id && !deletedSet.has(f.id)
-    );
-    const remoteFormations = (Array.isArray(remoteState.formations) ? remoteState.formations : []).filter(
-      (f) => f && f.id && !deletedSet.has(f.id)
-    );
+    const siblingKey = weekKey.includes('__week_')
+      ? weekKey.split('__week_')[1]
+      : `${activeTeamId}__week_${weekKey}`;
+    const localDirect = formationListFromWeek(localState).filter((f) => !deletedSet.has(f.id));
+    const remoteDirect = formationListFromWeek(remoteState).filter((f) => !deletedSet.has(f.id));
+    const localFormations = localDirect.length
+      ? localDirect
+      : formationListFromWeek(localWeekly[siblingKey]).filter((f) => !deletedSet.has(f.id));
+    const remoteFormations = remoteDirect.length
+      ? remoteDirect
+      : formationListFromWeek(remoteWeekly[siblingKey]).filter((f) => !deletedSet.has(f.id));
 
     const now = Date.now();
-    const isRecentlyModifiedFormation = (formId: string) => {
-      if (!recentlyModifiedFormations) return false;
-      const t = recentlyModifiedFormations.get(formId);
-      return t !== undefined && now - t < 25000;
-    };
+    const mergedFormations = applySharedFormations(
+      localFormations,
+      remoteFormations,
+      recentlyModifiedFormations,
+      lastLocalEditTime,
+      now
+    );
 
-    const mergedFormations: FormationBoard[] = [];
-    const seenIds = new Set<string>();
-
-    localFormations.forEach((lf) => {
-      if (lf && lf.id && !deletedSet.has(lf.id) && isRecentlyModifiedFormation(lf.id)) {
-        mergedFormations.push(lf);
-        seenIds.add(lf.id);
-      }
-    });
-
-    remoteFormations.forEach((rf) => {
-      if (rf && rf.id && !deletedSet.has(rf.id) && !seenIds.has(rf.id)) {
-        mergedFormations.push(rf);
-        seenIds.add(rf.id);
-      }
-    });
-
-    localFormations.forEach((lf) => {
-      if (lf && lf.id && !deletedSet.has(lf.id) && !seenIds.has(lf.id)) {
-        mergedFormations.push(lf);
-        seenIds.add(lf.id);
-      }
-    });
-
-    for (let i = 0; i < mergedFormations.length; i++) {
-      const id = mergedFormations[i]?.id;
-      if (!id) continue;
-      const loc = localFormations.find((f) => f && f.id === id);
-      const rem = remoteFormations.find((f) => f && f.id === id);
-      mergedFormations[i] = pickBetterFormation(loc, rem) || mergedFormations[i];
-    }
-
+    const seenIds = new Set(mergedFormations.map((f) => f.id));
     for (const u of ['offense', 'defense', 'st', 'groups'] as const) {
       if (!mergedFormations.some((f) => f && f.unit === u)) {
         const defForms = INITIAL_DEFAULT_FORMATIONS.filter(

@@ -6,6 +6,7 @@ import {
   copyWeekCharts,
   countPlacedPlayers,
 } from './copyWeek.ts';
+import { normalizeWeeklyData } from './seasonWeekUtils.ts';
 import {
   mergeDeletedFormationIds,
   mergeFilmSession,
@@ -14,6 +15,7 @@ import {
   applySharedWeekSliceDepth,
   applySharedFormations,
   mergeRemoteWeeklyData,
+  reorderFormationsInUnit,
   mergeScoutingReports,
   mergeStaffByEmail,
   pickBetterFormation,
@@ -451,6 +453,93 @@ describe('remoteStateMerge', () => {
     assert.equal(merged[0].rows[0].positions[1]?.id, 'a-qb');
   });
 
+  it('keeps a moved 4-4 first after refresh when cloud still has factory order', () => {
+    const now = 1_700_000_000_000;
+    const local = {
+      'team_10u__week_1': {
+        formations: [
+          { ...form('form_44', '4-4', 'defense', '44-m'), lastEdited: now },
+          { ...form('form_53', '5-3', 'defense', '53-m'), lastEdited: now },
+        ],
+        depthChart: {},
+        scrimmageChart: {},
+        opponent: '',
+      },
+    } as Record<string, WeekState>;
+    const remote = {
+      'team_10u__week_1': {
+        formations: [
+          form('form_53', '5-3', 'defense', '53-m'),
+          form('form_44', '4-4', 'defense', '44-m'),
+        ],
+        depthChart: {},
+        scrimmageChart: {},
+        opponent: '',
+      },
+    } as Record<string, WeekState>;
+    const merged = mergeRemoteWeeklyData(local, remote, 'team_10u', '1', 'defense', 0);
+    assert.equal(merged['team_10u__week_1'].formations[0].id, 'form_44');
+    const fromStub = mergeRemoteWeeklyData(
+      {
+        'team_10u__week_1': { opponent: 'Carmel', formations: [], depthChart: {}, scrimmageChart: {} },
+        '1': {
+          formations: [
+            { ...form('form_44', '4-4', 'defense', '44-m'), lastEdited: now },
+            { ...form('form_53', '5-3', 'defense', '53-m'), lastEdited: now },
+          ],
+          depthChart: {},
+          scrimmageChart: {},
+          opponent: '',
+        },
+      } as Record<string, WeekState>,
+      remote,
+      'team_10u',
+      '1',
+      'defense',
+      0
+    );
+    assert.equal(fromStub['team_10u__week_1'].formations[0].id, 'form_44');
+    const reordered = reorderFormationsInUnit(
+      [form('form_21', '21', 'offense', '21-qb'), form('form_53', '5-3', 'defense', '53-m'), form('form_44', '4-4', 'defense', '44-m')],
+      'defense',
+      [form('form_44', '4-4', 'defense', '44-m'), form('form_53', '5-3', 'defense', '53-m')]
+    );
+    assert.equal(reordered[1].id, 'form_44');
+    assert.equal(reordered[2].id, 'form_53');
+    assert.equal(reordered[0].id, 'form_21');
+  });
+
+  it('does not refill an opponent-only week from factory order when saved defaults already have 4-4 first', () => {
+    const now = 1_700_000_000_000;
+    const defaults = [
+      { ...form('form_44', '4-4', 'defense', '44-m'), lastEdited: now },
+      { ...form('form_53', '5-3', 'defense', '53-m'), lastEdited: now },
+      form('form_21', '21', 'offense', '21-qb'),
+    ] as FormationBoard[];
+    const normalized = normalizeWeeklyData(
+      {
+        'team_10u__week_4': { opponent: 'Carmel' } as WeekState,
+      },
+      defaults
+    );
+    const def = (normalized['team_10u__week_4'].formations || []).filter((f) => f.unit === 'defense');
+    assert.equal(def[0].id, 'form_44');
+    const partial = normalizeWeeklyData(
+      {
+        '4': {
+          formations: [{ ...form('form_base_def', 'Base', 'defense', 'base-m') }],
+          depthChart: {},
+          scrimmageChart: {},
+          opponent: '',
+        } as WeekState,
+      },
+      [...defaults, form('form_base_def', 'Base', 'defense', 'base-m')]
+    );
+    const partialDef = (partial['4'].formations || []).filter((f) => f.unit === 'defense');
+    assert.equal(partialDef.map((f) => f.id).join(','), 'form_44,form_53');
+    assert.equal(partialDef.some((f) => f.id === 'form_base_def' || f.name === 'Base'), false);
+  });
+
   it('merges staff by email without dropping local idle timeout', () => {
     const merged = mergeStaffByEmail(
       [{ email: 'a@x.com', idleTimeoutMinutes: 40, role: 'Assistant Coach', status: 'Active' } as any],
@@ -478,6 +567,7 @@ describe('remoteStateMerge', () => {
     assert.ok(merged.includes('a'));
     assert.ok(merged.includes('b'));
     assert.ok(merged.includes('form_10_spread'));
+    assert.ok(merged.includes('form_base_def'));
   });
 
   it('keeps both coaches PFF grades when they rate different players at the same time', () => {
