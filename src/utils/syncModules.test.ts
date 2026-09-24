@@ -39,8 +39,8 @@ import {
   upsertPffPlay,
 } from './pprGroups.ts';
 
-function player(id: string, name: string): PlacedPlayer {
-  return { id, name, num: '0' } as PlacedPlayer;
+function player(_id: string, name: string): PlacedPlayer {
+  return { name, num: '0' };
 }
 
 function form(id: string, name: string, unit: string, posId: string): FormationBoard {
@@ -699,10 +699,10 @@ describe('hudlFilmImport', () => {
       roster,
       {
         '44-WDE': [
-          { id: 'p17', name: 'Dicob', num: '17' },
-          { id: 'p99', name: 'Two', num: '99' },
-          { id: 'p8', name: 'Kilkenny', num: '8' },
-        ] as PlacedPlayer[],
+          { name: 'Dicob', num: '17' },
+          { name: 'Two', num: '99' },
+          { name: 'Kilkenny', num: '8' },
+        ],
       },
       formations
     );

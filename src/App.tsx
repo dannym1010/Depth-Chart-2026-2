@@ -78,6 +78,7 @@ import {
   fetchHudlScoutCloud,
   saveSharedBoardCloud,
   fetchSharedBoardCloud,
+  subscribeSharedBoardCloud,
   subscribeServerEvents,
   fetchServerLocks,
   acquireServerLock,
@@ -96,6 +97,7 @@ import {
   parseTimeString,
   formatTimeMinutes,
 } from './services/storageService';
+import type { SharedBoardCloudUpdate } from './services/storageService';
 import {
   calculateWeekFolderForDate,
   getDayOfWeekForDate,
@@ -166,6 +168,7 @@ import {
   collectOwnTeamHudlFromWeekly,
   mergeScheduleEvents,
   applySharedWeekSliceDepth,
+  mergeScoutingReports,
   normalizeScoutWeekKey,
   pickScoutBundle,
   pickRichestScouting,
@@ -908,6 +911,7 @@ export default function App() {
   const isImportingRef = useRef<boolean>(false);
   const isRemoteSyncRef = useRef<boolean>(false);
   const pendingSaveRef = useRef<{ scope: string; extraMeta?: Record<string, any> } | null>(null);
+  const lastAppliedOpsAtRef = useRef<Record<string, number>>({});
   const lastSavedPayloadRef = useRef<string>('');
   const localServerVersionRef = useRef<number>(0);
   const localServerUpdatedAtRef = useRef<number>(0);
@@ -1514,16 +1518,19 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         ? data.updatedAt
         : 0;
 
-    // Guard against stale remote updates
-    if (shouldRejectStaleRemote(remoteTimestamp, localServerUpdatedAtRef.current)) {
+    const isFirestoreDoc = source.startsWith('firestore');
+    // Localhost /api/state timestamps are not comparable to Firestore or the other device.
+    if (!isFirestoreDoc && shouldRejectStaleRemote(remoteTimestamp, localServerUpdatedAtRef.current)) {
       return;
     }
 
-    if (typeof version === 'number' && version > localServerVersionRef.current) {
-      localServerVersionRef.current = version;
-    }
-    if (remoteTimestamp > localServerUpdatedAtRef.current) {
-      localServerUpdatedAtRef.current = remoteTimestamp;
+    if (!isFirestoreDoc) {
+      if (typeof version === 'number' && version > localServerVersionRef.current) {
+        localServerVersionRef.current = version;
+      }
+      if (remoteTimestamp > localServerUpdatedAtRef.current) {
+        localServerUpdatedAtRef.current = remoteTimestamp;
+      }
     }
 
     isRemoteSyncRef.current = true;
@@ -1548,7 +1555,9 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       });
     }
 
-    if (data.weeklyData && Object.keys(data.weeklyData).length > 0) {
+    const skipBoardFromGiantDoc = source === 'firestore_snapshot';
+
+    if (!skipBoardFromGiantDoc && data.weeklyData && Object.keys(data.weeklyData).length > 0) {
       const rawUnit =
         activeUnitRef.current === 'depth_chart'
           ? currentDepthUnitRef.current
@@ -1593,6 +1602,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       });
     }
     if (
+      !skipBoardFromGiantDoc &&
       data.defaultFormations &&
       Array.isArray(data.defaultFormations) &&
       data.defaultFormations.length > 0
@@ -1675,13 +1685,13 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       latestStateRef.current.scheduleEvents,
       Array.isArray(data.scheduleEvents) ? data.scheduleEvents : undefined
     );
-    if (data.scheduleEvents && Array.isArray(data.scheduleEvents)) {
+    if (!skipBoardFromGiantDoc && data.scheduleEvents && Array.isArray(data.scheduleEvents)) {
       setScheduleEvents(mergedScheduleEvents);
       latestStateRef.current.scheduleEvents = mergedScheduleEvents;
       safeJSONSet('footballScheduleEvents', mergedScheduleEvents);
     }
 
-    if (data.practiceData && Array.isArray(data.practiceData)) {
+    if (!skipBoardFromGiantDoc && data.practiceData && Array.isArray(data.practiceData)) {
       const sanitized = sanitizePracticePlans(
         data.practiceData,
         mergedScheduleEvents.length
@@ -1715,13 +1725,13 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         }
       }
     }
-    if (data.practiceTemplates) {
+    if (!skipBoardFromGiantDoc && data.practiceTemplates) {
       const normalizedTemplates = normalizePracticeTemplates(data.practiceTemplates);
       setPracticeTemplates(normalizedTemplates);
       latestStateRef.current.practiceTemplates = normalizedTemplates;
       safeJSONSet('footballPracticeTemplates', normalizedTemplates);
     }
-    if (data.cascadingDrills) {
+    if (!skipBoardFromGiantDoc && data.cascadingDrills) {
       if (Date.now() - lastLocalEditTimeRef.current < 15000 && activeUnitRef.current === 'drills') {
         // Local coach is actively editing drills, don't overwrite with remote pulse
       } else {
@@ -1731,22 +1741,22 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         safeJSONSet('footballCascadingDrills', normalizedDrills);
       }
     }
-    if (data.guideTree) {
+    if (!skipBoardFromGiantDoc && data.guideTree) {
       setGuideTree(data.guideTree);
       latestStateRef.current.guideTree = data.guideTree;
       safeJSONSet('footballPdfGuidesTree', data.guideTree);
     }
-    if (data.guideOrder) {
+    if (!skipBoardFromGiantDoc && data.guideOrder) {
       setGuideOrder(data.guideOrder);
       latestStateRef.current.guideOrder = data.guideOrder;
       safeJSONSet('footballPdfGuidesOrder', data.guideOrder);
     }
-    if (data.savedCoaches && Array.isArray(data.savedCoaches)) {
+    if (!skipBoardFromGiantDoc && data.savedCoaches && Array.isArray(data.savedCoaches)) {
       setSavedCoaches(data.savedCoaches);
       latestStateRef.current.savedCoaches = data.savedCoaches;
       safeJSONSet('footballSavedCoaches', data.savedCoaches);
     }
-    if (data.teamSavedCoaches && typeof data.teamSavedCoaches === 'object') {
+    if (!skipBoardFromGiantDoc && data.teamSavedCoaches && typeof data.teamSavedCoaches === 'object') {
       setTeamSavedCoaches(data.teamSavedCoaches);
       latestStateRef.current.teamSavedCoaches = data.teamSavedCoaches;
       safeJSONSet('footballTeamSavedCoaches', data.teamSavedCoaches);
@@ -1755,7 +1765,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       setAdminPasscodeSet(data.adminPasscodeSet);
       localStorage.setItem('footballAdminPasscodeSet', data.adminPasscodeSet ? 'true' : 'false');
     }
-    if (data.staffList && Array.isArray(data.staffList)) {
+    if (!skipBoardFromGiantDoc && data.staffList && Array.isArray(data.staffList)) {
       setStaffList((prevStaff) => {
         const mergedStaff = mergeStaffByEmail(prevStaff, data.staffList);
         latestStateRef.current.staffList = mergedStaff;
@@ -1780,12 +1790,12 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         }
       }
     }
-    if (data.masterPlayLibrary) {
+    if (!skipBoardFromGiantDoc && data.masterPlayLibrary) {
       setMasterPlayLibrary(data.masterPlayLibrary);
       latestStateRef.current.masterPlayLibrary = data.masterPlayLibrary;
       safeJSONSet('footballMasterPlays', data.masterPlayLibrary);
     }
-    if (data.playDatabase && Array.isArray(data.playDatabase)) {
+    if (!skipBoardFromGiantDoc && data.playDatabase && Array.isArray(data.playDatabase)) {
       if (Date.now() - lastLocalEditTimeRef.current < 15000 && (activeUnitRef.current === 'call_sheet' || activeUnitRef.current === 'wristband')) {
         // Preserving local play database changes during active session
       } else {
@@ -1794,7 +1804,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         safeJSONSet('footballPlayDatabase', data.playDatabase);
       }
     }
-    if (data.callSheetData && typeof data.callSheetData === 'object' && (data.callSheetData.offenseSections || data.callSheetData.defenseSections)) {
+    if (!skipBoardFromGiantDoc && data.callSheetData && typeof data.callSheetData === 'object' && (data.callSheetData.offenseSections || data.callSheetData.defenseSections)) {
       const localCs = latestStateRef.current.callSheetData || callSheetData;
       const backupCs = safeJSONParse<CallSheetFullData | null>('footballCallSheetData_backup', null);
       const historyList = safeJSONParse<any[]>('footballCallSheet_history', []);
@@ -1871,7 +1881,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       candidateWb = data.wristbandData;
     }
 
-    if (candidateWb) {
+    if (!skipBoardFromGiantDoc && candidateWb) {
       const remoteWbTime = Number(candidateWb.lastEdited) || 0;
       const localWbTime = Number(latestStateRef.current.wristbandData?.lastEdited) || 0;
       const isActivelyEditingWristband =
@@ -1912,7 +1922,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     if (typeof data.globalIdleTimeoutMinutes === 'number') {
       safeJSONSet('footballGlobalIdleTimeoutMinutes', data.globalIdleTimeoutMinutes);
     }
-    if (data.deletedPlayIds && Array.isArray(data.deletedPlayIds)) {
+    if (!skipBoardFromGiantDoc && data.deletedPlayIds && Array.isArray(data.deletedPlayIds)) {
       setDeletedPlayIds(data.deletedPlayIds);
       latestStateRef.current.deletedPlayIds = data.deletedPlayIds;
       safeJSONSet('footballDeletedPlayIds', data.deletedPlayIds);
@@ -1922,28 +1932,28 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       latestStateRef.current.collapsedFolders = data.collapsedFolders;
       safeJSONSet('footballCollapsedFolders', data.collapsedFolders);
     }
-    if (data.roster && Array.isArray(data.roster)) {
+    if (!skipBoardFromGiantDoc && data.roster && Array.isArray(data.roster)) {
       const normalized = normalizeRoster(data.roster, true);
       setRoster(normalized);
       latestStateRef.current.roster = normalized;
       safeJSONSet('footballRoster', normalized);
     }
-    if (data.teams && Array.isArray(data.teams) && data.teams.length > 0) {
+    if (!skipBoardFromGiantDoc && data.teams && Array.isArray(data.teams) && data.teams.length > 0) {
       setTeams(data.teams);
       latestStateRef.current.teams = data.teams;
       safeJSONSet('footballTeams', data.teams);
     }
-    if (data.seasonConfig) {
+    if (!skipBoardFromGiantDoc && data.seasonConfig) {
       setSeasonConfig(data.seasonConfig);
       latestStateRef.current.seasonConfig = data.seasonConfig;
       safeJSONSet('footballSeasonConfig', data.seasonConfig);
     }
-    if (data.attendanceLogs && Array.isArray(data.attendanceLogs)) {
+    if (!skipBoardFromGiantDoc && data.attendanceLogs && Array.isArray(data.attendanceLogs)) {
       setAttendanceLogs(data.attendanceLogs);
       latestStateRef.current.attendanceLogs = data.attendanceLogs;
       safeJSONSet('footballAttendanceLogs', data.attendanceLogs);
     }
-    if (data.pffGradeCriteria) {
+    if (!skipBoardFromGiantDoc && data.pffGradeCriteria) {
       const mergedCriteria = mergePffGradeCriteria(
         mergePffCriteriaMaps(latestStateRef.current.pffGradeCriteria, data.pffGradeCriteria)
       );
@@ -1951,7 +1961,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       latestStateRef.current.pffGradeCriteria = mergedCriteria;
       safeJSONSet('footballPffGradeCriteria', mergedCriteria);
     }
-    if (data.pffPlayerGroups && typeof data.pffPlayerGroups === 'object') {
+    if (!skipBoardFromGiantDoc && data.pffPlayerGroups && typeof data.pffPlayerGroups === 'object') {
       const mergedGroups = mergePffPlayerGroups(
         latestStateRef.current.pffPlayerGroups,
         data.pffPlayerGroups
@@ -1960,7 +1970,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       latestStateRef.current.pffPlayerGroups = mergedGroups;
       safeJSONSet('footballPffPlayerGroups', mergedGroups);
     }
-    if (data.liveDrillSlotLayouts && typeof data.liveDrillSlotLayouts === 'object') {
+    if (!skipBoardFromGiantDoc && data.liveDrillSlotLayouts && typeof data.liveDrillSlotLayouts === 'object') {
       const mergedLayouts = mergeLiveDrillSlotLayouts(
         loadLiveDrillSlotLayouts(),
         data.liveDrillSlotLayouts
@@ -2181,6 +2191,11 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
           }
         }
         delete cleanPayload.ownTeamHudlScout;
+        if (scope !== 'force') {
+          delete cleanPayload.weeklyData;
+          delete cleanPayload.practiceData;
+          delete cleanPayload.scheduleEvents;
+        }
         await db
           .collection('teamData')
           .doc('depthChartData')
@@ -2195,33 +2210,57 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     const scopedKey = getScopedWeekKey(activeTeamIdRef.current, weekKey);
     const weekState =
       currentState.weeklyData?.[scopedKey] || currentState.weeklyData?.[weekKey];
-    const shouldSharePractice = scopeIsPractice || scope === 'all' || scope === 'force' || scope === 'immediate';
-    const shouldShareSchedule = scopeIsSchedule || scope === 'all' || scope === 'force' || scope === 'immediate';
-    const shouldShareWeek =
-      !scopeIsPractice &&
-      !scopeIsSchedule &&
-      scope !== 'hudl_scout_update' &&
-      scope !== 'ppr_update' &&
-      !String(scope).startsWith('scouting');
+    const weekScout = weekState?.scouting
+      ? { ...weekState.scouting, hudlScout: undefined }
+      : undefined;
     const sharedOk = await saveSharedBoardCloud({
-      scheduleEvents: shouldShareSchedule ? currentState.scheduleEvents : undefined,
-      practiceData: shouldSharePractice ? currentState.practiceData : undefined,
-      deletedPracticePlanIds: shouldSharePractice ? currentState.deletedPracticePlanIds : undefined,
       teamId: activeTeamIdRef.current,
       week: weekKey,
-      weekSlice: shouldShareWeek && weekState
+      scheduleEvents: currentState.scheduleEvents,
+      practiceData: currentState.practiceData,
+      deletedPracticePlanIds: currentState.deletedPracticePlanIds,
+      weekSlice: weekState
         ? {
             depthChart: weekState.depthChart || {},
             formations: weekState.formations || [],
             scrimmageChart: weekState.scrimmageChart || {},
             opponent: weekState.opponent || '',
+            wristbandData: weekState.wristbandData,
+            scouting: weekScout,
+            practiceDrillGroups: weekState.practiceDrillGroups,
+            pprPlayCounts: weekState.pprPlayCounts,
+            pffReviews: weekState.pffReviews,
+            filmSession: weekState.filmSession,
           }
         : undefined,
+      roster: currentState.roster,
+      teams: currentState.teams,
+      seasonConfig: currentState.seasonConfig,
+      staffList: currentState.staffList,
+      attendanceLogs: currentState.attendanceLogs,
+      cascadingDrills: currentState.cascadingDrills,
+      practiceTemplates: currentState.practiceTemplates,
+      liveDrillSlotLayouts: currentState.liveDrillSlotLayouts,
+      callSheetData: currentState.callSheetData,
+      wristbandData: currentState.wristbandData,
+      masterPlayLibrary: currentState.masterPlayLibrary,
+      playDatabase: currentState.playDatabase,
+      deletedPlayIds: currentState.deletedPlayIds,
+      guideTree: currentState.guideTree,
+      guideOrder: currentState.guideOrder,
+      pffGradeCriteria: currentState.pffGradeCriteria,
+      pffPlayerGroups: currentState.pffPlayerGroups,
+      savedCoaches: currentState.savedCoaches,
+      teamSavedCoaches: currentState.teamSavedCoaches,
+      defaultFormations: currentState.defaultFormations,
+      deletedFormationIds: currentState.deletedFormationIds,
     });
 
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    if (serverOk || firestoreOk || sharedOk) {
+    if (sharedOk || firestoreOk) {
       setSyncStatus({ text: `✅ Saved & Synced (${timeStr})`, color: '#22c55e' });
+    } else if (serverOk) {
+      setSyncStatus({ text: '⚠️ Saved on this computer only', color: '#f59e0b' });
     } else {
       setSyncStatus({ text: '⚠️ Saved on this device only', color: '#ef4444' });
     }
@@ -2374,17 +2413,21 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     applyHudlScoutFromCloud(teamId, wk, remote);
   };
 
-  const hydrateSharedBoardFromCloud = async () => {
-    const teamId = activeTeamIdRef.current;
-    const week = normalizeScoutWeekKey(currentWeekRef.current);
-    const remote = await fetchSharedBoardCloud(teamId, week);
-    if (Array.isArray(remote.scheduleEvents) && remote.scheduleEvents.length) {
+  const applySharedBoardFromRemote = (remote: SharedBoardCloudUpdate) => {
+    const take = (key: string, at?: number) => {
+      const n = Number(at) || 0;
+      if (n && n < (lastAppliedOpsAtRef.current[key] || 0)) return false;
+      if (n) lastAppliedOpsAtRef.current[key] = n;
+      return true;
+    };
+
+    if (Array.isArray(remote.scheduleEvents) && take('schedule', remote.scheduleUpdatedAt)) {
       const merged = mergeScheduleEvents(latestStateRef.current.scheduleEvents, remote.scheduleEvents);
       setScheduleEvents(merged);
       latestStateRef.current.scheduleEvents = merged;
       safeJSONSet('footballScheduleEvents', merged);
     }
-    if (Array.isArray(remote.practiceData) && remote.practiceData.length) {
+    if (Array.isArray(remote.practiceData) && take('practice', remote.practiceUpdatedAt)) {
       const mergedPlans = mergePracticePlansByLastEdited(
         latestStateRef.current.practiceData || [],
         sanitizePracticePlans(remote.practiceData, latestStateRef.current.scheduleEvents || []),
@@ -2398,8 +2441,9 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       safeJSONSet('footballPracticeData', mergedPlans);
     }
     const slice = remote.weekSlice;
-    const recentlyEditedBoard = Date.now() - lastLocalEditTimeRef.current < 25000;
-    if (slice && (slice.depthChart || slice.formations) && !recentlyEditedBoard) {
+    if (slice && (slice.depthChart || slice.formations || slice.scrimmageChart || slice.wristbandData) && take('week', remote.weekUpdatedAt || slice.updatedAt)) {
+      const teamId = activeTeamIdRef.current;
+      const week = normalizeScoutWeekKey(currentWeekRef.current);
       const scopedKey = getScopedWeekKey(teamId, week);
       const recentSpots = recentlyModifiedPositionsRef.current;
       setWeeklyData((prev) => {
@@ -2421,6 +2465,12 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
             formations:
               Array.isArray(slice.formations) && slice.formations.length ? slice.formations : cur.formations,
             opponent: slice.opponent || cur.opponent || '',
+            wristbandData: slice.wristbandData || cur.wristbandData,
+            scouting: mergeScoutingReports(cur.scouting, slice.scouting),
+            practiceDrillGroups: slice.practiceDrillGroups || cur.practiceDrillGroups,
+            pprPlayCounts: slice.pprPlayCounts || cur.pprPlayCounts,
+            pffReviews: slice.pffReviews || cur.pffReviews,
+            filmSession: slice.filmSession || cur.filmSession,
           };
         };
         const updatedAll = { ...prev, [scopedKey]: patch(scopedKey), [week]: patch(week) };
@@ -2429,6 +2479,160 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         return updatedAll;
       });
     }
+    if (Array.isArray(remote.roster) && take('roster', remote.rosterUpdatedAt)) {
+      const normalized = normalizeRoster(remote.roster, true);
+      setRoster(normalized);
+      latestStateRef.current.roster = normalized;
+      safeJSONSet('footballRoster', normalized);
+    }
+    if (take('season', remote.seasonUpdatedAt)) {
+      if (Array.isArray(remote.teams) && remote.teams.length) {
+        setTeams(remote.teams);
+        latestStateRef.current.teams = remote.teams;
+        safeJSONSet('footballTeams', remote.teams);
+      }
+      if (remote.seasonConfig) {
+        setSeasonConfig(remote.seasonConfig);
+        latestStateRef.current.seasonConfig = remote.seasonConfig;
+        safeJSONSet('footballSeasonConfig', remote.seasonConfig);
+      }
+    }
+    if (Array.isArray(remote.staffList) && take('staff', remote.staffUpdatedAt)) {
+      setStaffList((prevStaff) => {
+        const mergedStaff = mergeStaffByEmail(prevStaff, remote.staffList || []);
+        latestStateRef.current.staffList = mergedStaff;
+        safeJSONSet('footballTeamCoaches', mergedStaff);
+        return mergedStaff;
+      });
+    }
+    if (Array.isArray(remote.attendanceLogs) && take('attendance', remote.attendanceUpdatedAt)) {
+      setAttendanceLogs(remote.attendanceLogs);
+      latestStateRef.current.attendanceLogs = remote.attendanceLogs;
+      safeJSONSet('footballAttendanceLogs', remote.attendanceLogs);
+    }
+    if (take('drills', remote.drillsUpdatedAt)) {
+      if (remote.cascadingDrills && !(Date.now() - lastLocalEditTimeRef.current < 20000 && activeUnitRef.current === 'drills')) {
+        const normalizedDrills = normalizeCascadingDrills(remote.cascadingDrills);
+        setCascadingDrills(normalizedDrills);
+        latestStateRef.current.cascadingDrills = normalizedDrills;
+        safeJSONSet('footballCascadingDrills', normalizedDrills);
+      }
+      if (remote.practiceTemplates) {
+        const normalizedTemplates = normalizePracticeTemplates(remote.practiceTemplates);
+        setPracticeTemplates(normalizedTemplates);
+        latestStateRef.current.practiceTemplates = normalizedTemplates;
+        safeJSONSet('footballPracticeTemplates', normalizedTemplates);
+      }
+      if (remote.liveDrillSlotLayouts && typeof remote.liveDrillSlotLayouts === 'object') {
+        const mergedLayouts = mergeLiveDrillSlotLayouts(
+          loadLiveDrillSlotLayouts(),
+          remote.liveDrillSlotLayouts
+        );
+        persistLiveDrillSlotLayouts(mergedLayouts);
+        safeJSONSet('footballLiveDrillSlotLayouts', mergedLayouts);
+      }
+    }
+    if (remote.callSheetData && take('callSheet', remote.callSheetUpdatedAt)) {
+      const localCs = latestStateRef.current.callSheetData;
+      const localEdited = Number(localCs?.lastEdited) || 0;
+      const remoteEdited = Number(remote.callSheetData.lastEdited) || 0;
+      const editingNow = Date.now() - lastLocalCallSheetEditTimeRef.current < 25000;
+      if (!editingNow && remoteEdited >= localEdited) {
+        setCallSheetData(remote.callSheetData);
+        latestStateRef.current.callSheetData = remote.callSheetData;
+        safeJSONSet('footballCallSheetData', remote.callSheetData);
+      }
+    }
+    if (remote.wristbandData && take('wristband', remote.wristbandUpdatedAt)) {
+      const editingNow = Date.now() - lastLocalWristbandEditTimeRef.current < 25000;
+      const remoteEdited = Number(remote.wristbandData.lastEdited) || 0;
+      const localEdited = Number(latestStateRef.current.wristbandData?.lastEdited) || 0;
+      if (!editingNow && remoteEdited >= localEdited) {
+        const normWb = normalizeWristbandContinuousNumbering(remote.wristbandData, 'Mahopac 10U');
+        setWristbandData(normWb);
+        latestStateRef.current.wristbandData = normWb;
+        safeJSONSet('footballWristbandData', normWb);
+      }
+    }
+    if (take('plays', remote.playsUpdatedAt)) {
+      if (remote.masterPlayLibrary) {
+        setMasterPlayLibrary(remote.masterPlayLibrary);
+        latestStateRef.current.masterPlayLibrary = remote.masterPlayLibrary;
+        safeJSONSet('footballMasterPlays', remote.masterPlayLibrary);
+      }
+      if (Array.isArray(remote.playDatabase) && !(Date.now() - lastLocalEditTimeRef.current < 20000 && (activeUnitRef.current === 'call_sheet' || activeUnitRef.current === 'wristband'))) {
+        setPlayDatabase(remote.playDatabase);
+        latestStateRef.current.playDatabase = remote.playDatabase;
+        safeJSONSet('footballPlayDatabase', remote.playDatabase);
+      }
+      if (Array.isArray(remote.deletedPlayIds)) {
+        setDeletedPlayIds(remote.deletedPlayIds);
+        latestStateRef.current.deletedPlayIds = remote.deletedPlayIds;
+        safeJSONSet('footballDeletedPlayIds', remote.deletedPlayIds);
+      }
+    }
+    if (take('guides', remote.guidesUpdatedAt)) {
+      if (remote.guideTree) {
+        setGuideTree(remote.guideTree);
+        latestStateRef.current.guideTree = remote.guideTree;
+        safeJSONSet('footballPdfGuidesTree', remote.guideTree);
+      }
+      if (remote.guideOrder) {
+        setGuideOrder(remote.guideOrder);
+        latestStateRef.current.guideOrder = remote.guideOrder;
+        safeJSONSet('footballPdfGuidesOrder', remote.guideOrder);
+      }
+    }
+    if (take('pff', remote.pffUpdatedAt)) {
+      if (remote.pffGradeCriteria) {
+        const mergedCriteria = mergePffGradeCriteria(
+          mergePffCriteriaMaps(latestStateRef.current.pffGradeCriteria, remote.pffGradeCriteria)
+        );
+        setPffGradeCriteria(mergedCriteria);
+        latestStateRef.current.pffGradeCriteria = mergedCriteria;
+        safeJSONSet('footballPffGradeCriteria', mergedCriteria);
+      }
+      if (remote.pffPlayerGroups && typeof remote.pffPlayerGroups === 'object') {
+        const mergedGroups = mergePffPlayerGroups(
+          latestStateRef.current.pffPlayerGroups,
+          remote.pffPlayerGroups
+        ) as PffPlayerGroupOverrides;
+        setPffPlayerGroups(mergedGroups);
+        latestStateRef.current.pffPlayerGroups = mergedGroups;
+        safeJSONSet('footballPffPlayerGroups', mergedGroups);
+      }
+    }
+    if (take('coaches', remote.coachesUpdatedAt)) {
+      if (Array.isArray(remote.savedCoaches)) {
+        setSavedCoaches(remote.savedCoaches);
+        latestStateRef.current.savedCoaches = remote.savedCoaches;
+        safeJSONSet('footballSavedCoaches', remote.savedCoaches);
+      }
+      if (remote.teamSavedCoaches && typeof remote.teamSavedCoaches === 'object') {
+        setTeamSavedCoaches(remote.teamSavedCoaches);
+        latestStateRef.current.teamSavedCoaches = remote.teamSavedCoaches;
+        safeJSONSet('footballTeamSavedCoaches', remote.teamSavedCoaches);
+      }
+    }
+    if (take('formations', remote.formationsUpdatedAt)) {
+      if (Array.isArray(remote.defaultFormations) && remote.defaultFormations.length) {
+        setDefaultFormations(remote.defaultFormations);
+        latestStateRef.current.defaultFormations = remote.defaultFormations;
+        safeJSONSet('footballDefaultFormations', remote.defaultFormations);
+      }
+      if (Array.isArray(remote.deletedFormationIds)) {
+        setDeletedFormationIds(remote.deletedFormationIds);
+        latestStateRef.current.deletedFormationIds = remote.deletedFormationIds;
+        safeJSONSet('footballDeletedFormationIds', remote.deletedFormationIds);
+      }
+    }
+  };
+
+  const hydrateSharedBoardFromCloud = async () => {
+    const teamId = activeTeamIdRef.current;
+    const week = normalizeScoutWeekKey(currentWeekRef.current);
+    const remote = await fetchSharedBoardCloud(teamId, week);
+    applySharedBoardFromRemote(remote);
   };
 
   const publishHudlScoutToCloud = async () => {
@@ -2500,6 +2704,15 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     if (!initialCloudLoadDoneRef.current) return;
     void hydrateHudlScoutFromCloud(activeTeamId, currentWeek);
     void hydrateSharedBoardFromCloud();
+  }, [activeTeamId, currentWeek]);
+
+  useEffect(() => {
+    const { db } = getFirebaseServices();
+    if (!db) return;
+    const unsub = subscribeSharedBoardCloud(activeTeamId, currentWeek, (remote) => {
+      applySharedBoardFromRemote(remote);
+    });
+    return () => unsub();
   }, [activeTeamId, currentWeek]);
 
   // Global blur / focusout sync listener: whenever a coach clicks out of any input/box/dropdown,

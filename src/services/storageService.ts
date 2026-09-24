@@ -625,45 +625,188 @@ export async function fetchHudlScoutCloud(
   return { opponentScout, ownTeamScout };
 }
 
+export type SharedBoardCloudUpdate = {
+  scheduleEvents?: any[];
+  scheduleUpdatedAt?: number;
+  practiceData?: any[];
+  deletedPracticePlanIds?: string[];
+  practiceUpdatedAt?: number;
+  weekSlice?: any;
+  weekUpdatedAt?: number;
+  writerClientId?: string;
+  roster?: any[];
+  rosterUpdatedAt?: number;
+  teams?: any[];
+  seasonConfig?: any;
+  seasonUpdatedAt?: number;
+  staffList?: any[];
+  staffUpdatedAt?: number;
+  attendanceLogs?: any[];
+  attendanceUpdatedAt?: number;
+  cascadingDrills?: any;
+  practiceTemplates?: any;
+  liveDrillSlotLayouts?: any;
+  drillsUpdatedAt?: number;
+  callSheetData?: any;
+  callSheetUpdatedAt?: number;
+  wristbandData?: any;
+  wristbandUpdatedAt?: number;
+  masterPlayLibrary?: any;
+  playDatabase?: any[];
+  deletedPlayIds?: any[];
+  playsUpdatedAt?: number;
+  guideTree?: any;
+  guideOrder?: any;
+  guidesUpdatedAt?: number;
+  pffGradeCriteria?: any;
+  pffPlayerGroups?: any;
+  pffUpdatedAt?: number;
+  savedCoaches?: any;
+  teamSavedCoaches?: any;
+  coachesUpdatedAt?: number;
+  defaultFormations?: any[];
+  deletedFormationIds?: any[];
+  formationsUpdatedAt?: number;
+};
+
+function opsWeekDocId(teamId: string, week: string) {
+  const wk = String(week || '1').replace(/\D/g, '') || '1';
+  return `ops_week_${teamId}_w${wk}`;
+}
+
+function opsMeta(extra: Record<string, any> = {}) {
+  return {
+    ...extra,
+    updatedAt: Date.now(),
+    writerClientId: CLIENT_ID,
+  };
+}
+
 export async function saveSharedBoardCloud(payload: {
   scheduleEvents?: any[];
   practiceData?: any[];
   deletedPracticePlanIds?: string[];
   teamId?: string;
   week?: string;
-  weekSlice?: { depthChart?: any; formations?: any; scrimmageChart?: any; opponent?: string };
+  weekSlice?: Record<string, any>;
+  roster?: any[];
+  teams?: any[];
+  seasonConfig?: any;
+  staffList?: any[];
+  attendanceLogs?: any[];
+  cascadingDrills?: any;
+  practiceTemplates?: any;
+  liveDrillSlotLayouts?: any;
+  callSheetData?: any;
+  wristbandData?: any;
+  masterPlayLibrary?: any;
+  playDatabase?: any[];
+  deletedPlayIds?: any[];
+  guideTree?: any;
+  guideOrder?: any;
+  pffGradeCriteria?: any;
+  pffPlayerGroups?: any;
+  savedCoaches?: any;
+  teamSavedCoaches?: any;
+  defaultFormations?: any[];
+  deletedFormationIds?: any[];
 }): Promise<boolean> {
   try {
     const { db } = getFirebaseServices();
     if (!db) return false;
-    const updatedAt = Date.now();
     const writes: Promise<any>[] = [];
+    const col = db.collection('teamData');
     if (payload.scheduleEvents) {
-      writes.push(
-        db.collection('teamData').doc('ops_schedule').set({
-          events: payload.scheduleEvents,
-          updatedAt,
-        })
-      );
+      writes.push(col.doc('ops_schedule').set(opsMeta({ events: payload.scheduleEvents })));
     }
     if (payload.practiceData) {
       writes.push(
-        db.collection('teamData').doc('ops_practice').set({
-          plans: payload.practiceData,
-          deletedPracticePlanIds: payload.deletedPracticePlanIds || [],
-          updatedAt,
-        })
+        col.doc('ops_practice').set(
+          opsMeta({
+            plans: payload.practiceData,
+            deletedPracticePlanIds: payload.deletedPracticePlanIds || [],
+          })
+        )
       );
     }
     if (payload.weekSlice && payload.teamId && payload.week) {
-      const week = String(payload.week).replace(/\D/g, '') || '1';
       writes.push(
-        db.collection('teamData').doc(`ops_week_${payload.teamId}_w${week}`).set({
-          ...payload.weekSlice,
-          teamId: payload.teamId,
-          week,
-          updatedAt,
-        })
+        col.doc(opsWeekDocId(payload.teamId, payload.week)).set(
+          opsMeta({
+            ...payload.weekSlice,
+            teamId: payload.teamId,
+            week: String(payload.week).replace(/\D/g, '') || '1',
+          })
+        )
+      );
+    }
+    if (payload.roster) writes.push(col.doc('ops_roster').set(opsMeta({ roster: payload.roster })));
+    if (payload.teams || payload.seasonConfig) {
+      writes.push(col.doc('ops_season').set(opsMeta({ teams: payload.teams, seasonConfig: payload.seasonConfig })));
+    }
+    if (payload.staffList) writes.push(col.doc('ops_staff').set(opsMeta({ staffList: payload.staffList })));
+    if (payload.attendanceLogs) {
+      writes.push(col.doc('ops_attendance').set(opsMeta({ attendanceLogs: payload.attendanceLogs })));
+    }
+    if (payload.cascadingDrills || payload.practiceTemplates || payload.liveDrillSlotLayouts) {
+      writes.push(
+        col.doc('ops_drills').set(
+          opsMeta({
+            cascadingDrills: payload.cascadingDrills,
+            practiceTemplates: payload.practiceTemplates,
+            liveDrillSlotLayouts: payload.liveDrillSlotLayouts,
+          })
+        )
+      );
+    }
+    if (payload.callSheetData) {
+      writes.push(col.doc('ops_call_sheet').set(opsMeta({ callSheetData: payload.callSheetData })));
+    }
+    if (payload.wristbandData) {
+      writes.push(col.doc('ops_wristband').set(opsMeta({ wristbandData: payload.wristbandData })));
+    }
+    if (payload.masterPlayLibrary || payload.playDatabase) {
+      writes.push(
+        col.doc('ops_plays').set(
+          opsMeta({
+            masterPlayLibrary: payload.masterPlayLibrary,
+            playDatabase: payload.playDatabase,
+            deletedPlayIds: payload.deletedPlayIds || [],
+          })
+        )
+      );
+    }
+    if (payload.guideTree || payload.guideOrder) {
+      writes.push(col.doc('ops_guides').set(opsMeta({ guideTree: payload.guideTree, guideOrder: payload.guideOrder })));
+    }
+    if (payload.pffGradeCriteria || payload.pffPlayerGroups) {
+      writes.push(
+        col.doc('ops_pff').set(
+          opsMeta({
+            pffGradeCriteria: payload.pffGradeCriteria,
+            pffPlayerGroups: payload.pffPlayerGroups,
+          })
+        )
+      );
+    }
+    if (payload.savedCoaches || payload.teamSavedCoaches) {
+      writes.push(
+        col.doc('ops_coaches').set(
+          opsMeta({
+            savedCoaches: payload.savedCoaches,
+            teamSavedCoaches: payload.teamSavedCoaches,
+          })
+        )
+      );
+    }
+    if (payload.defaultFormations || payload.deletedFormationIds) {
+      writes.push(
+        col.doc('ops_formations').set(
+          opsMeta({
+            defaultFormations: payload.defaultFormations,
+            deletedFormationIds: payload.deletedFormationIds || [],
+          })
+        )
       );
     }
     if (!writes.length) return false;
@@ -678,31 +821,189 @@ export async function saveSharedBoardCloud(payload: {
 export async function fetchSharedBoardCloud(
   teamId: string,
   week: string
-): Promise<{
-  scheduleEvents?: any[];
-  practiceData?: any[];
-  deletedPracticePlanIds?: string[];
-  weekSlice?: any;
-}> {
+): Promise<SharedBoardCloudUpdate> {
   try {
     const { db } = getFirebaseServices();
     if (!db) return {};
-    const wk = String(week || '1').replace(/\D/g, '') || '1';
-    const [sched, prac, weekSnap] = await Promise.all([
-      db.collection('teamData').doc('ops_schedule').get(),
-      db.collection('teamData').doc('ops_practice').get(),
-      db.collection('teamData').doc(`ops_week_${teamId}_w${wk}`).get(),
-    ]);
+    const col = db.collection('teamData');
+    const ids = [
+      'ops_schedule',
+      'ops_practice',
+      opsWeekDocId(teamId, week),
+      'ops_roster',
+      'ops_season',
+      'ops_staff',
+      'ops_attendance',
+      'ops_drills',
+      'ops_call_sheet',
+      'ops_wristband',
+      'ops_plays',
+      'ops_guides',
+      'ops_pff',
+      'ops_coaches',
+      'ops_formations',
+    ];
+    const snaps = await Promise.all(ids.map((id) => col.doc(id).get()));
+    const dataOf = (i: number) => (snaps[i]?.exists ? snaps[i].data() : undefined);
+    const sched = dataOf(0);
+    const prac = dataOf(1);
+    const weekSnap = dataOf(2);
+    const roster = dataOf(3);
+    const season = dataOf(4);
+    const staff = dataOf(5);
+    const attendance = dataOf(6);
+    const drills = dataOf(7);
+    const callSheet = dataOf(8);
+    const wristband = dataOf(9);
+    const plays = dataOf(10);
+    const guides = dataOf(11);
+    const pff = dataOf(12);
+    const coaches = dataOf(13);
+    const formations = dataOf(14);
     return {
-      scheduleEvents: sched?.exists ? sched.data()?.events : undefined,
-      practiceData: prac?.exists ? prac.data()?.plans : undefined,
-      deletedPracticePlanIds: prac?.exists ? prac.data()?.deletedPracticePlanIds : undefined,
-      weekSlice: weekSnap?.exists ? weekSnap.data() : undefined,
+      scheduleEvents: sched?.events,
+      scheduleUpdatedAt: sched?.updatedAt,
+      practiceData: prac?.plans,
+      deletedPracticePlanIds: prac?.deletedPracticePlanIds,
+      practiceUpdatedAt: prac?.updatedAt,
+      weekSlice: weekSnap,
+      weekUpdatedAt: weekSnap?.updatedAt,
+      roster: roster?.roster,
+      rosterUpdatedAt: roster?.updatedAt,
+      teams: season?.teams,
+      seasonConfig: season?.seasonConfig,
+      seasonUpdatedAt: season?.updatedAt,
+      staffList: staff?.staffList,
+      staffUpdatedAt: staff?.updatedAt,
+      attendanceLogs: attendance?.attendanceLogs,
+      attendanceUpdatedAt: attendance?.updatedAt,
+      cascadingDrills: drills?.cascadingDrills,
+      practiceTemplates: drills?.practiceTemplates,
+      liveDrillSlotLayouts: drills?.liveDrillSlotLayouts,
+      drillsUpdatedAt: drills?.updatedAt,
+      callSheetData: callSheet?.callSheetData,
+      callSheetUpdatedAt: callSheet?.updatedAt,
+      wristbandData: wristband?.wristbandData,
+      wristbandUpdatedAt: wristband?.updatedAt,
+      masterPlayLibrary: plays?.masterPlayLibrary,
+      playDatabase: plays?.playDatabase,
+      deletedPlayIds: plays?.deletedPlayIds,
+      playsUpdatedAt: plays?.updatedAt,
+      guideTree: guides?.guideTree,
+      guideOrder: guides?.guideOrder,
+      guidesUpdatedAt: guides?.updatedAt,
+      pffGradeCriteria: pff?.pffGradeCriteria,
+      pffPlayerGroups: pff?.pffPlayerGroups,
+      pffUpdatedAt: pff?.updatedAt,
+      savedCoaches: coaches?.savedCoaches,
+      teamSavedCoaches: coaches?.teamSavedCoaches,
+      coachesUpdatedAt: coaches?.updatedAt,
+      defaultFormations: formations?.defaultFormations,
+      deletedFormationIds: formations?.deletedFormationIds,
+      formationsUpdatedAt: formations?.updatedAt,
     };
   } catch (err) {
     console.warn('fetchSharedBoardCloud error:', err);
     return {};
   }
+}
+
+export function subscribeSharedBoardCloud(
+  teamId: string,
+  week: string,
+  onUpdate: (data: SharedBoardCloudUpdate) => void
+): () => void {
+  const { db } = getFirebaseServices();
+  if (!db || typeof db.collection !== 'function') return () => {};
+
+  const listen = (docId: string, mapFn: (data: any) => SharedBoardCloudUpdate) =>
+    db.collection('teamData').doc(docId).onSnapshot(
+      (snap: any) => {
+        if (!snap?.exists) return;
+        if (snap.metadata?.hasPendingWrites) return;
+        const data = snap.data();
+        if (!data) return;
+        onUpdate(mapFn(data));
+      },
+      (err: any) => {
+        console.warn(`subscribeSharedBoardCloud ${docId} error:`, err);
+      }
+    );
+
+  const unsubs = [
+    listen('ops_schedule', (data) => ({
+      scheduleEvents: data.events,
+      scheduleUpdatedAt: data.updatedAt,
+    })),
+    listen('ops_practice', (data) => ({
+      practiceData: data.plans,
+      deletedPracticePlanIds: data.deletedPracticePlanIds,
+      practiceUpdatedAt: data.updatedAt,
+    })),
+    listen(opsWeekDocId(teamId, week), (data) => ({
+      weekSlice: data,
+      weekUpdatedAt: data.updatedAt,
+    })),
+    listen('ops_roster', (data) => ({ roster: data.roster, rosterUpdatedAt: data.updatedAt })),
+    listen('ops_season', (data) => ({
+      teams: data.teams,
+      seasonConfig: data.seasonConfig,
+      seasonUpdatedAt: data.updatedAt,
+    })),
+    listen('ops_staff', (data) => ({ staffList: data.staffList, staffUpdatedAt: data.updatedAt })),
+    listen('ops_attendance', (data) => ({
+      attendanceLogs: data.attendanceLogs,
+      attendanceUpdatedAt: data.updatedAt,
+    })),
+    listen('ops_drills', (data) => ({
+      cascadingDrills: data.cascadingDrills,
+      practiceTemplates: data.practiceTemplates,
+      liveDrillSlotLayouts: data.liveDrillSlotLayouts,
+      drillsUpdatedAt: data.updatedAt,
+    })),
+    listen('ops_call_sheet', (data) => ({
+      callSheetData: data.callSheetData,
+      callSheetUpdatedAt: data.updatedAt,
+    })),
+    listen('ops_wristband', (data) => ({
+      wristbandData: data.wristbandData,
+      wristbandUpdatedAt: data.updatedAt,
+    })),
+    listen('ops_plays', (data) => ({
+      masterPlayLibrary: data.masterPlayLibrary,
+      playDatabase: data.playDatabase,
+      deletedPlayIds: data.deletedPlayIds,
+      playsUpdatedAt: data.updatedAt,
+    })),
+    listen('ops_guides', (data) => ({
+      guideTree: data.guideTree,
+      guideOrder: data.guideOrder,
+      guidesUpdatedAt: data.updatedAt,
+    })),
+    listen('ops_pff', (data) => ({
+      pffGradeCriteria: data.pffGradeCriteria,
+      pffPlayerGroups: data.pffPlayerGroups,
+      pffUpdatedAt: data.updatedAt,
+    })),
+    listen('ops_coaches', (data) => ({
+      savedCoaches: data.savedCoaches,
+      teamSavedCoaches: data.teamSavedCoaches,
+      coachesUpdatedAt: data.updatedAt,
+    })),
+    listen('ops_formations', (data) => ({
+      defaultFormations: data.defaultFormations,
+      deletedFormationIds: data.deletedFormationIds,
+      formationsUpdatedAt: data.updatedAt,
+    })),
+  ];
+
+  return () => {
+    unsubs.forEach((unsub) => {
+      try {
+        unsub();
+      } catch {}
+    });
+  };
 }
 
 export function subscribeServerEvents(onMessage: (eventData: any) => void): () => void {
