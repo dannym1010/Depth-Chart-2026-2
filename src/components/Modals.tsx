@@ -968,7 +968,8 @@ interface CopyWeekModalProps {
     targetWeek: string,
     copyMode?: CopyWeekMode,
     srcTeamId?: string,
-    showAlert?: boolean
+    showAlert?: boolean,
+    extras?: { copyWristband?: boolean; copyCallSheet?: boolean }
   ) => void;
 }
 
@@ -993,6 +994,8 @@ export const CopyWeekModal: React.FC<CopyWeekModalProps> = ({
   });
   const [targetWeek, setTargetWeek] = useState<string>(currentWeek);
   const [copyMode, setCopyMode] = useState<CopyWeekMode>('both');
+  const [copyWristband, setCopyWristband] = useState(true);
+  const [copyCallSheet, setCopyCallSheet] = useState(true);
 
   if (!isOpen) return null;
 
@@ -1032,7 +1035,10 @@ export const CopyWeekModal: React.FC<CopyWeekModalProps> = ({
       alert('Source week and Target week cannot be the same within the same squad.');
       return;
     }
-    onExecuteCopy(srcWeek, targetWeek, copyMode, srcTeamId, true);
+    onExecuteCopy(srcWeek, targetWeek, copyMode, srcTeamId, true, {
+      copyWristband,
+      copyCallSheet,
+    });
     onClose();
   };
 
@@ -1230,6 +1236,40 @@ export const CopyWeekModal: React.FC<CopyWeekModalProps> = ({
                 </div>
               </label>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <span className="text-[11px] font-black text-slate-300 uppercase tracking-wider block">
+              4. Game Day (Wristband &amp; Call Sheet)
+            </span>
+            <label className="flex items-start gap-3 p-3 rounded-2xl border bg-slate-900/60 border-slate-750 text-slate-300 cursor-pointer hover:bg-slate-800/80">
+              <input
+                type="checkbox"
+                checked={copyWristband}
+                onChange={(e) => setCopyWristband(e.target.checked)}
+                className="mt-1 text-indigo-600 focus:ring-indigo-500"
+              />
+              <div>
+                <div className="font-bold text-xs text-white">Copy wristband</div>
+                <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed font-normal">
+                  Puts the source week&apos;s wristband plays on the target week.
+                </p>
+              </div>
+            </label>
+            <label className="flex items-start gap-3 p-3 rounded-2xl border bg-slate-900/60 border-slate-750 text-slate-300 cursor-pointer hover:bg-slate-800/80">
+              <input
+                type="checkbox"
+                checked={copyCallSheet}
+                onChange={(e) => setCopyCallSheet(e.target.checked)}
+                className="mt-1 text-indigo-600 focus:ring-indigo-500"
+              />
+              <div>
+                <div className="font-bold text-xs text-white">Copy call sheet</div>
+                <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed font-normal">
+                  Puts the source week&apos;s sideline call sheet on the target week.
+                </p>
+              </div>
+            </label>
           </div>
 
           <div className="p-3 bg-indigo-950/40 border border-indigo-500/30 rounded-2xl text-indigo-200 text-[11px] leading-relaxed flex items-start gap-2.5">

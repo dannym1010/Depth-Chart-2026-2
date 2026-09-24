@@ -19,6 +19,7 @@ import {
   Trash2,
   Eraser,
   ChevronDown,
+  FolderSync,
 } from 'lucide-react';
 import {
   CallSheetFullData,
@@ -65,6 +66,8 @@ interface CallSheetMainViewProps {
   deletedPlayIds?: string[];
   onUpdateDeletedPlayIds?: (ids: string[]) => void;
   wristbandData?: WristbandData;
+  previousWeekLabel?: string;
+  onCopyCallSheetFromPreviousWeek?: () => void;
   /** When true, height leaves room for Game Day hub tabs on phones. */
   embedded?: boolean;
 }
@@ -80,6 +83,8 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
   deletedPlayIds: propDeletedPlayIds,
   onUpdateDeletedPlayIds,
   wristbandData: propWristbandData,
+  previousWeekLabel,
+  onCopyCallSheetFromPreviousWeek,
   embedded = false,
 }) => {
   // Permanently deleted play IDs tracking (guarantees deleted plays never reappear on refresh)
@@ -1242,6 +1247,19 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-200" />
               <span className="hidden sm:inline">Import Excel</span>
             </button>
+
+            {/* Copy previous week's call sheet into this week */}
+            {onCopyCallSheetFromPreviousWeek && previousWeekLabel ? (
+              <button
+                type="button"
+                onClick={onCopyCallSheetFromPreviousWeek}
+                className="px-2.5 py-1.5 rounded-xl bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-750 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                title={`Copy the ${previousWeekLabel} call sheet into this week`}
+              >
+                <FolderSync className="w-3.5 h-3.5 text-sky-400" />
+                <span className="hidden sm:inline">Copy {previousWeekLabel}</span>
+              </button>
+            ) : null}
 
             {/* Wristband Preset Table Button */}
             <button

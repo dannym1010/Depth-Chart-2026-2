@@ -109,7 +109,7 @@ import {
   sanitizePracticePlans,
   findBestActivePracticeId,
 } from './utils/practiceUtils';
-import { getAutoActiveWeek, normalizeWeeklyData, extractBackupFormations, normalizeFormationUnit, getSeasonWeekList, isDroppedFormation } from './utils/seasonWeekUtils';
+import { getAutoActiveWeek, normalizeWeeklyData, extractBackupFormations, normalizeFormationUnit, getSeasonWeekList, isDroppedFormation, getPriorSeasonWeekKey, formatWeekCopyLabel } from './utils/seasonWeekUtils';
 import { getPreviousWeekKey, mergePffGradeCriteria, PffPlayerGroupOverrides } from './utils/pprGroups';
 import { hydrateFilmSession } from './utils/hudlFilmImport';
 import { normalizeRoster } from './utils/depthChartUtils';
@@ -135,7 +135,7 @@ import { ScrimmageView } from './components/ScrimmageView';
 import { PracticeLiveDrillsView } from './components/PracticeLiveDrillsView';
 import { PlayerPprView } from './components/PlayerPprView';
 import { WristbandView } from './components/WristbandView';
-import { normalizeWristbandContinuousNumbering } from './utils/wristbandNormalize';
+import { normalizeWristbandContinuousNumbering, wristbandHasPlays } from './utils/wristbandNormalize';
 import { CallSheetMainView } from './components/CallSheetMainView';
 import { GameDayHubView } from './components/GameDayHubView';
 import { USER_IMPORTED_GAME_DAY_PLAYS, INITIAL_TWO_WRISTBANDS_DATA } from './data/userGameDayPlays';
@@ -143,7 +143,7 @@ import { ExcelPlayImportModal } from './components/callSheet/ExcelPlayImportModa
 import { PlayDatabaseEntry, CallSheetData, CallSheetFullData } from './types/callSheet';
 import { MASTER_PLAY_DATABASE, DEFAULT_CALL_SHEET_DATA } from './data/callSheetData';
 import { syncWristbandToCallSheet } from './utils/wristbandLinking';
-import { saveCallSheetSnapshot } from './utils/callSheetStorage';
+import { saveCallSheetSnapshot, countCallSheetPlays } from './utils/callSheetStorage';
 import { ScoutingView } from './components/ScoutingView';
 import { TendenciesView } from './components/scouting/TendenciesView';
 import { PlaybookGuidesView } from './components/PlaybookGuidesView';
@@ -985,6 +985,11 @@ export default function App() {
       setWristbandData(INITIAL_TWO_WRISTBANDS_DATA);
       latestStateRef.current.wristbandData = INITIAL_TWO_WRISTBANDS_DATA;
       safeJSONSet('footballWristbandData', INITIAL_TWO_WRISTBANDS_DATA);
+    }
+    if (targetWeekState?.callSheetData && countCallSheetPlays(targetWeekState.callSheetData) > 0) {
+      setCallSheetData(targetWeekState.callSheetData);
+      latestStateRef.current.callSheetData = targetWeekState.callSheetData;
+      safeJSONSet('footballCallSheetData', targetWeekState.callSheetData);
     }
   };
 
@@ -2287,6 +2292,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
               scrimmageChart: weekState.scrimmageChart || {},
               opponent: weekState.opponent || '',
               wristbandData: weekState.wristbandData,
+              callSheetData: weekState.callSheetData,
               scouting: weekScout,
               practiceDrillGroups: weekState.practiceDrillGroups,
               pprPlayCounts: weekState.pprPlayCounts,
@@ -2607,6 +2613,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
             formations: nextForms,
             opponent: slice.opponent || cur.opponent || '',
             wristbandData: slice.wristbandData || cur.wristbandData,
+            callSheetData: slice.callSheetData || cur.callSheetData,
             scouting: mergeScoutingReports(cur.scouting, slice.scouting),
             practiceDrillGroups: mergePracticeDrillGroups(
               cur.practiceDrillGroups,
@@ -3704,6 +3711,11 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     }
     return null;
   }, [weeklyData, activeTeamId, currentWeek, dismissedCopyPrompts]);
+
+  const previousWeekCopyLabel = useMemo(() => {
+    const srcWk = getPriorSeasonWeekKey(currentWeek, seasonConfig);
+    return srcWk ? formatWeekCopyLabel(srcWk) : '';
+  }, [currentWeek, seasonConfig]);
 
   // Team Access Control & Data Filtering
   const currentUserCoach = staffList.find(
@@ -7497,7 +7509,8 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     targetWeek: string,
     copyModeOrPlayerSpots: 'both' | 'formations_only' | 'positions_only' | boolean = 'both',
     srcTeamIdParam?: string,
-    showAlert: boolean = true
+    showAlert: boolean = true,
+    extras?: { copyWristband?: boolean; copyCallSheet?: boolean }
   ) => {
     const srcTeamId = srcTeamIdParam || activeTeamId;
     ensureWeekExists(srcWeek);
@@ -7530,6 +7543,21 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       safeJSONSet('footballDeletedFormationIds', nextDeletedIds);
     }
 
+    const copyWristband = extras?.copyWristband !== false;
+    const copyCallSheet = extras?.copyCallSheet !== false;
+    const liveWb = latestStateRef.current.wristbandData;
+    const liveCs = latestStateRef.current.callSheetData;
+    const copiedWb = copyWristband
+      ? deepClone(
+          wristbandHasPlays(src.wristbandData) ? src.wristbandData : liveWb
+        )
+      : undefined;
+    const copiedCs = copyCallSheet
+      ? deepClone(
+          countCallSheetPlays(src.callSheetData) > 0 ? src.callSheetData : liveCs
+        )
+      : undefined;
+
     const updatedState: WeekState = {
       ...targetExisting,
       formations: updatedFormations,
@@ -7539,6 +7567,8 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         mode === 'both' ? src.pprPlayCounts || {} : targetExisting.pprPlayCounts,
       pffReviews: mode === 'both' ? src.pffReviews || {} : targetExisting.pffReviews,
       filmSession: mode === 'both' ? src.filmSession : targetExisting.filmSession,
+      ...(copiedWb ? { wristbandData: copiedWb } : {}),
+      ...(copiedCs ? { callSheetData: copiedCs } : {}),
     };
 
     const targetScopedKey = getScopedWeekKey(activeTeamId, targetWeek);
@@ -7561,6 +7591,17 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     setWeeklyData(nextWeekly);
     changeCurrentWeek(targetWeek);
 
+    if (copiedWb && wristbandHasPlays(copiedWb)) {
+      setWristbandData(copiedWb);
+      latestStateRef.current.wristbandData = copiedWb;
+      safeJSONSet('footballWristbandData', copiedWb);
+    }
+    if (copiedCs && countCallSheetPlays(copiedCs) > 0) {
+      setCallSheetData(copiedCs);
+      latestStateRef.current.callSheetData = copiedCs;
+      safeJSONSet('footballCallSheetData', copiedCs);
+    }
+
     // Save and sync immediately to local and cloud with authoritative copy_week scope
     saveStateToStorage('copy_week');
 
@@ -7582,7 +7623,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
               : mode === 'formations_only'
               ? 'formations only'
               : `player depth spots (${copiedCount} player placements)`
-          } from ${srcLabel} to ${targetLabel}!`
+          }${copyWristband ? ', wristband' : ''}${copyCallSheet ? ', and call sheet' : ''} from ${srcLabel} to ${targetLabel}!`
         );
       }, 60);
     }
@@ -8193,6 +8234,44 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     flushAndSaveStateToStorage('wristband_update', { activeUnit: 'wristband', scope: 'wristband_update' });
   };
 
+  const handleCopyWristbandFromPreviousWeek = () => {
+    const allWeekly = { ...weeklyData, ...latestStateRef.current.weeklyData };
+    const candidates = [
+      getPriorSeasonWeekKey(currentWeek, seasonConfig),
+      String(currentWeek) === '1' ? '0' : null,
+    ].filter((k, i, arr): k is string => Boolean(k) && arr.indexOf(k) === i);
+    if (!candidates.length) {
+      alert('There is no previous week to copy a wristband from.');
+      return;
+    }
+    let srcWk = '';
+    let srcWb: WristbandData | undefined;
+    for (const key of candidates) {
+      const srcState = resolveWeekState(allWeekly, activeTeamId, key);
+      if (wristbandHasPlays(srcState?.wristbandData)) {
+        srcWk = key;
+        srcWb = srcState.wristbandData;
+        break;
+      }
+    }
+    const srcLabel = formatWeekCopyLabel(srcWk || candidates[0]);
+    if (!srcWk || !srcWb) {
+      alert(`${srcLabel} does not have wristband plays to copy.`);
+      return;
+    }
+    if (
+      wristbandHasPlays(effectiveWristbandData) &&
+      !window.confirm(`Replace this week's wristband with the ${srcLabel} wristband?`)
+    ) {
+      return;
+    }
+    handleUpdateWristbandData(deepClone(srcWb));
+    setSyncStatus({
+      text: `✅ Copied ${srcLabel} wristband to this week`,
+      color: '#22c55e',
+    });
+  };
+
   const handleUpdateCallSheetData = (newCs: CallSheetFullData) => {
     const now = newCs.lastEdited || Date.now();
     lastLocalEditTimeRef.current = now;
@@ -8203,10 +8282,71 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     saveCallSheetSnapshot(taggedCs);
     safeJSONSet('footballCallSheetData', taggedCs);
     safeJSONSet('footballCallSheetData_backup', taggedCs);
+    const scopedKey = getScopedWeekKey(activeTeamId, currentWeek);
+    setWeeklyData((prev) => {
+      const existingWeek = prev[scopedKey] || prev[currentWeek] || {
+        formations: defaultFormations,
+        depthChart: {},
+        scrimmageChart: {},
+        opponent: '',
+      };
+      const updatedWeek = {
+        ...existingWeek,
+        callSheetData: taggedCs,
+      };
+      const nextWeekly = {
+        ...prev,
+        [scopedKey]: updatedWeek,
+        [currentWeek]: updatedWeek,
+      };
+      latestStateRef.current.weeklyData = nextWeekly;
+      safeJSONSet('footballWeeklyData', nextWeekly);
+      return nextWeekly;
+    });
 
     // Save and broadcast immediately so other coaches receive changes instantly
     // and refreshing immediately will NOT lose changes
     flushAndSaveStateToStorage('call_sheet_update', { activeUnit: 'call_sheet', scope: 'call_sheet_update' });
+  };
+
+  const handleCopyCallSheetFromPreviousWeek = () => {
+    const allWeekly = { ...weeklyData, ...latestStateRef.current.weeklyData };
+    const candidates = [
+      getPriorSeasonWeekKey(currentWeek, seasonConfig),
+      String(currentWeek) === '1' ? '0' : null,
+    ].filter((k, i, arr): k is string => Boolean(k) && arr.indexOf(k) === i);
+    if (!candidates.length) {
+      alert('There is no previous week to copy a call sheet from.');
+      return;
+    }
+    let srcWk = '';
+    let srcCs: CallSheetFullData | undefined;
+    for (const key of candidates) {
+      const srcState = resolveWeekState(allWeekly, activeTeamId, key);
+      if (countCallSheetPlays(srcState?.callSheetData) > 0) {
+        srcWk = key;
+        srcCs = srcState.callSheetData;
+        break;
+      }
+    }
+    const srcLabel = formatWeekCopyLabel(srcWk || candidates[0]);
+    if (!srcWk || !srcCs) {
+      alert(
+        `${srcLabel} does not have a saved call sheet to copy. Open that week, save the call sheet once, then copy it here.`
+      );
+      return;
+    }
+    if (
+      countCallSheetPlays(callSheetData) > 0 &&
+      !window.confirm(`Replace this week's call sheet with the ${srcLabel} call sheet?`)
+    ) {
+      return;
+    }
+    handleUpdateCallSheetData(deepClone(srcCs));
+    setSyncStatus({
+      text: `✅ Copied ${srcLabel} call sheet to this week`,
+      color: '#22c55e',
+    });
   };
 
   const handleSetAdminPasscode = async (newPasscode: string) => {
@@ -9097,6 +9237,9 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
                 }}
                 wristbandData={effectiveWristbandData}
                 onUpdateWristbandData={handleUpdateWristbandData}
+                previousWeekLabel={previousWeekCopyLabel}
+                onCopyWristbandFromPreviousWeek={handleCopyWristbandFromPreviousWeek}
+                onCopyCallSheetFromPreviousWeek={handleCopyCallSheetFromPreviousWeek}
                 scouting={currentWeekState.scouting || {}}
                 onUpdateScouting={persistWeekScouting}
                 ownTeamScout={ownTeamHudlScout[activeTeamId] || ownTeamHudlScout.team_10u}
@@ -9135,6 +9278,8 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
                   debouncedSave('all');
                 }}
                 onUpdateWristbandData={handleUpdateWristbandData}
+                previousWeekLabel={previousWeekCopyLabel}
+                onCopyWristbandFromPreviousWeek={handleCopyWristbandFromPreviousWeek}
               />
             )}
 
@@ -9166,6 +9311,8 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
                   debouncedSave('all');
                 }}
                 wristbandData={effectiveWristbandData}
+                previousWeekLabel={previousWeekCopyLabel}
+                onCopyCallSheetFromPreviousWeek={handleCopyCallSheetFromPreviousWeek}
               />
             )}
 

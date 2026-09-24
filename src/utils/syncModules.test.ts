@@ -6,7 +6,12 @@ import {
   copyWeekCharts,
   countPlacedPlayers,
 } from './copyWeek.ts';
-import { normalizeWeeklyData } from './seasonWeekUtils.ts';
+import { wristbandHasPlays } from './wristbandNormalize.ts';
+import {
+  getPriorSeasonWeekKey as getCopySourceWeekKey,
+  formatWeekCopyLabel,
+  normalizeWeeklyData,
+} from './seasonWeekUtils.ts';
 import {
   mergeDeletedFormationIds,
   mergeFilmSession,
@@ -127,6 +132,29 @@ describe('copyWeek', () => {
   it('un-deletes copied formation ids', () => {
     const next = applyCopiedFormationsToDeletedIds(['form_a', 'other'], [srcForm], 'both');
     assert.deepEqual(next, ['other']);
+  });
+});
+
+describe('copy wristband from previous week', () => {
+  it('picks the prior season week for a regular-season week', () => {
+    assert.equal(getCopySourceWeekKey('2'), '1');
+    assert.equal(formatWeekCopyLabel('1'), 'Week 1');
+    assert.equal(formatWeekCopyLabel('0'), 'Preseason / Week 0');
+  });
+
+  it('detects whether a wristband has plays to copy', () => {
+    assert.equal(
+      wristbandHasPlays({
+        wristbands: [{ columns: [{ plays: [{ text: '  ' }] }] }],
+      } as any),
+      false
+    );
+    assert.equal(
+      wristbandHasPlays({
+        wristbands: [{ columns: [{ plays: [{ text: '24 Blast' }] }] }],
+      } as any),
+      true
+    );
   });
 });
 

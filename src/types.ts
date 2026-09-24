@@ -529,6 +529,7 @@ export interface WeekState {
   filmSession?: FilmSession;
   opponent?: string;
   wristbandData?: WristbandData;
+  callSheetData?: any;
   scouting?: ScoutingData;
 }
 

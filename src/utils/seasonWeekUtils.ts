@@ -665,3 +665,28 @@ export function extractBackupFormations(parsed: any): FormationBoard[] | null {
   }
   return null;
 }
+
+export function getPriorSeasonWeekKey(currentWeek: string, config?: SeasonConfig): string | null {
+  const week = String(currentWeek || '').trim();
+  if (!week) return null;
+  const list = getSeasonWeekList(config);
+  const idx = list.findIndex((w) => w.key === week);
+  if (idx > 0) return list[idx - 1].key;
+  const num = parseInt(week, 10);
+  if (!Number.isNaN(num) && num > 1) return String(num - 1);
+  if (week === '1') return '0';
+  if (week === 'playoffs' || week === 'championship') {
+    const lastReg = [...list].reverse().find((w) => w.phase === 'regular');
+    return lastReg?.key || '8';
+  }
+  return null;
+}
+
+export function formatWeekCopyLabel(week: string): string {
+  const w = String(week || '');
+  if (w === '0') return 'Preseason / Week 0';
+  if (w === 'playoffs') return 'Playoffs';
+  if (w === 'championship') return 'Championship';
+  if (w.startsWith('pre-')) return `Pre-Season Week ${w.slice(4)}`;
+  return `Week ${w}`;
+}

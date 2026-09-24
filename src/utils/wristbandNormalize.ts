@@ -180,3 +180,11 @@ export function normalizeWristbandContinuousNumbering(
 
   return hasAnyChange ? { ...data, wristbands: nextWristbands } : data;
 }
+
+export function wristbandHasPlays(data?: WristbandData | null): boolean {
+  return Boolean(
+    data?.wristbands?.some((wb) =>
+      wb?.columns?.some((col) => col?.plays?.some((play) => String(play?.text || '').trim()))
+    )
+  );
+}

@@ -124,6 +124,8 @@ interface WristbandViewProps {
   onUpdateCallSheetData?: (data: CallSheetFullData) => void;
   onUpdatePlayDatabase?: (plays: PlayDatabaseEntry[]) => void;
   onUpdateWristbandData?: (data: WristbandData) => void;
+  previousWeekLabel?: string;
+  onCopyWristbandFromPreviousWeek?: () => void;
   // Legacy props
   onUpdatePlay?: (colIdx: number, rowIdx: number, text: string) => void;
   onUpdateTitle?: (title: string) => void;
@@ -143,6 +145,8 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
   onUpdateCallSheetData,
   onUpdatePlayDatabase,
   onUpdateWristbandData,
+  previousWeekLabel,
+  onCopyWristbandFromPreviousWeek,
   embedded = false,
 }) => {
   // Internal state for resilient, instantaneous editing and printing
@@ -1474,6 +1478,19 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
               <ExternalLink className="w-3.5 h-3.5 text-indigo-400" />
               <span className="hidden xl:inline">Print Tab</span>
             </button>
+
+            {/* Copy previous week's wristband into this week */}
+            {onCopyWristbandFromPreviousWeek && previousWeekLabel ? (
+              <button
+                type="button"
+                onClick={onCopyWristbandFromPreviousWeek}
+                className="px-2.5 py-1.5 rounded-xl bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-750 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                title={`Copy the ${previousWeekLabel} wristband into this week`}
+              >
+                <FolderSync className="w-3.5 h-3.5 text-sky-400" />
+                <span className="hidden sm:inline">Copy {previousWeekLabel}</span>
+              </button>
+            ) : null}
 
             {/* Clear All Plays */}
             <button

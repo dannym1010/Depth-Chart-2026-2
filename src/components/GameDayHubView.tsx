@@ -64,6 +64,9 @@ interface GameDayHubViewProps {
   onUpdateDeletedPlayIds: (ids: string[]) => void;
   wristbandData?: WristbandData;
   onUpdateWristbandData?: (data: WristbandData) => void;
+  previousWeekLabel?: string;
+  onCopyWristbandFromPreviousWeek?: () => void;
+  onCopyCallSheetFromPreviousWeek?: () => void;
   scouting?: ScoutingData;
   onUpdateScouting: (field: keyof ScoutingData, val: any) => void;
   ownTeamScout?: any;
@@ -97,6 +100,9 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
   onUpdateDeletedPlayIds,
   wristbandData,
   onUpdateWristbandData,
+  previousWeekLabel,
+  onCopyWristbandFromPreviousWeek,
+  onCopyCallSheetFromPreviousWeek,
   scouting = {},
   onUpdateScouting,
   ownTeamScout,
@@ -694,6 +700,8 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
               onUpdateCallSheetData={onUpdateCallSheetData}
               onUpdatePlayDatabase={onUpdatePlayDatabase}
               onUpdateWristbandData={onUpdateWristbandData}
+              previousWeekLabel={previousWeekLabel}
+              onCopyWristbandFromPreviousWeek={onCopyWristbandFromPreviousWeek}
             />
           </div>
         </div>
@@ -1038,6 +1046,8 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
           deletedPlayIds={deletedPlayIds}
           onUpdateDeletedPlayIds={onUpdateDeletedPlayIds}
           wristbandData={wristbandData}
+          previousWeekLabel={previousWeekLabel}
+          onCopyCallSheetFromPreviousWeek={onCopyCallSheetFromPreviousWeek}
           embedded
         />
       )}
@@ -1053,6 +1063,8 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
           onUpdateCallSheetData={onUpdateCallSheetData}
           onUpdatePlayDatabase={onUpdatePlayDatabase}
           onUpdateWristbandData={onUpdateWristbandData}
+          previousWeekLabel={previousWeekLabel}
+          onCopyWristbandFromPreviousWeek={onCopyWristbandFromPreviousWeek}
           embedded
         />
       )}
