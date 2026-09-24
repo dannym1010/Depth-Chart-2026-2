@@ -336,8 +336,14 @@ export function normalizeCascadingDrills(raw: any): DrillFolder[] {
     });
 }
 
-// Track server state availability
-let isServerApiAvailable: boolean = true;
+function isLocalOpsHost(): boolean {
+  if (typeof window === 'undefined') return false;
+  const h = window.location.hostname;
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1';
+}
+
+// Local Express /api is only for Cursor/localhost. Live coaches use Firestore push/pull.
+let isServerApiAvailable: boolean = isLocalOpsHost();
 let consecutiveServerErrors = 0;
 
 function opsFetch(url: string, init: RequestInit = {}): Promise<Response> {
@@ -354,6 +360,7 @@ export async function establishOpsSession(payload: {
   idToken?: string;
   email?: string;
 }): Promise<boolean> {
+  if (isServerApiAvailable === false) return false;
   try {
     const res = await opsFetch('/api/session/login', {
       method: 'POST',
@@ -368,6 +375,7 @@ export async function establishOpsSession(payload: {
 }
 
 export async function clearOpsSession(): Promise<void> {
+  if (isServerApiAvailable === false) return;
   try {
     await opsFetch('/api/session/logout', {
       method: 'POST',
@@ -406,6 +414,7 @@ export async function checkServerHealth(): Promise<{
   hasCachedState: boolean;
   adminPasscodeSet?: boolean;
 } | null> {
+  if (isServerApiAvailable === false) return null;
   try {
     const res = await fetch('/api/health', {
       headers: { Accept: 'application/json' },
@@ -430,6 +439,7 @@ export async function fetchServerState(): Promise<{
   updatedAt: number;
   state: any;
 } | null> {
+  if (isServerApiAvailable === false) return null;
   try {
     const res = await opsFetch('/api/state', {
       headers: { Accept: 'application/json' },
@@ -454,6 +464,7 @@ export async function saveServerState(
   author: string = 'coach',
   metadata?: any
 ): Promise<{ success: boolean; version?: number; updatedAt?: number } | null> {
+  if (isServerApiAvailable === false) return null;
   try {
     const bodyString = safeJSONStringify({
       state,
@@ -1160,7 +1171,8 @@ export function subscribeSharedBoardCloud(
 export function subscribeServerEvents(onMessage: (eventData: any) => void): () => void {
   if (
     typeof window === 'undefined' ||
-    typeof EventSource === 'undefined'
+    typeof EventSource === 'undefined' ||
+    !isLocalOpsHost()
   ) {
     return () => {};
   }

@@ -2894,7 +2894,6 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
   useEffect(() => {
     if (!initialCloudLoadDoneRef.current) return;
     void hydrateHudlScoutFromCloud(activeTeamId, currentWeek);
-    void hydrateSharedBoardFromCloud();
   }, [activeTeamId, currentWeek]);
 
   useEffect(() => {
@@ -3002,96 +3001,11 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         } else if (eventData.type === 'sync' && eventData.state) {
           if (eventData.senderClientId === CLIENT_ID) return;
           applyRemoteState(eventData.state, 'sse_live_update', eventData.version, eventData.updatedAt);
-          void hydrateSharedBoardFromCloud();
         }
       });
 
-      // 4. Resilient polling fallback every 4 seconds (throttled when tab is hidden or idle)
-      const pollInterval = setInterval(async () => {
-        if (!isMounted) return;
-        // Optimization: pause polling when browser tab is hidden or user is idle to save CPU & memory
-        if (document.hidden || Date.now() - lastUserActivityTimeRef.current > 3 * 60 * 1000) {
-          return;
-        }
-        try {
-          const [health, currentLocks] = await Promise.all([
-            checkServerHealth(),
-            fetchServerLocks(),
-          ]);
-          if (Array.isArray(currentLocks)) {
-            setActiveLocks((prev) => {
-              if (prev.length === currentLocks.length) {
-                const isIdentical = prev.every(
-                  (p, i) =>
-                    p.id === currentLocks[i].id &&
-                    p.holderEmail === currentLocks[i].holderEmail &&
-                    p.expiresAt === currentLocks[i].expiresAt
-                );
-                if (isIdentical) return prev;
-              }
-              return currentLocks;
-            });
-          }
-          if (health && health.hasCachedState) {
-            if (
-              (typeof health.stateVersion === 'number' && health.stateVersion > localServerVersionRef.current) ||
-              (typeof health.stateUpdatedAt === 'number' && health.stateUpdatedAt > localServerUpdatedAtRef.current)
-            ) {
-              const serverRes = await fetchServerState();
-              if (serverRes && serverRes.hasData && serverRes.state) {
-                applyRemoteState(serverRes.state, 'poll_sync', serverRes.version, serverRes.updatedAt);
-              }
-            }
-          }
-        } catch {
-          // silent catch during polling
-        }
-      }, 4000);
-
-      // 5. Lightweight server check on window focus / tab visibility change (OOM-safe)
-      let isFocusChecking = false;
-      let lastFocusCheckTime = 0;
-
-      const handleWindowFocus = async () => {
-        if (!isMounted) return;
-        if (document.hidden) return; // Do not run when switching away from the tab
-        const now = Date.now();
-        if (now - lastFocusCheckTime < 10000 || isFocusChecking) return;
-        if (now - lastLocalEditTimeRef.current < 25000) return;
-
-        isFocusChecking = true;
-        lastFocusCheckTime = now;
-
-        try {
-          await hydrateHudlScoutFromCloud();
-          await hydrateSharedBoardFromCloud();
-          const health = await checkServerHealth();
-          if (health && typeof health.stateVersion === 'number') {
-            if (
-              health.stateVersion > localServerVersionRef.current ||
-              health.stateUpdatedAt > localServerUpdatedAtRef.current
-            ) {
-              const serverRes = await fetchServerState();
-              if (serverRes && serverRes.hasData && serverRes.state) {
-                applyRemoteState(serverRes.state, 'focus_sync', serverRes.version, serverRes.updatedAt);
-              }
-            }
-          }
-        } catch {
-          // silent catch on focus check
-        } finally {
-          isFocusChecking = false;
-        }
-      };
-
-      window.addEventListener('focus', handleWindowFocus);
-      document.addEventListener('visibilitychange', handleWindowFocus);
-
       return () => {
         if (typeof unsubscribeSSE === 'function') unsubscribeSSE();
-        clearInterval(pollInterval);
-        window.removeEventListener('focus', handleWindowFocus);
-        document.removeEventListener('visibilitychange', handleWindowFocus);
       };
     }
 
