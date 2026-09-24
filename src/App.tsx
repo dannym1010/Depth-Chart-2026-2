@@ -77,6 +77,8 @@ import {
   saveHudlScoutCloud,
   fetchHudlScoutCloud,
   saveSharedBoardCloud,
+  patchSharedWeekCloud,
+  isBoardPatchScope,
   fetchSharedBoardCloud,
   subscribeSharedBoardCloud,
   subscribeServerEvents,
@@ -132,7 +134,8 @@ import { FormationsView } from './components/FormationsView';
 import { ScrimmageView } from './components/ScrimmageView';
 import { PracticeLiveDrillsView } from './components/PracticeLiveDrillsView';
 import { PlayerPprView } from './components/PlayerPprView';
-import { WristbandView, normalizeWristbandContinuousNumbering } from './components/WristbandView';
+import { WristbandView } from './components/WristbandView';
+import { normalizeWristbandContinuousNumbering } from './utils/wristbandNormalize';
 import { CallSheetMainView } from './components/CallSheetMainView';
 import { GameDayHubView } from './components/GameDayHubView';
 import { USER_IMPORTED_GAME_DAY_PLAYS, INITIAL_TWO_WRISTBANDS_DATA } from './data/userGameDayPlays';
@@ -173,6 +176,7 @@ import {
   mergeScheduleEvents,
   applySharedWeekSliceDepth,
   applySharedFormations,
+  applyFormationBoardPatches,
   reorderFormationsInUnit,
   mergeScoutingReports,
   normalizeScoutWeekKey,
@@ -2109,6 +2113,63 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       return;
     }
 
+    const weekKey = normalizeScoutWeekKey(currentWeekRef.current);
+    const scopedKey = getScopedWeekKey(activeTeamIdRef.current, weekKey);
+    const weekState =
+      currentState.weeklyData?.[scopedKey] || currentState.weeklyData?.[weekKey];
+    const { db } = getFirebaseServices();
+
+    if (isBoardPatchScope(scope) && db) {
+      const posIds = (Array.isArray(extraMeta?.modifiedPosIds) ? extraMeta.modifiedPosIds : []).filter(Boolean);
+      const formIds = (Array.isArray(extraMeta?.modifiedFormIds) ? extraMeta.modifiedFormIds : []).filter(Boolean);
+      if (extraMeta?.formId && !formIds.includes(extraMeta.formId)) formIds.push(extraMeta.formId);
+      if (extraMeta?.movedFormationId && !formIds.includes(extraMeta.movedFormationId)) formIds.push(extraMeta.movedFormationId);
+      if (extraMeta?.deletedFormationId && !formIds.includes(extraMeta.deletedFormationId)) {
+        formIds.push(extraMeta.deletedFormationId);
+      }
+      const wantsOrder =
+        scope === 'move_formation' ||
+        scope === 'formation_add' ||
+        scope === 'delete_formation' ||
+        scope === 'formation_duplicate';
+      if (posIds.length || formIds.length || wantsOrder) {
+        setSyncStatus({ text: '☁️ Syncing...', color: '#f59e0b' });
+        const depthSpots: Record<string, any[]> = {};
+        const scrimmageSpots: Record<string, any[]> = {};
+        const formationBoards: Record<string, any | null> = {};
+        const chartKind = extraMeta?.chartKind === 'scrimmage' ? 'scrimmage' : 'depth';
+        posIds.forEach((id: string) => {
+          if (chartKind === 'scrimmage') scrimmageSpots[id] = weekState?.scrimmageChart?.[id] || [];
+          else depthSpots[id] = weekState?.depthChart?.[id] || [];
+        });
+        formIds.forEach((id: string) => {
+          if (scope === 'delete_formation' && extraMeta?.deletedFormationId === id) {
+            formationBoards[id] = null;
+            return;
+          }
+          const board = (weekState?.formations || []).find((f: any) => f && f.id === id);
+          if (board) formationBoards[id] = board;
+        });
+        const sharedOk = await patchSharedWeekCloud({
+          teamId: activeTeamIdRef.current,
+          week: weekKey,
+          depthSpots,
+          scrimmageSpots,
+          formationBoards,
+          formationOrder: wantsOrder
+            ? (weekState?.formations || []).map((f: any) => f.id).filter(Boolean)
+            : undefined,
+          deletedFormationIds: extraMeta?.deletedFormationId ? [extraMeta.deletedFormationId] : undefined,
+        });
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        setSyncStatus({
+          text: sharedOk ? `✅ Saved & Synced (${timeStr})` : '⚠️ Saved on this device only',
+          color: sharedOk ? '#22c55e' : '#ef4444',
+        });
+        return;
+      }
+    }
+
     lastSavedPayloadRef.current = payloadJson;
 
     setSyncStatus({ text: '☁️ Syncing...', color: '#f59e0b' });
@@ -2159,8 +2220,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
 
     // 3. Firestore Sync — skip PFF-only writes so a full weeklyData snapshot cannot
     // last-write-wins over another coach's live grades. Server SSE carries the merge.
-    const { db } = getFirebaseServices();
-    if (db && initialCloudLoadDoneRef.current && scope !== 'ppr_update') {
+    if (db && initialCloudLoadDoneRef.current && scope !== 'ppr_update' && !isBoardPatchScope(scope)) {
       try {
         const cleanPayload = JSON.parse(
           safeJSONStringify({
@@ -2195,10 +2255,6 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       }
     }
 
-    const weekKey = normalizeScoutWeekKey(currentWeekRef.current);
-    const scopedKey = getScopedWeekKey(activeTeamIdRef.current, weekKey);
-    const weekState =
-      currentState.weeklyData?.[scopedKey] || currentState.weeklyData?.[weekKey];
     const weekScout = weekState?.scouting
       ? { ...weekState.scouting, hudlScout: undefined }
       : undefined;
@@ -2243,6 +2299,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       teamSavedCoaches: currentState.teamSavedCoaches,
       defaultFormations: currentState.defaultFormations,
       deletedFormationIds: currentState.deletedFormationIds,
+      modules: isBoardPatchScope(scope) ? ['week'] : undefined,
     });
 
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -2426,31 +2483,66 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       safeJSONSet('footballPracticeData', mergedPlans);
     }
     const slice = remote.weekSlice;
-    if (slice && (slice.depthChart || slice.formations || slice.scrimmageChart || slice.wristbandData) && take('week', remote.weekUpdatedAt || slice.updatedAt)) {
+    if (slice && (slice.depthChart || slice.formations || slice.scrimmageChart || slice.wristbandData || slice.depthSpots || slice.scrimmageSpots || slice.formationBoards) && take('week', remote.weekUpdatedAt || slice.updatedAt)) {
       const teamId = activeTeamIdRef.current;
       const week = normalizeScoutWeekKey(currentWeekRef.current);
       const scopedKey = getScopedWeekKey(teamId, week);
       const recentSpots = recentlyModifiedPositionsRef.current;
+      const recentForms = recentlyModifiedFormationsRef.current;
+      const isPatch = slice.weekWriteKind === 'patch';
       setWeeklyData((prev) => {
         const patch = (key: string) => {
           const weekId = key.includes('__week_') ? key.split('__week_').slice(1).join('__week_') : key;
           const cur = storedWeekForWrite(prev, teamId, weekId);
+          const nextDepth = isPatch
+            ? applySharedWeekSliceDepth(cur.depthChart || {}, slice.depthSpots, recentSpots)
+            : applySharedWeekSliceDepth(
+                applySharedWeekSliceDepth(cur.depthChart || {}, slice.depthChart, recentSpots),
+                slice.depthSpots,
+                recentSpots
+              );
+          const nextScrim = isPatch
+            ? applySharedWeekSliceDepth(cur.scrimmageChart || {}, slice.scrimmageSpots, recentSpots)
+            : applySharedWeekSliceDepth(
+                applySharedWeekSliceDepth(cur.scrimmageChart || {}, slice.scrimmageChart, recentSpots),
+                slice.scrimmageSpots,
+                recentSpots
+              );
+          const nextForms = isPatch
+            ? applyFormationBoardPatches(
+                cur.formations,
+                slice.formationBoards,
+                recentForms,
+                Date.now(),
+                slice.formationOrder
+              )
+            : applyFormationBoardPatches(
+                applySharedFormations(
+                  cur.formations,
+                  slice.formations,
+                  recentForms,
+                  lastLocalEditTimeRef.current,
+                  Date.now(),
+                  true
+                ),
+                slice.formationBoards,
+                recentForms,
+                Date.now(),
+                slice.formationOrder
+              );
+          if (isPatch) {
+            return {
+              ...cur,
+              depthChart: nextDepth,
+              scrimmageChart: nextScrim,
+              formations: nextForms,
+            };
+          }
           return {
             ...cur,
-            depthChart: applySharedWeekSliceDepth(cur.depthChart || {}, slice.depthChart, recentSpots),
-            scrimmageChart: applySharedWeekSliceDepth(
-              cur.scrimmageChart || {},
-              slice.scrimmageChart,
-              recentSpots
-            ),
-            formations: applySharedFormations(
-              cur.formations,
-              slice.formations,
-              recentlyModifiedFormationsRef.current,
-              lastLocalEditTimeRef.current,
-              Date.now(),
-              true
-            ),
+            depthChart: nextDepth,
+            scrimmageChart: nextScrim,
+            formations: nextForms,
             opponent: slice.opponent || cur.opponent || '',
             wristbandData: slice.wristbandData || cur.wristbandData,
             scouting: mergeScoutingReports(cur.scouting, slice.scouting),
@@ -4277,34 +4369,55 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     lastLocalEditTimeRef.current = now;
     safeJSONSet('footballLastLocalEditTime', now);
 
+    const extra = extraMeta || {};
+    const touchFormIds = new Set<string>(
+      [
+        ...(Array.isArray(extra.modifiedFormIds) ? extra.modifiedFormIds : []),
+        extra.formId,
+        extra.movedFormationId,
+        extra.deletedFormationId,
+      ].filter(Boolean)
+    );
+    const touchPosIds = new Set<string>(
+      (Array.isArray(extra.modifiedPosIds) ? extra.modifiedPosIds : []).filter(Boolean)
+    );
+    const formContainsTouchedPos = (form: FormationBoard) =>
+      Array.isArray(form?.rows) &&
+      form.rows.some(
+        (r) =>
+          Array.isArray(r?.positions) &&
+          r.positions.some((p) => p && p.id && touchPosIds.has(p.id))
+      );
+
     const stampedFormations = Array.isArray(newFormations)
-      ? newFormations.map((f) => (f && f.id ? { ...f, lastEdited: now } : f))
+      ? newFormations.map((f) => {
+          if (!f || !f.id) return f;
+          const shouldStamp =
+            !touchFormIds.size && !touchPosIds.size
+              ? true
+              : touchFormIds.has(f.id) || formContainsTouchedPos(f);
+          if (!shouldStamp) return f;
+          return { ...f, lastEdited: now };
+        })
       : newFormations;
 
     if (Array.isArray(stampedFormations)) {
       stampedFormations.forEach((f) => {
-        if (f && f.id) {
-          recentlyModifiedFormationsRef.current.set(f.id, now);
-          if (Array.isArray(f.rows)) {
-            f.rows.forEach((r) => {
-              if (r && Array.isArray(r.positions)) {
-                r.positions.forEach((p) => {
-                  if (p && p.id) {
-                    recentlyModifiedPositionsRef.current.set(p.id, now);
-                  }
-                });
-              }
-            });
-          }
-        }
+        if (!f || !f.id) return;
+        const shouldMark =
+          !touchFormIds.size && !touchPosIds.size
+            ? true
+            : touchFormIds.has(f.id) || formContainsTouchedPos(f);
+        if (!shouldMark) return;
+        recentlyModifiedFormationsRef.current.set(f.id, now);
+        touchFormIds.add(f.id);
       });
     }
 
-    if (Array.isArray(extraMeta?.modifiedPosIds)) {
-      extraMeta.modifiedPosIds.forEach((pid: string) => {
-        if (pid) recentlyModifiedPositionsRef.current.set(pid, now);
-      });
-    }
+    touchPosIds.forEach((pid) => recentlyModifiedPositionsRef.current.set(pid, now));
+    extra.modifiedFormIds = Array.from(touchFormIds);
+    extra.modifiedPosIds = Array.from(touchPosIds);
+    extraMeta = extra;
     safeJSONSet(
       'footballRecentlyModifiedPositions',
       Array.from(recentlyModifiedPositionsRef.current.entries())
@@ -4533,7 +4646,11 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     }
 
     draggedPlayerRef.current = null;
-    flushAndSaveStateToStorage('player_move', { modifiedPosIds, activeUnit: currentDepthUnit });
+    flushAndSaveStateToStorage('player_move', {
+      modifiedPosIds,
+      activeUnit: currentDepthUnit,
+      chartKind: isScrimmage ? 'scrimmage' : 'depth',
+    });
   };
 
   const handleRemovePlayerFromCard = (posId: string, playerIndex: number) => {
@@ -4548,7 +4665,11 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       recordPositionEdit(posId);
       if (isScrimmage) updateCurrentWeekScrimmageChart(chart);
       else updateCurrentWeekDepthChart(chart);
-      flushAndSaveStateToStorage('player_remove', { modifiedPosIds: [posId], activeUnit: currentDepthUnit });
+      flushAndSaveStateToStorage('player_remove', {
+        modifiedPosIds: [posId],
+        activeUnit: currentDepthUnit,
+        chartKind: isScrimmage ? 'scrimmage' : 'depth',
+      });
     }
   };
 
@@ -4580,7 +4701,11 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     } else {
       updateCurrentWeekDepthChart(chart);
     }
-    flushAndSaveStateToStorage('player_assign_direct', { modifiedPosIds: [posId], activeUnit: currentDepthUnit });
+    flushAndSaveStateToStorage('player_assign_direct', {
+      modifiedPosIds: [posId],
+      activeUnit: currentDepthUnit,
+      chartKind: isScrimmage ? 'scrimmage' : 'depth',
+    });
   };
 
   const handleReorderDepthPlayer = (
@@ -4607,7 +4732,11 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     } else {
       updateCurrentWeekDepthChart(chart);
     }
-    flushAndSaveStateToStorage('player_reorder_depth', { modifiedPosIds: [posId], activeUnit: currentDepthUnit });
+    flushAndSaveStateToStorage('player_reorder_depth', {
+      modifiedPosIds: [posId],
+      activeUnit: currentDepthUnit,
+      chartKind: isScrimmage ? 'scrimmage' : 'depth',
+    });
   };
 
   // Drag and Drop Position Cards Across Rows & Slots
@@ -4675,6 +4804,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
         updateCurrentWeekFormations(forms, true, true, {
           scope: 'position_card_move',
           modifiedPosIds: modPosIds,
+          modifiedFormIds: [srcFormId, targetFormId],
           activeUnit: targetUnit,
         });
       }
@@ -4705,6 +4835,8 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     const targetUnit = form?.unit || (['offense', 'defense', 'st', 'groups'].includes(currentDepthUnitRef.current) ? currentDepthUnitRef.current : 'offense');
     updateCurrentWeekFormations(forms, true, true, {
       scope: 'formation_set_slots',
+      formId,
+      modifiedFormIds: [formId],
       activeUnit: targetUnit,
     });
   };
@@ -4757,6 +4889,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     const targetUnit = form?.unit || (['offense', 'defense', 'st', 'groups'].includes(currentDepthUnitRef.current) ? currentDepthUnitRef.current : 'offense');
     updateCurrentWeekFormations(forms, true, true, {
       scope: 'formation_slot_remove',
+      formId,
       modifiedPosIds: modPosIds,
       activeUnit: targetUnit,
     });
@@ -4781,6 +4914,8 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     const targetUnit = form?.unit || (['offense', 'defense', 'st', 'groups'].includes(currentDepthUnitRef.current) ? currentDepthUnitRef.current : 'offense');
     updateCurrentWeekFormations(forms, true, true, {
       scope: 'formation_slot_insert',
+      formId,
+      modifiedFormIds: [formId],
       activeUnit: targetUnit,
     });
   };
@@ -4813,6 +4948,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     const targetUnit = form?.unit || (['offense', 'defense', 'st', 'groups'].includes(currentDepthUnitRef.current) ? currentDepthUnitRef.current : 'offense');
     updateCurrentWeekFormations(forms, true, true, {
       scope: 'position_clear_slot',
+      formId,
       modifiedPosIds: modPosIds,
       activeUnit: targetUnit,
     });
@@ -4859,6 +4995,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
 
     updateCurrentWeekFormations(forms, true, true, {
       scope: 'formation_slot_assign',
+      formId,
       modifiedPosIds: modPosIds,
       activeUnit: targetUnit,
     });
@@ -4899,6 +5036,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     const targetUnit = form?.unit || (['offense', 'defense', 'st', 'groups'].includes(currentDepthUnitRef.current) ? currentDepthUnitRef.current : 'offense');
     updateCurrentWeekFormations(forms, true, true, {
       scope: 'position_add',
+      formId,
       modifiedPosIds: [newPosId],
       activeUnit: targetUnit,
     });
@@ -4935,6 +5073,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     const targetUnit = form.unit || (['offense', 'defense', 'st', 'groups'].includes(currentDepthUnitRef.current) ? currentDepthUnitRef.current : 'offense');
     updateCurrentWeekFormations(forms, true, true, {
       scope: 'position_rename',
+      formId,
       modifiedPosIds: [oldPos.id],
       activeUnit: targetUnit,
     });
@@ -4961,6 +5100,8 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     const targetUnit = form?.unit || (['offense', 'defense', 'st', 'groups'].includes(currentDepthUnitRef.current) ? currentDepthUnitRef.current : 'offense');
     updateCurrentWeekFormations(forms, true, true, {
       scope: 'row_rename',
+      formId,
+      modifiedFormIds: [formId],
       activeUnit: targetUnit,
     });
   };
@@ -4994,6 +5135,8 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     const targetUnit = form?.unit || (['offense', 'defense', 'st', 'groups'].includes(currentDepthUnitRef.current) ? currentDepthUnitRef.current : 'offense');
     updateCurrentWeekFormations(forms, true, true, {
       scope: 'row_add',
+      formId,
+      modifiedFormIds: [formId],
       activeUnit: targetUnit,
     });
   };
@@ -5194,6 +5337,8 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     const updated = [...currentFormations, newForm];
     updateCurrentWeekFormations(updated, true, true, {
       scope: 'formation_add',
+      formId: newId,
+      modifiedFormIds: [newId],
       activeUnit: unit,
     });
     setSelectedFormationId(newId);
@@ -5209,6 +5354,8 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     const targetUnit = form?.unit || (['offense', 'defense', 'st', 'groups'].includes(currentDepthUnitRef.current) ? currentDepthUnitRef.current : 'offense');
     updateCurrentWeekFormations(updated, true, true, {
       scope: 'formation_rename',
+      formId,
+      modifiedFormIds: [formId],
       activeUnit: targetUnit,
     });
   };
@@ -5250,6 +5397,8 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     updateCurrentWeekScrimmageChart(sc);
     updateCurrentWeekFormations(updated, true, true, {
       scope: 'formation_duplicate',
+      formId: newFormId,
+      modifiedFormIds: [newFormId],
       activeUnit: targetUnit,
     });
     setSelectedFormationId(newFormId);
@@ -5296,6 +5445,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
 
     updateCurrentWeekFormations(forms, true, true, {
       scope: 'position_move_direct',
+      formId,
       modifiedPosIds: modPosIds,
       activeUnit: targetUnit,
     });
@@ -5341,6 +5491,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     updateCurrentWeekDepthChart(dc);
     updateCurrentWeekFormations(forms, true, true, {
       scope: 'position_copy',
+      formId,
       modifiedPosIds: [pos.id, newPosId],
       activeUnit: targetUnit,
     });
@@ -5611,6 +5762,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     const targetUnit = form.unit || (['offense', 'defense', 'st', 'groups'].includes(currentDepthUnitRef.current) ? currentDepthUnitRef.current : 'offense');
     updateCurrentWeekFormations(forms, true, true, {
       scope: 'row_delete',
+      formId,
       modifiedPosIds: modPosIds,
       activeUnit: targetUnit,
     });
@@ -5679,6 +5831,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     const targetUnit = form?.unit || (['offense', 'defense', 'st', 'groups'].includes(currentDepthUnitRef.current) ? currentDepthUnitRef.current : 'offense');
     updateCurrentWeekFormations(forms, true, true, {
       scope: 'position_delete',
+      formId,
       modifiedPosIds: modPosIds,
       activeUnit: targetUnit,
     });

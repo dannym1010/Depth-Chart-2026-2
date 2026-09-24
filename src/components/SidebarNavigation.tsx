@@ -80,7 +80,7 @@ export interface NavItemConfig {
   hasCascadingFolders?: boolean;
 }
 
-export const MAIN_NAV_ITEMS: NavItemConfig[] = [
+const MAIN_NAV_ITEMS: NavItemConfig[] = [
   {
     id: 'home',
     label: 'Home & Upcoming Events',

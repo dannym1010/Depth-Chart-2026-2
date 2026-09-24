@@ -165,6 +165,70 @@ export function applySharedFormations(
   return merged;
 }
 
+export function applyFormationBoardPatches(
+  localForms: FormationBoard[] | undefined,
+  patches: Record<string, FormationBoard | null | undefined> | undefined,
+  recentlyModifiedFormations?: Map<string, number>,
+  now: number = Date.now(),
+  formationOrder?: string[]
+): FormationBoard[] {
+  const local = Array.isArray(localForms) ? localForms.filter((f) => f && f.id) : [];
+  if (!patches || !Object.keys(patches).length) {
+    if (Array.isArray(formationOrder) && formationOrder.length && local.length) {
+      const byId = new Map(local.map((f) => [f.id, f]));
+      const ordered: FormationBoard[] = [];
+      const seen = new Set<string>();
+      formationOrder.forEach((id) => {
+        const form = byId.get(id);
+        if (form && !seen.has(id)) {
+          seen.add(id);
+          ordered.push(form);
+        }
+      });
+      local.forEach((form) => {
+        if (!seen.has(form.id)) {
+          seen.add(form.id);
+          ordered.push(form);
+        }
+      });
+      return ordered;
+    }
+    return local;
+  }
+
+  const byId = new Map(local.map((f) => [f.id, f]));
+  Object.entries(patches).forEach(([id, rem]) => {
+    if (!id) return;
+    if (rem == null) {
+      byId.delete(id);
+      return;
+    }
+    const editedAt = recentlyModifiedFormations?.get(id);
+    if (editedAt !== undefined && now - editedAt < RECENT_POSITION_PROTECT_MS) return;
+    byId.set(id, rem);
+  });
+
+  const orderIds = Array.isArray(formationOrder) && formationOrder.length
+    ? formationOrder
+    : local.map((f) => f.id);
+  const seen = new Set<string>();
+  const merged: FormationBoard[] = [];
+  orderIds.forEach((id) => {
+    const form = byId.get(id);
+    if (form && !seen.has(id)) {
+      seen.add(id);
+      merged.push(form);
+    }
+  });
+  byId.forEach((form, id) => {
+    if (!seen.has(id)) {
+      seen.add(id);
+      merged.push(form);
+    }
+  });
+  return merged;
+}
+
 export function formationListFromWeek(state?: WeekState | null): FormationBoard[] {
   return (Array.isArray(state?.formations) ? state.formations : []).filter((f) => Boolean(f && f.id));
 }

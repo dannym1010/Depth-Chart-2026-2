@@ -26,7 +26,7 @@ import {
   EyeOff,
 } from 'lucide-react';
 import { CustomTabGroup, UnitType, UserRole } from '../types';
-import { DEFAULT_NAV_TABS, NavTabItem } from './NavigationTabs';
+import { DEFAULT_NAV_TABS, NavTabItem } from '../utils/navTabs';
 
 interface TabGroupManagerModalProps {
   isOpen: boolean;

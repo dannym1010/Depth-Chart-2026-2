@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+﻿import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Watch,
   Printer,
@@ -47,8 +47,9 @@ import {
   INITIAL_TWO_WRISTBANDS_DATA,
   USER_IMPORTED_GAME_DAY_PLAYS,
 } from '../data/userGameDayPlays';
+import { getAutoWristbandTitle, normalizeWristbandContinuousNumbering } from '../utils/wristbandNormalize';
 
-export interface HighlightColorOption {
+interface HighlightColorOption {
   name: string;
   bg: string;
   text: string;
@@ -56,7 +57,7 @@ export interface HighlightColorOption {
 }
 
 // 1. High-Intensity Athletic Game Day Neons
-export const ATHLETIC_NEON_PALETTE: HighlightColorOption[] = [
+const ATHLETIC_NEON_PALETTE: HighlightColorOption[] = [
   { name: 'Volt Lime', bg: '#a3e635', text: '#000000', category: 'athletic' },
   { name: 'Athletic Gold', bg: '#facc15', text: '#000000', category: 'athletic' },
   { name: 'Sky Cyan', bg: '#38bdf8', text: '#000000', category: 'athletic' },
@@ -68,7 +69,7 @@ export const ATHLETIC_NEON_PALETTE: HighlightColorOption[] = [
 ];
 
 // 2. Coach Soft Pastel Highlighters
-export const PASTEL_HIGHLIGHTER_PALETTE: HighlightColorOption[] = [
+const PASTEL_HIGHLIGHTER_PALETTE: HighlightColorOption[] = [
   { name: 'Soft Yellow', bg: '#fef08a', text: '#000000', category: 'pastel' },
   { name: 'Soft Mint', bg: '#bbf7d0', text: '#000000', category: 'pastel' },
   { name: 'Ice Blue', bg: '#bae6fd', text: '#000000', category: 'pastel' },
@@ -80,18 +81,12 @@ export const PASTEL_HIGHLIGHTER_PALETTE: HighlightColorOption[] = [
 ];
 
 // 3. Deep Football Team Contrast Colors
-export const CLASSIC_TEAM_PALETTE: HighlightColorOption[] = [
+const CLASSIC_TEAM_PALETTE: HighlightColorOption[] = [
   { name: 'Navy Blue', bg: '#1e3a8a', text: '#ffffff', category: 'classic' },
   { name: 'Forest Green', bg: '#14532d', text: '#ffffff', category: 'classic' },
   { name: 'Rich Amber', bg: '#d97706', text: '#000000', category: 'classic' },
   { name: 'Deep Maroon', bg: '#831843', text: '#ffffff', category: 'classic' },
   { name: 'Jet Black', bg: '#09090b', text: '#facc15', category: 'classic' },
-];
-
-export const HIGHLIGHT_PALETTE: HighlightColorOption[] = [
-  ...ATHLETIC_NEON_PALETTE,
-  ...PASTEL_HIGHLIGHTER_PALETTE,
-  ...CLASSIC_TEAM_PALETTE,
 ];
 
 const PLAY_TYPE_BADGES: Record<string, { bg: string; text: string }> = {
@@ -137,196 +132,6 @@ interface WristbandViewProps {
   /** When true, height leaves room for Game Day hub tabs on phones. */
   embedded?: boolean;
 }
-
-export const STANDARD_WRISTBAND_COLOR_PAIRS = [
-  {
-    col0: { name: 'BLUE', color: '#2563eb', textColor: '#ffffff' },
-    col1: { name: 'GOLD', color: '#facc15', textColor: '#000000' },
-  },
-  {
-    col0: { name: 'GREEN', color: '#16a34a', textColor: '#ffffff' },
-    col1: { name: 'PINK', color: '#ec4899', textColor: '#ffffff' },
-  },
-  {
-    col0: { name: 'ORANGE', color: '#ea580c', textColor: '#ffffff' },
-    col1: { name: 'WHITE', color: '#ffffff', textColor: '#000000' },
-  },
-  {
-    col0: { name: 'RED', color: '#dc2626', textColor: '#ffffff' },
-    col1: { name: 'PURPLE', color: '#9333ea', textColor: '#ffffff' },
-  },
-];
-
-export function getAutoWristbandTitle(
-  wbIdx: number,
-  col0Start: number,
-  col0End: number,
-  col1Start: number,
-  col1End: number,
-  activeTeamName: string = 'Mahopac 10U'
-): { title: string; col0Name: string; col1Name: string; pair: (typeof STANDARD_WRISTBAND_COLOR_PAIRS)[0] } {
-  const pair = STANDARD_WRISTBAND_COLOR_PAIRS[wbIdx % STANDARD_WRISTBAND_COLOR_PAIRS.length];
-  let teamClean = (activeTeamName || 'Mahopac 10U').trim();
-  if (!/\b10U\b/i.test(teamClean)) {
-    teamClean = `${teamClean} 10U`;
-  }
-  const teamTag = teamClean.toUpperCase();
-  const col0Name = `${pair.col0.name} (${col0Start} - ${col0End})`;
-  const col1Name = `${pair.col1.name} (${col1Start} - ${col1End})`;
-  const title = `${teamTag} • ${pair.col0.name} (${col0Start}-${col0End}) & ${pair.col1.name} (${col1Start}-${col1End})`;
-  return { title, col0Name, col1Name, pair };
-}
-
-/**
- * Ensures the 2nd wristband (and any subsequent wristbands) starts with the number
- * directly after the last number on the previous wristband, and auto-formats wristband titles
- * to: [Team Name] 10U • [Color1] ([1-13]) & [Color2] ([14-26]).
- */
-export const normalizeWristbandContinuousNumbering = (
-  data: WristbandData,
-  activeTeamName: string = 'Mahopac 10U'
-): WristbandData => {
-  if (!data?.wristbands || data.wristbands.length === 0) {
-    return data;
-  }
-  let prevEnd = 0;
-  let hasAnyChange = false;
-
-  const nextWristbands = data.wristbands.map((wb, idx) => {
-    const rows = wb.rowsCount || 13;
-    const cols = wb.columns?.length || 2;
-    const totalSlots = rows * cols;
-
-    let finalStart = wb.startNumber || 1;
-    if (idx === 0) {
-      finalStart = wb.startNumber || 1;
-      prevEnd = finalStart + totalSlots - 1;
-    } else {
-      // For 2nd wristband and beyond, start after previous wristband
-      const expectedStart = prevEnd + 1;
-      prevEnd = expectedStart + totalSlots - 1;
-      const isWb2OrNeedsStart =
-        !wb.startNumber ||
-        wb.startNumber === 1 ||
-        wb.id === 'wb_2' ||
-        wb.labelingMode === 'same_per_card';
-      finalStart = isWb2OrNeedsStart ? expectedStart : wb.startNumber || expectedStart;
-    }
-
-    if (wb.startNumber !== finalStart) {
-      hasAnyChange = true;
-    }
-
-    const col0Start = finalStart;
-    const col0End = col0Start + rows - 1;
-    const col1Start = col0End + 1;
-    const col1End = col1Start + rows - 1;
-
-    const autoFormat = getAutoWristbandTitle(
-      idx,
-      col0Start,
-      col0End,
-      col1Start,
-      col1End,
-      activeTeamName
-    );
-
-    // Only auto-format title if empty or matching default initial placeholders
-    let newTitle = wb.title || '';
-    const trimmedTitle = newTitle.trim();
-    const isLegacyTitle =
-      !trimmedTitle ||
-      trimmedTitle === 'WRISTBAND 1' ||
-      trimmedTitle === 'WRISTBAND 2' ||
-      trimmedTitle === 'WRISTBAND 1 (21 SERIES)' ||
-      trimmedTitle === 'WRISTBAND 2 (32 & 11)' ||
-      trimmedTitle === 'NEW INSERT';
-
-    if (isLegacyTitle) {
-      newTitle = autoFormat.title;
-      hasAnyChange = true;
-    }
-
-    const updatedCols = (wb.columns || []).map((col, cIdx) => {
-      const colStart = finalStart + cIdx * rows;
-      const colEnd = colStart + rows - 1;
-      const expectedColName = cIdx === 0 ? autoFormat.col0Name : autoFormat.col1Name;
-      const expectedColor = cIdx === 0 ? autoFormat.pair.col0.color : autoFormat.pair.col1.color;
-      const expectedTextColor =
-        cIdx === 0 ? autoFormat.pair.col0.textColor : autoFormat.pair.col1.textColor;
-
-      let colName = col.name;
-      const trimmedColName = (colName || '').trim();
-      const isLegacyColName =
-        !trimmedColName ||
-        trimmedColName === 'LEFT COLUMN' ||
-        trimmedColName === 'RIGHT COLUMN';
-
-      if (isLegacyColName) {
-        colName = expectedColName;
-        hasAnyChange = true;
-      }
-
-      // Preserve user-customized colors; only apply default if completely missing
-      let colColor = col.color || expectedColor;
-      let colNumBg = col.numberBgColor || colColor;
-      let colNumText = col.numberTextColor || expectedTextColor;
-      if (!col.color) {
-        hasAnyChange = true;
-      }
-
-      const updatedPlays = (col.plays || []).map((p, rIdx) => {
-        const slotNum = colStart + rIdx;
-        const needsNumUpdate = p.wristbandNum !== slotNum;
-        const isOldNumericLabel =
-          p.customLabel &&
-          !isNaN(Number(p.customLabel)) &&
-          Number(p.customLabel) <= 26 &&
-          finalStart > 26;
-        if (needsNumUpdate || isOldNumericLabel) {
-          hasAnyChange = true;
-          return {
-            ...p,
-            wristbandNum: slotNum,
-            customLabel: isOldNumericLabel ? String(slotNum) : p.customLabel,
-          };
-        }
-        return p;
-      });
-
-      return {
-        ...col,
-        name: colName,
-        color: colColor,
-        numberBgColor: colNumBg,
-        numberTextColor: colNumText,
-        plays: updatedPlays,
-      };
-    });
-
-    let newSubtitle = wb.subtitle;
-    if (
-      newSubtitle &&
-      (newSubtitle.includes('SAME LABELING') ||
-        newSubtitle.includes('1 - 26') ||
-        !newSubtitle.includes(String(finalStart)))
-    ) {
-      newSubtitle = `CARDS ${finalStart} - ${prevEnd} (CONTINUOUS)`;
-      hasAnyChange = true;
-    }
-
-    return {
-      ...wb,
-      title: newTitle,
-      startNumber: finalStart,
-      labelingMode: idx >= 1 ? 'continuous' : wb.labelingMode || 'same_per_card',
-      subtitle: newSubtitle,
-      columns: updatedCols,
-    };
-  });
-
-  return hasAnyChange ? { ...data, wristbands: nextWristbands } : data;
-};
 
 export const WristbandView: React.FC<WristbandViewProps> = ({
   wristbandData: propWristbandData,
@@ -1432,7 +1237,7 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
 
                       {/* Play Text */}
                       <span className="wristband-print-play-text flex-1 px-1.5 self-center font-mono font-bold uppercase truncate text-[8.5px] text-black">
-                        {play.text || '—'}
+                        {play.text || 'â€”'}
                       </span>
                     </div>
                   );
@@ -1487,8 +1292,8 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
                 >
                   <Watch className="w-3.5 h-3.5" />
                   <span>
-                    {wb.title && wb.title.includes('•')
-                      ? wb.title.split('•').slice(1).join('•').trim()
+                    {wb.title && wb.title.includes('â€¢')
+                      ? wb.title.split('â€¢').slice(1).join('â€¢').trim()
                       : wb.title || `Wristband ${idx + 1}`}
                   </span>
                 </button>
@@ -1700,7 +1505,7 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
                 value={currentWristband.title || ''}
                 onChange={(e) => updateCurrentWristband((wb) => ({ ...wb, title: e.target.value }))}
                 className="flex-1 bg-slate-950 border border-slate-750 text-white font-black px-3 py-1.5 rounded-xl text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none uppercase placeholder:text-slate-500"
-                placeholder="e.g. MAHOPAC 10U • BLUE (1-13) & GOLD (14-26)"
+                placeholder="e.g. MAHOPAC 10U â€¢ BLUE (1-13) & GOLD (14-26)"
               />
               {userRole === 'admin' && (
                 <button
@@ -2554,7 +2359,7 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
               >
                 {/* Thin dashed cut guideline marking the exact 4.5" x 2.25" wrist sleeve insert */}
                 <div className="flex items-center justify-between font-mono text-[9px] font-bold text-slate-700 mb-1 px-1 select-none">
-                  <span>✂ CUT ALONG DASHED GUIDE</span>
+                  <span>âœ‚ CUT ALONG DASHED GUIDE</span>
                   <span>STANDARD 4.5&quot; &times; 2.25&quot; WRIST COACH INSERT</span>
                 </div>
                 <div

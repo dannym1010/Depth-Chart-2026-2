@@ -22,7 +22,7 @@ export default defineConfig(() => {
               // Saved team state is rewritten constantly by the Express process.
               // Watching it full-page-reloads the login screen and snaps the
               // Admin Passcode tab back to Sign In.
-              ignored: ['**/data/**', '**/dist/**'],
+              ignored: ['**/data/**', '**/dist/**', '**/*.test.ts', '**/*.test.tsx'],
             },
     },
   };

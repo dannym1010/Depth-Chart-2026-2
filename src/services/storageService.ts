@@ -728,6 +728,29 @@ function opsWeekDocId(teamId: string, week: string) {
   return `ops_week_${teamId}_w${wk}`;
 }
 
+export function isBoardPatchScope(scope: string = ''): boolean {
+  return (
+    scope.startsWith('player_') ||
+    scope.startsWith('position_') ||
+    scope.startsWith('formation_') ||
+    scope.startsWith('row_') ||
+    scope === 'move_formation' ||
+    scope === 'delete_formation'
+  );
+}
+
+function cloudFieldKey(id: string): string {
+  return String(id || '').replace(/[.~\*\/\[\]]/g, '_') || 'slot';
+}
+
+function cloneCloudValue<T>(value: T): T {
+  try {
+    return JSON.parse(safeJSONStringify(value));
+  } catch {
+    return value;
+  }
+}
+
 function opsMeta(extra: Record<string, any> = {}) {
   return {
     ...extra,
@@ -764,16 +787,34 @@ export async function saveSharedBoardCloud(payload: {
   teamSavedCoaches?: any;
   defaultFormations?: any[];
   deletedFormationIds?: any[];
+  modules?: Array<
+    | 'week'
+    | 'schedule'
+    | 'practice'
+    | 'roster'
+    | 'season'
+    | 'staff'
+    | 'attendance'
+    | 'drills'
+    | 'call_sheet'
+    | 'wristband'
+    | 'plays'
+    | 'guides'
+    | 'pff'
+    | 'coaches'
+    | 'formations'
+  >;
 }): Promise<boolean> {
   try {
     const { db } = getFirebaseServices();
     if (!db) return false;
     const writes: Promise<any>[] = [];
     const col = db.collection('teamData');
-    if (payload.scheduleEvents) {
+    const want = (name: string) => !payload.modules || payload.modules.includes(name as any);
+    if (want('schedule') && payload.scheduleEvents) {
       writes.push(col.doc('ops_schedule').set(opsMeta({ events: payload.scheduleEvents })));
     }
-    if (payload.practiceData) {
+    if (want('practice') && payload.practiceData) {
       writes.push(
         col.doc('ops_practice').set(
           opsMeta({
@@ -783,26 +824,27 @@ export async function saveSharedBoardCloud(payload: {
         )
       );
     }
-    if (payload.weekSlice && payload.teamId && payload.week) {
+    if (want('week') && payload.weekSlice && payload.teamId && payload.week) {
       writes.push(
         col.doc(opsWeekDocId(payload.teamId, payload.week)).set(
           opsMeta({
             ...payload.weekSlice,
+            weekWriteKind: 'full',
             teamId: payload.teamId,
             week: String(payload.week).replace(/[^a-zA-Z0-9_-]/g, '') || '1',
           })
         )
       );
     }
-    if (payload.roster) writes.push(col.doc('ops_roster').set(opsMeta({ roster: payload.roster })));
-    if (payload.teams || payload.seasonConfig) {
+    if (want('roster') && payload.roster) writes.push(col.doc('ops_roster').set(opsMeta({ roster: payload.roster })));
+    if (want('season') && (payload.teams || payload.seasonConfig)) {
       writes.push(col.doc('ops_season').set(opsMeta({ teams: payload.teams, seasonConfig: payload.seasonConfig })));
     }
-    if (payload.staffList) writes.push(col.doc('ops_staff').set(opsMeta({ staffList: payload.staffList })));
-    if (payload.attendanceLogs) {
+    if (want('staff') && payload.staffList) writes.push(col.doc('ops_staff').set(opsMeta({ staffList: payload.staffList })));
+    if (want('attendance') && payload.attendanceLogs) {
       writes.push(col.doc('ops_attendance').set(opsMeta({ attendanceLogs: payload.attendanceLogs })));
     }
-    if (payload.cascadingDrills || payload.practiceTemplates || payload.liveDrillSlotLayouts) {
+    if (want('drills') && (payload.cascadingDrills || payload.practiceTemplates || payload.liveDrillSlotLayouts)) {
       writes.push(
         col.doc('ops_drills').set(
           opsMeta({
@@ -813,13 +855,13 @@ export async function saveSharedBoardCloud(payload: {
         )
       );
     }
-    if (payload.callSheetData) {
+    if (want('call_sheet') && payload.callSheetData) {
       writes.push(col.doc('ops_call_sheet').set(opsMeta({ callSheetData: payload.callSheetData })));
     }
-    if (payload.wristbandData) {
+    if (want('wristband') && payload.wristbandData) {
       writes.push(col.doc('ops_wristband').set(opsMeta({ wristbandData: payload.wristbandData })));
     }
-    if (payload.masterPlayLibrary || payload.playDatabase) {
+    if (want('plays') && (payload.masterPlayLibrary || payload.playDatabase)) {
       writes.push(
         col.doc('ops_plays').set(
           opsMeta({
@@ -830,10 +872,10 @@ export async function saveSharedBoardCloud(payload: {
         )
       );
     }
-    if (payload.guideTree || payload.guideOrder) {
+    if (want('guides') && (payload.guideTree || payload.guideOrder)) {
       writes.push(col.doc('ops_guides').set(opsMeta({ guideTree: payload.guideTree, guideOrder: payload.guideOrder })));
     }
-    if (payload.pffGradeCriteria || payload.pffPlayerGroups) {
+    if (want('pff') && (payload.pffGradeCriteria || payload.pffPlayerGroups)) {
       writes.push(
         col.doc('ops_pff').set(
           opsMeta({
@@ -843,7 +885,7 @@ export async function saveSharedBoardCloud(payload: {
         )
       );
     }
-    if (payload.savedCoaches || payload.teamSavedCoaches) {
+    if (want('coaches') && (payload.savedCoaches || payload.teamSavedCoaches)) {
       writes.push(
         col.doc('ops_coaches').set(
           opsMeta({
@@ -853,7 +895,7 @@ export async function saveSharedBoardCloud(payload: {
         )
       );
     }
-    if (payload.defaultFormations || payload.deletedFormationIds) {
+    if (want('formations') && (payload.defaultFormations || payload.deletedFormationIds)) {
       writes.push(
         col.doc('ops_formations').set(
           opsMeta({
@@ -868,6 +910,59 @@ export async function saveSharedBoardCloud(payload: {
     return true;
   } catch (err) {
     console.warn('saveSharedBoardCloud error:', err);
+    return false;
+  }
+}
+
+export async function patchSharedWeekCloud(payload: {
+  teamId: string;
+  week: string;
+  depthSpots?: Record<string, any[]>;
+  scrimmageSpots?: Record<string, any[]>;
+  formationBoards?: Record<string, any | null>;
+  formationOrder?: string[];
+  deletedFormationIds?: string[];
+}): Promise<boolean> {
+  try {
+    const { db } = getFirebaseServices();
+    if (!db || !payload.teamId || !payload.week) return false;
+    const body: Record<string, any> = {
+      weekWriteKind: 'patch',
+      teamId: payload.teamId,
+      week: String(payload.week).replace(/[^a-zA-Z0-9_-]/g, '') || '1',
+    };
+    const depthSpots: Record<string, any> = {};
+    const scrimmageSpots: Record<string, any> = {};
+    const formationBoards: Record<string, any> = {};
+    Object.entries(payload.depthSpots || {}).forEach(([id, players]) => {
+      depthSpots[cloudFieldKey(id)] = cloneCloudValue(Array.isArray(players) ? players : []);
+    });
+    Object.entries(payload.scrimmageSpots || {}).forEach(([id, players]) => {
+      scrimmageSpots[cloudFieldKey(id)] = cloneCloudValue(Array.isArray(players) ? players : []);
+    });
+    Object.entries(payload.formationBoards || {}).forEach(([id, board]) => {
+      const key = cloudFieldKey(id);
+      if (board == null) {
+        const del = typeof window !== 'undefined' ? window.firebase?.firestore?.FieldValue?.delete?.() : undefined;
+        formationBoards[key] = del === undefined ? null : del;
+      } else {
+        formationBoards[key] = cloneCloudValue(board);
+      }
+    });
+    if (Object.keys(depthSpots).length) body.depthSpots = depthSpots;
+    if (Object.keys(scrimmageSpots).length) body.scrimmageSpots = scrimmageSpots;
+    if (Object.keys(formationBoards).length) body.formationBoards = formationBoards;
+    if (Array.isArray(payload.formationOrder)) {
+      body.formationOrder = payload.formationOrder.filter(Boolean);
+    }
+    if (Array.isArray(payload.deletedFormationIds) && payload.deletedFormationIds.length) {
+      body.deletedFormationIds = payload.deletedFormationIds;
+    }
+    if (Object.keys(body).length === 3) return false;
+    await db.collection('teamData').doc(opsWeekDocId(payload.teamId, payload.week)).set(opsMeta(body), { merge: true });
+    return true;
+  } catch (err) {
+    console.warn('patchSharedWeekCloud error:', err);
     return false;
   }
 }

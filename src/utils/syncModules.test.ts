@@ -13,8 +13,9 @@ import {
   mergePffReviews,
   mergePracticePlansByLastEdited,
   applySharedWeekSliceDepth,
-  applySharedFormations,
-  mergeRemoteWeeklyData,
+    applySharedFormations,
+    applyFormationBoardPatches,
+    mergeRemoteWeeklyData,
   reorderFormationsInUnit,
   mergeScoutingReports,
   mergeStaffByEmail,
@@ -467,6 +468,33 @@ describe('remoteStateMerge', () => {
     } as FormationBoard;
     const merged = applySharedFormations([local], [remote], new Map(), now, now + 120_000, true);
     assert.equal(merged[0].rows[0].positions[1]?.name, 'QB 1s');
+  });
+
+  it('applies another coach slot patch without replacing the rest of the week boards', () => {
+    const now = 1_700_000_000_000;
+    const localA = form('form_a', '21', 'offense', 'a-qb');
+    const localB = form('form_b', '22', 'offense', 'b-qb');
+    const remoteA = {
+      ...form('form_a', '21', 'offense', 'a-qb'),
+      lastEdited: now,
+      rows: [{ id: 'r1', positions: [null, { id: 'a-qb', name: 'QB 1s' }] }],
+    } as FormationBoard;
+    const merged = applyFormationBoardPatches(
+      [localA, localB],
+      { form_a: remoteA },
+      new Map(),
+      now + 120_000
+    );
+    assert.equal(merged[0].rows[0].positions[1]?.name, 'QB 1s');
+    assert.equal(merged[1].id, 'form_b');
+    const spots = applySharedWeekSliceDepth(
+      { 'a-qb': [player('p1', 'Dan')], 'b-rb': [player('p2', 'Pat')] },
+      { 'a-qb': [player('p3', 'Sam')] },
+      new Map(),
+      now + 120_000
+    );
+    assert.equal(spots['a-qb'][0].name, 'Sam');
+    assert.equal(spots['b-rb'][0].name, 'Pat');
   });
 
   it('keeps a moved 4-4 first after refresh when cloud still has factory order', () => {
@@ -1362,7 +1390,7 @@ describe('hudl scout', () => {
   });
 
   it('drops one tagged upload from a stacked scout report', async () => {
-    const { removeScoutGame, clearScoutUploads } = await import('../components/scouting/HudlScoutView.tsx');
+    const { removeScoutGame, clearScoutUploads } = await import('../hudlScout/scoutBundle.ts');
     const bundle = {
       plays: [
         { id: 'a', gameId: 'g1' },

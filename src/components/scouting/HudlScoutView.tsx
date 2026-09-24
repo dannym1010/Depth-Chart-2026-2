@@ -3,8 +3,8 @@ import { SAMPLE_DATASETS, SampleDataset } from '../../hudlScout/data/sampleDatas
 import { ColumnMapping, autoDetectColumnMapping, normalizeHudlRow, parseCsvRows } from '../../hudlScout/utils/csvParser';
 import { calculateTendencies } from '../../hudlScout/utils/tendencyEngine';
 import { Play } from '../../hudlScout/types/football';
-import { Header, ScoutGame, ScoutTarget } from '../../hudlScout/components/Header';
-import { FilterBar, FilterState } from '../../hudlScout/components/FilterBar';
+import { Header, ScoutTarget } from '../../hudlScout/components/Header';
+import { FilterBar } from '../../hudlScout/components/FilterBar';
 import { OverviewCards } from '../../hudlScout/components/OverviewCards';
 import { HashWideSideBoard } from '../../hudlScout/components/HashWideSideBoard';
 import { OpponentTellsBanner } from '../../hudlScout/components/OpponentTellsBanner';
@@ -19,90 +19,13 @@ import { CallSheetModal } from '../../hudlScout/components/CallSheetModal';
 import { buildLocalGameplan } from '../../hudlScout/utils/buildLocalGameplan';
 import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import { pickScoutBundle, scoutFingerprint } from '../../utils/remoteStateMerge';
-
-const DEFAULT_FILTERS: FilterState = {
-  odk: 'O',
-  quarter: 'ALL',
-  down: 'ALL',
-  fieldZone: 'ALL',
-  hash: 'ALL',
-  playType: 'ALL',
-  formation: 'ALL',
-};
-
-export interface ScoutBundle {
-  plays: Play[];
-  datasetName: string;
-  offensiveScheme: string;
-  coachNotes: string;
-  filters: FilterState;
-  games: ScoutGame[];
-  updatedAt: number;
-  sourceCleared: boolean;
-}
-
-function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
-  const plays: Play[] = Array.isArray(saved?.plays) ? saved.plays : [];
-  return {
-    plays,
-    datasetName: saved?.datasetName || fallbackName,
-    offensiveScheme: saved?.offensiveScheme || '',
-    coachNotes: saved?.coachNotes || '',
-    filters: saved?.filters || DEFAULT_FILTERS,
-    games: Array.isArray(saved?.games) && saved.games.length
-      ? saved.games
-      : plays.length
-        ? [{ id: 'game-1', name: saved?.datasetName || fallbackName, playCount: plays.length, addedAt: saved?.updatedAt || Date.now() }]
-        : [],
-    updatedAt: Number(saved?.updatedAt) || 0,
-    sourceCleared: Boolean(saved?.sourceCleared) && plays.length === 0,
-  };
-}
-
-export function removeScoutGame(bundle: ScoutBundle, gameId: string, fallbackName: string): ScoutBundle {
-  const remainingGames = bundle.games.filter((g) => g.id !== gameId);
-  const remainingPlays = bundle.plays.filter((p) => {
-    if (p.gameId) return p.gameId !== gameId;
-    return bundle.games[0]?.id !== gameId;
-  });
-  if (!remainingGames.length) {
-    return {
-      ...bundle,
-      plays: [],
-      games: [],
-      datasetName: fallbackName,
-      filters: DEFAULT_FILTERS,
-      sourceCleared: true,
-      updatedAt: Date.now(),
-    };
-  }
-  return {
-    ...bundle,
-    plays: remainingPlays,
-    games: remainingGames.map((g) => ({
-      ...g,
-      playCount: remainingPlays.filter((p) => {
-        if (p.gameId) return p.gameId === g.id;
-        return remainingGames[0]?.id === g.id;
-      }).length,
-    })),
-    datasetName: remainingGames[0]?.name || fallbackName,
-    sourceCleared: false,
-    updatedAt: Date.now(),
-  };
-}
-
-export function clearScoutUploads(bundle: ScoutBundle, fallbackName: string): ScoutBundle {
-  return {
-    ...bundle,
-    plays: [],
-    games: [],
-    datasetName: fallbackName,
-    filters: DEFAULT_FILTERS,
-    sourceCleared: true,
-    updatedAt: Date.now(),
-  };
-}
+import {
+  ScoutBundle,
+  DEFAULT_SCOUT_FILTERS as DEFAULT_FILTERS,
+  bundleFromSaved,
+  removeScoutGame,
+  clearScoutUploads,
+} from '../../hudlScout/scoutBundle';
 
 export interface HudlScoutViewProps {
   scouting: ScoutingData;

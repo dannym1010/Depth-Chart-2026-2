@@ -1606,7 +1606,7 @@ interface ModuleInfo {
   isAvailable: boolean;
 }
 
-export function unwrapBackupData(raw: any): any {
+function unwrapBackupData(raw: any): any {
   if (!raw || typeof raw !== 'object') return raw;
   if (raw.state && typeof raw.state === 'object') {
     return unwrapBackupData(raw.state);
@@ -1623,7 +1623,7 @@ export function unwrapBackupData(raw: any): any {
   return raw;
 }
 
-export function inspectBackupModules(raw: any): ModuleInfo[] {
+function inspectBackupModules(raw: any): ModuleInfo[] {
   if (!raw || typeof raw !== 'object') return [];
   const parsed = unwrapBackupData(raw);
 
