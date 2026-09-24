@@ -11,6 +11,7 @@ import {
   mergeFilmSession,
   mergePffReviews,
   mergePracticePlansByLastEdited,
+  applySharedWeekSliceDepth,
   mergeRemoteWeeklyData,
   mergeScoutingReports,
   mergeStaffByEmail,
@@ -355,6 +356,42 @@ describe('remoteStateMerge', () => {
     };
     const merged = mergeRemoteWeeklyData(local, remote, 'team_10u', '1', 'offense', 0);
     assert.equal(merged['team_10u__week_1'].depthChart['21-qb'][0].name, 'Pat');
+  });
+
+  it('does not put a just-deleted depth player back from a stale cloud copy', () => {
+    const now = Date.now();
+    const recent = new Map<string, number>([['21-qb', now]]);
+    const local: Record<string, WeekState> = {
+      'team_10u__week_1': {
+        formations: [form('form_21', '21', 'offense', '21-qb')],
+        depthChart: { '21-qb': [] },
+        scrimmageChart: {},
+      } as WeekState,
+    };
+    const remote: Record<string, WeekState> = {
+      'team_10u__week_1': {
+        formations: [form('form_21', '21', 'offense', '21-qb')],
+        depthChart: { '21-qb': [player('p1', 'Dan')] },
+        scrimmageChart: {},
+      } as WeekState,
+    };
+    const merged = mergeRemoteWeeklyData(
+      local,
+      remote,
+      'team_10u',
+      '1',
+      'offense',
+      now,
+      recent
+    );
+    assert.equal(merged['team_10u__week_1'].depthChart['21-qb'].length, 0);
+    const fromSlice = applySharedWeekSliceDepth(
+      { '21-qb': [] },
+      { '21-qb': [player('p1', 'Dan')] },
+      recent,
+      now
+    );
+    assert.equal(fromSlice['21-qb'].length, 0);
   });
 
   it('merges staff by email without dropping local idle timeout', () => {

@@ -165,6 +165,7 @@ import {
   mergeOwnTeamHudlMap,
   collectOwnTeamHudlFromWeekly,
   mergeScheduleEvents,
+  applySharedWeekSliceDepth,
   normalizeScoutWeekKey,
   pickScoutBundle,
   pickRichestScouting,
@@ -2397,8 +2398,10 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       safeJSONSet('footballPracticeData', mergedPlans);
     }
     const slice = remote.weekSlice;
-    if (slice && (slice.depthChart || slice.formations)) {
+    const recentlyEditedBoard = Date.now() - lastLocalEditTimeRef.current < 25000;
+    if (slice && (slice.depthChart || slice.formations) && !recentlyEditedBoard) {
       const scopedKey = getScopedWeekKey(teamId, week);
+      const recentSpots = recentlyModifiedPositionsRef.current;
       setWeeklyData((prev) => {
         const patch = (key: string) => {
           const cur = prev[key] || {
@@ -2407,18 +2410,14 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
             scrimmageChart: {},
             opponent: '',
           };
-          const nextDC = { ...(cur.depthChart || {}) };
-          Object.entries(slice.depthChart || {}).forEach(([posId, players]) => {
-            if (Array.isArray(players) && players.length) nextDC[posId] = players as any;
-          });
-          const nextSC = { ...(cur.scrimmageChart || {}) };
-          Object.entries(slice.scrimmageChart || {}).forEach(([posId, players]) => {
-            if (Array.isArray(players) && players.length) nextSC[posId] = players as any;
-          });
           return {
             ...cur,
-            depthChart: nextDC,
-            scrimmageChart: nextSC,
+            depthChart: applySharedWeekSliceDepth(cur.depthChart || {}, slice.depthChart, recentSpots),
+            scrimmageChart: applySharedWeekSliceDepth(
+              cur.scrimmageChart || {},
+              slice.scrimmageChart,
+              recentSpots
+            ),
             formations:
               Array.isArray(slice.formations) && slice.formations.length ? slice.formations : cur.formations,
             opponent: slice.opponent || cur.opponent || '',

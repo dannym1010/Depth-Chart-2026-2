@@ -26,6 +26,24 @@ export function shouldRejectStaleRemote(remoteTimestamp: number, localTimestamp:
   return remoteTimestamp > 0 && localTimestamp > 0 && remoteTimestamp < localTimestamp;
 }
 
+const RECENT_POSITION_PROTECT_MS = 25000;
+
+export function applySharedWeekSliceDepth(
+  localDC: Record<string, PlacedPlayer[]>,
+  remoteDC: Record<string, PlacedPlayer[] | undefined> | undefined,
+  recentlyModifiedPositions?: Map<string, number>,
+  now: number = Date.now()
+): Record<string, PlacedPlayer[]> {
+  const next: Record<string, PlacedPlayer[]> = { ...(localDC || {}) };
+  Object.entries(remoteDC || {}).forEach(([posId, players]) => {
+    if (!Array.isArray(players)) return;
+    const editedAt = recentlyModifiedPositions?.get(posId);
+    if (editedAt !== undefined && now - editedAt < RECENT_POSITION_PROTECT_MS) return;
+    next[posId] = players;
+  });
+  return next;
+}
+
 export function isGroupsPositionId(posId: string): boolean {
   const id = String(posId || '');
   return (
@@ -805,8 +823,8 @@ export function mergeRemoteWeeklyData(
 
     if (recentlyModifiedPositions && recentlyModifiedPositions.size > 0) {
       for (const [posId, editTime] of recentlyModifiedPositions.entries()) {
-        if (now - editTime < 25000 && localDC[posId] !== undefined) mergedDC[posId] = localDC[posId];
-        if (now - editTime < 25000 && localSC[posId] !== undefined) mergedSC[posId] = localSC[posId];
+        if (now - editTime < RECENT_POSITION_PROTECT_MS && localDC[posId] !== undefined) mergedDC[posId] = localDC[posId];
+        if (now - editTime < RECENT_POSITION_PROTECT_MS && localSC[posId] !== undefined) mergedSC[posId] = localSC[posId];
       }
     }
     for (const [posId, players] of Object.entries(localDC)) {
