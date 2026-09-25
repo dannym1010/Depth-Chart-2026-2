@@ -3,7 +3,7 @@ import { SAMPLE_DATASETS, SampleDataset } from '../../hudlScout/data/sampleDatas
 import { ColumnMapping, autoDetectColumnMapping, normalizeHudlRow, parseCsvRows } from '../../hudlScout/utils/csvParser';
 import { calculateTendencies } from '../../hudlScout/utils/tendencyEngine';
 import { Play } from '../../hudlScout/types/football';
-import { Header, ScoutTarget } from '../../hudlScout/components/Header';
+import { Header, ScoutGame, ScoutTarget } from '../../hudlScout/components/Header';
 import { FilterBar } from '../../hudlScout/components/FilterBar';
 import { OverviewCards } from '../../hudlScout/components/OverviewCards';
 import { HashWideSideBoard } from '../../hudlScout/components/HashWideSideBoard';

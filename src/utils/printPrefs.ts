@@ -1,12 +1,15 @@
 const STORAGE_KEY = 'footballLastPrintPrefs';
 export const SHARED_PRINT_KIND = 'shared';
 
-export const SHARED_PRINT_DEFAULTS = {
-  inkFriendly: true,
-  orientation: 'landscape' as const,
+type SharedPrintPrefs = {
+  inkFriendly: boolean;
+  orientation: 'landscape' | 'portrait';
 };
 
-type SharedPrintPrefs = typeof SHARED_PRINT_DEFAULTS;
+export const SHARED_PRINT_DEFAULTS: SharedPrintPrefs = {
+  inkFriendly: true,
+  orientation: 'landscape',
+};
 
 function readAll(): Record<string, Record<string, unknown>> {
   try {
@@ -66,7 +69,7 @@ export function savePrintPrefs(kind: string, prefs: Record<string, unknown>) {
   const all = readAll();
   all[kind] = { ...prefs, savedAt: Date.now() };
 
-  const shared = { ...(all[SHARED_PRINT_KIND] || {}), savedAt: Date.now() };
+  const shared: Record<string, unknown> = { ...(all[SHARED_PRINT_KIND] || {}), savedAt: Date.now() };
   if (typeof prefs.inkFriendly === 'boolean') shared.inkFriendly = prefs.inkFriendly;
   const orientation = asOrientation(prefs.orientation);
   if (orientation) shared.orientation = orientation;
