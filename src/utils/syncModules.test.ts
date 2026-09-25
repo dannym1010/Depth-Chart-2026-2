@@ -370,6 +370,42 @@ describe('remoteStateMerge', () => {
     assert.equal(merged.find((p) => p.id === 'a')?.title, 'new-from-other-coach');
   });
 
+  it('picks the filled shared today plan over a newer blank seed', async () => {
+    const { findBestActivePracticeId, shouldSwitchToSharedTodayPlan, getLocalDateKey } = await import(
+      './practiceUtils.ts'
+    );
+    const today = getLocalDateKey();
+    const blank = {
+      id: 'blank-seed',
+      date: today,
+      lastEdited: 999,
+      title: 'Practice #1',
+      plan: [{ stations: [{ name: '', desc: '', coach: '', focus: '' }] }],
+    } as any;
+    const filled = {
+      id: 'shared-today',
+      date: today,
+      lastEdited: 10,
+      title: 'Thursday Install',
+      plan: [
+        {
+          stations: [
+            { name: 'Inside Zone', desc: 'QB/RB mesh', coach: 'Dan', focus: 'Footwork' },
+          ],
+        },
+      ],
+    } as any;
+    assert.equal(findBestActivePracticeId([blank, filled], 'blank-seed'), 'shared-today');
+    assert.equal(shouldSwitchToSharedTodayPlan([blank, filled], 'blank-seed'), 'shared-today');
+    assert.equal(shouldSwitchToSharedTodayPlan([filled], 'shared-today'), null);
+  });
+
+  it('uses the local calendar date after evening in US timezones', async () => {
+    const { getLocalDateKey } = await import('./practiceUtils.ts');
+    const lateLocal = new Date(2026, 8, 24, 23, 30, 0);
+    assert.equal(getLocalDateKey(lateLocal), '2026-09-24');
+  });
+
   it('applies another coach depth spots on the same week instead of keeping the idle local chart', () => {
     const qbForm = form('form_21', '21', 'offense', '21-qb');
     const local: Record<string, WeekState> = {

@@ -1,5 +1,42 @@
 import { PracticePlan, ScheduleEvent } from '../types';
 
+/** Local calendar YYYY-MM-DD (not UTC ISO, which flips after ~8pm EDT). */
+export function getLocalDateKey(now: Date = new Date()): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function practiceDateKey(date?: string | null): string {
+  if (!date) return '';
+  return String(date).split('T')[0];
+}
+
+/** How filled-in a plan is, so a blank auto-seed does not beat a real shared plan. */
+export function practiceFillScore(plan?: PracticePlan | null): number {
+  if (!plan) return 0;
+  const periods =
+    (Array.isArray(plan.plan) && plan.plan.length > 0 ? plan.plan : plan.periods) || [];
+  let score = 0;
+  for (const period of periods) {
+    if (!period) continue;
+    for (const station of period.stations || []) {
+      if (!station) continue;
+      const name = String(station.name || '').trim();
+      const desc = String(station.desc || '').trim();
+      const coach = String(station.coach || '').trim();
+      const focus = String(station.focus || '').trim();
+      if (!name && !desc && !coach && !focus) continue;
+      if (name) score += 3;
+      if (desc) score += 2;
+      if (coach) score += 1;
+      if (focus) score += 1;
+    }
+  }
+  return score;
+}
+
 /**
  * Derives the standard day of week name from a 'YYYY-MM-DD' date string.
  */
@@ -209,7 +246,7 @@ export function formatPracticeDayTitle(
 export function getPracticeSequenceMap(
   practices: PracticePlan[],
   scheduleEvents?: ScheduleEvent[],
-  todayStr: string = new Date().toISOString().split('T')[0]
+  todayStr: string = getLocalDateKey()
 ): Record<string, PracticeSequenceInfo> {
   const result: Record<string, PracticeSequenceInfo> = {};
 
@@ -493,10 +530,18 @@ export function sanitizePracticePlans(
     });
 }
 
+function rankTodayPracticePlans(todayPlans: PracticePlan[]): PracticePlan[] {
+  return [...todayPlans].sort((a, b) => {
+    const fill = practiceFillScore(b) - practiceFillScore(a);
+    if (fill !== 0) return fill;
+    return (b.lastEdited || b.createdAt || 0) - (a.lastEdited || a.createdAt || 0);
+  });
+}
+
 /**
  * Intelligently finds the most relevant/active practice plan ID to display:
- * 1. Matches requested preferredId if present in list
- * 2. Matches exact practice on Today's date
+ * 1. Today's date, preferring a filled shared plan over a blank auto-seed
+ * 2. Matches requested preferredId if it is still in the list
  * 3. Most recently edited practice plan (highest lastEdited timestamp in the last 7 days)
  * 4. Closest upcoming practice plan (date >= today)
  * 5. Practice in the active week folder
@@ -515,15 +560,26 @@ export function findBestActivePracticeId(
   );
   if (validPractices.length === 0) return null;
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateKey();
 
-  // 1. Check if there are practice plans for Today's date (prioritize most recently edited/created)
-  const todayPlans = validPractices
-    .filter((p) => p.date && p.date.split('T')[0] === todayStr && !p.isCancelled)
-    .sort((a, b) => (b.lastEdited || b.createdAt || 0) - (a.lastEdited || a.createdAt || 0));
+  // 1. Today's plans: filled shared plan wins over a newer empty seed
+  const todayPlans = rankTodayPracticePlans(
+    validPractices.filter((p) => practiceDateKey(p.date) === todayStr && !p.isCancelled)
+  );
 
   if (todayPlans.length > 0) {
-    return todayPlans[0].id;
+    const preferredToday = preferredId
+      ? todayPlans.find((p) => p.id === preferredId)
+      : undefined;
+    const bestFilled = todayPlans[0];
+    if (preferredToday) {
+      const preferredFill = practiceFillScore(preferredToday);
+      const bestFill = practiceFillScore(bestFilled);
+      if (preferredFill > 0 && preferredFill + 4 >= bestFill) {
+        return preferredToday.id;
+      }
+    }
+    return bestFilled.id;
   }
 
   // 2. If preferredId is provided and exists in the practice list, use it
@@ -547,8 +603,8 @@ export function findBestActivePracticeId(
 
   // 4. Check for the closest upcoming practice (date >= today)
   const upcomingPractices = practices
-    .filter((p) => p && p.date && p.date >= todayStr && !p.isCancelled)
-    .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    .filter((p) => p && practiceDateKey(p.date) >= todayStr && !p.isCancelled)
+    .sort((a, b) => practiceDateKey(a.date).localeCompare(practiceDateKey(b.date)));
   if (upcomingPractices.length > 0) {
     return upcomingPractices[0].id;
   }
@@ -576,5 +632,22 @@ export function findBestActivePracticeId(
   });
 
   return sortedChronological[0]?.id || practices[0]?.id || null;
+}
+
+/** Switch off a blank auto-seed / stale id onto the filled shared plan for today. */
+export function shouldSwitchToSharedTodayPlan(
+  mergedPlans: PracticePlan[],
+  activeId?: string | null,
+  currentWeekFolder?: string
+): string | null {
+  const bestId = findBestActivePracticeId(mergedPlans, activeId, currentWeekFolder);
+  if (!bestId) return null;
+  if (!activeId || !mergedPlans.some((p) => p && p.id === activeId)) return bestId;
+  const current = mergedPlans.find((p) => p && p.id === activeId);
+  const best = mergedPlans.find((p) => p && p.id === bestId);
+  if (!current || !best || current.id === best.id) return null;
+  if (practiceDateKey(best.date) !== getLocalDateKey()) return null;
+  if (practiceFillScore(best) > practiceFillScore(current)) return best.id;
+  return null;
 }
 

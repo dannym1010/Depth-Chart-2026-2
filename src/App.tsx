@@ -108,6 +108,8 @@ import {
   getFormattedDayFolder,
   sanitizePracticePlans,
   findBestActivePracticeId,
+  getLocalDateKey,
+  shouldSwitchToSharedTodayPlan,
 } from './utils/practiceUtils';
 import { getAutoActiveWeek, normalizeWeeklyData, extractBackupFormations, normalizeFormationUnit, getSeasonWeekList, isDroppedFormation, getPriorSeasonWeekKey, formatWeekCopyLabel } from './utils/seasonWeekUtils';
 import { getPreviousWeekKey, mergePffGradeCriteria, PffPlayerGroupOverrides } from './utils/pprGroups';
@@ -1703,16 +1705,21 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       latestStateRef.current.practiceData = mergedPlans;
       safeJSONSet('footballPracticeData', mergedPlans);
 
-      // Protect active practice ID from flipping unexpectedly while coach is editing
       const activeId = currentPracticeIdRef.current;
-      const isValidActive = mergedPlans.some((p) => p && p.id === activeId);
-      if (!isValidActive) {
-        const bestId = findBestActivePracticeId(mergedPlans, activeId, currentWeekRef.current);
-        if (bestId) {
-          setCurrentPracticeId(bestId);
-          currentPracticeIdRef.current = bestId;
-          safeJSONSet('footballCurrentPracticeId', bestId);
-        }
+      const switchTo = shouldSwitchToSharedTodayPlan(
+        mergedPlans,
+        activeId,
+        currentWeekRef.current
+      );
+      const nextId =
+        switchTo ||
+        (!mergedPlans.some((p) => p && p.id === activeId)
+          ? findBestActivePracticeId(mergedPlans, activeId, currentWeekRef.current)
+          : null);
+      if (nextId && nextId !== activeId) {
+        setCurrentPracticeId(nextId);
+        currentPracticeIdRef.current = nextId;
+        safeJSONSet('footballCurrentPracticeId', nextId);
       }
     }
     if (!skipBoardFromGiantDoc && data.practiceTemplates) {
@@ -2519,6 +2526,22 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       setPracticeData(mergedPlans);
       latestStateRef.current.practiceData = mergedPlans;
       safeJSONSet('footballPracticeData', mergedPlans);
+      const activeId = currentPracticeIdRef.current;
+      const switchTo = shouldSwitchToSharedTodayPlan(
+        mergedPlans,
+        activeId,
+        currentWeekRef.current
+      );
+      const nextId =
+        switchTo ||
+        (!mergedPlans.some((p) => p && p.id === activeId)
+          ? findBestActivePracticeId(mergedPlans, activeId, currentWeekRef.current)
+          : null);
+      if (nextId && nextId !== activeId) {
+        setCurrentPracticeId(nextId);
+        currentPracticeIdRef.current = nextId;
+        safeJSONSet('footballCurrentPracticeId', nextId);
+      }
     }
     const slice = remote.weekSlice;
     const isPatch = slice?.weekWriteKind === 'patch';
@@ -3563,30 +3586,18 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
 
     const teamPractices = activeTeamPracticeData.length > 0 ? activeTeamPracticeData : practiceData;
     if (practiceData.length === 0) {
-      const defaultPlan: PracticePlan = {
-        id: 'prac_' + Date.now(),
-        teamId: activeTeamId,
-        year: '2026',
-        weekFolder: currentWeek,
-        title: 'Practice #1',
-        date: new Date().toISOString().split('T')[0],
-        day: getDayOfWeekForDate(new Date().toISOString().split('T')[0]),
-        startTime: '17:05',
-        lastEdited: Date.now(),
-        plan: deepClone(DEFAULT_PRACTICE_TEMPLATES['Standard Practice'] || []),
-      };
-      setPracticeData([defaultPlan]);
-      setCurrentPracticeId(defaultPlan.id);
-      safeJSONSet('footballCurrentPracticeId', defaultPlan.id);
-    } else {
-      const isCurrentValid = teamPractices.some((p) => p && p.id === currentPracticeId);
-      if (!isCurrentValid || !currentPracticeId) {
-        const bestId = findBestActivePracticeId(teamPractices, currentPracticeId, currentWeek);
-        if (bestId && bestId !== currentPracticeId) {
-          setCurrentPracticeId(bestId);
-          safeJSONSet('footballCurrentPracticeId', bestId);
-        }
-      }
+      return;
+    }
+    const switchTo = shouldSwitchToSharedTodayPlan(teamPractices, currentPracticeId, currentWeek);
+    const isCurrentValid = teamPractices.some((p) => p && p.id === currentPracticeId);
+    const bestId =
+      switchTo ||
+      (!isCurrentValid || !currentPracticeId
+        ? findBestActivePracticeId(teamPractices, currentPracticeId, currentWeek)
+        : null);
+    if (bestId && bestId !== currentPracticeId) {
+      setCurrentPracticeId(bestId);
+      safeJSONSet('footballCurrentPracticeId', bestId);
     }
   }, [currentWeek, activeTeamId, practiceData.length]);
 
@@ -5858,7 +5869,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
   };
 
   const handleOpenNewPracticeModal = () => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateKey();
     const dateStr = prompt('Enter Date (YYYY-MM-DD):', todayStr);
     if (!dateStr || !dateStr.trim()) return;
 

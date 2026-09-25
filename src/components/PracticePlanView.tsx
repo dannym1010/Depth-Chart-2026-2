@@ -68,6 +68,9 @@ import {
   getDayOfWeekForDate,
   getFormattedDayFolder,
   findBestActivePracticeId,
+  getLocalDateKey,
+  practiceDateKey,
+  practiceFillScore,
 } from '../utils/practiceUtils';
 import {
   triggerPrint,
@@ -240,12 +243,18 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
   // Identify today's practice or closest upcoming practice
   const todayOrUpcomingPlan = useMemo(() => {
     if (!practices || practices.length === 0) return null;
-    const todayStr = new Date().toISOString().split('T')[0];
-    const today = practices.find((p) => p && p.date === todayStr && !p.isCancelled);
-    if (today) return today;
+    const todayStr = getLocalDateKey();
+    const todayPlans = practices
+      .filter((p) => p && practiceDateKey(p.date) === todayStr && !p.isCancelled)
+      .sort((a, b) => {
+        const fill = practiceFillScore(b) - practiceFillScore(a);
+        if (fill !== 0) return fill;
+        return (b.lastEdited || 0) - (a.lastEdited || 0);
+      });
+    if (todayPlans.length > 0) return todayPlans[0];
     const upcoming = practices
-      .filter((p) => p && p.date && p.date >= todayStr && !p.isCancelled)
-      .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      .filter((p) => p && practiceDateKey(p.date) >= todayStr && !p.isCancelled)
+      .sort((a, b) => practiceDateKey(a.date).localeCompare(practiceDateKey(b.date)));
     return upcoming[0] || null;
   }, [practices]);
 
@@ -572,8 +581,8 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
 
   const isPracticeToday = useMemo(() => {
     if (!currentPlan?.date) return false;
-    const todayStr = new Date().toISOString().split('T')[0];
-    return currentPlan.date === todayStr;
+    const todayStr = getLocalDateKey();
+    return practiceDateKey(currentPlan.date) === todayStr;
   }, [currentPlan?.date]);
 
   // Determine if practice is currently in progress
@@ -1172,13 +1181,13 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
     }
 
     if (filterTag === 'upcoming') {
-      const today = new Date().toISOString().split('T')[0];
-      return (p.date || '9999-99-99') >= today;
+      const today = getLocalDateKey();
+      return (practiceDateKey(p.date) || '9999-99-99') >= today;
     }
 
     if (filterTag === 'past') {
-      const today = new Date().toISOString().split('T')[0];
-      return (p.date || '0000-00-00') < today;
+      const today = getLocalDateKey();
+      return (practiceDateKey(p.date) || '0000-00-00') < today;
     }
 
     return true;
