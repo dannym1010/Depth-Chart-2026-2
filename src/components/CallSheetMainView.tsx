@@ -55,7 +55,8 @@ import { PlayBankSidebar } from './callSheet/PlayBankSidebar';
 import { ExcelPlayImportModal } from './callSheet/ExcelPlayImportModal';
 import { AddTableModal } from './callSheet/AddTableModal';
 import { CallSheetPrintModal } from './callSheet/CallSheetPrintModal';
-import { CallSheetHistoryModal } from './CallSheetHistoryModal';
+import { CallSheetHistoryModal } from './CallSheetHistoryModal';
+import { MoreMenu } from './common/MoreMenu';
 
 interface CallSheetMainViewProps {
   activeTeamName?: string;
@@ -1125,9 +1126,6 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
               <div className="flex items-center gap-2">
                 <h1 className="text-xs sm:text-sm font-bold tracking-tight text-slate-100 flex items-center gap-1.5">
                   <span>Situational Call Sheet</span>
-                  <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                    {activeTeamName}
-                  </span>
                 </h1>
               </div>
             </div>
@@ -1188,219 +1186,107 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
               </div>
             )}
 
-            {/* Device Switcher (Computer vs Mobile) */}
-            <div className="flex items-center bg-slate-850 p-1 rounded-xl border border-slate-750">
-              <button
-                type="button"
-                onClick={() => setViewDevice('computer')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  viewDevice === 'computer'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="Spreadsheet Grid Layout (Computer)"
-              >
-                <Monitor className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Desktop Grid</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewDevice('mobile')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  viewDevice === 'mobile'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="Mobile Touch Sideline HUD"
-              >
-                <Smartphone className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Mobile HUD</span>
-              </button>
-            </div>
-
-            {/* Global Red Zone Highlight Toggle */}
-            <button
-              type="button"
-              onClick={() => setHighlightRedZone(!highlightRedZone)}
-              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
-                highlightRedZone
-                  ? 'bg-rose-950/40 text-rose-300 border-rose-800/60'
-                  : 'bg-slate-850 text-slate-300 border-slate-750 hover:text-white'
-              }`}
-              title="Toggle Red Zone highlight container"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-rose-400" />
-              <span className="hidden sm:inline">Red Zone Tint {highlightRedZone ? 'ON' : 'OFF'}</span>
-            </button>
-
             {/* Play Bank Sidebar Toggle */}
             <button
               type="button"
               onClick={() => setIsPlayBankOpen(!isPlayBankOpen)}
               className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
                 isPlayBankOpen
-                  ? 'bg-indigo-600 text-white border-indigo-500 shadow-md'
+                  ? 'bg-slate-700 text-white border-slate-600'
                   : 'bg-slate-850 text-slate-300 border-slate-750 hover:text-white'
               }`}
-              title="Toggle Play Bank sidebar"
+              title="Show or hide the Play Bank"
+              aria-pressed={isPlayBankOpen}
             >
-              <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
+              <BookOpen className="w-3.5 h-3.5" />
               <span>Play Bank ({playDatabase.filter((p) => p.unit === activeUnit).length})</span>
             </button>
 
-            {/* Import Plays from Excel Button */}
-            <button
-              type="button"
-              onClick={() => setIsExcelImportOpen(true)}
-              className="px-2.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer border border-emerald-600/50"
-              title="Import plays from Excel (.xlsx, .xls, .csv) or paste tabular data"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-200" />
-              <span className="hidden sm:inline">Import Excel</span>
-            </button>
-
-            {/* Copy previous week's call sheet into this week */}
-            {onCopyCallSheetFromPreviousWeek && previousWeekLabel ? (
-              <button
-                type="button"
-                onClick={onCopyCallSheetFromPreviousWeek}
-                className="px-2.5 py-1.5 rounded-xl bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-750 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                title={`Copy the ${previousWeekLabel} call sheet into this week`}
-              >
-                <FolderSync className="w-3.5 h-3.5 text-sky-400" />
-                <span className="hidden sm:inline">Copy {previousWeekLabel}</span>
-              </button>
-            ) : null}
-
-            <button
-              type="button"
-              onClick={handleCopyWristbandToFirstRow}
-              className="px-2.5 py-1.5 rounded-xl bg-amber-950/40 hover:bg-amber-950/60 text-amber-200 border border-amber-800/50 text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-              title="Copy this week's wristband colors as individual tables on row 1 (extras wrap under)"
-            >
-              <Copy className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">WB → Row 1</span>
-            </button>
-
-            {/* Wristband Preset Table Button */}
-            <button
-              type="button"
-              onClick={() =>
-                setAddTableModalState({
-                  isOpen: true,
-                  group: 'top_situations',
-                  initialTab: 'wristband',
-                })
-              }
-              className="px-2.5 py-1.5 rounded-xl bg-amber-950/40 hover:bg-amber-950/60 text-amber-300 border border-amber-800/50 text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-              title="Add preset table populated from any wristband with matching numbers & highlights"
-            >
-              <BookmarkCheck className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">Wristband Preset</span>
-            </button>
-
-            {/* Backups & Revision History Button */}
-            <button
-              type="button"
-              onClick={() => setIsHistoryModalOpen(true)}
-              className="px-2.5 py-1.5 rounded-xl bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-750 text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-              title="View revision history, restore previous backups, or export call sheet"
-            >
-              <History className="w-3.5 h-3.5 text-sky-400" />
-              <span className="hidden sm:inline">Backups & History</span>
-            </button>
-
-            {/* Add Section Button */}
             <button
               type="button"
               onClick={() => handleAddSection('top_situations', 'custom')}
-              className="px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              className="px-2.5 py-1.5 rounded-xl bg-slate-850 hover:bg-slate-800 text-slate-200 hover:text-white border border-slate-750 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
               title="Add a new situation table to the sheet"
             >
               <Plus className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Add Table</span>
             </button>
 
-            {/* Auto Fill */}
-            <button
-              type="button"
-              onClick={handleAutoFill}
-              className="px-2.5 py-1.5 rounded-xl bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-750 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-              title="Auto-fill empty slots with matching plays"
-            >
-              <Zap className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden lg:inline">Auto-Fill</span>
-            </button>
-
-            {/* Print Button */}
             <button
               type="button"
               onClick={handlePrint}
-              className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+              className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black shadow-sm transition-all cursor-pointer flex items-center gap-1.5"
             >
               <Printer className="w-3.5 h-3.5" />
               <span>Print</span>
             </button>
 
-            {/* Clear / Delete / Reset Menu */}
-            <div className="relative" ref={resetMenuRef}>
-              <button
-                type="button"
-                onClick={() => setIsResetMenuOpen(!isResetMenuOpen)}
-                className="px-2 py-1.5 rounded-xl text-slate-300 hover:text-white bg-slate-850 hover:bg-slate-800 border border-slate-750 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
-                title="Clear plays, delete tables, or reset sheet"
-              >
-                <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
-                <span className="hidden xl:inline text-[11px]">Clear / Reset</span>
-                <ChevronDown className="w-3 h-3 text-slate-400" />
-              </button>
-
-              {isResetMenuOpen && (
-                <div className="absolute right-0 mt-1 w-64 bg-slate-900 border border-slate-750 rounded-xl shadow-2xl py-1.5 z-50 animate-fade-in text-xs">
-                  <div className="px-3 py-1 text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800 mb-1">
-                    Manage {activeUnit.toUpperCase()} Call Sheet
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleClearAllPlays}
-                    className="w-full px-3 py-2 text-left text-slate-200 hover:bg-slate-800 hover:text-white flex items-start gap-2.5 cursor-pointer transition-colors"
-                  >
-                    <Eraser className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                    <div>
-                      <div className="font-bold text-slate-200">Clear All Plays</div>
-                      <div className="text-[10px] text-slate-400">Empties all play slots, preserves table layouts &amp; columns</div>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleDeleteAllTables}
-                    className="w-full px-3 py-2 text-left text-rose-300 hover:bg-rose-950/40 hover:text-rose-200 flex items-start gap-2.5 cursor-pointer transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                    <div>
-                      <div className="font-bold text-rose-300">Delete All Tables</div>
-                      <div className="text-[10px] text-rose-400/80">Delete everything on this sheet to start from scratch</div>
-                    </div>
-                  </button>
-
-                  <div className="my-1 border-t border-slate-800" />
-
-                  <button
-                    type="button"
-                    onClick={handleReset}
-                    className="w-full px-3 py-2 text-left text-slate-300 hover:bg-slate-800 hover:text-white flex items-start gap-2.5 cursor-pointer transition-colors"
-                  >
-                    <RotateCcw className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
-                    <div>
-                      <div className="font-bold text-slate-200">Restore Default Starter Sheet</div>
-                      <div className="text-[10px] text-slate-400">Restores standard balanced 4-column tables</div>
-                    </div>
-                  </button>
-                </div>
-              )}
-            </div>
+            <MoreMenu
+              title="More call sheet actions"
+              items={[
+                {
+                  label: viewDevice === 'computer' ? 'Switch to phone layout' : 'Switch to desktop grid',
+                  icon: viewDevice === 'computer' ? <Smartphone className="w-3.5 h-3.5" /> : <Monitor className="w-3.5 h-3.5" />,
+                  onClick: () => setViewDevice(viewDevice === 'computer' ? 'mobile' : 'computer'),
+                },
+                {
+                  label: highlightRedZone ? 'Turn red zone tint off' : 'Turn red zone tint on',
+                  icon: <Sparkles className="w-3.5 h-3.5" />,
+                  onClick: () => setHighlightRedZone(!highlightRedZone),
+                },
+                {
+                  label: 'Import plays from Excel',
+                  icon: <FileSpreadsheet className="w-3.5 h-3.5" />,
+                  onClick: () => setIsExcelImportOpen(true),
+                  dividerBefore: true,
+                },
+                {
+                  label: `Copy ${previousWeekLabel || 'last week'}'s call sheet`,
+                  icon: <FolderSync className="w-3.5 h-3.5" />,
+                  onClick: () => onCopyCallSheetFromPreviousWeek && onCopyCallSheetFromPreviousWeek(),
+                  hidden: !(onCopyCallSheetFromPreviousWeek && previousWeekLabel),
+                },
+                {
+                  label: 'Rebuild wristband tables (row 1)',
+                  icon: <Copy className="w-3.5 h-3.5" />,
+                  onClick: handleCopyWristbandToFirstRow,
+                  title: "Copy this week's wristband colors as tables on row 1",
+                },
+                {
+                  label: 'Add a wristband table',
+                  icon: <BookmarkCheck className="w-3.5 h-3.5" />,
+                  onClick: () => setAddTableModalState({ isOpen: true, group: 'top_situations', initialTab: 'wristband' }),
+                },
+                {
+                  label: 'Auto-fill empty slots',
+                  icon: <Zap className="w-3.5 h-3.5" />,
+                  onClick: handleAutoFill,
+                },
+                {
+                  label: 'Backups & history',
+                  icon: <History className="w-3.5 h-3.5" />,
+                  onClick: () => setIsHistoryModalOpen(true),
+                  dividerBefore: true,
+                },
+                {
+                  label: 'Clear all plays',
+                  icon: <Eraser className="w-3.5 h-3.5" />,
+                  onClick: handleClearAllPlays,
+                  dividerBefore: true,
+                },
+                {
+                  label: 'Restore default starter sheet',
+                  icon: <RotateCcw className="w-3.5 h-3.5" />,
+                  onClick: handleReset,
+                },
+                {
+                  label: `Delete all ${activeUnit} tables`,
+                  icon: <Trash2 className="w-3.5 h-3.5" />,
+                  onClick: handleDeleteAllTables,
+                  danger: true,
+                },
+              ]}
+            />
           </div>
         </div>
       </header>
@@ -1409,47 +1295,6 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
       <div className="flex-1 flex overflow-hidden min-h-0 callsheet-inner-container print:h-auto print:overflow-visible print:block">
         {/* Main sheet container */}
         <main className="flex-1 overflow-y-auto min-h-0 p-2 sm:p-4 print:p-0 print:overflow-visible callsheet-scroll-container overscroll-contain">
-          {/* Recovery Notification Banner if older or alternate backup is available */}
-          {availableBackupToRestore && (
-            <div className="mb-3 p-3 rounded-xl bg-indigo-950/90 border border-indigo-500/50 flex flex-wrap items-center justify-between gap-3 text-xs text-indigo-200 shadow-md animate-fade-in print:hidden">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <History className="w-4 h-4 text-indigo-400 shrink-0" />
-                <div>
-                  <span className="font-bold text-white">Call Sheet Revision Available: </span>
-                  <span className="text-slate-300">
-                    Saved {availableBackupToRestore.dateFormatted} with {availableBackupToRestore.playCount} plays ({availableBackupToRestore.sectionCount} sections).
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => {
-                    applyCallSheetUpdate(availableBackupToRestore.data);
-                    setAvailableBackupToRestore(null);
-                  }}
-                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold cursor-pointer transition-colors shadow-xs"
-                >
-                  Restore This Version
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsHistoryModalOpen(true)}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-850 hover:bg-slate-800 text-slate-300 font-medium cursor-pointer border border-slate-700"
-                >
-                  View All Backups
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAvailableBackupToRestore(null)}
-                  className="p-1 rounded-lg text-slate-400 hover:text-white cursor-pointer"
-                  title="Dismiss notice"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* Printable Call Sheet Header Bar */}
           <div className="hidden print:block mb-1 border-b border-slate-300 pb-0.5 bg-white text-slate-900">
