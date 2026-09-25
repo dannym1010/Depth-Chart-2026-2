@@ -123,7 +123,7 @@ interface WristbandViewProps {
   playDatabase?: PlayDatabaseEntry[];
   callSheetData?: CallSheetFullData;
   activeTeamName?: string;
-  onUpdateCallSheetData?: (data: CallSheetFullData) => void;
+  onUpdateCallSheetData?: (data: CallSheetFullData, opts?: { automatic?: boolean }) => void;
   onUpdatePlayDatabase?: (plays: PlayDatabaseEntry[]) => void;
   onUpdateWristbandData?: (data: WristbandData) => void;
   previousWeekLabel?: string;
@@ -297,7 +297,7 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
       const taggedCs: CallSheetFullData = { ...syncedCs, lastEdited: now };
       safeJSONSet('footballCallSheetData', taggedCs);
       safeJSONSet('footballCallSheetData_backup', taggedCs);
-      onUpdateCallSheetData(taggedCs);
+      onUpdateCallSheetData(taggedCs, { automatic: true });
     }
   };
 
@@ -410,7 +410,7 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
         callSheetData || safeJSONParse<CallSheetFullData | null>('footballCallSheetData', null) || DEFAULT_CALL_SHEET_DATA;
       const syncedCs = syncWristbandToCallSheet(freshWristbandData || normalizedData, currentCs, updatedDb || playDatabase);
       safeJSONSet('footballCallSheetData', syncedCs);
-      onUpdateCallSheetData(syncedCs);
+      onUpdateCallSheetData(syncedCs, { automatic: true });
     }
   };
 

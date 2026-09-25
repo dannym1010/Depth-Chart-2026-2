@@ -1294,7 +1294,7 @@ export function syncWristbandToCallSheet(
     unit: 'offense' | 'defense'
   ): CallSheetSection[] => {
     if (unit !== 'offense' && !sections.some(isAutoWristbandRowTable)) return sections;
-    const tables = buildWristbandColorColumnSections(wbData, unit);
+    const tables = buildWristbandColorColumnSections(source, unit);
     const leftover = sections.filter((s) => !isAutoWristbandRowTable(s));
     if (!tables.length) return leftover;
     return placeWristbandColorTables(tables, leftover, callSheetData.desktopGridColumns || WRISTBAND_TABLES_PER_ROW);

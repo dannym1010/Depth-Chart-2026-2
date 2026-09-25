@@ -965,11 +965,15 @@ export default function App() {
     const sourceCs = onScreenIsNewer
       ? onScreen
       : candidateWeeks.map(storedForWeek).find((cs) => cs && countCallSheetPlays(cs) > 0);
-    if (sourceCs) {
-      setCallSheetData(sourceCs);
-      latestStateRef.current.callSheetData = sourceCs;
-      safeJSONSet('footballCallSheetData', sourceCs);
-    }
+    const weekWb =
+      latestStateRef.current.wristbandData ||
+      targetWeekState?.wristbandData ||
+      INITIAL_TWO_WRISTBANDS_DATA;
+    const baseCs = sourceCs || DEFAULT_CALL_SHEET_DATA;
+    const syncedCs = syncWristbandToCallSheet(weekWb, baseCs, latestStateRef.current.playDatabase);
+    setCallSheetData(syncedCs);
+    latestStateRef.current.callSheetData = syncedCs;
+    safeJSONSet('footballCallSheetData', syncedCs);
   };
 
   activeUnitRef.current = activeUnit;
@@ -1050,7 +1054,10 @@ export default function App() {
   // Show another coach's call sheet and keep this week's stored copy in step with it,
   // so switching weeks and back cannot bring an older copy onto the screen.
   const adoptCallSheet = (incoming: CallSheetFullData) => {
-    const wb = effectiveWristbandRef.current;
+    const wb =
+      pickNewestWristbandData(latestStateRef.current.wristbandData, effectiveWristbandRef.current) ||
+      latestStateRef.current.wristbandData ||
+      effectiveWristbandRef.current;
     const cs = wb ? syncWristbandToCallSheet(wb, incoming, latestStateRef.current.playDatabase) : incoming;
     setCallSheetData(cs);
     latestStateRef.current.callSheetData = cs;

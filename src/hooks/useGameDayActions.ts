@@ -6,7 +6,7 @@ import { syncWristbandToCallSheet } from '../utils/wristbandLinking';
 import { savedForTeamWeek } from '../utils/remoteStateMerge';
 import { CallSheetFullData } from '../types/callSheet';
 import type { PlayDatabaseEntry } from '../types/callSheet';
-import { wristbandHasPlays } from '../utils/wristbandNormalize';
+import { pickNewestWristbandData, wristbandHasPlays } from '../utils/wristbandNormalize';
 import { saveCallSheetSnapshot, countCallSheetPlays } from '../utils/callSheetStorage';
 import type { RefObject, Dispatch, SetStateAction } from 'react';
 import type { LatestAppState } from './appStateTypes';
@@ -59,6 +59,11 @@ export function useGameDayActions({
   effectiveWristbandData,
   setSyncStatus,
 }: GameDayActionsDeps) {
+  const wristbandForThisWeek = () =>
+    pickNewestWristbandData(latestStateRef.current.wristbandData, effectiveWristbandRef.current) ||
+    latestStateRef.current.wristbandData ||
+    effectiveWristbandRef.current;
+
   const handleUpdateWristbandData = (updatedWb: WristbandData) => {
     // Live values: this handler can run just after a week switch, from an older render.
     const liveWeek = currentWeekRef.current;
@@ -73,7 +78,20 @@ export function useGameDayActions({
     const taggedWb: WristbandData = { ...updatedWb, rows: maxRows, lastEdited: now, teamId: liveTeamId, week: liveWeek };
     setWristbandData(taggedWb);
     latestStateRef.current.wristbandData = taggedWb;
+    effectiveWristbandRef.current = taggedWb;
     safeJSONSet('footballWristbandData', taggedWb);
+
+    lastLocalCallSheetEditTimeRef.current = now;
+
+    const currentCs = latestStateRef.current.callSheetData || callSheetData;
+    const currentDb = latestStateRef.current.playDatabase || playDatabase;
+    const syncedCs = syncWristbandToCallSheet(taggedWb, currentCs, currentDb);
+    const taggedCs: CallSheetFullData = { ...syncedCs, lastEdited: now, teamId: liveTeamId, week: liveWeek };
+    setCallSheetData(taggedCs);
+    latestStateRef.current.callSheetData = taggedCs;
+    safeJSONSet('footballCallSheetData', taggedCs);
+    safeJSONSet('footballCallSheetData_backup', taggedCs);
+
     const scopedKey = getScopedWeekKey(liveTeamId, liveWeek);
     setWeeklyData((prev) => {
       const existingWeek = prev[scopedKey] || prev[liveWeek] || {
@@ -85,6 +103,7 @@ export function useGameDayActions({
       const updatedWeek = {
         ...existingWeek,
         wristbandData: taggedWb,
+        callSheetData: taggedCs,
       };
       const nextWeekly = {
         ...prev,
@@ -95,18 +114,6 @@ export function useGameDayActions({
       safeJSONSet('footballWeeklyData', nextWeekly);
       return nextWeekly;
     });
-
-    lastLocalCallSheetEditTimeRef.current = now;
-
-    // Automatically synchronize call sheet tables whenever wristband is updated
-    const currentCs = latestStateRef.current.callSheetData || callSheetData;
-    const currentDb = latestStateRef.current.playDatabase || playDatabase;
-    const syncedCs = syncWristbandToCallSheet(taggedWb, currentCs, currentDb);
-    const taggedCs: CallSheetFullData = { ...syncedCs, lastEdited: now, teamId: liveTeamId, week: liveWeek };
-    setCallSheetData(taggedCs);
-    latestStateRef.current.callSheetData = taggedCs;
-    safeJSONSet('footballCallSheetData', taggedCs);
-    safeJSONSet('footballCallSheetData_backup', taggedCs);
 
     // Save and broadcast immediately so other coaches receive changes instantly
     // and refreshing immediately will NOT lose changes
@@ -171,8 +178,8 @@ export function useGameDayActions({
       lastLocalEditTimeRef.current = now as number;
       lastLocalCallSheetEditTimeRef.current = now as number;
     }
-    // The first-row tables always replicate the wristband, whatever was typed into them.
-    const wb = effectiveWristbandRef.current;
+    // The first-row tables always replicate this week's wristband, whatever was typed into them.
+    const wb = wristbandForThisWeek();
     const withWristband = wb
       ? syncWristbandToCallSheet(wb, newCs, latestStateRef.current.playDatabase)
       : newCs;

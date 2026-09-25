@@ -2009,6 +2009,25 @@ describe('call sheet first row mirrors the wristbands', () => {
     // defense sheet is left alone unless it already has wristband tables
     assert.deepEqual(once.defenseSections.filter(isAutoWristbandRowTable).length, base.defenseSections.filter(isAutoWristbandRowTable).length);
   });
+
+  it('updates the first four color tables when a wristband play changes', async () => {
+    const { syncWristbandToCallSheet, isAutoWristbandRowTable } = await import('./wristbandLinking.ts');
+    const { INITIAL_TWO_WRISTBANDS_DATA } = await import('../data/userGameDayPlays.ts');
+    const { DEFAULT_CALL_SHEET_DATA } = await import('../data/callSheetData.ts');
+    const { deepClone } = await import('../services/storageService.ts');
+    const base = { ...DEFAULT_CALL_SHEET_DATA, offenseSections: DEFAULT_CALL_SHEET_DATA.offenseSections.filter((s: any) => !isAutoWristbandRowTable(s)) };
+    const first = syncWristbandToCallSheet(INITIAL_TWO_WRISTBANDS_DATA, base);
+    const edited = deepClone(INITIAL_TWO_WRISTBANDS_DATA);
+    edited.lastEdited = Date.now();
+    edited.wristbands[0].columns[0].plays[0] = {
+      ...edited.wristbands[0].columns[0].plays[0],
+      text: '99 TEST POWER',
+    };
+    const next = syncWristbandToCallSheet(edited, first);
+    const auto = next.offenseSections.filter(isAutoWristbandRowTable);
+    assert.ok(auto.length >= 4, 'four color tables');
+    assert.equal(auto[0].plays[0]?.name, '99 TEST POWER');
+  });
 });
 
 describe('wristband row keeps the coach tables in their 4-across layout', () => {
