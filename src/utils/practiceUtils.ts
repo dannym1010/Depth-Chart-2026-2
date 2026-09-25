@@ -1,4 +1,4 @@
-import { PracticePlan, ScheduleEvent } from '../types';
+import { PracticePlan, PracticePeriod, ScheduleEvent } from '../types';
 
 /** Local calendar YYYY-MM-DD (not UTC ISO, which flips after ~8pm EDT). */
 export function getLocalDateKey(now: Date = new Date()): string {
@@ -753,3 +753,10 @@ export function countUpcomingWeekdayPlans(
   return (plans || []).filter((plan) => shouldApplyWeekdayTemplateToPlan(plan, { weekday, ...opts })).length;
 }
 
+export function getPlanPeriods(p: PracticePlan): PracticePeriod[] {
+  if (Array.isArray(p.plan) && p.plan.length > 0) return p.plan;
+  if (Array.isArray(p.periods) && p.periods.length > 0) return p.periods;
+  if (Array.isArray(p.plan)) return p.plan;
+  if (Array.isArray(p.periods)) return p.periods;
+  return [];
+}

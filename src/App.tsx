@@ -120,15 +120,16 @@ import {
   shouldApplyWeekdayTemplateToPlan,
   practiceSeasonYear,
   practiceWeekdayName,
+  getPlanPeriods,
 } from './utils/practiceUtils';
 import type { PracticeWeekdayTemplateMap } from './utils/practiceUtils';
-import { getAutoActiveWeek, normalizeWeeklyData, extractBackupFormations, normalizeFormationUnit, getSeasonWeekList, isDroppedFormation, getPriorSeasonWeekKey, formatWeekCopyLabel } from './utils/seasonWeekUtils';
+import { getAutoActiveWeek, normalizeWeeklyData, extractBackupFormations, normalizeFormationUnit, getSeasonWeekList, isDroppedFormation, getPriorSeasonWeekKey, formatWeekCopyLabel, getScopedWeekKey } from './utils/seasonWeekUtils';
 import { getPreviousWeekKey, mergePffGradeCriteria, PffPlayerGroupOverrides } from './utils/pprGroups';
 import { hydrateFilmSession } from './utils/hudlFilmImport';
-import { normalizeRoster } from './utils/depthChartUtils';
+import { normalizeRoster, getUnitPositionIds } from './utils/depthChartUtils';
 import { triggerPrint } from './utils/printUtils';
 import { isEventAlreadyInSchedule } from './utils/teamSnapSync';
-import { VALID_UNITS, parseRouteHash, buildRouteHash } from './utils/routeUtils';
+import { VALID_UNITS, parseRouteHash, buildRouteHash, checkIsLiveEnvironment } from './utils/routeUtils';
 import {
   LOCAL_DEV_EMAIL,
   buildLocalDeveloperUser,
@@ -148,7 +149,7 @@ import { ScrimmageView } from './components/ScrimmageView';
 import { PracticeLiveDrillsView } from './components/PracticeLiveDrillsView';
 import { PlayerPprView } from './components/PlayerPprView';
 import { WristbandView } from './components/WristbandView';
-import { mergeRichestWristbandData, normalizeWristbandContinuousNumbering, wristbandHasPlays } from './utils/wristbandNormalize';
+import { getBestWristbandData, mergeRichestWristbandData, normalizeWristbandContinuousNumbering, wristbandHasPlays } from './utils/wristbandNormalize';
 import { CallSheetMainView } from './components/CallSheetMainView';
 import { GameDayHubView } from './components/GameDayHubView';
 import { USER_IMPORTED_GAME_DAY_PLAYS, INITIAL_TWO_WRISTBANDS_DATA } from './data/userGameDayPlays';
@@ -199,7 +200,8 @@ import {
   shouldKeepLocalCallSheet,
   shouldRejectStaleRemote,
 } from './utils/remoteStateMerge';
-import { applyCopiedFormationsToDeletedIds, copyWeekCharts } from './utils/copyWeek';
+import { applyCopiedFormationsToDeletedIds, copyWeekCharts, countPlacedPlayers } from './utils/copyWeek';
+import { findFolderByPath } from './utils/drillPlanLinking';
 import {
   loadLiveDrillSlotLayouts,
   mergeLiveDrillSlotLayouts,
@@ -1192,24 +1194,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isHeldByMe, activeTeamId, currentWeek, currentDepthUnit, currentUser?.email]);
 
-  // Helper to count placed players in depth chart or scrimmage chart
-  const countPlacedPlayers = (dc?: Record<string, PlacedPlayer[]>): number => {
-    if (!dc || typeof dc !== 'object') return 0;
-    return Object.values(dc).reduce(
-      (sum, list) => sum + (Array.isArray(list) ? list.length : 0),
-      0
-    );
-  };
-
-  // Helper to compute team-scoped week key
-  const getScopedWeekKey = (teamId: string, week: string) => `${teamId}__week_${week}`;
-
-  const getBestWristbandData = (
-    candidates: (WristbandData | null | undefined)[]
-  ): WristbandData => {
-    return mergeRichestWristbandData(...candidates) || INITIAL_TWO_WRISTBANDS_DATA;
-  };
-
   // Helper to resolve the richest week state (formations, depthChart, scrimmageChart, etc.)
   const resolveWeekState = (
     wData: Record<string, WeekState>,
@@ -1498,25 +1482,6 @@ export default function App() {
       };
     });
   };
-
-// Helper to extract all position IDs belonging to a formation unit
-function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<string> {
-  const ids = new Set<string>();
-  if (Array.isArray(formations)) {
-    formations.forEach((f) => {
-      if (f && f.unit === unit && Array.isArray(f.rows)) {
-        f.rows.forEach((r) => {
-          if (r && Array.isArray(r.positions)) {
-            r.positions.forEach((p) => {
-              if (p && p.id) ids.add(p.id);
-            });
-          }
-        });
-      }
-    });
-  }
-  return ids;
-}
 
 
   // Centralized helper to apply remote state updates cleanly without race conditions
@@ -3741,14 +3706,6 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     return false;
   };
 
-  const checkIsLiveEnvironment = () => {
-    if (typeof window === 'undefined') return false;
-    const host = window.location.hostname.toLowerCase();
-    if (host === 'localhost' || host === '127.0.0.1' || host.includes('local')) {
-      return false;
-    }
-    return true;
-  };
 
   const isUserApproved = (email?: string, userObj?: any): boolean => {
     if (userObj?.isAdminPasscodeAuth) return true;
@@ -6497,13 +6454,6 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     }
   };
 
-  const getPlanPeriods = (p: PracticePlan): PracticePeriod[] => {
-    if (Array.isArray(p.plan) && p.plan.length > 0) return p.plan;
-    if (Array.isArray(p.periods) && p.periods.length > 0) return p.periods;
-    if (Array.isArray(p.plan)) return p.plan;
-    if (Array.isArray(p.periods)) return p.periods;
-    return [];
-  };
 
   const handleAddPeriod = () => {
     const targetId = currentPracticeId || currentPracticeIdRef.current || (activeTeamPracticeData[0]?.id) || (practiceData[0]?.id);
@@ -6762,23 +6712,6 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
   /* =========================================================================
      DRILL LIBRARY RECURSIVE ACTIONS
      ========================================================================= */
-  const findFolderByPath = (
-    list: DrillFolder[],
-    pathKey: string
-  ): DrillFolder | null => {
-    for (let i = 0; i < list.length; i++) {
-      const cur = String(i);
-      if (cur === pathKey) return list[i];
-      if (pathKey.startsWith(`${cur}_`)) {
-        const sub = pathKey.substring(cur.length + 1);
-        if (list[i].subfolders) {
-          const found = findFolderByPath(list[i].subfolders, sub);
-          if (found) return found;
-        }
-      }
-    }
-    return null;
-  };
 
   const updateCascadingDrillsAndSave = (
     updater: (prev: DrillFolder[]) => DrillFolder[]

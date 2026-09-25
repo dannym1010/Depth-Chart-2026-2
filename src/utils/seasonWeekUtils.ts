@@ -690,3 +690,8 @@ export function formatWeekCopyLabel(week: string): string {
   if (w.startsWith('pre-')) return `Pre-Season Week ${w.slice(4)}`;
   return `Week ${w}`;
 }
+
+// Helper to compute team-scoped week key
+export function getScopedWeekKey(teamId: string, week: string): string {
+  return `${teamId}__week_${week}`;
+}

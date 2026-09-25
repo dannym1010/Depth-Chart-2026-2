@@ -1,4 +1,5 @@
 import type { SingleWristband, WristbandColumn, WristbandData, WristbandPlay } from '../types';
+import { INITIAL_TWO_WRISTBANDS_DATA } from '../data/userGameDayPlays';
 
 const STANDARD_WRISTBAND_COLOR_PAIRS = [
   {
@@ -363,4 +364,10 @@ export function applySameCardPlayMirror(data?: WristbandData | null): WristbandD
     return { ...wb, columns };
   });
   return changed ? { ...data, wristbands } : data;
+}
+
+export function getBestWristbandData(
+  candidates: (WristbandData | null | undefined)[]
+): WristbandData {
+  return mergeRichestWristbandData(...candidates) || INITIAL_TWO_WRISTBANDS_DATA;
 }

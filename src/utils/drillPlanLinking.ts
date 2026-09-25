@@ -1,5 +1,5 @@
 import { WhiteboardDrill } from '../components/whiteboard/whiteboardDrillData';
-import { PracticePlan, PracticePeriod, PracticeStation, FormationBoard, PlacedPlayer } from '../types';
+import { PracticePlan, PracticePeriod, PracticeStation, FormationBoard, PlacedPlayer, DrillFolder } from '../types';
 import {
   generatePracticePlanHTML,
   generatePocketDepthChartPrintHTML,
@@ -725,4 +725,22 @@ export function openPracticePlanPackageTab(options: PracticePlanPrintPackageOpti
   const html = generatePracticePlanPackageHTML(options);
   const title = options.documentTitle || options.plan?.title || 'Practice Plan & Drill Sheets';
   openCleanPrintTab(html, title);
+}
+
+export function findFolderByPath(
+  list: DrillFolder[],
+  pathKey: string
+): DrillFolder | null {
+  for (let i = 0; i < list.length; i++) {
+    const cur = String(i);
+    if (cur === pathKey) return list[i];
+    if (pathKey.startsWith(`${cur}_`)) {
+      const sub = pathKey.substring(cur.length + 1);
+      if (list[i].subfolders) {
+        const found = findFolderByPath(list[i].subfolders, sub);
+        if (found) return found;
+      }
+    }
+  }
+  return null;
 }

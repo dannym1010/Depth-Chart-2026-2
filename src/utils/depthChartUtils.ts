@@ -409,3 +409,22 @@ export function syncRosterPositionsFromDepthChart(
 
   return { updatedRoster, countUpdated };
 }
+
+// Helper to extract all position IDs belonging to a formation unit
+export function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<string> {
+  const ids = new Set<string>();
+  if (Array.isArray(formations)) {
+    formations.forEach((f) => {
+      if (f && f.unit === unit && Array.isArray(f.rows)) {
+        f.rows.forEach((r) => {
+          if (r && Array.isArray(r.positions)) {
+            r.positions.forEach((p) => {
+              if (p && p.id) ids.add(p.id);
+            });
+          }
+        });
+      }
+    });
+  }
+  return ids;
+}
