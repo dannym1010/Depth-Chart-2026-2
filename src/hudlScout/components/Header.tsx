@@ -177,6 +177,7 @@ export const Header: React.FC<HeaderProps> = ({
           ['formations', 'Formations & Personnel'],
           ['field', 'Hash & Field Zones'],
           ['plays', `Play Log (${totalPlays})`],
+          ...(scoutTarget === 'own' ? [['units', 'Black / Blue / Gold']] : []),
           ['gameplan', 'Defensive Gameplan'],
         ].map(([id, label]) => (
           <button

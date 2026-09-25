@@ -8,6 +8,9 @@ export type FieldZone = 'backed_up' | 'own_territory' | 'plus_territory' | 'red_
 
 export type HashPosition = 'L' | 'M' | 'R';
 
+/** Which of our units was on the field (our-team play log only). */
+export type TeamUnit = 'black' | 'blue' | 'gold';
+
 export interface Play {
   id: string;
   playNumber: number;
@@ -40,6 +43,8 @@ export interface Play {
   /** L/R/M of the run/pass attack, independent of field/boundary wording. */
   runSide: HashPosition;
   gameId?: string;
+  /** Our unit on the field for this play (Black / Blue / Gold), tagged by a coach. */
+  unit?: TeamUnit;
 }
 
 export interface DownDistGroup {

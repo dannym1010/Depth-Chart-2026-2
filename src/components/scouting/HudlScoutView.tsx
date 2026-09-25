@@ -13,6 +13,9 @@ import { FormationAnalytics } from '../../hudlScout/components/FormationAnalytic
 import { PersonnelSpecialTeams } from '../../hudlScout/components/PersonnelSpecialTeams';
 import { FieldChalkboard } from '../../hudlScout/components/FieldChalkboard';
 import { PlaysTable } from '../../hudlScout/components/PlaysTable';
+import { UnitStatsView } from '../../hudlScout/components/UnitStatsView';
+import { tagPlayUnits } from '../../hudlScout/utils/unitStats';
+import type { TeamUnit } from '../../hudlScout/types/football';
 import { AIGameplanView } from '../../hudlScout/components/AIGameplanView';
 import { UploadModal } from '../../hudlScout/components/UploadModal';
 import { CallSheetModal } from '../../hudlScout/components/CallSheetModal';
@@ -79,6 +82,12 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   const [isCallSheetOpen, setIsCallSheetOpen] = useState(false);
   const skipSave = useRef(true);
   const skipOwnSave = useRef(true);
+
+  // Our-team play log: tag which unit (Black / Blue / Gold) was on the field.
+  // Bumping updatedAt makes the newest-bundle sync keep the tag.
+  const handleSetUnit = (playId: string, unit: TeamUnit | undefined, scope: 'play' | 'rest_of_series') => {
+    setOwnBundle((prev) => ({ ...prev, plays: tagPlayUnits(prev.plays, playId, unit, scope), updatedAt: Date.now() }));
+  };
 
   const bundle = scoutTarget === 'own' ? ownBundle : oppBundle;
   const setBundle = scoutTarget === 'own' ? setOwnBundle : setOppBundle;
@@ -308,6 +317,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         onScoutTargetChange={(target) => {
           setScoutTarget(target);
           setSelectedGameId('all');
+          if (target !== 'own' && activeTab === 'units') setActiveTab('situational');
         }}
         games={bundle.games}
         selectedGameId={selectedGameId}
@@ -372,7 +382,16 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
           </div>
         )}
         {activeTab === 'field' && <FieldChalkboard analysis={analysis} />}
-        {activeTab === 'plays' && <PlaysTable plays={filteredPlays} />}
+        {activeTab === 'plays' && (
+          <PlaysTable plays={filteredPlays} onSetUnit={scoutTarget === 'own' ? handleSetUnit : undefined} />
+        )}
+        {activeTab === 'units' && scoutTarget === 'own' && (
+          <UnitStatsView
+            plays={plays}
+            games={selectedGameId === 'all' ? bundle.games : bundle.games.filter((g) => g.id === selectedGameId)}
+            onOpenPlayLog={() => setActiveTab('plays')}
+          />
+        )}
         {activeTab === 'gameplan' && (
           <AIGameplanView
             report={localReport}

@@ -2113,3 +2113,62 @@ describe('wristband row keeps the coach tables in their 4-across layout', () => 
     });
   });
 });
+
+describe('Black / Blue / Gold unit stats (our-team play log)', () => {
+  const play = (o: any) => ({
+    id: o.id, playNumber: o.n, odk: o.odk || 'O', quarter: 1, down: o.down || 1, distance: o.dist || 10,
+    yardLine: 50, rawYardLine: '50', yardLineSide: 'MID', fieldZone: 'midfield', hash: 'M', playType: o.type || 'RUN',
+    formation: '-', backfield: '-', motion: '-', playName: 'Rush', direction: '', gainLoss: o.gain || 0, result: o.result || 'Rush',
+    personnel: '-', carrierOrTarget: '', isExplosive: (o.gain || 0) >= 10, isEfficient: Boolean(o.eff), runSide: 'M',
+    gameId: o.game || 'g1', series: o.series ?? 1, unit: o.unit,
+  });
+
+  it('splits offense and defense numbers by unit and skips penalties', async () => {
+    const { computeUnitStats } = await import('../hudlScout/utils/unitStats.ts');
+    const plays = [
+      play({ id: 'a', n: 1, unit: 'black', gain: 12, eff: true }),
+      play({ id: 'b', n: 2, unit: 'black', gain: -2 }),
+      play({ id: 'c', n: 3, unit: 'black', gain: 6, down: 3, dist: 5, eff: true, result: 'Rush, TD' }),
+      play({ id: 'd', n: 4, unit: 'gold', type: 'PASS', gain: 0, result: 'Incomplete' }),
+      play({ id: 'e', n: 5, unit: 'gold', type: 'PENALTY', gain: 5, result: 'Penalty' }),
+      play({ id: 'f', n: 6, odk: 'D', unit: 'blue', gain: 3, result: 'Fumble' }),
+      play({ id: 'g', n: 7, odk: 'K', gain: 30, result: 'Return' }),
+      play({ id: 'h', n: 8, gain: 4 }),
+    ];
+    const s = computeUnitStats(plays as any);
+    const blk = s.offense.black;
+    assert.equal(blk.plays, 3);
+    assert.equal(blk.yards, 16);
+    assert.equal(blk.yardsPerPlay, 5.3);
+    assert.equal(blk.touchdowns, 1);
+    assert.equal(blk.thirdDowns, 1);
+    assert.equal(blk.thirdDownConversions, 1);
+    assert.equal(blk.successfulPlays, 2);
+    assert.equal(blk.explosivePlays, 1);
+    assert.equal(blk.negativePlays, 1);
+    assert.equal(s.offense.gold.plays, 1, 'penalty is not counted as a snap');
+    assert.equal(s.offense.gold.passes, 1);
+    assert.equal(s.defense.blue.turnovers, 1, 'defense fumble is a takeaway');
+    assert.equal(s.offense.untagged.plays, 1);
+    assert.equal(s.offense.blue.plays + s.defense.gold.plays, 0, 'kick plays are left out');
+  });
+
+  it('tags one play or the rest of its series, same side and game only', async () => {
+    const { tagPlayUnits, unitTagProgress } = await import('../hudlScout/utils/unitStats.ts');
+    const plays = [
+      play({ id: 'a', n: 1, series: 2 }),
+      play({ id: 'b', n: 2, series: 2 }),
+      play({ id: 'c', n: 3, series: 2, odk: 'D' }),
+      play({ id: 'd', n: 4, series: 3 }),
+      play({ id: 'e', n: 5, series: 2, game: 'g2' }),
+      play({ id: 'k', n: 6, series: 2, odk: 'K' }),
+    ];
+    const one = tagPlayUnits(plays as any, 'a', 'blue', 'play');
+    assert.deepEqual(one.map((p: any) => p.unit || '-'), ['blue', '-', '-', '-', '-', '-']);
+    const series = tagPlayUnits(plays as any, 'a', 'gold', 'rest_of_series');
+    assert.deepEqual(series.map((p: any) => p.unit || '-'), ['gold', 'gold', '-', '-', '-', '-']);
+    assert.deepEqual(unitTagProgress(series as any), { tagged: 2, total: 5 });
+    const cleared = tagPlayUnits(series as any, 'a', undefined, 'play');
+    assert.equal((cleared as any)[0].unit, undefined);
+  });
+});

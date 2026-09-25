@@ -1,13 +1,60 @@
 import React, { useState, useMemo } from 'react';
-import { Play } from '../types/football';
+import { Play, TeamUnit } from '../types/football';
+import { TEAM_UNITS, playIsUnitTaggable } from '../utils/unitStats';
 import { isRecordedMotion } from '../utils/csvParser';
 import { Search, ChevronDown, ChevronUp, Zap, Flame, CheckCircle2 } from 'lucide-react';
 
 interface PlaysTableProps {
   plays: Play[];
+  /** Our-team log only: tag which unit (Black / Blue / Gold) was on the field. */
+  onSetUnit?: (playId: string, unit: TeamUnit | undefined, scope: 'play' | 'rest_of_series') => void;
 }
 
-export const PlaysTable: React.FC<PlaysTableProps> = ({ plays }) => {
+const UNIT_SHORT: Record<TeamUnit, string> = { black: 'Blk', blue: 'Blu', gold: 'Gld' };
+
+const UnitPicker: React.FC<{
+  play: Play;
+  onSetUnit: NonNullable<PlaysTableProps['onSetUnit']>;
+}> = ({ play, onSetUnit }) => {
+  if (!playIsUnitTaggable(play)) return <span className="text-slate-600">—</span>;
+  const current = TEAM_UNITS.find((u) => u.id === play.unit);
+  return (
+    <div className="flex items-center gap-1">
+      {TEAM_UNITS.map((u) => {
+        const on = play.unit === u.id;
+        return (
+          <button
+            key={u.id}
+            type="button"
+            onClick={() => onSetUnit(play.id, on ? undefined : u.id, 'play')}
+            title={on ? `Clear ${u.label}` : `${u.label} was on the field`}
+            aria-label={`${u.label} unit`}
+            aria-pressed={on}
+            className={`px-1.5 h-6 rounded-md text-[10px] font-black border transition-all cursor-pointer ${
+              on ? 'ring-2 ring-white/70' : 'opacity-35 hover:opacity-90'
+            }`}
+            style={{ backgroundColor: u.swatch, color: u.text, borderColor: u.id === 'black' ? '#64748b' : u.swatch }}
+          >
+            {UNIT_SHORT[u.id]}
+          </button>
+        );
+      })}
+      {current && play.series != null && (
+        <button
+          type="button"
+          onClick={() => onSetUnit(play.id, current.id, 'rest_of_series')}
+          title={`Use ${current.label} for the rest of series ${play.series}`}
+          className="px-1.5 h-6 rounded-md text-[10px] font-bold text-slate-300 border border-slate-700 hover:bg-slate-800 cursor-pointer whitespace-nowrap"
+        >
+          ↓ series
+        </button>
+      )}
+    </div>
+  );
+};
+
+export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit }) => {
+  const [untaggedOnly, setUntaggedOnly] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortField, setSortField] = useState<keyof Play>('playNumber');
   const [sortAsc, setSortAsc] = useState(true);
@@ -25,6 +72,9 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays }) => {
 
   const filteredPlays = useMemo(() => {
     let result = plays;
+    if (onSetUnit && untaggedOnly) {
+      result = result.filter((p) => playIsUnitTaggable(p) && !p.unit);
+    }
     if (searchTerm.trim()) {
       const lower = searchTerm.toLowerCase();
       result = result.filter(
@@ -38,6 +88,11 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays }) => {
     }
 
     return [...result].sort((a, b) => {
+      // Play numbers restart each game: keep each game's plays together (games load in upload order).
+      if (sortField === 'playNumber' && (a.gameId || '') !== (b.gameId || '')) {
+        const byGame = (a.gameId || '') < (b.gameId || '') ? -1 : 1;
+        return sortAsc ? byGame : -byGame;
+      }
       let aVal = a[sortField];
       let bVal = b[sortField];
 
@@ -53,7 +108,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays }) => {
       if (aVal > bVal) return sortAsc ? 1 : -1;
       return 0;
     });
-  }, [plays, searchTerm, sortField, sortAsc]);
+  }, [plays, searchTerm, sortField, sortAsc, onSetUnit, untaggedOnly]);
 
   const totalPages = Math.ceil(filteredPlays.length / pageSize) || 1;
   const paginatedPlays = filteredPlays.slice((page - 1) * pageSize, page * pageSize);
@@ -74,6 +129,20 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays }) => {
           </p>
         </div>
 
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+        {onSetUnit && (
+          <label className="flex items-center gap-1.5 text-xs text-slate-300 whitespace-nowrap cursor-pointer">
+            <input
+              type="checkbox"
+              checked={untaggedOnly}
+              onChange={(e) => {
+                setUntaggedOnly(e.target.checked);
+                setPage(1);
+              }}
+            />
+            Untagged only
+          </label>
+        )}
         {/* Search input */}
         <div className="relative w-full sm:w-64">
           <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -87,6 +156,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays }) => {
             }}
             className="w-full bg-slate-950 border border-slate-800 rounded-md pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
           />
+        </div>
         </div>
       </div>
 
@@ -118,6 +188,11 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays }) => {
                 {play.direction ? ` · ${play.direction}` : ''}
                 {play.carrierOrTarget ? ` · ${play.carrierOrTarget}` : ''}
               </div>
+              {onSetUnit && playIsUnitTaggable(play) && (
+                <div className="pt-1">
+                  <UnitPicker play={play} onSetUnit={onSetUnit} />
+                </div>
+              )}
             </div>
           );
         })}
@@ -140,6 +215,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays }) => {
                   {sortField === 'odk' && (sortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
                 </div>
               </th>
+              {onSetUnit && <th className="py-2.5 px-2">UNIT</th>}
               <th onClick={() => handleSort('quarter')} className="py-2.5 px-2 cursor-pointer hover:text-white text-center">
                 QTR
               </th>
@@ -213,6 +289,11 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays }) => {
                       {play.odk}
                     </span>
                   </td>
+                  {onSetUnit && (
+                    <td className="py-2 px-2">
+                      <UnitPicker play={play} onSetUnit={onSetUnit} />
+                    </td>
+                  )}
                   <td className="py-2.5 px-2 text-center text-slate-300 font-mono">Q{play.quarter}</td>
                   <td className="py-2.5 px-3 font-mono">
                     <span className="font-bold text-slate-200">
