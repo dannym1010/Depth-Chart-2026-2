@@ -1938,3 +1938,64 @@ describe('schedule deletes and roster saves stick', () => {
     assert.deepEqual(restored.roster.map((x: any) => x.num).sort(), ['1', '2', '3']);
   });
 });
+
+describe('call sheets and wristbands saved for the shown team and week', () => {
+  it('matches tagged sheets exactly and lets untagged ones through', async () => {
+    const { savedForTeamWeek } = await import('./remoteStateMerge.ts');
+    assert.equal(savedForTeamWeek({ teamId: 'team_10u', week: '4' }, 'team_10u', '4'), true);
+    assert.equal(savedForTeamWeek({ teamId: 'team_10u', week: '4' }, 'team_10u', '5'), false);
+    assert.equal(savedForTeamWeek({ teamId: 'team_9u', week: '4' }, 'team_10u', '4'), false);
+    assert.equal(savedForTeamWeek({ teamId: 'team-10u', week: 'Week 4' }, 'team_10u', '4'), true);
+    // preseason keys must not collide with regular weeks
+    assert.equal(savedForTeamWeek({ week: 'pre-1' }, 'team_10u', '1'), false);
+    assert.equal(savedForTeamWeek({}, 'team_10u', '4'), true);
+    assert.equal(savedForTeamWeek(null, 'team_10u', '4'), false);
+  });
+});
+
+describe('call sheet first row mirrors the wristbands', () => {
+  it('adds one table per wristband color column on row 1 and stays stable on re-sync', async () => {
+    const { syncWristbandToCallSheet, listWristbandColumns, isAutoWristbandRowTable } = await import('./wristbandLinking.ts');
+    const { INITIAL_TWO_WRISTBANDS_DATA } = await import('../data/userGameDayPlays.ts');
+    const { DEFAULT_CALL_SHEET_DATA } = await import('../data/callSheetData.ts');
+    const wb = INITIAL_TWO_WRISTBANDS_DATA;
+    const cols = listWristbandColumns(wb);
+    assert.ok(cols.length > 0, 'fixture wristband has columns');
+
+    const base = { ...DEFAULT_CALL_SHEET_DATA, offenseSections: DEFAULT_CALL_SHEET_DATA.offenseSections.filter((s: any) => !isAutoWristbandRowTable(s)) };
+    const customIds = base.offenseSections.map((s: any) => s.id);
+    const once = syncWristbandToCallSheet(wb, base);
+    const auto = once.offenseSections.filter(isAutoWristbandRowTable);
+    assert.equal(auto.length, cols.length);
+    assert.deepEqual(auto.map((s: any) => s.title), cols.map((c) => c.header));
+    assert.ok(auto.slice(0, 4).every((s: any) => s.rowIndex === 0), 'first four wristband tables sit on row 1');
+    // coach tables are kept, just moved below the wristband rows
+    const kept = once.offenseSections.filter((s: any) => !isAutoWristbandRowTable(s));
+    assert.deepEqual(kept.map((s: any) => s.id), customIds);
+    const wbRows = Math.ceil(cols.length / 4);
+    const topKept = kept.filter((s: any) => (s.group || 'top_situations') === 'top_situations');
+    if (topKept.length) assert.ok(Math.min(...topKept.map((s: any) => s.rowIndex ?? 0)) >= wbRows);
+
+    const twice = syncWristbandToCallSheet(wb, once);
+    assert.deepEqual(twice.offenseSections, once.offenseSections, 're-sync does not keep shifting rows');
+    // defense sheet is left alone unless it already has wristband tables
+    assert.deepEqual(once.defenseSections.filter(isAutoWristbandRowTable).length, base.defenseSections.filter(isAutoWristbandRowTable).length);
+  });
+});
+
+describe('wristband row keeps the coach tables in their 4-across layout', () => {
+  it('pins unplaced tables to the rows they were shown on, one row lower', async () => {
+    const { syncWristbandToCallSheet, isAutoWristbandRowTable } = await import('./wristbandLinking.ts');
+    const { INITIAL_TWO_WRISTBANDS_DATA } = await import('../data/userGameDayPlays.ts');
+    const { DEFAULT_CALL_SHEET_DATA } = await import('../data/callSheetData.ts');
+    const custom = Array.from({ length: 11 }, (_, i) => ({ id: `t${i}`, title: `T${i}`, group: 'top_situations', plays: [] }));
+    const cs = { ...DEFAULT_CALL_SHEET_DATA, desktopGridColumns: 4, offenseSections: custom } as any;
+    const out = syncWristbandToCallSheet(INITIAL_TWO_WRISTBANDS_DATA, cs);
+    const kept = out.offenseSections.filter((s: any) => !isAutoWristbandRowTable(s));
+    const wbRows = Math.ceil(out.offenseSections.filter(isAutoWristbandRowTable).length / 4);
+    kept.forEach((s: any, i: number) => {
+      assert.equal(s.rowIndex, wbRows + Math.floor(i / 4), `${s.title} row`);
+      assert.equal(s.order, i % 4, `${s.title} order`);
+    });
+  });
+});

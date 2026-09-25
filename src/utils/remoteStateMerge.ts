@@ -956,6 +956,24 @@ export function mergeStaffByEmail(localStaff: StaffCoach[], remoteStaff: StaffCo
   });
 }
 
+const normalizeTeamKey = (id?: string) => String(id || '').trim().toLowerCase().replace(/-/g, '_');
+const normalizeWeekTag = (week?: string) => String(week || '').trim().toLowerCase().replace(/^week\s+/, '');
+
+/**
+ * True when a call sheet or wristband may be shown for this team/week. Untagged (older) sheets
+ * are allowed so existing data keeps working; tagged ones must match exactly.
+ */
+export function savedForTeamWeek(
+  cs: { teamId?: string; week?: string } | null | undefined,
+  teamId: string,
+  week: string
+): boolean {
+  if (!cs) return false;
+  if (cs.week && normalizeWeekTag(cs.week) !== normalizeWeekTag(week)) return false;
+  if (cs.teamId && normalizeTeamKey(cs.teamId) !== normalizeTeamKey(teamId)) return false;
+  return true;
+}
+
 export function shouldKeepLocalCallSheet(opts: {
   isLocalRecent: boolean;
   localLastEdited: number;

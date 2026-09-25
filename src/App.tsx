@@ -200,6 +200,7 @@ import {
   pickRichestScouting,
   scoutFingerprint,
   shouldKeepLocalCallSheet,
+  savedForTeamWeek,
   shouldRejectStaleRemote,
 } from './utils/remoteStateMerge';
 import { applyCopiedFormationsToDeletedIds, copyWeekCharts, countPlacedPlayers } from './utils/copyWeek';
@@ -420,6 +421,10 @@ export default function App() {
     const candidates = [saved, backup, historyLatest].filter(
       (c): c is CallSheetData => Boolean(c && typeof c === 'object' && (c.offenseSections || c.defenseSections))
     );
+
+    // The last sheet this device showed wins; backups and history are only a fallback
+    // (they are recovery copies, and picking them by timestamp could revert a newer sheet).
+    if (candidates[0] && candidates[0] === saved) return saved as CallSheetData;
 
     let best: CallSheetData = DEFAULT_CALL_SHEET_DATA;
     let bestScore = -1;
@@ -890,6 +895,7 @@ export default function App() {
   );
   const lastLocalCallSheetEditTimeRef = useRef<number>(0);
   const lastLocalWristbandEditTimeRef = useRef<number>(0);
+  const effectiveWristbandRef = useRef<WristbandData | null>(null);
   const activeUnitRef = useRef<string>(activeUnit);
   const activeTeamIdRef = useRef<string>(activeTeamId);
   const currentWeekRef = useRef<string>(currentWeek);
@@ -923,9 +929,12 @@ export default function App() {
 
   // Helper to change current week and persist to localStorage
   const changeCurrentWeek = (wk: string) => {
+    const sameWeek = wk === currentWeekRef.current;
     setCurrentWeek(wk);
     currentWeekRef.current = wk;
     safeJSONSet('footballCurrentWeek', wk);
+    // Re-picking the week already shown must not swap in older stored copies.
+    if (sameWeek) return;
     const targetKey = getScopedWeekKey(activeTeamIdRef.current, wk);
     const targetWeekState = weeklyData[targetKey] || weeklyData[wk];
     if (targetWeekState?.wristbandData?.wristbands?.length) {
@@ -937,10 +946,29 @@ export default function App() {
       latestStateRef.current.wristbandData = INITIAL_TWO_WRISTBANDS_DATA;
       safeJSONSet('footballWristbandData', INITIAL_TWO_WRISTBANDS_DATA);
     }
-    if (targetWeekState?.callSheetData && countCallSheetPlays(targetWeekState.callSheetData) > 0) {
-      setCallSheetData(targetWeekState.callSheetData);
-      latestStateRef.current.callSheetData = targetWeekState.callSheetData;
-      safeJSONSet('footballCallSheetData', targetWeekState.callSheetData);
+    // Show this week's call sheet; if the week has none yet, every coach sees the same
+    // starting point: the nearest earlier week that has one (not whatever was on screen).
+    const weekOrder = getSeasonWeekList(seasonConfig).map((w) => w.key);
+    const startIdx = weekOrder.indexOf(wk);
+    const candidateWeeks = startIdx >= 0 ? weekOrder.slice(0, startIdx + 1).reverse() : [wk];
+    const weekCopies = { ...weeklyData, ...latestStateRef.current.weeklyData };
+    const storedForWeek = (key: string) =>
+      (weekCopies[getScopedWeekKey(activeTeamIdRef.current, key)] || weekCopies[key])?.callSheetData;
+    // The sheet on screen may be a newer save for the target week than its stored copy.
+    const onScreen = latestStateRef.current.callSheetData;
+    const ownCopy = storedForWeek(wk);
+    const onScreenIsNewer =
+      onScreen?.week &&
+      savedForTeamWeek(onScreen, activeTeamIdRef.current, wk) &&
+      countCallSheetPlays(onScreen) > 0 &&
+      (Number(onScreen.lastEdited) || 0) >= (Number(ownCopy?.lastEdited) || 0);
+    const sourceCs = onScreenIsNewer
+      ? onScreen
+      : candidateWeeks.map(storedForWeek).find((cs) => cs && countCallSheetPlays(cs) > 0);
+    if (sourceCs) {
+      setCallSheetData(sourceCs);
+      latestStateRef.current.callSheetData = sourceCs;
+      safeJSONSet('footballCallSheetData', sourceCs);
     }
   };
 
@@ -1018,6 +1046,28 @@ export default function App() {
       liveDrillSlotLayouts: loadLiveDrillSlotLayouts(),
     };
   });
+
+  // Show another coach's call sheet and keep this week's stored copy in step with it,
+  // so switching weeks and back cannot bring an older copy onto the screen.
+  const adoptCallSheet = (incoming: CallSheetFullData) => {
+    const wb = effectiveWristbandRef.current;
+    const cs = wb ? syncWristbandToCallSheet(wb, incoming, latestStateRef.current.playDatabase) : incoming;
+    setCallSheetData(cs);
+    latestStateRef.current.callSheetData = cs;
+    safeJSONSet('footballCallSheetData', cs);
+    const teamId = activeTeamIdRef.current;
+    const wk = currentWeekRef.current;
+    setWeeklyData((prev) => {
+      const scoped = getScopedWeekKey(teamId, wk);
+      const cur = prev[scoped] || prev[wk];
+      if (!cur || cur.callSheetData === cs) return prev;
+      const updatedWeek = { ...cur, callSheetData: cs };
+      const next = { ...prev, [scoped]: updatedWeek, [wk]: updatedWeek };
+      latestStateRef.current.weeklyData = next;
+      safeJSONSet('footballWeeklyData', next);
+      return next;
+    });
+  };
 
   // Fold schedule deletions from another device into ours and return the full list,
   // so merges below can drop those events instead of re-adding them.
@@ -1715,69 +1765,20 @@ export default function App() {
         safeJSONSet('footballPlayDatabase', data.playDatabase);
       }
     }
+    // One call sheet per team and week, newest save wins: adopt another coach's sheet
+    // unless it is for a different week or this coach is typing in theirs right now.
     if (!skipBoardFromGiantDoc && data.callSheetData && typeof data.callSheetData === 'object' && (data.callSheetData.offenseSections || data.callSheetData.defenseSections)) {
+      const remoteCs = data.callSheetData as CallSheetFullData;
       const localCs = latestStateRef.current.callSheetData || callSheetData;
-      const backupCs = safeJSONParse<CallSheetFullData | null>('footballCallSheetData_backup', null);
-      const historyList = safeJSONParse<any[]>('footballCallSheet_history', []);
-      const historyLatest = historyList && historyList.length > 0 ? (historyList[0]?.data as CallSheetFullData) : null;
-
-      const candidates = [localCs, backupCs, historyLatest].filter(
-        (c): c is CallSheetFullData => Boolean(c && typeof c === 'object' && (c.offenseSections || c.defenseSections))
-      );
-
-      let bestLocalCs: CallSheetFullData = localCs;
-      let highestLocalTimestamp = 0;
-      for (const cand of candidates) {
-        const t = cand.lastEdited || 0;
-        if (t > highestLocalTimestamp) {
-          highestLocalTimestamp = t;
-          bestLocalCs = cand;
-        }
-      }
-
-      const isLocalRecent = Date.now() - Math.max(lastLocalEditTimeRef.current, lastLocalCallSheetEditTimeRef.current) < 900000; // 15 min buffer
-      const localLastEdited = Math.max(localCs?.lastEdited || 0, highestLocalTimestamp);
-      const remoteLastEdited = (data.callSheetData as any)?.lastEdited || 0;
-
-      const countPlays = (cs?: CallSheetFullData) => {
-        if (!cs) return 0;
-        let count = 0;
-        (cs.offenseSections || []).forEach((s) => s.plays?.forEach((p) => { if (p?.name?.trim()) count++; }));
-        (cs.defenseSections || []).forEach((s) => s.plays?.forEach((p) => { if (p?.name?.trim()) count++; }));
-        return count;
-      };
-
-      const localPlayCount = countPlays(bestLocalCs);
-      const remotePlayCount = countPlays(data.callSheetData);
-
-      // Do NOT overwrite if:
-      // 1. Local was edited recently (< 15 mins)
-      // 2. Local timestamp is >= remote timestamp and local has plays
-      // 3. Local has plays while remote is empty
+      const editingNow = Date.now() - lastLocalCallSheetEditTimeRef.current < 25000;
+      const remoteLastEdited = Number(remoteCs.lastEdited) || 0;
+      const localLastEdited = Number(localCs?.lastEdited) || 0;
       if (
-        shouldKeepLocalCallSheet({
-          isLocalRecent,
-          localLastEdited,
-          remoteLastEdited,
-          localPlayCount,
-          remotePlayCount,
-        })
+        savedForTeamWeek(remoteCs, activeTeamIdRef.current, currentWeekRef.current) &&
+        !editingNow &&
+        remoteLastEdited >= localLastEdited
       ) {
-        // Preserving local call sheet data
-        if (localLastEdited > remoteLastEdited && bestLocalCs) {
-          setCallSheetData(bestLocalCs);
-          latestStateRef.current.callSheetData = bestLocalCs;
-          safeJSONSet('footballCallSheetData', bestLocalCs);
-          safeJSONSet('footballCallSheetData_backup', bestLocalCs);
-        }
-      } else if (data.callSheetData) {
-        // Always back up best local copy before adopting remote update
-        if (bestLocalCs && localPlayCount > 0) {
-          safeJSONSet('footballCallSheetData_backup', bestLocalCs);
-        }
-        setCallSheetData(data.callSheetData);
-        latestStateRef.current.callSheetData = data.callSheetData;
-        safeJSONSet('footballCallSheetData', data.callSheetData);
+        adoptCallSheet(remoteCs);
       }
     }
     const scopedWeekKey = getScopedWeekKey(activeTeamIdRef.current, currentWeekRef.current);
@@ -1787,7 +1788,7 @@ export default function App() {
     ].filter((w) => w && Array.isArray(w.wristbands) && w.wristbands.length > 0);
 
     let candidateWb = weekWbCandidates.length > 0 ? getBestWristbandData(weekWbCandidates) : undefined;
-    if (!candidateWb && data.wristbandData && Array.isArray(data.wristbandData.wristbands) && data.wristbandData.wristbands.length > 0) {
+    if (!candidateWb && data.wristbandData && Array.isArray(data.wristbandData.wristbands) && data.wristbandData.wristbands.length > 0 && savedForTeamWeek(data.wristbandData, activeTeamIdRef.current, currentWeekRef.current)) {
       candidateWb = data.wristbandData;
     }
 
@@ -2583,6 +2584,19 @@ export default function App() {
         safeJSONSet('footballWeeklyData', updatedAll);
         return updatedAll;
       });
+      // This week's shared doc carries the call sheet too: show another coach's newer save.
+      const sliceCs = !isPatch && otherWriter ? (slice.callSheetData as CallSheetFullData | undefined) : undefined;
+      if (sliceCs && countCallSheetPlays(sliceCs) > 0) {
+        const localCs = latestStateRef.current.callSheetData;
+        const editingNow = Date.now() - lastLocalCallSheetEditTimeRef.current < 25000;
+        if (
+          savedForTeamWeek(sliceCs, teamId, currentWeekRef.current) &&
+          !editingNow &&
+          (Number(sliceCs.lastEdited) || 0) >= (Number(localCs?.lastEdited) || 0)
+        ) {
+          adoptCallSheet(sliceCs);
+        }
+      }
     }
     if (Array.isArray(remote.roster) && take('roster', remote.rosterUpdatedAt)) {
       const normalized = normalizeRoster(remote.roster, true);
@@ -2660,17 +2674,17 @@ export default function App() {
       const localEdited = Number(localCs?.lastEdited) || 0;
       const remoteEdited = Number(remote.callSheetData.lastEdited) || 0;
       const editingNow = Date.now() - lastLocalCallSheetEditTimeRef.current < 25000;
-      if (!editingNow && remoteEdited >= localEdited) {
-        setCallSheetData(remote.callSheetData);
-        latestStateRef.current.callSheetData = remote.callSheetData;
-        safeJSONSet('footballCallSheetData', remote.callSheetData);
+      const forThisWeek = savedForTeamWeek(remote.callSheetData, activeTeamIdRef.current, currentWeekRef.current);
+      if (forThisWeek && !editingNow && remoteEdited >= localEdited) {
+        adoptCallSheet(remote.callSheetData);
       }
     }
     if (remote.wristbandData && take('wristband', remote.wristbandUpdatedAt)) {
       const editingNow = Date.now() - lastLocalWristbandEditTimeRef.current < 25000;
       const remoteEdited = Number(remote.wristbandData.lastEdited) || 0;
       const localEdited = Number(latestStateRef.current.wristbandData?.lastEdited) || 0;
-      if (!editingNow && remoteEdited >= localEdited) {
+      const forThisWeek = savedForTeamWeek(remote.wristbandData, activeTeamIdRef.current, currentWeekRef.current);
+      if (forThisWeek && !editingNow && remoteEdited >= localEdited) {
         const normWb = normalizeWristbandContinuousNumbering(remote.wristbandData, 'Mahopac 10U');
         setWristbandData(normWb);
         latestStateRef.current.wristbandData = normWb;
@@ -3567,17 +3581,15 @@ export default function App() {
   const currentScopedWeekKey = getScopedWeekKey(activeTeamId, currentWeek);
   const currentWeekState: WeekState = resolveWeekState(weeklyData, activeTeamId, currentWeek);
 
+  // Only shared sources here: mixing in this device's own saved copy made coaches'
+  // wristbands (and the call sheet tables built from them) drift apart.
   const effectiveWristbandData: WristbandData = useMemo(() => {
     return (
-      mergeRichestWristbandData(
-        currentWeekState?.wristbandData,
-        wristbandData,
-        typeof window !== 'undefined'
-          ? safeJSONParse<WristbandData | null>('footballWristbandData', null)
-          : null
-      ) || INITIAL_TWO_WRISTBANDS_DATA
+      mergeRichestWristbandData(currentWeekState?.wristbandData, wristbandData) || INITIAL_TWO_WRISTBANDS_DATA
     );
   }, [wristbandData, currentWeekState?.wristbandData]);
+  // Read by save/adopt paths so the call sheet's wristband tables use the same wristband the screens show.
+  effectiveWristbandRef.current = effectiveWristbandData;
 
   const rawFormations = currentWeekState.formations;
 
@@ -5287,6 +5299,9 @@ export default function App() {
     handleCopyCallSheetFromPreviousWeek,
   } = useGameDayActions({
     lastLocalWristbandEditTimeRef,
+    effectiveWristbandRef,
+    currentWeekRef,
+    activeTeamIdRef,
     lastLocalEditTimeRef,
     setWristbandData,
     latestStateRef,

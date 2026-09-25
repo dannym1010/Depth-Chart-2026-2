@@ -64,7 +64,7 @@ interface CallSheetMainViewProps {
   playDatabase?: PlayDatabaseEntry[];
   onUpdatePlayDatabase?: (plays: PlayDatabaseEntry[]) => void;
   callSheetData?: CallSheetFullData;
-  onUpdateCallSheetData?: (data: CallSheetFullData) => void;
+  onUpdateCallSheetData?: (data: CallSheetFullData, opts?: { automatic?: boolean }) => void;
   deletedPlayIds?: string[];
   onUpdateDeletedPlayIds?: (ids: string[]) => void;
   wristbandData?: WristbandData;
@@ -253,37 +253,20 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
   useEffect(() => {
     if (propCallSheetData && (propCallSheetData.offenseSections || propCallSheetData.defenseSections)) {
       const incomingJson = safeJSONStringify(propCallSheetData);
+      // The app already decided which sheet is current (this coach's edit or another
+      // coach's newer save), so show exactly that; second-guessing it here let each
+      // device keep its own version.
       if (incomingJson !== lastEmittedCallSheetJson.current) {
-        setCallSheetData((prev) => {
-          const prevPlayCount = countPopulatedPlays(prev);
-          const incomingPlayCount = countPopulatedPlays(propCallSheetData);
-          // Never overwrite populated local call sheet with empty remote data!
-          if (prevPlayCount > 0 && incomingPlayCount === 0) {
-            return prev;
-          }
-          const prevLastEdited = prev.lastEdited || 0;
-          const incomingLastEdited = propCallSheetData.lastEdited || 0;
-          if (incomingLastEdited > prevLastEdited) {
-            lastEmittedCallSheetJson.current = incomingJson;
-            safeJSONSet('footballCallSheetData', propCallSheetData);
-            safeJSONSet('footballCallSheetData_backup', propCallSheetData);
-            return propCallSheetData;
-          }
-          if (prevLastEdited >= incomingLastEdited && prevPlayCount > 0) {
-            return prev;
-          }
-          lastEmittedCallSheetJson.current = incomingJson;
-          return propCallSheetData;
-        });
+        lastEmittedCallSheetJson.current = incomingJson;
+        setCallSheetData(propCallSheetData);
       }
     }
   }, [propCallSheetData]);
 
   // Re-sync call sheet tables whenever wristband data changes
   useEffect(() => {
-    const saved = safeJSONParse<WristbandData | null>('footballWristbandData', null);
-    const mergedWb =
-      mergeRichestWristbandData(propWristbandData, saved) || propWristbandData;
+    // Build only from the shared wristband so every coach gets the same tables.
+    const mergedWb = propWristbandData;
     if (mergedWb && Array.isArray(mergedWb.wristbands)) {
       const wbJson = safeJSONStringify(mergedWb);
       if (wbJson === lastSyncedWbJsonRef.current) return;
@@ -301,7 +284,7 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
             if (onUpdateCallSheetData) {
               queueMicrotask(() => {
                 try {
-                  onUpdateCallSheetData(synced);
+                  onUpdateCallSheetData(synced, { automatic: true });
                 } catch (notifyErr) {
                   console.warn('Error notifying onUpdateCallSheetData after wb sync:', notifyErr);
                 }
@@ -333,12 +316,10 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
   });
   const [highlightRedZone, setHighlightRedZone] = useState(true);
   // Normalize wristband data
-  const normalizedWristbandData: WristbandData = useMemo(() => {
-    const saved = safeJSONParse<WristbandData | null>('footballWristbandData', null);
-    return (
-      mergeRichestWristbandData(propWristbandData, saved) || INITIAL_TWO_WRISTBANDS_DATA
-    );
-  }, [propWristbandData]);
+  const normalizedWristbandData: WristbandData = useMemo(
+    () => propWristbandData || INITIAL_TWO_WRISTBANDS_DATA,
+    [propWristbandData]
+  );
 
   // Default to showing the Play Bank on computer view as requested by user
   const [isPlayBankOpen, setIsPlayBankOpen] = useState(true);
@@ -379,8 +360,10 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
     if (currentJson !== lastEmittedCallSheetJson.current) {
       lastEmittedCallSheetJson.current = currentJson;
       saveCallSheetSnapshot(callSheetData);
+      // Coach edits already notify the app when they happen (applyCallSheetUpdate);
+      // anything that reaches here is an echo, so it must not be saved as a new edit.
       if (onUpdateCallSheetData) {
-        onUpdateCallSheetData(callSheetData);
+        onUpdateCallSheetData(callSheetData, { automatic: true });
       }
     }
   }, [callSheetData, onUpdateCallSheetData]);

@@ -783,14 +783,13 @@ export function mergeServerState(current: any, incoming: any, metadata?: any): a
   ) {
     const incLastEdited = Number(incoming.callSheetData.lastEdited) || 0;
     const curLastEdited = Number(current.callSheetData?.lastEdited) || 0;
+    // Only a call sheet save, a full push, or a backup restore may replace the stored
+    // sheet regardless of age; other saves carry whatever sheet that device holds,
+    // which may be older or for another week.
     const isCallSheetScope =
-      metadata?.scope === 'call_sheet' ||
-      metadata?.scope === 'call_sheet_winner' ||
       Boolean(metadata?.scope && metadata.scope.startsWith('call_sheet')) ||
-      metadata?.scope === 'all' ||
       metadata?.scope === 'force' ||
-      metadata?.scope === 'import_backup' ||
-      metadata?.scope === 'unit_transition';
+      metadata?.scope === 'import_backup';
 
     if (!current.callSheetData || incLastEdited >= curLastEdited || isCallSheetScope) {
       merged.callSheetData = {

@@ -311,6 +311,9 @@ export interface SingleWristband {
 }
 
 export interface WristbandData {
+  /** Team and week this wristband was saved for; ones for another week are ignored when syncing. */
+  teamId?: string;
+  week?: string;
   title?: string;
   rows?: number;
   columns?: WristbandColumn[];

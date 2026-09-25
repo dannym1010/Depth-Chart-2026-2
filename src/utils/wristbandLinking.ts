@@ -729,19 +729,22 @@ const WRISTBAND_TABLES_PER_ROW = 4;
 
 function placeWristbandColorTables(
   tables: CallSheetSection[],
-  leftover: CallSheetSection[]
+  leftover: CallSheetSection[],
+  perRow = WRISTBAND_TABLES_PER_ROW
 ): CallSheetSection[] {
   const wbRows = Math.max(1, Math.ceil(tables.length / WRISTBAND_TABLES_PER_ROW));
   const leftoverTop = leftover.filter((s) => (s.group || 'top_situations') === 'top_situations');
   const leftoverOther = leftover.filter((s) => (s.group || 'top_situations') !== 'top_situations');
-  const minTop = leftoverTop.length
-    ? Math.min(...leftoverTop.map((s) => (typeof s.rowIndex === 'number' ? s.rowIndex : 0)))
-    : wbRows;
-  const delta = Math.max(0, wbRows - minTop);
-  const shiftedTop = leftoverTop.map((s) => ({
-    ...s,
-    rowIndex: (typeof s.rowIndex === 'number' ? s.rowIndex : 0) + delta,
+  // Tables without a saved row flow perRow-across on screen; pin them where they
+  // were shown before moving them down, so the layout keeps its shape.
+  const shown = leftoverTop.map((s, i) => ({
+    s,
+    row: typeof s.rowIndex === 'number' ? s.rowIndex : Math.floor(i / perRow),
+    order: typeof s.order === 'number' ? s.order : i % perRow,
   }));
+  const minTop = shown.length ? Math.min(...shown.map((x) => x.row)) : wbRows;
+  const delta = Math.max(0, wbRows - minTop);
+  const shiftedTop = shown.map(({ s, row, order }) => ({ ...s, rowIndex: row + delta, order }));
   return [...tables, ...shiftedTop, ...leftoverOther];
 }
 
@@ -793,7 +796,7 @@ export function copyWristbandPlaysToFirstRow(
   return {
     ...callSheetData,
     lastEdited: Date.now(),
-    [key]: placeWristbandColorTables(tables, leftover),
+    [key]: placeWristbandColorTables(tables, leftover, callSheetData.desktopGridColumns || WRISTBAND_TABLES_PER_ROW),
   };
 }
 
@@ -1283,20 +1286,23 @@ export function syncWristbandToCallSheet(
     };
   };
 
+  // The offense sheet always opens with one table per wristband color column (four
+  // per row), so the first columns replicate the wristbands. Defense only refreshes
+  // wristband tables a coach already added.
   const replaceAutoColorTables = (
     sections: CallSheetSection[],
     unit: 'offense' | 'defense'
   ): CallSheetSection[] => {
-    if (!sections.some(isAutoWristbandRowTable)) return sections;
+    if (unit !== 'offense' && !sections.some(isAutoWristbandRowTable)) return sections;
     const tables = buildWristbandColorColumnSections(wbData, unit);
     const leftover = sections.filter((s) => !isAutoWristbandRowTable(s));
     if (!tables.length) return leftover;
-    return placeWristbandColorTables(tables, leftover);
+    return placeWristbandColorTables(tables, leftover, callSheetData.desktopGridColumns || WRISTBAND_TABLES_PER_ROW);
   };
 
   return {
     ...callSheetData,
-    lastEdited: callSheetData.lastEdited || Date.now(),
+    lastEdited: callSheetData.lastEdited,
     offenseSections: replaceAutoColorTables(
       (callSheetData.offenseSections || []).map(syncSection),
       'offense'

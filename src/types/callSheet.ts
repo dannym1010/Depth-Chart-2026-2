@@ -85,7 +85,9 @@ export interface TimeoutsState {
 }
 
 export interface CallSheetFullData {
+  /** Team and week this sheet was saved for; sheets for another week are ignored when syncing. */
   teamId?: string;
+  week?: string;
   title: string;
   topSituationsTitle?: string;
   redZoneTitle?: string;
