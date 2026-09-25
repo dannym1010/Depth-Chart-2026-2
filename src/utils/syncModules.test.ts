@@ -342,7 +342,7 @@ describe('copy wristband plays to call sheet row 1', () => {
     assert.equal(picked?.wristbands?.[0]?.columns?.[0]?.plays?.length, 1);
   });
 
-  it('copies same-card blue/gold plays onto factory green/pink call sheet tables', async () => {
+  it('shows each wristband card exactly as the Wristbands screen does (no copying blue/gold onto green/pink)', async () => {
     const { copyWristbandPlaysToFirstRow } = await import('./wristbandLinking.ts');
     const wb = {
       lastEdited: 1,
@@ -386,8 +386,8 @@ describe('copy wristband plays to call sheet row 1', () => {
     );
     const green = sheet.offenseSections.find((s) => /green/i.test(s.title));
     const pink = sheet.offenseSections.find((s) => /pink/i.test(s.title));
-    assert.equal(green?.plays[0]?.name, '21 L 26 DIVE');
-    assert.equal(pink?.plays[0]?.name, '21 R 24 DIVE');
+    assert.equal(green?.plays[0]?.name, '32 L 26 DIVE');
+    assert.equal(pink?.plays[0]?.name, '32 R 24 DIVE');
   });
 
   it('does not fill the whole call sheet cell when the wristband is number-only highlight', async () => {

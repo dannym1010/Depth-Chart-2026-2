@@ -1,6 +1,6 @@
 import { PlayDatabaseEntry, CallSheetFullData, CallSheetSection, CallSheetPlay } from '../types/callSheet';
 import { WristbandData, SingleWristband, WristbandColumn, WristbandPlay } from '../types';
-import { wristbandPlayText, applySameCardPlayMirror } from './wristbandNormalize';
+import { wristbandPlayText } from './wristbandNormalize';
 
 export interface WristbandSlotMatch {
   wristbandId: string;
@@ -690,7 +690,8 @@ function colorColumnTitle(name?: string, fallback = 'Column'): string {
 }
 
 export function listWristbandColumns(wbData?: WristbandData): WristbandColSlice[] {
-  const source = applySameCardPlayMirror(wbData) || wbData;
+  // Exactly what the Wristbands screen shows: no copying card 1 plays onto other cards.
+  const source = wbData;
   const wristbands =
     source?.wristbands && source.wristbands.length > 0
       ? source.wristbands
@@ -841,7 +842,8 @@ export function syncWristbandToCallSheet(
   callSheetData: CallSheetFullData,
   playDb?: PlayDatabaseEntry[]
 ): CallSheetFullData {
-  const source = applySameCardPlayMirror(wbData) || wbData;
+  // Exactly what the Wristbands screen shows: no copying card 1 plays onto other cards.
+  const source = wbData;
   if (!source?.wristbands || !callSheetData) return callSheetData;
 
   const wristbands = source.wristbands;
