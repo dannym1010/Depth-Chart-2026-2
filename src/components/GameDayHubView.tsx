@@ -317,7 +317,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
             <button
               type="button"
               onClick={handlePrintAll}
-              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg transition-all cursor-pointer flex items-center gap-2"
+              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-sm transition-all cursor-pointer flex items-center gap-2"
             >
               <Printer className="w-4 h-4" />
               <span>Print Game Day Package</span>
@@ -337,7 +337,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
             }`}
           >
             <Layers className="w-4 h-4 text-indigo-300" />
-            <span>⚡ Sideline HUD</span>
+            <span>Sideline HUD</span>
           </button>
 
           {/* Pre-Game Practice Plan Sub-Tab */}
@@ -351,7 +351,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
             }`}
           >
             <ClipboardList className="w-4 h-4 text-purple-300" />
-            <span>📋 Pre-Game Practice Plan</span>
+            <span>Pre-Game Practice Plan</span>
             {linkedPreGamePlan ? (
               <span className="px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">
                 Ready ({linkedPreGamePlan.plan?.length || 0}P)
@@ -373,7 +373,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
             }`}
           >
             <FileSpreadsheet className="w-4 h-4 text-red-300" />
-            <span>🏈 Call Sheet</span>
+            <span>Call Sheet</span>
           </button>
 
           <button
@@ -386,7 +386,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
             }`}
           >
             <Watch className="w-4 h-4 text-amber-300" />
-            <span>⌚ Wristbands ({totalWristbands})</span>
+            <span>Wristbands ({totalWristbands})</span>
           </button>
 
           <button
@@ -399,7 +399,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
             }`}
           >
             <BarChart3 className="w-4 h-4 text-blue-300" />
-            <span>📊 Hudl Scout</span>
+            <span>Hudl Scout</span>
           </button>
 
           <button
@@ -412,7 +412,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
             }`}
           >
             <TrendingUp className="w-4 h-4 text-amber-400 group-hover:text-amber-300" />
-            <span>📈 Tendencies</span>
+            <span>Tendencies</span>
             {tendenciesCount > 0 && (
               <span className="px-1.5 py-0.5 rounded text-[9px] bg-amber-400/20 text-amber-300 border border-amber-400/30 font-bold">
                 {tendenciesCount}

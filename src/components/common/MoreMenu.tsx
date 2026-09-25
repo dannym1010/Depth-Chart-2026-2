@@ -19,6 +19,10 @@ interface MoreMenuProps {
   title?: string;
   align?: 'left' | 'right';
   className?: string;
+  /** Replaces the default "…" icon, e.g. a plus for an Add menu. */
+  buttonIcon?: React.ReactNode;
+  /** Replaces the default neutral button style, e.g. to make an Add menu the primary action. */
+  buttonClassName?: string;
 }
 
 // Overflow menu for secondary toolbar actions, so each screen can show one
@@ -29,6 +33,8 @@ export const MoreMenu: React.FC<MoreMenuProps> = ({
   title = 'More actions',
   align = 'right',
   className = '',
+  buttonIcon,
+  buttonClassName,
 }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -60,9 +66,12 @@ export const MoreMenu: React.FC<MoreMenuProps> = ({
         aria-haspopup="menu"
         aria-expanded={open}
         title={title}
-        className="px-3 py-2 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl border border-slate-200 dark:border-slate-700 flex items-center gap-1 transition-colors cursor-pointer"
+        className={
+          buttonClassName ||
+          'px-3 py-2 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl border border-slate-200 dark:border-slate-700 flex items-center gap-1 transition-colors cursor-pointer'
+        }
       >
-        <MoreHorizontal className="w-4 h-4" />
+        {buttonIcon ?? <MoreHorizontal className="w-4 h-4" />}
         {label && <span>{label}</span>}
       </button>
       {open && (

@@ -53,7 +53,8 @@ import { getSeasonWeekList, getWeekDisplayLabelWithOpponent } from '../utils/sea
 import { triggerPrint } from '../utils/printUtils';
 import { PracticeWizardModal, PracticeWizardGeneratedResult } from './PracticeWizardModal';
 import { TeamSnapSyncModal } from './TeamSnapSyncModal';
-import { getPracticeSequenceMap, formatPracticeDayTitle } from '../utils/practiceUtils';
+import { getPracticeSequenceMap, formatPracticeDayTitle } from '../utils/practiceUtils';
+import { MoreMenu } from './common/MoreMenu';
 
 interface ScheduleViewProps {
   scheduleEvents: ScheduleEvent[];
@@ -724,9 +725,6 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                   {stats.totalGames} Games &bull; {stats.totalPractices} Practices
                 </span>
               </div>
-              <p className="text-xs text-slate-400 font-medium mt-0.5">
-                Manage games, practices, and automatic syncing across weekly playbooks
-              </p>
             </div>
           </div>
 
@@ -734,47 +732,31 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
           <div className="flex items-center gap-2 flex-wrap relative">
             {userRole === 'admin' && (
               <>
-                <button
-                  onClick={() => setIsAddGameModalOpen(true)}
-                  className="px-3.5 py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl border border-amber-400/80 shadow-md shadow-amber-400/10 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5 text-slate-950 stroke-[3]" />
-                  <span>+ Game</span>
-                </button>
+                <MoreMenu
+                  label="Add"
+                  title="Add a game, practice, or pre-game plan"
+                  buttonIcon={<Plus className="w-3.5 h-3.5 stroke-[3]" />}
+                  buttonClassName="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs rounded-xl shadow-sm flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                  items={[
+                    { label: 'Game', icon: <Trophy className="w-3.5 h-3.5" />, onClick: () => setIsAddGameModalOpen(true) },
+                    { label: 'Practice', icon: <ClipboardList className="w-3.5 h-3.5" />, onClick: () => setIsAddPracticeModalOpen(true) },
+                    {
+                      label: 'Pre-game plan for a game',
+                      icon: <ClipboardList className="w-3.5 h-3.5" />,
+                      title: 'Create a pre-game practice plan for an upcoming game',
+                      onClick: () => {
+                        const upcomingGame = safeScheduleEvents.find(
+                          (e) => (e.type === 'game' || e.type === 'tournament' || e.type === 'scrimmage') && !e.isCancelled
+                        );
+                        if (upcomingGame) {
+                          setPreGameTargetGameId(upcomingGame.id);
+                        }
+                        setIsCreatePreGameModalOpen(true);
+                      },
+                    },
+                  ]}
+                />
 
-                <button
-                  onClick={() => setIsAddPracticeModalOpen(true)}
-                  className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs rounded-xl border border-indigo-500/80 shadow-md shadow-indigo-600/20 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5 text-white stroke-[3]" />
-                  <span>+ Practice</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    const upcomingGame = safeScheduleEvents.find(
-                      (e) => (e.type === 'game' || e.type === 'tournament' || e.type === 'scrimmage') && !e.isCancelled
-                    );
-                    if (upcomingGame) {
-                      setPreGameTargetGameId(upcomingGame.id);
-                    }
-                    setIsCreatePreGameModalOpen(true);
-                  }}
-                  className="px-3.5 py-2 font-black text-xs rounded-xl border border-indigo-500 shadow-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white"
-                  title="Create Pre-Game Practice Plan for an upcoming game"
-                >
-                  <ClipboardList className="w-3.5 h-3.5 text-purple-200 stroke-[2.5]" />
-                  <span>+ Pre-Game Plan</span>
-                </button>
-
-                <button
-                  onClick={() => setIsTeamSnapSyncOpen(true)}
-                  className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-orange-300 hover:text-orange-200 font-bold text-xs rounded-xl border border-orange-500/40 hover:border-orange-400 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
-                  title="Sync and import new practices & games from TeamSnap"
-                >
-                  <RefreshCw className="w-3.5 h-3.5 text-orange-400" />
-                  <span>Sync TeamSnap</span>
-                </button>
 
                 {/* Consolidated Tools & Sync Dropdown */}
                 <div className="relative">
