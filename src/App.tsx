@@ -174,6 +174,7 @@ import { PracticeWizardGeneratedResult } from './components/PracticeWizardModal'
 import { PreferencesModal } from './components/PreferencesModal';
 import { ThemeGalleryModal } from './components/ThemeGalleryModal';
 import { useThemePreferences } from './hooks/useThemePreferences';
+import type { LatestAppState } from './hooks/appStateTypes';
 import {
   mergeDeletedFormationIds,
   mergeFilmSession,
@@ -933,7 +934,7 @@ export default function App() {
   currentWeekRef.current = currentWeek;
   currentPracticeIdRef.current = currentPracticeId;
 
-  const latestStateRef = useRef({
+  const latestStateRef = useRef<LatestAppState>({
     weeklyData,
     ownTeamHudlScout,
     defaultFormations,
