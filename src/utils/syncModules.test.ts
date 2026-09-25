@@ -1997,6 +1997,10 @@ describe('call sheet first row mirrors the wristbands', () => {
     assert.equal(auto.length, cols.length);
     assert.deepEqual(auto.map((s: any) => s.title), cols.map((c) => c.header));
     assert.ok(auto.slice(0, 4).every((s: any) => s.rowIndex === 0), 'first four wristband tables sit on row 1');
+    auto.slice(0, 4).forEach((s: any) => {
+      assert.equal(s.columnsCount, 1);
+      assert.equal(s.colSpan, 1);
+    });
     // coach tables are kept, just moved below the wristband rows
     const kept = once.offenseSections.filter((s: any) => !isAutoWristbandRowTable(s));
     assert.deepEqual(kept.map((s: any) => s.id), customIds);
@@ -2029,6 +2033,67 @@ describe('call sheet first row mirrors the wristbands', () => {
     assert.equal(auto[0].plays[0]?.name, '99 TEST POWER');
     const { wristbandRowFingerprint } = await import('./wristbandLinking.ts');
     assert.notEqual(wristbandRowFingerprint(first), wristbandRowFingerprint(next));
+  });
+
+  it('copies all four color columns exactly and drops old two-column wristband tables', async () => {
+    const { syncWristbandToCallSheet, isAutoWristbandRowTable, isLegacyWristbandTable } = await import(
+      './wristbandLinking.ts'
+    );
+    const wb = {
+      lastEdited: 1,
+      wristbands: [
+        {
+          id: 'wb_1',
+          labelingMode: 'continuous',
+          rowsCount: 2,
+          columns: [
+            { name: 'BLUE (1 - 13)', color: '#2563eb', plays: [{ text: '21 L 26 DIVE' }, { text: '21 L 37 ZONE' }] },
+            { name: 'GOLD (14 - 26)', color: '#facc15', plays: [{ text: '21 R 24 DIVE' }, { text: '' }] },
+          ],
+        },
+        {
+          id: 'wb_2',
+          labelingMode: 'continuous',
+          rowsCount: 2,
+          columns: [
+            { name: 'GREEN (27 - 39)', color: '#16a34a', plays: [{ text: '11 L JET' }, { text: '11 R BUBBLE' }] },
+            { name: 'PINK (40 - 52)', color: '#ec4899', plays: [{ text: 'BOOT' }] },
+          ],
+        },
+      ],
+    };
+    const sheet = {
+      title: 'CS',
+      offenseSections: [
+        {
+          id: 'wb_table_wb_1_full_old',
+          title: 'Wristband 1',
+          wristbandPresetMode: 'full_two_col',
+          columnsCount: 2,
+          group: 'top_situations',
+          plays: [{ name: 'STALE' }],
+        },
+      ],
+      defenseSections: [],
+      offenseScript: [],
+      defenseScript: [],
+      timeouts: {},
+    } as any;
+    const out = syncWristbandToCallSheet(wb as any, sheet);
+    const auto = out.offenseSections.filter(isAutoWristbandRowTable);
+    assert.equal(auto.length, 4);
+    assert.deepEqual(
+      auto.map((s: any) => s.title),
+      ['Blue', 'Gold', 'Green', 'Pink']
+    );
+    assert.equal(auto[0].plays[0]?.name, '21 L 26 DIVE');
+    assert.equal(auto[0].plays[1]?.name, '21 L 37 ZONE');
+    assert.equal(auto[1].plays[0]?.name, '21 R 24 DIVE');
+    assert.equal(auto[1].plays[1], null);
+    assert.equal(auto[2].plays[0]?.name, '11 L JET');
+    assert.equal(auto[2].plays[1]?.name, '11 R BUBBLE');
+    assert.equal(auto[3].plays[0]?.name, 'BOOT');
+    assert.equal(out.offenseSections.some(isLegacyWristbandTable), false);
   });
 });
 

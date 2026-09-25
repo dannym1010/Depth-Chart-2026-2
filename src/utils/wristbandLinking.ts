@@ -676,6 +676,19 @@ type WristbandColSlice = {
   colIdx: number;
 };
 
+function colorColumnTitle(name?: string, fallback = 'Column'): string {
+  const n = String(name || '').trim();
+  if (/\bblue\b/i.test(n)) return 'Blue';
+  if (/\bgold\b|\byellow\b/i.test(n)) return 'Gold';
+  if (/\bgreen\b/i.test(n)) return 'Green';
+  if (/\bpink\b|\brose\b/i.test(n)) return 'Pink';
+  if (/\borange\b/i.test(n)) return 'Orange';
+  if (/\bwhite\b/i.test(n)) return 'White';
+  if (/\bred\b/i.test(n)) return 'Red';
+  if (/\bpurple\b/i.test(n)) return 'Purple';
+  return n.replace(/\s*\(.*\)\s*$/, '').trim() || fallback;
+}
+
 export function listWristbandColumns(wbData?: WristbandData): WristbandColSlice[] {
   const source = applySameCardPlayMirror(wbData) || wbData;
   const wristbands =
@@ -694,18 +707,17 @@ export function listWristbandColumns(wbData?: WristbandData): WristbandColSlice[
   const out: WristbandColSlice[] = [];
   wristbands.forEach((wb, wbIdx) => {
     (wb.columns || []).forEach((col, colIdx) => {
-      const plays = (col.plays || []).map((p, rowIdx) =>
-        callSheetPlayFromWristbandSlot(p, col, wb, wristbands, wbIdx, colIdx, rowIdx)
+      const rows = Math.max(wb.rowsCount || 13, col.plays?.length || 0);
+      const plays = Array.from({ length: rows }, (_, rowIdx) =>
+        callSheetPlayFromWristbandSlot(col.plays?.[rowIdx], col, wb, wristbands, wbIdx, colIdx, rowIdx)
       );
-      if (plays.some(Boolean)) {
-        out.push({
-          header: col.name?.trim() || `Col ${out.length + 1}`,
-          plays,
-          color: col.color || '#1e3a8a',
-          wbId: wb.id,
-          colIdx,
-        });
-      }
+      out.push({
+        header: colorColumnTitle(col.name, `Col ${out.length + 1}`),
+        plays,
+        color: col.color || '#1e3a8a',
+        wbId: wb.id,
+        colIdx,
+      });
     });
   });
   return out;
@@ -723,6 +735,17 @@ export function isAutoWristbandRowTable(sec: CallSheetSection) {
     (typeof sec.id === 'string' &&
       (sec.id.startsWith('wb_col_table_') || sec.id.startsWith('wb_row1_4col_')))
   );
+}
+
+/** Older 2-column / split wristband tables. Row 1 should only keep the 4 color columns. */
+export function isLegacyWristbandTable(sec: CallSheetSection) {
+  if (!sec) return false;
+  const mode = sec.wristbandPresetMode;
+  if (mode === 'full_two_col' || mode === 'col_1' || mode === 'col_2' || mode === 'col_both_split') {
+    return true;
+  }
+  const id = String(sec.id || '');
+  return id.startsWith('wb_table_') || id.startsWith('sec_wb_');
 }
 
 export function wristbandRowFingerprint(
@@ -799,10 +822,7 @@ export function copyWristbandPlaysToFirstRow(
   if (!tables.length) return callSheetData;
   const key = unit === 'offense' ? 'offenseSections' : 'defenseSections';
   const leftover = (callSheetData[key] || []).filter(
-    (s) =>
-      !isAutoWristbandRowTable(s) &&
-      s.wristbandPresetMode !== 'full_two_col' &&
-      !(typeof s.id === 'string' && s.id.startsWith('wb_table_'))
+    (s) => !isAutoWristbandRowTable(s) && !isLegacyWristbandTable(s)
   );
   return {
     ...callSheetData,
@@ -1306,7 +1326,9 @@ export function syncWristbandToCallSheet(
   ): CallSheetSection[] => {
     if (unit !== 'offense' && !sections.some(isAutoWristbandRowTable)) return sections;
     const tables = buildWristbandColorColumnSections(source, unit);
-    const leftover = sections.filter((s) => !isAutoWristbandRowTable(s));
+    const leftover = sections.filter(
+      (s) => !isAutoWristbandRowTable(s) && (unit !== 'offense' || !isLegacyWristbandTable(s))
+    );
     if (!tables.length) return leftover;
     return placeWristbandColorTables(tables, leftover, callSheetData.desktopGridColumns || WRISTBAND_TABLES_PER_ROW);
   };
