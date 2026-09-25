@@ -725,6 +725,17 @@ export function isAutoWristbandRowTable(sec: CallSheetSection) {
   );
 }
 
+export function wristbandRowFingerprint(
+  cs: CallSheetFullData | undefined,
+  unit: 'offense' | 'defense' = 'offense'
+): string {
+  const secs = (unit === 'offense' ? cs?.offenseSections : cs?.defenseSections) || [];
+  return secs
+    .filter(isAutoWristbandRowTable)
+    .map((s) => `${s.id}:${s.title}:${(s.plays || []).map((p) => p?.name || '').join('|')}`)
+    .join('~');
+}
+
 const WRISTBAND_TABLES_PER_ROW = 4;
 
 function placeWristbandColorTables(

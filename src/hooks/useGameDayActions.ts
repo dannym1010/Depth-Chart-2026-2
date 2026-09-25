@@ -2,7 +2,7 @@ import { WristbandData } from '../types';
 import type { WeekState, FormationBoard, SeasonConfig } from '../types';
 import { safeJSONSet, deepClone } from '../services/storageService';
 import { getScopedWeekKey, getPriorSeasonWeekKey, formatWeekCopyLabel } from '../utils/seasonWeekUtils';
-import { syncWristbandToCallSheet } from '../utils/wristbandLinking';
+import { syncWristbandToCallSheet, wristbandRowFingerprint } from '../utils/wristbandLinking';
 import { savedForTeamWeek } from '../utils/remoteStateMerge';
 import { CallSheetFullData } from '../types/callSheet';
 import type { PlayDatabaseEntry } from '../types/callSheet';
@@ -167,22 +167,32 @@ export function useGameDayActions({
     const liveWeek = currentWeekRef.current;
     const liveTeamId = activeTeamIdRef.current;
     const automatic = Boolean(opts?.automatic);
-    // A stale echo (e.g. the view's copy from before another coach's sheet arrived)
-    // must never replace a newer sheet on screen.
-    const shownEdited = Number(latestStateRef.current.callSheetData?.lastEdited) || 0;
-    if (automatic && (Number(newCs.lastEdited) || 0) < shownEdited) return;
+    const shown = latestStateRef.current.callSheetData;
+    const shownEdited = Number(shown?.lastEdited) || 0;
+    const incomingEdited = Number(newCs.lastEdited) || 0;
     // ...nor can an echo of another week's sheet (right after a week switch) land on this week.
     if (automatic && newCs.week && !savedForTeamWeek(newCs, liveTeamId, liveWeek)) return;
-    const now = automatic ? newCs.lastEdited : newCs.lastEdited || Date.now();
+    const wb = wristbandForThisWeek();
+    // A stale echo must not replace a newer sheet, but the first row still has to
+    // match this week's wristband.
+    const sourceCs = automatic && incomingEdited < shownEdited && shown ? shown : newCs;
+    const withWristband = wb
+      ? syncWristbandToCallSheet(wb, sourceCs, latestStateRef.current.playDatabase)
+      : sourceCs;
+    if (
+      automatic &&
+      incomingEdited < shownEdited &&
+      wristbandRowFingerprint(withWristband) === wristbandRowFingerprint(shown)
+    ) {
+      return;
+    }
+    const now = automatic
+      ? Math.max(incomingEdited, shownEdited, Number(wb?.lastEdited) || 0)
+      : newCs.lastEdited || Date.now();
     if (!automatic) {
       lastLocalEditTimeRef.current = now as number;
       lastLocalCallSheetEditTimeRef.current = now as number;
     }
-    // The first-row tables always replicate this week's wristband, whatever was typed into them.
-    const wb = wristbandForThisWeek();
-    const withWristband = wb
-      ? syncWristbandToCallSheet(wb, newCs, latestStateRef.current.playDatabase)
-      : newCs;
     const taggedCs: CallSheetFullData = { ...withWristband, lastEdited: now, teamId: liveTeamId, week: liveWeek };
     setCallSheetData(taggedCs);
     latestStateRef.current.callSheetData = taggedCs;

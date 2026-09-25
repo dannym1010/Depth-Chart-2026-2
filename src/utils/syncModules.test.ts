@@ -2027,6 +2027,8 @@ describe('call sheet first row mirrors the wristbands', () => {
     const auto = next.offenseSections.filter(isAutoWristbandRowTable);
     assert.ok(auto.length >= 4, 'four color tables');
     assert.equal(auto[0].plays[0]?.name, '99 TEST POWER');
+    const { wristbandRowFingerprint } = await import('./wristbandLinking.ts');
+    assert.notEqual(wristbandRowFingerprint(first), wristbandRowFingerprint(next));
   });
 });
 

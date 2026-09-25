@@ -1035,6 +1035,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
       {/* Embedded Call Sheet Tab */}
       {activeTab === 'call_sheet' && (
         <CallSheetMainView
+          key={`cs-${currentWeek}`}
           activeTeamName={activeTeamName}
           playDatabase={playDatabase}
           onUpdatePlayDatabase={onUpdatePlayDatabase}

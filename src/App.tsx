@@ -6195,6 +6195,7 @@ export default function App() {
             {/* Call Sheet (Interactive Offense & Defense Sideline Call Sheet) */}
             {activeUnit === 'call_sheet' && (
               <CallSheetMainView
+                key={`cs-${activeTeamId}-${currentWeek}`}
                 activeTeamName={currentActiveTeam?.name || 'Mahopac 10U'}
                 masterPlayLibrary={masterPlayLibrary}
                 onUpdateMasterPlayLibrary={(newPlays) => {

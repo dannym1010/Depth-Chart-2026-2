@@ -39,7 +39,7 @@ import {
 import { WristbandData } from '../types';
 import { INITIAL_TWO_WRISTBANDS_DATA } from '../data/userGameDayPlays';
 import { safeJSONParse, safeJSONSet, safeJSONStringify, cleanFirestoreData } from '../services/storageService';
-import { syncWristbandToCallSheet, inferFormation, copyWristbandPlaysToFirstRow } from '../utils/wristbandLinking';
+import { syncWristbandToCallSheet, inferFormation, copyWristbandPlaysToFirstRow, wristbandRowFingerprint } from '../utils/wristbandLinking';
 import { mergeRichestWristbandData } from '../utils/wristbandNormalize';
 import {
   CallSheetSnapshot,
@@ -55,7 +55,7 @@ import { PlayBankSidebar } from './callSheet/PlayBankSidebar';
 import { ExcelPlayImportModal } from './callSheet/ExcelPlayImportModal';
 import { AddTableModal } from './callSheet/AddTableModal';
 import { CallSheetPrintModal } from './callSheet/CallSheetPrintModal';
-import { CallSheetHistoryModal } from './CallSheetHistoryModal';
+import { CallSheetHistoryModal } from './CallSheetHistoryModal';
 import { MoreMenu } from './common/MoreMenu';
 
 interface CallSheetMainViewProps {
@@ -107,34 +107,18 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
     return count;
   };
 
-  // Call sheet state with localStorage & remote sync
+  // Always start from this week's parent sheet + current wristband. Picking the
+  // "richest" localStorage copy kept an older first row on screen after a wristband edit.
   const [callSheetData, setCallSheetData] = useState<CallSheetFullData>(() => {
     const saved = safeJSONParse<CallSheetFullData | null>('footballCallSheetData', null);
-    const backup = safeJSONParse<CallSheetFullData | null>('footballCallSheetData_backup', null);
-    const historyList = safeJSONParse<CallSheetSnapshot[]>('footballCallSheet_history', []);
-    const historyLatest = historyList && historyList.length > 0 ? historyList[0]?.data : null;
-
-    const candidates = [saved, backup, historyLatest, propCallSheetData].filter(
-      (c): c is CallSheetFullData => Boolean(c && typeof c === 'object' && (c.offenseSections || c.defenseSections))
-    );
-
-    let bestData = DEFAULT_CALL_SHEET_DATA;
-    let bestScore = -1;
-
-    for (const c of candidates) {
-      const playCount = countPopulatedPlays(c);
-      const secCount = (c.offenseSections?.length || 0) + (c.defenseSections?.length || 0);
-      const lastEdited = c.lastEdited || 0;
-      // Prioritize timestamp so recent user edits win over older versions
-      const score = lastEdited > 0 ? lastEdited : playCount * 10 + secCount;
-      if (score > bestScore) {
-        bestScore = score;
-        bestData = c;
-      }
-    }
-
-    // Return best stored candidate directly without mutating on mount
-    return bestData;
+    const base =
+      propCallSheetData && (propCallSheetData.offenseSections || propCallSheetData.defenseSections)
+        ? propCallSheetData
+        : saved && (saved.offenseSections || saved.defenseSections)
+          ? saved
+          : DEFAULT_CALL_SHEET_DATA;
+    const wb = propWristbandData?.wristbands?.length ? propWristbandData : null;
+    return wb ? syncWristbandToCallSheet(wb, base) : base;
   });
 
   // Play database state with persistent deleted ID filtering
@@ -253,52 +237,65 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
 
   useEffect(() => {
     if (propCallSheetData && (propCallSheetData.offenseSections || propCallSheetData.defenseSections)) {
-      const incomingJson = safeJSONStringify(propCallSheetData);
-      // The app already decided which sheet is current (this coach's edit or another
-      // coach's newer save), so show exactly that; second-guessing it here let each
-      // device keep its own version.
-      if (incomingJson !== lastEmittedCallSheetJson.current) {
-        lastEmittedCallSheetJson.current = incomingJson;
-        setCallSheetData(propCallSheetData);
-      }
+      const incomingEdited = Number(propCallSheetData.lastEdited) || 0;
+      setCallSheetData((prev) => {
+        const localEdited = Number(prev.lastEdited) || 0;
+        const base = incomingEdited >= localEdited ? propCallSheetData : prev;
+        const wb = propWristbandData?.wristbands?.length ? propWristbandData : null;
+        const next = wb ? syncWristbandToCallSheet(wb, base, playDatabase) : base;
+        if (
+          wristbandRowFingerprint(next) === wristbandRowFingerprint(prev) &&
+          incomingEdited <= localEdited &&
+          safeJSONStringify(base) === safeJSONStringify(prev)
+        ) {
+          return prev;
+        }
+        const nextJson = safeJSONStringify(next);
+        lastEmittedCallSheetJson.current = nextJson;
+        return next;
+      });
     }
-  }, [propCallSheetData]);
+  }, [propCallSheetData, propWristbandData, playDatabase]);
 
   // Re-sync call sheet tables whenever wristband data changes
   useEffect(() => {
-    // Build only from the shared wristband so every coach gets the same tables.
     const mergedWb = propWristbandData;
-    if (mergedWb && Array.isArray(mergedWb.wristbands)) {
-      const wbJson = safeJSONStringify(mergedWb);
-      if (wbJson === lastSyncedWbJsonRef.current) return;
-      lastSyncedWbJsonRef.current = wbJson;
-
-      setCallSheetData((prev) => {
-        try {
-          const synced = syncWristbandToCallSheet(mergedWb, prev, playDatabase);
-          const syncedJson = safeJSONStringify(synced);
-          const prevJson = safeJSONStringify(prev);
-          if (syncedJson !== prevJson) {
-            lastEmittedCallSheetJson.current = syncedJson;
-            safeJSONSet('footballCallSheetData', synced);
-            safeJSONSet('footballCallSheetData_backup', synced);
-            if (onUpdateCallSheetData) {
-              queueMicrotask(() => {
-                try {
-                  onUpdateCallSheetData(synced, { automatic: true });
-                } catch (notifyErr) {
-                  console.warn('Error notifying onUpdateCallSheetData after wb sync:', notifyErr);
-                }
-              });
-            }
-            return synced;
-          }
-        } catch (err) {
-          console.error('Failed to sync wristband to call sheet:', err);
+    if (!mergedWb || !Array.isArray(mergedWb.wristbands)) return;
+    const wbJson = safeJSONStringify(mergedWb);
+    setCallSheetData((prev) => {
+      try {
+        const synced = syncWristbandToCallSheet(mergedWb, prev, playDatabase);
+        if (wristbandRowFingerprint(synced) === wristbandRowFingerprint(prev) && wbJson === lastSyncedWbJsonRef.current) {
+          return prev;
         }
-        return prev;
-      });
-    }
+        lastSyncedWbJsonRef.current = wbJson;
+        const stamped = {
+          ...synced,
+          lastEdited: Math.max(Number(synced.lastEdited) || 0, Number(mergedWb.lastEdited) || 0),
+        };
+        const syncedJson = safeJSONStringify(stamped);
+        const prevJson = safeJSONStringify(prev);
+        if (syncedJson !== prevJson) {
+          lastEmittedCallSheetJson.current = syncedJson;
+          safeJSONSet('footballCallSheetData', stamped);
+          safeJSONSet('footballCallSheetData_backup', stamped);
+          if (onUpdateCallSheetData) {
+            queueMicrotask(() => {
+              try {
+                onUpdateCallSheetData(stamped, { automatic: true });
+              } catch (notifyErr) {
+                console.warn('Error notifying onUpdateCallSheetData after wb sync:', notifyErr);
+              }
+            });
+          }
+          return stamped;
+        }
+      } catch (err) {
+        console.error('Failed to sync wristband to call sheet:', err);
+      }
+      lastSyncedWbJsonRef.current = wbJson;
+      return prev;
+    });
   }, [propWristbandData, playDatabase, onUpdateCallSheetData]);
 
   useEffect(() => {
@@ -355,19 +352,21 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
     currentPlay: null,
   });
 
-  // Sync to localStorage and parent remote sync only when local state actually changes
+  // Coach edits already notify the app when they happen (applyCallSheetUpdate).
+  // Do not echo the first paint (or a wristband overlay) back as a new save.
+  const skipCallSheetEchoRef = useRef(true);
   useEffect(() => {
     const currentJson = safeJSONStringify(callSheetData);
+    if (skipCallSheetEchoRef.current) {
+      skipCallSheetEchoRef.current = false;
+      lastEmittedCallSheetJson.current = currentJson;
+      return;
+    }
     if (currentJson !== lastEmittedCallSheetJson.current) {
       lastEmittedCallSheetJson.current = currentJson;
       saveCallSheetSnapshot(callSheetData);
-      // Coach edits already notify the app when they happen (applyCallSheetUpdate);
-      // anything that reaches here is an echo, so it must not be saved as a new edit.
-      if (onUpdateCallSheetData) {
-        onUpdateCallSheetData(callSheetData, { automatic: true });
-      }
     }
-  }, [callSheetData, onUpdateCallSheetData]);
+  }, [callSheetData]);
 
   useEffect(() => {
     const currentJson = safeJSONStringify(playDatabase);
