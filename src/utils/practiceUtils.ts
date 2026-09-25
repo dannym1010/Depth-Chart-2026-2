@@ -698,3 +698,43 @@ export function resolvePracticeTemplateForWeekday(
   return templateNames[0] || fallback;
 }
 
+export function practiceSeasonYear(plan?: PracticePlan | null, fallbackYear?: string): string {
+  const fromPlan = String(plan?.year || '').trim();
+  if (fromPlan) return fromPlan;
+  const fromDate = practiceDateKey(plan?.date).slice(0, 4);
+  if (fromDate) return fromDate;
+  return String(fallbackYear || getLocalDateKey().slice(0, 4));
+}
+
+export function practiceWeekdayName(plan?: PracticePlan | null): string {
+  const named = PRACTICE_WEEKDAY_NAMES.find(
+    (day) => day.toLowerCase() === String(plan?.day || '').trim().toLowerCase()
+  );
+  if (named) return named;
+  return getDayOfWeekForDate(plan?.date);
+}
+
+export function isPreGamePracticePlan(plan?: PracticePlan | null): boolean {
+  const title = String(plan?.title || '').toLowerCase();
+  return title.includes('pre-game') || title.includes('warmup');
+}
+
+export function shouldApplyWeekdayTemplateToPlan(
+  plan: PracticePlan | null | undefined,
+  opts: {
+    weekday: string;
+    year: string;
+    today?: string;
+    teamId?: string;
+  }
+): boolean {
+  if (!plan || plan.isCancelled) return false;
+  if (isPreGamePracticePlan(plan)) return false;
+  if (opts.teamId && plan.teamId && plan.teamId !== opts.teamId) return false;
+  if (practiceSeasonYear(plan, opts.year) !== String(opts.year)) return false;
+  if (practiceWeekdayName(plan) !== opts.weekday) return false;
+  const key = practiceDateKey(plan.date);
+  if (!key) return false;
+  return key >= (opts.today || getLocalDateKey());
+}
+

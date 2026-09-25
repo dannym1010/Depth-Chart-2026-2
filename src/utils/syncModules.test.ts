@@ -1841,4 +1841,41 @@ describe('weekday practice templates', () => {
       'Standard Practice'
     );
   });
+
+  it('applies weekday templates only to future plans in that year', async () => {
+    const { shouldApplyWeekdayTemplateToPlan } = await import('./practiceUtils.ts');
+    const tueFuture = {
+      id: 'p1',
+      date: '2026-09-29',
+      day: 'Tuesday',
+      year: '2026',
+      title: 'Week 5 Tuesday',
+    };
+    const tuePast = {
+      id: 'p0',
+      date: '2026-09-22',
+      day: 'Tuesday',
+      year: '2026',
+      title: 'Week 4 Tuesday',
+    };
+    const thuFuture = {
+      id: 'p2',
+      date: '2026-10-01',
+      day: 'Thursday',
+      year: '2026',
+      title: 'Week 5 Thursday',
+    };
+    const opts = { weekday: 'Tuesday', year: '2026', today: '2026-09-24', teamId: 'team_10u' };
+    assert.equal(shouldApplyWeekdayTemplateToPlan(tueFuture as any, opts), true);
+    assert.equal(shouldApplyWeekdayTemplateToPlan(tuePast as any, opts), false);
+    assert.equal(shouldApplyWeekdayTemplateToPlan(thuFuture as any, opts), false);
+    assert.equal(
+      shouldApplyWeekdayTemplateToPlan({ ...tueFuture, year: '2025' } as any, opts),
+      false
+    );
+    assert.equal(
+      shouldApplyWeekdayTemplateToPlan({ ...tueFuture, title: 'Pre-Game Warmup: Carmel' } as any, opts),
+      false
+    );
+  });
 });

@@ -117,6 +117,9 @@ import {
   mergePracticeWeekdayTemplates,
   resolvePracticeTemplateForWeekday,
   PRACTICE_WEEKDAY_NAMES,
+  shouldApplyWeekdayTemplateToPlan,
+  practiceSeasonYear,
+  practiceWeekdayName,
 } from './utils/practiceUtils';
 import type { PracticeWeekdayTemplateMap } from './utils/practiceUtils';
 import { getAutoActiveWeek, normalizeWeeklyData, extractBackupFormations, normalizeFormationUnit, getSeasonWeekList, isDroppedFormation, getPriorSeasonWeekKey, formatWeekCopyLabel } from './utils/seasonWeekUtils';
@@ -5852,10 +5855,10 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       const rawUpdated = updater(prev);
       const updated = rawUpdated.map((p) => {
         if (!p) return p;
-        const wasTargeted = targetId ? p.id === targetId : true;
         return {
           ...p,
-          lastEdited: wasTargeted ? now : (p.lastEdited || now),
+          lastEdited:
+            targetId && p.id === targetId ? now : p.lastEdited || now,
         };
       });
       latestStateRef.current.practiceData = updated;
@@ -5885,6 +5888,18 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     const title = prompt('Enter Practice Title:', defaultTitle);
     if (!title || !title.trim()) return;
 
+    const allTemplates = {
+      ...DEFAULT_PRACTICE_TEMPLATES,
+      ...(latestStateRef.current.practiceTemplates || practiceTemplates || {}),
+    };
+    const weekdayTemplateName = resolvePracticeTemplateForWeekday(
+      dayOfWeek,
+      latestStateRef.current.practiceWeekdayTemplates || practiceWeekdayTemplates,
+      Object.keys(allTemplates),
+      'Standard Practice'
+    );
+    const seedPlan = allTemplates[weekdayTemplateName] || DEFAULT_PRACTICE_TEMPLATES['Standard Practice'] || [];
+
     const newPrac: PracticePlan = {
       id: `prac_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       teamId: activeTeamId,
@@ -5898,7 +5913,8 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       endTime: '19:00',
       location: 'Crane Road',
       lastEdited: Date.now(),
-      plan: deepClone(DEFAULT_PRACTICE_TEMPLATES['Standard Practice']),
+      plan: deepClone(seedPlan),
+      periods: deepClone(seedPlan),
     };
 
     updatePracticeDataAndSave((prev) => [...prev, newPrac]);
@@ -6250,8 +6266,63 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
     }
   };
 
+  const applyTemplateToFutureWeekdayPlans = (
+    weekday: string,
+    templateName: string,
+    opts?: { confirm?: boolean }
+  ): number => {
+    const resolved = templateName || 'Standard Practice';
+    const allTemplates = {
+      ...DEFAULT_PRACTICE_TEMPLATES,
+      ...(latestStateRef.current.practiceTemplates || practiceTemplates || {}),
+    };
+    const planToApply = Array.isArray(allTemplates[resolved])
+      ? allTemplates[resolved]
+      : (allTemplates[resolved] as any)?.plan || (allTemplates[resolved] as any)?.periods;
+    if (!Array.isArray(planToApply) || planToApply.length === 0) return 0;
+
+    const year = practiceSeasonYear(
+      undefined,
+      String((seasonConfig as any)?.year || getLocalDateKey().slice(0, 4))
+    );
+    const today = getLocalDateKey();
+    const teamId = activeTeamId;
+    const currentList =
+      (latestStateRef.current.practiceData || practiceData || []).filter(Boolean);
+    const matches = currentList.filter((p) =>
+      shouldApplyWeekdayTemplateToPlan(p, { weekday, year, today, teamId })
+    );
+    if (!matches.length) return 0;
+    if (
+      opts?.confirm !== false &&
+      !window.confirm(
+        `Apply "${resolved}" to ${matches.length} upcoming ${weekday} practice${
+          matches.length === 1 ? '' : 's'
+        } in ${year}? Past ${weekday} plans will stay as they are.`
+      )
+    ) {
+      return -1;
+    }
+
+    const matchIds = new Set(matches.map((p) => p.id));
+    updatePracticeDataAndSave((prev) =>
+      prev.map((p) =>
+        matchIds.has(p.id)
+          ? {
+              ...p,
+              plan: deepClone(planToApply),
+              periods: deepClone(planToApply),
+              lastEdited: Date.now(),
+            }
+          : p
+      )
+    );
+    debouncedSave('practice');
+    return matches.length;
+  };
+
   const handleApplyPracticeTemplate = (templateName: string) => {
-    const tmpl = practiceTemplates[templateName];
+    const tmpl = practiceTemplates[templateName] || DEFAULT_PRACTICE_TEMPLATES[templateName];
     if (!tmpl) {
       alert(`Template "${templateName}" not found.`);
       return;
@@ -6263,37 +6334,58 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
       alert(`Template "${templateName}" has no periods to apply.`);
       return;
     }
+    const activeList =
+      activeTeamPracticeData.length > 0 ? activeTeamPracticeData : practiceData;
+    const targetId =
+      currentPracticeId ||
+      findBestActivePracticeId(activeList) ||
+      activeList[0]?.id;
+    const currentPlan = activeList.find((p) => p && p.id === targetId);
+    const weekday = practiceWeekdayName(currentPlan);
+    const year = practiceSeasonYear(
+      currentPlan,
+      String((seasonConfig as any)?.year || getLocalDateKey().slice(0, 4))
+    );
+    const today = getLocalDateKey();
+    const currentIsFuture = shouldApplyWeekdayTemplateToPlan(currentPlan, {
+      weekday,
+      year,
+      today,
+      teamId: activeTeamId,
+    });
+
+    if (currentIsFuture) {
+      const applied = applyTemplateToFutureWeekdayPlans(weekday, templateName);
+      if (applied > 0) return;
+      if (applied < 0) return;
+    }
+
     if (
-      confirm(
+      !confirm(
         `Apply template "${templateName}"? This will replace the periods in the active practice plan.`
       )
     ) {
-      const activeList =
-        activeTeamPracticeData.length > 0 ? activeTeamPracticeData : practiceData;
-      const targetId =
-        currentPracticeId ||
-        findBestActivePracticeId(activeList) ||
-        activeList[0]?.id;
-
-      if (!targetId) {
-        alert('Please create or select a practice plan first.');
-        return;
-      }
-
-      updatePracticeDataAndSave((prev) =>
-        prev.map((p) =>
-          p.id === targetId
-            ? {
-                ...p,
-                plan: deepClone(planToApply),
-                periods: deepClone(planToApply),
-                lastEdited: Date.now(),
-              }
-            : p
-        )
-      );
-      debouncedSave('practice');
+      return;
     }
+
+    if (!targetId) {
+      alert('Please create or select a practice plan first.');
+      return;
+    }
+
+    updatePracticeDataAndSave((prev) =>
+      prev.map((p) =>
+        p.id === targetId
+          ? {
+              ...p,
+              plan: deepClone(planToApply),
+              periods: deepClone(planToApply),
+              lastEdited: Date.now(),
+            }
+          : p
+      )
+    );
+    debouncedSave('practice');
   };
 
   const handleSaveCurrentAsTemplate = (customName?: string) => {
@@ -10124,6 +10216,7 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
           latestStateRef.current.practiceWeekdayTemplates = next;
           safeJSONSet('footballPracticeWeekdayTemplates', next);
           debouncedSave('drills');
+          applyTemplateToFutureWeekdayPlans(day, templateName || 'Standard Practice');
         }}
         onRenameTemplate={(oldName, newName) => {
           setPracticeTemplates((prev) => {

@@ -1581,7 +1581,7 @@ export const TemplatesManagerModal: React.FC<TemplatesManagerModalProps> = ({
               Default template by weekday
             </div>
             <p className="text-[11px] text-slate-400 leading-snug">
-              Used when you create a plan from a TeamSnap schedule practice. Does not change the calendar.
+              Applies to upcoming practices this year on that weekday. Past plans are left unchanged.
             </p>
             <div className="space-y-1.5">
               {PRACTICE_WEEKDAY_NAMES.map((day) => (
