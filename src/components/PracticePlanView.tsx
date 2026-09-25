@@ -48,6 +48,7 @@ import {
   Smartphone,
   Vibrate,
   Sliders,
+  MoreHorizontal,
 } from 'lucide-react';
 import {
   PracticePlan,
@@ -202,6 +203,11 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
   const [isPocketModalOpen, setIsPocketModalOpen] = useState(false);
   const [weekdayPicks, setWeekdayPicks] = useState<PracticeWeekdayTemplateMap>(weekdayTemplates);
   const printMenuRef = useRef<HTMLDivElement>(null);
+  // Secondary plan actions live in a "More" menu; season setup lives in a collapsed panel.
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+  const [isPlanSetupOpen, setIsPlanSetupOpen] = useState(false);
+  const [dismissedLatestEditId, setDismissedLatestEditId] = useState<string | null>(null);
   const effectiveWhiteboardDrills = useMemo(
     () => (whiteboardDrills && whiteboardDrills.length > 0 ? whiteboardDrills : WHITEBOARD_DRILLS),
     [whiteboardDrills]
@@ -229,6 +235,9 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
     const handleClickOutside = (e: MouseEvent) => {
       if (printMenuRef.current && !printMenuRef.current.contains(e.target as Node)) {
         setIsPrintMenuOpen(false);
+      }
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setIsMoreMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -1269,11 +1278,11 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
   return (
     <div className="space-y-5 pb-80 sm:pb-96 min-h-[calc(100vh-120px)] print:space-y-0 print:pb-0 print:min-h-0 print:m-0 print:p-0">
       {/* Top Action & Navigation Bar */}
-      <div className="bg-slate-800/95 backdrop-blur-md rounded-3xl border border-slate-700/80 shadow-xl p-5 print:hidden space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-700/80">
+      <div className="relative z-30 bg-slate-800/95 backdrop-blur-md rounded-3xl border border-slate-700/80 shadow-xl p-4 print:hidden space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           
           {/* Enhanced Practice Plan Selector & Quick Switcher */}
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 min-w-0 w-full sm:w-auto">
             
             {/* Prev Practice Arrow */}
             <button
@@ -1281,7 +1290,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
               disabled={!prevPractice}
               onClick={() => prevPractice && onSelectPractice(prevPractice.id)}
               title={prevPractice ? `Go to Previous: ${prevPractice.title}` : 'No earlier practices'}
-              className={`p-2 rounded-xl border flex items-center justify-center transition-all ${
+              className={`shrink-0 p-2 rounded-xl border flex items-center justify-center transition-all ${
                 prevPractice
                   ? 'bg-slate-900 hover:bg-slate-750 text-slate-200 border-slate-700 hover:border-slate-500 active:scale-95 cursor-pointer shadow-sm'
                   : 'bg-slate-900/50 text-slate-600 border-slate-800 cursor-not-allowed opacity-40'
@@ -1294,7 +1303,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
             <button
               type="button"
               onClick={() => setIsPlanLibraryOpen(true)}
-              className={`px-3.5 py-2 border rounded-2xl text-xs font-bold flex items-center gap-2.5 shadow-md transition-all active:scale-98 group cursor-pointer ${
+              className={`min-w-0 flex-1 sm:flex-initial px-3.5 py-2 border rounded-2xl text-xs font-bold flex items-center gap-2.5 shadow-md transition-all active:scale-98 group cursor-pointer ${
                 currentPlan?.isCancelled
                   ? 'bg-gradient-to-r from-rose-950/80 to-slate-900 border-rose-500/50 text-rose-100'
                   : 'bg-gradient-to-r from-slate-900 to-slate-850 hover:from-slate-800 hover:to-slate-750 border-slate-700/90 hover:border-indigo-500/60 text-slate-100'
@@ -1310,7 +1319,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
               >
                 {currentPlan?.isCancelled ? <Ban className="w-4 h-4" /> : <FolderOpen className="w-4 h-4" />}
               </div>
-              <div className="text-left">
+              <div className="text-left min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
                   <span className="px-1.5 py-0.2 rounded bg-indigo-950/80 border border-indigo-500/40 text-[9px] font-black text-indigo-300 uppercase tracking-wider">
                     {currentPlan?.weekFolder || 'Week 1'}
@@ -1350,7 +1359,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
               disabled={!nextPractice}
               onClick={() => nextPractice && onSelectPractice(nextPractice.id)}
               title={nextPractice ? `Go to Next: ${nextPractice.title}` : 'No later practices'}
-              className={`p-2 rounded-xl border flex items-center justify-center transition-all ${
+              className={`shrink-0 p-2 rounded-xl border flex items-center justify-center transition-all ${
                 nextPractice
                   ? 'bg-slate-900 hover:bg-slate-750 text-slate-200 border-slate-700 hover:border-slate-500 active:scale-95 cursor-pointer shadow-sm'
                   : 'bg-slate-900/50 text-slate-600 border-slate-800 cursor-not-allowed opacity-40'
@@ -1359,146 +1368,369 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
               <ChevronRight className="w-4 h-4" />
             </button>
 
-            {/* Practice Day Counter Badge (Dynamic & State-Aware) */}
-            {currentSeq && (
-              <div
-                className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-2xl border text-xs font-bold shadow-inner ${
-                  currentSeq.isCancelled
-                    ? 'bg-rose-950/70 border-rose-500/50 text-rose-200'
-                    : currentSeq.isNonPractice
-                    ? 'bg-amber-950/80 border-amber-500/50 text-amber-200'
-                    : 'bg-indigo-950/80 border-indigo-500/40 text-indigo-200'
-                }`}
-                title={
-                  currentSeq.isCancelled
-                    ? 'Cancelled practice: Excluded from cumulative practice day held count.'
-                    : currentSeq.isNonPractice
-                    ? 'Non-practice event: Excluded from cumulative practice day count.'
-                    : `Held Practice #${currentSeq.practiceNumber} of ${currentSeq.totalActivePractices} active practices in the season.`
-                }
+          </div>
+
+          {/* Mode toggle, primary action, print, and everything else under More */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center bg-slate-900 p-1 rounded-2xl border border-slate-700/80">
+              {([
+                [true, 'View', 'Sideline view: easy to read on a phone or tablet'],
+                [false, 'Edit', 'Edit periods, drills, and plan setup'],
+              ] as const).map(([isView, label, title]) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setViewOnlyMode(isView)}
+                  title={title}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer ${
+                    viewOnlyMode === isView ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {isView ? <Eye className="w-3.5 h-3.5" /> : <Edit className="w-3.5 h-3.5" />}
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
+
+            {userRole === 'admin' && (
+              <button
+                type="button"
+                onClick={() => setIsWizardOpen(true)}
+                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs rounded-xl shadow-sm flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                title="Multi-Week & Multi-Day Practice Wizard"
               >
-                {currentSeq.isCancelled ? (
-                  <>
-                    <Ban className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                    <span className="font-black text-rose-300 uppercase tracking-tight text-[11px]">
-                      Cancelled (Not Counted)
-                    </span>
-                  </>
-                ) : currentSeq.isNonPractice ? (
-                  <>
-                    <FileText className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                    <span className="font-black text-amber-300 uppercase tracking-tight text-[11px]">
-                      Non-Practice (Not Counted)
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="px-1.5 py-0.5 rounded-md bg-indigo-600 text-white font-black text-[10px]">
-                      Day {currentSeq.practiceNumber}
-                    </span>
-                    <span className="font-mono text-slate-300 text-[11px]">
-                      Practice #{currentSeq.practiceNumber} Held
-                    </span>
-                  </>
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Practice Wizard</span>
+              </button>
+            )}
+
+            {/* Multi-Mode Smart Print Button */}
+            <div className="relative inline-flex items-center" ref={printMenuRef}>
+              <button
+                type="button"
+                onClick={() => setIsPrintPackageModalOpen(true)}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-750 hover:bg-slate-700 text-slate-100 font-bold text-xs rounded-l-xl border border-r-0 border-slate-700 shadow-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                title="Print practice plan with option to select drill whiteboard sheets"
+              >
+                <Printer className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Print Plan</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsPrintMenuOpen(!isPrintMenuOpen)}
+                className="px-2 py-2 bg-slate-900 hover:bg-slate-750 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-r-xl border border-slate-700 shadow-md transition-all active:scale-95 cursor-pointer"
+                title="Print options & new-tab printable sheet"
+              >
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isPrintMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {isPrintMenuOpen && (
+                <div className="absolute right-0 top-full mt-1.5 w-68 bg-slate-850 border border-slate-600 rounded-2xl shadow-2xl p-2 z-50 space-y-1 backdrop-blur-md ring-1 ring-slate-700/80 animate-in fade-in duration-150">
+                  <div className="px-2.5 py-1 text-[10px] font-black uppercase text-slate-400 border-b border-slate-700">
+                    Print Options
+                  </div>
+                  <label className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[11px] font-bold text-slate-300">
+                    <span>Print font size</span>
+                    <select
+                    value={printFontSize}
+                    onChange={(e) => onUpdatePrintFontSize(e.target.value)}
+                    className="bg-slate-800 border border-slate-600 text-xs font-semibold text-slate-200 rounded-lg px-1.5 py-1 focus:outline-none cursor-pointer"
+                    >
+                    <option value="9">9px (Compact)</option>
+                    <option value="10">10px (Small)</option>
+                    <option value="11">11px (Medium)</option>
+                    <option value="12">12px (Large - Default)</option>
+                    <option value="13">13px (XL)</option>
+                    <option value="14">14px (2XL - Big)</option>
+                    <option value="15">15px (3XL)</option>
+                    <option value="16">16px (Jumbo)</option>
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPrintMenuOpen(false);
+                      setIsPrintPackageModalOpen(true);
+                    }}
+                    className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-200 hover:bg-indigo-600 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <div>
+                      <div>Print Plan & Drill Sheets...</div>
+                      <div className="text-[10px] text-slate-400 font-normal">Select drills to print alongside plan</div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPrintMenuOpen(false);
+                      setIsPocketModalOpen(true);
+                    }}
+                    className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-200 hover:bg-indigo-600 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
+                  >
+                    <Shield className="w-3.5 h-3.5" />
+                    <div>
+                      <div>Pocket Depth Chart (All Formations)...</div>
+                      <div className="text-[10px] text-slate-400 font-normal">Print all formations (Offense, Defense, ST)</div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPrintMenuOpen(false);
+                      handleExecutePrint('clean');
+                    }}
+                    className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-200 hover:bg-indigo-600 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <div>
+                      <div>Quick Print (Plan Only)</div>
+                      <div className="text-[10px] text-slate-400 group-hover:text-indigo-100 font-normal">Fast layout, avoids browser preview hangs</div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPrintMenuOpen(false);
+                      handleExecutePrint('tab');
+                    }}
+                    className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-200 hover:bg-indigo-600 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <div>
+                      <div>Open Printable Tab (Plan Only)</div>
+                      <div className="text-[10px] text-slate-400 group-hover:text-indigo-100 font-normal">Best for saving PDF or Chrome iframe bypass</div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPrintMenuOpen(false);
+                      handleExecutePrint('direct');
+                    }}
+                    className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-200 hover:bg-slate-700 flex items-center gap-2 transition-all cursor-pointer"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                    <div>
+                      <div>Standard Full Page Print</div>
+                      <div className="text-[10px] text-slate-400 font-normal">Direct window.print()</div>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {(userRole === 'admin' || onNavigateToSchedule) && (
+              <div className="relative" ref={moreMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsMoreMenuOpen((open) => !open)}
+                  aria-haspopup="menu"
+                  aria-expanded={isMoreMenuOpen}
+                  className="px-3 py-2 bg-slate-900 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl border border-slate-700 flex items-center gap-1 transition-all cursor-pointer"
+                  title="More practice actions"
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                  <span>More</span>
+                </button>
+                {isMoreMenuOpen && (
+                  <div role="menu" className="absolute right-0 top-full mt-1.5 w-60 bg-slate-850 bg-slate-900 border border-slate-600 rounded-2xl shadow-2xl p-1.5 z-50">
+                    {userRole === 'admin' && (
+                      <>
+                    <button
+                      type="button"
+                      onClick={() => { setIsMoreMenuOpen(false); onOpenNewPracticeModal(); }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer text-slate-200 hover:bg-slate-700"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>New Plan</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setIsMoreMenuOpen(false); onEditPracticeDetails(); }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer text-slate-200 hover:bg-slate-700"
+                    >
+                      <Edit className="w-3.5 h-3.5" />
+                      <span>Edit Details</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setIsMoreMenuOpen(false); onAutoNumberPractices(); }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer text-slate-200 hover:bg-slate-700"
+                    >
+                      <Hash className="w-3.5 h-3.5" />
+                      <span>Auto-Number Practice Days</span>
+                    </button>
+                    <div className="my-1 border-t border-slate-700" />
+                    <button
+                      type="button"
+                      onClick={() => { setIsMoreMenuOpen(false); handleToggleCancel(); }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer text-slate-200 hover:bg-slate-700"
+                    >
+                      {currentPlan?.isCancelled ? <RotateCcw className="w-3.5 h-3.5" /> : <Ban className="w-3.5 h-3.5" />}
+                      <span>{currentPlan?.isCancelled ? 'Reinstate Practice' : 'Cancel Practice'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setIsMoreMenuOpen(false); handleToggleNonPractice(); }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer text-slate-200 hover:bg-slate-700"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>{currentPlan?.isNonPractice ? 'Count as Practice' : 'Mark Non-Practice'}</span>
+                    </button>
+                      </>
+                    )}
+                    {onNavigateToSchedule && (
+                      <>
+                        {userRole === 'admin' && <div className="my-1 border-t border-slate-700" />}
+                    <button
+                      type="button"
+                      onClick={() => { setIsMoreMenuOpen(false); onNavigateToSchedule(); }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer text-slate-200 hover:bg-slate-700"
+                    >
+                      <Calendar className="w-3.5 h-3.5" />
+                      <span>Open Season Schedule</span>
+                    </button>
+                      </>
+                    )}
+                    {userRole === 'admin' && (
+                      <>
+                    <div className="my-1 border-t border-slate-700" />
+                    <button
+                      type="button"
+                      onClick={() => { setIsMoreMenuOpen(false); onDeletePractice(); }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer text-rose-300 hover:bg-rose-950/60"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete Practice Plan</span>
+                    </button>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
             )}
+          </div>
+        </div>
 
-            {/* Practice Plan Management Buttons */}
+        {/* Newer plan edited by another coach: one quiet line, dismissible */}
+        {latestEditedPlan && currentPlan && latestEditedPlan.id !== currentPlan.id && dismissedLatestEditId !== latestEditedPlan.id && (
+          <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs text-slate-300">
+            <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+            <span className="min-w-0 truncate">
+              Recently edited: <span className="font-bold text-slate-100">{latestEditedPlan.title}</span>
+              <span className="text-slate-500"> · {formatLastEditedTime(latestEditedPlan.lastEdited)}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => onSelectPractice(latestEditedPlan.id)}
+              className="ml-auto shrink-0 font-bold text-indigo-300 hover:text-indigo-200 cursor-pointer"
+            >
+              Open
+            </button>
+            <button
+              type="button"
+              onClick={() => setDismissedLatestEditId(latestEditedPlan.id)}
+              className="shrink-0 p-1 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800 cursor-pointer"
+              title="Dismiss"
+              aria-label="Dismiss recent edit notice"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Cancellation Alert Banner */}
+        {currentPlan?.isCancelled && (
+          <div className="bg-rose-950/80 border border-rose-500/60 rounded-2xl p-3.5 text-xs text-rose-200 flex items-center justify-between gap-3 animate-in fade-in duration-200">
+            <div className="flex items-center gap-2.5">
+              <div className="p-1.5 bg-rose-500/20 text-rose-400 rounded-lg">
+                <Ban className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="font-black text-rose-100 uppercase tracking-tight">
+                  This practice is marked as CANCELLED
+                </div>
+                <div className="text-[11px] text-rose-300/90 font-medium">
+                  {currentPlan.cancellationReason
+                    ? `Reason: ${currentPlan.cancellationReason}. `
+                    : ''}
+                  This practice is excluded from the cumulative practice day count. Subsequent practices are automatically re-numbered.
+                </div>
+              </div>
+            </div>
             {userRole === 'admin' && (
-              <>
-                <button
-                  onClick={() => setIsWizardOpen(true)}
-                  className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow-md shadow-amber-500/20 flex items-center gap-1.5 transition-all active:scale-95 border border-amber-400/40 cursor-pointer"
-                  title="Multi-Week & Multi-Day Practice Wizard"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-slate-950" />
-                  <span>Practice Wizard</span>
-                </button>
-                <button
-                  onClick={onOpenNewPracticeModal}
-                  className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-md shadow-indigo-600/30 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>New Plan</span>
-                </button>
-                <button
-                  onClick={onEditPracticeDetails}
-                  title="Edit Date, Day, Year, Week title"
-                  className="px-3 py-2 bg-slate-900 hover:bg-slate-750 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl border border-slate-700 flex items-center gap-1 transition-all cursor-pointer"
-                >
-                  <Edit className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>Details</span>
-                </button>
-                <button
-                  onClick={onAutoNumberPractices}
-                  title="Auto-number non-cancelled practice days sequentially by date"
-                  className="px-3 py-2 bg-slate-900 hover:bg-slate-750 hover:bg-slate-700 text-sky-300 font-bold text-xs rounded-xl border border-slate-700 flex items-center gap-1 transition-all cursor-pointer"
-                >
-                  <Hash className="w-3.5 h-3.5 text-sky-400" />
-                  <span>Auto # Days</span>
-                </button>
-
-                {/* Cancel / Reinstate Toggle Button */}
-                <button
-                  type="button"
-                  onClick={handleToggleCancel}
-                  title={
-                    currentPlan?.isCancelled
-                      ? 'Reinstate this practice (will re-enter practice day numbering sequence)'
-                      : 'Cancel this practice (will exclude from practice day count and automatically re-number remaining practices)'
-                  }
-                  className={`px-3 py-2 font-bold text-xs rounded-xl border flex items-center gap-1.5 transition-all cursor-pointer ${
-                    currentPlan?.isCancelled
-                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500 shadow-md shadow-emerald-600/30'
-                      : 'bg-slate-900 hover:bg-rose-950/60 text-rose-400 hover:text-rose-300 border-slate-700 hover:border-rose-500/50'
-                  }`}
-                >
-                  {currentPlan?.isCancelled ? (
-                    <>
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      <span>Reinstate Practice</span>
-                    </>
-                  ) : (
-                    <>
-                      <Ban className="w-3.5 h-3.5" />
-                      <span>Cancel Practice</span>
-                    </>
-                  )}
-                </button>
-
-                {/* Non-Practice Toggle Button */}
-                <button
-                  type="button"
-                  onClick={handleToggleNonPractice}
-                  title={
-                    currentPlan?.isNonPractice
-                      ? 'Re-count as regular practice (will be assigned a Practice Day number)'
-                      : 'Label as non-practice event (will exclude from cumulative practice day count and re-number remaining practices)'
-                  }
-                  className={`px-3 py-2 font-bold text-xs rounded-xl border flex items-center gap-1.5 transition-all cursor-pointer ${
-                    currentPlan?.isNonPractice
-                      ? 'bg-amber-600 hover:bg-amber-500 text-slate-950 border-amber-400 shadow-md shadow-amber-600/30'
-                      : 'bg-slate-900 hover:bg-amber-950/60 text-amber-400 hover:text-amber-300 border-slate-700 hover:border-amber-500/50'
-                  }`}
-                >
-                  <FileText className="w-3.5 h-3.5" />
-                  <span>{currentPlan?.isNonPractice ? 'Is Non-Practice' : 'Mark Non-Practice'}</span>
-                </button>
-
-                <button
-                  onClick={onDeletePractice}
-                  title="Delete this practice plan"
-                  className="p-2 text-rose-400 hover:bg-rose-950/50 rounded-xl transition-colors cursor-pointer"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={handleToggleCancel}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1 shrink-0 cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Reinstate</span>
+              </button>
             )}
           </div>
+        )}
 
-          {/* Templates & Print Controls */}
-          <div className="flex items-center gap-2 flex-wrap">
+        {/* Non-Practice Notification Banner */}
+        {currentPlan && currentPlan.isNonPractice && !currentPlan.isCancelled && (
+          <div className="bg-amber-950/80 border border-amber-500/50 rounded-2xl p-3.5 flex items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5">
+              <FileText className="w-5 h-5 text-amber-400 shrink-0" />
+              <div>
+                <div className="font-black text-amber-100 uppercase tracking-tight">
+                  This event is marked as NON-PRACTICE
+                </div>
+                <div className="text-[11px] text-amber-300/90 font-medium">
+                  This session is excluded from the cumulative practice day count (e.g. equipment pickup, team meeting, orientation). Subsequent practices are automatically re-numbered.
+                </div>
+              </div>
+            </div>
+            {userRole === 'admin' && (
+              <button
+                type="button"
+                onClick={handleToggleNonPractice}
+                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-black text-xs rounded-xl shadow-md flex items-center gap-1 shrink-0 cursor-pointer"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Count as Practice</span>
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Plan setup (templates, weekday templates, date/time/status), collapsed by default */}
+        {currentPlan && !viewOnlyMode && (
+          <div className="rounded-2xl border border-slate-700 bg-slate-900/60">
+            <div className="flex items-center justify-between gap-2 px-3 py-2">
+              <button
+                type="button"
+                onClick={() => setIsPlanSetupOpen((open) => !open)}
+                aria-expanded={isPlanSetupOpen}
+                className="flex items-center gap-2 min-w-0 text-left cursor-pointer"
+              >
+                <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${isPlanSetupOpen ? '' : '-rotate-90'}`} />
+                <span className="text-[11px] font-black uppercase tracking-wider text-slate-200 shrink-0">Plan setup</span>
+                <span className="text-xs text-slate-400 truncate">
+                  {currentPlan.day || getDayOfWeekForDate(currentPlan.date)} {currentPlan.date || 'No date'} · {practiceTimeSpanStr} · {currentPlanPeriodsCount} periods ·{' '}
+                  {currentPlan.isCancelled ? 'Cancelled' : 'Active'}
+                  {currentPlan.isNonPractice ? ' · Non-practice' : ''}
+                </span>
+              </button>
+              {userRole === 'admin' && (
+                <button
+                  type="button"
+                  onClick={onAddPeriod}
+                  className="shrink-0 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold text-xs rounded-xl border border-slate-600 flex items-center gap-1 transition-all active:scale-95 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Add Period</span>
+                </button>
+              )}
+            </div>
+            {isPlanSetupOpen && (
+              <div className="border-t border-slate-700 p-3 space-y-3">
+                <div className="flex items-center gap-2 flex-wrap">
             {userRole === 'admin' && (
               <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 px-2.5 py-1 rounded-xl">
                 <span className="text-[11px] font-black uppercase text-slate-300">
@@ -1579,271 +1811,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
               </div>
             )}
 
-            {/* Print font size */}
-            <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 px-2.5 py-1 rounded-xl">
-              <span className="text-[11px] font-black uppercase text-slate-300">Font:</span>
-              <select
-                value={printFontSize}
-                onChange={(e) => onUpdatePrintFontSize(e.target.value)}
-                className="bg-slate-800 border border-slate-600 text-xs font-semibold text-slate-200 rounded-lg px-1.5 py-1 focus:outline-none cursor-pointer"
-              >
-                <option value="9">9px (Compact)</option>
-                <option value="10">10px (Small)</option>
-                <option value="11">11px (Medium)</option>
-                <option value="12">12px (Large - Default)</option>
-                <option value="13">13px (XL)</option>
-                <option value="14">14px (2XL - Big)</option>
-                <option value="15">15px (3XL)</option>
-                <option value="16">16px (Jumbo)</option>
-              </select>
-            </div>
-
-            {userRole === 'admin' && (
-              <button
-                onClick={onAddPeriod}
-                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md shadow-emerald-600/30 flex items-center gap-1 transition-all active:scale-95 cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add Period</span>
-              </button>
-            )}
-
-            {onNavigateToSchedule && (
-              <button
-                type="button"
-                onClick={onNavigateToSchedule}
-                className="px-3.5 py-2 bg-slate-900 hover:bg-slate-750 hover:bg-slate-700 text-amber-300 font-bold text-xs rounded-xl border border-slate-700 shadow-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
-                title="View in Season Schedule"
-              >
-                <Calendar className="w-3.5 h-3.5 text-amber-400" />
-                <span>Season Schedule</span>
-              </button>
-            )}
-
-            {/* View Mode vs Edit Mode Toggle (Elevated for field and mobile use) */}
-            <div className="flex items-center bg-slate-900 p-1 rounded-2xl border border-slate-700/80 shadow-inner">
-              <button
-                type="button"
-                onClick={() => setViewOnlyMode(true)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer ${
-                  viewOnlyMode
-                    ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="Switch to viewing-focused sideline mode (easy to read on phone/tablet, no edit clutter)"
-              >
-                <Eye className="w-3.5 h-3.5" />
-                <span>View Mode</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewOnlyMode(false)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer ${
-                  !viewOnlyMode
-                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="Switch to full editing mode"
-              >
-                <Edit className="w-3.5 h-3.5" />
-                <span>Edit Mode</span>
-              </button>
-            </div>
-
-            {/* Multi-Mode Smart Print Button */}
-            <div className="relative inline-flex items-center" ref={printMenuRef}>
-              <button
-                type="button"
-                onClick={() => setIsPrintPackageModalOpen(true)}
-                className="px-4 py-2 bg-slate-900 hover:bg-slate-750 hover:bg-slate-700 text-slate-100 font-bold text-xs rounded-l-xl border border-r-0 border-slate-700 shadow-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
-                title="Print practice plan with option to select drill whiteboard sheets"
-              >
-                <Printer className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Print Plan</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsPrintMenuOpen(!isPrintMenuOpen)}
-                className="px-2 py-2 bg-slate-900 hover:bg-slate-750 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-r-xl border border-slate-700 shadow-md transition-all active:scale-95 cursor-pointer"
-                title="Print options & new-tab printable sheet"
-              >
-                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isPrintMenuOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              {isPrintMenuOpen && (
-                <div className="absolute right-0 top-full mt-1.5 w-68 bg-slate-850 border border-slate-600 rounded-2xl shadow-2xl p-2 z-50 space-y-1 backdrop-blur-md ring-1 ring-slate-700/80 animate-in fade-in duration-150">
-                  <div className="px-2.5 py-1 text-[10px] font-black uppercase text-slate-400 border-b border-slate-700">
-                    Print Options
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsPrintMenuOpen(false);
-                      setIsPrintPackageModalOpen(true);
-                    }}
-                    className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-indigo-300 hover:bg-indigo-600 hover:text-white flex items-center gap-2 transition-all cursor-pointer bg-indigo-950/40 border border-indigo-700/40"
-                  >
-                    <Layers className="w-3.5 h-3.5 text-indigo-400" />
-                    <div>
-                      <div>Print Plan & Drill Sheets...</div>
-                      <div className="text-[10px] text-indigo-200 font-normal">Select drills to print alongside plan</div>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsPrintMenuOpen(false);
-                      setIsPocketModalOpen(true);
-                    }}
-                    className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-amber-300 hover:bg-amber-600 hover:text-white flex items-center gap-2 transition-all cursor-pointer bg-amber-950/40 border border-amber-700/40"
-                  >
-                    <Shield className="w-3.5 h-3.5 text-amber-400" />
-                    <div>
-                      <div>Pocket Depth Chart (All Formations)...</div>
-                      <div className="text-[10px] text-amber-200 font-normal">Print all formations (Offense, Defense, ST)</div>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsPrintMenuOpen(false);
-                      handleExecutePrint('clean');
-                    }}
-                    className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-200 hover:bg-indigo-600 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
-                  >
-                    <Printer className="w-3.5 h-3.5" />
-                    <div>
-                      <div>Quick Print (Plan Only)</div>
-                      <div className="text-[10px] text-slate-400 group-hover:text-indigo-100 font-normal">Fast layout, avoids browser preview hangs</div>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsPrintMenuOpen(false);
-                      handleExecutePrint('tab');
-                    }}
-                    className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-200 hover:bg-indigo-600 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
-                  >
-                    <FileText className="w-3.5 h-3.5" />
-                    <div>
-                      <div>Open Printable Tab (Plan Only)</div>
-                      <div className="text-[10px] text-slate-400 group-hover:text-indigo-100 font-normal">Best for saving PDF or Chrome iframe bypass</div>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsPrintMenuOpen(false);
-                      handleExecutePrint('direct');
-                    }}
-                    className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-200 hover:bg-slate-700 flex items-center gap-2 transition-all cursor-pointer"
-                  >
-                    <Settings className="w-3.5 h-3.5" />
-                    <div>
-                      <div>Standard Full Page Print</div>
-                      <div className="text-[10px] text-slate-400 font-normal">Direct window.print()</div>
-                    </div>
-                  </button>
                 </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Coach Latest Edit Notification / Quick Switcher Banner */}
-        {latestEditedPlan && currentPlan && latestEditedPlan.id !== currentPlan.id && (
-          <div className="bg-gradient-to-r from-amber-950/70 via-indigo-950/70 to-slate-900 border border-amber-500/40 rounded-2xl p-3 text-xs text-amber-100 flex flex-wrap items-center justify-between gap-3 shadow-md animate-in fade-in duration-200">
-            <div className="flex items-center gap-2.5">
-              <div className="p-1.5 bg-amber-500/20 text-amber-400 rounded-lg shrink-0">
-                <Sparkles className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="font-bold text-slate-100 flex items-center gap-2 flex-wrap">
-                  <span>Recent Coach Edit:</span>
-                  <span className="font-black text-amber-300">{latestEditedPlan.title}</span>
-                  <span className="px-1.5 py-0.5 rounded bg-indigo-900/60 border border-indigo-500/40 text-[10px] text-indigo-300">
-                    {latestEditedPlan.weekFolder} • {latestEditedPlan.date || 'No Date'}
-                  </span>
-                  <span className="text-[10px] text-slate-400">
-                    ({formatLastEditedTime(latestEditedPlan.lastEdited)})
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-300">
-                  A head coach recently updated this plan. Click below to view the latest edits.
-                </div>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => onSelectPractice(latestEditedPlan.id)}
-              className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow transition-all active:scale-95 cursor-pointer flex items-center gap-1"
-            >
-              <span>View Latest Plan</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
-
-        {/* Cancellation Alert Banner */}
-        {currentPlan?.isCancelled && (
-          <div className="bg-rose-950/80 border border-rose-500/60 rounded-2xl p-3.5 text-xs text-rose-200 flex items-center justify-between gap-3 animate-in fade-in duration-200">
-            <div className="flex items-center gap-2.5">
-              <div className="p-1.5 bg-rose-500/20 text-rose-400 rounded-lg">
-                <Ban className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="font-black text-rose-100 uppercase tracking-tight">
-                  This practice is marked as CANCELLED
-                </div>
-                <div className="text-[11px] text-rose-300/90 font-medium">
-                  {currentPlan.cancellationReason
-                    ? `Reason: ${currentPlan.cancellationReason}. `
-                    : ''}
-                  This practice is excluded from the cumulative practice day count. Subsequent practices are automatically re-numbered.
-                </div>
-              </div>
-            </div>
-            {userRole === 'admin' && (
-              <button
-                type="button"
-                onClick={handleToggleCancel}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1 shrink-0 cursor-pointer"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Reinstate</span>
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Non-Practice Notification Banner */}
-        {currentPlan && currentPlan.isNonPractice && !currentPlan.isCancelled && (
-          <div className="bg-amber-950/80 border border-amber-500/50 rounded-2xl p-3.5 flex items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2.5">
-              <FileText className="w-5 h-5 text-amber-400 shrink-0" />
-              <div>
-                <div className="font-black text-amber-100 uppercase tracking-tight">
-                  This event is marked as NON-PRACTICE
-                </div>
-                <div className="text-[11px] text-amber-300/90 font-medium">
-                  This session is excluded from the cumulative practice day count (e.g. equipment pickup, team meeting, orientation). Subsequent practices are automatically re-numbered.
-                </div>
-              </div>
-            </div>
-            {userRole === 'admin' && (
-              <button
-                type="button"
-                onClick={handleToggleNonPractice}
-                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-black text-xs rounded-xl shadow-md flex items-center gap-1 shrink-0 cursor-pointer"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>Count as Practice</span>
-              </button>
-            )}
-          </div>
-        )}
-
         {/* Practice Meta Bar */}
         {currentPlan && (
           <div className="grid grid-cols-2 sm:grid-cols-7 gap-3 bg-slate-900/90 p-3.5 rounded-2xl border border-slate-700 text-xs font-semibold text-slate-200">
@@ -1994,6 +1962,10 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
                 </button>
               </div>
             </div>
+          </div>
+        )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -2754,52 +2726,6 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
       {/* View-Focused Sideline Reader (Mobile & Field Friendly) */}
       {viewOnlyMode && (
         <div className="print:hidden space-y-4 animate-in fade-in duration-200">
-          {/* Top Banner with Text Size and Period Count */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-4 shadow-xl flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-2xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center justify-center font-black">
-                <Eye className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-black text-white uppercase tracking-wider">
-                    Sideline Viewing Mode
-                  </span>
-                  <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    Read-Only
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-400 mt-0.5">
-                  Optimized for fast reading on phones, tablets, and field conditions.
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setViewFontSize((prev) => (prev === 'normal' ? 'large' : 'normal'))}
-                className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  viewFontSize === 'large'
-                    ? 'bg-amber-400 text-slate-950 border-amber-500 font-black shadow-sm'
-                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-750'
-                }`}
-              >
-                <span>Font Size:</span>
-                <span className="font-black uppercase">{viewFontSize === 'large' ? 'Large' : 'Normal'}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setViewOnlyMode(false)}
-                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-indigo-300 border border-slate-700 text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
-              >
-                <Edit className="w-3.5 h-3.5" />
-                <span>Switch to Edit</span>
-              </button>
-            </div>
-          </div>
-
           {/* Dedicated Mobile Practice Time & Field Stopwatch HUD */}
           <div className="bg-slate-900/95 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-2xl space-y-4">
             {/* Top Row: Scheduled Window & Real-Time Status */}
@@ -2825,6 +2751,19 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
 
               {/* Real-Time Practice Status Pill */}
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setViewFontSize((prev) => (prev === 'normal' ? 'large' : 'normal'))}
+                  className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                    viewFontSize === 'large'
+                      ? 'bg-indigo-600 text-white border-indigo-500'
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                  title={viewFontSize === 'large' ? 'Switch to normal text' : 'Switch to large text'}
+                  aria-pressed={viewFontSize === 'large'}
+                >
+                  Aa
+                </button>
                 {isPracticeLiveNow && realTimePeriodIdx >= 0 ? (
                   <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-black animate-pulse shadow-sm">
                     <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
@@ -3498,10 +3437,10 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
                                     periodDuration: period.durationMinutes || period.duration,
                                   });
                                 }}
-                                className="px-2.5 py-1 bg-indigo-600/25 hover:bg-indigo-600/40 text-indigo-200 hover:text-white text-xs font-bold rounded-lg border border-indigo-500/35 flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-bold rounded-lg border border-slate-700 flex items-center gap-1.5 transition-all cursor-pointer"
                                 title={`View instructions, cues, and diagram for ${station.name}`}
                               >
-                                <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
+                                <BookOpen className="w-3.5 h-3.5" />
                                 <span>Instructions</span>
                               </button>
 
@@ -3516,10 +3455,10 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
                                       onOpenWhiteboardDrill(station.name);
                                     }
                                   }}
-                                  className="px-2.5 py-1 bg-blue-600/25 hover:bg-blue-600/40 text-blue-200 hover:text-white text-xs font-bold rounded-lg border border-blue-500/35 flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-bold rounded-lg border border-slate-700 flex items-center gap-1.5 transition-all cursor-pointer"
                                   title={`Open ${station.name} in interactive whiteboard`}
                                 >
-                                  <PenTool className="w-3.5 h-3.5 text-blue-400" />
+                                  <PenTool className="w-3.5 h-3.5" />
                                   <span>Open in Whiteboard</span>
                                 </button>
                               )}
@@ -3552,11 +3491,11 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
                                     }, 0);
                                   }
                                 }}
-                                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold rounded-lg border border-slate-700 flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                                className="w-7 h-7 inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-700 transition-all cursor-pointer"
                                 title={`Print isolated drill sheet for ${station.name}`}
                               >
-                                <Printer className="w-3.5 h-3.5 text-indigo-400" />
-                                <span>Print Drill Sheet</span>
+                                <Printer className="w-3.5 h-3.5" />
+                                <span className="sr-only">Print Drill Sheet</span>
                               </button>
                             </div>
                           )}
@@ -3584,7 +3523,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
             <thead>
               <tr className="bg-slate-900 text-slate-200 font-black uppercase text-[11px] border-b border-slate-700 print:bg-slate-100 print:text-black">
                 <th className="py-3 px-3 text-left w-24 sm:w-28 print:w-[13%]">Time / Period</th>
-                <th className="py-3 px-3 text-left w-28 sm:w-32 print:w-[10%]">Category</th>
+                <th className="py-3 px-3 text-left w-36 sm:w-44 print:w-[10%]">Category</th>
                 <th className="py-3 px-3.5 text-left print:w-[49%]">Stations / Drills</th>
                 <th className="py-3 px-2.5 text-left w-28 sm:w-32 print:w-[11%]">Coaches</th>
                 <th className="py-3 px-3 text-left w-36 sm:w-40 print:w-[17%]">Focus / Cues</th>
@@ -3770,10 +3709,10 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
                                   type="button"
                                   onClick={() => onAddStationToPeriod(pIdx)}
                                   title="Add another station to this period"
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 text-[10.5px] font-bold text-sky-300 bg-sky-950/60 hover:bg-sky-900 border border-sky-700/60 rounded-lg transition-all active:scale-95 cursor-pointer shadow-sm"
+                                  className="w-7 h-7 inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-700 transition-all active:scale-95 cursor-pointer"
                                 >
-                                  <Plus className="w-3 h-3 text-sky-400" />
-                                  <span>+ Station</span>
+                                  <Plus className="w-3.5 h-3.5" />
+                                  <span className="sr-only">Add station</span>
                                 </button>
 
                                 <button
@@ -3790,10 +3729,10 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
                                     }
                                   }}
                                   title={numStations > 1 ? `Delete Station ${sIdx + 1} from Period ${pIdx + 1}` : 'Clear station drill contents'}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 text-[10.5px] font-bold text-rose-300 hover:text-rose-100 bg-rose-950/60 hover:bg-rose-900 border border-rose-700/60 rounded-lg transition-all active:scale-95 cursor-pointer shadow-sm"
+                                  className="w-7 h-7 inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-400 hover:text-rose-300 hover:bg-rose-950/60 hover:border-rose-700/60 transition-all active:scale-95 cursor-pointer"
                                 >
-                                  <Trash2 className="w-3 h-3 text-rose-400" />
-                                  <span>{numStations > 1 ? `Delete Station ${sIdx + 1}` : 'Clear Station'}</span>
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span className="sr-only">{numStations > 1 ? `Delete Station ${sIdx + 1}` : 'Clear Station'}</span>
                                 </button>
                               </div>
                             )}
@@ -3948,11 +3887,11 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
                                     periodDuration: row.durationMinutes || row.duration,
                                   });
                                 }}
-                                className="px-2 py-0.5 bg-indigo-600/20 hover:bg-indigo-600/35 text-indigo-300 hover:text-indigo-100 text-[10px] font-bold rounded-md border border-indigo-500/30 flex items-center gap-1 transition-all cursor-pointer"
+                                className="w-7 h-7 inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-700 transition-all cursor-pointer"
                                 title={`View instructions, cues, and diagram for ${safeStation.name}`}
                               >
-                                <BookOpen className="w-2.5 h-2.5 text-indigo-400" />
-                                <span>Instructions</span>
+                                <BookOpen className="w-3.5 h-3.5" />
+                                <span className="sr-only">Instructions</span>
                               </button>
 
                               {onOpenWhiteboardDrill && (
@@ -3966,11 +3905,11 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
                                       onOpenWhiteboardDrill(safeStation.name);
                                     }
                                   }}
-                                  className="px-2 py-0.5 bg-blue-600/20 hover:bg-blue-600/35 text-blue-300 hover:text-blue-100 text-[10px] font-bold rounded-md border border-blue-500/30 flex items-center gap-1 transition-all cursor-pointer"
+                                  className="w-7 h-7 inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-700 transition-all cursor-pointer"
                                   title={`Open ${safeStation.name} on Interactive Whiteboard`}
                                 >
-                                  <PenTool className="w-2.5 h-2.5 text-blue-400" />
-                                  <span>Open in Whiteboard</span>
+                                  <PenTool className="w-3.5 h-3.5" />
+                                  <span className="sr-only">Open in Whiteboard</span>
                                 </button>
                               )}
                               <button
@@ -4002,11 +3941,11 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
                                     }, 0);
                                   }
                                 }}
-                                className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-bold rounded-md border border-slate-600 flex items-center gap-1 transition-all cursor-pointer"
+                                className="w-7 h-7 inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-700 transition-all cursor-pointer"
                                 title={`Print isolated drill sheet for ${safeStation.name}`}
                               >
-                                <Printer className="w-2.5 h-2.5 text-indigo-400" />
-                                <span>Print Drill Sheet</span>
+                                <Printer className="w-3.5 h-3.5" />
+                                <span className="sr-only">Print Drill Sheet</span>
                               </button>
                             </div>
                           )}
@@ -4388,7 +4327,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
 
       {/* Mobile Floating Sideline Stopwatch Dock (Optimized for Phones on Field) */}
       {currentPlanPeriods.length > 0 && (
-        <div className="fixed bottom-2 left-2 right-2 md:hidden z-40 bg-slate-950/95 border border-slate-800 backdrop-blur-md rounded-2xl p-2.5 shadow-2xl flex items-center justify-between gap-2">
+        <div className="fixed bottom-[68px] left-2 right-2 md:hidden z-40 bg-slate-950/95 border border-slate-800 backdrop-blur-md rounded-2xl p-2.5 shadow-2xl flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black shrink-0 ${
               isTransitionBreak
