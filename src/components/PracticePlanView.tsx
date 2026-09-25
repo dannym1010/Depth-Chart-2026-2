@@ -71,6 +71,9 @@ import {
   getLocalDateKey,
   practiceDateKey,
   practiceFillScore,
+  PRACTICE_WEEKDAY_NAMES,
+  countUpcomingWeekdayPlans,
+  type PracticeWeekdayTemplateMap,
 } from '../utils/practiceUtils';
 import {
   triggerPrint,
@@ -106,6 +109,8 @@ interface PracticePlanViewProps {
   onApplyTemplate: (templateName: string) => void;
   onSaveCurrentAsTemplate: () => void;
   onOpenTemplatesModal: () => void;
+  weekdayTemplates?: PracticeWeekdayTemplateMap;
+  onApplyWeekdayToUpcoming?: (day: (typeof PRACTICE_WEEKDAY_NAMES)[number], templateName: string) => void;
   onUpdatePrintFontSize: (size: string) => void;
   onUpdateMeta: (field: keyof PracticePlan, value: any) => void;
   onTogglePracticeCancelled?: (practiceId: string, isCancelled?: boolean, reason?: string) => void;
@@ -155,6 +160,8 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
   onApplyTemplate,
   onSaveCurrentAsTemplate,
   onOpenTemplatesModal,
+  weekdayTemplates = {},
+  onApplyWeekdayToUpcoming,
   onUpdatePrintFontSize,
   onUpdateMeta,
   onTogglePracticeCancelled,
@@ -193,6 +200,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
   const [isPrintMenuOpen, setIsPrintMenuOpen] = useState(false);
   const [isPrintPackageModalOpen, setIsPrintPackageModalOpen] = useState(false);
   const [isPocketModalOpen, setIsPocketModalOpen] = useState(false);
+  const [weekdayPicks, setWeekdayPicks] = useState<PracticeWeekdayTemplateMap>(weekdayTemplates);
   const printMenuRef = useRef<HTMLDivElement>(null);
   const effectiveWhiteboardDrills = useMemo(
     () => (whiteboardDrills && whiteboardDrills.length > 0 ? whiteboardDrills : WHITEBOARD_DRILLS),
@@ -231,6 +239,20 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
     practices.find((p) => p && p.id === currentPracticeId) ||
     practices.find((p) => p && p.id === findBestActivePracticeId(practices)) ||
     practices[0];
+
+  useEffect(() => {
+    setWeekdayPicks(weekdayTemplates);
+  }, [weekdayTemplates]);
+
+  const upcomingWeekdayCounts = useMemo(() => {
+    const today = getLocalDateKey();
+    const year = today.slice(0, 4);
+    const out: Record<string, number> = {};
+    for (const day of PRACTICE_WEEKDAY_NAMES) {
+      out[day] = countUpcomingWeekdayPlans(practices, day, { year, today });
+    }
+    return out;
+  }, [practices]);
 
   // Identify the most recently edited practice plan
   const latestEditedPlan = useMemo(() => {
@@ -1512,6 +1534,48 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
                 >
                   <Settings className="w-3.5 h-3.5" />
                 </button>
+              </div>
+            )}
+
+            {userRole === 'admin' && onApplyWeekdayToUpcoming && (
+              <div className="w-full flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-700 px-2.5 py-2 rounded-xl">
+                <span className="text-[11px] font-black uppercase text-slate-300 shrink-0">
+                  Upcoming by weekday:
+                </span>
+                {PRACTICE_WEEKDAY_NAMES.filter((day) => (upcomingWeekdayCounts[day] || 0) > 0).map((day) => (
+                  <div key={day} className="flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1">
+                    <span className="text-[11px] font-bold text-slate-200 w-10">{day.slice(0, 3)}</span>
+                    <select
+                      value={weekdayPicks[day] || ''}
+                      onChange={(e) =>
+                        setWeekdayPicks((prev) => ({ ...prev, [day]: e.target.value }))
+                      }
+                      className="bg-slate-900 border border-slate-600 text-[11px] font-semibold text-slate-200 rounded-md px-1.5 py-1 max-w-[160px] focus:outline-none"
+                    >
+                      <option value="">Standard Practice</option>
+                      {Object.keys(practiceTemplates).map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onApplyWeekdayToUpcoming(day, weekdayPicks[day] || 'Standard Practice')
+                      }
+                      className="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10px] rounded-md cursor-pointer whitespace-nowrap"
+                      title={`Apply this template to ${upcomingWeekdayCounts[day]} upcoming ${day} plan(s). Past ${day} plans stay unchanged.`}
+                    >
+                      Apply {upcomingWeekdayCounts[day]}
+                    </button>
+                  </div>
+                ))}
+                {PRACTICE_WEEKDAY_NAMES.every((day) => (upcomingWeekdayCounts[day] || 0) === 0) && (
+                  <span className="text-[11px] text-slate-400">
+                    No upcoming practice plans this year.
+                  </span>
+                )}
               </div>
             )}
 

@@ -9785,6 +9785,26 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
                 onAutoNumberPractices={handleAutoNumberPractices}
                 onDeletePractice={handleDeletePractice}
                 onApplyTemplate={handleApplyPracticeTemplate}
+                weekdayTemplates={practiceWeekdayTemplates}
+                onApplyWeekdayToUpcoming={(day, templateName) => {
+                  const resolved = templateName || 'Standard Practice';
+                  const next = { ...practiceWeekdayTemplates };
+                  if (resolved && resolved !== 'Standard Practice') next[day] = resolved;
+                  else delete next[day];
+                  lastLocalEditTimeRef.current = Date.now();
+                  setPracticeWeekdayTemplates(next);
+                  latestStateRef.current.practiceWeekdayTemplates = next;
+                  safeJSONSet('footballPracticeWeekdayTemplates', next);
+                  debouncedSave('drills');
+                  const applied = applyTemplateToFutureWeekdayPlans(day, resolved);
+                  if (applied === 0) {
+                    alert(`No upcoming ${day} practice plans found this year.`);
+                  } else if (applied > 0) {
+                    alert(
+                      `Updated ${applied} upcoming ${day} practice plan${applied === 1 ? '' : 's'}. Past ${day} plans were not changed.`
+                    );
+                  }
+                }}
                 onSaveCurrentAsTemplate={handleSaveCurrentAsTemplate}
                 onOpenTemplatesModal={() => setIsTemplatesModalOpen(true)}
                 onUpdatePrintFontSize={(size) => {
@@ -10216,7 +10236,17 @@ function getUnitPositionIds(formations: FormationBoard[], unit: string): Set<str
           latestStateRef.current.practiceWeekdayTemplates = next;
           safeJSONSet('footballPracticeWeekdayTemplates', next);
           debouncedSave('drills');
-          applyTemplateToFutureWeekdayPlans(day, templateName || 'Standard Practice');
+        }}
+        onApplyWeekdayToUpcoming={(day, templateName) => {
+          const resolved = templateName || 'Standard Practice';
+          const applied = applyTemplateToFutureWeekdayPlans(day, resolved);
+          if (applied === 0) {
+            alert(`No upcoming ${day} practice plans found this year.`);
+          } else if (applied > 0) {
+            alert(
+              `Updated ${applied} upcoming ${day} practice plan${applied === 1 ? '' : 's'}. Past ${day} plans were not changed.`
+            );
+          }
         }}
         onRenameTemplate={(oldName, newName) => {
           setPracticeTemplates((prev) => {

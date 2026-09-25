@@ -1870,8 +1870,12 @@ describe('weekday practice templates', () => {
     assert.equal(shouldApplyWeekdayTemplateToPlan(tuePast as any, opts), false);
     assert.equal(shouldApplyWeekdayTemplateToPlan(thuFuture as any, opts), false);
     assert.equal(
+      shouldApplyWeekdayTemplateToPlan({ ...tueFuture, day: 'Thursday' } as any, opts),
+      true
+    );
+    assert.equal(
       shouldApplyWeekdayTemplateToPlan({ ...tueFuture, year: '2025' } as any, opts),
-      false
+      true
     );
     assert.equal(
       shouldApplyWeekdayTemplateToPlan({ ...tueFuture, title: 'Pre-Game Warmup: Carmel' } as any, opts),

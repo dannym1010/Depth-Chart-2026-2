@@ -1509,6 +1509,7 @@ interface TemplatesManagerModalProps {
   onDeleteTemplate: (name: string) => void;
   onSaveNewTemplate?: (name: string) => void;
   onSetWeekdayTemplate?: (day: (typeof PRACTICE_WEEKDAY_NAMES)[number], templateName: string) => void;
+  onApplyWeekdayToUpcoming?: (day: (typeof PRACTICE_WEEKDAY_NAMES)[number], templateName: string) => void;
 }
 
 export const TemplatesManagerModal: React.FC<TemplatesManagerModalProps> = ({
@@ -1520,6 +1521,7 @@ export const TemplatesManagerModal: React.FC<TemplatesManagerModalProps> = ({
   onDeleteTemplate,
   onSaveNewTemplate,
   onSetWeekdayTemplate,
+  onApplyWeekdayToUpcoming,
 }) => {
   const [newTemplateName, setNewTemplateName] = React.useState('');
 
@@ -1581,7 +1583,7 @@ export const TemplatesManagerModal: React.FC<TemplatesManagerModalProps> = ({
               Default template by weekday
             </div>
             <p className="text-[11px] text-slate-400 leading-snug">
-              Applies to upcoming practices this year on that weekday. Past plans are left unchanged.
+              Choose a template for already-synced practices on that weekday. Only today and later this year are updated.
             </p>
             <div className="space-y-1.5">
               {PRACTICE_WEEKDAY_NAMES.map((day) => (
@@ -1589,7 +1591,7 @@ export const TemplatesManagerModal: React.FC<TemplatesManagerModalProps> = ({
                   <span className="w-24 shrink-0 text-xs font-bold text-slate-200">{day}</span>
                   <select
                     value={weekdayTemplates[day] || ''}
-                    onChange={(e) => onSetWeekdayTemplate(day, e.target.value)}
+                    onChange={(e) => onSetWeekdayTemplate?.(day, e.target.value)}
                     className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-100 focus:outline-none"
                   >
                     <option value="">Standard Practice</option>
@@ -1599,6 +1601,17 @@ export const TemplatesManagerModal: React.FC<TemplatesManagerModalProps> = ({
                       </option>
                     ))}
                   </select>
+                  {onApplyWeekdayToUpcoming && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onApplyWeekdayToUpcoming(day, weekdayTemplates[day] || 'Standard Practice')
+                      }
+                      className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10px] rounded-lg cursor-pointer whitespace-nowrap"
+                    >
+                      Apply upcoming
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
