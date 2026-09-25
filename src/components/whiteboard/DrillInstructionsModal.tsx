@@ -197,7 +197,7 @@ export const DrillInstructionsModal: React.FC<DrillInstructionsModalProps> = ({
                   onOpenWhiteboard(stationName);
                 }
               }}
-              className="px-3.5 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-black rounded-xl shadow-md flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer shrink-0"
+              className="px-3.5 py-1.5 text-xs font-black rounded-xl shadow-md flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer shrink-0 bg-indigo-600 hover:bg-indigo-500 text-white"
               title="Open this drill in interactive animated whiteboard"
             >
               <PenTool className="w-3.5 h-3.5 text-blue-200" />

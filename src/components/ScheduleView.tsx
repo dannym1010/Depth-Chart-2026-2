@@ -760,7 +760,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                     }
                     setIsCreatePreGameModalOpen(true);
                   }}
-                  className="px-3.5 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-xs rounded-xl border border-purple-500/80 shadow-md shadow-purple-600/20 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                  className="px-3.5 py-2 font-black text-xs rounded-xl border border-indigo-500 shadow-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white"
                   title="Create Pre-Game Practice Plan for an upcoming game"
                 >
                   <ClipboardList className="w-3.5 h-3.5 text-purple-200 stroke-[2.5]" />
@@ -1635,7 +1635,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                                     <>
                                       <button
                                         onClick={() => handleOpenPracticeForEvent(evt, 'Pre-Game Warmup & Routine')}
-                                        className="flex-1 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                                        className="flex-1 px-3 py-1.5 font-black rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white"
                                         title="Open or Create Pre-Game Practice Plan"
                                       >
                                         <ClipboardList className="w-3.5 h-3.5 text-purple-200" />
@@ -1962,7 +1962,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                             <>
                               <button
                                 onClick={() => handleOpenPracticeForEvent(evt, 'Pre-Game Warmup & Routine')}
-                                className="px-2.5 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-xs rounded-lg flex items-center gap-1 transition-all shadow-xs cursor-pointer"
+                                className="px-2.5 py-1 font-black text-xs rounded-lg flex items-center gap-1 transition-all shadow-xs cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white"
                                 title="Open or Create Pre-Game Practice Plan"
                               >
                                 <ClipboardList className="w-3 h-3 text-purple-200" />
@@ -2563,7 +2563,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                   setIsCreatePreGameModalOpen(false);
                 }}
                 disabled={!preGameTargetGameId}
-                className="px-5 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-md cursor-pointer flex items-center gap-1.5"
+                className="px-5 py-2 disabled:opacity-50 font-black text-xs rounded-xl shadow-md cursor-pointer flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Create &amp; Open Plan</span>

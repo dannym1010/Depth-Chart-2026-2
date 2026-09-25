@@ -257,13 +257,10 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 print:gap-1">
           <div className="space-y-1 print:space-y-0.5">
             <div className="flex flex-wrap items-center gap-2 print:gap-1.5">
-              <span className="p-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 print:hidden">
-                <Swords className="w-4 h-4" />
-              </span>
-              <span className="text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/30 print:bg-slate-100 print:text-slate-800 print:border-slate-300 print:text-[10px] print:px-1.5 print:py-0 print:rounded">
+              <span className="hidden print:inline text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/30 print:bg-slate-100 print:text-slate-800 print:border-slate-300 print:text-[10px] print:px-1.5 print:py-0 print:rounded">
                 Game Day Command Center &bull; Week {currentWeek}
               </span>
-              <span className="text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 print:bg-slate-100 print:text-slate-800 print:border-slate-300 print:text-[10px] print:px-1.5 print:py-0 print:rounded">
+              <span className="hidden print:inline text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 print:bg-slate-100 print:text-slate-800 print:border-slate-300 print:text-[10px] print:px-1.5 print:py-0 print:rounded">
                 {activeTeamName}
               </span>
             </div>
@@ -567,7 +564,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
                   <button
                     type="button"
                     onClick={() => setActiveTab('pregame')}
-                    className="w-full py-1.5 px-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-lg shadow-md transition-all flex items-center justify-center gap-1 cursor-pointer"
+                    className="w-full py-1.5 px-2.5 font-bold text-xs rounded-lg shadow-md transition-all flex items-center justify-center gap-1 cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Create Pre-Game Plan</span>
@@ -777,7 +774,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
                     <button
                       type="button"
                       onClick={() => onNavigateToPractice(linkedPreGamePlan.id)}
-                      className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+                      className="px-4 py-2 font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white"
                     >
                       <Play className="w-3.5 h-3.5" />
                       <span>Open in Practice Generator</span>
@@ -952,7 +949,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
                 <button
                   type="button"
                   onClick={handleCreatePreGamePlan}
-                  className="w-full py-3 bg-gradient-to-r from-purple-600 via-indigo-600 to-indigo-700 hover:from-purple-500 hover:to-indigo-600 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-purple-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                  className="w-full py-3 font-black text-xs uppercase tracking-wider rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 bg-indigo-600 hover:bg-indigo-500 text-white"
                 >
                   <Plus className="w-4 h-4 stroke-[3]" />
                   <span>Create Pre-Game Practice Plan</span>

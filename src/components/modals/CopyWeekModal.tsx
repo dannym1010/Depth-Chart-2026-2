@@ -356,7 +356,7 @@ export const CopyWeekModal: React.FC<CopyWeekModalProps> = ({
           </button>
           <button
             onClick={handleCopy}
-            className="px-5 py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white font-black text-xs rounded-xl shadow-lg shadow-indigo-600/30 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+            className="px-5 py-2 font-black text-xs rounded-xl shadow-lg active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white"
           >
             <Copy className="w-3.5 h-3.5" />
             <span>Execute Copy Week</span>

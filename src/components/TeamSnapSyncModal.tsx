@@ -1124,7 +1124,7 @@ export const TeamSnapSyncModal: React.FC<TeamSnapSyncModalProps> = ({
           <button
             onClick={handleExecuteImport}
             disabled={!syncResult || selectedCount === 0}
-            className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white font-black rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/20 transition-all active:scale-95 cursor-pointer"
+            className="px-6 py-2.5 disabled:opacity-50 font-black rounded-xl text-xs flex items-center gap-2 shadow-lg transition-all active:scale-95 cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white"
           >
             <CheckCircle2 className="w-4 h-4" />
             <span>

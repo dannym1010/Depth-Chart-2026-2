@@ -1204,7 +1204,7 @@ export const RosterManagerModal: React.FC<RosterManagerModalProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/30 flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                  className="px-6 py-2.5 font-bold text-xs rounded-xl shadow-lg flex items-center gap-1.5 active:scale-95 cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white"
                 >
                   <Check className="w-4 h-4" />
                   <span>{editingIndex !== null ? 'Update Player' : 'Add Player to Roster'}</span>
@@ -1427,7 +1427,7 @@ export const RosterManagerModal: React.FC<RosterManagerModalProps> = ({
                   type="button"
                   onClick={handleExecuteImportCSV}
                   disabled={csvPreviewPlayers.length === 0 && !csvText.trim()}
-                  className="w-full py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95"
+                  className="w-full py-2.5 disabled:opacity-50 disabled:cursor-not-allowed font-bold text-xs rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95 bg-indigo-600 hover:bg-indigo-500 text-white"
                 >
                   <Upload className="w-4 h-4" />
                   <span>
@@ -1517,7 +1517,7 @@ export const RosterManagerModal: React.FC<RosterManagerModalProps> = ({
                   <button
                     type="button"
                     onClick={handleExecuteCopyRoster}
-                    className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/30 flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                    className="px-5 py-2.5 font-bold text-xs rounded-xl shadow-lg flex items-center gap-1.5 active:scale-95 cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white"
                   >
                     <Copy className="w-4 h-4" />
                     <span>Copy Players to Target Team</span>

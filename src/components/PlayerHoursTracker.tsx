@@ -418,9 +418,9 @@ export const PlayerHoursTracker: React.FC<PlayerHoursTrackerProps> = ({
               <>
                 <button
                   onClick={handleOpenAttendanceModal}
-                  className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-2xl flex items-center gap-2 shadow-lg shadow-amber-500/20 active:scale-95 transition-all"
+                  className="px-4 py-2.5 font-black text-xs rounded-2xl flex items-center gap-2 shadow-lg active:scale-95 transition-all bg-indigo-600 hover:bg-indigo-500 text-white"
                 >
-                  <ClipboardCheck className="w-4 h-4 text-slate-950" />
+                  <ClipboardCheck className="w-4 h-4 text-white" />
                   <span>Take Practice Attendance</span>
                 </button>
 
@@ -1431,7 +1431,7 @@ export const PlayerHoursTracker: React.FC<PlayerHoursTrackerProps> = ({
               <button
                 type="button"
                 onClick={handleSubmitAttendanceSession}
-                className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl flex items-center gap-2 shadow-md active:scale-95 cursor-pointer transition-all"
+                className="px-5 py-2.5 font-black text-xs rounded-xl flex items-center gap-2 shadow-md active:scale-95 cursor-pointer transition-all bg-indigo-600 hover:bg-indigo-500 text-white"
               >
                 <Check className="w-4 h-4" />
                 <span>Save Roll Call &amp; Credit {logSessionHours} hrs to {Object.values(playerAttendanceStatus).filter((s) => s === 'present').length} Players</span>

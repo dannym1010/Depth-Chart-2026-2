@@ -962,7 +962,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-6 py-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-zinc-950 font-black text-xs rounded-xl flex items-center gap-1.5 shadow-md shadow-amber-500/25 active:scale-95 transition-all cursor-pointer"
+            className="px-6 py-2 text-zinc-950 font-black text-xs rounded-xl flex items-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white"
           >
             <Check className="w-4 h-4" />
             <span>Done</span>

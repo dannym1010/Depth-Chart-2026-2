@@ -461,7 +461,7 @@ export const HtmlTendenciesView: React.FC<HtmlTendenciesViewProps> = ({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="px-3.5 py-2 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-black rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-md shadow-amber-600/30 active:scale-95 cursor-pointer"
+              className="px-3.5 py-2 font-black rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white"
               title="Upload a .html or .htm tendency file"
             >
               <UploadCloud className="w-4 h-4" />
@@ -512,7 +512,7 @@ export const HtmlTendenciesView: React.FC<HtmlTendenciesViewProps> = ({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full sm:w-auto px-4 py-2.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-black rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-amber-600/30"
+                className="w-full sm:w-auto px-4 py-2.5 font-black rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md bg-indigo-600 hover:bg-indigo-500 text-white"
               >
                 <UploadCloud className="w-4 h-4" />
                 <span>Choose .html File</span>
@@ -811,7 +811,7 @@ export const HtmlTendenciesView: React.FC<HtmlTendenciesViewProps> = ({
                 type="button"
                 onClick={handleSaveModal}
                 disabled={!modalTitle.trim() || !modalHtml.trim()}
-                className="px-5 py-2 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-black text-xs rounded-xl cursor-pointer disabled:opacity-40 transition-all shadow-md shadow-amber-600/30"
+                className="px-5 py-2 font-black text-xs rounded-xl cursor-pointer disabled:opacity-40 transition-all shadow-md bg-indigo-600 hover:bg-indigo-500 text-white"
               >
                 {isEditingExisting ? 'Save Changes' : 'Save Tendency Report'}
               </button>

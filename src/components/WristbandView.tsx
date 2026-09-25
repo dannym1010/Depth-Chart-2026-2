@@ -1451,12 +1451,12 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
             <button
               type="button"
               onClick={() => handleOpenPrintModal('all')}
-              className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black shadow-md shadow-amber-500/20 transition-all cursor-pointer flex items-center gap-1.5 active:scale-95"
+              className="px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 bg-indigo-600 hover:bg-indigo-500 text-white"
               title="Print multiple copies for players/coaches & choose all made wristbands"
             >
-              <Printer className="w-3.5 h-3.5 text-slate-950 stroke-[2.5]" />
+              <Printer className="w-3.5 h-3.5 text-white stroke-[2.5]" />
               <span>Print / Copies</span>
-              <span className="bg-slate-950/20 text-slate-950 text-[10px] px-1.5 py-0.2 rounded-full font-black">
+              <span className="bg-slate-950/20 text-white text-[10px] px-1.5 py-0.2 rounded-full font-black">
                 {wristbands.length} Made
               </span>
             </button>

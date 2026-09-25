@@ -36,6 +36,7 @@ import {
 import { safeJSONParse, safeJSONStringify } from '../../services/storageService';
 import { INITIAL_TWO_WRISTBANDS_DATA } from '../../data/userGameDayPlays';
 import { setCopiedPlay } from '../../utils/callSheetClipboard';
+import { DismissibleTip } from '../common/DismissibleTip';
 
 interface PlayBankSidebarProps {
   unit: 'offense' | 'defense';
@@ -554,10 +555,9 @@ export const PlayBankSidebar: React.FC<PlayBankSidebarProps> = ({
 
         {/* Informative Banner */}
         {sidebarMode === 'wristband' && (
-          <div className="px-3 py-2 bg-indigo-950/60 border-b border-indigo-900/50 flex items-center gap-2 text-[11px] text-indigo-200 shrink-0">
-            <Info className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-            <span>Drag plays to situation tables. Plays stay on your wristband table.</span>
-          </div>
+          <DismissibleTip id="call-sheet-drag-plays" className="m-2 shrink-0">
+            Drag plays onto situation tables. They stay on your wristband too.
+          </DismissibleTip>
         )}
 
         {/* Multi-Card Switcher (if multiple wristband cards exist) */}

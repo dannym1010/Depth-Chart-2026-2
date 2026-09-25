@@ -302,7 +302,7 @@ Looking forward to a great season!`;
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setShowAddTeamModal(true)}
-                className="px-3.5 py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/30 flex items-center gap-1.5 transition-all active:scale-95 border border-indigo-400/30 cursor-pointer"
+                className="px-3.5 py-2 font-bold text-xs rounded-xl shadow-lg flex items-center gap-1.5 transition-all active:scale-95 border border-indigo-500 cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white"
               >
                 <Plus className="w-4 h-4" />
                 <span>+ Create New Team</span>

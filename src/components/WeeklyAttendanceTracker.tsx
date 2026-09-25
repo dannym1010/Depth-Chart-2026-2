@@ -1183,7 +1183,7 @@ export const WeeklyAttendanceTracker: React.FC<WeeklyAttendanceTrackerProps> = (
                 <button
                   type="button"
                   onClick={() => setShowAddPracticeModal(true)}
-                  className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow-md flex items-center gap-1.5 active:scale-95 transition-all"
+                  className="px-3.5 py-2 font-black text-xs rounded-xl shadow-md flex items-center gap-1.5 active:scale-95 transition-all bg-indigo-600 hover:bg-indigo-500 text-white"
                 >
                   <Plus className="w-4 h-4" />
                   <span>Add Practice Date</span>
@@ -1380,7 +1380,7 @@ export const WeeklyAttendanceTracker: React.FC<WeeklyAttendanceTrackerProps> = (
               <button
                 type="button"
                 onClick={handleAutoGenerateStandardWeek}
-                className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow-lg active:scale-95 transition-all flex items-center gap-2"
+                className="px-4 py-2.5 font-black text-xs rounded-xl shadow-lg active:scale-95 transition-all flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white"
               >
                 <Sparkles className="w-4 h-4" />
                 <span>Auto-Generate Standard Week Practices (Tue 2.0h, Thu 2.0h, Sat 2.5h)</span>

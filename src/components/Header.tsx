@@ -505,7 +505,7 @@ export const Header: React.FC<HeaderProps> = ({
                     setIsMobileMenuOpen(false);
                     onOpenMobileNav();
                   }}
-                  className="w-full flex items-center justify-between p-3 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-700 text-white font-black shadow-md shadow-indigo-600/30 border border-indigo-400 cursor-pointer active:scale-[0.99] transition-all"
+                  className="w-full flex items-center justify-between p-3 rounded-xl font-black shadow-md border border-indigo-500 cursor-pointer active:scale-[0.99] transition-all bg-indigo-600 hover:bg-indigo-500 text-white"
                 >
                   <div className="flex items-center gap-2.5">
                     <Layers className="w-4 h-4 text-white" />

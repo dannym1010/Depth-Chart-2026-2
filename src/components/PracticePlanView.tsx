@@ -2670,9 +2670,9 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
                         setIsPlanLibraryOpen(false);
                         setIsWizardOpen(true);
                       }}
-                      className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                      className="px-3.5 py-2 font-black text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white"
                     >
-                      <Sparkles className="w-3.5 h-3.5 text-slate-950" />
+                      <Sparkles className="w-3.5 h-3.5 text-white" />
                       <span>Practice Wizard</span>
                     </button>
                     <button

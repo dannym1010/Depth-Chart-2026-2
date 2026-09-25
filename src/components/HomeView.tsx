@@ -246,25 +246,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 sm:gap-6 relative z-10">
           <div className="space-y-1.5 sm:space-y-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="px-2.5 sm:px-3 py-1 rounded-full text-[10px] sm:text-[11px] font-black tracking-wider uppercase bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30">
-                Football Command Center
-              </span>
-              <span className="px-2.5 sm:px-3 py-1 rounded-full text-[10px] sm:text-[11px] font-black tracking-wider uppercase bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700">
-                Week {currentWeek}
-              </span>
-              <span className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                {formattedToday}
-              </span>
+            <div className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              {formattedToday} · Week {currentWeek}
             </div>
 
             <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black text-slate-900 dark:text-white tracking-tight">
               {activeTeam?.name || 'Mahopac 10U Indians'}
             </h1>
-            <p className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400 max-w-2xl leading-relaxed">
-              Welcome back, Coach. Here is your team&apos;s upcoming schedule, practice scripts, and game day preparation hub.
-            </p>
           </div>
 
           {/* Quick Team Switcher & Roster Stat & Roll Call Shortcut */}
@@ -436,11 +425,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <button
               type="button"
               onClick={() => handleOpenPracticePlan(practiceEventData?.plan?.id)}
-              className="w-full min-h-[46px] py-3 sm:py-3.5 px-4 bg-gradient-to-r from-amber-400 via-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-xs sm:text-sm rounded-2xl border border-amber-300/80 shadow-md shadow-amber-400/20 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98"
+              className="w-full min-h-[46px] py-3 sm:py-3.5 px-4 font-black text-xs sm:text-sm rounded-2xl border border-indigo-500 shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98 bg-indigo-600 hover:bg-indigo-500 text-white"
             >
-              <ClipboardList className="w-4 h-4 text-slate-950" />
+              <ClipboardList className="w-4 h-4 text-white" />
               <span>Open Practice Plan & Drill Script</span>
-              <ArrowRight className="w-4 h-4 text-slate-950" />
+              <ArrowRight className="w-4 h-4 text-white" />
             </button>
 
             {/* Single direct action button for Player Roll Call & Attendance */}
@@ -568,7 +557,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <button
               type="button"
               onClick={() => onNavigateToUnit('game_day')}
-              className="w-full min-h-[46px] py-3 px-4 bg-gradient-to-r from-rose-600 via-rose-500 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 text-white font-black text-xs sm:text-sm rounded-2xl shadow-md shadow-rose-600/20 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98"
+              className="w-full min-h-[46px] py-3 px-4 font-black text-xs sm:text-sm rounded-2xl shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98 bg-indigo-600 hover:bg-indigo-500 text-white"
             >
               <Trophy className="w-4 h-4 text-white" />
               <span className="text-white">Launch Game Day Sideline Hub</span>

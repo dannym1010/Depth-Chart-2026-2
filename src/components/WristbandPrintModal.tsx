@@ -764,7 +764,7 @@ export const WristbandPrintModal: React.FC<WristbandPrintModalProps> = ({
               type="button"
               onClick={handleDirectPrint}
               disabled={selectedWristbands.length === 0}
-              className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-40 text-slate-950 text-xs font-black shadow-lg shadow-amber-500/20 flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
+              className="px-5 py-2 rounded-xl disabled:opacity-40 text-xs font-black shadow-lg flex items-center gap-2 transition-all active:scale-95 cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white"
             >
               <Printer className="w-4 h-4" />
               <span>Print {totalInsertCount} Inserts Now</span>
