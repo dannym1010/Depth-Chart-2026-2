@@ -10,6 +10,7 @@ import { DEFAULT_INITIAL_PRACTICES, DEFAULT_PRACTICE_TEMPLATES } from '../data/i
 import { getFormattedDayFolder, resolvePracticeTemplateForWeekday } from '../utils/practiceUtils';
 import { safeJSONSet, deepClone } from '../services/storageService';
 import { isEventAlreadyInSchedule } from '../utils/teamSnapSync';
+import { mergeDeletedIds } from '../utils/remoteStateMerge';
 import { PracticeWizardGeneratedResult } from '../components/PracticeWizardModal';
 import type { Dispatch, SetStateAction, RefObject } from 'react';
 import type { LatestAppState } from './appStateTypes';
@@ -22,6 +23,7 @@ export interface ScheduleActionsDeps {
   practiceData: PracticePlan[];
   updatePracticeDataAndSave: (updater: (prev: PracticePlan[]) => PracticePlan[], immediate?: boolean, modifiedPlanId?: string) => void;
   setScheduleEvents: Dispatch<SetStateAction<ScheduleEvent[]>>;
+  setDeletedScheduleEventIds: Dispatch<SetStateAction<string[]>>;
   latestStateRef: RefObject<LatestAppState>;
   setCurrentPracticeId: Dispatch<SetStateAction<string>>;
   practiceWeekdayTemplates: Partial<Record<"Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday" | "Sunday", string>>;
@@ -47,6 +49,7 @@ export function useScheduleActions({
   practiceData,
   updatePracticeDataAndSave,
   setScheduleEvents,
+  setDeletedScheduleEventIds,
   latestStateRef,
   setCurrentPracticeId,
   practiceWeekdayTemplates,
@@ -414,10 +417,16 @@ export function useScheduleActions({
     // 1. Find event to delete
     const eventToDelete = scheduleEvents.find((ev) => ev.id === id);
 
-    // 2. Remove from scheduleEvents
+    // 2. Remove from scheduleEvents and remember the id, so merging with another
+    // device's (or the server's) copy doesn't bring the event back.
     const updatedEvents = scheduleEvents.filter((ev) => ev.id !== id);
     setScheduleEvents(updatedEvents);
     safeJSONSet('footballScheduleEvents', updatedEvents);
+    latestStateRef.current.scheduleEvents = updatedEvents;
+    const deletedIds = mergeDeletedIds(latestStateRef.current.deletedScheduleEventIds, [id]);
+    setDeletedScheduleEventIds(deletedIds);
+    safeJSONSet('footballDeletedScheduleEventIds', deletedIds);
+    latestStateRef.current.deletedScheduleEventIds = deletedIds;
 
     // 3. Find and remove matching attendance logs
     // Check if any other practice/scrimmage still exists on this date
@@ -442,6 +451,7 @@ export function useScheduleActions({
       const updatedLogs = attendanceLogs.filter((l) => !matchingIds.has(l.id));
       setAttendanceLogs(updatedLogs);
       safeJSONSet('footballAttendanceLogs', updatedLogs);
+      latestStateRef.current.attendanceLogs = updatedLogs;
 
       // 4. Reverse hours credited to players from these deleted attendance logs
       setRoster((prevRoster) => {

@@ -805,6 +805,7 @@ export async function fetchHudlScoutCloud(
 
 export type SharedBoardCloudUpdate = {
   scheduleEvents?: any[];
+  deletedScheduleEventIds?: string[];
   scheduleUpdatedAt?: number;
   practiceData?: any[];
   deletedPracticePlanIds?: string[];
@@ -886,6 +887,7 @@ function opsMeta(extra: Record<string, any> = {}) {
 
 export async function saveSharedBoardCloud(payload: {
   scheduleEvents?: any[];
+  deletedScheduleEventIds?: string[];
   practiceData?: any[];
   deletedPracticePlanIds?: string[];
   teamId?: string;
@@ -939,7 +941,11 @@ export async function saveSharedBoardCloud(payload: {
     const col = db.collection('teamData');
     const want = (name: string) => !payload.modules || payload.modules.includes(name as any);
     if (want('schedule') && payload.scheduleEvents) {
-      writes.push(col.doc('ops_schedule').set(opsMeta({ events: payload.scheduleEvents })));
+      writes.push(
+        col.doc('ops_schedule').set(
+          opsMeta({ events: payload.scheduleEvents, deletedEventIds: payload.deletedScheduleEventIds || [] })
+        )
+      );
     }
     if (want('practice') && payload.practiceData) {
       writes.push(
@@ -1144,6 +1150,7 @@ export async function fetchSharedBoardCloud(
     const formations = dataOf(14);
     return {
       scheduleEvents: sched?.events,
+      deletedScheduleEventIds: sched?.deletedEventIds,
       scheduleUpdatedAt: sched?.updatedAt,
       practiceData: prac?.plans,
       deletedPracticePlanIds: prac?.deletedPracticePlanIds,
@@ -1223,6 +1230,7 @@ export function subscribeSharedBoardCloud(
   const unsubs = [
     listen('ops_schedule', (data) => ({
       scheduleEvents: data.events,
+      deletedScheduleEventIds: data.deletedEventIds,
       scheduleUpdatedAt: data.updatedAt,
     })),
     listen('ops_practice', (data) => ({

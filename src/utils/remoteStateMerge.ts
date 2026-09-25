@@ -511,9 +511,25 @@ export function scheduleEventDedupeKey(ev: any): string {
   return `dt:${team}|${date}|${time}|${type}|${title}`;
 }
 
-export function mergeScheduleEvents(local?: any[], remote?: any[]): any[] {
-  const loc = Array.isArray(local) ? local : [];
-  const rem = Array.isArray(remote) ? remote : [];
+/** Union of two tombstone id lists, dropping blanks and duplicates. */
+export function mergeDeletedIds(...lists: Array<unknown>): string[] {
+  const out = new Set<string>();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const id of list) if (id) out.add(String(id));
+  }
+  return Array.from(out);
+}
+
+/**
+ * Merge schedule lists by id / dedupe key. Events whose id is in deletedIds are
+ * dropped, so a delete on one device is not re-added from another device's copy.
+ */
+export function mergeScheduleEvents(local?: any[], remote?: any[], deletedIds?: Iterable<string>): any[] {
+  const deleted = new Set(deletedIds || []);
+  const keep = (list: any[]) => (deleted.size ? list.filter((ev) => !(ev?.id && deleted.has(String(ev.id)))) : list);
+  const loc = keep(Array.isArray(local) ? local : []);
+  const rem = keep(Array.isArray(remote) ? remote : []);
   if (!loc.length) return rem;
   if (!rem.length) return loc;
 

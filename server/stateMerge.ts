@@ -10,6 +10,7 @@ import {
   isGroupsPositionId,
   mergeOwnTeamHudlMap,
   mergeScheduleEvents,
+  mergeDeletedIds,
 } from '../src/utils/remoteStateMerge';
 import { mergeLiveDrillSlotLayouts, mergePracticeDrillGroups } from '../src/components/practiceDrillsUtils';
 import { store } from './stateStore';
@@ -604,13 +605,21 @@ export function mergeServerState(current: any, incoming: any, metadata?: any): a
     merged.ownTeamHudlScout = mergeOwnTeamHudlMap(current.ownTeamHudlScout, incoming.ownTeamHudlScout);
   }
 
-  // 3. Merge Roster preserving incoming order
-  if (Array.isArray(incoming.roster) && incoming.roster.length > 0) {
+  // 3. Merge Roster preserving incoming order. A 'roster' save is the coach's full
+  // edited list, so it replaces the stored one; otherwise removed players would return.
+  if (metadata?.scope === 'roster' && Array.isArray(incoming.roster) && incoming.roster.length > 0) {
+    merged.roster = incoming.roster;
+  } else if (Array.isArray(incoming.roster) && incoming.roster.length > 0) {
     const rosterMap = new Map<string, any>();
     (current.roster || []).forEach((p: any) => {
       const key = String(p.id || p.num || p.rosterName || p.name);
       if (key) rosterMap.set(key, p);
     });
+    // Only a full push or backup restore may add players the server doesn't have.
+    // Other saves (attendance, practice, ...) still update existing players, but a
+    // fresh or stale device's default roster must not re-add a deleted player.
+    const mayAddPlayers =
+      rosterMap.size === 0 || metadata?.scope === 'force' || metadata?.scope === 'import_backup';
 
     const seenKeys = new Set<string>();
     const result: any[] = [];
@@ -620,7 +629,8 @@ export function mergeServerState(current: any, incoming: any, metadata?: any): a
       if (key) {
         seenKeys.add(key);
         const existing = rosterMap.get(key);
-        result.push(existing ? { ...existing, ...p } : p);
+        if (existing) result.push({ ...existing, ...p });
+        else if (mayAddPlayers) result.push(p);
       }
     });
 
@@ -707,8 +717,14 @@ export function mergeServerState(current: any, incoming: any, metadata?: any): a
   }
 
   // 6. Merge Schedule & Attendance
-  if (Array.isArray(incoming.scheduleEvents)) {
-    merged.scheduleEvents = mergeScheduleEvents(current.scheduleEvents, incoming.scheduleEvents);
+  const deletedScheduleEventIds = mergeDeletedIds(current.deletedScheduleEventIds, incoming.deletedScheduleEventIds);
+  if (deletedScheduleEventIds.length) merged.deletedScheduleEventIds = deletedScheduleEventIds;
+  if (Array.isArray(incoming.scheduleEvents) || deletedScheduleEventIds.length) {
+    merged.scheduleEvents = mergeScheduleEvents(
+      current.scheduleEvents,
+      Array.isArray(incoming.scheduleEvents) ? incoming.scheduleEvents : [],
+      deletedScheduleEventIds
+    );
   }
   if (Array.isArray(incoming.attendanceLogs)) {
     const logMap = new Map<string, any>();

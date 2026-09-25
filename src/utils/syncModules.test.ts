@@ -1883,3 +1883,58 @@ describe('weekday practice templates', () => {
     );
   });
 });
+
+describe('schedule deletes and roster saves stick', () => {
+  const ev = (id: string, date: string, title = 'Practice') => ({ id, date, title, type: 'practice', teamId: 'team_10u', lastEdited: 1 });
+
+  it('drops tombstoned events from both local and remote copies', async () => {
+    const { mergeScheduleEvents } = await import('./remoteStateMerge.ts');
+    const local = [ev('a', '2026-09-01'), ev('b', '2026-09-02')];
+    const remote = [ev('a', '2026-09-01'), ev('b', '2026-09-02'), ev('c', '2026-09-03')];
+    const ids = (list: any[]) => list.map((e) => e.id).sort();
+    assert.deepEqual(ids(mergeScheduleEvents(local, remote)), ['a', 'b', 'c']);
+    assert.deepEqual(ids(mergeScheduleEvents(local, remote, ['b'])), ['a', 'c']);
+    // one side empty still honors tombstones
+    assert.deepEqual(ids(mergeScheduleEvents([], remote, ['c'])), ['a', 'b']);
+    assert.deepEqual(ids(mergeScheduleEvents(local, [], new Set(['a']))), ['b']);
+  });
+
+  it('unions tombstone lists without blanks or duplicates', async () => {
+    const { mergeDeletedIds } = await import('./remoteStateMerge.ts');
+    assert.deepEqual(mergeDeletedIds(['a', 'b'], ['b', '', 'c'], undefined, null).sort(), ['a', 'b', 'c']);
+  });
+
+  it('server keeps a deleted event out even when an older copy still has it', async () => {
+    const { mergeServerState } = await import('../../server/stateMerge.ts');
+    const current = { scheduleEvents: [ev('a', '2026-09-01'), ev('b', '2026-09-02')] };
+    const afterDelete = mergeServerState(current, { scheduleEvents: [ev('a', '2026-09-01')], deletedScheduleEventIds: ['b'] }, { scope: 'schedule' });
+    assert.deepEqual(afterDelete.scheduleEvents.map((e: any) => e.id), ['a']);
+    assert.deepEqual(afterDelete.deletedScheduleEventIds, ['b']);
+    // a stale device later saves the old list without tombstones: 'b' must stay gone
+    const stale = mergeServerState(afterDelete, { scheduleEvents: [ev('a', '2026-09-01'), ev('b', '2026-09-02')] }, { scope: 'schedule' });
+    assert.deepEqual(stale.scheduleEvents.map((e: any) => e.id), ['a']);
+  });
+
+  it('server replaces the roster on a roster save but still merges other saves', async () => {
+    const { mergeServerState } = await import('../../server/stateMerge.ts');
+    const p = (num: string) => ({ id: 'p' + num, num, firstName: 'P', lastName: num });
+    const current = { roster: [p('1'), p('2'), p('3')] };
+    const removed = mergeServerState(current, { roster: [p('1'), p('3')] }, { scope: 'roster' });
+    assert.deepEqual(removed.roster.map((x: any) => x.num), ['1', '3']);
+    const other = mergeServerState(current, { roster: [p('1')] }, { scope: 'practice' });
+    assert.deepEqual(other.roster.map((x: any) => x.num).sort(), ['1', '2', '3']);
+  });
+
+  it('server does not let a stale default roster re-add a deleted player', async () => {
+    const { mergeServerState } = await import('../../server/stateMerge.ts');
+    const p = (num: string, extra: any = {}) => ({ id: 'p' + num, num, firstName: 'P', lastName: num, ...extra });
+    const afterDelete = { roster: [p('1'), p('3')] };
+    // a fresh device saves its built-in roster (still containing #2) under another scope
+    const stale = mergeServerState(afterDelete, { roster: [p('1', { paddedHours: 2 }), p('2'), p('3')] }, { scope: 'attendance' });
+    assert.deepEqual(stale.roster.map((x: any) => x.num), ['1', '3']);
+    assert.equal(stale.roster[0].paddedHours, 2, 'existing players still take updates');
+    // a deliberate full push or backup restore may still add players
+    const restored = mergeServerState(afterDelete, { roster: [p('1'), p('2'), p('3')] }, { scope: 'import_backup' });
+    assert.deepEqual(restored.roster.map((x: any) => x.num).sort(), ['1', '2', '3']);
+  });
+});

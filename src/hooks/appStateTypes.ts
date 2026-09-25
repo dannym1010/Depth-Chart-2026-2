@@ -43,6 +43,7 @@ export interface LatestAppState {
   deletedPlayIds: string[];
   deletedFormationIds: string[];
   deletedPracticePlanIds: string[];
+  deletedScheduleEventIds: string[];
   collapsedFolders: Record<string, boolean>;
   scheduleEvents: ScheduleEvent[];
   roster: RosterPlayer[];

@@ -10,6 +10,7 @@ export interface RosterActionsDeps {
   latestStateRef: RefObject<LatestAppState>;
   setWeeklyData: Dispatch<SetStateAction<Record<string, WeekState>>>;
   roster: RosterPlayer[];
+  debouncedSave: (scope?: string, extraMeta?: Record<string, any>) => void;
 }
 
 // Save roster edits and keep every week's depth charts in step with renamed or removed players.
@@ -18,6 +19,7 @@ export function useRosterActions({
   latestStateRef,
   setWeeklyData,
   roster,
+  debouncedSave,
 }: RosterActionsDeps) {
   const handleUpdateRoster = (newRoster: RosterPlayer[]) => {
     const normalized = normalizeRoster(newRoster, false);
@@ -118,6 +120,10 @@ export function useRosterActions({
       });
       return changed ? nextWeekly : prev;
     });
+
+    // Push the roster so other coaches and the server get the edit (the cloud
+    // roster doc is only written for the roster scope).
+    debouncedSave('roster');
   };
 
   const handleUpdatePlayerInRoster = (updatedPlayer: RosterPlayer) => {

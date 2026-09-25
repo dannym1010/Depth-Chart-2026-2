@@ -189,6 +189,7 @@ import {
   collectHudlScoutBackup,
   applyHudlScoutBackup,
   mergeScheduleEvents,
+  mergeDeletedIds,
   applySharedWeekSliceDepth,
   applySharedFormations,
   applyFormationBoardPatches,
@@ -386,6 +387,11 @@ export default function App() {
       safeJSONSet('footballDeletedPracticePlanIds', list);
     }
     return list;
+  });
+  // Ids of schedule events a coach deleted, shared so other copies don't re-add them.
+  const [deletedScheduleEventIds, setDeletedScheduleEventIds] = useState<string[]>(() => {
+    const saved = safeJSONParse('footballDeletedScheduleEventIds', null);
+    return saved && Array.isArray(saved) ? saved : [];
   });
   const [playDatabase, setPlayDatabase] = useState<PlayDatabaseEntry[]>(() => {
     const saved = safeJSONParse('footballPlayDatabase', null);
@@ -965,6 +971,7 @@ export default function App() {
     deletedPlayIds,
     deletedFormationIds,
     deletedPracticePlanIds,
+    deletedScheduleEventIds,
     collapsedFolders,
     scheduleEvents,
     roster,
@@ -999,6 +1006,7 @@ export default function App() {
       deletedPlayIds,
       deletedFormationIds,
       deletedPracticePlanIds,
+      deletedScheduleEventIds,
       collapsedFolders,
       scheduleEvents,
       roster,
@@ -1010,6 +1018,19 @@ export default function App() {
       liveDrillSlotLayouts: loadLiveDrillSlotLayouts(),
     };
   });
+
+  // Fold schedule deletions from another device into ours and return the full list,
+  // so merges below can drop those events instead of re-adding them.
+  const absorbDeletedScheduleEventIds = (incoming: unknown): string[] => {
+    const current = latestStateRef.current.deletedScheduleEventIds || [];
+    const merged = mergeDeletedIds(current, incoming);
+    if (merged.length !== current.length) {
+      latestStateRef.current.deletedScheduleEventIds = merged;
+      setDeletedScheduleEventIds(merged);
+      safeJSONSet('footballDeletedScheduleEventIds', merged);
+    }
+    return merged;
+  };
 
   // Determine current active depth chart unit
   const depthSubUnitRef = useRef<string>(depthSubUnit);
@@ -1549,7 +1570,8 @@ export default function App() {
 
     const mergedScheduleEvents = mergeScheduleEvents(
       latestStateRef.current.scheduleEvents,
-      Array.isArray(data.scheduleEvents) ? data.scheduleEvents : undefined
+      Array.isArray(data.scheduleEvents) ? data.scheduleEvents : undefined,
+      absorbDeletedScheduleEventIds(data.deletedScheduleEventIds)
     );
     if (!skipBoardFromGiantDoc && data.scheduleEvents && Array.isArray(data.scheduleEvents)) {
       setScheduleEvents(mergedScheduleEvents);
@@ -2028,6 +2050,7 @@ export default function App() {
       deletedPlayIds: currentState.deletedPlayIds,
       collapsedFolders: currentState.collapsedFolders,
       scheduleEvents: currentState.scheduleEvents,
+      deletedScheduleEventIds: currentState.deletedScheduleEventIds || [],
       roster: currentState.roster,
       teams: currentState.teams,
       seasonConfig: currentState.seasonConfig,
@@ -2193,6 +2216,7 @@ export default function App() {
       teamId: activeTeamIdRef.current,
       week: weekKey,
       scheduleEvents: currentState.scheduleEvents,
+      deletedScheduleEventIds: currentState.deletedScheduleEventIds || [],
       practiceData: currentState.practiceData,
       deletedPracticePlanIds: currentState.deletedPracticePlanIds,
       weekSlice:
@@ -2412,7 +2436,11 @@ export default function App() {
     };
 
     if (Array.isArray(remote.scheduleEvents) && take('schedule', remote.scheduleUpdatedAt)) {
-      const merged = mergeScheduleEvents(latestStateRef.current.scheduleEvents, remote.scheduleEvents);
+      const merged = mergeScheduleEvents(
+        latestStateRef.current.scheduleEvents,
+        remote.scheduleEvents,
+        absorbDeletedScheduleEventIds(remote.deletedScheduleEventIds)
+      );
       setScheduleEvents(merged);
       latestStateRef.current.scheduleEvents = merged;
       safeJSONSet('footballScheduleEvents', merged);
@@ -5170,6 +5198,7 @@ export default function App() {
     practiceData,
     updatePracticeDataAndSave,
     setScheduleEvents,
+    setDeletedScheduleEventIds,
     latestStateRef,
     setCurrentPracticeId,
     practiceWeekdayTemplates,
@@ -5246,6 +5275,7 @@ export default function App() {
     latestStateRef,
     setWeeklyData,
     roster,
+    debouncedSave,
   });
 
 
