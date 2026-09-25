@@ -22,6 +22,7 @@ export interface ScheduleActionsDeps {
   storedWeekForWrite: (wData: Record<string, WeekState>, teamId: string, week: string) => WeekState;
   practiceData: PracticePlan[];
   updatePracticeDataAndSave: (updater: (prev: PracticePlan[]) => PracticePlan[], immediate?: boolean, modifiedPlanId?: string) => void;
+  updatePracticeDataLocally: (updater: (prev: PracticePlan[]) => PracticePlan[]) => void;
   setScheduleEvents: Dispatch<SetStateAction<ScheduleEvent[]>>;
   setDeletedScheduleEventIds: Dispatch<SetStateAction<string[]>>;
   latestStateRef: RefObject<LatestAppState>;
@@ -48,6 +49,7 @@ export function useScheduleActions({
   storedWeekForWrite,
   practiceData,
   updatePracticeDataAndSave,
+  updatePracticeDataLocally,
   setScheduleEvents,
   setDeletedScheduleEventIds,
   latestStateRef,
@@ -228,7 +230,10 @@ export function useScheduleActions({
     if (existing) {
       const existingId = existing.id;
       const existingPlan = existing;
-      updatePracticeDataAndSave((prev) => {
+      // Opening a practice is not an edit: align it with the event on this device only.
+      // Stamping and saving here pushed this device's (possibly older or default) copy
+      // over the plan another coach had just edited.
+      updatePracticeDataLocally((prev) => {
         const alreadyInList = prev.some((p) => p.id === existingId);
         if (alreadyInList) {
           return prev.map((p) =>
@@ -245,7 +250,6 @@ export function useScheduleActions({
                   weekFolder: weekFolder,
                   year: year,
                   location: location,
-                  lastEdited: Date.now(),
                 }
               : p
           );
@@ -267,7 +271,8 @@ export function useScheduleActions({
               year: year,
               plan: rawPeriods,
               periods: rawPeriods,
-              lastEdited: Date.now(),
+              // Keep the stored/default timestamp so any real plan from another coach wins.
+              lastEdited: existingPlan.lastEdited,
             },
           ];
         }
@@ -292,6 +297,13 @@ export function useScheduleActions({
 
       setCurrentPracticeId(existingId);
       return existingId;
+    }
+
+    const linkedId = event.preGamePlanId || event.linkedPracticePlanId;
+    const linkedWasDeleted = Boolean(linkedId && (latestStateRef.current.deletedPracticePlanIds || []).includes(linkedId));
+    if (linkedId && !linkedWasDeleted) {
+      setCurrentPracticeId(linkedId);
+      return linkedId;
     }
 
     // 5. Create new plan auto-populated with date, time, week folder, and day

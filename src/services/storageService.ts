@@ -1647,7 +1647,47 @@ export interface ActiveUserSession {
   isIdle?: boolean;
 }
 
+// Live site (no Express server): who is online is kept in one shared cloud doc,
+// teamData/ops_presence, as users.<clientId>. Anyone not seen for 2.5 minutes is offline.
+const PRESENCE_DOC = 'ops_presence';
+const PRESENCE_STALE_MS = 150000;
+const presenceConnectedAt = Date.now();
+
+function activeUsersFromPresenceDoc(data: any): { active: ActiveUserSession[]; staleIds: string[] } {
+  const users = data && typeof data.users === 'object' && data.users ? data.users : {};
+  const now = Date.now();
+  const active: ActiveUserSession[] = [];
+  const staleIds: string[] = [];
+  Object.entries(users).forEach(([id, u]: [string, any]) => {
+    if (u && Number(u.lastSeen) > now - PRESENCE_STALE_MS) active.push(u as ActiveUserSession);
+    else staleIds.push(id);
+  });
+  active.sort((a, b) => (a.connectedAt || 0) - (b.connectedAt || 0));
+  return { active, staleIds };
+}
+
+async function readCloudPresence(): Promise<ActiveUserSession[]> {
+  if (isFirestoreQuotaPaused()) return [];
+  const { db } = getFirebaseServices();
+  if (!db) return [];
+  try {
+    const ref = db.collection('teamData').doc(PRESENCE_DOC);
+    const snap = await ref.get();
+    const { active, staleIds } = activeUsersFromPresenceDoc(snap.exists ? snap.data() : null);
+    const del = typeof window !== 'undefined' ? window.firebase?.firestore?.FieldValue?.delete?.() : undefined;
+    if (staleIds.length && del) {
+      // Tidy up coaches who closed the app without saying goodbye.
+      ref.update(Object.fromEntries(staleIds.map((id) => [`users.${id}`, del]))).catch(() => {});
+    }
+    return active;
+  } catch (err) {
+    noteFirestoreError(err);
+    return [];
+  }
+}
+
 export async function fetchActiveUsers(): Promise<ActiveUserSession[]> {
+  if (!shouldUseLocalOpsApi()) return readCloudPresence();
   if (isServerApiAvailable === false) return [];
   try {
     const res = await opsFetch('/api/presence');
@@ -1668,6 +1708,30 @@ export async function registerPresence(params: {
   currentWeek?: string;
   isIdle?: boolean;
 }): Promise<ActiveUserSession[]> {
+  if (!shouldUseLocalOpsApi()) {
+    if (isFirestoreQuotaPaused()) return [];
+    const { db } = getFirebaseServices();
+    if (!db) return [];
+    try {
+      const entry: ActiveUserSession = {
+        clientId: CLIENT_ID,
+        email: params.email,
+        displayName: params.displayName || params.email.split('@')[0],
+        role: params.role || 'Coach',
+        activeTeamId: params.activeTeamId || '',
+        activeUnit: params.activeUnit || '',
+        currentWeek: params.currentWeek || '',
+        connectedAt: presenceConnectedAt,
+        lastSeen: Date.now(),
+        isIdle: Boolean(params.isIdle),
+      };
+      await db.collection('teamData').doc(PRESENCE_DOC).set({ users: { [CLIENT_ID]: entry } }, { merge: true });
+    } catch (err) {
+      noteFirestoreError(err);
+      return [];
+    }
+    return readCloudPresence();
+  }
   if (isServerApiAvailable === false) return [];
   try {
     const res = await opsFetch('/api/presence', {
@@ -1687,6 +1751,17 @@ export async function registerPresence(params: {
 }
 
 export async function leavePresence(email?: string): Promise<boolean> {
+  if (!shouldUseLocalOpsApi()) {
+    const { db } = getFirebaseServices();
+    const del = typeof window !== 'undefined' ? window.firebase?.firestore?.FieldValue?.delete?.() : undefined;
+    if (!db || !del) return false;
+    try {
+      await db.collection('teamData').doc(PRESENCE_DOC).update({ [`users.${CLIENT_ID}`]: del });
+      return true;
+    } catch {
+      return false;
+    }
+  }
   try {
     const res = await opsFetch('/api/presence/leave', {
       method: 'POST',

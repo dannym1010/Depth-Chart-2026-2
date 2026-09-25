@@ -4605,6 +4605,26 @@ export default function App() {
     }
   };
 
+  // Applying a weekday template replaces the periods of every upcoming plan on that day
+  // for every coach, so ask first.
+  const confirmWeekdayTemplateApply = (day: string, templateName: string) =>
+    confirm(
+      `Replace the periods in every upcoming ${day} practice plan with the "${templateName}" template?
+
+This changes those plans for all coaches. Past ${day} plans are not changed.`
+    );
+
+  // Change plans on this device only: no edit stamp, no save. For bookkeeping such as
+  // opening a practice, so an older copy on this device can't be pushed over a coach's edits.
+  const updatePracticeDataLocally = (updater: (prev: PracticePlan[]) => PracticePlan[]) => {
+    setPracticeData((prev) => {
+      const updated = updater(prev);
+      latestStateRef.current.practiceData = updated;
+      safeJSONSet('footballPracticeData', updated);
+      return updated;
+    });
+  };
+
   const {
     handleImportDrillsCSV,
     handleImportDrillsJSON,
@@ -5213,6 +5233,7 @@ export default function App() {
     storedWeekForWrite,
     practiceData,
     updatePracticeDataAndSave,
+    updatePracticeDataLocally,
     setScheduleEvents,
     setDeletedScheduleEventIds,
     latestStateRef,
@@ -6579,6 +6600,7 @@ export default function App() {
                 weekdayTemplates={practiceWeekdayTemplates}
                 onApplyWeekdayToUpcoming={(day, templateName) => {
                   const resolved = templateName || 'Standard Practice';
+                  if (!confirmWeekdayTemplateApply(day, resolved)) return;
                   const next = { ...practiceWeekdayTemplates };
                   if (resolved && resolved !== 'Standard Practice') next[day] = resolved;
                   else delete next[day];
@@ -7030,6 +7052,7 @@ export default function App() {
         }}
         onApplyWeekdayToUpcoming={(day, templateName) => {
           const resolved = templateName || 'Standard Practice';
+          if (!confirmWeekdayTemplateApply(day, resolved)) return;
           const applied = applyTemplateToFutureWeekdayPlans(day, resolved);
           if (applied === 0) {
             alert(`No upcoming ${day} practice plans found this year.`);
