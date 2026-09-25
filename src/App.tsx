@@ -5447,6 +5447,77 @@ export default function App() {
     );
   }
 
+  // The depth chart board (field view on computers, Pocket Depth Card on phones).
+  // readOnly shows it as a non-admin sees it: used by the Mobile HUD, whose saves
+  // would otherwise be tagged with the wrong unit. Editing happens on the Depth screen.
+  const renderFormationsView = (
+    unit: 'offense' | 'defense' | 'st' | 'groups',
+    opts: { readOnly?: boolean; key?: string } = {}
+  ) => (
+        <FormationsView
+        key={opts.key || unit}
+        unit={unit}
+        formations={currentFormations}
+        depthChart={currentDepthChart}
+        selectedFormationId={selectedFormationId}
+        onSelectFormation={setSelectedFormationId}
+        userRole={opts.readOnly ? 'assistant' : userRole}
+        activeTeam={currentActiveTeam}
+        teams={teams}
+        onCopyFormationsFromTeam={handleCopyFormationsFromTeam}
+        onAddFormation={handleAddFormation}
+        onMoveFormation={handleMoveFormation}
+        onDuplicateFormation={handleDuplicateFormation}
+        onRenameFormation={handleRenameFormation}
+        onDeleteFormation={handleDeleteFormation}
+        onRestoreDefaultFormations={handleRestoreDefaultFormations}
+        onAddRow={handleAddRow}
+        onEditRowName={handleEditRowName}
+        onEditRowSlots={handleEditRowSlots}
+        onDeleteRow={handleDeleteRow}
+        onAddPosition={handleAddPosition}
+        onEditPositionName={handleEditPositionName}
+        onMovePositionRow={handleMovePositionRow}
+        onCopyPositionToOtherForm={handleCopyPositionToOtherForm}
+        onDeletePosition={handleDeletePosition}
+        onDropPlayerOnCard={handleDropPlayerOnCard}
+        onRemovePlayerFromCard={handleRemovePlayerFromCard}
+        onOpenSelectivePrintModal={(unit) =>
+          setSelectivePrintUnit(unit)
+        }
+        onOpenCopyWeekModal={() => setIsCopyWeekModalOpen(true)}
+        onOpenImportModal={() => setIsImportModalOpen(true)}
+        onDragStartPlacedPlayer={handleDragStartPlacedPlayer}
+        onPositionCardDragStart={handlePositionCardDragStart}
+        onPositionCardDropOnSlot={handlePositionCardDropOnSlot}
+        onSetRowSlots={handleSetRowSlots}
+        onAddSlotToRow={handleAddSlotToRow}
+        onRemoveSlotFromRow={handleRemoveSlotFromRow}
+        onInsertSlotAt={handleInsertSlotAt}
+        onClearPositionToEmpty={handleClearPositionToEmpty}
+        onAssignPositionToSlot={handleAssignPositionToSlot}
+        onAddPositionDirect={handleAddPositionDirect}
+        onRenamePositionDirect={handleRenamePositionDirect}
+        onRenameRowDirect={handleRenameRowDirect}
+        onAddRowDirect={handleAddRowDirect}
+        onAddFormationDirect={handleAddFormationDirect}
+        onRenameFormationDirect={handleRenameFormationDirect}
+        onDuplicateFormationDirect={handleDuplicateFormationDirect}
+        onMovePositionDirect={handleMovePositionDirect}
+        onCopyPositionDirect={handleCopyPositionDirect}
+        roster={roster.filter((p) => !p.teamId || p.teamId === activeTeamId)}
+        onAssignPlayerDirect={handleAssignPlayerDirect}
+        onReorderDepthPlayer={handleReorderDepthPlayer}
+        isLockedByOther={opts.readOnly ? false : isLockedByOther}
+        lockHolderName={lockHolderName}
+        lockHolderEmail={lockHolderEmail}
+        isHeldByMe={opts.readOnly ? false : isHeldByMe}
+        onAcquireLock={() => handleAcquireLock(currentDepthUnit, currentWeek, false)}
+        onReleaseLock={() => handleReleaseLock(currentDepthUnit, currentWeek)}
+        onTakeOverLock={() => handleTakeOverLock(currentDepthUnit, currentWeek)}
+      />
+  );
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 print:bg-white print:text-black flex flex-row print:block print:h-auto print:min-h-0 print:overflow-visible font-sans text-slate-900 dark:text-slate-100 selection:bg-indigo-600 selection:text-white overflow-x-hidden print:overflow-x-visible">
       {/* Hidden File Inputs for Import */}
@@ -5627,6 +5698,7 @@ export default function App() {
             {/* 0. Mobile Starting Screen & Coach Hub */}
             {activeUnit === 'mobile_hub' && (
               <MobileHubView
+                renderDepthCard={(unit) => renderFormationsView(unit, { readOnly: true, key: `hud-${unit}` })}
                 activeTeam={currentActiveTeam}
                 teams={teams}
                 onSelectTeam={setActiveTeamId}
@@ -5854,76 +5926,11 @@ export default function App() {
                   </div>
                 )}
 
-                <FormationsView
-                key={
+                {renderFormationsView(
                   activeUnit === 'depth_chart'
                     ? (['offense', 'defense', 'st', 'groups'].includes(depthSubUnit) ? (depthSubUnit as 'offense' | 'defense' | 'st' | 'groups') : 'offense')
                     : (activeUnit as 'offense' | 'defense' | 'st' | 'groups')
-                }
-                unit={
-                  activeUnit === 'depth_chart'
-                    ? (['offense', 'defense', 'st', 'groups'].includes(depthSubUnit) ? (depthSubUnit as 'offense' | 'defense' | 'st' | 'groups') : 'offense')
-                    : (activeUnit as 'offense' | 'defense' | 'st' | 'groups')
-                }
-                formations={currentFormations}
-                depthChart={currentDepthChart}
-                selectedFormationId={selectedFormationId}
-                onSelectFormation={setSelectedFormationId}
-                userRole={userRole}
-                activeTeam={currentActiveTeam}
-                teams={teams}
-                onCopyFormationsFromTeam={handleCopyFormationsFromTeam}
-                onAddFormation={handleAddFormation}
-                onMoveFormation={handleMoveFormation}
-                onDuplicateFormation={handleDuplicateFormation}
-                onRenameFormation={handleRenameFormation}
-                onDeleteFormation={handleDeleteFormation}
-                onRestoreDefaultFormations={handleRestoreDefaultFormations}
-                onAddRow={handleAddRow}
-                onEditRowName={handleEditRowName}
-                onEditRowSlots={handleEditRowSlots}
-                onDeleteRow={handleDeleteRow}
-                onAddPosition={handleAddPosition}
-                onEditPositionName={handleEditPositionName}
-                onMovePositionRow={handleMovePositionRow}
-                onCopyPositionToOtherForm={handleCopyPositionToOtherForm}
-                onDeletePosition={handleDeletePosition}
-                onDropPlayerOnCard={handleDropPlayerOnCard}
-                onRemovePlayerFromCard={handleRemovePlayerFromCard}
-                onOpenSelectivePrintModal={(unit) =>
-                  setSelectivePrintUnit(unit)
-                }
-                onOpenCopyWeekModal={() => setIsCopyWeekModalOpen(true)}
-                onOpenImportModal={() => setIsImportModalOpen(true)}
-                onDragStartPlacedPlayer={handleDragStartPlacedPlayer}
-                onPositionCardDragStart={handlePositionCardDragStart}
-                onPositionCardDropOnSlot={handlePositionCardDropOnSlot}
-                onSetRowSlots={handleSetRowSlots}
-                onAddSlotToRow={handleAddSlotToRow}
-                onRemoveSlotFromRow={handleRemoveSlotFromRow}
-                onInsertSlotAt={handleInsertSlotAt}
-                onClearPositionToEmpty={handleClearPositionToEmpty}
-                onAssignPositionToSlot={handleAssignPositionToSlot}
-                onAddPositionDirect={handleAddPositionDirect}
-                onRenamePositionDirect={handleRenamePositionDirect}
-                onRenameRowDirect={handleRenameRowDirect}
-                onAddRowDirect={handleAddRowDirect}
-                onAddFormationDirect={handleAddFormationDirect}
-                onRenameFormationDirect={handleRenameFormationDirect}
-                onDuplicateFormationDirect={handleDuplicateFormationDirect}
-                onMovePositionDirect={handleMovePositionDirect}
-                onCopyPositionDirect={handleCopyPositionDirect}
-                roster={roster.filter((p) => !p.teamId || p.teamId === activeTeamId)}
-                onAssignPlayerDirect={handleAssignPlayerDirect}
-                onReorderDepthPlayer={handleReorderDepthPlayer}
-                isLockedByOther={isLockedByOther}
-                lockHolderName={lockHolderName}
-                lockHolderEmail={lockHolderEmail}
-                isHeldByMe={isHeldByMe}
-                onAcquireLock={() => handleAcquireLock(currentDepthUnit, currentWeek, false)}
-                onReleaseLock={() => handleReleaseLock(currentDepthUnit, currentWeek)}
-                onTakeOverLock={() => handleTakeOverLock(currentDepthUnit, currentWeek)}
-              />
+                )}
               </>
             )}
 
