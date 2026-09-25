@@ -189,7 +189,10 @@ export const PlayBankSidebar: React.FC<PlayBankSidebarProps> = ({
           wristbandNum: wbNum,
           numberBgColor: slotBg,
           numberTextColor: slotText,
-          rowBgColor: p.highlightColor || p.rowHighlightColor,
+          rowBgColor:
+            currentWbCard.highlightTarget === 'full_row'
+              ? p.rowHighlightColor || p.highlightColor
+              : undefined,
           playText: p.text.trim(),
           formation: p.formation || inferFormation(p.text, unit),
           type: p.type as PlayType | undefined,

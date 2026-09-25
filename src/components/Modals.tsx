@@ -38,6 +38,7 @@ import {
 import { FormationBoard, PracticePeriod, StaffCoach, Team, DrillFolder, SeasonConfig, ScheduleEvent, WeekState } from '../types';
 import { getSeasonWeekList, getWeekDisplayLabelWithOpponent, formatWeekLabel } from '../utils/seasonWeekUtils';
 import { summarizeHudlScoutBackup } from '../utils/remoteStateMerge';
+import { PRACTICE_WEEKDAY_NAMES, PracticeWeekdayTemplateMap } from '../utils/practiceUtils';
 import { canUseLocalDeveloperLogin } from '../utils/localDeveloperAuth';
 
 /* =========================================================================
@@ -1502,19 +1503,23 @@ export const ScrimmageFilterModal: React.FC<ScrimmageFilterModalProps> = ({
 interface TemplatesManagerModalProps {
   isOpen: boolean;
   templates: Record<string, PracticePeriod[]>;
+  weekdayTemplates?: PracticeWeekdayTemplateMap;
   onClose: () => void;
   onRenameTemplate: (oldName: string, newName: string) => void;
   onDeleteTemplate: (name: string) => void;
   onSaveNewTemplate?: (name: string) => void;
+  onSetWeekdayTemplate?: (day: (typeof PRACTICE_WEEKDAY_NAMES)[number], templateName: string) => void;
 }
 
 export const TemplatesManagerModal: React.FC<TemplatesManagerModalProps> = ({
   isOpen,
   templates,
+  weekdayTemplates = {},
   onClose,
   onRenameTemplate,
   onDeleteTemplate,
   onSaveNewTemplate,
+  onSetWeekdayTemplate,
 }) => {
   const [newTemplateName, setNewTemplateName] = React.useState('');
 
@@ -1529,9 +1534,11 @@ export const TemplatesManagerModal: React.FC<TemplatesManagerModalProps> = ({
     }
   };
 
+  const templateNames = Object.keys(templates);
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-slate-800/95 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 border border-slate-700/80">
+      <div className="bg-slate-800/95 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4 border border-slate-700/80 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between border-b border-slate-700 pb-3">
           <div className="flex items-center gap-2">
             <Settings className="w-4 h-4 text-indigo-400" />
@@ -1554,7 +1561,7 @@ export const TemplatesManagerModal: React.FC<TemplatesManagerModalProps> = ({
                 type="text"
                 value={newTemplateName}
                 onChange={(e) => setNewTemplateName(e.target.value)}
-                placeholder="e.g. Tuesday Full Pads / Pre-Game Walkthrough"
+                placeholder="e.g. Tuesday Full Pads / Thursday Walkthrough"
                 className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
               />
               <button
@@ -1566,6 +1573,36 @@ export const TemplatesManagerModal: React.FC<TemplatesManagerModalProps> = ({
               </button>
             </div>
           </form>
+        )}
+
+        {onSetWeekdayTemplate && (
+          <div className="space-y-2 border border-slate-700 p-3 rounded-2xl bg-slate-900/90">
+            <div className="text-[10.5px] font-bold text-slate-400 uppercase tracking-wider">
+              Default template by weekday
+            </div>
+            <p className="text-[11px] text-slate-400 leading-snug">
+              Used when you create a plan from a TeamSnap schedule practice. Does not change the calendar.
+            </p>
+            <div className="space-y-1.5">
+              {PRACTICE_WEEKDAY_NAMES.map((day) => (
+                <div key={day} className="flex items-center gap-2">
+                  <span className="w-24 shrink-0 text-xs font-bold text-slate-200">{day}</span>
+                  <select
+                    value={weekdayTemplates[day] || ''}
+                    onChange={(e) => onSetWeekdayTemplate(day, e.target.value)}
+                    className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-100 focus:outline-none"
+                  >
+                    <option value="">Standard Practice</option>
+                    {templateNames.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
         <div className="space-y-2 max-h-64 overflow-y-auto border border-slate-700 p-3 rounded-2xl bg-slate-900/90">

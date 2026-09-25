@@ -12,6 +12,7 @@ import {
   generateWristbandPrintHTML,
   generatePracticePlanHTML,
 } from './printUtils';
+import { loadPrintPrefs, loadSharedPrintPrefs } from './printPrefs';
 
 export interface GameDayPackageSectionsSelection {
   sidelineHud: boolean;
@@ -89,8 +90,8 @@ export function generateGameDayPackageHTML(
   const {
     includeCoverPage = true,
     pageBreaksBetweenSections = true,
-    inkFriendly = false,
-    orientation = 'auto',
+    inkFriendly = loadSharedPrintPrefs().inkFriendly,
+    orientation = loadSharedPrintPrefs().orientation,
     sections,
     subSelections,
   } = options;
@@ -655,7 +656,7 @@ export function generateGameDayPackageHTML(
       activeTeamName,
       `${activeTeamName} • Offensive Call Sheet`,
       {
-        orientation: 'landscape',
+        orientation: orientation === 'portrait' ? 'portrait' : 'landscape',
         density: 'compact',
         inkFriendly,
         hideEmptySlots: true,
@@ -695,7 +696,7 @@ export function generateGameDayPackageHTML(
       activeTeamName,
       `${activeTeamName} • Defensive Call Sheet`,
       {
-        orientation: 'landscape',
+        orientation: orientation === 'portrait' ? 'portrait' : 'landscape',
         density: 'compact',
         inkFriendly,
         hideEmptySlots: true,
@@ -734,7 +735,7 @@ export function generateGameDayPackageHTML(
       `${activeTeamName} Wristband Inserts`,
       {
         inkFriendly,
-        layout: 'grid_2up',
+        layout: loadPrintPrefs('wristband', { layout: 'grid_2up' as const }).layout || 'grid_2up',
         snippetOnly: true,
       }
     );

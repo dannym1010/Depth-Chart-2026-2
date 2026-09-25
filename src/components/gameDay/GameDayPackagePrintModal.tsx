@@ -23,6 +23,21 @@ import {
   generateGameDayPackageHTML,
 } from '../../utils/gameDayPrintUtils';
 import { openCleanPrintTab, triggerPrint } from '../../utils/printUtils';
+import { loadPrintPrefs, savePrintPrefs } from '../../utils/printPrefs';
+
+const GAME_DAY_PRINT_DEFAULTS = {
+  includeCoverPage: true,
+  pageBreaksBetweenSections: true,
+  inkFriendly: true,
+  orientation: 'landscape' as const,
+  sidelineHud: true,
+  preGamePlan: true,
+  offenseCallSheet: true,
+  defenseCallSheet: true,
+  wristbands: true,
+  scouting: true,
+  tendencies: true,
+};
 
 interface GameDayPackagePrintModalProps {
   isOpen: boolean;
@@ -70,21 +85,21 @@ export const GameDayPackagePrintModal: React.FC<GameDayPackagePrintModalProps> =
   }, [scouting?.tendenciesTree]);
 
   // Section selections
+  const savedPrint = loadPrintPrefs('game_day_package', GAME_DAY_PRINT_DEFAULTS);
   const [sections, setSections] = useState<GameDayPackageSectionsSelection>({
-    sidelineHud: true,
-    preGamePlan: preGamePeriodsCount > 0,
-    offenseCallSheet: offensePlaysCount > 0,
-    defenseCallSheet: defensePlaysCount > 0,
-    wristbands: activeWristbandsCount > 0,
-    scouting: true,
-    tendencies: tendenciesCount > 0,
+    sidelineHud: savedPrint.sidelineHud,
+    preGamePlan: savedPrint.preGamePlan,
+    offenseCallSheet: savedPrint.offenseCallSheet,
+    defenseCallSheet: savedPrint.defenseCallSheet,
+    wristbands: savedPrint.wristbands,
+    scouting: savedPrint.scouting,
+    tendencies: savedPrint.tendencies,
   });
 
-  // Package options
-  const [includeCoverPage, setIncludeCoverPage] = useState(true);
-  const [pageBreaksBetweenSections, setPageBreaksBetweenSections] = useState(true);
-  const [inkFriendly, setInkFriendly] = useState(true);
-  const [orientation, setOrientation] = useState<'auto' | 'landscape' | 'portrait'>('landscape');
+  const [includeCoverPage, setIncludeCoverPage] = useState(savedPrint.includeCoverPage);
+  const [pageBreaksBetweenSections, setPageBreaksBetweenSections] = useState(savedPrint.pageBreaksBetweenSections);
+  const [inkFriendly, setInkFriendly] = useState(savedPrint.inkFriendly);
+  const [orientation, setOrientation] = useState<'auto' | 'landscape' | 'portrait'>(savedPrint.orientation);
   const [isPrinting, setIsPrinting] = useState(false);
 
   if (!isOpen) return null;
@@ -136,6 +151,20 @@ export const GameDayPackagePrintModal: React.FC<GameDayPackagePrintModalProps> =
       alert('Please select at least one section to print in the Game Day Package.');
       return;
     }
+
+    savePrintPrefs('game_day_package', {
+      includeCoverPage,
+      pageBreaksBetweenSections,
+      inkFriendly,
+      orientation,
+      sidelineHud: sections.sidelineHud,
+      preGamePlan: sections.preGamePlan,
+      offenseCallSheet: sections.offenseCallSheet,
+      defenseCallSheet: sections.defenseCallSheet,
+      wristbands: sections.wristbands,
+      scouting: sections.scouting,
+      tendencies: sections.tendencies,
+    });
 
     setIsPrinting(true);
     const html = generateGameDayPackageHTML(data, {

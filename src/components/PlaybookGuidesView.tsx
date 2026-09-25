@@ -31,6 +31,7 @@ import {
   generatePlaybookGuidePrintHTML,
   generatePlaybookBinderPrintHTML,
 } from '../utils/printUtils';
+import { loadSharedPrintPrefs, savePrintPrefs } from '../utils/printPrefs';
 import { FullDocumentViewer } from './common/FullDocumentViewer';
 import { PlaybookInteractiveSheet } from './whiteboard/PlaybookInteractiveSheet';
 import { HudlPlaybookUploadModal } from './whiteboard/HudlPlaybookUploadModal';
@@ -481,7 +482,7 @@ export const PlaybookGuidesView: React.FC<PlaybookGuidesViewProps> = ({
   // Playbook & Guides Printing State
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [printScope, setPrintScope] = useState<'current' | 'category' | 'all'>('current');
-  const [printInkFriendly, setPrintInkFriendly] = useState(true);
+  const [printInkFriendly, setPrintInkFriendly] = useState(() => loadSharedPrintPrefs().inkFriendly);
   const [includeCoverPage, setIncludeCoverPage] = useState(true);
   const [selectedPrintSubTabs, setSelectedPrintSubTabs] = useState<Record<string, boolean>>({});
   const [isPrintingLoading, setIsPrintingLoading] = useState(false);
@@ -807,6 +808,7 @@ export const PlaybookGuidesView: React.FC<PlaybookGuidesViewProps> = ({
   };
 
   const handleExecutePrint = (mode: 'iframe' | 'tab' = 'iframe') => {
+    savePrintPrefs('playbook', { inkFriendly: printInkFriendly, printScope, includeCoverPage });
     setIsPrintingLoading(true);
     try {
       if (printScope === 'current') {

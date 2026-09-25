@@ -21,6 +21,14 @@ import {
   openPracticePlanPackageTab,
   PlanDrillItem,
 } from '../utils/drillPlanLinking';
+import { loadPrintPrefs, savePrintPrefs } from '../utils/printPrefs';
+
+const PRACTICE_PRINT_DEFAULTS = {
+  includePlanTable: true,
+  includeDrillSheets: true,
+  includeFormations: false,
+  fontSize: 12,
+};
 
 interface PracticePlanPrintModalProps {
   isOpen: boolean;
@@ -49,10 +57,14 @@ export const PracticePlanPrintModal: React.FC<PracticePlanPrintModalProps> = ({
   depthChart = {},
   activeTeamName,
 }) => {
-  const [includePlanTable, setIncludePlanTable] = useState(true);
-  const [includeDrillSheets, setIncludeDrillSheets] = useState(true);
-  const [includeFormations, setIncludeFormations] = useState(false);
-  const [fontSize, setFontSize] = useState<number>(parseInt(initialPrintFontSize, 10) || 12);
+  const savedPrint = loadPrintPrefs('practice_plan', {
+    ...PRACTICE_PRINT_DEFAULTS,
+    fontSize: parseInt(initialPrintFontSize, 10) || 12,
+  });
+  const [includePlanTable, setIncludePlanTable] = useState(savedPrint.includePlanTable);
+  const [includeDrillSheets, setIncludeDrillSheets] = useState(savedPrint.includeDrillSheets);
+  const [includeFormations, setIncludeFormations] = useState(savedPrint.includeFormations);
+  const [fontSize, setFontSize] = useState<number>(savedPrint.fontSize);
 
   // Extract all drills available in this plan
   const planDrills: PlanDrillItem[] = useMemo(() => {
@@ -114,7 +126,17 @@ export const PracticePlanPrintModal: React.FC<PracticePlanPrintModalProps> = ({
   const formationsPageEstimate = includeFormations && formations.length > 0 ? Math.ceil(formations.length / 2) : 0;
   const totalPages = (includePlanTable ? 1 : 0) + selectedDrillPackages.length + formationsPageEstimate;
 
+  const persistPrintPrefs = () => {
+    savePrintPrefs('practice_plan', {
+      includePlanTable,
+      includeDrillSheets,
+      includeFormations,
+      fontSize,
+    });
+  };
+
   const handlePrint = () => {
+    persistPrintPrefs();
     printPracticePlanPackage({
       plan,
       periods,
@@ -131,6 +153,7 @@ export const PracticePlanPrintModal: React.FC<PracticePlanPrintModalProps> = ({
   };
 
   const handleOpenTab = () => {
+    persistPrintPrefs();
     openPracticePlanPackageTab({
       plan,
       periods,

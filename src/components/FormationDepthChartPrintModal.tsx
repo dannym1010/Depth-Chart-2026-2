@@ -26,6 +26,16 @@ import {
   openCleanPrintTab,
   FormationDepthChartPrintOptions,
 } from '../utils/printUtils';
+import { loadPrintPrefs, savePrintPrefs } from '../utils/printPrefs';
+
+const FORMATION_PRINT_DEFAULTS = {
+  unitMode: 'current' as const,
+  depthLevels: '3_deep' as const,
+  layout: '1_per_page' as const,
+  orientation: 'landscape' as const,
+  colorMode: 'color' as const,
+  starterBadgeStyle: 'white' as const,
+};
 
 interface FormationDepthChartPrintModalProps {
   isOpen: boolean;
@@ -49,23 +59,19 @@ export const FormationDepthChartPrintModal: React.FC<FormationDepthChartPrintMod
   initialSelectedFormationId = null,
 }) => {
   // Scope / Unit mode
-  const [unitMode, setUnitMode] = useState<'current' | 'both_off_def' | 'all' | 'offense' | 'defense' | 'st'>('current');
+  const savedPrint = loadPrintPrefs('formation_depth', FORMATION_PRINT_DEFAULTS);
+  const [unitMode, setUnitMode] = useState<'current' | 'both_off_def' | 'all' | 'offense' | 'defense' | 'st'>(savedPrint.unitMode);
+  const [depthLevels, setDepthLevels] = useState<'starters_only' | '2_deep' | '3_deep' | 'all'>(savedPrint.depthLevels);
+  const [layout, setLayout] = useState<'1_per_page' | '2_per_page'>(savedPrint.layout);
+  const [orientation, setOrientation] = useState<'landscape' | 'portrait'>(savedPrint.orientation);
+  const [colorMode, setColorMode] = useState<'color' | 'sideline_contrast' | 'ink_friendly'>(savedPrint.colorMode);
+  const [starterBadgeStyle, setStarterBadgeStyle] = useState<'white' | 'black'>(savedPrint.starterBadgeStyle);
 
-  // Formation ordering & selection
   const [orderedFormationIds, setOrderedFormationIds] = useState<string[]>(() => formations.map((f) => f.id));
   const [selectedFormationIds, setSelectedFormationIds] = useState<string[]>(() => {
     if (initialSelectedFormationId) return [initialSelectedFormationId];
     return formations.map((f) => f.id);
   });
-
-  // Depth levels: starters only, 2-deep (Black+Gold), 3-deep (Black+Gold+Blue), all (full backups)
-  const [depthLevels, setDepthLevels] = useState<'starters_only' | '2_deep' | '3_deep' | 'all'>('3_deep');
-
-  // Page layout & breaks
-  const [layout, setLayout] = useState<'1_per_page' | '2_per_page'>('1_per_page');
-  const [orientation, setOrientation] = useState<'landscape' | 'portrait'>('landscape');
-  const [colorMode, setColorMode] = useState<'color' | 'sideline_contrast' | 'ink_friendly'>('color');
-  const [starterBadgeStyle, setStarterBadgeStyle] = useState<'white' | 'black'>('white');
 
   // Cell / Player Highlighting
   const [highlightedCells, setHighlightedCells] = useState<Record<string, 'black' | 'gold' | 'blue'>>({});
@@ -200,10 +206,26 @@ export const FormationDepthChartPrintModal: React.FC<FormationDepthChartPrintMod
   }), [orientation, layout, depthLevels, colorMode, starterBadgeStyle, selectedFormationIds, activeTeamName, seasonLabel, highlightedCells]);
 
   const handlePrint = () => {
+    savePrintPrefs('formation_depth', {
+      unitMode,
+      depthLevels,
+      layout,
+      orientation,
+      colorMode,
+      starterBadgeStyle,
+    });
     printFormationDepthChart(selectedFormations, depthChart, currentOptions);
   };
 
   const handleOpenCleanTab = () => {
+    savePrintPrefs('formation_depth', {
+      unitMode,
+      depthLevels,
+      layout,
+      orientation,
+      colorMode,
+      starterBadgeStyle,
+    });
     const html = generateFormationDepthChartPrintHTML(selectedFormations, depthChart, currentOptions);
     openCleanPrintTab(html, `${activeTeamName}_FORMATION_DEPTH_CHARTS`);
   };

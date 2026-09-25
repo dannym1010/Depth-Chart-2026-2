@@ -40,6 +40,7 @@ import {
   generatePlaybookGuidePrintHTML,
   generatePlaybookBinderPrintHTML,
 } from '../../utils/printUtils';
+import { loadSharedPrintPrefs, savePrintPrefs } from '../../utils/printPrefs';
 import { FullDocumentViewer } from '../common/FullDocumentViewer';
 
 interface TendenciesViewProps {
@@ -597,7 +598,7 @@ export const TendenciesView: React.FC<TendenciesViewProps> = ({
   // Printing state
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [printScope, setPrintScope] = useState<'current' | 'category' | 'all'>('current');
-  const [printInkFriendly, setPrintInkFriendly] = useState(true);
+  const [printInkFriendly, setPrintInkFriendly] = useState(() => loadSharedPrintPrefs().inkFriendly);
   const [includeCoverPage, setIncludeCoverPage] = useState(true);
   const [selectedPrintSubTabs, setSelectedPrintSubTabs] = useState<Record<string, boolean>>({});
   const [isPrintingLoading, setIsPrintingLoading] = useState(false);
@@ -1165,6 +1166,7 @@ export const TendenciesView: React.FC<TendenciesViewProps> = ({
   };
 
   const handleExecutePrint = (mode: 'iframe' | 'tab' = 'iframe') => {
+    savePrintPrefs('tendencies', { inkFriendly: printInkFriendly, printScope, includeCoverPage });
     setIsPrintingLoading(true);
     try {
       if (printScope === 'current') {

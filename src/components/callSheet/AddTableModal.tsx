@@ -17,7 +17,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { CallSheetSection, CallSheetPlay, PlayDatabaseEntry } from '../../types/callSheet';
-import { inferFormation, extractPersonnel, getWristbandStartNumber } from '../../utils/wristbandLinking';
+import { inferFormation, extractPersonnel, getWristbandStartNumber, buildWristbandColorColumnSections } from '../../utils/wristbandLinking';
 import { SingleWristband, WristbandColumn, WristbandData, WristbandPlay } from '../../types';
 import {
   DEFAULT_WRISTBAND_1,
@@ -159,8 +159,8 @@ export const AddTableModal: React.FC<AddTableModalProps> = ({
   // 'col_2': 1-column table for Column 2
   // 'col_both_split': 2 separate tables (Col 1 table and Col 2 table)
   const [presetLayoutMode, setPresetLayoutMode] = useState<
-    'full_two_col' | 'col_1' | 'col_2' | 'col_both_split'
-  >('full_two_col');
+    'full_two_col' | 'full_four_col' | 'col_1' | 'col_2' | 'col_both_split'
+  >('full_four_col');
 
   // Shared Form State
   const [targetUnit, setTargetUnit] = useState<'offense' | 'defense'>(activeUnit);
@@ -185,7 +185,11 @@ export const AddTableModal: React.FC<AddTableModalProps> = ({
       const col1Name = selectedWb.columns?.[0]?.name || 'Left Column';
       const col2Name = selectedWb.columns?.[1]?.name || 'Right Column';
 
-      if (presetLayoutMode === 'full_two_col') {
+      if (presetLayoutMode === 'full_four_col') {
+        setTableTitle(selectedWb.title || 'Wristband');
+        const primaryColor = selectedWb.columns?.[0]?.color || '#2563eb';
+        setHeaderColor(primaryColor);
+      } else if (presetLayoutMode === 'full_two_col') {
         setTableTitle(selectedWb.title || 'Wristband Plays');
         const primaryColor = selectedWb.columns?.[0]?.color || '#2563eb';
         setHeaderColor(primaryColor);
@@ -247,8 +251,9 @@ export const AddTableModal: React.FC<AddTableModalProps> = ({
       (isDarkColor(numBgColor) ? '#ffffff' : '#000000');
 
     const isFullRow = wb.highlightTarget === 'full_row';
-    const rowHighlight =
-      wbPlay.highlightColor || (isFullRow ? col.color : undefined);
+    const rowHighlight = isFullRow
+      ? wbPlay.rowHighlightColor || wbPlay.highlightColor || col.color
+      : undefined;
 
     const playText = wbPlay.text || '';
     const dbMatch = playText ? dbPlayLookup.get(playText.toLowerCase().trim()) : undefined;
@@ -308,6 +313,21 @@ export const AddTableModal: React.FC<AddTableModalProps> = ({
 
     const isHeaderLight = !isDarkColor(headerColor);
     const headerTextColor = isHeaderLight ? '#000000' : '#ffffff';
+
+    if (presetLayoutMode === 'full_four_col') {
+      const built = buildWristbandColorColumnSections(
+        propWristbandData || { wristbands: availableWristbands },
+        targetUnit
+      );
+      if (built.length) {
+        return built.map((section) => ({
+          ...section,
+          group,
+          targetUnit,
+          headerTextColor: isDarkColor(section.headerBgColor) ? '#ffffff' : '#000000',
+        }));
+      }
+    }
 
     if (presetLayoutMode === 'full_two_col') {
       const maxRows = Math.max(col1Plays.length, col2Plays.length, 1);
@@ -648,12 +668,18 @@ export const AddTableModal: React.FC<AddTableModalProps> = ({
                   <Columns className="w-3.5 h-3.5 text-indigo-400" />
                   2. Choose Table Format from Wristband:
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
                   {[
+                    {
+                      id: 'full_four_col',
+                      title: 'Each Color Table',
+                      desc: 'Blue, Gold, Green, Pink as their own tables',
+                      badge: '1 Table / Color',
+                    },
                     {
                       id: 'full_two_col',
                       title: 'Full 2-Col Table',
-                      desc: 'All 26 plays interleaved',
+                      desc: 'All plays interleaved',
                       badge: '2 Columns',
                     },
                     {

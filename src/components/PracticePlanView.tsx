@@ -78,6 +78,7 @@ import {
   generatePracticePlanHTML,
   openCleanPrintTab,
 } from '../utils/printUtils';
+import { savePrintPrefs, loadSharedPrintPrefs } from '../utils/printPrefs';
 import { WhiteboardDrill, WHITEBOARD_DRILLS } from './whiteboard/whiteboardDrillData';
 import { findMatchingWhiteboardDrill, createCustomDrillFromStation } from '../utils/drillPlanLinking';
 import { printDrillSheet } from './whiteboard/drillPrintHelper';
@@ -1196,6 +1197,11 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
   const handleExecutePrint = (mode: 'clean' | 'tab' | 'direct' = 'clean') => {
     setIsPrintMenuOpen(false);
     const numSize = parseInt(printFontSize, 10) || 12;
+    savePrintPrefs('practice_plan', {
+      fontSize: numSize,
+      includePlanTable: true,
+      orientation: loadSharedPrintPrefs().orientation,
+    });
     const cleanHtml = generatePracticePlanHTML(
       currentPlan,
       currentPlanPeriods,

@@ -158,6 +158,244 @@ describe('copy wristband from previous week', () => {
   });
 });
 
+describe('copy wristband plays to call sheet row 1', () => {
+  it('puts each wristband color in its own table and overflows extra columns under row 1', async () => {
+    const { copyWristbandPlaysToFirstRow, listWristbandColumns } = await import(
+      './wristbandLinking.ts'
+    );
+    const makeCol = (name: string, color: string, plays: Array<{ text: string; wristbandNum: number; numberHighlightColor: string; rowHighlightColor?: string }>) => ({
+      name,
+      color,
+      numberBgColor: color,
+      numberTextColor: '#000000',
+      plays,
+    });
+    const wb = {
+      wristbands: [
+        {
+          id: 'wb_1',
+          title: 'Game Wristband',
+          labelingMode: 'continuous',
+          startNumber: 1,
+          rowsCount: 2,
+          columns: [
+            makeCol('Blue', '#2563eb', [
+              { text: '24 Blast', wristbandNum: 1, numberHighlightColor: '#2563eb', rowHighlightColor: '#93c5fd' },
+              { text: '25 Iso', wristbandNum: 2, numberHighlightColor: '#2563eb' },
+            ]),
+            makeCol('Gold', '#facc15', [
+              { text: '26 Power', wristbandNum: 3, numberHighlightColor: '#facc15' },
+            ]),
+            makeCol('Green', '#22c55e', [
+              { text: '27 Sweep', wristbandNum: 4, numberHighlightColor: '#22c55e' },
+            ]),
+            makeCol('Pink', '#ec4899', [
+              { text: 'Boot', wristbandNum: 5, numberHighlightColor: '#ec4899', rowHighlightColor: '#fbcfe8' },
+            ]),
+            makeCol('Orange', '#f97316', [
+              { text: 'QB Sneak', wristbandNum: 6, numberHighlightColor: '#f97316' },
+            ]),
+          ],
+        },
+      ],
+    } as any;
+    const listed = listWristbandColumns(wb);
+    assert.equal(listed.length, 5);
+    assert.equal(listed[0].header, 'Blue');
+    assert.equal(listed[0].plays[0]?.wristbandNum, 1);
+    assert.equal(listed[0].plays[0]?.wristbandNumberColor, '#2563eb');
+    const sheet = copyWristbandPlaysToFirstRow(
+      {
+        title: 'CS',
+        highlightRedZone: false,
+        offenseSections: [
+          {
+            id: 'off_1_10',
+            title: '1-10',
+            group: 'top_situations',
+            rowIndex: 0,
+            plays: [],
+            headerBgColor: '#dc2626',
+            headerTextColor: '#fff',
+            targetUnit: 'offense',
+            slotsCount: 1,
+          },
+        ],
+        defenseSections: [],
+        offenseScript: [],
+        defenseScript: [],
+        timeouts: { firstHalfUs: [], firstHalfOpp: [], secondHalfUs: [], secondHalfOpp: [] },
+      } as any,
+      wb,
+      'offense'
+    );
+    const colorTables = sheet.offenseSections.filter((s) => s.wristbandPresetMode === 'wb_color_col');
+    assert.equal(colorTables.length, 5);
+    assert.equal(colorTables[0].title, 'Blue');
+    assert.equal(colorTables[0].columnsCount, 1);
+    assert.equal(colorTables[0].rowIndex, 0);
+    assert.equal(colorTables[0].order, 0);
+    assert.equal(colorTables[0].plays[0]?.name, '24 Blast');
+    assert.equal(colorTables[0].plays[0]?.wristbandNum, 1);
+    assert.equal(colorTables[3].title, 'Pink');
+    assert.equal(colorTables[3].rowIndex, 0);
+    assert.equal(colorTables[3].plays[0]?.wristbandNum, 5);
+    assert.equal(colorTables[4].title, 'Orange');
+    assert.equal(colorTables[4].rowIndex, 1);
+    const old = sheet.offenseSections.find((s) => s.id === 'off_1_10');
+    assert.equal(old?.rowIndex, 2);
+  });
+
+  it('prefers live green/pink wristband plays over factory week snapshot', async () => {
+    const { copyWristbandPlaysToFirstRow } = await import('./wristbandLinking.ts');
+    const { mergeRichestWristbandData } = await import('./wristbandNormalize.ts');
+    const factoryGreen = {
+      name: 'GREEN (27 - 39)',
+      color: '#16a34a',
+      plays: [{ text: '32 L 26 DIVE', wristbandNum: 27 }],
+    };
+    const factoryPink = {
+      name: 'PINK (40 - 52)',
+      color: '#ec4899',
+      plays: [{ text: '32 R 24 DIVE', wristbandNum: 40 }],
+    };
+    const weekWb = {
+      lastEdited: 200,
+      wristbands: [
+        {
+          id: 'wb_1',
+          title: 'Blue Gold',
+          columns: [
+            { name: 'BLUE (1 - 13)', color: '#2563eb', plays: [{ text: '24 Blast', wristbandNum: 1 }] },
+            { name: 'GOLD (14 - 26)', color: '#facc15', plays: [{ text: '26 Power', wristbandNum: 14 }] },
+          ],
+        },
+        { id: 'wb_2', title: 'Green Pink', columns: [factoryGreen, factoryPink] },
+      ],
+    };
+    const liveWb = {
+      lastEdited: 100,
+      wristbands: [
+        {
+          id: 'wb_1',
+          title: 'Blue Gold',
+          columns: [
+            { name: 'BLUE (1 - 13)', color: '#2563eb', plays: [{ text: '24 Blast', wristbandNum: 1 }] },
+            { name: 'GOLD (14 - 26)', color: '#facc15', plays: [{ text: '26 Power', wristbandNum: 14 }] },
+          ],
+        },
+        {
+          id: 'wb_2',
+          title: 'Green Pink',
+          columns: [
+            { name: 'GREEN (27 - 39)', color: '#16a34a', plays: [{ text: '11 L JET SWEEP', wristbandNum: 27 }] },
+            { name: 'PINK (40 - 52)', color: '#ec4899', plays: [{ name: '11 R BUBBLE', wristbandNum: 40 }] },
+          ],
+        },
+      ],
+    };
+    const merged = mergeRichestWristbandData(weekWb as any, liveWb as any);
+    const sheet = copyWristbandPlaysToFirstRow(
+      {
+        title: 'CS',
+        highlightRedZone: false,
+        offenseSections: [],
+        defenseSections: [],
+        offenseScript: [],
+        defenseScript: [],
+        timeouts: { firstHalfUs: [], firstHalfOpp: [], secondHalfUs: [], secondHalfOpp: [] },
+      } as any,
+      merged,
+      'offense'
+    );
+    const green = sheet.offenseSections.find((s) => /green/i.test(s.title));
+    const pink = sheet.offenseSections.find((s) => /pink/i.test(s.title));
+    assert.equal(green?.plays[0]?.name, '11 L JET SWEEP');
+    assert.equal(pink?.plays[0]?.name, '11 R BUBBLE');
+  });
+
+  it('copies same-card blue/gold plays onto factory green/pink call sheet tables', async () => {
+    const { copyWristbandPlaysToFirstRow } = await import('./wristbandLinking.ts');
+    const wb = {
+      lastEdited: 1,
+      wristbands: [
+        {
+          id: 'wb_1',
+          title: 'Blue Gold',
+          labelingMode: 'same_per_card',
+          startNumber: 1,
+          rowsCount: 1,
+          columns: [
+            { name: 'BLUE (1 - 13)', color: '#2563eb', plays: [{ text: '21 L 26 DIVE', wristbandNum: 1 }] },
+            { name: 'GOLD (14 - 26)', color: '#facc15', plays: [{ text: '21 R 24 DIVE', wristbandNum: 14 }] },
+          ],
+        },
+        {
+          id: 'wb_2',
+          title: 'Green Pink',
+          labelingMode: 'continuous',
+          startNumber: 27,
+          rowsCount: 1,
+          columns: [
+            { name: 'GREEN (27 - 39)', color: '#16a34a', plays: [{ text: '32 L 26 DIVE', wristbandNum: 27 }] },
+            { name: 'PINK (40 - 52)', color: '#ec4899', plays: [{ text: '32 R 24 DIVE', wristbandNum: 40 }] },
+          ],
+        },
+      ],
+    };
+    const sheet = copyWristbandPlaysToFirstRow(
+      {
+        title: 'CS',
+        highlightRedZone: false,
+        offenseSections: [],
+        defenseSections: [],
+        offenseScript: [],
+        defenseScript: [],
+        timeouts: { firstHalfUs: [], firstHalfOpp: [], secondHalfUs: [], secondHalfOpp: [] },
+      } as any,
+      wb as any,
+      'offense'
+    );
+    const green = sheet.offenseSections.find((s) => /green/i.test(s.title));
+    const pink = sheet.offenseSections.find((s) => /pink/i.test(s.title));
+    assert.equal(green?.plays[0]?.name, '21 L 26 DIVE');
+    assert.equal(pink?.plays[0]?.name, '21 R 24 DIVE');
+  });
+
+  it('does not fill the whole call sheet cell when the wristband is number-only highlight', async () => {
+    const { callSheetPlayFromWristbandSlot } = await import('./wristbandLinking.ts');
+    const col = {
+      name: 'Blue',
+      color: '#2563eb',
+      numberBgColor: '#2563eb',
+      numberTextColor: '#ffffff',
+      plays: [
+        {
+          text: '24 Blast',
+          wristbandNum: 1,
+          numberHighlightColor: '#2563eb',
+          rowHighlightColor: '#93c5fd',
+          highlightColor: '#93c5fd',
+        },
+      ],
+    };
+    const wb = {
+      id: 'wb_1',
+      title: 'Game Wristband',
+      highlightTarget: 'number_only',
+      labelingMode: 'continuous',
+      startNumber: 1,
+      rowsCount: 1,
+      columns: [col],
+    } as any;
+    const play = callSheetPlayFromWristbandSlot(col.plays[0] as any, col as any, wb, [wb], 0, 0, 0);
+    assert.equal(play?.wristbandHighlightTarget, 'number_only');
+    assert.equal(play?.wristbandRowColor, undefined);
+    assert.equal(play?.isHighlighted, false);
+    assert.equal(play?.wristbandNumberColor, '#2563eb');
+  });
+});
+
 describe('remoteStateMerge', () => {
   it('rejects stale remotes', () => {
     assert.equal(shouldRejectStaleRemote(100, 200), true);
@@ -358,6 +596,15 @@ describe('remoteStateMerge', () => {
     assert.equal(merged.find((p) => p.id === 'a')?.title, 'local-newer');
     assert.ok(merged.some((p) => p.id === 'b'));
     assert.ok(merged.some((p) => p.id === 'c'));
+  });
+
+  it('does not rewrite every ops doc on a routine all-save', async () => {
+    const { cloudModulesForScope } = await import('../services/storageService.ts');
+    assert.deepEqual(cloudModulesForScope('all'), []);
+    assert.deepEqual(cloudModulesForScope('focusout'), []);
+    assert.deepEqual(cloudModulesForScope('practice'), ['practice']);
+    assert.deepEqual(cloudModulesForScope('plays'), ['plays']);
+    assert.equal(cloudModulesForScope('force'), undefined);
   });
 
   it('lets another coach see a newer practice plan even if this device is on the practice screen', () => {
@@ -1574,5 +1821,24 @@ describe('hudl scout backup', () => {
     const restored = applyHudlScoutBackup({}, {}, packed);
     assert.equal(restored.weeklyData['team_10u__week_4'].scouting.hudlScout.datasetName, 'Carmel');
     assert.equal(restored.ownTeamHudlScout.team_10u.plays.length, 2);
+  });
+});
+
+describe('weekday practice templates', () => {
+  it('picks the template assigned to that weekday', async () => {
+    const { resolvePracticeTemplateForWeekday } = await import('./practiceUtils.ts');
+    const names = ['Standard Practice', 'Tuesday Full Pads', 'Thursday Walkthrough'];
+    assert.equal(
+      resolvePracticeTemplateForWeekday('Tuesday', { Tuesday: 'Tuesday Full Pads' }, names),
+      'Tuesday Full Pads'
+    );
+    assert.equal(
+      resolvePracticeTemplateForWeekday('Thursday', { Tuesday: 'Tuesday Full Pads' }, names),
+      'Standard Practice'
+    );
+    assert.equal(
+      resolvePracticeTemplateForWeekday('Friday', { Friday: 'Missing Template' }, names),
+      'Standard Practice'
+    );
   });
 });

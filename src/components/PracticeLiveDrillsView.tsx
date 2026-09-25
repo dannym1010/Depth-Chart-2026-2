@@ -34,6 +34,8 @@ import {
   Settings2,
   Layers,
 } from 'lucide-react';
+import { triggerPrint } from '../utils/printUtils';
+import { loadSharedPrintPrefs, savePrintPrefs } from '../utils/printPrefs';
 import {
   LiveDrillGroup,
   LiveDrillFormat,
@@ -912,13 +914,12 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
 
   const handleTriggerPrint = () => {
     setShowPrintModal(false);
-    document.body.classList.add('is-printing', 'is-printing-drills');
-    setTimeout(() => {
-      window.print();
-      setTimeout(() => {
-        document.body.classList.remove('is-printing', 'is-printing-drills');
-      }, 500);
-    }, 150);
+    const { orientation } = loadSharedPrintPrefs();
+    savePrintPrefs('drills', { orientation, printScope, includePrintRepLog });
+    triggerPrint({
+      orientation,
+      bodyClasses: ['is-printing', 'is-printing-drills'],
+    });
   };
 
   // Drag & drop handling

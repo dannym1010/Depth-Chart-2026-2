@@ -35,6 +35,7 @@ import { SingleWristband, WristbandColumn, WristbandData, WristbandPlay, UserRol
 import { PlayDatabaseEntry, CallSheetFullData, CallSheetPlay, PlayType } from '../types/callSheet';
 import { deepClone, safeJSONStringify, safeJSONSet, safeJSONParse } from '../services/storageService';
 import { printWristbandInserts, generateWristbandPrintHTML, openCleanPrintTab, triggerPrint } from '../utils/printUtils';
+import { loadPrintPrefs, savePrintPrefs } from '../utils/printPrefs';
 import { extractPersonnel, getPersonnelSubTabs, normalizePlayName, syncCallSheetWithWristbands, syncWristbandToCallSheet, getWristbandStartNumber } from '../utils/wristbandLinking';
 import { PlayPickerModal } from './callSheet/PlayPickerModal';
 import { PlayBankSidebar } from './callSheet/PlayBankSidebar';
@@ -1107,13 +1108,29 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
     window.addEventListener('afterprint', cleanup);
     setTimeout(cleanup, 12000);
 
-    printWristbandInserts(targetWristbands, activeTeamName, docTitle);
+    const lastWb = loadPrintPrefs('wristband', {
+      layout: 'grid_2up' as const,
+      inkFriendly: false,
+      showCutLines: true,
+      showCopyLabels: true,
+      showColumnHeaders: false,
+    });
+    savePrintPrefs('wristband', lastWb);
+    printWristbandInserts(targetWristbands, activeTeamName, docTitle, lastWb);
   };
 
   const handleOpenPrintTab = (mode: 'active' | 'all') => {
     const targetWristbands = mode === 'all' ? wristbands : [currentWristband];
     const docTitle = mode === 'all' ? `${activeTeamName} Wristband Inserts` : `${currentWristband.title}`;
-    const html = generateWristbandPrintHTML(targetWristbands, activeTeamName, docTitle);
+    const last = loadPrintPrefs('wristband', {
+      layout: 'grid_2up' as const,
+      inkFriendly: false,
+      showCutLines: true,
+      showCopyLabels: true,
+      showColumnHeaders: false,
+    });
+    savePrintPrefs('wristband', last);
+    const html = generateWristbandPrintHTML(targetWristbands, activeTeamName, docTitle, last);
     openCleanPrintTab(html, docTitle);
   };
 

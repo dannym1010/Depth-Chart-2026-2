@@ -30,6 +30,20 @@ import {
   openCleanPrintTab,
   PocketDepthChartPrintOptions,
 } from '../utils/printUtils';
+import { loadPrintPrefs, savePrintPrefs } from '../utils/printPrefs';
+
+const POCKET_PRINT_DEFAULTS = {
+  unitMode: 'all' as const,
+  depthLevels: '2_deep' as const,
+  layout: 'pocket_grid' as const,
+  columnsCount: 2 as const,
+  oneChartPerColumn: false,
+  oneChartPerPage: false,
+  orientation: 'landscape' as const,
+  inkFriendly: true,
+  showCutLines: true,
+  fontSize: 'compact' as const,
+};
 
 interface PocketDepthChartPrintModalProps {
   isOpen: boolean;
@@ -53,18 +67,19 @@ export const PocketDepthChartPrintModal: React.FC<PocketDepthChartPrintModalProp
   initialSelectedFormationId,
 }) => {
   // Modal state
+  const savedPrint = loadPrintPrefs('pocket_depth', POCKET_PRINT_DEFAULTS);
   const [unitMode, setUnitMode] = useState<
     'current' | 'both_off_def' | 'all' | 'offense' | 'defense' | 'st'
-  >(() => (initialSelectedFormationId ? 'current' : 'all'));
-  const [depthLevels, setDepthLevels] = useState<'starters_only' | '2_deep' | '3_deep' | 'all'>('2_deep');
-  const [layout, setLayout] = useState<'pocket_grid' | 'side_by_side' | 'full_table' | 'single_column'>('pocket_grid');
-  const [columnsCount, setColumnsCount] = useState<1 | 2 | 3>(2);
-  const [oneChartPerColumn, setOneChartPerColumn] = useState<boolean>(false);
-  const [oneChartPerPage, setOneChartPerPage] = useState<boolean>(false);
-  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
-  const [inkFriendly, setInkFriendly] = useState<boolean>(true);
-  const [showCutLines, setShowCutLines] = useState<boolean>(true);
-  const [fontSize, setFontSize] = useState<'compact' | 'standard' | 'large'>('compact');
+  >(() => (initialSelectedFormationId ? 'current' : savedPrint.unitMode));
+  const [depthLevels, setDepthLevels] = useState<'starters_only' | '2_deep' | '3_deep' | 'all'>(savedPrint.depthLevels);
+  const [layout, setLayout] = useState<'pocket_grid' | 'side_by_side' | 'full_table' | 'single_column'>(savedPrint.layout);
+  const [columnsCount, setColumnsCount] = useState<1 | 2 | 3>(savedPrint.columnsCount);
+  const [oneChartPerColumn, setOneChartPerColumn] = useState<boolean>(savedPrint.oneChartPerColumn);
+  const [oneChartPerPage, setOneChartPerPage] = useState<boolean>(savedPrint.oneChartPerPage);
+  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>(savedPrint.orientation);
+  const [inkFriendly, setInkFriendly] = useState<boolean>(savedPrint.inkFriendly);
+  const [showCutLines, setShowCutLines] = useState<boolean>(savedPrint.showCutLines);
+  const [fontSize, setFontSize] = useState<'compact' | 'standard' | 'large'>(savedPrint.fontSize);
 
   // Cell Highlighting State (Interactive Print Emphasis)
   // Key format: `${formationId}__${posId}__${tier}` or `${formationId}__${posId}__pos`
@@ -298,7 +313,23 @@ export const PocketDepthChartPrintModal: React.FC<PocketDepthChartPrintModalProp
   };
 
   // Direct print
+  const persistPrintPrefs = () => {
+    savePrintPrefs('pocket_depth', {
+      unitMode,
+      depthLevels,
+      layout,
+      columnsCount,
+      oneChartPerColumn,
+      oneChartPerPage,
+      orientation,
+      inkFriendly,
+      showCutLines,
+      fontSize,
+    });
+  };
+
   const handleDirectPrint = () => {
+    persistPrintPrefs();
     onClose();
     const html = generatePocketDepthChartPrintHTML(formations, depthChart, printOptions);
     openCleanPrintTab(html, `${activeTeamName}_Pocket_Depth_Chart`);
@@ -306,6 +337,7 @@ export const PocketDepthChartPrintModal: React.FC<PocketDepthChartPrintModalProp
 
   // Clean Tab print
   const handleOpenCleanTab = () => {
+    persistPrintPrefs();
     const html = generatePocketDepthChartPrintHTML(formations, depthChart, printOptions);
     openCleanPrintTab(html, `${activeTeamName}_Pocket_Depth_Chart`);
   };

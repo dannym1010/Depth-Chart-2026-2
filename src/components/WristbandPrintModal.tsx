@@ -25,6 +25,16 @@ import {
   openCleanPrintTab,
   WristbandPrintOptions,
 } from '../utils/printUtils';
+import { loadPrintPrefs, savePrintPrefs } from '../utils/printPrefs';
+
+const WRISTBAND_PRINT_DEFAULTS = {
+  globalCopies: 3,
+  layout: 'grid_2up' as const,
+  inkFriendly: false,
+  showCutLines: true,
+  showCopyLabels: true,
+  showColumnHeaders: false,
+};
 
 interface WristbandPrintModalProps {
   isOpen: boolean;
@@ -52,33 +62,40 @@ export const WristbandPrintModal: React.FC<WristbandPrintModalProps> = ({
   });
 
   // Global batch copies stepper
-  const [globalCopies, setGlobalCopies] = useState<number>(3);
-
-  // Individual copy counts per wristband ID
+  const savedPrint = loadPrintPrefs('wristband', WRISTBAND_PRINT_DEFAULTS);
+  const [globalCopies, setGlobalCopies] = useState<number>(savedPrint.globalCopies);
   const [copiesMap, setCopiesMap] = useState<Record<string, number>>(() => {
     const initial: Record<string, number> = {};
     wristbands.forEach((w) => {
-      initial[w.id] = initialMode === 'all' ? 2 : 3;
+      initial[w.id] = savedPrint.globalCopies;
     });
     return initial;
   });
+  const [layout, setLayout] = useState<'grid_2up' | 'single_column'>(savedPrint.layout);
+  const [inkFriendly, setInkFriendly] = useState<boolean>(savedPrint.inkFriendly);
+  const [showCutLines, setShowCutLines] = useState<boolean>(savedPrint.showCutLines);
+  const [showCopyLabels, setShowCopyLabels] = useState<boolean>(savedPrint.showCopyLabels);
+  const [showColumnHeaders, setShowColumnHeaders] = useState<boolean>(savedPrint.showColumnHeaders);
 
-  // Print layout preferences
-  const [layout, setLayout] = useState<'grid_2up' | 'single_column'>('grid_2up');
-  const [inkFriendly, setInkFriendly] = useState<boolean>(false);
-  const [showCutLines, setShowCutLines] = useState<boolean>(true);
-  const [showCopyLabels, setShowCopyLabels] = useState<boolean>(true);
-  const [showColumnHeaders, setShowColumnHeaders] = useState<boolean>(false); // Unchecked by default to remove Blue (1-13) header and maximize row space
-
-  // Reset/sync when opened or initialMode changes
   React.useEffect(() => {
-    if (isOpen) {
-      if (initialMode === 'active' && activeWristbandId) {
-        setSelectedIds([activeWristbandId]);
-      } else {
-        setSelectedIds(wristbands.map((w) => w.id));
-      }
+    if (!isOpen) return;
+    if (initialMode === 'active' && activeWristbandId) {
+      setSelectedIds([activeWristbandId]);
+    } else {
+      setSelectedIds(wristbands.map((w) => w.id));
     }
+    const next = loadPrintPrefs('wristband', WRISTBAND_PRINT_DEFAULTS);
+    setGlobalCopies(next.globalCopies);
+    setLayout(next.layout);
+    setInkFriendly(next.inkFriendly);
+    setShowCutLines(next.showCutLines);
+    setShowCopyLabels(next.showCopyLabels);
+    setShowColumnHeaders(next.showColumnHeaders);
+    const updated: Record<string, number> = {};
+    wristbands.forEach((w) => {
+      updated[w.id] = next.globalCopies;
+    });
+    setCopiesMap(updated);
   }, [isOpen, initialMode, activeWristbandId, wristbands]);
 
   // Selected wristbands objects (computed unconditionally)
@@ -145,8 +162,20 @@ export const WristbandPrintModal: React.FC<WristbandPrintModalProps> = ({
     };
   };
 
+  const persistPrintPrefs = () => {
+    savePrintPrefs('wristband', {
+      globalCopies,
+      layout,
+      inkFriendly,
+      showCutLines,
+      showCopyLabels,
+      showColumnHeaders,
+    });
+  };
+
   const handleDirectPrint = () => {
     if (selectedWristbands.length === 0) return;
+    persistPrintPrefs();
     const opts = buildPrintOptions();
     
     // Tag document body to activate clean wristband cutout styles
@@ -163,6 +192,7 @@ export const WristbandPrintModal: React.FC<WristbandPrintModalProps> = ({
 
   const handleOpenCleanTab = () => {
     if (selectedWristbands.length === 0) return;
+    persistPrintPrefs();
     const opts = buildPrintOptions();
     const html = generateWristbandPrintHTML(
       selectedWristbands,

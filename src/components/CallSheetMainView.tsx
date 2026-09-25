@@ -20,6 +20,7 @@ import {
   Eraser,
   ChevronDown,
   FolderSync,
+  Copy,
 } from 'lucide-react';
 import {
   CallSheetFullData,
@@ -38,7 +39,8 @@ import {
 import { WristbandData } from '../types';
 import { INITIAL_TWO_WRISTBANDS_DATA } from '../data/userGameDayPlays';
 import { safeJSONParse, safeJSONSet, safeJSONStringify, cleanFirestoreData } from '../services/storageService';
-import { syncWristbandToCallSheet, inferFormation } from '../utils/wristbandLinking';
+import { syncWristbandToCallSheet, inferFormation, copyWristbandPlaysToFirstRow } from '../utils/wristbandLinking';
+import { mergeRichestWristbandData } from '../utils/wristbandNormalize';
 import {
   CallSheetSnapshot,
   getCallSheetSnapshots,
@@ -279,14 +281,17 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
 
   // Re-sync call sheet tables whenever wristband data changes
   useEffect(() => {
-    if (propWristbandData && Array.isArray(propWristbandData.wristbands)) {
-      const wbJson = safeJSONStringify(propWristbandData);
+    const saved = safeJSONParse<WristbandData | null>('footballWristbandData', null);
+    const mergedWb =
+      mergeRichestWristbandData(propWristbandData, saved) || propWristbandData;
+    if (mergedWb && Array.isArray(mergedWb.wristbands)) {
+      const wbJson = safeJSONStringify(mergedWb);
       if (wbJson === lastSyncedWbJsonRef.current) return;
       lastSyncedWbJsonRef.current = wbJson;
 
       setCallSheetData((prev) => {
         try {
-          const synced = syncWristbandToCallSheet(propWristbandData, prev, playDatabase);
+          const synced = syncWristbandToCallSheet(mergedWb, prev, playDatabase);
           const syncedJson = safeJSONStringify(synced);
           const prevJson = safeJSONStringify(prev);
           if (syncedJson !== prevJson) {
@@ -329,14 +334,10 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
   const [highlightRedZone, setHighlightRedZone] = useState(true);
   // Normalize wristband data
   const normalizedWristbandData: WristbandData = useMemo(() => {
-    if (propWristbandData?.wristbands && propWristbandData.wristbands.length > 0) {
-      return propWristbandData;
-    }
     const saved = safeJSONParse<WristbandData | null>('footballWristbandData', null);
-    if (saved?.wristbands && saved.wristbands.length > 0) {
-      return saved;
-    }
-    return INITIAL_TWO_WRISTBANDS_DATA;
+    return (
+      mergeRichestWristbandData(propWristbandData, saved) || INITIAL_TWO_WRISTBANDS_DATA
+    );
   }, [propWristbandData]);
 
   // Default to showing the Play Bank on computer view as requested by user
@@ -635,6 +636,20 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
 
   const handleConfirmAddSections = (newSections: CallSheetSection[]) => {
     if (!newSections || newSections.length === 0) return;
+    if (
+      newSections.some(
+        (s) => s.wristbandPresetMode === 'wb_color_col' || s.wristbandPresetMode === 'full_four_col'
+      )
+    ) {
+      applyCallSheetUpdate((prev) =>
+        copyWristbandPlaysToFirstRow(
+          prev,
+          normalizedWristbandData,
+          newSections[0]?.targetUnit || activeUnit
+        )
+      );
+      return;
+    }
     applyCallSheetUpdate((prev) => {
       const next = { ...prev };
       const targetRow = addTableModalState.targetRowIndex;
@@ -729,6 +744,19 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
 
   const handleConfirmAddSection = (newSection: CallSheetSection) => {
     handleConfirmAddSections([newSection]);
+  };
+
+  const handleCopyWristbandToFirstRow = () => {
+    applyCallSheetUpdate((prev) => {
+      const next = copyWristbandPlaysToFirstRow(prev, normalizedWristbandData, activeUnit);
+      if (next === prev) {
+        queueMicrotask(() => {
+          alert('This week has no wristband plays to copy onto the call sheet.');
+        });
+        return prev;
+      }
+      return next;
+    });
   };
 
   // Handle reordering entire sections list (drag and drop situational rearranging)
@@ -1260,6 +1288,16 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
                 <span className="hidden sm:inline">Copy {previousWeekLabel}</span>
               </button>
             ) : null}
+
+            <button
+              type="button"
+              onClick={handleCopyWristbandToFirstRow}
+              className="px-2.5 py-1.5 rounded-xl bg-amber-950/40 hover:bg-amber-950/60 text-amber-200 border border-amber-800/50 text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              title="Copy this week's wristband colors as individual tables on row 1 (extras wrap under)"
+            >
+              <Copy className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">WB → Row 1</span>
+            </button>
 
             {/* Wristband Preset Table Button */}
             <button

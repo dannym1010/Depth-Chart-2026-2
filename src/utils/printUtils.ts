@@ -9,6 +9,7 @@ import { calculatePlayerHours, getPlayerHoursBreakdown } from './hoursCalculatio
 import { formatWeekLabel } from './seasonWeekUtils';
 import { getWristbandStartNumber } from './wristbandLinking';
 import { CallSheetFullData, CallSheetSection, CallSheetPlay } from '../types/callSheet';
+import { loadPrintPrefs, loadSharedPrintPrefs } from './printPrefs';
 
 export interface PrintOptions {
   beforePrint?: () => void;
@@ -20,13 +21,40 @@ export interface PrintOptions {
   bodyClasses?: string[];
 }
 
+function lastPrintLook(
+  kind: string,
+  options: { orientation?: string; inkFriendly?: boolean } | undefined,
+  fallbackOrientation: 'landscape' | 'portrait',
+  fallbackInk: boolean
+): { orientation: 'landscape' | 'portrait'; inkFriendly: boolean } {
+  const last = loadPrintPrefs(kind, {
+    orientation: fallbackOrientation,
+    inkFriendly: fallbackInk,
+  });
+  const shared = loadSharedPrintPrefs();
+  const orientation =
+    options?.orientation === 'landscape' || options?.orientation === 'portrait'
+      ? options.orientation
+      : last.orientation === 'landscape' || last.orientation === 'portrait'
+        ? last.orientation
+        : shared.orientation || fallbackOrientation;
+  const inkFriendly =
+    typeof options?.inkFriendly === 'boolean'
+      ? options.inkFriendly
+      : typeof last.inkFriendly === 'boolean'
+        ? last.inkFriendly
+        : shared.inkFriendly;
+  return { orientation, inkFriendly };
+}
+
 /**
  * Standard direct window print with robust cleanup and immediate trigger.
  */
 export function triggerPrint(options?: PrintOptions) {
   if (typeof window === 'undefined') return;
 
-  const { beforePrint, afterPrint, orientation, extraStyles, bodyClasses, documentTitle } = options || {};
+  const { beforePrint, afterPrint, extraStyles, bodyClasses, documentTitle } = options || {};
+  const orientation = options?.orientation || loadSharedPrintPrefs().orientation;
 
   if (beforePrint) {
     try {
@@ -889,7 +917,7 @@ export function generatePlaybookGuidePrintHTML(options: SinglePlaybookPrintOptio
     category,
     subTab,
     content,
-    inkFriendly = true,
+    inkFriendly = loadSharedPrintPrefs().inkFriendly,
   } = options;
 
   const bodyContent = extractAndSanitizePlaybookHtml(content, category, subTab);
@@ -1088,7 +1116,7 @@ export function generatePlaybookBinderPrintHTML(options: PlaybookBinderPrintOpti
     headCoachName = '',
     title = 'Team Playbook & Positional Install Binder',
     sections,
-    inkFriendly = true,
+    inkFriendly = loadSharedPrintPrefs().inkFriendly,
     includeCoverPage = true,
   } = options;
 
@@ -2188,9 +2216,15 @@ export function generateWristbandPrintHTML(
   options?: WristbandPrintOptions
 ): string {
   const title = options?.documentTitle || documentTitle || `${activeTeamName} Wristband Inserts`;
-  const layout = options?.layout || 'grid_2up';
-  const orientation = options?.orientation || (layout === 'grid_2up' ? 'landscape' : 'portrait');
-  const inkFriendly = options?.inkFriendly || false;
+  const layout = options?.layout || loadPrintPrefs('wristband', { layout: 'grid_2up' as const }).layout || 'grid_2up';
+  const look = lastPrintLook(
+    'wristband',
+    { orientation: options?.orientation, inkFriendly: options?.inkFriendly },
+    layout === 'grid_2up' ? 'landscape' : 'portrait',
+    false
+  );
+  const orientation = options?.orientation || look.orientation || (layout === 'grid_2up' ? 'landscape' : 'portrait');
+  const inkFriendly = look.inkFriendly;
   const showCutLines = options?.showCutLines !== false;
   const showCopyLabels = options?.showCopyLabels !== false;
   const showColumnHeaders = options?.showColumnHeaders ?? false; // Default to FALSE to remove Blue (1-13) header and maximize lines
@@ -2667,11 +2701,15 @@ export function generateCallSheetPrintHTML(
   documentTitle?: string,
   options?: CallSheetPrintOptions
 ): string {
-  const orientation = options?.orientation || 'landscape';
-  const density = options?.density || 'compact';
-  const fitMode = options?.fitMode || 'auto';
-  const inkFriendly = options?.inkFriendly || false;
-  const hideEmptySlots = options?.hideEmptySlots || false;
+  const look = lastPrintLook('call_sheet', options, 'landscape', true);
+  const orientation = options?.orientation || look.orientation;
+  const density = options?.density || loadPrintPrefs('call_sheet', { density: 'compact' as const }).density || 'compact';
+  const fitMode = options?.fitMode || loadPrintPrefs('call_sheet', { fitMode: '1page' as const }).fitMode || 'auto';
+  const inkFriendly = look.inkFriendly;
+  const hideEmptySlots =
+    typeof options?.hideEmptySlots === 'boolean'
+      ? options.hideEmptySlots
+      : loadPrintPrefs('call_sheet', { hideEmptySlots: true }).hideEmptySlots;
   const filter = options?.sectionsFilter || {
     topSituations: true,
     redZone: true,
@@ -3568,7 +3606,8 @@ export function generatePocketDepthChartPrintHTML(
   depthChart: Record<string, PlacedPlayer[]>,
   options?: PocketDepthChartPrintOptions
 ): string {
-  const orientation = options?.orientation || 'landscape';
+  const look = lastPrintLook('pocket_depth', options, 'landscape', true);
+  const orientation = options?.orientation || look.orientation;
   const isOneChartPerCol = Boolean(
     options?.oneChartPerColumn ||
     options?.columnsCount === 1 ||
@@ -3578,7 +3617,7 @@ export function generatePocketDepthChartPrintHTML(
   const layout = isOneChartPerCol ? 'single_column' : (options?.layout || (options?.unitFilter === 'both_off_def' ? 'side_by_side' : 'pocket_grid'));
   const depthLevels = options?.depthLevels || '2_deep';
   const fontSizeMode = options?.fontSize || 'compact';
-  const inkFriendly = options?.inkFriendly ?? true;
+  const inkFriendly = look.inkFriendly;
   const showCutLines = options?.showCutLines ?? true;
   const teamName = options?.teamName || 'Football Manager';
   const seasonLabel = options?.seasonLabel || 'Game Day Depth Chart';
@@ -4103,10 +4142,26 @@ export function generateFormationDepthChartPrintHTML(
   depthChart: Record<string, PlacedPlayer[]>,
   options?: FormationDepthChartPrintOptions
 ): string {
-  const orientation = options?.orientation || 'landscape';
-  const layout = options?.layout || '1_per_page';
-  const depthLevels = options?.depthLevels || 'all';
-  const colorMode = options?.colorMode || 'color';
+  const lastFormation = loadPrintPrefs('formation_depth', {
+    orientation: 'landscape' as const,
+    layout: '1_per_page' as const,
+    depthLevels: '3_deep' as const,
+    colorMode: 'color' as const,
+    starterBadgeStyle: 'white' as const,
+  });
+  const look = lastPrintLook(
+    'formation_depth',
+    {
+      orientation: options?.orientation,
+      inkFriendly: options?.colorMode === 'ink_friendly' ? true : options?.colorMode ? false : undefined,
+    },
+    'landscape',
+    false
+  );
+  const orientation = options?.orientation || look.orientation;
+  const layout = options?.layout || lastFormation.layout || '1_per_page';
+  const depthLevels = options?.depthLevels || lastFormation.depthLevels || 'all';
+  const colorMode = options?.colorMode || (look.inkFriendly ? 'ink_friendly' : lastFormation.colorMode) || 'color';
   const inkFriendly = colorMode === 'ink_friendly';
   const starterBadgeStyle = options?.starterBadgeStyle || 'white';
   const teamName = options?.teamName || 'VARSITY FOOTBALL';

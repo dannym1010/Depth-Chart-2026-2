@@ -1,5 +1,6 @@
 import { PlayDatabaseEntry, CallSheetFullData, CallSheetSection, CallSheetPlay } from '../types/callSheet';
-import { WristbandData, SingleWristband, WristbandColumn } from '../types';
+import { WristbandData, SingleWristband, WristbandColumn, WristbandPlay } from '../types';
+import { wristbandPlayText, applySameCardPlayMirror } from './wristbandNormalize';
 
 export interface WristbandSlotMatch {
   wristbandId: string;
@@ -396,6 +397,7 @@ export function buildWristbandIndex(
           col.numberBgColor ||
           col.color ||
           '#facc15';
+        const rowHighlight = play.rowHighlightColor || play.highlightColor;
 
         const match: WristbandSlotMatch = {
           wristbandId: wb.id,
@@ -408,7 +410,7 @@ export function buildWristbandIndex(
           wristbandNum: wbNum,
           playText: play.text.trim(),
           numberBgColor,
-          rowBgColor: play.highlightColor,
+          rowBgColor: rowHighlight,
           highlightTarget,
         };
 
@@ -541,7 +543,7 @@ export function createSectionFromWristband(
           wristbandId: wb.id,
           wristbandTitle: wb.title,
           wristbandNumberColor: numberBgColor,
-          wristbandRowColor: p.highlightColor,
+          wristbandRowColor: p.rowHighlightColor || p.highlightColor,
           wristbandHighlightTarget: highlightTarget,
           wristbandColor: numberBgColor,
           personnel,
@@ -572,6 +574,229 @@ export function createSectionFromWristband(
   };
 }
 
+export function firstRowFourColSectionId(unit: 'offense' | 'defense') {
+  return `wb_row1_4col_${unit}`;
+}
+
+export function resolveWristbandSlotColors(
+  play: WristbandPlay | undefined,
+  col: WristbandColumn,
+  wb: SingleWristband
+) {
+  const numberBgColor =
+    play?.numberHighlightColor || col.numberBgColor || col.color || '#facc15';
+  const numberTextColor =
+    play?.numberTextColor ||
+    col.numberTextColor ||
+    (isDarkColor(numberBgColor) ? '#ffffff' : '#000000');
+  const rowHighlight =
+    wb.highlightTarget === 'full_row'
+      ? play?.rowHighlightColor || play?.highlightColor || numberBgColor
+      : undefined;
+  return { numberBgColor, numberTextColor, rowHighlight };
+}
+
+function wristbandSlotNumber(
+  wb: SingleWristband,
+  wristbands: SingleWristband[],
+  wbIdx: number,
+  colIdx: number,
+  rowIdx: number,
+  play?: WristbandPlay
+) {
+  const rows = wb.rowsCount || Math.max(13, (wb.columns?.[0]?.plays || []).length);
+  const wbStart = getWristbandStartNumber(wristbands, wbIdx);
+  if (play?.customLabel && isNaN(Number(play.customLabel))) {
+    return { num: wbStart + colIdx * rows + rowIdx, label: play.customLabel };
+  }
+  if (wb.labelingMode === 'same_per_card') {
+    const num = colIdx * rows + rowIdx + 1;
+    return { num, label: String(num) };
+  }
+  if (wb.labelingMode === 'letter_num') {
+    const letter = String.fromCharCode(65 + colIdx);
+    return { num: colIdx * rows + rowIdx + 1, label: `${letter}${rowIdx + 1}` };
+  }
+  const fromPlay = Number(play?.wristbandNum);
+  const num = !isNaN(fromPlay) && fromPlay > 0 ? fromPlay : wbStart + colIdx * rows + rowIdx;
+  return { num, label: String(num) };
+}
+
+export function callSheetPlayFromWristbandSlot(
+  play: WristbandPlay | undefined,
+  col: WristbandColumn,
+  wb: SingleWristband,
+  wristbands: SingleWristband[],
+  wbIdx: number,
+  colIdx: number,
+  rowIdx: number
+): CallSheetPlay | null {
+  const text = wristbandPlayText(play);
+  if (!text) return null;
+  const { num, label } = wristbandSlotNumber(wb, wristbands, wbIdx, colIdx, rowIdx, play);
+  const { numberBgColor, numberTextColor, rowHighlight } = resolveWristbandSlotColors(play, col, wb);
+  const formation = inferFormation(text, 'offense', play?.formation);
+  return {
+    id: `cs_wb_${wb.id}_c${colIdx}_r${rowIdx}`,
+    name: text,
+    formation,
+    personnel: extractPersonnel({ name: text, formation, unit: 'offense' }),
+    type: (play?.type as CallSheetPlay['type']) || 'run',
+    wristbandNum: num,
+    wristbandLabel: label,
+    wristbandId: wb.id,
+    wristbandTitle: wb.title,
+    wristbandColor: col.color,
+    wristbandNumberColor: numberBgColor,
+    wristbandTextColor: numberTextColor,
+    wristbandRowColor: rowHighlight,
+    wristbandHighlightTarget: wb.highlightTarget || 'number_only',
+    isHighlighted: (wb.highlightTarget || 'number_only') === 'full_row' && Boolean(rowHighlight),
+    highlightColor: (wb.highlightTarget || 'number_only') === 'full_row' ? rowHighlight : undefined,
+    wristbandSlotMatch: {
+      wristbandId: wb.id,
+      wristbandTitle: wb.title,
+      colIdx,
+      rowIdx,
+      color: col.color,
+      slotNumber: label,
+      numberBgColor,
+      numberTextColor,
+      rowHighlightColor: rowHighlight,
+      highlightTarget: wb.highlightTarget || 'number_only',
+    },
+  };
+}
+
+type WristbandColSlice = {
+  header: string;
+  plays: (CallSheetPlay | null)[];
+  color: string;
+  wbId: string;
+  colIdx: number;
+};
+
+export function listWristbandColumns(wbData?: WristbandData): WristbandColSlice[] {
+  const source = applySameCardPlayMirror(wbData) || wbData;
+  const wristbands =
+    source?.wristbands && source.wristbands.length > 0
+      ? source.wristbands
+      : source?.columns?.length
+        ? [
+            {
+              id: source.activeWristbandId || 'wb_1',
+              title: source.title || 'Wristband',
+              rowsCount: source.rows || 13,
+              columns: source.columns,
+            } as SingleWristband,
+          ]
+        : [];
+  const out: WristbandColSlice[] = [];
+  wristbands.forEach((wb, wbIdx) => {
+    (wb.columns || []).forEach((col, colIdx) => {
+      const plays = (col.plays || []).map((p, rowIdx) =>
+        callSheetPlayFromWristbandSlot(p, col, wb, wristbands, wbIdx, colIdx, rowIdx)
+      );
+      if (plays.some(Boolean)) {
+        out.push({
+          header: col.name?.trim() || `Col ${out.length + 1}`,
+          plays,
+          color: col.color || '#1e3a8a',
+          wbId: wb.id,
+          colIdx,
+        });
+      }
+    });
+  });
+  return out;
+}
+
+export function firstRowColorTableId(unit: string, wbId: string, colIdx: number) {
+  return `wb_col_table_${unit}_${wbId}_${colIdx}`;
+}
+
+export function isAutoWristbandRowTable(sec: CallSheetSection) {
+  if (!sec) return false;
+  return (
+    sec.wristbandPresetMode === 'wb_color_col' ||
+    sec.wristbandPresetMode === 'full_four_col' ||
+    (typeof sec.id === 'string' &&
+      (sec.id.startsWith('wb_col_table_') || sec.id.startsWith('wb_row1_4col_')))
+  );
+}
+
+const WRISTBAND_TABLES_PER_ROW = 4;
+
+function placeWristbandColorTables(
+  tables: CallSheetSection[],
+  leftover: CallSheetSection[]
+): CallSheetSection[] {
+  const wbRows = Math.max(1, Math.ceil(tables.length / WRISTBAND_TABLES_PER_ROW));
+  const leftoverTop = leftover.filter((s) => (s.group || 'top_situations') === 'top_situations');
+  const leftoverOther = leftover.filter((s) => (s.group || 'top_situations') !== 'top_situations');
+  const minTop = leftoverTop.length
+    ? Math.min(...leftoverTop.map((s) => (typeof s.rowIndex === 'number' ? s.rowIndex : 0)))
+    : wbRows;
+  const delta = Math.max(0, wbRows - minTop);
+  const shiftedTop = leftoverTop.map((s) => ({
+    ...s,
+    rowIndex: (typeof s.rowIndex === 'number' ? s.rowIndex : 0) + delta,
+  }));
+  return [...tables, ...shiftedTop, ...leftoverOther];
+}
+
+export function buildWristbandColorColumnSections(
+  wbData: WristbandData | undefined,
+  unit: 'offense' | 'defense'
+): CallSheetSection[] {
+  const cols = listWristbandColumns(wbData);
+  return cols.map((col, i) => {
+    const headerBg = col.color || '#1e3a8a';
+    return {
+      id: firstRowColorTableId(unit, col.wbId, col.colIdx),
+      title: col.header,
+      subtitle: 'Copied from wristband · matching numbers & colors',
+      headerBgColor: headerBg,
+      headerTextColor: isDarkColor(headerBg) ? '#ffffff' : '#000000',
+      targetUnit: unit,
+      group: 'top_situations' as const,
+      slotsCount: Math.max(col.plays.length, 1),
+      columnsCount: 1,
+      columnHeaders: [col.header],
+      colSpan: 1,
+      wristbandId: col.wbId,
+      wristbandColIdx: col.colIdx,
+      wristbandPresetMode: 'wb_color_col' as const,
+      highlightEnabled: false,
+      plays: col.plays,
+      rowIndex: Math.floor(i / WRISTBAND_TABLES_PER_ROW),
+      order: i % WRISTBAND_TABLES_PER_ROW,
+    };
+  });
+}
+
+/** Copy current wristband plays onto the call sheet as one table per color column. */
+export function copyWristbandPlaysToFirstRow(
+  callSheetData: CallSheetFullData,
+  wbData: WristbandData | undefined,
+  unit: 'offense' | 'defense'
+): CallSheetFullData {
+  const tables = buildWristbandColorColumnSections(wbData, unit);
+  if (!tables.length) return callSheetData;
+  const key = unit === 'offense' ? 'offenseSections' : 'defenseSections';
+  const leftover = (callSheetData[key] || []).filter(
+    (s) =>
+      !isAutoWristbandRowTable(s) &&
+      s.wristbandPresetMode !== 'full_two_col' &&
+      !(typeof s.id === 'string' && s.id.startsWith('wb_table_'))
+  );
+  return {
+    ...callSheetData,
+    lastEdited: Date.now(),
+    [key]: placeWristbandColorTables(tables, leftover),
+  };
+}
+
 /**
  * Synchronizes wristband updates into CallSheetFullData.
  * Whenever a wristband is updated (names, numbers, colors, rows),
@@ -582,9 +807,10 @@ export function syncWristbandToCallSheet(
   callSheetData: CallSheetFullData,
   playDb?: PlayDatabaseEntry[]
 ): CallSheetFullData {
-  if (!wbData?.wristbands || !callSheetData) return callSheetData;
+  const source = applySameCardPlayMirror(wbData) || wbData;
+  if (!source?.wristbands || !callSheetData) return callSheetData;
 
-  const wristbands = wbData.wristbands;
+  const wristbands = source.wristbands;
   const wbMap = new Map<string, SingleWristband>();
   wristbands.forEach((wb) => wbMap.set(wb.id, wb));
 
@@ -652,9 +878,9 @@ export function syncWristbandToCallSheet(
             : wbStart + colIdx * rows + rowIdx;
         const slotLabel = p.customLabel && isNaN(Number(p.customLabel)) ? p.customLabel : `${slotNumber}`;
         const key = `${wb.id}_${colIdx}_${rowIdx}`;
-        const formation = inferFormation(p.text || '', 'offense', p.formation);
+        const formation = inferFormation(wristbandPlayText(p), 'offense', p.formation);
         const slotInfo = {
-          text: (p.text || '').trim(),
+          text: wristbandPlayText(p),
           slotLabel,
           num: slotNumber,
           colColor,
@@ -804,11 +1030,17 @@ export function syncWristbandToCallSheet(
   const syncSection = (sec: CallSheetSection): CallSheetSection => {
     // Only tables explicitly created as wristband presets should be synced as full wristband tables.
     // Situational sections (1-10, 2nd Long, Red Zone, Custom, Scripts, etc.) MUST NEVER be wiped or overwritten!
+    if (isAutoWristbandRowTable(sec)) {
+      return sec;
+    }
+
     const isWbPreset =
       Boolean(sec.wristbandId) ||
       Boolean(sec.wristbandPresetMode) ||
       sec.id.startsWith('wb_table_') ||
       sec.id.startsWith('sec_wb_') ||
+      sec.id.startsWith('wb_row1_4col_') ||
+      sec.id.startsWith('wb_col_table_') ||
       Boolean((sec as any).isWristbandTable) ||
       (Array.isArray(sec.columnHeaders) && sec.columnHeaders.length === 2 && sec.title.toLowerCase().includes('wristband'));
 
@@ -1051,11 +1283,28 @@ export function syncWristbandToCallSheet(
     };
   };
 
+  const replaceAutoColorTables = (
+    sections: CallSheetSection[],
+    unit: 'offense' | 'defense'
+  ): CallSheetSection[] => {
+    if (!sections.some(isAutoWristbandRowTable)) return sections;
+    const tables = buildWristbandColorColumnSections(wbData, unit);
+    const leftover = sections.filter((s) => !isAutoWristbandRowTable(s));
+    if (!tables.length) return leftover;
+    return placeWristbandColorTables(tables, leftover);
+  };
+
   return {
     ...callSheetData,
     lastEdited: callSheetData.lastEdited || Date.now(),
-    offenseSections: (callSheetData.offenseSections || []).map(syncSection),
-    defenseSections: (callSheetData.defenseSections || []).map(syncSection),
+    offenseSections: replaceAutoColorTables(
+      (callSheetData.offenseSections || []).map(syncSection),
+      'offense'
+    ),
+    defenseSections: replaceAutoColorTables(
+      (callSheetData.defenseSections || []).map(syncSection),
+      'defense'
+    ),
     offenseScript: (callSheetData.offenseScript || []).map(syncPlay),
     defenseScript: (callSheetData.defenseScript || []).map(syncPlay),
   };

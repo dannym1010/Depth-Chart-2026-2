@@ -346,6 +346,104 @@ function isLocalOpsHost(): boolean {
 let isServerApiAvailable: boolean = isLocalOpsHost();
 let consecutiveServerErrors = 0;
 
+function shouldUseLocalOpsApi(): boolean {
+  return isLocalOpsHost() && isServerApiAvailable !== false;
+}
+
+let firestoreQuotaPausedUntil = 0;
+let firestoreNetworkDisabled = false;
+
+function readStoredQuotaPause(): number {
+  if (typeof sessionStorage === 'undefined') return 0;
+  try {
+    return Number(sessionStorage.getItem('footballFirestoreQuotaPauseUntil') || 0) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function nextQuotaResetMs(): number {
+  const now = Date.now();
+  const d = new Date();
+  // Spark quotas reset around midnight Pacific (07:00 UTC during PDT).
+  const resetTodayUtc = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 7, 0, 0);
+  const resetAt = now < resetTodayUtc ? resetTodayUtc : resetTodayUtc + 24 * 60 * 60 * 1000;
+  return Math.max(now + 2 * 60 * 60 * 1000, resetAt);
+}
+
+async function disableFirestoreNetwork(): Promise<void> {
+  if (firestoreNetworkDisabled || typeof window === 'undefined') return;
+  try {
+    const { db } = getFirebaseServices();
+    if (db && typeof db.disableNetwork === 'function') {
+      firestoreNetworkDisabled = true;
+      await db.disableNetwork();
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export function noteFirestoreError(err?: any) {
+  const text = `${err?.code || ''} ${err?.message || ''}`.toLowerCase();
+  if (text.includes('resource-exhausted') || text.includes('quota exceeded')) {
+    firestoreQuotaPausedUntil = nextQuotaResetMs();
+    try {
+      sessionStorage.setItem('footballFirestoreQuotaPauseUntil', String(firestoreQuotaPausedUntil));
+    } catch {}
+    console.warn(
+      'Firestore quota exceeded; pausing cloud sync until the daily quota resets so the app stops retrying.'
+    );
+    void disableFirestoreNetwork();
+  }
+}
+
+export function isFirestoreQuotaPaused() {
+  if (!firestoreQuotaPausedUntil) {
+    firestoreQuotaPausedUntil = readStoredQuotaPause();
+  }
+  return Date.now() < firestoreQuotaPausedUntil;
+}
+
+export function cloudModulesForScope(scope: string = ''): Array<
+  | 'week'
+  | 'schedule'
+  | 'practice'
+  | 'roster'
+  | 'season'
+  | 'staff'
+  | 'attendance'
+  | 'drills'
+  | 'call_sheet'
+  | 'wristband'
+  | 'plays'
+  | 'guides'
+  | 'pff'
+  | 'coaches'
+  | 'formations'
+> | undefined {
+  const s = String(scope || '');
+  if (s === 'force') return undefined;
+  if (isBoardPatchScope(s)) return ['week'];
+  if (s === 'focusout' || s === 'beforeunload' || s === 'immediate' || s === 'all') return [];
+  if (s.startsWith('practice')) return ['practice'];
+  if (s.startsWith('schedule')) return ['schedule'];
+  if (s === 'drills' || s.startsWith('practice_drill')) return ['drills'];
+  if (s.includes('call_sheet') || s.includes('callsheet')) return ['call_sheet'];
+  if (s.includes('wristband')) return ['wristband'];
+  if (s === 'formation') return ['formations'];
+  if (s.startsWith('formation')) return ['formations'];
+  if (s === 'roster') return ['roster'];
+  if (s === 'staff') return ['staff'];
+  if (s.includes('guide')) return ['guides'];
+  if (s.startsWith('ppr') || s.includes('pff')) return ['pff'];
+  if (s === 'attendance') return ['attendance'];
+  if (s === 'season') return ['season'];
+  if (s === 'coaches') return ['coaches'];
+  if (s === 'plays' || s.includes('playbook') || s.includes('play_')) return ['plays'];
+  return [];
+}
+
 function opsFetch(url: string, init: RequestInit = {}): Promise<Response> {
   return fetch(url, {
     ...init,
@@ -531,6 +629,7 @@ function hudlOppDocId(teamId: string, week: string) {
 }
 
 async function writeScoutBundleDocs(db: any, docId: string, extra: Record<string, any>, bundle: any) {
+  if (isFirestoreQuotaPaused()) return;
   const { meta, chunks } = splitScoutBundle(bundle);
   const writes: Promise<any>[] = [
     db.collection('teamData').doc(docId).set({
@@ -588,18 +687,24 @@ export async function saveHudlScoutCloud(payload: {
   const week = String(payload.week || '1').replace(/\D/g, '') || '1';
   const teamId = payload.teamId || 'team_10u';
 
-  try {
-    const res = await opsFetch('/api/hudl-scout', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: safeJSONStringify({ ...payload, teamId, week }),
-    });
-    apiOk = res.ok;
-    if (!res.ok) {
-      console.warn('saveHudlScoutCloud API failed with status:', res.status);
+  if (shouldUseLocalOpsApi()) {
+    try {
+      const res = await opsFetch('/api/hudl-scout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: safeJSONStringify({ ...payload, teamId, week }),
+      });
+      apiOk = res.ok;
+      if (!res.ok) {
+        console.warn('saveHudlScoutCloud API failed with status:', res.status);
+      }
+    } catch (err) {
+      console.warn('saveHudlScoutCloud API error:', err);
     }
-  } catch (err) {
-    console.warn('saveHudlScoutCloud API error:', err);
+  }
+
+  if (isFirestoreQuotaPaused()) {
+    return { ok: apiOk };
   }
 
   try {
@@ -627,6 +732,7 @@ export async function saveHudlScoutCloud(payload: {
       }
     }
   } catch (err) {
+    noteFirestoreError(err);
     console.warn('saveHudlScoutCloud Firestore error:', err);
   }
 
@@ -659,18 +765,24 @@ export async function fetchHudlScoutCloud(
   let ownTeamScout: any;
   const wk = String(week || '1').replace(/\D/g, '') || '1';
 
-  try {
-    const params = new URLSearchParams({ teamId, week: wk });
-    const res = await opsFetch(`/api/hudl-scout?${params.toString()}`, {
-      headers: { Accept: 'application/json' },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data?.opponentScout) opponentScout = data.opponentScout;
-      if (data?.ownTeamScout) ownTeamScout = data.ownTeamScout;
+  if (shouldUseLocalOpsApi()) {
+    try {
+      const params = new URLSearchParams({ teamId, week: wk });
+      const res = await opsFetch(`/api/hudl-scout?${params.toString()}`, {
+        headers: { Accept: 'application/json' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.opponentScout) opponentScout = data.opponentScout;
+        if (data?.ownTeamScout) ownTeamScout = data.ownTeamScout;
+      }
+    } catch (err) {
+      console.warn('fetchHudlScoutCloud API error:', err);
     }
-  } catch (err) {
-    console.warn('fetchHudlScoutCloud API error:', err);
+  }
+
+  if (isFirestoreQuotaPaused()) {
+    return { opponentScout, ownTeamScout };
   }
 
   try {
@@ -684,6 +796,7 @@ export async function fetchHudlScoutCloud(
       opponentScout = pickNewerScout(opponentScout, oppBundle);
     }
   } catch (err) {
+    noteFirestoreError(err);
     console.warn('fetchHudlScoutCloud Firestore error:', err);
   }
 
@@ -710,6 +823,7 @@ export type SharedBoardCloudUpdate = {
   attendanceUpdatedAt?: number;
   cascadingDrills?: any;
   practiceTemplates?: any;
+  practiceWeekdayTemplates?: any;
   liveDrillSlotLayouts?: any;
   drillsUpdatedAt?: number;
   callSheetData?: any;
@@ -784,6 +898,7 @@ export async function saveSharedBoardCloud(payload: {
   attendanceLogs?: any[];
   cascadingDrills?: any;
   practiceTemplates?: any;
+  practiceWeekdayTemplates?: any;
   liveDrillSlotLayouts?: any;
   callSheetData?: any;
   wristbandData?: any;
@@ -817,6 +932,7 @@ export async function saveSharedBoardCloud(payload: {
   >;
 }): Promise<boolean> {
   try {
+    if (isFirestoreQuotaPaused()) return false;
     const { db } = getFirebaseServices();
     if (!db) return false;
     const writes: Promise<any>[] = [];
@@ -856,12 +972,13 @@ export async function saveSharedBoardCloud(payload: {
     if (want('attendance') && payload.attendanceLogs) {
       writes.push(col.doc('ops_attendance').set(opsMeta({ attendanceLogs: payload.attendanceLogs })));
     }
-    if (want('drills') && (payload.cascadingDrills || payload.practiceTemplates || payload.liveDrillSlotLayouts)) {
+    if (want('drills') && (payload.cascadingDrills || payload.practiceTemplates || payload.practiceWeekdayTemplates || payload.liveDrillSlotLayouts)) {
       writes.push(
         col.doc('ops_drills').set(
           opsMeta({
             cascadingDrills: payload.cascadingDrills,
             practiceTemplates: payload.practiceTemplates,
+            practiceWeekdayTemplates: payload.practiceWeekdayTemplates,
             liveDrillSlotLayouts: payload.liveDrillSlotLayouts,
           })
         )
@@ -921,6 +1038,7 @@ export async function saveSharedBoardCloud(payload: {
     await Promise.all(writes);
     return true;
   } catch (err) {
+    noteFirestoreError(err);
     console.warn('saveSharedBoardCloud error:', err);
     return false;
   }
@@ -936,6 +1054,7 @@ export async function patchSharedWeekCloud(payload: {
   deletedFormationIds?: string[];
 }): Promise<boolean> {
   try {
+    if (isFirestoreQuotaPaused()) return false;
     const { db } = getFirebaseServices();
     if (!db || !payload.teamId || !payload.week) return false;
     const body: Record<string, any> = {
@@ -974,6 +1093,7 @@ export async function patchSharedWeekCloud(payload: {
     await db.collection('teamData').doc(opsWeekDocId(payload.teamId, payload.week)).set(opsMeta(body), { merge: true });
     return true;
   } catch (err) {
+    noteFirestoreError(err);
     console.warn('patchSharedWeekCloud error:', err);
     return false;
   }
@@ -984,6 +1104,7 @@ export async function fetchSharedBoardCloud(
   week: string
 ): Promise<SharedBoardCloudUpdate> {
   try {
+    if (isFirestoreQuotaPaused()) return {};
     const { db } = getFirebaseServices();
     if (!db) return {};
     const col = db.collection('teamData');
@@ -1041,6 +1162,7 @@ export async function fetchSharedBoardCloud(
       attendanceUpdatedAt: attendance?.updatedAt,
       cascadingDrills: drills?.cascadingDrills,
       practiceTemplates: drills?.practiceTemplates,
+      practiceWeekdayTemplates: drills?.practiceWeekdayTemplates,
       liveDrillSlotLayouts: drills?.liveDrillSlotLayouts,
       drillsUpdatedAt: drills?.updatedAt,
       callSheetData: callSheet?.callSheetData,
@@ -1065,6 +1187,7 @@ export async function fetchSharedBoardCloud(
       formationsUpdatedAt: formations?.updatedAt,
     };
   } catch (err) {
+    noteFirestoreError(err);
     console.warn('fetchSharedBoardCloud error:', err);
     return {};
   }
@@ -1075,6 +1198,10 @@ export function subscribeSharedBoardCloud(
   week: string,
   onUpdate: (data: SharedBoardCloudUpdate) => void
 ): () => void {
+  if (isFirestoreQuotaPaused()) {
+    void disableFirestoreNetwork();
+    return () => {};
+  }
   const { db } = getFirebaseServices();
   if (!db || typeof db.collection !== 'function') return () => {};
 
@@ -1088,6 +1215,7 @@ export function subscribeSharedBoardCloud(
         onUpdate({ ...mapFn(data), writerClientId: data.writerClientId });
       },
       (err: any) => {
+        noteFirestoreError(err);
         console.warn(`subscribeSharedBoardCloud ${docId} error:`, err);
       }
     );
@@ -1120,6 +1248,7 @@ export function subscribeSharedBoardCloud(
     listen('ops_drills', (data) => ({
       cascadingDrills: data.cascadingDrills,
       practiceTemplates: data.practiceTemplates,
+      practiceWeekdayTemplates: data.practiceWeekdayTemplates,
       liveDrillSlotLayouts: data.liveDrillSlotLayouts,
       drillsUpdatedAt: data.updatedAt,
     })),
@@ -1323,8 +1452,12 @@ export function getFirebaseServices() {
             const docRef = originalDoc(docPath);
             const originalSet = docRef.set.bind(docRef);
             docRef.set = (data: any, options?: any) => {
+              if (isFirestoreQuotaPaused()) return Promise.resolve();
               const cleaned = cleanFirestoreData(data);
-              return originalSet(cleaned, options);
+              return originalSet(cleaned, options).catch((err: any) => {
+                noteFirestoreError(err);
+                return Promise.reject(err);
+              });
             };
             const originalUpdate = docRef.update.bind(docRef);
             docRef.update = (...args: any[]) => {

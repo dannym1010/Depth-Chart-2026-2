@@ -391,10 +391,14 @@ export const CallSheetCellView: React.FC<CallSheetCellViewProps> = ({
   const finalBadgeTextColor = isWhiteText ? '#ffffff' : numberTextColor;
 
   // Row highlight color
+  const highlightTarget =
+    play.wristbandHighlightTarget || match?.highlightTarget || 'number_only';
   const rowHighlightColor =
-    play.wristbandRowColor ||
-    (play.isHighlighted && play.highlightColor ? play.highlightColor : undefined) ||
-    match?.rowHighlightColor;
+    highlightTarget === 'full_row'
+      ? play.wristbandRowColor ||
+        (play.isHighlighted && play.highlightColor ? play.highlightColor : undefined) ||
+        match?.rowHighlightColor
+      : undefined;
 
   const isDarkRowHighlight = rowHighlightColor ? isDarkColor(rowHighlightColor) : false;
 

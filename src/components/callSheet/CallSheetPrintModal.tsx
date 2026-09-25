@@ -24,6 +24,23 @@ import {
   printCallSheet,
   CallSheetPrintOptions,
 } from '../../utils/printUtils';
+import { loadPrintPrefs, savePrintPrefs } from '../../utils/printPrefs';
+
+const CALL_SHEET_PRINT_DEFAULTS = {
+  orientation: 'landscape' as const,
+  fitMode: '1page' as const,
+  density: 'compact' as const,
+  hideEmptySlots: true,
+  inkFriendly: true,
+  selectedColumns: 4,
+  includeTopSituations: true,
+  includeRedZone: true,
+  includeTempo: true,
+  includeCustom: true,
+  includeScripts: true,
+  includeTwoPoint: true,
+  includeTimeouts: true,
+};
 
 interface CallSheetPrintModalProps {
   isOpen: boolean;
@@ -43,30 +60,41 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
   activeTeamName,
   gridColumns = 4,
 }) => {
-  const [orientation, setOrientation] = useState<'landscape' | 'portrait'>('landscape');
-  const [fitMode, setFitMode] = useState<'auto' | '1page' | '2page'>('1page');
-  const [density, setDensity] = useState<'standard' | 'compact' | 'ultra'>('compact');
-  const [hideEmptySlots, setHideEmptySlots] = useState(true);
-  const [inkFriendly, setInkFriendly] = useState(true);
+  const savedPrint = loadPrintPrefs('call_sheet', CALL_SHEET_PRINT_DEFAULTS);
+  const [orientation, setOrientation] = useState<'landscape' | 'portrait'>(savedPrint.orientation);
+  const [fitMode, setFitMode] = useState<'auto' | '1page' | '2page'>(savedPrint.fitMode);
+  const [density, setDensity] = useState<'standard' | 'compact' | 'ultra'>(savedPrint.density);
+  const [hideEmptySlots, setHideEmptySlots] = useState(savedPrint.hideEmptySlots);
+  const [inkFriendly, setInkFriendly] = useState(savedPrint.inkFriendly);
 
-  // Column layout matching screen (e.g. 4 columns on screen = 4 columns on call sheet)
   const screenCols = gridColumns || callSheetData.desktopGridColumns || 4;
-  const [selectedColumns, setSelectedColumns] = useState<number>(screenCols);
+  const [selectedColumns, setSelectedColumns] = useState<number>(savedPrint.selectedColumns || screenCols);
+
+  const [includeTopSituations, setIncludeTopSituations] = useState(savedPrint.includeTopSituations);
+  const [includeRedZone, setIncludeRedZone] = useState(savedPrint.includeRedZone);
+  const [includeTempo, setIncludeTempo] = useState(savedPrint.includeTempo);
+  const [includeCustom, setIncludeCustom] = useState(savedPrint.includeCustom);
+  const [includeScripts, setIncludeScripts] = useState(savedPrint.includeScripts);
+  const [includeTwoPoint, setIncludeTwoPoint] = useState(savedPrint.includeTwoPoint);
+  const [includeTimeouts, setIncludeTimeouts] = useState(savedPrint.includeTimeouts);
 
   useEffect(() => {
-    if (isOpen) {
-      setSelectedColumns(gridColumns || callSheetData.desktopGridColumns || 4);
-    }
+    if (!isOpen) return;
+    const next = loadPrintPrefs('call_sheet', CALL_SHEET_PRINT_DEFAULTS);
+    setOrientation(next.orientation);
+    setFitMode(next.fitMode);
+    setDensity(next.density);
+    setHideEmptySlots(next.hideEmptySlots);
+    setInkFriendly(next.inkFriendly);
+    setSelectedColumns(next.selectedColumns || gridColumns || callSheetData.desktopGridColumns || 4);
+    setIncludeTopSituations(next.includeTopSituations);
+    setIncludeRedZone(next.includeRedZone);
+    setIncludeTempo(next.includeTempo);
+    setIncludeCustom(next.includeCustom);
+    setIncludeScripts(next.includeScripts);
+    setIncludeTwoPoint(next.includeTwoPoint);
+    setIncludeTimeouts(next.includeTimeouts);
   }, [isOpen, gridColumns, callSheetData.desktopGridColumns]);
-
-  // Section filters
-  const [includeTopSituations, setIncludeTopSituations] = useState(true);
-  const [includeRedZone, setIncludeRedZone] = useState(true);
-  const [includeTempo, setIncludeTempo] = useState(true);
-  const [includeCustom, setIncludeCustom] = useState(true);
-  const [includeScripts, setIncludeScripts] = useState(true);
-  const [includeTwoPoint, setIncludeTwoPoint] = useState(true);
-  const [includeTimeouts, setIncludeTimeouts] = useState(true);
 
   if (!isOpen) return null;
 
@@ -139,8 +167,27 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
     },
   };
 
+  const persistPrintPrefs = () => {
+    savePrintPrefs('call_sheet', {
+      orientation,
+      fitMode,
+      density,
+      hideEmptySlots,
+      inkFriendly,
+      selectedColumns,
+      includeTopSituations,
+      includeRedZone,
+      includeTempo,
+      includeCustom,
+      includeScripts,
+      includeTwoPoint,
+      includeTimeouts,
+    });
+  };
+
   // Direct print with exact sectionsFilter and clean print engine
   const handleDirectPrint = () => {
+    persistPrintPrefs();
     const bodyClasses: string[] = ['is-printing-callsheet'];
     if (orientation === 'landscape') {
       bodyClasses.push('print-landscape');
@@ -189,6 +236,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
 
   // Standalone tab print via openCleanPrintTab
   const handleOpenCleanTab = () => {
+    persistPrintPrefs();
     const html = generateCallSheetPrintHTML(
       callSheetData,
       activeUnit,

@@ -59,7 +59,7 @@ export interface CallSheetSection {
   columnHeaders?: string[]; // Optional sub-column headers for multi-column tables
   colSpan?: number; // Number of columns this section card spans in the outer grid (1, 2, 3, or 4)
   wristbandId?: string; // Linked wristband ID if generated from wristband preset
-  wristbandPresetMode?: 'full_two_col' | 'col_1' | 'col_2' | 'col_both_split';
+  wristbandPresetMode?: 'full_two_col' | 'full_four_col' | 'wb_color_col' | 'col_1' | 'col_2' | 'col_both_split';
   wristbandColIdx?: number;
   highlightEnabled?: boolean; // toggle highlight tint on or off
   highlightColor?: string; // e.g. 'rose' | 'yellow' | 'emerald' | 'cyan' | 'purple' or hex

@@ -651,3 +651,50 @@ export function shouldSwitchToSharedTodayPlan(
   return null;
 }
 
+export const PRACTICE_WEEKDAY_NAMES = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+] as const;
+
+export type PracticeWeekdayTemplateMap = Partial<Record<(typeof PRACTICE_WEEKDAY_NAMES)[number], string>>;
+
+export function normalizePracticeWeekdayTemplates(raw: unknown): PracticeWeekdayTemplateMap {
+  const out: PracticeWeekdayTemplateMap = {};
+  if (!raw || typeof raw !== 'object') return out;
+  const src = raw as Record<string, unknown>;
+  for (const day of PRACTICE_WEEKDAY_NAMES) {
+    const val = String(src[day] || src[day.toLowerCase()] || '').trim();
+    if (val) out[day] = val;
+  }
+  return out;
+}
+
+export function mergePracticeWeekdayTemplates(
+  localRaw?: unknown,
+  remoteRaw?: unknown
+): PracticeWeekdayTemplateMap {
+  const local = normalizePracticeWeekdayTemplates(localRaw);
+  const remote = normalizePracticeWeekdayTemplates(remoteRaw);
+  return { ...local, ...remote };
+}
+
+export function resolvePracticeTemplateForWeekday(
+  dayName: string | undefined,
+  weekdayMap: PracticeWeekdayTemplateMap | undefined,
+  templateNames: string[],
+  fallback = 'Standard Practice'
+): string {
+  const canonical = PRACTICE_WEEKDAY_NAMES.find(
+    (day) => day.toLowerCase() === String(dayName || '').trim().toLowerCase()
+  );
+  const mapped = canonical ? String(weekdayMap?.[canonical] || '').trim() : '';
+  if (mapped && templateNames.includes(mapped)) return mapped;
+  if (templateNames.includes(fallback)) return fallback;
+  return templateNames[0] || fallback;
+}
+
