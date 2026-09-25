@@ -319,8 +319,8 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
     [propWristbandData]
   );
 
-  // Default to showing the Play Bank on computer view as requested by user
-  const [isPlayBankOpen, setIsPlayBankOpen] = useState(true);
+  // Open beside the sheet on tablets/computers; on phones it would cover the whole screen.
+  const [isPlayBankOpen, setIsPlayBankOpen] = useState(() => typeof window === 'undefined' || window.innerWidth >= 640);
   const [gridColumns, setGridColumns] = useState<number>(() => {
     return callSheetData.desktopGridColumns || 4;
   });

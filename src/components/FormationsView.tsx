@@ -1167,8 +1167,9 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
                       className="bg-white dark:bg-slate-850/95 rounded-3xl border border-slate-200 dark:border-slate-700/80 shadow-sm dark:shadow-2xl overflow-hidden"
                     >
                       {/* Laminated Card Header */}
-                      <div className="bg-slate-50 dark:bg-gradient-to-r dark:from-slate-900 dark:via-slate-850 dark:to-indigo-950/80 p-3.5 sm:p-4 border-b border-slate-200 dark:border-slate-700/80 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="bg-slate-50 dark:bg-gradient-to-r dark:from-slate-900 dark:via-slate-850 dark:to-indigo-950/80 p-3.5 sm:p-4 border-b border-slate-200 dark:border-slate-700/80 flex flex-wrap items-center justify-between gap-2">
+                        {/* Title keeps its width on phones; the controls wrap onto the next line instead of squeezing it. */}
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1 basis-48">
                           <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-amber-400 dark:text-slate-950 dark:border-amber-400 flex items-center justify-center font-black text-xs shrink-0 shadow-xs">
                             {unit === 'offense' ? 'OFF' : unit === 'defense' ? 'DEF' : unit === 'st' ? 'ST' : 'GRP'}
                           </div>

@@ -234,7 +234,8 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
   }, [wristbands, activeWristbandId]);
 
   // UI state matching Call Sheet Maker
-  const [isPlayBankOpen, setIsPlayBankOpen] = useState(true);
+  // Open beside the sheet on tablets/computers; on phones it would cover the whole screen.
+  const [isPlayBankOpen, setIsPlayBankOpen] = useState(() => typeof window === 'undefined' || window.innerWidth >= 640);
   const [playBankUnit, setPlayBankUnit] = useState<'offense' | 'defense'>('offense');
   const [showPhysicalPreview, setShowPhysicalPreview] = useState(false);
   const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);

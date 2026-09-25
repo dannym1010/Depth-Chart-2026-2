@@ -217,6 +217,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
   const [viewOnlyMode, setViewOnlyMode] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth < 768);
   const [viewFilterPeriod, setViewFilterPeriod] = useState<number | 'all'>('all');
   const [viewFontSize, setViewFontSize] = useState<'normal' | 'large'>('normal');
+  const [showFieldClock, setShowFieldClock] = useState(false);
   const [activeViewingPeriodIdx, setActiveViewingPeriodIdx] = useState<number>(0);
 
   // Drill Instructions & Diagram Preview Modal state
@@ -2783,6 +2784,21 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
               </div>
             </div>
 
+            {/* Phones: fold the start-time shifter and full clock behind one toggle; the
+                bottom stopwatch bar already has start/pause/skip. Always open on larger screens. */}
+            <button
+              type="button"
+              onClick={() => setShowFieldClock((open) => !open)}
+              aria-expanded={showFieldClock}
+              className="md:hidden w-full flex items-center justify-between px-3 py-2 rounded-xl border border-slate-800 bg-slate-950/60 text-xs font-bold text-slate-300 cursor-pointer"
+            >
+              <span className="flex items-center gap-1.5">
+                <Timer className="w-3.5 h-3.5" />
+                Clock & start time
+              </span>
+              <ChevronDown className={`w-4 h-4 transition-transform ${showFieldClock ? '' : '-rotate-90'}`} />
+            </button>
+            <div className={`space-y-4 ${showFieldClock ? '' : 'hidden md:block'}`}>
             {/* Quick Shift Practice Start Time (Touch-Friendly for Field Coaches) */}
             {userRole === 'admin' && (
               <div className="bg-slate-950/70 rounded-2xl border border-slate-800/90 p-3 flex flex-wrap items-center justify-between gap-3">
@@ -3193,6 +3209,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
                   </div>
                 </div>
               )}
+            </div>
             </div>
           </div>
 
