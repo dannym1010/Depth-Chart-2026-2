@@ -49,6 +49,7 @@ import {
   USER_IMPORTED_GAME_DAY_PLAYS,
 } from '../data/userGameDayPlays';
 import { getAutoWristbandTitle, normalizeWristbandContinuousNumbering } from '../utils/wristbandNormalize';
+import { MoreMenu } from './common/MoreMenu';
 
 interface HighlightColorOption {
   name: string;
@@ -1285,16 +1286,7 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
               <div>
                 <h1 className="text-base sm:text-lg font-black tracking-tight text-white flex items-center gap-2">
                   <span>Wristband Insert Builder</span>
-                  <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                    {activeTeamName}
-                  </span>
-                  <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 hidden sm:inline">
-                    4.5&quot; &times; 2.25&quot; Sleeve
-                  </span>
                 </h1>
-                <p className="text-[11px] text-slate-400">
-                  Full-screen builder like Call Sheet &bull; Drag from Play Bank &bull; Exact 4.5&quot; &times; 2.25&quot; print size
-                </p>
               </div>
             </div>
 
@@ -1394,130 +1386,84 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
           </div>
 
           {/* Right Toolbar Action Buttons */}
-          <div className="flex items-center gap-2 flex-wrap justify-between md:justify-end">
+          <div className="flex items-center gap-2 flex-wrap md:flex-nowrap md:shrink-0 justify-between md:justify-end">
             {/* Play Bank Sidebar Toggle Button */}
             <button
               type="button"
               onClick={() => setIsPlayBankOpen(!isPlayBankOpen)}
               className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
                 isPlayBankOpen
-                  ? 'bg-indigo-600 text-white border-indigo-500 shadow-md'
+                  ? 'bg-slate-700 text-white border-slate-600'
                   : 'bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white border-slate-750'
               }`}
-              title="Toggle Play Bank sidebar"
+              title="Show or hide the Play Bank"
+              aria-pressed={isPlayBankOpen}
             >
-              <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
+              <BookOpen className="w-3.5 h-3.5" />
               <span>Play Bank ({playDatabase.length})</span>
             </button>
 
-            {/* Toggle 4.5" x 2.25" Physical Preview */}
-            <button
-              type="button"
-              onClick={() => setShowPhysicalPreview(!showPhysicalPreview)}
-              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
-                showPhysicalPreview
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                  : 'bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white border-slate-750'
-              }`}
-              title="Toggle true-scale 4.5 x 2.25 insert cutout preview"
-            >
-              <Maximize2 className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">Cutout Preview {showPhysicalPreview ? 'ON' : 'OFF'}</span>
-            </button>
-
-            {/* Excel Import Button */}
-            <button
-              type="button"
-              onClick={() => setIsExcelImportOpen(true)}
-              className="px-2.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer border border-emerald-600/50"
-              title="Import plays from Excel (.xlsx, .xls, .csv)"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-200" />
-              <span className="hidden sm:inline">Import Excel</span>
-            </button>
-
-            {/* Smart Auto-Fill Button */}
-            <button
-              type="button"
-              onClick={handleAutoFill}
-              className="px-2.5 py-1.5 rounded-xl bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-750 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-              title="Auto-fill empty slots with matching plays"
-            >
-              <Zap className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden lg:inline">Auto-Fill</span>
-            </button>
-
-            {/* Primary Print / Multiple Copies Selection Modal Button */}
             <button
               type="button"
               onClick={() => handleOpenPrintModal('all')}
-              className="px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 bg-indigo-600 hover:bg-indigo-500 text-white"
-              title="Print multiple copies for players/coaches & choose all made wristbands"
-            >
-              <Printer className="w-3.5 h-3.5 text-white stroke-[2.5]" />
-              <span>Print / Copies</span>
-              <span className="bg-slate-950/20 text-white text-[10px] px-1.5 py-0.2 rounded-full font-black">
-                {wristbands.length} Made
-              </span>
-            </button>
-
-            {/* Quick Print Active Insert (Exact 4.5" x 2.25") */}
-            <button
-              type="button"
-              onClick={() => handlePrint('active')}
-              className="px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md transition-all cursor-pointer flex items-center gap-1.5 active:scale-95"
-              title="Print active 4.5 x 2.25 insert card immediately"
+              className="px-3.5 py-1.5 rounded-xl text-xs font-black shadow-sm transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 bg-indigo-600 hover:bg-indigo-500 text-white"
+              title="Print copies for players and coaches, choosing which wristbands to include"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Active Card</span>
+              <span>Print / Copies</span>
             </button>
 
-            {/* Print All Made Wristbands */}
-            {wristbands.length > 1 && (
-              <button
-                type="button"
-                onClick={() => handlePrint('all')}
-                className="px-2.5 py-1.5 rounded-xl bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-750 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer active:scale-95"
-                title="Print all made wristbands immediately"
-              >
-                <Layers className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="hidden sm:inline">All ({wristbands.length})</span>
-              </button>
-            )}
-
-            {/* Open Standalone Printable View in New Tab / Save to PDF */}
-            <button
-              type="button"
-              onClick={() => handleOpenPrintTab('active')}
-              className="px-2.5 py-1.5 rounded-xl bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-750 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-              title="Open print view in new tab (PDF export / high-res review)"
-            >
-              <ExternalLink className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="hidden xl:inline">Print Tab</span>
-            </button>
-
-            {/* Copy previous week's wristband into this week */}
-            {onCopyWristbandFromPreviousWeek && previousWeekLabel ? (
-              <button
-                type="button"
-                onClick={onCopyWristbandFromPreviousWeek}
-                className="px-2.5 py-1.5 rounded-xl bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-750 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                title={`Copy the ${previousWeekLabel} wristband into this week`}
-              >
-                <FolderSync className="w-3.5 h-3.5 text-sky-400" />
-                <span className="hidden sm:inline">Copy {previousWeekLabel}</span>
-              </button>
-            ) : null}
-
-            {/* Clear All Plays */}
-            <button
-              type="button"
-              onClick={handleClearAllPlays}
-              className="p-1.5 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-slate-800 border border-slate-750 transition-colors cursor-pointer"
-              title="Clear all plays on this wristband"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
+            <MoreMenu
+              title="More wristband actions"
+              items={[
+                {
+                  label: showPhysicalPreview ? 'Hide 4.5" × 2.25" cutout preview' : 'Show 4.5" × 2.25" cutout preview',
+                  icon: <Maximize2 className="w-3.5 h-3.5" />,
+                  onClick: () => setShowPhysicalPreview(!showPhysicalPreview),
+                },
+                {
+                  label: 'Import plays from Excel',
+                  icon: <FileSpreadsheet className="w-3.5 h-3.5" />,
+                  onClick: () => setIsExcelImportOpen(true),
+                  dividerBefore: true,
+                },
+                {
+                  label: 'Auto-fill empty slots',
+                  icon: <Zap className="w-3.5 h-3.5" />,
+                  onClick: handleAutoFill,
+                },
+                {
+                  label: `Copy ${previousWeekLabel || 'last week'}'s wristband`,
+                  icon: <FolderSync className="w-3.5 h-3.5" />,
+                  onClick: () => onCopyWristbandFromPreviousWeek && onCopyWristbandFromPreviousWeek(),
+                  hidden: !(onCopyWristbandFromPreviousWeek && previousWeekLabel),
+                },
+                {
+                  label: 'Print this card now',
+                  icon: <Printer className="w-3.5 h-3.5" />,
+                  onClick: () => handlePrint('active'),
+                  dividerBefore: true,
+                },
+                {
+                  label: `Print all ${wristbands.length} cards now`,
+                  icon: <Layers className="w-3.5 h-3.5" />,
+                  onClick: () => handlePrint('all'),
+                  hidden: wristbands.length < 2,
+                },
+                {
+                  label: 'Open print view in a new tab',
+                  icon: <ExternalLink className="w-3.5 h-3.5" />,
+                  onClick: () => handleOpenPrintTab('active'),
+                },
+                {
+                  label: 'Clear all plays on this wristband',
+                  icon: <RotateCcw className="w-3.5 h-3.5" />,
+                  onClick: handleClearAllPlays,
+                  danger: true,
+                  dividerBefore: true,
+                },
+              ]}
+            />
           </div>
         </div>
       </header>
