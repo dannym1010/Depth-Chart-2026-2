@@ -366,8 +366,28 @@ export function applySameCardPlayMirror(data?: WristbandData | null): WristbandD
   return changed ? { ...data, wristbands } : data;
 }
 
+/**
+ * Whole-object newest-wins. Do not mix columns from older snapshots: that resurrects
+ * plays a coach already changed or cleared.
+ */
+export function pickNewestWristbandData(
+  ...sources: Array<WristbandData | null | undefined>
+): WristbandData | undefined {
+  const list = sources.filter((src): src is WristbandData =>
+    Boolean(src && (src.wristbands?.length || src.columns?.length))
+  );
+  if (!list.length) return undefined;
+  return list.reduce((best, src) => {
+    const srcTime = Number(src.lastEdited) || 0;
+    const bestTime = Number(best.lastEdited) || 0;
+    if (srcTime > bestTime) return src;
+    if (srcTime < bestTime) return best;
+    return src;
+  });
+}
+
 export function getBestWristbandData(
   candidates: (WristbandData | null | undefined)[]
 ): WristbandData {
-  return mergeRichestWristbandData(...candidates) || INITIAL_TWO_WRISTBANDS_DATA;
+  return pickNewestWristbandData(...candidates) || INITIAL_TWO_WRISTBANDS_DATA;
 }

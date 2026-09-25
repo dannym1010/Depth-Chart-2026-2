@@ -1135,7 +1135,7 @@ export function mergeRemoteWeeklyData(
       safeWristbandData = localState.wristbandData;
     } else if (remoteWbLastEdited > localWbLastEdited && remoteState.wristbandData) {
       safeWristbandData = remoteState.wristbandData;
-    } else if (localWbLastEdited > remoteWbLastEdited && localState.wristbandData) {
+    } else if (localWbLastEdited >= remoteWbLastEdited && localState.wristbandData) {
       safeWristbandData = localState.wristbandData;
     } else if (remoteRows > localRows && remoteState.wristbandData) {
       safeWristbandData = remoteState.wristbandData;

@@ -314,6 +314,34 @@ describe('copy wristband plays to call sheet row 1', () => {
     assert.equal(pink?.plays[0]?.name, '11 R BUBBLE');
   });
 
+  it('keeps a newer wristband with fewer plays instead of resurrecting an older snapshot', async () => {
+    const { pickNewestWristbandData } = await import('./wristbandNormalize.ts');
+    const olderFull = {
+      lastEdited: 100,
+      wristbands: [
+        {
+          id: 'wb_1',
+          columns: [
+            { name: 'BLUE', plays: [{ text: 'OLD PLAY', wristbandNum: 1 }, { text: 'KEEP', wristbandNum: 2 }] },
+          ],
+        },
+      ],
+    };
+    const newerCleared = {
+      lastEdited: 200,
+      wristbands: [
+        {
+          id: 'wb_1',
+          columns: [{ name: 'BLUE', plays: [{ text: 'KEEP', wristbandNum: 2 }] }],
+        },
+      ],
+    };
+    const picked = pickNewestWristbandData(olderFull as any, newerCleared as any);
+    assert.equal(picked?.lastEdited, 200);
+    assert.equal(picked?.wristbands?.[0]?.columns?.[0]?.plays?.[0]?.text, 'KEEP');
+    assert.equal(picked?.wristbands?.[0]?.columns?.[0]?.plays?.length, 1);
+  });
+
   it('copies same-card blue/gold plays onto factory green/pink call sheet tables', async () => {
     const { copyWristbandPlaysToFirstRow } = await import('./wristbandLinking.ts');
     const wb = {

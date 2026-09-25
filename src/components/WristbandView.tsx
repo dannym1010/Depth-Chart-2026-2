@@ -178,24 +178,28 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
     const incomingLastEdited = Number(propWristbandData.lastEdited) || 0;
     const currentLastEdited = Number(internalData.lastEdited) || 0;
     const isNewerRemote = incomingLastEdited > currentLastEdited;
-    const isRecentLocalEdit = Date.now() - lastEditTimeRef.current < 2000;
+    const isRecentLocalEdit = Date.now() - lastEditTimeRef.current < 25000;
 
-    // Only guard if user made a local edit in the past 2 seconds AND incoming is not strictly newer
     if (!isNewerRemote && isRecentLocalEdit) {
+      return;
+    }
+    if (incomingLastEdited < currentLastEdited) {
       return;
     }
     const incomingJson = safeJSONStringify(propWristbandData);
     if (incomingJson !== lastEmittedWbJson.current) {
       lastEmittedWbJson.current = incomingJson;
-      setInternalData(normalizeWristbandContinuousNumbering(propWristbandData, activeTeamName));
+      // Apply the payload as saved. Re-running numbering/mode normalize here
+      // rewrote plays and labeling after the coach had already changed them.
+      setInternalData(propWristbandData);
     }
-  }, [propWristbandData, activeTeamName]);
+  }, [propWristbandData, internalData.lastEdited]);
 
   // Sync team name changes into wristbands titles
   useEffect(() => {
-    if (activeTeamName) {
-      setInternalData((prev) => normalizeWristbandContinuousNumbering(prev, activeTeamName));
-    }
+    if (!activeTeamName) return;
+    if (Date.now() - lastEditTimeRef.current < 25000) return;
+    setInternalData((prev) => normalizeWristbandContinuousNumbering(prev, activeTeamName));
   }, [activeTeamName]);
 
   const normalizedData: WristbandData = internalData;

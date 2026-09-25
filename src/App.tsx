@@ -149,7 +149,7 @@ import { ScrimmageView } from './components/ScrimmageView';
 import { PracticeLiveDrillsView } from './components/PracticeLiveDrillsView';
 import { PlayerPprView } from './components/PlayerPprView';
 import { WristbandView } from './components/WristbandView';
-import { getBestWristbandData, mergeRichestWristbandData, normalizeWristbandContinuousNumbering, wristbandHasPlays } from './utils/wristbandNormalize';
+import { getBestWristbandData, mergeRichestWristbandData, pickNewestWristbandData, normalizeWristbandContinuousNumbering, wristbandHasPlays } from './utils/wristbandNormalize';
 import { CallSheetMainView } from './components/CallSheetMainView';
 import { GameDayHubView } from './components/GameDayHubView';
 import { USER_IMPORTED_GAME_DAY_PLAYS, INITIAL_TWO_WRISTBANDS_DATA } from './data/userGameDayPlays';
@@ -1344,12 +1344,10 @@ export default function App() {
         defScopedState?.opponent ||
         '',
       wristbandData:
-        mergeRichestWristbandData(
+        pickNewestWristbandData(
           scopedState?.wristbandData,
-          legacyState?.wristbandData,
-          defScopedState?.wristbandData,
-          latestStateRef.current?.wristbandData,
-          safeJSONParse<WristbandData | null>('footballWristbandData', null)
+          is10U ? legacyState?.wristbandData : undefined,
+          is10U ? defScopedState?.wristbandData : undefined
         ) || INITIAL_TWO_WRISTBANDS_DATA,
       scouting:
         pickRichestScouting(scopedState?.scouting, legacyState?.scouting, defScopedState?.scouting) ||
@@ -1795,12 +1793,11 @@ export default function App() {
     if (!skipBoardFromGiantDoc && candidateWb) {
       const remoteWbTime = Number(candidateWb.lastEdited) || 0;
       const localWbTime = Number(latestStateRef.current.wristbandData?.lastEdited) || 0;
-      const isActivelyEditingWristband =
-        Date.now() - lastLocalWristbandEditTimeRef.current < 2000 &&
-        (activeUnitRef.current === 'wristband' || activeUnitRef.current === 'game_day') &&
-        localWbTime >= remoteWbTime;
-
-      if (!isActivelyEditingWristband) {
+      const editingNow = Date.now() - lastLocalWristbandEditTimeRef.current < 25000;
+      const forThisWeek = savedForTeamWeek(candidateWb, activeTeamIdRef.current, currentWeekRef.current);
+      // Newer local lastEdited always wins. A 2s "still typing" window let stale weekly
+      // snapshots (and numbering normalize) put old plays back on screen.
+      if (forThisWeek && !editingNow && remoteWbTime > localWbTime) {
         const normWb = normalizeWristbandContinuousNumbering(
           candidateWb,
           currentActiveTeam?.name || 'Mahopac 10U'
@@ -2684,7 +2681,7 @@ export default function App() {
       const remoteEdited = Number(remote.wristbandData.lastEdited) || 0;
       const localEdited = Number(latestStateRef.current.wristbandData?.lastEdited) || 0;
       const forThisWeek = savedForTeamWeek(remote.wristbandData, activeTeamIdRef.current, currentWeekRef.current);
-      if (forThisWeek && !editingNow && remoteEdited >= localEdited) {
+      if (forThisWeek && !editingNow && remoteEdited > localEdited) {
         const normWb = normalizeWristbandContinuousNumbering(remote.wristbandData, 'Mahopac 10U');
         setWristbandData(normWb);
         latestStateRef.current.wristbandData = normWb;
@@ -3581,11 +3578,11 @@ export default function App() {
   const currentScopedWeekKey = getScopedWeekKey(activeTeamId, currentWeek);
   const currentWeekState: WeekState = resolveWeekState(weeklyData, activeTeamId, currentWeek);
 
-  // Only shared sources here: mixing in this device's own saved copy made coaches'
-  // wristbands (and the call sheet tables built from them) drift apart.
+  // Newest whole wristband wins. Mixing columns from the week snapshot and live
+  // state put deleted/changed plays back after a coach edited them.
   const effectiveWristbandData: WristbandData = useMemo(() => {
     return (
-      mergeRichestWristbandData(currentWeekState?.wristbandData, wristbandData) || INITIAL_TWO_WRISTBANDS_DATA
+      pickNewestWristbandData(currentWeekState?.wristbandData, wristbandData) || INITIAL_TWO_WRISTBANDS_DATA
     );
   }, [wristbandData, currentWeekState?.wristbandData]);
   // Read by save/adopt paths so the call sheet's wristband tables use the same wristband the screens show.
