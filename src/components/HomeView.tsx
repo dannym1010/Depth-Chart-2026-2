@@ -18,7 +18,6 @@ import {
   AlertCircle,
   Users,
   Shirt,
-  Sparkles,
   Trophy,
   ClipboardCheck,
   Activity,
@@ -52,8 +51,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
   scheduleEvents,
   practicePlans,
   activeTeam,
-  teams,
-  onSelectTeam,
   currentWeek,
   seasonConfig,
   onNavigateToUnit,
@@ -238,69 +235,20 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   return (
     <div className="space-y-4 sm:space-y-6 pb-28 md:pb-12 max-w-7xl mx-auto px-1 sm:px-2 md:px-0">
-      {/* =========================================================================
-          1. CLEAN SPLASH SCREEN HEADER (PC & MOBILE COMMAND CENTER)
-          ========================================================================= */}
-      <div className="bg-gradient-to-r from-white via-indigo-50/50 to-indigo-100/60 dark:from-slate-900 dark:via-slate-900 dark:to-indigo-950/70 border border-slate-200 dark:border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-6 lg:p-8 shadow-sm dark:shadow-2xl relative overflow-hidden">
-        <div className="absolute right-0 top-0 w-96 h-96 bg-indigo-500/10 dark:bg-indigo-500/5 rounded-full blur-3xl pointer-events-none -translate-y-1/2 translate-x-1/3" />
-
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 sm:gap-6 relative z-10">
-          <div className="space-y-1.5 sm:space-y-2">
-            <div className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-              {formattedToday} · Week {currentWeek}
-            </div>
-
-            <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black text-slate-900 dark:text-white tracking-tight">
-              {activeTeam?.name || 'Mahopac 10U Indians'}
-            </h1>
+      {/* 1. Splash: today, team, roster size. Team switching is in the header; attendance is on the practice card. */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl sm:rounded-3xl px-4 py-3.5 sm:px-6 sm:py-5 shadow-xs flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+        <div className="space-y-1 min-w-0">
+          <div className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+            <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+            {formattedToday} · Week {currentWeek}
           </div>
-
-          {/* Quick Team Switcher & Roster Stat & Roll Call Shortcut */}
-          <div className="flex flex-wrap sm:flex-nowrap items-stretch sm:items-center gap-2 sm:gap-3 shrink-0 pt-1 lg:pt-0">
-            {teams.length > 1 && (
-              <div className="flex flex-col gap-1 min-w-[130px] flex-1 sm:flex-initial">
-                <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Active Team</label>
-                <select
-                  value={activeTeam?.id || ''}
-                  onChange={(e) => onSelectTeam(e.target.value)}
-                  className="bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 cursor-pointer shadow-xs dark:shadow-md"
-                >
-                  {teams.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            <div className="bg-white/80 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 rounded-2xl px-3.5 sm:px-4 py-2 sm:py-2.5 flex items-center gap-2.5 sm:gap-3 shadow-xs dark:shadow-md flex-1 sm:flex-initial">
-              <Users className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-600 dark:text-indigo-400" />
-              <div>
-                <div className="text-xs font-black text-slate-900 dark:text-white">{roster.length} Players</div>
-                <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Active Roster</div>
-              </div>
-            </div>
-
-            {/* Direct Attendance Shortcut in Header */}
-            <button
-              type="button"
-              onClick={() => onNavigateToUnit('compliance', { openTakeAttendance: true })}
-              className="w-full sm:w-auto bg-white hover:bg-slate-50 dark:bg-slate-950/80 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 hover:border-emerald-500/50 rounded-2xl px-3.5 sm:px-4 py-2 sm:py-2.5 flex items-center justify-center sm:justify-start gap-2.5 sm:gap-3 shadow-xs dark:shadow-md transition-all cursor-pointer group active:scale-98"
-              title="Open Take Practice Attendance Roll Call"
-            >
-              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 flex items-center justify-center group-hover:scale-110 transition-transform shrink-0">
-                <ClipboardCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              </div>
-              <div className="text-left">
-                <div className="text-xs font-black text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-300 transition-colors">
-                  Take Attendance
-                </div>
-                <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Practice Roll Call</div>
-              </div>
-            </button>
-          </div>
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight truncate">
+            {activeTeam?.name || 'Mahopac 10U Indians'}
+          </h1>
+        </div>
+        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">
+          <Users className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+          <span>{roster.length} players</span>
         </div>
       </div>
 
@@ -389,16 +337,20 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     </div>
 
                     {/* Drill Periods Chips */}
-                    {practiceEventData.plan.periods && practiceEventData.plan.periods.length > 0 && (
+                    {practiceEventData.plan.periods?.some((p) => p.name || p.title || p.category) && (
                       <div className="flex flex-wrap gap-1.5 pt-1">
-                        {practiceEventData.plan.periods.slice(0, 4).map((period, idx) => (
-                          <span
-                            key={idx}
-                            className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-700 dark:text-slate-300 shadow-2xs"
-                          >
-                            P{idx + 1}: {period.title}
-                          </span>
-                        ))}
+                        {practiceEventData.plan.periods.slice(0, 4).map((period, idx) => {
+                          const label = period.name || period.title || period.category;
+                          if (!label) return null;
+                          return (
+                            <span
+                              key={idx}
+                              className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-700 dark:text-slate-300 shadow-2xs"
+                            >
+                              P{idx + 1}: {label}
+                            </span>
+                          );
+                        })}
                         {practiceEventData.plan.periods.length > 4 && (
                           <span className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-500 shadow-2xs">
                             +{practiceEventData.plan.periods.length - 4} more
@@ -414,8 +366,15 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 )}
               </div>
             ) : (
-              <div className="py-8 text-center text-slate-500 text-sm font-semibold">
-                No upcoming practice scheduled.
+              <div className="py-8 text-center space-y-3">
+                <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">No upcoming practice scheduled.</p>
+                <button
+                  type="button"
+                  onClick={() => onNavigateToUnit('schedule')}
+                  className="min-h-[40px] px-4 py-2 rounded-xl bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+                >
+                  Add a practice on the Schedule
+                </button>
               </div>
             )}
           </div>
@@ -546,8 +505,15 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="py-8 text-center text-slate-500 text-sm font-semibold">
-                No upcoming game scheduled.
+              <div className="py-8 text-center space-y-3">
+                <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">No upcoming game scheduled.</p>
+                <button
+                  type="button"
+                  onClick={() => onNavigateToUnit('schedule')}
+                  className="min-h-[40px] px-4 py-2 rounded-xl bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+                >
+                  Add a game on the Schedule
+                </button>
               </div>
             )}
           </div>
@@ -599,140 +565,25 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       </div>
 
-      {/* =========================================================================
-          3. CLEAN QUICK NAVIGATION LAUNCHPAD FOR PC & MOBILE
-          ========================================================================= */}
-      <div className="space-y-3 pt-1 sm:pt-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-black uppercase text-slate-600 dark:text-slate-400 tracking-wider flex items-center gap-2">
-            <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-            <span>Coaching Tools Quick Launch</span>
-          </h3>
-          <span className="text-[11px] font-semibold text-slate-500">Quick Navigation</span>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2.5 sm:gap-3">
-          {/* Attendance & Compliance Hours */}
-          <button
-            type="button"
-            onClick={() => onNavigateToUnit('compliance', { openTakeAttendance: true })}
-            className="p-3 sm:p-4 bg-white hover:bg-slate-50 active:bg-slate-100 dark:bg-slate-900/80 dark:hover:bg-slate-850 dark:active:bg-slate-800 border border-slate-200 dark:border-slate-800 hover:border-emerald-500/50 rounded-2xl flex flex-col items-center text-center gap-2 transition-all group cursor-pointer shadow-xs dark:shadow-md active:scale-98"
-            title="Open Practice Attendance Roll Call"
-          >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-600/20 dark:text-emerald-300 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <ClipboardCheck className="w-4 h-4 sm:w-5 sm:h-5" />
-            </div>
-            <div>
-              <div className="text-xs font-black text-slate-800 dark:text-slate-100 group-hover:text-emerald-600 dark:group-hover:text-emerald-300 transition-colors">
-                Take Attendance
-              </div>
-              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">Roll Call & Hours</div>
-            </div>
-          </button>
-
-          {/* Depth Chart */}
-          <button
-            type="button"
-            onClick={() => onNavigateToUnit('depth_chart')}
-            className="p-3 sm:p-4 bg-white hover:bg-slate-50 active:bg-slate-100 dark:bg-slate-900/80 dark:hover:bg-slate-850 dark:active:bg-slate-800 border border-slate-200 dark:border-slate-800 hover:border-indigo-500/50 rounded-2xl flex flex-col items-center text-center gap-2 transition-all group cursor-pointer shadow-xs dark:shadow-md active:scale-98"
-          >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-indigo-100 text-indigo-700 dark:bg-indigo-600/20 dark:text-indigo-300 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Shield className="w-4 h-4 sm:w-5 sm:h-5" />
-            </div>
-            <div>
-              <div className="text-xs font-black text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors">
-                Depth Chart
-              </div>
-              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">Offense & Defense</div>
-            </div>
-          </button>
-
-          {/* PPR */}
+      {/* 3. Tools that aren't already a button on the cards above (the sidebar has everything else). */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mr-1">More tools</span>
           <button
             type="button"
             onClick={() => onNavigateToUnit('ppr')}
-            className="p-3 sm:p-4 bg-white hover:bg-slate-50 active:bg-slate-100 dark:bg-slate-900/80 dark:hover:bg-slate-850 dark:active:bg-slate-800 border border-slate-200 dark:border-slate-800 hover:border-cyan-500/50 rounded-2xl flex flex-col items-center text-center gap-2 transition-all group cursor-pointer shadow-xs dark:shadow-md active:scale-98"
+            className="min-h-[40px] px-3.5 py-2 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
           >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-cyan-100 text-cyan-700 dark:bg-cyan-600/20 dark:text-cyan-300 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Activity className="w-4 h-4 sm:w-5 sm:h-5" />
-            </div>
-            <div>
-              <div className="text-xs font-black text-slate-800 dark:text-slate-100 group-hover:text-cyan-600 dark:group-hover:text-cyan-300 transition-colors">
-                PFF
-              </div>
-              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">Film grades</div>
-            </div>
+            <Activity className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+            <span>PFF film grades</span>
           </button>
-
-          {/* Practice Planner */}
-          <button
-            type="button"
-            onClick={() => onNavigateToUnit('practice')}
-            className="p-3 sm:p-4 bg-white hover:bg-slate-50 active:bg-slate-100 dark:bg-slate-900/80 dark:hover:bg-slate-850 dark:active:bg-slate-800 border border-slate-200 dark:border-slate-800 hover:border-emerald-500/50 rounded-2xl flex flex-col items-center text-center gap-2 transition-all group cursor-pointer shadow-xs dark:shadow-md active:scale-98"
-          >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-600/20 dark:text-emerald-300 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <ClipboardList className="w-4 h-4 sm:w-5 sm:h-5" />
-            </div>
-            <div>
-              <div className="text-xs font-black text-slate-800 dark:text-slate-100 group-hover:text-emerald-600 dark:group-hover:text-emerald-300 transition-colors">
-                Practice Plan
-              </div>
-              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">Scripts & Periods</div>
-            </div>
-          </button>
-
-          {/* Drill Library */}
           <button
             type="button"
             onClick={() => onNavigateToUnit('drills')}
-            className="p-3 sm:p-4 bg-white hover:bg-slate-50 active:bg-slate-100 dark:bg-slate-900/80 dark:hover:bg-slate-850 dark:active:bg-slate-800 border border-slate-200 dark:border-slate-800 hover:border-amber-500/50 rounded-2xl flex flex-col items-center text-center gap-2 transition-all group cursor-pointer shadow-xs dark:shadow-md active:scale-98"
+            className="min-h-[40px] px-3.5 py-2 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
           >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-amber-100 text-amber-800 dark:bg-amber-600/20 dark:text-amber-300 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Dumbbell className="w-4 h-4 sm:w-5 sm:h-5" />
-            </div>
-            <div>
-              <div className="text-xs font-black text-slate-800 dark:text-slate-100 group-hover:text-amber-600 dark:group-hover:text-amber-300 transition-colors">
-                Drill Library
-              </div>
-              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">Technique & Cues</div>
-            </div>
+            <Dumbbell className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+            <span>Drill Library</span>
           </button>
-
-          {/* Wristbands */}
-          <button
-            type="button"
-            onClick={() => onNavigateToUnit('wristband')}
-            className="p-3 sm:p-4 bg-white hover:bg-slate-50 active:bg-slate-100 dark:bg-slate-900/80 dark:hover:bg-slate-850 dark:active:bg-slate-800 border border-slate-200 dark:border-slate-800 hover:border-blue-500/50 rounded-2xl flex flex-col items-center text-center gap-2 transition-all group cursor-pointer shadow-xs dark:shadow-md active:scale-98"
-          >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-blue-100 text-blue-700 dark:bg-blue-600/20 dark:text-blue-300 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Watch className="w-4 h-4 sm:w-5 sm:h-5" />
-            </div>
-            <div>
-              <div className="text-xs font-black text-slate-800 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-300 transition-colors">
-                Wristband
-              </div>
-              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">Player cards</div>
-            </div>
-          </button>
-
-          {/* Call Sheet */}
-          <button
-            type="button"
-            onClick={() => onNavigateToUnit('call_sheet')}
-            className="p-3 sm:p-4 bg-white hover:bg-slate-50 active:bg-slate-100 dark:bg-slate-900/80 dark:hover:bg-slate-850 dark:active:bg-slate-800 border border-slate-200 dark:border-slate-800 hover:border-rose-500/50 rounded-2xl flex flex-col items-center text-center gap-2 transition-all group cursor-pointer shadow-xs dark:shadow-md active:scale-98"
-          >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-rose-100 text-rose-700 dark:bg-rose-600/20 dark:text-rose-300 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <FileSpreadsheet className="w-4 h-4 sm:w-5 sm:h-5" />
-            </div>
-            <div>
-              <div className="text-xs font-black text-slate-800 dark:text-slate-100 group-hover:text-rose-600 dark:group-hover:text-rose-300 transition-colors">
-                Call Sheet
-              </div>
-              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">Down & Distance</div>
-            </div>
-          </button>
-
-        </div>
       </div>
     </div>
   );

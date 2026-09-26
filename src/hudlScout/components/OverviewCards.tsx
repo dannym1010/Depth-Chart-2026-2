@@ -62,7 +62,7 @@ export const OverviewCards: React.FC<OverviewCardsProps> = ({ analysis }) => {
         </div>
 
         <p className="text-[11px] text-slate-400 leading-tight mb-2">
-          Football standard: 1st down $\ge$ 4 yds, 2nd down $\ge$ 50% needed, 3rd/4th converted.
+          Football standard: 1st down ≥ 4 yds, 2nd down ≥ 50% needed, 3rd/4th converted.
         </p>
 
         <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-800/80">
@@ -86,7 +86,7 @@ export const OverviewCards: React.FC<OverviewCardsProps> = ({ analysis }) => {
         </div>
 
         <p className="text-[11px] text-slate-400 leading-tight mb-2">
-          Runs $\ge$ 12 yds or passes $\ge$ 16 yds. Key driver of opponent scoring drives.
+          Runs ≥ 12 yds or passes ≥ 16 yds. Key driver of opponent scoring drives.
         </p>
 
         <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-800/80">

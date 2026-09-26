@@ -299,7 +299,7 @@ export const DrillInstructionsModal: React.FC<DrillInstructionsModalProps> = ({
               </div>
 
               {/* Teaser card to view whiteboard diagram */}
-              <div className="bg-gradient-to-r from-indigo-950/60 to-blue-950/60 border border-indigo-500/30 rounded-2xl p-3.5 flex items-center justify-between gap-3">
+              <div className="bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-500/30 rounded-2xl p-3.5 flex items-center justify-between gap-3">
                 <div>
                   <div className="text-xs font-bold text-indigo-200">Need to see the alignment & routes?</div>
                   <div className="text-[11px] text-slate-400">View chalkboard field layout with player tokens and burst paths</div>

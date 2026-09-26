@@ -2043,7 +2043,7 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
                                       e.stopPropagation();
                                       handleClearSlot(currentWristband.id, cIdx, rIdx);
                                     }}
-                                    className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-rose-950/50 transition-colors"
+                                    className="p-2 sm:p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-rose-950/50 transition-colors"
                                     title="Clear slot"
                                   >
                                     <X className="w-3.5 h-3.5" />

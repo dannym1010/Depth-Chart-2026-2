@@ -946,7 +946,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all border cursor-pointer ${
                   typeFilter === filter.id
                     ? 'bg-amber-400 text-slate-950 border-amber-400 font-black shadow-xs'
-                    : 'bg-slate-900/70 text-slate-300 border-slate-750 hover:border-slate-600 hover:text-white'
+                    : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400 hover:text-slate-900 dark:bg-slate-900/70 dark:text-slate-300 dark:border-slate-750 dark:hover:border-slate-600 dark:hover:text-white'
                 }`}
               >
                 {filter.label}
@@ -1049,7 +1049,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
 
       {/* Next Upcoming Event Spotlight Banner */}
       {nextEvent && (
-        <div className="bg-gradient-to-r from-amber-500/15 via-slate-800/90 to-indigo-900/30 p-4 rounded-3xl border border-amber-500/30 shadow-lg print:hidden flex flex-wrap items-center justify-between gap-4">
+        <div className="bg-amber-50 dark:bg-slate-800/90 p-4 rounded-3xl border border-amber-500/30 shadow-lg print:hidden flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-amber-400 text-slate-950 flex items-center justify-center font-black shadow-md text-lg">
               {nextEvent.type === 'game' || nextEvent.type === 'tournament' ? '🏈' : '📋'}
@@ -1209,14 +1209,16 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                         onClick={() => toggleWeekExpanded(weekKey)}
                         className={`px-5 py-3.5 border-b border-slate-700/80 flex flex-wrap items-center justify-between gap-3 cursor-pointer select-none transition-colors ${
                           isCurrent
-                            ? 'bg-gradient-to-r from-indigo-950/60 via-slate-900 to-slate-900 hover:from-indigo-950/80'
-                            : 'bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 hover:bg-slate-850'
+                            ? 'bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-950/60'
+                            : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-850'
                         }`}
                       >
                         <div className="flex items-center flex-wrap gap-2.5">
                           <span
-                            className={`px-3 py-1 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-xs ${
-                              isCurrent ? 'bg-indigo-600' : 'bg-slate-700'
+                            className={`px-3 py-1 text-xs font-black uppercase tracking-wider rounded-xl shadow-xs ${
+                              isCurrent
+                                ? 'bg-indigo-600 text-white dark:bg-indigo-600 dark:text-white'
+                                : 'bg-slate-700 text-white dark:bg-slate-700 dark:text-white'
                             }`}
                           >
                             {getWeekName(weekKey)}

@@ -352,7 +352,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
             <button
               type="button"
               onClick={() => setIsUploadOpen(true)}
-              className="mt-3 px-4 py-2 rounded-lg bg-emerald-500 text-slate-950 text-xs font-black"
+              className="mt-3 px-4 py-2 rounded-lg bg-emerald-500 text-slate-950 dark:bg-emerald-500 dark:text-slate-950 text-xs font-black"
             >
               Upload CSV or Excel
             </button>

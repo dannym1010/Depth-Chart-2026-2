@@ -332,7 +332,7 @@ export const CallSheetCellView: React.FC<CallSheetCellViewProps> = ({
               <span>Paste {clipboardPlay.name}</span>
             </button>
           ) : (
-            <span className="text-[10px] text-indigo-500/80 dark:text-indigo-400/80 font-bold print:hidden">
+            <span className="text-[10px] text-indigo-700 dark:text-indigo-400/80 font-bold print:hidden">
               + Pick Play
             </span>
           )}

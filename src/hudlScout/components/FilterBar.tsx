@@ -123,30 +123,6 @@ export const FilterBar: React.FC<FilterBarProps> = ({
           </div>
         </div>
 
-        {/* Rule explanation badge */}
-        <div className="hidden md:flex items-center gap-2">
-          {filters.odk === 'O' && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-950/40 border border-emerald-500/30 text-[11px] text-emerald-300 font-medium">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              <span>
-                Hudl Rule Active: Only <strong>{shortTeam} Offense (ODK = O)</strong> is used for this report.
-              </span>
-            </div>
-          )}
-          {filters.odk === 'D' && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-sky-950/40 border border-sky-500/30 text-[11px] text-sky-300 font-medium">
-              <CheckCircle2 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-              <span>
-                Hudl Rule Active: Only <strong>{shortTeam} Defense (ODK = D)</strong> is analyzed for defensive keys.
-              </span>
-            </div>
-          )}
-          {filters.odk === 'ALL' && (
-            <div className="text-[11px] text-slate-400 font-mono">
-              Unfiltered (O, D, K, S)
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Secondary Situational Filters (Down, Dist, Hash, Zone, Play Type) */}

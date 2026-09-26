@@ -1306,8 +1306,8 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
               onClick={() => setIsPlanLibraryOpen(true)}
               className={`min-w-0 flex-1 sm:flex-initial px-3.5 py-2 border rounded-2xl text-xs font-bold flex items-center gap-2.5 shadow-md transition-all active:scale-98 group cursor-pointer ${
                 currentPlan?.isCancelled
-                  ? 'bg-gradient-to-r from-rose-950/80 to-slate-900 border-rose-500/50 text-rose-100'
-                  : 'bg-gradient-to-r from-slate-900 to-slate-850 hover:from-slate-800 hover:to-slate-750 border-slate-700/90 hover:border-indigo-500/60 text-slate-100'
+                  ? 'bg-rose-50 dark:bg-rose-950/30 border-rose-500/50 text-rose-800 dark:text-rose-100'
+                  : 'bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-700/90 hover:border-indigo-500/60 text-slate-900 dark:text-slate-100'
               }`}
               title="Click to open Practice Plan Library & Folder Hub"
             >
@@ -1691,7 +1691,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
               <button
                 type="button"
                 onClick={handleToggleNonPractice}
-                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-black text-xs rounded-xl shadow-md flex items-center gap-1 shrink-0 cursor-pointer"
+                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 dark:bg-amber-500 dark:hover:bg-amber-400 dark:text-slate-950 font-black text-xs rounded-xl shadow-md flex items-center gap-1 shrink-0 cursor-pointer"
               >
                 <Check className="w-3.5 h-3.5" />
                 <span>Count as Practice</span>
@@ -2198,7 +2198,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
               
               {/* Highlighted Spotlight: Most Recently Edited Practice */}
               {latestEditedPlan && (
-                <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-950/40 via-slate-900 to-indigo-950/40 border border-amber-500/30 shadow-md flex flex-wrap items-center justify-between gap-3">
+                <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-500/30 shadow-md flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 shrink-0">
                       <Sparkles className="w-4 h-4" />
@@ -2860,7 +2860,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
             )}
 
             {/* Live Sideline Whistle Stopwatch / Countdown Timer */}
-            <div className="bg-gradient-to-br from-slate-950 to-slate-900 rounded-3xl border border-slate-800 p-4 sm:p-5 space-y-3.5 shadow-2xl">
+            <div className="bg-white dark:bg-slate-950 rounded-3xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 space-y-3.5 shadow-2xl">
               {/* Transition / Station Rotation Break Banner */}
               {isTransitionBreak && (
                 <div className="bg-gradient-to-r from-amber-500/20 via-amber-400/15 to-amber-500/20 border border-amber-500/60 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3 animate-pulse shadow-lg">
@@ -3323,7 +3323,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
                             <button
                               type="button"
                               onClick={() => onUpdatePeriodTime(pIdx, Math.max(1, pDuration - 5))}
-                              className="px-2 py-0.5 text-xs font-black text-rose-400 hover:bg-rose-950/50 rounded-lg transition-all active:scale-95"
+                              className="px-2.5 py-2 sm:px-2 sm:py-0.5 text-xs font-black text-rose-400 hover:bg-rose-950/50 rounded-lg transition-all active:scale-95"
                               title="Decrease period by 5 minutes"
                             >
                               -5m
@@ -3332,7 +3332,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
                             <button
                               type="button"
                               onClick={() => onUpdatePeriodTime(pIdx, pDuration + 5)}
-                              className="px-2 py-0.5 text-xs font-black text-emerald-400 hover:bg-emerald-950/50 rounded-lg transition-all active:scale-95"
+                              className="px-2.5 py-2 sm:px-2 sm:py-0.5 text-xs font-black text-emerald-400 hover:bg-emerald-950/50 rounded-lg transition-all active:scale-95"
                               title="Increase period by 5 minutes"
                             >
                               +5m

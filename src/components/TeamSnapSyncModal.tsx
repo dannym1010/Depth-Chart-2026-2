@@ -529,7 +529,7 @@ export const TeamSnapSyncModal: React.FC<TeamSnapSyncModalProps> = ({
       <div className="bg-slate-900 border border-slate-700/80 rounded-3xl max-w-4xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-200">
         
         {/* Header */}
-        <div className="p-5 md:p-6 bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border-b border-slate-800 flex items-center justify-between">
+        <div className="p-5 md:p-6 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3.5">
             <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/30 ring-1 ring-white/15 shrink-0">
               <RefreshCw className="w-6 h-6 text-white" />

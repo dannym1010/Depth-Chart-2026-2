@@ -23,6 +23,16 @@
   --print-font-size: 12px;
 }
 
+/* One typeface on screen. font-mono was used ~280 times, mostly so numbers line up;
+   tabular digits keep that alignment without switching to a typewriter face mid-sentence.
+   Print keeps whatever each sheet asks for. */
+@media screen {
+  .font-mono:not(pre):not(code):not(textarea) {
+    font-family: inherit;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
 /* Surface ramp for the light theme. Everything sits a step below pure white so
    large panels stop glaring; the tokens keep the whole ramp in one place.
    Print rules below deliberately keep their own #ffffff — paper is white. */
@@ -93,7 +103,8 @@ body.theme-light {
 .theme-light [class*="bg-slate-850/"]:not([class*="dark:"]):not(button):not([class*="from-"]):not([class*="to-"]):not([class*="ring-"]),
 .theme-light [class*="bg-slate-800/"]:not([class*="dark:"]):not(button):not([class*="from-"]):not([class*="to-"]):not([class*="ring-"]),
 .theme-light [class*="bg-zinc-900/"]:not([class*="dark:"]):not(button):not([class*="from-"]):not([class*="to-"]):not([class*="ring-"]),
-.theme-light [class*="bg-zinc-800/"]:not([class*="dark:"]):not(button):not([class*="from-"]):not([class*="to-"]):not([class*="ring-"]) {
+.theme-light [class*="bg-zinc-800/"]:not([class*="dark:"]):not(button):not([class*="from-"]):not([class*="to-"]):not([class*="ring-"]),
+.theme-light :is(.bg-slate-950\/85, .bg-slate-950\/90, .bg-slate-950\/95):not([class*="dark:"]):not(button):not(.fixed) {
   background-color: var(--surface-raised) !important;
   border-color: var(--surface-line) !important;
   color: #0f172a !important;
@@ -107,7 +118,8 @@ body.theme-light {
 .theme-light .bg-zinc-750:not([class*="dark:"]):not(button):not([data-solid-badge="true"]),
 .theme-light .bg-slate-950\/40:not([class*="dark:"]):not(button),
 .theme-light .bg-slate-950\/60:not([class*="dark:"]):not(button),
-.theme-light .bg-slate-950\/80:not([class*="dark:"]):not(button) {
+.theme-light .bg-slate-950\/80:not([class*="dark:"]):not(button),
+.theme-light :is(.bg-slate-950\/50, .bg-slate-950\/70, .bg-slate-950\/75):not([class*="dark:"]):not(button):not(.fixed) {
   background-color: var(--surface-sunken) !important;
   border-color: var(--surface-line) !important;
 }
@@ -115,7 +127,10 @@ body.theme-light {
 /* Legacy dark buttons with no dark: variant become light controls.
    Without this their label is re-coloured to ink while the button stays near-black. */
 @media screen {
-  .theme-light button:is(.bg-slate-950, .bg-slate-900, .bg-slate-850, .bg-slate-800, .bg-slate-750, .bg-slate-700, .bg-zinc-900, .bg-zinc-800, .bg-zinc-700):not([class*="dark:"]):not([data-solid-dark="true"]):not([data-solid-badge="true"]) {
+  .theme-light button:is(.bg-slate-950, .bg-slate-900, .bg-slate-850, .bg-slate-800, .bg-slate-750, .bg-slate-700, .bg-zinc-900, .bg-zinc-800, .bg-zinc-700):not([class*="dark:"]):not([data-solid-dark="true"]):not([data-solid-badge="true"]),
+  /* ...and their see-through versions (bg-slate-900/80 etc.). The leading space / ^= match the
+     class itself, not a hover:bg-... variant on an otherwise transparent button. */
+  .theme-light button:is([class^="bg-slate-950/"], [class*=" bg-slate-950/"], [class^="bg-slate-900/"], [class*=" bg-slate-900/"], [class^="bg-slate-850/"], [class*=" bg-slate-850/"], [class^="bg-slate-800/"], [class*=" bg-slate-800/"]):not([class*="dark:"]):not([data-solid-dark="true"]):not([data-solid-badge="true"]) {
     background-color: var(--surface-sunken) !important;
     border-color: var(--surface-line-strong) !important;
     color: #0f172a !important;
@@ -520,7 +535,7 @@ body.theme-light {
 /* 7d. Pale accent labels stay pale when their panel is still dark (see 2c) */
 @media screen {
   .theme-light :is(
-    .bg-black, [class*="bg-black/"], [data-solid-dark="true"], [data-solid-badge="true"],
+    .bg-black, [class*="bg-black/"]:not(.fixed), [data-solid-dark="true"], [data-solid-badge="true"],
     [data-row-text-white="true"], .has-dark-row-highlight, [style*="background"],
     [class*="bg-gradient-to"]:not([class*="from-white"]):not([class*="from-slate-50"]):not([class*="from-slate-100"]),
     .bg-indigo-600, .bg-indigo-700, .bg-indigo-800, .bg-indigo-900, .bg-indigo-950,
@@ -729,13 +744,15 @@ body.theme-light {
     .bg-zinc-50, .bg-zinc-100, .bg-gray-50, .bg-gray-100, .bg-neutral-50, .bg-neutral-100,
     .bg-amber-300, .bg-amber-400, .bg-yellow-300, .bg-yellow-400, .bg-lime-300, .bg-lime-400,
     .bg-cyan-400, .bg-sky-300, .bg-emerald-400, .bg-green-400,
+    .bg-emerald-500, .bg-amber-500, .bg-lime-500, .bg-yellow-500, .bg-orange-400, .bg-orange-500,
     .badge-text-black, [data-solid-light="true"], .print-page
-  ):not([class*="dark:bg-"]):not(body):not(html):not(#root):not(main) :is(.text-white, [class*="text-white/"], .text-slate-50, .text-slate-100, .text-slate-200, .text-black, .text-slate-900, .text-slate-800, .text-slate-700, .text-gray-900, .text-gray-800, .text-zinc-900),
+  ):not([class*="dark:bg-"]):not(body):not(html):not(#root):not(main) :is(.text-white, [class*="text-white/"], .text-slate-50, .text-slate-100, .text-slate-200, .text-black, .text-slate-950, .text-slate-900, .text-slate-800, .text-slate-700, .text-slate-600, .text-gray-900, .text-gray-800, .text-zinc-900, .text-zinc-800),
   .theme-dark :is(
     .bg-white, [class*="bg-white/"], .bg-slate-50, .bg-slate-100, .bg-slate-200,
     .bg-zinc-50, .bg-zinc-100, .bg-gray-50, .bg-gray-100, .bg-neutral-50, .bg-neutral-100,
     .bg-amber-300, .bg-amber-400, .bg-yellow-300, .bg-yellow-400, .bg-lime-300, .bg-lime-400,
     .bg-cyan-400, .bg-sky-300, .bg-emerald-400, .bg-green-400,
+    .bg-emerald-500, .bg-amber-500, .bg-lime-500, .bg-yellow-500, .bg-orange-400, .bg-orange-500,
     .badge-text-black, [data-solid-light="true"], .print-page
   ):not([class*="dark:bg-"]):not(body):not(html):not(#root):not(main):is(.text-white, [class*="text-white/"], .text-slate-50, .text-slate-100, .text-slate-200, .text-black, .text-slate-950, .text-slate-900, .text-slate-800, .text-slate-700, .text-gray-900, .text-gray-800, .text-zinc-900, .text-zinc-800) {
     color: #0f172a !important;
@@ -748,12 +765,14 @@ body.theme-light {
   /* Dark chrome nested inside a light card (play-sheet headers, navy toolbars)
      must keep light labels. The rules above paint every descendant of .bg-white
      as ink, which made titles like "4-4 BASE STACK LIZ" unreadable. */
-  html.theme-dark.dark #root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-850, .bg-zinc-900, .bg-zinc-950, .bg-black, [class*="bg-slate-900"], [class*="bg-slate-800"]) :is(.text-white, [class*="text-white/"], .text-slate-50, .text-slate-100, .text-slate-200, .text-slate-300, .text-slate-400),
-  html.theme-dark.dark #root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-850, .bg-zinc-900, .bg-zinc-950, .bg-black):is(.text-white, [class*="text-white/"], .text-slate-50, .text-slate-100, .text-slate-200) {
+  html.theme-dark.dark #root#root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-850, .bg-zinc-900, .bg-zinc-950, .bg-black, [class*="bg-slate-900"], [class*="bg-slate-800"]) > :is(.text-white, [class*="text-white/"], .text-slate-50, .text-slate-100, .text-slate-200, .text-slate-300, .text-slate-400),
+  html.theme-dark.dark #root#root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-850, .bg-zinc-900, .bg-zinc-950, .bg-black, [class*="bg-slate-900"], [class*="bg-slate-800"]) > :not(:is(.bg-white, [class*="bg-white/"], .bg-slate-50, .bg-slate-100, .bg-slate-200, .bg-amber-300, .bg-amber-400, .bg-yellow-300, .bg-yellow-400)) > :is(.text-white, [class*="text-white/"], .text-slate-50, .text-slate-100, .text-slate-200, .text-slate-300, .text-slate-400),
+  html.theme-dark.dark #root#root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-850, .bg-zinc-900, .bg-zinc-950, .bg-black, [class*="bg-slate-900"], [class*="bg-slate-800"]):is(.text-white, [class*="text-white/"], .text-slate-50, .text-slate-100, .text-slate-200) {
     color: #f1f5f9 !important;
   }
 
-  html.theme-dark.dark #root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-zinc-900, .bg-black) :is(.text-amber-300, .text-amber-400, .text-amber-200) {
+  html.theme-dark.dark #root#root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-850, .bg-zinc-900, .bg-zinc-950, .bg-black, [class*="bg-slate-900"], [class*="bg-slate-800"]) > :is(.text-amber-300, .text-amber-400, .text-amber-200),
+  html.theme-dark.dark #root#root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-850, .bg-zinc-900, .bg-zinc-950, .bg-black, [class*="bg-slate-900"], [class*="bg-slate-800"]) > :not(:is(.bg-white, [class*="bg-white/"], .bg-slate-50, .bg-slate-100, .bg-slate-200, .bg-amber-300, .bg-amber-400, .bg-yellow-300, .bg-yellow-400)) > :is(.text-amber-300, .text-amber-400, .text-amber-200) {
     color: #fbbf24 !important;
   }
 

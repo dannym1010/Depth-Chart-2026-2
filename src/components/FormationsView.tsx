@@ -1794,12 +1794,12 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
               key={form.id}
               data-form-id={form.id}
               onClick={() => onSelectFormation(form.id)}
-              className={`formation-container bg-slate-800/90 backdrop-blur-md rounded-3xl border transition-all p-5 relative shadow-xl print:block print:w-full print:clear-both print:break-after-page [&:last-child]:print:break-after-auto ${
+              className={`formation-container bg-white dark:bg-slate-800/90 backdrop-blur-md rounded-3xl border transition-all p-5 relative shadow-xl print:block print:w-full print:clear-both print:break-after-page [&:last-child]:print:break-after-auto ${
                 !isFilterMatch ? 'hidden print:block' : ''
               } ${
                 isSelected
                   ? 'border-indigo-500/80 shadow-indigo-500/20 ring-2 ring-indigo-500/30'
-                  : 'border-slate-700/80 hover:border-slate-600'
+                  : 'border-slate-200 hover:border-slate-300 dark:border-slate-700/80 dark:hover:border-slate-600'
               }`}
             >
               {/* Formation Card Header */}
@@ -2261,7 +2261,7 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
                                             <span
                                               className={`text-[8.5px] print:text-[8.5px] font-black uppercase px-1 py-0.2 rounded-md shrink-0 ${
                                                 isStarter
-                                                  ? 'bg-zinc-800 text-white border border-zinc-700 print-tag-st'
+                                                  ? 'bg-zinc-800 text-white border border-zinc-700 dark:bg-zinc-800 dark:text-white dark:border-zinc-700 print-tag-st'
                                                   : isD2
                                                   ? 'bg-black/20 text-black print-tag-d2'
                                                   : isD3

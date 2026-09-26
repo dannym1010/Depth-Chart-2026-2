@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 
 export interface MoreMenuItem {
@@ -38,7 +38,21 @@ export const MoreMenu: React.FC<MoreMenuProps> = ({
 }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  // Which edge the menu hangs from; flips when the preferred side would run off-screen (phones).
+  const [side, setSide] = useState(align);
   const visible = items.filter((item) => !item.hidden);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setSide(align);
+      return;
+    }
+    const rect = menuRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    if (rect.left < 8 && side === 'right') setSide('left');
+    else if (rect.right > window.innerWidth - 8 && side === 'left') setSide('right');
+  }, [open, side, align]);
 
   useEffect(() => {
     if (!open) return;
@@ -76,8 +90,9 @@ export const MoreMenu: React.FC<MoreMenuProps> = ({
       </button>
       {open && (
         <div
+          ref={menuRef}
           role="menu"
-          className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1.5 w-60 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-2xl shadow-2xl p-1.5 z-50`}
+          className={`absolute ${side === 'right' ? 'right-0' : 'left-0'} top-full mt-1.5 w-60 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-2xl shadow-2xl p-1.5 z-50`}
         >
           {visible.map((item, i) => (
             <React.Fragment key={`${item.label}-${i}`}>

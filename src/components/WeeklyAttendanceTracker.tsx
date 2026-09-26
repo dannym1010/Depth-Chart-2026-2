@@ -1152,7 +1152,7 @@ export const WeeklyAttendanceTracker: React.FC<WeeklyAttendanceTrackerProps> = (
                 </button>
               </div>
 
-              <div className="text-xs text-amber-400/90 font-mono font-bold mt-1.5 flex items-center gap-1.5">
+              <div className="text-xs text-amber-700 dark:text-amber-400/90 font-mono font-bold mt-1.5 flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                 <span>{weekDateRangeLabel}</span>
                 <span className="text-[10px] text-slate-400 font-normal">• Week starts Monday</span>
@@ -1233,7 +1233,7 @@ export const WeeklyAttendanceTracker: React.FC<WeeklyAttendanceTrackerProps> = (
 
         {/* Acclimatization Rule Guide Banner if in Pre-Season */}
         {isPreSeason ? (
-          <div className="p-3.5 bg-gradient-to-r from-amber-950/40 via-slate-950 to-slate-950 border border-amber-500/30 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+          <div className="p-3.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-500/30 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
             <div className="flex items-start gap-3">
               <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 shrink-0 mt-0.5">
                 <Zap className="w-4 h-4" />
@@ -1261,7 +1261,7 @@ export const WeeklyAttendanceTracker: React.FC<WeeklyAttendanceTrackerProps> = (
             </div>
           </div>
         ) : (
-          <div className="p-3 bg-gradient-to-r from-indigo-950/40 via-slate-950 to-slate-950 border border-indigo-500/30 rounded-2xl flex items-start gap-3">
+          <div className="p-3 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-500/30 rounded-2xl flex items-start gap-3">
             <div className="w-8 h-8 rounded-xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-300 shrink-0 mt-0.5">
               <Shield className="w-4 h-4" />
             </div>
@@ -1566,7 +1566,7 @@ export const WeeklyAttendanceTracker: React.FC<WeeklyAttendanceTrackerProps> = (
                               <button
                                 type="button"
                                 onClick={() => handleCheckAllForSession(session)}
-                                className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 border border-emerald-500/30 font-bold text-[9px]"
+                                className="px-2 py-1.5 sm:px-1.5 sm:py-0.5 rounded bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 border border-emerald-500/30 font-bold text-[9px]"
                                 title="Check All Present (preserves conditioning/pads logic)"
                               >
                                 ✓ All
@@ -1576,7 +1576,7 @@ export const WeeklyAttendanceTracker: React.FC<WeeklyAttendanceTrackerProps> = (
                                   <button
                                     type="button"
                                     onClick={() => handleSetSessionAttireForAll(session, 'conditioning')}
-                                    className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 border border-amber-500/30 font-bold text-[9px]"
+                                    className="px-2 py-1.5 sm:px-1.5 sm:py-0.5 rounded bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 border border-amber-500/30 font-bold text-[9px]"
                                     title="Set all present players to Conditioning attire"
                                   >
                                     ⚡ All
@@ -1584,7 +1584,7 @@ export const WeeklyAttendanceTracker: React.FC<WeeklyAttendanceTrackerProps> = (
                                   <button
                                     type="button"
                                     onClick={() => handleSetSessionAttireForAll(session, 'padded')}
-                                    className="px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-300 hover:bg-sky-500/20 border border-sky-500/30 font-bold text-[9px]"
+                                    className="px-2 py-1.5 sm:px-1.5 sm:py-0.5 rounded bg-sky-500/10 text-sky-300 hover:bg-sky-500/20 border border-sky-500/30 font-bold text-[9px]"
                                     title="Set all present players to Padded Contact attire"
                                   >
                                     🛡️ All
@@ -1594,7 +1594,7 @@ export const WeeklyAttendanceTracker: React.FC<WeeklyAttendanceTrackerProps> = (
                               <button
                                 type="button"
                                 onClick={() => handleClearAllForSession(session)}
-                                className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 font-bold text-[9px]"
+                                className="px-2 py-1.5 sm:px-1.5 sm:py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 font-bold text-[9px]"
                                 title="Clear All"
                               >
                                 Clear
@@ -1602,7 +1602,7 @@ export const WeeklyAttendanceTracker: React.FC<WeeklyAttendanceTrackerProps> = (
                               <button
                                 type="button"
                                 onClick={() => handleDeleteSession(session)}
-                                className="px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/30 font-bold text-[9px] flex items-center gap-0.5"
+                                className="px-2 py-1.5 sm:px-1.5 sm:py-0.5 rounded bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/30 font-bold text-[9px] flex items-center gap-0.5"
                                 title={`Delete practice "${session.title}" from schedule and attendance tracker`}
                               >
                                 <Trash2 className="w-2.5 h-2.5" />

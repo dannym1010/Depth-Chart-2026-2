@@ -5897,7 +5897,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
               (activeUnit === 'depth_chart' && ['offense', 'defense', 'st', 'groups'].includes(depthSubUnit))) && (
               <>
                 {depthChartCopyCandidate && (
-                  <div className="mb-4 p-4 rounded-2xl bg-gradient-to-r from-indigo-950 via-slate-900 to-indigo-950 border border-indigo-500/50 shadow-xl flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div className="mb-4 p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-500/50 shadow-xl flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-xl bg-indigo-600/30 border border-indigo-400/40 flex items-center justify-center shrink-0">
                         <Copy className="w-5 h-5 text-indigo-300" />

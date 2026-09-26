@@ -1,6 +1,7 @@
 import React from 'react';
 import { Upload, Printer, Shield, Plus, X } from 'lucide-react';
 import { SampleDataset } from '../data/sampleDatasets';
+import { MoreMenu } from '../../components/common/MoreMenu';
 
 export type ScoutTarget = 'opponent' | 'own';
 
@@ -55,12 +56,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
-                HudlScout
-                <span className="text-xs font-mono font-medium px-2 py-0.5 rounded bg-slate-800 text-emerald-400 border border-slate-700">
-                  {scoutTarget === 'own' ? 'OUR TEAM' : 'OPPONENT'}
-                </span>
-              </h1>
+              <h1 className="text-lg font-bold text-white tracking-tight">HudlScout</h1>
             </div>
             <div className="flex items-center gap-2 text-xs text-slate-400">
               <span className="font-medium text-slate-200">{datasetName}</span>
@@ -75,12 +71,12 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
             {scoutTarget === 'opponent' && (
               <p className="text-[10px] text-slate-500 mt-0.5">
-                Opponent film follows the weekly schedule{weekLabel ? ` (${weekLabel})` : ''}. Change the week in the header to scout a different team.
+                Follows the schedule week{weekLabel ? ` (${weekLabel})` : ''}. Change the week at the top to scout another team.
               </p>
             )}
             {scoutTarget === 'own' && (
               <p className="text-[10px] text-slate-500 mt-0.5">
-                Our-team film is season-wide. Open one game or All games.
+                Season-wide. Pick one game or All games.
               </p>
             )}
           </div>
@@ -111,24 +107,17 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden sm:inline">{totalPlays > 0 ? 'Add game' : 'Upload CSV / Excel'}</span>
             <span className="sm:hidden">{totalPlays > 0 ? 'Add' : 'Upload'}</span>
           </button>
-          {games.length > 0 && (
-            <button
-              type="button"
-              onClick={onClearUploads}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-200 bg-slate-900 hover:bg-rose-950 border border-rose-800/80 rounded-md transition-colors"
-            >
-              <span className="hidden sm:inline">Remove uploads</span>
-              <span className="sm:hidden">Clear</span>
-            </button>
-          )}
           <button
             onClick={onOpenCallSheet}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-200 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-md transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-200 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-md transition-colors"
             title="Open printable Sideline Call Sheet"
           >
             <Printer className="w-3.5 h-3.5 text-amber-400" />
             <span>Call Sheet</span>
           </button>
+          <MoreMenu
+            items={[{ label: 'Remove uploads', onClick: onClearUploads, danger: true, hidden: games.length === 0 }]}
+          />
         </div>
       </div>
 
@@ -148,7 +137,7 @@ export const Header: React.FC<HeaderProps> = ({
           {games.map((g) => (
             <span
               key={g.id}
-              className={`inline-flex items-center gap-1 text-[10px] font-mono pl-2 pr-1 py-0.5 rounded-full border ${
+              className={`inline-flex items-center gap-1 text-[10px] font-semibold pl-2 pr-1 py-0.5 rounded-full border ${
                 selectedGameId === g.id
                   ? 'bg-sky-500 text-slate-950 border-sky-300'
                   : 'bg-slate-900 border-slate-700 text-slate-300'

@@ -394,7 +394,7 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
                       }}
                       className={`w-full text-left p-3 rounded-2xl border transition-all flex items-center justify-between gap-3 active:scale-[0.99] cursor-pointer ${
                         active
-                          ? 'bg-gradient-to-r from-indigo-900/70 to-indigo-850/60 border-indigo-400 shadow-md shadow-indigo-950/50 ring-1 ring-indigo-400/40'
+                          ? 'bg-indigo-100 dark:bg-indigo-900/70 border-indigo-400 shadow-md shadow-slate-900/10 dark:shadow-indigo-950/50 ring-1 ring-indigo-400/40'
                           : 'bg-slate-900/70 hover:bg-slate-850 border-slate-800/80 text-slate-300'
                       }`}
                     >

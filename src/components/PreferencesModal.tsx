@@ -271,20 +271,17 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
         {/* Modal Header */}
         <div className="p-5 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/95">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-inner">
+            <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shadow-inner">
               <Sliders className="w-5 h-5" />
             </div>
             <div>
               <h3 className="font-black text-zinc-100 text-base flex items-center gap-2">
                 <span>Coach Settings &amp; Sideline Tools</span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  Carbon &amp; Gold
-                </span>
               </h3>
               <p className="text-xs text-zinc-400 font-medium">
                 {currentUserEmail ? (
                   <span>
-                    Saving preferences for <strong className="text-amber-400 font-bold">{currentUserEmail}</strong>
+                    Saving preferences for <strong className="text-indigo-400 font-bold">{currentUserEmail}</strong>
                   </span>
                 ) : (
                   <span>Manage startup defaults, season calendar, visual schemes, and data backups</span>
@@ -306,40 +303,40 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
             onClick={() => setActiveTab('screen')}
             className={`px-3.5 py-2 rounded-t-xl text-xs font-black tracking-tight border-b-2 flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'screen'
-                ? 'border-amber-400 text-amber-300 bg-zinc-850 shadow-xs'
+                ? 'border-indigo-500 text-indigo-700 bg-indigo-50 dark:border-indigo-400 dark:text-indigo-300 dark:bg-zinc-850 shadow-xs'
                 : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40'
             }`}
           >
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
             <span>Default Screen</span>
           </button>
           <button
             onClick={() => setActiveTab('team')}
             className={`px-3.5 py-2 rounded-t-xl text-xs font-black tracking-tight border-b-2 flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'team'
-                ? 'border-amber-400 text-amber-300 bg-zinc-850 shadow-xs'
+                ? 'border-indigo-500 text-indigo-700 bg-indigo-50 dark:border-indigo-400 dark:text-indigo-300 dark:bg-zinc-850 shadow-xs'
                 : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40'
             }`}
           >
-            <Users className="w-3.5 h-3.5 text-amber-400" />
+            <Users className="w-3.5 h-3.5 text-indigo-400" />
             <span>Default Team</span>
           </button>
           <button
             onClick={() => setActiveTab('tools')}
             className={`px-3.5 py-2 rounded-t-xl text-xs font-black tracking-tight border-b-2 flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'tools'
-                ? 'border-amber-400 text-amber-300 bg-zinc-850 shadow-xs'
+                ? 'border-indigo-500 text-indigo-700 bg-indigo-50 dark:border-indigo-400 dark:text-indigo-300 dark:bg-zinc-850 shadow-xs'
                 : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40'
             }`}
           >
-            <Settings className="w-3.5 h-3.5 text-amber-400" />
+            <Settings className="w-3.5 h-3.5 text-indigo-400" />
             <span>Season &amp; Themes</span>
           </button>
           <button
             onClick={() => setActiveTab('data')}
             className={`px-3.5 py-2 rounded-t-xl text-xs font-black tracking-tight border-b-2 flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'data'
-                ? 'border-amber-400 text-amber-300 bg-zinc-850 shadow-xs'
+                ? 'border-indigo-500 text-indigo-700 bg-indigo-50 dark:border-indigo-400 dark:text-indigo-300 dark:bg-zinc-850 shadow-xs'
                 : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40'
             }`}
           >
@@ -350,8 +347,8 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
 
         {/* Toast Alert Banner */}
         {toastMessage && (
-          <div className="mx-5 mt-4 p-3 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
-            <Check className="w-4 h-4 text-amber-400 shrink-0" />
+          <div className="mx-5 mt-4 p-3 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 text-xs font-bold flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
+            <Check className="w-4 h-4 text-indigo-400 shrink-0" />
             <span>{toastMessage}</span>
           </div>
         )}
@@ -370,7 +367,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                     The chosen screen loads immediately when you open or refresh the app.
                   </p>
                 </div>
-                <span className="px-2.5 py-1 rounded-xl bg-amber-400/20 text-amber-300 border border-amber-400/40 text-xs font-mono font-bold capitalize">
+                <span className="px-2.5 py-1 rounded-xl bg-indigo-400/20 text-indigo-300 border border-indigo-400/40 text-xs font-mono font-bold capitalize">
                   {defaultScreen === 'depth_chart' ? defaultDepthSubUnit || 'Offense' : defaultScreen}
                 </span>
               </div>
@@ -386,7 +383,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                       onClick={() => handleSelectDefaultScreen(opt.id, opt.subUnit)}
                       className={`p-3.5 rounded-2xl border transition-all cursor-pointer select-none flex flex-col justify-between gap-2.5 ${
                         isDefault
-                          ? 'bg-amber-950/30 border-amber-400 shadow-md shadow-amber-950/40 ring-1 ring-amber-400/50'
+                          ? 'bg-indigo-950/30 border-indigo-400 shadow-md shadow-indigo-950/40 ring-1 ring-indigo-400/50'
                           : 'bg-zinc-900/80 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-850'
                       }`}
                     >
@@ -395,7 +392,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                           <div
                             className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
                               isDefault
-                                ? 'bg-gradient-to-br from-amber-400 to-yellow-500 text-zinc-950 shadow-md font-black'
+                                ? 'bg-gradient-to-br from-indigo-400 to-yellow-500 text-zinc-950 shadow-md font-black'
                                 : 'bg-zinc-800 text-zinc-300'
                             }`}
                           >
@@ -410,14 +407,14 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                                 </span>
                               )}
                             </div>
-                            <span className="text-[10px] font-bold text-amber-400/90 uppercase tracking-tight">
+                            <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-400/90 uppercase tracking-tight">
                               {opt.category}
                             </span>
                           </div>
                         </div>
 
                         {isDefault && (
-                          <span className="flex items-center gap-1 text-[10px] font-black text-zinc-950 bg-amber-400 px-2 py-0.5 rounded-full shadow-xs shrink-0">
+                          <span className="flex items-center gap-1 text-[10px] font-black text-zinc-950 bg-indigo-400 px-2 py-0.5 rounded-full shadow-xs shrink-0">
                             <Star className="w-2.5 h-2.5 fill-zinc-950" />
                             <span>Active Default</span>
                           </span>
@@ -453,7 +450,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                       onClose();
                       onOpenManageTeams();
                     }}
-                    className="px-3 py-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold flex items-center gap-1.5 hover:bg-amber-500/30 transition-all cursor-pointer"
+                    className="px-3 py-1.5 bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 rounded-xl text-xs font-bold flex items-center gap-1.5 hover:bg-indigo-500/30 transition-all cursor-pointer"
                   >
                     <Users className="w-3.5 h-3.5" />
                     <span>Manage Teams</span>
@@ -472,7 +469,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                       onClick={() => handleSelectDefaultTeam(t.id)}
                       className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
                         isDefault
-                          ? 'bg-amber-950/30 border-amber-400 shadow-md ring-1 ring-amber-400/50'
+                          ? 'bg-indigo-950/30 border-indigo-400 shadow-md ring-1 ring-indigo-400/50'
                           : 'bg-zinc-900/80 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-850'
                       }`}
                     >
@@ -480,7 +477,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                         <div
                           className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm shrink-0 border ${
                             isDefault
-                              ? 'bg-amber-400 text-zinc-950 border-amber-300 shadow-md'
+                              ? 'bg-indigo-400 text-zinc-950 border-indigo-300 shadow-md'
                               : 'bg-zinc-800 text-zinc-300 border-zinc-700'
                           }`}
                         >
@@ -513,7 +510,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
 
                       <div className="flex items-center gap-2 shrink-0">
                         {isDefault ? (
-                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-400 text-zinc-950 font-black text-xs shadow-xs">
+                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-400 text-zinc-950 font-black text-xs shadow-xs">
                             <Star className="w-3.5 h-3.5 fill-zinc-950" />
                             <span>Default Team</span>
                           </div>
@@ -545,7 +542,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
                     <h4 className="text-xs font-black text-zinc-100 flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-amber-400" />
+                      <Sparkles className="w-4 h-4 text-indigo-400" />
                       <span>Display Theme &amp; Atmosphere (Light vs. Dark)</span>
                     </h4>
                     <p className="text-[11px] text-zinc-400 mt-0.5">
@@ -609,14 +606,14 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                     }}
                     className={`p-3.5 rounded-2xl border text-left flex items-start gap-3 transition-all cursor-pointer active:scale-98 ${
                       themeMode === 'light'
-                        ? 'bg-amber-500/10 border-amber-500 ring-2 ring-amber-500/30 shadow-lg'
+                        ? 'bg-indigo-500/10 border-indigo-500 ring-2 ring-indigo-500/30 shadow-lg'
                         : 'bg-zinc-900/60 hover:bg-zinc-900 border-zinc-800 text-zinc-400'
                     }`}
                   >
                     <div
                       className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
                         themeMode === 'light'
-                          ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                          ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/40'
                           : 'bg-zinc-800 text-zinc-400'
                       }`}
                     >
@@ -626,7 +623,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-black text-zinc-100">Light Mode (Daylight Field)</span>
                         {themeMode === 'light' && (
-                          <span className="text-[10px] font-black text-amber-400 flex items-center gap-1">
+                          <span className="text-[10px] font-black text-indigo-400 flex items-center gap-1">
                             <Check className="w-3.5 h-3.5" />
                             <span>Active</span>
                           </span>
@@ -721,14 +718,14 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                       onClose();
                       onOpenSeasonConfigModal();
                     }}
-                    className="p-4 rounded-2xl bg-zinc-900/90 border border-zinc-800 hover:border-amber-500/50 hover:bg-zinc-850 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
+                    className="p-4 rounded-2xl bg-zinc-900/90 border border-zinc-800 hover:border-indigo-500/50 hover:bg-zinc-850 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                      <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-500/40 text-indigo-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                         <Calendar className="w-5 h-5" />
                       </div>
                       <div>
-                        <h4 className="text-xs font-black text-zinc-100 group-hover:text-amber-300 transition-colors">
+                        <h4 className="text-xs font-black text-zinc-100 group-hover:text-indigo-300 transition-colors">
                           Configure Season &amp; Weeks
                         </h4>
                         <p className="text-[11px] text-zinc-400">
@@ -736,7 +733,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                         </p>
                       </div>
                     </div>
-                    <span className="text-[11px] font-bold text-amber-400 flex items-center gap-1 self-end">
+                    <span className="text-[11px] font-bold text-indigo-400 flex items-center gap-1 self-end">
                       <span>Open Calendar Setup</span>
                       <Sparkles className="w-3.5 h-3.5" />
                     </span>
@@ -750,14 +747,14 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                       onClose();
                       onOpenThemeGallery();
                     }}
-                    className="p-4 rounded-2xl bg-zinc-900/90 border border-zinc-800 hover:border-amber-500/50 hover:bg-zinc-850 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
+                    className="p-4 rounded-2xl bg-zinc-900/90 border border-zinc-800 hover:border-indigo-500/50 hover:bg-zinc-850 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                      <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-500/40 text-indigo-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                         <Sparkles className="w-5 h-5" />
                       </div>
                       <div>
-                        <h4 className="text-xs font-black text-zinc-100 group-hover:text-amber-300 transition-colors">
+                        <h4 className="text-xs font-black text-zinc-100 group-hover:text-indigo-300 transition-colors">
                           Sideline Visual Themes
                         </h4>
                         <p className="text-[11px] text-zinc-400">
@@ -765,7 +762,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                         </p>
                       </div>
                     </div>
-                    <span className="text-[11px] font-bold text-amber-400 flex items-center gap-1 self-end">
+                    <span className="text-[11px] font-bold text-indigo-400 flex items-center gap-1 self-end">
                       <span>Theme Showcase</span>
                       <Sparkles className="w-3.5 h-3.5" />
                     </span>
@@ -779,7 +776,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                       onClose();
                       onOpenCopyWeekModal();
                     }}
-                    className="p-4 rounded-2xl bg-zinc-900/90 border border-zinc-800 hover:border-amber-500/50 hover:bg-zinc-850 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
+                    className="p-4 rounded-2xl bg-zinc-900/90 border border-zinc-800 hover:border-indigo-500/50 hover:bg-zinc-850 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
@@ -808,7 +805,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                       onClose();
                       onOpenManageTeams();
                     }}
-                    className="p-4 rounded-2xl bg-zinc-900/90 border border-zinc-800 hover:border-amber-500/50 hover:bg-zinc-850 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
+                    className="p-4 rounded-2xl bg-zinc-900/90 border border-zinc-800 hover:border-indigo-500/50 hover:bg-zinc-850 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
@@ -886,7 +883,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
               {/* Offline Backup & File Archive */}
               <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 space-y-3">
                 <h4 className="text-xs font-black text-zinc-100 uppercase tracking-wider flex items-center gap-2">
-                  <Download className="w-4 h-4 text-amber-400" />
+                  <Download className="w-4 h-4 text-indigo-400" />
                   <span>File Backup &amp; Offline Archive</span>
                 </h4>
                 <p className="text-xs text-zinc-400">
@@ -901,9 +898,9 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                         onExportData();
                         showToast('Backup download initiated');
                       }}
-                      className="px-4 py-2.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-bold text-xs rounded-xl flex items-center gap-2 border border-amber-500/40 hover:border-amber-400 transition-all active:scale-95 cursor-pointer shadow-sm"
+                      className="px-4 py-2.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 font-bold text-xs rounded-xl flex items-center gap-2 border border-indigo-500/40 hover:border-indigo-400 transition-all active:scale-95 cursor-pointer shadow-sm"
                     >
-                      <Download className="w-4 h-4 text-amber-400" />
+                      <Download className="w-4 h-4 text-indigo-400" />
                       <span>Download Backup (.json)</span>
                     </button>
                   ) : (

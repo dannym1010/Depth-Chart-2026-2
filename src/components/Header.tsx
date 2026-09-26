@@ -193,12 +193,12 @@ export const Header: React.FC<HeaderProps> = ({
           ========================================================================= */}
       <div className="md:hidden px-3 py-2.5 flex items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800/80">
         {/* Left: Team Selector Pill */}
-        <div className="flex items-center gap-1.5 min-w-0 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 px-2 py-1 rounded-xl shadow-inner">
+        <div className="flex items-center gap-1.5 min-w-0 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 px-2 rounded-xl shadow-inner">
           <span className="text-base select-none">🏈</span>
           <select
             value={activeTeamId || (accessibleTeams && accessibleTeams[0]?.id) || ''}
             onChange={(e) => onSelectTeam && onSelectTeam(e.target.value)}
-            className="bg-transparent font-black text-xs text-indigo-700 dark:text-indigo-400 focus:outline-none cursor-pointer truncate max-w-[130px]"
+            className="bg-transparent font-black text-xs text-indigo-700 dark:text-indigo-400 focus:outline-none cursor-pointer truncate max-w-[110px] py-2.5"
           >
             {(accessibleTeams || []).map((t) => (
               <option key={t.id} value={t.id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-bold">
@@ -209,12 +209,12 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Center: Week Selector Pill */}
-        <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 px-1.5 py-0.5 rounded-xl">
+        <div className="flex items-center bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-xl">
           <button
             type="button"
             onClick={handlePrevWeek}
             disabled={currentWeekIdx <= 0}
-            className="p-1 text-slate-400 hover:text-indigo-400 disabled:opacity-20 cursor-pointer"
+            className="p-2.5 text-slate-400 hover:text-indigo-400 disabled:opacity-20 cursor-pointer"
           >
             <ChevronLeft className="w-3.5 h-3.5" />
           </button>
@@ -225,7 +225,7 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={handleNextWeek}
             disabled={currentWeekIdx >= allWeeks.length - 1}
-            className="p-1 text-slate-400 hover:text-indigo-400 disabled:opacity-20 cursor-pointer"
+            className="p-2.5 text-slate-400 hover:text-indigo-400 disabled:opacity-20 cursor-pointer"
           >
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
@@ -237,7 +237,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={onNavigateToMobileHub}
-              className={`px-2 py-1 rounded-xl text-xs font-black flex items-center gap-1 transition-all cursor-pointer border active:scale-95 ${
+              className={`px-2.5 py-2.5 rounded-xl text-xs font-black flex items-center gap-1 transition-all cursor-pointer border active:scale-95 ${
                 activeUnit === 'mobile_hub'
                   ? 'bg-indigo-600 text-white border-indigo-400 shadow-md shadow-indigo-600/40'
                   : 'bg-slate-100 dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 border-slate-200 dark:border-slate-700 hover:border-indigo-500/50'
@@ -256,7 +256,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             onClick={() => setIsMobileMenuOpen(true)}
-            className="p-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-indigo-500/40 text-indigo-700 dark:text-indigo-400 hover:text-indigo-900 dark:hover:text-indigo-300 active:scale-95 transition-all cursor-pointer shadow-xs dark:shadow-sm"
+            className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-indigo-500/40 text-indigo-700 dark:text-indigo-400 hover:text-indigo-900 dark:hover:text-indigo-300 active:scale-95 transition-all cursor-pointer shadow-xs dark:shadow-sm"
             title="Open Coach Tools & Settings"
           >
             <Menu className="w-4 h-4" />

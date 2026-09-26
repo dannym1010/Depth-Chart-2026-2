@@ -1278,7 +1278,7 @@ export const PracticeLiveDrillsView: React.FC<PracticeLiveDrillsViewProps> = ({
                                   <button
                                     type="button"
                                     onClick={() => handleRemovePlayer(pos.id, mobileTeamNum - 1)}
-                                    className="ml-auto text-slate-400 p-1"
+                                    className="ml-auto text-slate-400 p-2.5 sm:p-1"
                                     aria-label="Remove player"
                                   >
                                     <X className="w-4 h-4" />

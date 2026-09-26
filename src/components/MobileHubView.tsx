@@ -1155,7 +1155,7 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
       {/* =========================================================================
           1. HEADER / SPLASH SECTION (Mimics PC Home Screen)
           ========================================================================= */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950/70 to-slate-900 rounded-3xl border border-indigo-500/30 p-4 sm:p-6 shadow-2xl space-y-4">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-indigo-500/30 p-4 sm:p-6 shadow-2xl space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3.5">
           <div className="space-y-1">
             <div className="text-[11px] font-semibold text-slate-400 flex items-center gap-1">
@@ -1211,7 +1211,7 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         {/* Practice Hero Card */}
         {practiceEventData ? (
-          <div className="bg-gradient-to-br from-slate-900 via-emerald-950/40 to-slate-900 rounded-3xl border border-emerald-500/40 p-4 sm:p-6 shadow-2xl relative overflow-hidden flex flex-col justify-between space-y-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-emerald-500/40 p-4 sm:p-6 shadow-2xl relative overflow-hidden flex flex-col justify-between space-y-4">
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
@@ -1397,7 +1397,7 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
 
         {/* Game Hero Card */}
         {gameEventData ? (
-          <div className="bg-gradient-to-br from-slate-900 via-indigo-950/40 to-slate-900 rounded-3xl border border-indigo-500/40 p-4 sm:p-6 shadow-2xl relative overflow-hidden flex flex-col justify-between space-y-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-indigo-500/40 p-4 sm:p-6 shadow-2xl relative overflow-hidden flex flex-col justify-between space-y-4">
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
@@ -1820,7 +1820,7 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
         {hubTab === 'attendance' && (
           <div className="space-y-3">
             {/* 1. ATTENDANCE DATE CONTROLLER BANNER */}
-            <div className="bg-gradient-to-r from-slate-900 via-indigo-950/60 to-slate-900 border border-indigo-500/40 rounded-2xl p-3 space-y-3 shadow-md">
+            <div className="bg-white dark:bg-slate-900 border border-indigo-500/40 rounded-2xl p-3 space-y-3 shadow-md">
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <div className="text-[10px] font-black uppercase tracking-wider text-indigo-400 flex items-center gap-1.5">
@@ -2016,7 +2016,7 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
       {/* =========================================================================
           4. COACHING SHORTCUTS STRIP
           ========================================================================= */}
-      <div className="grid grid-cols-3 gap-2 pt-1">
+      <div className="grid grid-cols-4 gap-2 pt-1">
         <button
           type="button"
           onClick={() => onNavigateToUnit('schedule')}
@@ -2053,44 +2053,7 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
           <span className="text-[10px] font-bold text-slate-300">7v7</span>
         </button>
 
-        <button
-          type="button"
-          onClick={() => onNavigateToUnit('guide')}
-          className="bg-slate-900/90 border border-slate-800 p-2.5 rounded-2xl flex flex-col items-center text-center gap-1 hover:border-slate-700 active:scale-95 transition-all cursor-pointer"
-        >
-          <BookOpen className="w-4 h-4 text-indigo-400" />
-          <span className="text-[10px] font-bold text-slate-300">Playbook</span>
-        </button>
       </div>
-
-      {/* =========================================================================
-          5. THEME SCHEME SHOWCASE BANNER
-          ========================================================================= */}
-      {onOpenThemeGallery && (
-        <button
-          type="button"
-          onClick={onOpenThemeGallery}
-          className="w-full bg-gradient-to-r from-slate-900 via-indigo-950/60 to-slate-900 border border-indigo-500/30 hover:border-indigo-400/60 p-3 rounded-2xl flex items-center justify-between gap-3 text-left shadow-lg active:scale-98 transition-all group cursor-pointer"
-        >
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center justify-center shrink-0">
-              <Sparkles className="w-4 h-4 text-amber-300" />
-            </div>
-            <div>
-              <div className="text-xs font-black text-white group-hover:text-indigo-200 flex items-center gap-1.5">
-                <span>Sideline Visual Schemes</span>
-                <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-indigo-500/30 text-indigo-300 border border-indigo-400/40">
-                  12 Schemes • 6 Dark &amp; 6 Light
-                </span>
-              </div>
-              <div className="text-[10px] text-slate-400 font-medium">
-                Modern professional presets: Volt Neon, Championship Gold, Cyber Cobalt, Daylight Stadium &amp; more
-              </div>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-white shrink-0" />
-        </button>
-      )}
 
       {/* =========================================================================
           5. PLAYER DETAIL MODAL
@@ -2587,7 +2550,7 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
                     <button
                       type="button"
                       onClick={() => handleShiftTime(-15)}
-                      className="px-2 py-1 rounded-lg bg-slate-850 hover:bg-slate-800 text-slate-300 text-[11px] font-bold border border-slate-750 active:scale-95 transition-all cursor-pointer"
+                      className="px-3 py-2 rounded-lg bg-slate-850 hover:bg-slate-800 text-slate-300 text-[11px] font-bold border border-slate-750 active:scale-95 transition-all cursor-pointer"
                       title="Move start time 15 minutes earlier"
                     >
                       -15m
@@ -2595,7 +2558,7 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
                     <button
                       type="button"
                       onClick={() => handleShiftTime(-5)}
-                      className="px-2 py-1 rounded-lg bg-slate-850 hover:bg-slate-800 text-slate-300 text-[11px] font-bold border border-slate-750 active:scale-95 transition-all cursor-pointer"
+                      className="px-3 py-2 rounded-lg bg-slate-850 hover:bg-slate-800 text-slate-300 text-[11px] font-bold border border-slate-750 active:scale-95 transition-all cursor-pointer"
                       title="Move start time 5 minutes earlier"
                     >
                       -5m
@@ -2603,7 +2566,7 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
                     <button
                       type="button"
                       onClick={() => handleShiftTime(5)}
-                      className="px-2 py-1 rounded-lg bg-slate-850 hover:bg-slate-800 text-slate-300 text-[11px] font-bold border border-slate-750 active:scale-95 transition-all cursor-pointer"
+                      className="px-3 py-2 rounded-lg bg-slate-850 hover:bg-slate-800 text-slate-300 text-[11px] font-bold border border-slate-750 active:scale-95 transition-all cursor-pointer"
                       title="Move start time 5 minutes later"
                     >
                       +5m
@@ -2611,7 +2574,7 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
                     <button
                       type="button"
                       onClick={() => handleShiftTime(15)}
-                      className="px-2 py-1 rounded-lg bg-slate-850 hover:bg-slate-800 text-slate-300 text-[11px] font-bold border border-slate-750 active:scale-95 transition-all cursor-pointer"
+                      className="px-3 py-2 rounded-lg bg-slate-850 hover:bg-slate-800 text-slate-300 text-[11px] font-bold border border-slate-750 active:scale-95 transition-all cursor-pointer"
                       title="Move start time 15 minutes later"
                     >
                       +15m
@@ -2669,7 +2632,7 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
           {/* Practice Content Body */}
           <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3">
             {/* Live Sideline Progress Tracker Bar */}
-            <div className="bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 rounded-2xl border border-slate-700/80 p-3 shadow-md flex items-center justify-between gap-3">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700/80 p-3 shadow-md flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-[10px] font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -2746,9 +2709,9 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
                       key={pIdx}
                       className={`rounded-2xl border transition-all p-3.5 space-y-3 ${
                         isPeriodLiveNow
-                          ? 'bg-slate-900/95 border-emerald-500 shadow-lg shadow-emerald-950/60 ring-2 ring-emerald-500/50'
+                          ? 'bg-white dark:bg-slate-900/95 border-emerald-500 shadow-lg shadow-emerald-900/10 dark:shadow-emerald-950/60 ring-2 ring-emerald-500/50'
                           : isRunning
-                          ? 'bg-slate-900/95 border-emerald-500/80 shadow-lg shadow-emerald-950/40 ring-1 ring-emerald-500/40'
+                          ? 'bg-white dark:bg-slate-900/95 border-emerald-500/80 shadow-lg shadow-emerald-900/10 dark:shadow-emerald-950/40 ring-1 ring-emerald-500/40'
                           : 'bg-slate-900/80 border-slate-800'
                       }`}
                     >
@@ -2870,7 +2833,7 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
                                         {stn.name || `Station ${sIdx + 1}`}
                                       </span>
                                       {matchedDrill && (
-                                        <span className="px-1.5 py-0.2 rounded-md text-[9px] font-black uppercase bg-blue-900/60 text-blue-300 border border-blue-700/50">
+                                        <span className="px-1.5 py-0.2 rounded-md text-[9px] font-black uppercase bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900/60 dark:text-blue-300 dark:border-blue-700/50">
                                           Playbook
                                         </span>
                                       )}
@@ -2901,8 +2864,8 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
                               )}
 
                               {stn.focus && (
-                                <div className="flex items-start gap-1.5 pt-0.5 text-[11px] text-amber-300/90 font-medium">
-                                  <span className="font-bold shrink-0 text-amber-400">Key Focus:</span>
+                                <div className="flex items-start gap-1.5 pt-0.5 text-[11px] text-amber-800 dark:text-amber-300/90 font-medium">
+                                  <span className="font-bold shrink-0 text-amber-700 dark:text-amber-400">Key Focus:</span>
                                   <span>{stn.focus}</span>
                                 </div>
                               )}

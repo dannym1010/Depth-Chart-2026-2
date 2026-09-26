@@ -55,7 +55,7 @@ export const AIGameplanView: React.FC<AIGameplanViewProps> = ({
 
   return (
     <div className="space-y-6">
-      <div className="bg-gradient-to-r from-slate-900 via-emerald-950/40 to-slate-900 border border-emerald-500/30 rounded-lg p-5">
+      <div className="bg-white dark:bg-slate-900 border border-emerald-500/30 rounded-lg p-5">
         <div className="flex items-center gap-2 mb-1">
           <Shield className="w-5 h-5 text-emerald-400" />
           <h2 className="text-lg font-bold text-white tracking-tight">Defensive gameplan (from this week’s Hudl file)</h2>

@@ -89,7 +89,7 @@ export const DrillCategoryDrawer: React.FC<DrillCategoryDrawerProps> = ({
               <Dumbbell className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-sm font-black text-white truncate">
+              <h3 className="text-sm font-black text-slate-900 dark:text-white truncate">
                 Drill Positions &amp; Categories
               </h3>
               <p className="text-[11px] text-slate-400 font-medium truncate">
@@ -106,7 +106,7 @@ export const DrillCategoryDrawer: React.FC<DrillCategoryDrawerProps> = ({
                   onClose();
                   onNavigateToWhiteboard();
                 }}
-                className="px-2.5 py-1 text-[11px] font-bold bg-blue-950/60 hover:bg-blue-900 border border-blue-500/40 text-blue-300 rounded-xl flex items-center gap-1 transition-colors cursor-pointer"
+                className="px-2.5 py-1 text-[11px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:hover:bg-blue-900 dark:text-blue-300 border border-blue-500/40 rounded-xl flex items-center gap-1 transition-colors cursor-pointer"
                 title="Switch to Tactical Chalkboard Diagrams"
               >
                 <PenTool className="w-3 h-3" />

@@ -253,7 +253,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
   return (
     <div id="game-day-hub-content" className="space-y-6">
       {/* Top Game Day Matchup Banner */}
-      <div className="gameday-matchup-banner max-md:hidden print:block bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 border border-slate-700/80 rounded-xl p-3 sm:p-4 shadow-xl relative overflow-hidden print:bg-white print:bg-none print:border-b print:border-slate-300 print:border-t-0 print:border-l-0 print:border-r-0 print:rounded-none print:p-1.5 print:pb-2 print:my-0 print:mb-2 print:shadow-none">
+      <div className="gameday-matchup-banner max-md:hidden print:block bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-xl p-3 sm:p-4 shadow-xl relative overflow-hidden print:bg-white print:bg-none print:border-b print:border-slate-300 print:border-t-0 print:border-l-0 print:border-r-0 print:rounded-none print:p-1.5 print:pb-2 print:my-0 print:mb-2 print:shadow-none">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 print:gap-1">
           <div className="space-y-1 print:space-y-0.5">
             <div className="flex flex-wrap items-center gap-2 print:gap-1.5">
@@ -897,7 +897,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
             </div>
           ) : (
             /* CREATE PRE-GAME PRACTICE PLAN BUILDER CARD */
-            <div className="bg-gradient-to-b from-slate-900 via-slate-900 to-indigo-950/40 border border-slate-700/80 rounded-2xl p-6 md:p-8 shadow-2xl space-y-6 text-center max-w-3xl mx-auto">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-6 md:p-8 shadow-2xl space-y-6 text-center max-w-3xl mx-auto">
               <div className="w-14 h-14 rounded-2xl bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center justify-center mx-auto shadow-lg shadow-purple-500/10">
                 <ClipboardList className="w-7 h-7" />
               </div>

@@ -388,7 +388,7 @@ export const PlayerHoursTracker: React.FC<PlayerHoursTrackerProps> = ({
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       {/* Header Bento Title Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-850 to-indigo-950/80 border border-slate-700/80 rounded-3xl p-5 md:p-6 shadow-xl relative overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-3xl p-5 md:p-6 shadow-xl relative overflow-hidden">
         <div className="absolute right-0 top-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
         
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 relative z-10">
@@ -575,8 +575,8 @@ export const PlayerHoursTracker: React.FC<PlayerHoursTrackerProps> = ({
           statusFilter === 'needs_scrimmage'
             ? 'bg-rose-950/80 border-rose-500 ring-2 ring-rose-500/50 shadow-rose-950/50'
             : complianceStats.needsScrimmageCount > 0
-            ? 'bg-gradient-to-r from-rose-950/40 via-slate-900 to-slate-900 border-rose-800/60 hover:border-rose-500/80 hover:bg-rose-950/50'
-            : 'bg-gradient-to-r from-emerald-950/40 via-slate-900 to-slate-900 border-emerald-800/60 hover:border-emerald-500/80'
+            ? 'bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-950/50 border-rose-200 dark:border-rose-800/60 hover:border-rose-500/80'
+            : 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60 hover:border-emerald-500/80'
         }`}
       >
         <div className="flex items-center gap-3.5 min-w-0">
