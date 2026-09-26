@@ -11,6 +11,7 @@ import { OpponentTellsBanner } from '../../hudlScout/components/OpponentTellsBan
 import { SituationalMatrix } from '../../hudlScout/components/SituationalMatrix';
 import { FormationAnalytics } from '../../hudlScout/components/FormationAnalytics';
 import { PersonnelSpecialTeams } from '../../hudlScout/components/PersonnelSpecialTeams';
+import { DownDistanceHeatmap, FieldZoneStrip, GainDistributionChart } from '../../hudlScout/components/ScoutCharts';
 import { FieldChalkboard } from '../../hudlScout/components/FieldChalkboard';
 import { PlaysTable } from '../../hudlScout/components/PlaysTable';
 import { UnitStatsView } from '../../hudlScout/components/UnitStatsView';
@@ -374,14 +375,27 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
           <OpponentTellsBanner tells={analysis.tells} />
         </div>
 
-        {activeTab === 'situational' && <SituationalMatrix groups={analysis.situationalGroups} />}
+        {activeTab === 'situational' && (
+          <div className="space-y-4 md:space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+              <DownDistanceHeatmap groups={analysis.situationalGroups} />
+              <GainDistributionChart plays={filteredPlays} />
+            </div>
+            <SituationalMatrix groups={analysis.situationalGroups} />
+          </div>
+        )}
         {activeTab === 'formations' && (
           <div className="space-y-6">
             <FormationAnalytics formations={analysis.formations} totalPlays={filteredPlays.length} />
             <PersonnelSpecialTeams plays={filteredPlays} analysis={analysis} />
           </div>
         )}
-        {activeTab === 'field' && <FieldChalkboard analysis={analysis} />}
+        {activeTab === 'field' && (
+          <div className="space-y-4 md:space-y-6">
+            <FieldZoneStrip plays={filteredPlays} />
+            <FieldChalkboard analysis={analysis} />
+          </div>
+        )}
         {activeTab === 'plays' && (
           <PlaysTable plays={filteredPlays} onSetUnit={scoutTarget === 'own' ? handleSetUnit : undefined} />
         )}

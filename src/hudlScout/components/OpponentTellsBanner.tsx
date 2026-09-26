@@ -32,7 +32,7 @@ export const OpponentTellsBanner: React.FC<OpponentTellsBannerProps> = ({ tells 
               </span>
             </h2>
             <p className="text-xs text-slate-400">
-              High-confidence statistical anomalies ($&ge;$75% skew) to exploit on Friday night.
+              Habits they show 75%+ of the time in a situation.
             </p>
           </div>
         </div>

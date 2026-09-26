@@ -1,19 +1,14 @@
 import React from 'react';
 import { TendencyAnalysis } from '../types/football';
 import { Compass, MapPin } from 'lucide-react';
+import { RunGapDiagram, RunPassRing } from './ScoutCharts';
 
 interface FieldChalkboardProps {
   analysis: TendencyAnalysis;
 }
 
 export const FieldChalkboard: React.FC<FieldChalkboardProps> = ({ analysis }) => {
-  const { hashTendencies, runDirections, redZonePlays } = analysis;
-
-  const totalRuns = Object.values(runDirections).reduce((a, b) => a + b, 0);
-
-  const getRunPct = (count: number) => {
-    return totalRuns > 0 ? Math.round((count / totalRuns) * 100) : 0;
-  };
+  const { hashTendencies, redZonePlays } = analysis;
 
   return (
     <div className="space-y-4">
@@ -63,6 +58,9 @@ export const FieldChalkboard: React.FC<FieldChalkboardProps> = ({ analysis }) =>
                   {hashTendencies.left.runPct}% RUN / {hashTendencies.left.passPct}% PASS
                 </div>
               </div>
+              <div className="flex justify-center">
+                <RunPassRing runPct={hashTendencies.left.runPct} size={64} label="RUN" />
+              </div>
               <div className="text-[11px] text-slate-300 bg-slate-900/90 p-1.5 rounded border border-slate-800">
                 <span className="text-amber-400 font-bold block text-[10px] uppercase">Run direction (each run once)</span>
                 <div className="flex justify-between font-mono mt-0.5">
@@ -86,6 +84,9 @@ export const FieldChalkboard: React.FC<FieldChalkboardProps> = ({ analysis }) =>
                   {hashTendencies.middle.runPct}% RUN / {hashTendencies.middle.passPct}% PASS
                 </div>
               </div>
+              <div className="flex justify-center">
+                <RunPassRing runPct={hashTendencies.middle.runPct} size={64} label="RUN" />
+              </div>
               <div className="text-[11px] text-slate-300 bg-slate-900/90 p-1.5 rounded border border-slate-800 text-center">
                 <span className="text-slate-400 text-[10px] uppercase block">Middle-hash favor</span>
                 <span className="text-slate-200 font-medium">
@@ -108,6 +109,9 @@ export const FieldChalkboard: React.FC<FieldChalkboardProps> = ({ analysis }) =>
                   {hashTendencies.right.runPct}% RUN / {hashTendencies.right.passPct}% PASS
                 </div>
               </div>
+              <div className="flex justify-center">
+                <RunPassRing runPct={hashTendencies.right.runPct} size={64} label="RUN" />
+              </div>
               <div className="text-[11px] text-slate-300 bg-slate-900/90 p-1.5 rounded border border-slate-800">
                 <span className="text-amber-400 font-bold block text-[10px] uppercase">Run direction (each run once)</span>
                 <div className="flex justify-between font-mono mt-0.5">
@@ -120,99 +124,8 @@ export const FieldChalkboard: React.FC<FieldChalkboardProps> = ({ analysis }) =>
         </div>
       </div>
 
-      {/* 2. Run Directional Distribution Heatmap */}
-      <div className="bg-slate-900 border border-slate-800 rounded-lg p-5">
-        <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wide mb-3 flex items-center justify-between">
-          <span>Run Direction Attack Distribution ({totalRuns} Total Run Plays)</span>
-          <span className="text-xs font-normal text-slate-400">Offensive Line Gaps</span>
-        </h3>
-
-        <div className="grid grid-cols-7 gap-1.5 text-center text-xs">
-          {/* Left Perimeter */}
-          <div className="bg-slate-950 p-2.5 rounded border border-slate-800 flex flex-col justify-between">
-            <span className="text-[10px] text-slate-400 uppercase font-semibold">Left Edge</span>
-            <div className="my-2">
-              <span className="text-lg font-black font-mono text-emerald-400">{getRunPct(runDirections.leftPerimeter)}%</span>
-              <span className="text-[10px] text-slate-400 block">{runDirections.leftPerimeter} pl</span>
-            </div>
-            <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden">
-              <div className="bg-emerald-500 h-full" style={{ width: `${getRunPct(runDirections.leftPerimeter)}%` }} />
-            </div>
-          </div>
-
-          {/* Off-Tackle Left */}
-          <div className="bg-slate-950 p-2.5 rounded border border-slate-800 flex flex-col justify-between">
-            <span className="text-[10px] text-slate-400 uppercase font-semibold">Off-Tackle L</span>
-            <div className="my-2">
-              <span className="text-lg font-black font-mono text-emerald-400">{getRunPct(runDirections.offTackleLeft)}%</span>
-              <span className="text-[10px] text-slate-400 block">{runDirections.offTackleLeft} pl</span>
-            </div>
-            <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden">
-              <div className="bg-emerald-500 h-full" style={{ width: `${getRunPct(runDirections.offTackleLeft)}%` }} />
-            </div>
-          </div>
-
-          {/* A-Gap Left */}
-          <div className="bg-slate-950 p-2.5 rounded border border-slate-800 flex flex-col justify-between">
-            <span className="text-[10px] text-slate-400 uppercase font-semibold">A-Gap L</span>
-            <div className="my-2">
-              <span className="text-lg font-black font-mono text-emerald-400">{getRunPct(runDirections.aGapLeft)}%</span>
-              <span className="text-[10px] text-slate-400 block">{runDirections.aGapLeft} pl</span>
-            </div>
-            <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden">
-              <div className="bg-emerald-500 h-full" style={{ width: `${getRunPct(runDirections.aGapLeft)}%` }} />
-            </div>
-          </div>
-
-          {/* Middle / Center Dive */}
-          <div className="bg-slate-950 p-2.5 rounded border border-slate-800 flex flex-col justify-between ring-1 ring-emerald-500/20">
-            <span className="text-[10px] text-amber-400 uppercase font-semibold">Center / Mid</span>
-            <div className="my-2">
-              <span className="text-lg font-black font-mono text-amber-400">{getRunPct(runDirections.middle)}%</span>
-              <span className="text-[10px] text-slate-400 block">{runDirections.middle} pl</span>
-            </div>
-            <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden">
-              <div className="bg-amber-500 h-full" style={{ width: `${getRunPct(runDirections.middle)}%` }} />
-            </div>
-          </div>
-
-          {/* A-Gap Right */}
-          <div className="bg-slate-950 p-2.5 rounded border border-slate-800 flex flex-col justify-between">
-            <span className="text-[10px] text-slate-400 uppercase font-semibold">A-Gap R</span>
-            <div className="my-2">
-              <span className="text-lg font-black font-mono text-emerald-400">{getRunPct(runDirections.aGapRight)}%</span>
-              <span className="text-[10px] text-slate-400 block">{runDirections.aGapRight} pl</span>
-            </div>
-            <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden">
-              <div className="bg-emerald-500 h-full" style={{ width: `${getRunPct(runDirections.aGapRight)}%` }} />
-            </div>
-          </div>
-
-          {/* Off-Tackle Right */}
-          <div className="bg-slate-950 p-2.5 rounded border border-slate-800 flex flex-col justify-between">
-            <span className="text-[10px] text-slate-400 uppercase font-semibold">Off-Tackle R</span>
-            <div className="my-2">
-              <span className="text-lg font-black font-mono text-emerald-400">{getRunPct(runDirections.offTackleRight)}%</span>
-              <span className="text-[10px] text-slate-400 block">{runDirections.offTackleRight} pl</span>
-            </div>
-            <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden">
-              <div className="bg-emerald-500 h-full" style={{ width: `${getRunPct(runDirections.offTackleRight)}%` }} />
-            </div>
-          </div>
-
-          {/* Right Perimeter */}
-          <div className="bg-slate-950 p-2.5 rounded border border-slate-800 flex flex-col justify-between">
-            <span className="text-[10px] text-slate-400 uppercase font-semibold">Right Edge</span>
-            <div className="my-2">
-              <span className="text-lg font-black font-mono text-emerald-400">{getRunPct(runDirections.rightPerimeter)}%</span>
-              <span className="text-[10px] text-slate-400 block">{runDirections.rightPerimeter} pl</span>
-            </div>
-            <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden">
-              <div className="bg-emerald-500 h-full" style={{ width: `${getRunPct(runDirections.rightPerimeter)}%` }} />
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* 2. Run gaps */}
+      <RunGapDiagram analysis={analysis} />
 
       {/* 3. Red Zone (Inside 20) Deep Dive */}
       <div className="bg-slate-900 border border-slate-800 rounded-lg p-5">
