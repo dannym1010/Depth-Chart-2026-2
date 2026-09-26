@@ -3,24 +3,22 @@ import { SAMPLE_DATASETS, SampleDataset } from '../../hudlScout/data/sampleDatas
 import { ColumnMapping, autoDetectColumnMapping, normalizeHudlRow, parseCsvRows } from '../../hudlScout/utils/csvParser';
 import { calculateTendencies } from '../../hudlScout/utils/tendencyEngine';
 import { Play } from '../../hudlScout/types/football';
-import { Header, ScoutGame, ScoutTarget } from '../../hudlScout/components/Header';
-import { FilterBar } from '../../hudlScout/components/FilterBar';
-import { OverviewCards } from '../../hudlScout/components/OverviewCards';
-import { HashWideSideBoard } from '../../hudlScout/components/HashWideSideBoard';
-import { OpponentTellsBanner } from '../../hudlScout/components/OpponentTellsBanner';
-import { SituationalMatrix } from '../../hudlScout/components/SituationalMatrix';
-import { FormationAnalytics } from '../../hudlScout/components/FormationAnalytics';
-import { PersonnelSpecialTeams } from '../../hudlScout/components/PersonnelSpecialTeams';
-import { DownDistanceHeatmap, FieldZoneStrip, GainDistributionChart } from '../../hudlScout/components/ScoutCharts';
-import { FieldChalkboard } from '../../hudlScout/components/FieldChalkboard';
+import { Header, ScoutGame, ScoutTarget, ScoutUnit } from '../../hudlScout/components/Header';
 import { PlaysTable } from '../../hudlScout/components/PlaysTable';
 import { UnitStatsView } from '../../hudlScout/components/UnitStatsView';
 import { tagPlayUnits } from '../../hudlScout/utils/unitStats';
-import type { TeamUnit } from '../../hudlScout/types/football';
-import { AIGameplanView } from '../../hudlScout/components/AIGameplanView';
+import type { TeamUnit, DownDistGroup } from '../../hudlScout/types/football';
 import { UploadModal } from '../../hudlScout/components/UploadModal';
 import { CallSheetModal } from '../../hudlScout/components/CallSheetModal';
 import { buildLocalGameplan } from '../../hudlScout/utils/buildLocalGameplan';
+import { SummaryTab } from '../../hudlScout/components/report/SummaryTab';
+import { SituationsTab } from '../../hudlScout/components/report/SituationsTab';
+import { RunGameTab } from '../../hudlScout/components/report/RunGameTab';
+import { PlayersTab, SpecialTeamsCard } from '../../hudlScout/components/report/PlayersTab';
+import { GamePlanTab } from '../../hudlScout/components/report/GamePlanTab';
+import { ActiveFiltersBanner, FilterPanel, activeFilterLabels } from '../../hudlScout/components/report/FilterPanel';
+import { makeVoice } from '../../hudlScout/components/report/reportText';
+import { Card, SectionHeader } from '../../hudlScout/components/report/ui';
 import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import { pickScoutBundle, scoutFingerprint } from '../../utils/remoteStateMerge';
 import {
@@ -50,6 +48,7 @@ export interface HudlScoutViewProps {
 
 export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   scouting,
+  scheduleEvents = [],
   currentWeek = '1',
   activeTeamName = 'Mahopac',
   ownTeamScout,
@@ -69,6 +68,15 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     return fromScoped ? `Week ${fromScoped}` : 'This week';
   })();
   const opponentFallback = scouting.opponent || 'This week opponent';
+  // The team we play this week, from the schedule (the Hudl file name is often "X vs Y").
+  const scheduledOpponent = (() => {
+    const raw = String(currentWeek || '');
+    const wk = raw.includes('__week_') ? raw.split('__week_').pop() : raw;
+    const game = scheduleEvents.find(
+      (e) => ['game', 'tournament', 'scrimmage'].includes(e.type) && String(e.week) === String(wk) && e.opponent
+    );
+    return game?.opponent?.trim() || '';
+  })();
   const ownFallback = activeTeamName || 'Mahopac';
 
   const [scoutTarget, setScoutTarget] = useState<ScoutTarget>('opponent');
@@ -78,7 +86,9 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     bundleFromSaved(ownTeamScout || saved?.ownTeam, ownFallback)
   );
   const [currentDataset, setCurrentDataset] = useState<SampleDataset | null>(null);
-  const [activeTab, setActiveTab] = useState<string>('situational');
+  const [activeTab, setActiveTab] = useState<string>('summary');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [selectedSituation, setSelectedSituation] = useState<string | null>(null);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isCallSheetOpen, setIsCallSheetOpen] = useState(false);
   const skipSave = useRef(true);
@@ -106,6 +116,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       : bundle.datasetName;
   const filters = bundle.filters;
   const coachNotes = bundle.coachNotes;
+
+  const reportName = scoutTarget === 'own' ? ownFallback : scheduledOpponent || datasetName;
 
   const availableFormations = useMemo(() => {
     const set = new Set<string>();
@@ -142,14 +154,24 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   }, [plays, filters]);
 
   const analysis = useMemo(() => calculateTendencies(filteredPlays), [filteredPlays]);
-  const fullAnalysis = useMemo(() => {
-    const unitPlays = filters.odk === 'ALL' ? plays : plays.filter((p) => p.odk === filters.odk);
-    return calculateTendencies(unitPlays.length > 0 ? unitPlays : plays);
-  }, [plays, filters.odk]);
+  // The game plan and call sheet are always built against the offense on film,
+  // whatever unit or filters the coach is looking at.
+  const planPlays = useMemo(() => {
+    const offense = plays.filter((p) => p.odk === 'O');
+    return offense.length ? offense : plays;
+  }, [plays]);
+  const planAnalysis = useMemo(() => calculateTendencies(planPlays), [planPlays]);
   const localReport = useMemo(
-    () => (plays.length ? buildLocalGameplan(fullAnalysis, plays, datasetName) : null),
-    [fullAnalysis, plays, datasetName]
+    () => (planPlays.length ? buildLocalGameplan(planAnalysis, planPlays, reportName) : null),
+    [planAnalysis, planPlays, reportName]
   );
+  const voice = makeVoice(scoutTarget, filters.odk);
+  const filterLabels = activeFilterLabels(filters);
+  const unitPlayCount = filters.odk === 'ALL' ? plays.length : plays.filter((p) => p.odk === filters.odk).length;
+  const pickSituation = (g: DownDistGroup) => {
+    setSelectedSituation(g.label);
+    setActiveTab('situations');
+  };
 
   useEffect(() => {
     skipSave.current = true;
@@ -296,21 +318,15 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   };
 
   const emptyLabel = scoutTarget === 'own' ? 'our team' : weekLabel;
+  const specialTeamsOnly = filters.odk === 'K' && ['summary', 'situations', 'run'].includes(activeTab);
 
   return (
-    <div className="bg-slate-950 text-slate-100 rounded-2xl border border-slate-800 overflow-hidden flex flex-col font-sans selection:bg-emerald-500/30 selection:text-emerald-200">
+    <div className="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col font-sans">
       <Header
-        currentDataset={currentDataset}
-        datasetName={
-          scoutTarget === 'own'
-            ? selectedGameId === 'all'
-              ? `${ownFallback} · all games`
-              : datasetName
-            : `${datasetName} · ${weekLabel}`
-        }
+        title={scoutTarget === 'own' ? (selectedGameId === 'all' ? `${ownFallback}: all games` : datasetName) : reportName}
+        kicker={scoutTarget === 'own' ? 'Self-scout · our film this season' : `Scouting report · ${weekLabel}`}
         totalPlays={plays.length}
         onOpenUpload={() => setIsUploadOpen(true)}
-        onSelectSample={handleSelectSample}
         onOpenCallSheet={() => setIsCallSheetOpen(true)}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -318,103 +334,129 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         onScoutTargetChange={(target) => {
           setScoutTarget(target);
           setSelectedGameId('all');
-          if (target !== 'own' && activeTab === 'units') setActiveTab('situational');
+          setSelectedSituation(null);
+          if (target !== 'own' && activeTab === 'units') setActiveTab('summary');
         }}
         games={bundle.games}
         selectedGameId={selectedGameId}
         onSelectGame={setSelectedGameId}
         onRemoveGame={handleRemoveGame}
         onClearUploads={handleClearUploads}
-        weekLabel={weekLabel}
+        unit={filters.odk as ScoutUnit}
+        onUnitChange={(odk) => setBundle((prev) => ({ ...prev, filters: { ...prev.filters, odk } }))}
+        unitCounts={odkCounts}
+        filterCount={filterLabels.length}
+        filtersOpen={filtersOpen}
+        onToggleFilters={() => setFiltersOpen((o) => !o)}
       />
 
-      <FilterBar
-        filters={filters}
-        onFilterChange={(next) => setBundle((prev) => ({ ...prev, filters: next }))}
-        onResetFilters={() => handleResetFilters()}
-        availableFormations={availableFormations}
-        totalFilteredPlays={filteredPlays.length}
-        totalPlays={plays.length}
-        odkCounts={odkCounts}
-        teamName={datasetName}
-      />
+      {filtersOpen && (
+        <FilterPanel
+          filters={filters}
+          onChange={(next) => setBundle((prev) => ({ ...prev, filters: next }))}
+          onReset={() => handleResetFilters()}
+          formations={availableFormations}
+          shown={filteredPlays.length}
+          total={unitPlayCount}
+        />
+      )}
 
-      <main className="flex-1 w-full mx-auto px-3 sm:px-6 py-4 md:py-6 space-y-4 md:space-y-6">
-        {plays.length === 0 && (
-          <div className="rounded-xl border border-dashed border-emerald-500/40 bg-emerald-950/20 p-6 text-center">
-            <p className="text-sm font-black text-emerald-200">
-              {scoutTarget === 'own' ? 'Our-team scouting report' : `New scouting report for ${emptyLabel}`}
-            </p>
-            <p className="text-xs text-slate-400 mt-1">
-              {scoutTarget === 'own'
-                ? 'Upload Hudl CSVs of our team. Each file is a game. Tap a game chip or All games.'
-                : `Upload Hudl CSV/Excel for this week's opponent (${weekLabel}). Change the week above to scout next week's team.`}
-            </p>
-            <button
-              type="button"
-              onClick={() => setIsUploadOpen(true)}
-              className="mt-3 px-4 py-2 rounded-lg bg-emerald-500 text-slate-950 dark:bg-emerald-500 dark:text-slate-950 text-xs font-black"
-            >
-              Upload CSV or Excel
-            </button>
-            {scoutTarget === 'opponent' && SAMPLE_DATASETS[0] && (
+      <main className="flex-1 w-full max-w-7xl mx-auto px-3 sm:px-6 py-4 md:py-6 space-y-4 md:space-y-5">
+        {plays.length === 0 ? (
+          <Card>
+            <SectionHeader
+              title={scoutTarget === 'own' ? 'Self-scout our team' : `New scouting report for ${emptyLabel}`}
+              subtitle={
+                scoutTarget === 'own'
+                  ? 'Upload Hudl CSV or Excel files of our games. Each file is one game.'
+                  : `Upload a Hudl CSV or Excel export of this week's opponent (${weekLabel}). Change the week at the top of the app to scout a different team.`
+              }
+            />
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => handleSelectSample(SAMPLE_DATASETS[0])}
-                className="mt-2 ml-2 px-4 py-2 rounded-lg border border-slate-700 text-slate-200 text-xs font-bold"
+                onClick={() => setIsUploadOpen(true)}
+                className="min-h-[40px] px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white dark:bg-indigo-600 dark:text-white text-xs font-bold cursor-pointer"
               >
-                Load sample (Carmel)
+                Upload CSV or Excel
               </button>
-            )}
-          </div>
-        )}
-
-        <div className={`${activeTab === 'situational' ? 'space-y-4 md:space-y-6' : 'hidden md:block md:space-y-6'}`}>
-          <OverviewCards analysis={analysis} />
-          <HashWideSideBoard analysis={analysis} />
-          <OpponentTellsBanner tells={analysis.tells} />
-        </div>
-
-        {activeTab === 'situational' && (
-          <div className="space-y-4 md:space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-              <DownDistanceHeatmap groups={analysis.situationalGroups} />
-              <GainDistributionChart plays={filteredPlays} />
+              {scoutTarget === 'opponent' && SAMPLE_DATASETS[0] && (
+                <button
+                  type="button"
+                  onClick={() => handleSelectSample(SAMPLE_DATASETS[0])}
+                  className="min-h-[40px] px-4 py-2 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 dark:bg-slate-900 dark:hover:bg-slate-800 dark:text-slate-200 dark:border-slate-700 text-xs font-bold cursor-pointer"
+                >
+                  Load a sample (Carmel)
+                </button>
+              )}
             </div>
-            <SituationalMatrix groups={analysis.situationalGroups} />
-          </div>
-        )}
-        {activeTab === 'formations' && (
-          <div className="space-y-6">
-            <FormationAnalytics formations={analysis.formations} totalPlays={filteredPlays.length} />
-            <PersonnelSpecialTeams plays={filteredPlays} analysis={analysis} />
-          </div>
-        )}
-        {activeTab === 'field' && (
-          <div className="space-y-4 md:space-y-6">
-            <FieldZoneStrip plays={filteredPlays} />
-            <FieldChalkboard analysis={analysis} />
-          </div>
-        )}
-        {activeTab === 'plays' && (
-          <PlaysTable plays={filteredPlays} onSetUnit={scoutTarget === 'own' ? handleSetUnit : undefined} />
-        )}
-        {activeTab === 'units' && scoutTarget === 'own' && (
-          <UnitStatsView
-            plays={plays}
-            games={selectedGameId === 'all' ? bundle.games : bundle.games.filter((g) => g.id === selectedGameId)}
-            onOpenPlayLog={() => setActiveTab('plays')}
-          />
-        )}
-        {activeTab === 'gameplan' && (
-          <AIGameplanView
-            report={localReport}
-            analysis={fullAnalysis}
-            plays={plays}
-            opponentName={datasetName}
-            coachNotes={coachNotes}
-            onCoachNotesChange={(notes) => setBundle((prev) => ({ ...prev, coachNotes: notes }))}
-          />
+          </Card>
+        ) : (
+          <>
+            {activeTab !== 'gameplan' && activeTab !== 'units' && (
+              <ActiveFiltersBanner labels={filterLabels} shown={filteredPlays.length} total={unitPlayCount} onClear={() => handleResetFilters()} />
+            )}
+
+            {specialTeamsOnly ? (
+              <div className="space-y-4">
+                <Card>
+                  <SectionHeader
+                    title="Special teams"
+                    subtitle="Run and pass charts don't apply to kicking plays. Pick an offense or defense above for the full report, or open the Play log to see each kick."
+                  />
+                </Card>
+                <SpecialTeamsCard plays={plays} />
+              </div>
+            ) : (
+              <>
+                {activeTab === 'summary' && (
+                  <SummaryTab
+                    analysis={analysis}
+                    plays={filteredPlays}
+                    voice={voice}
+                    report={localReport}
+                    onPickSituation={pickSituation}
+                    onOpenGamePlan={() => setActiveTab('gameplan')}
+                    onOpenTab={setActiveTab}
+                  />
+                )}
+                {activeTab === 'situations' && (
+                  <SituationsTab
+                    analysis={analysis}
+                    plays={filteredPlays}
+                    voice={voice}
+                    report={localReport}
+                    selectedLabel={selectedSituation}
+                    onSelect={(g) => setSelectedSituation(g.label)}
+                  />
+                )}
+                {activeTab === 'run' && <RunGameTab analysis={analysis} plays={filteredPlays} voice={voice} />}
+              </>
+            )}
+            {activeTab === 'players' && <PlayersTab analysis={analysis} plays={filteredPlays} allPlays={plays} voice={voice} />}
+            {activeTab === 'gameplan' && (
+              <GamePlanTab
+                report={localReport}
+                analysis={planAnalysis}
+                plays={planPlays}
+                opponentName={reportName}
+                mode={scoutTarget}
+                coachNotes={coachNotes}
+                onCoachNotesChange={(notes) => setBundle((prev) => ({ ...prev, coachNotes: notes }))}
+                onPrintCallSheet={() => setIsCallSheetOpen(true)}
+              />
+            )}
+            {activeTab === 'plays' && (
+              <PlaysTable plays={filteredPlays} onSetUnit={scoutTarget === 'own' ? handleSetUnit : undefined} />
+            )}
+            {activeTab === 'units' && scoutTarget === 'own' && (
+              <UnitStatsView
+                plays={plays}
+                games={selectedGameId === 'all' ? bundle.games : bundle.games.filter((g) => g.id === selectedGameId)}
+                onOpenPlayLog={() => setActiveTab('plays')}
+              />
+            )}
+          </>
         )}
       </main>
 
@@ -429,8 +471,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         isOpen={isCallSheetOpen}
         onClose={() => setIsCallSheetOpen(false)}
         report={localReport}
-        analysis={fullAnalysis}
-        opponentName={datasetName}
+        analysis={planAnalysis}
+        opponentName={reportName}
       />
     </div>
   );

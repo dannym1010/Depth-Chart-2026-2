@@ -1,5 +1,5 @@
 import type { Play } from './types/football';
-import type { FilterState } from './components/FilterBar';
+import type { FilterState } from './components/report/FilterPanel';
 import type { ScoutGame } from './components/Header';
 
 export const DEFAULT_SCOUT_FILTERS: FilterState = {

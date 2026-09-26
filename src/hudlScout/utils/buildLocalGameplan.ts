@@ -24,7 +24,7 @@ function sit(analysis: TendencyAnalysis, labelPart: string) {
   return analysis.situationalGroups.find((g) => g.label.toLowerCase().includes(labelPart.toLowerCase()));
 }
 
-function callForRunPass(runPct: number, shortYardage: boolean) {
+export function callForRunPass(runPct: number, shortYardage: boolean) {
   if (shortYardage || runPct >= 70) {
     return {
       coverage: 'Cover 1 Hole / Tight Man',
@@ -174,7 +174,7 @@ export function buildLocalGameplan(analysis: TendencyAnalysis, plays: Play[], op
 
   return {
     executiveSummary: `${opponentName} is a ${identity} team in this ${analysis.totalPlays}-play sample (${analysis.runPct}% run / ${analysis.passPct}% pass, ${analysis.avgGainOverall} yards per snap). They work the ${hashBias}. ${
-      topTell ? `Biggest tell: ${topTell.title} — ${topTell.statEvidence}.` : 'No single tell jumps off the sheet yet.'
+      topTell ? `Biggest tell: ${topTell.title.replace(/s*Tell$/i, '')}: ${topTell.statEvidence.replace(/.s*$/, '')}.` : 'No single tell jumps off the sheet yet.'
     } Play gap-sound 10U defense: extra hat vs the run, do not get the edges cracked, and make them execute on 3rd & long.`,
     opponentIdentity: {
       offensiveSystem: identity + (topForm ? ` out of ${topForm.formation}` : ''),

@@ -765,14 +765,14 @@ body.theme-light {
   /* Dark chrome nested inside a light card (play-sheet headers, navy toolbars)
      must keep light labels. The rules above paint every descendant of .bg-white
      as ink, which made titles like "4-4 BASE STACK LIZ" unreadable. */
-  html.theme-dark.dark #root#root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-850, .bg-zinc-900, .bg-zinc-950, .bg-black, [class*="bg-slate-900"], [class*="bg-slate-800"]) > :is(.text-white, [class*="text-white/"], .text-slate-50, .text-slate-100, .text-slate-200, .text-slate-300, .text-slate-400),
-  html.theme-dark.dark #root#root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-850, .bg-zinc-900, .bg-zinc-950, .bg-black, [class*="bg-slate-900"], [class*="bg-slate-800"]) > :not(:is(.bg-white, [class*="bg-white/"], .bg-slate-50, .bg-slate-100, .bg-slate-200, .bg-amber-300, .bg-amber-400, .bg-yellow-300, .bg-yellow-400)) > :is(.text-white, [class*="text-white/"], .text-slate-50, .text-slate-100, .text-slate-200, .text-slate-300, .text-slate-400),
-  html.theme-dark.dark #root#root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-850, .bg-zinc-900, .bg-zinc-950, .bg-black, [class*="bg-slate-900"], [class*="bg-slate-800"]):is(.text-white, [class*="text-white/"], .text-slate-50, .text-slate-100, .text-slate-200) {
+  html.theme-dark.dark #root#root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-850, .bg-zinc-900, .bg-zinc-950, .bg-black, [class*="bg-slate-900"], [class*="bg-slate-800"]) > :is(.text-white, [class*="text-white/"], .text-slate-50, .text-slate-100, .text-slate-200, .text-slate-300, .text-slate-400):not([class*="dark:text-"]),
+  html.theme-dark.dark #root#root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-850, .bg-zinc-900, .bg-zinc-950, .bg-black, [class*="bg-slate-900"], [class*="bg-slate-800"]) > :not(:is(.bg-white, [class*="bg-white/"], .bg-slate-50, .bg-slate-100, .bg-slate-200, .bg-amber-300, .bg-amber-400, .bg-yellow-300, .bg-yellow-400)) > :is(.text-white, [class*="text-white/"], .text-slate-50, .text-slate-100, .text-slate-200, .text-slate-300, .text-slate-400):not([class*="dark:text-"]),
+  html.theme-dark.dark #root#root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-850, .bg-zinc-900, .bg-zinc-950, .bg-black, [class*="bg-slate-900"], [class*="bg-slate-800"]):is(.text-white, [class*="text-white/"], .text-slate-50, .text-slate-100, .text-slate-200):not([class*="dark:text-"]) {
     color: #f1f5f9 !important;
   }
 
-  html.theme-dark.dark #root#root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-850, .bg-zinc-900, .bg-zinc-950, .bg-black, [class*="bg-slate-900"], [class*="bg-slate-800"]) > :is(.text-amber-300, .text-amber-400, .text-amber-200),
-  html.theme-dark.dark #root#root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-850, .bg-zinc-900, .bg-zinc-950, .bg-black, [class*="bg-slate-900"], [class*="bg-slate-800"]) > :not(:is(.bg-white, [class*="bg-white/"], .bg-slate-50, .bg-slate-100, .bg-slate-200, .bg-amber-300, .bg-amber-400, .bg-yellow-300, .bg-yellow-400)) > :is(.text-amber-300, .text-amber-400, .text-amber-200) {
+  html.theme-dark.dark #root#root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-850, .bg-zinc-900, .bg-zinc-950, .bg-black, [class*="bg-slate-900"], [class*="bg-slate-800"]) > :is(.text-amber-300, .text-amber-400, .text-amber-200):not([class*="dark:text-"]),
+  html.theme-dark.dark #root#root :is(.bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-850, .bg-zinc-900, .bg-zinc-950, .bg-black, [class*="bg-slate-900"], [class*="bg-slate-800"]) > :not(:is(.bg-white, [class*="bg-white/"], .bg-slate-50, .bg-slate-100, .bg-slate-200, .bg-amber-300, .bg-amber-400, .bg-yellow-300, .bg-yellow-400)) > :is(.text-amber-300, .text-amber-400, .text-amber-200):not([class*="dark:text-"]) {
     color: #fbbf24 !important;
   }
 

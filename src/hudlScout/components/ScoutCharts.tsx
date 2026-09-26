@@ -14,11 +14,11 @@ const isRun = (p: Play) => p.playType === 'RUN' || p.playType === 'RPO';
 const isPass = (p: Play) => p.playType === 'PASS' || p.playType === 'SCREEN';
 
 /** Blend from pass-blue (0% run) through neutral to run-green (100% run). */
-function leanColor(runPct: number): string {
+export function leanColor(runPct: number): string {
   const t = Math.max(0, Math.min(1, runPct / 100));
-  // 0 -> sky-500, 0.5 -> slate-500, 1 -> emerald-500
-  const from = t < 0.5 ? [14, 165, 233] : [100, 116, 139];
-  const to = t < 0.5 ? [100, 116, 139] : [16, 185, 129];
+  // 0 -> sky-700, 0.5 -> slate-600, 1 -> emerald-700: deep enough that white labels stay readable
+  const from = t < 0.5 ? [3, 105, 161] : [71, 85, 105];
+  const to = t < 0.5 ? [71, 85, 105] : [4, 120, 87];
   const k = t < 0.5 ? t / 0.5 : (t - 0.5) / 0.5;
   const c = from.map((v, i) => Math.round(v + (to[i] - v) * k));
   return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
@@ -57,7 +57,14 @@ export const RunPassRing: React.FC<{ runPct: number; size?: number; label?: stri
 };
 
 /** 1. Down & distance heat map: each cell is shaded by how run- or pass-heavy that situation is. */
-export const DownDistanceHeatmap: React.FC<{ groups: DownDistGroup[] }> = ({ groups }) => {
+export const DownDistanceHeatmap: React.FC<{
+  groups: DownDistGroup[];
+  /** When given, boxes with plays become buttons that pick a situation. */
+  onSelect?: (group: DownDistGroup) => void;
+  selectedLabel?: string;
+  heading?: string;
+  subheading?: string;
+}> = ({ groups, onSelect, selectedLabel, heading = 'Down & distance heat map', subheading }) => {
   const cell = (down: number, bucket?: 'short' | 'medium' | 'long') =>
     groups.find((g) => {
       if (g.down !== down) return false;
@@ -68,26 +75,32 @@ export const DownDistanceHeatmap: React.FC<{ groups: DownDistGroup[] }> = ({ gro
 
   const Cell: React.FC<{ g?: DownDistGroup; span?: boolean; label: string }> = ({ g, span, label }) => {
     const has = g && g.count > 0;
+    const clickable = Boolean(onSelect && has);
+    const selected = Boolean(has && selectedLabel && g!.label === selectedLabel);
+    const Tag = clickable ? 'button' : 'div';
     return (
-      <div
-        className={`rounded-md p-2 min-h-[64px] flex flex-col justify-between ${span ? 'col-span-3' : ''} ${
+      <Tag
+        {...(clickable ? { type: 'button' as const, onClick: () => onSelect!(g!), 'aria-pressed': selected } : {})}
+        className={`rounded-md p-2 min-h-[64px] flex flex-col justify-between text-left ${span ? 'col-span-3' : ''} ${
           has ? 'text-white dark:text-white' : 'bg-slate-100 dark:bg-slate-800/60 text-slate-400 dark:text-slate-500'
+        } ${clickable ? 'cursor-pointer hover:brightness-110 transition' : ''} ${
+          selected ? 'outline outline-[3px] outline-offset-2 outline-slate-900 dark:outline-white' : ''
         }`}
         style={has ? { background: leanColor(g!.runPct) } : undefined}
         title={has ? `${label}: ${g!.count} plays, ${g!.runPct}% run, ${g!.avgGain} yds avg, ${g!.successRate}% success` : `${label}: no plays`}
       >
-        <div className="text-[10px] font-bold uppercase tracking-wide opacity-90 leading-tight text-white dark:text-white">{label}</div>
+        <div className="text-[10px] font-bold uppercase tracking-wide leading-tight text-white dark:text-white">{label}</div>
         {has ? (
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-0.5 sm:gap-1">
             <span className="text-sm sm:text-base font-black leading-none text-white dark:text-white">
               {g!.runPct >= 50 ? `${g!.runPct}% run` : `${g!.passPct}% pass`}
             </span>
-            <span className="text-[10px] font-bold opacity-90 text-white dark:text-white">{g!.count} pl · {g!.avgGain} yds</span>
+            <span className="text-[10px] font-bold text-white dark:text-white">{g!.count} pl · {g!.avgGain} yds</span>
           </div>
         ) : (
           <span className="text-[11px] font-semibold">No plays</span>
         )}
-      </div>
+      </Tag>
     );
   };
 
@@ -95,8 +108,10 @@ export const DownDistanceHeatmap: React.FC<{ groups: DownDistGroup[] }> = ({ gro
     <div className={card}>
       <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
         <div>
-          <h3 className={title}>Down & distance heat map</h3>
-          <p className={sub}>Greener = more run, bluer = more pass. Hover a box for success rate.</p>
+          <h3 className={title}>{heading}</h3>
+          <p className={sub}>
+            {subheading ?? (onSelect ? 'Greener = more run, bluer = more pass. Tap a box for details.' : 'Greener = more run, bluer = more pass.')}
+          </p>
         </div>
         <Legend />
       </div>
@@ -178,7 +193,10 @@ export const GainDistributionChart: React.FC<{ plays: Play[] }> = ({ plays }) =>
 };
 
 /** 3. Field zone strip: what they call from their own goal line to ours. */
-export const FieldZoneStrip: React.FC<{ plays: Play[] }> = ({ plays }) => {
+export const FieldZoneStrip: React.FC<{ plays: Play[]; subheading?: string }> = ({
+  plays,
+  subheading = 'Their offense driving left to right, from their goal line to ours.',
+}) => {
   const zones: { id: FieldZone; label: string; yards: string; width: number }[] = [
     { id: 'backed_up', label: 'Backed up', yards: 'Own 1-10', width: 12 },
     { id: 'own_territory', label: 'Own territory', yards: 'Own 11-50', width: 34 },
@@ -198,7 +216,7 @@ export const FieldZoneStrip: React.FC<{ plays: Play[] }> = ({ plays }) => {
       <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
         <div>
           <h3 className={title}>Calls by field position</h3>
-          <p className={sub}>Their offense driving left to right, from their goal line to ours.</p>
+          <p className={sub}>{subheading}</p>
         </div>
         <Legend />
       </div>
@@ -232,7 +250,7 @@ export const FieldZoneStrip: React.FC<{ plays: Play[] }> = ({ plays }) => {
 };
 
 /** 4. Run gaps: an offensive line with an arrow into each gap, thicker = more runs. */
-export const RunGapDiagram: React.FC<{ analysis: TendencyAnalysis }> = ({ analysis }) => {
+export const RunGapDiagram: React.FC<{ analysis: TendencyAnalysis; heading?: string }> = ({ analysis, heading = 'Where they run' }) => {
   const d = analysis.runDirections;
   const gaps = [
     { key: 'leftPerimeter', label: 'Left edge', x: 40, y: 34, n: d.leftPerimeter },
@@ -252,7 +270,7 @@ export const RunGapDiagram: React.FC<{ analysis: TendencyAnalysis }> = ({ analys
     <div className={card}>
       <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
         <div>
-          <h3 className={title}>Where they run ({total} runs)</h3>
+          <h3 className={title}>{heading} ({total} runs)</h3>
           <p className={sub}>
             Thicker, brighter arrows = more runs at that gap.
             {total > 0 && <> Favorite: <strong className="text-slate-800 dark:text-slate-100">{top.label} ({Math.round((top.n / total) * 100)}%)</strong>.</>}
@@ -291,12 +309,14 @@ export const RunGapDiagram: React.FC<{ analysis: TendencyAnalysis }> = ({ analys
           {gaps.map((g) => {
             const pct = total ? Math.round((g.n / total) * 100) : 0;
             const ty = g.y === 34 ? 14 : 40;
+                        const lx = g.key === 'aGapLeft' ? g.x + 12 : g.key === 'aGapRight' ? g.x - 12 : g.x;
+            const anchor = g.key === 'aGapLeft' ? 'end' : g.key === 'aGapRight' ? 'start' : 'middle';
             return (
               <g key={g.key + '-label'}>
-                <text x={g.x} y={ty} textAnchor="middle" className={g.n ? 'fill-slate-900 dark:fill-white' : 'fill-slate-400 dark:fill-slate-500'} style={{ fontSize: 13, fontWeight: 800 }}>
+                <text x={lx} y={ty} textAnchor={anchor} className={g.n ? 'fill-slate-900 dark:fill-white' : 'fill-slate-400 dark:fill-slate-500'} style={{ fontSize: 13, fontWeight: 800 }}>
                   {pct}%
                 </text>
-                <text x={g.x} y={ty + 10} textAnchor="middle" className="fill-slate-500 dark:fill-slate-400" style={{ fontSize: 8, fontWeight: 700 }}>
+                <text x={lx} y={ty + 10} textAnchor={anchor} className="fill-slate-500 dark:fill-slate-400" style={{ fontSize: 8, fontWeight: 700 }}>
                   {g.label}
                 </text>
               </g>

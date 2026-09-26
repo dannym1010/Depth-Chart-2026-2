@@ -6852,12 +6852,12 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
       </main>
 
       {/* Mobile Bottom Quick Launch Dock (Phone Viewports) */}
-      <nav aria-label="Mobile Navigation" className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 backdrop-blur-lg border-t border-slate-800 px-2 py-1.5 flex items-center justify-around shadow-2xl print:hidden">
+      <nav aria-label="Mobile Navigation" className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-950/95 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800 px-2 py-1.5 flex items-center justify-around shadow-2xl print:hidden">
         <button
           type="button"
           onClick={() => setActiveUnit('mobile_hub')}
           className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl transition-all cursor-pointer ${
-            activeUnit === 'mobile_hub' ? 'text-indigo-400 font-black' : 'text-slate-400 font-semibold'
+            activeUnit === 'mobile_hub' ? 'text-indigo-700 dark:text-indigo-400 font-black' : 'text-slate-500 dark:text-slate-400 font-semibold'
           }`}
         >
           <Smartphone className="w-5 h-5" />
@@ -6873,8 +6873,8 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
           }}
           className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl transition-all cursor-pointer ${
             ['offense', 'defense', 'st', 'groups', 'scrimmage', 'depth_chart'].includes(activeUnit)
-              ? 'text-indigo-400 font-black'
-              : 'text-slate-400 font-semibold'
+              ? 'text-indigo-700 dark:text-indigo-400 font-black'
+              : 'text-slate-500 dark:text-slate-400 font-semibold'
           }`}
         >
           <Layers className="w-5 h-5" />
@@ -6886,8 +6886,8 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
           onClick={() => setActiveUnit('game_day')}
           className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl transition-all cursor-pointer ${
             ['game_day', 'wristband', 'call_sheet', 'scouting', 'hudl_scout', 'tendencies', 'html_tendencies'].includes(activeUnit)
-              ? 'text-red-400 font-black'
-              : 'text-slate-400 font-semibold'
+              ? 'text-red-600 dark:text-red-400 font-black'
+              : 'text-slate-500 dark:text-slate-400 font-semibold'
           }`}
         >
           <Swords className="w-5 h-5" />
@@ -6899,8 +6899,8 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
           onClick={() => setActiveUnit('whiteboard')}
           className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl transition-all cursor-pointer ${
             activeUnit === 'whiteboard' || activeUnit === 'drills'
-              ? 'text-emerald-400 font-black'
-              : 'text-slate-400 font-semibold'
+              ? 'text-emerald-700 dark:text-emerald-400 font-black'
+              : 'text-slate-500 dark:text-slate-400 font-semibold'
           }`}
         >
           <PenTool className="w-5 h-5" />
@@ -6923,7 +6923,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
             }
           }}
           className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl transition-all cursor-pointer ${
-            isMobileNavOpen ? 'text-indigo-400 font-black' : 'text-slate-400 font-semibold'
+            isMobileNavOpen ? 'text-indigo-700 dark:text-indigo-400 font-black' : 'text-slate-500 dark:text-slate-400 font-semibold'
           }`}
         >
           <Menu className="w-5 h-5" />
