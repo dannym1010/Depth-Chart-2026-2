@@ -572,15 +572,21 @@ export default function App() {
       const parsed = parseRouteHash(window.location.hash);
       if (parsed.drillId) return parsed.drillId;
     }
-    return 'krausko-blitz-master';
+    // Reopen the last drill the coach looked at.
+    return safeJSONParse('footballWhiteboardDrillId', 'krausko-blitz-master');
   });
   const [activeWhiteboardCategory, setActiveWhiteboardCategory] = useState<DefensivePositionCategory | 'ALL'>(() => {
     if (typeof window !== 'undefined' && window.location.hash) {
       const parsed = parseRouteHash(window.location.hash);
       if (parsed.drillCategory) return parsed.drillCategory;
     }
-    return 'LB';
+    // Last category the coach picked; every drill until they pick one (not always LB).
+    return safeJSONParse<DefensivePositionCategory | 'ALL'>('footballWhiteboardCategory', 'ALL');
   });
+  useEffect(() => {
+    safeJSONSet('footballWhiteboardDrillId', activeWhiteboardDrillId);
+    safeJSONSet('footballWhiteboardCategory', activeWhiteboardCategory);
+  }, [activeWhiteboardDrillId, activeWhiteboardCategory]);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState<boolean>(() =>
     safeJSONParse('footballSidebarExpanded', false)
   );
@@ -6896,7 +6902,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
 
         <button
           type="button"
-          onClick={() => setActiveUnit('whiteboard')}
+          onClick={() => setActiveUnit('drills')}
           className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl transition-all cursor-pointer ${
             activeUnit === 'whiteboard' || activeUnit === 'drills'
               ? 'text-emerald-700 dark:text-emerald-400 font-black'

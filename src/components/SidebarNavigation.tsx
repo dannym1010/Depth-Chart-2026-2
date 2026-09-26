@@ -103,8 +103,8 @@ const MAIN_NAV_ITEMS: NavItemConfig[] = [
     label: 'Drills & Whiteboard Playbook',
     shortLabel: 'Drills',
     icon: Folder,
-    description: 'Krausko linebacker blitz progression, NT 2-gap combat, tackling circuits & playbook whiteboard',
-    badgeText: '15 Drills',
+    description: 'Every drill by position group, with chalkboard diagrams',
+    badgeText: 'Drills',
     hasCascadingFolders: true,
   },
   {
@@ -836,14 +836,14 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                     onMouseEnter={() => handleHoverEnter(item.id)}
                     onMouseLeave={handleHoverLeave}
                     onClick={() => {
+                      // The folder opens the full Drill Library (every position group);
+                      // picking a group or a drill inside the folder opens the chalkboard.
                       if (!isExpanded) {
-                        // In collapsed mode, navigate to whiteboard and expand
                         toggleSidebar();
-                        onSelectUnit('whiteboard');
                       } else {
                         toggleFolder('drills_main');
-                        onSelectUnit('whiteboard');
                       }
+                      onSelectUnit('drills');
                     }}
                     className={`flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl cursor-pointer transition-all border ${
                       active
@@ -876,7 +876,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                               active ? 'text-indigo-200' : 'text-slate-400'
                             }`}
                           >
-                            Youth Drills & Krausko Blitz
+                            All drills by position group
                           </span>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
