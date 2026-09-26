@@ -53,7 +53,7 @@ export const OFFENSE_MATRIX_DRILLS: WhiteboardDrill[] = [
           { id: 'c-1', type: 'O', label: 'C', x: 350, y: 220, color: '#1a1a24' },
           { id: 'qb-1', type: 'O', label: 'QB', x: 350, y: 310, color: '#d91b24', subLabel: 'Plant & Fire' },
           { id: 'wr-1', type: 'O', label: 'WR', x: 230, y: 160, color: '#2563eb', subLabel: 'Slant' },
-          { id: 'target-1', type: 'target', label: '🎯', x: 230, y: 155, color: '#10b981' },
+          { id: 'target-1', type: 'target', label: '🎯', x: 252, y: 134, color: '#10b981' },
         ],
         arrows: [
           { id: 'a-cross', type: 'run', startX: 350, startY: 280, endX: 350, endY: 310, color: '#d91b24', label: '2-3. Plant' },
@@ -223,11 +223,11 @@ export const OFFENSE_MATRIX_DRILLS: WhiteboardDrill[] = [
         description: 'QB sprints laterally along rollout curve, squares chest at hash mark, and delivers pass to comeback route.',
         tokens: [
           { id: 'c-1', type: 'O', label: 'C', x: 300, y: 220, color: '#1a1a24' },
-          { id: 'qb-1', type: 'O', label: 'QB', x: 440, y: 260, color: '#d91b24', subLabel: 'Sprint Edge' },
+          { id: 'qb-1', type: 'O', label: 'QB', x: 300, y: 262, color: '#d91b24', subLabel: 'Sprint Edge' },
           { id: 'wr-1', type: 'O', label: 'WR', x: 550, y: 160, color: '#2563eb', subLabel: 'Comeback' },
         ],
         arrows: [
-          { id: 'a-roll', type: 'curved', startX: 300, startY: 260, endX: 440, endY: 260, controlX: 370, controlY: 290, color: '#d91b24', label: 'Sprint Track' },
+          { id: 'a-roll', type: 'curved', startX: 300, startY: 262, endX: 440, endY: 260, controlX: 370, controlY: 290, color: '#d91b24', label: 'Sprint Track' },
           { id: 'a-throw', type: 'pass', startX: 440, startY: 260, endX: 550, endY: 160, color: '#f59e0b', label: 'Square & Throw' },
         ],
         zones: [],
@@ -425,11 +425,11 @@ export const OFFENSE_MATRIX_DRILLS: WhiteboardDrill[] = [
         description: 'RB reads A-gap blitzer, fires downhill to line of scrimmage with wide base.',
         tokens: [
           { id: 'qb-1', type: 'O', label: 'QB', x: 350, y: 280, color: '#d91b24' },
-          { id: 'rb-1', type: 'O', label: 'RB', x: 320, y: 220, color: '#059669', subLabel: 'Step Up' },
+          { id: 'rb-1', type: 'O', label: 'RB', x: 320, y: 252, color: '#059669', subLabel: 'Step Up' },
           { id: 'lb-1', type: 'X', label: 'BLITZ', x: 320, y: 150, color: '#ef4444' },
         ],
         arrows: [
-          { id: 'a-rb-step', type: 'run', startX: 320, startY: 250, endX: 320, endY: 200, color: '#059669', label: 'Meet at LOS' },
+          { id: 'a-rb-step', type: 'run', startX: 320, startY: 252, endX: 320, endY: 205, color: '#059669', label: 'Meet at LOS' },
           { id: 'a-blitz', type: 'blitz', startX: 320, startY: 150, endX: 320, endY: 195, color: '#ef4444', label: 'A-Gap Blitz' },
         ],
         zones: [],
@@ -806,8 +806,8 @@ export const OFFENSE_MATRIX_DRILLS: WhiteboardDrill[] = [
           { id: 'cb-1', type: 'X', label: 'CB', x: 350, y: 140, color: '#7c3aed' },
         ],
         arrows: [
-          { id: 'a-approach', type: 'run', startX: 320, startY: 265, endX: 320, endY: 180, color: '#2563eb', label: 'Close Cushion' },
-          { id: 'a-stalk', type: 'block', startX: 350, startY: 180, endX: 350, endY: 155, color: '#f59e0b', label: 'Buzz & Strike' },
+          { id: 'a-approach', type: 'run', startX: 350, startY: 270, endX: 350, endY: 192, color: '#2563eb', label: 'Close Cushion' },
+          { id: 'a-stalk', type: 'block', startX: 350, startY: 192, endX: 350, endY: 160, color: '#f59e0b', label: 'Buzz & Strike' },
         ],
         zones: [],
       },
@@ -836,7 +836,7 @@ export const OFFENSE_MATRIX_DRILLS: WhiteboardDrill[] = [
         description: 'WR catches dig route over middle, locks ball, and charges through pads.',
         tokens: [
           { id: 'qb-1', type: 'O', label: 'QB', x: 350, y: 280, color: '#d91b24' },
-          { id: 'wr-1', type: 'O', label: 'WR', x: 280, y: 170, color: '#2563eb', subLabel: 'Catch' },
+          { id: 'wr-1', type: 'O', label: 'WR', x: 180, y: 200, color: '#2563eb', subLabel: 'Crosser' },
           { id: 'p1', type: 'X', label: 'PAD', x: 340, y: 160, color: '#64748b' },
           { id: 'p2', type: 'X', label: 'PAD', x: 340, y: 190, color: '#64748b' },
         ],

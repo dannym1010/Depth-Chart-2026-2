@@ -147,11 +147,11 @@ export const DEFENSE_MATRIX_DRILLS: WhiteboardDrill[] = [
         description: 'RB cuts to Left A. NT rips right arm free, steps across Center, and secures stop.',
         tokens: [
           { id: 'c-1', type: 'O', label: 'C', x: 365, y: 210, color: '#1a1a24' },
-          { id: 'nt-1', type: 'X', label: 'NT', x: 320, y: 190, color: '#4338ca', subLabel: 'Shed & Tackle' },
+          { id: 'nt-1', type: 'X', label: 'NT', x: 330, y: 206, color: '#4338ca', subLabel: 'Shed & Tackle' },
           { id: 'rb-1', type: 'O', label: 'RB', x: 315, y: 180, color: '#d91b24' },
         ],
         arrows: [
-          { id: 'a-shed', type: 'tackle', startX: 350, startY: 220, endX: 320, endY: 190, color: '#10b981', label: 'Shed Left A' },
+          { id: 'a-shed', type: 'tackle', startX: 350, startY: 262, endX: 330, endY: 206, color: '#10b981', label: 'Shed Left A' },
         ],
         zones: [],
       },
@@ -193,12 +193,12 @@ export const DEFENSE_MATRIX_DRILLS: WhiteboardDrill[] = [
         description: 'DT blows up kickout seam; ball carrier is forced to bounce wide into scraping LB.',
         tokens: [
           { id: 'dt-1', type: 'X', label: 'DT', x: 345, y: 220, color: '#4338ca', subLabel: 'Spilled' },
-          { id: 'lb-1', type: 'X', label: 'MLB', x: 420, y: 210, color: '#058538', subLabel: 'Clean Up' },
+          { id: 'lb-1', type: 'X', label: 'MLB', x: 425, y: 236, color: '#058538', subLabel: 'Clean Up' },
           { id: 'rb-1', type: 'O', label: 'RB', x: 430, y: 200, color: '#d91b24', subLabel: 'Bounced Wide' },
         ],
         arrows: [
-          { id: 'a-bounce', type: 'run', startX: 345, startY: 180, endX: 430, endY: 200, color: '#d91b24', label: 'Bounce' },
-          { id: 'a-tkl', type: 'tackle', startX: 420, startY: 250, endX: 430, endY: 200, color: '#058538', label: 'Vice Tackle' },
+          { id: 'a-bounce', type: 'run', startX: 300, startY: 150, endX: 430, endY: 200, color: '#d91b24', label: 'Bounce', controlX: 385, controlY: 158 },
+          { id: 'a-tkl', type: 'tackle', startX: 425, startY: 236, endX: 430, endY: 200, color: '#058538', label: 'Vice Tackle' },
         ],
         zones: [],
       },
@@ -550,10 +550,10 @@ export const DEFENSE_MATRIX_DRILLS: WhiteboardDrill[] = [
         description: 'RB cuts vertical. LB plants outside foot and drives downhill for form tackle.',
         tokens: [
           { id: 'rb-1', type: 'O', label: 'RB', x: 430, y: 220, color: '#d91b24' },
-          { id: 'lb-1', type: 'X', label: 'MIKE', x: 415, y: 230, color: '#10b981', subLabel: 'Form Fit' },
+          { id: 'lb-1', type: 'X', label: 'MIKE', x: 400, y: 262, color: '#10b981', subLabel: 'Form Fit' },
         ],
         arrows: [
-          { id: 'a-hit', type: 'tackle', startX: 400, startY: 260, endX: 430, endY: 220, color: '#10b981', label: 'Strike Downhill' },
+          { id: 'a-hit', type: 'tackle', startX: 400, startY: 262, endX: 428, endY: 224, color: '#10b981', label: 'Strike Downhill' },
         ],
         zones: [],
       },
@@ -594,11 +594,11 @@ export const DEFENSE_MATRIX_DRILLS: WhiteboardDrill[] = [
         description: 'LB rips arm free, side-steps blocker, and executes textbook form tackle on RB.',
         tokens: [
           { id: 'fb-1', type: 'O', label: 'FB', x: 375, y: 210, color: '#1a1a24' },
-          { id: 'lb-1', type: 'X', label: 'ILB', x: 340, y: 190, color: '#10b981', subLabel: 'Shed & Wrap' },
+          { id: 'lb-1', type: 'X', label: 'ILB', x: 345, y: 206, color: '#10b981', subLabel: 'Shed & Wrap' },
           { id: 'rb-1', type: 'O', label: 'RB', x: 340, y: 180, color: '#d91b24' },
         ],
         arrows: [
-          { id: 'a-shed', type: 'tackle', startX: 350, startY: 225, endX: 340, endY: 185, color: '#10b981', label: 'Shed to Runner' },
+          { id: 'a-shed', type: 'tackle', startX: 350, startY: 262, endX: 345, endY: 206, color: '#10b981', label: 'Shed to Runner' },
         ],
         zones: [],
       },
@@ -787,7 +787,7 @@ export const DEFENSE_MATRIX_DRILLS: WhiteboardDrill[] = [
         arrows: [
           { id: 'a-scrape', type: 'run', startX: 350, startY: 290, endX: 250, endY: 275, color: '#10b981', label: 'Scrape Over Trash' },
           { id: 'a-spill-hit', type: 'block', startX: 240, startY: 270, endX: 240, endY: 245, color: '#10b981', label: 'Inside Flipper Spill' },
-          { id: 'a-rb-spilled', type: 'run', startX: 250, startY: 180, endX: 170, endY: 215, color: '#d91b24', label: 'Forced Wide Outside' },
+          { id: 'a-rb-spilled', type: 'run', startX: 200, startY: 200, endX: 166, endY: 228, color: '#d91b24', label: 'Forced Wide Outside' },
         ],
         zones: [
           { id: 'z-spill', name: 'SPILL ZONE (FORCE WIDE)', cx: 240, cy: 255, rx: 50, ry: 30, color: '#f59e0b', opacity: 0.25 },
@@ -800,11 +800,11 @@ export const DEFENSE_MATRIX_DRILLS: WhiteboardDrill[] = [
           { id: 'cone-1', type: 'cone', label: 'ALLEY', x: 140, y: 200, color: '#ea580c' },
           { id: 'cone-2', type: 'cone', label: 'ALLEY', x: 140, y: 280, color: '#ea580c' },
           { id: 'rb-tackled', type: 'O', label: 'RB', x: 170, y: 235, color: '#d91b24', subLabel: 'Wrapped' },
-          { id: 'lb-tackle', type: 'X', label: 'MIKE', x: 180, y: 245, color: '#10b981', subLabel: 'Form Fit' },
+          { id: 'lb-tackle', type: 'X', label: 'MIKE', x: 192, y: 260, color: '#10b981', subLabel: 'Form Fit' },
         ],
         arrows: [
-          { id: 'a-disengage', type: 'run', startX: 240, startY: 260, endX: 190, endY: 250, color: '#10b981', label: 'Disengage & Trigger' },
-          { id: 'a-finish-tackle', type: 'tackle', startX: 180, startY: 245, endX: 170, endY: 235, color: '#10b981', label: 'Wrap & Drive Feet' },
+          { id: 'a-disengage', type: 'run', startX: 240, startY: 260, endX: 192, endY: 260, color: '#10b981', label: 'Disengage & Trigger' },
+          { id: 'a-finish-tackle', type: 'tackle', startX: 192, startY: 260, endX: 172, endY: 238, color: '#10b981', label: 'Wrap & Drive Feet' },
         ],
         zones: [
           { id: 'z-alley-finish', name: 'TACKLE ALLEY (FINISH RUNNER)', cx: 165, cy: 240, rx: 55, ry: 45, color: '#10b981', opacity: 0.2 },

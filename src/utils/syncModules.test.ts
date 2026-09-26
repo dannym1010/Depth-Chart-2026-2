@@ -2205,3 +2205,39 @@ describe('Black / Blue / Gold unit stats (our-team play log)', () => {
     assert.equal((cleared as any)[0].unit, undefined);
   });
 });
+
+describe('drill whiteboards draw cleanly', () => {
+  it('every step of every built-in drill renders with real numbers and keeps its words', async () => {
+    const React = await import('react');
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    const { WHITEBOARD_DRILLS } = await import('../components/whiteboard/whiteboardDrillData.ts');
+    const { DrillBoardSvg, boardFrame } = await import('../components/whiteboard/DrillBoardSvg.tsx');
+    let steps = 0;
+    for (const drill of WHITEBOARD_DRILLS) {
+      const frame = boardFrame(drill.phases);
+      drill.phases.forEach((phase, i) => {
+        const svg = renderToStaticMarkup(React.createElement(DrillBoardSvg, { drill, phaseIdx: i, frame, forPrint: true }));
+        steps++;
+        assert.ok(!/NaN|Infinity/.test(svg), `${drill.id} step ${i + 1} has a bad coordinate`);
+        (phase.textElements || []).forEach((t) => {
+          const words = t.text.split(' ').filter(Boolean);
+          assert.ok(words.every((w) => svg.includes(w.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'))), `${drill.id} note lost words`);
+        });
+      });
+    }
+    assert.ok(steps > 150);
+  });
+
+  it('classifies players, bags, cones and ball carriers', async () => {
+    const { tokenKind } = await import('../components/whiteboard/DrillBoardSvg.tsx');
+    assert.equal(tokenKind({ id: 'a', type: 'X', label: 'MLB', x: 0, y: 0 }), 'defense');
+    assert.equal(tokenKind({ id: 'b', type: 'letter', label: 'E5', x: 0, y: 0 }), 'defense');
+    assert.equal(tokenKind({ id: 'c', type: 'O', label: 'RB', x: 0, y: 0 }), 'carrier');
+    assert.equal(tokenKind({ id: 'd', type: 'O', label: 'BALL', x: 0, y: 0 }), 'carrier');
+    assert.equal(tokenKind({ id: 'e', type: 'O', label: 'LG', x: 0, y: 0 }), 'lineman');
+    assert.equal(tokenKind({ id: 'f', type: 'O', label: 'WR', x: 0, y: 0 }), 'offense');
+    assert.equal(tokenKind({ id: 'g', type: 'bag', label: 'BAG 1', x: 0, y: 0 }), 'bag');
+    assert.equal(tokenKind({ id: 'h', type: 'cone', label: 'FINISH', x: 0, y: 0 }), 'cone');
+    assert.equal(tokenKind({ id: 'i', type: 'O', label: 'COACH', x: 0, y: 0 }), 'coach');
+  });
+});

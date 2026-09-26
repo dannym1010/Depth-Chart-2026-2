@@ -84,11 +84,11 @@ export const OTHER_MATRIX_DRILLS: WhiteboardDrill[] = [
         name: 'PHASE 2: CLAMP HAMSTRINGS & ROLL',
         description: 'Tackler shoulder impacts thigh, arms clamp behind knees, and body rolls with momentum to ground.',
         tokens: [
-          { id: 't-1', type: 'X', label: 'TKL', x: 335, y: 195, color: '#058538', subLabel: 'Roll Down' },
+          { id: 't-1', type: 'X', label: 'TKL', x: 322, y: 212, color: '#058538', subLabel: 'Roll Down' },
           { id: 'bc-1', type: 'O', label: 'BALL', x: 345, y: 190, color: '#d91b24' },
         ],
         arrows: [
-          { id: 'a-roll', type: 'tackle', startX: 320, startY: 225, endX: 340, endY: 180, color: '#058538', label: 'Alligator Roll' },
+          { id: 'a-roll', type: 'tackle', startX: 322, startY: 212, endX: 344, endY: 192, color: '#058538', label: 'Alligator Roll' },
         ],
         zones: [],
       },

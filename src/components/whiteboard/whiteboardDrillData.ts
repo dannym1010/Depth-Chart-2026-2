@@ -228,8 +228,8 @@ export const DLINE_DRILLS: WhiteboardDrill[] = [
           { id: 'dl-1', type: 'X', label: 'DL', x: 350, y: 140, color: '#058538', subLabel: 'Tackle' },
         ],
         arrows: [
-          { id: 'a-1', type: 'blitz', startX: 370, startY: 215, endX: 420, endY: 215, color: '#d91b24', label: 'Blocker Tossed' },
-          { id: 'a-2', type: 'straight', startX: 350, startY: 220, endX: 350, endY: 155, color: '#058538', label: 'Clean Rip & Wrap' },
+          { id: 'a-1', type: 'blitz', startX: 350, startY: 188, endX: 418, endY: 213, color: '#d91b24', label: 'Blocker Tossed' },
+          { id: 'a-2', type: 'straight', startX: 350, startY: 258, endX: 350, endY: 150, color: '#058538', label: 'Clean Rip & Wrap' },
         ],
         zones: [
           { id: 'z-tackle', name: 'TACKLE BOX', cx: 350, cy: 110, rx: 65, ry: 45, color: '#058538', opacity: 0.25 },
@@ -1063,11 +1063,11 @@ export const DLINE_DRILLS: WhiteboardDrill[] = [
         tokens: [
           { id: 'qb-1', type: 'O', label: 'QB', x: 350, y: 150, color: '#64748b' },
           { id: 'wr-1', type: 'O', label: 'SLOT', x: 350, y: 300, color: '#0052cc', subLabel: 'Target' },
-          { id: 'mlb-1', type: 'X', label: 'MLB', x: 350, y: 295, color: '#058538', subLabel: 'PICK SIX!' },
+          { id: 'mlb-1', type: 'X', label: 'MLB', x: 350, y: 262, color: '#058538', subLabel: 'PICK SIX!' },
         ],
         arrows: [
-          { id: 'a-throw', type: 'straight', startX: 350, startY: 160, endX: 350, endY: 280, color: '#d91b24', dashed: true, label: 'Intercepted Pass' },
-          { id: 'a-break-lb', type: 'blitz', startX: 370, startY: 350, endX: 350, endY: 295, color: '#058538', label: 'Downhill Drive' },
+          { id: 'a-throw', type: 'straight', startX: 350, startY: 160, endX: 350, endY: 258, color: '#d91b24', dashed: true, label: 'Intercepted Pass' },
+          { id: 'a-break-lb', type: 'blitz', startX: 370, startY: 350, endX: 350, endY: 262, color: '#058538', label: 'Downhill Drive' },
         ],
         zones: [
           { id: 'z-pick', name: 'TURNOVER / RETURN ALLEY', cx: 350, cy: 290, rx: 50, ry: 30, color: '#058538', opacity: 0.35 },
@@ -1113,9 +1113,7 @@ export const DLINE_DRILLS: WhiteboardDrill[] = [
           { id: 'lb-1', type: 'X', label: 'MLB 1', x: 320, y: 245, color: '#d91b24', subLabel: 'Left A-Mug' },
           { id: 'lb-2', type: 'X', label: 'MLB 2', x: 380, y: 245, color: '#d91b24', subLabel: 'Right A-Mug' },
         ],
-        arrows: [
-          { id: 'a-mug-1', type: 'straight', startX: 320, startY: 280, endX: 320, endY: 245, color: '#d91b24', dashed: true, label: 'Walk Up' },
-          { id: 'a-mug-2', type: 'straight', startX: 380, startY: 280, endX: 380, endY: 245, color: '#d91b24', dashed: true, label: 'Walk Up' },
+        arrows: [
         ],
         zones: [
           { id: 'z-pressure', name: 'DOUBLE A-GAP PRESSURE', cx: 350, cy: 230, rx: 70, ry: 30, color: '#d91b24', opacity: 0.2 },
@@ -1194,7 +1192,7 @@ export const DLINE_DRILLS: WhiteboardDrill[] = [
           { id: 'cone-top', type: 'cone', label: 'Cone', x: 350, y: 75, color: '#f97316' },
           { id: 'cone-l', type: 'cone', label: 'Cone', x: 120, y: 370, color: '#f97316' },
           { id: 'cone-r', type: 'cone', label: 'Cone', x: 580, y: 370, color: '#f97316' },
-          { id: 'rb-1', type: 'O', label: 'RB', x: 350, y: 75, color: '#dc2626', subLabel: 'Ball Carrier' },
+          { id: 'rb-1', type: 'O', label: 'RB', x: 350, y: 112, color: '#dc2626', subLabel: 'Ball Carrier' },
           { id: 'blocker-1', type: 'square', label: 'B1', x: 225, y: 185, color: '#1e293b', subLabel: 'Left Blocker' },
           { id: 'blocker-2', type: 'square', label: 'B2', x: 350, y: 170, color: '#1e293b', subLabel: 'Middle Blocker' },
           { id: 'blocker-3', type: 'square', label: 'B3', x: 475, y: 185, color: '#1e293b', subLabel: 'Right Blocker' },
@@ -1239,11 +1237,11 @@ export const DLINE_DRILLS: WhiteboardDrill[] = [
           { id: 'blocker-1', type: 'square', label: 'B1', x: 225, y: 185, color: '#94a3b8' },
           { id: 'blocker-2', type: 'square', label: 'B2', x: 385, y: 230, color: '#94a3b8', subLabel: 'Disengaged' },
           { id: 'blocker-3', type: 'square', label: 'B3', x: 475, y: 185, color: '#94a3b8' },
-          { id: 'lb-1', type: 'X', label: 'LB', x: 275, y: 300, color: '#058538', subLabel: 'SOLO TACKLE!' },
+          { id: 'lb-1', type: 'X', label: 'LB', x: 288, y: 306, color: '#058538', subLabel: 'SOLO TACKLE!' },
           { id: 'coach-1', type: 'O', label: 'COACH', x: 350, y: 455, color: '#7c3aed' },
         ],
         arrows: [
-          { id: 'a-redirect-p3', type: 'blitz', startX: 350, startY: 280, endX: 275, endY: 300, color: '#058538', label: 'Hip Reset & Tackle' },
+          { id: 'a-redirect-p3', type: 'blitz', startX: 350, startY: 280, endX: 288, endY: 306, color: '#058538', label: 'Hip Reset & Tackle' },
           { id: 'a-cut-p3', type: 'curved', startX: 350, startY: 140, endX: 260, endY: 280, controlX: 380, controlY: 200, color: '#dc2626', label: 'Cutback' },
         ],
         zones: [
@@ -1315,10 +1313,10 @@ export const DLINE_DRILLS: WhiteboardDrill[] = [
         description: 'CB accelerates downhill at 45 degrees, punches through receiver\'s hands at the catch point, and breaks up pass.',
         tokens: [
           { id: 'wr-1', type: 'O', label: 'WR', x: 130, y: 270, color: '#0052cc', subLabel: 'Incomplete' },
-          { id: 'cb-1', type: 'X', label: 'CB', x: 130, y: 270, color: '#058538', subLabel: 'PASS BREAKUP!' },
+          { id: 'cb-1', type: 'X', label: 'CB', x: 152, y: 290, color: '#058538', subLabel: 'PASS BREAKUP!' },
         ],
         arrows: [
-          { id: 'a-drive-pbu', type: 'blitz', startX: 180, startY: 360, endX: 130, endY: 270, color: '#058538', label: '45° Violent Drive' },
+          { id: 'a-drive-pbu', type: 'blitz', startX: 180, startY: 360, endX: 152, endY: 290, color: '#058538', label: '45° Violent Drive' },
         ],
         zones: [
           { id: 'z-pbu', name: 'TURNOVER / PBU ZONE', cx: 130, cy: 270, rx: 45, ry: 30, color: '#058538', opacity: 0.35 },
@@ -1388,10 +1386,10 @@ export const DLINE_DRILLS: WhiteboardDrill[] = [
         description: 'CB leaps before WR, snatches football at peak apex with two hands, and lands with ball securely tucked away.',
         tokens: [
           { id: 'wr-1', type: 'O', label: 'WR', x: 150, y: 410, color: '#64748b' },
-          { id: 'cb-1', type: 'X', label: 'CB', x: 155, y: 420, color: '#058538', subLabel: 'INTERCEPTION!' },
+          { id: 'cb-1', type: 'X', label: 'CB', x: 172, y: 430, color: '#058538', subLabel: 'INTERCEPTION!' },
         ],
         arrows: [
-          { id: 'a-leap', type: 'straight', startX: 160, startY: 385, endX: 155, endY: 420, color: '#058538', label: 'High Point Apex' },
+          { id: 'a-leap', type: 'straight', startX: 160, startY: 385, endX: 172, endY: 430, color: '#058538', label: 'High Point Apex' },
         ],
         zones: [
           { id: 'z-int', name: 'INTERCEPTION APEX', cx: 155, cy: 420, rx: 50, ry: 30, color: '#058538', opacity: 0.35 },
@@ -1433,11 +1431,11 @@ export const DLINE_DRILLS: WhiteboardDrill[] = [
           { id: 'qb-1', type: 'O', label: 'QB', x: 350, y: 150, color: '#d91b24' },
           { id: 'wr-1', type: 'O', label: 'WR', x: 150, y: 230, color: '#0052cc', subLabel: 'Press Release' },
           { id: 'rb-1', type: 'O', label: 'RB', x: 300, y: 140, color: '#0052cc', subLabel: 'Swing Motion' },
-          { id: 'cb-1', type: 'X', label: 'CB', x: 150, y: 245, color: '#7c3aed', subLabel: 'Two-Hand Jam' },
+          { id: 'cb-1', type: 'X', label: 'CB', x: 150, y: 264, color: '#7c3aed', subLabel: 'Two-Hand Jam' },
           { id: 's-1',  type: 'X', label: 'FS', x: 200, y: 410, color: '#0284c7', subLabel: 'Deep Half' },
         ],
         arrows: [
-          { id: 'a-jam', type: 'straight', startX: 150, startY: 245, endX: 150, endY: 230, color: '#7c3aed', label: 'Violent Jam' },
+          { id: 'a-jam', type: 'straight', startX: 150, startY: 264, endX: 150, endY: 236, color: '#7c3aed', label: 'Violent Jam' },
           { id: 'a-rb-swing', type: 'curved', startX: 300, startY: 140, endX: 120, endY: 210, controlX: 200, controlY: 150, color: '#0052cc', label: 'Swing Route' },
         ],
         zones: [
@@ -1467,11 +1465,11 @@ export const DLINE_DRILLS: WhiteboardDrill[] = [
         description: 'CB explodes downhill, attacks outside shoulder of RB to keep contain, and makes solo tackle behind LOS.',
         tokens: [
           { id: 'rb-1', type: 'O', label: 'RB', x: 120, y: 210, color: '#0052cc', subLabel: 'Tackled' },
-          { id: 'cb-1', type: 'X', label: 'CB', x: 120, y: 215, color: '#058538', subLabel: 'FORCE TFL!' },
+          { id: 'cb-1', type: 'X', label: 'CB', x: 130, y: 240, color: '#058538', subLabel: 'FORCE TFL!' },
           { id: 's-1',  type: 'X', label: 'FS', x: 160, y: 300, color: '#0284c7', subLabel: 'Pursuit Vice' },
         ],
         arrows: [
-          { id: 'a-tfl-hit', type: 'straight', startX: 130, startY: 230, endX: 120, endY: 210, color: '#058538', label: 'Form Tackle' },
+          { id: 'a-tfl-hit', type: 'straight', startX: 135, startY: 260, endX: 130, endY: 240, color: '#058538', label: 'Form Tackle' },
         ],
         zones: [
           { id: 'z-force-tfl', name: 'PERIMETER STUFF', cx: 120, cy: 210, rx: 45, ry: 30, color: '#058538', opacity: 0.35 },
@@ -1528,11 +1526,11 @@ export const DLINE_DRILLS: WhiteboardDrill[] = [
         tokens: [
           { id: 'qb-1', type: 'O', label: 'QB', x: 350, y: 150, color: '#d91b24', subLabel: 'Thrown' },
           { id: 'wr-1', type: 'O', label: 'WR', x: 290, y: 360, color: '#0052cc', subLabel: 'Catch Point' },
-          { id: 'fs-1', type: 'X', label: 'FS', x: 310, y: 375, color: '#0284c7', subLabel: 'Full Sprint' },
+          { id: 'fs-1', type: 'X', label: 'FS', x: 318, y: 384, color: '#0284c7', subLabel: 'Full Sprint' },
         ],
         arrows: [
           { id: 'a-pass-post', type: 'straight', startX: 350, startY: 150, endX: 290, endY: 360, color: '#d91b24', dashed: true, label: 'Deep Post Throw' },
-          { id: 'a-fs-break', type: 'blitz', startX: 350, startY: 440, endX: 300, endY: 365, color: '#058538', label: 'Sprint Across Hashes' },
+          { id: 'a-fs-break', type: 'blitz', startX: 350, startY: 440, endX: 318, endY: 384, color: '#058538', label: 'Sprint Across Hashes' },
         ],
         zones: [
           { id: 'z-intercept-window', name: 'INTERCEPTION APEX', cx: 295, cy: 365, rx: 45, ry: 30, color: '#058538', opacity: 0.25 },
@@ -1543,11 +1541,11 @@ export const DLINE_DRILLS: WhiteboardDrill[] = [
         description: 'Pass is tipped in air. FS snatches ball out of the air with two hands, tucks it, and accelerates along sideline convoy.',
         tokens: [
           { id: 'wr-1', type: 'O', label: 'WR', x: 290, y: 360, color: '#64748b' },
-          { id: 'fs-1', type: 'X', label: 'FS', x: 285, y: 355, color: '#058538', subLabel: 'INTERCEPTED!' },
+          { id: 'fs-1', type: 'X', label: 'FS', x: 305, y: 390, color: '#058538', subLabel: 'INTERCEPTED!' },
           { id: 'cb-1', type: 'X', label: 'CB', x: 240, y: 320, color: '#7c3aed', subLabel: 'Lead Block' },
         ],
         arrows: [
-          { id: 'a-return', type: 'blitz', startX: 285, startY: 355, endX: 220, endY: 230, color: '#058538', label: '"FIRE!" Return Sprint' },
+          { id: 'a-return', type: 'blitz', startX: 305, startY: 390, endX: 220, endY: 230, color: '#058538', label: '"FIRE!" Return Sprint' },
         ],
         zones: [
           { id: 'z-return', name: 'SIDELINE RETURN ALLEY', cx: 230, cy: 260, rx: 50, ry: 40, color: '#058538', opacity: 0.35 },

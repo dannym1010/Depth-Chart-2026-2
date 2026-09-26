@@ -306,7 +306,7 @@ export const TEAM_CIRCUIT_DRILLS: WhiteboardDrill[] = [
           { id: 'd-fs', type: 'letter', label: 'FS', x: 470, y: 300, color: '#7c3aed', subLabel: 'Downhill Vice' },
         ],
         arrows: [
-          { id: 'a-rb-cut', type: 'curved', startX: 560, startY: 145, endX: 400, endY: 215, controlX: 500, controlY: 155, color: '#b91c1c', label: 'Sudden Cutback' },
+          { id: 'a-rb-cut', type: 'curved', startX: 500, startY: 170, endX: 400, endY: 215, controlX: 500, controlY: 155, color: '#b91c1c', label: 'Sudden Cutback' },
           { id: 'a-wlb-fill', type: 'blitz', startX: 340, startY: 250, endX: 390, endY: 215, color: '#058538', label: 'Choke Cutback Seam' },
           { id: 'a-mlb-retrack', type: 'straight', startX: 460, startY: 230, endX: 420, endY: 215, color: '#058538', label: 'Re-Track Ball' },
           { id: 'a-fs-vice', type: 'blitz', startX: 470, startY: 300, endX: 410, endY: 240, color: '#7c3aed', label: 'Top-Down Vice' },
@@ -320,8 +320,8 @@ export const TEAM_CIRCUIT_DRILLS: WhiteboardDrill[] = [
         description: 'Cutback lane is completely walled off. WLB and MLB meet runner chest-to-chest, Safety brackets over top, and DL trails. No two defenders run behind each other.',
         tokens: [
           { id: 'o-rb', type: 'O', label: 'RB', x: 400, y: 215, color: '#b91c1c', subLabel: 'Cutback Denied' },
-          { id: 'd-wlb', type: 'letter', label: 'W', x: 375, y: 215, color: '#058538', subLabel: 'Near Hip Clamp' },
-          { id: 'd-mlb', type: 'letter', label: 'M', x: 425, y: 215, color: '#058538', subLabel: 'Opposite Shoulder' },
+          { id: 'd-wlb', type: 'letter', label: 'W', x: 371, y: 215, color: '#058538', subLabel: 'Near Hip Clamp' },
+          { id: 'd-mlb', type: 'letter', label: 'M', x: 429, y: 215, color: '#058538', subLabel: 'Opposite Shoulder' },
           { id: 'd-fs', type: 'letter', label: 'FS', x: 400, y: 255, color: '#7c3aed', subLabel: 'Top Wrap' },
           { id: 'd-de-strong', type: 'letter', label: 'DE', x: 470, y: 210, color: '#0052cc', subLabel: 'Trail Swarm' },
           { id: 'd-de-weak', type: 'letter', label: 'DE', x: 320, y: 220, color: '#0052cc', subLabel: 'Trail Swarm' },

@@ -1,6 +1,9 @@
 import { WhiteboardDrill, isDrillWhiteboardEnabled } from './whiteboardDrillData';
 import { printCleanHTML } from '../../utils/printUtils';
 import { spreadDiagramElements } from './whiteboardSpreadHelper';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { DrillBoardSvg } from './DrillBoardSvg';
 
 /**
  * Dedicated high-contrast vector diagram for the Triangle Block Pop & Directional Peek drill,
@@ -916,82 +919,9 @@ export function generateDrillPrintHTML(drill: WhiteboardDrill, activePhaseIndex:
           `
           : isTriangleDrill
           ? generateTriangleDrillPrintSvg()
-          : `
-      <svg viewBox="0 0 700 500" class="diagram-svg" preserveAspectRatio="xMidYMid meet">
-        <defs>
-          <marker id="arrow-blue" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-            <path d="M 0 1 L 10 5 L 0 9 z" fill="#2563eb" />
-          </marker>
-          <marker id="arrow-purple" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-            <path d="M 0 1 L 10 5 L 0 9 z" fill="#7c3aed" />
-          </marker>
-          <marker id="arrow-red" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-            <path d="M 0 1 L 10 5 L 0 9 z" fill="#d91b24" />
-          </marker>
-          <marker id="arrow-green" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-            <path d="M 0 1 L 10 5 L 0 9 z" fill="#058538" />
-          </marker>
-          <marker id="t-bar" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-            <line x1="5" y1="0" x2="5" y2="10" stroke="#1a1a24" stroke-width="2.5" />
-          </marker>
-        </defs>
-
-        <!-- Pure White Field Surface -->
-        <rect x="0" y="0" width="700" height="500" fill="#ffffff" />
-
-        <!-- Tactical Formation Zone Footprint (Linebacker Triangle visual standard) -->
-        <polygon points="${zMidX},${zTop} ${zLeft},${zBottom} ${zRight},${zBottom}" fill="#eff6ff" stroke="#93c5fd" stroke-width="2" stroke-dasharray="6,6" />
-        <text x="350" y="${(zTop + zBottom) / 2 + 8}" font-family="sans-serif" font-size="26" font-weight="900" fill="#93c5fd" letter-spacing="4" text-anchor="middle" opacity="0.38">${watermarkLabel}</text>
-
-        <!-- 3D Perimeter Athletic Cones -->
-        <g transform="translate(${zMidX}, ${zTop})">
-          <polygon points="0,-11 -9,7 9,7" fill="#ea580c" stroke="#c2410c" stroke-width="1.4" />
-          <ellipse cx="0" cy="7" rx="8" ry="2.5" fill="#c2410c" />
-        </g>
-        <g transform="translate(${zLeft}, ${zBottom})">
-          <polygon points="0,-11 -9,7 9,7" fill="#ea580c" stroke="#c2410c" stroke-width="1.4" />
-          <ellipse cx="0" cy="7" rx="8" ry="2.5" fill="#c2410c" />
-        </g>
-        <g transform="translate(${zRight}, ${zBottom})">
-          <polygon points="0,-11 -9,7 9,7" fill="#ea580c" stroke="#c2410c" stroke-width="1.4" />
-          <ellipse cx="0" cy="7" rx="8" ry="2.5" fill="#c2410c" />
-        </g>
-
-        <!-- Yard Lines & Numbers matching playbook style -->
-        <g opacity="0.45">
-          <line x1="30" y1="80" x2="670" y2="80" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="6,4" />
-          <line x1="30" y1="160" x2="670" y2="160" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="6,4" />
-          <!-- LOS Solid Blue Line -->
-          <line x1="30" y1="240" x2="670" y2="240" stroke="#2563eb" stroke-width="2.5" />
-          <line x1="30" y1="320" x2="670" y2="320" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="6,4" />
-          <line x1="30" y1="400" x2="670" y2="400" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="6,4" />
-
-          <!-- Hash Marks -->
-          <line x1="280" y1="60" x2="280" y2="440" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="3,6" />
-          <line x1="420" y1="60" x2="420" y2="440" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="3,6" />
-
-          <!-- Yard line numbers -->
-          <text x="560" y="168" font-family="sans-serif" font-size="30" font-weight="900" fill="#cbd5e1" opacity="0.75">10</text>
-          <text x="560" y="328" font-family="sans-serif" font-size="30" font-weight="900" fill="#cbd5e1" opacity="0.75">20</text>
-          <text x="140" y="408" font-family="sans-serif" font-size="30" font-weight="900" fill="#cbd5e1" opacity="0.75">30</text>
-        </g>
-
-        <!-- Diagram Inset Card -->
-        ${insetSvg}
-
-        <!-- Coach Behind Setup -->
-        ${coachBehindPrintSvg}
-
-        <!-- Zones Layer -->
-        <g id="zonesLayer">${zoneSvg}</g>
-
-        <!-- Arrows Layer -->
-        <g id="arrowsLayer">${arrowSvg}</g>
-
-        <!-- Tokens Layer -->
-        <g id="tokensLayer">${tokenSvg}</g>
-      </svg>
-      `
+          : renderToStaticMarkup(
+              createElement(DrillBoardSvg, { drill, phaseIdx: activePhaseIndex, forPrint: true, className: 'diagram-svg' })
+            )
       }
     </div>
 
