@@ -1,10 +1,11 @@
 import React, { useMemo } from 'react';
 import { DownDistGroup, FieldZone, Play, TendencyAnalysis } from '../types/football';
 
-// Small SVG / CSS charts for the scouting report. Run is always green and pass always blue,
-// matching the run/pass bars used elsewhere in HudlScout.
+// Small SVG / CSS charts for the scouting report. Run is always green and pass always blue.
+// Both are fixed colors: the theme re-colors indigo/violet/sky/cyan, never emerald or blue,
+// so these stay the same whatever scheme a coach picks.
 export const RUN_COLOR = '#10b981';
-export const PASS_COLOR = '#0ea5e9';
+export const PASS_COLOR = '#3b82f6';
 
 const card = 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 sm:p-5';
 const title = 'text-sm font-bold text-slate-900 dark:text-slate-100';
@@ -13,15 +14,29 @@ const sub = 'text-[11px] text-slate-500 dark:text-slate-400';
 const isRun = (p: Play) => p.playType === 'RUN' || p.playType === 'RPO';
 const isPass = (p: Play) => p.playType === 'PASS' || p.playType === 'SCREEN';
 
-/** Blend from pass-blue (0% run) through neutral to run-green (100% run). */
-export function leanColor(runPct: number): string {
-  const t = Math.max(0, Math.min(1, runPct / 100));
-  // 0 -> sky-700, 0.5 -> slate-600, 1 -> emerald-700: deep enough that white labels stay readable
-  const from = t < 0.5 ? [3, 105, 161] : [71, 85, 105];
-  const to = t < 0.5 ? [71, 85, 105] : [4, 120, 87];
-  const k = t < 0.5 ? t / 0.5 : (t - 0.5) / 0.5;
-  const c = from.map((v, i) => Math.round(v + (to[i] - v) * k));
-  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+const RUN_STEPS = [
+  { bg: 'bg-emerald-100 dark:bg-emerald-950', text: 'text-emerald-950 dark:text-emerald-100' },
+  { bg: 'bg-emerald-200 dark:bg-emerald-900', text: 'text-emerald-950 dark:text-emerald-50' },
+  { bg: 'bg-emerald-400 dark:bg-emerald-800', text: 'text-emerald-950 dark:text-white' },
+  { bg: 'bg-emerald-600 dark:bg-emerald-700', text: 'text-white dark:text-white' },
+  { bg: 'bg-emerald-700 dark:bg-emerald-600', text: 'text-white dark:text-white' },
+];
+const PASS_STEPS = [
+  { bg: 'bg-blue-100 dark:bg-blue-950', text: 'text-blue-950 dark:text-blue-100' },
+  { bg: 'bg-blue-200 dark:bg-blue-900', text: 'text-blue-950 dark:text-blue-50' },
+  { bg: 'bg-blue-400 dark:bg-blue-800', text: 'text-blue-950 dark:text-white' },
+  { bg: 'bg-blue-600 dark:bg-blue-800', text: 'text-white dark:text-white' },
+  { bg: 'bg-blue-700 dark:bg-blue-700', text: 'text-white dark:text-white' },
+];
+const EVEN_STEP = { bg: 'bg-slate-200 dark:bg-slate-700', text: 'text-slate-900 dark:text-white' };
+
+/** Green for a run lean, blue for a pass lean, gray when it's close to even; deeper = stronger. */
+export function leanStyle(runPct: number, passPct: number) {
+  if (Math.abs(runPct - passPct) <= 10) return EVEN_STEP;
+  const run = runPct > passPct;
+  const pct = run ? runPct : passPct;
+  const step = pct >= 91 ? 4 : pct >= 81 ? 3 : pct >= 71 ? 2 : pct >= 61 ? 1 : 0;
+  return (run ? RUN_STEPS : PASS_STEPS)[step];
 }
 
 function Legend() {
@@ -78,24 +93,24 @@ export const DownDistanceHeatmap: React.FC<{
     const clickable = Boolean(onSelect && has);
     const selected = Boolean(has && selectedLabel && g!.label === selectedLabel);
     const Tag = clickable ? 'button' : 'div';
+    const lean = has ? leanStyle(g!.runPct, g!.passPct) : null;
     return (
       <Tag
         {...(clickable ? { type: 'button' as const, onClick: () => onSelect!(g!), 'aria-pressed': selected } : {})}
         className={`rounded-md p-2 min-h-[64px] flex flex-col justify-between text-left ${span ? 'col-span-3' : ''} ${
-          has ? 'text-white dark:text-white' : 'bg-slate-100 dark:bg-slate-800/60 text-slate-400 dark:text-slate-500'
-        } ${clickable ? 'cursor-pointer hover:brightness-110 transition' : ''} ${
+          lean ? `${lean.bg} ${lean.text}` : 'bg-slate-50 dark:bg-slate-900 border border-dashed border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500'
+        } ${clickable ? 'cursor-pointer hover:brightness-95 dark:hover:brightness-125 transition' : ''} ${
           selected ? 'outline outline-[3px] outline-offset-2 outline-slate-900 dark:outline-white' : ''
         }`}
-        style={has ? { background: leanColor(g!.runPct) } : undefined}
         title={has ? `${label}: ${g!.count} plays, ${g!.runPct}% run, ${g!.avgGain} yds avg, ${g!.successRate}% success` : `${label}: no plays`}
       >
-        <div className="text-[10px] font-bold uppercase tracking-wide leading-tight text-white dark:text-white">{label}</div>
+        <div className={`text-[10px] font-bold uppercase tracking-wide leading-tight ${lean ? lean.text : ''}`}>{label}</div>
         {has ? (
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-0.5 sm:gap-1">
-            <span className="text-sm sm:text-base font-black leading-none text-white dark:text-white">
+            <span className={`text-sm sm:text-base font-black leading-none ${lean!.text}`}>
               {g!.runPct >= 50 ? `${g!.runPct}% run` : `${g!.passPct}% pass`}
             </span>
-            <span className="text-[10px] font-bold text-white dark:text-white">{g!.count} pl · {g!.avgGain} yds</span>
+            <span className={`text-[10px] font-semibold ${lean!.text}`}>{g!.count} pl · {g!.avgGain} yds</span>
           </div>
         ) : (
           <span className="text-[11px] font-semibold">No plays</span>
@@ -110,7 +125,7 @@ export const DownDistanceHeatmap: React.FC<{
         <div>
           <h3 className={title}>{heading}</h3>
           <p className={sub}>
-            {subheading ?? (onSelect ? 'Greener = more run, bluer = more pass. Tap a box for details.' : 'Greener = more run, bluer = more pass.')}
+            {subheading ?? (onSelect ? 'Green = run, blue = pass. Bolder color = stronger lean. Tap a box for details.' : 'Green = run, blue = pass. Bolder color = stronger lean.')}
           </p>
         </div>
         <Legend />
@@ -220,30 +235,39 @@ export const FieldZoneStrip: React.FC<{ plays: Play[]; subheading?: string }> = 
         </div>
         <Legend />
       </div>
-      <div>
-        <div className="flex flex-col sm:flex-row rounded-md overflow-hidden border-2 border-emerald-700/60" style={{ background: '#14532d' }}>
-          {stats.map((z, i) => (
+      <div className="flex flex-col sm:flex-row gap-1.5">
+        {stats.map((z) => {
+          const scoring = z.id === 'red_zone' || z.id === 'goal_line';
+          return (
             <div
               key={z.id}
-              className={`p-2 flex flex-col gap-1.5 text-white dark:text-white w-full sm:w-[var(--zone-w)] ${i > 0 ? 'border-t sm:border-t-0 sm:border-l border-dashed border-white/40' : ''} ${z.id === 'red_zone' || z.id === 'goal_line' ? 'bg-rose-900/40' : ''}`}
+              className={`w-full sm:w-[var(--zone-w)] min-w-0 rounded-lg p-2.5 flex flex-col gap-1.5 border border-t-4 ${
+                scoring
+                  ? 'bg-rose-50 border-rose-200 border-t-rose-500 dark:bg-rose-950/40 dark:border-rose-500/30 dark:border-t-rose-500'
+                  : 'bg-slate-50 border-slate-200 border-t-slate-300 dark:bg-slate-950/40 dark:border-slate-800 dark:border-t-slate-600'
+              }`}
               style={{ '--zone-w': `${z.width}%` } as React.CSSProperties}
             >
-              <div className="text-[10px] font-black uppercase tracking-wide leading-tight text-white dark:text-white">{z.label}</div>
-              <div className="text-[10px] text-white/70 font-semibold leading-tight">{z.yards}</div>
+              <div className={`text-[10px] font-black uppercase tracking-wide leading-tight ${scoring ? 'text-rose-700 dark:text-rose-300' : 'text-slate-700 dark:text-slate-200'}`}>
+                {z.label}
+              </div>
+              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold leading-tight">{z.yards}</div>
               {z.count > 0 ? (
                 <>
                   <div className="h-2 w-full rounded-full overflow-hidden flex" style={{ background: PASS_COLOR }} title={`${z.runPct}% run`}>
                     <div style={{ width: `${z.runPct}%`, background: RUN_COLOR }} />
                   </div>
-                  <div className="text-xs font-black leading-tight text-white dark:text-white">{z.runPct}% run</div>
-                  <div className="text-[10px] text-white/80 font-semibold leading-tight">{z.count} pl · {z.avg} yds</div>
+                  <div className="text-sm font-black leading-tight text-slate-900 dark:text-white">{z.runPct}% run</div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold leading-tight">
+                    {z.count} pl · {z.avg} yds
+                  </div>
                 </>
               ) : (
-                <div className="text-[10px] text-white/60 font-semibold">No plays</div>
+                <div className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold">No plays</div>
               )}
             </div>
-          ))}
-        </div>
+          );
+        })}
       </div>
     </div>
   );

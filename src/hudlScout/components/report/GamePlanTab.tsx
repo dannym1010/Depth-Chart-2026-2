@@ -109,7 +109,7 @@ export const GamePlanTab: React.FC<GamePlanTabProps> = ({
                 )}
               </div>
               <div className="text-xs">
-                <div className="font-bold text-indigo-700 dark:text-indigo-300">
+                <div className="font-bold text-slate-900 dark:text-slate-100">
                   {r.call.front} · {r.call.coverage}
                 </div>
                 <div className="text-slate-600 dark:text-slate-300 mt-0.5">{r.call.emphasis}</div>

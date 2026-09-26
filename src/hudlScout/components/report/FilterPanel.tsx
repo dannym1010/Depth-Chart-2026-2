@@ -62,7 +62,7 @@ const Seg: React.FC<{ label: string; options: [string | number, string][]; value
           aria-pressed={value === v}
           className={`min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-colors ${
             value === v
-              ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900 dark:border-white'
+              ? 'bg-slate-800 text-white border-slate-800 dark:bg-slate-600 dark:text-white dark:border-slate-500'
               : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-700 dark:hover:border-slate-500'
           }`}
         >
@@ -142,7 +142,7 @@ export const FilterPanel: React.FC<{
 export const ActiveFiltersBanner: React.FC<{ labels: string[]; shown: number; total: number; onClear: () => void }> = ({ labels, shown, total, onClear }) => {
   if (labels.length === 0) return null;
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-500/10 px-3 py-2">
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-950/40 px-3 py-2">
       <p className="text-xs text-amber-900 dark:text-amber-200">
         <strong>Filtered:</strong> {labels.join(' · ')}. Showing {shown} of {total} plays.
       </p>

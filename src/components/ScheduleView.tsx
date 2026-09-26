@@ -1231,7 +1231,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                             </span>
                           )}
                           {isPast && (
-                            <span className="px-2 py-0.5 bg-slate-700/50 text-slate-400 border border-slate-600/40 rounded-lg text-[10.5px] font-bold uppercase tracking-wider">
+                            <span className="px-2 py-0.5 bg-slate-200 text-slate-600 border border-slate-300 dark:bg-slate-700/50 dark:text-slate-400 dark:border-slate-600/40 rounded-lg text-[10.5px] font-bold uppercase tracking-wider">
                               Past Week
                             </span>
                           )}

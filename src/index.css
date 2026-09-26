@@ -551,166 +551,166 @@ body.theme-light {
 .theme-light .bg-yellow-400,
 .theme-light .bg-amber-300,
 .theme-light .bg-yellow-300,
-.theme-light [class*="bg-amber-400"]:not([class*="bg-amber-400/"]),
-.theme-light [class*="bg-amber-300"]:not([class*="bg-amber-300/"]),
-.theme-light [class*="bg-yellow-400"]:not([class*="bg-yellow-400/"]),
-.theme-light [class*="bg-yellow-300"]:not([class*="bg-yellow-300/"]) {
+.theme-light [class*="bg-amber-400"]:not([class*="dark:bg-"]):not([class*="bg-amber-400/"]),
+.theme-light [class*="bg-amber-300"]:not([class*="dark:bg-"]):not([class*="bg-amber-300/"]),
+.theme-light [class*="bg-yellow-400"]:not([class*="dark:bg-"]):not([class*="bg-yellow-400/"]),
+.theme-light [class*="bg-yellow-300"]:not([class*="dark:bg-"]):not([class*="bg-yellow-300/"]) {
   color: #020617 !important;
 }
 .theme-light .bg-amber-400 *,
 .theme-light .bg-yellow-400 *,
 .theme-light .bg-amber-300 *,
 .theme-light .bg-yellow-300 *,
-.theme-light [class*="bg-amber-400"]:not([class*="bg-amber-400/"]) *,
-.theme-light [class*="bg-amber-300"]:not([class*="bg-amber-300/"]) *,
-.theme-light [class*="bg-yellow-400"]:not([class*="bg-yellow-400/"]) *,
-.theme-light [class*="bg-yellow-300"]:not([class*="bg-yellow-300/"]) * {
+.theme-light [class*="bg-amber-400"]:not([class*="dark:bg-"]):not([class*="bg-amber-400/"]) *,
+.theme-light [class*="bg-amber-300"]:not([class*="dark:bg-"]):not([class*="bg-amber-300/"]) *,
+.theme-light [class*="bg-yellow-400"]:not([class*="dark:bg-"]):not([class*="bg-yellow-400/"]) *,
+.theme-light [class*="bg-yellow-300"]:not([class*="dark:bg-"]):not([class*="bg-yellow-300/"]) * {
   color: #020617 !important;
 }
 
 /* 8. Modern Pastel Badges & Pill Chips in Light Mode */
-.theme-light [class*="bg-indigo-500/"],
-.theme-light [class*="bg-indigo-600/"] {
+.theme-light [class*="bg-indigo-500/"]:not([class*="dark:bg-"]),
+.theme-light [class*="bg-indigo-600/"]:not([class*="dark:bg-"]) {
   background-color: #eef2ff !important;
   color: #3730a3 !important;
   border-color: #c7d2fe !important;
 }
-.theme-light [class*="bg-indigo-500/"] *,
-.theme-light [class*="bg-indigo-600/"] * {
+.theme-light [class*="bg-indigo-500/"]:not([class*="dark:bg-"]) *,
+.theme-light [class*="bg-indigo-600/"]:not([class*="dark:bg-"]) * {
   color: #3730a3 !important;
 }
 
-.theme-light [class*="bg-emerald-500/"],
-.theme-light [class*="bg-emerald-600/"] {
+.theme-light [class*="bg-emerald-500/"]:not([class*="dark:bg-"]),
+.theme-light [class*="bg-emerald-600/"]:not([class*="dark:bg-"]) {
   background-color: #ecfdf5 !important;
   color: #065f46 !important;
   border-color: #a7f3d0 !important;
 }
-.theme-light [class*="bg-emerald-500/"] *,
-.theme-light [class*="bg-emerald-600/"] * {
+.theme-light [class*="bg-emerald-500/"]:not([class*="dark:bg-"]) *,
+.theme-light [class*="bg-emerald-600/"]:not([class*="dark:bg-"]) * {
   color: #065f46 !important;
 }
 
-.theme-light [class*="bg-amber-500/"],
-.theme-light [class*="bg-amber-600/"],
-.theme-light [class*="bg-yellow-500/"],
-.theme-light [class*="bg-yellow-600/"],
-.theme-light [class*="bg-amber-400/"] {
+.theme-light [class*="bg-amber-500/"]:not([class*="dark:bg-"]),
+.theme-light [class*="bg-amber-600/"]:not([class*="dark:bg-"]),
+.theme-light [class*="bg-yellow-500/"]:not([class*="dark:bg-"]),
+.theme-light [class*="bg-yellow-600/"]:not([class*="dark:bg-"]),
+.theme-light [class*="bg-amber-400/"]:not([class*="dark:bg-"]) {
   background-color: #fef3c7 !important;
   color: #92400e !important;
   border-color: #fde68a !important;
 }
-.theme-light [class*="bg-amber-500/"] *,
-.theme-light [class*="bg-amber-600/"] *,
-.theme-light [class*="bg-yellow-500/"] *,
-.theme-light [class*="bg-yellow-600/"] *,
-.theme-light [class*="bg-amber-400/"] * {
+.theme-light [class*="bg-amber-500/"]:not([class*="dark:bg-"]) *,
+.theme-light [class*="bg-amber-600/"]:not([class*="dark:bg-"]) *,
+.theme-light [class*="bg-yellow-500/"]:not([class*="dark:bg-"]) *,
+.theme-light [class*="bg-yellow-600/"]:not([class*="dark:bg-"]) *,
+.theme-light [class*="bg-amber-400/"]:not([class*="dark:bg-"]) * {
   color: #92400e !important;
 }
 
-.theme-light [class*="bg-rose-500/"],
-.theme-light [class*="bg-rose-600/"],
-.theme-light [class*="bg-red-500/"],
-.theme-light [class*="bg-red-600/"] {
+.theme-light [class*="bg-rose-500/"]:not([class*="dark:bg-"]),
+.theme-light [class*="bg-rose-600/"]:not([class*="dark:bg-"]),
+.theme-light [class*="bg-red-500/"]:not([class*="dark:bg-"]),
+.theme-light [class*="bg-red-600/"]:not([class*="dark:bg-"]) {
   background-color: #fff1f2 !important;
   color: #9f1239 !important;
   border-color: #fecdd3 !important;
 }
-.theme-light [class*="bg-rose-500/"] *,
-.theme-light [class*="bg-rose-600/"] *,
-.theme-light [class*="bg-red-500/"] *,
-.theme-light [class*="bg-red-600/"] * {
+.theme-light [class*="bg-rose-500/"]:not([class*="dark:bg-"]) *,
+.theme-light [class*="bg-rose-600/"]:not([class*="dark:bg-"]) *,
+.theme-light [class*="bg-red-500/"]:not([class*="dark:bg-"]) *,
+.theme-light [class*="bg-red-600/"]:not([class*="dark:bg-"]) * {
   color: #9f1239 !important;
 }
 
-.theme-light [class*="bg-blue-500/"],
-.theme-light [class*="bg-blue-600/"],
-.theme-light [class*="bg-sky-500/"],
-.theme-light [class*="bg-sky-600/"] {
+.theme-light [class*="bg-blue-500/"]:not([class*="dark:bg-"]),
+.theme-light [class*="bg-blue-600/"]:not([class*="dark:bg-"]),
+.theme-light [class*="bg-sky-500/"]:not([class*="dark:bg-"]),
+.theme-light [class*="bg-sky-600/"]:not([class*="dark:bg-"]) {
   background-color: #eff6ff !important;
   color: #1e40af !important;
   border-color: #bfdbfe !important;
 }
-.theme-light [class*="bg-blue-500/"] *,
-.theme-light [class*="bg-blue-600/"] *,
-.theme-light [class*="bg-sky-500/"] *,
-.theme-light [class*="bg-sky-600/"] * {
+.theme-light [class*="bg-blue-500/"]:not([class*="dark:bg-"]) *,
+.theme-light [class*="bg-blue-600/"]:not([class*="dark:bg-"]) *,
+.theme-light [class*="bg-sky-500/"]:not([class*="dark:bg-"]) *,
+.theme-light [class*="bg-sky-600/"]:not([class*="dark:bg-"]) * {
   color: #1e40af !important;
 }
 
-.theme-light [class*="bg-purple-500/"],
-.theme-light [class*="bg-purple-600/"] {
+.theme-light [class*="bg-purple-500/"]:not([class*="dark:bg-"]),
+.theme-light [class*="bg-purple-600/"]:not([class*="dark:bg-"]) {
   background-color: #faf5ff !important;
   color: #6b21a8 !important;
   border-color: #e9d5ff !important;
 }
-.theme-light [class*="bg-purple-500/"] *,
-.theme-light [class*="bg-purple-600/"] * {
+.theme-light [class*="bg-purple-500/"]:not([class*="dark:bg-"]) *,
+.theme-light [class*="bg-purple-600/"]:not([class*="dark:bg-"]) * {
   color: #6b21a8 !important;
 }
 
 /* 8b. Dark tone badges/pills (950s) adapted into crisp tinted pastels */
-.theme-light [class*="bg-sky-950"] {
+.theme-light [class*="bg-sky-950"]:not([class*="dark:bg-"]) {
   background-color: #f0f9ff !important;
   color: #0369a1 !important;
   border-color: #bae6fd !important;
 }
-.theme-light [class*="bg-sky-950"] * {
+.theme-light [class*="bg-sky-950"]:not([class*="dark:bg-"]) * {
   color: #0369a1 !important;
 }
-.theme-light [class*="bg-sky-950"]:hover {
+.theme-light [class*="bg-sky-950"]:not([class*="dark:bg-"]):hover {
   background-color: #e0f2fe !important;
   color: #0284c7 !important;
 }
 
-.theme-light [class*="bg-rose-950"] {
+.theme-light [class*="bg-rose-950"]:not([class*="dark:bg-"]) {
   background-color: #fff1f2 !important;
   color: #be123c !important;
   border-color: #fecdd3 !important;
 }
-.theme-light [class*="bg-rose-950"] * {
+.theme-light [class*="bg-rose-950"]:not([class*="dark:bg-"]) * {
   color: #be123c !important;
 }
-.theme-light [class*="bg-rose-950"]:hover {
+.theme-light [class*="bg-rose-950"]:not([class*="dark:bg-"]):hover {
   background-color: #ffe4e6 !important;
   color: #9f1239 !important;
 }
 
-.theme-light [class*="bg-indigo-950"] {
+.theme-light [class*="bg-indigo-950"]:not([class*="dark:bg-"]) {
   background-color: #eef2ff !important;
   color: #4338ca !important;
   border-color: #c7d2fe !important;
 }
-.theme-light [class*="bg-indigo-950"] * {
+.theme-light [class*="bg-indigo-950"]:not([class*="dark:bg-"]) * {
   color: #4338ca !important;
 }
-.theme-light [class*="bg-indigo-950"]:hover {
+.theme-light [class*="bg-indigo-950"]:not([class*="dark:bg-"]):hover {
   background-color: #e0e7ff !important;
   color: #3730a3 !important;
 }
 
-.theme-light [class*="bg-emerald-950"] {
+.theme-light [class*="bg-emerald-950"]:not([class*="dark:bg-"]) {
   background-color: #ecfdf5 !important;
   color: #047857 !important;
   border-color: #a7f3d0 !important;
 }
-.theme-light [class*="bg-emerald-950"] * {
+.theme-light [class*="bg-emerald-950"]:not([class*="dark:bg-"]) * {
   color: #047857 !important;
 }
-.theme-light [class*="bg-emerald-950"]:hover {
+.theme-light [class*="bg-emerald-950"]:not([class*="dark:bg-"]):hover {
   background-color: #d1fae5 !important;
   color: #065f46 !important;
 }
 
-.theme-light [class*="bg-amber-950"] {
+.theme-light [class*="bg-amber-950"]:not([class*="dark:bg-"]) {
   background-color: #fffbeb !important;
   color: #b45309 !important;
   border-color: #fde68a !important;
 }
-.theme-light [class*="bg-amber-950"] * {
+.theme-light [class*="bg-amber-950"]:not([class*="dark:bg-"]) * {
   color: #b45309 !important;
 }
-.theme-light [class*="bg-amber-950"]:hover {
+.theme-light [class*="bg-amber-950"]:not([class*="dark:bg-"]):hover {
   background-color: #fef3c7 !important;
   color: #92400e !important;
 }

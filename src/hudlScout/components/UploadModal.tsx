@@ -94,34 +94,34 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[94vh] flex flex-col shadow-2xl overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-t-2xl sm:rounded-xl w-full max-w-2xl max-h-[94vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Modal Header */}
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/70">
+        <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-950/70">
           <div className="flex items-center gap-2">
-            <Upload className="w-5 h-5 text-emerald-400" />
-            <h2 className="text-base font-bold text-white">Upload Hudl CSV or Excel</h2>
+            <Upload className="w-5 h-5 text-emerald-700 dark:text-emerald-400" />
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">Upload Hudl CSV or Excel</h2>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded transition-colors"
+            className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white p-1 rounded transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Modal Body */}
-        <div className="p-5 overflow-y-auto space-y-5 text-xs text-slate-300">
+        <div className="p-5 overflow-y-auto space-y-5 text-xs text-slate-700 dark:text-slate-300">
           {/* Active Uploaded Carmel Dataset Quick Reload */}
           {SAMPLE_DATASETS.length > 0 && (
-            <div className="p-3 rounded-lg border border-emerald-500/40 bg-emerald-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="p-3 rounded-lg border border-emerald-500/40 bg-emerald-50 dark:bg-emerald-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
                 <div className="flex items-center gap-1.5">
-                  <span className="font-bold text-emerald-300">Carmel High School (Last 2 Games)</span>
+                  <span className="font-bold text-emerald-800 dark:text-emerald-300">Carmel High School (Last 2 Games)</span>
                   <span className="text-[9px] uppercase tracking-wider font-bold bg-emerald-500 text-slate-950 px-1.5 py-0.2 rounded">
                     Uploaded Dataset
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-400 mt-0.5">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                   156 Hudl snaps (52 Carmel Offense, 56 Carmel Defense, Special Teams).
                 </p>
               </div>
@@ -130,7 +130,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   onSelectSample(SAMPLE_DATASETS[0]);
                   onClose();
                 }}
-                className="px-3 py-1.5 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shrink-0 transition-colors"
+                className="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:text-white font-bold text-xs shrink-0 transition-colors"
               >
                 Reload Carmel Film
               </button>
@@ -138,7 +138,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
           )}
 
           <div>
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
+            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-2">
               Upload New Hudl CSV or XLSX:
             </span>
 
@@ -147,13 +147,13 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-slate-700 hover:border-emerald-500/70 bg-slate-950/60 hover:bg-slate-950 rounded-lg p-6 text-center cursor-pointer transition-all"
+              className="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-500/70 bg-slate-50 dark:bg-slate-950/60 hover:bg-slate-100 dark:hover:bg-slate-950 rounded-lg p-6 text-center cursor-pointer transition-all"
             >
-              <FileText className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
-              <p className="text-slate-200 font-bold mb-1">
+              <FileText className="w-8 h-8 text-emerald-700 dark:text-emerald-400 mx-auto mb-2" />
+              <p className="text-slate-800 dark:text-slate-200 font-bold mb-1">
                 Drop a Hudl CSV or Excel file here, or browse
               </p>
-              <p className="text-[11px] text-slate-400">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 .csv, .xlsx, .xls — Down, Distance, Yard Line, Hash, Play Dir, Formation, Gain/Loss.
                 Wrong file? Remove it from the chips on the scouting report after import.
               </p>
@@ -168,7 +168,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
           </div>
 
           {fileError && (
-            <div className="flex items-start gap-2 text-rose-300 bg-rose-950/40 border border-rose-800 rounded px-3 py-2">
+            <div className="flex items-start gap-2 text-rose-800 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 rounded px-3 py-2">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{fileError}</span>
             </div>
@@ -176,35 +176,35 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
           {/* File Parsed Preview */}
           {rowsCount > 0 && mapping && (
-            <div className="bg-slate-950 p-4 rounded-lg border border-slate-800 space-y-3">
+            <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-lg border border-slate-200 dark:border-slate-800 space-y-3">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-emerald-400 font-bold">
+                <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-bold">
                   <CheckCircle2 className="w-4 h-4" />
                   <span>File read: {rowsCount} plays loaded</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowAdvancedMapping(!showAdvancedMapping)}
-                  className="text-[11px] text-slate-400 hover:text-slate-200 underline"
+                  className="text-[11px] text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 underline"
                 >
                   {showAdvancedMapping ? 'Hide Column Mapping' : 'Customize Column Mapping'}
                 </button>
               </div>
 
               <div>
-                <label className="text-[11px] text-slate-400 font-medium block mb-1">
+                <label className="text-[11px] text-slate-500 dark:text-slate-400 font-medium block mb-1">
                   Game / team name:
                 </label>
                 <input
                   type="text"
                   value={opponentName}
                   onChange={(e) => setOpponentName(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded px-2.5 py-1 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
               {hasExistingPlays && (
-                <label className="flex items-center gap-2 text-xs text-slate-200 bg-slate-900 border border-slate-800 rounded px-2.5 py-2">
+                <label className="flex items-center gap-2 text-xs text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded px-2.5 py-2">
                   <input
                     type="checkbox"
                     checked={appendGame}
@@ -216,18 +216,18 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
               {/* Column Mapping Table */}
               {showAdvancedMapping && (
-                <div className="mt-3 pt-3 border-t border-slate-800">
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+                  <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-2">
                     Column Mapping Verification:
                   </span>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     {(Object.keys(mapping) as (keyof ColumnMapping)[]).map((key) => (
-                      <div key={key} className="flex items-center justify-between bg-slate-900 px-2 py-1 rounded border border-slate-800">
-                        <span className="text-slate-400 capitalize">{key.replace(/([A-Z])/g, ' $1')}:</span>
+                      <div key={key} className="flex items-center justify-between bg-white dark:bg-slate-900 px-2 py-1 rounded border border-slate-200 dark:border-slate-800">
+                        <span className="text-slate-500 dark:text-slate-400 capitalize">{key.replace(/([A-Z])/g, ' $1')}:</span>
                         <select
                           value={mapping[key]}
                           onChange={(e) => setMapping({ ...mapping, [key]: e.target.value })}
-                          className="bg-slate-950 text-slate-200 text-xs px-2 py-0.5 rounded border border-slate-800 focus:outline-none max-w-[130px] truncate"
+                          className="bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 text-xs px-2 py-0.5 rounded border border-slate-200 dark:border-slate-800 focus:outline-none max-w-[130px] truncate"
                         >
                           <option value="">(None)</option>
                           {headers.map((h) => (
@@ -244,12 +244,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
               {/* Preview table */}
               <div>
-                <span className="text-[11px] text-slate-400 font-semibold block mb-1">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold block mb-1">
                   Film Record Preview (First 3 plays):
                 </span>
-                <div className="overflow-x-auto border border-slate-800 rounded">
-                  <table className="w-full text-left text-[11px] text-slate-300">
-                    <thead className="bg-slate-900 text-slate-400 border-b border-slate-800">
+                <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded">
+                  <table className="w-full text-left text-[11px] text-slate-700 dark:text-slate-300">
+                    <thead className="bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
                       <tr>
                         <th className="p-1.5">Down</th>
                         <th className="p-1.5">Dist</th>
@@ -258,7 +258,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                         <th className="p-1.5">Gain</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800">
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                       {previewRows.map((r, i) => (
                         <tr key={i}>
                           <td className="p-1.5">{r[mapping.down] || '-'}</td>
@@ -277,17 +277,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="p-4 border-t border-slate-800 bg-slate-950 flex items-center justify-between">
+        <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex items-center justify-between">
           <button
             onClick={onClose}
-            className="px-3 py-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+            className="px-3 py-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleImport}
             disabled={rowsCount === 0}
-            className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-md shadow disabled:opacity-40 transition-colors flex items-center gap-1.5"
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:text-white font-bold text-xs rounded-md shadow disabled:opacity-40 transition-colors flex items-center gap-1.5"
           >
             <span>{hasExistingPlays && appendGame ? 'Add game to report' : 'Analyze Dataset'}</span>
             <ChevronRight className="w-4 h-4" />

@@ -110,7 +110,7 @@ export const SituationsTab: React.FC<SituationsTabProps> = ({ analysis: a, plays
           onSelect={onSelect}
           selectedLabel={selected?.label}
           heading="By down & distance"
-          subheading={`Greener = more run, bluer = more pass. Tap a box to see what ${we ? 'we' : 'they'} call.`}
+          subheading={`Green = run, blue = pass. Bolder color = stronger lean. Tap a box to see what ${we ? 'we' : 'they'} call.`}
         />
         <SituationDetail group={selected} voice={voice} />
       </div>

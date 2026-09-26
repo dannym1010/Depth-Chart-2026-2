@@ -60,7 +60,7 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({ analysis: a, plays, voic
           <span
             className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-bold border ${
               sample.level === 'low'
-                ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/40'
+                ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-500/40'
                 : 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
             }`}
             title={sample.text}
@@ -144,7 +144,7 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({ analysis: a, plays, voic
           <ol className="space-y-3">
             {takeaways.map((t, i) => (
               <li key={t.id} className="flex gap-3">
-                <span className="shrink-0 w-7 h-7 rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-sm font-black flex items-center justify-center">
+                <span className="shrink-0 w-7 h-7 rounded-full bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-white text-sm font-black flex items-center justify-center">
                   {i + 1}
                 </span>
                 <div className="min-w-0 flex-1">
@@ -165,7 +165,7 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({ analysis: a, plays, voic
           groups={a.situationalGroups}
           onSelect={onPickSituation}
           heading="By down & distance"
-          subheading="Greener = more run, bluer = more pass. Tap a box to see what they call."
+          subheading={`Green = run, blue = pass. Bolder color = stronger lean. Tap a box to see what ${voice.subject === 'We' ? 'we' : 'they'} call.`}
         />
         {showPlan && report && (
           <Card tone="plan">

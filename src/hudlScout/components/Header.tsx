@@ -36,10 +36,10 @@ interface HeaderProps {
 }
 
 const segBtn = (on: boolean) =>
-  `min-h-[36px] px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
+  `min-h-[34px] px-3 py-1.5 rounded-md text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
     on
-      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
-      : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'
+      ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-600 dark:text-white'
+      : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
   }`;
 
 export const Header: React.FC<HeaderProps> = ({
@@ -107,11 +107,11 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         <div className="flex items-center flex-wrap gap-2">
-          <div className="flex rounded-lg overflow-hidden border border-slate-300 dark:border-slate-700" role="group" aria-label="Whose film">
+          <div className="inline-flex p-0.5 gap-0.5 rounded-lg bg-slate-200 dark:bg-slate-800" role="group" aria-label="Whose film">
             <button type="button" onClick={() => onScoutTargetChange('opponent')} className={segBtn(!own)} aria-pressed={!own}>
               Opponent
             </button>
-            <button type="button" onClick={() => onScoutTargetChange('own')} className={`${segBtn(own)} border-l border-slate-300 dark:border-slate-700`} aria-pressed={own}>
+            <button type="button" onClick={() => onScoutTargetChange('own')} className={segBtn(own)} aria-pressed={own}>
               Our team
             </button>
           </div>
@@ -144,7 +144,7 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={() => onSelectGame?.('all')}
             className={`min-h-[32px] px-3 rounded-full text-xs font-bold border cursor-pointer ${
               selectedGameId === 'all'
-                ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900 dark:border-white'
+                ? 'bg-slate-800 text-white border-slate-800 dark:bg-slate-600 dark:text-white dark:border-slate-500'
                 : 'bg-white text-slate-700 border-slate-300 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-700'
             }`}
           >
@@ -155,7 +155,7 @@ export const Header: React.FC<HeaderProps> = ({
               key={g.id}
               className={`min-h-[32px] inline-flex items-center gap-1 pl-3 pr-1 rounded-full text-xs font-semibold border ${
                 selectedGameId === g.id
-                  ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900 dark:border-white'
+                  ? 'bg-slate-800 text-white border-slate-800 dark:bg-slate-600 dark:text-white dark:border-slate-500'
                   : 'bg-white text-slate-700 border-slate-300 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-700'
               }`}
             >
@@ -178,7 +178,7 @@ export const Header: React.FC<HeaderProps> = ({
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="grid grid-cols-2 sm:flex w-full sm:w-auto rounded-lg overflow-hidden border border-slate-300 dark:border-slate-700 gap-px bg-slate-300 dark:bg-slate-700" role="group" aria-label="Which plays">
+          <div className="grid grid-cols-2 sm:inline-flex w-full sm:w-auto p-0.5 gap-0.5 rounded-lg bg-slate-200 dark:bg-slate-800" role="group" aria-label="Which plays">
             {units.map(([id, label, n]) => (
               <button
                 key={id}
@@ -187,7 +187,7 @@ export const Header: React.FC<HeaderProps> = ({
                 aria-pressed={unit === id}
                 className={segBtn(unit === id)}
               >
-                {label} <span className="opacity-60 font-semibold">{n}</span>
+                {label} <span className="opacity-80 font-semibold">{n}</span>
               </button>
             ))}
           </div>
@@ -197,7 +197,7 @@ export const Header: React.FC<HeaderProps> = ({
             aria-expanded={filtersOpen}
             className={`min-h-[36px] flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border cursor-pointer ${
               filterCount > 0 || filtersOpen
-                ? 'bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-500/10 dark:text-amber-200 dark:border-amber-500/40'
+                ? 'bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-500/40'
                 : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-800'
             }`}
           >

@@ -1,8 +1,10 @@
 import React from 'react';
 import { PASS_COLOR, RUN_COLOR } from '../ScoutCharts';
 
-// Shared look for every scouting-report tab: one card style, one heading style,
-// green = run, blue = pass, accent = our plan.
+// Shared look for every scouting-report tab: one card style, one heading style.
+// Color rules: green = run, blue = pass, red = scoring territory, amber = filtered view.
+// The theme accent (indigo-* classes) marks "our plan" only as a solid stripe or button,
+// never as a tinted fill: a tint of a lime or gold accent turns muddy on dark cards.
 
 export const Card: React.FC<{ children: React.ReactNode; className?: string; tone?: 'plain' | 'plan' | 'alert' }> = ({
   children,
@@ -11,9 +13,9 @@ export const Card: React.FC<{ children: React.ReactNode; className?: string; ton
 }) => {
   const toneClass =
     tone === 'plan'
-      ? 'border-indigo-300 dark:border-indigo-500/40'
+      ? 'border-slate-200 dark:border-slate-800 border-l-4 border-l-indigo-500 dark:border-l-indigo-400'
       : tone === 'alert'
-        ? 'border-amber-300 dark:border-amber-500/40'
+        ? 'border-slate-200 dark:border-slate-800 border-l-4 border-l-amber-500 dark:border-l-amber-400'
         : 'border-slate-200 dark:border-slate-800';
   return (
     <section className={`bg-white dark:bg-slate-900 border ${toneClass} rounded-xl p-4 sm:p-5 ${className}`}>{children}</section>
@@ -62,7 +64,7 @@ export const RunPassBar: React.FC<{ runPct: number; passPct: number; showLabels?
     {showLabels && (
       <div className="flex justify-between text-[11px] font-bold mt-1">
         <span className="text-emerald-700 dark:text-emerald-400">{runPct}% run</span>
-        <span className="text-sky-700 dark:text-sky-400">{passPct}% pass</span>
+        <span className="text-blue-700 dark:text-blue-400">{passPct}% pass</span>
       </div>
     )}
   </div>
@@ -73,7 +75,7 @@ export const MeterRow: React.FC<{ label: string; pct: number; note?: string; col
   label,
   pct,
   note,
-  color = RUN_COLOR,
+  color = '#64748b',
 }) => (
   <div>
     <div className="flex justify-between gap-2 text-xs mb-1">
@@ -94,7 +96,7 @@ export const EmptyNote: React.FC<{ children: React.ReactNode }> = ({ children })
 
 /** "Our answer" / "Self-scout" callout under a takeaway or situation. */
 export const PlanCallout: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
-  <div className="mt-2 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/30 px-3 py-2 text-xs">
+  <div className="mt-2 rounded-r-lg bg-slate-50 dark:bg-slate-800/60 border-l-4 border-indigo-500 dark:border-indigo-400 px-3 py-2 text-xs">
     <span className="font-bold text-indigo-700 dark:text-indigo-300">{label}: </span>
     <span className="text-slate-700 dark:text-slate-200">{children}</span>
   </div>

@@ -1675,14 +1675,14 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
 
         {/* Non-Practice Notification Banner */}
         {currentPlan && currentPlan.isNonPractice && !currentPlan.isCancelled && (
-          <div className="bg-amber-950/80 border border-amber-500/50 rounded-2xl p-3.5 flex items-center justify-between gap-3 text-xs">
+          <div className="bg-amber-50 border border-amber-300 dark:bg-amber-950/80 dark:border-amber-500/50 rounded-2xl p-3.5 flex items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-2.5">
-              <FileText className="w-5 h-5 text-amber-400 shrink-0" />
+              <FileText className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
               <div>
-                <div className="font-black text-amber-100 uppercase tracking-tight">
+                <div className="font-black text-amber-900 dark:text-amber-100 uppercase tracking-tight">
                   This event is marked as NON-PRACTICE
                 </div>
-                <div className="text-[11px] text-amber-300/90 font-medium">
+                <div className="text-[11px] text-amber-800 dark:text-amber-300/90 font-medium">
                   This session is excluded from the cumulative practice day count (e.g. equipment pickup, team meeting, orientation). Subsequent practices are automatically re-numbered.
                 </div>
               </div>
