@@ -1828,6 +1828,39 @@ describe('practice template merge', () => {
   });
 });
 
+describe('scout call sheet edits sync between coaches', () => {
+  const base = { plays: [{ id: 'p1' }], games: [{ id: 'g1', name: 'carmel.csv' }], datasetName: 'Carmel' };
+
+  it('keeps the newer coach edit', () => {
+    const older = { ...base, updatedAt: 100, callSheet: { sections: { firstDownCalls: ['Old call'] }, updatedAt: 100 } };
+    const newer = { ...base, updatedAt: 200, callSheet: { sections: { firstDownCalls: ['New call'] }, updatedAt: 200 } };
+    const merged = mergeScoutingReports({ hudlScout: older }, { hudlScout: newer });
+    assert.deepEqual(merged.hudlScout.callSheet.sections.firstDownCalls, ['New call']);
+  });
+
+  it('a reset to suggested is not undone by an older edited copy', () => {
+    const edited = { ...base, updatedAt: 100, callSheet: { sections: { redZoneLocks: ['Goal line 6-2'] }, updatedAt: 100 } };
+    const reset = { ...base, updatedAt: 200, callSheet: { sections: {}, updatedAt: 200 } };
+    const merged = mergeScoutingReports({ hudlScout: edited }, { hudlScout: reset });
+    assert.deepEqual(merged.hudlScout.callSheet.sections, {});
+  });
+
+  it('an edit survives a newer copy that never touched the call sheet', () => {
+    const edited = { ...base, updatedAt: 100, callSheet: { sections: { runStopCalls: ['Bear front'] }, updatedAt: 100 } };
+    const newerNoSheet = { ...base, updatedAt: 200 };
+    const merged = mergeScoutingReports({ hudlScout: edited }, { hudlScout: newerNoSheet });
+    assert.deepEqual(merged.hudlScout.callSheet.sections.runStopCalls, ['Bear front']);
+  });
+
+  it('reads saved edits back into the bundle', async () => {
+    const { bundleFromSaved } = await import('../hudlScout/scoutBundle.ts');
+    const bundle = bundleFromSaved({ ...base, updatedAt: 5, callSheet: { sections: { passBlitzCalls: ['Fire zone'] }, note: 'Keep contain', updatedAt: 5 } }, 'X');
+    assert.deepEqual(bundle.callSheet?.sections.passBlitzCalls, ['Fire zone']);
+    assert.equal(bundle.callSheet?.note, 'Keep contain');
+    assert.equal(bundleFromSaved({ ...base, updatedAt: 5 }, 'X').callSheet, undefined);
+  });
+});
+
 describe('hudl scout backup', () => {
   it('packs opponent week uploads and our-team files into the backup snapshot', async () => {
     const { collectHudlScoutBackup, summarizeHudlScoutBackup, applyHudlScoutBackup } = await import(

@@ -12,6 +12,22 @@ export const DEFAULT_SCOUT_FILTERS: FilterState = {
   formation: 'ALL',
 };
 
+export type CallSheetSectionKey = 'firstDownCalls' | 'runStopCalls' | 'passBlitzCalls' | 'thirdDownMustStops' | 'redZoneLocks';
+
+/**
+ * A coach's changes to the printable call sheet. Only what the coach changed is stored:
+ * a section, the alerts, or the note that is missing here keeps following the film.
+ * "Reset to suggested" saves an empty set (not a missing one) so an older copy can't
+ * bring the edits back during sync.
+ */
+export interface CallSheetEdits {
+  sections: Partial<Record<CallSheetSectionKey, string[]>>;
+  alerts?: string[];
+  note?: string;
+  updatedAt: number;
+  editedBy?: string;
+}
+
 export interface ScoutBundle {
   plays: Play[];
   datasetName: string;
@@ -21,6 +37,7 @@ export interface ScoutBundle {
   games: ScoutGame[];
   updatedAt: number;
   sourceCleared: boolean;
+  callSheet?: CallSheetEdits;
 }
 
 export function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
@@ -38,6 +55,10 @@ export function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
         : [],
     updatedAt: Number(saved?.updatedAt) || 0,
     sourceCleared: Boolean(saved?.sourceCleared) && plays.length === 0,
+    callSheet:
+      saved?.callSheet && typeof saved.callSheet === 'object'
+        ? { ...saved.callSheet, sections: saved.callSheet.sections && typeof saved.callSheet.sections === 'object' ? saved.callSheet.sections : {} }
+        : undefined,
   };
 }
 

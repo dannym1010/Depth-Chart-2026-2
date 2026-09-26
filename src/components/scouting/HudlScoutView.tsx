@@ -48,6 +48,7 @@ export interface HudlScoutViewProps {
 
 export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   scouting,
+  currentUser,
   scheduleEvents = [],
   currentWeek = '1',
   activeTeamName = 'Mahopac',
@@ -210,6 +211,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       filters: oppBundle.filters,
       games: oppBundle.games,
       sourceCleared: oppBundle.sourceCleared,
+      callSheet: oppBundle.callSheet,
       updatedAt: oppBundle.updatedAt,
     });
     if (oppBundle.datasetName && oppBundle.datasetName !== opponentFallback) {
@@ -442,7 +444,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                 opponentName={reportName}
                 mode={scoutTarget}
                 coachNotes={coachNotes}
-                onCoachNotesChange={(notes) => setBundle((prev) => ({ ...prev, coachNotes: notes }))}
+                onCoachNotesChange={(notes) => setBundle((prev) => ({ ...prev, coachNotes: notes, updatedAt: Date.now() }))}
                 onPrintCallSheet={() => setIsCallSheetOpen(true)}
               />
             )}
@@ -473,6 +475,9 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         report={localReport}
         analysis={planAnalysis}
         opponentName={reportName}
+        edits={bundle.callSheet}
+        onSaveEdits={(callSheet) => setBundle((prev) => ({ ...prev, callSheet, updatedAt: Date.now() }))}
+        editorName={currentUser?.displayName || (currentUser?.email ? String(currentUser.email).split('@')[0] : '')}
       />
     </div>
   );
