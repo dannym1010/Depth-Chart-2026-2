@@ -132,15 +132,6 @@ const MAIN_NAV_ITEMS: NavItemConfig[] = [
     badgeText: 'Schedule',
   },
   {
-    id: 'guide',
-    label: 'Playbooks & Guides',
-    shortLabel: 'Playbooks',
-    icon: BookOpen,
-    description: 'Offensive, defensive, and special teams PDF playbooks & printable play sheets',
-    badgeText: 'Guides',
-    hasCascadingFolders: true,
-  },
-  {
     id: 'compliance',
     label: 'Compliance & Hours',
     shortLabel: 'Hours',
@@ -153,7 +144,7 @@ const MAIN_NAV_ITEMS: NavItemConfig[] = [
     label: 'Play Library',
     shortLabel: 'Plays',
     icon: Library,
-    description: 'Every play in one bank: import Hudl playbooks, tag film, see what each play gained',
+    description: 'Your plays with their Hudl diagrams and position jobs, and what each play gained on film',
     badgeText: 'Plays',
   },
   {

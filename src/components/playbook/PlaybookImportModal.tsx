@@ -7,6 +7,7 @@ import {
   DraftInput,
   PlayDraft,
   buildDrafts,
+  draftChanges,
   draftStatus,
   inferPlayType,
   mergeDraftsIntoDatabase,
@@ -15,10 +16,11 @@ import {
   playNameKey,
   tidyPlayName,
 } from '../../utils/playbookImport';
+import { savePlayDiagram } from '../../utils/playDiagrams';
 
 interface Props {
   playDatabase: PlayDatabaseEntry[];
-  onImport: (next: PlayDatabaseEntry[], summary: { added: number; updated: number }) => void;
+  onImport: (next: PlayDatabaseEntry[], summary: { added: number; updated: number; removed: string[]; unsavedDiagrams: number }) => void;
   onClose: () => void;
 }
 
@@ -34,7 +36,7 @@ const STATUS_STYLE = {
   update: 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300',
   same: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
 } as const;
-const STATUS_LABEL = { new: 'New', update: 'Adds details', same: 'Already in bank' } as const;
+const STATUS_LABEL = { new: 'New', update: 'Changed', same: 'No changes' } as const;
 
 async function readSource(file: File, onProgress: (msg: string, pct: number) => void): Promise<SourceResult> {
   const name = file.name;
@@ -76,6 +78,10 @@ export const PlaybookImportModal: React.FC<Props> = ({ playDatabase, onImport, o
   const [drafts, setDrafts] = useState<PlayDraft[]>([]);
   const [picked, setPicked] = useState<Record<string, boolean>>({});
   const [dragOver, setDragOver] = useState(false);
+  // Diagram being looked at (new drawing, and the one in the bank if it changed).
+  const [zoom, setZoom] = useState<{ name: string; now?: string; before?: string } | null>(null);
+  // Plays from this install that the new upload no longer has, ticked = remove them.
+  const [removePicked, setRemovePicked] = useState<Record<string, boolean>>({});
 
   const rebuild = (all: SourceResult[], installName: string) => {
     const inputs = all.flatMap((s) => s.inputs);
@@ -123,6 +129,18 @@ export const PlaybookImportModal: React.FC<Props> = ({ playDatabase, onImport, o
     drafts.forEach((d) => m.set(d.key, draftStatus(playDatabase, d)));
     return m;
   }, [drafts, playDatabase]);
+  const bankByKey = useMemo(() => new Map(playDatabase.map((p) => [playNameKey(p.name), p])), [playDatabase]);
+  const changesOf = (d: PlayDraft) => {
+    const match = bankByKey.get(d.key);
+    return match && !d.isSection ? draftChanges(match, d) : [];
+  };
+  // Uploaded plays from the same install that aren't in this upload any more.
+  const missing = useMemo(() => {
+    if (!drafts.length || !install.trim()) return [];
+    const keys = new Set(drafts.map((d) => d.key));
+    return playDatabase.filter((p) => p.source === 'hudl' && p.install === install.trim() && !keys.has(playNameKey(p.name)));
+  }, [drafts, playDatabase, install]);
+  const removeIds = missing.filter((p) => removePicked[p.id]).map((p) => p.id);
 
   const chosen = drafts.filter((d) => picked[d.key] && (!d.isSection || d.name));
   const counts = chosen.reduce(
@@ -147,14 +165,28 @@ export const PlaybookImportModal: React.FC<Props> = ({ playDatabase, onImport, o
       })
     );
 
-  const doImport = () => {
+  const doImport = async () => {
     const ready = chosen.map((d) => {
       const name = tidyPlayName(d.name);
       // A heading the coach chose to keep becomes a normal play.
       return { ...d, name, key: playNameKey(name), isSection: false, install: install || d.install };
     });
+    // Save the diagrams that are new or changed.
+    const toSave = ready.filter((d) => d.diagram && (!bankByKey.get(d.key) || changesOf(d).some((c) => /diagram/i.test(c))));
+    let unsavedDiagrams = 0;
+    for (let i = 0; i < toSave.length; i++) {
+      setBusy({ msg: `Saving diagram ${i + 1} of ${toSave.length}`, pct: i / toSave.length });
+      const url = await savePlayDiagram(toSave[i].key, toSave[i].diagram!);
+      if (url) toSave[i].diagramUrl = url;
+      else unsavedDiagrams++;
+    }
+    setBusy(null);
     const res = mergeDraftsIntoDatabase(playDatabase, ready);
-    onImport(res.next, { added: res.added.length, updated: res.updated.length });
+    const gone = new Set(removeIds);
+    onImport(
+      gone.size ? res.next.filter((p) => !gone.has(p.id)) : res.next,
+      { added: res.added.length, updated: res.updated.length, removed: removeIds, unsavedDiagrams }
+    );
   };
 
   return createPortal(
@@ -276,7 +308,10 @@ export const PlaybookImportModal: React.FC<Props> = ({ playDatabase, onImport, o
                 <div>
                   <div className="text-sm font-black text-slate-900 dark:text-white">{drafts.filter((d) => !d.isSection).length} plays found</div>
                   <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                    {withAssignments ? `${withAssignments} with position assignments. ` : ''}Plays already in the bank keep their wristband number and situations.
+                    {withAssignments ? `${withAssignments} with position assignments. ` : ''}
+                    {drafts.filter((d) => d.diagram).length ? `${drafts.filter((d) => d.diagram).length} with diagrams. ` : ''}
+                    {counts.update ? `${drafts.filter((d) => statusOf.get(d.key) === 'update').length} changed since the last upload. ` : ''}
+                    Plays already in the bank keep their wristband number and situations.
                   </div>
                 </div>
                 <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
@@ -292,8 +327,11 @@ export const PlaybookImportModal: React.FC<Props> = ({ playDatabase, onImport, o
               <div className="rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-800">
                 {drafts.map((d) => {
                   const st = statusOf.get(d.key) || 'new';
+                  const changes = st === 'update' ? changesOf(d) : [];
+                  const before = bankByKey.get(d.key)?.diagramUrl;
                   return (
-                    <div key={d.key} className={`flex items-center gap-2 px-2.5 py-1.5 ${d.isSection ? 'bg-slate-50 dark:bg-slate-950/50' : ''}`}>
+                    <div key={d.key} className={d.isSection ? 'bg-slate-50 dark:bg-slate-950/50' : ''}>
+                    <div className="flex items-center gap-2 px-2.5 py-1.5">
                       <input
                         type="checkbox"
                         checked={Boolean(picked[d.key])}
@@ -309,6 +347,16 @@ export const PlaybookImportModal: React.FC<Props> = ({ playDatabase, onImport, o
                         }`}
                         aria-label="Play name"
                       />
+                      {d.diagram?.previewUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setZoom({ name: d.name, now: d.diagram?.previewUrl, before: changes.includes('Diagram changed') ? before : undefined })}
+                          className="shrink-0 w-16 h-7 rounded border border-slate-300 dark:border-slate-600 overflow-hidden bg-white cursor-zoom-in"
+                          aria-label={`View the diagram for ${d.name}`}
+                        >
+                          <img src={d.diagram.previewUrl} alt="" className="w-full h-full object-cover" />
+                        </button>
+                      )}
                       {d.isSection ? (
                         <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 shrink-0" title="A Hudl section heading. Tick it to keep it as a play.">
                           Section
@@ -331,16 +379,69 @@ export const PlaybookImportModal: React.FC<Props> = ({ playDatabase, onImport, o
                         </>
                       )}
                     </div>
+                    {changes.length > 0 && (
+                      <div className="pl-9 pr-2.5 pb-1.5 -mt-0.5 text-[11px] font-bold text-blue-800 dark:text-blue-300">{changes.join(' · ')}</div>
+                    )}
+                    </div>
                   );
                 })}
               </div>
             </div>
           )}
+
+          {missing.length > 0 && (
+            <div className="rounded-xl border border-amber-300 dark:border-amber-700/60 overflow-hidden">
+              <div className="px-3 py-2 bg-amber-50 dark:bg-amber-950/30 text-xs text-amber-900 dark:text-amber-100">
+                <strong>{missing.length} plays from {install.trim()} aren't in this upload.</strong> Tick any you want to remove from the Play Bank.
+              </div>
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                {missing.map((p) => (
+                  <label key={p.id} className="flex items-center gap-2 px-2.5 py-1.5 text-[13px] font-bold text-slate-800 dark:text-slate-100 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(removePicked[p.id])}
+                      onChange={(e) => setRemovePicked((r) => ({ ...r, [p.id]: e.target.checked }))}
+                      className="w-4 h-4 shrink-0"
+                    />
+                    <span className="flex-1 min-w-0 truncate">{p.name}</span>
+                    {removePicked[p.id] && <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300">Remove</span>}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
+
+        {zoom && (
+          <div className="fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-3" onClick={() => setZoom(null)} role="dialog" aria-label={`Diagram: ${zoom.name}`}>
+            <div className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-2xl p-3 space-y-2" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-black text-slate-900 dark:text-white">{zoom.name}</span>
+                <button type="button" onClick={() => setZoom(null)} className="w-9 h-9 rounded-full border border-slate-300 dark:border-slate-600 flex items-center justify-center cursor-pointer" aria-label="Close">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className={zoom.before ? 'grid grid-cols-1 md:grid-cols-2 gap-2' : ''}>
+                {zoom.before && (
+                  <figure>
+                    <figcaption className="text-[11px] font-black uppercase text-slate-500 mb-1">In the Play Bank now</figcaption>
+                    <img src={zoom.before} alt={`${zoom.name} before`} className="w-full rounded-lg border border-slate-200 bg-white" />
+                  </figure>
+                )}
+                <figure>
+                  {zoom.before && <figcaption className="text-[11px] font-black uppercase text-blue-700 dark:text-blue-300 mb-1">This upload</figcaption>}
+                  <img src={zoom.now} alt={zoom.name} className="w-full rounded-lg border border-slate-200 bg-white" />
+                </figure>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2">
           <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
-            {chosen.length ? `${counts.new} new · ${counts.update} get details added` : 'Nothing selected yet'}
+            {chosen.length || removeIds.length
+              ? `${counts.new} new · ${counts.update} changed${removeIds.length ? ` · ${removeIds.length} removed` : ''}`
+              : 'Nothing selected yet'}
           </span>
           <div className="flex gap-2">
             <button type="button" onClick={onClose} className="h-10 px-4 rounded-xl border border-slate-300 dark:border-slate-600 text-xs font-black text-slate-700 dark:text-slate-200 cursor-pointer">
@@ -348,8 +449,8 @@ export const PlaybookImportModal: React.FC<Props> = ({ playDatabase, onImport, o
             </button>
             <button
               type="button"
-              onClick={doImport}
-              disabled={!chosen.length || Boolean(busy)}
+              onClick={() => void doImport()}
+              disabled={(!chosen.length && !removeIds.length) || Boolean(busy)}
               className="h-10 px-4 rounded-xl bg-indigo-600 text-white text-xs font-black inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
             >
               <CheckCircle2 className="w-4 h-4" /> Add to Play Bank

@@ -172,13 +172,6 @@ const SCREEN_OPTIONS: ScreenOption[] = [
     icon: FileSpreadsheet,
   },
   {
-    id: 'guide',
-    name: 'Playbooks & Play Art Guides',
-    category: 'Reference & Guides',
-    description: 'Offensive and defensive system playbook sheets, route trees, and coaching manuals',
-    icon: BookOpen,
-  },
-  {
     id: 'whiteboard',
     name: 'Interactive Whiteboard Playbook',
     category: 'Reference & Guides',

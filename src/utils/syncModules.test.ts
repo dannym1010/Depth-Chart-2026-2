@@ -2930,3 +2930,48 @@ describe('matching a re-upload to its game', () => {
     assert.equal(findSameGame(bundle, again)?.id, 'g');
   });
 });
+
+describe('uploading the playbook again', () => {
+  const bank = () =>
+    [
+      { id: 'a', name: '21 R 31 TOSS SWEEP', unit: 'offense', formation: '21 R', type: 'run', situations: ['1-10'], wristbandNum: 4, source: 'hudl', install: '2026 10U Install', category: 'SWEEPS', assignments: [{ pos: 'Z', text: 'Stalk' }], diagramUrl: 'https://x/a.jpg', diagramHash: '0'.repeat(240) },
+      { id: 'b', name: '21 L 26 DIVE', unit: 'offense', formation: '21 L', type: 'run', situations: [], wristbandNum: 1 },
+      { id: 'c', name: '32 R POWER', unit: 'offense', formation: '32 R', type: 'run', situations: [], source: 'hudl', install: '2026 10U Install' },
+    ] as any[];
+  it('lists what changed and applies it, keeping wristband numbers and situations', async () => {
+    const { buildDrafts, draftChanges, draftStatus, mergeDraftsIntoDatabase } = await import('./playbookImport.ts');
+    const changedHash = 'f'.repeat(30) + '0'.repeat(210);
+    const drafts = buildDrafts(
+      [
+        { name: '21 R 31 TOSS SWEEP', assignments: [{ pos: 'Z', text: 'Crack the OLB' }], diagram: { hash: changedHash } },
+        { name: '21 L 26 DIVE', diagram: { hash: '1'.repeat(240) } },
+        { name: '21 R 99 NEW', diagram: { hash: '2'.repeat(240) } },
+      ],
+      { install: '2026 10U Install' }
+    );
+    const db = bank();
+    assert.deepEqual(draftChanges(db[0], drafts[0]), ['Diagram changed', 'Position jobs changed']);
+    assert.deepEqual(draftChanges(db[1], drafts[1]), ['Now from your upload', 'Adds the diagram', 'Adds the install name']);
+    assert.equal(draftStatus(db, drafts[2]), 'new');
+    drafts[0].diagramUrl = 'https://x/a2.jpg';
+    drafts[1].diagramUrl = 'https://x/b.jpg';
+    const res = mergeDraftsIntoDatabase(db, drafts);
+    const a = res.next.find((p: any) => p.id === 'a');
+    assert.equal(a.diagramUrl, 'https://x/a2.jpg');
+    assert.equal(a.assignments[0].text, 'Crack the OLB');
+    assert.equal(a.wristbandNum, 4);
+    assert.deepEqual(a.situations, ['1-10']);
+    const b = res.next.find((p: any) => p.id === 'b');
+    assert.equal(b.source, 'hudl');
+    assert.equal(b.diagramUrl, 'https://x/b.jpg');
+    assert.equal(b.wristbandNum, 1);
+    assert.equal(res.added.length, 1);
+  });
+
+  it('the same drawing rendered again is not a change', async () => {
+    const { diagramsDiffer } = await import('./playbookImport.ts');
+    const h = '0'.repeat(240);
+    assert.equal(diagramsDiffer(h, '1' + '0'.repeat(239)), false);
+    assert.equal(diagramsDiffer(h, 'f'.repeat(30) + '0'.repeat(210)), true);
+  });
+});

@@ -6607,7 +6607,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
               <WhiteboardView
                 userRole={userRole}
                 activeTeam={currentActiveTeam}
-                onNavigateToGuide={() => setActiveUnit('guide')}
+                onNavigateToGuide={() => setActiveUnit('playbook')}
                 onNavigateToDrills={() => setActiveUnit('drills')}
                 externalDrillId={activeWhiteboardDrillId}
                 externalCategory={activeWhiteboardCategory}

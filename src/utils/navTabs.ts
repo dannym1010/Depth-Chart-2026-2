@@ -32,7 +32,6 @@ export const DEFAULT_NAV_TABS: NavTabItem[] = [
   { id: 'depth_chart', label: '📋 Depth Chart', icon: ClipboardList },
   { id: 'practice', label: '📋 Practice Plan', icon: ClipboardList },
   { id: 'drills', label: '🏋️ Drill Library', icon: Dumbbell },
-  { id: 'guide', label: '📖 Playbooks & Guides', icon: BookOpen },
   { id: 'whiteboard', label: '🖍️ Whiteboard Playbook', icon: PenTool },
   { id: 'users', label: '👥 Staff & Access', icon: Users, adminOnly: true },
 ];

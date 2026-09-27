@@ -212,7 +212,7 @@ export const TabGroupManagerModal: React.FC<TabGroupManagerModalProps> = ({
         id: 'group_practice_pack',
         label: 'Practice & Install',
         icon: '📋',
-        tabIds: ['practice', 'drills', 'guide'],
+        tabIds: ['practice', 'drills', 'playbook'],
       };
 
       const presetGroups = [gamedayGroup, practiceGroup];

@@ -177,13 +177,6 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
             accentColor: 'border-emerald-500/40 hover:bg-emerald-950/40 text-emerald-300',
             badge: '70+ Drills',
           },
-          {
-            id: 'guide',
-            label: '📖 Playbooks & PDF Guides',
-            subtitle: 'Playbook reference guides, offensive schemes & PDF exports',
-            icon: BookOpen,
-            accentColor: 'border-emerald-500/40 hover:bg-emerald-950/40 text-emerald-300',
-          },
         ],
       },
       {
@@ -215,7 +208,7 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
           {
             id: 'playbook',
             label: '🏈 Play Library',
-            subtitle: 'Import Hudl playbooks, tag film plays, results by play',
+            subtitle: 'Your plays with Hudl diagrams, position jobs and film results',
             icon: Library,
             accentColor: 'border-cyan-500/40 hover:bg-cyan-950/40 text-cyan-300',
           },

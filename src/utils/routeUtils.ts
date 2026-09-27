@@ -50,6 +50,7 @@ export const RETIRED_UNITS: Partial<Record<string, UnitType>> = {
   game_day: 'call_sheet',
   tendencies: 'hudl_scout',
   html_tendencies: 'hudl_scout',
+  guide: 'playbook',
 };
 
 export const liveUnit = (unit: UnitType): UnitType => RETIRED_UNITS[unit] || unit;

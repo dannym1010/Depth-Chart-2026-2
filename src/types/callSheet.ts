@@ -149,6 +149,10 @@ export interface PlayDatabaseEntry {
   /** Where the play came from: 'hudl' for Hudl playbook imports. */
   source?: string;
   importedAt?: number;
+  /** Picture of the play drawn in Hudl (from the install PDF). */
+  diagramUrl?: string;
+  /** Fingerprint of that picture, to spot a changed diagram when the install is uploaded again. */
+  diagramHash?: string;
 }
 
 export interface PlayAssignment {

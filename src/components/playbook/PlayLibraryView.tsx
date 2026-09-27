@@ -1,11 +1,16 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Film, Library, ListChecks, Plus, Search, Trash2, Undo2, Upload, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Film, Image as ImageIcon, Library, ListChecks, Plus, Search, Trash2, Undo2, Upload, X } from 'lucide-react';
 import type { PlayAssignment, PlayDatabaseEntry, PlayType } from '../../types/callSheet';
 import type { UserRole } from '../../types';
 import { bundleFromSaved } from '../../hudlScout/scoutBundle';
 import { CallResult, callResults } from '../../hudlScout/utils/playTags';
 import { newPlayEntry, playNameKey } from '../../utils/playbookImport';
 import { PlaybookImportModal } from './PlaybookImportModal';
+import { unsavedDiagram } from '../../utils/playDiagrams';
+
+/** Plays the coach brought in (Hudl upload, added here, or added while tagging film), not the built-in starter plays. */
+export const isUploadedPlay = (p: PlayDatabaseEntry) => Boolean(p.source);
+const diagramOf = (p: PlayDatabaseEntry) => p.diagramUrl || unsavedDiagram(playNameKey(p.name));
 
 interface Props {
   playDatabase: PlayDatabaseEntry[];
@@ -60,6 +65,9 @@ export const PlayLibraryView: React.FC<Props> = ({
   const [bulkSection, setBulkSection] = useState('');
   const [importing, setImporting] = useState(false);
   const [toast, setToast] = useState<{ msg: string; undo?: () => void } | null>(null);
+  const [zoom, setZoom] = useState<PlayDatabaseEntry | null>(null);
+  // Only the coach's own plays; the built-in starter plays stay out of the library.
+  const myPlays = useMemo(() => playDatabase.filter(isUploadedPlay), [playDatabase]);
   const toastTimer = useRef<any>(null);
 
   const showToast = (msg: string, undo?: () => void) => {
@@ -79,14 +87,14 @@ export const PlayLibraryView: React.FC<Props> = ({
 
   const sections = useMemo(() => {
     const set = new Set<string>();
-    playDatabase.forEach((p) => p.category && set.add(p.category));
+    myPlays.forEach((p) => p.category && set.add(p.category));
     return [...set].sort();
-  }, [playDatabase]);
+  }, [myPlays]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toUpperCase();
     const words = q.split(/\s+/).filter(Boolean);
-    let list = playDatabase.filter((p) => {
+    let list = myPlays.filter((p) => {
       if (side !== 'all' && p.unit !== side) return false;
       if (section === 'none' && p.category) return false;
       if (section !== 'all' && section !== 'none' && p.category !== section) return false;
@@ -100,7 +108,7 @@ export const PlayLibraryView: React.FC<Props> = ({
     if (sort === 'avg')
       list = [...list].sort((a, b) => (r(b)?.count ? r(b)!.avgGain : -99) - (r(a)?.count ? r(a)!.avgGain : -99) || a.name.localeCompare(b.name));
     return list;
-  }, [playDatabase, query, side, section, sort, results]);
+  }, [myPlays, query, side, section, sort, results]);
 
   // Group by section when sorting by section.
   const groups = useMemo(() => {
@@ -143,7 +151,7 @@ export const PlayLibraryView: React.FC<Props> = ({
     setOpenId(entry.id);
   };
 
-  const hudlCount = playDatabase.filter((p) => p.source === 'hudl').length;
+  const diagramCount = myPlays.filter((p) => diagramOf(p)).length;
 
   return (
     <div className="w-full max-w-6xl mx-auto px-2 sm:px-4 py-3 sm:py-5 space-y-4">
@@ -157,7 +165,7 @@ export const PlayLibraryView: React.FC<Props> = ({
             <div>
               <h1 className="text-xl font-black text-slate-900 dark:text-white">Play Library</h1>
               <p className="text-sm text-slate-600 dark:text-slate-300">
-                {playDatabase.length} plays{hudlCount ? ` · ${hudlCount} from Hudl` : ''} · {taggedFilm} film plays tagged
+                {myPlays.length} plays{diagramCount ? ` · ${diagramCount} with diagrams` : ''} · {taggedFilm} film plays tagged
               </p>
             </div>
           </div>
@@ -184,7 +192,7 @@ export const PlayLibraryView: React.FC<Props> = ({
         <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
           <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
             <div className="font-black text-slate-900 dark:text-white">1 · Import your playbook</div>
-            <div className="text-slate-600 dark:text-slate-400 mt-0.5">Hudl install PDFs read each play’s name and every position’s job.</div>
+            <div className="text-slate-600 dark:text-slate-400 mt-0.5">Hudl install PDFs bring each play’s diagram, name and every position’s job. Upload again to review changes.</div>
           </div>
           <button
             type="button"
@@ -306,11 +314,11 @@ export const PlayLibraryView: React.FC<Props> = ({
       </datalist>
 
       {/* The plays */}
-      {playDatabase.length === 0 ? (
+      {myPlays.length === 0 ? (
         <div className="rounded-3xl border-2 border-dashed border-slate-300 dark:border-slate-700 p-10 text-center">
           <Film className="w-10 h-10 mx-auto text-slate-400" />
-          <p className="mt-2 font-black text-slate-800 dark:text-slate-100">No plays yet</p>
-          <p className="text-sm text-slate-600 dark:text-slate-400">Import a Hudl install PDF to fill the Play Bank.</p>
+          <p className="mt-2 font-black text-slate-800 dark:text-slate-100">No uploaded plays yet</p>
+          <p className="text-sm text-slate-600 dark:text-slate-400">Import your Hudl install PDFs to fill the library with your plays and their diagrams.</p>
         </div>
       ) : filtered.length === 0 ? (
         <p className="text-center text-sm text-slate-500 dark:text-slate-400 py-8">No plays match.</p>
@@ -354,6 +362,8 @@ export const PlayLibraryView: React.FC<Props> = ({
                       canEdit={canEdit}
                       onUpdate={(patch) => update(p.id, patch)}
                       onDelete={() => window.confirm(`Delete ${p.name}?`) && remove([p.id])}
+                      diagram={diagramOf(p)}
+                      onZoom={() => setZoom(p)}
                     />
                   ))}
                 </div>
@@ -369,14 +379,38 @@ export const PlayLibraryView: React.FC<Props> = ({
           onClose={() => setImporting(false)}
           onImport={(next, summary) => {
             const prev = playDatabase;
+            const prevDeleted = deletedPlayIds;
             onUpdatePlayDatabase(next);
+            if (summary.removed.length) onUpdateDeletedPlayIds(Array.from(new Set([...deletedPlayIds, ...summary.removed])));
             setImporting(false);
-            showToast(`${summary.added} plays added${summary.updated ? `, ${summary.updated} updated with Hudl details` : ''}.`, () => {
+            const parts = [`${summary.added} plays added`];
+            if (summary.updated) parts.push(`${summary.updated} updated`);
+            if (summary.removed.length) parts.push(`${summary.removed.length} removed`);
+            const note = summary.unsavedDiagrams
+              ? ` ${summary.unsavedDiagrams} diagrams couldn't be saved online (check the connection and import again).`
+              : '';
+            showToast(`${parts.join(', ')}.${note}`, () => {
               onUpdatePlayDatabase(prev);
+              if (summary.removed.length) onUpdateDeletedPlayIds(prevDeleted);
               setToast(null);
             });
           }}
         />
+      )}
+
+      {zoom && diagramOf(zoom) && (
+        <div className="fixed inset-0 z-[90] bg-black/75 flex items-center justify-center p-3" onClick={() => setZoom(null)} role="dialog" aria-label={`Diagram: ${zoom.name}`}>
+          <div className="w-full max-w-5xl bg-white dark:bg-slate-900 rounded-2xl p-3 space-y-2" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-base font-black text-slate-900 dark:text-white">{zoom.name}</span>
+              <button type="button" onClick={() => setZoom(null)} className="w-10 h-10 rounded-full border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 flex items-center justify-center cursor-pointer" aria-label="Close">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <img src={diagramOf(zoom)} alt={`${zoom.name} diagram`} className="w-full rounded-lg border border-slate-200 bg-white" />
+            {zoom.notes && <p className="text-xs text-slate-600 dark:text-slate-300">{zoom.notes}</p>}
+          </div>
+        </div>
       )}
 
       {toast && (
@@ -408,12 +442,28 @@ const PlayRow: React.FC<{
   canEdit: boolean;
   onUpdate: (patch: Partial<PlayDatabaseEntry>) => void;
   onDelete: () => void;
-}> = ({ play, result, open, onToggle, selected, onSelect, canEdit, onUpdate, onDelete }) => {
+  diagram?: string;
+  onZoom: () => void;
+}> = ({ play, result, open, onToggle, selected, onSelect, canEdit, onUpdate, onDelete, diagram, onZoom }) => {
   return (
     <div className={open ? 'bg-slate-50/70 dark:bg-slate-950/40' : ''}>
       <div className="flex items-center gap-2 px-3 py-2">
         {onSelect && (
           <input type="checkbox" checked={selected} onChange={(e) => onSelect(e.target.checked)} aria-label={`Select ${play.name}`} className="w-4 h-4 shrink-0" />
+        )}
+        {diagram ? (
+          <button
+            type="button"
+            onClick={onZoom}
+            className="shrink-0 w-20 h-9 rounded-md border border-slate-300 dark:border-slate-600 overflow-hidden bg-white cursor-zoom-in"
+            aria-label={`View the diagram for ${play.name}`}
+          >
+            <img src={diagram} alt="" loading="lazy" className="w-full h-full object-cover" />
+          </button>
+        ) : (
+          <span className="shrink-0 w-20 h-9 rounded-md border border-dashed border-slate-200 dark:border-slate-700 hidden sm:flex items-center justify-center text-slate-300 dark:text-slate-600" title="No diagram yet">
+            <ImageIcon className="w-4 h-4" />
+          </span>
         )}
         <button type="button" onClick={onToggle} className="min-w-0 flex-1 flex items-center gap-2 text-left cursor-pointer" aria-expanded={open}>
           {open ? <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" /> : <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />}
@@ -446,6 +496,11 @@ const PlayRow: React.FC<{
 
       {open && (
         <div className="px-3 pb-4 pt-1 space-y-3">
+          {diagram && (
+            <button type="button" onClick={onZoom} className="block w-full max-w-2xl rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden bg-white cursor-zoom-in" aria-label={`Open the diagram for ${play.name}`}>
+              <img src={diagram} alt={`${play.name} diagram`} className="w-full" />
+            </button>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
             <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 sm:col-span-2">
               Name

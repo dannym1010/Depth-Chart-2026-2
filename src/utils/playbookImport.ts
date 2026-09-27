@@ -6,6 +6,13 @@ import { inferFormation, extractPersonnel } from './wristbandLinking';
 
 export type PlayUnit = 'offense' | 'defense';
 
+/** The play's diagram cut from a Hudl install page (the picture itself stays in the browser until saved). */
+export interface DiagramDraft {
+  hash: string;
+  previewUrl?: string;
+  blob?: Blob;
+}
+
 /** One play (or section heading) found in an import, before it goes into the Play Bank. */
 export interface PlayDraft {
   name: string;
@@ -23,6 +30,9 @@ export interface PlayDraft {
   /** Where in the source it was found (page or row), for the preview. */
   where?: string;
   order: number;
+  diagram?: DiagramDraft;
+  /** Set once the diagram is saved, just before the drafts go into the Play Bank. */
+  diagramUrl?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -315,6 +325,7 @@ export interface DraftInput {
   category?: string;
   assignments?: PlayAssignment[];
   notes?: string;
+  diagram?: DiagramDraft;
 }
 
 /**
@@ -356,6 +367,7 @@ export function buildDrafts(inputs: DraftInput[], opts: { install?: string; unit
     const existing = byKey.get(key);
     if (existing) {
       if (!existing.assignments?.length && input.assignments?.length) existing.assignments = input.assignments;
+      if (!existing.diagram && input.diagram) existing.diagram = input.diagram;
       if (!existing.category && (input.category || section)) existing.category = input.category || section;
       return;
     }
@@ -372,6 +384,7 @@ export function buildDrafts(inputs: DraftInput[], opts: { install?: string; unit
       notes: input.notes,
       where: input.where,
       order: i,
+      diagram: input.diagram,
     };
     byKey.set(key, draft);
     drafts.push(draft);
@@ -386,20 +399,54 @@ export interface MergeResult {
   unchanged: PlayDatabaseEntry[];
 }
 
+/** Two diagram fingerprints differ enough to call it a changed drawing (not just a re-render). */
+export function diagramsDiffer(a?: string, b?: string): boolean {
+  if (!a || !b) return Boolean(a) !== Boolean(b);
+  if (a.length !== b.length) return true;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    let x = parseInt(a[i], 16) ^ parseInt(b[i], 16);
+    while (x) {
+      diff += x & 1;
+      x >>= 1;
+    }
+  }
+  return diff > a.length * 4 * 0.02;
+}
+
+const jobsText = (list?: PlayAssignment[]) =>
+  (list || []).map((a) => `${a.pos.trim().toUpperCase()}:${a.text.trim().replace(/\s+/g, ' ').toLowerCase()}`).join('|');
+
+/** What a new upload changes on a play already in the bank (empty = nothing new). */
+export function draftChanges(match: PlayDatabaseEntry, draft: PlayDraft): string[] {
+  const out: string[] = [];
+  // A built-in play with the same name becomes one of the coach's uploaded plays.
+  if (!match.source) out.push('Now from your upload');
+  if (draft.diagram) {
+    if (!match.diagramHash && !match.diagramUrl) out.push('Adds the diagram');
+    else if (diagramsDiffer(match.diagramHash, draft.diagram.hash)) out.push('Diagram changed');
+  }
+  if (draft.assignments?.length) {
+    if (!match.assignments?.length) out.push('Adds position jobs');
+    else if (jobsText(match.assignments) !== jobsText(draft.assignments)) out.push('Position jobs changed');
+  }
+  if (draft.category && draft.category !== match.category) out.push(match.category ? `Section: ${match.category} → ${draft.category}` : `Section: ${draft.category}`);
+  if (draft.install && draft.install !== match.install) out.push(match.install ? `Install: ${draft.install}` : 'Adds the install name');
+  if (draft.notes && draft.notes !== match.notes) out.push('Notes changed');
+  return out;
+}
+
 /** What would happen to each draft, for the import preview. */
 export function draftStatus(db: PlayDatabaseEntry[], draft: PlayDraft): 'new' | 'update' | 'same' {
   const match = db.find((p) => playNameKey(p.name) === draft.key);
   if (!match) return 'new';
-  const gainsAssignments = Boolean(draft.assignments?.length) && !match.assignments?.length;
-  const gainsSection = Boolean(draft.category) && !match.category;
-  const gainsInstall = Boolean(draft.install) && !match.install;
-  return gainsAssignments || gainsSection || gainsInstall ? 'update' : 'same';
+  return draftChanges(match, draft).length ? 'update' : 'same';
 }
 
 /**
  * Add the drafts to the Play Bank. A play already in the bank (same name, ignoring spaces) keeps its
- * wristband number, situations, formation and type; it only picks up what Hudl adds (assignments,
- * section, install). New plays are added at the end.
+ * wristband number, situations, formation and type; it takes what the new Hudl upload changed
+ * (diagram, position jobs, section, install, notes). New plays are added at the end.
  */
 export function mergeDraftsIntoDatabase(db: PlayDatabaseEntry[], drafts: PlayDraft[], now = Date.now()): MergeResult {
   const next = [...db];
@@ -413,10 +460,17 @@ export function mergeDraftsIntoDatabase(db: PlayDatabaseEntry[], drafts: PlayDra
     if (idx >= 0) {
       const cur = next[idx];
       const patch: Partial<PlayDatabaseEntry> = {};
-      if (draft.assignments?.length && !cur.assignments?.length) patch.assignments = draft.assignments;
-      if (draft.category && !cur.category) patch.category = draft.category;
-      if (draft.install && !cur.install) patch.install = draft.install;
-      if (draft.notes && !cur.notes) patch.notes = draft.notes;
+      const changes = draftChanges(cur, draft);
+      if (changes.some((c) => /jobs/.test(c))) patch.assignments = draft.assignments;
+      if (changes.some((c) => c.startsWith('Section'))) patch.category = draft.category;
+      if (changes.some((c) => /install/i.test(c))) patch.install = draft.install;
+      if (changes.includes('Notes changed')) patch.notes = draft.notes;
+      if (draft.diagramUrl && changes.some((c) => /diagram/i.test(c))) {
+        patch.diagramUrl = draft.diagramUrl;
+        patch.diagramHash = draft.diagram?.hash;
+      }
+      // Anything that came in with an upload is one of the coach's own plays.
+      if (cur.source !== 'hudl' && (Object.keys(patch).length || !cur.source)) patch.source = 'hudl';
       if (Object.keys(patch).length) {
         const merged = { ...cur, ...patch, importedAt: now };
         next[idx] = merged;
@@ -445,6 +499,7 @@ export function mergeDraftsIntoDatabase(db: PlayDatabaseEntry[], drafts: PlayDra
       notes: draft.notes,
       source: 'hudl',
       importedAt: now,
+      ...(draft.diagramUrl ? { diagramUrl: draft.diagramUrl, diagramHash: draft.diagram?.hash } : {}),
     };
     next.push(entry);
     added.push(entry);

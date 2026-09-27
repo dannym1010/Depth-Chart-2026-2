@@ -16,6 +16,7 @@ import {
   parseLooseList,
   tidyPlayName,
 } from './playbookImport';
+import { diagramFromPage } from './playDiagrams';
 
 export interface PlaybookReadProgress {
   done: number;
@@ -142,7 +143,7 @@ export async function readPlaybookPdf(file: File, onProgress?: (p: PlaybookReadP
       }
       const table = (await worker.recognize(crop(canvas, 0.43, 0.9))).data.text;
       const assignments = parseAssignmentLines(table).map((a) => ({ ...a, text: a.text.length > 140 ? `${a.text.slice(0, 139)}…` : a.text }));
-      inputs.push({ name, where: `page ${i}`, assignments, notes: versus ? `Drawn vs ${versus}` : undefined });
+      inputs.push({ name, where: `page ${i}`, assignments, diagram: await diagramFromPage(canvas).catch(() => undefined), notes: versus ? `Drawn vs ${versus}` : undefined });
     }
   } finally {
     await worker.terminate().catch(() => undefined);
