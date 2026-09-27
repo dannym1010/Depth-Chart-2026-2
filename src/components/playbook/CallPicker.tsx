@@ -464,8 +464,19 @@ export const TagPlaysPanel: React.FC<TagPlaysPanelProps> = ({ plays, db, onTag, 
                   {gain > 0 ? `+${gain}` : gain} yds
                 </span>
                 {(play.untaggedFormation ?? play.formation) && (play.untaggedFormation ?? play.formation) !== '-' ? ` · ${play.untaggedFormation ?? play.formation}` : ''}
-                {play.carrierOrTarget ? ` · ${play.carrierOrTarget}` : ''}
+                {!(play.rusher || play.passer || play.receiver) && play.carrierOrTarget ? ` · ${play.carrierOrTarget}` : ''}
               </div>
+              {(play.rusher || play.passer || play.receiver) && (
+                <div className="text-[12px] text-slate-700 dark:text-slate-200">
+                  {[
+                    play.rusher && `Run ${play.rusher}`,
+                    play.passer && `Pass ${play.passer}`,
+                    play.receiver && `Target ${play.receiver}`,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </div>
+              )}
             </div>
             <button
               type="button"

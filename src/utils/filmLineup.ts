@@ -70,3 +70,23 @@ export function jerseyOf(label: string | undefined): string {
   const m = String(label || '').match(/#\s*(\d+)/);
   return m ? m[1] : '';
 }
+
+export type BallRole = 'rusher' | 'passer' | 'receiver';
+
+/** Set who ran, threw or caught it on one play ("#13 Landon Veto"), or clear it with ''. */
+export function setPlayBallPlayer(plays: Play[], playId: string, role: BallRole, label: string): Play[] {
+  return plays.map((p) => {
+    if (p.id !== playId) return p;
+    const next = { ...p, [role]: label || undefined };
+    // The carrier / target line follows: the runner on a run, else the receiver or passer.
+    const isRun = p.playType === 'RUN';
+    next.carrierOrTarget = (isRun ? next.rusher || next.receiver : next.receiver || next.rusher) || next.passer || '';
+    return next;
+  });
+}
+
+/** "#13 Landon Veto" for a roster player. */
+export function rosterLabel(r: { num?: string | number; firstName?: string; lastName?: string }): string {
+  const name = `${r.firstName || ''} ${r.lastName || ''}`.trim();
+  return name ? `#${r.num} ${name}` : `#${r.num}`;
+}

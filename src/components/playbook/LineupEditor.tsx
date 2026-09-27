@@ -1,7 +1,7 @@
 import React from 'react';
 import { RotateCcw, Users } from 'lucide-react';
 import type { FilmPlayerRef, RosterPlayer } from '../../types';
-import type { FilmLineup } from '../../utils/filmLineup';
+import { BallRole, FilmLineup, jerseyOf, rosterLabel } from '../../utils/filmLineup';
 
 const UNIT_LABEL: Record<string, string> = { black: 'Black · 1s', gold: 'Gold · 2s', blue: 'Blue · 3s' };
 
@@ -16,7 +16,10 @@ export const LineupEditor: React.FC<{
   roster: RosterPlayer[];
   canEdit: boolean;
   onSetSub: (slotId: string, ref: FilmPlayerRef | null | undefined) => void;
-}> = ({ lineup, unit, weekLabel, roster, canEdit, onSetSub }) => {
+  /** Who ran, threw and caught it (from Hudl, or picked here). */
+  ball?: { rusher?: string; passer?: string; receiver?: string };
+  onSetBall?: (role: BallRole, label: string) => void;
+}> = ({ lineup, unit, weekLabel, roster, canEdit, onSetSub, ball, onSetBall }) => {
   if (!lineup) return <p className="text-xs text-slate-500 dark:text-slate-400">Kicks and timeouts have no lineup here.</p>;
   if (!lineup.slots.length) {
     return (
@@ -29,6 +32,9 @@ export const LineupEditor: React.FC<{
   const sorted = [...roster].sort((a, b) => (Number(a.num) || 999) - (Number(b.num) || 999));
   return (
     <div className="space-y-2">
+      {lineup.side === 'offense' && onSetBall && (
+        <BallPicker lineup={lineup} roster={sorted} ball={ball || {}} canEdit={canEdit} onSetBall={onSetBall} />
+      )}
       <div className="flex flex-wrap items-center gap-2 text-[11px]">
         <Users className="w-3.5 h-3.5 text-slate-500" />
         <span className="font-black text-slate-800 dark:text-slate-100">{lineup.board?.name}</span>
@@ -84,6 +90,69 @@ export const LineupEditor: React.FC<{
           </div>
         ))}
       </div>
+    </div>
+  );
+};
+
+const ROLES: { role: BallRole; label: string }[] = [
+  { role: 'rusher', label: 'Runner' },
+  { role: 'passer', label: 'Passer' },
+  { role: 'receiver', label: 'Receiver' },
+];
+
+/** Runner / passer / receiver for one play. Players on the field for the play are listed first. */
+const BallPicker: React.FC<{
+  lineup: FilmLineup;
+  roster: RosterPlayer[];
+  ball: { rusher?: string; passer?: string; receiver?: string };
+  canEdit: boolean;
+  onSetBall: (role: BallRole, label: string) => void;
+}> = ({ lineup, roster, ball, canEdit, onSetBall }) => {
+  const onField = new Set(lineup.slots.map((s) => String(s.player?.num || '')).filter(Boolean));
+  const fieldPlayers = roster.filter((r) => onField.has(String(r.num)));
+  const others = roster.filter((r) => !onField.has(String(r.num)));
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 px-2 py-1.5">
+      <span className="text-[11px] font-black uppercase tracking-wide text-slate-600 dark:text-slate-300">On the ball</span>
+      {ROLES.map(({ role, label }) => {
+        const current = ball[role] || '';
+        const num = jerseyOf(current);
+        const known = roster.some((r) => String(r.num) === num);
+        return (
+          <label key={role} className="flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+            {label}
+            <select
+              disabled={!canEdit}
+              value={num}
+              onChange={(e) => {
+                const r = roster.find((x) => String(x.num) === e.target.value);
+                onSetBall(role, r ? rosterLabel(r) : '');
+              }}
+              className="h-8 max-w-[170px] rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 text-xs font-bold text-slate-900 dark:text-white px-1"
+              aria-label={`${label} on this play`}
+            >
+              <option value="">—</option>
+              {num && !known && <option value={num}>{current}</option>}
+              {fieldPlayers.length > 0 && (
+                <optgroup label="On the field">
+                  {fieldPlayers.map((r) => (
+                    <option key={r.id || r.num} value={String(r.num)}>
+                      {rosterLabel(r)}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label="Everyone">
+                {others.map((r) => (
+                  <option key={r.id || r.num} value={String(r.num)}>
+                    {rosterLabel(r)}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+          </label>
+        );
+      })}
     </div>
   );
 };

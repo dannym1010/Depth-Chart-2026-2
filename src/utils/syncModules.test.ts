@@ -2742,3 +2742,19 @@ describe('drives from the play log', () => {
     assert.equal(assignDrives(out), out);
   });
 });
+
+describe('picking who had the ball on a play', () => {
+  it('sets runner / passer / receiver and keeps the carrier line in step', async () => {
+    const { setPlayBallPlayer, rosterLabel } = await import('./filmLineup.ts');
+    const plays = [{ id: 'a', playType: 'PASS', carrierOrTarget: '' }, { id: 'b', playType: 'RUN' }] as any[];
+    let next = setPlayBallPlayer(plays, 'a', 'passer', rosterLabel({ num: '21', firstName: 'Nash', lastName: 'Ward' }));
+    next = setPlayBallPlayer(next, 'a', 'receiver', '#10 Luke M');
+    assert.equal(next[0].passer, '#21 Nash Ward');
+    assert.equal(next[0].carrierOrTarget, '#10 Luke M');
+    next = setPlayBallPlayer(next, 'b', 'rusher', '#13 Landon Veto');
+    assert.equal(next[1].carrierOrTarget, '#13 Landon Veto');
+    next = setPlayBallPlayer(next, 'a', 'receiver', '');
+    assert.equal(next[0].receiver, undefined);
+    assert.equal(next[0].carrierOrTarget, '#21 Nash Ward');
+  });
+});

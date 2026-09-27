@@ -557,6 +557,7 @@ export function filmPlayLabel(play: HudlImportedPlay): string {
     play.gain ? `${play.gain} yds` : '',
     play.rusher ? `Rush ${play.rusher}` : '',
     play.passer ? `Pass ${play.passer}` : '',
+    play.receiver ? `to ${play.receiver}` : '',
   ].filter(Boolean);
   return bits.join(' · ') || 'Play';
 }

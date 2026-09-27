@@ -24,6 +24,9 @@ interface PlaysTableProps {
   lineupFor?: (play: Play) => { lineup: FilmLineup | null; weekLabel?: string };
   roster?: RosterPlayer[];
   onSetSub?: (playId: string, slotId: string, ref: FilmPlayerRef | null | undefined) => void;
+  onSetBall?: (playId: string, role: 'rusher' | 'passer' | 'receiver', label: string) => void;
+  /** Our film uploaded before player names were read: offer to upload the file again. */
+  onRefreshFromHudl?: () => void;
 }
 
 const UNIT_SHORT: Record<TeamUnit, string> = { black: 'Blk', blue: 'Blu', gold: 'Gld' };
@@ -69,13 +72,22 @@ const UnitPicker: React.FC<{
   );
 };
 
-export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub }) => {
+export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onRefreshFromHudl }) => {
   const [openPlay, setOpenPlay] = useState<string | null>(null);
   const canLineup = Boolean(lineupFor && roster && onSetSub);
   const lineupPanel = (play: Play) => {
     const { lineup, weekLabel } = lineupFor!(play);
     return (
-      <LineupEditor lineup={lineup} unit={play.unit} weekLabel={weekLabel} roster={roster!} canEdit onSetSub={(slotId, ref) => onSetSub!(play.id, slotId, ref)} />
+      <LineupEditor
+        lineup={lineup}
+        unit={play.unit}
+        weekLabel={weekLabel}
+        roster={roster!}
+        canEdit
+        onSetSub={(slotId, ref) => onSetSub!(play.id, slotId, ref)}
+        ball={{ rusher: play.rusher, passer: play.passer, receiver: play.receiver }}
+        onSetBall={onSetBall ? (role, label) => onSetBall(play.id, role, label) : undefined}
+      />
     );
   };
   const [untaggedOnly, setUntaggedOnly] = useState(false);
@@ -202,6 +214,18 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
         </div>
         </div>
       </div>
+
+      {onRefreshFromHudl && namesMissing(plays) && (
+        <div className="mx-4 mt-3 rounded-lg border border-amber-500/50 bg-amber-950/30 px-3 py-2.5 flex flex-col sm:flex-row sm:items-center gap-2 text-xs text-amber-100">
+          <span className="flex-1">
+            No runner / passer / receiver names on these plays. Games uploaded before Sep 27 were read without them. Upload the same Hudl file again and
+            they’re added to the plays you have (tags, formations, units and subs stay). You can also pick them per play: open a play.
+          </span>
+          <button type="button" onClick={onRefreshFromHudl} className="h-9 px-3 rounded-lg bg-amber-500 text-slate-950 font-black shrink-0 cursor-pointer">
+            Add names from Hudl file
+          </button>
+        </div>
+      )}
 
       {/* Phone cards */}
       <div className="md:hidden divide-y divide-slate-800">
@@ -579,4 +603,11 @@ const BallPlayers: React.FC<{ play: Play; inline?: boolean }> = ({ play, inline 
       ))}
     </span>
   );
+};
+
+/** Most offense plays in view have no runner / passer / receiver (older upload). */
+const namesMissing = (plays: Play[]) => {
+  const off = plays.filter((p) => p.odk === 'O' && p.playType !== 'PENALTY');
+  if (!off.length) return false;
+  return off.filter((p) => p.rusher || p.passer || p.receiver).length < off.length * 0.25;
 };
