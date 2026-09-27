@@ -597,29 +597,20 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
     }
   }, [activeWhiteboardDrillId]);
 
-  // When activeUnit changes to whiteboard or drills, ensure main folder is expanded
+  // Only the open section's folder is expanded (opening Drills closes Depth Chart, and so on).
   useEffect(() => {
-    if (activeUnit === 'whiteboard' || activeUnit === 'drills') {
-      setExpandedFolders((prev) => ({
-        ...prev,
-        drills_main: true,
-      }));
-    } else if (['offense', 'defense', 'st', 'groups', 'scrimmage', 'practice_live', 'depth_chart'].includes(activeUnit)) {
-      setExpandedFolders((prev) => ({
-        ...prev,
-        depth_chart_main: true,
-      }));
-    } else if (['game_day', 'wristband', 'call_sheet', 'scouting', 'tendencies', 'html_tendencies'].includes(activeUnit)) {
-      setExpandedFolders((prev) => ({
-        ...prev,
-        game_day_main: true,
-      }));
-    } else if (activeUnit === 'guide') {
-      setExpandedFolders((prev) => ({
-        ...prev,
-        playbook_main: true,
-      }));
-    }
+    let open: string | null = null;
+    if (activeUnit === 'whiteboard' || activeUnit === 'drills') open = 'drills_main';
+    else if (['offense', 'defense', 'st', 'groups', 'scrimmage', 'practice_live', 'depth_chart'].includes(activeUnit)) open = 'depth_chart_main';
+    else if (['game_day', 'wristband', 'call_sheet', 'scouting', 'tendencies', 'html_tendencies'].includes(activeUnit)) open = 'game_day_main';
+    else if (activeUnit === 'guide') open = 'playbook_main';
+    setExpandedFolders((prev) => ({
+      ...prev,
+      drills_main: open === 'drills_main',
+      depth_chart_main: open === 'depth_chart_main',
+      game_day_main: open === 'game_day_main',
+      playbook_main: open === 'playbook_main',
+    }));
   }, [activeUnit]);
 
   const toggleFolder = (folderKey: string) => {
