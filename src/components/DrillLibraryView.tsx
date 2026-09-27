@@ -30,7 +30,9 @@ import {
   Filter,
 } from 'lucide-react';
 import { DrillFolder, DrillItem, UserRole } from '../types';
-import { DrillCategoryDrawer } from './drills/DrillCategoryDrawer';
+import { DrillCategoryDrawer, stripLeadingIcon } from './drills/DrillCategoryDrawer';
+
+const folderAnchorId = (name: string) => `drill-folder-${name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`;
 
 interface DrillLibraryViewProps {
   cascadingDrills: DrillFolder[];
@@ -551,13 +553,22 @@ export const DrillLibraryView: React.FC<DrillLibraryViewProps> = ({
   }, [filteredCardDrills]);
 
   const toggleCardSection = (catName: string) => {
+    const isPhone = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 639px)').matches;
+    const isCurrentlyCollapsed = collapsedCardSections[catName] !== undefined ? collapsedCardSections[catName] : true;
     setCollapsedCardSections((prev) => {
-      const isCurrentlyCollapsed = prev[catName] !== undefined ? prev[catName] : true;
-      return {
-        ...prev,
-        [catName]: !isCurrentlyCollapsed,
-      };
+      if (isPhone && isCurrentlyCollapsed) {
+        // One folder open at a time on a phone, so the list never turns into one endless scroll.
+        const next: Record<string, boolean> = {};
+        groupedCardDrills.forEach((g) => (next[g.category] = g.category !== catName));
+        return next;
+      }
+      return { ...prev, [catName]: !isCurrentlyCollapsed };
     });
+    if (isPhone && isCurrentlyCollapsed) {
+      requestAnimationFrame(() =>
+        document.getElementById(folderAnchorId(catName))?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+      );
+    }
   };
 
   const handleExpandAllCardSections = () => {
@@ -1057,7 +1068,7 @@ export const DrillLibraryView: React.FC<DrillLibraryViewProps> = ({
                   }`}
                 >
                   <span>{cat.icon}</span>
-                  <span>{cat.name}</span>
+                  <span>{stripLeadingIcon(cat.name)}</span>
                   <span className={`text-[10px] ${isSelected ? 'text-indigo-200 font-black' : 'text-slate-500'}`}>
                     ({count})
                   </span>
@@ -1174,18 +1185,22 @@ export const DrillLibraryView: React.FC<DrillLibraryViewProps> = ({
               return (
                 <div
                   key={group.category}
-                  className="border border-slate-800/90 rounded-3xl bg-slate-900/70 shadow-lg overflow-hidden transition-all"
+                  id={folderAnchorId(group.category)}
+                  className="border border-slate-800/90 rounded-3xl bg-slate-900/70 shadow-lg overflow-clip transition-all scroll-mt-[70px] sm:scroll-mt-4"
                 >
-                  {/* Category Section Header Button */}
+                  {/* Category Section Header Button (stays pinned under the app bar on phones while the folder is open) */}
                   <button
                     type="button"
                     onClick={() => toggleCardSection(group.category)}
-                    className="w-full px-5 py-3.5 flex items-center justify-between gap-3 bg-slate-950/80 hover:bg-slate-900 border-b border-slate-800/80 transition-colors text-left cursor-pointer select-none"
+                    aria-expanded={!isSectionCollapsed}
+                    className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between gap-3 bg-slate-950 sm:bg-slate-950/80 hover:bg-slate-900 border-b border-slate-800/80 transition-colors text-left cursor-pointer select-none ${
+                      isSectionCollapsed ? '' : 'max-sm:sticky max-sm:top-[62px] max-sm:z-10 max-sm:shadow-lg'
+                    }`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <span className="text-lg shrink-0">{group.icon}</span>
                       <h2 className="font-black text-sm sm:text-base text-slate-100 tracking-tight truncate">
-                        {group.category}
+                        {stripLeadingIcon(group.category)}
                       </h2>
                       <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-slate-800 text-indigo-300 border border-slate-700 shrink-0">
                         {group.drills.length} {group.drills.length === 1 ? 'drill' : 'drills'}
@@ -1193,8 +1208,8 @@ export const DrillLibraryView: React.FC<DrillLibraryViewProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2 text-slate-400 shrink-0">
-                      <span className="text-xs font-semibold hidden sm:inline text-slate-400">
-                        {isSectionCollapsed ? 'Click to view' : 'Click to collapse'}
+                      <span className={`text-xs font-semibold text-slate-400 ${isSectionCollapsed ? 'hidden sm:inline' : ''}`}>
+                        {isSectionCollapsed ? 'Click to view' : 'Close'}
                       </span>
                       {isSectionCollapsed ? (
                         <ChevronRight className="w-4 h-4 text-indigo-400" />
@@ -1206,24 +1221,39 @@ export const DrillLibraryView: React.FC<DrillLibraryViewProps> = ({
 
                   {/* Section Drill Cards */}
                   {!isSectionCollapsed && (
-                    <div className="p-3.5 sm:p-4 bg-slate-950/40">
-                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                        {group.drills.map(({ drill, folderName, topCategory, pathKey, drillIdx }) => {
+                    <div className="p-2.5 sm:p-4 bg-slate-950/40">
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 sm:gap-3">
+                        {group.drills.map(({ drill, folderName, topCategory, pathKey, drillIdx }, itemIdx) => {
+                          const prevFolder = itemIdx > 0 ? group.drills[itemIdx - 1].folderName : null;
+                          const showSubHeading = folderName !== topCategory && folderName !== prevFolder;
                           const cardId = `${pathKey}_${drillIdx}`;
                           const isCopied = copiedDrillId === cardId;
                           const isExpanded = !isCompactCardMode || Boolean(expandedCardIds[cardId]);
+                          const toggleCard = () =>
+                            setExpandedCardIds((prev) => ({
+                              ...prev,
+                              [cardId]: !prev[cardId],
+                            }));
 
                           return (
+                            <React.Fragment key={drill.id || cardId}>
+                            {showSubHeading && (
+                              <div className="sm:hidden col-span-full pt-2 first:pt-0 px-1 text-[11px] font-black uppercase tracking-wider text-indigo-300">
+                                {stripLeadingIcon(folderName)}
+                              </div>
+                            )}
                             <div
-                              key={drill.id || cardId}
-                              className="bg-slate-900/95 border border-slate-800 hover:border-indigo-500/50 rounded-2xl p-3.5 sm:p-4 shadow-xl flex flex-col justify-between gap-2.5 transition-all group"
+                              className="bg-slate-900/95 border border-slate-800 hover:border-indigo-500/50 rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-xl flex flex-col justify-between gap-2 sm:gap-2.5 transition-all group"
                             >
                               <div className="space-y-2">
                                 {/* Card Header: Title + Category Badge + Action Buttons */}
                                 <div className="flex items-start justify-between gap-2">
-                                  <div className="min-w-0">
-                                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-400/90 block mb-0.5 truncate">
-                                      {topCategory && topCategory !== folderName ? `${topCategory} • ${folderName}` : folderName}
+                                  <div
+                                    className={`min-w-0 flex-1 ${isCompactCardMode ? 'cursor-pointer' : ''}`}
+                                    onClick={isCompactCardMode ? toggleCard : undefined}
+                                  >
+                                    <span className="max-sm:hidden text-[10px] font-extrabold uppercase tracking-wider text-indigo-400/90 block mb-0.5 truncate">
+                                      {topCategory && topCategory !== folderName ? `${stripLeadingIcon(topCategory)} • ${stripLeadingIcon(folderName)}` : stripLeadingIcon(folderName)}
                                     </span>
                                     <h3 className="font-black text-sm text-slate-100 group-hover:text-indigo-300 transition-colors leading-snug">
                                       {drill.name || 'Untitled Drill'}
@@ -1258,7 +1288,7 @@ export const DrillLibraryView: React.FC<DrillLibraryViewProps> = ({
 
                                 {/* Setup & Instructions (Collapsible in compact mode) */}
                                 {drill.desc && (
-                                  <div className="bg-slate-950/60 rounded-xl p-2.5 border border-slate-800">
+                                  <div className={`bg-slate-950/60 rounded-xl p-2.5 border border-slate-800 ${isExpanded ? '' : 'max-sm:hidden'}`}>
                                     <div className="flex items-center justify-between">
                                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
                                         📋 Setup &amp; Execution:
@@ -1293,21 +1323,38 @@ export const DrillLibraryView: React.FC<DrillLibraryViewProps> = ({
 
                                 {/* Key Coaching Cues */}
                                 {drill.key && (
-                                  <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-xl p-2.5">
-                                    <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wider flex items-center gap-1 mb-1">
+                                  <div
+                                    className={`bg-emerald-950/20 border border-emerald-500/30 rounded-xl p-2.5 ${
+                                      isExpanded ? '' : 'max-sm:cursor-pointer max-sm:bg-transparent max-sm:border-0 max-sm:p-0'
+                                    }`}
+                                    onClick={isExpanded ? undefined : toggleCard}
+                                  >
+                                    <span className={`text-[10px] font-black text-emerald-400 uppercase tracking-wider flex items-center gap-1 mb-1 ${isExpanded ? '' : 'max-sm:hidden'}`}>
                                       <Zap className="w-3 h-3 text-emerald-400" />
                                       <span>Key Coaching Focus:</span>
                                     </span>
-                                    <p className="text-xs font-bold text-emerald-200/90 leading-relaxed">
+                                    <p className={`text-xs font-bold text-emerald-200/90 leading-relaxed ${isExpanded ? '' : 'max-sm:line-clamp-2'}`}>
                                       {drill.key}
                                     </p>
                                   </div>
+                                )}
+
+                                {/* Phones: one clear way to open / close the rest of the card */}
+                                {isCompactCardMode && (drill.desc || userRole === 'admin') && (
+                                  <button
+                                    type="button"
+                                    onClick={toggleCard}
+                                    className="sm:hidden h-8 -ml-1 px-1 text-[11px] font-bold text-indigo-300 flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <span>{isExpanded ? 'Show less' : 'Setup & details'}</span>
+                                    {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                  </button>
                                 )}
                               </div>
 
                               {/* Card Footer Actions (Admin Controls) */}
                               {userRole === 'admin' && (
-                                <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
+                                <div className={`pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs ${isExpanded ? '' : 'max-sm:hidden'}`}>
                                   <select
                                     value={pathKey}
                                     onChange={(e) =>
@@ -1336,6 +1383,7 @@ export const DrillLibraryView: React.FC<DrillLibraryViewProps> = ({
                                 </div>
                               )}
                             </div>
+                            </React.Fragment>
                           );
                         })}
                       </div>

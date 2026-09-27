@@ -14,6 +14,9 @@ import {
 } from 'lucide-react';
 import { DrillFolder, DrillItem } from '../../types';
 
+/** Folder names often start with their own emoji; the icon is already shown, so show it once. */
+export const stripLeadingIcon = (name: string) => name.replace(/^[^\p{L}\p{N}(]+/u, '').trim() || name;
+
 interface FlattenedDrill {
   drill: DrillItem;
   folderName: string;
@@ -242,7 +245,7 @@ export const DrillCategoryDrawer: React.FC<DrillCategoryDrawerProps> = ({
                       >
                         <span className="text-base">{cat.icon}</span>
                         <div className="min-w-0">
-                          <span className="text-xs font-black block truncate">{cat.name}</span>
+                          <span className="text-xs font-black block truncate">{stripLeadingIcon(cat.name)}</span>
                         </div>
                       </button>
 
@@ -273,7 +276,7 @@ export const DrillCategoryDrawer: React.FC<DrillCategoryDrawerProps> = ({
                               : 'bg-slate-950/80 text-slate-400 border-slate-800 hover:text-slate-200'
                           }`}
                         >
-                          All {cat.name}
+                          All {stripLeadingIcon(cat.name)}
                         </button>
                         {cat.subcategories.map((sub) => {
                           const isSubSelected = isCatSelected && selectedSubcategory === sub.name;

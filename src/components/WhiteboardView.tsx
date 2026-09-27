@@ -70,6 +70,15 @@ import { WhiteboardDrillPickerModal } from './whiteboard/WhiteboardDrillPickerMo
 import { findDrillInPracticePlans } from '../utils/drillPlanLinking';
 import { safeJSONParse, safeJSONSet } from '../services/storageService';
 
+const DEFENSE_GROUP = ['DL', 'DE', 'LB', 'DB', 'SCHEME', 'DEFENSE', 'TEAM', 'TACKLE'];
+/** Does this drill belong in the chosen position group? OFFENSE and DEFENSE collect their sub-groups. */
+function drillInCategory(drill: WhiteboardDrill, cat: string): boolean {
+  if (cat === 'ALL') return true;
+  if (cat === 'OFFENSE') return drill.category.startsWith('OFF');
+  if (cat === 'DEFENSE') return DEFENSE_GROUP.includes(drill.category);
+  return drill.category === cat;
+}
+
 interface WhiteboardViewProps {
   userRole?: UserRole;
   activeTeam?: Team;
@@ -476,6 +485,56 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
     drills[0] ||
     DEFENSIVE_DRILLS[0];
 
+  // Previous / next drill inside the chosen position group (search does not change the order).
+  const navDrills = useMemo(() => {
+    const inGroup = drills.filter((d) => drillInCategory(d, selectedCategory));
+    return inGroup.some((d) => d.id === currentDrill.id) ? inGroup : drills;
+  }, [drills, selectedCategory, currentDrill.id]);
+  const navIdx = navDrills.findIndex((d) => d.id === currentDrill.id);
+  const positionCount = (cat: string) => drills.filter((d) => drillInCategory(d, cat)).length;
+  const phoneGroupChips = useMemo(
+    () =>
+      [{ id: 'ALL', icon: '🏈', shortLabel: 'All' }, ...DEFENSIVE_POSITION_GROUPS.filter((g) => g.id !== 'ALL')]
+        .map((g) => ({ ...g, count: drills.filter((d) => drillInCategory(d, g.id)).length }))
+        .filter((g) => g.count > 0),
+    [drills]
+  );
+  const [showDrillActions, setShowDrillActions] = useState<boolean>(false);
+  const viewTopRef = useRef<HTMLDivElement>(null);
+  // The app scrolls inside its main panel, not the window.
+  const scrollViewToTop = () => {
+    const scroller = viewTopRef.current?.closest('.overflow-y-auto');
+    if (scroller) scroller.scrollTo({ top: 0, behavior: 'smooth' });
+    else window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const openDrillList = () => {
+    setShowDrillActions(false);
+    setMobileViewMode('list');
+    scrollViewToTop();
+  };
+  const goToNeighbourDrill = (delta: number) => {
+    const next = navDrills[navIdx + delta];
+    if (!next) return;
+    setShowDrillActions(false);
+    handleSelectDrill(next.id);
+  };
+  // Opening the list: show the drill you are on, not the top of a long list.
+  useEffect(() => {
+    if (mobileViewMode !== 'list') return;
+    const t = setTimeout(() => {
+      document.querySelector(`[data-drill-row="${activeDrillId}"]`)?.scrollIntoView({ block: 'center' });
+    }, 60);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mobileViewMode]);
+  // Keep the chosen position chip in sight in the sideways-scrolling row.
+  useEffect(() => {
+    if (mobileViewMode !== 'list') return;
+    const chip = document.querySelector<HTMLElement>('[data-group-chip="selected"]');
+    const row = chip?.parentElement;
+    if (chip && row) row.scrollTo({ left: chip.offsetLeft - row.clientWidth / 2 + chip.clientWidth / 2 });
+  }, [mobileViewMode, selectedCategory]);
+
   // Match current drill with scheduled practice plan
   const matchingPracticePlanInfo = useMemo(() => {
     if (!currentDrill || !practices || practices.length === 0) return null;
@@ -486,15 +545,7 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
   const listFilteredDrills = useMemo(() => {
     return drills.filter((drill) => {
       // Category filter
-      if (selectedCategory !== 'ALL') {
-        if (selectedCategory === 'OFFENSE') {
-          if (!drill.category.startsWith('OFF')) return false;
-        } else if (selectedCategory === 'DEFENSE') {
-          if (!['DL', 'DE', 'LB', 'DB', 'SCHEME', 'DEFENSE', 'TEAM', 'TACKLE'].includes(drill.category)) return false;
-        } else if (drill.category !== selectedCategory) {
-          return false;
-        }
-      }
+      if (!drillInCategory(drill, selectedCategory)) return false;
       // Search filter
       if (!drillSearchTerm.trim()) return true;
       const q = drillSearchTerm.toLowerCase();
@@ -879,7 +930,7 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
   };
 
   return (
-    <div className="w-full min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center px-0 sm:px-4 py-2 sm:py-5">
+    <div ref={viewTopRef} className="w-full min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center px-0 sm:px-4 py-2 sm:py-5">
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed top-4 right-4 z-50 bg-emerald-600 text-white px-4 py-2 rounded-xl shadow-2xl font-bold text-sm flex items-center gap-2 animate-in fade-in">
@@ -889,7 +940,7 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
       )}
 
       {/* Main Header */}
-      <header className="w-full max-w-7xl flex flex-wrap justify-between items-center gap-3 mb-3 px-2 sm:px-0">
+      <header className="w-full max-w-7xl hidden sm:flex flex-wrap justify-between items-center gap-3 mb-3 px-2 sm:px-0">
         <div className="flex items-center gap-3">
           <div className="p-2.5 bg-blue-600/20 text-blue-400 rounded-2xl border border-blue-500/30 shadow-md">
             <PenTool className="w-6 h-6" />
@@ -960,36 +1011,6 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
         </div>
       )}
 
-      {/* Mobile Top Segmented Tab (Position & Drill List vs Full-Width Chalkboard) */}
-      <div className="w-full max-w-7xl mb-2.5 px-2 sm:px-0 sm:hidden print:hidden">
-        <div className="grid grid-cols-2 p-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-black shadow-xs dark:shadow-lg">
-          <button
-            type="button"
-            onClick={() => setMobileViewMode('list')}
-            className={`py-2 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-              mobileViewMode === 'list'
-                ? 'bg-indigo-600 text-white shadow-md'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800'
-            }`}
-          >
-            <Layers className="w-4 h-4" />
-            <span>Select Position & Drill</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setMobileViewMode('drill')}
-            className={`py-2 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-              mobileViewMode === 'drill'
-                ? 'bg-indigo-600 text-white shadow-md'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800'
-            }`}
-          >
-            <PenTool className="w-4 h-4" />
-            <span>Whiteboard & Notes</span>
-          </button>
-        </div>
-      </div>
-
       {mobileViewMode === 'list' ? (
         /* =========================================================================
            POSITION & DRILL SELECTION LIST VIEW (SELECT POSITION & DRILL FROM LIST)
@@ -1006,7 +1027,7 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
                   <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white uppercase tracking-wide">
                     Select Position & Drill
                   </h2>
-                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                  <p className="hidden sm:block text-xs text-slate-600 dark:text-slate-400">
                     Choose a position group below, then tap any drill to open directly on the whiteboard
                   </p>
                 </div>
@@ -1018,17 +1039,63 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
               type="button"
               onClick={() => {
                 setMobileViewMode('drill');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
+                scrollViewToTop();
               }}
               className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-indigo-700 dark:text-blue-300 hover:text-indigo-900 dark:hover:text-blue-200 border border-slate-200 dark:border-blue-500/30 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
             >
-              <span>Return to Open Drill</span>
+              <span className="sm:hidden">Back to Drill</span>
+              <span className="hidden sm:inline">Return to Open Drill</span>
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
+          {/* Phones: search + one swipeable row of position groups, pinned while you scroll the list */}
+          <div className="sm:hidden sticky top-[62px] z-20 -mx-3 px-3 py-2 space-y-2 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="search"
+                value={drillSearchTerm}
+                onChange={(e) => setDrillSearchTerm(e.target.value)}
+                placeholder="Search drills"
+                className="w-full h-10 bg-slate-50 dark:bg-slate-950/90 border border-slate-200 dark:border-slate-700/80 rounded-xl pl-9 pr-16 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500"
+              />
+              {drillSearchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setDrillSearchTerm('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold px-2 py-1 rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <div className="flex gap-1.5 overflow-x-auto no-scrollbar -mx-3 px-3">
+              {phoneGroupChips.map((g) => {
+                const isSelected = selectedCategory === g.id;
+                return (
+                  <button
+                    key={g.id}
+                    type="button"
+                    onClick={() => handleSelectCategory(g.id as 'ALL' | DefensivePositionCategory)}
+                    data-group-chip={isSelected ? 'selected' : undefined}
+                    className={`shrink-0 h-9 px-3 rounded-full border text-xs font-black flex items-center gap-1.5 cursor-pointer transition-colors ${
+                      isSelected
+                        ? 'bg-indigo-600 text-white border-indigo-500'
+                        : 'bg-slate-50 dark:bg-slate-950/70 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800'
+                    }`}
+                  >
+                    <span>{g.icon}</span>
+                    <span>{g.shortLabel}</span>
+                    <span className={`text-[10px] ${isSelected ? 'text-indigo-100' : 'text-slate-500'}`}>{g.count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* 1. Position Group Selection Chips */}
-          <div>
+          <div className="hidden sm:block">
             <div className="flex items-center justify-between gap-2 mb-2">
               <span className="text-xs font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider flex items-center gap-1.5">
                 <Shield className="w-3.5 h-3.5 text-indigo-600 dark:text-blue-400" />
@@ -1065,9 +1132,9 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
                 </div>
               </button>
 
-              {DEFENSIVE_POSITION_GROUPS.map((pos) => {
+              {DEFENSIVE_POSITION_GROUPS.filter((pos) => pos.id !== 'ALL' && positionCount(pos.id) > 0).map((pos) => {
                 const isSelected = selectedCategory === pos.id;
-                const count = drills.filter((d) => d.category === pos.id).length;
+                const count = positionCount(pos.id);
                 return (
                   <button
                     key={pos.id}
@@ -1100,7 +1167,7 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
           </div>
 
           {/* 2. Fast Search Bar */}
-          <div className="relative">
+          <div className="relative hidden sm:block">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
@@ -1125,9 +1192,10 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
             <div className="flex items-center justify-between gap-2 mb-2.5">
               <span className="text-xs font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider flex items-center gap-1.5">
                 <Target className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                Step 2: Tap Any Drill to Open ({listFilteredDrills.length})
+                <span className="sm:hidden">{listFilteredDrills.length} drills</span>
+                <span className="hidden sm:inline">Step 2: Tap Any Drill to Open ({listFilteredDrills.length})</span>
               </span>
-              <span className="text-[11px] text-indigo-600 dark:text-blue-400 font-bold">
+              <span className="hidden sm:inline text-[11px] text-indigo-600 dark:text-blue-400 font-bold">
                 Tap opens full whiteboard & coaching notes
               </span>
             </div>
@@ -1155,12 +1223,13 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
                   return (
                     <div
                       key={drill.id}
+                      data-drill-row={drill.id}
                       onClick={() => {
                         handleSelectDrill(drill.id);
                         setMobileViewMode('drill');
-                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                        scrollViewToTop();
                       }}
-                      className={`p-3.5 rounded-2xl border text-left flex flex-col justify-between gap-3 transition-all cursor-pointer group ${
+                      className={`p-3 sm:p-3.5 rounded-xl sm:rounded-2xl border text-left flex flex-col justify-between gap-1.5 sm:gap-3 transition-all cursor-pointer group scroll-mt-40 ${
                         isActive
                           ? 'bg-indigo-50 dark:bg-blue-950/50 border-indigo-400 dark:border-blue-500 ring-2 ring-indigo-400/50 dark:ring-blue-500/50 shadow-md'
                           : 'bg-white dark:bg-slate-950/80 hover:bg-slate-50 dark:hover:bg-slate-950 border-slate-200 dark:border-slate-800 hover:border-indigo-400 dark:hover:border-blue-500/50 shadow-xs hover:shadow-md'
@@ -1176,7 +1245,7 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
                           <div className="flex items-center gap-1.5">
                             {drill.phases && drill.phases.length > 0 && (
                               <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800/90 text-sky-800 dark:text-sky-300 border border-slate-200 dark:border-slate-700">
-                                {drill.phases.length} {drill.phases.length === 1 ? 'Phase' : 'Phases'}
+                                {drill.phases.length} {drill.phases.length === 1 ? 'Step' : 'Steps'}
                               </span>
                             )}
                             {isActive && (
@@ -1192,13 +1261,13 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
                         </h3>
 
                         {drill.subtitle && (
-                          <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2">
+                          <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-1 sm:line-clamp-2">
                             {drill.subtitle}
                           </p>
                         )}
 
                         {drill.cues && drill.cues.length > 0 && (
-                          <div className="flex flex-wrap gap-1 pt-1">
+                          <div className="hidden sm:flex flex-wrap gap-1 pt-1">
                             {drill.cues.slice(0, 3).map((cue, idx) => (
                               <span
                                 key={idx}
@@ -1211,7 +1280,7 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
                         )}
                       </div>
 
-                      <div className="pt-2 border-t border-slate-200 dark:border-slate-800/80 flex items-center justify-between text-xs font-black">
+                      <div className="hidden pt-2 border-t border-slate-200 dark:border-slate-800/80 sm:flex items-center justify-between text-xs font-black">
                         <button
                           type="button"
                           onClick={(e) => {
@@ -1244,15 +1313,52 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
         </section>
       ) : (
         <>
-          {/* Mobile & Desktop Top Bar with Quick "Select Position & Drill" Button */}
-          <div className="w-full max-w-7xl mb-2 sm:mb-2.5 px-2 sm:px-0 print:hidden">
+          {/* Phones: one pinned bar to move between drills. Tap the name for the full list. */}
+          <div className="sm:hidden self-stretch sticky top-[62px] z-30 px-2 py-1.5 mb-1 bg-slate-950/95 backdrop-blur print:hidden">
+            <div className="flex items-stretch gap-1.5">
+              <button
+                type="button"
+                onClick={() => goToNeighbourDrill(-1)}
+                disabled={navIdx <= 0}
+                className="w-11 h-12 shrink-0 rounded-xl border border-slate-700 bg-slate-900 text-slate-100 flex items-center justify-center cursor-pointer disabled:opacity-30 disabled:cursor-default"
+                aria-label="Previous drill"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                onClick={openDrillList}
+                className="flex-1 min-w-0 h-12 rounded-xl border border-slate-700 bg-slate-900 px-3 text-left flex items-center gap-2 cursor-pointer"
+                aria-label="Choose a different drill"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] font-black uppercase tracking-wide text-blue-400 truncate">
+                    {DEFENSIVE_POSITION_GROUPS.find((g) => g.id === currentDrill.category)?.icon || '🏈'}{' '}
+                    {DEFENSIVE_POSITION_GROUPS.find((g) => g.id === currentDrill.category)?.shortLabel || currentDrill.category}
+                    {navIdx >= 0 && <span className="text-slate-400"> · {navIdx + 1} of {navDrills.length}</span>}
+                  </div>
+                  <div className="text-[13px] font-black text-white truncate">{isCustomMode ? customTitle : currentDrill.title}</div>
+                </div>
+                <Layers className="w-4 h-4 text-slate-400 shrink-0" />
+              </button>
+              <button
+                type="button"
+                onClick={() => goToNeighbourDrill(1)}
+                disabled={navIdx < 0 || navIdx >= navDrills.length - 1}
+                className="w-11 h-12 shrink-0 rounded-xl border border-blue-500 bg-blue-600 text-white flex items-center justify-center cursor-pointer disabled:opacity-30 disabled:cursor-default"
+                aria-label="Next drill"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Desktop / tablet Top Bar with Quick "Select Position & Drill" Button */}
+          <div className="hidden sm:block w-full max-w-7xl mb-2 sm:mb-2.5 px-2 sm:px-0 print:hidden">
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl sm:rounded-2xl p-2 sm:p-2.5 shadow-xs dark:shadow-xl flex items-center justify-between gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  setMobileViewMode('list');
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
+                onClick={openDrillList}
                 className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer shrink-0"
                 title="Select a position and drill from list"
               >
@@ -1263,10 +1369,7 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
               {/* Active Drill Title & Category summary */}
               <button
                 type="button"
-                onClick={() => {
-                  setMobileViewMode('list');
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
+                onClick={openDrillList}
                 className="min-w-0 flex-1 text-right cursor-pointer group px-1"
                 title="Click to change drill"
               >
@@ -1309,9 +1412,9 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
               >
                 ALL ({drills.length})
               </button>
-              {DEFENSIVE_POSITION_GROUPS.map((pos) => {
+              {DEFENSIVE_POSITION_GROUPS.filter((pos) => pos.id !== 'ALL' && positionCount(pos.id) > 0).map((pos) => {
                 const isSelected = selectedCategory === pos.id;
-                const count = drills.filter((d) => d.category === pos.id).length;
+                const count = positionCount(pos.id);
                 return (
                   <button
                     key={pos.id}
@@ -1338,13 +1441,13 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
           <section className="w-full max-w-7xl mb-2 sm:mb-3 bg-white dark:bg-slate-900 border-x-0 sm:border border-slate-200 dark:border-slate-800 rounded-none sm:rounded-2xl p-3 sm:p-4 shadow-xs dark:shadow-xl">
             <div className="flex flex-wrap items-center justify-between gap-3">
               {/* Left: Active Drill Identity & Position Group */}
-              <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-indigo-50 dark:bg-blue-600/20 text-indigo-700 dark:text-blue-300 rounded-xl border border-indigo-200 dark:border-blue-500/30 text-xl flex items-center justify-center shrink-0">
+              <div className="flex items-center gap-3 min-w-0 flex-1 sm:flex-initial">
+            <div className="hidden sm:flex p-2.5 bg-indigo-50 dark:bg-blue-600/20 text-indigo-700 dark:text-blue-300 rounded-xl border border-indigo-200 dark:border-blue-500/30 text-xl items-center justify-center shrink-0">
               {DEFENSIVE_POSITION_GROUPS.find((g) => g.id === currentDrill.category)?.icon || "🏈"}
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] sm:text-[11px] font-black uppercase px-2.5 py-0.5 rounded-full bg-indigo-50 dark:bg-blue-600/20 text-indigo-700 dark:text-blue-300 border border-indigo-200 dark:border-blue-500/30">
+                <span className="max-sm:hidden text-[10px] sm:text-[11px] font-black uppercase px-2.5 py-0.5 rounded-full bg-indigo-50 dark:bg-blue-600/20 text-indigo-700 dark:text-blue-300 border border-indigo-200 dark:border-blue-500/30">
                   {DEFENSIVE_POSITION_GROUPS.find((g) => g.id === currentDrill.category)?.label || currentDrill.categoryLabel || currentDrill.category}
                 </span>
                 {!isCustomMode && (!currentDrill.phases || currentDrill.phases.length === 0) && (
@@ -1358,20 +1461,44 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
                   </span>
                 )}
               </div>
-              <h2
-                className="text-base sm:text-xl font-black text-slate-900 dark:text-white tracking-wide uppercase mt-0.5"
-                style={{ fontFamily: "'Permanent Marker', cursive" }}
-              >
-                {isCustomMode ? customTitle : currentDrill.title}
-              </h2>
+              <div className="flex items-start justify-between gap-2">
+                <h2
+                  className="text-base sm:text-xl font-black text-slate-900 dark:text-white tracking-wide uppercase mt-0.5"
+                  style={{ fontFamily: "'Permanent Marker', cursive" }}
+                >
+                  {isCustomMode ? customTitle : currentDrill.title}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setShowDrillActions((v) => !v)}
+                  aria-expanded={showDrillActions}
+                  className={`sm:hidden shrink-0 h-9 px-3 rounded-xl border text-xs font-black flex items-center gap-1 cursor-pointer ${
+                    showDrillActions
+                      ? 'bg-indigo-600 text-white border-indigo-500'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                  }`}
+                >
+                  <span>More</span>
+                  {showDrillActions ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
+              </div>
               <p className="text-xs text-slate-600 dark:text-slate-400">
                 {isCustomMode ? customObjective : currentDrill.subtitle || currentDrill.objective}
               </p>
             </div>
           </div>
 
-          {/* Right: Phase Controls & Drill Actions */}
-          <div className="flex items-center gap-2 flex-wrap">
+          {/* Right: Drill Actions (behind "More" on phones) */}
+          <div className={`${showDrillActions ? 'flex' : 'hidden'} sm:flex items-center gap-2 flex-wrap w-full sm:w-auto`}>
+            {/* Phones: the page header is hidden, so its Save button lives here */}
+            <button
+              type="button"
+              onClick={handleSaveToPlaybook}
+              className="sm:hidden px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs font-bold rounded-xl flex items-center gap-1.5 cursor-pointer"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>Save to Playbook</span>
+            </button>
             {/* Chalkboard Mode Toggle */}
             <button
               type="button"
@@ -1416,7 +1543,7 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
               title="Create a new drill for this category"
             >
               <Plus className="w-4 h-4" />
-              <span>+ Add Drill</span>
+              <span>Add Drill</span>
             </button>
 
             {/* Delete Drill Button */}
