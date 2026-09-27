@@ -97,6 +97,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
           p.playName.toLowerCase().includes(lower) ||
           p.formation.toLowerCase().includes(lower) ||
           p.carrierOrTarget.toLowerCase().includes(lower) ||
+          `${p.rusher || ''} ${p.passer || ''} ${p.receiver || ''}`.toLowerCase().includes(lower) ||
           p.result.toLowerCase().includes(lower) ||
           p.playType.toLowerCase().includes(lower)
       );
@@ -213,8 +214,13 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               <div className="text-[11px] text-slate-300">
                 {play.formation && play.formation !== '-' ? play.formation : 'No formation'}
                 {play.direction ? ` · ${play.direction}` : ''}
-                {play.carrierOrTarget ? ` · ${play.carrierOrTarget}` : ''}
+                {!hasPlayers(play) && play.carrierOrTarget ? ` · ${play.carrierOrTarget}` : ''}
               </div>
+              {hasPlayers(play) && (
+                <div className="text-[11px]">
+                  <BallPlayers play={play} inline />
+                </div>
+              )}
               {onSetFormation && play.odk === 'O' && (
                 <div className="pt-1">
                   <FormationEditor play={play} plays={plays} db={playDatabase || []} onSetFormation={onSetFormation} compact />
@@ -272,6 +278,9 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               <th onClick={() => handleSort('playName')} className="py-2.5 px-3 cursor-pointer hover:text-white">
                 PLAY CALL
               </th>
+              <th onClick={() => handleSort('carrierOrTarget')} className="py-2.5 px-3 cursor-pointer hover:text-white">
+                PLAYERS
+              </th>
               <th onClick={() => handleSort('playType')} className="py-2.5 px-2 cursor-pointer hover:text-white">
                 TYPE
               </th>
@@ -283,9 +292,6 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   <span>GN/LS</span>
                   {sortField === 'gainLoss' && (sortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
                 </div>
-              </th>
-              <th onClick={() => handleSort('carrierOrTarget')} className="py-2.5 px-3 cursor-pointer hover:text-white">
-                CARRIER / TARGET
               </th>
               <th className="py-2.5 px-3 text-center">FLAGS</th>
             </tr>
@@ -370,6 +376,9 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                       play.playName
                     )}
                   </td>
+                  <td className="py-2.5 px-3 text-slate-300 text-xs">
+                    {hasPlayers(play) ? <BallPlayers play={play} /> : play.carrierOrTarget || <span className="text-slate-400">-</span>}
+                  </td>
                   <td className="py-2.5 px-2">
                     <span
                       className={`text-[10px] font-mono font-bold ${
@@ -384,9 +393,6 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     <span className={isGain ? 'text-emerald-400' : isLoss ? 'text-rose-400' : 'text-slate-400'}>
                       {play.gainLoss > 0 ? `+${play.gainLoss}` : play.gainLoss}
                     </span>
-                  </td>
-                  <td className="py-2.5 px-3 text-slate-300 text-xs">
-                    {play.carrierOrTarget || <span className="text-slate-400">-</span>}
                   </td>
                   <td className="py-2.5 px-3 text-center">
                     <div className="flex items-center justify-center gap-1.5">
@@ -492,5 +498,25 @@ const FormationCell: React.FC<{ play: Play; plays: Play[]; onSetFormation: (ids:
         </button>
       )}
     </div>
+  );
+};
+
+const hasPlayers = (p: Play) => Boolean(p.rusher || p.passer || p.receiver);
+
+/** Who had the ball: "Run #13 Landon Veto" / "Pass #21 Nash Ward → #10 Luke M". */
+const BallPlayers: React.FC<{ play: Play; inline?: boolean }> = ({ play, inline }) => {
+  const rows: [string, string][] = [];
+  if (play.rusher) rows.push(['Run', play.rusher]);
+  if (play.passer) rows.push(['Pass', play.passer]);
+  if (play.receiver) rows.push(['Target', play.receiver]);
+  return (
+    <span className={inline ? 'flex flex-wrap gap-x-3' : 'flex flex-col gap-0.5'}>
+      {rows.map(([label, who]) => (
+        <span key={label} className={inline ? 'whitespace-nowrap' : 'block min-w-[96px] max-w-[130px] leading-tight'}>
+          <span className={`text-[10px] font-black uppercase text-slate-500 mr-1 ${inline ? '' : 'block'}`}>{label}</span>
+          <span className="text-slate-200 font-semibold">{who}</span>
+        </span>
+      ))}
+    </span>
   );
 };

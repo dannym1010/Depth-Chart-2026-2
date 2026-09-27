@@ -2602,3 +2602,47 @@ describe('formations on film plays', () => {
     assert.equal(next[0].formation, '32 WB');
   });
 });
+
+describe('players on the ball from Hudl', () => {
+  it('reads RUSHER / PASSER / RECEIVER jersey and name columns, not the opponent ones', async () => {
+    const { autoDetectColumnMapping, normalizeHudlRow } = await import('../hudlScout/utils/csvParser.ts');
+    const headers = ['PLAY #', 'ODK', 'PLAY TYPE', 'RESULT', 'GN/LS', 'OPP RUSHER', 'OPP PASSER', 'PASSER_Jersey', 'PASSER_Name', 'RECEIVER_Jersey', 'RECEIVER_Name', 'RUSHER_Jersey', 'RUSHER_Name'];
+    const m = autoDetectColumnMapping(headers);
+    const run = normalizeHudlRow({ 'PLAY #': '2', ODK: 'O', 'PLAY TYPE': 'Run', RESULT: 'Rush', 'GN/LS': '4', RUSHER_Jersey: '13', RUSHER_Name: 'Landon Veto' } as any, m, 0);
+    assert.equal(run.rusher, '#13 Landon Veto');
+    assert.equal(run.carrierOrTarget, '#13 Landon Veto');
+    const pass = normalizeHudlRow(
+      { 'PLAY #': '3', ODK: 'O', 'PLAY TYPE': 'Pass', RESULT: 'Complete', 'GN/LS': '9', PASSER_Jersey: '21', PASSER_Name: 'Nash Ward', RECEIVER_Jersey: '10', RECEIVER_Name: 'Luke M' } as any,
+      m,
+      1
+    );
+    assert.equal(pass.passer, '#21 Nash Ward');
+    assert.equal(pass.receiver, '#10 Luke M');
+    assert.equal(pass.carrierOrTarget, '#10 Luke M');
+  });
+
+  it('updates a re-uploaded game in place and keeps the coaches’ tags', async () => {
+    const { findSameGame, refreshGamePlays } = await import('../hudlScout/scoutBundle.ts');
+    const bundle = {
+      games: [{ id: 'g', name: 'MSA vs Suffern', playCount: 2, addedAt: 1 }],
+      plays: [
+        { id: 'a', gameId: 'g', playNumber: 1, playCallId: 'x', playCall: '21 R 24 DIVE', formation: '21 R', unit: 'gold' },
+        { id: 'b', gameId: 'g', playNumber: 2 },
+      ],
+      updatedAt: 1,
+    } as any;
+    const fresh = [
+      { id: 'n1', playNumber: 1, rusher: '#13 Landon Veto', carrierOrTarget: '#13 Landon Veto', formation: '-' },
+      { id: 'n2', playNumber: 2, passer: '#21 Nash Ward' },
+    ] as any[];
+    assert.equal(findSameGame(bundle, fresh)?.id, 'g');
+    assert.equal(findSameGame(bundle, fresh.slice(0, 1)), undefined);
+    const next = refreshGamePlays(bundle, 'g', fresh);
+    assert.equal(next.plays[0].id, 'a');
+    assert.equal(next.plays[0].rusher, '#13 Landon Veto');
+    assert.equal(next.plays[0].playCall, '21 R 24 DIVE');
+    assert.equal(next.plays[0].formation, '21 R');
+    assert.equal(next.plays[0].unit, 'gold');
+    assert.equal(next.plays[1].passer, '#21 Nash Ward');
+  });
+});

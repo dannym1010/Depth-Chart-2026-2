@@ -143,3 +143,44 @@ export function playsForWeek(bundle: Pick<ScoutBundle, 'games' | 'plays'>, week:
     return ids.has(bundle.games[0]?.id);
   });
 }
+
+function playsOfGame(bundle: Pick<ScoutBundle, 'games' | 'plays'>, gameId: string): Play[] {
+  return bundle.plays.filter((p) => (p.gameId ? p.gameId === gameId : bundle.games[0]?.id === gameId));
+}
+
+/** A game already in the report with the same plays (same play numbers in the same order). */
+export function findSameGame(bundle: Pick<ScoutBundle, 'games' | 'plays'>, fresh: Pick<Play, 'playNumber'>[]): ScoutGame | undefined {
+  if (!fresh.length) return undefined;
+  return bundle.games.find((g) => {
+    const gp = playsOfGame(bundle, g.id);
+    return gp.length === fresh.length && gp.every((p, i) => String(p.playNumber) === String(fresh[i].playNumber));
+  });
+}
+
+/**
+ * Re-uploading a game: take what the new file knows (players on the ball, Hudl's play type) and keep
+ * everything the coaches added (play-call tags, formations, units, ids so PFF grades stay attached).
+ */
+export function refreshGamePlays(bundle: ScoutBundle, gameId: string, fresh: Play[]): ScoutBundle {
+  const current = playsOfGame(bundle, gameId);
+  const byId = new Map(current.map((p, i) => [p.id, fresh[i]]));
+  return {
+    ...bundle,
+    plays: bundle.plays.map((p) => {
+      const f = byId.get(p.id);
+      if (!f) return p;
+      return {
+        ...p,
+        rusher: f.rusher,
+        passer: f.passer,
+        receiver: f.receiver,
+        oppRusher: f.oppRusher,
+        oppPasser: f.oppPasser,
+        oppReceiver: f.oppReceiver,
+        rawPlayType: f.rawPlayType || p.rawPlayType,
+        carrierOrTarget: f.carrierOrTarget || p.carrierOrTarget,
+      };
+    }),
+    updatedAt: Date.now(),
+  };
+}

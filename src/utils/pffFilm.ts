@@ -27,7 +27,9 @@ export function scoutPlayToFilmPlay(p: Play): HudlImportedPlay {
     result: p.result || '',
     playType: p.rawPlayType || (p.playType === 'SPECIAL' ? '' : p.playType),
     playDir: p.direction || '',
-    rusher: p.carrierOrTarget || '',
+    rusher: p.rusher || (p.passer || p.receiver ? '' : p.carrierOrTarget) || '',
+    passer: p.passer || '',
+    receiver: p.receiver || '',
     playCall: p.playCall,
     playCallId: p.playCallId,
   };

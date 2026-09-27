@@ -24,6 +24,13 @@ export interface ColumnMapping {
   oppRusher?: string;
   oppPasser?: string;
   oppReceiver?: string;
+  /** Hudl's player columns for the team on film (RUSHER_Jersey / RUSHER_Name ...). */
+  rusherJersey?: string;
+  rusherName?: string;
+  passerJersey?: string;
+  passerName?: string;
+  receiverJersey?: string;
+  receiverName?: string;
 }
 
 // Parses raw CSV text into an array of row objects
@@ -135,7 +142,7 @@ export function autoDetectColumnMapping(headers: string[]): ColumnMapping {
     gainLoss: findMatch(['GN/LS', 'GAIN/LOSS', 'GAIN', 'GN', 'YARDS GAINED', 'YDS', 'RESULT YDS']),
     result: findMatch(['RESULT', 'PASS RESULT', 'PLAY RESULT', 'OUTCOME']),
     personnel: findMatch(['PERSONNEL', 'P-GROUP', 'PERS', 'PERSONNEL GROUP']),
-    carrierOrTarget: findMatch(['CARRIER/TARGET', 'CARRIER', 'TARGET', 'BALL CARRIER', 'PASSER', 'BALL']),
+    carrierOrTarget: exactColumn(headers, ['CARRIER/TARGET', 'CARRIER', 'TARGET', 'BALL CARRIER']),
     motion: findMotionColumn(headers),
     backfield: findMatch(['BACKFIELD', 'SET', 'BACKFIELD SET']),
     efficiency: findMatch(['EFF', 'EFFICIENCY', 'SUCCESS', 'EFF.']),
@@ -143,7 +150,31 @@ export function autoDetectColumnMapping(headers: string[]): ColumnMapping {
     oppRusher: findMatch(['OPP RUSHER', 'RUSHER', 'RUNNER']),
     oppPasser: findMatch(['OPP PASSER', 'PASSER', 'QB']),
     oppReceiver: findMatch(['OPP RECEIVER', 'RECEIVER', 'REC']),
+    rusherJersey: exactColumn(headers, ['RUSHER_Jersey', 'RUSHER JERSEY', 'RUSHER #', 'BALL CARRIER JERSEY']),
+    rusherName: exactColumn(headers, ['RUSHER_Name', 'RUSHER NAME', 'BALL CARRIER NAME']),
+    passerJersey: exactColumn(headers, ['PASSER_Jersey', 'PASSER JERSEY', 'PASSER #']),
+    passerName: exactColumn(headers, ['PASSER_Name', 'PASSER NAME']),
+    receiverJersey: exactColumn(headers, ['RECEIVER_Jersey', 'RECEIVER JERSEY', 'RECEIVER #', 'TARGET JERSEY']),
+    receiverName: exactColumn(headers, ['RECEIVER_Name', 'RECEIVER NAME', 'TARGET NAME']),
   };
+}
+
+/** A column whose name matches exactly (ignoring case, spaces and punctuation). */
+function exactColumn(headers: string[], candidates: string[]): string {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  for (const cand of candidates) {
+    const found = headers.find((h) => norm(h) === norm(cand));
+    if (found) return found;
+  }
+  return '';
+}
+
+/** "21" + "Nash Ward" -> "#21 Nash Ward". */
+export function jerseyAndName(jersey: string, name: string): string {
+  const num = String(jersey || '').replace(/^#+/, '').trim();
+  const label = String(name || '').trim();
+  if (num && label) return `#${num} ${label}`;
+  return label || (num ? `#${num}` : '');
 }
 
 function findMotionColumn(headers: string[]): string {
@@ -268,7 +299,15 @@ export function normalizeHudlRow(row: Record<string, string>, mapping: ColumnMap
   const seriesVal = parseInt(getVal(mapping.series, ''), 10);
   const series = isNaN(seriesVal) ? undefined : seriesVal;
 
+  // Our players on the ball (Hudl RUSHER / PASSER / RECEIVER jersey + name columns).
+  const rusher = jerseyAndName(getVal(mapping.rusherJersey, ''), getVal(mapping.rusherName, ''));
+  const passer = jerseyAndName(getVal(mapping.passerJersey, ''), getVal(mapping.passerName, ''));
+  const receiver = jerseyAndName(getVal(mapping.receiverJersey, ''), getVal(mapping.receiverName, ''));
+
   let carrierOrTarget = getVal(mapping.carrierOrTarget, '');
+  if (!carrierOrTarget) {
+    carrierOrTarget = playType === 'RUN' ? rusher || receiver || passer : receiver || rusher || passer;
+  }
   if (!carrierOrTarget) {
     if (oppRusher) {
       carrierOrTarget = `#${oppRusher} (Rush)`;
@@ -333,6 +372,9 @@ export function normalizeHudlRow(row: Record<string, string>, mapping: ColumnMap
     result,
     personnel: getVal(mapping.personnel, '') || '-',
     carrierOrTarget,
+    rusher: rusher || undefined,
+    passer: passer || undefined,
+    receiver: receiver || undefined,
     oppRusher: oppRusher || undefined,
     oppPasser: oppPasser || undefined,
     oppReceiver: oppReceiver || undefined,

@@ -32,6 +32,8 @@ import {
   removeScoutGame,
   clearScoutUploads,
   guessGameWeek,
+  findSameGame,
+  refreshGamePlays,
 } from '../../hudlScout/scoutBundle';
 
 export interface HudlScoutViewProps {
@@ -301,6 +303,18 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   };
 
   const applyPlays = (newPlays: Play[], name: string, append: boolean, scheme = '', week?: string) => {
+    // The same game uploaded again: update it in place so tags, formations and units stay.
+    const same = findSameGame(bundle, newPlays);
+    if (
+      same &&
+      window.confirm(`This file has the same plays as "${same.name}". Update that game with it? Your play-call tags, formations and Black/Gold/Blue stay.`)
+    ) {
+      setBundle((prev) => ({
+        ...refreshGamePlays(prev, same.id, newPlays),
+        games: prev.games.map((g) => (g.id === same.id && week && !g.week ? { ...g, week } : g)),
+      }));
+      return;
+    }
     const game: ScoutGame = {
       id: `game-${Date.now()}`,
       name,

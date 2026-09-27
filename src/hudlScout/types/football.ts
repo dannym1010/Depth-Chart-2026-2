@@ -33,6 +33,10 @@ export interface Play {
   result: string;
   personnel: string;
   carrierOrTarget: string;
+  /** Ball carrier / passer / receiver from Hudl's player columns ("#21 Nash Ward"). */
+  rusher?: string;
+  passer?: string;
+  receiver?: string;
   oppRusher?: string;
   oppPasser?: string;
   oppReceiver?: string;
