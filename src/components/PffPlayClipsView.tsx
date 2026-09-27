@@ -42,7 +42,7 @@ import {
 } from '../utils/hudlFilmImport';
 import { mergeFilmSession } from '../utils/remoteStateMerge';
 import { getTeamColorConfig } from './practiceDrillsUtils';
-import { ScoutBundle, bundleFromSaved, findSameGame, gamesForWeek, playsForWeek, refreshGamePlays, removeScoutGame } from '../hudlScout/scoutBundle';
+import { ScoutBundle, assignDrives, bundleFromSaved, findSameGame, gamesForWeek, playsForWeek, refreshGamePlays, removeScoutGame } from '../hudlScout/scoutBundle';
 import type { Play } from '../hudlScout/types/football';
 import { tagPlayUnits } from '../hudlScout/utils/unitStats';
 import { callUsage, isNumberFormation, setPlaysFormation, tagPlays } from '../hudlScout/utils/playTags';
@@ -375,7 +375,7 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
           for (const g of weekGames) base = removeScoutGame(base, g.id, teamName);
           return {
             ...base,
-            plays: [...base.plays, ...newPlays],
+            plays: [...base.plays, ...assignDrives(newPlays)],
             games: [...base.games, { id: gameId, name: file.name.replace(/\.[^/.]+$/, ''), playCount: newPlays.length, addedAt: Date.now(), week: sharedFilm.week }],
             datasetName: base.datasetName || teamName,
             sourceCleared: false,
@@ -833,9 +833,9 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
                     type="button"
                     onClick={() => setUnitColor(activePlay, activeColor, 'rest_of_series')}
                     className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300"
-                    title={`Use ${activeColor} for the rest of series ${activeScoutPlay.series}`}
+                    title={`Use ${activeColor} for the rest of drive ${activeScoutPlay.series}`}
                   >
-                    ↓ rest of series
+                    ↓ rest of drive
                   </button>
                 )}
               </div>

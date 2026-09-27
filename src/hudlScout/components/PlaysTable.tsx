@@ -59,10 +59,10 @@ const UnitPicker: React.FC<{
         <button
           type="button"
           onClick={() => onSetUnit(play.id, current.id, 'rest_of_series')}
-          title={`Use ${current.label} for the rest of series ${play.series}`}
+          title={`Use ${current.label} for the rest of drive ${play.series}`}
           className="px-1.5 h-6 rounded-md text-[10px] font-bold text-slate-300 border border-slate-700 hover:bg-slate-800 cursor-pointer whitespace-nowrap"
         >
-          ↓ series
+          ↓ drive
         </button>
       )}
     </div>
@@ -218,6 +218,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               </div>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-400">
                 <span>#{play.playNumber}</span>
+                {play.series != null && <span className="font-bold text-slate-300">Drive {play.series}</span>}
                 <span>{play.odk}</span>
                 <span>Q{play.quarter}</span>
                 <span>{play.down} &amp; {play.distance}</span>
@@ -383,7 +384,10 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                       <UnitPicker play={play} onSetUnit={onSetUnit} />
                     </td>
                   )}
-                  <td className="py-2.5 px-2 text-center text-slate-300 font-mono">Q{play.quarter}</td>
+                  <td className="py-2.5 px-2 text-center text-slate-300 font-mono">
+                    Q{play.quarter}
+                    {play.series != null && <div className="text-[10px] font-sans font-bold text-slate-500 whitespace-nowrap">Drive {play.series}</div>}
+                  </td>
                   <td className="py-2.5 px-3 font-mono">
                     <span className="font-bold text-slate-200">
                       {play.down === 0 ? 'Kick' : `${play.down} & ${play.distance}`}

@@ -2722,3 +2722,23 @@ describe('who is on the field in our film', () => {
     assert.equal(jax.onFieldSuccess, 0);
   });
 });
+
+describe('drives from the play log', () => {
+  it('groups plays in a row by the same side; kicks and possession changes start a new drive', async () => {
+    const { assignDrives } = await import('../hudlScout/scoutBundle.ts');
+    const seq = 'K O O S O K D D O O D'.split(' ');
+    const plays = seq.map((odk, i) => ({ id: `p${i + 1}`, gameId: 'g', playNumber: i + 1, odk, series: 1 })) as any[];
+    // A second game numbers its own drives.
+    plays.push({ id: 'q1', gameId: 'h', playNumber: 1, odk: 'D', series: 7 } as any);
+    const out = assignDrives(plays);
+    assert.deepEqual(
+      out.map((p) => p.series),
+      [undefined, 1, 1, undefined, 1, undefined, 2, 2, 3, 3, 4, 1]
+    );
+    // Numbering follows play number, not the order the rows arrived in.
+    const shuffled = assignDrives([...plays].reverse());
+    assert.equal(shuffled.find((p) => p.id === 'p9')!.series, 3);
+    // Already right: same array back (no needless saves).
+    assert.equal(assignDrives(out), out);
+  });
+});

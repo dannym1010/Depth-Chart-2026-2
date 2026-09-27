@@ -41,7 +41,8 @@ export interface ScoutBundle {
 }
 
 export function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
-  const plays: Play[] = Array.isArray(saved?.plays) ? saved.plays : [];
+  // Drives are worked out from the plays themselves (see assignDrives), so older uploads get them too.
+  const plays: Play[] = assignDrives(Array.isArray(saved?.plays) ? saved.plays : []);
   return {
     plays,
     datasetName: saved?.datasetName || fallbackName,
@@ -183,4 +184,43 @@ export function refreshGamePlays(bundle: ScoutBundle, gameId: string, fresh: Pla
     }),
     updatedAt: Date.now(),
   };
+}
+
+/**
+ * Drives, numbered 1, 2, 3... in each game: a drive is a run of plays in a row (by play number) by the
+ * same side, offense or defense. A kick or a change of possession starts a new one; timeouts don't.
+ * Hudl's own SERIES column numbers each side separately and is often blank, so it is not used.
+ */
+export function assignDrives(plays: Play[]): Play[] {
+  const byGame = new Map<string, Play[]>();
+  plays.forEach((p) => {
+    const key = p.gameId || '';
+    byGame.set(key, [...(byGame.get(key) || []), p]);
+  });
+  const drive = new Map<string, number | undefined>();
+  for (const list of byGame.values()) {
+    const ordered = [...list].sort((a, b) => a.playNumber - b.playNumber);
+    let n = 0;
+    let lastSide: string | null = null;
+    for (const p of ordered) {
+      if (p.odk === 'O' || p.odk === 'D') {
+        if (p.odk !== lastSide) {
+          n += 1;
+          lastSide = p.odk;
+        }
+        drive.set(p.id, n);
+      } else {
+        if (p.odk === 'K') lastSide = null; // a kick ends the drive
+        drive.set(p.id, undefined);
+      }
+    }
+  }
+  let changed = false;
+  const next = plays.map((p) => {
+    const s = drive.get(p.id);
+    if (p.series === s) return p;
+    changed = true;
+    return { ...p, series: s };
+  });
+  return changed ? next : plays;
 }

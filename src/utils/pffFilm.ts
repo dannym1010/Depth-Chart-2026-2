@@ -3,7 +3,7 @@
 // and build each play's lineup from that week's depth chart.
 import type { FilmPlayerRef, FilmUnitColor, FormationBoard, HudlImportedPlay, PlacedPlayer, RosterPlayer } from '../types';
 import type { Play } from '../hudlScout/types/football';
-import type { ScoutBundle } from '../hudlScout/scoutBundle';
+import { assignDrives, type ScoutBundle } from '../hudlScout/scoutBundle';
 import type { ScoutGame } from '../hudlScout/components/Header';
 import { autoDetectColumnMapping, normalizeHudlRow } from '../hudlScout/utils/csvParser';
 import { FilmSlotDef, DEPTH_COLOR_BY_INDEX, matchFilmSlotId } from './hudlFilmImport';
@@ -106,6 +106,7 @@ export function moveFilmIntoSharedLog(
     others = others.filter((p) => !dupPlays.includes(p));
     mergedDuplicate = duplicate.name;
   }
+  plays = assignDrives(plays);
   const game: ScoutGame = { id: gameId, name: duplicate?.name || gameName, playCount: plays.length, addedAt: now, week };
   return {
     bundle: {

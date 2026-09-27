@@ -35,6 +35,7 @@ import {
   removeScoutGame,
   clearScoutUploads,
   guessGameWeek,
+  assignDrives,
   findSameGame,
   refreshGamePlays,
 } from '../../hudlScout/scoutBundle';
@@ -342,7 +343,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       addedAt: Date.now(),
       ...(scoutTarget === 'own' && week ? { week } : {}),
     };
-    const tagged = newPlays.map((p, i) => ({ ...p, id: `${p.id}-${game.id}-${i}`, gameId: game.id }));
+    const tagged = assignDrives(newPlays.map((p, i) => ({ ...p, id: `${p.id}-${game.id}-${i}`, gameId: game.id })));
     setBundle((prev) => {
       if (append && prev.plays.length) {
         return {
