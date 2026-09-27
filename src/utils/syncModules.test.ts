@@ -2564,3 +2564,41 @@ describe('editing the Drill Library', () => {
     assert.deepEqual(e.folderOptions(t).map((o) => o.label), ['Defense', 'Defense › Linebackers', 'Defense › Defensive Line', 'Offense']);
   });
 });
+
+describe('formations on film plays', () => {
+  it('reads formations as a number plus letters and matches calls to them', async () => {
+    const { tidyFormation, isNumberFormation, callFitsFormation } = await import('../hudlScout/utils/playTags.ts');
+    assert.equal(tidyFormation('21r'), '21 R');
+    assert.equal(tidyFormation(' 32  wb '), '32 WB');
+    assert.equal(isNumberFormation('GUN'), false);
+    assert.equal(isNumberFormation('-'), false);
+    assert.equal(isNumberFormation('21'), true);
+    const call = (name: string) => ({ name, formation: '' });
+    assert.equal(callFitsFormation(call('21 R 31 TOSS SWEEP'), '21'), true);
+    assert.equal(callFitsFormation(call('21R 24 DIVE'), '21 R'), true);
+    assert.equal(callFitsFormation(call('21 R 31 TOSS SWEEP'), '21 L'), false);
+    assert.equal(callFitsFormation(call('21 R TWINS L 24 DIVE Z BUBBLE'), '21 TWINS'), true);
+    assert.equal(callFitsFormation(call('32 R WISHBONE 26 DIVE'), '32 WISHBONE'), true);
+    assert.equal(callFitsFormation(call('32 R WISHBONE 26 DIVE'), '21'), false);
+    assert.equal(callFitsFormation(call('11 R 11 KEEP'), '1'), false);
+  });
+
+  it('sets a formation, keeps it through untagging, and copies it down the drive', async () => {
+    const { setPlaysFormation, restOfSeriesIds, tagPlays } = await import('../hudlScout/utils/playTags.ts');
+    const base = { odk: 'O', gameId: 'g', series: 2, formation: '-', playName: 'Rush' };
+    const plays = [
+      { ...base, id: 'a', playNumber: 5 },
+      { ...base, id: 'b', playNumber: 6 },
+      { ...base, id: 'c', playNumber: 7 },
+      { ...base, id: 'd', playNumber: 8, series: 3 },
+      { ...base, id: 'e', playNumber: 9, odk: 'D' },
+    ] as any[];
+    assert.deepEqual(restOfSeriesIds(plays, 'a'), ['b', 'c']);
+    let next = setPlaysFormation(plays, ['a'], '21r');
+    assert.equal(next[0].formation, '21 R');
+    next = tagPlays(next, ['a'], { id: 'x', name: '21 R 24 DIVE', formation: '21 R' });
+    next = setPlaysFormation(next, ['a'], '32 wb');
+    next = tagPlays(next, ['a'], null);
+    assert.equal(next[0].formation, '32 WB');
+  });
+});

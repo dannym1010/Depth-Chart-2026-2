@@ -45,11 +45,11 @@ import { getTeamColorConfig } from './practiceDrillsUtils';
 import { ScoutBundle, bundleFromSaved, gamesForWeek, playsForWeek, removeScoutGame } from '../hudlScout/scoutBundle';
 import type { Play } from '../hudlScout/types/football';
 import { tagPlayUnits } from '../hudlScout/utils/unitStats';
-import { callUsage, tagPlays } from '../hudlScout/utils/playTags';
+import { callUsage, isNumberFormation, setPlaysFormation, tagPlays } from '../hudlScout/utils/playTags';
 import { autoDetectColumnMapping, isSpreadsheetFilename, normalizeHudlRow, parseCsvRows, workbookBufferToCsv } from '../hudlScout/utils/csvParser';
 import { formationForCall, lineupFromFormation, moveFilmIntoSharedLog, scoutPlayToFilmPlay } from '../utils/pffFilm';
 import { newPlayEntry } from '../utils/playbookImport';
-import { CallButton, TagPlaysPanel } from './playbook/CallPicker';
+import { CallButton, FormationEditor, TagPlaysPanel } from './playbook/CallPicker';
 
 /** Our film is one play log: the self-scout upload for a week is what PFF grades for that week. */
 export interface PffSharedFilm {
@@ -247,8 +247,13 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
   const activeColor: FilmUnitColor = activePlay ? colorOf(activePlay) : 'black';
 
   // The called play's formation, from this week's depth chart (e.g. "32 R WISHBONE ..." -> 32 Offense).
+  // No call yet: the formation the coach set on the play ("21", "32 WB") picks it.
+  const filmFormation = activeScoutPlay && isNumberFormation(activeScoutPlay.formation) ? activeScoutPlay.formation : undefined;
   const callBoard =
-    activePlay && side !== 'special' ? formationForCall(activePlay.playCall, priorFormations, side) : undefined;
+    activePlay && side !== 'special'
+      ? formationForCall(activePlay.playCall, priorFormations, side) ||
+        (side === 'offense' ? formationForCall(filmFormation, priorFormations, side) : undefined)
+      : undefined;
   const lineup: { slot: FilmSlotDef; player: FilmPlayerRef | null }[] = useMemo(() => {
     if (!activePlay || !assignment) return [];
     if (callBoard && side !== 'special') {
@@ -298,6 +303,8 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
     }
   };
 
+  const setFormation = (ids: string[], formation: string) =>
+    updateBundle((b) => ({ ...b, plays: setPlaysFormation(b.plays, ids, formation), updatedAt: Date.now() }));
   const tagCall = (ids: string[], entry: PlayDatabaseEntry | null) =>
     updateBundle((b) => ({ ...b, plays: tagPlays(b.plays, ids, entry), updatedAt: Date.now() }));
   const createCall = (name: string, unit: 'offense' | 'defense') => {
@@ -818,6 +825,10 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
                 )}
               </div>
 
+              {activeScoutPlay && side === 'offense' && canEdit ? (
+                <FormationEditor play={activeScoutPlay} plays={sharedScoutPlays} db={playDb} onSetFormation={setFormation} compact />
+              ) : null}
+
               {side === 'special' ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[11px] font-black uppercase text-slate-500">ST unit</span>
@@ -969,6 +980,7 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
             if (fp && unit) setUnitColor(fp, unit as FilmUnitColor);
             else updateBundle((b) => ({ ...b, plays: tagPlayUnits(b.plays, id, unit, 'play'), updatedAt: Date.now() }));
           }}
+          onSetFormation={setFormation}
           startId={activePlay?.id}
           title={`Tag ${sharedFilm?.weekLabel || 'our'} plays`}
           onClose={() => setTagging(false)}

@@ -21,7 +21,7 @@ import { makeVoice } from '../../hudlScout/components/report/reportText';
 import { Card, SectionHeader } from '../../hudlScout/components/report/ui';
 import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
-import { tagPlays } from '../../hudlScout/utils/playTags';
+import { setPlaysFormation, tagPlays } from '../../hudlScout/utils/playTags';
 import { newPlayEntry } from '../../utils/playbookImport';
 import { CallResultsCard } from '../playbook/CallResultsCard';
 import { pickScoutBundle, scoutFingerprint } from '../../utils/remoteStateMerge';
@@ -127,6 +127,9 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     const entry = scoutTarget === 'opponent' ? { ...base, category: 'Opponent plays', tags: ['Opponent'] } : base;
     onUpdatePlayDatabase?.([...(playDatabase || []), entry]);
     return entry;
+  };
+  const handleSetFormation = (ids: string[], formation: string) => {
+    setBundle((prev) => ({ ...prev, plays: setPlaysFormation(prev.plays, ids, formation), updatedAt: Date.now() }));
   };
   const handleSetGameWeek = (gameId: string, week: string) => {
     setOwnBundle((prev) => ({
@@ -507,6 +510,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                   playDatabase={playDatabase}
                   onTagPlays={onUpdatePlayDatabase ? handleTagPlays : undefined}
                   onCreateCall={onUpdatePlayDatabase ? handleCreateCall : undefined}
+                  onSetFormation={handleSetFormation}
                 />
               </>
             )}

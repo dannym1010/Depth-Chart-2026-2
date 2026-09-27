@@ -134,3 +134,73 @@ export function callResults(plays: Play[]): CallResult[] {
     .map((r) => ({ ...r, avgGain: r.count ? Math.round((r.yards / r.count) * 10) / 10 : 0, successRate: r.count ? Math.round((r.successRate / r.count) * 100) : 0 }))
     .sort((a, b) => b.count - a.count || b.avgGain - a.avgGain);
 }
+
+// ---------------------------------------------------------------------------
+// Formations ("21", "21 R", "32 WB"): a number, sometimes followed by letters
+// ---------------------------------------------------------------------------
+
+/** "21R TWINS" -> ["21", "R", "TWINS"]: numbers and letters split apart. */
+export function formationTokens(s: string): string[] {
+  return String(s || '')
+    .toUpperCase()
+    .replace(/([0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z])([0-9])/g, '$1 $2')
+    .split(/[^A-Z0-9]+/)
+    .filter(Boolean);
+}
+
+/** A formation the coach typed: tidy spacing and capitals ("21r" -> "21 R"). Blank stays blank. */
+export function tidyFormation(s: string): string {
+  return formationTokens(s).join(' ');
+}
+
+/** A usable formation: starts with a number ("21", "32 WB"). Hudl's "-" or "GUN" is not one. */
+export function isNumberFormation(s: string | undefined): boolean {
+  return /^\d/.test(tidyFormation(s || ''));
+}
+
+/**
+ * Is this call run from that formation? The numbers must match and every letter group the coach gave must
+ * be in the call's formation: "21" fits "21 R 31 TOSS SWEEP"; "32 WB" fits "32 R WB 26 DIVE"; "21 L" does not fit "21 R ...".
+ */
+export function callFitsFormation(entry: Pick<PlayDatabaseEntry, 'name' | 'formation'>, formation: string): boolean {
+  const want = formationTokens(formation);
+  if (!want.length) return true;
+  const have = formationTokens(formationOfCall(entry.name) || entry.formation || entry.name);
+  if (have[0] !== want[0]) return false;
+  return want.slice(1).every((t) => have.includes(t));
+}
+
+/** Set the formation on plays. It becomes the film's own formation, so removing a tag keeps it. */
+export function setPlaysFormation(plays: Play[], ids: string[], formation: string): Play[] {
+  const idSet = new Set(ids);
+  const value = tidyFormation(formation) || '-';
+  return plays.map((p) =>
+    idSet.has(p.id) ? { ...p, formation: value, ...(p.playCallId ? { untaggedFormation: value } : {}) } : p
+  );
+}
+
+/** Plays later in the same drive (same game, series and side) - for "copy to rest of drive". */
+export function restOfSeriesIds(plays: Play[], playId: string): string[] {
+  const t = plays.find((p) => p.id === playId);
+  if (!t || t.series == null) return [];
+  return plays
+    .filter((p) => p.id !== t.id && p.gameId === t.gameId && p.series === t.series && p.odk === t.odk && p.playNumber > t.playNumber)
+    .map((p) => p.id);
+}
+
+/** Formations to offer: what is on the film plus the ones in the Play Bank, most used first. */
+export function formationChoices(plays: Play[], db: PlayDatabaseEntry[]): string[] {
+  const count = new Map<string, number>();
+  const add = (f: string, n = 1) => {
+    const t = tidyFormation(f);
+    if (isNumberFormation(t)) count.set(t, (count.get(t) || 0) + n);
+  };
+  plays.forEach((p) => add(p.formation, 3));
+  db.filter((e) => e.unit === 'offense').forEach((e) => {
+    const f = formationOfCall(e.name);
+    add(f);
+    add(formationTokens(f)[0] || '');
+  });
+  return [...count.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], undefined, { numeric: true })).map(([f]) => f);
+}

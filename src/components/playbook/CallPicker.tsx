@@ -4,7 +4,17 @@ import { Check, ChevronLeft, ChevronRight, Plus, Search, Tag, X, ListChecks, Und
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import type { Play, TeamUnit } from '../../hudlScout/types/football';
 import { TEAM_UNITS } from '../../hudlScout/utils/unitStats';
-import { callUnitForPlay, callUsage, isTaggablePlay, rankCalls } from '../../hudlScout/utils/playTags';
+import {
+  callFitsFormation,
+  callUnitForPlay,
+  callUsage,
+  formationChoices,
+  isNumberFormation,
+  isTaggablePlay,
+  rankCalls,
+  restOfSeriesIds,
+  tidyFormation,
+} from '../../hudlScout/utils/playTags';
 import { playNameKey } from '../../utils/playbookImport';
 
 type UnitFilter = 'offense' | 'defense' | 'all';
@@ -52,13 +62,19 @@ export const CallList: React.FC<CallListProps> = ({ play, db, usage, onPick, onC
     setQuery('');
     setCursor(0);
     setUnit(callUnitForPlay(play) || 'all');
+    setAllFormations(false);
     if (autoFocus) requestAnimationFrame(() => inputRef.current?.focus());
   }, [play.id]);
 
+  // A play with a formation ("21", "32 WB") only offers calls from that formation.
+  const formation = isNumberFormation(play.formation) ? tidyFormation(play.formation) : '';
+  const [allFormations, setAllFormations] = useState(false);
+  const unitPool = useMemo(() => (unit === 'all' ? db : db.filter((e) => e.unit === unit)), [db, unit]);
+  const inFormation = useMemo(() => (formation ? unitPool.filter((e) => callFitsFormation(e, formation)) : []), [unitPool, formation]);
+  const filtering = Boolean(formation) && !allFormations && inFormation.length > 0;
   const results = useMemo(() => {
-    const pool = unit === 'all' ? db : db.filter((e) => e.unit === unit);
-    return rankCalls(play, pool, usage, query).slice(0, 60);
-  }, [db, unit, play, usage, query]);
+    return rankCalls(play, filtering ? inFormation : unitPool, usage, query).slice(0, 60);
+  }, [unitPool, inFormation, filtering, play, usage, query]);
 
   const exact = query.trim() && db.some((e) => playNameKey(e.name) === playNameKey(query));
   const canCreate = Boolean(onCreate && query.trim() && !exact);
@@ -122,6 +138,26 @@ export const CallList: React.FC<CallListProps> = ({ play, db, usage, onPick, onC
           ))}
         </div>
       </div>
+      {formation && unit !== 'defense' && (
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-slate-200 dark:border-slate-700 text-[11px]">
+          {inFormation.length ? (
+            <>
+              <span className="font-bold text-slate-600 dark:text-slate-300">
+                {filtering ? `Showing ${inFormation.length} plays from ${formation}` : `All formations (${formation} has ${inFormation.length})`}
+              </span>
+              <button
+                type="button"
+                onClick={() => setAllFormations((v) => !v)}
+                className="ml-auto h-7 px-2 rounded-md border border-slate-300 dark:border-slate-600 font-black text-slate-700 dark:text-slate-200 cursor-pointer"
+              >
+                {filtering ? 'Show all' : `Only ${formation}`}
+              </button>
+            </>
+          ) : (
+            <span className="text-slate-500 dark:text-slate-400">No plays in the Play Bank from {formation}, showing all.</span>
+          )}
+        </div>
+      )}
       <div ref={listRef} className={`overflow-y-auto ${size === 'tall' ? 'flex-1 min-h-[220px]' : 'max-h-72'}`} role="listbox">
         {play.playCallId && (
           <button
@@ -294,12 +330,14 @@ interface TagPlaysPanelProps {
   onCreate?: (name: string, unit: 'offense' | 'defense') => PlayDatabaseEntry;
   /** Our own film: also set which unit was on the field. */
   onSetUnit?: (playId: string, unit: TeamUnit | undefined) => void;
+  /** Set the formation on plays (a number, maybe letters: "21", "21 R", "32 WB"). */
+  onSetFormation?: (ids: string[], formation: string) => void;
   startId?: string;
   title?: string;
   onClose: () => void;
 }
 
-export const TagPlaysPanel: React.FC<TagPlaysPanelProps> = ({ plays, db, onTag, onCreate, onSetUnit, startId, title, onClose }) => {
+export const TagPlaysPanel: React.FC<TagPlaysPanelProps> = ({ plays, db, onTag, onCreate, onSetUnit, onSetFormation, startId, title, onClose }) => {
   const taggable = useMemo(() => plays.filter(isTaggablePlay), [plays]);
   const [onlyUntagged, setOnlyUntagged] = useState(false);
   const firstUntagged = taggable.findIndex((p) => !p.playCallId);
@@ -489,6 +527,18 @@ export const TagPlaysPanel: React.FC<TagPlaysPanelProps> = ({ plays, db, onTag, 
           </div>
         </div>
 
+        {onSetFormation && play.odk === 'O' && (
+          <div className="px-4 py-2 border-b border-slate-200 dark:border-slate-700">
+            <FormationEditor
+              play={play}
+              plays={taggable}
+              db={db}
+              previous={taggable.slice(0, taggable.indexOf(play)).reverse().find((p) => p.odk === play.odk && isNumberFormation(p.formation))}
+              onSetFormation={onSetFormation}
+            />
+          </div>
+        )}
+
         {/* Pick the call */}
         <div className="flex-1 min-h-0 flex flex-col">
           <CallList play={play} db={db} usage={usage} onPick={pick} onCreate={onCreate} autoFocus size="tall" numberKeys />
@@ -499,5 +549,90 @@ export const TagPlaysPanel: React.FC<TagPlaysPanelProps> = ({ plays, db, onTag, 
       </div>
     </div>,
     document.body
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Formation of a film play: type it, pick a common one, copy it from the last play or down the drive
+// ---------------------------------------------------------------------------
+
+export const FormationEditor: React.FC<{
+  play: Play;
+  /** All plays in view (for the list of formations and "rest of drive"). */
+  plays: Play[];
+  db: PlayDatabaseEntry[];
+  previous?: Play;
+  onSetFormation: (ids: string[], formation: string) => void;
+  compact?: boolean;
+}> = ({ play, plays, db, previous, onSetFormation, compact }) => {
+  const current = isNumberFormation(play.formation) ? tidyFormation(play.formation) : '';
+  const [draft, setDraft] = useState(current);
+  useEffect(() => setDraft(current), [play.id, current]);
+  const choices = useMemo(() => formationChoices(plays, db), [plays, db]);
+  const quick = choices.filter((c) => c !== current).slice(0, compact ? 4 : 6);
+  const rest = restOfSeriesIds(plays, play.id);
+  const listId = `formations-${play.id}`;
+  const commit = (v: string) => {
+    const t = tidyFormation(v);
+    if (t !== current) onSetFormation([play.id], t);
+  };
+  const prevFormation = previous ? tidyFormation(previous.formation) : '';
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <label className="text-[11px] font-black uppercase tracking-wide text-slate-600 dark:text-slate-300" htmlFor={`form-${play.id}`}>
+        Formation
+      </label>
+      <input
+        id={`form-${play.id}`}
+        value={draft}
+        list={listId}
+        onChange={(e) => setDraft(e.target.value.toUpperCase())}
+        onBlur={() => commit(draft)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit(draft);
+          }
+        }}
+        placeholder="21, 21 R, 32 WB"
+        className="w-36 h-8 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm font-black text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500"
+        aria-label="Formation"
+      />
+      <datalist id={listId}>
+        {choices.map((c) => (
+          <option key={c} value={c} />
+        ))}
+      </datalist>
+      {quick.map((c) => (
+        <button
+          key={c}
+          type="button"
+          onClick={() => onSetFormation([play.id], c)}
+          className="h-8 px-2 rounded-lg border border-slate-300 dark:border-slate-600 text-[11px] font-black text-slate-700 dark:text-slate-200 hover:border-indigo-500 cursor-pointer"
+        >
+          {c}
+        </button>
+      ))}
+      {prevFormation && prevFormation !== current && (
+        <button
+          type="button"
+          onClick={() => onSetFormation([play.id], prevFormation)}
+          className="h-8 px-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-[11px] font-black text-slate-700 dark:text-slate-200 cursor-pointer"
+          title="Use the formation from the play before"
+        >
+          Same as last ({prevFormation})
+        </button>
+      )}
+      {current && rest.length > 0 && (
+        <button
+          type="button"
+          onClick={() => onSetFormation(rest, current)}
+          className="h-8 px-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-[11px] font-black text-slate-700 dark:text-slate-200 cursor-pointer"
+          title={`Set ${current} on the next ${rest.length} plays of this drive`}
+        >
+          Copy to rest of drive ({rest.length})
+        </button>
+      )}
+    </div>
   );
 };

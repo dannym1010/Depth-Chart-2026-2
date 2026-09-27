@@ -2,9 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { Play, TeamUnit } from '../types/football';
 import { TEAM_UNITS, playIsUnitTaggable } from '../utils/unitStats';
 import { isRecordedMotion } from '../utils/csvParser';
-import { callUsage, isTaggablePlay } from '../utils/playTags';
+import { callUsage, isNumberFormation, isTaggablePlay, restOfSeriesIds, tidyFormation } from '../utils/playTags';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
-import { CallButton, TagPlaysPanel } from '../../components/playbook/CallPicker';
+import { CallButton, FormationEditor, TagPlaysPanel } from '../../components/playbook/CallPicker';
 import { Search, ChevronDown, ChevronUp, Zap, Flame, CheckCircle2, ListChecks } from 'lucide-react';
 
 interface PlaysTableProps {
@@ -15,6 +15,8 @@ interface PlaysTableProps {
   playDatabase?: PlayDatabaseEntry[];
   onTagPlays?: (ids: string[], entry: PlayDatabaseEntry | null) => void;
   onCreateCall?: (name: string, unit: 'offense' | 'defense') => PlayDatabaseEntry;
+  /** Edit the formation ("21", "21 R", "32 WB"); tagging then only offers plays from it. */
+  onSetFormation?: (ids: string[], formation: string) => void;
 }
 
 const UNIT_SHORT: Record<TeamUnit, string> = { black: 'Blk', blue: 'Blu', gold: 'Gld' };
@@ -60,7 +62,7 @@ const UnitPicker: React.FC<{
   );
 };
 
-export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall }) => {
+export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation }) => {
   const [untaggedOnly, setUntaggedOnly] = useState(false);
   const [tagging, setTagging] = useState<{ startId?: string } | null>(null);
   const canTagCalls = Boolean(onTagPlays && playDatabase);
@@ -213,6 +215,11 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                 {play.direction ? ` · ${play.direction}` : ''}
                 {play.carrierOrTarget ? ` · ${play.carrierOrTarget}` : ''}
               </div>
+              {onSetFormation && play.odk === 'O' && (
+                <div className="pt-1">
+                  <FormationEditor play={play} plays={plays} db={playDatabase || []} onSetFormation={onSetFormation} compact />
+                </div>
+              )}
               {((onSetUnit && playIsUnitTaggable(play)) || (canTagCalls && isTaggablePlay(play))) && (
                 <div className="pt-1 flex flex-wrap items-center gap-2">
                   {canTagCalls && isTaggablePlay(play) && (
@@ -343,7 +350,9 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     </span>
                   </td>
                   <td className="py-2.5 px-3 text-slate-200 font-semibold">
-                    {play.formation && play.formation !== '-' ? (
+                    {onSetFormation && play.odk === 'O' ? (
+                      <FormationCell play={play} plays={plays} onSetFormation={onSetFormation} />
+                    ) : play.formation && play.formation !== '-' ? (
                       play.formation
                     ) : (
                       <span className="text-slate-500 font-mono font-normal">-</span>
@@ -437,10 +446,50 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
           onTag={onTagPlays!}
           onCreate={onCreateCall}
           onSetUnit={onSetUnit ? (id, unit) => onSetUnit(id, unit, 'play') : undefined}
+          onSetFormation={onSetFormation}
           startId={tagging.startId}
           title={onSetUnit ? 'Tag our plays' : 'Tag their plays'}
           onClose={() => setTagging(null)}
         />
+      )}
+    </div>
+  );
+};
+
+/** Formation in a play-log row: type it (Enter saves), or copy it down the rest of the drive. */
+const FormationCell: React.FC<{ play: Play; plays: Play[]; onSetFormation: (ids: string[], formation: string) => void }> = ({
+  play,
+  plays,
+  onSetFormation,
+}) => {
+  const current = isNumberFormation(play.formation) ? tidyFormation(play.formation) : play.formation === '-' ? '' : play.formation;
+  const [draft, setDraft] = useState(current);
+  React.useEffect(() => setDraft(current), [current]);
+  const rest = restOfSeriesIds(plays, play.id);
+  const commit = () => {
+    if (tidyFormation(draft) !== tidyFormation(current)) onSetFormation([play.id], draft);
+  };
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value.toUpperCase())}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+        placeholder="21 R"
+        aria-label={`Formation for play ${play.playNumber}`}
+        className="w-20 h-7 rounded-md border border-slate-700 bg-slate-950 px-1.5 text-xs font-bold text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+      />
+      {current && isNumberFormation(current) && rest.length > 0 && (
+        <button
+          type="button"
+          onClick={() => onSetFormation(rest, current)}
+          title={`Copy ${current} to the rest of this drive (${rest.length} plays)`}
+          aria-label="Copy formation to the rest of the drive"
+          className="h-7 w-7 rounded-md border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-800 text-xs font-black cursor-pointer"
+        >
+          ↓
+        </button>
       )}
     </div>
   );
