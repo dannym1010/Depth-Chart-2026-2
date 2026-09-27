@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Upload, Printer, Plus, X, SlidersHorizontal } from 'lucide-react';
 import { MoreMenu } from '../../components/common/MoreMenu';
 
@@ -26,6 +26,8 @@ interface HeaderProps {
   setActiveTab: (tab: string) => void;
   scoutTarget: ScoutTarget;
   onScoutTargetChange: (target: ScoutTarget) => void;
+  /** The Hudl Scout section bar already picks opponent / our team. */
+  hideTargetToggle?: boolean;
   games: ScoutGame[];
   selectedGameId?: string;
   onSelectGame?: (gameId: string) => void;
@@ -59,6 +61,7 @@ export const Header: React.FC<HeaderProps> = ({
   setActiveTab,
   scoutTarget,
   onScoutTargetChange,
+  hideTargetToggle = false,
   games,
   selectedGameId = 'all',
   onSelectGame,
@@ -74,6 +77,16 @@ export const Header: React.FC<HeaderProps> = ({
   onSetGameWeek,
 }) => {
   const own = scoutTarget === 'own';
+  // On a phone the tab row scrolls sideways: keep the open tab (e.g. Play log) in view.
+  const tabsRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const nav = tabsRef.current;
+    const on = nav?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!nav || !on) return;
+    if (on.offsetLeft < nav.scrollLeft || on.offsetLeft + on.offsetWidth > nav.scrollLeft + nav.clientWidth) {
+      nav.scrollLeft = on.offsetLeft - (nav.clientWidth - on.offsetWidth) / 2;
+    }
+  }, [activeTab]);
   const units: [ScoutUnit, string, number][] = [
     ['O', own ? 'Our offense' : 'Their offense', unitCounts.O],
     ['D', own ? 'Our defense' : 'Their defense', unitCounts.D],
@@ -116,14 +129,16 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         <div className="flex items-center flex-wrap gap-2">
-          <div className="inline-flex p-0.5 gap-0.5 rounded-lg bg-slate-200 dark:bg-slate-800" role="group" aria-label="Whose film">
-            <button type="button" onClick={() => onScoutTargetChange('opponent')} className={segBtn(!own)} aria-pressed={!own}>
-              Opponent
-            </button>
-            <button type="button" onClick={() => onScoutTargetChange('own')} className={segBtn(own)} aria-pressed={own}>
-              Our team
-            </button>
-          </div>
+          {!hideTargetToggle && (
+            <div className="inline-flex p-0.5 gap-0.5 rounded-lg bg-slate-200 dark:bg-slate-800" role="group" aria-label="Whose film">
+              <button type="button" onClick={() => onScoutTargetChange('opponent')} className={segBtn(!own)} aria-pressed={!own}>
+                Opponent
+              </button>
+              <button type="button" onClick={() => onScoutTargetChange('own')} className={segBtn(own)} aria-pressed={own}>
+                Our team
+              </button>
+            </div>
+          )}
           <button
             type="button"
             onClick={onOpenUpload}
@@ -237,7 +252,7 @@ export const Header: React.FC<HeaderProps> = ({
         <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">{unitHelp[unit]}</p>
       </div>
 
-      <nav className="max-w-7xl mx-auto px-2 sm:px-4 flex items-center gap-1 overflow-x-auto border-t border-slate-200 dark:border-slate-800" aria-label="Report sections">
+      <nav ref={tabsRef} className="relative max-w-7xl mx-auto px-2 sm:px-4 flex items-center gap-1 overflow-x-auto border-t border-slate-200 dark:border-slate-800" aria-label="Report sections">
         {tabs.map(([id, label]) => (
           <button
             key={id}

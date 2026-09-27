@@ -45,7 +45,7 @@ import { getTeamColorConfig } from './practiceDrillsUtils';
 import { ScoutBundle, assignDrives, bundleFromSaved, findSameGame, gamesForWeek, mergeGamePlays, playsForWeek, removeScoutGame } from '../hudlScout/scoutBundle';
 import type { Play } from '../hudlScout/types/football';
 import { tagPlayUnits } from '../hudlScout/utils/unitStats';
-import { callUsage, isNumberFormation, setPlaysFormation, tagPlays } from '../hudlScout/utils/playTags';
+import { autoTagFromHudl, callUsage, isNumberFormation, setPlaysFormation, tagPlays } from '../hudlScout/utils/playTags';
 import { autoDetectColumnMapping, isSpreadsheetFilename, normalizeHudlRow, parseCsvRows, workbookBufferToCsv } from '../hudlScout/utils/csvParser';
 import { formationForCall, lineupFromFormation, moveFilmIntoSharedLog, scoutPlayToFilmPlay } from '../utils/pffFilm';
 import { newPlayEntry } from '../utils/playbookImport';
@@ -356,14 +356,22 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
           setImportError('No plays found in that Hudl export.');
           return;
         }
+        // Tag plays from the play Hudl says was called (plays a coach already tagged are left alone).
+        let autoTagged = 0;
+        const tagGame = (b: ScoutBundle, id: string): ScoutBundle => {
+          if (!playDb.length) return b;
+          const res = autoTagFromHudl(b.plays, playDb, new Set(b.plays.filter((p) => p.gameId === id).map((p) => p.id)));
+          autoTagged = res.tagged;
+          return res.tagged ? { ...b, plays: res.plays } : b;
+        };
         const same = findSameGame(bundleRef.current, newPlays, { week: sharedFilm.week });
         if (same) {
           // Same game again: bring in the new file's details, keep tags, units, subs and grades.
           updateBundle((b) => {
             const merged = mergeGamePlays(b, same.id, newPlays);
-            return { ...merged, games: merged.games.map((g) => (g.id === same.id ? { ...g, week: sharedFilm.week } : g)) };
+            return tagGame({ ...merged, games: merged.games.map((g) => (g.id === same.id ? { ...g, week: sharedFilm.week } : g)) }, same.id);
           });
-          setImportNote(`Updated "${same.name}" from ${file.name}. Tags, units and grades were kept.`);
+          setImportNote(`Updated "${same.name}" from ${file.name}. Tags, units and grades were kept${autoTagged ? `; ${autoTagged} plays tagged from Hudl's called play` : ''}.`);
           return;
         }
         if (weekGames.length) {
@@ -373,17 +381,17 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
         updateBundle((b) => {
           let base = b;
           for (const g of weekGames) base = removeScoutGame(base, g.id, teamName);
-          return {
+          return tagGame({
             ...base,
             plays: [...base.plays, ...assignDrives(newPlays)],
             games: [...base.games, { id: gameId, name: file.name.replace(/\.[^/.]+$/, ''), playCount: newPlays.length, addedAt: Date.now(), week: sharedFilm.week }],
             datasetName: base.datasetName || teamName,
             sourceCleared: false,
             updatedAt: Date.now(),
-          };
+          }, gameId);
         });
         setActivePlayId(newPlays[0].id);
-        setImportNote(`${newPlays.length} plays added for ${sharedFilm.weekLabel}. They also show in Scouting → Our team.`);
+        setImportNote(`${newPlays.length} plays added for ${sharedFilm.weekLabel}. They also show in Our play log.`);
       } catch {
         setImportError('Could not read that file. Use a Hudl PlaylistData Excel export or a CSV.');
       }
@@ -420,7 +428,7 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
     setImportNote(
       merged
         ? `Moved. "${merged}" was already in Self-scout, so its tags were kept and the two copies are now one.`
-        : `Moved. This week's plays now show in Scouting → Our team too, with the same tags.`
+        : `Moved. This week's plays now show in Our play log too, with the same tags.`
     );
   };
 
@@ -445,7 +453,7 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
             </h3>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
               {usingShared
-                ? `Same play log as Scouting → Our team (${weekGames.map((g) => g.name).join(', ')}). Tag the play call and who was in (Black 1s, Gold 2s, Blue 3s); players fill in from ${sharedFilm?.weekLabel || 'that week'}'s depth chart.`
+                ? `Same plays as Hudl Scout → Our play log (${weekGames.map((g) => g.name).join(', ')}). Tag the play call and who was in (Black 1s, Gold 2s, Blue 3s); players fill in from ${sharedFilm?.weekLabel || 'that week'}'s depth chart.`
                 : 'Upload PlaylistData.xlsx. ODK tells us O / D / ST. Pick Black (1s), Gold (2s), or Blue (3s) for who was in. Players fill in from that week’s depth chart.'}
             </p>
             {!usingShared && session.fileName ? (
@@ -519,7 +527,7 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
           <div className="mt-4 rounded-2xl border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/30 p-3 flex flex-col sm:flex-row sm:items-center gap-3">
             <ArrowRightLeft className="w-5 h-5 text-amber-700 dark:text-amber-300 shrink-0" />
             <p className="text-sm text-amber-900 dark:text-amber-100 flex-1">
-              This week’s film was uploaded to PFF only. Move it into the shared play log so Scouting → Our team and PFF use the same plays, tags and units. Grades stay.
+              This week’s film was uploaded to PFF only. Move it into the shared play log so Our play log and PFF use the same plays, tags and units. Grades stay.
             </p>
             <button
               type="button"
@@ -709,7 +717,7 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-10 text-center text-sm text-slate-500">
           <FileSpreadsheet className="w-8 h-8 mx-auto mb-2 text-slate-400" />
           {sharedFilm
-            ? `No film for ${sharedFilm.weekLabel} yet. Import the game's Hudl export here, or upload it in Scouting → Our team and pick ${sharedFilm.weekLabel}.`
+            ? `No film for ${sharedFilm.weekLabel} yet. Import the game's Hudl export here, or upload it in Our play log and pick ${sharedFilm.weekLabel}.`
             : 'Import a Hudl PlaylistData export to grade by play.'}
         </div>
       ) : (

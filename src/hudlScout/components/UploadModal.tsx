@@ -16,6 +16,8 @@ interface UploadModalProps {
   defaultWeek?: string;
   /** Offer the Carmel sample film (only for an empty opponent report). */
   showSample?: boolean;
+  /** The game already in the report this file is (re-uploading it updates that game and keeps tags). */
+  matchUpload?: (csvContent: string, name: string, week?: string) => string | null;
 }
 
 export const UploadModal: React.FC<UploadModalProps> = ({
@@ -28,6 +30,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   guessWeek,
   defaultWeek,
   showSample = false,
+  matchUpload,
 }) => {
   const [gameWeek, setGameWeek] = useState('');
   const [csvText, setCsvText] = useState('');
@@ -98,6 +101,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     const detected = autoDetectColumnMapping(h);
     setMapping(detected);
   };
+
+  const matchedGame = csvText && rowsCount > 0 && matchUpload ? matchUpload(csvText, opponentName, gameWeek || undefined) : null;
 
   const handleImport = () => {
     if (!csvText || rowsCount === 0) return;
@@ -236,7 +241,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 </div>
               )}
 
-              {hasExistingPlays && (
+              {matchedGame && (
+                <div className="flex items-start gap-2 text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded px-3 py-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>
+                    This is <strong>{matchedGame}</strong>, already in the report. It will be updated from this file, and your play-call tags,
+                    formations, Black/Gold/Blue, subs and credits stay. New called plays from Hudl get tagged.
+                  </span>
+                </div>
+              )}
+
+              {hasExistingPlays && !matchedGame && (
                 <label className="flex items-center gap-2 text-xs text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded px-2.5 py-2">
                   <input
                     type="checkbox"
@@ -322,7 +337,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             disabled={rowsCount === 0}
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:text-white font-bold text-xs rounded-md shadow disabled:opacity-40 transition-colors flex items-center gap-1.5"
           >
-            <span>{hasExistingPlays && appendGame ? 'Add game to report' : 'Analyze Dataset'}</span>
+            <span>{matchedGame ? `Update ${matchedGame} (keeps tags)` : hasExistingPlays && appendGame ? 'Add game to report' : 'Analyze Dataset'}</span>
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>

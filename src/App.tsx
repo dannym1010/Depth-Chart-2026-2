@@ -160,6 +160,7 @@ import { MASTER_PLAY_DATABASE, DEFAULT_CALL_SHEET_DATA } from './data/callSheetD
 import { syncWristbandToCallSheet } from './utils/wristbandLinking';
 import { saveCallSheetSnapshot, countCallSheetPlays } from './utils/callSheetStorage';
 import { ScoutingView } from './components/ScoutingView';
+import { HudlScoutSections, type HudlSection } from './components/scouting/HudlScoutSections';
 import { TendenciesView } from './components/scouting/TendenciesView';
 import { PlaybookGuidesView } from './components/PlaybookGuidesView';
 import { WhiteboardView } from './components/WhiteboardView';
@@ -674,6 +675,25 @@ export default function App() {
     },
     [depthSubUnit, activeWhiteboardDrillId, activeWhiteboardCategory, currentPracticeId]
   );
+
+  // Hudl Scout: which report (opponent / our team) and tab it shows. PFF grades are the 'ppr' unit inside Hudl Scout.
+  const [hudlView, setHudlViewState] = useState<{ target: 'opponent' | 'own'; tab: string }>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('hudl_scout_view') || 'null');
+      if (saved && (saved.target === 'opponent' || saved.target === 'own') && typeof saved.tab === 'string') return saved;
+    } catch {
+      /* ignore */
+    }
+    return { target: 'opponent', tab: 'summary' };
+  });
+  const setHudlView = useCallback((next: { target: 'opponent' | 'own'; tab: string }) => {
+    setHudlViewState((prev) => (prev.target === next.target && prev.tab === next.tab ? prev : next));
+    try {
+      localStorage.setItem('hudl_scout_view', JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   // Wrapped setActiveUnit maintaining backward compatibility across the entire application
   const setActiveUnit = useCallback(
@@ -6084,6 +6104,30 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
               />
             )}
 
+            {(activeUnit === 'hudl_scout' || activeUnit === 'scouting' || activeUnit === 'ppr') && (
+              <HudlScoutSections
+                section={
+                  activeUnit === 'ppr'
+                    ? 'pff'
+                    : hudlView.target === 'opponent'
+                      ? 'opponent'
+                      : hudlView.tab === 'plays'
+                        ? 'log'
+                        : 'own'
+                }
+                onChange={(next: HudlSection) => {
+                  if (next === 'pff') {
+                    setActiveUnit('ppr');
+                    return;
+                  }
+                  if (next === 'opponent') setHudlView({ target: 'opponent', tab: hudlView.target === 'opponent' ? hudlView.tab : 'summary' });
+                  else if (next === 'log') setHudlView({ target: 'own', tab: 'plays' });
+                  else setHudlView({ target: 'own', tab: 'summary' });
+                  if (activeUnit === 'ppr') setActiveUnit('hudl_scout');
+                }}
+              />
+            )}
+
             {activeUnit === 'ppr' && (
               <PlayerPprView
                 currentWeek={currentWeek}
@@ -6362,6 +6406,9 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 defaultGameWeek={gradeWeekKey}
                 roster={activeTeamRoster}
                 weekBoards={weekBoardsFor}
+                target={hudlView.target}
+                tab={hudlView.tab}
+                onViewChange={setHudlView}
               />
             )}
 

@@ -120,7 +120,7 @@ const MAIN_NAV_ITEMS: NavItemConfig[] = [
     label: 'Hudl Scout',
     shortLabel: 'Hudl Scout',
     icon: Target,
-    description: 'Our-team film by game plus this week’s opponent Hudl CSV/Excel tendencies',
+    description: 'Opponent report, our team, our play log and PFF grades, all from Hudl film',
     badgeText: 'Film',
   },
   {
@@ -155,14 +155,6 @@ const MAIN_NAV_ITEMS: NavItemConfig[] = [
     icon: Library,
     description: 'Every play in one bank: import Hudl playbooks, tag film, see what each play gained',
     badgeText: 'Plays',
-  },
-  {
-    id: 'ppr',
-    label: 'PFF Film Grades',
-    shortLabel: 'PFF',
-    icon: Activity,
-    description: 'Hudl play export grades, Black/Gold/Blue units including special teams, and Monday film by player',
-    badgeText: 'Film',
   },
   {
     id: 'schedule',
@@ -692,6 +684,9 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
     }
     if (id === 'whiteboard') {
       return activeUnit === 'whiteboard' || activeUnit === 'drills';
+    }
+    if (id === 'hudl_scout') {
+      return activeUnit === 'hudl_scout' || activeUnit === 'ppr';
     }
     if (id === 'game_day') {
       return ['game_day', 'wristband', 'call_sheet', 'scouting', 'tendencies', 'html_tendencies'].includes(activeUnit);

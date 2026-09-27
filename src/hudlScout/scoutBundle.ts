@@ -166,15 +166,35 @@ export function findSameGame(
   hint: { name?: string; week?: string } = {}
 ): ScoutGame | undefined {
   if (!fresh.length) return undefined;
+  // Every export numbers plays 1, 2, 3..., so the numbers alone can't tell two games apart:
+  // the plays with the same number must also look alike (side, quarter, down, distance, spot, gain).
+  const freshByNum = new Map(fresh.map((p) => [String(p.playNumber), p as Partial<Play>]));
+  const SAME_FIELDS = ['odk', 'quarter', 'down', 'distance', 'yardLine', 'gainLoss'] as const;
+  const looksAlike = (g: ScoutGame) => {
+    let shared = 0;
+    let alike = 0;
+    for (const p of playsOfGame(bundle, g.id)) {
+      const f = freshByNum.get(String(p.playNumber));
+      if (!f) continue;
+      shared++;
+      const differs = SAME_FIELDS.some((k) => {
+        const a: unknown = p[k];
+        const b: unknown = f[k];
+        return a != null && b != null && a !== '' && b !== '' && String(a) !== String(b);
+      });
+      if (!differs) alike++;
+    }
+    return shared === 0 || alike / shared >= 0.7;
+  };
   const exact = bundle.games.find((g) => {
     const gp = playsOfGame(bundle, g.id);
-    return gp.length === fresh.length && gp.every((p, i) => String(p.playNumber) === String(fresh[i].playNumber));
+    return gp.length === fresh.length && gp.every((p, i) => String(p.playNumber) === String(fresh[i].playNumber)) && looksAlike(g);
   });
   if (exact) return exact;
   const freshNums = new Set(fresh.map((p) => String(p.playNumber)));
   const overlap = (g: ScoutGame) => {
     const gp = playsOfGame(bundle, g.id);
-    if (!gp.length) return 0;
+    if (!gp.length || !looksAlike(g)) return 0;
     const shared = gp.filter((p) => freshNums.has(String(p.playNumber))).length;
     return shared / Math.max(gp.length, fresh.length);
   };

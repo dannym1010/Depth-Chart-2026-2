@@ -2883,3 +2883,50 @@ describe('film tags reach every coach', () => {
     assert.equal(tagPlays(plays, ['p1'], { id: 'x', name: 'X', formation: '' })[1].editedAt, undefined);
   });
 });
+
+describe('hudl called play', () => {
+  it('reads the OFF PLAY column as the called play', async () => {
+    const { parseCsvRows, autoDetectColumnMapping, normalizeHudlRow } = await import('../hudlScout/utils/csvParser.ts');
+    const csv = `PLAY #,ODK,PLAY TYPE,OFF PLAY,GN/LS
+1,O,Run,32 Wedge,4
+2,O,Run,-,2`;
+    const { headers, rows } = parseCsvRows(csv);
+    const m = autoDetectColumnMapping(headers);
+    const plays = rows.map((r, i) => normalizeHudlRow(r, m, i));
+    assert.equal(plays[0].hudlCall, '32 Wedge');
+    assert.equal(plays[1].hudlCall, undefined);
+  });
+
+  it('tags plays from the called play and never overwrites a coach tag', async () => {
+    const { autoTagFromHudl } = await import('../hudlScout/utils/playTags.ts');
+    const db = [{ id: 'w', name: '32 WEDGE', formation: '' }] as any[];
+    const plays = [
+      { id: 'a', gameId: 'g', playNumber: 1, odk: 'O', playType: 'Run', hudlCall: '32 wedge' },
+      { id: 'b', gameId: 'g', playNumber: 2, odk: 'O', playType: 'Run', hudlCall: '32 Wedge', playCallId: 'coach', playCall: 'Coach pick' },
+      { id: 'c', gameId: 'g', playNumber: 3, odk: 'O', playType: 'Pass', hudlCall: 'Rocket' },
+      { id: 'd', gameId: 'h', playNumber: 1, odk: 'O', playType: 'Run', hudlCall: '32 Wedge' },
+    ] as any[];
+    const res = autoTagFromHudl(plays, db, new Set(['a', 'b', 'c']));
+    assert.equal(res.tagged, 1);
+    assert.equal(res.plays.find((p: any) => p.id === 'a').playCallId, 'w');
+    assert.equal(res.plays.find((p: any) => p.id === 'b').playCallId, 'coach');
+    assert.equal(res.plays.find((p: any) => p.id === 'd').playCallId, undefined);
+    assert.deepEqual(res.unmatched, ['Rocket']);
+  });
+});
+
+describe('matching a re-upload to its game', () => {
+  it('a different game with the same play numbers is not taken for this one', async () => {
+    const { findSameGame } = await import('../hudlScout/scoutBundle.ts');
+    const mk = (gameId: string, shift: number) =>
+      [1, 2, 3, 4, 5].map((n) => ({ id: `${gameId}${n}`, gameId, playNumber: n, odk: 'O', quarter: 1, down: ((n + shift) % 4) + 1, distance: 10 - shift, yardLine: 30 + n * 5 + shift, gainLoss: n + shift }));
+    const bundle = { games: [{ id: 'g', name: 'MSA vs Shrub Oak', playCount: 5, addedAt: 1, week: '3' }], plays: mk('g', 0), updatedAt: 1 } as any;
+    const other = mk('x', 2);
+    assert.equal(findSameGame(bundle, other), undefined);
+    assert.equal(findSameGame(bundle, other, { week: '3' }), undefined);
+    // The same game exported again (one gain corrected) still matches.
+    const again = mk('y', 0);
+    again[2] = { ...again[2], gainLoss: 9 };
+    assert.equal(findSameGame(bundle, again)?.id, 'g');
+  });
+});

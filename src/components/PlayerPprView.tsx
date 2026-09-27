@@ -52,7 +52,7 @@ interface PlayerPprViewProps {
   filmSession?: FilmSession;
   onUpdateFilmSession: (next: FilmSession) => void;
   userRole: UserRole;
-  /** Our film play log shared with Scouting → Our team. */
+  /** Our film play log shared with Our play log. */
   sharedFilm?: PffSharedFilm;
 }
 
@@ -265,7 +265,7 @@ export const PlayerPprView: React.FC<PlayerPprViewProps> = ({
             </h2>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-3xl">
               {viewMode === 'plays'
-                ? 'Same play log as Scouting → Our team. Tag the play call and who was in (Black 1s, Gold 2s, Blue 3s); players fill in from that week’s depth chart. Then grade everyone on the play.'
+                ? 'Same plays as Hudl Scout → Our play log. Tag the play call and who was in (Black 1s, Gold 2s, Blue 3s); players fill in from that week’s depth chart. Then grade everyone on the play.'
                 : 'Full 21 offense and 4-4 defense from last week, ranked by average grade on each side.'}
             </p>
           </div>

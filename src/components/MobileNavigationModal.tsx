@@ -95,7 +95,7 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
           {
             id: 'hudl_scout',
             label: '📊 Hudl Scout',
-            subtitle: 'Our team by game plus this week’s opponent Hudl film',
+            subtitle: 'Opponent report, our team, our play log and PFF grades',
             icon: BarChart3,
             accentColor: 'border-blue-500/40 hover:bg-blue-950/40 text-blue-300',
           },
@@ -227,13 +227,6 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
             icon: Library,
             accentColor: 'border-cyan-500/40 hover:bg-cyan-950/40 text-cyan-300',
           },
-          {
-            id: 'ppr',
-            label: '📊 PFF Film Grades',
-            subtitle: 'Monday grades from last week’s depth chart, play numbers & notes',
-            icon: BarChart3,
-            accentColor: 'border-cyan-500/40 hover:bg-cyan-950/40 text-cyan-300',
-          },
         ],
       },
       {
@@ -304,6 +297,9 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
     }
     if (item.id === 'drills') {
       return activeUnit === 'drills';
+    }
+    if (item.id === 'hudl_scout') {
+      return activeUnit === 'hudl_scout' || activeUnit === 'ppr';
     }
     return activeUnit === item.id;
   };

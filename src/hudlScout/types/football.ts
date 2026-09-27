@@ -44,6 +44,8 @@ export interface Play {
   result: string;
   personnel: string;
   carrierOrTarget: string;
+  /** The play Hudl says was called (OFF PLAY / PLAY CALL column), used to tag it from the Play Bank. */
+  hudlCall?: string;
   /** When a coach last changed this play in the app (tag, unit, formation, sub...). Newest edit wins when copies merge. */
   editedAt?: number;
   /** Our defense: who made the tackle / sack / INT on this play. */

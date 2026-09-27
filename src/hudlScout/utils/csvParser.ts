@@ -283,6 +283,9 @@ export function normalizeHudlRow(row: Record<string, string>, mapping: ColumnMap
   // Play Type & Play Name
   const rawType = getVal(mapping.playType, '').toUpperCase();
   const rawPlay = getVal(mapping.playName, '');
+  // Only a real play-call column counts as the called play (not the RESULT fallback).
+  const isCallColumn = /off.?play|play.?call|^call$|concept|def.?play/i.test(String(mapping.playName || ''));
+  const hudlCall = isCallColumn && rawPlay && rawPlay !== '-' ? rawPlay : undefined;
   const playType = determinePlayType(rawType, rawPlay || result);
 
   // Play Name fallback: if no explicit play concept column, use result/type description
@@ -390,6 +393,7 @@ export function normalizeHudlRow(row: Record<string, string>, mapping: ColumnMap
     personnel: getVal(mapping.personnel, '') || '-',
     carrierOrTarget,
     keyPlayer: keyPlayer || undefined,
+    hudlCall,
     defPlay: odk === 'D' ? defPlayFrom(result, gainLoss, playType, tackler || keyPlayer, assist) : undefined,
     rusher: rusher || undefined,
     passer: passer || undefined,

@@ -68,7 +68,7 @@ export const PlayLibraryView: React.FC<Props> = ({
     toastTimer.current = setTimeout(() => setToast(null), 7000);
   };
 
-  // What each play gained on our film (tags from Scouting → Our team / PFF).
+  // What each play gained on our film (tags from Our play log / PFF).
   const ownPlays = useMemo(() => bundleFromSaved(ownTeamScout, teamName).plays, [ownTeamScout, teamName]);
   const results = useMemo(() => {
     const m = new Map<string, CallResult>();

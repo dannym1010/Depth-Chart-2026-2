@@ -205,3 +205,31 @@ export function formationChoices(plays: Play[], db: PlayDatabaseEntry[]): string
   });
   return [...count.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], undefined, { numeric: true })).map(([f]) => f);
 }
+
+/**
+ * Tag plays from the play Hudl says was called (OFF PLAY column), when that name is in the Play Bank.
+ * Plays a coach already tagged are left alone. Returns the calls that aren't in the Play Bank yet.
+ */
+export function autoTagFromHudl(
+  plays: Play[],
+  db: PlayDatabaseEntry[],
+  only?: Set<string>
+): { plays: Play[]; tagged: number; unmatched: string[] } {
+  const byKey = new Map<string, PlayDatabaseEntry>();
+  db.forEach((e) => {
+    const k = playNameKey(e.name);
+    if (k && !byKey.has(k)) byKey.set(k, e);
+  });
+  const unmatched = new Set<string>();
+  const hits: { id: string; entry: PlayDatabaseEntry }[] = [];
+  for (const p of plays) {
+    if (only && !only.has(p.id)) continue;
+    if (p.playCallId || !p.hudlCall || !isTaggablePlay(p)) continue;
+    const entry = byKey.get(playNameKey(p.hudlCall));
+    if (entry) hits.push({ id: p.id, entry });
+    else unmatched.add(p.hudlCall.trim());
+  }
+  let next = plays;
+  for (const h of hits) next = tagPlays(next, [h.id], h.entry);
+  return { plays: next, tagged: hits.length, unmatched: [...unmatched] };
+}

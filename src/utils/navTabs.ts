@@ -28,7 +28,6 @@ export const DEFAULT_NAV_TABS: NavTabItem[] = [
   { id: 'hudl_scout', label: '📊 Hudl Scout', icon: Target },
   { id: 'schedule', label: '📅 Schedule', icon: Calendar },
   { id: 'compliance', label: '⚡ Compliance & Hours', icon: Zap },
-  { id: 'ppr', label: '📊 PFF', icon: Activity },
   { id: 'playbook', label: '🏈 Play Library', icon: Library },
   { id: 'depth_chart', label: '📋 Depth Chart', icon: ClipboardList },
   { id: 'practice', label: '📋 Practice Plan', icon: ClipboardList },
