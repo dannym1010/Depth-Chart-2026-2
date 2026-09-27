@@ -26,7 +26,7 @@ import { newPlayEntry } from '../../utils/playbookImport';
 import { CallResultsCard } from '../playbook/CallResultsCard';
 import { OwnTeamReport } from '../playbook/OwnTeamReport';
 import type { FilmPlayerRef, RosterPlayer } from '../../types';
-import { BallRole, WeekBoards, filmLineup, setPlayBallPlayer, setPlaySub } from '../../utils/filmLineup';
+import { BallRole, WeekBoards, filmLineup, setPlayBallPlayer, setPlayDefPlay, setPlaySub } from '../../utils/filmLineup';
 import { pickScoutBundle, scoutFingerprint } from '../../utils/remoteStateMerge';
 import {
   ScoutBundle,
@@ -37,7 +37,7 @@ import {
   guessGameWeek,
   assignDrives,
   findSameGame,
-  refreshGamePlays,
+  mergeGamePlays,
 } from '../../hudlScout/scoutBundle';
 
 export interface HudlScoutViewProps {
@@ -156,6 +156,9 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   };
   const handleSetBall = (playId: string, role: BallRole, label: string) => {
     setOwnBundle((prev) => ({ ...prev, plays: setPlayBallPlayer(prev.plays, playId, role, label), updatedAt: Date.now() }));
+  };
+  const handleSetDefPlay = (playId: string, patch: Partial<NonNullable<Play['defPlay']>>) => {
+    setOwnBundle((prev) => ({ ...prev, plays: setPlayDefPlay(prev.plays, playId, patch), updatedAt: Date.now() }));
   };
   const handleSetGameWeek = (gameId: string, week: string) => {
     setOwnBundle((prev) => ({
@@ -328,15 +331,17 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
 
   const applyPlays = (newPlays: Play[], name: string, append: boolean, scheme = '', week?: string) => {
     // The same game uploaded again: update it in place so tags, formations and units stay.
-    const same = findSameGame(bundle, newPlays);
+    const same = findSameGame(bundle, newPlays, { name, week: scoutTarget === 'own' ? week : undefined });
     if (
       same &&
-      window.confirm(`This file has the same plays as "${same.name}". Update that game with it? Your play-call tags, formations and Black/Gold/Blue stay.`)
+      window.confirm(
+        `This looks like "${same.name}", already in the report. Update that game from this file?\n\nKept: play-call tags, formations you set, Black/Gold/Blue, subs, players and defensive credits you picked.\n(Cancel adds it as a separate game.)`
+      )
     ) {
-      setBundle((prev) => ({
-        ...refreshGamePlays(prev, same.id, newPlays),
-        games: prev.games.map((g) => (g.id === same.id && week && !g.week ? { ...g, week } : g)),
-      }));
+      setBundle((prev) => {
+        const merged = mergeGamePlays(prev, same.id, newPlays);
+        return { ...merged, games: merged.games.map((g) => (g.id === same.id && week && !g.week ? { ...g, week } : g)) };
+      });
       return;
     }
     const game: ScoutGame = {
@@ -556,6 +561,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                   roster={roster}
                   onSetSub={scoutTarget === 'own' ? handleSetSub : undefined}
                   onSetBall={scoutTarget === 'own' ? handleSetBall : undefined}
+                  onSetDefPlay={scoutTarget === 'own' ? handleSetDefPlay : undefined}
                   onRefreshFromHudl={scoutTarget === 'own' ? () => setIsUploadOpen(true) : undefined}
                 />
               </>

@@ -90,3 +90,24 @@ export function rosterLabel(r: { num?: string | number; firstName?: string; last
   const name = `${r.firstName || ''} ${r.lastName || ''}`.trim();
   return name ? `#${r.num} ${name}` : `#${r.num}`;
 }
+
+export const DEF_EVENTS: { id: import('../hudlScout/types/football').DefEvent; label: string; long: string }[] = [
+  { id: 'sack', label: 'Sack', long: 'Sack' },
+  { id: 'tfl', label: 'TFL', long: 'Tackle for loss' },
+  { id: 'int', label: 'INT', long: 'Interception' },
+  { id: 'ff', label: 'FF', long: 'Forced fumble' },
+  { id: 'fr', label: 'FR', long: 'Fumble recovery' },
+  { id: 'pbu', label: 'PBU', long: 'Pass breakup' },
+];
+
+/** Set who made the play on defense (tackle, assist, sack...) for one play. */
+export function setPlayDefPlay(plays: Play[], playId: string, patch: Partial<NonNullable<Play['defPlay']>>): Play[] {
+  return plays.map((p) => {
+    if (p.id !== playId) return p;
+    const next = { ...(p.defPlay || {}), ...patch };
+    if (!next.maker) delete next.maker;
+    if (!next.assist) delete next.assist;
+    if (!next.events?.length) delete next.events;
+    return { ...p, defPlay: Object.keys(next).length ? next : undefined };
+  });
+}

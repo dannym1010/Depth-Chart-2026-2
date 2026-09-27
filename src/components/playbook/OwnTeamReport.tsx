@@ -3,7 +3,7 @@ import type { RosterPlayer } from '../../types';
 import type { Play } from '../../hudlScout/types/football';
 import type { FilmLineup } from '../../utils/filmLineup';
 import { computeSideTotals, UnitStatLine } from '../../hudlScout/utils/unitStats';
-import { playerFilmStats, PlayerFilmLine } from '../../utils/playerFilmStats';
+import { defEventsOf, playerFilmStats, PlayerFilmLine } from '../../utils/playerFilmStats';
 import { Card, SectionHeader } from '../../hudlScout/components/report/ui';
 
 const pct = (n: number, d: number) => (d ? `${Math.round((n / d) * 100)}%` : '–');
@@ -18,13 +18,29 @@ export const OwnTeamReport: React.FC<{
   const totals = useMemo(() => computeSideTotals(plays), [plays]);
   const stats = useMemo(() => playerFilmStats(plays, lineupFor, roster), [plays, lineupFor, roster]);
   const untaggedUnits = plays.filter((p) => (p.odk === 'O' || p.odk === 'D') && !p.unit).length;
+  const defEvents = useMemo(() => {
+    const c: Record<string, number> = { sack: 0, tfl: 0, int: 0, ff: 0, fr: 0, pbu: 0 };
+    plays.filter((p) => p.odk === 'D').forEach((p) => defEventsOf(p).forEach((e) => (c[e] = (c[e] || 0) + 1)));
+    return c;
+  }, [plays]);
   return (
     <div className="space-y-4">
       <Card>
         <SectionHeader title="Team efficiency" subtitle="Success = the play stayed on schedule (Hudl efficiency). Penalties and timeouts are left out." />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <SideBox title="Our offense" line={totals.offense} good="high" />
-          <SideBox title="Our defense (what we allowed)" line={totals.defense} good="low" />
+          <SideBox
+            title="Our defense (what we allowed)"
+            line={totals.defense}
+            good="low"
+            extra={[
+              ['Sacks', defEvents.sack],
+              ['TFL', defEvents.tfl],
+              ['INT', defEvents.int],
+              ['Fumbles forced', defEvents.ff],
+              ['PBU', defEvents.pbu],
+            ]}
+          />
         </div>
       </Card>
       <PlayersCard stats={stats} untaggedUnits={untaggedUnits} />
@@ -32,7 +48,7 @@ export const OwnTeamReport: React.FC<{
   );
 };
 
-const SideBox: React.FC<{ title: string; line: UnitStatLine; good: 'high' | 'low' }> = ({ title, line, good }) => {
+const SideBox: React.FC<{ title: string; line: UnitStatLine; good: 'high' | 'low'; extra?: [string, number][] }> = ({ title, line, good, extra = [] }) => {
   const success = line.plays ? Math.round((line.successfulPlays / line.plays) * 100) : 0;
   const tone = (v: number, hi: number, lo: number) => {
     const isGood = good === 'high' ? v >= hi : v <= lo;
@@ -50,6 +66,7 @@ const SideBox: React.FC<{ title: string; line: UnitStatLine; good: 'high' | 'low
     ['Lost yards', line.negativePlays],
     ['TDs', line.touchdowns],
     [good === 'high' ? 'Turnovers' : 'Takeaways', line.turnovers],
+    ...extra.map(([label, n]) => [label, n] as [string, React.ReactNode]),
   ];
   return (
     <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
@@ -81,15 +98,15 @@ const PlayersCard: React.FC<{
   const [showAll, setShowAll] = useState(false);
   const total = side === 'offense' ? stats.offSnaps : stats.defSnaps;
   const rows = useMemo(() => {
-    const list = stats.players.filter((p) => (side === 'offense' ? p.offSnaps || p.carries || p.targets || p.passes : p.defSnaps));
-    const touches = (p: PlayerFilmLine) => p.carries + p.targets;
+    const list = stats.players.filter((p) => (side === 'offense' ? p.offSnaps || p.carries || p.targets || p.passes : p.defSnaps || p.tackles || p.assists));
+    const touches = (p: PlayerFilmLine) => (side === 'offense' ? p.carries + p.targets : p.tackles + p.assists);
     const yards = (p: PlayerFilmLine) => p.rushYds + p.recYds;
     const snaps = (p: PlayerFilmLine) => (side === 'offense' ? p.offSnaps : p.defSnaps);
     const key: Record<Sort, (p: PlayerFilmLine) => number> = {
       snaps,
       touches,
       yards,
-      success: (p) => (side === 'offense' ? p.onFieldSuccess : snaps(p)),
+      success: (p) => (side === 'offense' ? p.onFieldSuccess : p.stopRate),
     };
     return [...list].sort((a, b) => key[sort](b) - key[sort](a) || snaps(b) - snaps(a));
   }, [stats, side, sort]);
@@ -147,6 +164,21 @@ const PlayersCard: React.FC<{
                     <th className="py-1.5 px-1.5 font-black text-right hidden sm:table-cell">10+ / TD</th>
                   </>
                 )}
+                {side === 'defense' && (
+                  <>
+                    <th className={th} onClick={() => setSort('success')} title="Plays where the offense did not stay on schedule while he was on the field">
+                      Stop rate{sort === 'success' ? ' ▾' : ''}
+                    </th>
+                    <th className="py-1.5 px-1.5 font-black text-right" title="Yards per play the offense gained while he was on the field">Yds / snap</th>
+                    <th className={th} onClick={() => setSort('touches')}>Tackles{sort === 'touches' ? ' ▾' : ''}</th>
+                    <th className="py-1.5 px-1.5 font-black text-right">Ast</th>
+                    <th className="py-1.5 px-1.5 font-black text-right">Sack</th>
+                    <th className="py-1.5 px-1.5 font-black text-right">TFL</th>
+                    <th className="py-1.5 px-1.5 font-black text-right">INT</th>
+                    <th className="py-1.5 px-1.5 font-black text-right hidden sm:table-cell">FF / FR</th>
+                    <th className="py-1.5 px-1.5 font-black text-right hidden sm:table-cell">PBU</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -187,6 +219,21 @@ const PlayersCard: React.FC<{
                         <td className="py-1.5 px-1.5 text-right text-slate-800 dark:text-slate-200 hidden sm:table-cell">
                           {p.explosive || p.touchdowns ? `${p.explosive} / ${p.touchdowns}` : '–'}
                         </td>
+                      </>
+                    )}
+                    {side === 'defense' && (
+                      <>
+                        <td className={`py-1.5 px-1.5 text-right font-bold ${p.stopRate >= 60 ? 'text-emerald-700 dark:text-emerald-400' : p.defSnaps && p.stopRate < 40 ? 'text-rose-700 dark:text-rose-400' : 'text-slate-800 dark:text-slate-200'}`}>
+                          {p.defSnaps ? `${p.stopRate}%` : '–'}
+                        </td>
+                        <td className="py-1.5 px-1.5 text-right text-slate-800 dark:text-slate-200">{p.defSnaps ? p.yardsAllowedPerSnap : '–'}</td>
+                        <td className="py-1.5 px-1.5 text-right font-bold text-slate-900 dark:text-white">{p.tackles || '–'}</td>
+                        <td className="py-1.5 px-1.5 text-right text-slate-800 dark:text-slate-200">{p.assists || '–'}</td>
+                        <td className="py-1.5 px-1.5 text-right text-slate-800 dark:text-slate-200">{p.sacks || '–'}</td>
+                        <td className="py-1.5 px-1.5 text-right text-slate-800 dark:text-slate-200">{p.tfl || '–'}</td>
+                        <td className="py-1.5 px-1.5 text-right text-slate-800 dark:text-slate-200">{p.ints || '–'}</td>
+                        <td className="py-1.5 px-1.5 text-right text-slate-800 dark:text-slate-200 hidden sm:table-cell">{p.ff || p.fr ? `${p.ff} / ${p.fr}` : '–'}</td>
+                        <td className="py-1.5 px-1.5 text-right text-slate-800 dark:text-slate-200 hidden sm:table-cell">{p.pbu || '–'}</td>
                       </>
                     )}
                   </tr>

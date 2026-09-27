@@ -5,6 +5,15 @@ import type { RosterPlayer } from '../types';
 import type { Play } from '../hudlScout/types/football';
 import type { FilmLineup } from './filmLineup';
 import { jerseyOf } from './filmLineup';
+import { isDefensiveStop } from '../hudlScout/utils/unitStats';
+import { defPlayFrom } from '../hudlScout/utils/csvParser';
+import type { DefEvent } from '../hudlScout/types/football';
+
+/** Sack / TFL / INT... on a defense play: what a coach marked, else what the result says. */
+export function defEventsOf(p: Play): DefEvent[] {
+  if (p.defPlay?.events?.length) return p.defPlay.events;
+  return (defPlayFrom(p.result, Number(p.gainLoss) || 0, p.playType)?.events || []) as DefEvent[];
+}
 
 export interface PlayerFilmLine {
   num: string;
@@ -24,6 +33,19 @@ export interface PlayerFilmLine {
   touchSuccess: number;
   explosive: number;
   touchdowns: number;
+  /** Defense: plays made. Events count for the player credited with the tackle. */
+  tackles: number;
+  assists: number;
+  sacks: number;
+  tfl: number;
+  ints: number;
+  ff: number;
+  fr: number;
+  pbu: number;
+  /** Share of his defensive snaps where the offense did not stay on schedule. */
+  stopRate: number;
+  /** Yards the offense gained per play while he was on the field. */
+  yardsAllowedPerSnap: number;
   /** Where he lines up most on offense / defense ("QB", "LT"...). */
   spots: string[];
   defSpots: string[];
@@ -39,7 +61,7 @@ export function playerFilmStats(
 ): { players: PlayerFilmLine[]; offSnaps: number; defSnaps: number; withLineup: number } {
   const byNum = new Map<string, RosterPlayer>();
   roster.forEach((r) => r.num && byNum.set(String(r.num).trim(), r));
-  const lines = new Map<string, PlayerFilmLine & { _onOff: number; _onOffGood: number; _touch: number; _spots: Map<string, number>; _defSpots: Map<string, number> }>();
+  const lines = new Map<string, PlayerFilmLine & { _onOff: number; _onOffGood: number; _touch: number; _spots: Map<string, number>; _defSpots: Map<string, number>; _stops: number; _allowed: number }>();
   const line = (num: string, label?: string) => {
     let l = lines.get(num);
     if (!l) {
@@ -62,6 +84,18 @@ export function playerFilmStats(
         touchdowns: 0,
         spots: [],
         defSpots: [],
+        tackles: 0,
+        assists: 0,
+        sacks: 0,
+        tfl: 0,
+        ints: 0,
+        ff: 0,
+        fr: 0,
+        pbu: 0,
+        stopRate: 0,
+        yardsAllowedPerSnap: 0,
+        _stops: 0,
+        _allowed: 0,
         _onOff: 0,
         _onOffGood: 0,
         _touch: 0,
@@ -96,7 +130,29 @@ export function playerFilmStats(
         l._onOff++;
         l.onFieldYards += gain;
         if (p.isEfficient) l._onOffGood++;
-      } else l.defSnaps++;
+      } else {
+        l.defSnaps++;
+        l._allowed += gain;
+        if (isDefensiveStop(p)) l._stops++;
+      }
+    }
+    if (p.odk === 'D') {
+      const maker = jerseyOf(p.defPlay?.maker);
+      const assist = jerseyOf(p.defPlay?.assist);
+      if (maker) {
+        const l = line(maker, p.defPlay?.maker);
+        l.tackles++;
+        for (const e of defEventsOf(p)) {
+          if (e === 'sack') l.sacks++;
+          else if (e === 'tfl') l.tfl++;
+          else if (e === 'int') l.ints++;
+          else if (e === 'ff') l.ff++;
+          else if (e === 'fr') l.fr++;
+          else if (e === 'pbu') l.pbu++;
+        }
+      }
+      if (assist && assist !== maker) line(assist, p.defPlay?.assist).assists++;
+      continue;
     }
     if (p.odk !== 'O') continue;
     const touch = (label: string | undefined, kind: 'rush' | 'rec' | 'pass') => {
@@ -125,12 +181,14 @@ export function playerFilmStats(
     touch(p.passer, 'pass');
   }
   const players = [...lines.values()].map((l) => {
-    const { _onOff, _onOffGood, _touch, _spots, _defSpots, ...rest } = l;
+    const { _onOff, _onOffGood, _touch, _spots, _defSpots, _stops, _allowed, ...rest } = l;
     const top = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k).slice(0, 2);
     return {
       ...rest,
       onFieldSuccess: _onOff ? Math.round((_onOffGood / _onOff) * 100) : 0,
       touchSuccess: _touch ? Math.round((l.touchSuccess / _touch) * 100) : 0,
+      stopRate: l.defSnaps ? Math.round((_stops / l.defSnaps) * 100) : 0,
+      yardsAllowedPerSnap: l.defSnaps ? Math.round((_allowed / l.defSnaps) * 10) / 10 : 0,
       spots: top(_spots),
       defSpots: top(_defSpots),
     };

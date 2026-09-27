@@ -31,6 +31,13 @@ export interface ColumnMapping {
   passerName?: string;
   receiverJersey?: string;
   receiverName?: string;
+  keyJersey?: string;
+  keyName?: string;
+  /** Defense: tackler / assist columns when a staff adds them in Hudl. */
+  tacklerJersey?: string;
+  tacklerName?: string;
+  assistJersey?: string;
+  assistName?: string;
 }
 
 // Parses raw CSV text into an array of row objects
@@ -156,6 +163,12 @@ export function autoDetectColumnMapping(headers: string[]): ColumnMapping {
     passerName: exactColumn(headers, ['PASSER_Name', 'PASSER NAME']),
     receiverJersey: exactColumn(headers, ['RECEIVER_Jersey', 'RECEIVER JERSEY', 'RECEIVER #', 'TARGET JERSEY']),
     receiverName: exactColumn(headers, ['RECEIVER_Name', 'RECEIVER NAME', 'TARGET NAME']),
+    keyJersey: exactColumn(headers, ['KEY PLAYER_Jersey', 'KEY PLAYER JERSEY', 'KEY PLAYER #']),
+    keyName: exactColumn(headers, ['KEY PLAYER_Name', 'KEY PLAYER NAME', 'KEY PLAYER']),
+    tacklerJersey: exactColumn(headers, ['TACKLER_Jersey', 'TACKLER JERSEY', 'TACKLER #', 'TACKLER1_Jersey', 'TACKLER 1', 'TACKLER1', 'TACKLER', 'TACKLE BY']),
+    tacklerName: exactColumn(headers, ['TACKLER_Name', 'TACKLER NAME', 'TACKLER1_Name']),
+    assistJersey: exactColumn(headers, ['TACKLER2_Jersey', 'TACKLER 2', 'TACKLER2', 'ASSIST_Jersey', 'ASSIST JERSEY', 'ASSIST', 'ASSISTED BY']),
+    assistName: exactColumn(headers, ['TACKLER2_Name', 'ASSIST_Name', 'ASSIST NAME']),
   };
 }
 
@@ -304,6 +317,10 @@ export function normalizeHudlRow(row: Record<string, string>, mapping: ColumnMap
   const passer = jerseyAndName(getVal(mapping.passerJersey, ''), getVal(mapping.passerName, ''));
   const receiver = jerseyAndName(getVal(mapping.receiverJersey, ''), getVal(mapping.receiverName, ''));
 
+  const keyPlayer = jerseyAndName(getVal(mapping.keyJersey, ''), getVal(mapping.keyName, ''));
+  const tackler = jerseyAndName(getVal(mapping.tacklerJersey, ''), getVal(mapping.tacklerName, ''));
+  const assist = jerseyAndName(getVal(mapping.assistJersey, ''), getVal(mapping.assistName, ''));
+
   let carrierOrTarget = getVal(mapping.carrierOrTarget, '');
   if (!carrierOrTarget) {
     carrierOrTarget = playType === 'RUN' ? rusher || receiver || passer : receiver || rusher || passer;
@@ -372,6 +389,8 @@ export function normalizeHudlRow(row: Record<string, string>, mapping: ColumnMap
     result,
     personnel: getVal(mapping.personnel, '') || '-',
     carrierOrTarget,
+    keyPlayer: keyPlayer || undefined,
+    defPlay: odk === 'D' ? defPlayFrom(result, gainLoss, playType, tackler || keyPlayer, assist) : undefined,
     rusher: rusher || undefined,
     passer: passer || undefined,
     receiver: receiver || undefined,
@@ -553,4 +572,27 @@ export function workbookBufferToCsv(buffer: ArrayBuffer): string {
     }
   }
   return best;
+}
+
+/**
+ * What our defense did on a play, from Hudl's result text and yards: sacks, interceptions, fumbles,
+ * tackles for loss and pass breakups. The player is the tackler / key-player column when Hudl has one.
+ */
+export function defPlayFrom(
+  result: string,
+  gainLoss: number,
+  playType: string,
+  maker?: string,
+  assist?: string
+): { maker?: string; assist?: string; events?: ('sack' | 'tfl' | 'int' | 'ff' | 'fr' | 'pbu')[] } | undefined {
+  const r = String(result || '').toLowerCase();
+  const events: ('sack' | 'tfl' | 'int' | 'ff' | 'fr' | 'pbu')[] = [];
+  if (/\bsack/.test(r)) events.push('sack');
+  if (/intercept|\bint\b/.test(r)) events.push('int');
+  if (/fumble/.test(r)) events.push('ff');
+  if (/fumble.*(recover|rec\b)|recovered/.test(r)) events.push('fr');
+  if (/break ?up|\bpbu\b|deflect|batted/.test(r)) events.push('pbu');
+  if (gainLoss < 0 && !events.includes('sack') && (playType === 'RUN' || /rush/.test(r))) events.push('tfl');
+  if (!maker && !assist && !events.length) return undefined;
+  return { ...(maker ? { maker } : {}), ...(assist ? { assist } : {}), ...(events.length ? { events } : {}) };
 }

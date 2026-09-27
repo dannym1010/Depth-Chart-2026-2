@@ -2758,3 +2758,66 @@ describe('picking who had the ball on a play', () => {
     assert.equal(next[0].carrierOrTarget, '#21 Nash Ward');
   });
 });
+
+describe('re-uploading and defensive stats', () => {
+  it('a new export of the same game merges by play number and keeps everything coaches set', async () => {
+    const { findSameGame, mergeGamePlays } = await import('../hudlScout/scoutBundle.ts');
+    const old = [1, 2, 3, 4].map((n) => ({ id: `old${n}`, gameId: 'g', playNumber: n, odk: 'O', formation: '-', playName: 'Rush' })) as any[];
+    old[0] = { ...old[0], unit: 'gold', formation: '21 R', subs: { QB: { num: '7' } }, rusher: '#13 Picked' };
+    old[1] = { ...old[1], playCallId: 'x', playCall: '21 R 24 DIVE', playName: '21 R 24 DIVE', untaggedName: 'Rush', untaggedFormation: '-' };
+    old[2] = { ...old[2], odk: 'D', defPlay: { maker: '#22 Jax', events: ['sack'] } };
+    const bundle = { games: [{ id: 'g', name: 'MSA vs Suffern', playCount: 4, addedAt: 1, week: '1' }], plays: old, updatedAt: 1 } as any;
+    // Hudl re-export: play 4 gone, play 5 added, names now filled in.
+    const fresh = [
+      { id: 'n1', playNumber: 1, odk: 'O', formation: '-', playName: 'Rush' },
+      { id: 'n2', playNumber: 2, odk: 'O', formation: '-', playName: 'Rush', rusher: '#22 Hudl' },
+      { id: 'n3', playNumber: 3, odk: 'D', formation: '-', playName: 'Rush', result: 'Sack' },
+      { id: 'n5', playNumber: 5, odk: 'O', formation: '-', playName: 'Pass' },
+    ] as any[];
+    assert.equal(findSameGame(bundle, fresh), undefined); // not identical...
+    assert.equal(findSameGame(bundle, fresh, { week: '1' })?.id, 'g'); // ...but the same week's game
+    const next = mergeGamePlays(bundle, 'g', fresh);
+    const by = (n: number) => next.plays.find((p: any) => p.playNumber === n)!;
+    assert.equal(next.plays.length, 4);
+    assert.equal(by(1).id, 'old1');
+    assert.equal(by(1).unit, 'gold');
+    assert.equal(by(1).formation, '21 R');
+    assert.deepEqual(by(1).subs, { QB: { num: '7' } });
+    assert.equal(by(1).rusher, '#13 Picked');
+    assert.equal(by(2).playCall, '21 R 24 DIVE');
+    assert.equal(by(2).rusher, '#22 Hudl');
+    assert.equal(by(3).defPlay.maker, '#22 Jax');
+    assert.equal(by(5).gameId, 'g');
+    assert.equal(next.games[0].playCount, 4);
+  });
+
+  it('reads sacks, picks, fumbles and tackles for loss from the result', async () => {
+    const { defPlayFrom } = await import('../hudlScout/utils/csvParser.ts');
+    assert.deepEqual(defPlayFrom('Sack', -6, 'PASS')?.events, ['sack']);
+    assert.deepEqual(defPlayFrom('Rush', -2, 'RUN')?.events, ['tfl']);
+    assert.deepEqual(defPlayFrom('Interception', 0, 'PASS')?.events, ['int']);
+    assert.deepEqual(defPlayFrom('Fumble, recovered', 3, 'RUN')?.events, ['ff', 'fr']);
+    assert.equal(defPlayFrom('Rush', 4, 'RUN'), undefined);
+    assert.equal(defPlayFrom('Rush', 4, 'RUN', '#22 Jax')?.maker, '#22 Jax');
+  });
+
+  it('credits tackles and plays made, and stop rate for everyone on the field', async () => {
+    const { playerFilmStats } = await import('./playerFilmStats.ts');
+    const lineup = { side: 'defense', slots: [{ slot: { id: 'M', name: 'MIKE' }, player: { num: '22' } }, { slot: { id: 'W', name: 'WILL' }, player: { num: '40' } }] };
+    const plays = [
+      { id: 'a', odk: 'D', playNumber: 1, gainLoss: -4, isEfficient: false, result: 'Sack', playType: 'PASS', defPlay: { maker: '#22 Jax', assist: '#40 Chris' } },
+      { id: 'b', odk: 'D', playNumber: 2, gainLoss: 8, isEfficient: true, result: 'Rush', playType: 'RUN', defPlay: { maker: '#40 Chris' } },
+    ] as any[];
+    const res = playerFilmStats(plays, () => lineup as any, [{ num: '22', firstName: 'Jax', lastName: 'P' }, { num: '40', firstName: 'Chris', lastName: 'S' }] as any);
+    const jax = res.players.find((p) => p.num === '22')!;
+    const chris = res.players.find((p) => p.num === '40')!;
+    assert.equal(res.defSnaps, 2);
+    assert.equal(jax.tackles, 1);
+    assert.equal(jax.sacks, 1);
+    assert.equal(jax.defSnaps, 2);
+    assert.equal(jax.stopRate, 50);
+    assert.equal(jax.yardsAllowedPerSnap, 2);
+    assert.equal(chris.tackles, 1);
+    assert.equal(chris.assists, 1);
+  });
+});

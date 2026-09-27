@@ -42,7 +42,7 @@ import {
 } from '../utils/hudlFilmImport';
 import { mergeFilmSession } from '../utils/remoteStateMerge';
 import { getTeamColorConfig } from './practiceDrillsUtils';
-import { ScoutBundle, assignDrives, bundleFromSaved, findSameGame, gamesForWeek, playsForWeek, refreshGamePlays, removeScoutGame } from '../hudlScout/scoutBundle';
+import { ScoutBundle, assignDrives, bundleFromSaved, findSameGame, gamesForWeek, mergeGamePlays, playsForWeek, removeScoutGame } from '../hudlScout/scoutBundle';
 import type { Play } from '../hudlScout/types/football';
 import { tagPlayUnits } from '../hudlScout/utils/unitStats';
 import { callUsage, isNumberFormation, setPlaysFormation, tagPlays } from '../hudlScout/utils/playTags';
@@ -356,13 +356,13 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
           setImportError('No plays found in that Hudl export.');
           return;
         }
-        const same = findSameGame(bundleRef.current, newPlays);
+        const same = findSameGame(bundleRef.current, newPlays, { week: sharedFilm.week });
         if (same) {
-          // Same game again: bring in the new file's details, keep tags, units and grades.
-          updateBundle((b) => ({
-            ...refreshGamePlays(b, same.id, newPlays),
-            games: b.games.map((g) => (g.id === same.id ? { ...g, week: sharedFilm.week } : g)),
-          }));
+          // Same game again: bring in the new file's details, keep tags, units, subs and grades.
+          updateBundle((b) => {
+            const merged = mergeGamePlays(b, same.id, newPlays);
+            return { ...merged, games: merged.games.map((g) => (g.id === same.id ? { ...g, week: sharedFilm.week } : g)) };
+          });
           setImportNote(`Updated "${same.name}" from ${file.name}. Tags, units and grades were kept.`);
           return;
         }

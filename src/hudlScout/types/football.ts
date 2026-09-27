@@ -8,6 +8,17 @@ export type FieldZone = 'backed_up' | 'own_territory' | 'plus_territory' | 'red_
 
 export type HashPosition = 'L' | 'M' | 'R';
 
+/** Big defensive moments on a play. */
+export type DefEvent = 'sack' | 'tfl' | 'int' | 'ff' | 'fr' | 'pbu';
+
+/** Who made the play on defense (our film): from Hudl's tackler / key-player columns or picked by a coach. */
+export interface DefPlay {
+  /** "#22 Jaxson Pestone" */
+  maker?: string;
+  assist?: string;
+  events?: DefEvent[];
+}
+
 /** Which of our units was on the field (our-team play log only). */
 export type TeamUnit = 'black' | 'blue' | 'gold';
 
@@ -33,6 +44,10 @@ export interface Play {
   result: string;
   personnel: string;
   carrierOrTarget: string;
+  /** Our defense: who made the tackle / sack / INT on this play. */
+  defPlay?: DefPlay;
+  /** Hudl KEY PLAYER column ("#22 Jaxson Pestone"). */
+  keyPlayer?: string;
   /** Ball carrier / passer / receiver from Hudl's player columns ("#21 Nash Ward"). */
   rusher?: string;
   passer?: string;

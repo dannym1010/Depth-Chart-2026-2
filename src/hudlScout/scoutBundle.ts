@@ -149,42 +149,94 @@ function playsOfGame(bundle: Pick<ScoutBundle, 'games' | 'plays'>, gameId: strin
   return bundle.plays.filter((p) => (p.gameId ? p.gameId === gameId : bundle.games[0]?.id === gameId));
 }
 
-/** A game already in the report with the same plays (same play numbers in the same order). */
-export function findSameGame(bundle: Pick<ScoutBundle, 'games' | 'plays'>, fresh: Pick<Play, 'playNumber'>[]): ScoutGame | undefined {
+/**
+ * The game a new file belongs to: the same plays (same play numbers in the same order), else a game with
+ * the same name or (our film) the same week whose play numbers mostly match.
+ */
+export function findSameGame(
+  bundle: Pick<ScoutBundle, 'games' | 'plays'>,
+  fresh: Pick<Play, 'playNumber'>[],
+  hint: { name?: string; week?: string } = {}
+): ScoutGame | undefined {
   if (!fresh.length) return undefined;
-  return bundle.games.find((g) => {
+  const exact = bundle.games.find((g) => {
     const gp = playsOfGame(bundle, g.id);
     return gp.length === fresh.length && gp.every((p, i) => String(p.playNumber) === String(fresh[i].playNumber));
   });
+  if (exact) return exact;
+  const freshNums = new Set(fresh.map((p) => String(p.playNumber)));
+  const overlap = (g: ScoutGame) => {
+    const gp = playsOfGame(bundle, g.id);
+    if (!gp.length) return 0;
+    const shared = gp.filter((p) => freshNums.has(String(p.playNumber))).length;
+    return shared / Math.max(gp.length, fresh.length);
+  };
+  const norm = (x?: string) => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const named = bundle.games.find(
+    (g) => (hint.name && norm(g.name) === norm(hint.name)) || (hint.week && g.week && String(g.week) === String(hint.week))
+  );
+  if (named && overlap(named) >= 0.5) return named;
+  return bundle.games.find((g) => overlap(g) >= 0.85);
+}
+
+/** Fields only coaches set in the app, kept when a game is uploaded again. */
+function keepCoachWork(old: Play, fresh: Play): Play {
+  const next: Play = { ...fresh, id: old.id, gameId: old.gameId };
+  if (old.unit) next.unit = old.unit;
+  if (old.subs && Object.keys(old.subs).length) next.subs = old.subs;
+  // A formation a coach typed ("21 R") beats a blank or Hudl word from the file.
+  const oldForm = old.untaggedFormation ?? old.formation;
+  const freshIsNumber = /^\d/.test(String(fresh.formation || '').trim());
+  if (/^\d/.test(String(oldForm || '').trim()) && !freshIsNumber) next.formation = oldForm;
+  // Players on the ball: the file wins when it has them, else keep what a coach picked.
+  if (!fresh.rusher && old.rusher) next.rusher = old.rusher;
+  if (!fresh.passer && old.passer) next.passer = old.passer;
+  if (!fresh.receiver && old.receiver) next.receiver = old.receiver;
+  if (!fresh.carrierOrTarget && old.carrierOrTarget) next.carrierOrTarget = old.carrierOrTarget;
+  if (old.defPlay && (old.defPlay.maker || old.defPlay.assist || old.defPlay.events?.length)) {
+    next.defPlay = {
+      maker: old.defPlay.maker || fresh.defPlay?.maker,
+      assist: old.defPlay.assist || fresh.defPlay?.assist,
+      events: old.defPlay.events?.length ? old.defPlay.events : fresh.defPlay?.events,
+    };
+  }
+  if (old.playCallId) {
+    next.untaggedName = fresh.playName;
+    next.untaggedFormation = next.formation;
+    next.playCallId = old.playCallId;
+    next.playCall = old.playCall;
+    next.playName = old.playCall || fresh.playName;
+  }
+  return next;
 }
 
 /**
- * Re-uploading a game: take what the new file knows (players on the ball, Hudl's play type) and keep
- * everything the coaches added (play-call tags, formations, units, ids so PFF grades stay attached).
+ * Upload a game again: the file's plays replace the old ones, matched by play number, keeping
+ * everything coaches added (tags, formations, units, subs, players, defensive credits) and the
+ * play ids so PFF grades stay attached. Plays that are new in the file are added.
  */
-export function refreshGamePlays(bundle: ScoutBundle, gameId: string, fresh: Play[]): ScoutBundle {
+export function mergeGamePlays(bundle: ScoutBundle, gameId: string, fresh: Play[]): ScoutBundle {
   const current = playsOfGame(bundle, gameId);
-  const byId = new Map(current.map((p, i) => [p.id, fresh[i]]));
+  const byNum = new Map<string, Play[]>();
+  current.forEach((p) => byNum.set(String(p.playNumber), [...(byNum.get(String(p.playNumber)) || []), p]));
+  const used = new Set<string>();
+  const merged = fresh.map((f, i) => {
+    const same = (byNum.get(String(f.playNumber)) || []).find((p) => !used.has(p.id));
+    if (!same) return { ...f, id: `${f.id}-${gameId}-${i}`, gameId };
+    used.add(same.id);
+    return keepCoachWork(same, { ...f, gameId });
+  });
+  const others = bundle.plays.filter((p) => !current.includes(p));
   return {
     ...bundle,
-    plays: bundle.plays.map((p) => {
-      const f = byId.get(p.id);
-      if (!f) return p;
-      return {
-        ...p,
-        rusher: f.rusher,
-        passer: f.passer,
-        receiver: f.receiver,
-        oppRusher: f.oppRusher,
-        oppPasser: f.oppPasser,
-        oppReceiver: f.oppReceiver,
-        rawPlayType: f.rawPlayType || p.rawPlayType,
-        carrierOrTarget: f.carrierOrTarget || p.carrierOrTarget,
-      };
-    }),
+    plays: [...others, ...assignDrives(merged)],
+    games: bundle.games.map((g) => (g.id === gameId ? { ...g, playCount: merged.length } : g)),
     updatedAt: Date.now(),
   };
 }
+
+/** Older name, same job. */
+export const refreshGamePlays = mergeGamePlays;
 
 /**
  * Drives, numbered 1, 2, 3... in each game: a drive is a run of plays in a row (by play number) by the

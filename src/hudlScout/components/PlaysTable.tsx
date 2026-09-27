@@ -25,6 +25,7 @@ interface PlaysTableProps {
   roster?: RosterPlayer[];
   onSetSub?: (playId: string, slotId: string, ref: FilmPlayerRef | null | undefined) => void;
   onSetBall?: (playId: string, role: 'rusher' | 'passer' | 'receiver', label: string) => void;
+  onSetDefPlay?: (playId: string, patch: Partial<NonNullable<Play['defPlay']>>) => void;
   /** Our film uploaded before player names were read: offer to upload the file again. */
   onRefreshFromHudl?: () => void;
 }
@@ -72,7 +73,7 @@ const UnitPicker: React.FC<{
   );
 };
 
-export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onRefreshFromHudl }) => {
+export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl }) => {
   const [openPlay, setOpenPlay] = useState<string | null>(null);
   const canLineup = Boolean(lineupFor && roster && onSetSub);
   const lineupPanel = (play: Play) => {
@@ -87,6 +88,8 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
         onSetSub={(slotId, ref) => onSetSub!(play.id, slotId, ref)}
         ball={{ rusher: play.rusher, passer: play.passer, receiver: play.receiver }}
         onSetBall={onSetBall ? (role, label) => onSetBall(play.id, role, label) : undefined}
+        defPlay={play.defPlay}
+        onSetDefPlay={onSetDefPlay ? (patch) => onSetDefPlay(play.id, patch) : undefined}
       />
     );
   };
@@ -585,7 +588,8 @@ const FormationCell: React.FC<{ play: Play; plays: Play[]; onSetFormation: (ids:
   );
 };
 
-const hasPlayers = (p: Play) => Boolean(p.rusher || p.passer || p.receiver);
+const hasPlayers = (p: Play) => Boolean(p.rusher || p.passer || p.receiver || p.defPlay?.maker || p.defPlay?.assist || p.defPlay?.events?.length);
+const EVENT_LABEL: Record<string, string> = { sack: 'Sack', tfl: 'TFL', int: 'INT', ff: 'FF', fr: 'FR', pbu: 'PBU' };
 
 /** Who had the ball: "Run #13 Landon Veto" / "Pass #21 Nash Ward → #10 Luke M". */
 const BallPlayers: React.FC<{ play: Play; inline?: boolean }> = ({ play, inline }) => {
@@ -593,6 +597,10 @@ const BallPlayers: React.FC<{ play: Play; inline?: boolean }> = ({ play, inline 
   if (play.rusher) rows.push(['Run', play.rusher]);
   if (play.passer) rows.push(['Pass', play.passer]);
   if (play.receiver) rows.push(['Target', play.receiver]);
+  if (play.odk === 'D' && play.carrierOrTarget && !play.rusher) rows.push(['Their', play.carrierOrTarget]);
+  if (play.defPlay?.maker) rows.push(['Tackle', play.defPlay.maker]);
+  if (play.defPlay?.assist) rows.push(['Assist', play.defPlay.assist]);
+  if (play.defPlay?.events?.length) rows.push(['Play', play.defPlay.events.map((e) => EVENT_LABEL[e] || e).join(', ')]);
   return (
     <span className={inline ? 'flex flex-wrap gap-x-3' : 'flex flex-col gap-0.5'}>
       {rows.map(([label, who]) => (

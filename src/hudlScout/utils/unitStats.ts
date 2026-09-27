@@ -56,6 +56,29 @@ function emptyLine(): UnitStatLine {
   };
 }
 
+/**
+ * Did the offense stay on schedule (40% of the distance on 1st down, 60% on 2nd, all of it on 3rd/4th)?
+ * Worked out from down, distance and yards so it means the same on every file: Hudl's EFF column is
+ * written from the side on film, so on our defense plays a "Y" means our defense won the play.
+ * null when the play has no down and distance.
+ */
+export function offenseOnSchedule(p: Play): boolean | null {
+  const down = Number(p.down) || 0;
+  const dist = Number(p.distance) || 0;
+  if (!down || !dist) return null;
+  if (/\btd\b|touchdown/i.test(p.result || '')) return true;
+  const gain = Number(p.gainLoss) || 0;
+  if (down === 1) return gain >= dist * 0.4;
+  if (down === 2) return gain >= dist * 0.6;
+  return gain >= dist;
+}
+
+/** A defense play where we stopped them (they fell off schedule). */
+export function isDefensiveStop(p: Play): boolean {
+  const on = offenseOnSchedule(p);
+  return on === null ? Boolean(p.isEfficient) : !on;
+}
+
 function addPlay(line: UnitStatLine, p: Play) {
   // Penalties and timeouts are logged as rows but are not snaps for these numbers.
   if (isPenalty(p) || isNonPlay(p)) return;
@@ -70,7 +93,8 @@ function addPlay(line: UnitStatLine, p: Play) {
     line.thirdDowns += 1;
     if (isTouchdown(p) || (p.distance > 0 && gain >= p.distance)) line.thirdDownConversions += 1;
   }
-  if (p.isEfficient) line.successfulPlays += 1;
+  // Offense: plays that stayed on schedule. Defense: plays where their offense did (so lower is better).
+  if (p.odk === 'D' ? !isDefensiveStop(p) : p.isEfficient) line.successfulPlays += 1;
   if (p.isExplosive || gain >= 10) line.explosivePlays += 1;
   if (gain < 0) line.negativePlays += 1;
 }
