@@ -12,6 +12,8 @@ export interface ScoutGame {
   addedAt: number;
   /** Our-team film: the week this game was played (links it to PFF grading). "" = a coach chose no week. */
   week?: string;
+  /** When a coach last changed this game (its week). */
+  editedAt?: number;
 }
 
 interface HeaderProps {

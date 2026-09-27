@@ -106,7 +106,7 @@ export function moveFilmIntoSharedLog(
     others = others.filter((p) => !dupPlays.includes(p));
     mergedDuplicate = duplicate.name;
   }
-  plays = assignDrives(plays);
+  plays = assignDrives(plays.map((p) => ({ ...p, editedAt: now })));
   const game: ScoutGame = { id: gameId, name: duplicate?.name || gameName, playCount: plays.length, addedAt: now, week };
   return {
     bundle: {

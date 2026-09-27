@@ -27,7 +27,7 @@ export function tagPlays(plays: Play[], ids: string[], entry: Pick<PlayDatabaseE
     if (!entry) {
       if (!p.playCallId) return p;
       const { playCallId, playCall, untaggedName, untaggedFormation, ...rest } = p;
-      return { ...rest, playName: baseName, formation: baseFormation };
+      return { ...rest, playName: baseName, formation: baseFormation, editedAt: Date.now() };
     }
     const blankFormation = !baseFormation || baseFormation === '-' || /^unspecified$/i.test(baseFormation);
     const callFormation = formationOfCall(entry.name) || entry.formation || '';
@@ -39,6 +39,7 @@ export function tagPlays(plays: Play[], ids: string[], entry: Pick<PlayDatabaseE
       untaggedFormation: baseFormation,
       playName: entry.name,
       formation: blankFormation && callFormation ? callFormation : baseFormation,
+      editedAt: Date.now(),
     };
   });
 }
@@ -176,7 +177,7 @@ export function setPlaysFormation(plays: Play[], ids: string[], formation: strin
   const idSet = new Set(ids);
   const value = tidyFormation(formation) || '-';
   return plays.map((p) =>
-    idSet.has(p.id) ? { ...p, formation: value, ...(p.playCallId ? { untaggedFormation: value } : {}) } : p
+    idSet.has(p.id) ? { ...p, formation: value, ...(p.playCallId ? { untaggedFormation: value } : {}), editedAt: Date.now() } : p
   );
 }
 

@@ -2821,3 +2821,65 @@ describe('re-uploading and defensive stats', () => {
     assert.equal(chris.assists, 1);
   });
 });
+
+describe('film tags reach every coach', () => {
+  const game = { id: 'g', name: 'MSA vs Suffern', playCount: 3, addedAt: 1 };
+  const base = () => [1, 2, 3].map((n) => ({ id: `p${n}`, gameId: 'g', playNumber: n, odk: 'O', playName: 'Rush' }));
+
+  it('two coaches tagging different plays both keep their tags', async () => {
+    const { pickScoutBundle } = await import('./scoutMerge.ts');
+    const desktop = { games: [game], plays: base().map((p) => (p.id === 'p1' ? { ...p, playCall: '21 R 24 DIVE', playCallId: 'x', editedAt: 100 } : p)), updatedAt: 100 };
+    const phone = { games: [game], plays: base().map((p) => (p.id === 'p3' ? { ...p, unit: 'gold', editedAt: 120 } : p)), updatedAt: 120 };
+    const merged = pickScoutBundle(desktop, phone);
+    assert.equal(merged.plays.find((p: any) => p.id === 'p1').playCall, '21 R 24 DIVE');
+    assert.equal(merged.plays.find((p: any) => p.id === 'p3').unit, 'gold');
+    assert.equal(merged.plays.length, 3);
+  });
+
+  it('an old copy saved later (a phone that was behind) does not wipe newer tags', async () => {
+    const { pickScoutBundle } = await import('./scoutMerge.ts');
+    const tagged = { games: [game], plays: base().map((p) => ({ ...p, playCall: 'POWER', playCallId: 'y', editedAt: 200 })), updatedAt: 200 };
+    const stalePhone = { games: [game], plays: base(), updatedAt: 900, filters: { odk: 'D' } };
+    const merged = pickScoutBundle(stalePhone, tagged);
+    assert.ok(merged.plays.every((p: any) => p.playCall === 'POWER'));
+    assert.equal(merged.filters.odk, 'D'); // report settings follow the copy saved last
+  });
+
+  it('the newest edit of the same play wins, including removing a tag', async () => {
+    const { pickScoutBundle } = await import('./scoutMerge.ts');
+    const a = { games: [game], plays: base().map((p) => (p.id === 'p2' ? { ...p, playCall: 'SWEEP', playCallId: 's', editedAt: 300 } : p)), updatedAt: 300 };
+    const b = { games: [game], plays: base().map((p) => (p.id === 'p2' ? { ...p, editedAt: 400 } : p)), updatedAt: 250 };
+    assert.equal(pickScoutBundle(a, b).plays.find((p: any) => p.id === 'p2').playCall, undefined);
+  });
+
+  it('removed games stay removed; a game added on a device that was behind is kept', async () => {
+    const { pickScoutBundle } = await import('./scoutMerge.ts');
+    const newGame = { id: 'h', name: 'MSA vs Yorktown', playCount: 1, addedAt: 500 };
+    const withNew = { games: [game, newGame], plays: [...base(), { id: 'q1', gameId: 'h', playNumber: 1, odk: 'O' }], updatedAt: 500 };
+    const removedG = { games: [], plays: [], deletedGameIds: ['g'], updatedAt: 400 };
+    const merged = pickScoutBundle(withNew, removedG);
+    assert.deepEqual(merged.games.map((g: any) => g.id), ['h']);
+    assert.deepEqual(merged.plays.map((p: any) => p.id), ['q1']);
+    // The other way round: the newer copy never saw game h (added after it was saved), so h is kept.
+    const behind = { games: [game], plays: base(), updatedAt: 450 };
+    const olderWithH = { games: [game, newGame], plays: [...base(), { id: 'q1', gameId: 'h', playNumber: 1 }], updatedAt: 440 };
+    const m2 = pickScoutBundle(behind, { ...olderWithH, updatedAt: 440, games: [game, { ...newGame, addedAt: 460 }] });
+    assert.ok(m2.games.some((g: any) => g.id === 'h'));
+    assert.ok(m2.plays.some((p: any) => p.id === 'q1'));
+  });
+
+  it('tagging, units, formations, subs and players stamp the play', async () => {
+    const { tagPlays, setPlaysFormation } = await import('../hudlScout/utils/playTags.ts');
+    const { tagPlayUnits } = await import('../hudlScout/utils/unitStats.ts');
+    const { setPlaySub, setPlayBallPlayer, setPlayDefPlay } = await import('./filmLineup.ts');
+    const plays = base() as any[];
+    const stamped = (next: any[], id: string) => Number(next.find((p) => p.id === id).editedAt) > 0;
+    assert.ok(stamped(tagPlays(plays, ['p1'], { id: 'x', name: 'X', formation: '' }), 'p1'));
+    assert.ok(stamped(setPlaysFormation(plays, ['p1'], '21'), 'p1'));
+    assert.ok(stamped(tagPlayUnits(plays, 'p1', 'gold', 'play'), 'p1'));
+    assert.ok(stamped(setPlaySub(plays, 'p1', 'QB', { num: '7' }), 'p1'));
+    assert.ok(stamped(setPlayBallPlayer(plays, 'p1', 'rusher', '#13 L'), 'p1'));
+    assert.ok(stamped(setPlayDefPlay(plays, 'p1', { maker: '#22 J' }), 'p1'));
+    assert.equal(tagPlays(plays, ['p1'], { id: 'x', name: 'X', formation: '' })[1].editedAt, undefined);
+  });
+});

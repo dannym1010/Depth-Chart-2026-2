@@ -546,7 +546,7 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
                   onClick={() =>
                     updateBundle((b) => ({
                       ...b,
-                      games: b.games.map((x) => (x.id === g.id ? { ...x, week: sharedFilm.week } : x)),
+                      games: b.games.map((x) => (x.id === g.id ? { ...x, week: sharedFilm.week, editedAt: Date.now() } : x)),
                       updatedAt: Date.now(),
                     }))
                   }

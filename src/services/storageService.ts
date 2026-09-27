@@ -9,6 +9,7 @@ import {
   StaffCoach,
   PracticePeriod,
 } from '../types';
+import { pickScoutBundle } from '../utils/scoutMerge';
 import {
   INITIAL_DEFAULT_FORMATIONS,
   DEFAULT_CASCADING_DRILLS,
@@ -636,6 +637,7 @@ async function writeScoutBundleDocs(db: any, docId: string, extra: Record<string
       ...extra,
       ...meta,
       updatedAt: Date.now(),
+      writerClientId: CLIENT_ID,
     }),
   ];
   chunks.forEach((plays, index) => {
@@ -674,6 +676,43 @@ async function readScoutBundleDocs(db: any, docId: string): Promise<any | undefi
   }
   const { chunkCount: _c, playCount: _p, previousChunkCount: _prev, plays: _inline, ...rest } = meta;
   return { ...rest, plays };
+}
+
+/**
+ * Tell this device when another coach saves Hudl Scout film (our play log or this week's opponent),
+ * so tags show up without reloading. The callback runs a moment later, after all the pieces are written.
+ */
+export function subscribeHudlScoutCloud(teamId: string, week: string, onChange: () => void): () => void {
+  if (isFirestoreQuotaPaused()) return () => {};
+  const { db } = getFirebaseServices();
+  if (!db || typeof db.collection !== 'function') return () => {};
+  const wk = String(week || '1').replace(/\D/g, '') || '1';
+  let timer: any = null;
+  const kick = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      onChange();
+    }, 1500);
+  };
+  const listen = (docId: string) =>
+    db.collection('teamData').doc(docId).onSnapshot(
+      (snap: any) => {
+        if (!snap?.exists) return;
+        const data = snap.data();
+        if (!data || data.writerClientId === CLIENT_ID) return;
+        kick();
+      },
+      (err: any) => {
+        noteFirestoreError(err);
+        console.warn(`subscribeHudlScoutCloud ${docId} error:`, err);
+      }
+    );
+  const unsubs = [listen(hudlOwnDocId(teamId)), listen(hudlOppDocId(teamId, wk))];
+  return () => {
+    if (timer) clearTimeout(timer);
+    unsubs.forEach((u: any) => typeof u === 'function' && u());
+  };
 }
 
 export async function saveHudlScoutCloud(payload: {
@@ -739,23 +778,6 @@ export async function saveHudlScoutCloud(payload: {
   return { ok: apiOk || firestoreOk };
 }
 
-function pickNewerScout(a?: any, b?: any) {
-  if (!a) return b;
-  if (!b) return a;
-  const aPlays = Array.isArray(a.plays) ? a.plays.length : 0;
-  const bPlays = Array.isArray(b.plays) ? b.plays.length : 0;
-  const aT = Number(a.updatedAt) || 0;
-  const bT = Number(b.updatedAt) || 0;
-  const aClear = Boolean(a.sourceCleared) && aPlays === 0;
-  const bClear = Boolean(b.sourceCleared) && bPlays === 0;
-  if (aClear && aT >= bT) return a;
-  if (bClear && bT >= aT) return b;
-  if (aT !== bT) return aT >= bT ? a : b;
-  if (aPlays > 0 && bPlays > 0) return aPlays >= bPlays ? a : b;
-  if (aPlays > 0) return a;
-  if (bPlays > 0) return b;
-  return aT >= bT ? a : b;
-}
 
 export async function fetchHudlScoutCloud(
   teamId: string,
@@ -792,8 +814,8 @@ export async function fetchHudlScoutCloud(
         readScoutBundleDocs(db, hudlOwnDocId(teamId)),
         readScoutBundleDocs(db, hudlOppDocId(teamId, wk)),
       ]);
-      ownTeamScout = pickNewerScout(ownTeamScout, ownBundle);
-      opponentScout = pickNewerScout(opponentScout, oppBundle);
+      ownTeamScout = pickScoutBundle(ownTeamScout, ownBundle);
+      opponentScout = pickScoutBundle(opponentScout, oppBundle);
     }
   } catch (err) {
     noteFirestoreError(err);

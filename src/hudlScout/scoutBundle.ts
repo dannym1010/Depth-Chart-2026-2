@@ -38,6 +38,8 @@ export interface ScoutBundle {
   updatedAt: number;
   sourceCleared: boolean;
   callSheet?: CallSheetEdits;
+  /** Games a coach removed or replaced, so an older copy can't bring them back. */
+  deletedGameIds?: string[];
 }
 
 export function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
@@ -60,10 +62,12 @@ export function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
       saved?.callSheet && typeof saved.callSheet === 'object'
         ? { ...saved.callSheet, sections: saved.callSheet.sections && typeof saved.callSheet.sections === 'object' ? saved.callSheet.sections : {} }
         : undefined,
+    deletedGameIds: Array.isArray(saved?.deletedGameIds) ? saved.deletedGameIds : undefined,
   };
 }
 
 export function removeScoutGame(bundle: ScoutBundle, gameId: string, fallbackName: string): ScoutBundle {
+  const deletedGameIds = [...new Set([...(bundle.deletedGameIds || []), gameId])];
   const remainingGames = bundle.games.filter((g) => g.id !== gameId);
   const remainingPlays = bundle.plays.filter((p) => {
     if (p.gameId) return p.gameId !== gameId;
@@ -77,11 +81,13 @@ export function removeScoutGame(bundle: ScoutBundle, gameId: string, fallbackNam
       datasetName: fallbackName,
       filters: DEFAULT_SCOUT_FILTERS,
       sourceCleared: true,
+      deletedGameIds,
       updatedAt: Date.now(),
     };
   }
   return {
     ...bundle,
+    deletedGameIds,
     plays: remainingPlays,
     games: remainingGames.map((g) => ({
       ...g,
@@ -99,6 +105,7 @@ export function removeScoutGame(bundle: ScoutBundle, gameId: string, fallbackNam
 export function clearScoutUploads(bundle: ScoutBundle, fallbackName: string): ScoutBundle {
   return {
     ...bundle,
+    deletedGameIds: [...new Set([...(bundle.deletedGameIds || []), ...bundle.games.map((g) => g.id)])],
     plays: [],
     games: [],
     datasetName: fallbackName,
@@ -220,11 +227,12 @@ export function mergeGamePlays(bundle: ScoutBundle, gameId: string, fresh: Play[
   const byNum = new Map<string, Play[]>();
   current.forEach((p) => byNum.set(String(p.playNumber), [...(byNum.get(String(p.playNumber)) || []), p]));
   const used = new Set<string>();
+  const now = Date.now();
   const merged = fresh.map((f, i) => {
     const same = (byNum.get(String(f.playNumber)) || []).find((p) => !used.has(p.id));
-    if (!same) return { ...f, id: `${f.id}-${gameId}-${i}`, gameId };
+    if (!same) return { ...f, id: `${f.id}-${gameId}-${i}`, gameId, editedAt: now };
     used.add(same.id);
-    return keepCoachWork(same, { ...f, gameId });
+    return { ...keepCoachWork(same, { ...f, gameId }), editedAt: now };
   });
   const others = bundle.plays.filter((p) => !current.includes(p));
   return {

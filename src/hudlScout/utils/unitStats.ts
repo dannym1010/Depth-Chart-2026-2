@@ -157,7 +157,8 @@ export function tagPlayUnits(
   if (!side) return plays;
   const before = target.unit;
   return plays.map((p) => {
-    if (p.id === playId) return { ...p, unit };
+    const now = Date.now();
+    if (p.id === playId) return { ...p, unit, editedAt: now };
     const laterInDrive =
       isTaggableSide(p) === side &&
       p.gameId === target.gameId &&
@@ -165,7 +166,7 @@ export function tagPlayUnits(
       p.series === target.series &&
       p.playNumber > target.playNumber;
     // fill_series: the rest of the drive follows, except plays a coach already set to something else.
-    if (scope === 'fill_series' && laterInDrive && (!p.unit || p.unit === before)) return { ...p, unit };
+    if (scope === 'fill_series' && laterInDrive && (!p.unit || p.unit === before)) return { ...p, unit, editedAt: now };
     if (
       scope === 'rest_of_series' &&
       isTaggableSide(p) === side &&
@@ -174,7 +175,7 @@ export function tagPlayUnits(
       p.series === target.series &&
       p.playNumber > target.playNumber
     ) {
-      return { ...p, unit };
+      return { ...p, unit, editedAt: now };
     }
     return p;
   });

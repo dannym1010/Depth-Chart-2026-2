@@ -9,6 +9,8 @@ import {
   WeekState,
 } from '../types';
 import { INITIAL_DEFAULT_FORMATIONS } from '../data/initialData';
+import { pickScoutBundle, scoutFingerprint } from './scoutMerge';
+export { pickScoutBundle, scoutFingerprint } from './scoutMerge';
 import { deepClone } from '../services/storageService';
 import { isDroppedFormation } from './seasonWeekUtils';
 import { mergePracticeDrillGroups, scorePracticeDrillGroups } from '../components/practiceDrillsUtils';
@@ -259,13 +261,6 @@ export function reorderFormationsInUnit(
   return next;
 }
 
-export function scoutFingerprint(scout: any): string {
-  if (!scout || typeof scout !== 'object') return '';
-  const plays = Array.isArray(scout.plays) ? scout.plays.length : 0;
-  const games = Array.isArray(scout.games) ? scout.games.length : 0;
-  return `${Number(scout.updatedAt) || 0}|${plays}|${games}|${scout.datasetName || ''}|${scout.sourceCleared ? 1 : 0}`;
-}
-
 export function hudlScoutWeight(scout: any): number {
   if (!scout || typeof scout !== 'object') return 0;
   const plays = Array.isArray(scout.plays) ? scout.plays.length : 0;
@@ -297,26 +292,6 @@ export function pickRichestScouting(...reports: any[]): any {
     }
   }
   return best;
-}
-
-export function pickScoutBundle(a?: any, b?: any) {
-  if (!a) return b;
-  if (!b) return a;
-  const aPlays = Array.isArray(a.plays) ? a.plays.length : 0;
-  const bPlays = Array.isArray(b.plays) ? b.plays.length : 0;
-  const aT = Number(a.updatedAt) || 0;
-  const bT = Number(b.updatedAt) || 0;
-  const aClear = Boolean(a.sourceCleared) && aPlays === 0;
-  const bClear = Boolean(b.sourceCleared) && bPlays === 0;
-  if (aClear && aT >= bT) return a;
-  if (bClear && bT >= aT) return b;
-  if (aPlays > 0 && bPlays > 0) {
-    if (aT !== bT) return aT >= bT ? a : b;
-    return aPlays >= bPlays ? a : b;
-  }
-  if (aPlays > 0) return a;
-  if (bPlays > 0) return b;
-  return aT >= bT ? a : b;
 }
 
 export function unionScoutBundles(a?: any, b?: any) {

@@ -76,6 +76,7 @@ import {
   saveServerState,
   saveHudlScoutCloud,
   fetchHudlScoutCloud,
+  subscribeHudlScoutCloud,
   saveSharedBoardCloud,
   patchSharedWeekCloud,
   isBoardPatchScope,
@@ -2346,7 +2347,8 @@ export default function App() {
     lastLocalEditTimeRef.current = Date.now();
     const teamId = activeTeamIdRef.current;
     setOwnTeamHudlScout((prev) => {
-      const updated = { ...prev, [teamId]: bundle };
+      // Merge rather than replace, so tags that just arrived from another coach are kept.
+      const updated = { ...prev, [teamId]: pickScoutBundle(bundle, prev?.[teamId]) };
       latestStateRef.current.ownTeamHudlScout = updated;
       safeJSONSet('footballOwnTeamHudlScout', updated);
       return updated;
@@ -2420,8 +2422,15 @@ export default function App() {
     const localOwn = latestStateRef.current.ownTeamHudlScout?.[teamId];
     const oppSame = !remote.opponentScout || scoutFingerprint(localOpp) === scoutFingerprint(pickScoutBundle(localOpp, remote.opponentScout));
     const ownSame = !remote.ownTeamScout || scoutFingerprint(localOwn) === scoutFingerprint(pickScoutBundle(localOwn, remote.ownTeamScout));
-    if (oppSame && ownSame) return;
-    applyHudlScoutFromCloud(teamId, wk, remote);
+    // This device has tags the cloud copy is missing (made offline, or lost to an older copy): send them back up.
+    const ownAhead =
+      Boolean(localOwn && remote.ownTeamScout) &&
+      scoutFingerprint(pickScoutBundle(localOwn, remote.ownTeamScout)) !== scoutFingerprint(remote.ownTeamScout);
+    const oppAhead =
+      Boolean(localOpp && remote.opponentScout) &&
+      scoutFingerprint(pickScoutBundle(localOpp, remote.opponentScout)) !== scoutFingerprint(remote.opponentScout);
+    if (!(oppSame && ownSame)) applyHudlScoutFromCloud(teamId, wk, remote);
+    if (ownAhead || oppAhead) queueHudlScoutPublish();
   };
 
   const applySharedBoardFromRemote = (remote: SharedBoardCloudUpdate) => {
@@ -2908,6 +2917,21 @@ export default function App() {
   useEffect(() => {
     if (!initialCloudLoadDoneRef.current) return;
     void hydrateHudlScoutFromCloud(activeTeamId, currentWeek);
+  }, [activeTeamId, currentWeek]);
+
+  // Film tags from other coaches: pick them up live, and whenever this device comes back to the app.
+  useEffect(() => {
+    const unsubscribe = subscribeHudlScoutCloud(activeTeamId, normalizeScoutWeekKey(currentWeek), () => {
+      void hydrateHudlScoutFromCloud();
+    });
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && initialCloudLoadDoneRef.current) void hydrateHudlScoutFromCloud();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      unsubscribe();
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [activeTeamId, currentWeek]);
 
   useEffect(() => {

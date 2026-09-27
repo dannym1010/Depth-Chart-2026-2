@@ -61,7 +61,7 @@ export function setPlaySub(plays: Play[], playId: string, slotId: string, ref: F
     const subs = { ...(p.subs || {}) };
     if (ref === undefined) delete subs[slotId];
     else subs[slotId] = ref;
-    return { ...p, subs };
+    return { ...p, subs, editedAt: Date.now() };
   });
 }
 
@@ -81,6 +81,7 @@ export function setPlayBallPlayer(plays: Play[], playId: string, role: BallRole,
     // The carrier / target line follows: the runner on a run, else the receiver or passer.
     const isRun = p.playType === 'RUN';
     next.carrierOrTarget = (isRun ? next.rusher || next.receiver : next.receiver || next.rusher) || next.passer || '';
+    next.editedAt = Date.now();
     return next;
   });
 }
@@ -108,6 +109,6 @@ export function setPlayDefPlay(plays: Play[], playId: string, patch: Partial<Non
     if (!next.maker) delete next.maker;
     if (!next.assist) delete next.assist;
     if (!next.events?.length) delete next.events;
-    return { ...p, defPlay: Object.keys(next).length ? next : undefined };
+    return { ...p, defPlay: Object.keys(next).length ? next : undefined, editedAt: Date.now() };
   });
 }

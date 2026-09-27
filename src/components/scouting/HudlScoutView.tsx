@@ -163,7 +163,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   const handleSetGameWeek = (gameId: string, week: string) => {
     setOwnBundle((prev) => ({
       ...prev,
-      games: prev.games.map((g) => (g.id === gameId ? { ...g, week } : g)),
+      games: prev.games.map((g) => (g.id === gameId ? { ...g, week, editedAt: Date.now() } : g)),
       updatedAt: Date.now(),
     }));
   };
@@ -178,7 +178,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     if (!missing.length) return;
     setOwnBundle((prev) => ({
       ...prev,
-      games: prev.games.map((g) => (g.week !== undefined ? g : { ...g, week: guessGameWeek(g.name, scheduleEvents) })),
+      games: prev.games.map((g) => (g.week !== undefined ? g : { ...g, week: guessGameWeek(g.name, scheduleEvents), editedAt: Date.now() })),
       updatedAt: Date.now(),
     }));
   }, [ownBundle.games, scheduleEvents]);
@@ -298,6 +298,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       games: oppBundle.games,
       sourceCleared: oppBundle.sourceCleared,
       callSheet: oppBundle.callSheet,
+      deletedGameIds: oppBundle.deletedGameIds,
       updatedAt: oppBundle.updatedAt,
     });
     if (oppBundle.datasetName && oppBundle.datasetName !== opponentFallback) {
@@ -374,6 +375,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       return {
         ...prev,
         plays: tagged,
+        // The games this upload replaces stay gone on every coach's device.
+        deletedGameIds: [...new Set([...(prev.deletedGameIds || []), ...prev.games.map((g) => g.id)])],
         datasetName: name,
         offensiveScheme: scheme,
         games: [game],
