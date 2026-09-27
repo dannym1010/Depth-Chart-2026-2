@@ -14,6 +14,8 @@ interface UploadModalProps {
   /** Best guess for the week, from the file name and the schedule. */
   guessWeek?: (gameName: string) => string | undefined;
   defaultWeek?: string;
+  /** Offer the Carmel sample film (only for an empty opponent report). */
+  showSample?: boolean;
 }
 
 export const UploadModal: React.FC<UploadModalProps> = ({
@@ -25,6 +27,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   weekOptions,
   guessWeek,
   defaultWeek,
+  showSample = false,
 }) => {
   const [gameWeek, setGameWeek] = useState('');
   const [csvText, setCsvText] = useState('');
@@ -122,7 +125,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         {/* Modal Body */}
         <div className="p-5 overflow-y-auto space-y-5 text-xs text-slate-700 dark:text-slate-300">
           {/* Active Uploaded Carmel Dataset Quick Reload */}
-          {SAMPLE_DATASETS.length > 0 && (
+          {showSample && SAMPLE_DATASETS.length > 0 && (
             <div className="p-3 rounded-lg border border-emerald-500/40 bg-emerald-50 dark:bg-emerald-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
                 <div className="flex items-center gap-1.5">

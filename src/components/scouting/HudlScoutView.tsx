@@ -586,6 +586,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         weekOptions={scoutTarget === 'own' ? weekOptions : undefined}
         guessWeek={(name) => guessGameWeek(name, scheduleEvents)}
         defaultWeek={defaultGameWeek}
+        showSample={scoutTarget === 'opponent' && plays.length === 0}
       />
       <CallSheetModal
         isOpen={isCallSheetOpen}
