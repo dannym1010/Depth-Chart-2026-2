@@ -199,14 +199,21 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
 
   const reportName = scoutTarget === 'own' ? ownFallback : scheduledOpponent || datasetName;
 
+  // Formations to filter by: only the ones on the side being viewed (our offense's aren't on our defense's plays).
   const availableFormations = useMemo(() => {
     const set = new Set<string>();
     plays.forEach((p) => {
+      if (bundle.filters.odk !== 'ALL' && p.odk !== bundle.filters.odk) return;
       const f = p.formation && p.formation !== '-' ? p.formation.trim() : '';
       if (f && f.toLowerCase() !== 'unspecified') set.add(f);
     });
     return Array.from(set).sort();
-  }, [plays]);
+  }, [plays, bundle.filters.odk]);
+  // A formation filter left over from the other side (or a removed game) would hide every play: drop it.
+  useEffect(() => {
+    if (!plays.length || filters.formation === 'ALL' || availableFormations.includes(filters.formation)) return;
+    setBundle((prev) => ({ ...prev, filters: { ...prev.filters, formation: 'ALL' } }));
+  }, [availableFormations, filters.formation, plays.length]);
 
   const odkCounts = useMemo(() => {
     let o = 0;
@@ -439,7 +446,10 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         onRemoveGame={handleRemoveGame}
         onClearUploads={handleClearUploads}
         unit={filters.odk as ScoutUnit}
-        onUnitChange={(odk) => setBundle((prev) => ({ ...prev, filters: { ...prev.filters, odk } }))}
+        onUnitChange={(odk) =>
+          // A formation belongs to one side, so switching sides drops that filter.
+          setBundle((prev) => ({ ...prev, filters: { ...prev.filters, odk, formation: prev.filters.odk === odk ? prev.filters.formation : 'ALL' } }))
+        }
         unitCounts={odkCounts}
         filterCount={filterLabels.length}
         filtersOpen={filtersOpen}
@@ -495,7 +505,21 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
               <ActiveFiltersBanner labels={filterLabels} shown={filteredPlays.length} total={unitPlayCount} onClear={() => handleResetFilters()} />
             )}
 
-            {specialTeamsOnly ? (
+            {filteredPlays.length === 0 && unitPlayCount > 0 && activeTab !== 'units' ? (
+              <Card>
+                <SectionHeader
+                  title="No plays match these filters"
+                  subtitle={`There are ${unitPlayCount} plays here, but the filters (${filterLabels.join(', ') || 'none'}) hide all of them.`}
+                />
+                <button
+                  type="button"
+                  onClick={() => handleResetFilters()}
+                  className="min-h-[40px] px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold cursor-pointer"
+                >
+                  Clear filters
+                </button>
+              </Card>
+            ) : specialTeamsOnly ? (
               <div className="space-y-4">
                 <Card>
                   <SectionHeader
