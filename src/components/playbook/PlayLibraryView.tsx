@@ -8,8 +8,8 @@ import { newPlayEntry, playNameKey } from '../../utils/playbookImport';
 import { PlaybookImportModal } from './PlaybookImportModal';
 import { unsavedDiagram } from '../../utils/playDiagrams';
 
-/** Plays the coach brought in (Hudl upload, added here, or added while tagging film), not the built-in starter plays. */
-export const isUploadedPlay = (p: PlayDatabaseEntry) => Boolean(p.source);
+/** The factory sample plays that came with the app (not the coach's own game-day plays). */
+const isBuiltInSample = (p: PlayDatabaseEntry) => !p.source && /^db_/.test(p.id);
 const diagramOf = (p: PlayDatabaseEntry) => p.diagramUrl || unsavedDiagram(playNameKey(p.name));
 
 interface Props {
@@ -66,8 +66,10 @@ export const PlayLibraryView: React.FC<Props> = ({
   const [importing, setImporting] = useState(false);
   const [toast, setToast] = useState<{ msg: string; undo?: () => void } | null>(null);
   const [zoom, setZoom] = useState<PlayDatabaseEntry | null>(null);
-  // Only the coach's own plays; the built-in starter plays stay out of the library.
-  const myPlays = useMemo(() => playDatabase.filter(isUploadedPlay), [playDatabase]);
+  // The factory sample plays stay out of the library unless the coach asks to see them.
+  const [showSamples, setShowSamples] = useState(false);
+  const sampleCount = useMemo(() => playDatabase.filter(isBuiltInSample).length, [playDatabase]);
+  const myPlays = useMemo(() => (showSamples ? playDatabase : playDatabase.filter((p) => !isBuiltInSample(p))), [playDatabase, showSamples]);
   const toastTimer = useRef<any>(null);
 
   const showToast = (msg: string, undo?: () => void) => {
@@ -166,6 +168,14 @@ export const PlayLibraryView: React.FC<Props> = ({
               <h1 className="text-xl font-black text-slate-900 dark:text-white">Play Library</h1>
               <p className="text-sm text-slate-600 dark:text-slate-300">
                 {myPlays.length} plays{diagramCount ? ` · ${diagramCount} with diagrams` : ''} · {taggedFilm} film plays tagged
+                {sampleCount > 0 && (
+                  <>
+                    {' · '}
+                    <button type="button" onClick={() => setShowSamples((v) => !v)} className="font-bold text-indigo-700 dark:text-indigo-300 underline cursor-pointer">
+                      {showSamples ? `Hide the ${sampleCount} built-in sample plays` : `Show ${sampleCount} built-in sample plays`}
+                    </button>
+                  </>
+                )}
               </p>
             </div>
           </div>

@@ -157,6 +157,7 @@ import { USER_IMPORTED_GAME_DAY_PLAYS, INITIAL_TWO_WRISTBANDS_DATA } from './dat
 import { ExcelPlayImportModal } from './components/callSheet/ExcelPlayImportModal';
 import { PlayDatabaseEntry, CallSheetData, CallSheetFullData } from './types/callSheet';
 import { MASTER_PLAY_DATABASE, DEFAULT_CALL_SHEET_DATA } from './data/callSheetData';
+import { mergeDeletedPlayIds, mergePlayBanks, stampPlayEdits } from './utils/playBankMerge';
 import { syncWristbandToCallSheet } from './utils/wristbandLinking';
 import { saveCallSheetSnapshot, countCallSheetPlays } from './utils/callSheetStorage';
 import { ScoutingView } from './components/ScoutingView';
@@ -879,6 +880,7 @@ export default function App() {
       );
       nextDb = [...importedPlays, ...existingFiltered];
     }
+    nextDb = stampPlayEdits(currentDb, nextDb);
     setPlayDatabase(nextDb);
     latestStateRef.current.playDatabase = nextDb;
     safeJSONSet('footballPlayDatabase', nextDb);
@@ -1792,12 +1794,13 @@ export default function App() {
       safeJSONSet('footballMasterPlays', data.masterPlayLibrary);
     }
     if (!skipBoardFromGiantDoc && data.playDatabase && Array.isArray(data.playDatabase)) {
-      if (Date.now() - lastLocalEditTimeRef.current < 15000 && (activeUnitRef.current === 'call_sheet' || activeUnitRef.current === 'wristband' || activeUnitRef.current === 'playbook')) {
-        // Preserving local play database changes during active session
-      } else {
-        setPlayDatabase(data.playDatabase);
-        latestStateRef.current.playDatabase = data.playDatabase;
-        safeJSONSet('footballPlayDatabase', data.playDatabase);
+      // Merge play by play, so plays another coach added and this coach's own edits both stay.
+      const deletedAll = mergeDeletedPlayIds(latestStateRef.current.deletedPlayIds, Array.isArray(data.deletedPlayIds) ? data.deletedPlayIds : []);
+      const mergedDb = mergePlayBanks(latestStateRef.current.playDatabase, data.playDatabase, deletedAll);
+      if (mergedDb !== latestStateRef.current.playDatabase) {
+        setPlayDatabase(mergedDb);
+        latestStateRef.current.playDatabase = mergedDb;
+        safeJSONSet('footballPlayDatabase', mergedDb);
       }
     }
     // One call sheet per team and week, newest save wins: adopt another coach's sheet
@@ -2739,15 +2742,20 @@ export default function App() {
         latestStateRef.current.masterPlayLibrary = remote.masterPlayLibrary;
         safeJSONSet('footballMasterPlays', remote.masterPlayLibrary);
       }
-      if (Array.isArray(remote.playDatabase) && !(Date.now() - lastLocalEditTimeRef.current < 20000 && (activeUnitRef.current === 'call_sheet' || activeUnitRef.current === 'wristband' || activeUnitRef.current === 'playbook'))) {
-        setPlayDatabase(remote.playDatabase);
-        latestStateRef.current.playDatabase = remote.playDatabase;
-        safeJSONSet('footballPlayDatabase', remote.playDatabase);
+      // Merge play by play: plays another coach added and this coach's own edits both stay.
+      const deletedAll = mergeDeletedPlayIds(latestStateRef.current.deletedPlayIds, remote.deletedPlayIds);
+      if (deletedAll.length !== (latestStateRef.current.deletedPlayIds || []).length) {
+        setDeletedPlayIds(deletedAll);
+        latestStateRef.current.deletedPlayIds = deletedAll;
+        safeJSONSet('footballDeletedPlayIds', deletedAll);
       }
-      if (Array.isArray(remote.deletedPlayIds)) {
-        setDeletedPlayIds(remote.deletedPlayIds);
-        latestStateRef.current.deletedPlayIds = remote.deletedPlayIds;
-        safeJSONSet('footballDeletedPlayIds', remote.deletedPlayIds);
+      if (Array.isArray(remote.playDatabase)) {
+        const mergedDb = mergePlayBanks(latestStateRef.current.playDatabase, remote.playDatabase, deletedAll);
+        if (mergedDb !== latestStateRef.current.playDatabase) {
+          setPlayDatabase(mergedDb);
+          latestStateRef.current.playDatabase = mergedDb;
+          safeJSONSet('footballPlayDatabase', mergedDb);
+        }
       }
     }
     if (take('guides', remote.guidesUpdatedAt)) {
@@ -3735,11 +3743,21 @@ export default function App() {
   };
 
   // Play Bank (call sheets, wristbands, play tags) - one place that saves it.
-  const handleUpdatePlayDatabase = (newDb: PlayDatabaseEntry[]) => {
+  const handleUpdatePlayDatabase = (edited: PlayDatabaseEntry[]) => {
     lastLocalEditTimeRef.current = Date.now();
+    // Stamp what this coach changed, so it wins over older copies when Play Banks merge.
+    const newDb = stampPlayEdits(latestStateRef.current.playDatabase || [], edited);
     setPlayDatabase(newDb);
     latestStateRef.current.playDatabase = newDb;
     safeJSONSet('footballPlayDatabase', newDb);
+    debouncedSave('plays');
+  };
+
+  const handleUpdateDeletedPlayIds = (ids: string[]) => {
+    lastLocalEditTimeRef.current = Date.now();
+    setDeletedPlayIds(ids);
+    latestStateRef.current.deletedPlayIds = ids;
+    safeJSONSet('footballDeletedPlayIds', ids);
     debouncedSave('plays');
   };
 
@@ -6092,12 +6110,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 playDatabase={playDatabase}
                 onUpdatePlayDatabase={handleUpdatePlayDatabase}
                 deletedPlayIds={deletedPlayIds}
-                onUpdateDeletedPlayIds={(ids) => {
-                  setDeletedPlayIds(ids);
-                  latestStateRef.current.deletedPlayIds = ids;
-                  safeJSONSet('footballDeletedPlayIds', ids);
-                  debouncedSave('plays');
-                }}
+                onUpdateDeletedPlayIds={handleUpdateDeletedPlayIds}
                 ownTeamScout={ownTeamHudlScout[activeTeamId] || ownTeamHudlScout.team_10u}
                 teamName={currentActiveTeam?.name || 'Mahopac 10U'}
                 userRole={userRole}
@@ -6286,19 +6299,11 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 }}
                 currentWeek={currentWeek}
                 playDatabase={playDatabase}
-                onUpdatePlayDatabase={(newDb) => {
-                  setPlayDatabase(newDb);
-                  latestStateRef.current.playDatabase = newDb;
-                  safeJSONSet('footballPlayDatabase', newDb);
-                  debouncedSave('plays');
-                }}
+                onUpdatePlayDatabase={handleUpdatePlayDatabase}
                 callSheetData={callSheetData}
                 onUpdateCallSheetData={handleUpdateCallSheetData}
                 deletedPlayIds={deletedPlayIds}
-                onUpdateDeletedPlayIds={(newIds) => {
-                  setDeletedPlayIds(newIds);
-                  safeJSONSet('footballDeletedPlayIds', newIds);
-                }}
+                onUpdateDeletedPlayIds={handleUpdateDeletedPlayIds}
                 wristbandData={effectiveWristbandData}
                 onUpdateWristbandData={handleUpdateWristbandData}
                 previousWeekLabel={previousWeekCopyLabel}
@@ -6338,12 +6343,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 callSheetData={callSheetData}
                 activeTeamName={currentActiveTeam?.name || 'Mahopac 10U'}
                 onUpdateCallSheetData={handleUpdateCallSheetData}
-                onUpdatePlayDatabase={(newDb) => {
-                  setPlayDatabase(newDb);
-                  latestStateRef.current.playDatabase = newDb;
-                  safeJSONSet('footballPlayDatabase', newDb);
-                  debouncedSave('plays');
-                }}
+                onUpdatePlayDatabase={handleUpdatePlayDatabase}
                 onUpdateWristbandData={handleUpdateWristbandData}
                 previousWeekLabel={previousWeekCopyLabel}
                 onCopyWristbandFromPreviousWeek={handleCopyWristbandFromPreviousWeek}
@@ -6363,21 +6363,11 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   debouncedSave('plays');
                 }}
                 playDatabase={playDatabase}
-                onUpdatePlayDatabase={(newDb) => {
-                  setPlayDatabase(newDb);
-                  latestStateRef.current.playDatabase = newDb;
-                  safeJSONSet('footballPlayDatabase', newDb);
-                  debouncedSave('plays');
-                }}
+                onUpdatePlayDatabase={handleUpdatePlayDatabase}
                 callSheetData={callSheetData}
                 onUpdateCallSheetData={handleUpdateCallSheetData}
                 deletedPlayIds={deletedPlayIds}
-                onUpdateDeletedPlayIds={(newDeleted) => {
-                  setDeletedPlayIds(newDeleted);
-                  latestStateRef.current.deletedPlayIds = newDeleted;
-                  safeJSONSet('footballDeletedPlayIds', newDeleted);
-                  debouncedSave('plays');
-                }}
+                onUpdateDeletedPlayIds={handleUpdateDeletedPlayIds}
                 wristbandData={effectiveWristbandData}
                 previousWeekLabel={previousWeekCopyLabel}
                 onCopyCallSheetFromPreviousWeek={handleCopyCallSheetFromPreviousWeek}

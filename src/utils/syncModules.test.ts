@@ -2975,3 +2975,32 @@ describe('uploading the playbook again', () => {
     assert.equal(diagramsDiffer(h, 'f'.repeat(30) + '0'.repeat(210)), true);
   });
 });
+
+describe('Play Bank shared by coaches', () => {
+  const play = (id: string, extra: any = {}) => ({ id, name: id.toUpperCase(), unit: 'offense', formation: '', type: 'run', situations: [], ...extra });
+  it('plays another coach added are kept, and so are this coach\'s own', async () => {
+    const { mergePlayBanks } = await import('./playBankMerge.ts');
+    const mine = [play('a'), play('b'), play('mine_new', { editedAt: 50 })] as any[];
+    const theirs = [play('a'), play('b'), play('their_new', { editedAt: 60 })] as any[];
+    const merged = mergePlayBanks(mine, theirs, []);
+    assert.deepEqual(merged.map((p: any) => p.id), ['a', 'b', 'their_new', 'mine_new']);
+  });
+  it('the later edit of the same play wins; deleted plays stay deleted', async () => {
+    const { mergePlayBanks, mergeDeletedPlayIds, stampPlayEdits } = await import('./playBankMerge.ts');
+    const before = [play('a'), play('b')] as any[];
+    const mine = stampPlayEdits(before, [play('a', { notes: 'mine' }), play('b')], 100);
+    assert.equal(mine[0].editedAt, 100);
+    assert.equal(mine[1].editedAt, undefined);
+    const theirs = [play('a', { notes: 'theirs', editedAt: 90 }), play('b', { notes: 'theirs', editedAt: 120 })] as any[];
+    const merged = mergePlayBanks(mine, theirs, []);
+    assert.equal(merged.find((p: any) => p.id === 'a').notes, 'mine');
+    assert.equal(merged.find((p: any) => p.id === 'b').notes, 'theirs');
+    const gone = mergeDeletedPlayIds(['b'], ['c']);
+    assert.deepEqual(mergePlayBanks(mine, [...theirs, play('c')] as any[], gone).map((p: any) => p.id), ['a']);
+  });
+  it('nothing new: keeps the same list', async () => {
+    const { mergePlayBanks } = await import('./playBankMerge.ts');
+    const mine = [play('a'), play('b')] as any[];
+    assert.equal(mergePlayBanks(mine, [play('a'), play('b')] as any[], []), mine);
+  });
+});

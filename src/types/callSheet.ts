@@ -153,6 +153,8 @@ export interface PlayDatabaseEntry {
   diagramUrl?: string;
   /** Fingerprint of that picture, to spot a changed diagram when the install is uploaded again. */
   diagramHash?: string;
+  /** When a coach last changed this play (decides which copy wins when two coaches' Play Banks merge). */
+  editedAt?: number;
 }
 
 export interface PlayAssignment {
