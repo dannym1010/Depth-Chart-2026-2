@@ -348,7 +348,6 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
   defaultScreen,
   onSetDefaultScreen,
   onNavigateToUnit,
-  renderDepthCard,
   onQuickAttendanceSave,
   attendanceLogs = [],
   onSelectPractice,
@@ -379,8 +378,8 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
   onOpenWhiteboardDrill,
   whiteboardDrills,
 }) => {
-  // Mobile Hub active tab: 'starters' | 'roster' | 'attendance'
-  const [hubTab, setHubTab] = useState<'starters' | 'roster' | 'attendance'>('starters');
+  // Mobile Hub active tab: 'roster' | 'attendance'
+  const [hubTab, setHubTab] = useState<'roster' | 'attendance'>('roster');
 
   // Drill Instructions & Whiteboard preview modal state
   const [instructionsModalDrill, setInstructionsModalDrill] = useState<{
@@ -1494,11 +1493,11 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
             <div className="space-y-2 pt-2 border-t border-slate-800/80">
               <button
                 type="button"
-                onClick={() => onNavigateToUnit('game_day')}
+                onClick={() => onNavigateToUnit('call_sheet')}
                 className="w-full py-3 sm:py-3.5 font-black text-xs sm:text-sm rounded-2xl shadow-xl flex items-center justify-center gap-2 active:scale-98 transition-all cursor-pointer border border-indigo-500 bg-indigo-600 hover:bg-indigo-500 text-white"
               >
                 <Trophy className="w-4 h-4" />
-                <span>Launch Game Day Sideline Hub</span>
+                <span>Open Call Sheet</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
 
@@ -1667,23 +1666,11 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
       </div>
 
       {/* =========================================================================
-          4. SEGMENTED COACH COMMAND HUB (Tabs: Starters | Roster | Attendance)
+          4. SEGMENTED COACH COMMAND HUB (Tabs: Roster | Attendance)
           ========================================================================= */}
       <div className="bg-white dark:bg-slate-850 rounded-3xl border border-slate-200 dark:border-slate-700/80 p-3.5 shadow-xs dark:shadow-xl space-y-3">
         {/* Segmented Tab Bar */}
-        <div className="grid grid-cols-3 gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-2xl border border-slate-200 dark:border-slate-800">
-          <button
-            type="button"
-            onClick={() => setHubTab('starters')}
-            className={`py-2 px-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-              hubTab === 'starters'
-                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-800/60'
-            }`}
-          >
-            <Zap className="w-3.5 h-3.5" />
-            <span>Starters</span>
-          </button>
+        <div className="grid grid-cols-2 gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-2xl border border-slate-200 dark:border-slate-800">
           <button
             type="button"
             onClick={() => setHubTab('roster')}
@@ -1709,42 +1696,6 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
             <span>Attendance</span>
           </button>
         </div>
-
-        {/* TAB CONTENT 1: STARTERS - the same Pocket Depth Card as the Depth screen (view only here) */}
-        {hubTab === 'starters' && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
-                {([
-                  ['offense', 'Offense'],
-                  ['defense', 'Defense'],
-                  ['st', 'Special Teams'],
-                ] as const).map(([u, label]) => (
-                  <button
-                    key={u}
-                    type="button"
-                    onClick={() => setStarterUnit(u)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
-                      starterUnit === u
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={() => onNavigateToUnit(starterUnit)}
-                className="text-xs font-bold text-indigo-600 dark:text-indigo-300 hover:underline cursor-pointer whitespace-nowrap"
-              >
-                Edit on Depth screen
-              </button>
-            </div>
-            {renderDepthCard ? renderDepthCard(starterUnit) : null}
-          </div>
-        )}
 
         {/* TAB CONTENT 2: ROSTER DIRECTORY */}
         {hubTab === 'roster' && (
