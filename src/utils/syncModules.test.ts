@@ -2646,3 +2646,79 @@ describe('players on the ball from Hudl', () => {
     assert.equal(next.plays[1].passer, '#21 Nash Ward');
   });
 });
+
+describe('who is on the field in our film', () => {
+  const formations = [
+    {
+      id: 'f21',
+      unit: 'offense',
+      name: '21 Offense',
+      rows: [{ id: 'r', label: '', slotCount: 2, positions: [{ id: 's_qb', name: '1 (QB)' }, { id: 's_rb', name: '3 (HB)' }] }],
+    },
+  ] as any[];
+  const depthChart = { s_qb: [{ num: '21', name: 'Nash' }, { num: '7', name: 'Backup' }], s_rb: [{ num: '13', name: 'Landon' }, { num: '22', name: 'Jaxson' }] };
+  const roster = [
+    { id: 'p21', num: '21', firstName: 'Nash', lastName: 'Ward' },
+    { id: 'p13', num: '13', firstName: 'Landon', lastName: 'Veto' },
+    { id: 'p22', num: '22', firstName: 'Jaxson', lastName: 'Pestone' },
+    { id: 'p7', num: '7', firstName: 'Sam', lastName: 'Q' },
+  ] as any[];
+
+  it('fills the unit down the drive, but not over plays a coach set differently', async () => {
+    const { tagPlayUnits } = await import('../hudlScout/utils/unitStats.ts');
+    const base = { odk: 'O', gameId: 'g', series: 1 };
+    const plays = [
+      { ...base, id: 'a', playNumber: 1 },
+      { ...base, id: 'b', playNumber: 2 },
+      { ...base, id: 'c', playNumber: 3, unit: 'blue' },
+      { ...base, id: 'd', playNumber: 4 },
+      { ...base, id: 'e', playNumber: 5, series: 2 },
+    ] as any[];
+    let next = tagPlayUnits(plays, 'a', 'gold', 'fill_series');
+    assert.deepEqual(next.map((p) => p.unit), ['gold', 'gold', 'blue', 'gold', undefined]);
+    // Change play 2: it and the plays that followed gold change, the blue one stays.
+    next = tagPlayUnits(next, 'b', 'black', 'fill_series');
+    assert.deepEqual(next.map((p) => p.unit), ['gold', 'black', 'blue', 'black', undefined]);
+  });
+
+  it('builds the lineup from the week depth chart and applies subs for one play', async () => {
+    const { filmLineup, setPlaySub } = await import('./filmLineup.ts');
+    const play = { id: 'x', odk: 'O', unit: 'gold', formation: '-', playNumber: 1 } as any;
+    const lu = filmLineup(play, { formations, depthChart }, roster)!;
+    assert.equal(lu.board?.id, 'f21');
+    assert.deepEqual(lu.slots.map((s) => s.player?.num), ['7', '22']);
+    const [withSub] = setPlaySub([play], 'x', 'RB', { num: '13', name: 'Landon Veto' });
+    const lu2 = filmLineup(withSub, { formations, depthChart }, roster)!;
+    assert.equal(lu2.slots[1].player?.num, '13');
+    assert.equal(lu2.slots[1].subbed, true);
+    const [undone] = setPlaySub([withSub], 'x', 'RB', undefined);
+    assert.equal(filmLineup(undone, { formations, depthChart }, roster)!.slots[1].player?.num, '22');
+  });
+
+  it('counts snaps, touches and success per player', async () => {
+    const { filmLineup } = await import('./filmLineup.ts');
+    const { playerFilmStats } = await import('./playerFilmStats.ts');
+    const p = (over: any) => ({ odk: 'O', formation: '-', playType: 'RUN', result: 'Rush', gainLoss: 0, isEfficient: false, ...over });
+    const plays = [
+      p({ id: '1', playNumber: 1, rusher: '#13 Landon Veto', gainLoss: 6, isEfficient: true }),
+      p({ id: '2', playNumber: 2, rusher: '#13 Landon Veto', gainLoss: 12, isEfficient: true, result: 'Rush, TD' }),
+      p({ id: '3', playNumber: 3, unit: 'gold', rusher: '#22 Jaxson Pestone', gainLoss: -2 }),
+      p({ id: '4', playNumber: 4, result: 'Penalty', playType: 'PENALTY' }),
+    ] as any[];
+    const res = playerFilmStats(plays, (pl) => filmLineup(pl, { formations, depthChart }, roster), roster);
+    assert.equal(res.offSnaps, 3);
+    const landon = res.players.find((x) => x.num === '13')!;
+    assert.equal(landon.offSnaps, 2);
+    assert.equal(landon.carries, 2);
+    assert.equal(landon.rushYds, 18);
+    assert.equal(landon.touchSuccess, 100);
+    assert.equal(landon.touchdowns, 1);
+    assert.equal(landon.onFieldSuccess, 100);
+    const nash = res.players.find((x) => x.num === '21')!;
+    assert.equal(nash.offSnaps, 2);
+    assert.equal(nash.name, 'Nash Ward');
+    const jax = res.players.find((x) => x.num === '22')!;
+    assert.equal(jax.offSnaps, 1);
+    assert.equal(jax.onFieldSuccess, 0);
+  });
+});

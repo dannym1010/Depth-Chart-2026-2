@@ -3682,6 +3682,12 @@ export default function App() {
   );
   const gradeWeekKey = getPreviousWeekKey(currentWeek, seasonWeekOptions.map((w) => w.key));
 
+  // A week's depth chart and formations for the selected team (who was on the field in our film).
+  const weekBoardsFor = (week: string) => {
+    const ws = resolveWeekState(weeklyData, activeTeamId, week);
+    return { depthChart: ws.depthChart || {}, formations: ws.formations || currentFormations };
+  };
+
   // Play Bank (call sheets, wristbands, play tags) - one place that saves it.
   const handleUpdatePlayDatabase = (newDb: PlayDatabaseEntry[]) => {
     lastLocalEditTimeRef.current = Date.now();
@@ -6234,6 +6240,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onUpdateOwnTeamScout={persistOwnTeamHudlScout}
                 weekOptions={seasonWeekOptions}
                 defaultGameWeek={gradeWeekKey}
+                weekBoards={weekBoardsFor}
                 staffList={staffList}
                 savedCoaches={savedCoaches}
                 scheduleEvents={activeTeamScheduleEvents}
@@ -6329,6 +6336,8 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onUpdatePlayDatabase={handleUpdatePlayDatabase}
                 weekOptions={seasonWeekOptions}
                 defaultGameWeek={gradeWeekKey}
+                roster={activeTeamRoster}
+                weekBoards={weekBoardsFor}
               />
             )}
 

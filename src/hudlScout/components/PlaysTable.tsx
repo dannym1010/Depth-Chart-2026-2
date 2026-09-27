@@ -5,18 +5,25 @@ import { isRecordedMotion } from '../utils/csvParser';
 import { callUsage, isNumberFormation, isTaggablePlay, restOfSeriesIds, tidyFormation } from '../utils/playTags';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { CallButton, FormationEditor, TagPlaysPanel } from '../../components/playbook/CallPicker';
-import { Search, ChevronDown, ChevronUp, Zap, Flame, CheckCircle2, ListChecks } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, ChevronRight, Zap, Flame, CheckCircle2, ListChecks, Users } from 'lucide-react';
+import type { FilmPlayerRef, RosterPlayer } from '../../types';
+import type { FilmLineup } from '../../utils/filmLineup';
+import { LineupEditor } from '../../components/playbook/LineupEditor';
 
 interface PlaysTableProps {
   plays: Play[];
   /** Our-team log only: tag which unit (Black / Blue / Gold) was on the field. */
-  onSetUnit?: (playId: string, unit: TeamUnit | undefined, scope: 'play' | 'rest_of_series') => void;
+  onSetUnit?: (playId: string, unit: TeamUnit | undefined, scope: 'play' | 'rest_of_series' | 'fill_series') => void;
   /** Tag each play with the Play Bank play that was run. */
   playDatabase?: PlayDatabaseEntry[];
   onTagPlays?: (ids: string[], entry: PlayDatabaseEntry | null) => void;
   onCreateCall?: (name: string, unit: 'offense' | 'defense') => PlayDatabaseEntry;
   /** Edit the formation ("21", "21 R", "32 WB"); tagging then only offers plays from it. */
   onSetFormation?: (ids: string[], formation: string) => void;
+  /** Our film: who was on the field for a play, and subs for just that play. */
+  lineupFor?: (play: Play) => { lineup: FilmLineup | null; weekLabel?: string };
+  roster?: RosterPlayer[];
+  onSetSub?: (playId: string, slotId: string, ref: FilmPlayerRef | null | undefined) => void;
 }
 
 const UNIT_SHORT: Record<TeamUnit, string> = { black: 'Blk', blue: 'Blu', gold: 'Gld' };
@@ -35,8 +42,8 @@ const UnitPicker: React.FC<{
           <button
             key={u.id}
             type="button"
-            onClick={() => onSetUnit(play.id, on ? undefined : u.id, 'play')}
-            title={on ? `Clear ${u.label}` : `${u.label} was on the field`}
+            onClick={() => onSetUnit(play.id, on ? undefined : u.id, 'fill_series')}
+            title={on ? `Clear ${u.label} (and the rest of the drive that followed it)` : `${u.label} was on the field (fills the rest of this drive)`}
             aria-label={`${u.label} unit`}
             aria-pressed={on}
             className={`px-1.5 h-6 rounded-md text-[10px] font-black border transition-all cursor-pointer ${
@@ -62,7 +69,15 @@ const UnitPicker: React.FC<{
   );
 };
 
-export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation }) => {
+export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub }) => {
+  const [openPlay, setOpenPlay] = useState<string | null>(null);
+  const canLineup = Boolean(lineupFor && roster && onSetSub);
+  const lineupPanel = (play: Play) => {
+    const { lineup, weekLabel } = lineupFor!(play);
+    return (
+      <LineupEditor lineup={lineup} unit={play.unit} weekLabel={weekLabel} roster={roster!} canEdit onSetSub={(slotId, ref) => onSetSub!(play.id, slotId, ref)} />
+    );
+  };
   const [untaggedOnly, setUntaggedOnly] = useState(false);
   const [tagging, setTagging] = useState<{ startId?: string } | null>(null);
   const canTagCalls = Boolean(onTagPlays && playDatabase);
@@ -234,6 +249,20 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   {onSetUnit && playIsUnitTaggable(play) && <UnitPicker play={play} onSetUnit={onSetUnit} />}
                 </div>
               )}
+              {canLineup && playIsUnitTaggable(play) && (
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setOpenPlay((id) => (id === play.id ? null : play.id))}
+                    aria-expanded={openPlay === play.id}
+                    className="h-8 px-2.5 rounded-md border border-slate-700 text-[11px] font-black text-slate-200 inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Users className="w-3.5 h-3.5" /> Lineup{play.subs && Object.keys(play.subs).length ? ` · ${Object.keys(play.subs).length} sub` : ''}
+                    {openPlay === play.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
+                  {openPlay === play.id && <div className="mt-2">{lineupPanel(play)}</div>}
+                </div>
+              )}
             </div>
           );
         })}
@@ -301,9 +330,28 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               const isGain = play.gainLoss > 0;
               const isLoss = play.gainLoss < 0;
 
+              const isOpen = openPlay === play.id;
+              const subCount = play.subs ? Object.keys(play.subs).length : 0;
               return (
-                <tr key={play.id} className="hover:bg-slate-800/30 transition-colors">
-                  <td className="py-2.5 px-3 font-mono font-bold text-slate-400">{play.playNumber}</td>
+                <React.Fragment key={play.id}>
+                <tr className={`hover:bg-slate-800/30 transition-colors ${isOpen ? 'bg-slate-800/40' : ''}`}>
+                  <td className="py-2.5 px-3 font-mono font-bold text-slate-400">
+                    {canLineup && playIsUnitTaggable(play) ? (
+                      <button
+                        type="button"
+                        onClick={() => setOpenPlay((id) => (id === play.id ? null : play.id))}
+                        aria-expanded={isOpen}
+                        title="Who was on the field (subs for this play)"
+                        className="inline-flex items-center gap-1 cursor-pointer hover:text-white"
+                      >
+                        {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                        {play.playNumber}
+                        {subCount > 0 && <span className="ml-0.5 px-1 rounded bg-amber-500 text-slate-950 text-[9px] font-black">SUB</span>}
+                      </button>
+                    ) : (
+                      play.playNumber
+                    )}
+                  </td>
                   <td className="py-2.5 px-2 text-center font-mono font-bold">
                     <span
                       className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold ${
@@ -414,6 +462,14 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     </div>
                   </td>
                 </tr>
+                {isOpen && (
+                  <tr className="bg-slate-950/60">
+                    <td colSpan={99} className="px-4 py-3">
+                      {lineupPanel(play)}
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               );
             })}
           </tbody>
@@ -451,7 +507,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
           db={playDatabase!}
           onTag={onTagPlays!}
           onCreate={onCreateCall}
-          onSetUnit={onSetUnit ? (id, unit) => onSetUnit(id, unit, 'play') : undefined}
+          onSetUnit={onSetUnit ? (id, unit) => onSetUnit(id, unit, 'fill_series') : undefined}
           onSetFormation={onSetFormation}
           startId={tagging.startId}
           title={onSetUnit ? 'Tag our plays' : 'Tag their plays'}

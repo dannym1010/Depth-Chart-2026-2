@@ -49,6 +49,7 @@ import { callUsage, isNumberFormation, setPlaysFormation, tagPlays } from '../hu
 import { autoDetectColumnMapping, isSpreadsheetFilename, normalizeHudlRow, parseCsvRows, workbookBufferToCsv } from '../hudlScout/utils/csvParser';
 import { formationForCall, lineupFromFormation, moveFilmIntoSharedLog, scoutPlayToFilmPlay } from '../utils/pffFilm';
 import { newPlayEntry } from '../utils/playbookImport';
+import { setPlaySub } from '../utils/filmLineup';
 import { CallButton, FormationEditor, TagPlaysPanel } from './playbook/CallPicker';
 
 /** Our film is one play log: the self-scout upload for a week is what PFF grades for that week. */
@@ -257,7 +258,8 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
   const lineup: { slot: FilmSlotDef; player: FilmPlayerRef | null }[] = useMemo(() => {
     if (!activePlay || !assignment) return [];
     if (callBoard && side !== 'special') {
-      const overrides = remapDeSlotLineup(assignment.slotOverrides || {});
+      // Subs set in the shared play log win over older PFF-only changes.
+      const overrides = remapDeSlotLineup({ ...(assignment.slotOverrides || {}), ...(activeScoutPlay?.subs || {}) });
       return lineupFromFormation(callBoard, priorDepthChart, roster, activeColor, side).map(({ slot, player }) => ({
         slot,
         player: Object.prototype.hasOwnProperty.call(overrides, slot.id) ? overrides[slot.id] : player,
@@ -265,10 +267,13 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
     }
     const withColor: FilmSession = {
       ...effectiveSession,
-      assignments: { ...effectiveSession.assignments, [activePlay.id]: { ...assignment, color: activeColor } },
+      assignments: {
+        ...effectiveSession.assignments,
+        [activePlay.id]: { ...assignment, color: activeColor, slotOverrides: { ...(assignment.slotOverrides || {}), ...(activeScoutPlay?.subs || {}) } },
+      },
     };
     return resolvePlayLineup(withColor, activePlay);
-  }, [activePlay, assignment, callBoard, side, priorDepthChart, roster, activeColor, effectiveSession]);
+  }, [activePlay, activeScoutPlay, assignment, callBoard, side, priorDepthChart, roster, activeColor, effectiveSession]);
 
   const lineupSource = !activePlay
     ? ''
@@ -296,7 +301,7 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
     });
   };
 
-  const setUnitColor = (play: HudlImportedPlay, color: FilmUnitColor, scope: 'play' | 'rest_of_series' = 'play') => {
+  const setUnitColor = (play: HudlImportedPlay, color: FilmUnitColor, scope: 'play' | 'rest_of_series' | 'fill_series' = 'fill_series') => {
     patchAssignment(play, { color });
     if (scoutById.has(play.id)) {
       updateBundle((b) => ({ ...b, plays: tagPlayUnits(b.plays, play.id, color, scope), updatedAt: Date.now() }));
@@ -895,6 +900,14 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
                                 value={player?.num || ''}
                                 onChange={(e) => {
                                   const nextPlayer = roster.find((row) => String(row.num) === e.target.value);
+                                  if (activeScoutPlay) {
+                                    // Shared play log: the sub is on the play, so Scouting shows it too.
+                                    const ref = nextPlayer
+                                      ? { num: String(nextPlayer.num), id: nextPlayer.id, name: `${nextPlayer.firstName} ${nextPlayer.lastName}`.trim() }
+                                      : null;
+                                    updateBundle((b) => ({ ...b, plays: setPlaySub(b.plays, activePlay.id, slot.id, ref), updatedAt: Date.now() }));
+                                    return;
+                                  }
                                   patchAssignment(activePlay, {
                                     slotOverrides: {
                                       ...assignment.slotOverrides,

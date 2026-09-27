@@ -24,6 +24,9 @@ import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { setPlaysFormation, tagPlays } from '../../hudlScout/utils/playTags';
 import { newPlayEntry } from '../../utils/playbookImport';
 import { CallResultsCard } from '../playbook/CallResultsCard';
+import { OwnTeamReport } from '../playbook/OwnTeamReport';
+import type { FilmPlayerRef, RosterPlayer } from '../../types';
+import { WeekBoards, filmLineup, setPlaySub } from '../../utils/filmLineup';
 import { pickScoutBundle, scoutFingerprint } from '../../utils/remoteStateMerge';
 import {
   ScoutBundle,
@@ -58,6 +61,9 @@ export interface HudlScoutViewProps {
   weekOptions?: { key: string; label: string }[];
   /** Week our most recent game was played (default for a new upload of our film). */
   defaultGameWeek?: string;
+  /** Our film: roster and each week's depth chart, for who was on the field. */
+  roster?: RosterPlayer[];
+  weekBoards?: (week: string) => WeekBoards;
 }
 
 export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
@@ -73,6 +79,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   onUpdatePlayDatabase,
   weekOptions,
   defaultGameWeek,
+  roster,
+  weekBoards,
 }) => {
   const saved = scouting.hudlScout;
   const weekLabel = (() => {
@@ -115,7 +123,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
 
   // Our-team play log: tag which unit (Black / Blue / Gold) was on the field.
   // Bumping updatedAt makes the newest-bundle sync keep the tag.
-  const handleSetUnit = (playId: string, unit: TeamUnit | undefined, scope: 'play' | 'rest_of_series') => {
+  const handleSetUnit = (playId: string, unit: TeamUnit | undefined, scope: 'play' | 'rest_of_series' | 'fill_series') => {
     setOwnBundle((prev) => ({ ...prev, plays: tagPlayUnits(prev.plays, playId, unit, scope), updatedAt: Date.now() }));
   };
 
@@ -132,6 +140,18 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   };
   const handleSetFormation = (ids: string[], formation: string) => {
     setBundle((prev) => ({ ...prev, plays: setPlaysFormation(prev.plays, ids, formation), updatedAt: Date.now() }));
+  };
+  // Who was on the field for one of our plays: that game's week, depth chart and any subs.
+  const lineupFor = (play: Play) => {
+    const game = ownBundle.games.find((g) => g.id === play.gameId) || (!play.gameId ? ownBundle.games[0] : undefined);
+    const week = game?.week || '';
+    const weekLabel = weekOptions?.find((w) => w.key === week)?.label;
+    if (!week || !weekBoards) return { lineup: filmLineup(play, undefined, roster || []), weekLabel: game?.name };
+    return { lineup: filmLineup(play, weekBoards(week), roster || []), weekLabel };
+  };
+  const lineupOnly = React.useCallback((play: Play) => lineupFor(play).lineup, [ownBundle.games, weekBoards, roster, weekOptions]);
+  const handleSetSub = (playId: string, slotId: string, ref: FilmPlayerRef | null | undefined) => {
+    setOwnBundle((prev) => ({ ...prev, plays: setPlaySub(prev.plays, playId, slotId, ref), updatedAt: Date.now() }));
   };
   const handleSetGameWeek = (gameId: string, week: string) => {
     setOwnBundle((prev) => ({
@@ -502,6 +522,9 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                 {activeTab === 'run' && <RunGameTab analysis={analysis} plays={filteredPlays} voice={voice} />}
               </>
             )}
+            {activeTab === 'players' && scoutTarget === 'own' && weekBoards && (
+              <OwnTeamReport plays={plays} lineupFor={lineupOnly} roster={roster || []} />
+            )}
             {activeTab === 'players' && <PlayersTab analysis={analysis} plays={filteredPlays} allPlays={plays} voice={voice} />}
             {activeTab === 'gameplan' && (
               <GamePlanTab
@@ -525,6 +548,9 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                   onTagPlays={onUpdatePlayDatabase ? handleTagPlays : undefined}
                   onCreateCall={onUpdatePlayDatabase ? handleCreateCall : undefined}
                   onSetFormation={handleSetFormation}
+                  lineupFor={scoutTarget === 'own' && weekBoards ? lineupFor : undefined}
+                  roster={roster}
+                  onSetSub={scoutTarget === 'own' ? handleSetSub : undefined}
                 />
               </>
             )}

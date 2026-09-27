@@ -125,14 +125,23 @@ export function tagPlayUnits(
   plays: Play[],
   playId: string,
   unit: TeamUnit | undefined,
-  scope: 'play' | 'rest_of_series'
+  scope: 'play' | 'rest_of_series' | 'fill_series'
 ): Play[] {
   const target = plays.find((p) => p.id === playId);
   if (!target) return plays;
   const side = isTaggableSide(target);
   if (!side) return plays;
+  const before = target.unit;
   return plays.map((p) => {
     if (p.id === playId) return { ...p, unit };
+    const laterInDrive =
+      isTaggableSide(p) === side &&
+      p.gameId === target.gameId &&
+      p.series != null &&
+      p.series === target.series &&
+      p.playNumber > target.playNumber;
+    // fill_series: the rest of the drive follows, except plays a coach already set to something else.
+    if (scope === 'fill_series' && laterInDrive && (!p.unit || p.unit === before)) return { ...p, unit };
     if (
       scope === 'rest_of_series' &&
       isTaggableSide(p) === side &&
@@ -145,4 +154,16 @@ export function tagPlayUnits(
     }
     return p;
   });
+}
+
+/** Whole-team numbers for offense and defense (all units together). */
+export function computeSideTotals(plays: Play[]): Record<UnitSide, UnitStatLine> {
+  const out = { offense: emptyLine(), defense: emptyLine() };
+  for (const p of plays) {
+    const side = isTaggableSide(p);
+    if (side) addPlay(out[side], p);
+  }
+  finish(out.offense);
+  finish(out.defense);
+  return out;
 }

@@ -55,6 +55,8 @@ export interface Play {
   /** playName / formation from the file, put back when the tag is removed. */
   untaggedName?: string;
   untaggedFormation?: string;
+  /** Subs for just this play: slot id -> player (null = nobody). Missing slots follow the depth chart. */
+  subs?: Record<string, { num: string; id?: string; name?: string } | null>;
   /** Hudl PLAY TYPE text as uploaded ("KO", "Punt", "KO Rec"), for telling kicks apart. */
   rawPlayType?: string;
 }
