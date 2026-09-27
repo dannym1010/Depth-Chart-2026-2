@@ -2228,6 +2228,28 @@ describe('drill whiteboards draw cleanly', () => {
     assert.ok(steps > 150);
   });
 
+  it('the phone frame draws bigger but never pulls separate players into each other', async () => {
+    const { WHITEBOARD_DRILLS } = await import('../components/whiteboard/whiteboardDrillData.ts');
+    const { boardFrame, tokenKind } = await import('../components/whiteboard/DrillBoardSvg.tsx');
+    let bigger = 0;
+    for (const drill of WHITEBOARD_DRILLS) {
+      const wide = boardFrame(drill.phases);
+      const phone = boardFrame(drill.phases, { compact: true });
+      assert.ok(phone.viewBox.w <= wide.viewBox.w + 1, `${drill.id} phone frame is wider`);
+      if (phone.viewBox.w < wide.viewBox.w * 0.85) bigger++;
+      drill.phases.forEach((p, i) => {
+        const ts = (p.tokens || []).filter((t) => tokenKind(t) !== 'text');
+        for (let a = 0; a < ts.length; a++) {
+          for (let b = a + 1; b < ts.length; b++) {
+            const d = Math.hypot(ts[a].x - ts[b].x, ts[a].y - ts[b].y);
+            if (d * wide.scale >= 62) assert.ok(d * phone.scale >= 61.9, `${drill.id} step ${i + 1}: ${ts[a].label} and ${ts[b].label} crowd on a phone`);
+          }
+        }
+      });
+    }
+    assert.ok(bigger > 50, `only ${bigger} drills got bigger on a phone`);
+  });
+
   it('classifies players, bags, cones and ball carriers', async () => {
     const { tokenKind } = await import('../components/whiteboard/DrillBoardSvg.tsx');
     assert.equal(tokenKind({ id: 'a', type: 'X', label: 'MLB', x: 0, y: 0 }), 'defense');

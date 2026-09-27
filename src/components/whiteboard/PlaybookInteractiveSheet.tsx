@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { WhiteboardDrill } from './whiteboardDrillData';
 import { WhiteboardCanvas } from './WhiteboardCanvas';
-import { TriangleDrillWhiteboard } from './TriangleDrillWhiteboard';
+import { GenericAnimatedWhiteboard } from './GenericAnimatedWhiteboard';
 import { printDrillSheet } from './drillPrintHelper';
 import { WhiteboardToken, WhiteboardArrow, WhiteboardZoneBubble, WhiteboardTextElement, PlayResponsibility } from '../../types';
 
@@ -365,7 +365,7 @@ export const PlaybookInteractiveSheet: React.FC<PlaybookInteractiveSheetProps> =
       {/* 3. WHITEBOARD DIAGRAM AREA */}
       {!isEditMode ? (
         <div className="w-full bg-slate-100/60 relative p-2 sm:p-4 lg:p-6 border-b border-slate-300 flex justify-center">
-          <TriangleDrillWhiteboard
+          <GenericAnimatedWhiteboard
             drill={drill}
             activePhaseIdx={activePhaseIdx}
             onPhaseChange={setActivePhaseIdx}

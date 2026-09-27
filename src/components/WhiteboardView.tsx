@@ -65,7 +65,7 @@ import { printDrillSheet } from './whiteboard/drillPrintHelper';
 import { spreadDiagramElements, WhiteboardSpreadMode } from './whiteboard/whiteboardSpreadHelper';
 import { AddWhiteboardDrillModal } from './whiteboard/AddWhiteboardDrillModal';
 import { WhiteboardDrillDescriptionView } from './whiteboard/WhiteboardDrillDescriptionView';
-import { TriangleDrillWhiteboard } from './whiteboard/TriangleDrillWhiteboard';
+import { GenericAnimatedWhiteboard } from './whiteboard/GenericAnimatedWhiteboard';
 import { WhiteboardDrillPickerModal } from './whiteboard/WhiteboardDrillPickerModal';
 import { findDrillInPracticePlans } from '../utils/drillPlanLinking';
 import { safeJSONParse, safeJSONSet } from '../services/storageService';
@@ -1372,49 +1372,6 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
 
           {/* Right: Phase Controls & Drill Actions */}
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Phase Stepper (Only shown when drill has multiple phases) */}
-            {!isCustomMode && currentDrill.phases && currentDrill.phases.length > 1 && (
-              <div className="flex items-center bg-slate-100 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-700/80 rounded-xl p-1 gap-1 shadow-inner">
-                <button
-                  type="button"
-                  onClick={handlePrevPhase}
-                  className="px-2 py-1 text-slate-700 hover:text-slate-950 hover:bg-slate-200 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800 rounded-lg text-xs font-bold transition-colors cursor-pointer"
-                  title="Previous Phase"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <div className="px-2 py-0.5 text-center">
-                  <span className="text-[10px] font-black uppercase text-indigo-600 dark:text-blue-400 block leading-tight">
-                    Phase {activePhaseIdx + 1} of {currentDrill.phases.length}
-                  </span>
-                  <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200 truncate max-w-[120px] sm:max-w-[160px] block">
-                    {currentDrill.phases[activePhaseIdx]?.name?.replace(/PHASE \d+:\s*/i, "") || `Phase ${activePhaseIdx + 1}`}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleNextPhase}
-                  className="px-2 py-1 text-slate-700 hover:text-slate-950 hover:bg-slate-200 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800 rounded-lg text-xs font-bold transition-colors cursor-pointer"
-                  title="Next Phase"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsAutoPlaying(!isAutoPlaying)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 ${
-                    isAutoPlaying
-                      ? "bg-amber-600 text-white"
-                      : "bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-300 dark:hover:bg-slate-700"
-                  }`}
-                  title={isAutoPlaying ? "Pause Animation" : "Auto-Play Phases"}
-                >
-                  {isAutoPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                  <span className="hidden sm:inline">{isAutoPlaying ? "Pause" : "Play"}</span>
-                </button>
-              </div>
-            )}
-
             {/* Chalkboard Mode Toggle */}
             <button
               type="button"
@@ -1537,7 +1494,7 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
               </div>
             </div>
           ) : !isCustomMode ? (
-            <TriangleDrillWhiteboard
+            <GenericAnimatedWhiteboard
               drill={currentDrill}
               activePhaseIdx={activePhaseIdx}
               onPhaseChange={setActivePhaseIdx}

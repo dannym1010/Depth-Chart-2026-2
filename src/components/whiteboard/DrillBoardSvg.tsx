@@ -22,6 +22,10 @@ const PAD_BOTTOM = 70;
 const MAX_SCALE = 2.2;
 const LOS_Y = 200;
 const R = 20; // token radius on screen
+/** Phones: draw the field this much tighter so players and words read bigger on a small screen. */
+const COMPACT = 0.6;
+/** ...but never pull two players closer than this (centre to centre) unless the drill already has them touching. */
+const COMPACT_GAP = 2 * R + 22;
 
 type Phase = WhiteboardDrill['phases'][number];
 
@@ -119,7 +123,7 @@ export interface BoardFrame {
   viewBox: { x: number; y: number; w: number; h: number };
 }
 
-export function boardFrame(phases: Phase[]): BoardFrame {
+export function boardFrame(phases: Phase[], opts: { compact?: boolean } = {}): BoardFrame {
   const xs: number[] = [];
   const ys: number[] = [];
   phases.forEach((p) => {
@@ -162,7 +166,21 @@ export function boardFrame(phases: Phase[]): BoardFrame {
   const maxY = Math.max(...ys);
   const w = Math.max(maxX - minX, 180);
   const h = Math.max(maxY - minY, 120);
-  const scale = Math.min((BOARD_W - PAD_X * 2) / w, (BOARD_H - PAD_TOP - PAD_BOTTOM) / h, MAX_SCALE);
+  let scale = Math.min((BOARD_W - PAD_X * 2) / w, (BOARD_H - PAD_TOP - PAD_BOTTOM) / h, MAX_SCALE);
+  if (opts.compact) {
+    // Tighten, but stop before any two separate players would start to crowd each other.
+    let floor = 0;
+    phases.forEach((p) => {
+      const ts = (p.tokens || []).filter((t) => tokenKind(t) !== 'text');
+      for (let i = 0; i < ts.length; i++) {
+        for (let j = i + 1; j < ts.length; j++) {
+          const d = Math.hypot(ts[i].x - ts[j].x, ts[i].y - ts[j].y);
+          if (d * scale >= COMPACT_GAP) floor = Math.max(floor, COMPACT_GAP / d);
+        }
+      }
+    });
+    scale = Math.min(scale, Math.max(scale * COMPACT, floor));
+  }
   const cx = (minX + maxX) / 2;
   const cy = (minY + maxY) / 2;
   const midY = PAD_TOP + (BOARD_H - PAD_TOP - PAD_BOTTOM) / 2;
@@ -173,8 +191,8 @@ export function boardFrame(phases: Phase[]): BoardFrame {
   let vx1 = fx(maxX) + 60;
   let vy0 = fy(minY) - 50;
   let vy1 = fy(maxY) + 50;
-  const minW = 420;
-  const minH = 280;
+  const minW = opts.compact ? 300 : 420;
+  const minH = opts.compact ? 220 : 280;
   if (vx1 - vx0 < minW) {
     const grow = (minW - (vx1 - vx0)) / 2;
     vx0 -= grow;
@@ -417,6 +435,31 @@ export const DrillBoardSvg: React.FC<DrillBoardSvgProps> = ({ drill, phaseIdx, f
     const tokenAbove = placed.some((o) => o !== p && Math.abs(o.sx - p.sx) < 64 && o.sy < p.sy && p.sy - o.sy < 64);
     if ((tokenBelow || arrowBelow) && !tokenAbove) badgeAbove.add(p.t.id);
   });
+  // Then flip any name tag that still lands on another player or tag, when the other side is clearer.
+  const tagOf = (p: Placed) => p.t.subLabel || '';
+  const tagHits = (p: Placed, above: boolean) => {
+    const w = Math.max(tagOf(p).length * 5.6 + 14, 36);
+    const y = above ? p.sy - (R + 13) : p.sy + (R + 13);
+    let hits = 0;
+    placed.forEach((o) => {
+      if (o === p || o.kind === 'text') return;
+      if (Math.abs(o.sx - p.sx) < w / 2 + R && Math.abs(o.sy - y) < 7.5 + R) hits++;
+      if (!tagOf(o)) return;
+      const ow = Math.max(tagOf(o).length * 5.6 + 14, 36);
+      const oy = badgeAbove.has(o.t.id) ? o.sy - (R + 13) : o.sy + (R + 13);
+      if (Math.abs(o.sx - p.sx) < (w + ow) / 2 && Math.abs(oy - y) < 15) hits++;
+    });
+    return hits;
+  };
+  placed.forEach((p) => {
+    if (!tagOf(p) || p.kind === 'text') return;
+    const above = badgeAbove.has(p.t.id);
+    const now = tagHits(p, above);
+    if (now > 0 && tagHits(p, !above) < now) {
+      if (above) badgeAbove.delete(p.t.id);
+      else badgeAbove.add(p.t.id);
+    }
+  });
 
   const nearestToken = (sx: number, sy: number, within: number, includeGhosts = false) => {
     let best: Placed | undefined;
@@ -534,6 +577,71 @@ export const DrillBoardSvg: React.FC<DrillBoardSvgProps> = ({ drill, phaseIdx, f
     );
   });
 
+  // Zone titles: pick the spot around the zone that stays clear of players, their name tags,
+  // arrow labels and other zone titles (drawn last, so they must not sit on anything).
+  const titleSpots: { x: number; y: number; w: number }[] = [];
+  const zoneTitlePos = (phase?.zones || []).map((z) => {
+    if (!z.name) return null;
+    if (z.labelX !== undefined && z.labelY !== undefined) return { x: frame.x(z.labelX), y: frame.y(z.labelY) };
+    const cx = frame.x(z.cx);
+    const cy = frame.y(z.cy);
+    const rx = Math.max(z.rx * frame.scale, 14);
+    const ry = Math.max(z.ry * frame.scale, 10);
+    const tw = z.name.length * 6.2 + 8;
+    const TH = 12;
+    const gap = (px: number, py: number, bx: number, by: number, bw: number, bh: number) => {
+      const gx = Math.abs(px - bx) - (tw + bw) / 2;
+      const gy = Math.abs(py - by) - (TH + bh) / 2;
+      if (gx < 0 && gy < 0) return -(gx * gy) / 20;
+      return Math.hypot(Math.max(0, gx), Math.max(0, gy));
+    };
+    const room = (px: number, py: number) => {
+      let m = 999;
+      placed.forEach((p) => {
+        if (p.kind === 'text') return;
+        m = Math.min(m, gap(px, py, p.sx, p.sy, R * 2, R * 2));
+        const tag = p.t.subLabel || (['bag', 'cone', 'target', 'board'].includes(p.kind) ? p.t.label : '');
+        if (tag) {
+          const by = badgeAbove.has(p.t.id) ? p.sy - (R + 13) : p.sy + (R + 13);
+          m = Math.min(m, gap(px, py, p.sx, by, Math.max(tag.length * 5.6 + 14, 36), 15));
+        }
+      });
+      [...usedLabelSpots, ...titleSpots].forEach((u) => (m = Math.min(m, gap(px, py, u.x, u.y, u.w, 16))));
+      return m;
+    };
+    const vb = frame.viewBox;
+    const cands: { x: number; y: number; cost: number }[] = [];
+    for (const [dy, cost] of [
+      [-ry - 7, 0],
+      [ry + 14, 0.5],
+      [-ry - 22, 2],
+      [ry + 29, 2.5],
+      [-ry + 16, 3],
+      [ry - 10, 3.5],
+    ] as const) {
+      for (const [dx, xcost] of [
+        [0, 0],
+        [-rx * 0.6, 1.5],
+        [rx * 0.6, 1.5],
+      ] as const) {
+        cands.push({ x: cx + dx, y: cy + dy, cost: cost + xcost });
+      }
+    }
+    let pos = cands[0];
+    let best = -Infinity;
+    cands.forEach((c) => {
+      if (c.y < vb.y + 10 || c.y > vb.y + vb.h - 4) return;
+      const score = Math.min(room(c.x, c.y - 3.5), 6) - c.cost;
+      if (score > best) {
+        best = score;
+        pos = c;
+      }
+    });
+    const x = Math.min(Math.max(pos.x, vb.x + tw / 2 + 4), vb.x + vb.w - tw / 2 - 4);
+    titleSpots.push({ x, y: pos.y - 3.5, w: tw });
+    return { x, y: pos.y };
+  });
+
   const losY = frame.showLos ? frame.y(LOS_Y) : null;
 
   return (
@@ -558,6 +666,9 @@ export const DrillBoardSvg: React.FC<DrillBoardSvgProps> = ({ drill, phaseIdx, f
             @keyframes dbFlow { to { stroke-dashoffset: -26; } }
             .db-flow { animation: dbFlow 1s linear infinite; }
             .db-move { transition: transform 0.5s cubic-bezier(0.25, 1, 0.5, 1); }
+            @keyframes dbFade { from { opacity: 0; } to { opacity: 1; } }
+            .db-fade { animation: dbFade 0.35s ease-out both; }
+            @media (prefers-reduced-motion: reduce) { .db-move { transition: none; } .db-fade { animation: none; } }
           `}</style>
         )}
       </defs>
@@ -572,6 +683,8 @@ export const DrillBoardSvg: React.FC<DrillBoardSvgProps> = ({ drill, phaseIdx, f
         </g>
       )}
 
+      {/* Zones, movement and ghosts fade in fresh for each step */}
+      <g key={`step-${phaseIdx}`} className={forPrint ? undefined : 'db-fade'}>
       {/* The drill's own zones */}
       {(phase?.zones || []).map((z, i) => {
         const hex = PALETTE[paletteName(z.color)];
@@ -605,6 +718,8 @@ export const DrillBoardSvg: React.FC<DrillBoardSvgProps> = ({ drill, phaseIdx, f
         ))}
       </g>
 
+      </g>
+
       {/* Players, bags, cones */}
       <g>
         {placed.map((p, i) => (
@@ -619,29 +734,17 @@ export const DrillBoardSvg: React.FC<DrillBoardSvgProps> = ({ drill, phaseIdx, f
         ))}
       </g>
 
-      {/* Zone titles on top of everything, with a white halo, on the clearer side of the zone */}
+      <g key={`notes-${phaseIdx}`} className={forPrint ? undefined : 'db-fade'}>
+      {/* Zone titles on top of everything, with a white halo, in the clearest spot by the zone */}
       {(phase?.zones || []).map((z, i) => {
-        if (!z.name) return null;
+        const pos = zoneTitlePos[i];
+        if (!z.name || !pos) return null;
         const hex = PALETTE[paletteName(z.color)];
-        const cx = frame.x(z.cx);
-        const cy = frame.y(z.cy);
-        const ry = Math.max(z.ry * frame.scale, 10);
-        let lx = cx;
-        let ly: number;
-        if (z.labelX !== undefined && z.labelY !== undefined) {
-          lx = frame.x(z.labelX);
-          ly = frame.y(z.labelY);
-        } else {
-          const top = cy - ry - 7;
-          const bottom = cy + ry + 14;
-          const crowd = (y: number) => placed.filter((p) => Math.abs(p.sy - y) < 24 && Math.abs(p.sx - cx) < 90).length;
-          ly = crowd(top) <= crowd(bottom) ? top : bottom;
-        }
         return (
           <text
             key={`zl-${z.id || i}`}
-            x={lx}
-            y={ly}
+            x={pos.x}
+            y={pos.y}
             fontSize={9.5}
             fontWeight={800}
             fill={hex}
@@ -688,6 +791,8 @@ export const DrillBoardSvg: React.FC<DrillBoardSvgProps> = ({ drill, phaseIdx, f
           </g>
         );
       })}
+
+      </g>
 
       {!phase?.tokens?.length && (
         <text x={BOARD_W / 2} y={BOARD_H / 2} fontSize={14} fontWeight={700} fill="#94a3b8" textAnchor="middle">
