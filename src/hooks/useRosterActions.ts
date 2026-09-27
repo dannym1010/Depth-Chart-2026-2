@@ -4,6 +4,7 @@ import { normalizeRoster } from '../utils/depthChartUtils';
 import { safeJSONSet } from '../services/storageService';
 import type { Dispatch, SetStateAction, RefObject } from 'react';
 import type { LatestAppState } from './appStateTypes';
+import { playerKey, removedPlayerKeys, stampRosterEdits } from '../utils/recordMerge';
 
 export interface RosterActionsDeps {
   setRoster: Dispatch<SetStateAction<RosterPlayer[]>>;
@@ -11,6 +12,8 @@ export interface RosterActionsDeps {
   setWeeklyData: Dispatch<SetStateAction<Record<string, WeekState>>>;
   roster: RosterPlayer[];
   debouncedSave: (scope?: string, extraMeta?: Record<string, any>) => void;
+  /** Players (team#number keys) a coach removed, so the delete sticks on other coaches' devices. */
+  onPlayersRemoved?: (keys: string[]) => void;
 }
 
 // Save roster edits and keep every week's depth charts in step with renamed or removed players.
@@ -20,9 +23,13 @@ export function useRosterActions({
   setWeeklyData,
   roster,
   debouncedSave,
+  onPlayersRemoved,
 }: RosterActionsDeps) {
   const handleUpdateRoster = (newRoster: RosterPlayer[]) => {
-    const normalized = normalizeRoster(newRoster, false);
+    const prevRoster = latestStateRef.current.roster || [];
+    onPlayersRemoved?.(removedPlayerKeys(prevRoster, newRoster));
+    // Stamp what changed, so it wins over older copies when coaches' rosters merge.
+    const normalized = stampRosterEdits(prevRoster, normalizeRoster(newRoster, false));
     setRoster(normalized);
     safeJSONSet('footballRoster', normalized);
     latestStateRef.current.roster = normalized;
@@ -127,9 +134,9 @@ export function useRosterActions({
   };
 
   const handleUpdatePlayerInRoster = (updatedPlayer: RosterPlayer) => {
-    const next = roster.map((p) =>
-      p.id === updatedPlayer.id || p.num === updatedPlayer.num ? updatedPlayer : p
-    );
+    // Same player = same id, or same jersey number on the same team (numbers repeat across teams).
+    const key = playerKey(updatedPlayer);
+    const next = roster.map((p) => (playerKey(p) === key || (p.id && p.id === updatedPlayer.id) ? updatedPlayer : p));
     handleUpdateRoster(next);
   };
 

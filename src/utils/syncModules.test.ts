@@ -3004,3 +3004,51 @@ describe('Play Bank shared by coaches', () => {
     assert.equal(mergePlayBanks(mine, [play('a'), play('b')] as any[], []), mine);
   });
 });
+
+describe('attendance, roster and saves shared by coaches', () => {
+  it('two coaches taking attendance keep both sessions; a delete sticks until the session is taken again', async () => {
+    const { mergeAttendanceLogs, mergeTombstones } = await import('./recordMerge.ts');
+    const a = { id: 's1', date: '2026-09-20', timestamp: 100, presentPlayerNums: ['7'] };
+    const b = { id: 's2', date: '2026-09-21', timestamp: 110, presentPlayerNums: ['9'] };
+    const both = mergeAttendanceLogs([a] as any[], [b] as any[], {});
+    assert.deepEqual(both.map((r: any) => r.id), ['s2', 's1']);
+    const deleted = mergeTombstones({ s1: 200 }, {});
+    assert.deepEqual(mergeAttendanceLogs(both, [a, b] as any[], deleted).map((r: any) => r.id), ['s2']);
+    const retaken = { ...a, editedAt: 300 };
+    assert.deepEqual(mergeAttendanceLogs([b] as any[], [retaken, b] as any[], deleted).map((r: any) => r.id).sort(), ['s1', 's2']);
+  });
+
+  it('roster: players are team + number; edits merge per player; removed players stay removed', async () => {
+    const { mergeRosters, stampRosterEdits, removedPlayerKeys, playerKey } = await import('./recordMerge.ts');
+    const p = (num: string, teamId: string, extra: any = {}) => ({ num, teamId, firstName: 'A', lastName: num, ...extra });
+    assert.notEqual(playerKey(p('7', 'team_10u')), playerKey(p('7', 'team_9u')));
+    const before = [p('7', 'team_10u'), p('7', 'team_9u'), p('12', 'team_10u')];
+    const mine = stampRosterEdits(before, [p('7', 'team_10u', { notes: 'mine' }), p('7', 'team_9u'), p('12', 'team_10u')], 100);
+    assert.equal(mine[0].editedAt, 100);
+    assert.equal(mine[1].editedAt, undefined);
+    const theirs = [p('7', 'team_10u', { notes: 'old', editedAt: 50 }), p('7', 'team_9u', { notes: 'theirs', editedAt: 120 }), p('12', 'team_10u'), p('22', 'team_10u', { editedAt: 130 })];
+    const merged = mergeRosters(mine, theirs, { [playerKey(p('12', 'team_10u'))]: 150 });
+    assert.equal(merged.find((x: any) => x.num === '7' && x.teamId === 'team_10u').notes, 'mine');
+    assert.equal(merged.find((x: any) => x.num === '7' && x.teamId === 'team_9u').notes, 'theirs');
+    assert.ok(merged.some((x: any) => x.num === '22'));
+    assert.ok(!merged.some((x: any) => x.num === '12'));
+    assert.deepEqual(removedPlayerKeys(before, before.slice(0, 2)), [playerKey(p('12', 'team_10u'))]);
+  });
+
+  it('hours only count sessions of the player\'s own team', async () => {
+    const { calculatePlayerHours } = await import('./hoursCalculation.ts');
+    const logs = [
+      { id: 'a', teamId: 'team_10u', week: '1', date: '2026-09-01', hours: 2, sessionType: 'padded', presentPlayerNums: ['7'], absentPlayerNums: [] },
+      { id: 'b', teamId: 'team_9u', week: '1', date: '2026-09-01', hours: 3, sessionType: 'padded', presentPlayerNums: ['7'], absentPlayerNums: [] },
+    ] as any[];
+    assert.equal(calculatePlayerHours({ num: '7', teamId: 'team-10u' } as any, logs, '1').paddedHours, 2);
+    assert.equal(calculatePlayerHours({ num: '7', teamId: 'team_9u' } as any, logs, '1').paddedHours, 3);
+  });
+
+  it('changes saved together write every kind of document', async () => {
+    const { cloudModulesForScope } = await import('../services/storageService.ts');
+    assert.deepEqual(cloudModulesForScope('roster+attendance')?.sort(), ['attendance', 'roster']);
+    assert.equal(cloudModulesForScope('roster+force'), undefined);
+    assert.deepEqual(cloudModulesForScope('focusout+practice'), ['practice']);
+  });
+});

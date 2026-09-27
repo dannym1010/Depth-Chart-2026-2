@@ -80,6 +80,8 @@ export interface AttendanceRecord {
   excusedPlayerNums?: string[];
   notes?: string;
   timestamp: number;
+  /** When a coach last changed this record (decides which copy wins when coaches' devices merge). */
+  editedAt?: number;
   playerSessionTypes?: Record<string, 'conditioning' | 'padded'>; // Per-player override (e.g. conditioning for kids catching up while others are padded)
 }
 
@@ -142,6 +144,8 @@ export interface RosterPlayer {
   weeklyHours?: Record<string, number>; // week key -> hours logged
   notes?: string;
   isCaptain?: boolean;
+  /** When a coach last changed this player (decides which copy wins when coaches' devices merge). */
+  editedAt?: number;
 }
 
 // Youth Football Acclimatization Compliance Rules (Max 10 hours conditioning, Max 10 hours padded contact)

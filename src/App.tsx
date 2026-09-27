@@ -78,6 +78,8 @@ import {
   fetchHudlScoutCloud,
   subscribeHudlScoutCloud,
   saveSharedBoardCloud,
+  savePffWeekCloud,
+  subscribePffWeekCloud,
   patchSharedWeekCloud,
   isBoardPatchScope,
   fetchSharedBoardCloud,
@@ -158,6 +160,8 @@ import { ExcelPlayImportModal } from './components/callSheet/ExcelPlayImportModa
 import { PlayDatabaseEntry, CallSheetData, CallSheetFullData } from './types/callSheet';
 import { MASTER_PLAY_DATABASE, DEFAULT_CALL_SHEET_DATA } from './data/callSheetData';
 import { mergeDeletedPlayIds, mergePlayBanks, stampPlayEdits } from './utils/playBankMerge';
+import { mergeAttendanceLogs, mergeRosters, mergeTombstones, removedIds, stampEdits, type Tombstones } from './utils/recordMerge';
+import { syncEntireRosterWithLogs } from './utils/hoursCalculation';
 import { syncWristbandToCallSheet } from './utils/wristbandLinking';
 import { saveCallSheetSnapshot, countCallSheetPlays } from './utils/callSheetStorage';
 import { ScoutingView } from './components/ScoutingView';
@@ -193,6 +197,7 @@ import {
   collectHudlScoutBackup,
   applyHudlScoutBackup,
   mergeScheduleEvents,
+  mergePprPlayCounts,
   mergeDeletedIds,
   applySharedWeekSliceDepth,
   applySharedFormations,
@@ -1871,9 +1876,10 @@ export default function App() {
       safeJSONSet('footballGlobalIdleTimeoutMinutes', data.globalIdleTimeoutMinutes);
     }
     if (!skipBoardFromGiantDoc && data.deletedPlayIds && Array.isArray(data.deletedPlayIds)) {
-      setDeletedPlayIds(data.deletedPlayIds);
-      latestStateRef.current.deletedPlayIds = data.deletedPlayIds;
-      safeJSONSet('footballDeletedPlayIds', data.deletedPlayIds);
+      const deletedAll = mergeDeletedPlayIds(latestStateRef.current.deletedPlayIds, data.deletedPlayIds);
+      setDeletedPlayIds(deletedAll);
+      latestStateRef.current.deletedPlayIds = deletedAll;
+      safeJSONSet('footballDeletedPlayIds', deletedAll);
     }
     if (data.collapsedFolders) {
       setCollapsedFolders(data.collapsedFolders);
@@ -1881,10 +1887,7 @@ export default function App() {
       safeJSONSet('footballCollapsedFolders', data.collapsedFolders);
     }
     if (!skipBoardFromGiantDoc && data.roster && Array.isArray(data.roster)) {
-      const normalized = normalizeRoster(data.roster, true);
-      setRoster(normalized);
-      latestStateRef.current.roster = normalized;
-      safeJSONSet('footballRoster', normalized);
+      adoptRoster(data.roster, data.deletedPlayers);
     }
     if (!skipBoardFromGiantDoc && data.teams && Array.isArray(data.teams) && data.teams.length > 0) {
       setTeams(data.teams);
@@ -1897,9 +1900,7 @@ export default function App() {
       safeJSONSet('footballSeasonConfig', data.seasonConfig);
     }
     if (!skipBoardFromGiantDoc && data.attendanceLogs && Array.isArray(data.attendanceLogs)) {
-      setAttendanceLogs(data.attendanceLogs);
-      latestStateRef.current.attendanceLogs = data.attendanceLogs;
-      safeJSONSet('footballAttendanceLogs', data.attendanceLogs);
+      adoptAttendance(data.attendanceLogs, data.deletedAttendance);
     }
     if (!skipBoardFromGiantDoc && data.pffGradeCriteria) {
       const mergedCriteria = mergePffGradeCriteria(
@@ -2099,7 +2100,8 @@ export default function App() {
     };
 
     const payloadJson = safeJSONStringify(payload);
-    const isExplicitUserAction =
+    const scopeParts = String(scope).split('+');
+    const isExplicitUserAction = scopeParts.some((scope) =>
       scope.startsWith('position_') ||
       scope.startsWith('player_') ||
       scope.startsWith('formation_') ||
@@ -2121,7 +2123,11 @@ export default function App() {
       scope === 'hudl_scout_update' ||
       scope === 'schedule' ||
       scope === 'schedule_update' ||
-      (Array.isArray(extraMeta?.modifiedPosIds) && extraMeta.modifiedPosIds.length > 0);
+      scope === 'attendance' ||
+      scope === 'roster' ||
+      scope === 'plays' ||
+      scope === 'drills' ||
+      (Array.isArray(extraMeta?.modifiedPosIds) && extraMeta.modifiedPosIds.length > 0));
 
     if (payloadJson === lastSavedPayloadRef.current && !isExplicitUserAction) {
       return;
@@ -2129,9 +2135,11 @@ export default function App() {
 
     // Never overwrite cloud if initial cloud pull has not completed yet
     if (!initialCloudLoadDoneRef.current && scope !== 'force') {
-      if (scope.startsWith('practice_drill')) pendingPracticeDrillSaveRef.current = true;
-      if (scope === 'scouting_update' || scope.startsWith('scouting') || scope === 'hudl_scout_update') pendingScoutingSaveRef.current = true;
-      if (scope === 'schedule_update' || scope === 'schedule') pendingScheduleSaveRef.current = true;
+      scopeParts.forEach((scope) => {
+        if (scope.startsWith('practice_drill')) pendingPracticeDrillSaveRef.current = true;
+        if (scope === 'scouting_update' || scope.startsWith('scouting') || scope === 'hudl_scout_update') pendingScoutingSaveRef.current = true;
+        if (scope === 'schedule_update' || scope === 'schedule') pendingScheduleSaveRef.current = true;
+      });
       return;
     }
 
@@ -2151,12 +2159,12 @@ export default function App() {
     setSyncStatus({ text: '☁️ Syncing...', color: '#f59e0b' });
 
     const authorEmail = currentUser?.email || 'Coach';
-    const scopeIsPractice = String(scope).startsWith('practice');
-    const scopeIsSchedule = scope === 'schedule' || scope === 'schedule_update';
+    const scopeIsPractice = scopeParts.some((p) => p.startsWith('practice'));
+    const scopeIsSchedule = scopeParts.some((p) => p === 'schedule' || p === 'schedule_update');
     let serverOk = false;
     let firestoreOk = false;
 
-    const skipHudlBoardFanout = scope === 'hudl_scout_update' || String(scope).startsWith('hudl_scout');
+    const skipHudlBoardFanout = scopeParts.every((p) => p === 'hudl_scout_update' || p.startsWith('hudl_scout'));
 
     // 2. Persistent Server Sync
     if (!skipHudlBoardFanout) {
@@ -2269,19 +2277,20 @@ export default function App() {
               callSheetData: weekState.callSheetData,
               scouting: weekScout,
               practiceDrillGroups: weekState.practiceDrillGroups,
-              pprPlayCounts: weekState.pprPlayCounts,
-              pffReviews: weekState.pffReviews,
-              filmSession: weekState.filmSession,
               depthSpots: weekState.depthChart || {},
               scrimmageSpots: weekState.scrimmageChart || {},
               formationBoards: Object.fromEntries(weekForms.map((f: any) => [f.id, f])),
               formationOrder: weekForms.map((f: any) => f.id),
             },
       roster: currentState.roster,
+      deletedPlayers: deletedPlayersRef.current,
+      onRosterMerged: (merged, deleted) => adoptRoster(merged, deleted),
       teams: currentState.teams,
       seasonConfig: currentState.seasonConfig,
       staffList: currentState.staffList,
       attendanceLogs: currentState.attendanceLogs,
+      deletedAttendance: deletedAttendanceRef.current,
+      onAttendanceMerged: (logs, deleted) => adoptAttendance(logs, deleted),
       cascadingDrills: currentState.cascadingDrills,
       practiceTemplates: currentState.practiceTemplates,
       practiceWeekdayTemplates: currentState.practiceWeekdayTemplates || {},
@@ -2313,24 +2322,129 @@ export default function App() {
   };
 
   // Immediate non-debounced flush to storage & cloud
+  // Changes waiting to be saved, by kind. Saving one kind never drops another that is waiting
+  // (taking attendance also changes the roster's hours; both must reach the cloud).
+  const pendingScopesRef = useRef<Map<string, Record<string, any> | undefined>>(new Map());
+  const queueSaveScope = (scope: string, extraMeta?: Record<string, any>) => {
+    const m = pendingScopesRef.current;
+    const prev = m.get(scope);
+    if (!prev || !extraMeta) {
+      m.set(scope, extraMeta ?? prev);
+      return;
+    }
+    const merged: Record<string, any> = { ...prev, ...extraMeta };
+    for (const k of ['modifiedPosIds', 'modifiedFormIds']) {
+      if (Array.isArray(prev[k]) || Array.isArray(extraMeta[k])) merged[k] = [...new Set([...(prev[k] || []), ...(extraMeta[k] || [])])];
+    }
+    m.set(scope, merged);
+  };
+  const runPendingSaves = async () => {
+    const entries = [...pendingScopesRef.current.entries()];
+    pendingScopesRef.current = new Map();
+    if (!entries.length) return;
+    // Depth-chart spot and formation edits go as small patches, one per kind.
+    for (const [s, meta] of entries.filter(([s]) => isBoardPatchScope(s))) await saveStateToStorage(s, meta);
+    const rest = entries.filter(([s]) => !isBoardPatchScope(s));
+    if (rest.length === 1) await saveStateToStorage(rest[0][0], rest[0][1]);
+    else if (rest.length > 1) {
+      await saveStateToStorage(
+        rest.map(([s]) => s).join('+'),
+        Object.assign({}, ...rest.map(([, m]) => m || {}))
+      );
+    }
+  };
+  const scheduleSaves = (delay = 400) => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      saveTimeoutRef.current = null;
+      // Another coach's update is being applied: wait, then save (nothing is dropped).
+      if (isRemoteSyncRef.current) {
+        scheduleSaves(400);
+        return;
+      }
+      void runPendingSaves();
+    }, delay);
+  };
+
   const flushAndSaveStateToStorage = async (scope: string = 'immediate', extraMeta?: Record<string, any>) => {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
     }
-    await saveStateToStorage(scope, extraMeta);
+    queueSaveScope(scope, extraMeta);
+    await runPendingSaves();
+  };
+
+  // Attendance: when each record was deleted, so a delete on one coach's device sticks everywhere.
+  const deletedAttendanceRef = useRef<Tombstones>(safeJSONParse<Tombstones>('footballDeletedAttendance', {}) || {});
+  const setDeletedAttendance = (next: Tombstones) => {
+    deletedAttendanceRef.current = next;
+    safeJSONSet('footballDeletedAttendance', next);
+  };
+  /** Merge attendance from the cloud / another coach into this device (never sends anything). */
+  const adoptAttendance = (remoteLogs: AttendanceRecord[] | undefined, remoteDeleted?: Tombstones) => {
+    const deleted = mergeTombstones(deletedAttendanceRef.current, remoteDeleted);
+    setDeletedAttendance(deleted);
+    const local = latestStateRef.current.attendanceLogs || [];
+    const merged = mergeAttendanceLogs(local, Array.isArray(remoteLogs) ? remoteLogs : [], deleted);
+    if (merged === local) return;
+    setAttendanceLogs(merged);
+    latestStateRef.current.attendanceLogs = merged;
+    safeJSONSet('footballAttendanceLogs', merged);
+    // Hours come from attendance: recount them with every coach's sessions (on this device only).
+    const roster = latestStateRef.current.roster || [];
+    if (roster.length) {
+      const recounted = syncEntireRosterWithLogs(roster, merged, currentWeekRef.current, latestStateRef.current.seasonConfig);
+      if (JSON.stringify(recounted) !== JSON.stringify(roster)) {
+        setRoster(recounted);
+        latestStateRef.current.roster = recounted;
+        safeJSONSet('footballRoster', recounted);
+      }
+    }
+  };
+  // Roster: players a coach removed (team#number -> when), so the delete sticks everywhere.
+  const deletedPlayersRef = useRef<Tombstones>(safeJSONParse<Tombstones>('footballDeletedPlayers', {}) || {});
+  const notePlayersRemoved = (keys: string[]) => {
+    if (!keys.length) return;
+    const now = Date.now();
+    const next = { ...deletedPlayersRef.current };
+    keys.forEach((k) => (next[k] = now));
+    deletedPlayersRef.current = next;
+    safeJSONSet('footballDeletedPlayers', next);
+  };
+  /** Merge a roster from the cloud / another coach into this device (never sends anything). */
+  const adoptRoster = (remoteRoster: RosterPlayer[] | undefined, remoteDeleted?: Tombstones) => {
+    const deleted = mergeTombstones(deletedPlayersRef.current, remoteDeleted);
+    deletedPlayersRef.current = deleted;
+    safeJSONSet('footballDeletedPlayers', deleted);
+    const local = latestStateRef.current.roster || [];
+    const incoming = normalizeRoster(Array.isArray(remoteRoster) ? remoteRoster : [], !local.length);
+    const merged = mergeRosters(local, incoming, deleted);
+    if (merged === local) return;
+    setRoster(merged);
+    latestStateRef.current.roster = merged;
+    safeJSONSet('footballRoster', merged);
+  };
+  /** A coach took, edited or deleted attendance: stamp it, remember deletes, save and send it. */
+  const handleUpdateAttendanceLogs = (update: AttendanceRecord[] | ((prev: AttendanceRecord[]) => AttendanceRecord[])) => {
+    const prev = latestStateRef.current.attendanceLogs || [];
+    const raw = typeof update === 'function' ? update(prev) : update;
+    const now = Date.now();
+    const gone = removedIds(prev, raw);
+    const deleted: Tombstones = { ...deletedAttendanceRef.current };
+    gone.forEach((id) => (deleted[id] = now));
+    setDeletedAttendance(deleted);
+    const next = stampEdits(prev, raw, now);
+    lastLocalEditTimeRef.current = now;
+    setAttendanceLogs(next);
+    latestStateRef.current.attendanceLogs = next;
+    safeJSONSet('footballAttendanceLogs', next);
+    debouncedSave('attendance');
   };
 
   const debouncedSave = (scope: string = 'all', extraMeta?: Record<string, any>) => {
-    if (isRemoteSyncRef.current) {
-      pendingSaveRef.current = { scope, extraMeta };
-      return;
-    }
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(() => {
-      saveTimeoutRef.current = null;
-      saveStateToStorage(scope, extraMeta);
-    }, 400);
+    queueSaveScope(scope, extraMeta);
+    scheduleSaves();
   };
 
   const handleForceSave = async () => {
@@ -2379,6 +2493,53 @@ export default function App() {
       return updated;
     });
     queueHudlScoutPublish();
+  };
+
+  // PFF grades live on the week being graded (usually last week) and have their own merged save.
+  const adoptPffWeek = (teamId: string, week: string, remote: { pffReviews?: any; filmSession?: any; pprPlayCounts?: any }) => {
+    setWeeklyData((prev) => {
+      const wk = normalizeScoutWeekKey(week);
+      const scopedKey = getScopedWeekKey(teamId, wk);
+      const cur = storedWeekForWrite(prev, teamId, wk);
+      const next = {
+        ...cur,
+        pffReviews: mergePffReviews(cur.pffReviews, remote.pffReviews),
+        filmSession: mergeFilmSession(cur.filmSession, remote.filmSession),
+        pprPlayCounts: mergePprPlayCounts(cur.pprPlayCounts, remote.pprPlayCounts),
+      };
+      if (
+        JSON.stringify([next.pffReviews, next.filmSession, next.pprPlayCounts]) ===
+        JSON.stringify([cur.pffReviews, cur.filmSession, cur.pprPlayCounts])
+      ) {
+        return prev;
+      }
+      const updatedAll = { ...prev, [scopedKey]: next, [wk]: next };
+      latestStateRef.current.weeklyData = updatedAll;
+      safeJSONSet('footballWeeklyData', updatedAll);
+      return updatedAll;
+    });
+  };
+  const pffPublishTimerRef = useRef<any>(null);
+  const queuePffPublish = (week: string) => {
+    if (pffPublishTimerRef.current) clearTimeout(pffPublishTimerRef.current);
+    pffPublishTimerRef.current = setTimeout(async () => {
+      pffPublishTimerRef.current = null;
+      const teamId = activeTeamIdRef.current;
+      const wk = normalizeScoutWeekKey(week);
+      const all = latestStateRef.current.weeklyData || {};
+      const ws = all[getScopedWeekKey(teamId, wk)] || all[wk];
+      if (!ws) return;
+      const saved = await savePffWeekCloud({
+        teamId,
+        week: wk,
+        pffReviews: ws.pffReviews,
+        filmSession: ws.filmSession,
+        mergeReviews: (cloud, mine) => mergePffReviews(cloud, mine),
+        mergeFilm: (cloud, mine) => mergeFilmSession(cloud, mine),
+      });
+      // Other coaches' grades that were already in the cloud show up here too.
+      if (saved) adoptPffWeek(teamId, wk, saved);
+    }, 400);
   };
 
   const hudlPublishTimerRef = useRef<any>(null);
@@ -2619,9 +2780,9 @@ export default function App() {
               cur.practiceDrillGroups,
               slice.practiceDrillGroups
             ),
-            pprPlayCounts: slice.pprPlayCounts || cur.pprPlayCounts,
-            pffReviews: slice.pffReviews || cur.pffReviews,
-            filmSession: slice.filmSession || cur.filmSession,
+            pprPlayCounts: mergePprPlayCounts(cur.pprPlayCounts, slice.pprPlayCounts),
+            pffReviews: mergePffReviews(cur.pffReviews, slice.pffReviews),
+            filmSession: mergeFilmSession(cur.filmSession, slice.filmSession),
           };
         };
         const updatedAll = { ...prev, [scopedKey]: patch(scopedKey), [week]: patch(week) };
@@ -2644,10 +2805,7 @@ export default function App() {
       }
     }
     if (Array.isArray(remote.roster) && take('roster', remote.rosterUpdatedAt)) {
-      const normalized = normalizeRoster(remote.roster, true);
-      setRoster(normalized);
-      latestStateRef.current.roster = normalized;
-      safeJSONSet('footballRoster', normalized);
+      adoptRoster(remote.roster, remote.deletedPlayers);
     }
     if (take('season', remote.seasonUpdatedAt)) {
       if (Array.isArray(remote.teams) && remote.teams.length) {
@@ -2670,16 +2828,27 @@ export default function App() {
       });
     }
     if (Array.isArray(remote.attendanceLogs) && take('attendance', remote.attendanceUpdatedAt)) {
-      setAttendanceLogs(remote.attendanceLogs);
-      latestStateRef.current.attendanceLogs = remote.attendanceLogs;
-      safeJSONSet('footballAttendanceLogs', remote.attendanceLogs);
+      adoptAttendance(remote.attendanceLogs, remote.deletedAttendance);
     }
     if (take('drills', remote.drillsUpdatedAt)) {
-      if (remote.cascadingDrills && !(Date.now() - lastLocalEditTimeRef.current < 20000 && activeUnitRef.current === 'drills')) {
-        const normalizedDrills = normalizeCascadingDrills(remote.cascadingDrills);
-        setCascadingDrills(normalizedDrills);
-        latestStateRef.current.cascadingDrills = normalizedDrills;
-        safeJSONSet('footballCascadingDrills', normalizedDrills);
+      if (remote.cascadingDrills) {
+        const applyDrills = (tree: any) => {
+          const normalizedDrills = normalizeCascadingDrills(tree);
+          setCascadingDrills(normalizedDrills);
+          latestStateRef.current.cascadingDrills = normalizedDrills;
+          safeJSONSet('footballCascadingDrills', normalizedDrills);
+        };
+        const editingDrills = Date.now() - lastLocalEditTimeRef.current < 20000 && activeUnitRef.current === 'drills';
+        if (!editingDrills) applyDrills(remote.cascadingDrills);
+        else {
+          // This coach is editing drills: hold the other coach's library and show it once they stop,
+          // unless they changed drills again after it arrived (their newer save then wins).
+          const arrivedAt = Date.now();
+          const tree = remote.cascadingDrills;
+          window.setTimeout(() => {
+            if (lastLocalEditTimeRef.current < arrivedAt) applyDrills(tree);
+          }, 20000);
+        }
       }
       if (remote.practiceTemplates) {
         const mergedTemplates = mergePracticeTemplates(
@@ -2990,16 +3159,22 @@ export default function App() {
       }
     };
 
+    // Leaving the page or switching apps (phones rarely send beforeunload): send what is waiting.
     const handleBeforeUnload = () => {
-      saveStateToStorage('beforeunload');
+      void flushAndSaveStateToStorage('beforeunload');
+    };
+    const handleHidden = () => {
+      if (document.visibilityState === 'hidden') void flushAndSaveStateToStorage('focusout');
     };
 
     document.addEventListener('focusout', handleGlobalFocusOut);
     window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleHidden);
 
     return () => {
       document.removeEventListener('focusout', handleGlobalFocusOut);
       window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleHidden);
     };
   }, []);
 
@@ -3735,6 +3910,14 @@ export default function App() {
     [seasonConfig]
   );
   const gradeWeekKey = getPreviousWeekKey(currentWeek, seasonWeekOptions.map((w) => w.key));
+  // Other coaches' PFF grades for the graded week arrive live.
+  useEffect(() => {
+    if (!gradeWeekKey) return;
+    return subscribePffWeekCloud(activeTeamId, normalizeScoutWeekKey(gradeWeekKey), (remote) =>
+      adoptPffWeek(activeTeamId, gradeWeekKey, remote)
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTeamId, gradeWeekKey]);
 
   // A week's depth chart and formations for the selected team (who was on the field in our film).
   const weekBoardsFor = (week: string) => {
@@ -5335,7 +5518,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
     practiceTemplates,
     scheduleEvents,
     attendanceLogs,
-    setAttendanceLogs,
+    setAttendanceLogs: handleUpdateAttendanceLogs,
     setRoster,
     saveStateToStorage,
     lastLocalEditTimeRef,
@@ -5386,7 +5569,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
     attendanceLogs,
     setDeletedPracticePlanIds,
     handleDeleteScheduleEvent,
-    setAttendanceLogs,
+    setAttendanceLogs: handleUpdateAttendanceLogs,
     flushAndSaveStateToStorage,
     seasonConfig,
     activeTeamPracticeData,
@@ -5406,6 +5589,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
     setWeeklyData,
     roster,
     debouncedSave,
+    onPlayersRemoved: notePlayersRemoved,
   });
 
 
@@ -5850,14 +6034,11 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   }
                 }}
                 onQuickAttendanceSave={(rec) => {
-                  setAttendanceLogs((prev) => {
-                    // Update or prepend record for the date
-                    const filtered = prev.filter((r) => r.id !== rec.id && r.date !== rec.date);
-                    const updated = [rec, ...filtered];
-                    safeJSONSet('footballAttendanceLogs', updated);
-                    return updated;
-                  });
-                  saveStateToStorage('attendance');
+                  // Replace this team's record for the date (other teams' records that day stay).
+                  handleUpdateAttendanceLogs((prev) => [
+                    rec,
+                    ...prev.filter((r) => r.id !== rec.id && !(r.date === rec.date && (!r.teamId || !rec.teamId || r.teamId === rec.teamId))),
+                  ]);
                 }}
                 attendanceLogs={attendanceLogs}
                 currentPracticeId={currentPracticeId}
@@ -6220,6 +6401,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                       ...existingWeek,
                       filmSession: mergeFilmSession(existingWeek.filmSession, nextSession),
                     };
+                    queuePffPublish(gradeWeek);
                     const updatedAll = {
                       ...prev,
                       [scopedKey]: updatedWeek,
@@ -6262,6 +6444,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                       ...existingWeek,
                       pffReviews: mergePffReviews(existingWeek.pffReviews, nextReviews),
                     };
+                    queuePffPublish(gradeWeek);
                     const updatedAll = {
                       ...prev,
                       [scopedKey]: updatedWeek,
@@ -6902,7 +7085,11 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 initialOpenTakeAttendance={autoOpenTakeAttendance}
                 onClearInitialOpenTakeAttendance={() => setAutoOpenTakeAttendance(false)}
                 onUpdatePlayer={handleUpdatePlayerInRoster}
-                onUpdateRoster={handleUpdateRoster}
+                onUpdateRoster={(teamPlayers) => {
+                  // This screen edits only the current team's players: keep every other team's.
+                  const shown = new Set(activeTeamRoster);
+                  handleUpdateRoster([...roster.filter((p) => !shown.has(p)), ...teamPlayers]);
+                }}
                 onAddScheduleEvent={handleAddScheduleEvent}
                 onUpdateScheduleEvent={(event) => handleUpdateScheduleEvent(event.id, event)}
                 onDeleteScheduleEvent={handleDeleteScheduleEvent}
@@ -6919,10 +7106,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   setSeasonConfig(cfg);
                   safeJSONSet('footballSeasonConfig', cfg);
                 }}
-                onUpdateAttendanceLogs={(logs) => {
-                  setAttendanceLogs(logs);
-                  safeJSONSet('footballAttendanceLogs', logs);
-                }}
+                onUpdateAttendanceLogs={handleUpdateAttendanceLogs}
               />
             )}
           </div>

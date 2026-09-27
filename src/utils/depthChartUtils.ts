@@ -58,6 +58,8 @@ export function normalizeRoster(
       }
 
       return {
+        ...(p.id ? { id: String(p.id) } : {}),
+        ...(typeof p.editedAt === 'number' ? { editedAt: p.editedAt } : {}),
         num: cleanNum,
         firstName: fName,
         lastName: lName,

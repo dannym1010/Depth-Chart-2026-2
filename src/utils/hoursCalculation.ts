@@ -73,9 +73,11 @@ export function calculatePlayerHours(
     weeklyHoursMap[wk] = 0;
   });
 
-  // Calculate from attendance logs
+  // Calculate from attendance logs (only this player's team: jersey numbers repeat across teams)
+  const teamOf = (t?: string) => String(t || '').replace(/-/g, '_');
   (allLogs || []).forEach((log) => {
     if (!log || typeof log !== 'object') return;
+    if (log.teamId && player.teamId && teamOf(log.teamId) !== teamOf(player.teamId)) return;
     const isPresent = Array.isArray(log.presentPlayerNums) && log.presentPlayerNums.includes(playerNum);
     const sessionHours = Number(log.hours || 0);
 

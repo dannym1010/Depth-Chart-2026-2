@@ -10,6 +10,7 @@ import {
   PracticePeriod,
 } from '../types';
 import { pickScoutBundle } from '../utils/scoutMerge';
+import { mergeAttendanceLogs, mergeRosters, mergeTombstones } from '../utils/recordMerge';
 import {
   INITIAL_DEFAULT_FORMATIONS,
   DEFAULT_CASCADING_DRILLS,
@@ -423,6 +424,12 @@ export function cloudModulesForScope(scope: string = ''): Array<
   | 'coaches'
   | 'formations'
 > | undefined {
+  // Several changes saved together ("roster+attendance"): every part's documents.
+  if (String(scope || '').includes('+')) {
+    const parts = String(scope).split('+').map((p) => cloudModulesForScope(p));
+    if (parts.some((p) => p === undefined)) return undefined;
+    return [...new Set(parts.flat() as any[])];
+  }
   const s = String(scope || '');
   if (s === 'force') return undefined;
   if (isBoardPatchScope(s)) return ['week'];
@@ -836,6 +843,7 @@ export type SharedBoardCloudUpdate = {
   weekUpdatedAt?: number;
   writerClientId?: string;
   roster?: any[];
+  deletedPlayers?: Record<string, number>;
   rosterUpdatedAt?: number;
   teams?: any[];
   seasonConfig?: any;
@@ -843,6 +851,7 @@ export type SharedBoardCloudUpdate = {
   staffList?: any[];
   staffUpdatedAt?: number;
   attendanceLogs?: any[];
+  deletedAttendance?: Record<string, number>;
   attendanceUpdatedAt?: number;
   cascadingDrills?: any;
   practiceTemplates?: any;
@@ -916,10 +925,16 @@ export async function saveSharedBoardCloud(payload: {
   week?: string;
   weekSlice?: Record<string, any>;
   roster?: any[];
+  deletedPlayers?: Record<string, number>;
+  /** Gets the roster as saved (merged with other coaches' edits already in the cloud). */
+  onRosterMerged?: (roster: any[], deleted: Record<string, number>) => void;
   teams?: any[];
   seasonConfig?: any;
   staffList?: any[];
   attendanceLogs?: any[];
+  deletedAttendance?: Record<string, number>;
+  /** Gets the attendance as saved (merged with other coaches' records already in the cloud). */
+  onAttendanceMerged?: (logs: any[], deleted: Record<string, number>) => void;
   cascadingDrills?: any;
   practiceTemplates?: any;
   practiceWeekdayTemplates?: any;
@@ -992,13 +1007,39 @@ export async function saveSharedBoardCloud(payload: {
         )
       );
     }
-    if (want('roster') && payload.roster) writes.push(col.doc('ops_roster').set(opsMeta({ roster: payload.roster })));
+    if (want('roster') && payload.roster) {
+      const ref = col.doc('ops_roster');
+      const outgoing = payload.roster;
+      writes.push(
+        db.runTransaction(async (tx: any) => {
+          const snap = await tx.get(ref);
+          const cur = snap?.exists ? snap.data() || {} : {};
+          const deleted = mergeTombstones(cur.deletedPlayers, payload.deletedPlayers);
+          const roster = mergeRosters(Array.isArray(cur.roster) ? cur.roster : [], outgoing, deleted);
+          tx.set(ref, cleanFirestoreData(opsMeta({ roster, deletedPlayers: deleted })));
+          return { roster, deleted };
+        }).then((res: { roster: any[]; deleted: Record<string, number> }) => payload.onRosterMerged?.(res.roster, res.deleted))
+      );
+    }
     if (want('season') && (payload.teams || payload.seasonConfig)) {
       writes.push(col.doc('ops_season').set(opsMeta({ teams: payload.teams, seasonConfig: payload.seasonConfig })));
     }
     if (want('staff') && payload.staffList) writes.push(col.doc('ops_staff').set(opsMeta({ staffList: payload.staffList })));
     if (want('attendance') && payload.attendanceLogs) {
-      writes.push(col.doc('ops_attendance').set(opsMeta({ attendanceLogs: payload.attendanceLogs })));
+      // Merge with what other coaches already saved, in one step, so two coaches taking
+      // attendance at the same time both keep their records.
+      const outgoing = payload.attendanceLogs;
+      const ref = col.doc('ops_attendance');
+      writes.push(
+        db.runTransaction(async (tx: any) => {
+          const snap = await tx.get(ref);
+          const cur = snap?.exists ? snap.data() || {} : {};
+          const deleted = mergeTombstones(cur.deletedAttendance, payload.deletedAttendance);
+          const logs = mergeAttendanceLogs(Array.isArray(cur.attendanceLogs) ? cur.attendanceLogs : [], outgoing, deleted);
+          tx.set(ref, cleanFirestoreData(opsMeta({ attendanceLogs: logs, deletedAttendance: deleted })));
+          return { logs, deleted };
+        }).then((res: { logs: any[]; deleted: Record<string, number> }) => payload.onAttendanceMerged?.(res.logs, res.deleted))
+      );
     }
     if (want('drills') && (payload.cascadingDrills || payload.practiceTemplates || payload.practiceWeekdayTemplates || payload.liveDrillSlotLayouts)) {
       writes.push(
@@ -1070,6 +1111,83 @@ export async function saveSharedBoardCloud(payload: {
     console.warn('saveSharedBoardCloud error:', err);
     return false;
   }
+}
+
+/**
+ * PFF grades and the film session for one week (the week being graded, usually last week).
+ * Merged with what other coaches already saved, in one step, so coaches grading at the same
+ * time keep each other's grades. Returns what was saved (everyone's grades), or null.
+ */
+export async function savePffWeekCloud(payload: {
+  teamId: string;
+  week: string;
+  pffReviews?: any;
+  filmSession?: any;
+  mergeReviews: (cloud: any, mine: any) => any;
+  mergeFilm: (cloud: any, mine: any) => any;
+}): Promise<{ pffReviews?: any; filmSession?: any } | null> {
+  try {
+    if (isFirestoreQuotaPaused()) return null;
+    const { db } = getFirebaseServices();
+    if (!db || !payload.teamId || !payload.week) return null;
+    if (!payload.pffReviews && !payload.filmSession) return null;
+    const ref = db.collection('teamData').doc(opsWeekDocId(payload.teamId, payload.week));
+    return await db.runTransaction(async (tx: any) => {
+      const snap = await tx.get(ref);
+      const cur = snap?.exists ? snap.data() || {} : {};
+      const pffReviews = payload.pffReviews ? payload.mergeReviews(cur.pffReviews, payload.pffReviews) : cur.pffReviews;
+      const filmSession = payload.filmSession ? payload.mergeFilm(cur.filmSession, payload.filmSession) : cur.filmSession;
+      tx.set(
+        ref,
+        cleanFirestoreData(
+          opsMeta({
+            teamId: payload.teamId,
+            week: String(payload.week).replace(/[^a-zA-Z0-9_-]/g, '') || '1',
+            ...(pffReviews ? { pffReviews } : {}),
+            ...(filmSession ? { filmSession } : {}),
+          })
+        ),
+        { merge: true }
+      );
+      return { pffReviews, filmSession };
+    });
+  } catch (err) {
+    noteFirestoreError(err);
+    console.warn('savePffWeekCloud error:', err);
+    return null;
+  }
+}
+
+/** Live PFF grades / film session for the week being graded. */
+export function subscribePffWeekCloud(
+  teamId: string,
+  week: string,
+  onChange: (data: { pffReviews?: any; filmSession?: any; pprPlayCounts?: any }) => void
+): () => void {
+  if (isFirestoreQuotaPaused() || !teamId || !week) return () => {};
+  const { db } = getFirebaseServices();
+  if (!db || typeof db.collection !== 'function') return () => {};
+  const unsub = db
+    .collection('teamData')
+    .doc(opsWeekDocId(teamId, week))
+    .onSnapshot(
+      (snap: any) => {
+        if (!snap?.exists || snap.metadata?.hasPendingWrites) return;
+        const data = snap.data() || {};
+        if (data.pffReviews || data.filmSession || data.pprPlayCounts) {
+          onChange({ pffReviews: data.pffReviews, filmSession: data.filmSession, pprPlayCounts: data.pprPlayCounts });
+        }
+      },
+      (err: any) => {
+        noteFirestoreError(err);
+        console.warn('subscribePffWeekCloud error:', err);
+      }
+    );
+  return () => {
+    try {
+      unsub();
+    } catch {}
+  };
 }
 
 export async function patchSharedWeekCloud(payload: {
@@ -1181,6 +1299,7 @@ export async function fetchSharedBoardCloud(
       weekUpdatedAt: weekSnap?.updatedAt,
       writerClientId: weekSnap?.writerClientId,
       roster: roster?.roster,
+      deletedPlayers: roster?.deletedPlayers,
       rosterUpdatedAt: roster?.updatedAt,
       teams: season?.teams,
       seasonConfig: season?.seasonConfig,
@@ -1188,6 +1307,7 @@ export async function fetchSharedBoardCloud(
       staffList: staff?.staffList,
       staffUpdatedAt: staff?.updatedAt,
       attendanceLogs: attendance?.attendanceLogs,
+      deletedAttendance: attendance?.deletedAttendance,
       attendanceUpdatedAt: attendance?.updatedAt,
       cascadingDrills: drills?.cascadingDrills,
       practiceTemplates: drills?.practiceTemplates,
@@ -1264,7 +1384,7 @@ export function subscribeSharedBoardCloud(
       weekSlice: data,
       weekUpdatedAt: data.updatedAt,
     })),
-    listen('ops_roster', (data) => ({ roster: data.roster, rosterUpdatedAt: data.updatedAt })),
+    listen('ops_roster', (data) => ({ roster: data.roster, deletedPlayers: data.deletedPlayers, rosterUpdatedAt: data.updatedAt })),
     listen('ops_season', (data) => ({
       teams: data.teams,
       seasonConfig: data.seasonConfig,
@@ -1273,6 +1393,7 @@ export function subscribeSharedBoardCloud(
     listen('ops_staff', (data) => ({ staffList: data.staffList, staffUpdatedAt: data.updatedAt })),
     listen('ops_attendance', (data) => ({
       attendanceLogs: data.attendanceLogs,
+      deletedAttendance: data.deletedAttendance,
       attendanceUpdatedAt: data.updatedAt,
     })),
     listen('ops_drills', (data) => ({
