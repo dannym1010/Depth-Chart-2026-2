@@ -262,6 +262,7 @@ export function hydrateFilmSession(session?: Partial<FilmSession> | null): FilmS
     packagesUpdatedAt: session?.packagesUpdatedAt,
     packagesColorOrder: session?.packagesColorOrder,
     slotLabels: session?.slotLabels && typeof session.slotLabels === 'object' ? { ...session.slotLabels } : {},
+    packagesSource: session?.packagesSource,
   };
 }
 

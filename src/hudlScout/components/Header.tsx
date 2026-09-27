@@ -10,6 +10,8 @@ export interface ScoutGame {
   name: string;
   playCount: number;
   addedAt: number;
+  /** Our-team film: the week this game was played (links it to PFF grading). "" = a coach chose no week. */
+  week?: string;
 }
 
 interface HeaderProps {
@@ -33,6 +35,9 @@ interface HeaderProps {
   filterCount: number;
   filtersOpen: boolean;
   onToggleFilters: () => void;
+  /** Our own film: which week each game was played. */
+  weekOptions?: { key: string; label: string }[];
+  onSetGameWeek?: (gameId: string, week: string) => void;
 }
 
 const segBtn = (on: boolean) =>
@@ -63,6 +68,8 @@ export const Header: React.FC<HeaderProps> = ({
   filterCount,
   filtersOpen,
   onToggleFilters,
+  weekOptions,
+  onSetGameWeek,
 }) => {
   const own = scoutTarget === 'own';
   const units: [ScoutUnit, string, number][] = [
@@ -162,6 +169,26 @@ export const Header: React.FC<HeaderProps> = ({
               <button type="button" onClick={() => onSelectGame?.(g.id)} className="text-left cursor-pointer">
                 {g.name} · {g.playCount} plays
               </button>
+              {own && weekOptions && onSetGameWeek && (
+                <select
+                  value={g.week || ''}
+                  onChange={(e) => onSetGameWeek(g.id, e.target.value)}
+                  className={`ml-1 h-6 rounded-md border text-[11px] font-bold px-1 cursor-pointer ${
+                    g.week
+                      ? 'border-transparent bg-black/10 dark:bg-white/10 text-inherit'
+                      : 'border-amber-400 bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200'
+                  }`}
+                  title="Which week this game was played (PFF grades it for that week)"
+                  aria-label={`Week for ${g.name}`}
+                >
+                  <option value="">Week?</option>
+                  {weekOptions.map((w) => (
+                    <option key={w.key} value={w.key}>
+                      {w.label}
+                    </option>
+                  ))}
+                </select>
+              )}
               <button
                 type="button"
                 onClick={() => onRemoveGame(g.id)}

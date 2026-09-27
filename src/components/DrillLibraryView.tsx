@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
+  Pencil,
   Dumbbell,
   Folder,
   FolderOpen,
@@ -31,6 +32,7 @@ import {
 } from 'lucide-react';
 import { DrillFolder, DrillItem, UserRole } from '../types';
 import { DrillCategoryDrawer, stripLeadingIcon } from './drills/DrillCategoryDrawer';
+import { DrillLibraryEditor } from './drills/DrillLibraryEditor';
 
 const folderAnchorId = (name: string) => `drill-folder-${name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`;
 
@@ -64,6 +66,8 @@ interface DrillLibraryViewProps {
   onForceSyncCloud: () => void;
   userRole: UserRole;
   onNavigateToWhiteboard?: (drillId?: string, category?: string) => void;
+  /** Replace the whole library (the editor makes each change on a copy of the tree). */
+  onReplaceLibrary?: (next: DrillFolder[]) => void;
 }
 
 interface DrillRowItemProps {
@@ -246,7 +250,9 @@ export const DrillLibraryView: React.FC<DrillLibraryViewProps> = ({
   onForceSyncCloud,
   userRole,
   onNavigateToWhiteboard,
+  onReplaceLibrary,
 }) => {
+  const [isEditing, setIsEditing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [draggedDrill, setDraggedDrill] = useState<{
     sourcePath: string;
@@ -825,6 +831,14 @@ export const DrillLibraryView: React.FC<DrillLibraryViewProps> = ({
     );
   };
 
+  if (isEditing && onReplaceLibrary) {
+    return (
+      <div className="space-y-4 pb-12">
+        <DrillLibraryEditor tree={cascadingDrills} onChange={onReplaceLibrary} onDone={() => setIsEditing(false)} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4 pb-12">
       {/* Top Segmented Switcher (Drill Library vs Chalkboard Diagrams) */}
@@ -930,8 +944,21 @@ export const DrillLibraryView: React.FC<DrillLibraryViewProps> = ({
               </button>
             </div>
 
+            {/* Edit the library: sections and drills */}
+            {userRole === 'admin' && onReplaceLibrary && (
+              <button
+                type="button"
+                onClick={() => setIsEditing(true)}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-all cursor-pointer"
+                title="Rename, add, move and delete sections and drills"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                <span>Edit library</span>
+              </button>
+            )}
+
             {/* Quick Add Top Folder */}
-            {userRole === 'admin' && (
+            {userRole === 'admin' && !onReplaceLibrary && (
               <button
                 onClick={onAddTopFolder}
                 className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1 transition-all active:scale-95 cursor-pointer"

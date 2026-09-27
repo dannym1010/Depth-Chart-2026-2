@@ -106,3 +106,40 @@ export function clearScoutUploads(bundle: ScoutBundle, fallbackName: string): Sc
     updatedAt: Date.now(),
   };
 }
+
+/**
+ * Which week an uploaded game of ours was played, from the schedule: the game whose opponent's name
+ * appears in the file name ("MSA vs Suffern" -> the Suffern game). Only answers when exactly one game matches.
+ */
+export function guessGameWeek(
+  gameName: string,
+  events: { type?: string; week?: string | number; opponent?: string }[]
+): string | undefined {
+  const name = ` ${String(gameName || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `;
+  const hits = events.filter((e) => {
+    if (!['game', 'tournament', 'scrimmage'].includes(String(e.type || '')) || !e.opponent || e.week == null) return false;
+    const opp = String(e.opponent)
+      .toLowerCase()
+      .replace(/^(at|@|vs\.?)\s+/, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    return opp.length >= 3 && name.includes(` ${opp} `);
+  });
+  const weeks = [...new Set(hits.map((e) => String(e.week)))];
+  return weeks.length === 1 ? weeks[0] : undefined;
+}
+
+/** Our games for one week (PFF grades the plays of that game). */
+export function gamesForWeek(bundle: Pick<ScoutBundle, 'games'>, week: string): ScoutGame[] {
+  return bundle.games.filter((g) => g.week != null && String(g.week) === String(week));
+}
+
+/** The plays of our game(s) in one week, in play order. */
+export function playsForWeek(bundle: Pick<ScoutBundle, 'games' | 'plays'>, week: string): Play[] {
+  const ids = new Set(gamesForWeek(bundle, week).map((g) => g.id));
+  if (!ids.size) return [];
+  return bundle.plays.filter((p) => {
+    if (p.gameId) return ids.has(p.gameId);
+    return ids.has(bundle.games[0]?.id);
+  });
+}

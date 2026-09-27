@@ -163,6 +163,7 @@ import { TendenciesView } from './components/scouting/TendenciesView';
 import { PlaybookGuidesView } from './components/PlaybookGuidesView';
 import { WhiteboardView } from './components/WhiteboardView';
 import { DrillLibraryView } from './components/DrillLibraryView';
+import { PlayLibraryView } from './components/playbook/PlayLibraryView';
 import { PracticePlanView } from './components/PracticePlanView';
 import { StaffManagerView } from './components/StaffManagerView';
 import { ScheduleView } from './components/ScheduleView';
@@ -1768,7 +1769,7 @@ export default function App() {
       safeJSONSet('footballMasterPlays', data.masterPlayLibrary);
     }
     if (!skipBoardFromGiantDoc && data.playDatabase && Array.isArray(data.playDatabase)) {
-      if (Date.now() - lastLocalEditTimeRef.current < 15000 && (activeUnitRef.current === 'call_sheet' || activeUnitRef.current === 'wristband')) {
+      if (Date.now() - lastLocalEditTimeRef.current < 15000 && (activeUnitRef.current === 'call_sheet' || activeUnitRef.current === 'wristband' || activeUnitRef.current === 'playbook')) {
         // Preserving local play database changes during active session
       } else {
         setPlayDatabase(data.playDatabase);
@@ -2707,7 +2708,7 @@ export default function App() {
         latestStateRef.current.masterPlayLibrary = remote.masterPlayLibrary;
         safeJSONSet('footballMasterPlays', remote.masterPlayLibrary);
       }
-      if (Array.isArray(remote.playDatabase) && !(Date.now() - lastLocalEditTimeRef.current < 20000 && (activeUnitRef.current === 'call_sheet' || activeUnitRef.current === 'wristband'))) {
+      if (Array.isArray(remote.playDatabase) && !(Date.now() - lastLocalEditTimeRef.current < 20000 && (activeUnitRef.current === 'call_sheet' || activeUnitRef.current === 'wristband' || activeUnitRef.current === 'playbook'))) {
         setPlayDatabase(remote.playDatabase);
         latestStateRef.current.playDatabase = remote.playDatabase;
         safeJSONSet('footballPlayDatabase', remote.playDatabase);
@@ -3673,6 +3674,22 @@ export default function App() {
     const srcWk = getPriorSeasonWeekKey(currentWeek, seasonConfig);
     return srcWk ? formatWeekCopyLabel(srcWk) : '';
   }, [currentWeek, seasonConfig]);
+
+  // Our games are linked to the week they were played; PFF grades last week's game.
+  const seasonWeekOptions = useMemo(
+    () => getSeasonWeekList(seasonConfig).map((w) => ({ key: w.key, label: w.label || formatWeekLabel(w.key, seasonConfig) })),
+    [seasonConfig]
+  );
+  const gradeWeekKey = getPreviousWeekKey(currentWeek, seasonWeekOptions.map((w) => w.key));
+
+  // Play Bank (call sheets, wristbands, play tags) - one place that saves it.
+  const handleUpdatePlayDatabase = (newDb: PlayDatabaseEntry[]) => {
+    lastLocalEditTimeRef.current = Date.now();
+    setPlayDatabase(newDb);
+    latestStateRef.current.playDatabase = newDb;
+    safeJSONSet('footballPlayDatabase', newDb);
+    debouncedSave('plays');
+  };
 
   // Team Access Control & Data Filtering
   const currentUserCoach = staffList.find(
@@ -6018,6 +6035,25 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
               />
             )}
 
+            {activeUnit === 'playbook' && (
+              <PlayLibraryView
+                playDatabase={playDatabase}
+                onUpdatePlayDatabase={handleUpdatePlayDatabase}
+                deletedPlayIds={deletedPlayIds}
+                onUpdateDeletedPlayIds={(ids) => {
+                  setDeletedPlayIds(ids);
+                  latestStateRef.current.deletedPlayIds = ids;
+                  safeJSONSet('footballDeletedPlayIds', ids);
+                  debouncedSave('plays');
+                }}
+                ownTeamScout={ownTeamHudlScout[activeTeamId] || ownTeamHudlScout.team_10u}
+                teamName={currentActiveTeam?.name || 'Mahopac 10U'}
+                userRole={userRole}
+                onOpenScouting={() => setActiveUnit('hudl_scout')}
+                onOpenPff={() => setActiveUnit('ppr')}
+              />
+            )}
+
             {activeUnit === 'ppr' && (
               <PlayerPprView
                 currentWeek={currentWeek}
@@ -6062,6 +6098,15 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 userRole={userRole}
                 gradeCriteria={pffGradeCriteria}
                 playerGroups={pffPlayerGroups}
+                sharedFilm={{
+                  week: gradeWeekKey,
+                  weekLabel: formatWeekLabel(gradeWeekKey, seasonConfig),
+                  teamName: currentActiveTeam?.name || 'Mahopac 10U',
+                  ownTeamScout: ownTeamHudlScout[activeTeamId] || ownTeamHudlScout.team_10u,
+                  onUpdateOwnTeamScout: persistOwnTeamHudlScout,
+                  playDatabase,
+                  onUpdatePlayDatabase: handleUpdatePlayDatabase,
+                }}
                 filmSession={
                   resolveWeekState(
                     weeklyData,
@@ -6187,6 +6232,8 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onUpdateScouting={persistWeekScouting}
                 ownTeamScout={ownTeamHudlScout[activeTeamId] || ownTeamHudlScout.team_10u}
                 onUpdateOwnTeamScout={persistOwnTeamHudlScout}
+                weekOptions={seasonWeekOptions}
+                defaultGameWeek={gradeWeekKey}
                 staffList={staffList}
                 savedCoaches={savedCoaches}
                 scheduleEvents={activeTeamScheduleEvents}
@@ -6278,6 +6325,10 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onNavigateToSchedule={() => setActiveUnit('schedule')}
                 onNavigateToTendencies={() => setActiveUnit('tendencies')}
                 onNavigateToHtmlTendencies={() => setActiveUnit('tendencies')}
+                playDatabase={playDatabase}
+                onUpdatePlayDatabase={handleUpdatePlayDatabase}
+                weekOptions={seasonWeekOptions}
+                defaultGameWeek={gradeWeekKey}
               />
             )}
 
@@ -6574,6 +6625,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onExportJSON={handleExportDrillsJSON}
                 onImportJSONClick={() => drillJsonInputRef.current?.click()}
                 onForceSyncCloud={() => saveStateToStorage('all')}
+                onReplaceLibrary={(next) => updateCascadingDrillsAndSave(() => next)}
                 onResetDefaults={() => {
                   if (confirm('Reset Drill Library to default categories?')) {
                     updateCascadingDrillsAndSave(() => deepClone(DEFAULT_CASCADING_DRILLS));
@@ -6804,7 +6856,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
           </div>
 
           {/* Master Roster Sidebar (Shown on Depth Charts and Scrimmage) */}
-          {!['home', 'mobile_hub', 'game_day', 'wristband', 'drills', 'scouting', 'hudl_scout', 'guide', 'practice', 'users', 'schedule', 'compliance', 'call_sheet', 'whiteboard', 'ppr'].includes(
+          {!['home', 'mobile_hub', 'game_day', 'wristband', 'drills', 'scouting', 'hudl_scout', 'guide', 'practice', 'users', 'schedule', 'compliance', 'call_sheet', 'whiteboard', 'ppr', 'playbook'].includes(
             activeUnit
           ) && (
             <div className="hidden lg:block shrink-0 w-80 self-start sticky top-[10rem] z-20 h-[calc(100dvh-11rem)] print:hidden">

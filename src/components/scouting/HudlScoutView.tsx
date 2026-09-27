@@ -20,6 +20,10 @@ import { ActiveFiltersBanner, FilterPanel, activeFilterLabels } from '../../hudl
 import { makeVoice } from '../../hudlScout/components/report/reportText';
 import { Card, SectionHeader } from '../../hudlScout/components/report/ui';
 import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
+import type { PlayDatabaseEntry } from '../../types/callSheet';
+import { tagPlays } from '../../hudlScout/utils/playTags';
+import { newPlayEntry } from '../../utils/playbookImport';
+import { CallResultsCard } from '../playbook/CallResultsCard';
 import { pickScoutBundle, scoutFingerprint } from '../../utils/remoteStateMerge';
 import {
   ScoutBundle,
@@ -27,6 +31,7 @@ import {
   bundleFromSaved,
   removeScoutGame,
   clearScoutUploads,
+  guessGameWeek,
 } from '../../hudlScout/scoutBundle';
 
 export interface HudlScoutViewProps {
@@ -44,6 +49,13 @@ export interface HudlScoutViewProps {
   onNavigateToSchedule?: () => void;
   onNavigateToTendencies?: () => void;
   onNavigateToHtmlTendencies?: () => void;
+  /** Play Bank, for tagging each film play with the play that was run. */
+  playDatabase?: PlayDatabaseEntry[];
+  onUpdatePlayDatabase?: (next: PlayDatabaseEntry[]) => void;
+  /** Season weeks, so each of our games can be linked to the week it was played (PFF). */
+  weekOptions?: { key: string; label: string }[];
+  /** Week our most recent game was played (default for a new upload of our film). */
+  defaultGameWeek?: string;
 }
 
 export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
@@ -55,6 +67,10 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   ownTeamScout,
   onUpdateOwnTeamScout,
   onUpdateScouting,
+  playDatabase,
+  onUpdatePlayDatabase,
+  weekOptions,
+  defaultGameWeek,
 }) => {
   const saved = scouting.hudlScout;
   const weekLabel = (() => {
@@ -101,8 +117,39 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     setOwnBundle((prev) => ({ ...prev, plays: tagPlayUnits(prev.plays, playId, unit, scope), updatedAt: Date.now() }));
   };
 
+  // Tag film plays with the play that was run (Play Bank). Bumping updatedAt keeps the tag through sync.
+  const handleTagPlays = (ids: string[], entry: PlayDatabaseEntry | null) => {
+    setBundle((prev) => ({ ...prev, plays: tagPlays(prev.plays, ids, entry), updatedAt: Date.now() }));
+  };
+  const handleCreateCall = (name: string, unit: 'offense' | 'defense') => {
+    const base = newPlayEntry(name, unit);
+    // Calls typed while tagging an opponent are filed apart from our own plays.
+    const entry = scoutTarget === 'opponent' ? { ...base, category: 'Opponent plays', tags: ['Opponent'] } : base;
+    onUpdatePlayDatabase?.([...(playDatabase || []), entry]);
+    return entry;
+  };
+  const handleSetGameWeek = (gameId: string, week: string) => {
+    setOwnBundle((prev) => ({
+      ...prev,
+      games: prev.games.map((g) => (g.id === gameId ? { ...g, week } : g)),
+      updatedAt: Date.now(),
+    }));
+  };
+
   const bundle = scoutTarget === 'own' ? ownBundle : oppBundle;
   const setBundle = scoutTarget === 'own' ? setOwnBundle : setOppBundle;
+
+  // Our games uploaded before weeks were tracked: fill in the week from the schedule when it is clear.
+  useEffect(() => {
+    if (!scheduleEvents.length) return;
+    const missing = ownBundle.games.filter((g) => g.week === undefined && guessGameWeek(g.name, scheduleEvents));
+    if (!missing.length) return;
+    setOwnBundle((prev) => ({
+      ...prev,
+      games: prev.games.map((g) => (g.week !== undefined ? g : { ...g, week: guessGameWeek(g.name, scheduleEvents) })),
+      updatedAt: Date.now(),
+    }));
+  }, [ownBundle.games, scheduleEvents]);
   const allPlays = bundle.plays;
   const plays = useMemo(() => {
     if (selectedGameId === 'all') return allPlays;
@@ -250,12 +297,13 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     }));
   };
 
-  const applyPlays = (newPlays: Play[], name: string, append: boolean, scheme = '') => {
+  const applyPlays = (newPlays: Play[], name: string, append: boolean, scheme = '', week?: string) => {
     const game: ScoutGame = {
       id: `game-${Date.now()}`,
       name,
       playCount: newPlays.length,
       addedAt: Date.now(),
+      ...(scoutTarget === 'own' && week ? { week } : {}),
     };
     const tagged = newPlays.map((p, i) => ({ ...p, id: `${p.id}-${game.id}-${i}`, gameId: game.id }));
     setBundle((prev) => {
@@ -291,7 +339,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     applyPlays(newPlays, sample.name, false, sample.offensiveScheme || '');
   };
 
-  const handleLoadCsv = (csvContent: string, opponent: string, customMapping?: ColumnMapping, append?: boolean) => {
+  const handleLoadCsv = (csvContent: string, opponent: string, customMapping?: ColumnMapping, append?: boolean, week?: string) => {
     const { headers, rows } = parseCsvRows(csvContent);
     const mapping = customMapping || autoDetectColumnMapping(headers);
     const newPlays = rows.map((r, i) => normalizeHudlRow(r, mapping, i));
@@ -299,7 +347,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       opponent ||
       (scoutTarget === 'own' ? ownFallback : scouting.opponent || `Week ${currentWeek} opponent`);
     setCurrentDataset(null);
-    applyPlays(newPlays, name, Boolean(append));
+    applyPlays(newPlays, name, Boolean(append), '', week);
     if (scoutTarget === 'opponent') onUpdateScouting('opponent', name);
   };
 
@@ -350,6 +398,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         filterCount={filterLabels.length}
         filtersOpen={filtersOpen}
         onToggleFilters={() => setFiltersOpen((o) => !o)}
+        weekOptions={weekOptions}
+        onSetGameWeek={handleSetGameWeek}
       />
 
       {filtersOpen && (
@@ -449,7 +499,16 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
               />
             )}
             {activeTab === 'plays' && (
-              <PlaysTable plays={filteredPlays} onSetUnit={scoutTarget === 'own' ? handleSetUnit : undefined} />
+              <>
+                <CallResultsCard plays={filteredPlays} own={scoutTarget === 'own'} />
+                <PlaysTable
+                  plays={filteredPlays}
+                  onSetUnit={scoutTarget === 'own' ? handleSetUnit : undefined}
+                  playDatabase={playDatabase}
+                  onTagPlays={onUpdatePlayDatabase ? handleTagPlays : undefined}
+                  onCreateCall={onUpdatePlayDatabase ? handleCreateCall : undefined}
+                />
+              </>
             )}
             {activeTab === 'units' && scoutTarget === 'own' && (
               <UnitStatsView
@@ -468,6 +527,9 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         onLoadCsv={handleLoadCsv}
         onSelectSample={handleSelectSample}
         hasExistingPlays={plays.length > 0}
+        weekOptions={scoutTarget === 'own' ? weekOptions : undefined}
+        guessWeek={(name) => guessGameWeek(name, scheduleEvents)}
+        defaultWeek={defaultGameWeek}
       />
       <CallSheetModal
         isOpen={isCallSheetOpen}

@@ -23,6 +23,7 @@ export const VALID_UNITS: Set<string> = new Set([
   'drills',
   'compliance',
   'ppr',
+  'playbook',
   'guide',
   'whiteboard',
   'users',

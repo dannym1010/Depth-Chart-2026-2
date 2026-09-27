@@ -45,6 +45,14 @@ export interface Play {
   gameId?: string;
   /** Our unit on the field for this play (Black / Blue / Gold), tagged by a coach. */
   unit?: TeamUnit;
+  /** Play Bank play a coach tagged this snap as (id + name at the time of tagging). */
+  playCallId?: string;
+  playCall?: string;
+  /** playName / formation from the file, put back when the tag is removed. */
+  untaggedName?: string;
+  untaggedFormation?: string;
+  /** Hudl PLAY TYPE text as uploaded ("KO", "Punt", "KO Rec"), for telling kicks apart. */
+  rawPlayType?: string;
 }
 
 export interface DownDistGroup {

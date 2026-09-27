@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Activity, ChevronRight, FileSpreadsheet, Plus, RotateCcw, Shield, Trash2, X, Zap } from 'lucide-react';
 import { FormationBoard, PlacedPlayer, RosterPlayer, UserRole } from '../types';
-import { PffPlayClipsView } from './PffPlayClipsView';
+import { PffPlayClipsView, PffSharedFilm } from './PffPlayClipsView';
 import { emptyFilmSession, FilmSession } from '../utils/hudlFilmImport';
 import {
   DEFAULT_PFF_GRADE_CRITERIA,
@@ -52,6 +52,8 @@ interface PlayerPprViewProps {
   filmSession?: FilmSession;
   onUpdateFilmSession: (next: FilmSession) => void;
   userRole: UserRole;
+  /** Our film play log shared with Scouting → Our team. */
+  sharedFilm?: PffSharedFilm;
 }
 
 const GRADE_OPTIONS = [
@@ -122,6 +124,7 @@ export const PlayerPprView: React.FC<PlayerPprViewProps> = ({
   filmSession,
   onUpdateFilmSession,
   userRole,
+  sharedFilm,
 }) => {
   const [viewMode, setViewMode] = useState<'players' | 'plays'>('plays');
   const [side, setSide] = useState<PprSide>('offense');
@@ -262,7 +265,7 @@ export const PlayerPprView: React.FC<PlayerPprViewProps> = ({
             </h2>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-3xl">
               {viewMode === 'plays'
-                ? 'Import a Hudl PlaylistData export. ODK is offense, defense, or kicking. Pick Black (1s), Gold (2s), or Blue (3s), swap players, and grade everyone on that play.'
+                ? 'Same play log as Scouting → Our team. Tag the play call and who was in (Black 1s, Gold 2s, Blue 3s); players fill in from that week’s depth chart. Then grade everyone on the play.'
                 : 'Full 21 offense and 4-4 defense from last week, ranked by average grade on each side.'}
             </p>
           </div>
@@ -307,6 +310,7 @@ export const PlayerPprView: React.FC<PlayerPprViewProps> = ({
           filmSession={filmSession || emptyFilmSession()}
           onUpdateFilmSession={onUpdateFilmSession}
           userRole={userRole}
+          sharedFilm={sharedFilm}
         />
       ) : (
         <>

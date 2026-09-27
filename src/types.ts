@@ -20,6 +20,7 @@ export type UnitType =
   | 'drills' 
   | 'compliance'
   | 'ppr'
+  | 'playbook'
   | 'guide' 
   | 'whiteboard'
   | 'users';
@@ -479,6 +480,9 @@ export interface HudlImportedPlay {
   receiver?: string;
   keyPlayer?: string;
   efficient?: string;
+  /** Play Bank call tagged on this play (shared play log). */
+  playCall?: string;
+  playCallId?: string;
 }
 
 export interface FilmPlayAssignment {
@@ -506,6 +510,8 @@ export interface FilmSession {
   packagesColorOrder?: string;
   /** Custom display names for PFF slots, keyed as "offense:QB" or "special:kickoff:L1". */
   slotLabels?: Record<string, string>;
+  /** 'auto': Black/Gold/Blue follow that week's depth chart live. 'manual': a coach edited the units. */
+  packagesSource?: 'auto' | 'manual';
 }
 
 export interface WeekState {

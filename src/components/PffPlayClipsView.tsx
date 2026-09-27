@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { FileSpreadsheet, Shield, Upload, Users, Zap } from 'lucide-react';
+import { ArrowRightLeft, FileSpreadsheet, Link2, ListChecks, Shield, Upload, Users, Zap } from 'lucide-react';
 import { FormationBoard, PlacedPlayer, RosterPlayer, UserRole } from '../types';
+import type { PlayDatabaseEntry } from '../types/callSheet';
 import {
   formatPffAverage,
   PffGradeCriteriaMap,
@@ -13,7 +14,9 @@ import {
 } from '../utils/pprGroups';
 import {
   FilmPlayAssignment,
+  FilmPlayerRef,
   FilmSession,
+  FilmSlotDef,
   FilmUnitColor,
   FILM_UNIT_COLORS,
   FILM_PACKAGES_COLOR_ORDER,
@@ -39,6 +42,26 @@ import {
 } from '../utils/hudlFilmImport';
 import { mergeFilmSession } from '../utils/remoteStateMerge';
 import { getTeamColorConfig } from './practiceDrillsUtils';
+import { ScoutBundle, bundleFromSaved, gamesForWeek, playsForWeek, removeScoutGame } from '../hudlScout/scoutBundle';
+import type { Play } from '../hudlScout/types/football';
+import { tagPlayUnits } from '../hudlScout/utils/unitStats';
+import { callUsage, tagPlays } from '../hudlScout/utils/playTags';
+import { autoDetectColumnMapping, isSpreadsheetFilename, normalizeHudlRow, parseCsvRows, workbookBufferToCsv } from '../hudlScout/utils/csvParser';
+import { formationForCall, lineupFromFormation, moveFilmIntoSharedLog, scoutPlayToFilmPlay } from '../utils/pffFilm';
+import { newPlayEntry } from '../utils/playbookImport';
+import { CallButton, TagPlaysPanel } from './playbook/CallPicker';
+
+/** Our film is one play log: the self-scout upload for a week is what PFF grades for that week. */
+export interface PffSharedFilm {
+  /** Week being graded (the game that was just played). */
+  week: string;
+  weekLabel: string;
+  teamName: string;
+  ownTeamScout?: any;
+  onUpdateOwnTeamScout?: (bundle: ScoutBundle) => void;
+  playDatabase?: PlayDatabaseEntry[];
+  onUpdatePlayDatabase?: (next: PlayDatabaseEntry[]) => void;
+}
 
 interface PffPlayClipsViewProps {
   roster: RosterPlayer[];
@@ -50,6 +73,7 @@ interface PffPlayClipsViewProps {
   filmSession: FilmSession;
   onUpdateFilmSession: (next: FilmSession) => void;
   userRole: UserRole;
+  sharedFilm?: PffSharedFilm;
 }
 
 const GRADE_OPTIONS = [
@@ -104,6 +128,18 @@ function assignmentFor(session: FilmSession, playId: string): FilmPlayAssignment
   );
 }
 
+/** Read one of our game files (Hudl CSV / Excel) into play-log plays for a new game. */
+async function readGameFile(file: File, gameId: string): Promise<Play[]> {
+  const buffer = await file.arrayBuffer();
+  const csv = isSpreadsheetFilename(file.name) ? workbookBufferToCsv(buffer) : new TextDecoder().decode(buffer);
+  const { headers, rows } = parseCsvRows(csv);
+  const mapping = autoDetectColumnMapping(headers);
+  return rows.map((r, i) => {
+    const p = normalizeHudlRow(r, mapping, i);
+    return { ...p, id: `${p.id}-${gameId}-${i}`, gameId };
+  });
+}
+
 export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
   roster,
   priorDepthChart,
@@ -114,6 +150,7 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
   filmSession,
   onUpdateFilmSession,
   userRole,
+  sharedFilm,
 }) => {
   const canEdit = userRole === 'admin' || userRole === 'assistant';
   const fileRef = useRef<HTMLInputElement>(null);
@@ -123,6 +160,8 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
   const [packageSide, setPackageSide] = useState<'offense' | 'defense' | 'special'>('offense');
   const [stKind, setStKind] = useState<FilmStKind>('kickoff');
   const [importError, setImportError] = useState('');
+  const [importNote, setImportNote] = useState('');
+  const [tagging, setTagging] = useState(false);
 
   const reviewsRef = useRef(reviews);
   reviewsRef.current = reviews;
@@ -130,9 +169,43 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
   const session = mergeFilmSession(sessionRef.current, hydrateFilmSession(filmSession)) || hydrateFilmSession(filmSession);
   sessionRef.current = session;
 
+  // ---- The shared play log (self-scout film for this week) ----
+  const teamName = sharedFilm?.teamName || 'Our team';
+  const ownBundle = useMemo(() => bundleFromSaved(sharedFilm?.ownTeamScout, teamName), [sharedFilm?.ownTeamScout, teamName]);
+  const bundleRef = useRef(ownBundle);
+  useEffect(() => {
+    if (ownBundle.updatedAt >= bundleRef.current.updatedAt) bundleRef.current = ownBundle;
+  }, [ownBundle]);
+  const canUseShared = Boolean(sharedFilm?.onUpdateOwnTeamScout);
+  const weekGames = sharedFilm ? gamesForWeek(ownBundle, sharedFilm.week) : [];
+  const sharedScoutPlays = useMemo(() => (sharedFilm ? playsForWeek(ownBundle, sharedFilm.week) : []), [ownBundle, sharedFilm?.week]);
+  const usingShared = sharedScoutPlays.length > 0;
+  const scoutById = useMemo(() => new Map(sharedScoutPlays.map((p) => [p.id, p])), [sharedScoutPlays]);
+  const allPlays: HudlImportedPlay[] = useMemo(
+    () => (usingShared ? sharedScoutPlays.map(scoutPlayToFilmPlay) : session.plays),
+    [usingShared, sharedScoutPlays, session.plays]
+  );
+  const unlinkedGames = canUseShared ? ownBundle.games.filter((g) => !g.week) : [];
+  const playDb = sharedFilm?.playDatabase || [];
+  const usage = useMemo(() => callUsage(sharedScoutPlays), [sharedScoutPlays]);
+
+  const updateBundle = (fn: (b: ScoutBundle) => ScoutBundle) => {
+    if (!sharedFilm?.onUpdateOwnTeamScout) return;
+    const next = fn(bundleRef.current);
+    bundleRef.current = next;
+    sharedFilm.onUpdateOwnTeamScout(next);
+  };
+
+  // Black / Gold / Blue follow the week's depth chart unless a coach edited the units.
+  const livePackages = useMemo(
+    () => fillPackagesFromDepth(roster, priorDepthChart, priorFormations),
+    [roster, priorDepthChart, priorFormations]
+  );
+  const packagesAuto = session.packagesSource === 'auto';
+  const effectiveSession: FilmSession = packagesAuto ? { ...session, packages: livePackages } : session;
+
   useEffect(() => {
     const current = sessionRef.current;
-    const filled = fillPackagesFromDepth(roster, priorDepthChart, priorFormations);
     const staleOrder = current.packagesColorOrder !== FILM_PACKAGES_COLOR_ORDER;
     const keepOff = !staleOrder && unitHasPlayers(current.packages, 'offense');
     const keepDef = !staleOrder && unitHasPlayers(current.packages, 'defense');
@@ -142,20 +215,21 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
       ...current,
       packagesColorOrder: FILM_PACKAGES_COLOR_ORDER,
       packagesUpdatedAt: Date.now(),
+      packagesSource: keepOff || keepDef || keepSt ? current.packagesSource : 'auto',
       packages: {
-        offense: keepOff ? current.packages.offense : filled.offense,
-        defense: keepDef ? current.packages.defense : filled.defense,
-        special: keepSt ? current.packages.special : filled.special,
+        offense: keepOff ? current.packages.offense : livePackages.offense,
+        defense: keepDef ? current.packages.defense : livePackages.defense,
+        special: keepSt ? current.packages.special : livePackages.special,
       },
     });
   }, [session.packagesColorOrder]);
 
   const plays = useMemo(() => {
-    if (odkFilter === 'all') return session.plays;
-    return session.plays.filter((play) => play.odk === odkFilter);
-  }, [session.plays, odkFilter]);
+    if (odkFilter === 'all') return allPlays;
+    return allPlays.filter((play) => play.odk === odkFilter);
+  }, [allPlays, odkFilter]);
 
-  const activePlay = session.plays.find((play) => play.id === activePlayId) || plays[0];
+  const activePlay = allPlays.find((play) => play.id === activePlayId) || plays[0];
 
   useEffect(() => {
     if (activePlay && activePlay.id !== activePlayId) setActivePlayId(activePlay.id);
@@ -165,7 +239,41 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
   const side = activePlay && assignment ? playSide(activePlay, assignment) : 'offense';
   const playStKind =
     activePlay && assignment ? filmStKindFromPlay(activePlay, assignment.stKindOverride) : 'kickoff';
-  const lineup = activePlay ? resolvePlayLineup(session, activePlay) : [];
+  const activeScoutPlay = activePlay ? scoutById.get(activePlay.id) : undefined;
+
+  /** Unit on the field: the shared play log's Black / Gold / Blue tag wins. */
+  const colorOf = (play: HudlImportedPlay): FilmUnitColor =>
+    (scoutById.get(play.id)?.unit as FilmUnitColor | undefined) || assignmentFor(session, play.id).color || 'black';
+  const activeColor: FilmUnitColor = activePlay ? colorOf(activePlay) : 'black';
+
+  // The called play's formation, from this week's depth chart (e.g. "32 R WISHBONE ..." -> 32 Offense).
+  const callBoard =
+    activePlay && side !== 'special' ? formationForCall(activePlay.playCall, priorFormations, side) : undefined;
+  const lineup: { slot: FilmSlotDef; player: FilmPlayerRef | null }[] = useMemo(() => {
+    if (!activePlay || !assignment) return [];
+    if (callBoard && side !== 'special') {
+      const overrides = remapDeSlotLineup(assignment.slotOverrides || {});
+      return lineupFromFormation(callBoard, priorDepthChart, roster, activeColor, side).map(({ slot, player }) => ({
+        slot,
+        player: Object.prototype.hasOwnProperty.call(overrides, slot.id) ? overrides[slot.id] : player,
+      }));
+    }
+    const withColor: FilmSession = {
+      ...effectiveSession,
+      assignments: { ...effectiveSession.assignments, [activePlay.id]: { ...assignment, color: activeColor } },
+    };
+    return resolvePlayLineup(withColor, activePlay);
+  }, [activePlay, assignment, callBoard, side, priorDepthChart, roster, activeColor, effectiveSession]);
+
+  const lineupSource = !activePlay
+    ? ''
+    : callBoard
+      ? `${callBoard.name} · ${sharedFilm?.weekLabel || 'this week'} depth chart`
+      : side === 'special'
+        ? 'Special teams units'
+        : packagesAuto
+          ? `Base ${side === 'offense' ? '21' : '4-4'} units · ${sharedFilm?.weekLabel || 'this week'} depth chart`
+          : `Base ${side === 'offense' ? '21' : '4-4'} units (edited)`;
 
   const updateSession = (next: FilmSession) => {
     sessionRef.current = next;
@@ -183,6 +291,21 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
     });
   };
 
+  const setUnitColor = (play: HudlImportedPlay, color: FilmUnitColor, scope: 'play' | 'rest_of_series' = 'play') => {
+    patchAssignment(play, { color });
+    if (scoutById.has(play.id)) {
+      updateBundle((b) => ({ ...b, plays: tagPlayUnits(b.plays, play.id, color, scope), updatedAt: Date.now() }));
+    }
+  };
+
+  const tagCall = (ids: string[], entry: PlayDatabaseEntry | null) =>
+    updateBundle((b) => ({ ...b, plays: tagPlays(b.plays, ids, entry), updatedAt: Date.now() }));
+  const createCall = (name: string, unit: 'offense' | 'defense') => {
+    const entry = newPlayEntry(name, unit);
+    sharedFilm?.onUpdatePlayDatabase?.([...playDb, entry]);
+    return entry;
+  };
+
   const syncPlayerGrade = (
     play: HudlImportedPlay,
     player: RosterPlayer,
@@ -198,10 +321,11 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
       onUpdateReviews(next);
       return;
     }
+    const call = play.playCall || scoutById.get(play.id)?.playCall;
     const next = upsertPffPlay(reviewsRef.current, player, playId, {
       playNumber: play.playNumber,
       grades,
-      notes: note || `${filmPlayLabel(play)} · ${play.odk === 'offense' ? 'O' : play.odk === 'defense' ? 'D' : 'ST'}`,
+      notes: note || `${call ? `${call} · ` : ''}${filmPlayLabel(play)} · ${play.odk === 'offense' ? 'O' : play.odk === 'defense' ? 'D' : 'ST'}`,
       grade: nums.length ? formatPffAverage(nums.reduce((sum, n) => sum + n, 0) / nums.length) : '',
     });
     reviewsRef.current = next;
@@ -210,6 +334,39 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
 
   const onPickFile = async (file: File) => {
     setImportError('');
+    setImportNote('');
+    // Shared play log: the file becomes this week's game in Self-scout too.
+    if (canUseShared && sharedFilm) {
+      try {
+        const gameId = `game-${Date.now()}`;
+        const newPlays = await readGameFile(file, gameId);
+        if (!newPlays.length) {
+          setImportError('No plays found in that Hudl export.');
+          return;
+        }
+        if (weekGames.length) {
+          const names = weekGames.map((g) => `"${g.name}"`).join(', ');
+          if (!window.confirm(`${sharedFilm.weekLabel} already has ${names} in the play log. Replace it with ${file.name}? Grades on the old plays stay in each player's history.`)) return;
+        }
+        updateBundle((b) => {
+          let base = b;
+          for (const g of weekGames) base = removeScoutGame(base, g.id, teamName);
+          return {
+            ...base,
+            plays: [...base.plays, ...newPlays],
+            games: [...base.games, { id: gameId, name: file.name.replace(/\.[^/.]+$/, ''), playCount: newPlays.length, addedAt: Date.now(), week: sharedFilm.week }],
+            datasetName: base.datasetName || teamName,
+            sourceCleared: false,
+            updatedAt: Date.now(),
+          };
+        });
+        setActivePlayId(newPlays[0].id);
+        setImportNote(`${newPlays.length} plays added for ${sharedFilm.weekLabel}. They also show in Scouting → Our team.`);
+      } catch {
+        setImportError('Could not read that file. Use a Hudl PlaylistData Excel export or a CSV.');
+      }
+      return;
+    }
     try {
       const parsed = await parseHudlExportFile(file);
       if (!parsed.plays.length) {
@@ -221,20 +378,28 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
         plays: mergeHudlPlays(session.plays, parsed.plays, 'replace'),
         importedAt: Date.now(),
         fileName: parsed.fileName,
-        packagesUpdatedAt: Date.now(),
-        packages: (() => {
-          const filled = fillPackagesFromDepth(roster, priorDepthChart, priorFormations);
-          return {
-            offense: unitHasPlayers(session.packages, 'offense') ? session.packages.offense : filled.offense,
-            defense: unitHasPlayers(session.packages, 'defense') ? session.packages.defense : filled.defense,
-            special: stHasPlayers(session.packages) ? session.packages.special : filled.special,
-          };
-        })(),
       });
       setActivePlayId(parsed.plays[0].id);
     } catch {
       setImportError('Could not read that file. Use a Hudl PlaylistData Excel export.');
     }
+  };
+
+  const moveToSharedLog = () => {
+    if (!sharedFilm) return;
+    const colors: Record<string, FilmUnitColor | undefined> = {};
+    session.plays.forEach((p) => (colors[p.id] = session.assignments[p.id]?.color));
+    let merged: string | undefined;
+    updateBundle((b) => {
+      const res = moveFilmIntoSharedLog(b, session.plays, colors, sharedFilm.week, session.fileName?.replace(/\.[^/.]+$/, '') || `${sharedFilm.weekLabel} game`);
+      merged = res.mergedDuplicate;
+      return res.bundle;
+    });
+    setImportNote(
+      merged
+        ? `Moved. "${merged}" was already in Self-scout, so its tags were kept and the two copies are now one.`
+        : `Moved. This week's plays now show in Scouting → Our team too, with the same tags.`
+    );
   };
 
   const colorBtn = (color: FilmUnitColor, selected: boolean) => {
@@ -246,17 +411,22 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
     } as React.CSSProperties;
   };
 
+  const colorDot = (color: FilmUnitColor) => getTeamColorConfig(color, 'gold').hex;
+
   return (
     <div className="space-y-4">
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>
-            <h3 className="font-black text-slate-900 dark:text-slate-100">Hudl play export</h3>
+            <h3 className="font-black text-slate-900 dark:text-slate-100">
+              {sharedFilm ? `${sharedFilm.weekLabel} game film` : 'Hudl play export'}
+            </h3>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-              Upload PlaylistData.xlsx. ODK tells us O / D / ST. Pick Black (1s), Gold (2s), or Blue (3s) for who was in.
-              ST plays autofill Kickoff, Kick return, Punt, or FG/2-pt from last week’s special teams depth.
+              {usingShared
+                ? `Same play log as Scouting → Our team (${weekGames.map((g) => g.name).join(', ')}). Tag the play call and who was in (Black 1s, Gold 2s, Blue 3s); players fill in from ${sharedFilm?.weekLabel || 'that week'}'s depth chart.`
+                : 'Upload PlaylistData.xlsx. ODK tells us O / D / ST. Pick Black (1s), Gold (2s), or Blue (3s) for who was in. Players fill in from that week’s depth chart.'}
             </p>
-            {session.fileName ? (
+            {!usingShared && session.fileName ? (
               <p className="text-xs font-bold text-slate-400 mt-1">
                 {session.fileName} · {session.plays.length} plays
               </p>
@@ -281,8 +451,18 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black bg-cyan-600 text-white"
               >
                 <Upload className="w-3.5 h-3.5" />
-                Import Hudl export
+                {usingShared ? 'Replace game file' : 'Import Hudl export'}
               </button>
+              {usingShared && playDb.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setTagging(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black bg-indigo-600 text-white"
+                >
+                  <ListChecks className="w-3.5 h-3.5" />
+                  Tag plays
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() =>
@@ -290,13 +470,14 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
                     ...session,
                     packagesColorOrder: FILM_PACKAGES_COLOR_ORDER,
                     packagesUpdatedAt: Date.now(),
-                    packages: fillPackagesFromDepth(roster, priorDepthChart, priorFormations),
+                    packagesSource: 'auto',
+                    packages: livePackages,
                   })
                 }
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black border border-slate-200 dark:border-slate-700"
               >
                 <Users className="w-3.5 h-3.5" />
-                Fill Black/Gold/Blue from 21 / 4-4 / ST
+                Follow depth chart
               </button>
               <button
                 type="button"
@@ -309,6 +490,52 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
           ) : null}
         </div>
         {importError ? <p className="text-sm text-rose-600 mt-3">{importError}</p> : null}
+        {importNote ? <p className="text-sm text-emerald-700 dark:text-emerald-400 mt-3">{importNote}</p> : null}
+
+        {/* Older PFF-only upload: offer to put it in the shared play log */}
+        {canEdit && canUseShared && !usingShared && session.plays.length > 0 && (
+          <div className="mt-4 rounded-2xl border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/30 p-3 flex flex-col sm:flex-row sm:items-center gap-3">
+            <ArrowRightLeft className="w-5 h-5 text-amber-700 dark:text-amber-300 shrink-0" />
+            <p className="text-sm text-amber-900 dark:text-amber-100 flex-1">
+              This week’s film was uploaded to PFF only. Move it into the shared play log so Scouting → Our team and PFF use the same plays, tags and units. Grades stay.
+            </p>
+            <button
+              type="button"
+              onClick={moveToSharedLog}
+              className="px-3 py-2 rounded-xl text-xs font-black bg-amber-600 text-white shrink-0"
+            >
+              Move to shared play log
+            </button>
+          </div>
+        )}
+
+        {/* Our games that are not linked to a week yet */}
+        {canEdit && sharedFilm && !usingShared && unlinkedGames.length > 0 && (
+          <div className="mt-4 rounded-2xl border border-slate-200 dark:border-slate-700 p-3 flex flex-col sm:flex-row sm:items-center gap-3">
+            <Link2 className="w-5 h-5 text-slate-500 shrink-0" />
+            <p className="text-sm text-slate-700 dark:text-slate-200 flex-1">
+              Is one of these Self-scout games the {sharedFilm.weekLabel} game? Link it and PFF grades those plays.
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {unlinkedGames.map((g) => (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() =>
+                    updateBundle((b) => ({
+                      ...b,
+                      games: b.games.map((x) => (x.id === g.id ? { ...x, week: sharedFilm.week } : x)),
+                      updatedAt: Date.now(),
+                    }))
+                  }
+                  className="px-3 py-1.5 rounded-xl text-xs font-black border border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-100"
+                >
+                  {g.name} ({g.playCount})
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {showPackages && canEdit ? (
           <div className="mt-4 rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
@@ -325,6 +552,11 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
                 Special teams
               </button>
             </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3">
+              {packagesAuto
+                ? 'These follow the depth chart. Changing a player here stops following it until you press “Follow depth chart”. Plays tagged with a call use that formation’s depth chart instead.'
+                : 'Edited by hand. Press “Follow depth chart” to go back to the depth chart.'}
+            </p>
             {packageSide === 'special' ? (
               <div className="flex flex-wrap gap-1.5 mb-3">
                 {FILM_ST_KINDS.map((kind) => (
@@ -354,6 +586,7 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
                 <tbody>
                   {(packageSide === 'special' ? filmSlotsForSt(stKind) : filmSlotsForSide(packageSide)).map((slot) => {
                     const labelScope = packageSide === 'special' ? `special:${stKind}` : packageSide;
+                    const pk = effectiveSession.packages;
                     return (
                     <tr key={slot.id} className="border-t border-slate-100 dark:border-slate-800">
                       <td className="py-1.5 font-black">
@@ -378,11 +611,11 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
                         )}
                       </td>
                       {FILM_UNIT_COLORS.map((color) => {
-                        const lineup =
+                        const unitLineup =
                           packageSide === 'special'
-                            ? session.packages.special?.[stKind]?.[color.id] || {}
-                            : remapDeSlotLineup(session.packages[packageSide][color.id]);
-                        const value = lineup[slot.id];
+                            ? pk.special?.[stKind]?.[color.id] || {}
+                            : remapDeSlotLineup(pk[packageSide][color.id]);
+                        const value = unitLineup[slot.id];
                         return (
                           <td key={color.id} className="px-2 py-1">
                             <select
@@ -399,24 +632,24 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
                                 const nextPackages =
                                   packageSide === 'special'
                                     ? {
-                                        ...session.packages,
+                                        ...pk,
                                         special: {
-                                          ...session.packages.special,
+                                          ...pk.special,
                                           [stKind]: {
-                                            ...session.packages.special?.[stKind],
+                                            ...pk.special?.[stKind],
                                             [color.id]: {
-                                              ...(session.packages.special?.[stKind]?.[color.id] || {}),
+                                              ...(pk.special?.[stKind]?.[color.id] || {}),
                                               [slot.id]: ref,
                                             },
                                           },
                                         },
                                       }
                                     : {
-                                        ...session.packages,
+                                        ...pk,
                                         [packageSide]: {
-                                          ...session.packages[packageSide],
+                                          ...pk[packageSide],
                                           [color.id]: {
-                                            ...lineup,
+                                            ...unitLineup,
                                             [slot.id]: ref,
                                           },
                                         },
@@ -424,7 +657,8 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
                                 updateSession({
                                   ...session,
                                   packagesUpdatedAt: Date.now(),
-                                  packages: nextPackages,
+                                  packagesSource: 'manual',
+                                  packages: nextPackages as FilmSession['packages'],
                                 });
                               }}
                               className="w-full min-w-[140px] px-1.5 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
@@ -449,13 +683,15 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
         ) : null}
       </div>
 
-      {session.plays.length === 0 ? (
+      {allPlays.length === 0 ? (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-10 text-center text-sm text-slate-500">
           <FileSpreadsheet className="w-8 h-8 mx-auto mb-2 text-slate-400" />
-          Import a Hudl PlaylistData export to grade by play.
+          {sharedFilm
+            ? `No film for ${sharedFilm.weekLabel} yet. Import the game's Hudl export here, or upload it in Scouting → Our team and pick ${sharedFilm.weekLabel}.`
+            : 'Import a Hudl PlaylistData export to grade by play.'}
         </div>
       ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)] gap-4">
+        <div className="grid grid-cols-1 xl:grid-cols-[300px_minmax(0,1fr)] gap-4">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
             <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 flex gap-1">
               {(['all', 'offense', 'defense', 'special'] as const).map((filter) => (
@@ -474,6 +710,7 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
             <div className="max-h-[70vh] overflow-y-auto">
               {plays.map((play) => {
                 const selected = play.id === activePlay?.id;
+                const color = colorOf(play);
                 return (
                   <button
                     key={play.id}
@@ -484,7 +721,16 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-black text-sm">#{play.playNumber}</span>
+                      <span className="font-black text-sm flex items-center gap-1.5">
+                        {play.odk !== 'special' && (
+                          <span
+                            className="w-2.5 h-2.5 rounded-full border border-slate-400"
+                            style={{ backgroundColor: colorDot(color) }}
+                            title={`${color} unit`}
+                          />
+                        )}
+                        #{play.playNumber}
+                      </span>
                       <span
                         className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded ${
                           play.odk === 'offense'
@@ -497,6 +743,9 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
                         {play.odk === 'offense' ? 'O' : play.odk === 'defense' ? 'D' : play.playType || 'K'}
                       </span>
                     </div>
+                    {play.playCall ? (
+                      <div className="text-[11px] font-black text-indigo-700 dark:text-indigo-300 truncate">{play.playCall}</div>
+                    ) : null}
                     <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300 truncate">
                       {filmPlayLabel(play)}
                     </div>
@@ -514,12 +763,19 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                 <div>
                   <p className="text-[11px] font-black uppercase tracking-wider text-cyan-700">Play {activePlay.playNumber}</p>
-                  <h3 className="text-xl font-black text-slate-900 dark:text-white">{filmPlayLabel(activePlay)}</h3>
+                  <h3 className="text-xl font-black text-slate-900 dark:text-white">{activePlay.playCall || filmPlayLabel(activePlay)}</h3>
                   <p className="text-sm text-slate-500 mt-1">
+                    {activePlay.playCall ? `${filmPlayLabel(activePlay)} · ` : ''}
                     Q{activePlay.quarter || '—'} · Dn {activePlay.down || '—'} Dist {activePlay.distance || '—'} · Hash {activePlay.hash || '—'} · YL {activePlay.yardLine || '—'}
                     {activePlay.gain ? ` · GN/LS ${activePlay.gain}` : ''}
                   </p>
                 </div>
+                {activeScoutPlay && side !== 'special' && playDb.length > 0 ? (
+                  <div className="shrink-0">
+                    <div className="text-[10px] font-black uppercase text-slate-500 mb-1">Play call</div>
+                    <CallButton play={activeScoutPlay} db={playDb} usage={usage} onTag={tagCall} onCreate={createCall} disabled={!canEdit} />
+                  </div>
+                ) : null}
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -543,13 +799,23 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
                     key={color.id}
                     type="button"
                     disabled={!canEdit}
-                    onClick={() => patchAssignment(activePlay, { color: color.id })}
-                    style={colorBtn(color.id, assignment.color === color.id)}
+                    onClick={() => setUnitColor(activePlay, color.id)}
+                    style={colorBtn(color.id, activeColor === color.id)}
                     className="px-3 py-1.5 rounded-lg text-xs font-black border"
                   >
                     {color.label}
                   </button>
                 ))}
+                {activeScoutPlay?.series != null && side !== 'special' && canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => setUnitColor(activePlay, activeColor, 'rest_of_series')}
+                    className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300"
+                    title={`Use ${activeColor} for the rest of series ${activeScoutPlay.series}`}
+                  >
+                    ↓ rest of series
+                  </button>
+                )}
               </div>
 
               {side === 'special' ? (
@@ -573,6 +839,13 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
                 </div>
               ) : null}
 
+              {lineupSource ? (
+                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                  Players from: <span className="text-slate-700 dark:text-slate-200">{lineupSource}</span>
+                  {!callBoard && side !== 'special' && activeScoutPlay && !activePlay.playCall ? ' · tag the play call to use its formation' : ''}
+                </p>
+              ) : null}
+
               <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -593,7 +866,7 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
                         return (
                           <tr key={slot.id} className="border-t border-slate-100 dark:border-slate-800 align-top">
                             <td className="py-2 pr-2 font-black whitespace-nowrap">
-                              {filmSlotLabel(side === 'special' ? `special:${playStKind}` : side, slot, session.slotLabels)}
+                              {callBoard ? slot.name : filmSlotLabel(side === 'special' ? `special:${playStKind}` : side, slot, session.slotLabels)}
                             </td>
                             <td className="py-2 pr-2 min-w-[160px]">
                               <select
@@ -683,6 +956,23 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
             </div>
           ) : null}
         </div>
+      )}
+
+      {tagging && usingShared && (
+        <TagPlaysPanel
+          plays={sharedScoutPlays}
+          db={playDb}
+          onTag={tagCall}
+          onCreate={createCall}
+          onSetUnit={(id, unit) => {
+            const fp = allPlays.find((p) => p.id === id);
+            if (fp && unit) setUnitColor(fp, unit as FilmUnitColor);
+            else updateBundle((b) => ({ ...b, plays: tagPlayUnits(b.plays, id, unit, 'play'), updatedAt: Date.now() }));
+          }}
+          startId={activePlay?.id}
+          title={`Tag ${sharedFilm?.weekLabel || 'our'} plays`}
+          onClose={() => setTagging(false)}
+        />
       )}
     </div>
   );

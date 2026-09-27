@@ -11,8 +11,7 @@ import {
   Smartphone,
   PenTool,
   Activity,
-  Home as HomeIcon,
-} from 'lucide-react';
+  Home as HomeIcon, Library } from 'lucide-react';
 import type { UnitType } from '../types';
 
 export interface NavTabItem {
@@ -30,6 +29,7 @@ export const DEFAULT_NAV_TABS: NavTabItem[] = [
   { id: 'schedule', label: '📅 Schedule', icon: Calendar },
   { id: 'compliance', label: '⚡ Compliance & Hours', icon: Zap },
   { id: 'ppr', label: '📊 PFF', icon: Activity },
+  { id: 'playbook', label: '🏈 Play Library', icon: Library },
   { id: 'depth_chart', label: '📋 Depth Chart', icon: ClipboardList },
   { id: 'practice', label: '📋 Practice Plan', icon: ClipboardList },
   { id: 'drills', label: '🏋️ Drill Library', icon: Dumbbell },

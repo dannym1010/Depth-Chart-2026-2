@@ -58,6 +58,9 @@ interface GameDayHubViewProps {
   gameDate?: string;
   playDatabase: PlayDatabaseEntry[];
   onUpdatePlayDatabase: (plays: PlayDatabaseEntry[]) => void;
+  /** Season weeks, to link each of our uploaded games to the week it was played. */
+  weekOptions?: { key: string; label: string }[];
+  defaultGameWeek?: string;
   callSheetData: CallSheetData;
   onUpdateCallSheetData: (data: CallSheetData) => void;
   deletedPlayIds: string[];
@@ -94,6 +97,8 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
   gameDate,
   playDatabase,
   onUpdatePlayDatabase,
+  weekOptions,
+  defaultGameWeek,
   callSheetData,
   onUpdateCallSheetData,
   deletedPlayIds,
@@ -1084,6 +1089,10 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
           onNavigateToSchedule={onNavigateToSchedule}
           onNavigateToHtmlTendencies={() => setActiveTab('tendencies')}
           onNavigateToTendencies={() => setActiveTab('tendencies')}
+          playDatabase={playDatabase}
+          onUpdatePlayDatabase={onUpdatePlayDatabase}
+          weekOptions={weekOptions}
+          defaultGameWeek={defaultGameWeek}
         />
       )}
 

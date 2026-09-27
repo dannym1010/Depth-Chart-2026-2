@@ -33,8 +33,7 @@ import {
   Filter,
   Camera,
   Home as HomeIcon,
-  Activity,
-} from 'lucide-react';
+  Activity, Library } from 'lucide-react';
 import { CustomTabGroup, UnitType, DepthSubUnit, UserRole, Team } from '../types';
 import { safeJSONParse, safeJSONSet } from '../services/storageService';
 import { TabGroupManagerModal } from './TabGroupManagerModal';
@@ -148,6 +147,14 @@ const MAIN_NAV_ITEMS: NavItemConfig[] = [
     icon: Zap,
     description: 'Weekly practice hours tracker, heat acclimatization, contact limits & safety logs',
     badgeText: 'Safety',
+  },
+  {
+    id: 'playbook',
+    label: 'Play Library',
+    shortLabel: 'Plays',
+    icon: Library,
+    description: 'Every play in one bank: import Hudl playbooks, tag film, see what each play gained',
+    badgeText: 'Plays',
   },
   {
     id: 'ppr',

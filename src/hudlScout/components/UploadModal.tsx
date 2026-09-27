@@ -6,9 +6,14 @@ import { Upload, X, FileText, CheckCircle2, ChevronRight, AlertCircle } from 'lu
 interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onLoadCsv: (csvContent: string, opponentName: string, customMapping?: ColumnMapping, append?: boolean) => void;
+  onLoadCsv: (csvContent: string, opponentName: string, customMapping?: ColumnMapping, append?: boolean, week?: string) => void;
   onSelectSample: (sample: SampleDataset) => void;
   hasExistingPlays?: boolean;
+  /** Our own film: ask which week the game was played (links it to PFF grading). */
+  weekOptions?: { key: string; label: string }[];
+  /** Best guess for the week, from the file name and the schedule. */
+  guessWeek?: (gameName: string) => string | undefined;
+  defaultWeek?: string;
 }
 
 export const UploadModal: React.FC<UploadModalProps> = ({
@@ -17,7 +22,11 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   onLoadCsv,
   onSelectSample,
   hasExistingPlays = false,
+  weekOptions,
+  guessWeek,
+  defaultWeek,
 }) => {
+  const [gameWeek, setGameWeek] = useState('');
   const [csvText, setCsvText] = useState('');
   const [opponentName, setOpponentName] = useState('');
   const [headers, setHeaders] = useState<string[]>([]);
@@ -77,6 +86,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const processCsvContent = (content: string, suggestedName: string) => {
     setCsvText(content);
     setOpponentName(suggestedName || 'Opponent Team');
+    if (weekOptions) setGameWeek(guessWeek?.(suggestedName) || defaultWeek || '');
     const { headers: h, rows } = parseCsvRows(content);
     setHeaders(h);
     setRowsCount(rows.length);
@@ -88,7 +98,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
   const handleImport = () => {
     if (!csvText || rowsCount === 0) return;
-    onLoadCsv(csvText, opponentName || 'Opponent', mapping || undefined, Boolean(hasExistingPlays && appendGame));
+    onLoadCsv(csvText, opponentName || 'Opponent', mapping || undefined, Boolean(hasExistingPlays && appendGame), weekOptions ? gameWeek || undefined : undefined);
     onClose();
   };
 
@@ -202,6 +212,26 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded px-2.5 py-1 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500"
                 />
               </div>
+
+              {weekOptions && (
+                <div>
+                  <label className="text-[11px] text-slate-500 dark:text-slate-400 font-medium block mb-1">
+                    Which week was this game? (PFF grades this game for that week)
+                  </label>
+                  <select
+                    value={gameWeek}
+                    onChange={(e) => setGameWeek(e.target.value)}
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="">Not a league game / don't link</option>
+                    {weekOptions.map((w) => (
+                      <option key={w.key} value={w.key}>
+                        {w.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {hasExistingPlays && (
                 <label className="flex items-center gap-2 text-xs text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded px-2.5 py-2">

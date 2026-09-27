@@ -19,8 +19,7 @@ import {
   Smartphone,
   ChevronRight,
   Sliders,
-  Sparkles,
-} from 'lucide-react';
+  Sparkles, Library } from 'lucide-react';
 import { UnitType, DepthSubUnit, UserRole } from '../types';
 
 interface MobileNavigationModalProps {
@@ -220,6 +219,13 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
             subtitle: 'Youth contact minutes, safety rules & heat tracking',
             icon: Zap,
             accentColor: 'border-purple-500/40 hover:bg-purple-950/40 text-purple-300',
+          },
+          {
+            id: 'playbook',
+            label: '🏈 Play Library',
+            subtitle: 'Import Hudl playbooks, tag film plays, results by play',
+            icon: Library,
+            accentColor: 'border-cyan-500/40 hover:bg-cyan-950/40 text-cyan-300',
           },
           {
             id: 'ppr',

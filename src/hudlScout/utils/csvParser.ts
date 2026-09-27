@@ -313,6 +313,7 @@ export function normalizeHudlRow(row: Record<string, string>, mapping: ColumnMap
     id: `play-${playNumber}-${index}`,
     playNumber,
     odk,
+    rawPlayType: getVal(mapping.playType, '') || undefined,
     quarter,
     down,
     distance,

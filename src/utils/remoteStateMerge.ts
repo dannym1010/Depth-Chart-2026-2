@@ -879,6 +879,9 @@ export function mergeFilmSession(
     packagesColorOrder: preferRightPackages
       ? right.packagesColorOrder || left.packagesColorOrder
       : left.packagesColorOrder || right.packagesColorOrder,
+    packagesSource: preferRightPackages
+      ? right.packagesSource || left.packagesSource
+      : left.packagesSource || right.packagesSource,
     slotLabels: preferRightPackages
       ? { ...(left.slotLabels || {}), ...(right.slotLabels || {}) }
       : { ...(right.slotLabels || {}), ...(left.slotLabels || {}) },

@@ -2,12 +2,19 @@ import React, { useState, useMemo } from 'react';
 import { Play, TeamUnit } from '../types/football';
 import { TEAM_UNITS, playIsUnitTaggable } from '../utils/unitStats';
 import { isRecordedMotion } from '../utils/csvParser';
-import { Search, ChevronDown, ChevronUp, Zap, Flame, CheckCircle2 } from 'lucide-react';
+import { callUsage, isTaggablePlay } from '../utils/playTags';
+import type { PlayDatabaseEntry } from '../../types/callSheet';
+import { CallButton, TagPlaysPanel } from '../../components/playbook/CallPicker';
+import { Search, ChevronDown, ChevronUp, Zap, Flame, CheckCircle2, ListChecks } from 'lucide-react';
 
 interface PlaysTableProps {
   plays: Play[];
   /** Our-team log only: tag which unit (Black / Blue / Gold) was on the field. */
   onSetUnit?: (playId: string, unit: TeamUnit | undefined, scope: 'play' | 'rest_of_series') => void;
+  /** Tag each play with the Play Bank play that was run. */
+  playDatabase?: PlayDatabaseEntry[];
+  onTagPlays?: (ids: string[], entry: PlayDatabaseEntry | null) => void;
+  onCreateCall?: (name: string, unit: 'offense' | 'defense') => PlayDatabaseEntry;
 }
 
 const UNIT_SHORT: Record<TeamUnit, string> = { black: 'Blk', blue: 'Blu', gold: 'Gld' };
@@ -53,8 +60,14 @@ const UnitPicker: React.FC<{
   );
 };
 
-export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit }) => {
+export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall }) => {
   const [untaggedOnly, setUntaggedOnly] = useState(false);
+  const [tagging, setTagging] = useState<{ startId?: string } | null>(null);
+  const canTagCalls = Boolean(onTagPlays && playDatabase);
+  const usage = useMemo(() => callUsage(plays), [plays]);
+  const taggable = useMemo(() => plays.filter(isTaggablePlay), [plays]);
+  const callsTagged = taggable.filter((p) => p.playCallId).length;
+  const needsTag = (p: Play) => (onSetUnit && playIsUnitTaggable(p) && !p.unit) || (canTagCalls && isTaggablePlay(p) && !p.playCallId);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortField, setSortField] = useState<keyof Play>('playNumber');
   const [sortAsc, setSortAsc] = useState(true);
@@ -72,8 +85,8 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit }) => {
 
   const filteredPlays = useMemo(() => {
     let result = plays;
-    if (onSetUnit && untaggedOnly) {
-      result = result.filter((p) => playIsUnitTaggable(p) && !p.unit);
+    if ((onSetUnit || canTagCalls) && untaggedOnly) {
+      result = result.filter(needsTag);
     }
     if (searchTerm.trim()) {
       const lower = searchTerm.toLowerCase();
@@ -108,7 +121,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit }) => {
       if (aVal > bVal) return sortAsc ? 1 : -1;
       return 0;
     });
-  }, [plays, searchTerm, sortField, sortAsc, onSetUnit, untaggedOnly]);
+  }, [plays, searchTerm, sortField, sortAsc, onSetUnit, untaggedOnly, canTagCalls]);
 
   const totalPages = Math.ceil(filteredPlays.length / pageSize) || 1;
   const paginatedPlays = filteredPlays.slice((page - 1) * pageSize, page * pageSize);
@@ -125,12 +138,24 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit }) => {
             </span>
           </h2>
           <p className="text-xs text-slate-400">
-            Raw Hudl play records with efficiency, explosive play markers, and target tracking.
+            {canTagCalls
+              ? `${callsTagged} of ${taggable.length} offense and defense plays tagged with a play call.`
+              : 'Raw Hudl play records with efficiency, explosive play markers, and target tracking.'}
           </p>
         </div>
 
-        <div className="flex items-center gap-3 w-full sm:w-auto">
-        {onSetUnit && (
+        <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap sm:flex-nowrap">
+        {canTagCalls && (
+          <button
+            type="button"
+            onClick={() => setTagging({})}
+            className="h-9 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+          >
+            <ListChecks className="w-4 h-4" />
+            Tag plays
+          </button>
+        )}
+        {(onSetUnit || canTagCalls) && (
           <label className="flex items-center gap-1.5 text-xs text-slate-300 whitespace-nowrap cursor-pointer">
             <input
               type="checkbox"
@@ -140,7 +165,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit }) => {
                 setPage(1);
               }}
             />
-            Untagged only
+            Needs tags
           </label>
         )}
         {/* Search input */}
@@ -188,9 +213,12 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit }) => {
                 {play.direction ? ` · ${play.direction}` : ''}
                 {play.carrierOrTarget ? ` · ${play.carrierOrTarget}` : ''}
               </div>
-              {onSetUnit && playIsUnitTaggable(play) && (
-                <div className="pt-1">
-                  <UnitPicker play={play} onSetUnit={onSetUnit} />
+              {((onSetUnit && playIsUnitTaggable(play)) || (canTagCalls && isTaggablePlay(play))) && (
+                <div className="pt-1 flex flex-wrap items-center gap-2">
+                  {canTagCalls && isTaggablePlay(play) && (
+                    <CallButton play={play} db={playDatabase!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
+                  )}
+                  {onSetUnit && playIsUnitTaggable(play) && <UnitPicker play={play} onSetUnit={onSetUnit} />}
                 </div>
               )}
             </div>
@@ -321,7 +349,18 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit }) => {
                       <span className="text-slate-500 font-mono font-normal">-</span>
                     )}
                   </td>
-                  <td className="py-2.5 px-3 font-medium text-slate-100">{play.playName}</td>
+                  <td className="py-2 px-3 font-medium text-slate-100">
+                    {canTagCalls && isTaggablePlay(play) ? (
+                      <div className="flex flex-col items-start gap-0.5">
+                        <CallButton play={play} db={playDatabase!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
+                        {play.playCallId && play.untaggedName && play.untaggedName !== play.playCall && (
+                          <span className="text-[10px] text-slate-400">Film: {play.untaggedName}</span>
+                        )}
+                      </div>
+                    ) : (
+                      play.playName
+                    )}
+                  </td>
                   <td className="py-2.5 px-2">
                     <span
                       className={`text-[10px] font-mono font-bold ${
@@ -389,6 +428,19 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit }) => {
             </button>
           </div>
         </div>
+      )}
+
+      {tagging && canTagCalls && (
+        <TagPlaysPanel
+          plays={filteredPlays}
+          db={playDatabase!}
+          onTag={onTagPlays!}
+          onCreate={onCreateCall}
+          onSetUnit={onSetUnit ? (id, unit) => onSetUnit(id, unit, 'play') : undefined}
+          startId={tagging.startId}
+          title={onSetUnit ? 'Tag our plays' : 'Tag their plays'}
+          onClose={() => setTagging(null)}
+        />
       )}
     </div>
   );

@@ -65,7 +65,7 @@ export const ActiveCoachesModal: React.FC<ActiveCoachesModalProps> = ({
       case 'whiteboard':
         return 'Interactive Whiteboard';
       case 'playbook':
-        return 'Playbook Guides';
+        return 'Play Library';
       case 'call_sheet':
         return 'Call Sheet';
       case 'wristband':

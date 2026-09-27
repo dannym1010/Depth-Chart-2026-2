@@ -2263,3 +2263,304 @@ describe('drill whiteboards draw cleanly', () => {
     assert.equal(tokenKind({ id: 'i', type: 'O', label: 'COACH', x: 0, y: 0 }), 'coach');
   });
 });
+
+describe('Hudl playbook import', () => {
+  it('reads pasted lists: list numbers go, play numbers stay, numbered headings become sections', async () => {
+    const { parseLooseList, buildDrafts } = await import('./playbookImport.ts');
+    const entries = parseLooseList('1\n⇕\n21 R RUNNING HOLES\n2 21R 24 DIVE\n3. 21L 26 DIVE\n17 NOW SCREENS\n21 R TWINS L 24 DIVE Z BUBBLE\nAll Installs / 2026 10U Install\n21 R 32 POWER');
+    assert.deepEqual(
+      entries.map((e) => e.name),
+      ['21 R RUNNING HOLES', '21R 24 DIVE', '21L 26 DIVE', 'NOW SCREENS', '21 R TWINS L 24 DIVE Z BUBBLE', '21 R 32 POWER']
+    );
+    const drafts = buildDrafts(entries);
+    assert.equal(drafts.find((d) => d.name === 'NOW SCREENS')?.isSection, true);
+    assert.equal(drafts.find((d) => d.name.includes('BUBBLE'))?.category, 'NOW SCREENS');
+    assert.equal(drafts.find((d) => d.name.includes('BUBBLE'))?.type, 'screen');
+  });
+
+  it('a section heading stops at the next play family', async () => {
+    const { buildDrafts } = await import('./playbookImport.ts');
+    const drafts = buildDrafts([
+      { name: 'PLAY ACTION PASS' },
+      { name: '21 R 32 POWER PASS' },
+      { name: '21 L 38 POWER PASS' },
+      { name: '32 R WISHBONE 26 DIVE' },
+    ]);
+    assert.equal(drafts.find((d) => d.name === '21 L 38 POWER PASS')?.category, 'PLAY ACTION PASS');
+    assert.equal(drafts.find((d) => d.name === '32 R WISHBONE 26 DIVE')?.category, undefined);
+    assert.equal(drafts.find((d) => d.name === '32 R WISHBONE 26 DIVE')?.formation, '32 R WISHBONE');
+    assert.equal(drafts.find((d) => d.name === '21 R 32 POWER PASS')?.type, 'play_action');
+  });
+
+  it('reads the printed Hudl install page by rows, ignoring icon glyphs', async () => {
+    const { parseHudlListPages } = await import('./playbookImport.ts');
+    const items = [
+      { str: 'All Installs', x: 202, y: 606 },
+      { str: '/ 2026 10U Install', x: 268, y: 606 },
+      { str: '32 Plays', x: 216, y: 534 },
+      { str: '1', x: 219, y: 449 },
+      { str: '', x: 230, y: 446 },
+      { str: '21 R RUNNING HOLES', x: 251, y: 449 },
+      { str: '2', x: 219, y: 415 },
+      { str: '21R 24 DIVE', x: 251, y: 415 },
+    ];
+    const res = parseHudlListPages([items]);
+    assert.equal(res.install, '2026 10U Install');
+    assert.deepEqual(res.entries.map((e) => e.name), ['21 R RUNNING HOLES', '21R 24 DIVE']);
+  });
+
+  it('fixes common text-recognition slips and reads position tables', async () => {
+    const { fixOcrCall, parseAssignmentLines } = await import('./playbookImport.ts');
+    assert.equal(fixOcrCall('211 26 DIVE'), '21L 26 DIVE');
+    assert.equal(fixOcrCall('21 R 31 TOSS SWEEP'), '21 R 31 TOSS SWEEP');
+    const jobs = parseAssignmentLines('z Stalk\n\nY On-Playside-Backer\n1 Toss To 3, Boot Away\nCc On-Playside-Backer\nNo\n\n—\n© —\nBSG Pull Kick Out');
+    assert.deepEqual(jobs, [
+      { pos: 'Z', text: 'Stalk' },
+      { pos: 'Y', text: 'On-Playside-Backer' },
+      { pos: '1', text: 'Toss To 3, Boot Away' },
+      { pos: 'C', text: 'On-Playside-Backer' },
+      { pos: 'BSG', text: 'Pull Kick Out' },
+    ]);
+  });
+
+  it('merges into the Play Bank by name: wristband plays keep their number and gain Hudl details', async () => {
+    const { buildDrafts, mergeDraftsIntoDatabase, draftStatus } = await import('./playbookImport.ts');
+    const db = [
+      { id: 'usr_play_14', name: '21 R 24 DIVE', unit: 'offense', formation: '21 R', type: 'run', wristbandNum: 14, situations: ['1-10'] },
+    ] as any[];
+    const drafts = buildDrafts(
+      [
+        { name: '21R 24 DIVE', assignments: [{ pos: '2', text: 'Receive hand off, hit hole' }] },
+        { name: '32 R WISHBONE 48 COUNTER' },
+      ],
+      { install: '2026 10U Install' }
+    );
+    assert.equal(draftStatus(db, drafts[0]), 'update');
+    assert.equal(draftStatus(db, drafts[1]), 'new');
+    const res = mergeDraftsIntoDatabase(db, drafts, 5);
+    assert.equal(res.next.length, 2);
+    const dive = res.next.find((p) => p.id === 'usr_play_14')!;
+    assert.equal(dive.wristbandNum, 14);
+    assert.deepEqual(dive.situations, ['1-10']);
+    assert.equal(dive.assignments?.[0].pos, '2');
+    assert.equal(dive.install, '2026 10U Install');
+    const counter = res.added[0];
+    assert.equal(counter.formation, '32 R WISHBONE');
+    assert.equal(counter.source, 'hudl');
+    // Importing the same thing again changes nothing.
+    const again = mergeDraftsIntoDatabase(res.next, drafts, 6);
+    assert.equal(again.added.length, 0);
+    assert.equal(again.updated.length, 0);
+  });
+});
+
+describe('tagging film plays with play calls', () => {
+  const play = (over: any = {}) => ({
+    id: 'p1',
+    playNumber: 1,
+    odk: 'O',
+    quarter: 1,
+    down: 1,
+    distance: 10,
+    yardLine: 70,
+    rawYardLine: '-30',
+    yardLineSide: 'OWN',
+    fieldZone: 'own_territory',
+    hash: 'L',
+    playType: 'RUN',
+    formation: '-',
+    backfield: '-',
+    motion: '-',
+    playName: 'Rush',
+    direction: 'Left',
+    gainLoss: 6,
+    result: 'Rush',
+    personnel: '-',
+    carrierOrTarget: '',
+    isExplosive: false,
+    isEfficient: true,
+    runSide: 'L',
+    ...over,
+  });
+
+  it('tags and untags, putting the film name and formation back', async () => {
+    const { tagPlays } = await import('../hudlScout/utils/playTags.ts');
+    const entry = { id: 'x1', name: '21 L 39 TOSS SWEEP', formation: '21 L' };
+    const [tagged] = tagPlays([play() as any], ['p1'], entry);
+    assert.equal(tagged.playCall, '21 L 39 TOSS SWEEP');
+    assert.equal(tagged.playName, '21 L 39 TOSS SWEEP');
+    assert.equal(tagged.formation, '21 L');
+    const [back] = tagPlays([tagged], ['p1'], null);
+    assert.equal(back.playCallId, undefined);
+    assert.equal(back.playName, 'Rush');
+    assert.equal(back.formation, '-');
+    // A formation from the film is kept.
+    const [withForm] = tagPlays([play({ formation: 'GUN' }) as any], ['p1'], entry);
+    assert.equal(withForm.formation, 'GUN');
+  });
+
+  it('offers the right side of the ball first and finds calls by any words', async () => {
+    const { rankCalls, callResults } = await import('../hudlScout/utils/playTags.ts');
+    const db = [
+      { id: 'd1', name: '4-4 BASE STACK RIP', unit: 'defense', formation: '4-4', type: 'coverage', situations: [] },
+      { id: 'o1', name: '21 R 31 TOSS SWEEP', unit: 'offense', formation: '21 R', type: 'run', situations: [] },
+      { id: 'o2', name: '21 L 39 TOSS SWEEP', unit: 'offense', formation: '21 L', type: 'run', situations: [] },
+    ] as any[];
+    const ranked = rankCalls(play() as any, db, new Map());
+    assert.equal(ranked[0].unit, 'offense');
+    assert.equal(ranked[0].id, 'o2'); // film went left
+    assert.deepEqual(rankCalls(play() as any, db, new Map(), 'toss 31').map((e) => e.id), ['o1']);
+    const results = callResults([
+      play({ id: 'a', playCallId: 'o1', playCall: '21 R 31 TOSS SWEEP', gainLoss: 8, isEfficient: true }),
+      play({ id: 'b', playCallId: 'o1', playCall: '21 R 31 TOSS SWEEP', gainLoss: -2, isEfficient: false }),
+      play({ id: 'c', playCallId: 'o1', playCall: '21 R 31 TOSS SWEEP', gainLoss: 12, isEfficient: true, result: 'Rush, TD' }),
+    ] as any);
+    assert.equal(results[0].count, 3);
+    assert.equal(results[0].avgGain, 6);
+    assert.equal(results[0].successRate, 67);
+    assert.equal(results[0].touchdowns, 1);
+    assert.equal(results[0].negative, 1);
+  });
+});
+
+describe('one play log for self-scout and PFF', () => {
+  it('links our uploaded games to the week they were played from the schedule', async () => {
+    const { guessGameWeek, playsForWeek } = await import('../hudlScout/scoutBundle.ts');
+    const events = [
+      { type: 'game', week: '1', opponent: 'Suffern' },
+      { type: 'game', week: '2', opponent: '@ Yorktown' },
+      { type: 'practice', week: '2', opponent: 'Shrub Oak' },
+    ];
+    assert.equal(guessGameWeek('MSA vs Suffern', events), '1');
+    assert.equal(guessGameWeek('MSA vs Yorktown', events), '2');
+    assert.equal(guessGameWeek('MSA vs Shrub Oak', events), undefined);
+    const bundle = {
+      games: [
+        { id: 'g1', name: 'MSA vs Suffern', playCount: 1, addedAt: 1, week: '1' },
+        { id: 'g2', name: 'MSA vs Yorktown', playCount: 1, addedAt: 2, week: '' },
+      ],
+      plays: [{ id: 'a', gameId: 'g1' }, { id: 'b', gameId: 'g2' }],
+    } as any;
+    assert.deepEqual(playsForWeek(bundle, '1').map((p: any) => p.id), ['a']);
+    assert.deepEqual(playsForWeek(bundle, '2'), []);
+  });
+
+  it('finds the formation behind a call and fills the lineup from that week’s depth chart', async () => {
+    const { formationForCall, lineupFromFormation } = await import('./pffFilm.ts');
+    const formations = [
+      { id: 'form_21', unit: 'offense', name: '21 Offense', rows: [] },
+      {
+        id: 'f32',
+        unit: 'offense',
+        name: '32 Offense',
+        rows: [
+          { id: 'r1', label: '', slotCount: 3, positions: [{ id: 's_qb', name: '1 (QB)' }, { id: 's_y2', name: 'Y2' }, { id: 's_lt', name: 'LT' }] },
+        ],
+      },
+      { id: 'form_44', unit: 'defense', name: '44 Defense', rows: [] },
+    ] as any[];
+    assert.equal(formationForCall('32 R WISHBONE 26 DIVE', formations, 'offense')?.id, 'f32');
+    assert.equal(formationForCall('21R 24 DIVE', formations, 'offense')?.id, 'form_21');
+    assert.equal(formationForCall('4-4 BASE STACK RIP', formations, 'defense')?.id, 'form_44');
+    assert.equal(formationForCall('SCREEN', formations, 'offense'), undefined);
+    const depth = { s_qb: [{ num: '7', name: 'A' }, { num: '12', name: 'B' }], s_y2: [{ num: '80', name: 'C' }], s_lt: [] };
+    const roster = [{ id: 'r7', num: '7', firstName: 'Al', lastName: 'Q' }] as any[];
+    const black = lineupFromFormation(formations[1], depth, roster, 'black', 'offense');
+    assert.deepEqual(black.map((l) => [l.slot.id, l.slot.group, l.player?.num ?? null]), [
+      ['QB', 'QB', '7'],
+      ['Y2', 'WR', '80'],
+      ['LT', 'OL', null],
+    ]);
+    assert.equal(black[0].player?.name, 'Al Q');
+    const gold = lineupFromFormation(formations[1], depth, roster, 'gold', 'offense');
+    assert.equal(gold[0].player?.num, '12');
+  });
+
+  it('moves a PFF-only upload into the shared log, keeping ids and merging a duplicate game', async () => {
+    const { moveFilmIntoSharedLog } = await import('./pffFilm.ts');
+    const film = [
+      { id: 'hudl_1_0', playNumber: '1', odk: 'offense', down: '1', distance: '10', gain: '4', result: 'Rush', playType: 'Run' },
+      { id: 'hudl_2_1', playNumber: '2', odk: 'defense', down: '2', distance: '6', gain: '-1', result: 'Rush', playType: 'Run' },
+    ] as any[];
+    const bundle = {
+      plays: [
+        { id: 's1', gameId: 'old', playNumber: 1, unit: 'gold', playCallId: 'o1', playCall: '21 R 24 DIVE', playName: '21 R 24 DIVE', formation: '21 R' },
+        { id: 's2', gameId: 'old', playNumber: 2 },
+      ],
+      games: [{ id: 'old', name: 'MSA vs Suffern', playCount: 2, addedAt: 1 }],
+      datasetName: 'Mahopac',
+      offensiveScheme: '',
+      coachNotes: '',
+      filters: {},
+      updatedAt: 1,
+      sourceCleared: false,
+    } as any;
+    const res = moveFilmIntoSharedLog(bundle, film, { hudl_1_0: 'black' }, '1', 'Week 1 game', 100);
+    assert.equal(res.mergedDuplicate, 'MSA vs Suffern');
+    assert.equal(res.bundle.games.length, 1);
+    assert.equal(res.bundle.games[0].week, '1');
+    assert.deepEqual(res.bundle.plays.map((p: any) => p.id), ['hudl_1_0', 'hudl_2_1']);
+    assert.equal(res.bundle.plays[0].unit, 'black'); // the PFF choice wins
+    assert.equal(res.bundle.plays[0].playCall, '21 R 24 DIVE'); // the self-scout tag is kept
+    assert.equal(res.bundle.plays[1].odk, 'D');
+  });
+
+  it('keeps whether PFF units follow the depth chart through sync', () => {
+    const merged = mergeFilmSession(
+      { plays: [], packages: { offense: {}, defense: {} }, assignments: {}, packagesUpdatedAt: 1, packagesSource: 'manual' } as any,
+      { plays: [], packages: { offense: {}, defense: {} }, assignments: {}, packagesUpdatedAt: 2, packagesSource: 'auto' } as any
+    );
+    assert.equal(merged?.packagesSource, 'auto');
+  });
+});
+
+describe('editing the Drill Library', () => {
+  const tree = () => [
+    {
+      name: 'Defense',
+      drills: [{ id: 'd0', name: 'Pursuit', desc: '', key: '' }],
+      subfolders: [
+        { name: 'Linebackers', drills: [{ id: 'lb1', name: 'Shed', desc: '', key: '' }], subfolders: [] },
+        { name: 'Defensive Line', drills: [{ id: 'dl1', name: 'Get-off', desc: '', key: '' }], subfolders: [] },
+      ],
+    },
+    { name: 'Offense', drills: [{ id: 'o1', name: 'Mesh', desc: '', key: '' }], subfolders: [] },
+  ];
+
+  it('deletes a section and can move its drills (including sub-sections) somewhere else first', async () => {
+    const { deleteFolder, countDrills, getFolder } = await import('./drillTreeEdit.ts');
+    const t = tree();
+    const moved = deleteFolder(t as any, [0], [1]);
+    assert.equal(moved.length, 1);
+    assert.deepEqual(moved[0].drills.map((d) => d.id), ['o1', 'd0', 'lb1', 'dl1']);
+    const dropped = deleteFolder(t as any, [0]);
+    assert.equal(dropped.length, 1);
+    assert.equal(countDrills(dropped[0]), 1);
+    // A sub-section: its drills can go to the parent.
+    const sub = deleteFolder(t as any, [0, 1], [0]);
+    assert.deepEqual(getFolder(sub, [0])!.drills.map((d) => d.id), ['d0', 'dl1']);
+    assert.equal(getFolder(sub, [0])!.subfolders.length, 1);
+    // The original is never changed.
+    assert.equal(t[0].subfolders.length, 2);
+  });
+
+  it('renames, reorders, adds, moves and copies without touching the old tree', async () => {
+    const e = await import('./drillTreeEdit.ts');
+    const t = tree() as any;
+    assert.equal(e.renameFolder(t, [0, 0], 'LBs')[0].subfolders[0].name, 'LBs');
+    assert.deepEqual(e.moveFolder(t, [1], -1).map((f) => f.name), ['Offense', 'Defense']);
+    assert.equal(e.moveFolder(t, [0], -1), t);
+    const added = e.addFolder(t, [0], 'Secondary');
+    assert.deepEqual(added.path, [0, 2]);
+    const withDrill = e.addDrill(added.tree, added.path, { name: 'Backpedal' });
+    assert.equal(e.getFolder(withDrill.tree, [0, 2])!.drills[0].name, 'Backpedal');
+    const moved = e.moveDrill(t, [0, 0], 0, [1]);
+    assert.deepEqual(moved[1].drills.map((d: any) => d.id), ['o1', 'lb1']);
+    assert.equal(moved[0].subfolders[0].drills.length, 0);
+    const copied = e.duplicateDrill(t, [1], 0);
+    assert.equal(copied[1].drills[1].name, 'Mesh (copy)');
+    assert.notEqual(copied[1].drills[1].id, 'o1');
+    assert.equal(t[1].drills.length, 1);
+    assert.deepEqual(e.folderOptions(t).map((o) => o.label), ['Defense', 'Defense › Linebackers', 'Defense › Defensive Line', 'Offense']);
+  });
+});

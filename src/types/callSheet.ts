@@ -140,4 +140,18 @@ export interface PlayDatabaseEntry {
   tags?: string[];
   notes?: string;
   isFavorite?: boolean;
+  /** Playbook section the play sits under in Hudl (e.g. "PLAY ACTION PASS"). */
+  category?: string;
+  /** Hudl install the play came from (e.g. "2026 10U Install"). */
+  install?: string;
+  /** Each position's job, read from the Hudl install sheet. */
+  assignments?: PlayAssignment[];
+  /** Where the play came from: 'hudl' for Hudl playbook imports. */
+  source?: string;
+  importedAt?: number;
+}
+
+export interface PlayAssignment {
+  pos: string;
+  text: string;
 }
