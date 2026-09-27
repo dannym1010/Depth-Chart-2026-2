@@ -107,12 +107,12 @@ const MAIN_NAV_ITEMS: NavItemConfig[] = [
     hasCascadingFolders: true,
   },
   {
-    id: 'game_day',
-    label: 'Game Day Hub',
-    shortLabel: 'Game Day',
+    id: 'call_sheet',
+    label: 'Call Sheet & Wristbands',
+    shortLabel: 'Call Sheet',
     icon: Swords,
-    description: 'Sideline call sheet, player wristband inserts, opponent scouting & game clock',
-    badgeText: 'Live Hub',
+    description: 'Sideline call sheet and player wristband inserts',
+    badgeText: 'Game',
     hasCascadingFolders: true,
   },
   {
@@ -602,7 +602,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
     let open: string | null = null;
     if (activeUnit === 'whiteboard' || activeUnit === 'drills') open = 'drills_main';
     else if (['offense', 'defense', 'st', 'groups', 'scrimmage', 'practice_live', 'depth_chart'].includes(activeUnit)) open = 'depth_chart_main';
-    else if (['game_day', 'wristband', 'call_sheet', 'scouting', 'tendencies', 'html_tendencies'].includes(activeUnit)) open = 'game_day_main';
+    else if (['wristband', 'call_sheet'].includes(activeUnit)) open = 'game_day_main';
     else if (activeUnit === 'guide') open = 'playbook_main';
     setExpandedFolders((prev) => ({
       ...prev,
@@ -679,8 +679,8 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
     if (id === 'hudl_scout') {
       return activeUnit === 'hudl_scout' || activeUnit === 'ppr';
     }
-    if (id === 'game_day') {
-      return ['game_day', 'wristband', 'call_sheet', 'scouting', 'tendencies', 'html_tendencies'].includes(activeUnit);
+    if (id === 'call_sheet') {
+      return ['wristband', 'call_sheet'].includes(activeUnit);
     }
     return activeUnit === id;
   };
@@ -1321,9 +1321,9 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
             // ===============================================================
             // SPECIAL CASCADING EXPANSION: GAME DAY HUB (SIDELINE HUD, CALL SHEET, WRISTBANDS, SCOUTING, TENDENCIES)
             // ===============================================================
-            if (item.id === 'game_day') {
+            if (item.id === 'call_sheet') {
               const isGameDayOpen = expandedFolders.game_day_main;
-              const isGameDayActive = isItemActive('game_day');
+              const isGameDayActive = isItemActive('call_sheet');
 
               return (
                 <div key={item.id} className="relative group">
@@ -1359,7 +1359,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                               isGameDayActive ? 'text-red-200' : 'text-slate-400'
                             }`}
                           >
-                            Live Sideline HUD & Plays
+                            Sideline plays & wristbands
                           </span>
                         </div>
                         <ChevronRight
@@ -1375,11 +1375,8 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                   {isExpanded && isGameDayOpen && (
                     <div className="mt-1.5 ml-3 pl-3 border-l-2 border-red-500/30 space-y-1 animate-in fade-in slide-in-from-top-2 duration-150">
                       {[
-                        { id: 'game_day', label: '⚡ Sideline HUD & Clock' },
                         { id: 'call_sheet', label: '🏈 Sideline Call Sheet' },
                         { id: 'wristband', label: '⌚ Wristband Inserts' },
-                        { id: 'hudl_scout', label: '📊 Hudl Scout' },
-                        { id: 'tendencies', label: '📈 Formations & Tendencies' },
                       ].map((sub) => {
                         const isSubActive = activeUnit === sub.id;
                         return (
@@ -1414,7 +1411,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                           <h4 className="text-sm font-black text-white">{item.label}</h4>
                         </div>
                         <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 text-[10px] font-black">
-                          Sideline Hub
+                          Game
                         </span>
                       </div>
                       <p className="text-xs text-slate-300 mt-2.5 leading-relaxed">
@@ -1426,11 +1423,8 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                         </span>
                         <div className="flex flex-wrap gap-1.5 pt-1">
                           {[
-                            { id: 'game_day', label: '⚡ Sideline HUD' },
                             { id: 'call_sheet', label: '🏈 Call Sheet' },
                             { id: 'wristband', label: '⌚ Wristbands' },
-                            { id: 'hudl_scout', label: '📊 Hudl Scout' },
-                            { id: 'tendencies', label: '📈 Tendencies' },
                           ].map((s) => (
                             <button
                               key={s.id}

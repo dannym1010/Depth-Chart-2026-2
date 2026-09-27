@@ -130,7 +130,7 @@ import { hydrateFilmSession } from './utils/hudlFilmImport';
 import { normalizeRoster, getUnitPositionIds } from './utils/depthChartUtils';
 import { triggerPrint } from './utils/printUtils';
 import { isEventAlreadyInSchedule } from './utils/teamSnapSync';
-import { VALID_UNITS, parseRouteHash, buildRouteHash, checkIsLiveEnvironment } from './utils/routeUtils';
+import { VALID_UNITS, liveUnit, parseRouteHash, buildRouteHash, checkIsLiveEnvironment } from './utils/routeUtils';
 import {
   LOCAL_DEV_EMAIL,
   buildLocalDeveloperUser,
@@ -534,10 +534,10 @@ export default function App() {
       if (parsed.unit) return parsed.unit;
     }
     const savedDefault = safeJSONParse('footballDefaultScreen', null);
-    if (savedDefault && VALID_UNITS.has(savedDefault)) return savedDefault;
+    if (savedDefault && VALID_UNITS.has(savedDefault)) return liveUnit(savedDefault);
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     if (isMobile) return 'mobile_hub';
-    return safeJSONParse('footballActiveUnit', 'home');
+    return liveUnit(safeJSONParse('footballActiveUnit', 'home'));
   });
   const activeUnit = _activeUnit;
 
@@ -604,7 +604,7 @@ export default function App() {
   // Centralized route navigator supporting browser history, Back/Forward buttons, and deep links
   const navigateToUnit = useCallback(
     (
-      unit: UnitType,
+      requestedUnit: UnitType,
       options?: {
         subUnit?: DepthSubUnit;
         drillId?: string;
@@ -614,6 +614,7 @@ export default function App() {
         replace?: boolean;
       }
     ) => {
+      const unit = liveUnit(requestedUnit);
       const effectiveSubUnit =
         options?.subUnit ||
         (['offense', 'defense', 'st', 'groups', 'scrimmage', 'practice_live'].includes(unit)
@@ -719,7 +720,8 @@ export default function App() {
 
     // 1. Ensure current route has valid hash on initial load
     const currentParsed = parseRouteHash(window.location.hash);
-    if (!currentParsed.unit) {
+    const retiredHash = window.location.hash.slice(1).split('?')[0] !== currentParsed.unit;
+    if (!currentParsed.unit || retiredHash) {
       const initialHash = buildRouteHash(activeUnit, {
         subUnit: depthSubUnit,
         drillId: activeUnit === 'whiteboard' ? activeWhiteboardDrillId : undefined,
@@ -7021,15 +7023,15 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
 
         <button
           type="button"
-          onClick={() => setActiveUnit('game_day')}
+          onClick={() => setActiveUnit('call_sheet')}
           className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl transition-all cursor-pointer ${
-            ['game_day', 'wristband', 'call_sheet', 'scouting', 'hudl_scout', 'tendencies', 'html_tendencies'].includes(activeUnit)
+            ['wristband', 'call_sheet'].includes(activeUnit)
               ? 'text-red-600 dark:text-red-400 font-black'
               : 'text-slate-500 dark:text-slate-400 font-semibold'
           }`}
         >
           <Swords className="w-5 h-5" />
-          <span className="text-[10px]">Game Day</span>
+          <span className="text-[10px]">Call Sheet</span>
         </button>
 
         <button

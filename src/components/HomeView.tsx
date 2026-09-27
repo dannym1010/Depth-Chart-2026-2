@@ -522,11 +522,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <div className="pt-4 sm:pt-5 mt-3 sm:mt-4 border-t border-slate-200 dark:border-slate-800/80 space-y-2">
             <button
               type="button"
-              onClick={() => onNavigateToUnit('game_day')}
+              onClick={() => onNavigateToUnit('call_sheet')}
               className="w-full min-h-[46px] py-3 px-4 font-black text-xs sm:text-sm rounded-2xl shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98 bg-indigo-600 hover:bg-indigo-500 text-white"
             >
               <Trophy className="w-4 h-4 text-white" />
-              <span className="text-white">Launch Game Day Sideline Hub</span>
+              <span className="text-white">Open Call Sheet</span>
               <ArrowRight className="w-4 h-4 text-white" />
             </button>
 

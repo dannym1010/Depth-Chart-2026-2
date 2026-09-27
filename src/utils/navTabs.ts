@@ -24,7 +24,7 @@ export interface NavTabItem {
 export const DEFAULT_NAV_TABS: NavTabItem[] = [
   { id: 'home', label: '🏠 Home', icon: HomeIcon },
   { id: 'mobile_hub', label: '📱 Mobile HUD', icon: Smartphone },
-  { id: 'game_day', label: '🏆 Game Day Hub', icon: Swords },
+  { id: 'call_sheet', label: '🏈 Call Sheet & Wristbands', icon: Swords },
   { id: 'hudl_scout', label: '📊 Hudl Scout', icon: Target },
   { id: 'schedule', label: '📅 Schedule', icon: Calendar },
   { id: 'compliance', label: '⚡ Compliance & Hours', icon: Zap },

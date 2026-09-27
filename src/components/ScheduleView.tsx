@@ -71,7 +71,7 @@ interface ScheduleViewProps {
   onDeleteEvent: (id: string) => void;
   onBulkAddEvents?: (events: Omit<ScheduleEvent, 'id' | 'createdAt' | 'lastEdited'>[]) => void;
   onPracticeWizardGenerate?: (result: PracticeWizardGeneratedResult) => void;
-  onNavigateToWeek: (week: string, unit: 'scouting' | 'practice' | 'wristband' | 'groups' | 'game_day', practiceId?: string) => void;
+  onNavigateToWeek: (week: string, unit: 'scouting' | 'practice' | 'wristband' | 'groups' | 'game_day' | 'call_sheet', practiceId?: string) => void;
   onSyncGameToWeeklyData?: (week: string, opponent: string, date: string, time: string, location: string) => void;
   onSyncPracticeToPlan?: (event: ScheduleEvent, templateName?: string) => string; // returns practicePlan id
   onImportTeamSnapEvents?: (newEvents: Omit<ScheduleEvent, 'id' | 'createdAt' | 'lastEdited'>[], replaceExisting?: boolean) => void;
@@ -1630,11 +1630,11 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                                         </span>
                                       </button>
                                       <button
-                                        onClick={() => onNavigateToWeek(evt.week, 'game_day')}
+                                        onClick={() => onNavigateToWeek(evt.week, 'call_sheet')}
                                         className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold rounded-xl border border-slate-700 flex items-center justify-center gap-1 transition-all cursor-pointer"
-                                        title="Open Game Day Hub"
+                                        title="Open the call sheet"
                                       >
-                                        <span>Game Day</span>
+                                        <span>Call Sheet</span>
                                       </button>
                                       <button
                                         onClick={() => onNavigateToWeek(evt.week, 'scouting')}
@@ -1953,11 +1953,11 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                                 <span>{linkedPlan ? 'Pre-Game Plan' : '+ Pre-Game Plan'}</span>
                               </button>
                               <button
-                                onClick={() => onNavigateToWeek(evt.week, 'game_day')}
+                                onClick={() => onNavigateToWeek(evt.week, 'call_sheet')}
                                 className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs rounded-lg border border-slate-700 transition-all cursor-pointer"
-                                title="Open Game Day Hub"
+                                title="Open the call sheet"
                               >
-                                Game Day
+                                Call Sheet
                               </button>
                               <button
                                 onClick={() => onNavigateToWeek(evt.week, 'scouting')}
@@ -2524,7 +2524,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                 <ul className="list-disc pl-4 space-y-1 text-[11px] text-purple-200/80">
                   <li>Calculates arrival countdown (e.g. 60 min before kickoff)</li>
                   <li>Adds structured periods: dynamic stretch, offensive line drive, DB/WR routes, team script</li>
-                  <li>Links directly into your Practice Generator and the Game Day Hub</li>
+                  <li>Links directly into your Practice Generator and the call sheet</li>
                 </ul>
               </div>
             </div>

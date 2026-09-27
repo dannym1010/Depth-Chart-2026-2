@@ -66,18 +66,10 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
   const SECTIONS: NavSection[] = useMemo(
     () => [
       {
-        title: 'Game Day Hub & Sideline',
+        title: 'Call Sheet & Wristbands',
         icon: Swords,
         color: 'text-red-400',
         items: [
-          {
-            id: 'game_day',
-            label: '⚡ Sideline HUD & Clock',
-            subtitle: 'Live game clock, timeouts, field HUD & quick plays',
-            icon: Swords,
-            accentColor: 'border-red-500/40 hover:bg-red-950/40 text-red-300',
-            badge: 'Live',
-          },
           {
             id: 'call_sheet',
             label: '🏈 Sideline Call Sheet',
@@ -92,19 +84,19 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
             icon: Watch,
             accentColor: 'border-amber-500/40 hover:bg-amber-950/40 text-amber-300',
           },
+        ],
+      },
+      {
+        title: 'Hudl Scout',
+        icon: BarChart3,
+        color: 'text-blue-400',
+        items: [
           {
             id: 'hudl_scout',
             label: '📊 Hudl Scout',
             subtitle: 'Opponent report, our team, our play log and PFF grades',
             icon: BarChart3,
             accentColor: 'border-blue-500/40 hover:bg-blue-950/40 text-blue-300',
-          },
-          {
-            id: 'tendencies',
-            label: '📈 Formations & Tendencies',
-            subtitle: 'Run/pass breakdown by defensive down & distance',
-            icon: TrendingUp,
-            accentColor: 'border-amber-500/40 hover:bg-amber-950/40 text-amber-300',
           },
         ],
       },

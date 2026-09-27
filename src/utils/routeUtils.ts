@@ -45,6 +45,15 @@ export interface RouteState {
  *       #compliance?action=take_attendance
  *       #mobile_hub
  */
+/** Screens that were folded into others; old links and bookmarks land on the replacement. */
+export const RETIRED_UNITS: Partial<Record<string, UnitType>> = {
+  game_day: 'call_sheet',
+  tendencies: 'hudl_scout',
+  html_tendencies: 'hudl_scout',
+};
+
+export const liveUnit = (unit: UnitType): UnitType => RETIRED_UNITS[unit] || unit;
+
 export function parseRouteHash(hashStr: string): RouteState {
   if (!hashStr || !hashStr.startsWith('#')) {
     return { unit: null };
@@ -52,7 +61,7 @@ export function parseRouteHash(hashStr: string): RouteState {
 
   const raw = hashStr.slice(1);
   const [pathPart, queryPart] = raw.split('?');
-  const unit = VALID_UNITS.has(pathPart) ? (pathPart as UnitType) : null;
+  const unit = VALID_UNITS.has(pathPart) ? liveUnit(pathPart as UnitType) : null;
   if (!unit) return { unit: null };
 
   const result: RouteState = { unit };
