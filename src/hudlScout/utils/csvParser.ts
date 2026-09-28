@@ -404,6 +404,11 @@ export function normalizeHudlRow(row: Record<string, string>, mapping: ColumnMap
     series,
     isExplosive,
     isEfficient,
+    hudlRow: Object.fromEntries(
+      Object.entries(row)
+        .map(([k, v]) => [String(k).trim(), String(v ?? '').trim()])
+        .filter(([k, v]) => k && v)
+    ),
   };
 }
 

@@ -3335,3 +3335,45 @@ describe('each team has its own coaches', () => {
     assert.deepEqual(coachTeamIds({ email: 'dannym1010@gmail.com', role: 'Master Super Admin', status: 'Active', assignedTeamIds: ['all'] } as any, teams), ['team_10u', 'team_9u']);
   });
 });
+
+describe('export the play log for Hudl', () => {
+  it('keeps the uploaded columns and adds what coaches set, in play order', async () => {
+    const { parseCsvRows, autoDetectColumnMapping, normalizeHudlRow } = await import('../hudlScout/utils/csvParser.ts');
+    const { hudlExportRows } = await import('../hudlScout/utils/hudlExport.ts');
+    const csv = `PLAY #,ODK,DN,DIST,YARD LN,PLAY TYPE,GN/LS,OFF FORM,OFF PLAY,PLAY DIR,MY CUSTOM
+2,O,2,6,-34,Run,5,-,-,L,x2
+1,O,1,10,-30,Run,4,-,-,R,x1`;
+    const { headers, rows } = parseCsvRows(csv);
+    const m = autoDetectColumnMapping(headers);
+    const plays = rows.map((r, i) => normalizeHudlRow(r, m, i)) as any[];
+    // A coach tagged play 1 and set the unit, runner and a sub.
+    plays[1] = { ...plays[1], playCall: '21 R 31 TOSS SWEEP', formation: '21 R', unit: 'gold', rusher: '#13 Landon Veto', subs: { RB: { num: '7', name: 'Mike' } } };
+    const out = hudlExportRows(plays);
+    assert.deepEqual(out.rows.map((r) => r['PLAY #']), ['1', '2']);
+    const first = out.rows[0];
+    assert.equal(first['PLAY DIR'], 'R'); // uploaded column kept as it was
+    assert.equal(first['MY CUSTOM'], 'x1');
+    assert.equal(first['OFF PLAY'], '21 R 31 TOSS SWEEP');
+    assert.equal(first['OFF FORM'], '21 R');
+    assert.equal(first.UNIT, 'Gold');
+    assert.equal(first.RUSHER_Jersey, '13');
+    assert.equal(first.RUSHER_Name, 'Landon Veto');
+    assert.equal(first.SUBS, 'RB: #7 Mike');
+    assert.ok(out.headers.indexOf('PLAY #') < out.headers.indexOf('UNIT'));
+    // Reading the exported sheet back gives the same called play and runner.
+    const csv2 = [out.headers.join(','), ...out.rows.map((r) => out.headers.map((h) => String(r[h] ?? '')).join(','))].join('\n');
+    const back = parseCsvRows(csv2);
+    const again = back.rows.map((r, i) => normalizeHudlRow(r, autoDetectColumnMapping(back.headers), i));
+    assert.equal(again[0].hudlCall, '21 R 31 TOSS SWEEP');
+    assert.equal(again[0].rusher, '#13 Landon Veto');
+  });
+  it('plays uploaded before rows were kept still export the standard columns', async () => {
+    const { hudlExportRow } = await import('../hudlScout/utils/hudlExport.ts');
+    const r = hudlExportRow({ playNumber: 3, odk: 'D', quarter: 2, down: 3, distance: 4, rawYardLine: '+40', hash: 'L', playType: 'PASS', result: 'Incomplete', gainLoss: 0, formation: '32 R', direction: 'Left', defPlay: { maker: '#22 Jax', events: ['sack'] }, playCall: '4-4 STACK' } as any);
+    assert.equal(r['PLAY #'], 3);
+    assert.equal(r.ODK, 'D');
+    assert.equal(r['DEF PLAY'], '4-4 STACK');
+    assert.equal(r.TACKLER_Jersey, '22');
+    assert.equal(r['DEF EVENTS'], 'SACK');
+  });
+});

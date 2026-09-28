@@ -33,6 +33,8 @@ interface HeaderProps {
   onSelectGame?: (gameId: string) => void;
   onRemoveGame: (gameId: string) => void;
   onClearUploads: () => void;
+  /** Download the play log as a spreadsheet to import back into Hudl. */
+  onExportForHudl?: () => void;
   unit: ScoutUnit;
   onUnitChange: (unit: ScoutUnit) => void;
   unitCounts: { O: number; D: number; K: number; total: number };
@@ -67,6 +69,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectGame,
   onRemoveGame,
   onClearUploads,
+  onExportForHudl,
   unit,
   onUnitChange,
   unitCounts,
@@ -156,7 +159,12 @@ export const Header: React.FC<HeaderProps> = ({
             <Printer className="w-4 h-4" />
             Call sheet
           </button>
-          <MoreMenu items={[{ label: 'Remove all uploads', onClick: onClearUploads, danger: true, hidden: games.length === 0 }]} />
+          <MoreMenu
+            items={[
+              { label: 'Export play log for Hudl', onClick: () => onExportForHudl?.(), hidden: games.length === 0 || !onExportForHudl },
+              { label: 'Remove all uploads', onClick: onClearUploads, danger: true, hidden: games.length === 0 },
+            ]}
+          />
         </div>
       </div>
 

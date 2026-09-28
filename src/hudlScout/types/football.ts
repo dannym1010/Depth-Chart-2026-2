@@ -78,6 +78,8 @@ export interface Play {
   subs?: Record<string, { num: string; id?: string; name?: string } | null>;
   /** Hudl PLAY TYPE text as uploaded ("KO", "Punt", "KO Rec"), for telling kicks apart. */
   rawPlayType?: string;
+  /** The row as uploaded from Hudl (filled columns only), so the play log can be exported back to Hudl. */
+  hudlRow?: Record<string, string>;
 }
 
 export interface DownDistGroup {

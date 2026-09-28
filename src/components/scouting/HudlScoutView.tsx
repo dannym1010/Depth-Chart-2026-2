@@ -23,6 +23,7 @@ import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { autoTagFromHudl, setPlaysFormation, tagPlays } from '../../hudlScout/utils/playTags';
 import { newPlayEntry } from '../../utils/playbookImport';
+import { hudlExportRows } from '../../hudlScout/utils/hudlExport';
 import { CallResultsCard } from '../playbook/CallResultsCard';
 import { OwnTeamReport } from '../playbook/OwnTeamReport';
 import type { FilmPlayerRef, RosterPlayer } from '../../types';
@@ -479,6 +480,30 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     if (selectedGameId === gameId) setSelectedGameId('all');
   };
 
+  // Play log -> spreadsheet to import back into Hudl (one sheet per game; rows in play order).
+  const handleExportForHudl = async () => {
+    const games = selectedGameId === 'all' ? bundle.games : bundle.games.filter((g) => g.id === selectedGameId);
+    if (!games.length) return;
+    const XLSX = await import('xlsx');
+    const wb = XLSX.utils.book_new();
+    const usedNames = new Set<string>();
+    for (const game of games) {
+      const gamePlays = bundle.plays.filter((p) => (p.gameId ? p.gameId === game.id : bundle.games[0]?.id === game.id));
+      if (!gamePlays.length) continue;
+      const { headers, rows } = hudlExportRows(gamePlays);
+      const ws = XLSX.utils.json_to_sheet(rows, { header: headers });
+      // Sheet names: 31 characters, no : \ / ? * [ ], unique.
+      let name = String(game.name || 'Game').replace(/[:\\/?*[\]]/g, ' ').slice(0, 28).trim() || 'Game';
+      let n = 2;
+      while (usedNames.has(name)) name = `${name.slice(0, 26)} ${n++}`;
+      usedNames.add(name);
+      XLSX.utils.book_append_sheet(wb, ws, name);
+    }
+    if (!wb.SheetNames.length) return;
+    const base = games.length === 1 ? games[0].name : `${scoutTarget === 'own' ? 'Our team' : datasetName} - all games`;
+    XLSX.writeFile(wb, `${String(base || 'Play log').replace(/[\\/:*?"<>|]/g, ' ').trim()} - Hudl breakdown.xlsx`);
+  };
+
   const handleClearUploads = () => {
     const who = scoutTarget === 'own' ? 'our team (all games this season)' : `this week's opponent (${weekLabel})`;
     if (!window.confirm(`Remove all CSV/Excel uploads from ${who}?`)) return;
@@ -508,6 +533,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         onSelectGame={setSelectedGameId}
         onRemoveGame={handleRemoveGame}
         onClearUploads={handleClearUploads}
+        onExportForHudl={() => void handleExportForHudl()}
         unit={filters.odk as ScoutUnit}
         onUnitChange={(odk) =>
           // A formation belongs to one side, so switching sides drops that filter.
