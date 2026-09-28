@@ -3166,3 +3166,26 @@ describe('each team keeps its own data', () => {
     assert.equal(isPrimaryTeamId('team_9u'), false);
   });
 });
+
+describe('roster import', () => {
+  it('reads a TeamSnap members export and leaves out parents and managers', async () => {
+    const { parseRosterCsv } = await import('./rosterCsv.ts');
+    const csv = [
+      'First,Last,Address,City,State,Zip,Birthdate,Jersey Number,Position,Email,Phone Number,Gender,Contact 1 Name',
+      'Dan,Mancini,"",,,,"",,,dan@x.com,"",,""',
+      'Kyle,Mancini,"","","","",2017-10-09,15,"",k@x.com,"",,Courtney Mancini',
+      'Dante,Frazer,"",,,,"",0,,d@x.com,"",Male,""',
+      'Liam,O\'Brien,"",,,,"",44,QB,l@x.com,"",Male,"Pat O\'Brien"',
+    ].join('\n');
+    const r = parseRosterCsv(csv, 'team_9u');
+    assert.deepEqual(r.players.map((p) => `${p.num} ${p.firstName} ${p.lastName}`), ['15 Kyle Mancini', '0 Dante Frazer', "44 Liam O'Brien"]);
+    assert.equal(r.players[2].primaryPosition, 'QB');
+    assert.equal(r.players[0].teamId, 'team_9u');
+    assert.deepEqual(r.skipped, ['Dan Mancini: no jersey number']);
+  });
+  it('still reads simple "number, first, last" lists', async () => {
+    const { parseRosterCsv } = await import('./rosterCsv.ts');
+    const r = parseRosterCsv('7, John, Smith, QB, LB\n12, Mike, Jones', 'team_10u');
+    assert.deepEqual(r.players.map((p) => `${p.num} ${p.lastName} ${p.primaryPosition}/${p.secondaryPosition}`), ['7 Smith QB/LB', '12 Jones ATH/ATH']);
+  });
+});

@@ -21,6 +21,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { RosterPlayer, UserRole, Team, FormationBoard, PlacedPlayer } from '../types';
+import { parseRosterCsv } from '../utils/rosterCsv';
 import { MASTER_ROSTER } from '../data/initialData';
 import {
   getPlayerPositionsFromDepthChart,
@@ -86,6 +87,7 @@ export const RosterManagerModal: React.FC<RosterManagerModalProps> = ({
   const [csvText, setCsvText] = useState('');
   const [formError, setFormError] = useState('');
   const [csvPreviewPlayers, setCsvPreviewPlayers] = useState<RosterPlayer[]>([]);
+  const [csvSkipped, setCsvSkipped] = useState<string[]>([]);
   const [csvFileName, setCsvFileName] = useState<string | null>(null);
   const [csvImportMode, setCsvImportMode] = useState<'replace' | 'append'>('replace');
   const [isDragOver, setIsDragOver] = useState(false);
@@ -122,6 +124,13 @@ export const RosterManagerModal: React.FC<RosterManagerModalProps> = ({
       }
     }
   }, [initialEditingPlayer]);
+
+  // Every time the roster opens, start on the team that is open in the app (not one picked last time).
+  React.useEffect(() => {
+    if (!isOpen || !activeTeamId) return;
+    setAssignedTeamId(activeTeamId);
+    setSelectedTeamFilter(activeTeamId);
+  }, [isOpen, activeTeamId]);
 
   if (!isOpen) return null;
 
@@ -378,110 +387,12 @@ export const RosterManagerModal: React.FC<RosterManagerModalProps> = ({
     alert(`Successfully copied ${clonedPlayers.length} players to ${targetTeam?.name}!`);
   };
 
-  // Robust CSV / Text Parsing Engine supporting headers, quotes, commas, tabs
+  // CSV / pasted list -> players (TeamSnap member exports, spreadsheets, "7, John, Smith" lines).
+  // Rows left out (parents / managers with no jersey number, repeated numbers) are listed in the preview.
   const parseCSVRawText = (rawContent: string, targetTeam: string): RosterPlayer[] => {
-    const lines = rawContent
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter(Boolean);
-
-    if (lines.length === 0) return [];
-
-    // Helper to split a CSV line considering quotes
-    const splitCSVLine = (line: string): string[] => {
-      const result: string[] = [];
-      let current = '';
-      let inQuotes = false;
-      const delimiter = line.includes('\t') ? '\t' : ',';
-
-      for (let i = 0; i < line.length; i++) {
-        const char = line[i];
-        if (char === '"' || char === "'") {
-          inQuotes = !inQuotes;
-        } else if (char === delimiter && !inQuotes) {
-          result.push(current.trim().replace(/^["']|["']$/g, ''));
-          current = '';
-        } else {
-          current += char;
-        }
-      }
-      result.push(current.trim().replace(/^["']|["']$/g, ''));
-      return result;
-    };
-
-    const firstLineCols = splitCSVLine(lines[0]).map((c) => c.toLowerCase().trim());
-    const isHeaderRow =
-      firstLineCols.some((c) =>
-        ['jersey', 'number', '#', 'no', 'num', 'first', 'firstname', 'name', 'pos', 'position', 'offense', 'defense'].includes(c)
-      );
-
-    let colJersey = 0;
-    let colFirst = 1;
-    let colLast = 2;
-    let colRosterName = -1;
-    let colPrimary = 3;
-    let colSecondary = 4;
-    let colNotes = -1;
-    let colCaptain = -1;
-    let startIdx = 0;
-
-    if (isHeaderRow) {
-      startIdx = 1;
-      firstLineCols.forEach((col, idx) => {
-        if (['jersey', 'number', '#', 'no', 'num', 'jersey#', 'jersey_num'].includes(col)) colJersey = idx;
-        else if (['first', 'firstname', 'first_name', 'f_name', 'player_name', 'name'].includes(col)) colFirst = idx;
-        else if (['last', 'lastname', 'last_name', 'l_name'].includes(col)) colLast = idx;
-        else if (['rostername', 'roster_name', 'roster name', 'displayname', 'display_name'].includes(col)) colRosterName = idx;
-        else if (['pos', 'position', 'primary', 'primary_pos', 'primarypos', 'offense', 'off_pos'].includes(col)) colPrimary = idx;
-        else if (['secondary', 'sec_pos', 'secondary_pos', 'defense', 'def_pos'].includes(col)) colSecondary = idx;
-        else if (['note', 'notes', 'comments'].includes(col)) colNotes = idx;
-        else if (['captain', 'is_captain', 'c'].includes(col)) colCaptain = idx;
-      });
-    }
-
-    const parsed: RosterPlayer[] = [];
-
-    for (let i = startIdx; i < lines.length; i++) {
-      const parts = splitCSVLine(lines[i]);
-      if (parts.length >= 2) {
-        const rawNum = (parts[colJersey] || '').replace(/\D/g, '');
-        let fName = parts[colFirst] || '';
-        let lName = colLast >= 0 && colLast < parts.length ? parts[colLast] || '' : '';
-
-        // If name was provided as single "First Last" in one column
-        if (colFirst === colLast || (!lName && fName.includes(' '))) {
-          const nameParts = fName.split(/\s+/);
-          fName = nameParts[0] || '';
-          lName = nameParts.slice(1).join(' ') || '';
-        }
-
-        const rName = colRosterName >= 0 && parts[colRosterName] ? parts[colRosterName].trim() : (lName || fName);
-        const pPos = (parts[colPrimary] || 'ATH').toUpperCase();
-        const sPos = (colSecondary >= 0 && parts[colSecondary] ? parts[colSecondary] : 'ATH').toUpperCase();
-        const noteVal = colNotes >= 0 ? parts[colNotes] || '' : '';
-        const captVal = colCaptain >= 0 ? ['true', 'yes', '1', 'c'].includes((parts[colCaptain] || '').toLowerCase()) : false;
-
-        if (rawNum && fName) {
-          parsed.push({
-            num: rawNum,
-            firstName: fName,
-            lastName: lName,
-            rosterName: rName,
-            teamId: targetTeam,
-            primaryPosition: pPos,
-            secondaryPosition: sPos,
-            offensivePosition: pPos,
-            defensivePosition: sPos,
-            conditioningHours: 10,
-            paddedHours: 10,
-            isCaptain: captVal,
-            notes: noteVal,
-          });
-        }
-      }
-    }
-
-    return parsed;
+    const res = parseRosterCsv(rawContent, targetTeam);
+    setCsvSkipped(res.skipped);
+    return res.players;
   };
 
   // File Upload Handler (via Drag/Drop or Browse)
@@ -519,7 +430,21 @@ export const RosterManagerModal: React.FC<RosterManagerModalProps> = ({
       : parseCSVRawText(csvText, targetTeamId);
 
     if (playersToImport.length === 0) {
-      alert('No valid player records found. Please ensure format contains at least Jersey # and First Name.');
+      alert(
+        csvSkipped.length
+          ? `No players could be imported:\n${csvSkipped.slice(0, 10).join('\n')}`
+          : 'No players found. The file needs a jersey number and a name for each player (columns like "Jersey Number", "First", "Last").'
+      );
+      return;
+    }
+
+    // Replacing a team that already has players: say so first.
+    const existingOnTeam = roster.filter((p) => (p.teamId || teams[0]?.id) === targetTeamId).length;
+    if (
+      csvImportMode === 'replace' &&
+      existingOnTeam > 0 &&
+      !window.confirm(`Replace the ${existingOnTeam} players on ${targetTeamName} with the ${playersToImport.length} players in this file?`)
+    ) {
       return;
     }
 
@@ -1383,6 +1308,11 @@ export const RosterManagerModal: React.FC<RosterManagerModalProps> = ({
                         <span>Ready to Import: {csvPreviewPlayers.length} Players Found</span>
                       </span>
                     </div>
+                    {csvSkipped.length > 0 && (
+                      <p className="text-[11px] text-amber-300">
+                        Left out {csvSkipped.length} row{csvSkipped.length === 1 ? '' : 's'}: {csvSkipped.join('; ')}
+                      </p>
+                    )}
 
                     <div className="max-h-40 overflow-y-auto border border-slate-800 rounded-xl bg-slate-950/60 text-[11px]">
                       <table className="w-full text-left">
