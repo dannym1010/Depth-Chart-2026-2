@@ -3095,3 +3095,45 @@ describe('this device\'s storage', () => {
     assert.equal(packWeeklyData({ team_10u__week_5: { opponent: 'A' }, '5': { opponent: 'B' } }, true).local['5'].opponent, 'B');
   });
 });
+
+describe('who manages which teams and coaches', () => {
+  const teams = [{ id: 'team_10u', name: '10U' }, { id: 'team_9u', name: '9U' }, { id: 'team_12u', name: '12U' }] as any[];
+  const owner = { email: 'dannym1010@gmail.com', role: 'Master Super Admin', status: 'Active', assignedTeamIds: ['all'] } as any;
+  const head10 = { email: 'head10@x.com', role: 'Head Coach (Admin)', status: 'Active', assignedTeamIds: ['team_10u'] } as any;
+  const asst10 = { email: 'asst10@x.com', role: 'Assistant Coach', status: 'Active', assignedTeamIds: ['team_10u'] } as any;
+  const asst9 = { email: 'asst9@x.com', role: 'Assistant Coach', status: 'Active', assignedTeamIds: ['team_9u'] } as any;
+  const both = { email: 'both@x.com', role: 'Assistant Coach', status: 'Active', assignedTeamIds: ['team_10u', 'team_9u'] } as any;
+  const newbie = { email: 'new@x.com', role: 'Assistant Coach', status: 'Pending', assignedTeamIds: [] } as any;
+
+  it('the owner has every team and manages everyone but themselves', async () => {
+    const { coachTeamIds, canManageCoach, isProgramAdminCoach } = await import('./staffAccess.ts');
+    assert.ok(isProgramAdminCoach(owner));
+    assert.ok(isProgramAdminCoach({ email: 'DannyM1010@gmail.com', role: 'Assistant Coach', status: 'Pending' } as any));
+    assert.deepEqual(coachTeamIds(owner, teams), ['team_10u', 'team_9u', 'team_12u']);
+    const me = { email: owner.email, isProgramAdmin: true, teamIds: teams.map((t) => t.id) };
+    assert.ok(canManageCoach(me, head10, teams));
+    assert.ok(canManageCoach(me, asst9, teams));
+    assert.equal(canManageCoach(me, owner, teams), false);
+  });
+
+  it('a team admin manages only coaches on their own teams, never the owner or themselves', async () => {
+    const { canManageCoach, canSeeCoach, coachTeamIds, isProgramAdminCoach } = await import('./staffAccess.ts');
+    assert.equal(isProgramAdminCoach(head10), false);
+    const mgr = { email: head10.email, isProgramAdmin: false, teamIds: coachTeamIds(head10, teams) };
+    assert.deepEqual(mgr.teamIds, ['team_10u']);
+    assert.ok(canManageCoach(mgr, asst10, teams));
+    assert.equal(canManageCoach(mgr, asst9, teams), false);
+    assert.equal(canManageCoach(mgr, both, teams), false); // also on 9U
+    assert.equal(canManageCoach(mgr, owner, teams), false);
+    assert.equal(canManageCoach(mgr, head10, teams), false);
+    assert.ok(canManageCoach(mgr, newbie, teams)); // new sign-up waiting for a team
+    assert.ok(canSeeCoach(mgr, both, teams));
+    assert.equal(canSeeCoach(mgr, asst9, teams), false);
+    assert.ok(canSeeCoach(mgr, owner, teams)); // listed (read-only) so they know who runs the program
+  });
+
+  it('team ids match with either spelling', async () => {
+    const { coachTeamIds } = await import('./staffAccess.ts');
+    assert.deepEqual(coachTeamIds({ ...asst10, assignedTeamIds: ['team-10u'] }, teams), ['team_10u']);
+  });
+});

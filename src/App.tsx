@@ -162,6 +162,7 @@ import { MASTER_PLAY_DATABASE, DEFAULT_CALL_SHEET_DATA } from './data/callSheetD
 import { mergeDeletedPlayIds, mergePlayBanks, stampPlayEdits } from './utils/playBankMerge';
 import { mergeAttendanceLogs, mergeRosters, mergeTombstones, removedIds, stampEdits, type Tombstones } from './utils/recordMerge';
 import { syncEntireRosterWithLogs } from './utils/hoursCalculation';
+import { canManageCoach, coachTeamIds, hasNoTeamYet, isProgramAdminCoach, isProgramAdminEmail, sameTeamId } from './utils/staffAccess';
 import { OWN_HUDL_KEY, WEEKLY_HUDL_KEY, bigGet, bigStoreAvailable, markBigStoreReady } from './utils/bigLocalStore';
 import { syncWristbandToCallSheet } from './utils/wristbandLinking';
 import { saveCallSheetSnapshot, countCallSheetPlays } from './utils/callSheetStorage';
@@ -1783,7 +1784,11 @@ export default function App() {
         const myCoach = data.staffList.find(
           (c: StaffCoach) => c.email.toLowerCase().trim() === cleanUserEmail
         );
-        if (myCoach && myCoach.status === 'Active') {
+        if (isProgramAdminEmail(cleanUserEmail)) {
+          // The program owner can never be locked out or demoted by a staff list change.
+          setIsPendingApproval(false);
+          setUserRole('admin');
+        } else if (myCoach && myCoach.status === 'Active') {
           setIsPendingApproval(false);
           const isHead =
             myCoach.role?.toLowerCase().includes('head coach') ||
@@ -3685,7 +3690,12 @@ export default function App() {
             (c) => c.email.toLowerCase().trim() === cleanEmail
           );
 
-          if (existingIdx !== -1) {
+          if (isProgramAdminEmail(cleanEmail)) {
+            // The program owner: always in, full access to every team.
+            setIsPendingApproval(false);
+            setUserRole('admin');
+            setIsAuthModalOpen(false);
+          } else if (existingIdx !== -1) {
             const coachEntry = latestStaff[existingIdx];
             if (coachEntry.status === 'Active') {
               setIsPendingApproval(false);
@@ -3704,7 +3714,7 @@ export default function App() {
               email: cleanEmail,
               role: 'Assistant Coach',
               status: 'Pending',
-              assignedTeamIds: ['all'],
+              assignedTeamIds: [],
             };
             const updatedStaff = [...latestStaff, newEntry];
             setStaffList(updatedStaff);
@@ -3792,7 +3802,7 @@ export default function App() {
       return () => unsubscribeAuth();
     } else {
       // Offline mode
-      setCurrentUser({ email: 'Local Coach (Offline)' });
+      setCurrentUser({ email: 'Local Coach (Offline)', isOfflineLocal: true });
       void establishOpsSession({ method: 'loopback', email: 'offline@localhost' });
     }
   }, []);
@@ -3991,8 +4001,19 @@ export default function App() {
   );
 
   const isMasterSuperAdminUser = (email?: string) => {
-    return false;
+    if (isProgramAdminEmail(email)) return true;
+    const clean = String(email || '').toLowerCase().trim();
+    return isProgramAdminCoach(staffList.find((c) => c.email.toLowerCase().trim() === clean));
   };
+
+  // The program owner (full access to every team); everyone else works only on their own teams.
+  const isProgramAdmin = Boolean(
+    currentUser?.isAdminPasscodeAuth ||
+      currentUser?.isLocalDeveloperAuth ||
+      // Offline on the owner's own computer (the offline launcher), never on the live site.
+      (currentUser?.isOfflineLocal && typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)) ||
+      isMasterSuperAdminUser(currentUser?.email)
+  );
 
 
   const isUserApproved = (email?: string, userObj?: any): boolean => {
@@ -4005,23 +4026,59 @@ export default function App() {
   };
 
   const accessibleTeams = React.useMemo(() => {
-    // Admin Passcode auth or admin role ALWAYS has full access to ALL teams unconditionally
-    if (currentUser?.isAdminPasscodeAuth || userRole === 'admin') {
-      return teams;
-    }
-
-    // For all other Head Coaches and Assistant Coaches, strictly check allowed assignedTeamIds
+    // The program admin (owner, admin passcode) sees every team.
+    if (isProgramAdmin) return teams;
+    // Team admins and coaches only see the teams they are assigned to.
     if (currentUserCoach) {
-      const assigned = currentUserCoach.assignedTeamIds;
-      if (assigned && assigned.length > 0) {
-        if (assigned.includes('all')) return teams;
-        const permitted = teams.filter((t) => assigned.includes(t.id));
-        if (permitted.length > 0) return permitted;
-      }
+      const mine = coachTeamIds(currentUserCoach, teams);
+      const permitted = teams.filter((t) => mine.includes(t.id));
+      if (permitted.length > 0) return permitted;
     }
-
     return teams.slice(0, 1);
-  }, [teams, currentUserCoach, currentUser]);
+  }, [teams, currentUserCoach, currentUser, isProgramAdmin]);
+
+  // Players on the teams this coach can see (everyone for the program admin).
+  const accessibleRoster = React.useMemo(
+    () => (isProgramAdmin ? roster : roster.filter((p) => p && accessibleTeams.some((t) => sameTeamId(t.id, p.teamId || 'team_10u')))),
+    [roster, accessibleTeams, isProgramAdmin]
+  );
+
+  // Who is managing staff right now, and which coaches they may change.
+  const staffManager = React.useMemo(
+    () => ({ email: currentUser?.email, isProgramAdmin, teamIds: accessibleTeams.map((t) => t.id) }),
+    [currentUser?.email, isProgramAdmin, accessibleTeams]
+  );
+  const mayManageStaffAt = (idx: number) => {
+    const target = latestStateRef.current.staffList?.[idx] || staffList[idx];
+    return Boolean(target) && userRole === 'admin' && canManageCoach(staffManager, target, teams);
+  };
+  const mayEditTeam = (teamId: string) =>
+    isProgramAdmin || (userRole === 'admin' && accessibleTeams.some((t) => sameTeamId(t.id, teamId)));
+
+  // Staff, teams and practice-coach lists go to the cloud together, after the change is applied:
+  // the live staff / season / coaches documents (what other coaches' devices listen to) and the
+  // older shared document (read when a coach signs in).
+  const staffPublishTimerRef = useRef<any>(null);
+  const queueStaffTeamsPublish = () => {
+    if (staffPublishTimerRef.current) clearTimeout(staffPublishTimerRef.current);
+    staffPublishTimerRef.current = setTimeout(() => {
+      staffPublishTimerRef.current = null;
+      const cur = latestStateRef.current;
+      const { db } = getFirebaseServices();
+      if (db && Array.isArray(cur.staffList) && cur.staffList.length && Array.isArray(cur.teams) && cur.teams.length) {
+        db.collection('teamData')
+          .doc('depthChartData')
+          .set(
+            { staffList: cur.staffList, teams: cur.teams, teamSavedCoaches: cur.teamSavedCoaches || {}, updatedAt: Date.now() },
+            { merge: true }
+          )
+          .catch((err: any) => console.warn('Firestore staff/teams sync error:', err));
+      }
+      debouncedSave('staff');
+      debouncedSave('season');
+      debouncedSave('coaches');
+    }, 60);
+  };
 
   // Active Team Saved Practice Coaches (Per-Team Roster - strictly on this team only)
   const activeTeamSavedCoaches = React.useMemo(() => {
@@ -4107,6 +4164,7 @@ export default function App() {
 
   // Team CRUD handlers
   const handleAddTeam = (newTeamData: Omit<Team, 'id'>) => {
+    if (!isProgramAdmin) return; // only the program admin creates teams
     const newTeam: Team = {
       ...newTeamData,
       id: 'team_' + Date.now(),
@@ -4135,23 +4193,11 @@ export default function App() {
     setActiveTeamId(newTeam.id);
     safeJSONSet('footballActiveTeamId', newTeam.id);
 
-    const { db } = getFirebaseServices();
-    if (db) {
-      db.collection('teamData')
-        .doc('depthChartData')
-        .set(
-          {
-            teams: updatedTeams,
-            teamSavedCoaches: updatedCoaches,
-            updatedAt: Date.now(),
-          },
-          { merge: true }
-        )
-        .catch((err: any) => console.warn('Firestore add team sync error:', err));
-    }
+    queueStaffTeamsPublish();
   };
 
   const handleUpdateTeam = (teamId: string, updated: Partial<Team>) => {
+    if (!mayEditTeam(teamId)) return;
     let updatedTeams: Team[] = [];
     setTeams((prev) => {
       updatedTeams = prev.map((t) => (t.id === teamId ? { ...t, ...updated } : t));
@@ -4160,22 +4206,11 @@ export default function App() {
       return updatedTeams;
     });
 
-    const { db } = getFirebaseServices();
-    if (db) {
-      db.collection('teamData')
-        .doc('depthChartData')
-        .set(
-          {
-            teams: updatedTeams,
-            updatedAt: Date.now(),
-          },
-          { merge: true }
-        )
-        .catch((err: any) => console.warn('Firestore update team sync error:', err));
-    }
+    queueStaffTeamsPublish();
   };
 
   const handleDeleteTeam = (teamId: string) => {
+    if (!isProgramAdmin) return; // only the program admin deletes teams
     let finalTeams: Team[] = [];
     setTeams((prev) => {
       const remaining = prev.filter((t) => t.id !== teamId);
@@ -4231,24 +4266,19 @@ export default function App() {
     });
 
     // Direct instant Firestore write to permanently delete the team from the cloud
-    const { db } = getFirebaseServices();
-    if (db) {
-      db.collection('teamData')
-        .doc('depthChartData')
-        .set(
-          {
-            teams: finalTeams,
-            staffList: updatedStaff,
-            teamSavedCoaches: updatedCoaches,
-            updatedAt: Date.now(),
-          },
-          { merge: true }
-        )
-        .catch((err: any) => console.warn('Firestore delete team sync error:', err));
-    }
+    queueStaffTeamsPublish();
   };
 
-  const handleUpdateStaffAssignedTeams = (idx: number, teamIds: string[]) => {
+  const handleUpdateStaffAssignedTeams = (idx: number, requested: string[]) => {
+    if (!mayManageStaffAt(idx)) return;
+    // A team admin can only hand out their own teams (and keeps any other teams the coach has).
+    const target = staffList[idx];
+    const teamIds = isProgramAdmin
+      ? requested
+      : [
+          ...coachTeamIds(target, teams).filter((id) => !staffManager.teamIds.includes(id)),
+          ...requested.filter((id) => id !== 'all' && staffManager.teamIds.includes(id)),
+        ];
     let updated: StaffCoach[] = [];
     setStaffList((prev) => {
       updated = [...prev];
@@ -4258,13 +4288,7 @@ export default function App() {
       return updated;
     });
 
-    const { db } = getFirebaseServices();
-    if (db) {
-      db.collection('teamData')
-        .doc('depthChartData')
-        .set({ staffList: updated, updatedAt: Date.now() }, { merge: true })
-        .catch((err: any) => console.warn('Firestore staff update sync error:', err));
-    }
+    queueStaffTeamsPublish();
   };
 
   const handleSetDefaultTeam = (teamId: string) => {
@@ -4345,6 +4369,9 @@ export default function App() {
     startScreen?: UnitType,
     idleTimeoutMinutes?: number
   ) => {
+    const prefTarget = staffList[idx];
+    const isSelf = Boolean(prefTarget) && prefTarget.email.toLowerCase().trim() === String(currentUser?.email || '').toLowerCase().trim();
+    if (!isSelf && !mayManageStaffAt(idx)) return;
     let updated: StaffCoach[] = [];
     setStaffList((prev) => {
       if (!prev[idx]) return prev;
@@ -4391,17 +4418,7 @@ export default function App() {
       return updated;
     });
 
-    const { db } = getFirebaseServices();
-    if (db) {
-      db.collection('teamData')
-        .doc('depthChartData')
-        .set({
-          staffList: updated,
-          ...(typeof idleTimeoutMinutes === 'number' ? { globalIdleTimeoutMinutes: idleTimeoutMinutes } : {}),
-          updatedAt: Date.now()
-        }, { merge: true })
-        .catch((err: any) => console.warn('Firestore staff pref update sync error:', err));
-    }
+    queueStaffTeamsPublish();
 
     saveServerState(
       {
@@ -4426,9 +4443,16 @@ export default function App() {
     idleTimeoutMinutes: number = 30
   ) => {
     const cleanEmail = email.toLowerCase().trim();
+    if (userRole !== 'admin') return;
     if (staffList.some((c) => c.email.toLowerCase().trim() === cleanEmail)) {
       alert('Coach email already in staff list.');
       return;
+    }
+    // Team admins add coaches to their own teams only, and can't create another program admin.
+    if (!isProgramAdmin) {
+      assignedTeamIds = (assignedTeamIds || []).filter((id) => id !== 'all' && staffManager.teamIds.includes(id));
+      if (!assignedTeamIds.length) assignedTeamIds = [activeTeamId];
+      if (/master|super|program/i.test(role)) role = 'Head Coach (Admin)';
     }
     const newEntry: StaffCoach = {
       email: cleanEmail,
@@ -4448,13 +4472,7 @@ export default function App() {
       return updatedStaff;
     });
 
-    const { db } = getFirebaseServices();
-    if (db) {
-      db.collection('teamData')
-        .doc('depthChartData')
-        .set({ staffList: updatedStaff, updatedAt: Date.now() }, { merge: true })
-        .catch((err: any) => console.warn('Firestore add staff sync error:', err));
-    }
+    queueStaffTeamsPublish();
 
     saveServerState(latestStateRef.current, currentUser?.email || 'Admin', {
       scope: 'staff_add',
@@ -4490,19 +4508,7 @@ export default function App() {
       return updatedTeamCoaches;
     });
 
-    const { db } = getFirebaseServices();
-    if (db) {
-      db.collection('teamData')
-        .doc('depthChartData')
-        .set(
-          {
-            teamSavedCoaches: latestStateRef.current.teamSavedCoaches,
-            updatedAt: Date.now(),
-          },
-          { merge: true }
-        )
-        .catch((err: any) => console.warn('Firestore add coach sync error:', err));
-    }
+    queueStaffTeamsPublish();
   };
 
   const handleDeleteSavedCoach = (name: string, targetTeamId?: string) => {
@@ -4548,21 +4554,7 @@ export default function App() {
       })
     );
 
-    const { db } = getFirebaseServices();
-    if (db) {
-      db.collection('teamData')
-        .doc('depthChartData')
-        .set(
-          JSON.parse(
-            safeJSONStringify({
-              teamSavedCoaches: latestStateRef.current.teamSavedCoaches,
-              updatedAt: Date.now(),
-            })
-          ),
-          { merge: true }
-        )
-        .catch((err: any) => console.warn('Firestore delete coach sync error:', err));
-    }
+    queueStaffTeamsPublish();
   };
 
   const handleCopyCoachesFromTeam = (sourceTeamId: string, targetTeamId: string) => {
@@ -4578,19 +4570,7 @@ export default function App() {
       return updatedTeamCoaches;
     });
 
-    const { db } = getFirebaseServices();
-    if (db) {
-      db.collection('teamData')
-        .doc('depthChartData')
-        .set(
-          {
-            teamSavedCoaches: updatedTeamCoaches,
-            updatedAt: Date.now(),
-          },
-          { merge: true }
-        )
-        .catch((err: any) => console.warn('Firestore copy coaches sync error:', err));
-    }
+    queueStaffTeamsPublish();
   };
 
   // Auto-select first formation if none selected
@@ -5979,7 +5959,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
         onOpenCopyWeekModal={() => setIsCopyWeekModalOpen(true)}
         seasonConfig={seasonConfig}
         onOpenSeasonConfigModal={() => setIsSeasonConfigModalOpen(true)}
-        teams={teams}
+        teams={accessibleTeams}
         activeTeamId={activeTeamId}
         defaultTeamId={defaultTeamId}
         onSelectTeam={setActiveTeamId}
@@ -6004,7 +5984,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
             {activeUnit === 'home' && (
               <HomeView
                 activeTeam={currentActiveTeam}
-                teams={teams}
+                teams={accessibleTeams}
                 onSelectTeam={setActiveTeamId}
                 currentWeek={currentWeek}
                 seasonConfig={seasonConfig}
@@ -6039,7 +6019,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
               <MobileHubView
                 renderDepthCard={(unit) => renderFormationsView(unit, { readOnly: true, key: `hud-${unit}` })}
                 activeTeam={currentActiveTeam}
-                teams={teams}
+                teams={accessibleTeams}
                 onSelectTeam={setActiveTeamId}
                 currentWeek={currentWeek}
                 onSelectWeek={(wk) => {
@@ -7010,6 +6990,9 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
             {/* 8. Staff & User Management */}
             {activeUnit === 'users' && userRole === 'admin' && (
               <StaffManagerView
+                isProgramAdmin={isProgramAdmin}
+                managedTeamIds={staffManager.teamIds}
+                canManageStaffAt={mayManageStaffAt}
                 staffList={staffList}
                 savedCoaches={activeTeamSavedCoaches}
                 teamSavedCoaches={teamSavedCoaches}
@@ -7024,14 +7007,19 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onDeleteTeam={handleDeleteTeam}
                 onAddStaffCoach={handleAddStaffCoach}
                 onUpdateStaffRole={(idx, role) => {
+                  if (!mayManageStaffAt(idx)) return;
+                  if (!isProgramAdmin && /master|super|program/i.test(role)) return;
                   setStaffList((prev) => {
                     const updated = [...prev];
                     updated[idx] = { ...updated[idx], role };
                     safeJSONSet('footballTeamCoaches', updated);
+                    latestStateRef.current.staffList = updated;
                     return updated;
                   });
+                  queueStaffTeamsPublish();
                 }}
                 onToggleStaffApproval={(idx) => {
+                  if (!mayManageStaffAt(idx)) return;
                   setStaffList((prev) => {
                     const updated = [...prev];
                     const target = updated[idx];
@@ -7040,26 +7028,18 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                     updated[idx] = {
                       ...target,
                       status: newStatus,
+                      ...(newStatus === 'Active' && hasNoTeamYet(target) ? { assignedTeamIds: [activeTeamId] } : {}),
                     };
                     safeJSONSet('footballTeamCoaches', updated);
                     latestStateRef.current.staffList = updated;
-                    const { db } = getFirebaseServices();
-                    if (db) {
-                      db.collection('teamData')
-                        .doc('depthChartData')
-                        .set({ staffList: updated, updatedAt: Date.now() }, { merge: true })
-                        .catch((err: any) => console.warn('Firestore toggle staff sync error:', err));
-                    }
+                    queueStaffTeamsPublish();
                     return updated;
                   });
                 }}
                 onRemoveStaffCoach={(idx) => {
                   const targetCoach = staffList[idx];
-                  if (
-                    idx === 0 &&
-                    targetCoach.role.toLowerCase().includes('head coach')
-                  ) {
-                    alert('Cannot remove the primary Head Coach / Master Admin.');
+                  if (!targetCoach || !mayManageStaffAt(idx)) {
+                    alert('You can only remove coaches on your own teams (never the program admin).');
                     return;
                   }
                   if (confirm(`Remove ${targetCoach.email}? This will revoke their access to the site.`)) {
@@ -7067,13 +7047,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                       const updated = prev.filter((_, i) => i !== idx);
                       safeJSONSet('footballTeamCoaches', updated);
                       latestStateRef.current.staffList = updated;
-                      const { db } = getFirebaseServices();
-                      if (db) {
-                        db.collection('teamData')
-                          .doc('depthChartData')
-                          .set({ staffList: updated, updatedAt: Date.now() }, { merge: true })
-                          .catch((err: any) => console.warn('Firestore remove staff sync error:', err));
-                      }
+                      queueStaffTeamsPublish();
                       return updated;
                     });
                   }
@@ -7332,7 +7306,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
         isOpen={isCopyWeekModalOpen}
         currentWeek={currentWeek}
         activeTeamId={activeTeamId}
-        teams={teams}
+        teams={accessibleTeams}
         seasonConfig={seasonConfig}
         scheduleEvents={scheduleEvents}
         weeklyData={weeklyData}
@@ -7487,12 +7461,16 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
           setIsRosterModalOpen(false);
           setEditingPlayerForModal(null);
         }}
-        roster={roster}
-        onUpdateRoster={handleUpdateRoster}
+        roster={accessibleRoster}
+        onUpdateRoster={(shownPlayers) => {
+          // Only the teams this coach can see are in the editor: keep every other team's players.
+          const shown = new Set(accessibleRoster);
+          handleUpdateRoster([...roster.filter((p) => !shown.has(p)), ...shownPlayers]);
+        }}
         userRole={userRole}
         editingPlayer={editingPlayerForModal}
         onClearEditingPlayer={() => setEditingPlayerForModal(null)}
-        teams={teams}
+        teams={accessibleTeams}
         activeTeamId={activeTeamId}
         formations={currentFormations}
         depthChart={currentDepthChart}
@@ -7501,7 +7479,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
       <PreferencesModal
         isOpen={isPreferencesModalOpen}
         onClose={() => setIsPreferencesModalOpen(false)}
-        teams={teams}
+        teams={accessibleTeams}
         activeTeamId={activeTeamId}
         defaultTeamId={defaultTeamId}
         onSetDefaultTeam={handleSetDefaultTeam}

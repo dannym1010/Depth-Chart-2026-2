@@ -26,8 +26,15 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { StaffCoach, UserRole, Team, UnitType } from '../types';
+import { canSeeCoach, isProgramAdminCoach, isProgramAdminEmail } from '../utils/staffAccess';
 
 interface StaffManagerViewProps {
+  /** The program owner: every team, creates/deletes teams, the admin passcode. */
+  isProgramAdmin?: boolean;
+  /** Teams the signed-in admin manages (all teams for the program admin). */
+  managedTeamIds?: string[];
+  /** Whether the signed-in admin may change this staff row (role, teams, approval, removal). */
+  canManageStaffAt?: (idx: number) => boolean;
   staffList: StaffCoach[];
   savedCoaches: string[];
   teamSavedCoaches?: Record<string, string[]>;
@@ -55,11 +62,14 @@ interface StaffManagerViewProps {
 }
 
 export const StaffManagerView: React.FC<StaffManagerViewProps> = ({
+  isProgramAdmin = false,
+  managedTeamIds = [],
+  canManageStaffAt = () => false,
   staffList,
   savedCoaches,
   teamSavedCoaches = {},
   userRole,
-  teams = [],
+  teams: allTeams = [],
   activeTeamId,
   defaultTeamId,
   currentUserEmail,
@@ -80,6 +90,8 @@ export const StaffManagerView: React.FC<StaffManagerViewProps> = ({
   onDeleteSavedCoach,
   onCopyCoachesFromTeam,
 }) => {
+  const teams = isProgramAdmin ? allTeams : allTeams.filter((t) => managedTeamIds.includes(t.id));
+  const manager = { email: currentUserEmail, isProgramAdmin, teamIds: managedTeamIds };
   const [showAddTeamModal, setShowAddTeamModal] = useState(false);
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [teamToDelete, setTeamToDelete] = useState<Team | null>(null);
@@ -272,9 +284,9 @@ Looking forward to a great season!`;
     onUpdateStaffAssignedTeams(coachIdx, ['all']);
   };
 
-  const isMasterSuperAdminUser = (email: string) => {
-    return false;
-  };
+  const isMasterSuperAdminUser = (email: string) =>
+    isProgramAdminEmail(email) ||
+    isProgramAdminCoach(staffList.find((c) => c.email.toLowerCase().trim() === String(email || '').toLowerCase().trim()));
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -298,7 +310,7 @@ Looking forward to a great season!`;
             </div>
           </div>
 
-          {userRole === 'admin' && (
+          {isProgramAdmin && (
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setShowAddTeamModal(true)}
@@ -411,6 +423,7 @@ Looking forward to a great season!`;
                       >
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
+                      {isProgramAdmin && (
                       <button
                         onClick={() => setTeamToDelete(team)}
                         className="p-1.5 text-rose-400 hover:text-rose-300 hover:bg-rose-950/50 rounded-lg transition-colors cursor-pointer"
@@ -418,6 +431,7 @@ Looking forward to a great season!`;
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -428,7 +442,7 @@ Looking forward to a great season!`;
       </div>
 
       {/* SECTION: HEAD COACH & MASTER ADMIN PASSCODE */}
-      {userRole === 'admin' && (
+      {isProgramAdmin && (
         <div className="bg-slate-800/95 backdrop-blur-md rounded-3xl border border-amber-500/30 shadow-xl p-5 space-y-3">
           <div className="flex items-center justify-between pb-3 border-b border-slate-700/80 flex-wrap gap-2">
             <div className="flex items-center gap-2.5">
@@ -530,7 +544,9 @@ Looking forward to a great season!`;
                 </h3>
               </div>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Head Coaches and Administrators with the Admin Passcode have full access to all teams. Coaches only access teams allowed below.
+                {isProgramAdmin
+                  ? 'You have full access to every team. Head Coaches (Admin) manage their own teams and coaches; Assistant Coaches work on their teams.'
+                  : 'You manage the coaches on your teams. New sign-ups you approve join your current team.'}
               </p>
             </div>
             {userRole === 'admin' && (
@@ -564,7 +580,7 @@ Looking forward to a great season!`;
                   type="button"
                   onClick={() => {
                     staffList.forEach((c, i) => {
-                      if (c.status === 'Pending' && !isMasterSuperAdminUser(c.email)) {
+                      if (c.status === 'Pending' && canManageStaffAt(i)) {
                         onToggleStaffApproval(i);
                       }
                     });
@@ -605,7 +621,7 @@ Looking forward to a great season!`;
                     onClick={() => {
                       if (!onUpdateStaffPreferences) return;
                       staffList.forEach((c, i) => {
-                        onUpdateStaffPreferences(i, c.favoriteTeamId, c.startScreen, mins);
+                        if (canManageStaffAt(i)) onUpdateStaffPreferences(i, c.favoriteTeamId, c.startScreen, mins);
                       });
                     }}
                     className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-[10.5px] font-bold transition-all cursor-pointer"
@@ -635,6 +651,8 @@ Looking forward to a great season!`;
               </thead>
               <tbody className="divide-y divide-slate-700/80">
                 {staffList.map((coach, idx) => {
+                  if (!canSeeCoach(manager, coach, allTeams)) return null;
+                  const canEdit = canManageStaffAt(idx);
                   const isMaster = isMasterSuperAdminUser(coach.email);
                   const isHeadCoachRole = coach.role.toLowerCase().includes('head coach');
                   const isActive = coach.status === 'Active';
@@ -660,7 +678,7 @@ Looking forward to a great season!`;
                             <Crown className="w-3 h-3" />
                             <span>Master Super Admin</span>
                           </span>
-                        ) : userRole === 'admin' ? (
+                        ) : canEdit ? (
                           <select
                             value={coach.role}
                             onChange={(e) =>
@@ -689,8 +707,9 @@ Looking forward to a great season!`;
                             <Lock className="w-2.5 h-2.5" />
                             <span>All Teams (Permanent Full Access)</span>
                           </span>
-                        ) : userRole === 'admin' ? (
+                        ) : canEdit ? (
                           <div className="flex flex-wrap items-center gap-1 max-w-xs">
+                            {isProgramAdmin && (
                             <button
                               type="button"
                               onClick={() => setAllTeamsForCoach(idx)}
@@ -703,6 +722,7 @@ Looking forward to a great season!`;
                             >
                               All Teams
                             </button>
+                            )}
                             {teams.map((t) => {
                               const hasAccess =
                                 isAssignedAll ||
@@ -770,17 +790,17 @@ Looking forward to a great season!`;
                               className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-0.5 text-[11px] font-semibold text-indigo-300 focus:outline-none w-full"
                               title="Start screen linked to this coach login"
                             >
-                              <option value="mobile_hub">📱 Mobile Hub (Phone Quick Start)</option>
-                              <option value="schedule">Season Schedule</option>
-                              <option value="depth_chart">Depth Chart (Offense)</option>
-                              <option value="practice">Practice Plans</option>
-                              <option value="playbook">Playbooks &amp; Wristband</option>
-                              <option value="gameday">Game Day Command</option>
-                              <option value="scouting">Scouting &amp; Film</option>
-                              <option value="stats">Game Stats</option>
-                              <option value="callsheet">Live Play Callsheet</option>
-                              <option value="compliance">Mandatory Play Tracker</option>
-                              <option value="staff">Staff &amp; Teams Portal</option>
+                              <option value="mobile_hub">📱 Mobile Coach HUD</option>
+                              <option value="home">Home</option>
+                              <option value="schedule">Team Schedule</option>
+                              <option value="depth_chart">Depth Chart</option>
+                              <option value="practice">Practice Planner</option>
+                              <option value="call_sheet">Call Sheet &amp; Wristbands</option>
+                              <option value="hudl_scout">Hudl Scout</option>
+                              <option value="playbook">Play Library</option>
+                              <option value="drills">Drill Library</option>
+                              <option value="compliance">Compliance &amp; Hours</option>
+                              <option value="users">Staff &amp; Team Access</option>
                             </select>
                           </div>
                         </div>
@@ -864,7 +884,7 @@ Looking forward to a great season!`;
                             >
                               <Mail className="w-3.5 h-3.5" />
                             </button>
-                            {!isMaster ? (
+                            {canEdit ? (
                               <>
                                 <button
                                   onClick={() => onToggleStaffApproval(idx)}
@@ -887,7 +907,7 @@ Looking forward to a great season!`;
                               </>
                             ) : (
                               <span className="text-[10.5px] text-amber-400/80 font-bold italic px-1">
-                                Owner
+                                {isMaster ? 'Owner' : coach.email.toLowerCase() === String(currentUserEmail || '').toLowerCase() ? 'You' : ''}
                               </span>
                             )}
                           </div>
