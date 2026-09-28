@@ -3256,3 +3256,35 @@ describe('leftover copies that 10U has since edited', () => {
     assert.equal(isNearCopy(new Map(), [tenU]), false);
   });
 });
+
+describe('practice plans from the schedule', () => {
+  const tmpl = { 'Standard Practice': [{ time: 15, category: 'Warm-up', stations: [] }], 'Friday Walk': [{ time: 30, category: 'Walkthrough', stations: [] }] } as any;
+  const ev = (id: string, date: string, extra: any = {}) => ({ id, teamId: 'team_9u', type: 'practice', title: 'Practice', date, week: '5', startTime: '18:00', endTime: '19:30', location: 'Field 2', ...extra });
+  it('each upcoming practice of the team gets its own plan with the practice time', async () => {
+    const { missingPracticePlans, planIdForEvent } = await import('./autoPracticePlans.ts');
+    const plans = missingPracticePlans({
+      teamId: 'team_9u',
+      events: [ev('a', '2026-09-29'), ev('b', '2026-10-02'), ev('old', '2026-09-01'), ev('x', '2026-09-30', { isCancelled: true }), ev('g', '2026-10-03', { type: 'game' }), { ...ev('t10', '2026-09-29'), teamId: 'team_10u' }] as any,
+      plans: [{ id: 'p10', teamId: 'team_10u', date: '2026-09-29' }] as any, // 10U practicing the same day doesn't count
+      templates: tmpl,
+      weekdayTemplates: { Friday: 'Friday Walk' },
+      fromDate: '2026-09-28',
+    });
+    assert.deepEqual(plans.map((p) => p.id), [planIdForEvent('a'), planIdForEvent('b')]);
+    assert.equal(plans[0].startTime, '18:00');
+    assert.equal(plans[0].endTime, '19:30');
+    assert.equal(plans[0].location, 'Field 2');
+    assert.equal(plans[0].teamId, 'team_9u');
+    assert.equal(plans[0].weekFolder, 'Week 5');
+    assert.equal(plans[1].day, 'Friday');
+    assert.equal(plans[1].plan?.[0].category, 'Walkthrough');
+    assert.equal(plans[0].lastEdited, 1);
+  });
+  it('never twice, and never brings back a deleted plan', async () => {
+    const { missingPracticePlans, planIdForEvent } = await import('./autoPracticePlans.ts');
+    const base = { teamId: 'team_9u', templates: tmpl, fromDate: '2026-09-28' };
+    assert.equal(missingPracticePlans({ ...base, events: [ev('a', '2026-09-29')] as any, plans: [{ id: planIdForEvent('a'), teamId: 'team_9u', date: '2026-09-29' }] as any }).length, 0);
+    assert.equal(missingPracticePlans({ ...base, events: [ev('a', '2026-09-29')] as any, plans: [{ id: 'mine', teamId: 'team_9u', date: '2026-09-29' }] as any }).length, 0);
+    assert.equal(missingPracticePlans({ ...base, events: [ev('a', '2026-09-29')] as any, plans: [], deletedPlanIds: [planIdForEvent('a')] }).length, 0);
+  });
+});

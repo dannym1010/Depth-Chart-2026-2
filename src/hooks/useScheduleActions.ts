@@ -184,14 +184,17 @@ export function useScheduleActions({
           : `Pre-Game Warmup: ${event.title}`)
       : (event.title || `${weekFolder} Practice`);
 
-    // 4. Find existing practice plan
+    // 4. Find existing practice plan (only this practice's team: two teams often practice the same day)
+    const eventTeam = event.teamId || activeTeamId || 'team_10u';
+    const teamOf = (t?: string) => String(t || 'team_10u').toLowerCase().replace(/-/g, '_');
+    const teamPlans = practiceData.filter((p) => p && teamOf(p.teamId) === teamOf(eventTeam));
     const targetPlanId = event.preGamePlanId || event.linkedPracticePlanId;
     let existing = targetPlanId
-      ? practiceData.find((p) => p && p.id === targetPlanId)
+      ? teamPlans.find((p) => p && p.id === targetPlanId)
       : undefined;
 
     if (!existing && event.date) {
-      existing = practiceData.find(
+      existing = teamPlans.find(
         (p) =>
           p &&
           p.date === event.date &&
@@ -204,7 +207,7 @@ export function useScheduleActions({
     }
 
     if (!existing) {
-      existing = practiceData.find(
+      existing = teamPlans.find(
         (p) =>
           p &&
           (p.id === event.id ||
@@ -215,8 +218,8 @@ export function useScheduleActions({
       );
     }
 
-    // Fallback: check DEFAULT_INITIAL_PRACTICES if not yet in state
-    if (!existing && event.date) {
+    // Fallback: the built-in starter plans are 10U's
+    if (!existing && event.date && teamOf(eventTeam) === 'team_10u') {
       const defaultInitial = DEFAULT_INITIAL_PRACTICES.find(
         (p) => p.date === event.date || p.id === event.linkedPracticePlanId || p.id === event.id
       );

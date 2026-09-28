@@ -161,6 +161,7 @@ import { PlayDatabaseEntry, CallSheetData, CallSheetFullData } from './types/cal
 import { MASTER_PLAY_DATABASE, DEFAULT_CALL_SHEET_DATA } from './data/callSheetData';
 import { mergeDeletedPlayIds, mergePlayBanks, stampPlayEdits } from './utils/playBankMerge';
 import { blankCallSheetData, blankWristbandData } from './utils/blankSheets';
+import { missingPracticePlans } from './utils/autoPracticePlans';
 import { callSheetSlots, isCopiedScoutReport, isNearCopy, primarySheetSlots, withoutCopiedGames, wristbandSlots } from './utils/teamCopies';
 import { diffCoachNames, mergeTeamCoaches, noteCoachNames, type CoachNameMeta } from './utils/coachNamesMerge';
 import { mergeAttendanceLogs, mergeRosters, mergeTombstones, removedIds, stampEdits, type Tombstones } from './utils/recordMerge';
@@ -5068,6 +5069,32 @@ export default function App() {
       debouncedSave('practice');
     }
   };
+
+  // Every practice on this team's schedule gets a plan (date, times, location, weekday template), so a
+  // new team's planner fills from its schedule. Waits for the cloud so another coach's plans count.
+  const autoPlanTimerRef = useRef<any>(null);
+  useEffect(() => {
+    if (autoPlanTimerRef.current) clearTimeout(autoPlanTimerRef.current);
+    autoPlanTimerRef.current = setTimeout(() => {
+      autoPlanTimerRef.current = null;
+      if (!initialCloudLoadDoneRef.current) return;
+      const cur = latestStateRef.current;
+      const created = missingPracticePlans({
+        teamId: activeTeamIdRef.current,
+        events: cur.scheduleEvents || [],
+        plans: cur.practiceData || [],
+        deletedPlanIds: cur.deletedPracticePlanIds || [],
+        templates: { ...DEFAULT_PRACTICE_TEMPLATES, ...(cur.practiceTemplates || {}) },
+        weekdayTemplates: cur.practiceWeekdayTemplates || {},
+        fromDate: getLocalDateKey(),
+      });
+      if (!created.length) return;
+      const ids = new Set(created.map((p) => p.id));
+      updatePracticeDataLocally((prev) => [...prev.filter((p) => !ids.has(p.id)), ...created]);
+      debouncedSave('practice');
+    }, 1500);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTeamId, scheduleEvents, practiceData.length]);
 
   // Applying a weekday template replaces the periods of every upcoming plan on that day
   // for every coach, so ask first.

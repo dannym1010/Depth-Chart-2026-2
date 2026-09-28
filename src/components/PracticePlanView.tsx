@@ -268,7 +268,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
   const latestEditedPlan = useMemo(() => {
     if (!practices || practices.length === 0) return null;
     const sorted = [...practices]
-      .filter((p) => p && typeof p.lastEdited === 'number' && p.lastEdited > 0)
+      .filter((p) => p && typeof p.lastEdited === 'number' && p.lastEdited > 1000) // plans made from the schedule and never touched don't count
       .sort((a, b) => (b.lastEdited || 0) - (a.lastEdited || 0));
     return sorted[0] || null;
   }, [practices]);
