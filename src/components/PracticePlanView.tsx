@@ -89,6 +89,7 @@ import { printDrillSheet } from './whiteboard/drillPrintHelper';
 import { PracticePlanPrintModal } from './PracticePlanPrintModal';
 import { DrillInstructionsModal } from './whiteboard/DrillInstructionsModal';
 import { PocketDepthChartPrintModal } from './PocketDepthChartPrintModal';
+import { formatClock, formatClockRange } from '../utils/timeFormat';
 
 interface PracticePlanViewProps {
   practices: PracticePlan[];
@@ -2220,7 +2221,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
                         <span>•</span>
                         <span>{latestEditedPlan.date || 'No Date'}</span>
                         <span>•</span>
-                        <span>{latestEditedPlan.startTime || '17:05'}</span>
+                        <span>{formatClock(latestEditedPlan.startTime || '17:05')}</span>
                         <span>•</span>
                         <span className="text-emerald-400 font-bold">
                           {(latestEditedPlan.plan || latestEditedPlan.periods || []).length} Periods
@@ -2445,7 +2446,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
                                                 {p.title}
                                               </div>
                                               <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-2 font-mono">
-                                                <span>{p.startTime || '17:05'}</span>
+                                                <span>{formatClock(p.startTime || '17:05')}</span>
                                                 <span>•</span>
                                                 <span>{periodCount} Periods</span>
                                                 <span>•</span>
@@ -2619,7 +2620,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
                           <div className="text-xs text-slate-400 font-mono mt-1 flex items-center gap-2">
                             <span>📅 {evt.date}</span>
                             <span>•</span>
-                            <span>⏰ {evt.startTime || evt.time || '17:05'}</span>
+                            <span>⏰ {formatClock(evt.startTime || evt.time || '17:05')}</span>
                             {evt.location && (
                               <>
                                 <span>•</span>
@@ -2719,7 +2720,7 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
           </div>
         </div>
         <div className="text-xs font-bold text-slate-800 flex items-center justify-between mt-0.5">
-          <span>Date: {currentPlan?.date} ({currentPlan?.day || getDayOfWeekForDate(currentPlan?.date)}) • Time: {currentPlan?.startTime || '5:05 PM'}{currentPlan?.endTime ? ` - ${currentPlan.endTime}` : ''} • Location: {currentPlan?.location || 'Crane Road'}</span>
+          <span>Date: {currentPlan?.date} ({currentPlan?.day || getDayOfWeekForDate(currentPlan?.date)}) • Time: {formatClockRange(currentPlan?.startTime || '5:05 PM', currentPlan?.endTime)} • Location: {currentPlan?.location || 'Crane Road'}</span>
           <span>{currentPlan?.weekFolder}</span>
         </div>
       </div>

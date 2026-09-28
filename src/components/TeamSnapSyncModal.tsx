@@ -32,6 +32,7 @@ import {
   markEventsDatabaseStatus,
 } from '../utils/teamSnapSync';
 import { DEFAULT_10U_TEAMSNAP_ICS } from '../data/teamSnap10uFeed';
+import { formatClock, formatClockRange } from '../utils/timeFormat';
 
 interface TeamSnapSyncModalProps {
   isOpen: boolean;
@@ -1018,7 +1019,7 @@ export const TeamSnapSyncModal: React.FC<TeamSnapSyncModalProps> = ({
                             <div className="flex items-center gap-3 text-[11px] text-slate-400 flex-wrap">
                               <span className="flex items-center gap-1 text-slate-300 font-medium">
                                 <Calendar className="w-3 h-3 text-indigo-400" />
-                                {evt.date} @ {evt.startTime}
+                                {evt.date} @ {formatClock(evt.startTime)}
                               </span>
                               <span className="flex items-center gap-1">
                                 <MapPin className="w-3 h-3 text-slate-500" />

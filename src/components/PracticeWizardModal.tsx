@@ -20,6 +20,7 @@ import {
 import { ScheduleEvent, PracticePlan, PracticePeriod } from '../types';
 import { deepClone } from '../services/storageService';
 import { DEFAULT_PRACTICE_TEMPLATES } from '../data/initialData';
+import { formatClock, formatClockRange } from '../utils/timeFormat';
 
 export interface DayCadenceConfig {
   enabled: boolean;
@@ -606,7 +607,7 @@ export const PracticeWizardModal: React.FC<PracticeWizardModalProps> = ({
                         onClick={() => setExpandedDayIndex(isExpanded ? null : dIdx)}
                         className="text-[10px] font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 py-1 px-1.5 rounded-lg flex items-center justify-between transition-all"
                       >
-                        <span>{dayCfg.startTime}</span>
+                        <span>{formatClock(dayCfg.startTime)}</span>
                         {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                       </button>
                     )}
@@ -905,7 +906,7 @@ export const PracticeWizardModal: React.FC<PracticeWizardModalProps> = ({
                       <span className="text-slate-400 text-[11px]">• {item.title}</span>
                     </div>
                     <div className="flex items-center gap-2 text-[11px]">
-                      <span className="text-amber-400 font-semibold">{item.startTime} - {item.endTime}</span>
+                      <span className="text-amber-400 font-semibold">{formatClockRange(item.startTime, item.endTime)}</span>
                       <span className="px-1.5 py-0.5 rounded bg-slate-700 text-slate-300 font-medium">{item.gear}</span>
                       <span className="text-emerald-400 font-medium">{item.templateName}</span>
                     </div>

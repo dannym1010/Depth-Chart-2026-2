@@ -31,6 +31,7 @@ import {
   SeasonConfig,
   RosterPlayer,
 } from '../types';
+import { formatClock, formatClockRange } from '../utils/timeFormat';
 
 interface HomeViewProps {
   scheduleEvents: ScheduleEvent[];
@@ -285,8 +286,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <span className="text-xs font-black text-amber-700 dark:text-amber-300 flex items-center gap-1 bg-amber-50 dark:bg-slate-950 px-2.5 py-1 rounded-xl border border-amber-200 dark:border-slate-800 shrink-0">
                   <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                   <span>
-                    {practiceEventData.event.startTime}
-                    {practiceEventData.event.endTime ? ` - ${practiceEventData.event.endTime}` : ''}
+                    {formatClockRange(practiceEventData.event.startTime, practiceEventData.event.endTime)}
                   </span>
                 </span>
               )}
@@ -442,7 +442,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               {gameEventData?.event.startTime && (
                 <span className="text-xs font-black text-rose-700 dark:text-rose-300 flex items-center gap-1 bg-rose-50 dark:bg-slate-950 px-2.5 py-1 rounded-xl border border-rose-200 dark:border-slate-800 shrink-0">
                   <Clock className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
-                  <span>Kickoff: {gameEventData.event.startTime}</span>
+                  <span>Kickoff: {formatClock(gameEventData.event.startTime)}</span>
                 </span>
               )}
             </div>

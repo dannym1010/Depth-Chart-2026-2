@@ -3288,3 +3288,19 @@ describe('practice plans from the schedule', () => {
     assert.equal(missingPracticePlans({ ...base, events: [ev('a', '2026-09-29')] as any, plans: [], deletedPlanIds: [planIdForEvent('a')] }).length, 0);
   });
 });
+
+describe('times show as AM / PM', () => {
+  it('turns 24-hour times into AM / PM and leaves others alone', async () => {
+    const { formatClock, formatClockRange } = await import('./timeFormat.ts');
+    assert.equal(formatClock('18:00'), '6:00 PM');
+    assert.equal(formatClock('07:05'), '7:05 AM');
+    assert.equal(formatClock('00:30'), '12:30 AM');
+    assert.equal(formatClock('12:00'), '12:00 PM');
+    assert.equal(formatClock('5:30 pm'), '5:30 PM');
+    assert.equal(formatClock('10:00 AM Kickoff'), '10:00 AM Kickoff');
+    assert.equal(formatClock(''), '');
+    assert.equal(formatClock('TBD'), 'TBD');
+    assert.equal(formatClockRange('18:00', '19:30'), '6:00 PM - 7:30 PM');
+    assert.equal(formatClockRange('18:00', ''), '6:00 PM');
+  });
+});

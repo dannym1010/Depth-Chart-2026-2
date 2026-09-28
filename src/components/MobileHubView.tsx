@@ -76,6 +76,7 @@ import {
   PlaybookGuideTree,
   PlaybookGuideOrder,
 } from '../types';
+import { formatClock, formatClockRange } from '../utils/timeFormat';
 
 // Built-in starter templates for quick sideline & playbook reference
 const QUICK_GUIDE_TEMPLATES = [
@@ -1242,7 +1243,7 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
 
                 <div className="text-xs font-black text-amber-300 flex items-center gap-1 bg-slate-900/90 px-2.5 py-1 rounded-xl border border-slate-800">
                   <Clock className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{practiceEventData.event.time || practiceEventData.event.startTime || '5:30 PM'}</span>
+                  <span>{formatClock(practiceEventData.event.time || practiceEventData.event.startTime) || '5:30 PM'}</span>
                 </div>
               </div>
 
@@ -1426,7 +1427,7 @@ export const MobileHubView: React.FC<MobileHubViewProps> = ({
 
                 <div className="text-xs font-black text-amber-300 flex items-center gap-1 bg-slate-900/90 px-2.5 py-1 rounded-xl border border-slate-800">
                   <Clock className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{gameEventData.event.time || gameEventData.event.startTime || '10:00 AM Kickoff'}</span>
+                  <span>{formatClock(gameEventData.event.time || gameEventData.event.startTime) || '10:00 AM Kickoff'}</span>
                 </div>
               </div>
 

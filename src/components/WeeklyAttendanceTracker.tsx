@@ -38,6 +38,7 @@ import { getSeasonWeekList, isDateInWeek, getWeekDateRange } from '../utils/seas
 import { triggerPrint, printPracticeHourReport } from '../utils/printUtils';
 import { calculatePlayerHours, syncEntireRosterWithLogs } from '../utils/hoursCalculation';
 import { PlayerHoursBreakdownModal } from './PlayerHoursBreakdownModal';
+import { formatClock, formatClockRange } from '../utils/timeFormat';
 
 export interface WeeklyPracticeSession {
   id: string;
@@ -249,7 +250,7 @@ export const WeeklyAttendanceTracker: React.FC<WeeklyAttendanceTrackerProps> = (
           date: evt.date,
           dayOfWeek: dayName,
           title: evt.title || `Practice (${shortDate})`,
-          timeStr: evt.startTime && evt.endTime ? `${evt.startTime} - ${evt.endTime}` : evt.time || '5:30 PM',
+          timeStr: evt.startTime && evt.endTime ? formatClockRange(evt.startTime, evt.endTime) : formatClock(evt.time) || '5:30 PM',
           hours,
           sessionType: isCond ? 'conditioning' : 'padded',
           location: evt.location,

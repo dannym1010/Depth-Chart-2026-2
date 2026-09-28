@@ -13,6 +13,7 @@ import {
   generatePracticePlanHTML,
 } from './printUtils';
 import { loadPrintPrefs, loadSharedPrintPrefs } from './printPrefs';
+import { formatClock, formatClockRange } from './timeFormat';
 
 export interface GameDayPackageSectionsSelection {
   sidelineHud: boolean;
@@ -459,7 +460,7 @@ export function generateGameDayPackageHTML(
           <div class="cover-matchup-title">Week ${currentWeek} vs. ${opponent}</div>
           <div class="cover-details">
             ${gameDate ? `Date: ${gameDate} &bull; ` : ''}
-            ${matchedScheduledGame?.startTime ? `Kickoff: ${matchedScheduledGame.startTime} &bull; ` : ''}
+            ${matchedScheduledGame?.startTime ? `Kickoff: ${formatClock(matchedScheduledGame.startTime)} &bull; ` : ''}
             Location: ${matchedScheduledGame?.location || 'Crane Road'}
           </div>
         </div>

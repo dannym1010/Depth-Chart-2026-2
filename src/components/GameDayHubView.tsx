@@ -48,6 +48,7 @@ import {
 } from '../types';
 import { DEFAULT_PRACTICE_TEMPLATES } from '../data/initialData';
 import { triggerPrint } from '../utils/printUtils';
+import { formatClock, formatClockRange } from '../utils/timeFormat';
 
 interface GameDayHubViewProps {
   userRole: UserRole;
@@ -751,7 +752,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
                 {matchedScheduledGame?.startTime && (
                   <span className="flex items-center gap-1">
                     <Clock className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>Kickoff: {matchedScheduledGame.startTime}</span>
+                    <span>Kickoff: {formatClock(matchedScheduledGame.startTime)}</span>
                     {matchedScheduledGame.arrivalMinutesBefore && (
                       <span className="text-amber-300 font-semibold">
                         (Warmup Arrival: {matchedScheduledGame.arrivalMinutesBefore}m before)

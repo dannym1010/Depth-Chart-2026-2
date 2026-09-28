@@ -10,6 +10,7 @@ import { formatWeekLabel } from './seasonWeekUtils';
 import { getWristbandStartNumber } from './wristbandLinking';
 import { CallSheetFullData, CallSheetSection, CallSheetPlay } from '../types/callSheet';
 import { loadPrintPrefs, loadSharedPrintPrefs } from './printPrefs';
+import { formatClock, formatClockRange } from './timeFormat';
 
 export interface PrintOptions {
   beforePrint?: () => void;
@@ -330,7 +331,7 @@ export function generatePracticePlanHTML(
             </div>
           </div>
           <div class="header-meta">
-            <span>Date: ${date} (${day}) • Time: ${startTime}${endTime ? ` - ${endTime}` : ''} • Location: ${location}</span>
+            <span>Date: ${date} (${day}) • Time: ${formatClockRange(startTime, endTime)} • Location: ${location}</span>
             <span>${weekFolder}</span>
           </div>
         </div>

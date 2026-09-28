@@ -55,6 +55,7 @@ import { PracticeWizardModal, PracticeWizardGeneratedResult } from './PracticeWi
 import { TeamSnapSyncModal } from './TeamSnapSyncModal';
 import { getPracticeSequenceMap, formatPracticeDayTitle } from '../utils/practiceUtils';
 import { MoreMenu } from './common/MoreMenu';
+import { formatClock, formatClockRange } from '../utils/timeFormat';
 
 interface ScheduleViewProps {
   scheduleEvents: ScheduleEvent[];
@@ -2483,7 +2484,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                       const hasPlan = Boolean(game.preGamePlanId || game.linkedPracticePlanId);
                       return (
                         <option key={game.id} value={game.id}>
-                          Week {game.week}: {game.title} &bull; {game.date} ({game.startTime || 'TBD'}) {hasPlan ? '✓ (Plan Attached)' : ''}
+                          Week {game.week}: {game.title} &bull; {game.date} ({formatClock(game.startTime) || 'TBD'}) {hasPlan ? '✓ (Plan Attached)' : ''}
                         </option>
                       );
                     })}
