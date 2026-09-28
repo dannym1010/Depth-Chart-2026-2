@@ -70,6 +70,8 @@ export interface HudlScoutViewProps {
   target?: ScoutTarget;
   tab?: string;
   onViewChange?: (view: { target: ScoutTarget; tab: string }) => void;
+  /** Open this Hudl game (from the Film Room). */
+  focusGameId?: string;
 }
 
 export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
@@ -90,6 +92,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   target,
   tab,
   onViewChange,
+  focusGameId,
 }) => {
   const saved = scouting.hudlScout;
   const weekLabel = (() => {
@@ -141,6 +144,9 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     if (target && (target !== scoutTarget || (tab && tab !== activeTab))) switchTarget(target, tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, tab]);
+  useEffect(() => {
+    if (focusGameId) setSelectedGameId(focusGameId);
+  }, [focusGameId, scoutTarget]);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedSituation, setSelectedSituation] = useState<string | null>(null);
   const [isUploadOpen, setIsUploadOpen] = useState(false);

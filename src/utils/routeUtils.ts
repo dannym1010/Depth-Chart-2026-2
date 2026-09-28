@@ -17,6 +17,7 @@ export const VALID_UNITS: Set<string> = new Set([
   'schedule',
   'scouting',
   'hudl_scout',
+  'filmroom',
   'tendencies',
   'html_tendencies',
   'practice',

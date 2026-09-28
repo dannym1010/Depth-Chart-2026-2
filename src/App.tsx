@@ -173,6 +173,8 @@ import { OWN_HUDL_KEY, WEEKLY_HUDL_KEY, bigGet, bigStoreAvailable, markBigStoreR
 import { syncWristbandToCallSheet } from './utils/wristbandLinking';
 import { saveCallSheetSnapshot, countCallSheetPlays } from './utils/callSheetStorage';
 import { ScoutingView } from './components/ScoutingView';
+import { FilmRoomView } from './filmroom/FilmRoomView';
+import { canAccessFilmroom, tryUnlockFilmroomFromHash } from './filmroom/access';
 import { HudlScoutSections, type HudlSection } from './components/scouting/HudlScoutSections';
 import { TendenciesView } from './components/scouting/TendenciesView';
 import { PlaybookGuidesView } from './components/PlaybookGuidesView';
@@ -579,6 +581,7 @@ export default function App() {
 
   const [_activeUnit, _setActiveUnitRaw] = useState<UnitType>(() => {
     if (typeof window !== 'undefined' && window.location.hash) {
+      tryUnlockFilmroomFromHash(window.location.hash);
       const parsed = parseRouteHash(window.location.hash);
       if (parsed.unit) return parsed.unit;
     }
@@ -744,6 +747,8 @@ export default function App() {
       /* ignore */
     }
   }, []);
+  const [hudlFocusGameId, setHudlFocusGameId] = useState<string | undefined>();
+  const [filmroomAccess, setFilmroomAccess] = useState(() => canAccessFilmroom());
 
   // Wrapped setActiveUnit maintaining backward compatibility across the entire application
   const setActiveUnit = useCallback(
@@ -1212,6 +1217,15 @@ export default function App() {
 
   const currentUserEmail = (currentUser?.email || '').toLowerCase().trim();
   const lockHolderEmail = (currentUnitLock?.holderEmail || '').toLowerCase().trim();
+
+  useEffect(() => {
+    const ok = canAccessFilmroom(currentUser);
+    setFilmroomAccess(ok);
+    // Wait for sign-in before sending someone away (the program owner is only known once signed in).
+    if (activeUnit === 'filmroom' && !ok && currentUser) {
+      _setActiveUnitRaw('home');
+    }
+  }, [currentUser, activeUnit]);
 
   const isLockedByOther = Boolean(
     currentUnitLock &&
@@ -6141,6 +6155,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
         }}
         isExpanded={isSidebarExpanded}
         onToggleExpanded={() => setIsSidebarExpanded((prev) => !prev)}
+        showFilmroomBeta={filmroomAccess}
       />
 
       {/* Main Right Scrollable Viewport (Header + Active Screen) */}
@@ -6217,7 +6232,11 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
       />
 
       {/* Main Layout Area */}
-      <main className="flex-1 max-w-[1700px] w-full mx-auto p-4 md:p-6 pb-24 md:pb-6 print:p-0 print:m-0 print:max-w-none print:w-full print:block print:overflow-visible">
+      <main className={
+        activeUnit === 'filmroom' && filmroomAccess
+          ? 'flex-1 w-full mx-auto p-4 md:p-6 pb-24 md:pb-6 print:p-0 print:m-0 print:max-w-none print:w-full print:block print:overflow-visible'
+          : 'flex-1 max-w-[1700px] w-full mx-auto p-4 md:p-6 pb-24 md:pb-6 print:p-0 print:m-0 print:max-w-none print:w-full print:block print:overflow-visible'
+      }>
         <div className="flex flex-col lg:flex-row gap-6 items-start print:block print:gap-0 print:w-full print:overflow-visible">
           {/* Main Board / Panel Column */}
           <div className="flex-1 min-w-0 w-full print:block print:w-full print:overflow-visible">
@@ -6823,6 +6842,26 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
               />
             )}
 
+            {/* Film Room (in testing: only for coaches who have it turned on) */}
+            {activeUnit === 'filmroom' && filmroomAccess && (
+              <FilmRoomView
+                key={`film-${activeTeamId}`}
+                teamId={activeTeamId}
+                teamName={currentActiveTeam?.name || 'Mahopac 10U'}
+                currentWeek={currentWeek}
+                weekLabel={formatWeekLabel(currentWeek, seasonConfig)}
+                opponentName={currentWeekState.opponent || currentWeekState.scouting?.opponent || ''}
+                opponentScout={currentWeekState.scouting?.hudlScout}
+                ownTeamScout={teamOwnScout}
+                authorName={currentUser?.displayName || (currentUser?.email || 'Coach').split('@')[0]}
+                onOpenHudlGame={({ target, gameId }) => {
+                  setHudlFocusGameId(gameId);
+                  setHudlView({ target, tab: 'plays' });
+                  setActiveUnit('hudl_scout');
+                }}
+              />
+            )}
+
             {/* 4. Hudl Scout */}
             {(activeUnit === 'hudl_scout' || activeUnit === 'scouting') && (
               <ScoutingView
@@ -6850,6 +6889,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 target={hudlView.target}
                 tab={hudlView.tab}
                 onViewChange={setHudlView}
+                focusGameId={hudlFocusGameId}
               />
             )}
 
@@ -7374,7 +7414,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
           </div>
 
           {/* Master Roster Sidebar (Shown on Depth Charts and Scrimmage) */}
-          {!['home', 'mobile_hub', 'game_day', 'wristband', 'drills', 'scouting', 'hudl_scout', 'guide', 'practice', 'users', 'schedule', 'compliance', 'call_sheet', 'whiteboard', 'ppr', 'playbook'].includes(
+          {!['home', 'mobile_hub', 'game_day', 'wristband', 'drills', 'scouting', 'hudl_scout', 'filmroom', 'guide', 'practice', 'users', 'schedule', 'compliance', 'call_sheet', 'whiteboard', 'ppr', 'playbook'].includes(
             activeUnit
           ) && (
             <div className="hidden lg:block shrink-0 w-80 self-start sticky top-[10rem] z-20 h-[calc(100dvh-11rem)] print:hidden">

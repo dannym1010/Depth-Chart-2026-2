@@ -3377,3 +3377,29 @@ describe('export the play log for Hudl', () => {
     assert.equal(r['DEF EVENTS'], 'SACK');
   });
 });
+
+describe('film room', () => {
+  it('matches clips to plays by the number in the file name, else in order', async () => {
+    const { matchClipsToPlays, playNumberInName } = await import('../filmroom/clipMatching.ts');
+    assert.equal(playNumberInName('Play 12.mp4'), 12);
+    assert.equal(playNumberInName('012.mp4'), 12);
+    assert.equal(playNumberInName('MSA vs Carmel - Clip_007.mov'), 7);
+    assert.equal(playNumberInName('Sideline.mp4'), undefined);
+    const plays = [{ id: 'a', playNumber: 1 }, { id: 'b', playNumber: 2 }, { id: 'c', playNumber: 10 }];
+    const byNum = matchClipsToPlays([{ name: 'Play 10.mp4' }, { name: 'Play 1.mp4' }, { name: 'Play 2.mp4' }], plays);
+    assert.deepEqual([byNum.get('a'), byNum.get('b'), byNum.get('c')], [1, 2, 0]);
+    const inOrder = matchClipsToPlays([{ name: 'angle b.mp4' }, { name: 'angle a.mp4' }], plays);
+    assert.deepEqual([inOrder.get('a'), inOrder.get('b'), inOrder.get('c')], [1, 0, undefined]);
+  });
+  it('coaches keep each other\'s notes; a deleted note stays deleted; later drawing wins', async () => {
+    const { mergeShared, filmGameKey, sharedDocId } = await import('../filmroom/sharedMerge.ts');
+    const n = (id: string, at: number) => ({ id, playId: 'p1', t: 1, text: id, author: 'x', createdAt: at, editedAt: at });
+    const mine = { notes: [n('n1', 1), n('n2', 2)], deletedNotes: {}, drawings: { p1: { marks: [], editedAt: 5 } } };
+    const theirs = { notes: [n('n1', 1), n('n3', 3)], deletedNotes: { n2: 10 }, drawings: { p1: { marks: [{ id: 'm', kind: 'pen', color: '#f00', width: 3, points: [] }], editedAt: 9 } } };
+    const merged = mergeShared(mine as any, theirs as any);
+    assert.deepEqual(merged.notes.map((x) => x.id), ['n1', 'n3']);
+    assert.equal(merged.drawings.p1.marks.length, 1);
+    assert.equal(filmGameKey('opponent', 'g1', 'pre-2'), 'opp_wpre-2_g1');
+    assert.equal(sharedDocId('team_10u', 'own_g 1'), 'filmroom_team_10u_own_g1');
+  });
+});

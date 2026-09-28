@@ -14,6 +14,7 @@ export type UnitType =
   | 'schedule'
   | 'scouting'
   | 'hudl_scout'
+  | 'filmroom'
   | 'tendencies'
   | 'html_tendencies'
   | 'practice'
