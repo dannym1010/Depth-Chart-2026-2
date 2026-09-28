@@ -161,6 +161,7 @@ import { PlayDatabaseEntry, CallSheetData, CallSheetFullData } from './types/cal
 import { MASTER_PLAY_DATABASE, DEFAULT_CALL_SHEET_DATA } from './data/callSheetData';
 import { mergeDeletedPlayIds, mergePlayBanks, stampPlayEdits } from './utils/playBankMerge';
 import { blankCallSheetData, blankWristbandData } from './utils/blankSheets';
+import { diffCoachNames, mergeTeamCoaches, noteCoachNames, type CoachNameMeta } from './utils/coachNamesMerge';
 import { mergeAttendanceLogs, mergeRosters, mergeTombstones, removedIds, stampEdits, type Tombstones } from './utils/recordMerge';
 import { syncEntireRosterWithLogs } from './utils/hoursCalculation';
 import { canManageCoach, coachTeamIds, hasNoTeamYet, isProgramAdminCoach, isProgramAdminEmail, sameTeamId } from './utils/staffAccess';
@@ -1810,9 +1811,7 @@ export default function App() {
       safeJSONSet('footballSavedCoaches', data.savedCoaches);
     }
     if (!skipBoardFromGiantDoc && data.teamSavedCoaches && typeof data.teamSavedCoaches === 'object') {
-      setTeamSavedCoaches(data.teamSavedCoaches);
-      latestStateRef.current.teamSavedCoaches = data.teamSavedCoaches;
-      safeJSONSet('footballTeamSavedCoaches', data.teamSavedCoaches);
+      adoptTeamCoaches(data.teamSavedCoaches, data.teamSavedCoachesMeta);
     }
     if (typeof data.adminPasscodeSet === 'boolean') {
       setAdminPasscodeSet(data.adminPasscodeSet);
@@ -2360,6 +2359,8 @@ export default function App() {
       pffPlayerGroups: currentState.pffPlayerGroups,
       savedCoaches: currentState.savedCoaches,
       teamSavedCoaches: currentState.teamSavedCoaches,
+      teamSavedCoachesMeta: coachMetaRef.current,
+      onCoachesMerged: (lists, meta) => adoptTeamCoaches(lists, meta),
       defaultFormations: currentState.defaultFormations,
       deletedFormationIds: currentState.deletedFormationIds,
       modules,
@@ -3059,9 +3060,7 @@ export default function App() {
         safeJSONSet('footballSavedCoaches', remote.savedCoaches);
       }
       if (remote.teamSavedCoaches && typeof remote.teamSavedCoaches === 'object') {
-        setTeamSavedCoaches(remote.teamSavedCoaches);
-        latestStateRef.current.teamSavedCoaches = remote.teamSavedCoaches;
-        safeJSONSet('footballTeamSavedCoaches', remote.teamSavedCoaches);
+        adoptTeamCoaches(remote.teamSavedCoaches, remote.teamSavedCoachesMeta);
       }
     }
     if (take('formations', remote.formationsUpdatedAt)) {
@@ -3883,7 +3882,7 @@ export default function App() {
   useEffect(() => {
     ensureWeekExists(currentWeek);
 
-    const teamPractices = activeTeamPracticeData.length > 0 ? activeTeamPracticeData : practiceData;
+    const teamPractices = activeTeamPracticeData;
     if (practiceData.length === 0) {
       return;
     }
@@ -4132,18 +4131,53 @@ export default function App() {
   // Staff, teams and practice-coach lists go to the cloud together, after the change is applied:
   // the live staff / season / coaches documents (what other coaches' devices listen to) and the
   // older shared document (read when a coach signs in).
+  // Practice coach names per team: when each name was added / removed (so coaches' lists merge).
+  const coachMetaRef = useRef<CoachNameMeta>(safeJSONParse<CoachNameMeta>('footballTeamCoachNameMeta', {}) || {});
+  // The names as last synced, to tell what this coach changed since.
+  const syncedCoachListsRef = useRef<Record<string, string[]>>(teamSavedCoaches || {});
+  const setCoachMeta = (meta: CoachNameMeta) => {
+    coachMetaRef.current = meta;
+    safeJSONSet('footballTeamCoachNameMeta', meta);
+  };
+  /** Merge another copy of the coach names into this device (never sends anything). */
+  const adoptTeamCoaches = (remoteLists: Record<string, string[]> | undefined, remoteMeta?: CoachNameMeta) => {
+    noteLocalCoachChanges();
+    const local = latestStateRef.current.teamSavedCoaches || {};
+    const merged = mergeTeamCoaches(local, coachMetaRef.current, remoteLists || {}, remoteMeta);
+    setCoachMeta(merged.meta);
+    syncedCoachListsRef.current = merged.lists;
+    if (JSON.stringify(merged.lists) === JSON.stringify(local)) return;
+    setTeamSavedCoaches(merged.lists);
+    latestStateRef.current.teamSavedCoaches = merged.lists;
+    safeJSONSet('footballTeamSavedCoaches', merged.lists);
+  };
+  /** Stamp names this coach added or removed since the last sync. */
+  const noteLocalCoachChanges = () => {
+    const now = Date.now();
+    const before = syncedCoachListsRef.current || {};
+    const after = latestStateRef.current.teamSavedCoaches || {};
+    let meta = coachMetaRef.current;
+    for (const team of new Set([...Object.keys(before), ...Object.keys(after)])) {
+      const { added, removed } = diffCoachNames(before[team], after[team]);
+      if (added.length || removed.length) meta = noteCoachNames(meta, team, added, removed, now);
+    }
+    if (meta !== coachMetaRef.current) setCoachMeta(meta);
+    syncedCoachListsRef.current = after;
+  };
+
   const staffPublishTimerRef = useRef<any>(null);
   const queueStaffTeamsPublish = () => {
     if (staffPublishTimerRef.current) clearTimeout(staffPublishTimerRef.current);
     staffPublishTimerRef.current = setTimeout(() => {
       staffPublishTimerRef.current = null;
+      noteLocalCoachChanges();
       const cur = latestStateRef.current;
       const { db } = getFirebaseServices();
       if (db && Array.isArray(cur.staffList) && cur.staffList.length && Array.isArray(cur.teams) && cur.teams.length) {
         db.collection('teamData')
           .doc('depthChartData')
           .set(
-            { staffList: cur.staffList, teams: cur.teams, teamSavedCoaches: cur.teamSavedCoaches || {}, updatedAt: Date.now() },
+            { staffList: cur.staffList, teams: cur.teams, teamSavedCoaches: cur.teamSavedCoaches || {}, teamSavedCoachesMeta: coachMetaRef.current, updatedAt: Date.now() },
             { merge: true }
           )
           .catch((err: any) => console.warn('Firestore staff/teams sync error:', err));
@@ -4192,11 +4226,8 @@ export default function App() {
           (p.teamId === 'team-10u' && activeTeamId === 'team_10u')
         );
       }
-      return (
-        activeTeamId === 'team_10u' ||
-        activeTeamId === 'team-10u' ||
-        activeTeamId === teams[0]?.id
-      );
+      // Saved before they carried a team: 10U's (the original team).
+      return isPrimaryTeamId(activeTeamId);
     });
   }, [roster, activeTeamId, teams]);
 
@@ -4210,11 +4241,8 @@ export default function App() {
           (e.teamId === 'team-10u' && activeTeamId === 'team_10u')
         );
       }
-      return (
-        activeTeamId === 'team_10u' ||
-        activeTeamId === 'team-10u' ||
-        activeTeamId === teams[0]?.id
-      );
+      // Saved before they carried a team: 10U's (the original team).
+      return isPrimaryTeamId(activeTeamId);
     });
   }, [scheduleEvents, activeTeamId, teams]);
 
@@ -4259,11 +4287,8 @@ export default function App() {
           (p.teamId === 'team-10u' && activeTeamId === 'team_10u')
         );
       }
-      return (
-        activeTeamId === 'team_10u' ||
-        activeTeamId === 'team-10u' ||
-        activeTeamId === teams[0]?.id
-      );
+      // Saved before they carried a team: 10U's (the original team).
+      return isPrimaryTeamId(activeTeamId);
     });
   }, [practiceData, activeTeamId, teams]);
 
@@ -6094,7 +6119,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 currentWeek={currentWeek}
                 seasonConfig={seasonConfig}
                 scheduleEvents={activeTeamScheduleEvents}
-                practicePlans={activeTeamPracticeData.length > 0 ? activeTeamPracticeData : practiceData}
+                practicePlans={activeTeamPracticeData}
                 roster={activeTeamRoster}
                 userRole={userRole}
                 onNavigateToUnit={(unit, options) => {
@@ -6134,7 +6159,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 userRole={userRole}
                 roster={activeTeamRoster}
                 scheduleEvents={activeTeamScheduleEvents}
-                practicePlans={activeTeamPracticeData.length > 0 ? activeTeamPracticeData : practiceData}
+                practicePlans={activeTeamPracticeData}
                 currentWeekState={currentWeekState}
                 formations={currentFormations}
                 depthChart={currentDepthChart}
@@ -6911,7 +6936,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onNavigateToDrills={() => setActiveUnit('drills')}
                 externalDrillId={activeWhiteboardDrillId}
                 externalCategory={activeWhiteboardCategory}
-                practices={activeTeamPracticeData.length > 0 ? activeTeamPracticeData : practiceData}
+                practices={activeTeamPracticeData}
                 currentPracticeId={currentPracticeId}
                 onNavigateToPracticePlan={(practiceId, drillTitle) => {
                   navigateToUnit('practice', {
@@ -7019,7 +7044,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
             {/* 7. Practice Plan Generator */}
             {activeUnit === 'practice' && (
               <PracticePlanView
-                practices={activeTeamPracticeData.length > 0 ? activeTeamPracticeData : practiceData}
+                practices={activeTeamPracticeData}
                 currentPracticeId={currentPracticeId}
                 practiceTemplates={practiceTemplates}
                 cascadingDrills={cascadingDrills}
@@ -7176,7 +7201,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 userRole={userRole}
                 currentWeek={currentWeek}
                 activeTeam={currentActiveTeam}
-                practicePlans={practiceData}
+                practicePlans={activeTeamPracticeData}
                 weeklyData={weeklyData}
                 practiceTemplates={practiceTemplates}
                 seasonConfig={seasonConfig}

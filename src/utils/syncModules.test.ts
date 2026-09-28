@@ -3189,3 +3189,29 @@ describe('roster import', () => {
     assert.deepEqual(r.players.map((p) => `${p.num} ${p.lastName} ${p.primaryPosition}/${p.secondaryPosition}`), ['7 Smith QB/LB', '12 Jones ATH/ATH']);
   });
 });
+
+describe('practice coach names shared by coaches', () => {
+  it('a name another coach added is kept, and a removed name stays removed', async () => {
+    const { mergeTeamCoaches, noteCoachNames } = await import('./coachNamesMerge.ts');
+    // This device added Coach Tom; the other coach added Coach Sal and removed Coach Old.
+    const mineMeta = noteCoachNames({}, 'team_10u', ['Coach Tom'], [], 100);
+    const theirMeta = noteCoachNames({}, 'team_10u', ['Coach Sal'], ['Coach Old'], 110);
+    const merged = mergeTeamCoaches(
+      { team_10u: ['Coach Mike', 'Coach Old', 'Coach Tom'] },
+      mineMeta,
+      { team_10u: ['Coach Mike', 'Coach Sal'], team_9u: ['Coach Ann'] },
+      theirMeta
+    );
+    assert.deepEqual(merged.lists.team_10u, ['Coach Mike', 'Coach Tom', 'Coach Sal']);
+    assert.deepEqual(merged.lists.team_9u, ['Coach Ann']);
+    // Adding it back later brings it back.
+    const readded = noteCoachNames(merged.meta, 'team_10u', ['Coach Old'], [], 200);
+    assert.ok(mergeTeamCoaches(merged.lists, readded, { team_10u: ['Coach Mike'] }, merged.meta).lists.team_10u.includes('Coach Old'));
+  });
+  it('an old copy without the name does not remove it', async () => {
+    const { mergeTeamCoaches, noteCoachNames } = await import('./coachNamesMerge.ts');
+    const meta = noteCoachNames({}, 'team_9u', ['Coach Pat'], [], 50);
+    const merged = mergeTeamCoaches({ team_9u: ['Coach Pat'] }, meta, { team_9u: [] }, {});
+    assert.deepEqual(merged.lists.team_9u, ['Coach Pat']);
+  });
+});

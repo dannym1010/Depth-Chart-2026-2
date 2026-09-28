@@ -12,6 +12,7 @@ import {
 import { pickScoutBundle } from '../utils/scoutMerge';
 import { OWN_HUDL_KEY, WEEKLY_HUDL_KEY, bigSet, bigStoreReady, packWeeklyData, unpackWeeklyData } from '../utils/bigLocalStore';
 import { mergeAttendanceLogs, mergeRosters, mergeTombstones } from '../utils/recordMerge';
+import { mergeTeamCoaches } from '../utils/coachNamesMerge';
 import {
   INITIAL_DEFAULT_FORMATIONS,
   DEFAULT_CASCADING_DRILLS,
@@ -918,6 +919,7 @@ export type SharedBoardCloudUpdate = {
   pffUpdatedAt?: number;
   savedCoaches?: any;
   teamSavedCoaches?: any;
+  teamSavedCoachesMeta?: any;
   coachesUpdatedAt?: number;
   defaultFormations?: any[];
   deletedFormationIds?: any[];
@@ -994,6 +996,9 @@ export async function saveSharedBoardCloud(payload: {
   pffPlayerGroups?: any;
   savedCoaches?: any;
   teamSavedCoaches?: any;
+  teamSavedCoachesMeta?: any;
+  /** Gets every team's practice coach names as saved (merged with other coaches' changes in the cloud). */
+  onCoachesMerged?: (lists: any, meta: any) => void;
   defaultFormations?: any[];
   deletedFormationIds?: any[];
   modules?: Array<
@@ -1128,13 +1133,25 @@ export async function saveSharedBoardCloud(payload: {
       );
     }
     if (want('coaches') && (payload.savedCoaches || payload.teamSavedCoaches)) {
+      // Merge each team's names with what other coaches already saved, in one step.
+      const ref = col.doc('ops_coaches');
       writes.push(
-        col.doc('ops_coaches').set(
-          opsMeta({
-            savedCoaches: payload.savedCoaches,
-            teamSavedCoaches: payload.teamSavedCoaches,
-          })
-        )
+        db.runTransaction(async (tx: any) => {
+          const snap = await tx.get(ref);
+          const cur = snap?.exists ? snap.data() || {} : {};
+          const merged = mergeTeamCoaches(cur.teamSavedCoaches, cur.teamSavedCoachesMeta, payload.teamSavedCoaches, payload.teamSavedCoachesMeta);
+          tx.set(
+            ref,
+            cleanFirestoreData(
+              opsMeta({
+                savedCoaches: payload.savedCoaches ?? cur.savedCoaches,
+                teamSavedCoaches: merged.lists,
+                teamSavedCoachesMeta: merged.meta,
+              })
+            )
+          );
+          return merged;
+        }).then((m: { lists: any; meta: any }) => payload.onCoachesMerged?.(m.lists, m.meta))
       );
     }
     if (want('formations') && (payload.defaultFormations || payload.deletedFormationIds)) {
@@ -1374,6 +1391,7 @@ export async function fetchSharedBoardCloud(
       pffUpdatedAt: pff?.updatedAt,
       savedCoaches: coaches?.savedCoaches,
       teamSavedCoaches: coaches?.teamSavedCoaches,
+      teamSavedCoachesMeta: coaches?.teamSavedCoachesMeta,
       coachesUpdatedAt: coaches?.updatedAt,
       defaultFormations: formations?.defaultFormations,
       deletedFormationIds: formations?.deletedFormationIds,
@@ -1474,6 +1492,7 @@ export function subscribeSharedBoardCloud(
     listen('ops_coaches', (data) => ({
       savedCoaches: data.savedCoaches,
       teamSavedCoaches: data.teamSavedCoaches,
+      teamSavedCoachesMeta: data.teamSavedCoachesMeta,
       coachesUpdatedAt: data.updatedAt,
     })),
     listen('ops_formations', (data) => ({
