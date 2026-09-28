@@ -10,6 +10,7 @@ import {
   PracticePeriod,
 } from '../types';
 import { pickScoutBundle } from '../utils/scoutMerge';
+import { OWN_HUDL_KEY, WEEKLY_HUDL_KEY, bigSet, bigStoreReady, packWeeklyData, unpackWeeklyData } from '../utils/bigLocalStore';
 import { mergeAttendanceLogs, mergeRosters, mergeTombstones } from '../utils/recordMerge';
 import {
   INITIAL_DEFAULT_FORMATIONS,
@@ -31,6 +32,7 @@ declare global {
 export function safeJSONParse<T>(key: string, fallback: T): T {
   try {
     const val = localStorage.getItem(key);
+    if (val && key === 'footballWeeklyData') return unpackWeeklyData(JSON.parse(val)) as T;
     if (val) return JSON.parse(val);
   } catch (e) {
     console.warn(`Error parsing localStorage key "${key}":`, e);
@@ -119,14 +121,56 @@ export function deepClone<T>(obj: T): T {
   }
 }
 
+// Recovery copies that can be dropped when this device's storage is full (the cloud has the data).
+const DISPOSABLE_LOCAL_KEYS = ['footballCallSheet_history', 'footballCallSheetData_backup'];
+
+/** The biggest things saved on this device, for the console when storage is full. */
+function localStorageSizes(): string {
+  try {
+    return Object.keys(localStorage)
+      .map((k) => [k, (localStorage.getItem(k) || '').length] as const)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([k, n]) => `${k} ${Math.round(n / 1024)} KB`)
+      .join(', ');
+  } catch {
+    return '';
+  }
+}
+
 export function safeJSONSet(key: string, data: any): boolean {
   try {
     if (isWindowOrDomObject(data)) {
       console.warn(`Prevented saving Window or DOM object to localStorage key "${key}"`);
       return false;
     }
-    const cleanStr = safeJSONStringify(data);
-    localStorage.setItem(key, cleanStr);
+    let value = data;
+    // Hudl film is kept in the device's larger database (IndexedDB), not in localStorage.
+    if (key === 'footballWeeklyData' && data && typeof data === 'object') {
+      const { local, film } = packWeeklyData(data, bigStoreReady());
+      if (bigStoreReady()) bigSet(WEEKLY_HUDL_KEY, film);
+      value = local;
+    } else if (key === 'footballOwnTeamHudlScout' && bigStoreReady()) {
+      bigSet(OWN_HUDL_KEY, data);
+      value = {};
+    }
+    const cleanStr = safeJSONStringify(value);
+    try {
+      localStorage.setItem(key, cleanStr);
+    } catch (quotaErr) {
+      // Storage full: drop the recovery copies and try once more.
+      DISPOSABLE_LOCAL_KEYS.forEach((k) => {
+        try {
+          localStorage.removeItem(k);
+        } catch {}
+      });
+      try {
+        localStorage.setItem(key, cleanStr);
+      } catch {
+        console.warn(`This device's storage is full; "${key}" is saved in the cloud only. Largest items: ${localStorageSizes()}`);
+        return false;
+      }
+    }
     return true;
   } catch (e) {
     console.warn(`Error setting localStorage key "${key}":`, e);

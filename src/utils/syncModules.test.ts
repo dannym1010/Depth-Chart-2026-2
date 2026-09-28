@@ -3075,3 +3075,23 @@ describe('play library order', () => {
     assert.equal(playSideOf(mk('32 R WISHBONE 26 DIVE')), 'R');
   });
 });
+
+describe('this device\'s storage', () => {
+  it('stores each week once and moves film out, and reads it back the same', async () => {
+    const { packWeeklyData, unpackWeeklyData } = await import('./bigLocalStore.ts');
+    const week = { opponent: 'Carmel', depthChart: { qb: [{ num: '7' }] }, scouting: { notes: 'x', hudlScout: { plays: [{ id: 'p1' }] } } };
+    const data = { team_10u__week_4: week, '4': week, team_9u__week_4: { opponent: 'Other' } };
+    const { local, film } = packWeeklyData(data, true);
+    assert.deepEqual(local['4'], { __sameAs: 'team_10u__week_4' });
+    assert.equal(local.team_10u__week_4.scouting.hudlScout, undefined);
+    assert.equal(local.team_10u__week_4.scouting.notes, 'x');
+    assert.deepEqual(Object.keys(film).sort(), ['4', 'team_10u__week_4']);
+    const back = unpackWeeklyData(JSON.parse(JSON.stringify(local)));
+    assert.equal(back['4'].opponent, 'Carmel');
+    assert.equal(back.team_9u__week_4.opponent, 'Other');
+    // Not moved when the device database isn't ready.
+    assert.ok(packWeeklyData(data, false).local.team_10u__week_4.scouting.hudlScout);
+    // A plain week that differs from the team's week is kept as is.
+    assert.equal(packWeeklyData({ team_10u__week_5: { opponent: 'A' }, '5': { opponent: 'B' } }, true).local['5'].opponent, 'B');
+  });
+});

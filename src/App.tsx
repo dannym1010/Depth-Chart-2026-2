@@ -162,6 +162,7 @@ import { MASTER_PLAY_DATABASE, DEFAULT_CALL_SHEET_DATA } from './data/callSheetD
 import { mergeDeletedPlayIds, mergePlayBanks, stampPlayEdits } from './utils/playBankMerge';
 import { mergeAttendanceLogs, mergeRosters, mergeTombstones, removedIds, stampEdits, type Tombstones } from './utils/recordMerge';
 import { syncEntireRosterWithLogs } from './utils/hoursCalculation';
+import { OWN_HUDL_KEY, WEEKLY_HUDL_KEY, bigGet, bigStoreAvailable, markBigStoreReady } from './utils/bigLocalStore';
 import { syncWristbandToCallSheet } from './utils/wristbandLinking';
 import { saveCallSheetSnapshot, countCallSheetPlays } from './utils/callSheetStorage';
 import { ScoutingView } from './components/ScoutingView';
@@ -2541,6 +2542,46 @@ export default function App() {
       if (saved) adoptPffWeek(teamId, wk, saved);
     }, 400);
   };
+
+  // Hudl film saved on this device lives in IndexedDB (localStorage is too small): read it back once
+  // at start, then let saves move film there.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      if (!(await bigStoreAvailable())) return; // private browsing etc.: film stays in localStorage
+      const [weeklyFilm, ownFilm] = await Promise.all([
+        bigGet<Record<string, any>>(WEEKLY_HUDL_KEY),
+        bigGet<Record<string, any>>(OWN_HUDL_KEY),
+      ]);
+      if (!alive) return;
+      markBigStoreReady();
+      setWeeklyData((prev) => {
+        let next = prev;
+        for (const [key, bundle] of Object.entries(weeklyFilm || {})) {
+          const cur = next[key];
+          if (!cur || !bundle) continue;
+          const merged = pickScoutBundle(cur.scouting?.hudlScout, bundle);
+          if (merged === cur.scouting?.hudlScout) continue;
+          if (next === prev) next = { ...prev };
+          next[key] = { ...cur, scouting: { ...(cur.scouting || {}), hudlScout: merged } };
+        }
+        latestStateRef.current.weeklyData = next;
+        // Moves any film still in localStorage over to IndexedDB.
+        safeJSONSet('footballWeeklyData', next);
+        return next;
+      });
+      setOwnTeamHudlScout((prev) => {
+        const next = ownFilm ? mergeOwnTeamHudlMap(prev, ownFilm) : prev;
+        latestStateRef.current.ownTeamHudlScout = next;
+        safeJSONSet('footballOwnTeamHudlScout', next);
+        return next;
+      });
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const hudlPublishTimerRef = useRef<any>(null);
   const queueHudlScoutPublish = () => {
