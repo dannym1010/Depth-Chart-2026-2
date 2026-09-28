@@ -240,7 +240,12 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
       const incomingEdited = Number(propCallSheetData.lastEdited) || 0;
       setCallSheetData((prev) => {
         const localEdited = Number(prev.lastEdited) || 0;
-        const base = incomingEdited >= localEdited ? propCallSheetData : prev;
+        // A sheet for another team or week (the app just switched): always take it, never keep the
+        // previous team's sheet because it was edited more recently.
+        const otherSheet =
+          String(prev.teamId || '') !== String(propCallSheetData.teamId || '') ||
+          String(prev.week || '') !== String(propCallSheetData.week || '');
+        const base = otherSheet || incomingEdited >= localEdited ? propCallSheetData : prev;
         const wb = propWristbandData?.wristbands?.length ? propWristbandData : null;
         const next = wb ? syncWristbandToCallSheet(wb, base, playDatabase) : base;
         if (

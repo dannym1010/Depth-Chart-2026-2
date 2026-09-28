@@ -161,6 +161,7 @@ import { PlayDatabaseEntry, CallSheetData, CallSheetFullData } from './types/cal
 import { MASTER_PLAY_DATABASE, DEFAULT_CALL_SHEET_DATA } from './data/callSheetData';
 import { mergeDeletedPlayIds, mergePlayBanks, stampPlayEdits } from './utils/playBankMerge';
 import { blankCallSheetData, blankWristbandData } from './utils/blankSheets';
+import { callSheetSlots, isCopiedScoutReport, isNearCopy, primarySheetSlots, withoutCopiedGames, wristbandSlots } from './utils/teamCopies';
 import { diffCoachNames, mergeTeamCoaches, noteCoachNames, type CoachNameMeta } from './utils/coachNamesMerge';
 import { mergeAttendanceLogs, mergeRosters, mergeTombstones, removedIds, stampEdits, type Tombstones } from './utils/recordMerge';
 import { syncEntireRosterWithLogs } from './utils/hoursCalculation';
@@ -289,6 +290,17 @@ export default function App() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // 10U's wristbands / call sheets: another team holding an exact copy (left from before teams were
+  // kept apart) is treated as having none, so it starts brand new.
+  const primarySheetsRef = useRef<{ wristbands: Map<string, string>[]; callSheets: Map<string, string>[] }>({ wristbands: [], callSheets: [] });
+  primarySheetsRef.current = React.useMemo(
+    () => primarySheetSlots(weeklyData, [INITIAL_TWO_WRISTBANDS_DATA]),
+    [weeklyData]
+  );
+  const isCopiedWristband = (wb: any) => isNearCopy(wristbandSlots(wb), primarySheetsRef.current.wristbands);
+  const isCopiedCallSheet = (cs: any) => isNearCopy(callSheetSlots(cs), primarySheetsRef.current.callSheets);
+  const teamNameOf = (teamId: string) =>
+    (latestStateRef.current?.teams || []).find((t: any) => t && sameTeamId(t.id, teamId))?.name || '';
   const [ownTeamHudlScout, setOwnTeamHudlScout] = useState<Record<string, any>>(() => {
     const disk = safeJSONParse<Record<string, any>>('footballOwnTeamHudlScout', {}) || {};
     const weekly = safeJSONParse<Record<string, any>>('footballWeeklyData', {}) || {};
@@ -1009,11 +1021,11 @@ export default function App() {
     const targetKey = getScopedWeekKey(teamId, wk);
     const weekCopiesAll = { ...weeklyData, ...latestStateRef.current.weeklyData };
     const targetWeekState = weekCopiesAll[targetKey] || (primaryTeam ? weekCopiesAll[wk] : undefined);
-    const nextWb = targetWeekState?.wristbandData?.wristbands?.length
-      ? targetWeekState.wristbandData
-      : primaryTeam
-        ? INITIAL_TWO_WRISTBANDS_DATA
-        : blankWristbandData(teamId, wk);
+    const ownWb =
+      targetWeekState?.wristbandData?.wristbands?.length && (primaryTeam || !isCopiedWristband(targetWeekState.wristbandData))
+        ? targetWeekState.wristbandData
+        : undefined;
+    const nextWb = ownWb || (primaryTeam ? INITIAL_TWO_WRISTBANDS_DATA : blankWristbandData(teamId, wk, teamNameOf(teamId)));
     setWristbandData(nextWb);
     latestStateRef.current.wristbandData = nextWb;
     safeJSONSet('footballWristbandData', nextWb);
@@ -1023,14 +1035,17 @@ export default function App() {
     const startIdx = weekOrder.indexOf(wk);
     const candidateWeeks = startIdx >= 0 ? weekOrder.slice(0, startIdx + 1).reverse() : [wk];
     const weekCopies = { ...weeklyData, ...latestStateRef.current.weeklyData };
-    const storedForWeek = (key: string) =>
-      (weekCopies[getScopedWeekKey(teamId, key)] || (primaryTeam ? weekCopies[key] : undefined))?.callSheetData;
+    const storedForWeek = (key: string) => {
+      const cs = (weekCopies[getScopedWeekKey(teamId, key)] || (primaryTeam ? weekCopies[key] : undefined))?.callSheetData;
+      return cs && !primaryTeam && isCopiedCallSheet(cs) ? undefined : cs;
+    };
     // The sheet on screen may be a newer save for the target week than its stored copy.
     const onScreen = latestStateRef.current.callSheetData;
     const ownCopy = storedForWeek(wk);
     const onScreenIsNewer =
       onScreen?.week &&
       savedForTeamWeek(onScreen, teamId, wk) &&
+      (primaryTeam || !isCopiedCallSheet(onScreen)) &&
       countCallSheetPlays(onScreen) > 0 &&
       (Number(onScreen.lastEdited) || 0) >= (Number(ownCopy?.lastEdited) || 0);
     const sourceCs = onScreenIsNewer
@@ -1285,9 +1300,22 @@ export default function App() {
     week: string
   ): WeekState => {
     const scopedKey = getScopedWeekKey(teamId, week);
-    const scopedState = wData[scopedKey];
-    // Only 10U (the original team) may use the older plain week copies; every other team has its own.
     const primaryTeam = isPrimaryTeamId(teamId);
+    const rawScopedState = wData[scopedKey];
+    // Another team's copies of 10U's wristband / opponent report (from before teams were kept apart) don't count.
+    const primaryWeek = wData[getScopedWeekKey('team_10u', week)] || wData[week];
+    const scopedState =
+      primaryTeam || !rawScopedState
+        ? rawScopedState
+        : {
+            ...rawScopedState,
+            wristbandData: isCopiedWristband(rawScopedState.wristbandData) ? undefined : rawScopedState.wristbandData,
+            scouting:
+              rawScopedState.scouting && isCopiedScoutReport(rawScopedState.scouting.hudlScout, primaryWeek?.scouting?.hudlScout)
+                ? { ...rawScopedState.scouting, hudlScout: undefined }
+                : rawScopedState.scouting,
+          };
+    // Only 10U (the original team) may use the older plain week copies; every other team has its own.
     const legacyState = primaryTeam ? wData[week] : undefined;
     const defScopedKey = getScopedWeekKey('team_10u', week);
     const defScopedState = primaryTeam ? wData[defScopedKey] : undefined;
@@ -1443,7 +1471,7 @@ export default function App() {
           scopedState?.wristbandData,
           is10U ? legacyState?.wristbandData : undefined,
           is10U ? defScopedState?.wristbandData : undefined
-        ) || (is10U ? INITIAL_TWO_WRISTBANDS_DATA : blankWristbandData(teamId, week)),
+        ) || (is10U ? INITIAL_TWO_WRISTBANDS_DATA : blankWristbandData(teamId, week, teamNameOf(teamId))),
       scouting:
         pickRichestScouting(scopedState?.scouting, legacyState?.scouting, defScopedState?.scouting) ||
         scopedState?.scouting ||
@@ -3918,6 +3946,7 @@ export default function App() {
   // Feature handlers already save the one module that changed.
 
   const currentScopedWeekKey = getScopedWeekKey(activeTeamId, currentWeek);
+  const currentActiveTeamName = teams.find((t) => sameTeamId(t.id, activeTeamId))?.name || '';
   const currentWeekState: WeekState = resolveWeekState(weeklyData, activeTeamId, currentWeek);
 
   // Newest whole wristband wins. Mixing columns from the week snapshot and live
@@ -3926,8 +3955,10 @@ export default function App() {
     return (
       pickNewestWristbandData(
         currentWeekState?.wristbandData,
-        savedForTeamWeek(wristbandData, activeTeamId, currentWeek) ? wristbandData : undefined
-      ) || (isPrimaryTeamId(activeTeamId) ? INITIAL_TWO_WRISTBANDS_DATA : blankWristbandData(activeTeamId, currentWeek))
+        savedForTeamWeek(wristbandData, activeTeamId, currentWeek) && (isPrimaryTeamId(activeTeamId) || !isCopiedWristband(wristbandData))
+          ? wristbandData
+          : undefined
+      ) || (isPrimaryTeamId(activeTeamId) ? INITIAL_TWO_WRISTBANDS_DATA : blankWristbandData(activeTeamId, currentWeek, currentActiveTeamName))
     );
   }, [wristbandData, currentWeekState?.wristbandData, activeTeamId, currentWeek]);
   // Read by save/adopt paths so the call sheet's wristband tables use the same wristband the screens show.
@@ -4262,6 +4293,12 @@ export default function App() {
     const mine = Object.entries(teamGroups || {}).map(([k, v]) => [primary ? k : pre + k, v]);
     return Object.fromEntries([...kept, ...mine]) as PffPlayerGroupOverrides;
   };
+
+  // This team's own film (another team never shows games copied from 10U's).
+  const teamOwnScout = React.useMemo(() => {
+    if (isPrimaryTeamId(activeTeamId)) return ownTeamHudlScout[activeTeamId] || ownTeamHudlScout.team_10u;
+    return withoutCopiedGames(ownTeamHudlScout[activeTeamId], ownTeamHudlScout.team_10u);
+  }, [ownTeamHudlScout, activeTeamId]);
 
   // Attendance per team (sessions without a team are 10U's).
   const teamAttendanceLogs = React.useMemo(
@@ -6439,11 +6476,12 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
 
             {activeUnit === 'playbook' && (
               <PlayLibraryView
+                key={`plays-${activeTeamId}`}
                 playDatabase={teamPlayDatabase}
                 onUpdatePlayDatabase={handleUpdateTeamPlayDatabase}
                 deletedPlayIds={deletedPlayIds}
                 onUpdateDeletedPlayIds={handleUpdateDeletedPlayIds}
-                ownTeamScout={ownTeamHudlScout[activeTeamId] || (isPrimaryTeamId(activeTeamId) ? ownTeamHudlScout.team_10u : undefined)}
+                ownTeamScout={teamOwnScout}
                 teamName={currentActiveTeam?.name || 'Mahopac 10U'}
                 userRole={userRole}
                 onOpenScouting={() => setActiveUnit('hudl_scout')}
@@ -6477,6 +6515,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
 
             {activeUnit === 'ppr' && (
               <PlayerPprView
+                key={`pff-${activeTeamId}`}
                 currentWeek={currentWeek}
                 currentWeekLabel={formatWeekLabel(currentWeek, seasonConfig)}
                 priorWeekKey={getPreviousWeekKey(
@@ -6523,7 +6562,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   week: gradeWeekKey,
                   weekLabel: formatWeekLabel(gradeWeekKey, seasonConfig),
                   teamName: currentActiveTeam?.name || 'Mahopac 10U',
-                  ownTeamScout: ownTeamHudlScout[activeTeamId] || (isPrimaryTeamId(activeTeamId) ? ownTeamHudlScout.team_10u : undefined),
+                  ownTeamScout: teamOwnScout,
                   onUpdateOwnTeamScout: persistOwnTeamHudlScout,
                   playDatabase: teamPlayDatabase,
                   onUpdatePlayDatabase: handleUpdateTeamPlayDatabase,
@@ -6646,7 +6685,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onCopyCallSheetFromPreviousWeek={handleCopyCallSheetFromPreviousWeek}
                 scouting={currentWeekState.scouting || {}}
                 onUpdateScouting={persistWeekScouting}
-                ownTeamScout={ownTeamHudlScout[activeTeamId] || (isPrimaryTeamId(activeTeamId) ? ownTeamHudlScout.team_10u : undefined)}
+                ownTeamScout={teamOwnScout}
                 onUpdateOwnTeamScout={persistOwnTeamHudlScout}
                 weekOptions={seasonWeekOptions}
                 defaultGameWeek={gradeWeekKey}
@@ -6671,6 +6710,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
             {/* 3. Wristband Builder */}
             {activeUnit === 'wristband' && (
               <WristbandView
+                key={`wb-${activeTeamId}-${currentWeek}`}
                 wristbandData={effectiveWristbandData}
                 userRole={userRole}
                 masterPlayLibrary={masterPlayLibrary}
@@ -6721,7 +6761,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 scheduleEvents={activeTeamScheduleEvents}
                 currentWeek={currentWeek}
                 activeTeamName={currentActiveTeam?.name || 'Mahopac 10U'}
-                ownTeamScout={ownTeamHudlScout[activeTeamId] || (isPrimaryTeamId(activeTeamId) ? ownTeamHudlScout.team_10u : undefined)}
+                ownTeamScout={teamOwnScout}
                 onUpdateOwnTeamScout={persistOwnTeamHudlScout}
                 onUpdateScouting={persistWeekScouting}
                 onNavigateToSchedule={() => setActiveUnit('schedule')}
@@ -7044,6 +7084,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
             {/* 7. Practice Plan Generator */}
             {activeUnit === 'practice' && (
               <PracticePlanView
+                key={`practice-${activeTeamId}`}
                 practices={activeTeamPracticeData}
                 currentPracticeId={currentPracticeId}
                 practiceTemplates={practiceTemplates}
@@ -7222,6 +7263,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
             {/* 10. Practice Hours & Acclimatization Compliance */}
             {activeUnit === 'compliance' && (
               <PlayerHoursTracker
+                key={`hours-${activeTeamId}`}
                 roster={activeTeamRoster}
                 userRole={userRole}
                 currentWeek={currentWeek}

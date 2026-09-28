@@ -3215,3 +3215,44 @@ describe('practice coach names shared by coaches', () => {
     assert.deepEqual(merged.lists.team_9u, ['Coach Pat']);
   });
 });
+
+describe('a new team starts brand new', () => {
+  it('its wristband is empty and named for the team', async () => {
+    const { blankWristbandData } = await import('./blankSheets.ts');
+    const wb = blankWristbandData('team_9u', '1', '9U Youth Tackle');
+    assert.ok((wb.wristbands || []).every((b) => /^9U YOUTH TACKLE/.test(b.title) && !/10U/.test(b.title)));
+  });
+  it('copies of 10U\'s wristband, call sheet, film and scouting are recognised', async () => {
+    const { primarySheetSignatures, wristbandSignature, callSheetSignature, withoutCopiedGames, isCopiedScoutReport } = await import('./teamCopies.ts');
+    const wb = { wristbands: [{ columns: [{ plays: [{ text: '21 L 26 DIVE' }, { text: '' }] }] }] };
+    const cs = { offenseSections: [{ plays: [{ name: '21 R 31 TOSS SWEEP' }, null] }], defenseSections: [] };
+    const sigs = primarySheetSignatures({ team_10u__week_4: { wristbandData: wb, callSheetData: cs }, team_9u__week_4: { wristbandData: { wristbands: [{ columns: [{ plays: [{ text: 'OTHER' }] }] }] } } });
+    assert.ok(sigs.wristbands.has(wristbandSignature(JSON.parse(JSON.stringify(wb)))));
+    assert.ok(sigs.callSheets.has(callSheetSignature(cs)));
+    assert.equal(sigs.wristbands.size, 1); // 9U's own card isn't 10U's
+    assert.equal(wristbandSignature({ wristbands: [{ columns: [{ plays: [{ text: '' }] }] }] }), ''); // empty card is nobody's copy
+
+    const mk = (gameId: string, n: number, shift = 0) => Array.from({ length: n }, (_, i) => ({ id: `${gameId}${i}`, gameId, playNumber: i + 1, odk: 'O', down: (i % 4) + 1, distance: 10, gainLoss: i + shift }));
+    const tenU = { games: [{ id: 'g1', name: 'MSA vs Carmel' }], plays: mk('g1', 20) };
+    const nineU = { games: [{ id: 'c1', name: 'MSA vs Carmel' }, { id: 'n1', name: '9U vs Brewster' }], plays: [...mk('c1', 20), ...mk('n1', 15, 3)] };
+    const cleaned = withoutCopiedGames(nineU, tenU);
+    assert.deepEqual(cleaned.games.map((g: any) => g.id), ['n1']);
+    assert.ok(cleaned.deletedGameIds.includes('c1'));
+    assert.equal(cleaned.plays.length, 15);
+    assert.ok(isCopiedScoutReport({ plays: mk('x', 5) }, { plays: mk('y', 5) }));
+    assert.equal(isCopiedScoutReport({ plays: mk('x', 5, 2) }, { plays: mk('y', 5) }), false);
+  });
+});
+
+describe('leftover copies that 10U has since edited', () => {
+  it('a sheet matching 10U slot for slot (90%+) is a copy; a team\'s own sheet is not', async () => {
+    const { callSheetSlots, isNearCopy } = await import('./teamCopies.ts');
+    const sheet = (names: (string | null)[]) => ({ offenseSections: [{ id: 'off_1_10', plays: names.map((n) => (n ? { name: n } : null)) }], defenseSections: [] });
+    const tenU = callSheetSlots(sheet(Array.from({ length: 20 }, (_, i) => `PLAY ${i}`)));
+    const copyThenEdited = callSheetSlots(sheet([...Array.from({ length: 19 }, (_, i) => `PLAY ${i}`), 'NEW 10U PLAY'])); // 10U changed 1 slot since
+    assert.ok(isNearCopy(copyThenEdited, [tenU]));
+    const own = callSheetSlots(sheet(['PLAY 0', 'PLAY 5', 'OTHER', 'PLAY 1', ...Array.from({ length: 10 }, (_, i) => `9U ${i}`)]));
+    assert.equal(isNearCopy(own, [tenU]), false);
+    assert.equal(isNearCopy(new Map(), [tenU]), false);
+  });
+});

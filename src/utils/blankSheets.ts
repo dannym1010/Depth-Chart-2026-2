@@ -7,9 +7,12 @@ import { DEFAULT_CALL_SHEET_DATA } from '../data/callSheetData';
 
 const copy = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 
-export function blankWristbandData(teamId: string, week: string): WristbandData {
+export function blankWristbandData(teamId: string, week: string, teamName?: string): WristbandData {
   const wb = copy(INITIAL_TWO_WRISTBANDS_DATA);
+  const label = String(teamName || 'TEAM').toUpperCase();
   for (const band of wb.wristbands || []) {
+    // The card's title names this team, not 10U.
+    band.title = String(band.title || '').replace(/MAHOPAC\s*10U/i, label);
     for (const col of band.columns || []) {
       // Keep each slot's number; clear the play.
       col.plays = (col.plays || []).map((p) => ({ text: '', customLabel: p.customLabel, wristbandNum: p.wristbandNum }));
