@@ -34,11 +34,11 @@ export function useRosterActions({
     safeJSONSet('footballRoster', normalized);
     latestStateRef.current.roster = normalized;
 
-    // Build map of jersey number -> display name
+    // Map of team + jersey number -> display name (numbers repeat across teams)
     const nameMap = new Map<string, string>();
     normalized.forEach((p) => {
       const displayName = (p.rosterName || p.lastName || `${p.firstName} ${p.lastName}`).trim();
-      nameMap.set(p.num.trim(), displayName);
+      nameMap.set(playerKey(p), displayName);
     });
 
     // Cascade updated names to placed players in depth charts and scrimmage charts
@@ -48,6 +48,9 @@ export function useRosterActions({
       Object.keys(nextWeekly).forEach((wKey) => {
         const wState = nextWeekly[wKey];
         if (!wState) return;
+        // The team this week belongs to (plain week keys are 10U's).
+        const weekTeam = wKey.includes('__week_') ? wKey.split('__week_')[0] : 'team_10u';
+        const keyOf = (num: string) => playerKey({ teamId: weekTeam, num });
         let weekChanged = false;
         let newDC = wState.depthChart;
         let newSC = wState.scrimmageChart;
@@ -59,8 +62,8 @@ export function useRosterActions({
             if (Array.isArray(players)) {
               let posChanged = false;
               const nextPlayers = players.map((p) => {
-                if (p && p.num && nameMap.has(p.num.trim())) {
-                  const mappedName = nameMap.get(p.num.trim())!;
+                if (p && p.num && nameMap.has(keyOf(p.num))) {
+                  const mappedName = nameMap.get(keyOf(p.num))!;
                   if (p.name !== mappedName) {
                     posChanged = true;
                     return { ...p, name: mappedName };
@@ -91,8 +94,8 @@ export function useRosterActions({
             if (Array.isArray(players)) {
               let posChanged = false;
               const nextPlayers = players.map((p) => {
-                if (p && p.num && nameMap.has(p.num.trim())) {
-                  const mappedName = nameMap.get(p.num.trim())!;
+                if (p && p.num && nameMap.has(keyOf(p.num))) {
+                  const mappedName = nameMap.get(keyOf(p.num))!;
                   if (p.name !== mappedName) {
                     posChanged = true;
                     return { ...p, name: mappedName };

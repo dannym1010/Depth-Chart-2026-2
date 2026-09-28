@@ -155,6 +155,8 @@ export interface PlayDatabaseEntry {
   diagramHash?: string;
   /** When a coach last changed this play (decides which copy wins when two coaches' Play Banks merge). */
   editedAt?: number;
+  /** The team this play belongs to (plays without one are 10U's, the original team). */
+  teamId?: string;
 }
 
 export interface PlayAssignment {

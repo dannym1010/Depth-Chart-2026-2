@@ -126,7 +126,7 @@ import {
   getPlanPeriods,
 } from './utils/practiceUtils';
 import type { PracticeWeekdayTemplateMap } from './utils/practiceUtils';
-import { getAutoActiveWeek, normalizeWeeklyData, extractBackupFormations, normalizeFormationUnit, getSeasonWeekList, isDroppedFormation, getPriorSeasonWeekKey, formatWeekCopyLabel, getScopedWeekKey } from './utils/seasonWeekUtils';
+import { getAutoActiveWeek, normalizeWeeklyData, extractBackupFormations, normalizeFormationUnit, getSeasonWeekList, isDroppedFormation, getPriorSeasonWeekKey, formatWeekCopyLabel, getScopedWeekKey, isPrimaryTeamId } from './utils/seasonWeekUtils';
 import { getPreviousWeekKey, mergePffGradeCriteria, PffPlayerGroupOverrides } from './utils/pprGroups';
 import { hydrateFilmSession } from './utils/hudlFilmImport';
 import { normalizeRoster, getUnitPositionIds } from './utils/depthChartUtils';
@@ -160,6 +160,7 @@ import { ExcelPlayImportModal } from './components/callSheet/ExcelPlayImportModa
 import { PlayDatabaseEntry, CallSheetData, CallSheetFullData } from './types/callSheet';
 import { MASTER_PLAY_DATABASE, DEFAULT_CALL_SHEET_DATA } from './data/callSheetData';
 import { mergeDeletedPlayIds, mergePlayBanks, stampPlayEdits } from './utils/playBankMerge';
+import { blankCallSheetData, blankWristbandData } from './utils/blankSheets';
 import { mergeAttendanceLogs, mergeRosters, mergeTombstones, removedIds, stampEdits, type Tombstones } from './utils/recordMerge';
 import { syncEntireRosterWithLogs } from './utils/hoursCalculation';
 import { canManageCoach, coachTeamIds, hasNoTeamYet, isProgramAdminCoach, isProgramAdminEmail, sameTeamId } from './utils/staffAccess';
@@ -246,7 +247,7 @@ import { usePracticePlanActions } from './hooks/usePracticePlanActions';
 
 export default function App() {
   // State Initialization from LocalStorage or Defaults
-  const [weeklyData, setWeeklyData] = useState<Record<string, WeekState>>(() => {
+  const [weeklyData, setWeeklyDataRaw] = useState<Record<string, WeekState>>(() => {
     const raw = safeJSONParse('footballWeeklyData', {});
     const savedDefaults = safeJSONParse('footballDefaultFormations', INITIAL_DEFAULT_FORMATIONS);
     const normalized = normalizeWeeklyData(
@@ -263,6 +264,30 @@ export default function App() {
     }
     return normalized;
   });
+  // Edits made while another team is open also write the plain week copy ("4") alongside the
+  // team's own ("team_9u__week_4"); that plain copy belongs to 10U, so keep 10U's there.
+  const setWeeklyData: React.Dispatch<React.SetStateAction<Record<string, WeekState>>> = React.useCallback((update) => {
+    setWeeklyDataRaw((prev) => {
+      const next = typeof update === 'function' ? (update as (p: Record<string, WeekState>) => Record<string, WeekState>)(prev) : update;
+      const teamId = activeTeamIdRef.current;
+      if (!next || next === prev || isPrimaryTeamId(teamId)) return next;
+      let guarded = next;
+      for (const key of Object.keys(next)) {
+        if (key.includes('__week_')) continue;
+        if (next[key] !== prev[key] && next[key] === next[getScopedWeekKey(teamId, key)]) {
+          if (guarded === next) guarded = { ...next };
+          if (prev[key] === undefined) delete guarded[key];
+          else guarded[key] = prev[key];
+        }
+      }
+      if (guarded !== next) {
+        latestStateRef.current.weeklyData = guarded;
+        safeJSONSet('footballWeeklyData', guarded);
+      }
+      return guarded;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [ownTeamHudlScout, setOwnTeamHudlScout] = useState<Record<string, any>>(() => {
     const disk = safeJSONParse<Record<string, any>>('footballOwnTeamHudlScout', {}) || {};
     const weekly = safeJSONParse<Record<string, any>>('footballWeeklyData', {}) || {};
@@ -974,17 +999,23 @@ export default function App() {
     safeJSONSet('footballCurrentWeek', wk);
     // Re-picking the week already shown must not swap in older stored copies.
     if (sameWeek) return;
-    const targetKey = getScopedWeekKey(activeTeamIdRef.current, wk);
-    const targetWeekState = weeklyData[targetKey] || weeklyData[wk];
-    if (targetWeekState?.wristbandData?.wristbands?.length) {
-      setWristbandData(targetWeekState.wristbandData);
-      latestStateRef.current.wristbandData = targetWeekState.wristbandData;
-      safeJSONSet('footballWristbandData', targetWeekState.wristbandData);
-    } else {
-      setWristbandData(INITIAL_TWO_WRISTBANDS_DATA);
-      latestStateRef.current.wristbandData = INITIAL_TWO_WRISTBANDS_DATA;
-      safeJSONSet('footballWristbandData', INITIAL_TWO_WRISTBANDS_DATA);
-    }
+    loadTeamWeekSheets(activeTeamIdRef.current, wk);
+  };
+
+  /** Show a team's call sheet and wristband for a week (its own, or its own empty ones for a new team). */
+  const loadTeamWeekSheets = (teamId: string, wk: string) => {
+    const primaryTeam = isPrimaryTeamId(teamId);
+    const targetKey = getScopedWeekKey(teamId, wk);
+    const weekCopiesAll = { ...weeklyData, ...latestStateRef.current.weeklyData };
+    const targetWeekState = weekCopiesAll[targetKey] || (primaryTeam ? weekCopiesAll[wk] : undefined);
+    const nextWb = targetWeekState?.wristbandData?.wristbands?.length
+      ? targetWeekState.wristbandData
+      : primaryTeam
+        ? INITIAL_TWO_WRISTBANDS_DATA
+        : blankWristbandData(teamId, wk);
+    setWristbandData(nextWb);
+    latestStateRef.current.wristbandData = nextWb;
+    safeJSONSet('footballWristbandData', nextWb);
     // Show this week's call sheet; if the week has none yet, every coach sees the same
     // starting point: the nearest earlier week that has one (not whatever was on screen).
     const weekOrder = getSeasonWeekList(seasonConfig).map((w) => w.key);
@@ -992,13 +1023,13 @@ export default function App() {
     const candidateWeeks = startIdx >= 0 ? weekOrder.slice(0, startIdx + 1).reverse() : [wk];
     const weekCopies = { ...weeklyData, ...latestStateRef.current.weeklyData };
     const storedForWeek = (key: string) =>
-      (weekCopies[getScopedWeekKey(activeTeamIdRef.current, key)] || weekCopies[key])?.callSheetData;
+      (weekCopies[getScopedWeekKey(teamId, key)] || (primaryTeam ? weekCopies[key] : undefined))?.callSheetData;
     // The sheet on screen may be a newer save for the target week than its stored copy.
     const onScreen = latestStateRef.current.callSheetData;
     const ownCopy = storedForWeek(wk);
     const onScreenIsNewer =
       onScreen?.week &&
-      savedForTeamWeek(onScreen, activeTeamIdRef.current, wk) &&
+      savedForTeamWeek(onScreen, teamId, wk) &&
       countCallSheetPlays(onScreen) > 0 &&
       (Number(onScreen.lastEdited) || 0) >= (Number(ownCopy?.lastEdited) || 0);
     const sourceCs = onScreenIsNewer
@@ -1008,12 +1039,20 @@ export default function App() {
       latestStateRef.current.wristbandData ||
       targetWeekState?.wristbandData ||
       INITIAL_TWO_WRISTBANDS_DATA;
-    const baseCs = sourceCs || DEFAULT_CALL_SHEET_DATA;
+    const baseCs = sourceCs || (primaryTeam ? DEFAULT_CALL_SHEET_DATA : blankCallSheetData(teamId, wk));
     const syncedCs = syncWristbandToCallSheet(weekWb, baseCs, latestStateRef.current.playDatabase);
     setCallSheetData(syncedCs);
     latestStateRef.current.callSheetData = syncedCs;
     safeJSONSet('footballCallSheetData', syncedCs);
   };
+
+  const lastSheetsTeamRef = useRef<string>(activeTeamId);
+  useEffect(() => {
+    if (lastSheetsTeamRef.current === activeTeamId) return;
+    lastSheetsTeamRef.current = activeTeamId;
+    loadTeamWeekSheets(activeTeamId, currentWeekRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTeamId]);
 
   activeUnitRef.current = activeUnit;
   activeTeamIdRef.current = activeTeamId;
@@ -1246,9 +1285,11 @@ export default function App() {
   ): WeekState => {
     const scopedKey = getScopedWeekKey(teamId, week);
     const scopedState = wData[scopedKey];
-    const legacyState = wData[week];
+    // Only 10U (the original team) may use the older plain week copies; every other team has its own.
+    const primaryTeam = isPrimaryTeamId(teamId);
+    const legacyState = primaryTeam ? wData[week] : undefined;
     const defScopedKey = getScopedWeekKey('team_10u', week);
-    const defScopedState = wData[defScopedKey];
+    const defScopedState = primaryTeam ? wData[defScopedKey] : undefined;
 
     // Formations resolution
     const coreDefaultIds = new Set(
@@ -1274,6 +1315,13 @@ export default function App() {
     } else if (Array.isArray(defScopedState?.formations)) {
       rawCandidateForms = [...defScopedState.formations];
       hasExplicitFormations = true;
+    } else if (!primaryTeam && Array.isArray(wData[getScopedWeekKey(teamId, '0')]?.formations) && wData[getScopedWeekKey(teamId, '0')].formations.length > 0) {
+      // Another team: its own first week's formations.
+      rawCandidateForms = [...wData[getScopedWeekKey(teamId, '0')].formations];
+      hasExplicitFormations = true;
+    } else if (!primaryTeam) {
+      // Another team with nothing yet: the built-in formations, not 10U's.
+      rawCandidateForms = [...INITIAL_DEFAULT_FORMATIONS];
     } else if (Array.isArray(wData['0']?.formations) && wData['0'].formations.length > 0) {
       rawCandidateForms = [...wData['0'].formations];
       hasExplicitFormations = true;
@@ -1304,7 +1352,7 @@ export default function App() {
     // Ensure every week has core units (Offense, Defense, ST, Groups) populated
     for (const u of ['offense', 'defense', 'st', 'groups'] as const) {
       if (!formations.some((f) => f && f.unit === u)) {
-        let defsForUnit = (defaultFormations || []).filter(
+        let defsForUnit = (primaryTeam ? defaultFormations || [] : []).filter(
           (f) => f && f.unit === u && !curDeletedSet.has(f.id) && !isDroppedFormation(f)
         );
         if (defsForUnit.length === 0) {
@@ -1326,7 +1374,7 @@ export default function App() {
     const scopedDCCount = countPlacedPlayers(scopedState?.depthChart);
     const legacyDCCount = countPlacedPlayers(legacyState?.depthChart);
     const defScopedDCCount = countPlacedPlayers(defScopedState?.depthChart);
-    const is10U = !teamId || teamId === 'team_10u';
+    const is10U = primaryTeam;
 
     if (scopedDCCount > 0) {
       depthChart = scopedState!.depthChart!;
@@ -1394,7 +1442,7 @@ export default function App() {
           scopedState?.wristbandData,
           is10U ? legacyState?.wristbandData : undefined,
           is10U ? defScopedState?.wristbandData : undefined
-        ) || INITIAL_TWO_WRISTBANDS_DATA,
+        ) || (is10U ? INITIAL_TWO_WRISTBANDS_DATA : blankWristbandData(teamId, week)),
       scouting:
         pickRichestScouting(scopedState?.scouting, legacyState?.scouting, defScopedState?.scouting) ||
         scopedState?.scouting ||
@@ -1440,7 +1488,7 @@ export default function App() {
   ): WeekState => {
     const scopedKey = getScopedWeekKey(teamId, week);
     const scoped = wData[scopedKey];
-    const legacy = wData[week];
+    const legacy = isPrimaryTeamId(teamId) ? wData[week] : undefined;
     const resolved = resolveWeekState(wData, teamId, week);
     const hasBoards = (s?: WeekState) =>
       Array.isArray(s?.formations) && s.formations.some((f) => f && f.id);
@@ -1980,7 +2028,7 @@ export default function App() {
       const weekKey = normalizeScoutWeekKey(currentWeekRef.current);
       const scopedKey = getScopedWeekKey(activeTeamIdRef.current, weekKey);
       const weekState =
-        currentState.weeklyData?.[scopedKey] || currentState.weeklyData?.[weekKey];
+        currentState.weeklyData?.[scopedKey] || (isPrimaryTeamId(activeTeamIdRef.current) ? currentState.weeklyData?.[weekKey] : undefined);
       const { db } = getFirebaseServices();
       const posIds = (Array.isArray(extraMeta?.modifiedPosIds) ? extraMeta.modifiedPosIds : []).filter(Boolean);
       const formIds = (Array.isArray(extraMeta?.modifiedFormIds) ? extraMeta.modifiedFormIds : []).filter(Boolean);
@@ -2159,7 +2207,7 @@ export default function App() {
     const weekKey = normalizeScoutWeekKey(currentWeekRef.current);
     const scopedKey = getScopedWeekKey(activeTeamIdRef.current, weekKey);
     const weekState =
-      currentState.weeklyData?.[scopedKey] || currentState.weeklyData?.[weekKey];
+      currentState.weeklyData?.[scopedKey] || (isPrimaryTeamId(activeTeamIdRef.current) ? currentState.weeklyData?.[weekKey] : undefined);
     const { db } = getFirebaseServices();
 
     setSyncStatus({ text: '☁️ Syncing...', color: '#f59e0b' });
@@ -2533,7 +2581,7 @@ export default function App() {
       const teamId = activeTeamIdRef.current;
       const wk = normalizeScoutWeekKey(week);
       const all = latestStateRef.current.weeklyData || {};
-      const ws = all[getScopedWeekKey(teamId, wk)] || all[wk];
+      const ws = all[getScopedWeekKey(teamId, wk)] || (isPrimaryTeamId(teamId) ? all[wk] : undefined);
       if (!ws) return;
       const saved = await savePffWeekCloud({
         teamId,
@@ -3050,14 +3098,15 @@ export default function App() {
     const teamId = activeTeamIdRef.current;
     const week = normalizeScoutWeekKey(currentWeekRef.current);
     const scopedKey = getScopedWeekKey(teamId, week);
+    // Another team never borrows 10U's week or film (that would publish 10U's film as theirs).
+    const primaryTeam = isPrimaryTeamId(teamId);
     const weekState =
       latestStateRef.current.weeklyData?.[scopedKey] ||
-      latestStateRef.current.weeklyData?.[week] ||
-      latestStateRef.current.weeklyData?.[currentWeekRef.current];
+      (primaryTeam ? latestStateRef.current.weeklyData?.[week] || latestStateRef.current.weeklyData?.[currentWeekRef.current] : undefined);
     const opponentScout = weekState?.scouting?.hudlScout;
     const ownTeamScout =
       latestStateRef.current.ownTeamHudlScout?.[teamId] ||
-      latestStateRef.current.ownTeamHudlScout?.team_10u;
+      (primaryTeam ? latestStateRef.current.ownTeamHudlScout?.team_10u : undefined);
     const hasOpp =
       (Array.isArray(opponentScout?.plays) && opponentScout.plays.length > 0) ||
       Boolean(opponentScout?.sourceCleared);
@@ -3103,7 +3152,7 @@ export default function App() {
       const stamp = `${teamId}|${weekKey}`;
       if (seen.has(stamp)) continue;
       seen.add(stamp);
-      const ownTeamScout = ownMap?.[teamId] || ownMap?.team_10u;
+      const ownTeamScout = ownMap?.[teamId] || (isPrimaryTeamId(teamId) ? ownMap?.team_10u : undefined);
       const hasOwn =
         (Array.isArray(ownTeamScout?.plays) && ownTeamScout.plays.length > 0) ||
         Boolean(ownTeamScout?.sourceCleared);
@@ -3876,9 +3925,12 @@ export default function App() {
   // state put deleted/changed plays back after a coach edited them.
   const effectiveWristbandData: WristbandData = useMemo(() => {
     return (
-      pickNewestWristbandData(currentWeekState?.wristbandData, wristbandData) || INITIAL_TWO_WRISTBANDS_DATA
+      pickNewestWristbandData(
+        currentWeekState?.wristbandData,
+        savedForTeamWeek(wristbandData, activeTeamId, currentWeek) ? wristbandData : undefined
+      ) || (isPrimaryTeamId(activeTeamId) ? INITIAL_TWO_WRISTBANDS_DATA : blankWristbandData(activeTeamId, currentWeek))
     );
-  }, [wristbandData, currentWeekState?.wristbandData]);
+  }, [wristbandData, currentWeekState?.wristbandData, activeTeamId, currentWeek]);
   // Read by save/adopt paths so the call sheet's wristband tables use the same wristband the screens show.
   effectiveWristbandRef.current = effectiveWristbandData;
 
@@ -3985,6 +4037,28 @@ export default function App() {
     latestStateRef.current.playDatabase = newDb;
     safeJSONSet('footballPlayDatabase', newDb);
     debouncedSave('plays');
+  };
+
+  // Each team has its own plays; a play without a team is 10U's (the original team).
+  const playTeamOf = (p: PlayDatabaseEntry) => p.teamId || 'team_10u';
+  const teamPlayDatabase = React.useMemo(
+    () => playDatabase.filter((p) => p && sameTeamId(playTeamOf(p), activeTeamId)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [playDatabase, activeTeamId]
+  );
+  /** A screen saved this team's plays: keep every other team's, tag new plays with this team. */
+  const handleUpdateTeamPlayDatabase = (teamPlays: PlayDatabaseEntry[]) => {
+    const teamId = activeTeamIdRef.current;
+    const full = latestStateRef.current.playDatabase || [];
+    const others = full.filter((p) => p && !sameTeamId(playTeamOf(p), teamId));
+    const otherIds = new Set(others.map((p) => p.id));
+    const mine = teamPlays.map((p) => {
+      let next = p.teamId ? p : { ...p, teamId };
+      // The same play name imported on two teams would get the same id: give this team's its own.
+      if (otherIds.has(next.id)) next = { ...next, id: `${next.id}_${String(teamId).replace(/[^a-z0-9]/gi, '')}` };
+      return next;
+    });
+    handleUpdatePlayDatabase([...others, ...mine]);
   };
 
   const handleUpdateDeletedPlayIds = (ids: string[]) => {
@@ -4143,6 +4217,37 @@ export default function App() {
       );
     });
   }, [scheduleEvents, activeTeamId, teams]);
+
+  // PFF position groups per team: 10U's are stored as before; another team's keys start with "<team>@".
+  const teamPffPrefix = (teamId: string) => `${String(teamId).toLowerCase().replace(/-/g, '_')}@`;
+  const teamPffPlayerGroups = React.useMemo(() => {
+    const src = (pffPlayerGroups || {}) as Record<string, any>;
+    if (isPrimaryTeamId(activeTeamId)) return Object.fromEntries(Object.entries(src).filter(([k]) => !k.includes('@'))) as PffPlayerGroupOverrides;
+    const pre = teamPffPrefix(activeTeamId);
+    return Object.fromEntries(Object.entries(src).filter(([k]) => k.startsWith(pre)).map(([k, v]) => [k.slice(pre.length), v])) as PffPlayerGroupOverrides;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pffPlayerGroups, activeTeamId]);
+  const withTeamPffGroups = (all: Record<string, any>, teamId: string, teamGroups: Record<string, any>) => {
+    const primary = isPrimaryTeamId(teamId);
+    const pre = teamPffPrefix(teamId);
+    const kept = Object.entries(all).filter(([k]) => (primary ? k.includes('@') : !k.startsWith(pre)));
+    const mine = Object.entries(teamGroups || {}).map(([k, v]) => [primary ? k : pre + k, v]);
+    return Object.fromEntries([...kept, ...mine]) as PffPlayerGroupOverrides;
+  };
+
+  // Attendance per team (sessions without a team are 10U's).
+  const teamAttendanceLogs = React.useMemo(
+    () => attendanceLogs.filter((l) => l && sameTeamId(l.teamId || 'team_10u', activeTeamId)),
+    [attendanceLogs, activeTeamId]
+  );
+  /** A screen saved this team's attendance: keep every other team's, tag new sessions with this team. */
+  const handleUpdateTeamAttendanceLogs = (teamLogs: AttendanceRecord[]) => {
+    const teamId = activeTeamIdRef.current;
+    handleUpdateAttendanceLogs((prev) => [
+      ...prev.filter((l) => l && !sameTeamId(l.teamId || 'team_10u', teamId)),
+      ...teamLogs.map((l) => (l.teamId ? l : { ...l, teamId })),
+    ]);
+  };
 
   const activeTeamPracticeData = React.useMemo(() => {
     return practiceData.filter((p) => {
@@ -5228,7 +5333,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
 
         const scopedKey = getScopedWeekKey(activeTeamId, currentWeek);
         setWeeklyData((prev) => {
-          const wk = prev[scopedKey] || prev[currentWeek] || {};
+          const wk = prev[scopedKey] || (isPrimaryTeamId(activeTeamIdRef.current) ? prev[currentWeek] : undefined) || {};
           const next = {
             ...prev,
             [scopedKey]: { ...wk, wristbandData: normWb },
@@ -6057,11 +6162,11 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onQuickAttendanceSave={(rec) => {
                   // Replace this team's record for the date (other teams' records that day stay).
                   handleUpdateAttendanceLogs((prev) => [
-                    rec,
+                    rec.teamId ? rec : { ...rec, teamId: activeTeamIdRef.current },
                     ...prev.filter((r) => r.id !== rec.id && !(r.date === rec.date && (!r.teamId || !rec.teamId || r.teamId === rec.teamId))),
                   ]);
                 }}
-                attendanceLogs={attendanceLogs}
+                attendanceLogs={teamAttendanceLogs}
                 currentPracticeId={currentPracticeId}
                 onSelectPractice={(id) => {
                   setCurrentPracticeId(id);
@@ -6277,7 +6382,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   lastLocalEditTimeRef.current = Date.now();
                   setWeeklyData((prev) => {
                     const scopedKey = getScopedWeekKey(activeTeamId, currentWeek);
-                    const existingWeek = prev[scopedKey] || prev[currentWeek] || {
+                    const existingWeek = prev[scopedKey] || (isPrimaryTeamId(activeTeamIdRef.current) ? prev[currentWeek] : undefined) || {
                       formations: defaultFormations,
                       depthChart: {},
                       scrimmageChart: {},
@@ -6309,11 +6414,11 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
 
             {activeUnit === 'playbook' && (
               <PlayLibraryView
-                playDatabase={playDatabase}
-                onUpdatePlayDatabase={handleUpdatePlayDatabase}
+                playDatabase={teamPlayDatabase}
+                onUpdatePlayDatabase={handleUpdateTeamPlayDatabase}
                 deletedPlayIds={deletedPlayIds}
                 onUpdateDeletedPlayIds={handleUpdateDeletedPlayIds}
-                ownTeamScout={ownTeamHudlScout[activeTeamId] || ownTeamHudlScout.team_10u}
+                ownTeamScout={ownTeamHudlScout[activeTeamId] || (isPrimaryTeamId(activeTeamId) ? ownTeamHudlScout.team_10u : undefined)}
                 teamName={currentActiveTeam?.name || 'Mahopac 10U'}
                 userRole={userRole}
                 onOpenScouting={() => setActiveUnit('hudl_scout')}
@@ -6388,15 +6493,15 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 }
                 userRole={userRole}
                 gradeCriteria={pffGradeCriteria}
-                playerGroups={pffPlayerGroups}
+                playerGroups={teamPffPlayerGroups}
                 sharedFilm={{
                   week: gradeWeekKey,
                   weekLabel: formatWeekLabel(gradeWeekKey, seasonConfig),
                   teamName: currentActiveTeam?.name || 'Mahopac 10U',
-                  ownTeamScout: ownTeamHudlScout[activeTeamId] || ownTeamHudlScout.team_10u,
+                  ownTeamScout: ownTeamHudlScout[activeTeamId] || (isPrimaryTeamId(activeTeamId) ? ownTeamHudlScout.team_10u : undefined),
                   onUpdateOwnTeamScout: persistOwnTeamHudlScout,
-                  playDatabase,
-                  onUpdatePlayDatabase: handleUpdatePlayDatabase,
+                  playDatabase: teamPlayDatabase,
+                  onUpdatePlayDatabase: handleUpdateTeamPlayDatabase,
                 }}
                 filmSession={
                   resolveWeekState(
@@ -6413,7 +6518,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   );
                   setWeeklyData((prev) => {
                     const scopedKey = getScopedWeekKey(activeTeamId, gradeWeek);
-                    const existingWeek = prev[scopedKey] || prev[gradeWeek] || {
+                    const existingWeek = prev[scopedKey] || (isPrimaryTeamId(activeTeamIdRef.current) ? prev[gradeWeek] : undefined) || {
                       formations: defaultFormations,
                       depthChart: {},
                       scrimmageChart: {},
@@ -6434,8 +6539,9 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   });
                   flushAndSaveStateToStorage('ppr_update');
                 }}
-                onUpdatePlayerGroups={(nextGroups) => {
+                onUpdatePlayerGroups={(teamGroups) => {
                   lastLocalEditTimeRef.current = Date.now();
+                  const nextGroups = withTeamPffGroups(latestStateRef.current.pffPlayerGroups || {}, activeTeamId, teamGroups);
                   setPffPlayerGroups(nextGroups);
                   latestStateRef.current.pffPlayerGroups = nextGroups;
                   safeJSONSet('footballPffPlayerGroups', nextGroups);
@@ -6456,7 +6562,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   );
                   setWeeklyData((prev) => {
                     const scopedKey = getScopedWeekKey(activeTeamId, gradeWeek);
-                    const existingWeek = prev[scopedKey] || prev[gradeWeek] || {
+                    const existingWeek = prev[scopedKey] || (isPrimaryTeamId(activeTeamIdRef.current) ? prev[gradeWeek] : undefined) || {
                       formations: defaultFormations,
                       depthChart: {},
                       scrimmageChart: {},
@@ -6502,8 +6608,8 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   });
                 }}
                 currentWeek={currentWeek}
-                playDatabase={playDatabase}
-                onUpdatePlayDatabase={handleUpdatePlayDatabase}
+                playDatabase={teamPlayDatabase}
+                onUpdatePlayDatabase={handleUpdateTeamPlayDatabase}
                 callSheetData={callSheetData}
                 onUpdateCallSheetData={handleUpdateCallSheetData}
                 deletedPlayIds={deletedPlayIds}
@@ -6515,7 +6621,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onCopyCallSheetFromPreviousWeek={handleCopyCallSheetFromPreviousWeek}
                 scouting={currentWeekState.scouting || {}}
                 onUpdateScouting={persistWeekScouting}
-                ownTeamScout={ownTeamHudlScout[activeTeamId] || ownTeamHudlScout.team_10u}
+                ownTeamScout={ownTeamHudlScout[activeTeamId] || (isPrimaryTeamId(activeTeamId) ? ownTeamHudlScout.team_10u : undefined)}
                 onUpdateOwnTeamScout={persistOwnTeamHudlScout}
                 weekOptions={seasonWeekOptions}
                 defaultGameWeek={gradeWeekKey}
@@ -6543,11 +6649,11 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 wristbandData={effectiveWristbandData}
                 userRole={userRole}
                 masterPlayLibrary={masterPlayLibrary}
-                playDatabase={playDatabase}
+                playDatabase={teamPlayDatabase}
                 callSheetData={callSheetData}
                 activeTeamName={currentActiveTeam?.name || 'Mahopac 10U'}
                 onUpdateCallSheetData={handleUpdateCallSheetData}
-                onUpdatePlayDatabase={handleUpdatePlayDatabase}
+                onUpdatePlayDatabase={handleUpdateTeamPlayDatabase}
                 onUpdateWristbandData={handleUpdateWristbandData}
                 previousWeekLabel={previousWeekCopyLabel}
                 onCopyWristbandFromPreviousWeek={handleCopyWristbandFromPreviousWeek}
@@ -6566,8 +6672,8 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   safeJSONSet('footballMasterPlays', newPlays);
                   debouncedSave('plays');
                 }}
-                playDatabase={playDatabase}
-                onUpdatePlayDatabase={handleUpdatePlayDatabase}
+                playDatabase={teamPlayDatabase}
+                onUpdatePlayDatabase={handleUpdateTeamPlayDatabase}
                 callSheetData={callSheetData}
                 onUpdateCallSheetData={handleUpdateCallSheetData}
                 deletedPlayIds={deletedPlayIds}
@@ -6590,14 +6696,14 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 scheduleEvents={activeTeamScheduleEvents}
                 currentWeek={currentWeek}
                 activeTeamName={currentActiveTeam?.name || 'Mahopac 10U'}
-                ownTeamScout={ownTeamHudlScout[activeTeamId] || ownTeamHudlScout.team_10u}
+                ownTeamScout={ownTeamHudlScout[activeTeamId] || (isPrimaryTeamId(activeTeamId) ? ownTeamHudlScout.team_10u : undefined)}
                 onUpdateOwnTeamScout={persistOwnTeamHudlScout}
                 onUpdateScouting={persistWeekScouting}
                 onNavigateToSchedule={() => setActiveUnit('schedule')}
                 onNavigateToTendencies={() => setActiveUnit('tendencies')}
                 onNavigateToHtmlTendencies={() => setActiveUnit('tendencies')}
-                playDatabase={playDatabase}
-                onUpdatePlayDatabase={handleUpdatePlayDatabase}
+                playDatabase={teamPlayDatabase}
+                onUpdatePlayDatabase={handleUpdateTeamPlayDatabase}
                 weekOptions={seasonWeekOptions}
                 defaultGameWeek={gradeWeekKey}
                 roster={activeTeamRoster}
@@ -7096,7 +7202,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 currentWeek={currentWeek}
                 scheduleEvents={activeTeamScheduleEvents}
                 seasonConfig={seasonConfig}
-                attendanceLogs={attendanceLogs}
+                attendanceLogs={teamAttendanceLogs}
                 initialOpenTakeAttendance={autoOpenTakeAttendance}
                 onClearInitialOpenTakeAttendance={() => setAutoOpenTakeAttendance(false)}
                 onUpdatePlayer={handleUpdatePlayerInRoster}
@@ -7121,7 +7227,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   setSeasonConfig(cfg);
                   safeJSONSet('footballSeasonConfig', cfg);
                 }}
-                onUpdateAttendanceLogs={handleUpdateAttendanceLogs}
+                onUpdateAttendanceLogs={handleUpdateTeamAttendanceLogs}
               />
             )}
           </div>

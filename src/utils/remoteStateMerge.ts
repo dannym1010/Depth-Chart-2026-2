@@ -12,7 +12,7 @@ import { INITIAL_DEFAULT_FORMATIONS } from '../data/initialData';
 import { pickScoutBundle, scoutFingerprint } from './scoutMerge';
 export { pickScoutBundle, scoutFingerprint } from './scoutMerge';
 import { deepClone } from '../services/storageService';
-import { isDroppedFormation } from './seasonWeekUtils';
+import { isDroppedFormation, isPrimaryTeamId } from './seasonWeekUtils';
 import { mergePracticeDrillGroups, scorePracticeDrillGroups } from '../components/practiceDrillsUtils';
 import {
   allPffPlays,
@@ -949,6 +949,8 @@ export function savedForTeamWeek(
   if (!cs) return false;
   if (cs.week && normalizeWeekTag(cs.week) !== normalizeWeekTag(week)) return false;
   if (cs.teamId && normalizeTeamKey(cs.teamId) !== normalizeTeamKey(teamId)) return false;
+  // Sheets saved before they carried a team are 10U's (the original team), never another team's.
+  if (!cs.teamId && !isPrimaryTeamId(teamId)) return false;
   return true;
 }
 

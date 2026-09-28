@@ -3137,3 +3137,32 @@ describe('who manages which teams and coaches', () => {
     assert.deepEqual(coachTeamIds({ ...asst10, assignedTeamIds: ['team-10u'] }, teams), ['team_10u']);
   });
 });
+
+describe('each team keeps its own data', () => {
+  it('sheets saved before they carried a team are 10U\'s only', async () => {
+    const { savedForTeamWeek } = await import('./remoteStateMerge.ts');
+    assert.ok(savedForTeamWeek({ week: '4' }, 'team_10u', '4'));
+    assert.equal(savedForTeamWeek({ week: '4' }, 'team_9u', '4'), false);
+    assert.ok(savedForTeamWeek({ teamId: 'team_9u', week: '4' }, 'team_9u', '4'));
+    assert.equal(savedForTeamWeek({ teamId: 'team_10u', week: '4' }, 'team_9u', '4'), false);
+  });
+  it('a new team starts with an empty call sheet and wristband in the same layout', async () => {
+    const { blankCallSheetData, blankWristbandData } = await import('./blankSheets.ts');
+    const { countCallSheetPlays } = await import('./callSheetStorage.ts');
+    const cs = blankCallSheetData('team_9u', '4');
+    assert.equal(countCallSheetPlays(cs), 0);
+    assert.ok(cs.offenseSections.length > 0);
+    assert.equal(cs.teamId, 'team_9u');
+    const wb = blankWristbandData('team_9u', '4');
+    const plays = (wb.wristbands || []).flatMap((b) => b.columns.flatMap((c) => c.plays));
+    assert.ok(plays.length > 0);
+    assert.ok(plays.every((p) => p.text === ''));
+    assert.equal(wb.week, '4');
+  });
+  it('only 10U owns the plain week copies', async () => {
+    const { isPrimaryTeamId } = await import('./seasonWeekUtils.ts');
+    assert.ok(isPrimaryTeamId('team_10u'));
+    assert.ok(isPrimaryTeamId('team-10u'));
+    assert.equal(isPrimaryTeamId('team_9u'), false);
+  });
+});

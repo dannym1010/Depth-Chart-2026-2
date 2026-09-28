@@ -691,6 +691,15 @@ export function formatWeekCopyLabel(week: string): string {
   return `Week ${w}`;
 }
 
+/**
+ * Weeks are stored per team ("team_9u__week_4"). The plain week keys ("4") are older copies that
+ * belong to the original team, 10U; no other team reads or writes them.
+ */
+export const PRIMARY_TEAM_ID = 'team_10u';
+export function isPrimaryTeamId(teamId?: string): boolean {
+  return !teamId || String(teamId).toLowerCase().replace(/-/g, '_') === PRIMARY_TEAM_ID;
+}
+
 // Helper to compute team-scoped week key
 export function getScopedWeekKey(teamId: string, week: string): string {
   return `${teamId}__week_${week}`;
