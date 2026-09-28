@@ -7,6 +7,7 @@ import { CallResult, callResults } from '../../hudlScout/utils/playTags';
 import { newPlayEntry, playNameKey } from '../../utils/playbookImport';
 import { PlaybookImportModal } from './PlaybookImportModal';
 import { unsavedDiagram } from '../../utils/playDiagrams';
+import { DiagramImage } from './DiagramImage';
 
 /** The factory sample plays that came with the app (not the coach's own game-day plays). */
 const isBuiltInSample = (p: PlayDatabaseEntry) => !p.source && /^db_/.test(p.id);
@@ -417,7 +418,7 @@ export const PlayLibraryView: React.FC<Props> = ({
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <img src={diagramOf(zoom)} alt={`${zoom.name} diagram`} className="w-full rounded-lg border border-slate-200 bg-white" />
+            <DiagramImage url={diagramOf(zoom)} alt={`${zoom.name} diagram`} className="w-full rounded-lg border border-slate-200 bg-white" />
             {zoom.notes && <p className="text-xs text-slate-600 dark:text-slate-300">{zoom.notes}</p>}
           </div>
         </div>
@@ -468,7 +469,7 @@ const PlayRow: React.FC<{
             className="shrink-0 w-20 h-9 rounded-md border border-slate-300 dark:border-slate-600 overflow-hidden bg-white cursor-zoom-in"
             aria-label={`View the diagram for ${play.name}`}
           >
-            <img src={diagram} alt="" loading="lazy" className="w-full h-full object-cover" />
+            <DiagramImage url={diagram} alt="" loading="lazy" className="w-full h-full object-cover" />
           </button>
         ) : (
           <span className="shrink-0 w-20 h-9 rounded-md border border-dashed border-slate-200 dark:border-slate-700 hidden sm:flex items-center justify-center text-slate-300 dark:text-slate-600" title="No diagram yet">
@@ -508,7 +509,7 @@ const PlayRow: React.FC<{
         <div className="px-3 pb-4 pt-1 space-y-3">
           {diagram && (
             <button type="button" onClick={onZoom} className="block w-full max-w-2xl rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden bg-white cursor-zoom-in" aria-label={`Open the diagram for ${play.name}`}>
-              <img src={diagram} alt={`${play.name} diagram`} className="w-full" />
+              <DiagramImage url={diagram} alt={`${play.name} diagram`} className="w-full" />
             </button>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">

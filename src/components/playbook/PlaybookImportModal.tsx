@@ -17,6 +17,7 @@ import {
   tidyPlayName,
 } from '../../utils/playbookImport';
 import { savePlayDiagram } from '../../utils/playDiagrams';
+import { DiagramImage } from './DiagramImage';
 
 interface Props {
   playDatabase: PlayDatabaseEntry[];
@@ -425,7 +426,7 @@ export const PlaybookImportModal: React.FC<Props> = ({ playDatabase, onImport, o
                 {zoom.before && (
                   <figure>
                     <figcaption className="text-[11px] font-black uppercase text-slate-500 mb-1">In the Play Bank now</figcaption>
-                    <img src={zoom.before} alt={`${zoom.name} before`} className="w-full rounded-lg border border-slate-200 bg-white" />
+                    <DiagramImage url={zoom.before} alt={`${zoom.name} before`} className="w-full rounded-lg border border-slate-200 bg-white" />
                   </figure>
                 )}
                 <figure>

@@ -1,13 +1,14 @@
 // Play diagrams from Hudl install PDFs: cut from the page, fingerprinted (to spot a changed
-// drawing on the next upload) and saved to cloud storage. Only the picture's link goes into the
+// drawing on the next upload) and saved to the team's cloud database. Only the picture's link goes into the
 // Play Bank, so the shared team data stays small.
+import { useEffect, useState } from 'react';
 import { getFirebaseServices } from '../services/storageService';
 import type { DiagramDraft } from './playbookImport';
 
 /** Where the field drawing sits on a Hudl install export page (between the title and the position table). */
 const DIAGRAM_TOP = 0.064;
 const DIAGRAM_BOTTOM = 0.434;
-const MAX_WIDTH = 1000;
+const MAX_WIDTH = 900;
 
 /** Rough fingerprint of a picture: 48x20 grey cells, each darker or lighter than average. */
 function fingerprint(src: HTMLCanvasElement): string {
@@ -43,7 +44,7 @@ export async function diagramFromPage(page: HTMLCanvasElement): Promise<DiagramD
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, c.width, c.height);
   ctx.drawImage(page, 0, top, page.width, height, 0, 0, c.width, c.height);
-  const blob = await new Promise<Blob | null>((res) => c.toBlob(res, 'image/jpeg', 0.8));
+  const blob = await new Promise<Blob | null>((res) => c.toBlob(res, 'image/jpeg', 0.72));
   if (!blob) return undefined;
   return { hash: fingerprint(c), blob, previewUrl: URL.createObjectURL(blob) };
 }
@@ -52,25 +53,94 @@ export async function diagramFromPage(page: HTMLCanvasElement): Promise<DiagramD
 const unsaved = new Map<string, string>();
 export const unsavedDiagram = (key: string) => unsaved.get(key);
 
+// Diagrams are stored as small pictures in their own documents in the team's cloud database
+// (teamData/diagram_*), one per drawing, and the play keeps a "fsdiagram:<doc>" link to it.
+// (Firebase Storage needs a paid plan for new projects, so it is not used.)
+const DOC_PREFIX = 'fsdiagram:';
+const MAX_DOC_CHARS = 900_000; // a Firestore document holds at most ~1 MB
+
+const blobToDataUrl = (blob: Blob) =>
+  new Promise<string>((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result || ''));
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+
 /**
- * Save a diagram and return its link. If cloud storage can't be reached, the picture is kept
+ * Save a diagram and return its link. If the cloud can't be reached, the picture is kept
  * for this visit only and null is returned (so nothing temporary goes into the Play Bank).
  */
 export async function savePlayDiagram(key: string, diagram: DiagramDraft): Promise<string | null> {
   if (!diagram.blob) return null;
-  const { storage } = getFirebaseServices();
-  if (storage) {
+  const { db } = getFirebaseServices();
+  if (db) {
     try {
-      const ref = storage.ref(`play_diagrams/${key.toLowerCase()}_${diagram.hash.slice(0, 24)}.jpg`);
-      const snap = await Promise.race([
-        ref.put(diagram.blob, { contentType: 'image/jpeg', cacheControl: 'public,max-age=31536000' }),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 30000)),
+      const image = await blobToDataUrl(diagram.blob);
+      if (image.length > MAX_DOC_CHARS) throw new Error('diagram too large');
+      const docId = `diagram_${key.toLowerCase().replace(/[^a-z0-9_-]/g, '')}_${diagram.hash.slice(0, 24)}`;
+      await Promise.race([
+        db.collection('teamData').doc(docId).set({ image, key, hash: diagram.hash, updatedAt: Date.now() }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 20000)),
       ]);
-      return String(await (snap as any).ref.getDownloadURL());
+      loaded.set(docId, image);
+      return DOC_PREFIX + docId;
     } catch (err) {
       console.warn('Could not save play diagram', err);
     }
   }
   if (diagram.previewUrl) unsaved.set(key, diagram.previewUrl);
   return null;
+}
+
+// Pictures already fetched this visit (doc id -> image), and fetches in flight.
+const loaded = new Map<string, string>();
+const loading = new Map<string, Promise<string | null>>();
+
+/** The picture for a diagram link (fetched once per visit). */
+export function resolveDiagram(url?: string): Promise<string | null> {
+  if (!url) return Promise.resolve(null);
+  if (!url.startsWith(DOC_PREFIX)) return Promise.resolve(url);
+  const docId = url.slice(DOC_PREFIX.length);
+  if (loaded.has(docId)) return Promise.resolve(loaded.get(docId)!);
+  if (!loading.has(docId)) {
+    loading.set(
+      docId,
+      (async () => {
+        try {
+          const { db } = getFirebaseServices();
+          if (!db) return null;
+          const snap = await db.collection('teamData').doc(docId).get();
+          const image = snap?.exists ? String(snap.data()?.image || '') : '';
+          if (image) loaded.set(docId, image);
+          return image || null;
+        } catch (err) {
+          console.warn('Could not load play diagram', err);
+          return null;
+        } finally {
+          loading.delete(docId);
+        }
+      })()
+    );
+  }
+  return loading.get(docId)!;
+}
+
+/** Shows a diagram link as a picture once it has loaded. */
+export function useDiagramSrc(url?: string): string | null {
+  const direct = url && !url.startsWith(DOC_PREFIX) ? url : url ? loaded.get(url.slice(DOC_PREFIX.length)) || null : null;
+  const [src, setSrc] = useState<string | null>(direct);
+  useEffect(() => {
+    let alive = true;
+    if (direct) {
+      setSrc(direct);
+      return;
+    }
+    setSrc(null);
+    void resolveDiagram(url).then((img) => alive && setSrc(img));
+    return () => {
+      alive = false;
+    };
+  }, [url, direct]);
+  return src;
 }
