@@ -3052,3 +3052,26 @@ describe('attendance, roster and saves shared by coaches', () => {
     assert.deepEqual(cloudModulesForScope('focusout+practice'), ['practice']);
   });
 });
+
+describe('play library order', () => {
+  it('groups by formation number, Left before Right, then the call in number order', async () => {
+    const { compareByFormation, formationGroupOf, playSideOf } = await import('./playbookImport.ts');
+    const mk = (name: string, formation = '', unit = 'offense') => ({ name, formation, unit }) as any;
+    const plays = [
+      mk('32 R WISHBONE 26 DIVE', '32 R WISHBONE'),
+      mk('21 R 31 TOSS SWEEP', '21 R'),
+      mk('11 R SMOKE', '11 R'),
+      mk('21L 26 DIVE', '21 L'),
+      mk('21 L 19 KEEP', '21 L'),
+      mk('4-4 BASE STACK LIZ', '4-4', 'defense'),
+      mk('11 L JET', '11 L'),
+    ];
+    assert.deepEqual(
+      [...plays].sort(compareByFormation).map((p) => p.name),
+      ['11 L JET', '11 R SMOKE', '21 L 19 KEEP', '21L 26 DIVE', '21 R 31 TOSS SWEEP', '32 R WISHBONE 26 DIVE', '4-4 BASE STACK LIZ']
+    );
+    assert.equal(formationGroupOf(mk('21L 26 DIVE')), '21');
+    assert.equal(playSideOf(mk('21L 26 DIVE')), 'L');
+    assert.equal(playSideOf(mk('32 R WISHBONE 26 DIVE')), 'R');
+  });
+});

@@ -4,7 +4,7 @@ import type { PlayAssignment, PlayDatabaseEntry, PlayType } from '../../types/ca
 import type { UserRole } from '../../types';
 import { bundleFromSaved } from '../../hudlScout/scoutBundle';
 import { CallResult, callResults } from '../../hudlScout/utils/playTags';
-import { newPlayEntry, playNameKey } from '../../utils/playbookImport';
+import { compareByFormation, formationGroupOf, newPlayEntry, playNameKey, playSideOf } from '../../utils/playbookImport';
 import { PlaybookImportModal } from './PlaybookImportModal';
 import { unsavedDiagram } from '../../utils/playDiagrams';
 import { DiagramImage } from './DiagramImage';
@@ -40,7 +40,7 @@ const TYPES: { id: PlayType; label: string }[] = [
 ];
 const typeLabel = (t: string) => TYPES.find((x) => x.id === t)?.label || t;
 
-type SortKey = 'section' | 'name' | 'used' | 'avg';
+type SortKey = 'formation' | 'section' | 'name' | 'used' | 'avg';
 
 const input =
   'h-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500';
@@ -60,7 +60,7 @@ export const PlayLibraryView: React.FC<Props> = ({
   const [query, setQuery] = useState('');
   const [side, setSide] = useState<'all' | 'offense' | 'defense'>('all');
   const [section, setSection] = useState<string>('all');
-  const [sort, setSort] = useState<SortKey>('section');
+  const [sort, setSort] = useState<SortKey>('formation');
   const [openId, setOpenId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [bulkSection, setBulkSection] = useState('');
@@ -106,6 +106,7 @@ export const PlayLibraryView: React.FC<Props> = ({
       return words.every((w) => hay.includes(w)) || playNameKey(p.name).includes(playNameKey(q));
     });
     const r = (p: PlayDatabaseEntry) => results.get(p.id);
+    if (sort === 'formation') list = [...list].sort(compareByFormation);
     if (sort === 'name') list = [...list].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
     if (sort === 'used') list = [...list].sort((a, b) => (r(b)?.count || 0) - (r(a)?.count || 0) || a.name.localeCompare(b.name));
     if (sort === 'avg')
@@ -113,8 +114,17 @@ export const PlayLibraryView: React.FC<Props> = ({
     return list;
   }, [myPlays, query, side, section, sort, results]);
 
-  // Group by section when sorting by section.
+  // Group by formation (21, 11, 32...) or by section.
   const groups = useMemo(() => {
+    if (sort === 'formation') {
+      const map = new Map<string, PlayDatabaseEntry[]>();
+      filtered.forEach((p) => {
+        const g = formationGroupOf(p);
+        const key = p.unit === 'defense' ? `Defense · ${g}` : /^\d+$/.test(g) ? `${g} formation` : g;
+        map.set(key, [...(map.get(key) || []), p]);
+      });
+      return [...map.entries()].map(([name, plays]) => ({ name, plays }));
+    }
     if (sort !== 'section') return [{ name: '', plays: filtered }];
     const map = new Map<string, PlayDatabaseEntry[]>();
     filtered.forEach((p) => {
@@ -262,6 +272,7 @@ export const PlayLibraryView: React.FC<Props> = ({
           <option value="none">No section</option>
         </select>
         <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} className={input} aria-label="Sort">
+          <option value="formation">By formation</option>
           <option value="section">By section</option>
           <option value="name">A–Z</option>
           <option value="used">Most run</option>
@@ -361,7 +372,14 @@ export const PlayLibraryView: React.FC<Props> = ({
                   </div>
                 )}
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {g.plays.map((p) => (
+                  {g.plays.map((p, i) => (
+                    <React.Fragment key={p.id}>
+                    {/* Left plays, then Right plays, inside each formation */}
+                    {sort === 'formation' && playSideOf(p) && playSideOf(p) !== (i > 0 ? playSideOf(g.plays[i - 1]) : '') && (
+                      <div className="px-3 py-1 bg-slate-50/70 dark:bg-slate-950/30 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                        {playSideOf(p) === 'L' ? 'Left' : 'Right'}
+                      </div>
+                    )}
                     <PlayRow
                       key={p.id}
                       play={p}
@@ -376,6 +394,7 @@ export const PlayLibraryView: React.FC<Props> = ({
                       diagram={diagramOf(p)}
                       onZoom={() => setZoom(p)}
                     />
+                    </React.Fragment>
                   ))}
                 </div>
               </section>

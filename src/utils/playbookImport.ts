@@ -533,3 +533,47 @@ export function newPlayEntry(name: string, unit?: PlayUnit, now = Date.now()): P
     importedAt: now,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Library order: by formation number (11, 21, 32...), then Left before Right
+// ---------------------------------------------------------------------------
+
+/** The formation group a play belongs in: its personnel number for offense ("21"), its front for defense ("4-4"). */
+export function formationGroupOf(p: Pick<PlayDatabaseEntry, 'name' | 'formation' | 'unit'>): string {
+  const num = personnelOfCall(p.name) || personnelOfCall(p.formation || '');
+  if (num) return num;
+  if (p.unit === 'defense') return defenseFrontOfCall(p.name) || tidyPlayName(p.formation || '').toUpperCase() || 'Defense';
+  return tidyPlayName(p.formation || '').toUpperCase() || 'Other';
+}
+
+/** Which side the play is called to: 'L', 'R', or '' when the call has no side. */
+export function playSideOf(p: Pick<PlayDatabaseEntry, 'name' | 'formation'>): 'L' | 'R' | '' {
+  const words = `${formationOfCall(p.name)} ${formationOfCall(p.formation || '')}`.split(' ');
+  if (words.some((w) => w === 'L' || w === 'LT' || w === 'LEFT')) return 'L';
+  if (words.some((w) => w === 'R' || w === 'RT' || w === 'RIGHT')) return 'R';
+  return '';
+}
+
+const SIDE_ORDER = { L: 0, R: 1, '': 2 } as const;
+const groupRank = (p: Pick<PlayDatabaseEntry, 'name' | 'formation' | 'unit'>) => {
+  const g = formationGroupOf(p);
+  const n = Number(g);
+  // Offense by number, then offense without a number, then defense.
+  return [p.unit === 'defense' ? 2 : Number.isFinite(n) ? 0 : 1, Number.isFinite(n) ? n : 0, g] as const;
+};
+
+/** Sort for the library: formation number, then Left, Right, no side, then the call itself (numbers in order). */
+export function compareByFormation(
+  a: Pick<PlayDatabaseEntry, 'name' | 'formation' | 'unit'>,
+  b: Pick<PlayDatabaseEntry, 'name' | 'formation' | 'unit'>
+): number {
+  const [ka, na, ga] = groupRank(a);
+  const [kb, nb, gb] = groupRank(b);
+  return (
+    ka - kb ||
+    na - nb ||
+    ga.localeCompare(gb, undefined, { numeric: true }) ||
+    SIDE_ORDER[playSideOf(a)] - SIDE_ORDER[playSideOf(b)] ||
+    a.name.localeCompare(b.name, undefined, { numeric: true })
+  );
+}
