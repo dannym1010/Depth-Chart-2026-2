@@ -11,7 +11,7 @@ import {
 } from '../types';
 import { pickScoutBundle } from '../utils/scoutMerge';
 import { OWN_HUDL_KEY, WEEKLY_HUDL_KEY, bigSet, bigStoreReady, packWeeklyData, unpackWeeklyData } from '../utils/bigLocalStore';
-import { mergeAttendanceLogs, mergeRosters, mergeTombstones } from '../utils/recordMerge';
+import { mergeAttendanceLogs, mergeRosters, mergeStaffLists, mergeTombstones } from '../utils/recordMerge';
 import { mergeTeamCoaches } from '../utils/coachNamesMerge';
 import {
   INITIAL_DEFAULT_FORMATIONS,
@@ -894,6 +894,7 @@ export type SharedBoardCloudUpdate = {
   seasonConfig?: any;
   seasonUpdatedAt?: number;
   staffList?: any[];
+  deletedStaff?: Record<string, number>;
   staffUpdatedAt?: number;
   attendanceLogs?: any[];
   deletedAttendance?: Record<string, number>;
@@ -977,6 +978,9 @@ export async function saveSharedBoardCloud(payload: {
   teams?: any[];
   seasonConfig?: any;
   staffList?: any[];
+  deletedStaff?: Record<string, number>;
+  /** Gets the staff list as saved (merged with other admins' changes already in the cloud). */
+  onStaffMerged?: (staff: any[], deleted: Record<string, number>) => void;
   attendanceLogs?: any[];
   deletedAttendance?: Record<string, number>;
   /** Gets the attendance as saved (merged with other coaches' records already in the cloud). */
@@ -1073,7 +1077,14 @@ export async function saveSharedBoardCloud(payload: {
     if (want('season') && (payload.teams || payload.seasonConfig)) {
       writes.push(col.doc('ops_season').set(opsMeta({ teams: payload.teams, seasonConfig: payload.seasonConfig })));
     }
-    if (want('staff') && payload.staffList) writes.push(col.doc('ops_staff').set(opsMeta({ staffList: payload.staffList })));
+    if (want('staff') && payload.staffList) {
+      // Coach by coach with what's already in the cloud: an older list on this device can't drop anyone.
+      writes.push(
+        mergeStaffIntoCloud(payload.staffList, payload.deletedStaff).then((res) => {
+          if (res) payload.onStaffMerged?.(res.staff, res.deleted);
+        })
+      );
+    }
     if (want('attendance') && payload.attendanceLogs) {
       // Merge with what other coaches already saved, in one step, so two coaches taking
       // attendance at the same time both keep their records.
@@ -1251,6 +1262,44 @@ export function subscribePffWeekCloud(
   };
 }
 
+/** Save the staff list merged with the cloud's (ops_staff), in one step. Returns what was saved. */
+export async function mergeStaffIntoCloud(
+  staffList: any[],
+  deletedStaff?: Record<string, number>
+): Promise<{ staff: any[]; deleted: Record<string, number> } | null> {
+  try {
+    if (isFirestoreQuotaPaused()) return null;
+    const { db } = getFirebaseServices();
+    if (!db) return null;
+    const ref = db.collection('teamData').doc('ops_staff');
+    return await db.runTransaction(async (tx: any) => {
+      const snap = await tx.get(ref);
+      const cur = snap?.exists ? snap.data() || {} : {};
+      const deleted = mergeTombstones(cur.deletedStaff, deletedStaff);
+      const staff = mergeStaffLists(Array.isArray(cur.staffList) ? cur.staffList : [], staffList, deleted);
+      tx.set(ref, cleanFirestoreData(opsMeta({ staffList: staff, deletedStaff: deleted })));
+      return { staff, deleted };
+    });
+  } catch (err) {
+    noteFirestoreError(err);
+    console.warn('mergeStaffIntoCloud error:', err);
+    return null;
+  }
+}
+
+/** The live staff document (ops_staff), for sign-in checks. */
+export async function fetchStaffCloud(): Promise<{ staffList?: any[]; deletedStaff?: Record<string, number> }> {
+  try {
+    const { db } = getFirebaseServices();
+    if (!db || isFirestoreQuotaPaused()) return {};
+    const snap = await db.collection('teamData').doc('ops_staff').get();
+    const d = snap?.exists ? snap.data() || {} : {};
+    return { staffList: d.staffList, deletedStaff: d.deletedStaff };
+  } catch {
+    return {};
+  }
+}
+
 export async function patchSharedWeekCloud(payload: {
   teamId: string;
   week: string;
@@ -1366,6 +1415,7 @@ export async function fetchSharedBoardCloud(
       seasonConfig: season?.seasonConfig,
       seasonUpdatedAt: season?.updatedAt,
       staffList: staff?.staffList,
+      deletedStaff: staff?.deletedStaff,
       staffUpdatedAt: staff?.updatedAt,
       attendanceLogs: attendance?.attendanceLogs,
       deletedAttendance: attendance?.deletedAttendance,
@@ -1452,7 +1502,7 @@ export function subscribeSharedBoardCloud(
       seasonConfig: data.seasonConfig,
       seasonUpdatedAt: data.updatedAt,
     })),
-    listen('ops_staff', (data) => ({ staffList: data.staffList, staffUpdatedAt: data.updatedAt })),
+    listen('ops_staff', (data) => ({ staffList: data.staffList, deletedStaff: data.deletedStaff, staffUpdatedAt: data.updatedAt })),
     listen('ops_attendance', (data) => ({
       attendanceLogs: data.attendanceLogs,
       deletedAttendance: data.deletedAttendance,

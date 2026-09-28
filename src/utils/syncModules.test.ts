@@ -3304,3 +3304,22 @@ describe('times show as AM / PM', () => {
     assert.equal(formatClockRange('18:00', ''), '6:00 PM');
   });
 });
+
+describe('staff accounts never get dropped by an older copy', () => {
+  it('coaches in either copy are kept; removed coaches stay removed; later change wins', async () => {
+    const { mergeStaffLists, stampStaffEdits } = await import('./recordMerge.ts');
+    const a = { email: 'A@x.com', role: 'Head Coach (Admin)', status: 'Active' };
+    const b = { email: 'b@x.com', role: 'Assistant Coach', status: 'Active' };
+    const c = { email: 'c@x.com', role: 'Assistant Coach', status: 'Pending' };
+    // An old copy (only a) meets the full list (a, b, c): nobody is lost.
+    const merged = mergeStaffLists([a] as any[], [a, b, c] as any[], {});
+    assert.deepEqual(merged.map((x: any) => x.email).sort(), ['A@x.com', 'b@x.com', 'c@x.com']);
+    const merged2 = mergeStaffLists([a, b, c] as any[], [a] as any[], {});
+    assert.equal(merged2.length, 3);
+    // Removed on purpose (after they were last changed): gone.
+    assert.deepEqual(mergeStaffLists([a, b] as any[], [a, b] as any[], { 'b@x.com': 500 }).map((x: any) => x.email), ['A@x.com']);
+    // Approved later on one device wins over the older pending copy.
+    const approved = stampStaffEdits([c] as any[], [{ ...c, status: 'Active' }] as any[], 900);
+    assert.equal(mergeStaffLists(approved, [c] as any[], {})[0].status, 'Active');
+  });
+});

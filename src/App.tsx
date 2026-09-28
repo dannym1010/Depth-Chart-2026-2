@@ -78,6 +78,8 @@ import {
   fetchHudlScoutCloud,
   subscribeHudlScoutCloud,
   saveSharedBoardCloud,
+  mergeStaffIntoCloud,
+  fetchStaffCloud,
   savePffWeekCloud,
   subscribePffWeekCloud,
   patchSharedWeekCloud,
@@ -164,7 +166,7 @@ import { blankCallSheetData, blankWristbandData } from './utils/blankSheets';
 import { missingPracticePlans } from './utils/autoPracticePlans';
 import { callSheetSlots, isCopiedScoutReport, isNearCopy, primarySheetSlots, withoutCopiedGames, wristbandSlots } from './utils/teamCopies';
 import { diffCoachNames, mergeTeamCoaches, noteCoachNames, type CoachNameMeta } from './utils/coachNamesMerge';
-import { mergeAttendanceLogs, mergeRosters, mergeTombstones, removedIds, stampEdits, type Tombstones } from './utils/recordMerge';
+import { mergeAttendanceLogs, mergeRosters, mergeStaffLists, mergeTombstones, removedIds, staffKey, stampEdits, stampStaffEdits, type Tombstones } from './utils/recordMerge';
 import { syncEntireRosterWithLogs } from './utils/hoursCalculation';
 import { canManageCoach, coachTeamIds, hasNoTeamYet, isProgramAdminCoach, isProgramAdminEmail, sameTeamId } from './utils/staffAccess';
 import { OWN_HUDL_KEY, WEEKLY_HUDL_KEY, bigGet, bigStoreAvailable, markBigStoreReady } from './utils/bigLocalStore';
@@ -1847,17 +1849,13 @@ export default function App() {
       localStorage.setItem('footballAdminPasscodeSet', data.adminPasscodeSet ? 'true' : 'false');
     }
     if (!skipBoardFromGiantDoc && data.staffList && Array.isArray(data.staffList)) {
-      setStaffList((prevStaff) => {
-        const mergedStaff = mergeStaffByEmail(prevStaff, data.staffList);
-        latestStateRef.current.staffList = mergedStaff;
-        safeJSONSet('footballTeamCoaches', mergedStaff);
-        return mergedStaff;
-      });
+      adoptStaff(data.staffList, data.deletedStaff);
 
       // Real-time access check for current user
       if (currentUser?.email && !currentUser?.isAdminPasscodeAuth) {
         const cleanUserEmail = currentUser.email.toLowerCase().trim();
-        const myCoach = data.staffList.find(
+        // Check against the merged list (this copy alone may be missing a coach the live list has).
+        const myCoach = (latestStateRef.current.staffList || data.staffList).find(
           (c: StaffCoach) => c.email.toLowerCase().trim() === cleanUserEmail
         );
         if (isProgramAdminEmail(cleanUserEmail)) {
@@ -2370,6 +2368,8 @@ export default function App() {
       teams: currentState.teams,
       seasonConfig: currentState.seasonConfig,
       staffList: currentState.staffList,
+      deletedStaff: deletedStaffRef.current,
+      onStaffMerged: (merged, deleted) => adoptStaff(merged, deleted),
       attendanceLogs: currentState.attendanceLogs,
       deletedAttendance: deletedAttendanceRef.current,
       onAttendanceMerged: (logs, deleted) => adoptAttendance(logs, deleted),
@@ -2944,12 +2944,7 @@ export default function App() {
       }
     }
     if (Array.isArray(remote.staffList) && take('staff', remote.staffUpdatedAt)) {
-      setStaffList((prevStaff) => {
-        const mergedStaff = mergeStaffByEmail(prevStaff, remote.staffList || []);
-        latestStateRef.current.staffList = mergedStaff;
-        safeJSONSet('footballTeamCoaches', mergedStaff);
-        return mergedStaff;
-      });
+      adoptStaff(remote.staffList, remote.deletedStaff);
     }
     if (Array.isArray(remote.attendanceLogs) && take('attendance', remote.attendanceUpdatedAt)) {
       adoptAttendance(remote.attendanceLogs, remote.deletedAttendance);
@@ -3756,6 +3751,10 @@ export default function App() {
                   }
                 }
               }
+              // Both cloud copies of the staff list, merged coach by coach (neither can drop anyone).
+              const live = await fetchStaffCloud();
+              adoptStaff(live.staffList, live.deletedStaff);
+              latestStaff = mergeStaffLists(latestStaff, live.staffList || [], mergeTombstones(deletedStaffRef.current, live.deletedStaff));
             } catch (loginPullErr) {
               console.warn('Error pulling cloud data on login:', loginPullErr);
             }
@@ -3793,8 +3792,10 @@ export default function App() {
               status: 'Pending',
               assignedTeamIds: [],
             };
-            const updatedStaff = [...latestStaff, newEntry];
+            const updatedStaff = [...latestStaff, { ...newEntry, editedAt: Date.now() }];
             setStaffList(updatedStaff);
+            latestStateRef.current.staffList = updatedStaff;
+            syncedStaffRef.current = updatedStaff;
             safeJSONSet('footballTeamCoaches', updatedStaff);
             if (db) {
               db.collection('teamData')
@@ -3802,6 +3803,8 @@ export default function App() {
                 .set({ staffList: updatedStaff }, { merge: true })
                 .catch((err: any) => console.warn('Staff update error:', err));
             }
+            // So admins see the new sign-up waiting (merged with the live list, nobody dropped).
+            void mergeStaffIntoCloud(updatedStaff, deletedStaffRef.current);
             setIsPendingApproval(true);
             setIsAuthModalOpen(true);
           }
@@ -4197,19 +4200,61 @@ export default function App() {
     syncedCoachListsRef.current = after;
   };
 
+  // Staff accounts: when each coach was removed (email -> time), and the list as last synced, so this
+  // admin's changes are stamped and an older copy anywhere can't drop coaches.
+  const deletedStaffRef = useRef<Tombstones>(safeJSONParse<Tombstones>('footballDeletedStaff', {}) || {});
+  const syncedStaffRef = useRef<StaffCoach[]>(staffList || []);
+  const setDeletedStaff = (next: Tombstones) => {
+    // The program owner can never be removed.
+    const clean = Object.fromEntries(Object.entries(next || {}).filter(([email]) => !isProgramAdminEmail(email)));
+    deletedStaffRef.current = clean;
+    safeJSONSet('footballDeletedStaff', clean);
+  };
+  const noteLocalStaffChanges = () => {
+    const before = syncedStaffRef.current || [];
+    const after = latestStateRef.current.staffList || [];
+    if (before === after) return;
+    const now = Date.now();
+    const kept = new Set(after.map(staffKey));
+    const removed = before.map(staffKey).filter((k) => k && !kept.has(k));
+    if (removed.length) setDeletedStaff({ ...deletedStaffRef.current, ...Object.fromEntries(removed.map((k) => [k, now])) });
+    const stamped = stampStaffEdits(before, after, now);
+    if (stamped.some((c, i) => c !== after[i])) {
+      setStaffList(stamped);
+      latestStateRef.current.staffList = stamped;
+      safeJSONSet('footballTeamCoaches', stamped);
+    }
+    syncedStaffRef.current = latestStateRef.current.staffList || stamped;
+  };
+  /** Merge another copy of the staff list into this device (never sends anything). */
+  const adoptStaff = (remoteStaff: StaffCoach[] | undefined, remoteDeleted?: Tombstones) => {
+    if (!Array.isArray(remoteStaff)) return;
+    noteLocalStaffChanges();
+    const deleted = mergeTombstones(deletedStaffRef.current, remoteDeleted);
+    setDeletedStaff(deleted);
+    const local = latestStateRef.current.staffList || [];
+    const merged = mergeStaffLists(local, remoteStaff, deletedStaffRef.current);
+    syncedStaffRef.current = merged;
+    if (merged === local) return;
+    setStaffList(merged);
+    latestStateRef.current.staffList = merged;
+    safeJSONSet('footballTeamCoaches', merged);
+  };
+
   const staffPublishTimerRef = useRef<any>(null);
   const queueStaffTeamsPublish = () => {
     if (staffPublishTimerRef.current) clearTimeout(staffPublishTimerRef.current);
     staffPublishTimerRef.current = setTimeout(() => {
       staffPublishTimerRef.current = null;
       noteLocalCoachChanges();
+      noteLocalStaffChanges();
       const cur = latestStateRef.current;
       const { db } = getFirebaseServices();
       if (db && Array.isArray(cur.staffList) && cur.staffList.length && Array.isArray(cur.teams) && cur.teams.length) {
         db.collection('teamData')
           .doc('depthChartData')
           .set(
-            { staffList: cur.staffList, teams: cur.teams, teamSavedCoaches: cur.teamSavedCoaches || {}, teamSavedCoachesMeta: coachMetaRef.current, updatedAt: Date.now() },
+            { staffList: cur.staffList, deletedStaff: deletedStaffRef.current, teams: cur.teams, teamSavedCoaches: cur.teamSavedCoaches || {}, teamSavedCoachesMeta: coachMetaRef.current, updatedAt: Date.now() },
             { merge: true }
           )
           .catch((err: any) => console.warn('Firestore staff/teams sync error:', err));
@@ -5921,8 +5966,10 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
               if (doc && doc.exists) {
                 const data = doc.data();
                 if (data && Array.isArray(data.staffList)) {
-                  setStaffList(data.staffList);
-                  safeJSONSet('footballTeamCoaches', data.staffList);
+                  const live = await fetchStaffCloud();
+                  adoptStaff(data.staffList, data.deletedStaff);
+                  adoptStaff(live.staffList, live.deletedStaff);
+                  data.staffList = mergeStaffLists(data.staffList, live.staffList || [], mergeTombstones(deletedStaffRef.current, live.deletedStaff));
                   const clean = currentUser.email.toLowerCase().trim();
                   const found = data.staffList.find((c: StaffCoach) => c.email.toLowerCase().trim() === clean);
                   if (found && found.status === 'Active') {

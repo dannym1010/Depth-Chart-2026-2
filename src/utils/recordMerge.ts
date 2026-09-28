@@ -128,3 +128,34 @@ export function mergeAttendanceLogs<T extends Attendance>(local: T[] | undefined
   const merged = mergeById<T>(local, remote, deleted, attendanceTime);
   return merged === local ? merged : [...merged].sort((a, b) => byDateDesc(a, b));
 }
+
+// ---------------------------------------------------------------------------
+// Staff accounts (a coach is their email)
+// ---------------------------------------------------------------------------
+
+type Staff = { email?: string; editedAt?: number };
+export const staffKey = (c: Staff) => String(c?.email || '').toLowerCase().trim();
+
+/**
+ * Merge two copies of the staff list, coach by coach: a coach only one copy has is kept (unless removed
+ * after they were last changed), the later-changed copy of a coach wins. An older copy can never drop
+ * coaches from the list.
+ */
+export function mergeStaffLists<T extends Staff>(local: T[] | undefined, remote: T[] | undefined, deleted: Tombstones = {}): T[] {
+  const keyed = (list: T[] | undefined) =>
+    (Array.isArray(list) ? list : []).filter((c) => c && staffKey(c)).map((c) => ({ ...c, id: staffKey(c), __coach: c }));
+  const mine = keyed(local);
+  const merged = mergeById(mine, keyed(remote), deleted, (c) => Number(c.editedAt) || 0);
+  if (merged === mine) return local as T[];
+  return merged.map((c) => c.__coach as T);
+}
+
+/** Stamp coaches that are new or changed in `next` compared with `prev`. */
+export function stampStaffEdits<T extends Staff>(prev: T[] | undefined, next: T[], now = Date.now()): T[] {
+  const before = new Map((prev || []).filter(Boolean).map((c) => [staffKey(c), JSON.stringify({ ...c, editedAt: undefined })]));
+  return (next || []).map((c) => {
+    if (!c) return c;
+    const was = before.get(staffKey(c));
+    return was !== undefined && was === JSON.stringify({ ...c, editedAt: undefined }) ? c : { ...c, editedAt: now };
+  });
+}
