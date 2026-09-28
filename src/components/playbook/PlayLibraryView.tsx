@@ -67,6 +67,22 @@ export const PlayLibraryView: React.FC<Props> = ({
   const [importing, setImporting] = useState(false);
   const [toast, setToast] = useState<{ msg: string; undo?: () => void } | null>(null);
   const [zoom, setZoom] = useState<PlayDatabaseEntry | null>(null);
+  // Formation / section groups the coach closed (remembered on this device).
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('playLibraryCollapsed') || '{}') || {};
+    } catch {
+      return {};
+    }
+  });
+  const saveCollapsed = (next: Record<string, boolean>) => {
+    setCollapsed(next);
+    try {
+      localStorage.setItem('playLibraryCollapsed', JSON.stringify(next));
+    } catch {
+      /* per-device convenience only */
+    }
+  };
   // The factory sample plays stay out of the library unless the coach asks to see them.
   const [showSamples, setShowSamples] = useState(false);
   const sampleCount = useMemo(() => playDatabase.filter(isBuiltInSample).length, [playDatabase]);
@@ -278,6 +294,20 @@ export const PlayLibraryView: React.FC<Props> = ({
           <option value="used">Most run</option>
           <option value="avg">Best average</option>
         </select>
+        {groups.length > 1 && groups[0].name && (
+          <button
+            type="button"
+            onClick={() => {
+              const allClosed = groups.every((g) => collapsed[g.name]);
+              const next = { ...collapsed };
+              groups.forEach((g) => (next[g.name] = !allClosed));
+              saveCollapsed(next);
+            }}
+            className="h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-black text-slate-700 dark:text-slate-200 cursor-pointer"
+          >
+            {groups.every((g) => collapsed[g.name]) ? 'Expand all' : 'Collapse all'}
+          </button>
+        )}
       </div>
 
       {/* Bulk actions */}
@@ -348,10 +378,14 @@ export const PlayLibraryView: React.FC<Props> = ({
         <div className="space-y-4">
           {groups.map((g) => {
             const allOn = g.plays.every((p) => selected[p.id]);
+            // A search always shows its matches, even in a closed group.
+            const closed = Boolean(g.name && collapsed[g.name] && !query.trim());
+            const lefts = g.plays.filter((p) => playSideOf(p) === 'L').length;
+            const rights = g.plays.filter((p) => playSideOf(p) === 'R').length;
             return (
               <section key={g.name || 'all'} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
                 {g.name && (
-                  <div className="px-3 py-2 bg-slate-50 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2">
+                  <div className={`px-3 py-2 bg-slate-50 dark:bg-slate-950/60 flex items-center gap-2 ${closed ? '' : 'border-b border-slate-200 dark:border-slate-800'}`}>
                     {canEdit && (
                       <input
                         type="checkbox"
@@ -367,10 +401,22 @@ export const PlayLibraryView: React.FC<Props> = ({
                         className="w-4 h-4"
                       />
                     )}
-                    <h2 className="text-xs font-black uppercase tracking-wide text-slate-700 dark:text-slate-200">{g.name}</h2>
-                    <span className="text-[11px] font-bold text-slate-500">{g.plays.length}</span>
+                    <button
+                      type="button"
+                      onClick={() => saveCollapsed({ ...collapsed, [g.name]: !collapsed[g.name] })}
+                      aria-expanded={!closed}
+                      className="flex-1 min-w-0 min-h-[32px] flex items-center gap-2 text-left cursor-pointer"
+                    >
+                      {closed ? <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" /> : <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />}
+                      <h2 className="text-xs font-black uppercase tracking-wide text-slate-700 dark:text-slate-200">{g.name}</h2>
+                      <span className="text-[11px] font-bold text-slate-500">
+                        {g.plays.length}
+                        {sort === 'formation' && (lefts || rights) ? ` · ${lefts} L · ${rights} R` : ''}
+                      </span>
+                    </button>
                   </div>
                 )}
+                {!closed && (
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
                   {g.plays.map((p, i) => (
                     <React.Fragment key={p.id}>
@@ -397,6 +443,7 @@ export const PlayLibraryView: React.FC<Props> = ({
                     </React.Fragment>
                   ))}
                 </div>
+                )}
               </section>
             );
           })}
