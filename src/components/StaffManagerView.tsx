@@ -26,7 +26,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { StaffCoach, UserRole, Team, UnitType } from '../types';
-import { canSeeCoach, isProgramAdminCoach, isProgramAdminEmail } from '../utils/staffAccess';
+import { canSeeCoach, coachTeamIds, hasNoTeamYet, isProgramAdminCoach, isProgramAdminEmail } from '../utils/staffAccess';
 
 interface StaffManagerViewProps {
   /** The program owner: every team, creates/deletes teams, the admin passcode. */
@@ -108,6 +108,9 @@ export const StaffManagerView: React.FC<StaffManagerViewProps> = ({
   const [newStaffEmail, setNewStaffEmail] = useState('');
   const [newStaffRole, setNewStaffRole] = useState('Head Coach (Admin)');
   const [newStaffAssignedTeams, setNewStaffAssignedTeams] = useState<string[]>([activeTeamId]);
+  // Each team has its own coaches: the list shows one team at a time (the program owner can pick all).
+  const [staffTeamFilter, setStaffTeamFilter] = useState<string>(activeTeamId);
+  React.useEffect(() => setStaffTeamFilter(activeTeamId), [activeTeamId]);
   const [newStaffIdleTimeout, setNewStaffIdleTimeout] = useState<number>(30);
 
   // Email Invitation Modal State
@@ -265,13 +268,9 @@ Looking forward to a great season!`;
 
   const toggleTeamForCoach = (coachIdx: number, coach: StaffCoach, teamId: string) => {
     if (userRole !== 'admin') return;
-    let currentAssigned = coach.assignedTeamIds || [];
+    let currentAssigned = coachTeamIds(coach, allTeams);
 
-    // If currently 'all' or empty, initialize with all team IDs except clicked
-    if (currentAssigned.length === 0 || currentAssigned.includes('all')) {
-      const allIds = teams.map((t) => t.id);
-      currentAssigned = allIds.filter((id) => id !== teamId);
-    } else if (currentAssigned.includes(teamId)) {
+    if (currentAssigned.includes(teamId)) {
       currentAssigned = currentAssigned.filter((id) => id !== teamId);
     } else {
       currentAssigned = [...currentAssigned, teamId];
@@ -549,9 +548,29 @@ Looking forward to a great season!`;
                   : 'You manage the coaches on your teams. New sign-ups you approve join your current team.'}
               </p>
             </div>
+            <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-300">
+              <span>Team:</span>
+              <select
+                value={staffTeamFilter}
+                onChange={(e) => setStaffTeamFilter(e.target.value)}
+                className="bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1 text-xs font-bold text-indigo-300 focus:outline-none"
+                aria-label="Show coaches for team"
+              >
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+                {isProgramAdmin && <option value="all">All teams</option>}
+              </select>
+            </label>
             {userRole === 'admin' && (
               <button
-                onClick={() => setShowAddStaffModal(true)}
+                onClick={() => {
+                  // New coaches join the team being shown.
+                  setNewStaffAssignedTeams([staffTeamFilter !== 'all' ? staffTeamFilter : activeTeamId]);
+                  setShowAddStaffModal(true);
+                }}
                 className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-md shadow-indigo-600/30 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
               >
                 <UserPlus className="w-3.5 h-3.5" />
@@ -652,14 +671,14 @@ Looking forward to a great season!`;
               <tbody className="divide-y divide-slate-700/80">
                 {staffList.map((coach, idx) => {
                   if (!canSeeCoach(manager, coach, allTeams)) return null;
-                  const canEdit = canManageStaffAt(idx);
                   const isMaster = isMasterSuperAdminUser(coach.email);
+                  const onTeams = coachTeamIds(coach, allTeams);
+                  const waitingForTeam = coach.status === 'Pending' && hasNoTeamYet(coach);
+                  if (staffTeamFilter !== 'all' && !isMaster && !waitingForTeam && !onTeams.includes(staffTeamFilter)) return null;
+                  const canEdit = canManageStaffAt(idx);
                   const isHeadCoachRole = coach.role.toLowerCase().includes('head coach');
                   const isActive = coach.status === 'Active';
-                  const isAssignedAll =
-                    !coach.assignedTeamIds ||
-                    coach.assignedTeamIds.length === 0 ||
-                    coach.assignedTeamIds.includes('all');
+                  const isAssignedAll = false;
 
                   return (
                     <tr key={idx} className="hover:bg-slate-750/50 transition-colors">
@@ -709,7 +728,7 @@ Looking forward to a great season!`;
                           </span>
                         ) : canEdit ? (
                           <div className="flex flex-wrap items-center gap-1 max-w-xs">
-                            {isProgramAdmin && (
+                            {false && (
                             <button
                               type="button"
                               onClick={() => setAllTeamsForCoach(idx)}
@@ -724,10 +743,7 @@ Looking forward to a great season!`;
                             </button>
                             )}
                             {teams.map((t) => {
-                              const hasAccess =
-                                isAssignedAll ||
-                                (coach.assignedTeamIds &&
-                                  coach.assignedTeamIds.includes(t.id));
+                              const hasAccess = onTeams.includes(t.id);
                               return (
                                 <button
                                   key={t.id}
@@ -749,12 +765,10 @@ Looking forward to a great season!`;
                           </div>
                         ) : (
                           <span className="text-[11px] text-slate-300 font-medium">
-                            {isAssignedAll
-                              ? 'All Teams'
-                              : teams
-                                  .filter((t) => coach.assignedTeamIds?.includes(t.id))
-                                  .map((t) => t.ageGroup || t.name)
-                                  .join(', ') || 'No Teams Assigned'}
+                            {allTeams
+                              .filter((t) => onTeams.includes(t.id))
+                              .map((t) => t.ageGroup || t.name)
+                              .join(', ') || 'No Teams Assigned'}
                           </span>
                         )}
                       </td>

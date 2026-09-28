@@ -3323,3 +3323,15 @@ describe('staff accounts never get dropped by an older copy', () => {
     assert.equal(mergeStaffLists(approved, [c] as any[], {})[0].status, 'Active');
   });
 });
+
+describe('each team has its own coaches', () => {
+  it('older "all teams" or unset accounts are 10U coaches; only the owner has every team', async () => {
+    const { coachTeamIds } = await import('./staffAccess.ts');
+    const teams = [{ id: 'team_10u', name: '10U' }, { id: 'team_9u', name: '9U' }] as any[];
+    assert.deepEqual(coachTeamIds({ email: 'a@x.com', role: 'Head Coach (Admin)', status: 'Active', assignedTeamIds: ['all'] } as any, teams), ['team_10u']);
+    assert.deepEqual(coachTeamIds({ email: 'b@x.com', role: 'Assistant Coach', status: 'Active' } as any, teams), ['team_10u']);
+    assert.deepEqual(coachTeamIds({ email: 'c@x.com', role: 'Assistant Coach', status: 'Active', assignedTeamIds: ['team_9u'] } as any, teams), ['team_9u']);
+    assert.deepEqual(coachTeamIds({ email: 'new@x.com', role: 'Assistant Coach', status: 'Pending', assignedTeamIds: [] } as any, teams), []);
+    assert.deepEqual(coachTeamIds({ email: 'dannym1010@gmail.com', role: 'Master Super Admin', status: 'Active', assignedTeamIds: ['all'] } as any, teams), ['team_10u', 'team_9u']);
+  });
+});

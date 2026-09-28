@@ -31,8 +31,10 @@ export function isTeamAdminRole(role?: string): boolean {
 export function coachTeamIds(c: Pick<StaffCoach, 'email' | 'role' | 'status' | 'assignedTeamIds'> | null | undefined, teams: Team[]): string[] {
   if (!c) return [];
   if (isProgramAdminCoach(c)) return teams.map((t) => t.id);
-  const assigned = c.assignedTeamIds || [];
-  if (assigned.includes('all')) return teams.map((t) => t.id);
+  // Each team has its own coaches; only the program owner has every team. Accounts from before
+  // ("all teams", or no teams set) were 10U's coaches.
+  const assigned = c.assignedTeamIds;
+  if (!assigned || assigned.includes('all')) return teams.filter((t) => sameTeamId(t.id, 'team_10u')).map((t) => t.id);
   return teams.filter((t) => assigned.some((id) => sameTeamId(id, t.id))).map((t) => t.id);
 }
 
