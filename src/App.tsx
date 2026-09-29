@@ -643,6 +643,7 @@ export default function App() {
   const [isSidebarExpanded, setIsSidebarExpanded] = useState<boolean>(() =>
     safeJSONParse('footballSidebarExpanded', false)
   );
+  const [filmMenuOpen, setFilmMenuOpen] = useState(false);
   const [autoOpenTakeAttendance, setAutoOpenTakeAttendance] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       const parsed = parseRouteHash(window.location.hash);
@@ -6141,8 +6142,9 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
           setActiveGuideMain(main);
           setActiveUnit('guide');
         }}
-        isExpanded={isSidebarExpanded}
-        onToggleExpanded={() => setIsSidebarExpanded((prev) => !prev)}
+        // The Film Room starts with the menu as icons only, so the video gets the width (like Hudl).
+        isExpanded={activeUnit === 'filmroom' ? filmMenuOpen : isSidebarExpanded}
+        onToggleExpanded={() => (activeUnit === 'filmroom' ? setFilmMenuOpen((v) => !v) : setIsSidebarExpanded((prev) => !prev))}
       />
 
       {/* Main Right Scrollable Viewport (Header + Active Screen) */}

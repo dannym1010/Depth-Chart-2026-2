@@ -149,9 +149,11 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       safeJSONSet('footballFilmroomShowNotes', !v);
       return !v;
     });
-  const defaultVideoH = () => Math.round((typeof window === 'undefined' ? 900 : window.innerHeight) * 0.5);
-  const clampVideoH = (h: number) => Math.max(160, Math.min(h, (typeof window === 'undefined' ? 900 : window.innerHeight) - 420));
-  const [videoH, setVideoH] = useState<number>(() => safeJSONParse<number | null>('footballFilmroomVideoH', null) || defaultVideoH());
+  // Like Hudl: the video gets most of the screen; about three rows of the play log show under it.
+  const screenH = () => (typeof window === 'undefined' ? 900 : window.innerHeight);
+  const defaultVideoH = () => screenH() - 420;
+  const clampVideoH = (h: number) => Math.max(200, Math.min(h, screenH() - 250));
+  const [videoH, setVideoH] = useState<number>(() => safeJSONParse<number | null>('footballFilmroomVideoH3', null) || defaultVideoH());
   const drag = useRef<{ y: number; h: number } | null>(null);
   const onDividerDown = (e: React.PointerEvent) => {
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
@@ -163,7 +165,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const onDividerUp = () => {
     if (!drag.current) return;
     drag.current = null;
-    safeJSONSet('footballFilmroomVideoH', videoH);
+    safeJSONSet('footballFilmroomVideoH3', videoH);
   };
 
   const notesFor = useCallback((id: string) => shared.notes.filter((n) => n.playId === id), [shared.notes]);
@@ -248,6 +250,13 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       </span>
     );
   };
+  const odkChips = (
+    <div className="flex items-center gap-1">
+      {(['all', 'O', 'D', 'K'] as OdkFilter[]).map((k) => (
+        <button key={k} className={chip(odk === k)} onClick={() => setOdk(k)}>{k === 'all' ? 'All' : k === 'O' ? 'Offense' : k === 'D' ? 'Defense' : 'Kicking'}</button>
+      ))}
+    </div>
+  );
   const playLog = (
     <PlaysTable
       plays={shownPlays}
@@ -265,14 +274,9 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       onSetSub={isOwn ? (id: string, slotId: string, ref: FilmPlayerRef | null | undefined) => editPlays((all) => setPlaySub(all, id, slotId, ref)) : undefined}
       onSetBall={isOwn ? (id: string, role: BallRole, label: string) => editPlays((all) => setPlayBallPlayer(all, id, role, label)) : undefined}
       onSetDefPlay={isOwn ? (id, patch) => editPlays((all) => setPlayDefPlay(all, id, patch)) : undefined}
+      compact
+      toolbarStart={odkChips}
     />
-  );
-  const odkChips = (
-    <div className="flex items-center gap-1">
-      {(['all', 'O', 'D', 'K'] as OdkFilter[]).map((k) => (
-        <button key={k} className={chip(odk === k)} onClick={() => setOdk(k)}>{k === 'all' ? 'All' : k === 'O' ? 'Offense' : k === 'D' ? 'Defense' : 'Kicking'}</button>
-      ))}
-    </div>
   );
   const notesEl = (
     <PlayNotes
@@ -286,14 +290,14 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   );
 
   return (
-    <div className="flex flex-col gap-3 lg:h-[calc(100dvh-6.5rem)]">
+    <div className="flex flex-col gap-2 lg:h-[calc(100dvh-6.5rem)]">
       {/* Game and film */}
-      <div className={`${panel} p-3 flex flex-wrap items-center gap-2 shrink-0`}>
+      <div className={`${panel} px-2.5 py-1.5 flex flex-wrap items-center gap-2 shrink-0`}>
         <Film size={18} className="text-indigo-500 shrink-0" />
         <select
           value={game?.key}
           onChange={(e) => setGameKey(e.target.value)}
-          className="min-w-[12rem] flex-1 sm:flex-none sm:max-w-xs h-9 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 text-sm font-bold text-slate-900 dark:text-white"
+          className="min-w-[12rem] flex-1 sm:flex-none sm:max-w-xs h-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 text-sm font-bold text-slate-900 dark:text-white"
           aria-label="Game"
         >
           {ownGames.length > 0 && (
@@ -325,20 +329,20 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         <div className="flex items-center gap-1.5 ml-auto">
           <button
             onClick={toggleNotes}
-            className={`hidden lg:inline-flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-bold ${
+            className={`hidden lg:inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold ${
               showNotes ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' : 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300'
             }`}
             title={showNotes ? 'Hide notes to make the video bigger' : 'Show notes beside the video'}
           >
             <MessageSquare size={14} /> {showNotes ? 'Hide notes' : `Show notes${play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}`}
           </button>
-          <button onClick={() => setLinkOpen(true)} className="inline-flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-bold bg-indigo-600 text-white">
+          <button onClick={() => setLinkOpen(true)} className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-indigo-600 text-white">
             <Link2 size={14} /> {film.status === 'ready' ? 'Change film' : 'Link film'}
           </button>
           {(film.status === 'ready' || film.status === 'reconnect') && (
             <button
               onClick={unlink}
-              className="inline-flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+              className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
               title={film.status === 'ready' && film.kind === 'drive' ? 'Unlink the Drive folder for the whole team' : 'Stop using this folder on this device'}
             >
               <Unlink size={14} /> Unlink
@@ -347,7 +351,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           {game && (
             <button
               onClick={() => onOpenHudlGame({ target: game.source, gameId: game.gameId })}
-              className="inline-flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+              className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
               title="Open this game in Hudl Scout"
             >
               <ExternalLink size={14} /> <span className="hidden sm:inline">Hudl Scout</span>
@@ -387,7 +391,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         )}
       </div>
 
-      {/* Drag to make the video bigger or smaller (double-click: back to half the screen) */}
+      {/* Drag to make the video bigger or smaller (double-click: back to the standard size) */}
       <div
         role="separator"
         aria-orientation="horizontal"
@@ -399,7 +403,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         onPointerCancel={onDividerUp}
         onDoubleClick={() => {
           setVideoH(defaultVideoH());
-          safeJSONSet('footballFilmroomVideoH', null);
+          safeJSONSet('footballFilmroomVideoH3', null);
         }}
         className="hidden lg:flex shrink-0 -my-1.5 h-4 items-center justify-center cursor-row-resize touch-none text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
       >
@@ -415,8 +419,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       {mobileTab === 'notes' && <div className={`${panel} lg:hidden`}>{notesEl}</div>}
 
       {/* The game's play log: click a play to watch it, sort by any column, change tags */}
-      <div className={`flex-col gap-2 lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1 [&>*]:shrink-0 ${mobileTab === 'plays' ? 'flex' : 'hidden lg:flex'}`}>
-        {odkChips}
+      <div className={`flex-col gap-2 lg:flex-1 lg:min-h-0 ${mobileTab === 'plays' ? 'flex' : 'hidden lg:flex'}`}>
         {playLog}
       </div>
 

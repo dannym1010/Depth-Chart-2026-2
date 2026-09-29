@@ -37,6 +37,9 @@ interface PlaysTableProps {
   onOrderChange?: (ids: string[]) => void;
   /** Film Room: extra marks next to the play number (film, notes). */
   rowBadge?: (play: Play) => React.ReactNode;
+  /** Film Room: a one-line toolbar (no title block), with these controls at its start. */
+  compact?: boolean;
+  toolbarStart?: React.ReactNode;
 }
 
 /** A click on a row that wasn't on one of its buttons or fields. */
@@ -85,7 +88,7 @@ const UnitPicker: React.FC<{
   );
 };
 
-export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge }) => {
+export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge, compact, toolbarStart }) => {
   const [openPlay, setOpenPlay] = useState<string | null>(null);
   const canLineup = Boolean(lineupFor && roster && onSetSub);
   // A play's panel: who was on the field (offense / defense), and tackles on kicks too.
@@ -121,7 +124,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
   const [filters, setFilters] = useState<PlayFilters>({});
   const [openFilter, setOpenFilter] = useState<{ key: PlayColumnKey; anchor: HTMLElement } | null>(null);
   const [page, setPage] = useState(1);
-  const pageSize = 25;
+  const pageSize = compact ? 100000 : 25;
 
   // Click a column heading to sort by it (again to reverse); its funnel filters it like Excel.
   const handleSort = (key: PlayColumnKey) => {
@@ -202,6 +205,11 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
     onOrderChange?.(filteredPlays.map((p) => p.id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredPlays]);
+  useEffect(() => {
+    if (!compact || !selectedId) return;
+    const row = document.querySelector(`[data-play-row="${CSS.escape(selectedId)}"]`);
+    row?.scrollIntoView({ block: 'nearest' });
+  }, [compact, selectedId]);
   // Keep the page on the play being watched (e.g. when the film moves on to the next play).
   useEffect(() => {
     if (!onSelectPlay || !selectedId) return;
@@ -218,9 +226,21 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
   };
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden shadow-sm">
-      {/* Table Header Controls */}
-      <div className="p-4 border-b border-slate-800 bg-slate-950/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div className={`bg-slate-900 border border-slate-800 rounded-lg overflow-hidden shadow-sm ${compact ? 'flex flex-col min-h-0 lg:flex-1' : ''}`}>
+      {/* Table Header Controls (one slim line in the Film Room, so more plays show under the video) */}
+      <div
+        className={`border-b border-slate-800 bg-slate-950/60 flex justify-between ${
+          compact ? 'px-3 py-1.5 flex-wrap items-center gap-2' : 'p-4 flex-col sm:flex-row sm:items-center gap-3'
+        }`}
+      >
+        {compact ? (
+          <div className="flex items-center gap-2 flex-wrap">
+            {toolbarStart}
+            <span className="text-xs text-slate-400 font-mono" title={canTagCalls ? `${callsTagged} of ${taggable.length} offense and defense plays tagged with a play call` : undefined}>
+              {filteredPlays.length} plays{canTagCalls ? ` · ${callsTagged}/${taggable.length} tagged` : ''}
+            </span>
+          </div>
+        ) : (
         <div>
           <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
             <span>Play-by-Play Film Breakdown</span>
@@ -234,13 +254,14 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               : 'Raw Hudl play records with efficiency, explosive play markers, and target tracking.'}
           </p>
         </div>
+        )}
 
         <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap sm:flex-nowrap">
         {canTagCalls && (
           <button
             type="button"
             onClick={() => setTagging({})}
-            className="h-9 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+            className={`${compact ? 'h-7 px-2.5' : 'h-9 px-3'} rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap`}
           >
             <ListChecks className="w-4 h-4" />
             Tag plays
@@ -270,7 +291,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               setSearchTerm(e.target.value);
               setPage(1);
             }}
-            className="w-full bg-slate-950 border border-slate-800 rounded-md pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
+            className={`w-full bg-slate-950 border border-slate-800 rounded-md pl-8 pr-3 ${compact ? 'py-1' : 'py-1.5'} text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500`}
           />
         </div>
         </div>
@@ -428,9 +449,10 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
       </div>
 
       {/* Table */}
-      <div className="hidden md:block overflow-x-auto">
-        <table className="w-full text-left text-xs text-slate-300">
-          <thead className="bg-slate-950 text-slate-400 font-semibold border-b border-slate-800 uppercase tracking-wider text-[11px] select-none">
+      {/* Film Room: the table scrolls inside its own box, so the column headers stay in view. */}
+      <div className={`hidden md:block ${compact ? 'overflow-auto flex-1 min-h-0' : 'overflow-x-auto'}`}>
+        <table className={`w-full text-left text-xs text-slate-300 ${compact ? '[&_td]:!py-0.5 [&_th]:!py-1.5 [&_td]:whitespace-nowrap [&_td_input]:!h-6 [&_td_button]:!h-6 [&_td_button]:!py-0' : ''}`}>
+          <thead className="sticky top-0 z-10 bg-slate-950 text-slate-400 font-semibold border-b border-slate-800 uppercase tracking-wider text-[11px] select-none">
             <tr>
               {headerCell('playNumber', 'pl-3')}
               {headerCell('odk', 'text-center')}
@@ -462,6 +484,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   onClick={rowClick(play.id)}
                   style={selectedStyle(play.id)}
                   data-selected={play.id === selectedId || undefined}
+                  data-play-row={play.id}
                   className={`hover:bg-slate-800/30 transition-colors ${selectable ? 'cursor-pointer' : ''} ${
                     play.id !== selectedId && isOpen ? 'bg-slate-800/40' : ''
                   }`}
@@ -482,7 +505,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     ) : (
                       play.playNumber
                     )}
-                    {rowBadge && <div className="mt-0.5">{rowBadge(play)}</div>}
+                    {rowBadge && (compact ? <span className="ml-1.5">{rowBadge(play)}</span> : <div className="mt-0.5">{rowBadge(play)}</div>)}
                   </td>
                   <td className="py-2.5 px-2 text-center font-mono font-bold">
                     <span
@@ -517,7 +540,12 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   )}
                   <td className="py-2.5 px-2 text-center text-slate-300 font-mono">
                     Q{play.quarter}
-                    {play.series != null && <div className="text-[10px] font-sans font-bold text-slate-500 whitespace-nowrap">Drive {play.series}</div>}
+                    {play.series != null &&
+                      (compact ? (
+                        <span className="ml-1 text-[10px] font-sans font-bold text-slate-500" title={`Drive ${play.series}`}>D{play.series}</span>
+                      ) : (
+                        <div className="text-[10px] font-sans font-bold text-slate-500 whitespace-nowrap">Drive {play.series}</div>
+                      ))}
                   </td>
                   <td className="py-2.5 px-3 font-mono">
                     <span className="font-bold text-slate-200">
@@ -549,7 +577,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   </td>
                   <td className="py-2 px-3 font-medium text-slate-100">
                     {canTagCalls && isTaggablePlay(play) ? (
-                      <div className="flex flex-col items-start gap-0.5">
+                      <div className={`flex items-start gap-0.5 ${compact ? 'flex-row items-center gap-1.5' : 'flex-col'}`}>
                         <CallButton play={play} db={playDatabase!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
                         {play.playCallId && play.untaggedName && play.untaggedName !== play.playCall && (
                           <span className="text-[10px] text-slate-400">Film: {play.untaggedName}</span>
@@ -560,7 +588,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     )}
                   </td>
                   <td className="py-2.5 px-3 text-slate-300 text-xs">
-                    {hasPlayers(play) ? <BallPlayers play={play} /> : play.carrierOrTarget || <span className="text-slate-400">-</span>}
+                    {hasPlayers(play) ? <BallPlayers play={play} inline={compact} /> : play.carrierOrTarget || <span className="text-slate-400">-</span>}
                   </td>
                   <td className="py-2.5 px-2">
                     <span
