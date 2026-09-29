@@ -3,6 +3,7 @@ import { Play, TendencyAnalysis } from '../../types/football';
 import { RUN_COLOR, RunGapDiagram, RunPassRing } from '../ScoutCharts';
 import { ReportVoice, isRunPlay, runSides, shareGreen, topNames } from './reportText';
 import { Card, EmptyNote, SectionHeader } from './ui';
+import { StrengthCard } from './StrengthCard';
 
 interface RunGameTabProps {
   analysis: TendencyAnalysis;
@@ -113,6 +114,8 @@ export const RunGameTab: React.FC<RunGameTabProps> = ({ analysis: a, plays, voic
           </div>
         </Card>
       )}
+
+      <StrengthCard plays={plays} voice={voice} />
 
       <Card>
         <SectionHeader

@@ -3430,6 +3430,50 @@ describe('play log columns: sort and filter any column', () => {
   });
 });
 
+describe('strong side / weak side (formation side letter vs play direction)', () => {
+  const mk = (n: number, formation: string, runSide: string, extra: any = {}) =>
+    ({ id: `p${n}`, playNumber: n, odk: 'O', down: 1, distance: 10, formation, runSide, direction: runSide === 'M' ? 'Middle / Inside' : runSide === 'L' ? 'Left' : 'Right', playType: 'RUN', gainLoss: 4, isEfficient: true, ...extra }) as any;
+  it('21 L run left = strong, 21 L run right = weak, middle is middle; no side or no direction is not counted', async () => {
+    const { formationStrength, formationBase, playStrengthSide, strengthReport } = await import('../hudlScout/utils/strength.ts');
+    assert.equal(formationStrength('21 L'), 'L');
+    assert.equal(formationStrength('21 R'), 'R');
+    assert.equal(formationStrength('Trips Rt'), 'R');
+    assert.equal(formationStrength('Doubles Left'), 'L');
+    assert.equal(formationStrength('32 WB'), undefined);
+    assert.equal(formationStrength('-'), undefined);
+    assert.equal(formationBase('21 L'), '21');
+    assert.equal(formationBase('32 WB R'), '32 WB');
+    assert.equal(playStrengthSide(mk(1, '21 L', 'L')), 'strong');
+    assert.equal(playStrengthSide(mk(2, '21 L', 'R')), 'weak');
+    assert.equal(playStrengthSide(mk(3, '21 R', 'R')), 'strong');
+    assert.equal(playStrengthSide(mk(4, '21 R', 'M')), 'middle');
+    assert.equal(playStrengthSide(mk(5, '32 WB', 'L')), undefined);
+    // Hudl's PLAY DIR was blank: not "middle"
+    assert.equal(playStrengthSide(mk(6, '21 L', 'M', { hudlRow: { 'PLAY DIR': '' } })), undefined);
+    assert.equal(playStrengthSide(mk(7, '21 L', 'L', { hudlRow: { 'PLAY DIR': 'Left (Boundary)' } })), 'strong');
+
+    const plays = [
+      mk(1, '21 L', 'L', { gainLoss: 3 }), mk(2, '21 R', 'R', { gainLoss: 5 }), mk(3, '21 L', 'R', { gainLoss: 9, down: 2 }),
+      mk(4, '11 R', 'M', { gainLoss: 1, isEfficient: false }), mk(5, '11 R', 'R', { playType: 'PASS', gainLoss: 12 }), mk(6, '32 WB', 'L'),
+    ];
+    const isRun = (p: any) => p.playType === 'RUN';
+    const r = strengthReport(plays, isRun, (p: any) => p.playType === 'PASS');
+    assert.deepEqual(r.runs.count, { strong: 2, weak: 1, middle: 1 });
+    assert.equal(r.runs.pct.strong, 50);
+    assert.equal(r.runs.avg.strong, 4);
+    assert.equal(r.runs.avg.weak, 9);
+    assert.equal(r.passes.count.strong, 1);
+    assert.deepEqual(r.byFormation.map((f) => [f.formation, f.total]), [['21', 3], ['11', 2]]);
+    assert.equal(r.byDown.find((d) => d.down === 2)!.runs.count.weak, 1);
+    assert.equal(r.strengthLeft, 2);
+    assert.equal(r.strengthRight, 3);
+
+    const { sortPlays, filterPlays } = await import('../hudlScout/utils/playColumns.ts');
+    assert.deepEqual(filterPlays(plays, { strength: ['Weak'] }).map((p) => p.playNumber), [3]);
+    assert.deepEqual(sortPlays(plays, 'strength', true).map((p) => p.playNumber).slice(0, 3), [1, 2, 5]); // strong first, blanks last
+  });
+});
+
 describe('tackles on defense and special teams, any number of assists', () => {
   it('keeps several assists (no one twice, not the tackler), reads the old single assist, and counts them', async () => {
     const { setPlayDefPlay, defAssists } = await import('./filmLineup.ts');

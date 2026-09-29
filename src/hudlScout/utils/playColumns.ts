@@ -2,6 +2,7 @@
 import type { Play } from '../types/football';
 import { TEAM_UNITS } from './unitStats';
 import { isRecordedMotion } from './csvParser';
+import { playStrengthSide } from './strength';
 
 export type PlayColumnKey =
   | 'playNumber'
@@ -16,6 +17,7 @@ export type PlayColumnKey =
   | 'players'
   | 'playType'
   | 'direction'
+  | 'strength'
   | 'result'
   | 'gainLoss'
   | 'flags';
@@ -40,6 +42,12 @@ const unitLabel = (p: Play) => TEAM_UNITS.find((u) => u.id === p.unit)?.label ||
 const downDistText = (p: Play) => (p.down ? `${p.down} & ${p.distance}` : 'Kick');
 const callText = (p: Play) => clean(p.playCall) || clean(p.playName);
 const playerText = (p: Play) => clean(p.rusher) || clean(p.passer) || clean(p.receiver) || clean(p.carrierOrTarget) || clean(p.defPlay?.maker);
+const SIDE_ORDER: Record<string, number> = { strong: 1, middle: 2, weak: 3 };
+/** "Strong" / "Middle" / "Weak" ("" when the formation has no side or the play no direction). */
+export const strengthText = (p: Play) => {
+  const s = playStrengthSide(p);
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
+};
 export const playFlags = (p: Play) =>
   [p.isExplosive ? 'Explosive' : '', p.isEfficient ? 'Efficient' : '', isRecordedMotion(p.motion) ? 'Motion' : ''].filter(Boolean);
 
@@ -57,6 +65,8 @@ export const PLAY_COLUMNS: PlayColumn[] = [
   { key: 'players', label: 'PLAYERS', sortValue: playerText, filterValues: (p) => [playerText(p) || BLANK] },
   { key: 'playType', label: 'TYPE', sortValue: (p) => clean(p.playType), filterValues: (p) => one(p.playType) },
   { key: 'direction', label: 'DIR', sortValue: (p) => clean(p.direction), filterValues: (p) => one(p.direction) },
+  // Strong / weak side: the play's direction vs the formation's side letter ("21 L" = strength left).
+  { key: 'strength', label: 'SIDE', sortValue: (p) => SIDE_ORDER[playStrengthSide(p) || ''] ?? '', filterValues: (p) => [strengthText(p) || BLANK] },
   { key: 'result', label: 'RESULT', sortValue: (p) => clean(p.result), filterValues: (p) => one(p.result) },
   { key: 'gainLoss', label: 'GN/LS', sortValue: (p) => Number(p.gainLoss) || 0, filterValues: (p) => [String(Number(p.gainLoss) || 0)] },
   { key: 'flags', label: 'FLAGS', sortValue: (p) => playFlags(p).join(' '), filterValues: (p) => (playFlags(p).length ? playFlags(p) : ['None']) },

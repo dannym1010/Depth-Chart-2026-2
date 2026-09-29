@@ -6,7 +6,7 @@ import { callUsage, isNumberFormation, isTaggablePlay, restOfSeriesIds, tidyForm
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { CallButton, FormationEditor, TagPlaysPanel } from '../../components/playbook/CallPicker';
 import { Search, ChevronDown, ChevronUp, ChevronRight, Zap, Flame, CheckCircle2, ListChecks, Users, Filter, X } from 'lucide-react';
-import { PLAY_COLUMNS, columnByKey, filterOptions, filterPlays, sortPlays, type PlayColumnKey, type PlayFilters } from '../utils/playColumns';
+import { PLAY_COLUMNS, columnByKey, filterOptions, filterPlays, sortPlays, strengthText, type PlayColumnKey, type PlayFilters } from '../utils/playColumns';
 import { ColumnFilter } from './ColumnFilter';
 import type { FilmPlayerRef, RosterPlayer } from '../../types';
 import { defAssists, type FilmLineup } from '../../utils/filmLineup';
@@ -416,6 +416,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               <div className="text-[11px] text-slate-300">
                 {play.formation && play.formation !== '-' ? play.formation : 'No formation'}
                 {play.direction ? ` · ${play.direction}` : ''}
+                {strengthText(play) ? <> · <SideTag play={play} /></> : null}
                 {!hasPlayers(play) && play.carrierOrTarget ? ` · ${play.carrierOrTarget}` : ''}
               </div>
               {hasPlayers(play) && (
@@ -473,6 +474,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               {headerCell('players')}
               {headerCell('playType')}
               {headerCell('direction')}
+              {headerCell('strength')}
               {headerCell('result')}
               {headerCell('gainLoss', 'text-right')}
               {headerCell('flags', 'text-center')}
@@ -607,6 +609,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     </span>
                   </td>
                   <td className="py-2.5 px-2 text-slate-400 text-[11px]">{play.direction}</td>
+                  <td className="py-2.5 px-2 text-[11px] font-bold"><SideTag play={play} /></td>
                   <td className="py-2.5 px-2 text-slate-300 text-[11px]">{play.result && play.result !== '-' ? play.result : ''}</td>
                   <td className="py-2.5 px-3 text-right font-mono font-bold">
                     <span className={isGain ? 'text-emerald-400' : isLoss ? 'text-rose-400' : 'text-slate-400'}>
@@ -758,4 +761,11 @@ const namesMissing = (plays: Play[]) => {
   const off = plays.filter((p) => p.odk === 'O' && p.playType !== 'PENALTY');
   if (!off.length) return false;
   return off.filter((p) => p.rusher || p.passer || p.receiver).length < off.length * 0.25;
+};
+
+/** Strong / weak side of a play (formation side letter vs play direction). */
+const SIDE_TAG_COLOR: Record<string, string> = { Strong: '#d97706', Middle: '#64748b', Weak: '#0284c7' };
+const SideTag: React.FC<{ play: Play }> = ({ play }) => {
+  const t = strengthText(play);
+  return t ? <span style={{ color: SIDE_TAG_COLOR[t] }} title={`${t} side (formation ${play.formation})`}>{t}</span> : <span className="text-slate-500">-</span>;
 };
