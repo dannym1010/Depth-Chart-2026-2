@@ -5,6 +5,7 @@
 // Hudl's uploader gets stuck on quotes, semicolons and commas inside a value, so every value is cleaned
 // ("Rush, TD" -> "Rush TD", subs "QB: #7 Silva / RB: #22 Pestone") and the CSV needs no quoting at all.
 import type { Play } from '../types/football';
+import { defAssists } from '../../utils/filmLineup';
 
 /** A value Hudl's uploader reads cleanly: no quotes, semicolons, commas or line breaks. */
 export function hudlCell(value: unknown): string | number {
@@ -79,7 +80,9 @@ export function hudlExportRow(p: Play): Record<string, string | number> {
   put('PASSER', p.passer);
   put('RECEIVER', p.receiver);
   put('TACKLER', p.defPlay?.maker);
-  put('ASSIST', p.defPlay?.assist);
+  const assists = defAssists(p.defPlay).map(splitPlayer);
+  set('ASSIST_Jersey', assists.map((a) => a.jersey).filter(Boolean).join(' / '));
+  set('ASSIST_Name', assists.map((a) => a.name).filter(Boolean).join(' / '));
   if (p.defPlay?.events?.length) set('DEF EVENTS', p.defPlay.events.map((e) => e.toUpperCase()).join(' / '));
   const subs = Object.entries(p.subs || {})
     .map(([slot, who]) => (who ? `${slot}: #${who.num}${who.name ? ` ${who.name}` : ''}` : `${slot}: out`))

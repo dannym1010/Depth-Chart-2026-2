@@ -101,13 +101,34 @@ export const DEF_EVENTS: { id: import('../hudlScout/types/football').DefEvent; l
   { id: 'pbu', label: 'PBU', long: 'Pass breakup' },
 ];
 
-/** Set who made the play on defense (tackle, assist, sack...) for one play. */
+/** Everyone credited with an assist on a play (plays saved before several assists were allowed had one). */
+export function defAssists(dp?: Play['defPlay']): string[] {
+  if (dp?.assists?.length) return dp.assists;
+  return dp?.assist ? [dp.assist] : [];
+}
+
+/** Plays where our players make tackles: defense and special teams. */
+export const playTakesTackles = (p: Pick<Play, 'odk'>) => p.odk === 'D' || p.odk === 'K';
+
+/** Set who made the play on defense or special teams (tackle, assists, sack...) for one play. */
 export function setPlayDefPlay(plays: Play[], playId: string, patch: Partial<NonNullable<Play['defPlay']>>): Play[] {
   return plays.map((p) => {
     if (p.id !== playId) return p;
     const next = { ...(p.defPlay || {}), ...patch };
+    if (patch.assists) {
+      // The list replaces the old single assist; no one twice, and not the tackler too.
+      const seen = new Set<string>();
+      next.assists = patch.assists.filter((a) => {
+        const k = jerseyOf(a) || a;
+        if (!a || seen.has(k) || (next.maker && jerseyOf(next.maker) === k)) return false;
+        seen.add(k);
+        return true;
+      });
+      delete next.assist;
+    }
     if (!next.maker) delete next.maker;
     if (!next.assist) delete next.assist;
+    if (!next.assists?.length) delete next.assists;
     if (!next.events?.length) delete next.events;
     return { ...p, defPlay: Object.keys(next).length ? next : undefined, editedAt: Date.now() };
   });

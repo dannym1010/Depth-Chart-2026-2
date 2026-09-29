@@ -4,7 +4,7 @@
 import type { RosterPlayer } from '../types';
 import type { Play } from '../hudlScout/types/football';
 import type { FilmLineup } from './filmLineup';
-import { jerseyOf } from './filmLineup';
+import { defAssists, jerseyOf } from './filmLineup';
 import { isDefensiveStop } from '../hudlScout/utils/unitStats';
 import { defPlayFrom } from '../hudlScout/utils/csvParser';
 import type { DefEvent } from '../hudlScout/types/football';
@@ -36,6 +36,8 @@ export interface PlayerFilmLine {
   /** Defense: plays made. Events count for the player credited with the tackle. */
   tackles: number;
   assists: number;
+  /** Special teams tackles + assists (also included in tackles / assists). */
+  stTackles: number;
   sacks: number;
   tfl: number;
   ints: number;
@@ -86,6 +88,7 @@ export function playerFilmStats(
         defSpots: [],
         tackles: 0,
         assists: 0,
+        stTackles: 0,
         sacks: 0,
         tfl: 0,
         ints: 0,
@@ -109,7 +112,39 @@ export function playerFilmStats(
   let offSnaps = 0;
   let defSnaps = 0;
   let withLineup = 0;
+  // Tackle, assists and plays made, on defense and special teams (kicks aren't snaps, but tackles count).
+  const creditTackles = (p: Play) => {
+    const kick = p.odk === 'K';
+    const maker = jerseyOf(p.defPlay?.maker);
+    if (maker) {
+      const l = line(maker, p.defPlay?.maker);
+      l.tackles++;
+      if (kick) l.stTackles++;
+      // On kicks only what a coach marked counts (the result text there describes the return).
+      for (const e of kick ? p.defPlay?.events || [] : defEventsOf(p)) {
+        if (e === 'sack') l.sacks++;
+        else if (e === 'tfl') l.tfl++;
+        else if (e === 'int') l.ints++;
+        else if (e === 'ff') l.ff++;
+        else if (e === 'fr') l.fr++;
+        else if (e === 'pbu') l.pbu++;
+      }
+    }
+    const credited = new Set<string>([maker]);
+    for (const a of defAssists(p.defPlay)) {
+      const num = jerseyOf(a);
+      if (!num || credited.has(num)) continue;
+      credited.add(num);
+      const l = line(num, a);
+      l.assists++;
+      if (kick) l.stTackles++;
+    }
+  };
   for (const p of plays) {
+    if (p.odk === 'K') {
+      creditTackles(p);
+      continue;
+    }
     if (!isSnap(p)) continue;
     const gain = Number(p.gainLoss) || 0;
     const td = /\btd\b|touchdown/i.test(p.result || '');
@@ -137,21 +172,7 @@ export function playerFilmStats(
       }
     }
     if (p.odk === 'D') {
-      const maker = jerseyOf(p.defPlay?.maker);
-      const assist = jerseyOf(p.defPlay?.assist);
-      if (maker) {
-        const l = line(maker, p.defPlay?.maker);
-        l.tackles++;
-        for (const e of defEventsOf(p)) {
-          if (e === 'sack') l.sacks++;
-          else if (e === 'tfl') l.tfl++;
-          else if (e === 'int') l.ints++;
-          else if (e === 'ff') l.ff++;
-          else if (e === 'fr') l.fr++;
-          else if (e === 'pbu') l.pbu++;
-        }
-      }
-      if (assist && assist !== maker) line(assist, p.defPlay?.assist).assists++;
+      creditTackles(p);
       continue;
     }
     if (p.odk !== 'O') continue;

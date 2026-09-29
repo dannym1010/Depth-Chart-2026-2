@@ -98,7 +98,7 @@ const PlayersCard: React.FC<{
   const [showAll, setShowAll] = useState(false);
   const total = side === 'offense' ? stats.offSnaps : stats.defSnaps;
   const rows = useMemo(() => {
-    const list = stats.players.filter((p) => (side === 'offense' ? p.offSnaps || p.carries || p.targets || p.passes : p.defSnaps || p.tackles || p.assists));
+    const list = stats.players.filter((p) => (side === 'offense' ? p.offSnaps || p.carries || p.targets || p.passes : p.defSnaps || p.tackles || p.assists || p.stTackles));
     const touches = (p: PlayerFilmLine) => (side === 'offense' ? p.carries + p.targets : p.tackles + p.assists);
     const yards = (p: PlayerFilmLine) => p.rushYds + p.recYds;
     const snaps = (p: PlayerFilmLine) => (side === 'offense' ? p.offSnaps : p.defSnaps);
@@ -172,6 +172,7 @@ const PlayersCard: React.FC<{
                     <th className="py-1.5 px-1.5 font-black text-right" title="Yards per play the offense gained while he was on the field">Yds / snap</th>
                     <th className={th} onClick={() => setSort('touches')}>Tackles{sort === 'touches' ? ' ▾' : ''}</th>
                     <th className="py-1.5 px-1.5 font-black text-right">Ast</th>
+                    <th className="py-1.5 px-1.5 font-black text-right" title="Special teams tackles and assists (included in Tkl and Ast)">ST</th>
                     <th className="py-1.5 px-1.5 font-black text-right">Sack</th>
                     <th className="py-1.5 px-1.5 font-black text-right">TFL</th>
                     <th className="py-1.5 px-1.5 font-black text-right">INT</th>
@@ -229,6 +230,7 @@ const PlayersCard: React.FC<{
                         <td className="py-1.5 px-1.5 text-right text-slate-800 dark:text-slate-200">{p.defSnaps ? p.yardsAllowedPerSnap : '–'}</td>
                         <td className="py-1.5 px-1.5 text-right font-bold text-slate-900 dark:text-white">{p.tackles || '–'}</td>
                         <td className="py-1.5 px-1.5 text-right text-slate-800 dark:text-slate-200">{p.assists || '–'}</td>
+                        <td className="py-1.5 px-1.5 text-right text-slate-800 dark:text-slate-200">{p.stTackles || '–'}</td>
                         <td className="py-1.5 px-1.5 text-right text-slate-800 dark:text-slate-200">{p.sacks || '–'}</td>
                         <td className="py-1.5 px-1.5 text-right text-slate-800 dark:text-slate-200">{p.tfl || '–'}</td>
                         <td className="py-1.5 px-1.5 text-right text-slate-800 dark:text-slate-200">{p.ints || '–'}</td>

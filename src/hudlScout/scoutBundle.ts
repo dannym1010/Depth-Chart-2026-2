@@ -220,10 +220,11 @@ function keepCoachWork(old: Play, fresh: Play): Play {
   if (!fresh.passer && old.passer) next.passer = old.passer;
   if (!fresh.receiver && old.receiver) next.receiver = old.receiver;
   if (!fresh.carrierOrTarget && old.carrierOrTarget) next.carrierOrTarget = old.carrierOrTarget;
-  if (old.defPlay && (old.defPlay.maker || old.defPlay.assist || old.defPlay.events?.length)) {
+  if (old.defPlay && (old.defPlay.maker || old.defPlay.assist || old.defPlay.assists?.length || old.defPlay.events?.length)) {
+    const assists = old.defPlay.assists?.length ? old.defPlay.assists : undefined;
     next.defPlay = {
       maker: old.defPlay.maker || fresh.defPlay?.maker,
-      assist: old.defPlay.assist || fresh.defPlay?.assist,
+      ...(assists ? { assists } : { assist: old.defPlay.assist || fresh.defPlay?.assist }),
       events: old.defPlay.events?.length ? old.defPlay.events : fresh.defPlay?.events,
     };
   }

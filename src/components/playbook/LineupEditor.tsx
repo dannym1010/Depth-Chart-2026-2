@@ -1,7 +1,8 @@
 import React from 'react';
 import { RotateCcw, Users } from 'lucide-react';
 import type { FilmPlayerRef, RosterPlayer } from '../../types';
-import { BallRole, DEF_EVENTS, FilmLineup, jerseyOf, rosterLabel } from '../../utils/filmLineup';
+import { X } from 'lucide-react';
+import { BallRole, DEF_EVENTS, FilmLineup, defAssists, jerseyOf, rosterLabel } from '../../utils/filmLineup';
 import type { DefPlay } from '../../hudlScout/types/football';
 
 const UNIT_LABEL: Record<string, string> = { black: 'Black · 1s', gold: 'Gold · 2s', blue: 'Blue · 3s' };
@@ -20,11 +21,20 @@ export const LineupEditor: React.FC<{
   /** Who ran, threw and caught it (from Hudl, or picked here). */
   ball?: { rusher?: string; passer?: string; receiver?: string };
   onSetBall?: (role: BallRole, label: string) => void;
-  /** Defense: who made the play, the assist, and sack / TFL / INT / FF / FR / PBU. */
+  /** Defense and special teams: who made the tackle, the assists, and sack / TFL / INT / FF / FR / PBU. */
   defPlay?: DefPlay;
   onSetDefPlay?: (patch: Partial<DefPlay>) => void;
-}> = ({ lineup, unit, weekLabel, roster, canEdit, onSetSub, ball, onSetBall, defPlay, onSetDefPlay }) => {
-  if (!lineup) return <p className="text-xs text-slate-500 dark:text-slate-400">Kicks and timeouts have no lineup here.</p>;
+  /** A kicking play: tackles only (special teams have no depth-chart lineup here). */
+  kick?: boolean;
+}> = ({ lineup, unit, weekLabel, roster, canEdit, onSetSub, ball, onSetBall, defPlay, onSetDefPlay, kick }) => {
+  if (kick || !lineup) {
+    const sortedAll = [...roster].sort((a, b) => (Number(a.num) || 999) - (Number(b.num) || 999));
+    return kick && onSetDefPlay ? (
+      <DefPicker lineup={null} roster={sortedAll} defPlay={defPlay || {}} canEdit={canEdit} onSetDefPlay={onSetDefPlay} kick />
+    ) : (
+      <p className="text-xs text-slate-500 dark:text-slate-400">Timeouts and penalties have no lineup here.</p>
+    );
+  }
   if (!lineup.slots.length) {
     return (
       <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -166,14 +176,15 @@ const BallPicker: React.FC<{
 
 /** A player picker: players on the field for the play first, then everyone. */
 const PlayerSelect: React.FC<{
-  lineup: FilmLineup;
+  lineup: FilmLineup | null;
   roster: RosterPlayer[];
   value: string;
   canEdit: boolean;
   label: string;
   onChange: (label: string) => void;
-}> = ({ lineup, roster, value, canEdit, label, onChange }) => {
-  const onField = new Set(lineup.slots.map((s) => String(s.player?.num || '')).filter(Boolean));
+  placeholder?: string;
+}> = ({ lineup, roster, value, canEdit, label, onChange, placeholder = '—' }) => {
+  const onField = new Set((lineup?.slots || []).map((s) => String(s.player?.num || '')).filter(Boolean));
   const fieldPlayers = roster.filter((r) => onField.has(String(r.num)));
   const others = roster.filter((r) => !onField.has(String(r.num)));
   const num = jerseyOf(value);
@@ -189,7 +200,7 @@ const PlayerSelect: React.FC<{
       className="h-8 max-w-[170px] rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 text-xs font-bold text-slate-900 dark:text-white px-1"
       aria-label={`${label} on this play`}
     >
-      <option value="">—</option>
+      <option value="">{placeholder}</option>
       {num && !known && <option value={num}>{value}</option>}
       {fieldPlayers.length > 0 && (
         <optgroup label="On the field">
@@ -211,28 +222,52 @@ const PlayerSelect: React.FC<{
   );
 };
 
-/** Defense: who made the play (tackle / sack / INT), the assist, and what happened. */
+/** Defense and special teams: who made the tackle, everyone who assisted, and what happened. */
 const DefPicker: React.FC<{
-  lineup: FilmLineup;
+  lineup: FilmLineup | null;
   roster: RosterPlayer[];
   defPlay: DefPlay;
   canEdit: boolean;
   onSetDefPlay: (patch: Partial<DefPlay>) => void;
-}> = ({ lineup, roster, defPlay, canEdit, onSetDefPlay }) => {
+  kick?: boolean;
+}> = ({ lineup, roster, defPlay, canEdit, onSetDefPlay, kick }) => {
   const events = defPlay.events || [];
+  const assists = defAssists(defPlay);
+  // Kick coverage: only the plays that happen on a kick.
+  const eventChoices = kick ? DEF_EVENTS.filter((e) => e.id === 'ff' || e.id === 'fr') : DEF_EVENTS;
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 px-2 py-1.5">
-      <span className="text-[11px] font-black uppercase tracking-wide text-slate-600 dark:text-slate-300">Made the play</span>
+      <span className="text-[11px] font-black uppercase tracking-wide text-slate-600 dark:text-slate-300">{kick ? 'Special teams tackle' : 'Made the play'}</span>
       <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-300">
         Tackle
-        <PlayerSelect lineup={lineup} roster={roster} value={defPlay.maker || ''} canEdit={canEdit} label="Tackle" onChange={(v) => onSetDefPlay({ maker: v })} />
+        <PlayerSelect lineup={lineup} roster={roster} value={defPlay.maker || ''} canEdit={canEdit} label="Tackle" onChange={(v) => onSetDefPlay({ maker: v, ...(assists.length ? { assists: assists.filter((a) => jerseyOf(a) !== jerseyOf(v)) } : {}) })} />
       </label>
-      <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-300">
-        Assist
-        <PlayerSelect lineup={lineup} roster={roster} value={defPlay.assist || ''} canEdit={canEdit} label="Assist" onChange={(v) => onSetDefPlay({ assist: v })} />
-      </label>
+      <span className="flex flex-wrap items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+        Assists
+        {assists.map((a) => (
+          <span key={a} className="inline-flex items-center gap-1 h-8 pl-2 pr-1 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 text-xs text-slate-900 dark:text-white">
+            {a}
+            {canEdit && (
+              <button type="button" onClick={() => onSetDefPlay({ assists: assists.filter((x) => x !== a) })} aria-label={`Remove assist ${a}`} className="p-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </span>
+        ))}
+        {canEdit && (
+          <PlayerSelect
+            lineup={lineup}
+            roster={roster.filter((r) => String(r.num) !== jerseyOf(defPlay.maker) && !assists.some((a) => jerseyOf(a) === String(r.num)))}
+            value=""
+            canEdit={canEdit}
+            label="Add an assist"
+            placeholder={assists.length ? '+ another' : '+ add'}
+            onChange={(v) => v && onSetDefPlay({ assists: [...assists, v] })}
+          />
+        )}
+      </span>
       <span className="flex flex-wrap gap-1">
-        {DEF_EVENTS.map((e) => {
+        {eventChoices.map((e) => {
           const on = events.includes(e.id);
           return (
             <button

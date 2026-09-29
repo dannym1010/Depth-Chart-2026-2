@@ -15,6 +15,9 @@ export type DefEvent = 'sack' | 'tfl' | 'int' | 'ff' | 'fr' | 'pbu';
 export interface DefPlay {
   /** "#22 Jaxson Pestone" */
   maker?: string;
+  /** Everyone credited with an assist ("#22 Jaxson Pestone", ...). */
+  assists?: string[];
+  /** Older single assist (still read; replaced by assists when a coach edits the play). */
   assist?: string;
   events?: DefEvent[];
 }
