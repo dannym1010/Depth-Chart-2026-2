@@ -3430,6 +3430,39 @@ describe('play log columns: sort and filter any column', () => {
   });
 });
 
+describe('every save reaches the cloud', () => {
+  it('each save name used in the app sends something to the other coaches (a copied week, a duplicated formation...)', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const { cloudModulesForScope } = await import('../services/storageService.ts');
+    const root = path.resolve(process.cwd(), 'src');
+    const files: string[] = [];
+    const walk = (d: string) => fs.readdirSync(d, { withFileTypes: true }).forEach((e) => {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (/\.tsx?$/.test(e.name) && !/\.test\.ts$/.test(e.name)) files.push(p);
+    });
+    walk(root);
+    const scopes = new Set<string>();
+    for (const f of files) {
+      const src = fs.readFileSync(f, 'utf8');
+      for (const m of src.matchAll(/\b(?:saveStateToStorage|flushAndSaveStateToStorage|debouncedSave)\(\s*['"`]([a-z_+]+)['"`]/g)) scopes.add(m[1]);
+      // Formation edits pass their save name as { scope: '...' } to updateCurrentWeekFormations.
+      if (/useFormationActions|useDepthChartDragDrop/.test(f)) for (const m of src.matchAll(/scope:\s*['"`]([a-z_]+)['"`]/g)) scopes.add(m[1]);
+    }
+    assert.ok(scopes.size > 20, `found ${scopes.size} save names`);
+    // Saves that are meant to stay on this device (a flush of what's waiting, a personal setting,
+    // or data that has its own cloud path).
+    const localOnly = new Set(['focusout', 'beforeunload', 'immediate', 'idle_timeout_update', 'force_idle_logout_flush', 'scouting_update']);
+    const silent = [...scopes].filter((s) => !localOnly.has(s)).filter((s) => {
+      const mods = cloudModulesForScope(s);
+      return Array.isArray(mods) && mods.length === 0;
+    });
+    assert.deepEqual(silent, [], `these saves never reach the cloud: ${silent.join(', ')}`);
+    assert.deepEqual(cloudModulesForScope('copy_week'), ['week', 'formations', 'call_sheet', 'wristband']);
+  });
+});
+
 describe('strong side / weak side (formation side letter vs play direction)', () => {
   const mk = (n: number, formation: string, runSide: string, extra: any = {}) =>
     ({ id: `p${n}`, playNumber: n, odk: 'O', down: 1, distance: 10, formation, runSide, direction: runSide === 'M' ? 'Middle / Inside' : runSide === 'L' ? 'Left' : 'Right', playType: 'RUN', gainLoss: 4, isEfficient: true, ...extra }) as any;

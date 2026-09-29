@@ -623,6 +623,8 @@ export function useFormationActions({
     const newFormId = `form_${Date.now()}`;
     const dc = { ...currentDepthChart };
     const sc = { ...currentScrimmageChart };
+    // The copy's player spots go to the cloud with it (other coaches would get the copy empty otherwise).
+    const copiedPosIds: string[] = [];
 
     const clonedForm: FormationBoard = {
       id: newFormId,
@@ -636,7 +638,10 @@ export function useFormationActions({
         positions: row.positions.map((pos, pIdx) => {
           if (pos) {
             const newPosId = `${newFormId}-${pos.name}-${Date.now()}_${pIdx}`;
-            if (dc[pos.id]) dc[newPosId] = deepClone(dc[pos.id]);
+            if (dc[pos.id]) {
+              dc[newPosId] = deepClone(dc[pos.id]);
+              copiedPosIds.push(newPosId);
+            }
             if (sc[pos.id]) sc[newPosId] = deepClone(sc[pos.id]);
             return { id: newPosId, name: pos.name };
           }
@@ -653,6 +658,7 @@ export function useFormationActions({
       scope: 'formation_duplicate',
       formId: newFormId,
       modifiedFormIds: [newFormId],
+      modifiedPosIds: copiedPosIds,
       activeUnit: targetUnit,
     });
     setSelectedFormationId(newFormId);

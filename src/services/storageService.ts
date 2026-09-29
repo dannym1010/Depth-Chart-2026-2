@@ -479,7 +479,10 @@ export function cloudModulesForScope(scope: string = ''): Array<
   if (s === 'force') return undefined;
   if (isBoardPatchScope(s)) return ['week'];
   if (s === 'focusout' || s === 'beforeunload' || s === 'immediate' || s === 'all') return [];
-  if (s.startsWith('practice')) return ['practice'];
+  // A copied week replaces the whole week: depth chart, formations, wristband and call sheet.
+  if (s === 'copy_week') return ['week', 'formations', 'call_sheet', 'wristband'];
+  if (s === 'restore_default_formations') return ['week', 'formations'];
+  if (s.startsWith('practice') || s.includes('practice_plan') || s === 'remove_station') return ['practice'];
   if (s.startsWith('schedule')) return ['schedule'];
   if (s === 'drills' || s.startsWith('practice_drill')) return ['drills'];
   if (s.includes('call_sheet') || s.includes('callsheet')) return ['call_sheet'];

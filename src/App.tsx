@@ -7181,7 +7181,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onImportCSVClick={() => drillCsvInputRef.current?.click()}
                 onExportJSON={handleExportDrillsJSON}
                 onImportJSONClick={() => drillJsonInputRef.current?.click()}
-                onForceSyncCloud={() => saveStateToStorage('all')}
+                onForceSyncCloud={() => saveStateToStorage('drills')}
                 onReplaceLibrary={(next) => updateCascadingDrillsAndSave(() => next)}
                 onResetDefaults={() => {
                   if (confirm('Reset Drill Library to default categories?')) {
