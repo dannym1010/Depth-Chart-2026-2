@@ -4049,6 +4049,16 @@ export default function App() {
     () => getSeasonWeekList(seasonConfig).map((w) => ({ key: w.key, label: w.label || formatWeekLabel(w.key, seasonConfig) })),
     [seasonConfig]
   );
+  // Film Room library: every week's opponent and scouting film for the team on screen.
+  const filmWeeks = useMemo(
+    () =>
+      seasonWeekOptions.map((w) => {
+        const st = resolveWeekState(weeklyData, activeTeamId, w.key);
+        return { key: w.key, label: w.label, opponent: st?.opponent || st?.scouting?.opponent || '', hudlScout: st?.scouting?.hudlScout };
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [seasonWeekOptions, weeklyData, activeTeamId]
+  );
   const gradeWeekKey = getPreviousWeekKey(currentWeek, seasonWeekOptions.map((w) => w.key));
   // Other coaches' PFF grades for the graded week arrive live.
   useEffect(() => {
@@ -6850,6 +6860,11 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 roster={activeTeamRoster}
                 weekBoards={weekBoardsFor}
                 weekOptions={seasonWeekOptions}
+                filmWeeks={filmWeeks}
+                onSelectWeek={(wk) => {
+                  changeCurrentWeek(wk);
+                  ensureWeekExists(wk);
+                }}
                 onOpenHudlGame={({ target, gameId }) => {
                   setHudlFocusGameId(gameId);
                   setHudlView({ target, tab: 'plays' });

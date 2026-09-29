@@ -3,7 +3,7 @@
 // whole staff sees. The play log under the video is Hudl Scout's own: sorting it sets the play order, and
 // tags changed here are the same tags Hudl Scout shows.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, Film, GripHorizontal, Link2, MessageSquare, RefreshCw, Unlink } from 'lucide-react';
+import { ExternalLink, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink } from 'lucide-react';
 import { PlaysTable } from '../hudlScout/components/PlaysTable';
 import { bundleFromSaved, type ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play, TeamUnit } from '../hudlScout/types/football';
@@ -17,6 +17,7 @@ import { newPlayEntry } from '../utils/playbookImport';
 import { clipMatchMode, matchClipsToPlays } from './clipMatching';
 import { FilmPlayer, type PlayerApi } from './FilmPlayer';
 import { LinkFilmDialog } from './LinkFilmDialog';
+import { FilmLibrary, type LibraryGame, type LibraryWeek } from './FilmLibrary';
 import { PlayNotes } from './PlayNotes';
 import { playTitle } from './playText';
 import { filmGameKey } from './sharedMerge';
@@ -46,6 +47,10 @@ interface FilmRoomViewProps {
   roster?: RosterPlayer[];
   weekBoards?: (week: string) => WeekBoards;
   weekOptions?: { key: string; label: string }[];
+  /** Every week of the season: its opponent and scouting film (for the film library). */
+  filmWeeks?: { key: string; label: string; opponent: string; hudlScout?: any }[];
+  /** Switch the app to a week (opening another week's scouting film). */
+  onSelectWeek?: (week: string) => void;
 }
 
 type OdkFilter = 'all' | 'O' | 'D' | 'K';
@@ -55,6 +60,7 @@ const newId = () => `fn_${Date.now().toString(36)}${Math.random().toString(36).s
 export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   teamId, teamName, currentWeek, weekLabel, opponentName, opponentScout, ownTeamScout, authorName, onOpenHudlGame,
   onUpdateOwnTeamScout, onUpdateScouting, playDatabase, onUpdatePlayDatabase, roster, weekBoards, weekOptions,
+  filmWeeks, onSelectWeek,
 }) => {
   const own = useMemo(() => bundleFromSaved(ownTeamScout, teamName), [ownTeamScout, teamName]);
   const opp = useMemo(() => bundleFromSaved(opponentScout, opponentName || 'Opponent'), [opponentScout, opponentName]);
@@ -66,6 +72,42 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     ];
     return list;
   }, [own.games, opp.games, currentWeek]);
+
+  // The film library: every week of the season with our game and that week's scouting film.
+  const library = useMemo(() => {
+    const weeks = filmWeeks || [];
+    const weekKeys = new Set(weeks.map((w) => w.key));
+    const ownByWeek = new Map<string, LibraryGame[]>();
+    const others: LibraryGame[] = [];
+    for (const g of own.games) {
+      const lg: LibraryGame = { key: filmGameKey('own', g.id), source: 'own', gameId: g.id, name: g.name, week: g.week, plays: g.playCount || 0 };
+      if (g.week && weekKeys.has(g.week)) ownByWeek.set(g.week, [...(ownByWeek.get(g.week) || []), lg]);
+      else others.push(lg);
+    }
+    // Scouting games of each week (as Hudl Scout lists them; one unnamed game when the file had no list).
+    const scoutGamesOf = (saved: any, opponent: string) => {
+      if (Array.isArray(saved?.games) && saved.games.length) return saved.games as { id: string; name: string; playCount?: number }[];
+      const n = Array.isArray(saved?.plays) ? saved.plays.length : 0;
+      return n ? [{ id: 'game-1', name: saved?.datasetName || opponent || 'Scouting film', playCount: n }] : [];
+    };
+    const libWeeks: LibraryWeek[] = weeks.map((w) => ({
+      key: w.key,
+      label: w.label,
+      opponent: w.opponent,
+      games: [
+        ...(ownByWeek.get(w.key) || []),
+        ...scoutGamesOf(w.key === currentWeek ? opponentScout : w.hudlScout, w.opponent).map((g) => ({
+          key: filmGameKey('opponent', g.id, w.key),
+          source: 'opponent' as const,
+          gameId: g.id,
+          name: g.name,
+          week: w.key,
+          plays: Number(g.playCount) || 0,
+        })),
+      ],
+    }));
+    return { weeks: libWeeks, others };
+  }, [filmWeeks, own.games, opponentScout, currentWeek]);
 
   const pickKey = `footballFilmroomGame_${teamId}`;
   const [gameKey, setGameKey] = useState<string | undefined>(() => safeJSONParse<string | null>(pickKey, null) || undefined);
@@ -165,6 +207,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
 
   const apiRef = useRef<PlayerApi | null>(null);
   const [linkOpen, setLinkOpen] = useState(false);
+  const [libraryDesk, setLibraryDesk] = useState(() => safeJSONParse<boolean>('footballFilmroomLibrary', true));
+  const [libraryPhone, setLibraryPhone] = useState(false);
   const [mobileTab, setMobileTab] = useState<'plays' | 'notes'>('plays');
 
   // Computer layout: the video, then a bar to drag, then the play log in its own scroll area.
@@ -327,6 +371,14 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       toolbarStart={odkChips}
     />
   );
+  const openFromLibrary = (g: LibraryGame) => {
+    if (g.source === 'opponent' && g.week && g.week !== currentWeek) onSelectWeek?.(g.week);
+    setGameKey(g.key);
+    setLibraryPhone(false);
+  };
+  const libraryEl = (onClose: () => void) => (
+    <FilmLibrary weeks={library.weeks} otherGames={library.others} currentWeek={currentWeek} selectedKey={game?.key} onOpen={openFromLibrary} onClose={onClose} />
+  );
   const notesEl = (
     <PlayNotes
       play={play}
@@ -342,28 +394,30 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     <div className="flex flex-col gap-2 lg:h-[calc(100dvh-6.5rem)]">
       {/* Game and film */}
       <div className={`${panel} px-2.5 py-1.5 flex flex-wrap items-center gap-2 shrink-0`}>
-        <Film size={18} className="text-indigo-500 shrink-0" />
-        <select
-          value={game?.key}
-          onChange={(e) => setGameKey(e.target.value)}
-          className="min-w-[12rem] flex-1 sm:flex-none sm:max-w-xs h-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 text-sm font-bold text-slate-900 dark:text-white"
-          aria-label="Game"
+        <button
+          onClick={() => {
+            if (isDesktop) {
+              safeJSONSet('footballFilmroomLibrary', !libraryDesk);
+              setLibraryDesk(!libraryDesk);
+            } else setLibraryPhone(true);
+          }}
+          aria-expanded={isDesktop ? libraryDesk : libraryPhone}
+          title="Film library: every game of the season, by week"
+          className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-bold shrink-0 ${
+            isDesktop && libraryDesk ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200'
+          }`}
         >
-          {ownGames.length > 0 && (
-            <optgroup label={teamName}>
-              {ownGames.map((g) => (
-                <option key={g.key} value={g.key}>{g.name}</option>
-              ))}
-            </optgroup>
-          )}
-          {oppGames.length > 0 && (
-            <optgroup label={`${weekLabel}${opponentName ? ` · ${opponentName}` : ''} (scouting)`}>
-              {oppGames.map((g) => (
-                <option key={g.key} value={g.key}>{g.name}</option>
-              ))}
-            </optgroup>
-          )}
-        </select>
+          <LibraryIcon size={15} /> Games
+        </button>
+        {game && (
+          <div className="min-w-0 flex flex-col leading-tight mr-1">
+            <span className="text-sm font-black text-slate-900 dark:text-white truncate">{game.name}</span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+              {game.source === 'own' ? 'Our game' : 'Scouting'}
+              {game.week ? ` · ${weekOptions?.find((w) => w.key === game.week)?.label || game.week}` : ''}
+            </span>
+          </div>
+        )}
 
         <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-full">
           {film.status === 'ready'
@@ -464,6 +518,12 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         </div>
       </div>
 
+      <div className="flex flex-col lg:flex-row gap-2 lg:flex-1 lg:min-h-0">
+      {isDesktop && libraryDesk && <aside className={`${panel} w-64 xl:w-72 shrink-0 min-h-0`}>{libraryEl(() => {
+        safeJSONSet('footballFilmroomLibrary', false);
+        setLibraryDesk(false);
+      })}</aside>}
+      <div className="flex flex-col gap-2 flex-1 min-w-0 lg:min-h-0">
       {/* Phones held upright: the video stays pinned under the app header while the plays scroll under it. */}
       <div className={`grid gap-3 shrink-0 max-lg:portrait:sticky max-lg:portrait:top-[62px] max-lg:portrait:z-20 max-lg:portrait:rounded-xl max-lg:portrait:bg-black ${showNotes ? 'lg:grid-cols-[minmax(0,1fr)_20rem]' : ''}`}>
         <FilmPlayer
@@ -528,6 +588,18 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       <div className={`flex-col gap-2 lg:flex-1 lg:min-h-0 ${mobileTab === 'plays' ? 'flex' : 'hidden lg:flex'}`}>
         {playLog}
       </div>
+
+      </div>
+      </div>
+
+      {/* Phones and tablets: the library slides in from the side. */}
+      {!isDesktop && libraryPhone && (
+        <div className="fixed inset-0 z-50 bg-black/50" onClick={() => setLibraryPhone(false)}>
+          <div className="absolute inset-y-0 left-0 w-[85%] max-w-sm bg-white dark:bg-slate-900 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            {libraryEl(() => setLibraryPhone(false))}
+          </div>
+        </div>
+      )}
 
       {linkOpen && game && (
         <LinkFilmDialog
