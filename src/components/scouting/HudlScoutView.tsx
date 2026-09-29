@@ -23,7 +23,7 @@ import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { autoTagFromHudl, setPlaysFormation, tagPlays } from '../../hudlScout/utils/playTags';
 import { newPlayEntry } from '../../utils/playbookImport';
-import { hudlExportRows } from '../../hudlScout/utils/hudlExport';
+import { hudlExportCsv } from '../../hudlScout/utils/hudlExport';
 import { CallResultsCard } from '../playbook/CallResultsCard';
 import { OwnTeamReport } from '../playbook/OwnTeamReport';
 import type { FilmPlayerRef, RosterPlayer } from '../../types';
@@ -486,28 +486,23 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     if (selectedGameId === gameId) setSelectedGameId('all');
   };
 
-  // Play log -> spreadsheet to import back into Hudl (one sheet per game; rows in play order).
+  // Play log -> CSV to upload back into Hudl: one file per game (Hudl takes one game per upload), rows in play order.
   const handleExportForHudl = async () => {
     const games = selectedGameId === 'all' ? bundle.games : bundle.games.filter((g) => g.id === selectedGameId);
-    if (!games.length) return;
-    const XLSX = await import('xlsx');
-    const wb = XLSX.utils.book_new();
-    const usedNames = new Set<string>();
     for (const game of games) {
       const gamePlays = bundle.plays.filter((p) => (p.gameId ? p.gameId === game.id : bundle.games[0]?.id === game.id));
       if (!gamePlays.length) continue;
-      const { headers, rows } = hudlExportRows(gamePlays);
-      const ws = XLSX.utils.json_to_sheet(rows, { header: headers });
-      // Sheet names: 31 characters, no : \ / ? * [ ], unique.
-      let name = String(game.name || 'Game').replace(/[:\\/?*[\]]/g, ' ').slice(0, 28).trim() || 'Game';
-      let n = 2;
-      while (usedNames.has(name)) name = `${name.slice(0, 26)} ${n++}`;
-      usedNames.add(name);
-      XLSX.utils.book_append_sheet(wb, ws, name);
+      const url = URL.createObjectURL(new Blob([hudlExportCsv(gamePlays)], { type: 'text/csv;charset=utf-8' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${String(game.name || 'Game').replace(/[\\/:*?"<>|]/g, ' ').trim()} - Hudl breakdown.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      // Browsers drop downloads started too close together.
+      if (games.length > 1) await new Promise((r) => setTimeout(r, 400));
     }
-    if (!wb.SheetNames.length) return;
-    const base = games.length === 1 ? games[0].name : `${scoutTarget === 'own' ? 'Our team' : datasetName} - all games`;
-    XLSX.writeFile(wb, `${String(base || 'Play log').replace(/[\\/:*?"<>|]/g, ' ').trim()} - Hudl breakdown.xlsx`);
   };
 
   const handleClearUploads = () => {

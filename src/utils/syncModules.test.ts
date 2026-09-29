@@ -3376,6 +3376,28 @@ describe('export the play log for Hudl', () => {
     assert.equal(r.TACKLER_Jersey, '22');
     assert.equal(r['DEF EVENTS'], 'SACK');
   });
+  it('the CSV has no quotes, semicolons or commas inside values (Hudl\'s uploader gets stuck on them)', async () => {
+    const { parseCsvRows } = await import('../hudlScout/utils/csvParser.ts');
+    const { hudlExportCsv, hudlCell } = await import('../hudlScout/utils/hudlExport.ts');
+    assert.equal(hudlCell('Rush, TD'), 'Rush TD');
+    assert.equal(hudlCell('say "hi"\nthere'), 'say hi there');
+    assert.equal(hudlCell(-3), -3);
+    const plays = [
+      { playNumber: 14, odk: 'O', quarter: 2, down: 3, distance: 1, rawYardLine: '-1', hash: 'L', playType: 'RUN', result: 'Rush, TD', gainLoss: 1, formation: '21 R', direction: 'Left', unit: 'gold', rusher: '#13 Landon Veto', subs: { QB: { num: '7', name: 'Jayden Silva' }, RB: { num: '22', name: 'Jaxson Pestone' } } },
+      { playNumber: 13, odk: 'O', quarter: 2, down: 1, distance: 10, rawYardLine: '-40', hash: 'M', playType: 'RUN', result: 'Rush', gainLoss: 5, hudlRow: { 'PLAY #': '13', RESULT: '"Rush"', NOTES: 'good; fast, hard' } },
+    ] as any[];
+    const csv = hudlExportCsv(plays);
+    const lines = csv.trimEnd().split('\r\n');
+    assert.ok(!/[";]/.test(csv));
+    const width = lines[0].split(',').length;
+    assert.ok(lines.every((l) => l.split(',').length === width)); // every row lines up with the headers
+    const back = parseCsvRows(csv);
+    assert.equal(back.rows[0]['PLAY #'], '13');
+    assert.equal(back.rows[0].RESULT, 'Rush');
+    assert.equal(back.rows[0].NOTES, 'good / fast hard');
+    assert.equal(back.rows[1].RESULT, 'Rush TD');
+    assert.equal(back.rows[1].SUBS, 'QB: #7 Jayden Silva / RB: #22 Jaxson Pestone');
+  });
 });
 
 describe('film room', () => {
