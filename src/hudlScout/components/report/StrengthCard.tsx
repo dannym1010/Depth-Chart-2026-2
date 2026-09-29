@@ -77,15 +77,15 @@ export const StrengthCard: React.FC<{ plays: Play[]; voice: ReportVoice }> = ({ 
         title="Strong side / weak side"
         subtitle={
           <>
-            The side letter on the formation is the strength (<b>21 L</b> = strength left). A play in that direction went to the{' '}
+            The side letter on the formation or the tagged play is the strength (<b>21 L</b> or <b>21 L 26 DIVE</b> = strength left). A play in that direction went to the{' '}
             <b style={{ color: SIDE_COLOR.strong }}>strong side</b>, the other way is the <b style={{ color: SIDE_COLOR.weak }}>weak side</b>.
           </>
         }
       />
       {counted === 0 ? (
         <EmptyNote>
-          No plays with both a formation side (like 21 L or 21 R) and a play direction yet. Tag the formations in the play log; the
-          direction comes from Hudl's PLAY DIR.
+          No plays with both a strength side and a play direction yet. The side comes from the formation (21 L / 21 R) or the tagged play
+          call (21 L 26 DIVE); the direction comes from Hudl's PLAY DIR.
         </EmptyNote>
       ) : (
         <div className="space-y-4">

@@ -3468,6 +3468,23 @@ describe('strong side / weak side (formation side letter vs play direction)', ()
     assert.equal(r.strengthLeft, 2);
     assert.equal(r.strengthRight, 3);
 
+    // The formation is just "21": the side comes from the tagged play call ("21 L 26 DIVE").
+    const { callStrength, playFormationBase } = await import('../hudlScout/utils/strength.ts');
+    assert.equal(callStrength('21 L 26 DIVE'), 'L');
+    assert.equal(callStrength('21 R 22 DOWN'), 'R');
+    assert.equal(callStrength('21 L TWINS R Z BUBBLE'), 'L');
+    assert.equal(callStrength('32 WISHBONE R 28 SWEEP'), 'R');
+    assert.equal(callStrength('HAWK SPECIAL'), undefined);
+    assert.equal(callStrength('Rush'), undefined);
+    const tagged = [
+      mk(11, '21', 'L', { playCall: '21 L 26 DIVE' }),
+      mk(12, '21', 'R', { playCall: '21 L 26 DIVE' }),
+      mk(13, '-', 'R', { playCall: '21 R 22 DOWN', playName: '21 R 22 DOWN' }),
+      mk(14, '21', 'L', { playName: 'Rush' }),
+    ];
+    assert.deepEqual(tagged.map(playStrengthSide), ['strong', 'weak', 'strong', undefined]);
+    assert.equal(playFormationBase(tagged[2]), '21');
+
     const { sortPlays, filterPlays } = await import('../hudlScout/utils/playColumns.ts');
     assert.deepEqual(filterPlays(plays, { strength: ['Weak'] }).map((p) => p.playNumber), [3]);
     assert.deepEqual(sortPlays(plays, 'strength', true).map((p) => p.playNumber).slice(0, 3), [1, 2, 5]); // strong first, blanks last
