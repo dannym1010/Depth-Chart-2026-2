@@ -3400,6 +3400,63 @@ describe('export the play log for Hudl', () => {
   });
 });
 
+describe('play log columns: sort and filter any column', () => {
+  const mk = (n: number, extra: any = {}) => ({ id: `p${n}`, playNumber: n, odk: 'O', quarter: 1, down: 1, distance: 10, yardLine: 50, rawYardLine: '-50', hash: 'M', playType: 'RUN', formation: '-', playName: '', result: 'Rush', gainLoss: 0, direction: '', carrierOrTarget: '', isExplosive: false, isEfficient: false, motion: '', ...extra });
+  it('sorts by any column (numbers as numbers, blanks last) and filters by ticked values', async () => {
+    const { sortPlays, filterPlays, filterOptions } = await import('../hudlScout/utils/playColumns.ts');
+    const plays = [
+      mk(1, { formation: '21 R', gainLoss: 12, result: 'Rush, TD', isExplosive: true }),
+      mk(2, { formation: '-', gainLoss: -3, down: 3, distance: 2, odk: 'D' }),
+      mk(3, { formation: '11 R', gainLoss: 4, down: 2, distance: 10 }),
+      mk(10, { formation: '21 R', gainLoss: 4, odk: 'K', down: 0 }),
+    ] as any[];
+    assert.deepEqual(sortPlays(plays, 'gainLoss', false).map((p) => p.playNumber), [1, 3, 10, 2]);
+    assert.deepEqual(sortPlays(plays, 'formation', true).map((p) => p.playNumber), [3, 1, 10, 2]); // "-" (blank) last
+    assert.deepEqual(sortPlays(plays, 'downDist', true).map((p) => p.playNumber), [1, 3, 2, 10]); // kicks last
+    assert.deepEqual(sortPlays(plays, 'playNumber', false).map((p) => p.playNumber), [10, 3, 2, 1]);
+    assert.deepEqual(filterPlays(plays, { formation: ['21 R'] }).map((p) => p.playNumber), [1, 10]);
+    assert.deepEqual(filterPlays(plays, { formation: ['21 R'], odk: ['O'] }).map((p) => p.playNumber), [1]);
+    assert.deepEqual(filterPlays(plays, { flags: ['Explosive'] }).map((p) => p.playNumber), [1]);
+    // A column's list shows what the other filters leave, with counts; blanks last.
+    assert.deepEqual(filterOptions(filterPlays(plays, { odk: ['O'] }, 'formation'), 'formation'), [
+      { value: '11 R', count: 1 },
+      { value: '21 R', count: 1 },
+    ]);
+    assert.equal(filterOptions(plays, 'formation').at(-1)!.value, '(blank)');
+  });
+});
+
+describe('tackles on defense and special teams, any number of assists', () => {
+  it('keeps several assists (no one twice, not the tackler), reads the old single assist, and counts them', async () => {
+    const { setPlayDefPlay, defAssists } = await import('./filmLineup.ts');
+    const plays = [
+      { id: 'd', playNumber: 1, odk: 'D', defPlay: { maker: '#22 Jax', assist: '#5 Old' } },
+      { id: 'k', playNumber: 2, odk: 'K', result: 'Return, Fumble', gainLoss: 0, playType: 'SPECIAL' },
+    ] as any[];
+    assert.deepEqual(defAssists(plays[0].defPlay), ['#5 Old']);
+    let next = setPlayDefPlay(plays, 'd', { assists: ['#5 Old', '#7 Sam', '#7 Sam', '#22 Jax', ''] });
+    assert.deepEqual(next[0].defPlay, { maker: '#22 Jax', assists: ['#5 Old', '#7 Sam'] });
+    next = setPlayDefPlay(next, 'k', { maker: '#9 Kick', assists: ['#3 Cover', '#4 Cover'] });
+    assert.deepEqual(defAssists(next[1].defPlay), ['#3 Cover', '#4 Cover']);
+
+    const { playerFilmStats } = await import('./playerFilmStats.ts');
+    const stats = playerFilmStats(next, () => null, []);
+    const by = (n: string) => stats.players.find((p: any) => p.num === n) as any;
+    assert.equal(by('22').tackles, 1);
+    assert.equal(by('7').assists, 1);
+    assert.equal(by('9').tackles, 1);
+    assert.equal(by('9').stTackles, 1);
+    assert.equal(by('9').ff || 0, 0); // a kick's result text alone doesn't credit a fumble
+    assert.equal(by('3').assists, 1);
+    assert.equal(by('4').stTackles, 1);
+
+    const { hudlExportRow } = await import('../hudlScout/utils/hudlExport.ts');
+    const row = hudlExportRow({ ...next[0], quarter: 1, down: 1, distance: 10, playType: 'RUN', result: '', gainLoss: 0 });
+    assert.equal(row.ASSIST_Jersey, '5 / 7');
+    assert.equal(row.ASSIST_Name, 'Old / Sam');
+  });
+});
+
 describe('film room', () => {
   it('matches clips to plays by the number in the file name, else in order', async () => {
     const { matchClipsToPlays, playNumberInName } = await import('../filmroom/clipMatching.ts');

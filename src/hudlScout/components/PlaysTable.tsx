@@ -5,9 +5,11 @@ import { isRecordedMotion } from '../utils/csvParser';
 import { callUsage, isNumberFormation, isTaggablePlay, restOfSeriesIds, tidyFormation } from '../utils/playTags';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { CallButton, FormationEditor, TagPlaysPanel } from '../../components/playbook/CallPicker';
-import { Search, ChevronDown, ChevronUp, ChevronRight, Zap, Flame, CheckCircle2, ListChecks, Users } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, ChevronRight, Zap, Flame, CheckCircle2, ListChecks, Users, Filter, X } from 'lucide-react';
+import { PLAY_COLUMNS, columnByKey, filterOptions, filterPlays, sortPlays, type PlayColumnKey, type PlayFilters } from '../utils/playColumns';
+import { ColumnFilter } from './ColumnFilter';
 import type { FilmPlayerRef, RosterPlayer } from '../../types';
-import type { FilmLineup } from '../../utils/filmLineup';
+import { defAssists, type FilmLineup } from '../../utils/filmLineup';
 import { LineupEditor } from '../../components/playbook/LineupEditor';
 
 interface PlaysTableProps {
@@ -86,6 +88,8 @@ const UnitPicker: React.FC<{
 export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge }) => {
   const [openPlay, setOpenPlay] = useState<string | null>(null);
   const canLineup = Boolean(lineupFor && roster && onSetSub);
+  // A play's panel: who was on the field (offense / defense), and tackles on kicks too.
+  const canOpen = (p: Play) => canLineup && (playIsUnitTaggable(p) || (p.odk === 'K' && Boolean(onSetDefPlay)));
   const lineupPanel = (play: Play) => {
     const { lineup, weekLabel } = lineupFor!(play);
     return (
@@ -100,6 +104,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
         onSetBall={onSetBall ? (role, label) => onSetBall(play.id, role, label) : undefined}
         defPlay={play.defPlay}
         onSetDefPlay={onSetDefPlay ? (patch) => onSetDefPlay(play.id, patch) : undefined}
+        kick={play.odk === 'K'}
       />
     );
   };
@@ -111,21 +116,35 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
   const callsTagged = taggable.filter((p) => p.playCallId).length;
   const needsTag = (p: Play) => (onSetUnit && playIsUnitTaggable(p) && !p.unit) || (canTagCalls && isTaggablePlay(p) && !p.playCallId);
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortField, setSortField] = useState<keyof Play>('playNumber');
+  const [sortKey, setSortKey] = useState<PlayColumnKey>('playNumber');
   const [sortAsc, setSortAsc] = useState(true);
+  const [filters, setFilters] = useState<PlayFilters>({});
+  const [openFilter, setOpenFilter] = useState<{ key: PlayColumnKey; anchor: HTMLElement } | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 25;
 
-  const handleSort = (field: keyof Play) => {
-    if (sortField === field) {
+  // Click a column heading to sort by it (again to reverse); its funnel filters it like Excel.
+  const handleSort = (key: PlayColumnKey) => {
+    if (sortKey === key) {
       setSortAsc(!sortAsc);
     } else {
-      setSortField(field);
+      setSortKey(key);
       setSortAsc(true);
     }
   };
+  const setColumnFilter = (key: PlayColumnKey, values: string[] | undefined) => {
+    setFilters((f) => {
+      const next = { ...f };
+      if (values) next[key] = values;
+      else delete next[key];
+      return next;
+    });
+    setPage(1);
+  };
+  const columns = PLAY_COLUMNS.filter((c) => c.key !== 'unit' || onSetUnit);
+  const activeFilters = (Object.keys(filters) as PlayColumnKey[]).filter((k) => filters[k]);
 
-  const filteredPlays = useMemo(() => {
+  const basePlays = useMemo(() => {
     let result = plays;
     if ((onSetUnit || canTagCalls) && untaggedOnly) {
       result = result.filter(needsTag);
@@ -143,28 +162,38 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
       );
     }
 
-    return [...result].sort((a, b) => {
-      // Play numbers restart each game: keep each game's plays together (games load in upload order).
-      if (sortField === 'playNumber' && (a.gameId || '') !== (b.gameId || '')) {
-        const byGame = (a.gameId || '') < (b.gameId || '') ? -1 : 1;
-        return sortAsc ? byGame : -byGame;
-      }
-      let aVal = a[sortField];
-      let bVal = b[sortField];
+    return result;
+  }, [plays, searchTerm, onSetUnit, untaggedOnly, canTagCalls]);
+  const filteredPlays = useMemo(() => sortPlays(filterPlays(basePlays, filters), sortKey, sortAsc), [basePlays, filters, sortKey, sortAsc]);
+  // A column's filter lists the values left after the other columns' filters (like Excel).
+  const optionsFor = (key: PlayColumnKey) => filterOptions(filterPlays(basePlays, filters, key), key);
 
-      if (typeof aVal === 'string') {
-        aVal = (aVal as string).toLowerCase();
-        bVal = ((bVal as string) || '').toLowerCase();
-      }
-
-      if (aVal === undefined || aVal === null) return 1;
-      if (bVal === undefined || bVal === null) return -1;
-
-      if (aVal < bVal) return sortAsc ? -1 : 1;
-      if (aVal > bVal) return sortAsc ? 1 : -1;
-      return 0;
-    });
-  }, [plays, searchTerm, sortField, sortAsc, onSetUnit, untaggedOnly, canTagCalls]);
+  const headerCell = (key: PlayColumnKey, extra = '') => {
+    const col = columnByKey(key);
+    const filtered = Boolean(filters[key]);
+    return (
+      <th key={key} className={`py-2 px-2 ${extra}`}>
+        <div className={`flex items-center gap-0.5 ${extra.includes('text-right') ? 'justify-end' : extra.includes('text-center') ? 'justify-center' : ''}`}>
+          <button type="button" onClick={() => handleSort(key)} className="inline-flex items-center gap-1 uppercase cursor-pointer hover:text-white" title={`Sort by ${col.label}`}>
+            <span>{col.label}</span>
+            {sortKey === key && (sortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              const anchor = e.currentTarget;
+              setOpenFilter((o) => (o?.key === key ? null : { key, anchor }));
+            }}
+            aria-label={`Filter ${col.label}`}
+            title={filtered ? `Filtered: ${filters[key]!.length} ticked` : `Filter ${col.label}`}
+            className={`p-1 rounded cursor-pointer ${filtered ? 'bg-amber-500 text-slate-950' : 'text-slate-500 hover:text-white'}`}
+          >
+            <Filter className="w-3 h-3" />
+          </button>
+        </div>
+      </th>
+    );
+  };
 
   const totalPages = Math.ceil(filteredPlays.length / pageSize) || 1;
   const paginatedPlays = filteredPlays.slice((page - 1) * pageSize, page * pageSize);
@@ -247,6 +276,73 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
         </div>
       </div>
 
+      {/* Phones: sort and filter (the columns have their own buttons on a computer) */}
+      <div className="md:hidden flex flex-wrap items-center gap-2 px-4 pt-3 text-xs">
+        <select
+          value={sortKey}
+          onChange={(e) => {
+            setSortKey(e.target.value as PlayColumnKey);
+            setSortAsc(true);
+          }}
+          aria-label="Sort by"
+          className="h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-slate-200"
+        >
+          {columns.map((c) => (
+            <option key={c.key} value={c.key}>Sort: {c.label}</option>
+          ))}
+        </select>
+        <button type="button" onClick={() => setSortAsc(!sortAsc)} className="h-8 px-2 rounded-md border border-slate-700 text-slate-200 font-bold cursor-pointer" aria-label="Reverse sort">
+          {sortAsc ? '↑ Low–high' : '↓ High–low'}
+        </button>
+        <select
+          value=""
+          onChange={(e) => {
+            const key = e.target.value as PlayColumnKey;
+            if (key) setOpenFilter({ key, anchor: e.currentTarget });
+          }}
+          aria-label="Filter a column"
+          className="h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-slate-200"
+        >
+          <option value="">Filter…</option>
+          {columns.map((c) => (
+            <option key={c.key} value={c.key}>{c.label}{filters[c.key] ? ' ✓' : ''}</option>
+          ))}
+        </select>
+      </div>
+
+      {activeFilters.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 px-4 pt-3 text-[11px]">
+          <span className="text-slate-400 font-bold">Filtered:</span>
+          {activeFilters.map((k) => {
+            const v = filters[k]!;
+            return (
+              <span key={k} className="inline-flex items-center gap-1 pl-2 pr-1 h-6 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-200">
+                <button type="button" className="font-bold cursor-pointer" onClick={(e) => setOpenFilter({ key: k, anchor: e.currentTarget })}>
+                  {columnByKey(k).label}: {v.length ? v.slice(0, 3).join(', ') + (v.length > 3 ? ` +${v.length - 3}` : '') : 'none'}
+                </button>
+                <button type="button" onClick={() => setColumnFilter(k, undefined)} aria-label={`Clear ${columnByKey(k).label} filter`} className="cursor-pointer hover:text-white">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            );
+          })}
+          <button type="button" onClick={() => { setFilters({}); setPage(1); }} className="ml-1 text-indigo-300 font-bold hover:underline cursor-pointer">
+            Clear all
+          </button>
+        </div>
+      )}
+
+      {openFilter && (
+        <ColumnFilter
+          title={columnByKey(openFilter.key).label}
+          anchor={openFilter.anchor}
+          options={optionsFor(openFilter.key)}
+          selected={filters[openFilter.key]}
+          onChange={(next) => setColumnFilter(openFilter.key, next)}
+          onClose={() => setOpenFilter(null)}
+        />
+      )}
+
       {onRefreshFromHudl && namesMissing(plays) && (
         <div className="mx-4 mt-3 rounded-lg border border-amber-500/50 bg-amber-950/30 px-3 py-2.5 flex flex-col sm:flex-row sm:items-center gap-2 text-xs text-amber-100">
           <span className="flex-1">
@@ -312,7 +408,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   {onSetUnit && playIsUnitTaggable(play) && <UnitPicker play={play} onSetUnit={onSetUnit} />}
                 </div>
               )}
-              {canLineup && playIsUnitTaggable(play) && (
+              {canOpen(play) && (
                 <div className="pt-1">
                   <button
                     type="button"
@@ -320,7 +416,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     aria-expanded={openPlay === play.id}
                     className="h-8 px-2.5 rounded-md border border-slate-700 text-[11px] font-black text-slate-200 inline-flex items-center gap-1.5 cursor-pointer"
                   >
-                    <Users className="w-3.5 h-3.5" /> Lineup{play.subs && Object.keys(play.subs).length ? ` · ${Object.keys(play.subs).length} sub` : ''}
+                    <Users className="w-3.5 h-3.5" /> {play.odk === 'K' ? 'Tackles' : 'Lineup'}{play.subs && Object.keys(play.subs).length ? ` · ${Object.keys(play.subs).length} sub` : ''}
                     {openPlay === play.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                   </button>
                   {openPlay === play.id && <div className="mt-2">{lineupPanel(play)}</div>}
@@ -336,56 +432,21 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
         <table className="w-full text-left text-xs text-slate-300">
           <thead className="bg-slate-950 text-slate-400 font-semibold border-b border-slate-800 uppercase tracking-wider text-[11px] select-none">
             <tr>
-              <th onClick={() => handleSort('playNumber')} className="py-2.5 px-3 cursor-pointer hover:text-white">
-                <div className="flex items-center gap-1">
-                  <span>PL#</span>
-                  {sortField === 'playNumber' && (sortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
-                </div>
-              </th>
-              <th onClick={() => handleSort('odk')} className="py-2.5 px-2 cursor-pointer hover:text-white text-center">
-                <div className="flex items-center justify-center gap-1">
-                  <span>ODK</span>
-                  {sortField === 'odk' && (sortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
-                </div>
-              </th>
-              {onSetUnit && <th className="py-2.5 px-2">UNIT</th>}
-              <th onClick={() => handleSort('quarter')} className="py-2.5 px-2 cursor-pointer hover:text-white text-center">
-                QTR
-              </th>
-              <th onClick={() => handleSort('down')} className="py-2.5 px-3 cursor-pointer hover:text-white">
-                <div className="flex items-center gap-1">
-                  <span>DN & DIST</span>
-                  {sortField === 'down' && (sortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
-                </div>
-              </th>
-              <th onClick={() => handleSort('yardLine')} className="py-2.5 px-3 cursor-pointer hover:text-white">
-                YARD LN
-              </th>
-              <th onClick={() => handleSort('hash')} className="py-2.5 px-2 cursor-pointer hover:text-white text-center">
-                HASH
-              </th>
-              <th onClick={() => handleSort('formation')} className="py-2.5 px-3 cursor-pointer hover:text-white">
-                FORMATION
-              </th>
-              <th onClick={() => handleSort('playName')} className="py-2.5 px-3 cursor-pointer hover:text-white">
-                PLAY CALL
-              </th>
-              <th onClick={() => handleSort('carrierOrTarget')} className="py-2.5 px-3 cursor-pointer hover:text-white">
-                PLAYERS
-              </th>
-              <th onClick={() => handleSort('playType')} className="py-2.5 px-2 cursor-pointer hover:text-white">
-                TYPE
-              </th>
-              <th onClick={() => handleSort('direction')} className="py-2.5 px-2 cursor-pointer hover:text-white">
-                DIR
-              </th>
-              <th onClick={() => handleSort('gainLoss')} className="py-2.5 px-3 cursor-pointer hover:text-white text-right">
-                <div className="flex items-center justify-end gap-1">
-                  <span>GN/LS</span>
-                  {sortField === 'gainLoss' && (sortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
-                </div>
-              </th>
-              <th className="py-2.5 px-3 text-center">FLAGS</th>
+              {headerCell('playNumber', 'pl-3')}
+              {headerCell('odk', 'text-center')}
+              {onSetUnit && headerCell('unit')}
+              {headerCell('quarter', 'text-center')}
+              {headerCell('downDist')}
+              {headerCell('yardLine')}
+              {headerCell('hash', 'text-center')}
+              {headerCell('formation')}
+              {headerCell('playCall')}
+              {headerCell('players')}
+              {headerCell('playType')}
+              {headerCell('direction')}
+              {headerCell('result')}
+              {headerCell('gainLoss', 'text-right')}
+              {headerCell('flags', 'text-center')}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -406,7 +467,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   }`}
                 >
                   <td className="py-2.5 px-3 font-mono font-bold text-slate-400">
-                    {canLineup && playIsUnitTaggable(play) ? (
+                    {canOpen(play) ? (
                       <button
                         type="button"
                         onClick={() => setOpenPlay((id) => (id === play.id ? null : play.id))}
@@ -511,6 +572,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     </span>
                   </td>
                   <td className="py-2.5 px-2 text-slate-400 text-[11px]">{play.direction}</td>
+                  <td className="py-2.5 px-2 text-slate-300 text-[11px]">{play.result && play.result !== '-' ? play.result : ''}</td>
                   <td className="py-2.5 px-3 text-right font-mono font-bold">
                     <span className={isGain ? 'text-emerald-400' : isLoss ? 'text-rose-400' : 'text-slate-400'}>
                       {play.gainLoss > 0 ? `+${play.gainLoss}` : play.gainLoss}
@@ -631,7 +693,7 @@ const FormationCell: React.FC<{ play: Play; plays: Play[]; onSetFormation: (ids:
   );
 };
 
-const hasPlayers = (p: Play) => Boolean(p.rusher || p.passer || p.receiver || p.defPlay?.maker || p.defPlay?.assist || p.defPlay?.events?.length);
+const hasPlayers = (p: Play) => Boolean(p.rusher || p.passer || p.receiver || p.defPlay?.maker || defAssists(p.defPlay).length || p.defPlay?.events?.length);
 const EVENT_LABEL: Record<string, string> = { sack: 'Sack', tfl: 'TFL', int: 'INT', ff: 'FF', fr: 'FR', pbu: 'PBU' };
 
 /** Who had the ball: "Run #13 Landon Veto" / "Pass #21 Nash Ward → #10 Luke M". */
@@ -642,7 +704,7 @@ const BallPlayers: React.FC<{ play: Play; inline?: boolean }> = ({ play, inline 
   if (play.receiver) rows.push(['Target', play.receiver]);
   if (play.odk === 'D' && play.carrierOrTarget && !play.rusher) rows.push(['Their', play.carrierOrTarget]);
   if (play.defPlay?.maker) rows.push(['Tackle', play.defPlay.maker]);
-  if (play.defPlay?.assist) rows.push(['Assist', play.defPlay.assist]);
+  for (const a of defAssists(play.defPlay)) rows.push(['Assist', a]);
   if (play.defPlay?.events?.length) rows.push(['Play', play.defPlay.events.map((e) => EVENT_LABEL[e] || e).join(', ')]);
   return (
     <span className={inline ? 'flex flex-wrap gap-x-3' : 'flex flex-col gap-0.5'}>
