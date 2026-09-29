@@ -1218,15 +1218,6 @@ export default function App() {
   const currentUserEmail = (currentUser?.email || '').toLowerCase().trim();
   const lockHolderEmail = (currentUnitLock?.holderEmail || '').toLowerCase().trim();
 
-  useEffect(() => {
-    const ok = canAccessFilmroom(currentUser);
-    setFilmroomAccess(ok);
-    // Wait for sign-in before sending someone away (the program owner is only known once signed in).
-    if (activeUnit === 'filmroom' && !ok && currentUser) {
-      _setActiveUnitRaw('home');
-    }
-  }, [currentUser, activeUnit]);
-
   const isLockedByOther = Boolean(
     currentUnitLock &&
     currentUserEmail &&
@@ -4136,6 +4127,16 @@ export default function App() {
       (currentUser?.isOfflineLocal && typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)) ||
       isMasterSuperAdminUser(currentUser?.email)
   );
+
+  // Film Room (in testing): the program owner however they signed in, plus unlocked devices.
+  useEffect(() => {
+    const ok = isProgramAdmin || canAccessFilmroom(currentUser);
+    setFilmroomAccess(ok);
+    // Wait for sign-in before sending someone away (the program owner is only known once signed in).
+    if (activeUnit === 'filmroom' && !ok && currentUser) {
+      _setActiveUnitRaw('home');
+    }
+  }, [currentUser, activeUnit, isProgramAdmin]);
 
 
   const isUserApproved = (email?: string, userObj?: any): boolean => {
