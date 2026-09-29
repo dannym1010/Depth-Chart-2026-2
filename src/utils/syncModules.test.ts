@@ -3358,7 +3358,7 @@ describe('export the play log for Hudl', () => {
     assert.equal(first.UNIT, 'Gold');
     assert.equal(first.RUSHER_Jersey, '13');
     assert.equal(first.RUSHER_Name, 'Landon Veto');
-    assert.equal(first.SUBS, 'RB: #7 Mike');
+    assert.equal(first.SUBS, 'RB 7 Mike');
     assert.ok(out.headers.indexOf('PLAY #') < out.headers.indexOf('UNIT'));
     // Reading the exported sheet back gives the same called play and runner.
     const csv2 = [out.headers.join(','), ...out.rows.map((r) => out.headers.map((h) => String(r[h] ?? '')).join(','))].join('\n');
@@ -3382,21 +3382,25 @@ describe('export the play log for Hudl', () => {
     assert.equal(hudlCell('Rush, TD'), 'Rush TD');
     assert.equal(hudlCell('say "hi"\nthere'), 'say hi there');
     assert.equal(hudlCell(-3), -3);
+    assert.equal(hudlCell('Left (Wide / Field)'), 'Left (Wide - Field)');
     const plays = [
-      { playNumber: 14, odk: 'O', quarter: 2, down: 3, distance: 1, rawYardLine: '-1', hash: 'L', playType: 'RUN', result: 'Rush, TD', gainLoss: 1, formation: '21 R', direction: 'Left', unit: 'gold', rusher: '#13 Landon Veto', subs: { QB: { num: '7', name: 'Jayden Silva' }, RB: { num: '22', name: 'Jaxson Pestone' } } },
+      { playNumber: 14, odk: 'O', quarter: 2, down: 3, distance: 1, rawYardLine: '-1', hash: 'L', playType: 'RUN', result: 'Rush, TD', gainLoss: 1, formation: '21 R', direction: 'Middle / Inside', unit: 'gold', rusher: '#13 Landon Veto', subs: { QB: { num: '7', name: 'Jayden Silva' }, RB: { num: '22', name: 'Jaxson Pestone' } } },
       { playNumber: 13, odk: 'O', quarter: 2, down: 1, distance: 10, rawYardLine: '-40', hash: 'M', playType: 'RUN', result: 'Rush', gainLoss: 5, hudlRow: { 'PLAY #': '13', RESULT: '"Rush"', NOTES: 'good; fast, hard' } },
     ] as any[];
     const csv = hudlExportCsv(plays);
     const lines = csv.trimEnd().split('\r\n');
     assert.ok(!/[";]/.test(csv));
+    assert.ok(lines.slice(1).every((l) => !l.includes('/'))); // no slashes in any value
+    assert.ok(lines[0].includes('GN/LS')); // Hudl's own column names stay as they are
     const width = lines[0].split(',').length;
     assert.ok(lines.every((l) => l.split(',').length === width)); // every row lines up with the headers
     const back = parseCsvRows(csv);
     assert.equal(back.rows[0]['PLAY #'], '13');
     assert.equal(back.rows[0].RESULT, 'Rush');
-    assert.equal(back.rows[0].NOTES, 'good / fast hard');
+    assert.equal(back.rows[0].NOTES, 'good - fast hard');
     assert.equal(back.rows[1].RESULT, 'Rush TD');
-    assert.equal(back.rows[1].SUBS, 'QB: #7 Jayden Silva / RB: #22 Jaxson Pestone');
+    assert.equal(back.rows[1]['PLAY DIR'], 'Middle - Inside');
+    assert.equal(back.rows[1].SUBS, 'QB 7 Jayden Silva - RB 22 Jaxson Pestone');
   });
 });
 
@@ -3452,8 +3456,8 @@ describe('tackles on defense and special teams, any number of assists', () => {
 
     const { hudlExportRow } = await import('../hudlScout/utils/hudlExport.ts');
     const row = hudlExportRow({ ...next[0], quarter: 1, down: 1, distance: 10, playType: 'RUN', result: '', gainLoss: 0 });
-    assert.equal(row.ASSIST_Jersey, '5 / 7');
-    assert.equal(row.ASSIST_Name, 'Old / Sam');
+    assert.equal(row.ASSIST_Jersey, '5 - 7');
+    assert.equal(row.ASSIST_Name, 'Old - Sam');
   });
 });
 

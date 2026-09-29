@@ -2,22 +2,29 @@
 // order (Hudl lines rows up with the clips in the playlist), with Hudl's own column names. The columns
 // from the upload are kept as they were; what coaches set in the app is filled in on top:
 // formation, the called play, Black/Gold/Blue, runner/passer/receiver, tacklers, subs.
-// Hudl's uploader gets stuck on quotes, semicolons and commas inside a value, so every value is cleaned
-// ("Rush, TD" -> "Rush TD", subs "QB: #7 Silva / RB: #22 Pestone") and the CSV needs no quoting at all.
+// Hudl's uploader gets stuck on quotes, semicolons, commas and slashes inside a value, so every value is
+// cleaned ("Rush, TD" -> "Rush TD", "Left (Wide / Field)" -> "Left (Wide - Field)", subs
+// "QB 7 Silva - RB 22 Pestone") and the CSV needs no quoting at all. Column names stay Hudl's own ("GN/LS").
 import type { Play } from '../types/football';
 import { defAssists } from '../../utils/filmLineup';
 
-/** A value Hudl's uploader reads cleanly: no quotes, semicolons, commas or line breaks. */
+/** Between several things in one cell (subs, assists, events). */
+const LIST = ' - ';
+
+/** A value Hudl's uploader reads cleanly: no quotes, semicolons, commas, slashes or line breaks. */
 export function hudlCell(value: unknown): string | number {
   if (typeof value === 'number') return Number.isFinite(value) ? value : '';
   return String(value ?? '')
     .replace(/["“”]/g, '')
     .replace(/[\r\n\t]+/g, ' ')
-    .replace(/\s*;\s*/g, ' / ')
+    .replace(/\s*[;/\\]\s*/g, LIST)
     .replace(/\s*,\s*/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
+
+/** A column name: kept as Hudl writes it (slashes included), only made safe for a CSV. */
+const hudlHeader = (name: string) => String(name).replace(/["“”,;\r\n\t]/g, ' ').replace(/\s{2,}/g, ' ').trim();
 
 const UNIT_LABEL: Record<string, string> = { black: 'Black', gold: 'Gold', blue: 'Blue' };
 
@@ -81,12 +88,12 @@ export function hudlExportRow(p: Play): Record<string, string | number> {
   put('RECEIVER', p.receiver);
   put('TACKLER', p.defPlay?.maker);
   const assists = defAssists(p.defPlay).map(splitPlayer);
-  set('ASSIST_Jersey', assists.map((a) => a.jersey).filter(Boolean).join(' / '));
-  set('ASSIST_Name', assists.map((a) => a.name).filter(Boolean).join(' / '));
-  if (p.defPlay?.events?.length) set('DEF EVENTS', p.defPlay.events.map((e) => e.toUpperCase()).join(' / '));
+  set('ASSIST_Jersey', assists.map((a) => a.jersey).filter(Boolean).join(LIST));
+  set('ASSIST_Name', assists.map((a) => a.name).filter(Boolean).join(LIST));
+  if (p.defPlay?.events?.length) set('DEF EVENTS', p.defPlay.events.map((e) => e.toUpperCase()).join(LIST));
   const subs = Object.entries(p.subs || {})
-    .map(([slot, who]) => (who ? `${slot}: #${who.num}${who.name ? ` ${who.name}` : ''}` : `${slot}: out`))
-    .join(' / ');
+    .map(([slot, who]) => (who ? `${slot} ${who.num}${who.name ? ` ${who.name}` : ''}` : `${slot} out`))
+    .join(LIST);
   set('SUBS', subs);
   return row;
 }
@@ -96,7 +103,7 @@ export function hudlExportRows(plays: Play[]): { headers: string[]; rows: Record
   const ordered = [...plays].sort((a, b) => (Number(a.playNumber) || 0) - (Number(b.playNumber) || 0));
   const rows = ordered.map((p) => {
     const clean: Record<string, string | number> = {};
-    for (const [k, v] of Object.entries(hudlExportRow(p))) clean[String(hudlCell(k))] = hudlCell(v);
+    for (const [k, v] of Object.entries(hudlExportRow(p))) clean[hudlHeader(k)] = hudlCell(v);
     return clean;
   });
   const headers: string[] = [];
