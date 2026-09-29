@@ -87,8 +87,22 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const shownPlays = useMemo(() => (odk === 'all' ? plays : plays.filter((p) => p.odk === odk)), [plays, odk]);
 
   const { shared, update } = useSharedGame(teamId, game?.key);
-  const setDrive = useCallback((drive: typeof shared.drive) => update((s) => ({ ...s, drive: drive || undefined })), [update]);
-  const { film, chooseFolder, reconnect, pickFiles, linkDrive, signInToDrive, unlink, localFiles } = useGameFilm(game?.key, teamId, shared.drive, setDrive);
+  // Unlinking saves an empty link (newest wins when coaches' copies merge, so it doesn't come back).
+  const setDrive = useCallback((drive: typeof shared.drive) => update((s) => ({ ...s, drive: drive || { folderId: '', editedAt: Date.now() } })), [update]);
+  // The shared film folder ("Mahopac Film": every team and game inside), one link for the whole program.
+  const root = useSharedGame('program', 'root');
+  const updateRoot = root.update;
+  const setRootDrive = useCallback((drive: typeof shared.drive) => updateRoot((s) => ({ ...s, drive: drive || { folderId: '', editedAt: Date.now() } })), [updateRoot]);
+  const { film, chooseFolder, reconnect, pickFiles, linkDrive, signInToDrive, unlink, localFiles } = useGameFilm({
+    game,
+    teamId,
+    teamName,
+    opponentName,
+    drive: shared.drive,
+    setDrive,
+    rootDrive: root.shared.drive,
+    setRootDrive,
+  });
 
   const clips = film.status === 'ready' ? film.clips : [];
   const clipFor = useMemo(() => matchClipsToPlays(clips, plays), [clips, plays]);
@@ -350,9 +364,12 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           </button>
           {(film.status === 'ready' || film.status === 'reconnect') && (
             <button
-              onClick={unlink}
+              onClick={() => {
+                if (film.status === 'ready' && film.viaRoot && !window.confirm(`Stop using "${film.label.split(' › ')[0]}" for every game${film.kind === 'drive' ? ' (for all coaches)' : ' on this device'}?`)) return;
+                void unlink();
+              }}
               className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
-              title={film.status === 'ready' && film.kind === 'drive' ? 'Unlink the Drive folder for the whole team' : 'Stop using this folder on this device'}
+              title={film.status === 'ready' && film.viaRoot ? 'Stop using the team film folder for every game' : film.status === 'ready' && film.kind === 'drive' ? 'Unlink the Drive folder for the whole team' : 'Stop using this folder on this device'}
             >
               <Unlink size={14} /> Unlink
             </button>
@@ -436,7 +453,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       {linkOpen && game && (
         <LinkFilmDialog
           gameName={game.name}
-          driveLink={shared.drive?.link}
+          driveLink={shared.drive?.link || root.shared.drive?.link}
           onClose={() => setLinkOpen(false)}
           onFolder={chooseFolder}
           onFiles={pickFiles}

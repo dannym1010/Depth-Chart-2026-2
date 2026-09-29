@@ -3461,6 +3461,68 @@ describe('tackles on defense and special teams, any number of assists', () => {
   });
 });
 
+describe('film room: one shared film folder, each game finds its own folder', () => {
+  // A folder tree like the "Mahopac Film" template: { name: [children] }, a string = a video file.
+  type Tree = { [name: string]: (Tree | string)[] };
+  const node = (name: string, kids: (Tree | string)[]): any => ({
+    name,
+    open: async () => ({
+      dirs: kids.filter((k) => typeof k !== 'string').map((k) => { const [n, c] = Object.entries(k as Tree)[0]; return node(n, c); }),
+      videos: kids.filter((k) => typeof k === 'string' && /\.(mp4|mov)$/i.test(k)).length,
+    }),
+  });
+  const film = node('Mahopac Film', [
+    'HOW TO USE - Mahopac Film.txt',
+    { '10U': [
+      { 'Pre-Season Week 4 - Brewster Scrimmage': ['IMG_0001.MOV'] },
+      { 'Week 3 - Shrub Oak': ['PUT HUDL CLIPS HERE.txt', 'IMG_0012.MOV'] },
+      { 'Week 5 - Wappingers Wildcats': [] },
+      { Scouting: [
+        { 'Week 5 - Wappingers Wildcats': [{ 'vs Carmel': ['a.mp4'] }, { 'vs Somers': ['b.mp4'] }] },
+        { 'Week 6 - Brewster': ['c.mp4'] },
+      ] },
+    ] },
+    { '9U': [{ 'Week 3 - Shrub Oak': ['x.mp4'] }] },
+  ]);
+  it('reads the week from folder names and the team from the age group', async () => {
+    const { weekKeyFromFolder, normalizeWeek, pickTeamFolder, isFilmRoot, weekFolderLabel } = await import('../filmroom/folderRoutes.ts');
+    assert.equal(weekKeyFromFolder('Week 3 - Shrub Oak'), '3');
+    assert.equal(weekKeyFromFolder('Pre-Season Week 4 - Brewster Scrimmage'), 'pre-4');
+    assert.equal(weekKeyFromFolder('wk 08 carmel'), '8');
+    assert.equal(weekKeyFromFolder('Playoffs - Carmel'), 'playoffs');
+    assert.equal(weekKeyFromFolder('Shrub Oak'), undefined);
+    assert.equal(normalizeWeek('team_10u__week_5'), '5');
+    assert.equal(normalizeWeek('Week 05'), '5');
+    assert.equal(normalizeWeek('pre-4'), 'pre-4');
+    assert.equal(weekFolderLabel('pre-4'), 'Pre-Season Week 4');
+    const dirs = [{ name: '12U' }, { name: '10U' }, { name: '9U' }];
+    assert.equal(pickTeamFolder(dirs, '10U Youth Tackle')?.name, '10U');
+    assert.equal(pickTeamFolder(dirs, '9U Youth Tackle')?.name, '9U');
+    assert.equal(pickTeamFolder(dirs, '8U Rookie / Flag'), undefined);
+    assert.ok(isFilmRoot(dirs));
+    assert.ok(!isFilmRoot([{ name: 'Week 3 - Shrub Oak' }]));
+  });
+  it('finds our game, a scouting game, and one of two opponent games in a week; says what is missing', async () => {
+    const { resolveGameFolder } = await import('../filmroom/folderRoutes.ts');
+    const path = async (game: any, team = '10U Youth Tackle', opp?: string) => {
+      const r = await resolveGameFolder(film, game, team, opp);
+      return 'missing' in r ? `missing: ${r.missing}` : r.path.join(' / ');
+    };
+    assert.equal(await path({ source: 'own', week: '3', name: 'MSA vs Shrub Oak' }), 'Mahopac Film / 10U / Week 3 - Shrub Oak');
+    assert.equal(await path({ source: 'own', week: 'pre-4', name: 'Brewster scrimmage' }), 'Mahopac Film / 10U / Pre-Season Week 4 - Brewster Scrimmage');
+    assert.equal(await path({ source: 'own', week: '3', name: 'MSA vs Shrub Oak' }, '9U Youth Tackle'), 'Mahopac Film / 9U / Week 3 - Shrub Oak');
+    assert.equal(await path({ source: 'opponent', week: '6', name: 'Brewster vs Somers' }), 'Mahopac Film / 10U / Scouting / Week 6 - Brewster');
+    assert.equal(await path({ source: 'opponent', week: '5', name: 'Wappingers vs Somers 9/14' }, '10U Youth Tackle', 'Wappingers Wildcats'), 'Mahopac Film / 10U / Scouting / Week 5 - Wappingers Wildcats / vs Somers');
+    assert.equal(await path({ source: 'own', week: '7', name: 'MSA vs Somers' }), 'missing: a "Week 7 - ..." folder in "10U"');
+    // The game's week set wrong in Hudl Scout (or not at all): the one folder named for the opponent.
+    assert.equal(await path({ source: 'own', week: 'pre-2', name: 'MSA vs Wappingers' }), 'Mahopac Film / 10U / Week 5 - Wappingers Wildcats');
+    assert.equal(await path({ source: 'own', week: '', name: 'MSA vs Shrub Oak' }), 'Mahopac Film / 10U / Week 3 - Shrub Oak');
+    assert.equal(await path({ source: 'own', week: '1', name: 'x' }, '12U Senior Tackle'), 'missing: a "12U" folder in "Mahopac Film"');
+    assert.equal(await path({ source: 'opponent', week: '3', name: 'x' }, '9U Youth Tackle'), 'missing: a "Scouting" folder in "9U"');
+    assert.match(await path({ source: 'own', week: '', name: 'x' }), /week this game was played/);
+  });
+});
+
 describe('film room', () => {
   it('matches clips to plays by the number in the file name, else in order', async () => {
     const { matchClipsToPlays, playNumberInName } = await import('../filmroom/clipMatching.ts');

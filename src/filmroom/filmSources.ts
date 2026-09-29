@@ -6,6 +6,7 @@
 //  - A shared Google Drive folder, streamed after the coach signs in with Google (any device).
 import type { FilmClip } from './types';
 import { isVideoName, naturalCompare } from './clipMatching';
+import type { FolderNode } from './folderRoutes';
 
 // ---------------------------------------------------------------------------
 // Local folder (remembered per game in this browser's database)
@@ -209,6 +210,51 @@ const ALL_DRIVES = 'supportsAllDrives=true&includeItemsFromAllDrives=true';
 export async function driveFolderName(folderId: string): Promise<string> {
   const res = await driveFetch(`${API}/${encodeURIComponent(folderId)}?fields=name&supportsAllDrives=true`);
   return String((await res.json())?.name || 'Drive folder');
+}
+
+const DRIVE_FOLDER = 'application/vnd.google-apps.folder';
+
+// Folder listings for finding a game's folder, kept for a couple of minutes (switching games is quick).
+const listingCache = new Map<string, { at: number; list: Promise<{ id: string; name: string; mimeType: string; size?: string }[]> }>();
+function cachedChildren(folderId: string) {
+  const hit = listingCache.get(folderId);
+  if (hit && Date.now() - hit.at < 120_000) return hit.list;
+  const list = listChildren(folderId);
+  list.catch(() => listingCache.delete(folderId));
+  listingCache.set(folderId, { at: Date.now(), list });
+  return list;
+}
+
+/** A Drive folder the film-folder finder can look inside. */
+export function driveFolderNode(folderId: string, name: string): FolderNode {
+  return {
+    name,
+    driveId: folderId,
+    open: async () => {
+      const kids = await cachedChildren(folderId);
+      return {
+        dirs: kids.filter((k) => k.mimeType === DRIVE_FOLDER).map((k) => driveFolderNode(k.id, k.name)),
+        videos: kids.filter((k) => isVideoName(k.name, k.mimeType)).length,
+      };
+    },
+  };
+}
+
+/** A folder on this computer the film-folder finder can look inside. */
+export function localFolderNode(handle: DirHandle): FolderNode {
+  return {
+    name: handle.name,
+    handle,
+    open: async () => {
+      const dirs: FolderNode[] = [];
+      let videos = 0;
+      for await (const [name, entry] of handle.entries()) {
+        if (entry.kind === 'directory') dirs.push(localFolderNode(entry));
+        else if (isVideoName(name)) videos++;
+      }
+      return { dirs, videos };
+    },
+  };
 }
 
 async function listChildren(folderId: string): Promise<{ id: string; name: string; mimeType: string; size?: string }[]> {

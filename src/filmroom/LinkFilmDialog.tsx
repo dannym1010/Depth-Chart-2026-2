@@ -42,7 +42,7 @@ export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveL
         <div className="flex items-start justify-between gap-2">
           <div>
             <h2 className="text-base font-black text-slate-900 dark:text-white">Link film</h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">{gameName}: one clip per play, as Hudl downloads them.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{gameName}: one video file per play, in play order.</p>
           </div>
           <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white" aria-label="Close">
             <X size={18} />
@@ -54,7 +54,7 @@ export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveL
             <Cloud size={20} className="text-indigo-500 shrink-0 mt-0.5" />
             <div>
               <div className="text-sm font-bold text-slate-900 dark:text-white">Shared Google Drive folder</div>
-              <div className="text-xs text-slate-500 dark:text-slate-400">Paste the folder's link. Every coach on the team gets it, on any device (they sign in with Google).</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">Paste the link to your team film folder (like "Mahopac Film", with 10U, 9U... inside) and every game finds its own folder, or to just this game's folder. Every coach gets it, on any device (they sign in with Google).</div>
             </div>
           </div>
           <div className="flex gap-2">
@@ -82,7 +82,7 @@ export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveL
             <span className="block text-sm font-bold text-slate-900 dark:text-white">Folder on this computer</span>
             <span className="block text-xs text-slate-500 dark:text-slate-400">
               {canOpenFolders()
-                ? 'Remembered on this computer for this game. A Google Drive for desktop folder works here too.'
+                ? "Your team film folder (every game finds its own) or just this game's folder. Remembered on this computer; a Google Drive for desktop folder works too."
                 : 'Needs Chrome or Edge on a computer.'}
             </span>
           </span>
@@ -112,7 +112,7 @@ export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveL
 
         {error && <p className="text-xs text-rose-600 dark:text-rose-400">{error}</p>}
         <p className="text-[11px] text-slate-400">
-          Clips are matched to plays by the number in the file name ("Play 12.mp4"), or in order when the names have no numbers.
+          Clips go with the plays in order (first file = play 1). In the team film folder, a game's clips are in team / week ("10U / Week 3 - Shrub Oak"), or team / Scouting / week for an opponent.
         </p>
       </div>
     </div>
