@@ -3474,6 +3474,24 @@ describe('film room', () => {
     const inOrder = matchClipsToPlays([{ name: 'angle b.mp4' }, { name: 'angle a.mp4' }], plays);
     assert.deepEqual([inOrder.get('a'), inOrder.get('b'), inOrder.get('c')], [1, 0, undefined]);
   });
+  it('clips that are just in order (camera / phone names) go with the plays in order, not by the camera number', async () => {
+    const { matchClipsToPlays, clipMatchMode, playNumberInName } = await import('../filmroom/clipMatching.ts');
+    for (const n of ['IMG_0012.MOV', 'GOPR0045.MP4', 'GX010012.MP4', 'P1010023.MP4', 'DSC_0003.MOV', '20260920_101512.mp4', 'VID_20260920_101512.mp4']) {
+      assert.equal(playNumberInName(n), undefined, n);
+    }
+    const plays = Array.from({ length: 5 }, (_, i) => ({ id: `p${i + 1}`, playNumber: i + 1 }));
+    // Camera numbering that starts at 12: still the first clip = the first play.
+    const clips = ['IMG_0012.MOV', 'IMG_0013.MOV', 'IMG_0014.MOV', 'IMG_0015.MOV', 'IMG_0016.MOV'].map((name) => ({ name }));
+    assert.equal(clipMatchMode(clips, plays), 'order');
+    const m = matchClipsToPlays(clips, plays);
+    assert.deepEqual(plays.map((p) => m.get(p.id)), [0, 1, 2, 3, 4]);
+    // "IMG_9.MOV" before "IMG_10.MOV" (natural order), whatever order the folder lists them in.
+    assert.equal(clipMatchMode([{ name: 'IMG_10.MOV' }, { name: 'IMG_9.MOV' }], plays), 'order');
+    const m2 = matchClipsToPlays([{ name: 'IMG_10.MOV' }, { name: 'IMG_9.MOV' }], plays);
+    assert.deepEqual([m2.get('p1'), m2.get('p2')], [1, 0]);
+    // Numbers that aren't this game's plays (e.g. "Clip 101"...) fall back to order too.
+    assert.equal(clipMatchMode([{ name: 'Clip 101.mp4' }, { name: 'Clip 102.mp4' }], plays), 'order');
+  });
   it('coaches keep each other\'s notes; a deleted note stays deleted; later drawing wins', async () => {
     const { mergeShared, filmGameKey, sharedDocId } = await import('../filmroom/sharedMerge.ts');
     const n = (id: string, at: number) => ({ id, playId: 'p1', t: 1, text: id, author: 'x', createdAt: at, editedAt: at });

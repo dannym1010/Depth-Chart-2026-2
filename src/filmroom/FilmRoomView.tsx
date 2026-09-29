@@ -14,7 +14,7 @@ import type { FilmPlayerRef, RosterPlayer } from '../types';
 import type { PlayDatabaseEntry } from '../types/callSheet';
 import { filmLineup, setPlayBallPlayer, setPlayDefPlay, setPlaySub, type BallRole, type WeekBoards } from '../utils/filmLineup';
 import { newPlayEntry } from '../utils/playbookImport';
-import { matchClipsToPlays } from './clipMatching';
+import { clipMatchMode, matchClipsToPlays } from './clipMatching';
 import { FilmPlayer, type PlayerApi } from './FilmPlayer';
 import { LinkFilmDialog } from './LinkFilmDialog';
 import { PlayNotes } from './PlayNotes';
@@ -325,6 +325,15 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                 ? film.label
                 : ''}
         </span>
+        {/* Clips go with plays in order: a different count means some clip is missing or extra. */}
+        {film.status === 'ready' && clips.length > 0 && clipMatchMode(clips, plays) === 'order' && clips.length !== plays.length && (
+          <span
+            className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
+            title="Clips are matched to plays in order (first clip = first play). With a different number of clips, check that the plays line up, and that the folder has only this game's clips."
+          >
+            ⚠ {clips.length} clips for {plays.length} plays: check the plays line up
+          </span>
+        )}
 
         <div className="flex items-center gap-1.5 ml-auto">
           <button
