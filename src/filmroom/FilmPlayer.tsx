@@ -181,10 +181,12 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     setPan({ x: clamp(s.px + (e.clientX - s.x) / r.width / zoom), y: clamp(s.py + (e.clientY - s.y) / r.height / zoom) });
   };
 
+  // --chrome: room kept for the page and the controls, so the video never pushes the controls off screen.
   return (
-    <div ref={rootRef} className="flex flex-col bg-black rounded-xl overflow-hidden select-none [&:fullscreen]:rounded-none [&:fullscreen]:justify-center">
+    <div ref={rootRef} className="flex flex-col bg-black rounded-xl overflow-hidden select-none [--chrome:20rem] [&:fullscreen]:[--chrome:9rem] [&:fullscreen]:rounded-none [&:fullscreen]:justify-center">
       <div
-        className={`relative w-full aspect-video overflow-hidden bg-black ${zoom > 1 && !drawing ? 'cursor-grab active:cursor-grabbing touch-none' : ''}`}
+        style={{ width: 'min(100%, max(18rem, calc((100dvh - var(--chrome)) * 16 / 9)))' }}
+        className={`relative mx-auto aspect-video overflow-hidden bg-black ${zoom > 1 && !drawing ? 'cursor-grab active:cursor-grabbing touch-none' : ''}`}
         onPointerDown={panDown}
         onPointerMove={panMove}
         onPointerUp={() => (panStart.current = null)}

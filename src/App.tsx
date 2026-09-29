@@ -6855,6 +6855,13 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 opponentScout={currentWeekState.scouting?.hudlScout}
                 ownTeamScout={teamOwnScout}
                 authorName={currentUser?.displayName || (currentUser?.email || 'Coach').split('@')[0]}
+                onUpdateOwnTeamScout={persistOwnTeamHudlScout}
+                onUpdateScouting={persistWeekScouting}
+                playDatabase={teamPlayDatabase}
+                onUpdatePlayDatabase={handleUpdateTeamPlayDatabase}
+                roster={activeTeamRoster}
+                weekBoards={weekBoardsFor}
+                weekOptions={seasonWeekOptions}
                 onOpenHudlGame={({ target, gameId }) => {
                   setHudlFocusGameId(gameId);
                   setHudlView({ target, tab: 'plays' });

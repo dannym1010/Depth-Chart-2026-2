@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Play, TeamUnit } from '../types/football';
 import { TEAM_UNITS, playIsUnitTaggable } from '../utils/unitStats';
 import { isRecordedMotion } from '../utils/csvParser';
@@ -28,7 +28,17 @@ interface PlaysTableProps {
   onSetDefPlay?: (playId: string, patch: Partial<NonNullable<Play['defPlay']>>) => void;
   /** Our film uploaded before player names were read: offer to upload the file again. */
   onRefreshFromHudl?: () => void;
+  /** Film Room: the play on screen (highlighted), and clicking a row opens that play. */
+  selectedId?: string;
+  onSelectPlay?: (id: string) => void;
+  /** Film Room: the plays in the order shown (sort and search), so next / previous follow it. */
+  onOrderChange?: (ids: string[]) => void;
+  /** Film Room: extra marks next to the play number (film, notes). */
+  rowBadge?: (play: Play) => React.ReactNode;
 }
+
+/** A click on a row that wasn't on one of its buttons or fields. */
+const isRowClick = (e: React.MouseEvent) => !(e.target as HTMLElement).closest('button, input, select, textarea, a, label, [role=dialog]');
 
 const UNIT_SHORT: Record<TeamUnit, string> = { black: 'Blk', blue: 'Blu', gold: 'Gld' };
 
@@ -73,7 +83,7 @@ const UnitPicker: React.FC<{
   );
 };
 
-export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl }) => {
+export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge }) => {
   const [openPlay, setOpenPlay] = useState<string | null>(null);
   const canLineup = Boolean(lineupFor && roster && onSetSub);
   const lineupPanel = (play: Play) => {
@@ -159,6 +169,25 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
   const totalPages = Math.ceil(filteredPlays.length / pageSize) || 1;
   const paginatedPlays = filteredPlays.slice((page - 1) * pageSize, page * pageSize);
 
+  useEffect(() => {
+    onOrderChange?.(filteredPlays.map((p) => p.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredPlays]);
+  // Keep the page on the play being watched (e.g. when the film moves on to the next play).
+  useEffect(() => {
+    if (!onSelectPlay || !selectedId) return;
+    const i = filteredPlays.findIndex((p) => p.id === selectedId);
+    if (i >= 0) setPage(Math.floor(i / pageSize) + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
+  const selectable = Boolean(onSelectPlay);
+  // Inline, and no background: the themes recolor row backgrounds (and the text on them).
+  const selectedStyle = (id: string): React.CSSProperties | undefined =>
+    id === selectedId ? { boxShadow: 'inset 5px 0 0 0 #eab308, inset 0 0 0 2px rgba(234, 179, 8, 0.7)' } : undefined;
+  const rowClick = (id: string) => (e: React.MouseEvent) => {
+    if (selectable && isRowClick(e)) onSelectPlay!(id);
+  };
+
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden shadow-sm">
       {/* Table Header Controls */}
@@ -236,7 +265,12 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
           const isGain = play.gainLoss > 0;
           const isLoss = play.gainLoss < 0;
           return (
-            <div key={play.id} className="p-3 space-y-1">
+            <div
+              key={play.id}
+              onClick={rowClick(play.id)}
+              style={selectedStyle(play.id)}
+              className={`p-3 space-y-1 ${selectable ? 'cursor-pointer' : ''}`}
+            >
               <div className="flex items-center justify-between gap-2">
                 <span className="font-black text-slate-100 text-sm truncate">{play.playName}</span>
                 <span className={`font-mono font-bold text-sm ${isGain ? 'text-emerald-400' : isLoss ? 'text-rose-400' : 'text-slate-400'}`}>
@@ -245,6 +279,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               </div>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-400">
                 <span>#{play.playNumber}</span>
+                {rowBadge?.(play)}
                 {play.series != null && <span className="font-bold text-slate-300">Drive {play.series}</span>}
                 <span>{play.odk}</span>
                 <span>Q{play.quarter}</span>
@@ -362,7 +397,14 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               const subCount = play.subs ? Object.keys(play.subs).length : 0;
               return (
                 <React.Fragment key={play.id}>
-                <tr className={`hover:bg-slate-800/30 transition-colors ${isOpen ? 'bg-slate-800/40' : ''}`}>
+                <tr
+                  onClick={rowClick(play.id)}
+                  style={selectedStyle(play.id)}
+                  data-selected={play.id === selectedId || undefined}
+                  className={`hover:bg-slate-800/30 transition-colors ${selectable ? 'cursor-pointer' : ''} ${
+                    play.id !== selectedId && isOpen ? 'bg-slate-800/40' : ''
+                  }`}
+                >
                   <td className="py-2.5 px-3 font-mono font-bold text-slate-400">
                     {canLineup && playIsUnitTaggable(play) ? (
                       <button
@@ -379,6 +421,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     ) : (
                       play.playNumber
                     )}
+                    {rowBadge && <div className="mt-0.5">{rowBadge(play)}</div>}
                   </td>
                   <td className="py-2.5 px-2 text-center font-mono font-bold">
                     <span

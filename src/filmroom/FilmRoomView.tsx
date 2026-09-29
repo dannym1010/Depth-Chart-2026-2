@@ -1,16 +1,24 @@
-// Film Room: a Hudl Scout game's plays with the film next to them. Pick a game, link where its clips
-// are (a shared Google Drive folder or a folder on this computer), then watch play by play with notes
-// and drawings the whole staff sees.
+// Film Room: a Hudl Scout game's plays with the film. Pick a game, link where its clips are (a shared
+// Google Drive folder or a folder on this computer), then watch play by play with notes and drawings the
+// whole staff sees. The play log under the video is Hudl Scout's own: sorting it sets the play order, and
+// tags changed here are the same tags Hudl Scout shows.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, Film, Link2, RefreshCw, Unlink } from 'lucide-react';
-import { bundleFromSaved } from '../hudlScout/scoutBundle';
-import type { Play } from '../hudlScout/types/football';
+import { ExternalLink, Film, Link2, MessageSquare, RefreshCw, Unlink } from 'lucide-react';
+import { PlaysTable } from '../hudlScout/components/PlaysTable';
+import { bundleFromSaved, type ScoutBundle } from '../hudlScout/scoutBundle';
+import type { Play, TeamUnit } from '../hudlScout/types/football';
+import { setPlaysFormation, tagPlays } from '../hudlScout/utils/playTags';
+import { tagPlayUnits } from '../hudlScout/utils/unitStats';
 import { safeJSONParse, safeJSONSet } from '../services/storageService';
+import type { FilmPlayerRef, RosterPlayer } from '../types';
+import type { PlayDatabaseEntry } from '../types/callSheet';
+import { filmLineup, setPlayBallPlayer, setPlayDefPlay, setPlaySub, type BallRole, type WeekBoards } from '../utils/filmLineup';
+import { newPlayEntry } from '../utils/playbookImport';
 import { matchClipsToPlays } from './clipMatching';
 import { FilmPlayer, type PlayerApi } from './FilmPlayer';
 import { LinkFilmDialog } from './LinkFilmDialog';
-import { PlayList, playTitle } from './PlayList';
 import { PlayNotes } from './PlayNotes';
+import { playTitle } from './playText';
 import { filmGameKey } from './sharedMerge';
 import type { FilmGame, FilmMark, FilmNote } from './types';
 import { useClipUrl, useGameFilm } from './useGameFilm';
@@ -28,6 +36,16 @@ interface FilmRoomViewProps {
   ownTeamScout?: unknown;
   authorName: string;
   onOpenHudlGame: (open: { target: 'own' | 'opponent'; gameId: string }) => void;
+  /** Saving tag changes, the same way Hudl Scout does. */
+  onUpdateOwnTeamScout: (bundle: ScoutBundle) => void;
+  onUpdateScouting: (field: string, val: unknown) => void;
+  /** Play Bank, for tagging each play with the play that was run. */
+  playDatabase?: PlayDatabaseEntry[];
+  onUpdatePlayDatabase?: (next: PlayDatabaseEntry[]) => void;
+  /** Our film: roster, each week's depth chart and the season's weeks, for who was on the field. */
+  roster?: RosterPlayer[];
+  weekBoards?: (week: string) => WeekBoards;
+  weekOptions?: { key: string; label: string }[];
 }
 
 type OdkFilter = 'all' | 'O' | 'D' | 'K';
@@ -36,6 +54,7 @@ const newId = () => `fn_${Date.now().toString(36)}${Math.random().toString(36).s
 
 export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   teamId, teamName, currentWeek, weekLabel, opponentName, opponentScout, ownTeamScout, authorName, onOpenHudlGame,
+  onUpdateOwnTeamScout, onUpdateScouting, playDatabase, onUpdatePlayDatabase, roster, weekBoards, weekOptions,
 }) => {
   const own = useMemo(() => bundleFromSaved(ownTeamScout, teamName), [ownTeamScout, teamName]);
   const opp = useMemo(() => bundleFromSaved(opponentScout, opponentName || 'Opponent'), [opponentScout, opponentName]);
@@ -74,12 +93,43 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const clips = film.status === 'ready' ? film.clips : [];
   const clipFor = useMemo(() => matchClipsToPlays(clips, plays), [clips, plays]);
 
+  // Previous / next follow the play log below as it's sorted and searched.
+  const [order, setOrder] = useState<string[]>([]);
+  const onOrderChange = useCallback((ids: string[]) => setOrder((cur) => (cur.join('|') === ids.join('|') ? cur : ids)), []);
+  const playOrder = useMemo(() => {
+    const byId = new Map(shownPlays.map((p) => [p.id, p]));
+    const listed = order.map((id) => byId.get(id)).filter(Boolean) as Play[];
+    return listed.length ? listed : shownPlays;
+  }, [order, shownPlays]);
+
   const [playId, setPlayId] = useState<string | undefined>();
   useEffect(() => setPlayId(undefined), [game?.key]);
-  const play: Play | undefined = shownPlays.find((p) => p.id === playId) || shownPlays[0];
-  const idx = play ? shownPlays.indexOf(play) : -1;
-  const next = idx >= 0 ? shownPlays[idx + 1] : undefined;
-  const prev = idx > 0 ? shownPlays[idx - 1] : undefined;
+  const play: Play | undefined = plays.find((p) => p.id === playId) || playOrder[0];
+  const idx = play ? playOrder.indexOf(play) : -1;
+  const next = idx >= 0 ? playOrder[idx + 1] : playOrder[0];
+  const prev = idx > 0 ? playOrder[idx - 1] : undefined;
+
+  // Tag changes are saved to the game's Hudl Scout breakdown (ours, or this week's opponent).
+  const source = game?.source || 'own';
+  const editPlays = (change: (all: Play[]) => Play[]) => {
+    const now = Date.now();
+    if (source === 'own') onUpdateOwnTeamScout({ ...own, plays: change(own.plays), updatedAt: now });
+    else onUpdateScouting('hudlScout', { ...((opponentScout as object) || {}), plays: change(opp.plays), updatedAt: now });
+  };
+  const isOwn = source === 'own';
+  const lineupFor = (p: Play) => {
+    const g = own.games.find((x) => x.id === p.gameId) || (!p.gameId ? own.games[0] : undefined);
+    const week = g?.week || '';
+    if (!week || !weekBoards) return { lineup: filmLineup(p, undefined, roster || []), weekLabel: g?.name };
+    return { lineup: filmLineup(p, weekBoards(week), roster || []), weekLabel: weekOptions?.find((w) => w.key === week)?.label };
+  };
+  const createCall = (name: string, unit: 'offense' | 'defense') => {
+    const base = newPlayEntry(name, unit);
+    // Calls typed while tagging an opponent are filed apart from our own plays.
+    const entry = isOwn ? base : { ...base, category: 'Opponent plays', tags: ['Opponent'] };
+    onUpdatePlayDatabase?.([...(playDatabase || []), entry]);
+    return entry;
+  };
 
   const clipOf = (p?: Play) => (p && clipFor.has(p.id) ? clips[clipFor.get(p.id)!] : undefined);
   const clip = clipOf(play);
@@ -158,8 +208,45 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const ownGames = games.filter((g) => g.source === 'own');
   const oppGames = games.filter((g) => g.source === 'opponent');
 
-  const playListEl = (
-    <PlayList plays={shownPlays} selectedId={play?.id} onSelect={setPlayId} hasClip={(id) => clipFor.has(id)} noteCount={(id) => notesFor(id).length} />
+  const rowBadge = (p: Play) => {
+    const n = notesFor(p.id).length;
+    return (
+      <span className="inline-flex items-center gap-1.5 align-middle">
+        <Film size={12} className={clipFor.has(p.id) ? 'text-indigo-400' : 'text-slate-600'} aria-label={clipFor.has(p.id) ? 'Has film' : 'No film'} />
+        {n > 0 && (
+          <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-amber-400">
+            <MessageSquare size={10} />
+            {n}
+          </span>
+        )}
+      </span>
+    );
+  };
+  const playLog = (
+    <PlaysTable
+      plays={shownPlays}
+      selectedId={play?.id}
+      onSelectPlay={setPlayId}
+      onOrderChange={onOrderChange}
+      rowBadge={rowBadge}
+      playDatabase={playDatabase}
+      onTagPlays={onUpdatePlayDatabase ? (ids, entry) => editPlays((all) => tagPlays(all, ids, entry)) : undefined}
+      onCreateCall={onUpdatePlayDatabase ? createCall : undefined}
+      onSetFormation={(ids, formation) => editPlays((all) => setPlaysFormation(all, ids, formation))}
+      onSetUnit={isOwn ? (id: string, unit: TeamUnit | undefined, scope) => editPlays((all) => tagPlayUnits(all, id, unit, scope)) : undefined}
+      lineupFor={isOwn && roster ? lineupFor : undefined}
+      roster={roster}
+      onSetSub={isOwn ? (id: string, slotId: string, ref: FilmPlayerRef | null | undefined) => editPlays((all) => setPlaySub(all, id, slotId, ref)) : undefined}
+      onSetBall={isOwn ? (id: string, role: BallRole, label: string) => editPlays((all) => setPlayBallPlayer(all, id, role, label)) : undefined}
+      onSetDefPlay={isOwn ? (id, patch) => editPlays((all) => setPlayDefPlay(all, id, patch)) : undefined}
+    />
+  );
+  const odkChips = (
+    <div className="flex items-center gap-1">
+      {(['all', 'O', 'D', 'K'] as OdkFilter[]).map((k) => (
+        <button key={k} className={chip(odk === k)} onClick={() => setOdk(k)}>{k === 'all' ? 'All' : k === 'O' ? 'Offense' : k === 'D' ? 'Defense' : 'Kicking'}</button>
+      ))}
+    </div>
   );
   const notesEl = (
     <PlayNotes
@@ -234,18 +321,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[17rem_minmax(0,1fr)_19rem] items-start">
-        {/* Plays (desktop) */}
-        <div className={`${panel} hidden lg:flex flex-col max-h-[calc(100vh-11rem)]`}>
-          <div className="flex items-center gap-1 p-2 border-b border-slate-100 dark:border-slate-800">
-            {(['all', 'O', 'D', 'K'] as OdkFilter[]).map((k) => (
-              <button key={k} className={chip(odk === k)} onClick={() => setOdk(k)}>{k === 'all' ? 'All' : k}</button>
-            ))}
-            <span className="ml-auto text-[11px] text-slate-400">{shownPlays.length} plays</span>
-          </div>
-          <div className="overflow-y-auto">{playListEl}</div>
-        </div>
-
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_20rem] items-start">
         <FilmPlayer
           src={placeholder ? undefined : clipUrl.url}
           placeholder={placeholder}
@@ -262,31 +338,27 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           apiRef={apiRef}
         />
 
-        {/* Notes (desktop) */}
-        <div className={`${panel} hidden lg:block max-h-[calc(100vh-11rem)] overflow-y-auto`}>
+        {/* Notes: beside the video on a computer, a tab on phones and tablets */}
+        <div className={`${panel} hidden lg:block max-h-[calc(100dvh-11rem)] overflow-y-auto`}>
           <div className="px-3 pt-3 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Notes {play ? `· play #${play.playNumber}` : ''}
           </div>
           {notesEl}
         </div>
+      </div>
 
-        {/* Phones and tablets: plays and notes under the video */}
-        <div className={`${panel} lg:hidden`}>
-          <div className="flex items-center gap-1 p-2 border-b border-slate-100 dark:border-slate-800">
-            <button className={chip(mobileTab === 'plays')} onClick={() => setMobileTab('plays')}>Plays</button>
-            <button className={chip(mobileTab === 'notes')} onClick={() => setMobileTab('notes')}>
-              Notes{play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}
-            </button>
-            {mobileTab === 'plays' && (
-              <span className="ml-auto flex gap-1">
-                {(['all', 'O', 'D', 'K'] as OdkFilter[]).map((k) => (
-                  <button key={k} className={chip(odk === k)} onClick={() => setOdk(k)}>{k === 'all' ? 'All' : k}</button>
-                ))}
-              </span>
-            )}
-          </div>
-          {mobileTab === 'plays' ? <div className="max-h-[55vh] overflow-y-auto">{playListEl}</div> : notesEl}
-        </div>
+      <div className="flex items-center gap-2 lg:hidden">
+        <button className={chip(mobileTab === 'plays')} onClick={() => setMobileTab('plays')}>Plays &amp; tags</button>
+        <button className={chip(mobileTab === 'notes')} onClick={() => setMobileTab('notes')}>
+          Notes{play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}
+        </button>
+      </div>
+      {mobileTab === 'notes' && <div className={`${panel} lg:hidden`}>{notesEl}</div>}
+
+      {/* The game's play log: click a play to watch it, sort by any column, change tags */}
+      <div className={`flex-col gap-2 ${mobileTab === 'plays' ? 'flex' : 'hidden lg:flex'}`}>
+        {odkChips}
+        {playLog}
       </div>
 
       {linkOpen && game && (
