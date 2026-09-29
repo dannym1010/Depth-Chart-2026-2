@@ -360,9 +360,10 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         </div>
       </div>
 
-      <div className={`grid gap-3 shrink-0 ${showNotes ? 'lg:grid-cols-[minmax(0,1fr)_20rem]' : ''}`}>
+      {/* Phones held upright: the video stays pinned under the app header while the plays scroll under it. */}
+      <div className={`grid gap-3 shrink-0 max-lg:portrait:sticky max-lg:portrait:top-[62px] max-lg:portrait:z-20 max-lg:portrait:rounded-xl max-lg:portrait:bg-black ${showNotes ? 'lg:grid-cols-[minmax(0,1fr)_20rem]' : ''}`}>
         <FilmPlayer
-          maxVideoHeight={isDesktop ? `${clampVideoH(videoH)}px` : undefined}
+          maxVideoHeight={isDesktop ? `${clampVideoH(videoH)}px` : 'calc(100dvh - 7rem)'}
           src={placeholder ? undefined : clipUrl.url}
           placeholder={placeholder}
           title={play ? playTitle(play) : ''}

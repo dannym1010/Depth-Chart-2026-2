@@ -1,10 +1,12 @@
 // The video player: play / slow-mo / frame step, loop and auto-advance, zoom and pan, drawing over
 // the video, and the pocket stopwatch (snap -> release). Keyboard: space play, ← → frame,
-// ↑ ↓ previous / next play, L loop, D draw, S stopwatch, F full screen.
+// ↑ ↓ previous / next play, L loop, D draw, S stopwatch, M mute, F full screen.
+// Mouse / touch on the video: click or tap plays / pauses, scroll or pinch zooms, drag moves a zoomed-in
+// picture, double-click (double-tap) is full screen.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ChevronLeft, ChevronRight, Circle, Maximize, MoveUpRight, Pause, Pencil, Play, Repeat, SkipBack, SkipForward,
-  Timer, Trash2, Undo2, ZoomIn, ZoomOut,
+  Timer, Trash2, Undo2, Volume2, VolumeX, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { MARK_COLORS, Telestration } from './Telestration';
 import type { FilmMark } from './types';
@@ -64,6 +66,27 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [drawing, setDrawing] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [muted, setMuted] = useState(() => {
+    try {
+      return localStorage.getItem('footballFilmroomMuted') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleMute = useCallback(() => {
+    setMuted((m) => {
+      try {
+        localStorage.setItem('footballFilmroomMuted', m ? '0' : '1');
+      } catch {
+        /* ignore */
+      }
+      return !m;
+    });
+  }, []);
+  // (React doesn't keep the video's muted flag in step on its own.)
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.muted = muted;
+  }, [muted, src]);
   useEffect(() => {
     const onChange = () => setIsFullscreen(document.fullscreenElement === rootRef.current);
     document.addEventListener('fullscreenchange', onChange);
@@ -144,7 +167,8 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     const el = rootRef.current as any;
     if (!el) return;
     if (document.fullscreenElement) document.exitFullscreen().catch(() => undefined);
-    else (el.requestFullscreen || el.webkitRequestFullscreen)?.call(el);
+    else if (el.requestFullscreen || el.webkitRequestFullscreen) (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+    else (videoRef.current as any)?.webkitEnterFullscreen?.();
   }, []);
 
   view.current = { zoom, pan };
@@ -192,6 +216,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
         d: toggleDraw,
         s: stopwatch,
         f: fullscreen,
+        m: toggleMute,
       };
       if (act[k]) {
         e.preventDefault();
@@ -200,7 +225,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [togglePlay, step, hasPrev, hasNext, onPrev, onNext, toggleDraw, stopwatch, fullscreen]);
+  }, [togglePlay, step, hasPrev, hasNext, onPrev, onNext, toggleDraw, stopwatch, fullscreen, toggleMute]);
 
   const onEnded = () => {
     if (!loop && autoNext && hasNext) onNext();
@@ -208,12 +233,35 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
 
   // Mouse on the video: click plays / pauses, drag moves a zoomed-in picture, double-click is full screen.
   // (Drawing takes the mouse while it's on.)
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ dist: number; zoom: number } | null>(null);
+  const twoFingers = () => {
+    const [a, b] = [...pointers.current.values()];
+    return { a, b, dist: Math.hypot(a.x - b.x, a.y - b.y) || 1 };
+  };
   const onStageDown = (e: React.PointerEvent) => {
     if (drawing || e.button !== 0 || (e.target as HTMLElement).closest('button, input, a')) return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.current.size === 2) {
+      pinch.current = { dist: twoFingers().dist, zoom: view.current.zoom };
+      press.current = null; // a pinch isn't a tap
+      return;
+    }
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     press.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y, moved: false };
   };
+  const releasePointer = (e: React.PointerEvent) => {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) pinch.current = null;
+  };
   const onStageMove = (e: React.PointerEvent) => {
+    if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch.current && pointers.current.size >= 2) {
+      const { a, b, dist } = twoFingers();
+      const r = (e.currentTarget as Element).getBoundingClientRect();
+      zoomTo(pinch.current.zoom * (dist / pinch.current.dist), ((a.x + b.x) / 2 - r.left) / r.width - 0.5, ((a.y + b.y) / 2 - r.top) / r.height - 0.5);
+      return;
+    }
     const s = press.current;
     if (!s) return;
     if (Math.hypot(e.clientX - s.x, e.clientY - s.y) > 4) s.moved = true;
@@ -223,7 +271,8 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     const clamp = (v: number) => Math.max(-lim, Math.min(lim, v));
     setPan({ x: clamp(s.px + (e.clientX - s.x) / r.width / zoom), y: clamp(s.py + (e.clientY - s.y) / r.height / zoom) });
   };
-  const onStageUp = () => {
+  const onStageUp = (e: React.PointerEvent) => {
+    releasePointer(e);
     const s = press.current;
     press.current = null;
     if (s && !s.moved) togglePlay();
@@ -263,12 +312,15 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
       <div
         ref={stageRef}
         style={{ width: `min(100%, max(18rem, calc(${videoHeight} * 16 / 9)))` }}
-        className={`relative mx-auto aspect-video overflow-hidden bg-black touch-none ${drawing ? '' : zoom > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
+        className={`relative mx-auto aspect-video overflow-hidden bg-black ${drawing || zoom > 1 ? 'touch-none' : 'touch-pan-y'} ${drawing ? '' : zoom > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
         title={drawing ? undefined : 'Click: play / pause · Scroll: zoom · Drag: move around · Double-click: full screen'}
         onPointerDown={onStageDown}
         onPointerMove={onStageMove}
         onPointerUp={onStageUp}
-        onPointerCancel={() => (press.current = null)}
+        onPointerCancel={(e) => {
+          releasePointer(e);
+          press.current = null;
+        }}
         onDoubleClick={() => !drawing && fullscreen()}
       >
         <div className="absolute inset-0" style={{ transform: `scale(${zoom}) translate(${pan.x * 100}%, ${pan.y * 100}%)`, transformOrigin: 'center' }}>
@@ -278,6 +330,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
               src={src}
               className="absolute inset-0 w-full h-full object-contain"
               playsInline
+              muted={muted}
               loop={loop}
               preload="auto"
               onPlay={() => setPlaying(true)}
@@ -351,23 +404,30 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
           <button className={idle} onClick={() => step(1)} disabled={!src} title="Forward one frame (→)"><ChevronRight size={18} /></button>
           <button className={idle} onClick={onNext} disabled={!hasNext} title="Next play (↓)"><SkipForward size={16} /></button>
 
-          <span className="w-px h-6 bg-white/15 mx-1" />
+          <span className="w-px h-6 bg-white/15 mx-1 max-sm:hidden" />
           {SPEEDS.map((sp) => (
-            <button key={sp} className={speed === sp ? on : idle} onClick={() => setSpeed(sp)} title={`${sp}× speed`}>
+            <button key={sp} className={`${speed === sp ? on : idle} max-sm:!hidden`} onClick={() => setSpeed(sp)} title={`${sp}× speed`}>
               {sp === 0.25 ? '¼' : sp === 0.5 ? '½' : sp}×
             </button>
           ))}
+          <button
+            className={`${speed === 1 ? idle : on} sm:!hidden`}
+            onClick={() => setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])}
+            title="Speed (tap to change)"
+          >
+            {speed === 0.25 ? '¼' : speed === 0.5 ? '½' : speed}×
+          </button>
           <button className={loop ? on : idle} onClick={() => setLoop((x) => !x)} title="Loop this play (L)"><Repeat size={15} /></button>
-          <button className={autoNext ? on : idle} onClick={() => setAutoNext((x) => !x)} title="Go to the next play when this one ends">Auto</button>
+          <button className={`${autoNext ? on : idle} max-sm:!hidden`} onClick={() => setAutoNext((x) => !x)} title="Go to the next play when this one ends">Auto</button>
 
-          <span className="w-px h-6 bg-white/15 mx-1" />
-          <button className={idle} onClick={() => zoomBy(-0.5)} disabled={zoom === 1} title="Zoom out (or scroll on the video)"><ZoomOut size={16} /></button>
+          <span className="w-px h-6 bg-white/15 mx-1 max-sm:hidden" />
+          <button className={`${idle} max-sm:!hidden`} onClick={() => zoomBy(-0.5)} disabled={zoom === 1} title="Zoom out (or scroll on the video)"><ZoomOut size={16} /></button>
           {zoom > 1 && (
             <button className={idle} onClick={() => zoomTo(1)} title="Reset zoom">{zoom.toFixed(1)}×</button>
           )}
-          <button className={idle} onClick={() => zoomBy(0.5)} disabled={zoom === 4} title="Zoom in (or scroll on the video; drag to move around)"><ZoomIn size={16} /></button>
+          <button className={`${idle} max-sm:!hidden`} onClick={() => zoomBy(0.5)} disabled={zoom === 4} title="Zoom in (or scroll on the video; drag to move around)"><ZoomIn size={16} /></button>
 
-          <span className="w-px h-6 bg-white/15 mx-1" />
+          <span className="w-px h-6 bg-white/15 mx-1 max-sm:hidden" />
           <button className={drawing ? on : idle} onClick={toggleDraw} title="Draw on the video (D)"><Pencil size={15} /><span className="hidden sm:inline">Draw</span></button>
           <button className={snapAt !== null ? btn : idle} style={snapAt !== null ? AMBER : undefined} onClick={stopwatch} disabled={!src} title="Stopwatch: tap at the snap, tap again at the release (S)">
             <Timer size={15} />
@@ -378,7 +438,10 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
               Save {lastWatch.seconds.toFixed(2)}s as note
             </button>
           )}
-          <button className={`${idle} ml-auto`} onClick={fullscreen} title="Full screen (F, or double-click the video)"><Maximize size={16} /></button>
+          <button className={`${idle} ml-auto`} onClick={toggleMute} title={muted ? 'Sound on (M)' : 'Mute (M)'} aria-label={muted ? 'Sound on' : 'Mute'} aria-pressed={muted}>
+            {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+          </button>
+          <button className={idle} onClick={fullscreen} title="Full screen (F, or double-click the video)"><Maximize size={16} /></button>
         </div>
       </div>
     </div>

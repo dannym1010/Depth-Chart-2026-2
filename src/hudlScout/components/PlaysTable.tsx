@@ -207,8 +207,15 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
   }, [filteredPlays]);
   useEffect(() => {
     if (!compact || !selectedId) return;
-    const row = document.querySelector(`[data-play-row="${CSS.escape(selectedId)}"]`);
-    row?.scrollIntoView({ block: 'nearest' });
+    // Only the play list's own box scrolls (never the page, which would push the video away).
+    const row = document.querySelector<HTMLElement>(`[data-play-row="${CSS.escape(selectedId)}"]`);
+    const box = row?.closest<HTMLElement>('[data-play-scroll]');
+    if (!row || !box || box.scrollHeight <= box.clientHeight) return;
+    const r = row.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    const head = box.querySelector('thead')?.getBoundingClientRect().height || 0;
+    if (r.top < b.top + head) box.scrollTop -= b.top + head - r.top;
+    else if (r.bottom > b.bottom) box.scrollTop += r.bottom - b.bottom;
   }, [compact, selectedId]);
   // Keep the page on the play being watched (e.g. when the film moves on to the next play).
   useEffect(() => {
@@ -450,7 +457,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
 
       {/* Table */}
       {/* Film Room: the table scrolls inside its own box, so the column headers stay in view. */}
-      <div className={`hidden md:block ${compact ? 'overflow-auto flex-1 min-h-0' : 'overflow-x-auto'}`}>
+      <div data-play-scroll className={`hidden md:block ${compact ? 'overflow-auto flex-1 min-h-0' : 'overflow-x-auto'}`}>
         <table className={`w-full text-left text-xs text-slate-300 ${compact ? '[&_td]:!py-0.5 [&_th]:!py-1.5 [&_td]:whitespace-nowrap [&_td_input]:!h-6 [&_td_button]:!h-6 [&_td_button]:!py-0' : ''}`}>
           <thead className="sticky top-0 z-10 bg-slate-950 text-slate-400 font-semibold border-b border-slate-800 uppercase tracking-wider text-[11px] select-none">
             <tr>
