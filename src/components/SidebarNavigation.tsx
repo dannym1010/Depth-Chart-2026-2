@@ -66,7 +66,6 @@ export interface SidebarNavigationProps {
   onSelectGuideMain?: (main: string) => void;
   isExpanded?: boolean;
   onToggleExpanded?: () => void;
-  showFilmroomBeta?: boolean;
 }
 
 export interface NavItemConfig {
@@ -77,7 +76,6 @@ export interface NavItemConfig {
   badgeText?: string;
   description: string;
   adminOnly?: boolean;
-  betaOnly?: boolean;
   hasCascadingFolders?: boolean;
 }
 
@@ -131,8 +129,7 @@ const MAIN_NAV_ITEMS: NavItemConfig[] = [
     shortLabel: 'Film Room',
     icon: Camera,
     description: 'Watch Hudl Scout games with film, notes and drawings',
-    badgeText: 'Beta',
-    betaOnly: true,
+    badgeText: 'Film',
   },
   {
     id: 'practice',
@@ -442,7 +439,6 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
   onSelectGuideMain,
   isExpanded: controlledIsExpanded,
   onToggleExpanded: controlledOnToggleExpanded,
-  showFilmroomBeta = false,
 }) => {
   // Sidebar expanded / collapsed state
   const [internalExpanded, setInternalExpanded] = useState<boolean>(() => {
@@ -813,7 +809,6 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
         <div className="flex-1 overflow-y-auto px-2.5 py-3 space-y-1.5 scrollbar-thin scrollbar-thumb-slate-800">
           {MAIN_NAV_ITEMS.map((item) => {
             if (item.adminOnly && userRole !== 'admin') return null;
-            if (item.betaOnly && !showFilmroomBeta) return null;
 
             const Icon = item.icon;
             const active = isItemActive(item.id);

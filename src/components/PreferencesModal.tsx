@@ -29,6 +29,7 @@ import {
   Moon,
   Clock,
   Flame,
+  Camera,
 } from 'lucide-react';
 import { UnitType, DepthSubUnit, Team, UserRole } from '../types';
 
@@ -170,6 +171,13 @@ const SCREEN_OPTIONS: ScreenOption[] = [
     category: 'Game Day Operations',
     description: 'Our-team Hudl film by game and all games, plus this week’s opponent report from the schedule',
     icon: FileSpreadsheet,
+  },
+  {
+    id: 'filmroom',
+    name: 'Film Room',
+    category: 'Game Day Operations',
+    description: 'Watch each Hudl play with the film, shared notes, drawings and tags',
+    icon: Camera,
   },
   {
     id: 'whiteboard',

@@ -3,7 +3,7 @@
 // whole staff sees. The play log under the video is Hudl Scout's own: sorting it sets the play order, and
 // tags changed here are the same tags Hudl Scout shows.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, Film, Link2, MessageSquare, RefreshCw, Unlink } from 'lucide-react';
+import { ExternalLink, Film, GripHorizontal, Link2, MessageSquare, RefreshCw, Unlink } from 'lucide-react';
 import { PlaysTable } from '../hudlScout/components/PlaysTable';
 import { bundleFromSaved, type ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play, TeamUnit } from '../hudlScout/types/football';
@@ -140,6 +140,32 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const [linkOpen, setLinkOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<'plays' | 'notes'>('plays');
 
+  // Computer layout: the video, then a bar to drag, then the play log in its own scroll area.
+  // The video's height and whether notes show are remembered on this device.
+  const isDesktop = useIsDesktop();
+  const [showNotes, setShowNotes] = useState(() => safeJSONParse<boolean>('footballFilmroomShowNotes', true));
+  const toggleNotes = () =>
+    setShowNotes((v) => {
+      safeJSONSet('footballFilmroomShowNotes', !v);
+      return !v;
+    });
+  const defaultVideoH = () => Math.round((typeof window === 'undefined' ? 900 : window.innerHeight) * 0.5);
+  const clampVideoH = (h: number) => Math.max(160, Math.min(h, (typeof window === 'undefined' ? 900 : window.innerHeight) - 420));
+  const [videoH, setVideoH] = useState<number>(() => safeJSONParse<number | null>('footballFilmroomVideoH', null) || defaultVideoH());
+  const drag = useRef<{ y: number; h: number } | null>(null);
+  const onDividerDown = (e: React.PointerEvent) => {
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    drag.current = { y: e.clientY, h: clampVideoH(videoH) };
+  };
+  const onDividerMove = (e: React.PointerEvent) => {
+    if (drag.current) setVideoH(clampVideoH(drag.current.h + e.clientY - drag.current.y));
+  };
+  const onDividerUp = () => {
+    if (!drag.current) return;
+    drag.current = null;
+    safeJSONSet('footballFilmroomVideoH', videoH);
+  };
+
   const notesFor = useCallback((id: string) => shared.notes.filter((n) => n.playId === id), [shared.notes]);
   const playNotes = play ? [...notesFor(play.id)].sort((a, b) => a.t - b.t) : [];
   const marks: FilmMark[] = (play && shared.drawings[play.id]?.marks) || [];
@@ -260,9 +286,9 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   );
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3 lg:h-[calc(100dvh-6.5rem)]">
       {/* Game and film */}
-      <div className={`${panel} p-3 flex flex-wrap items-center gap-2`}>
+      <div className={`${panel} p-3 flex flex-wrap items-center gap-2 shrink-0`}>
         <Film size={18} className="text-indigo-500 shrink-0" />
         <select
           value={game?.key}
@@ -297,6 +323,15 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         </span>
 
         <div className="flex items-center gap-1.5 ml-auto">
+          <button
+            onClick={toggleNotes}
+            className={`hidden lg:inline-flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-bold ${
+              showNotes ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' : 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300'
+            }`}
+            title={showNotes ? 'Hide notes to make the video bigger' : 'Show notes beside the video'}
+          >
+            <MessageSquare size={14} /> {showNotes ? 'Hide notes' : `Show notes${play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}`}
+          </button>
           <button onClick={() => setLinkOpen(true)} className="inline-flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-bold bg-indigo-600 text-white">
             <Link2 size={14} /> {film.status === 'ready' ? 'Change film' : 'Link film'}
           </button>
@@ -321,8 +356,9 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_20rem] items-start">
+      <div className={`grid gap-3 shrink-0 ${showNotes ? 'lg:grid-cols-[minmax(0,1fr)_20rem]' : ''}`}>
         <FilmPlayer
+          maxVideoHeight={isDesktop ? `${clampVideoH(videoH)}px` : undefined}
           src={placeholder ? undefined : clipUrl.url}
           placeholder={placeholder}
           title={play ? playTitle(play) : ''}
@@ -338,13 +374,36 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           apiRef={apiRef}
         />
 
-        {/* Notes: beside the video on a computer, a tab on phones and tablets */}
-        <div className={`${panel} hidden lg:block max-h-[calc(100dvh-11rem)] overflow-y-auto`}>
-          <div className="px-3 pt-3 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Notes {play ? `· play #${play.playNumber}` : ''}
+        {/* Notes: beside the video on a computer (as tall as the video, scrolling), a tab on phones and tablets */}
+        {showNotes && (
+          <div className="hidden lg:block relative">
+            <div className={`${panel} absolute inset-0 overflow-y-auto`}>
+              <div className="px-3 pt-3 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Notes {play ? `· play #${play.playNumber}` : ''}
+              </div>
+              {notesEl}
+            </div>
           </div>
-          {notesEl}
-        </div>
+        )}
+      </div>
+
+      {/* Drag to make the video bigger or smaller (double-click: back to half the screen) */}
+      <div
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Drag to resize the video"
+        title="Drag to make the video bigger or smaller"
+        onPointerDown={onDividerDown}
+        onPointerMove={onDividerMove}
+        onPointerUp={onDividerUp}
+        onPointerCancel={onDividerUp}
+        onDoubleClick={() => {
+          setVideoH(defaultVideoH());
+          safeJSONSet('footballFilmroomVideoH', null);
+        }}
+        className="hidden lg:flex shrink-0 -my-1.5 h-4 items-center justify-center cursor-row-resize touch-none text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+      >
+        <GripHorizontal size={18} />
       </div>
 
       <div className="flex items-center gap-2 lg:hidden">
@@ -356,7 +415,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       {mobileTab === 'notes' && <div className={`${panel} lg:hidden`}>{notesEl}</div>}
 
       {/* The game's play log: click a play to watch it, sort by any column, change tags */}
-      <div className={`flex-col gap-2 ${mobileTab === 'plays' ? 'flex' : 'hidden lg:flex'}`}>
+      <div className={`flex-col gap-2 lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1 [&>*]:shrink-0 ${mobileTab === 'plays' ? 'flex' : 'hidden lg:flex'}`}>
         {odkChips}
         {playLog}
       </div>
@@ -374,3 +433,16 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     </div>
   );
 };
+
+/** A computer-sized screen (the side-by-side layout). */
+function useIsDesktop() {
+  const query = '(min-width: 1024px)';
+  const [match, setMatch] = useState(() => typeof window !== 'undefined' && window.matchMedia(query).matches);
+  useEffect(() => {
+    const m = window.matchMedia(query);
+    const on = () => setMatch(m.matches);
+    m.addEventListener('change', on);
+    return () => m.removeEventListener('change', on);
+  }, []);
+  return match;
+}

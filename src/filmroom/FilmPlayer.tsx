@@ -35,14 +35,22 @@ interface FilmPlayerProps {
   onNext: () => void;
   onStopwatch: (seconds: number, at: number) => void;
   apiRef: React.MutableRefObject<PlayerApi | null>;
+  /** Tallest the video may be (CSS length). Default leaves room for the page and the controls. */
+  maxVideoHeight?: string;
 }
 
 const btn = 'inline-flex items-center justify-center gap-1 h-9 min-w-9 px-2 rounded-lg text-xs font-bold transition-colors disabled:opacity-40';
-const idle = `${btn} text-slate-200 dark:text-slate-200 hover:bg-white/10`;
+// The player is always dark, so its colors are fixed here: the app's light and dark themes recolor
+// the gray text shades (which made controls vanish on the black bar in dark mode).
+const INK = '#e2e8f0';
+const DIM = '#94a3b8';
+const AMBER = { background: '#f59e0b', color: '#111827' };
+const idle = `${btn} hover:bg-white/10`; // text color comes from the player (INK)
 const on = `${btn} bg-indigo-600 text-white`;
 
 export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   src, placeholder, title, marks, onMarksChange, hasPrev, hasNext, onPrev, onNext, onStopwatch, apiRef,
+  maxVideoHeight = 'calc(100dvh - 20rem)',
 }) => {
   const rootRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -55,6 +63,14 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [drawing, setDrawing] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(document.fullscreenElement === rootRef.current);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+  // The video keeps 16:9 and never grows taller than allowed, so the controls always stay on screen.
+  const videoHeight = isFullscreen ? 'calc(100dvh - 9rem)' : maxVideoHeight;
   const [tool, setTool] = useState<FilmMark['kind']>('arrow');
   const [color, setColor] = useState(MARK_COLORS[0]);
   const [snapAt, setSnapAt] = useState<number | null>(null);
@@ -181,11 +197,14 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     setPan({ x: clamp(s.px + (e.clientX - s.x) / r.width / zoom), y: clamp(s.py + (e.clientY - s.y) / r.height / zoom) });
   };
 
-  // --chrome: room kept for the page and the controls, so the video never pushes the controls off screen.
   return (
-    <div ref={rootRef} className="flex flex-col bg-black rounded-xl overflow-hidden select-none [--chrome:20rem] [&:fullscreen]:[--chrome:9rem] [&:fullscreen]:rounded-none [&:fullscreen]:justify-center">
+    <div
+      ref={rootRef}
+      className="flex flex-col rounded-xl overflow-hidden select-none [&:fullscreen]:rounded-none [&:fullscreen]:justify-center"
+      style={{ color: INK, background: '#000' }}
+    >
       <div
-        style={{ width: 'min(100%, max(18rem, calc((100dvh - var(--chrome)) * 16 / 9)))' }}
+        style={{ width: `min(100%, max(18rem, calc(${videoHeight} * 16 / 9)))` }}
         className={`relative mx-auto aspect-video overflow-hidden bg-black ${zoom > 1 && !drawing ? 'cursor-grab active:cursor-grabbing touch-none' : ''}`}
         onPointerDown={panDown}
         onPointerMove={panMove}
@@ -217,11 +236,11 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
             onAdd={(m) => onMarksChange([...marks, m])}
           />
         </div>
-        {!src && <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-slate-300 dark:text-slate-300 text-sm">{placeholder}</div>}
+        {!src && <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm">{placeholder}</div>}
         <div className="absolute top-2 left-2 right-2 flex items-start justify-between gap-2 pointer-events-none">
-          <span className="px-2 py-1 rounded-md bg-black/60 text-white text-xs font-bold truncate">{title}</span>
+          <span className="px-2 py-1 rounded-md text-xs font-bold truncate" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>{title}</span>
           {(snapAt !== null || lastWatch) && (
-            <span className="px-2 py-1 rounded-md bg-amber-500 text-black text-xs font-black tabular-nums shrink-0">
+            <span className="px-2 py-1 rounded-md text-xs font-black tabular-nums shrink-0" style={AMBER}>
               {snapAt !== null ? `⏱ ${(Math.max(0, time - snapAt)).toFixed(2)}s` : `Pocket ${lastWatch!.seconds.toFixed(2)}s`}
             </span>
           )}
@@ -229,7 +248,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
       </div>
 
       {/* Scrubber */}
-      <div className="flex items-center gap-2 px-3 pt-2 text-[11px] text-slate-400 dark:text-slate-400 tabular-nums">
+      <div className="flex items-center gap-2 px-3 pt-2 text-[11px] tabular-nums" style={{ color: DIM }}>
         <span>{fmtTime(time)}</span>
         <input
           type="range"
@@ -249,7 +268,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
       <div className="flex flex-wrap items-center gap-1 px-2 py-2">
         <button className={idle} onClick={onPrev} disabled={!hasPrev} title="Previous play (↑)"><SkipBack size={16} /></button>
         <button className={idle} onClick={() => step(-1)} disabled={!src} title="Back one frame (←)"><ChevronLeft size={18} /></button>
-        <button className={`${btn} bg-white text-black hover:bg-slate-200 w-11`} onClick={togglePlay} disabled={!src} title="Play / pause (space)">
+        <button className={`${btn} w-11 hover:opacity-85`} style={{ background: '#fff', color: '#0f172a' }} onClick={togglePlay} disabled={!src} title="Play / pause (space)">
           {playing ? <Pause size={18} /> : <Play size={18} />}
         </button>
         <button className={idle} onClick={() => step(1)} disabled={!src} title="Forward one frame (→)"><ChevronRight size={18} /></button>
@@ -273,12 +292,12 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
 
         <span className="w-px h-6 bg-white/15 mx-1" />
         <button className={drawing ? on : idle} onClick={toggleDraw} title="Draw on the video (D)"><Pencil size={15} /><span className="hidden sm:inline">Draw</span></button>
-        <button className={snapAt !== null ? `${btn} bg-amber-500 text-black` : idle} onClick={stopwatch} disabled={!src} title="Stopwatch: tap at the snap, tap again at the release (S)">
+        <button className={snapAt !== null ? btn : idle} style={snapAt !== null ? AMBER : undefined} onClick={stopwatch} disabled={!src} title="Stopwatch: tap at the snap, tap again at the release (S)">
           <Timer size={15} />
           <span className="hidden sm:inline">{snapAt !== null ? 'Release' : 'Snap'}</span>
         </button>
         {lastWatch && (
-          <button className={`${btn} bg-amber-500/20 text-amber-300 dark:text-amber-300 hover:bg-amber-500/30`} onClick={() => { onStopwatch(lastWatch.seconds, lastWatch.at); setLastWatch(null); }}>
+          <button className={`${btn} hover:opacity-85`} style={{ background: 'rgba(245,158,11,0.2)', color: '#fcd34d' }} onClick={() => { onStopwatch(lastWatch.seconds, lastWatch.at); setLastWatch(null); }}>
             Save {lastWatch.seconds.toFixed(2)}s as note
           </button>
         )}
@@ -303,7 +322,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
           <span className="w-px h-6 bg-white/15 mx-1" />
           <button className={idle} onClick={() => onMarksChange(marks.slice(0, -1))} disabled={!marks.length} title="Undo"><Undo2 size={15} /></button>
           <button className={idle} onClick={() => onMarksChange([])} disabled={!marks.length} title="Clear this play's drawing"><Trash2 size={15} /></button>
-          <span className="text-[11px] text-slate-400 dark:text-slate-400 ml-1">Saved for the team as you draw.</span>
+          <span className="text-[11px] ml-1" style={{ color: DIM }}>Saved for the team as you draw.</span>
           <button className={`${on} ml-auto`} onClick={() => setDrawing(false)}>Done</button>
         </div>
       )}

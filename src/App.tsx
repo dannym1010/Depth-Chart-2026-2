@@ -174,7 +174,6 @@ import { syncWristbandToCallSheet } from './utils/wristbandLinking';
 import { saveCallSheetSnapshot, countCallSheetPlays } from './utils/callSheetStorage';
 import { ScoutingView } from './components/ScoutingView';
 import { FilmRoomView } from './filmroom/FilmRoomView';
-import { canAccessFilmroom, tryUnlockFilmroomFromHash } from './filmroom/access';
 import { HudlScoutSections, type HudlSection } from './components/scouting/HudlScoutSections';
 import { TendenciesView } from './components/scouting/TendenciesView';
 import { PlaybookGuidesView } from './components/PlaybookGuidesView';
@@ -581,7 +580,6 @@ export default function App() {
 
   const [_activeUnit, _setActiveUnitRaw] = useState<UnitType>(() => {
     if (typeof window !== 'undefined' && window.location.hash) {
-      tryUnlockFilmroomFromHash(window.location.hash);
       const parsed = parseRouteHash(window.location.hash);
       if (parsed.unit) return parsed.unit;
     }
@@ -748,7 +746,6 @@ export default function App() {
     }
   }, []);
   const [hudlFocusGameId, setHudlFocusGameId] = useState<string | undefined>();
-  const [filmroomAccess, setFilmroomAccess] = useState(() => canAccessFilmroom());
 
   // Wrapped setActiveUnit maintaining backward compatibility across the entire application
   const setActiveUnit = useCallback(
@@ -4128,16 +4125,6 @@ export default function App() {
       isMasterSuperAdminUser(currentUser?.email)
   );
 
-  // Film Room (in testing): the program owner however they signed in, plus unlocked devices.
-  useEffect(() => {
-    const ok = isProgramAdmin || canAccessFilmroom(currentUser);
-    setFilmroomAccess(ok);
-    // Wait for sign-in before sending someone away (the program owner is only known once signed in).
-    if (activeUnit === 'filmroom' && !ok && currentUser) {
-      _setActiveUnitRaw('home');
-    }
-  }, [currentUser, activeUnit, isProgramAdmin]);
-
 
   const isUserApproved = (email?: string, userObj?: any): boolean => {
     if (userObj?.isAdminPasscodeAuth) return true;
@@ -6156,7 +6143,6 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
         }}
         isExpanded={isSidebarExpanded}
         onToggleExpanded={() => setIsSidebarExpanded((prev) => !prev)}
-        showFilmroomBeta={filmroomAccess}
       />
 
       {/* Main Right Scrollable Viewport (Header + Active Screen) */}
@@ -6234,7 +6220,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
 
       {/* Main Layout Area */}
       <main className={
-        activeUnit === 'filmroom' && filmroomAccess
+        activeUnit === 'filmroom'
           ? 'flex-1 w-full mx-auto p-4 md:p-6 pb-24 md:pb-6 print:p-0 print:m-0 print:max-w-none print:w-full print:block print:overflow-visible'
           : 'flex-1 max-w-[1700px] w-full mx-auto p-4 md:p-6 pb-24 md:pb-6 print:p-0 print:m-0 print:max-w-none print:w-full print:block print:overflow-visible'
       }>
@@ -6843,8 +6829,8 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
               />
             )}
 
-            {/* Film Room (in testing: only for coaches who have it turned on) */}
-            {activeUnit === 'filmroom' && filmroomAccess && (
+            {/* Film Room */}
+            {activeUnit === 'filmroom' && (
               <FilmRoomView
                 key={`film-${activeTeamId}`}
                 teamId={activeTeamId}

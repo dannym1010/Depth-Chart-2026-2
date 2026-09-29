@@ -19,7 +19,7 @@ import {
   Smartphone,
   ChevronRight,
   Sliders,
-  Sparkles, Library } from 'lucide-react';
+  Sparkles, Library, Camera } from 'lucide-react';
 import { UnitType, DepthSubUnit, UserRole } from '../types';
 
 interface MobileNavigationModalProps {
@@ -96,6 +96,13 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
             label: '📊 Hudl Scout',
             subtitle: 'Opponent report, our team, our play log and PFF grades',
             icon: BarChart3,
+            accentColor: 'border-blue-500/40 hover:bg-blue-950/40 text-blue-300',
+          },
+          {
+            id: 'filmroom',
+            label: '🎥 Film Room',
+            subtitle: 'Watch each play with notes, drawings and tags',
+            icon: Camera,
             accentColor: 'border-blue-500/40 hover:bg-blue-950/40 text-blue-300',
           },
         ],
