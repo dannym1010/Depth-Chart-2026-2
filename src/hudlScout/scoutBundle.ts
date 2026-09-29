@@ -305,3 +305,23 @@ export function assignDrives(plays: Play[]): Play[] {
   });
   return changed ? next : plays;
 }
+
+/**
+ * A game from a breakdown file in the film folder. Added once: never when the folder's game (its fixed
+ * id) is already here or was removed by a coach, nor when the same game was already uploaded by hand.
+ */
+export function addFolderGame(
+  bundle: ScoutBundle,
+  fresh: Play[],
+  game: { id: string; name: string; week?: string }
+): { bundle: ScoutBundle; added: boolean } {
+  if (!fresh.length) return { bundle, added: false };
+  if (bundle.games.some((g) => g.id === game.id) || (bundle.deletedGameIds || []).includes(game.id)) return { bundle, added: false };
+  if (findSameGame(bundle, fresh, { name: game.name, week: game.week })) return { bundle, added: false };
+  const g: ScoutGame = { id: game.id, name: game.name, playCount: fresh.length, addedAt: Date.now(), ...(game.week ? { week: game.week } : {}) };
+  const plays = assignDrives(fresh.map((p, i) => ({ ...p, id: `${p.id}-${g.id}-${i}`, gameId: g.id })));
+  return {
+    bundle: { ...bundle, plays: [...bundle.plays, ...plays], games: [...bundle.games, g], sourceCleared: false, updatedAt: Date.now() },
+    added: true,
+  };
+}

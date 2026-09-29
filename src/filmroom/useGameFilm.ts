@@ -225,6 +225,12 @@ export function useGameFilm(opts: {
     setSourcePrefState(p);
   }, []);
   const [hasLocalRoot, setHasLocalRoot] = useState(false);
+  const getRootNode = useCallback(async (): Promise<FolderNode | undefined> => {
+    const local = await recallFolder(ROOT_KEY);
+    if (local && (await folderAccess(local))) return localFolderNode(local);
+    if (rootId && isDriveSignedIn()) return driveFolderNode(rootId, rootLabel);
+    return undefined;
+  }, [rootId, rootLabel]);
   const [reloadTick, setReloadTick] = useState(0);
   useEffect(() => {
     if (!folderKey) return setFilm({ status: 'none' });
@@ -375,6 +381,8 @@ export function useGameFilm(opts: {
     /** Camera view to watch, and which folder holds this game when its week has several. */
     setView,
     choose: setPick,
+    /** The shared film folder when it can be read now (this computer's, else Google Drive's). */
+    getRootNode,
     sourcePref,
     setSourcePref,
   };

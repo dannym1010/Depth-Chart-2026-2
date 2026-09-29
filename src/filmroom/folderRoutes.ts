@@ -100,8 +100,15 @@ export function weekFolderLabel(week?: string): string {
 }
 
 /** A folder the resolver can look inside (a Drive folder or a folder on this computer). */
+/** A Hudl breakdown file (CSV / Excel) in a folder. */
+export interface SheetFile {
+  name: string;
+  get: () => Promise<Blob>;
+}
+export const isBreakdownName = (name: string) => /\.(csv|xlsx|xls|xlsm)$/i.test(String(name || '')) && !/^~\$/.test(name);
+
 export interface FolderNode extends FolderLike {
-  open: () => Promise<{ dirs: FolderNode[]; videos: number }>;
+  open: () => Promise<{ dirs: FolderNode[]; videos: number; sheets?: SheetFile[] }>;
   /** Google Drive folder id, or the folder on this computer. */
   driveId?: string;
   handle?: any;
@@ -197,6 +204,57 @@ export async function resolveGameFolder(
   if (!chosen) return { choices: gameDirs, path };
   path.push(chosen.name);
   return { node: chosen, path, siblings: gameDirs.length > 1 ? gameDirs.map((d) => d.name) : undefined };
+}
+
+/** A Hudl breakdown file found in a game's folder: that game's plays, to add to Hudl Scout. */
+export interface FolderBreakdown {
+  source: 'own' | 'opponent';
+  /** The week key ("3", "pre-4"). */
+  week: string;
+  gameName: string;
+  /** Fixed for the folder, so the same folder never adds a game twice (on any coach's device). */
+  id: string;
+  path: string[];
+  sheet: SheetFile;
+}
+
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+/** "Week 5 - Wappingers Wildcats" -> "Wappingers Wildcats". */
+export const afterWeek = (name: string) =>
+  String(name || '').replace(/^.*?\b(?:week|wk)\s*\d+\s*[-–:]?\s*|^\s*(?:playoffs?|championship)\s*[-–:]?\s*/i, '').trim();
+/** Several files: the one named like a breakdown ("... Hudl breakdown.csv"), else the first. */
+const pickSheet = (sheets: SheetFile[]) => sheets.find((s) => /breakdown|hudl|export/i.test(s.name)) || sheets[0];
+
+/** Every game folder of the team that holds a breakdown file (our games, and scouting games by week). */
+export async function findBreakdowns(root: FolderNode, teamName: string): Promise<FolderBreakdown[]> {
+  const out: FolderBreakdown[] = [];
+  const top = await root.open();
+  const team = pickTeamFolder(top.dirs, teamName);
+  if (!team) return out;
+  const t = await team.open();
+  const add = (source: 'own' | 'opponent', week: string, gameName: string, path: string[], sheets?: SheetFile[]) => {
+    if (!sheets?.length) return;
+    out.push({ source, week, gameName, path, id: `folder-${source}-${slug(path.join(' '))}`, sheet: pickSheet(sheets) });
+  };
+  for (const wk of t.dirs) {
+    const week = !isScoutingFolder(wk.name) && weekKeyFromFolder(wk.name);
+    if (!week) continue;
+    add('own', week, wk.name, [team.name, wk.name], (await wk.open()).sheets);
+  }
+  const scouting = t.dirs.find((d) => isScoutingFolder(d.name));
+  if (scouting) {
+    for (const wk of (await scouting.open()).dirs) {
+      const week = weekKeyFromFolder(wk.name);
+      if (!week) continue;
+      const inside = await wk.open();
+      add('opponent', week, wk.name, [team.name, scouting.name, wk.name], inside.sheets);
+      // Several of their games that week: a folder each ("vs Carmel 9-14").
+      for (const g of inside.dirs.filter((d) => !isViewName(d.name))) {
+        add('opponent', week, `${afterWeek(wk.name)} ${g.name}`.trim(), [team.name, scouting.name, wk.name, g.name], (await g.open()).sheets);
+      }
+    }
+  }
+  return out;
 }
 
 /** A game's camera views: its own clips ("Film"), and each folder inside with clips ("Sideline", "End Zone"). */

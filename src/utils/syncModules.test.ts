@@ -3681,6 +3681,65 @@ describe('film room: several scouting games in a week, and camera views', () => 
   });
 });
 
+describe('film room: breakdown files in the film folder become Hudl Scout games', () => {
+  const csv = `PLAY #,ODK,QTR,DN,DIST,YARD LN,HASH,PLAY TYPE,RESULT,GN/LS,OFF FORM,OFF PLAY,PLAY DIR
+1,O,1,1,10,-30,M,Run,Rush,4,21,21 R 22 DOWN,Right
+2,O,1,2,6,-34,L,Run,Rush,2,21,21 L 28 DOWN,Left
+3,D,1,1,10,40,R,Run,Rush,-3,,,Left`;
+  type Tree = { [name: string]: (Tree | string)[] };
+  const node = (name: string, kids: (Tree | string)[]): any => ({
+    name,
+    open: async () => ({
+      dirs: kids.filter((k) => typeof k !== 'string').map((k) => { const [n, c] = Object.entries(k as Tree)[0]; return node(n, c); }),
+      videos: kids.filter((k) => typeof k === 'string' && /\.(mp4|mov)$/i.test(k)).length,
+      sheets: kids
+        .filter((k) => typeof k === 'string' && /\.(csv|xlsx)$/i.test(k))
+        .map((k) => ({ name: k as string, get: async () => new Blob([csv], { type: 'text/csv' }) })),
+    }),
+  });
+  const film = node('Mahopac Film', [
+    { '10U': [
+      { 'Week 3 - Shrub Oak': ['a.mp4', 'MSA vs Shrub Oak - Hudl breakdown.csv'] },
+      { 'Week 4 - Brewster': ['b.mp4'] },
+      { Scouting: [
+        { 'Week 5 - Wappingers Wildcats': ['s.mp4', 'wapp.csv'] },
+        { 'Week 6 - Brewster': [{ 'vs Carmel 9-14': ['c.mp4', 'carmel.xlsx'] }, { Sideline: ['x.mp4', 'ignored.csv'] }] },
+      ] },
+    ] },
+  ]);
+  it('finds each game folder with a breakdown file (ours and scouting, by week)', async () => {
+    const { findBreakdowns } = await import('../filmroom/folderRoutes.ts');
+    const found = await findBreakdowns(film, '10U Youth Tackle');
+    assert.deepEqual(found.map((f) => [f.source, f.week, f.gameName, f.sheet.name]), [
+      ['own', '3', 'Week 3 - Shrub Oak', 'MSA vs Shrub Oak - Hudl breakdown.csv'],
+      ['opponent', '5', 'Week 5 - Wappingers Wildcats', 'wapp.csv'],
+      ['opponent', '6', 'Brewster vs Carmel 9-14', 'carmel.xlsx'],
+    ]);
+    assert.equal(found[0].id, 'folder-own-10u-week-3-shrub-oak');
+    assert.deepEqual(await findBreakdowns(film, '9U Youth Tackle'), []);
+  });
+  it('reads the file and adds the game once; a removed game stays removed; a game uploaded by hand is not added again', async () => {
+    const { readBreakdown } = await import('../filmroom/folderImport.ts');
+    const { addFolderGame, bundleFromSaved } = await import('../hudlScout/scoutBundle.ts');
+    const plays = await readBreakdown('x.csv', new Blob([csv]));
+    assert.equal(plays.length, 3);
+    assert.equal(plays[0].hudlCall, '21 R 22 DOWN');
+    const empty = bundleFromSaved(undefined, 'MSA');
+    const first = addFolderGame(empty, plays, { id: 'folder-own-10u-week-3', name: 'Week 3 - Shrub Oak', week: '3' });
+    assert.ok(first.added);
+    assert.deepEqual(first.bundle.games.map((g) => [g.id, g.week, g.playCount]), [['folder-own-10u-week-3', '3', 3]]);
+    assert.ok(first.bundle.plays.every((p) => p.gameId === 'folder-own-10u-week-3'));
+    // The same folder again (this device, or another coach's): nothing new.
+    assert.equal(addFolderGame(first.bundle, plays, { id: 'folder-own-10u-week-3', name: 'Week 3 - Shrub Oak', week: '3' }).added, false);
+    // A coach removed it in Hudl Scout: it isn't brought back.
+    const removed = { ...empty, deletedGameIds: ['folder-own-10u-week-3'] };
+    assert.equal(addFolderGame(removed, plays, { id: 'folder-own-10u-week-3', name: 'Week 3 - Shrub Oak', week: '3' }).added, false);
+    // The same game was uploaded by hand (another id, same plays): not added twice.
+    const byHand = addFolderGame(empty, plays, { id: 'game-123', name: 'MSA vs Shrub Oak', week: '3' }).bundle;
+    assert.equal(addFolderGame(byHand, plays, { id: 'folder-own-10u-week-3', name: 'Week 3 - Shrub Oak', week: '3' }).added, false);
+  });
+});
+
 describe('film room', () => {
   it('matches clips to plays by the number in the file name, else in order', async () => {
     const { matchClipsToPlays, playNumberInName } = await import('../filmroom/clipMatching.ts');

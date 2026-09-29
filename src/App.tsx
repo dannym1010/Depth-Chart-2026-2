@@ -2582,6 +2582,26 @@ export default function App() {
     queueHudlScoutPublish();
   };
 
+  // Scouting film for any week of the team on screen (the Film Room adds a breakdown file found in that
+  // week's folder), saved and shared for that week.
+  const persistScoutingForWeek = (week: string, hudlScout: any) => {
+    lastLocalEditTimeRef.current = Date.now();
+    const teamId = activeTeamIdRef.current;
+    const wk = normalizeScoutWeekKey(week);
+    const prev = latestStateRef.current.weeklyData || {};
+    const existingWeek = storedWeekForWrite(prev, teamId, wk);
+    const updatedWeek = { ...existingWeek, scouting: { ...(existingWeek.scouting || {}), hudlScout } };
+    const updatedAll = {
+      ...prev,
+      [getScopedWeekKey(teamId, wk)]: updatedWeek,
+      ...(isPrimaryTeamId(teamId) ? { [wk]: updatedWeek } : {}),
+    };
+    latestStateRef.current.weeklyData = updatedAll;
+    safeJSONSet('footballWeeklyData', updatedAll);
+    setWeeklyData(updatedAll);
+    void publishHudlScoutToCloud(wk);
+  };
+
   // PFF grades live on the week being graded (usually last week) and have their own merged save.
   const adoptPffWeek = (teamId: string, week: string, remote: { pffReviews?: any; filmSession?: any; pprPlayCounts?: any }) => {
     setWeeklyData((prev) => {
@@ -3120,15 +3140,17 @@ export default function App() {
     applySharedBoardFromRemote(remote);
   };
 
-  const publishHudlScoutToCloud = async () => {
+  /** Share this week's (or the given week's) scouting film and our team's film. */
+  const publishHudlScoutToCloud = async (weekOverride?: string) => {
     const teamId = activeTeamIdRef.current;
-    const week = normalizeScoutWeekKey(currentWeekRef.current);
+    const rawWeek = weekOverride || currentWeekRef.current;
+    const week = normalizeScoutWeekKey(rawWeek);
     const scopedKey = getScopedWeekKey(teamId, week);
     // Another team never borrows 10U's week or film (that would publish 10U's film as theirs).
     const primaryTeam = isPrimaryTeamId(teamId);
     const weekState =
       latestStateRef.current.weeklyData?.[scopedKey] ||
-      (primaryTeam ? latestStateRef.current.weeklyData?.[week] || latestStateRef.current.weeklyData?.[currentWeekRef.current] : undefined);
+      (primaryTeam ? latestStateRef.current.weeklyData?.[week] || latestStateRef.current.weeklyData?.[rawWeek] : undefined);
     const opponentScout = weekState?.scouting?.hudlScout;
     const ownTeamScout =
       latestStateRef.current.ownTeamHudlScout?.[teamId] ||
@@ -6861,6 +6883,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 weekBoards={weekBoardsFor}
                 weekOptions={seasonWeekOptions}
                 filmWeeks={filmWeeks}
+                onSaveWeekScouting={persistScoutingForWeek}
                 onSelectWeek={(wk) => {
                   changeCurrentWeek(wk);
                   ensureWeekExists(wk);

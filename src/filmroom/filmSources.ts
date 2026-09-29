@@ -6,7 +6,7 @@
 //  - A shared Google Drive folder, streamed after the coach signs in with Google (any device).
 import type { FilmClip } from './types';
 import { isVideoName, naturalCompare } from './clipMatching';
-import type { FolderNode } from './folderRoutes';
+import { isBreakdownName, type FolderNode, type SheetFile } from './folderRoutes';
 
 // ---------------------------------------------------------------------------
 // Local folder (remembered per game in this browser's database)
@@ -213,6 +213,7 @@ export async function driveFolderName(folderId: string): Promise<string> {
 }
 
 const DRIVE_FOLDER = 'application/vnd.google-apps.folder';
+const GOOGLE_SHEET = 'application/vnd.google-apps.spreadsheet';
 
 // Folder listings for finding a game's folder, kept for a couple of minutes (switching games is quick).
 const listingCache = new Map<string, { at: number; list: Promise<{ id: string; name: string; mimeType: string; size?: string }[]> }>();
@@ -257,6 +258,14 @@ export function driveFolderNode(folderId: string, name: string): FolderNode {
       return {
         dirs: kids.filter((k) => k.mimeType === DRIVE_FOLDER).map((k) => driveFolderNode(k.id, k.name)),
         videos: kids.filter((k) => isVideoName(k.name, k.mimeType)).length,
+        // Breakdown files: CSV / Excel as uploaded, or a Google Sheet (downloaded as CSV).
+        sheets: kids
+          .filter((k) => isBreakdownName(k.name) || k.mimeType === GOOGLE_SHEET)
+          .map((k) =>
+            k.mimeType === GOOGLE_SHEET
+              ? { name: `${k.name}.csv`, get: () => driveFetch(`${API}/${encodeURIComponent(k.id)}/export?mimeType=text/csv`).then((r) => r.blob()) }
+              : { name: k.name, get: () => driveFetch(`${API}/${encodeURIComponent(k.id)}?alt=media&supportsAllDrives=true`).then((r) => r.blob()) }
+          ),
       };
     },
   };
@@ -269,12 +278,14 @@ export function localFolderNode(handle: DirHandle): FolderNode {
     handle,
     open: async () => {
       const dirs: FolderNode[] = [];
+      const sheets: SheetFile[] = [];
       let videos = 0;
       for await (const [name, entry] of handle.entries()) {
         if (entry.kind === 'directory') dirs.push(localFolderNode(entry));
         else if (isVideoName(name)) videos++;
+        else if (isBreakdownName(name)) sheets.push({ name, get: () => entry.getFile() });
       }
-      return { dirs, videos };
+      return { dirs, videos, sheets };
     },
   };
 }

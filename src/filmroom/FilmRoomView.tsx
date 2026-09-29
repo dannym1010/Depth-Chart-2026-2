@@ -24,6 +24,7 @@ import { filmGameKey } from './sharedMerge';
 import type { FilmGame, FilmMark, FilmNote } from './types';
 import { useClipUrl, useGameFilm } from './useGameFilm';
 import { useSharedGame } from './useSharedGame';
+import { useFolderBreakdowns } from './folderImport';
 
 interface FilmRoomViewProps {
   teamId: string;
@@ -51,6 +52,8 @@ interface FilmRoomViewProps {
   filmWeeks?: { key: string; label: string; opponent: string; hudlScout?: any }[];
   /** Switch the app to a week (opening another week's scouting film). */
   onSelectWeek?: (week: string) => void;
+  /** Save a week's scouting film (a breakdown file found in that week's folder). */
+  onSaveWeekScouting?: (week: string, hudlScout: any) => void;
 }
 
 type OdkFilter = 'all' | 'O' | 'D' | 'K';
@@ -60,7 +63,7 @@ const newId = () => `fn_${Date.now().toString(36)}${Math.random().toString(36).s
 export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   teamId, teamName, currentWeek, weekLabel, opponentName, opponentScout, ownTeamScout, authorName, onOpenHudlGame,
   onUpdateOwnTeamScout, onUpdateScouting, playDatabase, onUpdatePlayDatabase, roster, weekBoards, weekOptions,
-  filmWeeks, onSelectWeek,
+  filmWeeks, onSelectWeek, onSaveWeekScouting,
 }) => {
   const own = useMemo(() => bundleFromSaved(ownTeamScout, teamName), [ownTeamScout, teamName]);
   const opp = useMemo(() => bundleFromSaved(opponentScout, opponentName || 'Opponent'), [opponentScout, opponentName]);
@@ -137,7 +140,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const setRootDrive = useCallback((drive: typeof shared.drive) => updateRoot((s) => ({ ...s, drive: drive || { folderId: '', editedAt: Date.now() } })), [updateRoot]);
   // Which folder holds this game in a week with several (one pick, for the whole staff).
   const setPick = useCallback((name: string) => update((s) => ({ ...s, folderPick: { name, editedAt: Date.now() } })), [update]);
-  const { film, chooseFolder, reconnect, pickFiles, linkDrive, signInToDrive, unlink, localFiles, sources, sourcePref, setSourcePref, setView, choose } = useGameFilm({
+  const { film, chooseFolder, reconnect, pickFiles, linkDrive, signInToDrive, unlink, localFiles, sources, sourcePref, setSourcePref, setView, choose, getRootNode } = useGameFilm({
     game,
     teamId,
     teamName,
@@ -148,6 +151,20 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     setRootDrive,
     pick: shared.folderPick?.name,
     setPick,
+  });
+
+  // Breakdown files in the film folder become Hudl Scout games (checked when the film folder can be read).
+  const breakdowns = useFolderBreakdowns({
+    getRootNode,
+    rootKey: `${sources.local ? 'L' : ''}${sources.drive ? 'D' : ''}${film.status === 'ready' && film.viaRoot ? 'R' : ''}`,
+    teamName,
+    own,
+    weeks: filmWeeks || [],
+    currentWeek,
+    opponentScout,
+    playDatabase,
+    onUpdateOwnTeamScout,
+    onSaveWeekScouting,
   });
 
   const clips = film.status === 'ready' ? film.clips : [];
@@ -377,7 +394,17 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     setLibraryPhone(false);
   };
   const libraryEl = (onClose: () => void) => (
-    <FilmLibrary weeks={library.weeks} otherGames={library.others} currentWeek={currentWeek} selectedKey={game?.key} onOpen={openFromLibrary} onClose={onClose} />
+    <FilmLibrary
+      weeks={library.weeks}
+      otherGames={library.others}
+      currentWeek={currentWeek}
+      selectedKey={game?.key}
+      onOpen={openFromLibrary}
+      onClose={onClose}
+      added={breakdowns.added}
+      checking={breakdowns.checking}
+      onCheckFolder={sources.local || sources.drive ? breakdowns.checkNow : undefined}
+    />
   );
   const notesEl = (
     <PlayNotes

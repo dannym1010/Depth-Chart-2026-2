@@ -1,7 +1,7 @@
 // The Film Room's library: every game of the season for this team, by week (our game and the scouting
 // film for that week's opponent), with a search. Picking a game opens it.
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Film, Search, Telescope, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Film, RefreshCw, Search, Telescope, X } from 'lucide-react';
 import type { FilmGame } from './types';
 
 export interface LibraryGame extends FilmGame {
@@ -23,11 +23,16 @@ interface FilmLibraryProps {
   selectedKey?: string;
   onOpen: (g: LibraryGame) => void;
   onClose?: () => void;
+  /** Games just added from breakdown files in the film folder. */
+  added?: string[];
+  checking?: boolean;
+  /** Look in the film folder for new breakdown files now. */
+  onCheckFolder?: () => void;
 }
 
 const norm = (s: string) => String(s || '').toLowerCase();
 
-export const FilmLibrary: React.FC<FilmLibraryProps> = ({ weeks, otherGames, currentWeek, selectedKey, onOpen, onClose }) => {
+export const FilmLibrary: React.FC<FilmLibraryProps> = ({ weeks, otherGames, currentWeek, selectedKey, onOpen, onClose, added, checking, onCheckFolder }) => {
   const [query, setQuery] = useState('');
   const selectedWeek = weeks.find((w) => w.games.some((g) => g.key === selectedKey))?.key;
   const [open, setOpen] = useState<Set<string>>(() => new Set([currentWeek, selectedWeek || ''].filter(Boolean)));
@@ -83,6 +88,16 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ weeks, otherGames, cur
           </button>
         )}
       </div>
+      {added && added.length > 0 && (
+        <div className="mx-3 mb-2 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 px-2.5 py-1.5 text-[11px] text-emerald-800 dark:text-emerald-300">
+          <span className="font-bold">Added from the film folder's breakdown files:</span>
+          <ul className="mt-0.5 list-disc pl-4">
+            {added.map((a) => (
+              <li key={a}>{a}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="relative px-3 pb-2">
         <Search size={13} className="absolute left-5 top-1/2 -translate-y-[60%] text-slate-400" />
         <input
@@ -131,6 +146,16 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ weeks, otherGames, cur
           </div>
         )}
         {!shown.length && !others.length && <p className="px-3 py-4 text-xs text-slate-400">No games match “{query}”.</p>}
+        {onCheckFolder && (
+          <button
+            onClick={onCheckFolder}
+            disabled={checking}
+            className="mt-2 mx-1.5 inline-flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 dark:text-indigo-300 hover:underline disabled:opacity-60"
+            title="Look in the film folder for breakdown files (CSV / Excel) of games not in Hudl Scout yet"
+          >
+            <RefreshCw size={12} className={checking ? 'animate-spin' : ''} /> {checking ? 'Checking the film folder…' : 'Check film folder for breakdown files'}
+          </button>
+        )}
       </div>
     </div>
   );
