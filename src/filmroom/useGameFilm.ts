@@ -53,33 +53,40 @@ export function useGameFilm(opts: {
     if (id === loadId.current) setFilm({ status: 'error', label, message: err?.message || String(err) });
   };
 
-  // Look for this game's folder inside the shared film folder, then open it.
+  // Look for this game's folder inside the shared film folder, then open it. With `quiet`, a game that
+  // isn't in this copy (no folder, or no videos yet) shows nothing, so the other copy can be tried.
   const loadFromRoot = useCallback(
-    async (root: FolderNode) => {
+    async (root: FolderNode, quiet = false): Promise<'ok' | 'missing' | 'failed'> => {
       const g = gameRef.current;
-      if (!g) return;
+      if (!g) return 'failed';
       const id = ++loadId.current;
       setFilm({ status: 'loading', label: `${root.name}: finding ${g.name}` });
       try {
         const found = await resolveGameFolder(root, g, teamName, opponentName);
-        if (id !== loadId.current) return;
+        if (id !== loadId.current) return 'failed';
         if ('missing' in found) {
-          setFilm({ status: 'error', label: found.path.join(' › '), message: `No film folder for this game yet: looked for ${found.missing}.` });
-          return;
+          if (!quiet) setFilm({ status: 'error', label: found.path.join(' › '), message: `No film folder for this game yet: looked for ${found.missing}.` });
+          return 'missing';
         }
         const label = found.path.join(' › ');
         if (found.node.driveId) {
           const clips = await listDriveClips(found.node.driveId);
-          if (id === loadId.current) setFilm({ status: 'ready', kind: 'drive', label, clips, viaRoot: true });
+          if (id !== loadId.current) return 'failed';
+          if (!clips.length && quiet) return 'missing';
+          setFilm({ status: 'ready', kind: 'drive', label, clips, viaRoot: true });
         } else {
           const { clips, files } = await listFolderClips(found.node.handle);
-          if (id !== loadId.current) return;
+          if (id !== loadId.current) return 'failed';
+          if (!clips.length && quiet) return 'missing';
           localFiles.current = files;
           setFilm({ status: 'ready', kind: 'folder', label, clips, viaRoot: true });
         }
+        return 'ok';
       } catch (err: any) {
+        if (quiet) return 'failed';
         if (root.driveId && !isDriveSignedIn()) setFilm({ status: 'signin', label: root.name });
         else fail(id, root.name, err);
+        return 'failed';
       }
     },
     [teamName, opponentName]
@@ -97,7 +104,8 @@ export function useGameFilm(opts: {
           const link = { folderId, folderName: label, link: drive?.link, editedAt: Date.now() };
           setDrive(undefined);
           setRootDrive(link);
-          return loadFromRoot(driveFolderNode(folderId, label));
+          await loadFromRoot(driveFolderNode(folderId, label));
+          return;
         }
         setFilm({ status: 'ready', kind: 'drive', label, clips });
       } catch (err: any) {
@@ -116,8 +124,10 @@ export function useGameFilm(opts: {
         // The shared film folder picked for one game: remember it as the shared folder on this device.
         if (isFilmRoot((await node.open()).dirs)) {
           await rememberFolder(ROOT_KEY, handle);
+          setHasLocalRoot(true);
           if (folderKey) await forgetFolder(folderKey);
-          return loadFromRoot(node);
+          await loadFromRoot(node);
+          return;
         }
         const { clips, files } = await listFolderClips(handle);
         if (id !== loadId.current) return;
@@ -136,6 +146,25 @@ export function useGameFilm(opts: {
   const rootId = rootDrive?.folderId;
   const rootLabel = rootDrive?.folderName || 'Team film folder';
   const pending = useRef<string>(''); // which remembered folder "Reconnect" should open
+  // Which copy of the shared film folder this device plays from: 'auto' (this computer's when it has the
+  // game, else Google Drive), or always one of them.
+  const [sourcePref, setSourcePrefState] = useState<'auto' | 'local' | 'drive'>(() => {
+    try {
+      return (localStorage.getItem('footballFilmroomSource') as 'auto' | 'local' | 'drive') || 'auto';
+    } catch {
+      return 'auto';
+    }
+  });
+  const setSourcePref = useCallback((p: 'auto' | 'local' | 'drive') => {
+    try {
+      localStorage.setItem('footballFilmroomSource', p);
+    } catch {
+      /* ignore */
+    }
+    setSourcePrefState(p);
+  }, []);
+  const [hasLocalRoot, setHasLocalRoot] = useState(false);
+  const [reloadTick, setReloadTick] = useState(0);
   useEffect(() => {
     if (!folderKey) return setFilm({ status: 'none' });
     let cancelled = false;
@@ -154,26 +183,49 @@ export function useGameFilm(opts: {
         else setFilm({ status: 'signin', label: driveLabel });
         return;
       }
-      const root = await recallFolder(ROOT_KEY);
+      // The shared film folder: this computer's copy and / or the Google Drive one. The preferred copy
+      // first ("auto" = this computer's, it's faster); a game it doesn't have yet comes from the other.
+      const localRoot = await recallFolder(ROOT_KEY);
       if (cancelled) return;
-      if (root) {
-        if (await folderAccess(root)) return void (!cancelled && loadFromRoot(localFolderNode(root)));
+      setHasLocalRoot(Boolean(localRoot));
+      const order: ('local' | 'drive')[] = sourcePref === 'drive' ? ['drive', 'local'] : ['local', 'drive'];
+      const available = order.filter((s) => (s === 'local' ? Boolean(localRoot) : Boolean(rootId)));
+      const nodeOf = (s: 'local' | 'drive') => (s === 'local' ? localFolderNode(localRoot) : driveFolderNode(rootId!, rootLabel));
+      let needsTap = false;
+      let needsSignin = false;
+      for (let i = 0; i < available.length; i++) {
+        const src = available[i];
+        if (src === 'local' && !(await folderAccess(localRoot))) {
+          // Chose this computer's copy: ask for the tap. Otherwise quietly use Google Drive meanwhile.
+          if (sourcePref === 'local') {
+            pending.current = ROOT_KEY;
+            if (!cancelled) setFilm({ status: 'reconnect', label: localRoot.name });
+            return;
+          }
+          needsTap = true;
+          continue;
+        }
+        if (src === 'drive' && !isDriveSignedIn()) {
+          needsSignin = true;
+          continue;
+        }
+        if (cancelled) return;
+        const result = await loadFromRoot(nodeOf(src), i < available.length - 1);
+        if (cancelled || result === 'ok' || i === available.length - 1) return;
+      }
+      if (cancelled) return;
+      if (needsTap) {
         pending.current = ROOT_KEY;
-        if (!cancelled) setFilm({ status: 'reconnect', label: root.name });
-        return;
-      }
-      if (rootId) {
-        if (isDriveSignedIn()) loadFromRoot(driveFolderNode(rootId, rootLabel));
-        else setFilm({ status: 'signin', label: rootLabel });
-        return;
-      }
-      setFilm({ status: 'none' });
+        setFilm({ status: 'reconnect', label: localRoot.name });
+      } else if (needsSignin) setFilm({ status: 'signin', label: rootLabel });
+      else if (available.length) void loadFromRoot(nodeOf(available[0])); // show why the game wasn't found
+      else setFilm({ status: 'none' });
     })();
     return () => {
       cancelled = true;
       loadId.current++;
     };
-  }, [folderKey, driveId, driveLabel, rootId, rootLabel, loadDrive, loadFolder, loadFromRoot]);
+  }, [folderKey, driveId, driveLabel, rootId, rootLabel, loadDrive, loadFolder, loadFromRoot, sourcePref, reloadTick]);
 
   /** Choose a folder on this computer: one game's clips, or the shared film folder with every team. */
   const chooseFolder = useCallback(async () => {
@@ -181,8 +233,10 @@ export function useGameFilm(opts: {
     if (!handle || !folderKey) return;
     if (isFilmRoot((await localFolderNode(handle).open()).dirs)) {
       await rememberFolder(ROOT_KEY, handle);
+      setHasLocalRoot(true);
       await forgetFolder(folderKey);
-      return loadFromRoot(localFolderNode(handle));
+      await loadFromRoot(localFolderNode(handle));
+      return;
     }
     await rememberFolder(folderKey, handle);
     await loadFolder(handle);
@@ -218,7 +272,8 @@ export function useGameFilm(opts: {
       if (isFilmRoot((await node.open()).dirs)) {
         setRootDrive(entry);
         if (drive) setDrive(undefined);
-        return loadFromRoot(node);
+        await loadFromRoot(node);
+        return;
       }
       setDrive(entry);
       await loadDrive(folderId, folderName);
@@ -240,18 +295,24 @@ export function useGameFilm(opts: {
   const unlink = useCallback(async () => {
     loadId.current++;
     localFiles.current = new Map();
-    if (film.status === 'ready' && film.viaRoot) {
-      if (film.kind === 'drive') setRootDrive(undefined);
-      else await forgetFolder(ROOT_KEY);
-      setFilm({ status: 'none' });
-      return;
-    }
-    if (film.status === 'ready' && film.kind === 'drive') setDrive(undefined);
+    const localRootShown = (film.status === 'ready' && film.viaRoot && film.kind !== 'drive') || (film.status === 'reconnect' && pending.current === ROOT_KEY);
+    if (localRootShown) {
+      await forgetFolder(ROOT_KEY);
+      setHasLocalRoot(false);
+    } else if (film.status === 'ready' && film.viaRoot) setRootDrive(undefined);
+    else if (film.status === 'ready' && film.kind === 'drive') setDrive(undefined);
     else if (folderKey) await forgetFolder(folderKey);
     setFilm({ status: 'none' });
+    setReloadTick((t) => t + 1); // the other copy (if any) takes over
   }, [film, folderKey, setDrive, setRootDrive]);
 
-  return { film, chooseFolder, reconnect, pickFiles, linkDrive, signInToDrive, unlink, localFiles };
+  return {
+    film, chooseFolder, reconnect, pickFiles, linkDrive, signInToDrive, unlink, localFiles,
+    /** Copies of the shared film folder this device can use, and which one it prefers. */
+    sources: { local: hasLocalRoot, drive: Boolean(rootId) },
+    sourcePref,
+    setSourcePref,
+  };
 }
 
 /** A playable address for a clip, released when a different clip is shown. */

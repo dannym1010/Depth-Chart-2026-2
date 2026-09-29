@@ -111,6 +111,11 @@ export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveL
         />
 
         {error && <p className="text-xs text-rose-600 dark:text-rose-400">{error}</p>}
+        <p className="text-[11px] text-slate-500 dark:text-slate-400 rounded-lg bg-slate-50 dark:bg-slate-800/60 px-3 py-2">
+          <span className="font-bold">Use both:</span> link the Google Drive folder for everyone, then on your computer also pick the same
+          folder here (from Google Drive for desktop, or a copy). This computer plays from its own copy (faster) and uses Google Drive for any
+          game it doesn't have yet.
+        </p>
         <p className="text-[11px] text-slate-400">
           Clips go with the plays in order (first file = play 1). In the team film folder, a game's clips are in team / week ("10U / Week 3 - Shrub Oak"), or team / Scouting / week for an opponent.
         </p>

@@ -93,7 +93,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const root = useSharedGame('program', 'root');
   const updateRoot = root.update;
   const setRootDrive = useCallback((drive: typeof shared.drive) => updateRoot((s) => ({ ...s, drive: drive || { folderId: '', editedAt: Date.now() } })), [updateRoot]);
-  const { film, chooseFolder, reconnect, pickFiles, linkDrive, signInToDrive, unlink, localFiles } = useGameFilm({
+  const { film, chooseFolder, reconnect, pickFiles, linkDrive, signInToDrive, unlink, localFiles, sources, sourcePref, setSourcePref } = useGameFilm({
     game,
     teamId,
     teamName,
@@ -206,9 +206,16 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     if (film.status === 'error') return <span className="text-rose-300 dark:text-rose-300">{film.message}</span>;
     if (film.status === 'reconnect')
       return (
-        <button onClick={reconnect} className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-bold inline-flex items-center gap-2">
-          <RefreshCw size={16} /> Open the film folder “{film.label}”
-        </button>
+        <div className="flex flex-col items-center gap-2">
+          <button onClick={reconnect} className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-bold inline-flex items-center gap-2">
+            <RefreshCw size={16} /> Open the film folder “{film.label}” on this computer
+          </button>
+          {sources.drive && (
+            <button onClick={() => setSourcePref('drive')} className="text-xs font-bold underline">
+              Use Google Drive instead
+            </button>
+          )}
+        </div>
       );
     if (film.status === 'signin')
       return (
@@ -339,6 +346,20 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                 ? film.label
                 : ''}
         </span>
+        {/* Both copies of the film folder linked: which one this device plays from. */}
+        {sources.local && sources.drive && (
+          <select
+            value={sourcePref}
+            onChange={(e) => setSourcePref(e.target.value as 'auto' | 'local' | 'drive')}
+            aria-label="Play film from"
+            title="Auto: this computer's copy when it has the game (faster), otherwise Google Drive"
+            className="h-7 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200"
+          >
+            <option value="auto">Play from: Auto</option>
+            <option value="local">Play from: This computer</option>
+            <option value="drive">Play from: Google Drive</option>
+          </select>
+        )}
         {/* Clips go with plays in order: a different count means some clip is missing or extra. */}
         {film.status === 'ready' && clips.length > 0 && clipMatchMode(clips, plays) === 'order' && clips.length !== plays.length && (
           <span
