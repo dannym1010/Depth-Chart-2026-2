@@ -107,14 +107,56 @@ export interface FolderNode extends FolderLike {
   handle?: any;
 }
 
-export type Resolved = { node: FolderNode; path: string[] } | { missing: string; path: string[] };
+/** Camera-view folder names ("Sideline", "End Zone", "Wide", "Tight", "All-22", ...). */
+const VIEW_NAME = /side\s*line|sideline|end\s*zone|endzone|\bez\b|\bsl\b|\bwide\b|\btight\b|all.?22|press\s*box|\bhigh\b|\blow\b|drone|sky|\bangle|\bview|\bcam(era)?\b|\bcoach/i;
+export const isViewName = (name: string) => VIEW_NAME.test(String(name || ''));
 
-/** Find a game's clip folder inside the shared film folder. */
+/** Dates in a name, the same whichever way they're written: "9/14", "09-14", "2025-09-14", "9.14" -> "9-14". */
+export function dateKeys(text: string): string[] {
+  const s = String(text || '');
+  const out = new Set<string>();
+  for (const m of s.matchAll(/\b(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\b/g)) out.add(`${Number(m[2])}-${Number(m[3])}`);
+  for (const m of s.matchAll(/\b(\d{1,2})[-/.](\d{1,2})(?:[-/.](\d{2,4}))?\b/g)) {
+    const [mo, d] = [Number(m[1]), Number(m[2])];
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) out.add(`${mo}-${d}`);
+  }
+  return [...out];
+}
+
+/**
+ * The folder that best fits the game: shared words ("Carmel", "Somers") count 1 each, the same date counts 2.
+ * Nothing when nothing matches or two folders tie.
+ */
+export function bestGameFolder<T extends FolderLike>(dirs: T[], gameText: string, extraHints: string[] = []): T | undefined {
+  const words = [...new Set([...hintWords(gameText), ...extraHints])];
+  const dates = dateKeys(gameText);
+  const scored = dirs.map((d) => {
+    const name = String(d.name).toLowerCase();
+    const folderDates = dateKeys(d.name);
+    return { d, score: words.filter((w) => name.includes(w)).length + 2 * dates.filter((k) => folderDates.includes(k)).length };
+  });
+  const top = Math.max(0, ...scored.map((x) => x.score));
+  const best = scored.filter((x) => x.score === top);
+  return top > 0 && best.length === 1 ? best[0].d : undefined;
+}
+
+export type Resolved =
+  /** The game's folder (its clips, or its camera-view folders). `siblings`: the other game folders that week. */
+  | { node: FolderNode; path: string[]; siblings?: string[] }
+  | { missing: string; path: string[] }
+  /** The week has several game folders and nothing says which is this game: a coach picks once. */
+  | { choices: FolderNode[]; path: string[] };
+
+/**
+ * Find a game's folder inside the shared film folder.
+ * `pick`: the folder a coach chose for this game (when the week has several game folders).
+ */
 export async function resolveGameFolder(
   root: FolderNode,
   game: { source: 'own' | 'opponent'; week?: string; name: string },
   teamName: string,
-  opponentName?: string
+  opponentName?: string,
+  pick?: string
 ): Promise<Resolved> {
   const path = [root.name];
   const top = await root.open();
@@ -141,14 +183,30 @@ export async function resolveGameFolder(
       : { missing: 'the week this game was played (set it on the game in Hudl Scout)', path };
   }
   path.push(weekDir.name);
-  // Two of an opponent's games in one week: a folder for each inside the week's folder.
   const inside = await weekDir.open();
-  if (!inside.videos && inside.dirs.length) {
-    const sub = pickByHints(inside.dirs, hintWords(game.name)) || (inside.dirs.length === 1 ? inside.dirs[0] : undefined);
-    if (sub) {
-      path.push(sub.name);
-      return { node: sub, path };
-    }
+  // Folders inside the week's folder are camera views ("Sideline", "End Zone") of this game, or, when
+  // they aren't named like views, one folder per game (several scouting games in a week).
+  const gameDirs = inside.dirs
+    .filter((d) => !isViewName(d.name))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+  if (inside.videos || !gameDirs.length) return { node: weekDir, path };
+  const chosen =
+    (pick && gameDirs.find((d) => d.name === pick)) ||
+    bestGameFolder(gameDirs, game.name) ||
+    (gameDirs.length === 1 ? gameDirs[0] : undefined);
+  if (!chosen) return { choices: gameDirs, path };
+  path.push(chosen.name);
+  return { node: chosen, path, siblings: gameDirs.length > 1 ? gameDirs.map((d) => d.name) : undefined };
+}
+
+/** A game's camera views: its own clips ("Film"), and each folder inside with clips ("Sideline", "End Zone"). */
+export async function gameViews(node: FolderNode): Promise<FolderNode[]> {
+  const { dirs, videos } = await node.open();
+  const withClips: FolderNode[] = [];
+  for (const d of dirs) {
+    if ((await d.open()).videos) withClips.push(d);
   }
-  return { node: weekDir, path };
+  // Sideline first (the usual main view), then the rest in name order.
+  withClips.sort((a, b) => Number(/side/i.test(b.name)) - Number(/side/i.test(a.name)) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+  return videos ? [node, ...withClips] : withClips;
 }

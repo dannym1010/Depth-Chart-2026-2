@@ -14,12 +14,16 @@ export function mergeShared(a?: Partial<FilmGameShared> | null, b?: Partial<Film
     const cur = drawings[playId];
     if (!cur || (Number(d?.editedAt) || 0) > (Number(cur.editedAt) || 0)) drawings[playId] = d;
   }
-  const drive = !x.drive ? y.drive : !y.drive ? x.drive : (Number(y.drive.editedAt) || 0) > (Number(x.drive.editedAt) || 0) ? y.drive : x.drive;
+  const newest = <T extends { editedAt: number }>(a?: T, b?: T) =>
+    !a ? b : !b ? a : (Number(b.editedAt) || 0) > (Number(a.editedAt) || 0) ? b : a;
+  const drive = newest(x.drive, y.drive);
+  const folderPick = newest(x.folderPick, y.folderPick);
   return {
     notes: [...notes].sort((m, n) => m.createdAt - n.createdAt),
     deletedNotes,
     drawings,
     ...(drive ? { drive } : {}),
+    ...(folderPick ? { folderPick } : {}),
   };
 }
 

@@ -52,6 +52,11 @@ export interface FilmGameShared {
   drawings: Record<string, { marks: FilmMark[]; editedAt: number }>;
   /** The game's shared Google Drive folder, if the team keeps its film there. */
   drive?: { folderId: string; folderName?: string; link?: string; editedAt: number };
+  /**
+   * Which folder in the week holds this game, when the week has several (scouting: one folder per
+   * opponent game). Picked once by a coach; everyone gets it.
+   */
+  folderPick?: { name: string; editedAt: number };
 }
 
 export const emptyShared = (): FilmGameShared => ({ notes: [], deletedNotes: {}, drawings: {} });

@@ -93,7 +93,9 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const root = useSharedGame('program', 'root');
   const updateRoot = root.update;
   const setRootDrive = useCallback((drive: typeof shared.drive) => updateRoot((s) => ({ ...s, drive: drive || { folderId: '', editedAt: Date.now() } })), [updateRoot]);
-  const { film, chooseFolder, reconnect, pickFiles, linkDrive, signInToDrive, unlink, localFiles, sources, sourcePref, setSourcePref } = useGameFilm({
+  // Which folder holds this game in a week with several (one pick, for the whole staff).
+  const setPick = useCallback((name: string) => update((s) => ({ ...s, folderPick: { name, editedAt: Date.now() } })), [update]);
+  const { film, chooseFolder, reconnect, pickFiles, linkDrive, signInToDrive, unlink, localFiles, sources, sourcePref, setSourcePref, setView, choose } = useGameFilm({
     game,
     teamId,
     teamName,
@@ -102,6 +104,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     setDrive,
     rootDrive: root.shared.drive,
     setRootDrive,
+    pick: shared.folderPick?.name,
+    setPick,
   });
 
   const clips = film.status === 'ready' ? film.clips : [];
@@ -116,8 +120,17 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     return listed.length ? listed : shownPlays;
   }, [order, shownPlays]);
 
-  const [playId, setPlayId] = useState<string | undefined>();
-  useEffect(() => setPlayId(undefined), [game?.key]);
+  const [playId, setPlayIdState] = useState<string | undefined>();
+  const resumeAt = useRef(0);
+  const setPlayId = useCallback((id: string | undefined) => {
+    resumeAt.current = 0;
+    setPlayIdState(id);
+  }, []);
+  useEffect(() => setPlayId(undefined), [game?.key, setPlayId]);
+  const switchView = (i: number) => {
+    resumeAt.current = apiRef.current?.time() || 0;
+    setView(i);
+  };
   const play: Play | undefined = plays.find((p) => p.id === playId) || playOrder[0];
   const idx = play ? playOrder.indexOf(play) : -1;
   const next = idx >= 0 ? playOrder[idx + 1] : playOrder[0];
@@ -215,6 +228,21 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
               Use Google Drive instead
             </button>
           )}
+        </div>
+      );
+    if (film.status === 'choose')
+      return (
+        <div className="flex flex-col items-center gap-2 max-w-md">
+          <span>
+            {film.label} has more than one game folder. Which one is <b>{game.name}</b>? (Saved for everyone.)
+          </span>
+          <div className="flex flex-wrap justify-center gap-2">
+            {film.choices.map((c) => (
+              <button key={c} onClick={() => choose(c)} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-bold">
+                {c}
+              </button>
+            ))}
+          </div>
         </div>
       );
     if (film.status === 'signin')
@@ -346,6 +374,35 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                 ? film.label
                 : ''}
         </span>
+        {/* Camera views of this game (a folder each, e.g. Sideline / End Zone). */}
+        {film.status === 'ready' && film.views.length > 1 && (
+          <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden" role="group" aria-label="Camera view">
+            {film.views.map((v, i) => (
+              <button
+                key={v}
+                onClick={() => switchView(i)}
+                aria-pressed={film.view === i}
+                className={`px-2.5 h-7 text-[11px] font-bold ${film.view === i ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300'}`}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+        )}
+        {/* Several game folders in this week: which one is this game (saved for everyone). */}
+        {film.status === 'ready' && film.siblings && film.siblings.length > 1 && (
+          <select
+            value={film.folder}
+            onChange={(e) => choose(e.target.value)}
+            aria-label="Game folder"
+            title="This week has several game folders: which one is this game (saved for everyone)"
+            className="h-7 max-w-[12rem] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200"
+          >
+            {film.siblings.map((n) => (
+              <option key={n} value={n}>Folder: {n}</option>
+            ))}
+          </select>
+        )}
         {/* Both copies of the film folder linked: which one this device plays from. */}
         {sources.local && sources.drive && (
           <select
@@ -424,6 +481,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             addNote(`Pocket time ${s.toFixed(2)}s`, undefined, at);
           }}
           apiRef={apiRef}
+          startAt={resumeAt.current}
         />
 
         {/* Notes: beside the video on a computer (as tall as the video, scrolling), a tab on phones and tablets */}

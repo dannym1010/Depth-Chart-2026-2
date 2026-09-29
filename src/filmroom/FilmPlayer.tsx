@@ -39,6 +39,8 @@ interface FilmPlayerProps {
   apiRef: React.MutableRefObject<PlayerApi | null>;
   /** Tallest the video may be (CSS length). Default leaves room for the page and the controls. */
   maxVideoHeight?: string;
+  /** Where a new clip starts (seconds): the same moment when switching camera view, else the top. */
+  startAt?: number;
 }
 
 const btn = 'inline-flex items-center justify-center gap-1 h-9 min-w-9 px-2 rounded-lg text-xs font-bold transition-colors disabled:opacity-40';
@@ -53,6 +55,7 @@ const on = `${btn} bg-indigo-600 text-white`;
 export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   src, placeholder, title, marks, onMarksChange, hasPrev, hasNext, onPrev, onNext, onStopwatch, apiRef,
   maxVideoHeight = 'calc(100dvh - 20rem)',
+  startAt = 0,
 }) => {
   const rootRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -120,6 +123,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     const v = videoRef.current;
     if (v && src) {
       v.playbackRate = speed;
+      if (startAt > 0) v.currentTime = startAt;
       v.play().catch(() => setPlaying(false));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -225,6 +225,28 @@ function cachedChildren(folderId: string) {
   return list;
 }
 
+/**
+ * The clips directly in one folder (one camera view), in name order. Local clips are keyed
+ * "<view>/<file>" so two views with the same file names don't mix.
+ */
+export async function listNodeClips(node: FolderNode, viewKey: string): Promise<{ clips: FilmClip[]; files: Map<string, () => Promise<File>> }> {
+  const files = new Map<string, () => Promise<File>>();
+  let clips: FilmClip[] = [];
+  if (node.driveId) {
+    const kids = await listChildren(node.driveId);
+    clips = kids.filter((k) => isVideoName(k.name, k.mimeType)).map((k) => ({ kind: 'drive' as const, id: k.id, name: k.name, sizeBytes: Number(k.size) || undefined }));
+  } else if (node.handle) {
+    for await (const [name, entry] of node.handle.entries()) {
+      if (entry.kind !== 'file' || !isVideoName(name)) continue;
+      const id = `${viewKey}/${name}`;
+      files.set(id, () => entry.getFile());
+      clips.push({ kind: 'local', id, name });
+    }
+  }
+  clips.sort((a, b) => naturalCompare(a.name, b.name));
+  return { clips, files };
+}
+
 /** A Drive folder the film-folder finder can look inside. */
 export function driveFolderNode(folderId: string, name: string): FolderNode {
   return {

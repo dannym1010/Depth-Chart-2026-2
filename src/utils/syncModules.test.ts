@@ -3617,6 +3617,70 @@ describe('film room: one shared film folder, each game finds its own folder', ()
   });
 });
 
+describe('film room: several scouting games in a week, and camera views', () => {
+  type Tree = { [name: string]: (Tree | string)[] };
+  const node = (name: string, kids: (Tree | string)[]): any => ({
+    name,
+    open: async () => ({
+      dirs: kids.filter((k) => typeof k !== 'string').map((k) => { const [n, c] = Object.entries(k as Tree)[0]; return node(n, c); }),
+      videos: kids.filter((k) => typeof k === 'string' && /\.(mp4|mov)$/i.test(k)).length,
+    }),
+  });
+  const film = node('Mahopac Film', [
+    { '10U': [
+      { 'Week 3 - Shrub Oak': [{ Sideline: ['s1.mp4', 's2.mp4'] }, { 'End Zone': ['e1.mp4', 'e2.mp4'] }, 'PUT CLIPS HERE.txt'] },
+      { 'Week 4 - Brewster': ['a.mp4', { 'End Zone': ['e.mp4'] }] },
+      { Scouting: [
+        { 'Week 5 - Wappingers': [
+          { 'vs Carmel 9-14': [{ Sideline: ['c1.mp4'] }, { 'End Zone': ['c2.mp4'] }] },
+          { 'vs Somers 9-21': ['s.mp4'] },
+        ] },
+        { 'Week 6 - Brewster': [{ 'Game A': ['x.mp4'] }, { 'Game B': ['y.mp4'] }] },
+      ] },
+    ] },
+  ]);
+  const where = async (game: any, pick?: string) => {
+    const { resolveGameFolder } = await import('../filmroom/folderRoutes.ts');
+    const r: any = await resolveGameFolder(film, game, '10U Youth Tackle', 'Wappingers', pick);
+    if (r.missing) return `missing: ${r.missing}`;
+    if (r.choices) return `choose: ${r.choices.map((c: any) => c.name).join(', ')}`;
+    return r.path.slice(1).join(' / ') + (r.siblings ? ` [of ${r.siblings.length}]` : '');
+  };
+  it('finds the right scouting game by names or date, asks when it can\'t tell, and keeps a coach\'s pick', async () => {
+    assert.equal(await where({ source: 'opponent', week: '5', name: 'Wappingers vs Somers' }), '10U / Scouting / Week 5 - Wappingers / vs Somers 9-21 [of 2]');
+    assert.equal(await where({ source: 'opponent', week: '5', name: 'Wappingers @ Carmel 9/14/2025' }), '10U / Scouting / Week 5 - Wappingers / vs Carmel 9-14 [of 2]');
+    // Only the date says which: 9/21
+    assert.equal(await where({ source: 'opponent', week: '5', name: 'WAPP film 9/21' }), '10U / Scouting / Week 5 - Wappingers / vs Somers 9-21 [of 2]');
+    // Nothing says which: a coach picks once, then it sticks.
+    assert.equal(await where({ source: 'opponent', week: '6', name: 'Brewster film' }), 'choose: Game A, Game B');
+    assert.equal(await where({ source: 'opponent', week: '6', name: 'Brewster film' }, 'Game B'), '10U / Scouting / Week 6 - Brewster / Game B [of 2]');
+    // Camera-view folders are this game's views, not other games.
+    assert.equal(await where({ source: 'own', week: '3', name: 'MSA vs Shrub Oak' }), '10U / Week 3 - Shrub Oak');
+    const { dateKeys, isViewName } = await import('../filmroom/folderRoutes.ts');
+    assert.deepEqual(dateKeys('SYF vs Shrub Oak 10/19/2025'), ['10-19']);
+    assert.deepEqual(dateKeys('2025-09-14 Carmel'), ['9-14']);
+    assert.ok(isViewName('End Zone') && isViewName('Sideline') && isViewName('EZ') && isViewName('Wide angle'));
+    assert.ok(!isViewName('vs Carmel') && !isViewName('Game A'));
+  });
+  it('a game\'s views: Sideline first, then End Zone; loose clips next to a view folder are the main film', async () => {
+    const { gameViews, resolveGameFolder } = await import('../filmroom/folderRoutes.ts');
+    const names = async (week: string, source: 'own' | 'opponent' = 'own', name = 'x') => {
+      const r: any = await resolveGameFolder(film, { source, week, name }, '10U Youth Tackle');
+      return (await gameViews(r.node)).map((v: any) => v.name);
+    };
+    assert.deepEqual(await names('3'), ['Sideline', 'End Zone']);
+    assert.deepEqual(await names('4'), ['Week 4 - Brewster', 'End Zone']);
+    assert.deepEqual(await names('5', 'opponent', 'Wappingers vs Carmel'), ['Sideline', 'End Zone']);
+  });
+  it('the folder a coach picked merges like the Drive link (newest wins)', async () => {
+    const { mergeShared } = await import('../filmroom/sharedMerge.ts');
+    const a = { notes: [], deletedNotes: {}, drawings: {}, folderPick: { name: 'Game A', editedAt: 1 } };
+    const b = { notes: [], deletedNotes: {}, drawings: {}, folderPick: { name: 'Game B', editedAt: 2 } };
+    assert.equal(mergeShared(a, b).folderPick?.name, 'Game B');
+    assert.equal(mergeShared(b, a).folderPick?.name, 'Game B');
+  });
+});
+
 describe('film room', () => {
   it('matches clips to plays by the number in the file name, else in order', async () => {
     const { matchClipsToPlays, playNumberInName } = await import('../filmroom/clipMatching.ts');
