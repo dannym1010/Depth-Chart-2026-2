@@ -18,6 +18,31 @@ export function callUnitForPlay(play: Pick<Play, 'odk'>): CallUnit | null {
  * Tag (or untag with `entry = null`) the given plays. The film's own name and formation are kept aside,
  * so removing the tag puts them back. A blank formation picks up the call's formation ("32 R WISHBONE").
  */
+/**
+ * A call's formation and play: "32L 47 ZONE" / "32 L 47 Zone" -> formation "32 L", play "47 ZONE".
+ * Only personnel (two digits, backs + tight ends <= 5) with L / R is taken as the formation; other calls
+ * ("HAWK SPECIAL", "47 ZONE") stay whole.
+ */
+export function splitCall(name: string): { formation?: string; play: string } {
+  const whole = String(name || '').trim().replace(/\s+/g, ' ');
+  const m = whole.match(/^(\d)(\d)\s*(L|R|LT|RT|LFT|RGT|LEFT|RIGHT)\b\s*(.+)$/i);
+  if (!m || Number(m[1]) + Number(m[2]) > 5 || !m[4].trim()) return { play: whole };
+  return { formation: `${m[1]}${m[2]} ${m[3][0].toUpperCase()}`, play: m[4].trim() };
+}
+
+/** Plays tagged before calls were split ("21 L 26 DIVE" as the call): formation "21 L", call "26 DIVE". */
+export function splitTaggedCalls(plays: Play[]): Play[] {
+  let changed = false;
+  const next = plays.map((p) => {
+    if (!p.playCallId || !p.playCall) return p;
+    const s = splitCall(p.playCall);
+    if (!s.formation) return p;
+    changed = true;
+    return { ...p, playCall: s.play, playName: p.playName === p.playCall ? s.play : p.playName, formation: s.formation };
+  });
+  return changed ? next : plays;
+}
+
 export function tagPlays(plays: Play[], ids: string[], entry: Pick<PlayDatabaseEntry, 'id' | 'name' | 'formation'> | null): Play[] {
   const idSet = new Set(ids);
   return plays.map((p) => {
@@ -30,15 +55,18 @@ export function tagPlays(plays: Play[], ids: string[], entry: Pick<PlayDatabaseE
       return { ...rest, playName: baseName, formation: baseFormation, editedAt: Date.now() };
     }
     const blankFormation = !baseFormation || baseFormation === '-' || /^unspecified$/i.test(baseFormation);
+    // "32L 47 ZONE": the formation is "32 L" and the play call is "47 ZONE" (the tag still points at the
+    // Play Bank play). A call without personnel + side keeps the film's formation unless it's blank.
+    const split = splitCall(entry.name);
     const callFormation = formationOfCall(entry.name) || entry.formation || '';
     return {
       ...p,
       playCallId: entry.id,
-      playCall: entry.name,
+      playCall: split.play,
       untaggedName: baseName,
       untaggedFormation: baseFormation,
-      playName: entry.name,
-      formation: blankFormation && callFormation ? callFormation : baseFormation,
+      playName: split.play,
+      formation: split.formation || (blankFormation && callFormation ? callFormation : baseFormation),
       editedAt: Date.now(),
     };
   });
@@ -65,7 +93,9 @@ export function writeInsFromPlays(plays: Play[]): PlayDatabaseEntry[] {
   const seen = new Map<string, PlayDatabaseEntry>();
   for (const p of plays) {
     if (!isWriteIn(p.playCallId) || !p.playCall || seen.has(p.playCallId!)) continue;
-    seen.set(p.playCallId!, { ...writeInEntry(p.playCall, p.odk === 'D' ? 'defense' : 'offense'), id: p.playCallId! });
+    // The call as typed: the formation part ("21 L") went to the formation when it was tagged.
+    const name = /^\d\d [LR]$/.test(String(p.formation || '')) ? `${p.formation} ${p.playCall}` : p.playCall;
+    seen.set(p.playCallId!, { ...writeInEntry(name, p.odk === 'D' ? 'defense' : 'offense'), id: p.playCallId! });
   }
   return [...seen.values()];
 }
@@ -146,7 +176,8 @@ export function callResults(plays: Play[]): CallResult[] {
     if (p.playType === 'PENALTY' || /\bpenalty\b|\btimeout\b/i.test(p.result || '')) return;
     const r =
       map.get(p.playCallId) ||
-      { id: p.playCallId, name: p.playCall || p.playName, count: 0, yards: 0, avgGain: 0, successRate: 0, explosive: 0, touchdowns: 0, negative: 0 };
+      // "32 L 47 ZONE": the formation with the call, so the same play name from two formations isn't mixed up.
+      { id: p.playCallId, name: isNumberFormation(p.formation) && p.playCall ? `${tidyFormation(p.formation)} ${p.playCall}` : p.playCall || p.playName, count: 0, yards: 0, avgGain: 0, successRate: 0, explosive: 0, touchdowns: 0, negative: 0 };
     const gain = Number(p.gainLoss) || 0;
     r.count += 1;
     r.yards += gain;

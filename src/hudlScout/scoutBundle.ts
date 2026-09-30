@@ -1,6 +1,7 @@
 import type { Play } from './types/football';
 import type { FilterState } from './components/report/FilterPanel';
 import type { ScoutGame } from './components/Header';
+import { splitTaggedCalls } from './utils/playTags';
 
 export const DEFAULT_SCOUT_FILTERS: FilterState = {
   odk: 'O',
@@ -44,7 +45,8 @@ export interface ScoutBundle {
 
 export function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
   // Drives are worked out from the plays themselves (see assignDrives), so older uploads get them too.
-  const plays: Play[] = assignDrives(Array.isArray(saved?.plays) ? saved.plays : []);
+  // Tagged calls read as formation + play ("21 L 26 DIVE" -> formation "21 L", call "26 DIVE").
+  const plays: Play[] = assignDrives(splitTaggedCalls(Array.isArray(saved?.plays) ? saved.plays : []));
   return {
     plays,
     datasetName: saved?.datasetName || fallbackName,

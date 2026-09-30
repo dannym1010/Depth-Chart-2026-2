@@ -2387,16 +2387,40 @@ describe('tagging film plays with play calls', () => {
     const { tagPlays } = await import('../hudlScout/utils/playTags.ts');
     const entry = { id: 'x1', name: '21 L 39 TOSS SWEEP', formation: '21 L' };
     const [tagged] = tagPlays([play() as any], ['p1'], entry);
-    assert.equal(tagged.playCall, '21 L 39 TOSS SWEEP');
-    assert.equal(tagged.playName, '21 L 39 TOSS SWEEP');
+    // Personnel + side go to the formation; the play call is just the play.
+    assert.equal(tagged.playCall, '39 TOSS SWEEP');
+    assert.equal(tagged.playName, '39 TOSS SWEEP');
     assert.equal(tagged.formation, '21 L');
+    assert.equal(tagged.playCallId, 'x1');
     const [back] = tagPlays([tagged], ['p1'], null);
     assert.equal(back.playCallId, undefined);
     assert.equal(back.playName, 'Rush');
     assert.equal(back.formation, '-');
-    // A formation from the film is kept.
+    // The call's formation wins over the film's ("21" or "GUN" on the film, "21 L" called).
     const [withForm] = tagPlays([play({ formation: 'GUN' }) as any], ['p1'], entry);
-    assert.equal(withForm.formation, 'GUN');
+    assert.equal(withForm.formation, '21 L');
+    // A call without personnel + side keeps the film's formation.
+    const [plain] = tagPlays([play({ formation: 'GUN' }) as any], ['p1'], { id: 'x2', name: 'HAWK SPECIAL', formation: '' });
+    assert.equal(plain.formation, 'GUN');
+    assert.equal(plain.playCall, 'HAWK SPECIAL');
+  });
+
+  it('splits a call into formation (personnel + L/R) and play: "32L 47 Zone" -> "32 L" + "47 Zone"', async () => {
+    const { splitCall, splitTaggedCalls } = await import('../hudlScout/utils/playTags.ts');
+    assert.deepEqual(splitCall('32L 47 Zone'), { formation: '32 L', play: '47 Zone' });
+    assert.deepEqual(splitCall('21 R 22 DOWN'), { formation: '21 R', play: '22 DOWN' });
+    assert.deepEqual(splitCall('11 LEFT BUBBLE PASS'), { formation: '11 L', play: 'BUBBLE PASS' });
+    assert.deepEqual(splitCall('21 L TWINS R Z BUBBLE'), { formation: '21 L', play: 'TWINS R Z BUBBLE' });
+    // Not personnel + side: the whole call stays the play.
+    assert.deepEqual(splitCall('47 ZONE'), { play: '47 ZONE' }); // 4 + 7 isn't personnel
+    assert.deepEqual(splitCall('32 LEAD'), { play: '32 LEAD' });
+    assert.deepEqual(splitCall('HAWK SPECIAL'), { play: 'HAWK SPECIAL' });
+    assert.deepEqual(splitCall('21 L'), { play: '21 L' });
+    // Plays tagged before: read as formation + play.
+    const [old] = splitTaggedCalls([{ id: 'a', playCallId: 'x', playCall: '21 L 26 DIVE', playName: '21 L 26 DIVE', formation: '21' } as any]);
+    assert.deepEqual([old.formation, old.playCall, old.playName], ['21 L', '26 DIVE', '26 DIVE']);
+    const untagged = [{ id: 'b', playName: '21 L 26 DIVE', formation: '-' } as any];
+    assert.equal(splitTaggedCalls(untagged), untagged); // untagged film plays are left alone
   });
 
   it('offers the right side of the ball first and finds calls by any words', async () => {
@@ -3558,9 +3582,9 @@ describe('balanced formations have no strong side; write-in plays', () => {
     assert.ok(isWriteIn(entry.id));
     assert.equal(entry.name, '21 L Jet Sweep');
     const plays = tagPlays([mk(1, '-', 'L'), mk(2, '-', 'R')], ['p1'], entry);
-    assert.equal(plays[0].playCall, '21 L Jet Sweep');
+    assert.equal(plays[0].playCall, 'Jet Sweep'); // "21 L" goes to the formation
     assert.equal(plays[0].playCallId, entry.id);
-    assert.equal(plays[0].formation, '21 L'); // the call's formation fills a blank one
+    assert.equal(plays[0].formation, '21 L');
     const again = writeInsFromPlays(plays);
     assert.deepEqual(again.map((e) => [e.id, e.name]), [[entry.id, '21 L Jet Sweep']]);
     const { strengthText } = await import('../hudlScout/utils/playColumns.ts');

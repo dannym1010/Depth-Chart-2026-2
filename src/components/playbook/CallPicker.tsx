@@ -75,7 +75,12 @@ export const CallList: React.FC<CallListProps> = ({ play, db, usage, onPick, onC
   const inFormation = useMemo(() => (formation ? unitPool.filter((e) => callFitsFormation(e, formation)) : []), [unitPool, formation]);
   const filtering = Boolean(formation) && !allFormations && inFormation.length > 0;
   const results = useMemo(() => {
-    return rankCalls(play, filtering ? inFormation : unitPool, usage, query).slice(0, 60);
+    // Browsing: the formation's plays. Typing: every formation (a play called from another formation,
+    // e.g. "32L 47 Zone" on a play filmed as 21, must still be found), this formation's first.
+    if (!query.trim() || !filtering) return rankCalls(play, filtering ? inFormation : unitPool, usage, query).slice(0, 60);
+    const here = rankCalls(play, inFormation, usage, query);
+    const ids = new Set(here.map((e) => e.id));
+    return [...here, ...rankCalls(play, unitPool, usage, query).filter((e) => !ids.has(e.id))].slice(0, 60);
   }, [unitPool, inFormation, filtering, play, usage, query]);
 
   const exact = query.trim() && db.some((e) => playNameKey(e.name) === playNameKey(query));
