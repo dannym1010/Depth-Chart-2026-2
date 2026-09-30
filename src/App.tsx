@@ -174,6 +174,8 @@ import { syncWristbandToCallSheet } from './utils/wristbandLinking';
 import { saveCallSheetSnapshot, countCallSheetPlays } from './utils/callSheetStorage';
 import { ScoutingView } from './components/ScoutingView';
 import { FilmRoomView } from './filmroom/FilmRoomView';
+import { buildLibrary } from './filmroom/FilmLibrary';
+import { bundleFromSaved } from './hudlScout/scoutBundle';
 import { DEFAULT_BALANCED, setBalancedFormations } from './hudlScout/utils/strength';
 import { HudlScoutSections, type HudlSection } from './components/scouting/HudlScoutSections';
 import { TendenciesView } from './components/scouting/TendenciesView';
@@ -4383,6 +4385,12 @@ export default function App() {
     if (isPrimaryTeamId(activeTeamId)) return ownTeamHudlScout[activeTeamId] || ownTeamHudlScout.team_10u;
     return withoutCopiedGames(ownTeamHudlScout[activeTeamId], ownTeamHudlScout.team_10u);
   }, [ownTeamHudlScout, activeTeamId]);
+  // Hudl Scout's reports library: every week's scouting games and our games, for the team on screen.
+  const scoutLibrary = useMemo(
+    () => buildLibrary(filmWeeks, bundleFromSaved(teamOwnScout, 'Our team').games, normalizeScoutWeekKey(currentWeek)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filmWeeks, teamOwnScout, currentWeek]
+  );
 
   // Attendance per team (sessions without a team are 10U's).
   const teamAttendanceLogs = React.useMemo(
@@ -6902,7 +6910,9 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
             {/* 4. Hudl Scout */}
             {(activeUnit === 'hudl_scout' || activeUnit === 'scouting') && (
               <ScoutingView
-                key={`hudl-${activeTeamId}`}
+                // A fresh Hudl Scout for each week: it holds a week's film while it's open, and a new week
+                // must never be saved with the one before (that copied Week 4's scouting into Week 5).
+                key={`hudl-${activeTeamId}-${normalizeScoutWeekKey(currentWeek)}`}
                 scouting={currentWeekState.scouting || {}}
                 userRole={userRole}
                 currentUser={currentUser}
@@ -6927,6 +6937,16 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 tab={hudlView.tab}
                 onViewChange={setHudlView}
                 focusGameId={hudlFocusGameId}
+                reportsLibrary={scoutLibrary}
+                onOpenReport={(g) => {
+                  // Another week's scouting report: go to that week (Hudl Scout opens it there).
+                  if (g.source === 'opponent' && g.week && g.week !== normalizeScoutWeekKey(currentWeek)) {
+                    changeCurrentWeek(g.week);
+                    ensureWeekExists(g.week);
+                  }
+                  setHudlFocusGameId(g.gameId);
+                  setHudlView({ target: g.source === 'own' ? 'own' : 'opponent', tab: hudlView.tab });
+                }}
                 balancedFormations={(currentActiveTeam as Team).balancedFormations ?? DEFAULT_BALANCED}
                 onChangeBalancedFormations={
                   mayEditTeam(activeTeamId) ? (list) => handleUpdateTeam(activeTeamId, { balancedFormations: list }) : undefined

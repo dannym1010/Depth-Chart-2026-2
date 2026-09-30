@@ -3454,6 +3454,38 @@ describe('play log columns: sort and filter any column', () => {
   });
 });
 
+describe('Hudl Scout reports by week', () => {
+  it('each week has its own cloud copy of the scouting film (pre-season, playoffs and championship too)', async () => {
+    const { hudlCloudWeek } = await import('../services/storageService.ts');
+    assert.equal(hudlCloudWeek('5'), '5'); // regular weeks unchanged
+    assert.equal(hudlCloudWeek('05'), '5');
+    assert.equal(hudlCloudWeek('Week 5'), '5');
+    assert.equal(hudlCloudWeek('pre-4'), 'pre-4'); // was "4": shared Week 4's copy
+    assert.equal(hudlCloudWeek('playoffs'), 'playoffs'); // was "1"
+    assert.equal(hudlCloudWeek('championship'), 'championship'); // was "1"
+    assert.notEqual(hudlCloudWeek('pre-4'), hudlCloudWeek('4'));
+  });
+  it('the reports library lists each week\'s games and flags a scouting game filed in two weeks', async () => {
+    const { buildLibrary } = await import('../filmroom/FilmLibrary.tsx');
+    const carmel = { games: [{ id: 'g1', name: 'Somers vs Carmel O', playCount: 89 }, { id: 'g2', name: 'Carmel_O vs Shrub Oak', playCount: 67 }], plays: [] };
+    const weeks = [
+      { key: '4', label: 'Week 4', opponent: 'Carmel Rams', hudlScout: carmel },
+      { key: '5', label: 'Week 5', opponent: 'Wappingers Wildcats', hudlScout: carmel }, // copied by mistake
+      { key: '6', label: 'Week 6', opponent: 'Brewster', hudlScout: { games: [{ id: 'g9', name: 'Brewster vs Somers', playCount: 50 }] } },
+    ];
+    const lib = buildLibrary(weeks, [{ id: 'o1', name: 'MSA vs Shrub Oak', week: '3', playCount: 58 }, { id: 'o2', name: 'MSA vs Carmel', week: '4', playCount: 60 }], '5');
+    const w = (k: string) => lib.weeks.find((x) => x.key === k)!;
+    assert.deepEqual(w('4').games.map((g) => [g.source, g.name, g.note]), [
+      ['own', 'MSA vs Carmel', undefined],
+      ['opponent', 'Somers vs Carmel O', 'Also in Week 5'],
+      ['opponent', 'Carmel_O vs Shrub Oak', 'Also in Week 5'],
+    ]);
+    assert.equal(w('5').games[0].note, 'Also in Week 4');
+    assert.equal(w('6').games[0].note, undefined);
+    assert.deepEqual(lib.others.map((g) => g.name), ['MSA vs Shrub Oak']); // week 3 isn't a listed week
+  });
+});
+
 describe('every save reaches the cloud', () => {
   it('each save name used in the app sends something to the other coaches (a copied week, a duplicated formation...)', async () => {
     const fs = await import('node:fs');

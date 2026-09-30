@@ -734,6 +734,19 @@ async function readScoutBundleDocs(db: any, docId: string): Promise<any | undefi
 }
 
 /**
+ * The week a Hudl Scout cloud copy is filed under. Regular weeks keep their number ("5"); pre-season,
+ * playoff and championship weeks get their own ("pre-4", "playoffs"). Before, every non-digit was dropped,
+ * so "pre-4" shared Week 4's copy and "playoffs" / "championship" shared Week 1's.
+ */
+export function hudlCloudWeek(week?: string): string {
+  const s = String(week || '').trim().toLowerCase();
+  if (/^\d+$/.test(s)) return String(Number(s));
+  const m = s.match(/^week\s*(\d+)$/);
+  if (m) return String(Number(m[1]));
+  return s.replace(/[^a-z0-9-]/g, '') || '1';
+}
+
+/**
  * Tell this device when another coach saves Hudl Scout film (our play log or this week's opponent),
  * so tags show up without reloading. The callback runs a moment later, after all the pieces are written.
  */
@@ -741,7 +754,7 @@ export function subscribeHudlScoutCloud(teamId: string, week: string, onChange: 
   if (isFirestoreQuotaPaused()) return () => {};
   const { db } = getFirebaseServices();
   if (!db || typeof db.collection !== 'function') return () => {};
-  const wk = String(week || '1').replace(/\D/g, '') || '1';
+  const wk = hudlCloudWeek(week);
   let timer: any = null;
   const kick = () => {
     if (timer) clearTimeout(timer);
@@ -778,7 +791,7 @@ export async function saveHudlScoutCloud(payload: {
 }): Promise<{ ok: boolean }> {
   let apiOk = false;
   let firestoreOk = false;
-  const week = String(payload.week || '1').replace(/\D/g, '') || '1';
+  const week = hudlCloudWeek(payload.week);
   const teamId = payload.teamId || 'team_10u';
 
   if (shouldUseLocalOpsApi()) {
@@ -840,7 +853,7 @@ export async function fetchHudlScoutCloud(
 ): Promise<{ opponentScout?: any; ownTeamScout?: any }> {
   let opponentScout: any;
   let ownTeamScout: any;
-  const wk = String(week || '1').replace(/\D/g, '') || '1';
+  const wk = hudlCloudWeek(week);
 
   if (shouldUseLocalOpsApi()) {
     try {

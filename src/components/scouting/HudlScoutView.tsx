@@ -5,6 +5,9 @@ import { calculateTendencies } from '../../hudlScout/utils/tendencyEngine';
 import { Play } from '../../hudlScout/types/football';
 import { Header, ScoutGame, ScoutTarget, ScoutUnit } from '../../hudlScout/components/Header';
 import { PlaysTable } from '../../hudlScout/components/PlaysTable';
+import { FilmLibrary, type LibraryGame, type LibraryWeek } from '../../filmroom/FilmLibrary';
+import { filmGameKey } from '../../filmroom/sharedMerge';
+import { Library as LibraryIcon } from 'lucide-react';
 import { UnitStatsView } from '../../hudlScout/components/UnitStatsView';
 import { tagPlayUnits } from '../../hudlScout/utils/unitStats';
 import type { TeamUnit, DownDistGroup } from '../../hudlScout/types/football';
@@ -72,6 +75,9 @@ export interface HudlScoutViewProps {
   onViewChange?: (view: { target: ScoutTarget; tab: string }) => void;
   /** Open this Hudl game (from the Film Room). */
   focusGameId?: string;
+  /** Every week's scouting games and our games (the reports library), and opening one. */
+  reportsLibrary?: { weeks: LibraryWeek[]; others: LibraryGame[] };
+  onOpenReport?: (g: LibraryGame) => void;
   /** Formations with no strong side (like 32), and who may change them. */
   balancedFormations?: string[];
   onChangeBalancedFormations?: (list: string[]) => void;
@@ -98,7 +104,10 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   focusGameId,
   balancedFormations,
   onChangeBalancedFormations,
+  reportsLibrary,
+  onOpenReport,
 }) => {
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const saved = scouting.hudlScout;
   const weekLabel = (() => {
     const raw = String(currentWeek || '').trim();
@@ -124,7 +133,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   const ownFallback = activeTeamName || 'Mahopac';
 
   const [scoutTarget, setScoutTarget] = useState<ScoutTarget>(target || 'opponent');
-  const [selectedGameId, setSelectedGameId] = useState<string>('all');
+  const [pickedGameId, setSelectedGameId] = useState<string>(focusGameId || 'all');
   const [oppBundle, setOppBundle] = useState<ScoutBundle>(() => bundleFromSaved(saved, opponentFallback));
   const [ownBundle, setOwnBundle] = useState<ScoutBundle>(() =>
     bundleFromSaved(ownTeamScout || saved?.ownTeam, ownFallback)
@@ -220,6 +229,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     }));
   }, [ownBundle.games, scheduleEvents]);
   const allPlays = bundle.plays;
+  // A game picked in another report (or removed since) isn't in this one: show all games.
+  const selectedGameId = pickedGameId === 'all' || bundle.games.some((g) => g.id === pickedGameId) ? pickedGameId : 'all';
   const plays = useMemo(() => {
     if (selectedGameId === 'all') return allPlays;
     return allPlays.filter((p) => {
@@ -300,7 +311,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   useEffect(() => {
     skipSave.current = true;
     setOppBundle(bundleFromSaved(saved, opponentFallback));
-    setSelectedGameId('all');
+    setSelectedGameId(focusGameId || 'all');
   }, [currentWeek]);
 
   useEffect(() => {
@@ -552,6 +563,54 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         weekOptions={weekOptions}
         onSetGameWeek={handleSetGameWeek}
       />
+
+      {/* The reports library: every week's scouting report and our games */}
+      {reportsLibrary && onOpenReport && (() => {
+        const weekKey = String(currentWeek || '').split('__week_').pop() || '';
+        const thisWeek = reportsLibrary.weeks.find((w) => w.key === weekKey);
+        const misfiled = scoutTarget === 'opponent' ? (thisWeek?.games || []).filter((g) => g.source === 'opponent' && g.note) : [];
+        return (
+          <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 pt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setLibraryOpen(true)}
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-black text-slate-800 dark:text-slate-100 cursor-pointer"
+            >
+              <LibraryIcon className="w-4 h-4" /> All reports
+            </button>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">Every week's scouting report and our games, by week.</span>
+            {misfiled.length > 0 && (
+              <span className="basis-full sm:basis-auto text-[11px] font-bold text-amber-700 dark:text-amber-400">
+                ⚠ {misfiled.map((g) => `${g.name} (${g.note?.toLowerCase()})`).join('; ')}: if it isn't this week's, remove it here with ✕ on its game.
+              </span>
+            )}
+          </div>
+        );
+      })()}
+      {libraryOpen && reportsLibrary && onOpenReport && (
+        <div className="fixed inset-0 z-50 bg-black/50" onClick={() => setLibraryOpen(false)}>
+          <div className="absolute inset-y-0 left-0 w-[88%] max-w-sm bg-white dark:bg-slate-900 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <FilmLibrary
+              title="Scouting reports"
+              weeks={reportsLibrary.weeks}
+              otherGames={reportsLibrary.others}
+              currentWeek={String(currentWeek || '').split('__week_').pop() || ''}
+              selectedKey={
+                selectedGameId === 'all'
+                  ? undefined
+                  : scoutTarget === 'own'
+                    ? filmGameKey('own', selectedGameId)
+                    : filmGameKey('opponent', selectedGameId, String(currentWeek || '').split('__week_').pop() || '')
+              }
+              onOpen={(g) => {
+                setLibraryOpen(false);
+                onOpenReport(g);
+              }}
+              onClose={() => setLibraryOpen(false)}
+            />
+          </div>
+        </div>
+      )}
 
       {filtersOpen && (
         <FilterPanel

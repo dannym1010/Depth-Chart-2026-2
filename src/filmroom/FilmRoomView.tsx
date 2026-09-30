@@ -17,7 +17,7 @@ import { newPlayEntry } from '../utils/playbookImport';
 import { clipMatchMode, matchClipsToPlays } from './clipMatching';
 import { FilmPlayer, type PlayerApi } from './FilmPlayer';
 import { LinkFilmDialog } from './LinkFilmDialog';
-import { FilmLibrary, type LibraryGame, type LibraryWeek } from './FilmLibrary';
+import { FilmLibrary, buildLibrary, type LibraryGame } from './FilmLibrary';
 import { PlayNotes } from './PlayNotes';
 import { playTitle } from './playText';
 import { filmGameKey } from './sharedMerge';
@@ -77,40 +77,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   }, [own.games, opp.games, currentWeek]);
 
   // The film library: every week of the season with our game and that week's scouting film.
-  const library = useMemo(() => {
-    const weeks = filmWeeks || [];
-    const weekKeys = new Set(weeks.map((w) => w.key));
-    const ownByWeek = new Map<string, LibraryGame[]>();
-    const others: LibraryGame[] = [];
-    for (const g of own.games) {
-      const lg: LibraryGame = { key: filmGameKey('own', g.id), source: 'own', gameId: g.id, name: g.name, week: g.week, plays: g.playCount || 0 };
-      if (g.week && weekKeys.has(g.week)) ownByWeek.set(g.week, [...(ownByWeek.get(g.week) || []), lg]);
-      else others.push(lg);
-    }
-    // Scouting games of each week (as Hudl Scout lists them; one unnamed game when the file had no list).
-    const scoutGamesOf = (saved: any, opponent: string) => {
-      if (Array.isArray(saved?.games) && saved.games.length) return saved.games as { id: string; name: string; playCount?: number }[];
-      const n = Array.isArray(saved?.plays) ? saved.plays.length : 0;
-      return n ? [{ id: 'game-1', name: saved?.datasetName || opponent || 'Scouting film', playCount: n }] : [];
-    };
-    const libWeeks: LibraryWeek[] = weeks.map((w) => ({
-      key: w.key,
-      label: w.label,
-      opponent: w.opponent,
-      games: [
-        ...(ownByWeek.get(w.key) || []),
-        ...scoutGamesOf(w.key === currentWeek ? opponentScout : w.hudlScout, w.opponent).map((g) => ({
-          key: filmGameKey('opponent', g.id, w.key),
-          source: 'opponent' as const,
-          gameId: g.id,
-          name: g.name,
-          week: w.key,
-          plays: Number(g.playCount) || 0,
-        })),
-      ],
-    }));
-    return { weeks: libWeeks, others };
-  }, [filmWeeks, own.games, opponentScout, currentWeek]);
+  const library = useMemo(() => buildLibrary(filmWeeks || [], own.games, currentWeek, opponentScout), [filmWeeks, own.games, opponentScout, currentWeek]);
 
   const pickKey = `footballFilmroomGame_${teamId}`;
   const [gameKey, setGameKey] = useState<string | undefined>(() => safeJSONParse<string | null>(pickKey, null) || undefined);

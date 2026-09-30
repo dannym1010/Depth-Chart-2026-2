@@ -1,11 +1,67 @@
-// The Film Room's library: every game of the season for this team, by week (our game and the scouting
-// film for that week's opponent), with a search. Picking a game opens it.
+// The season's library of games for a team, by week (our game and the scouting film for that week's
+// opponent), with a search. Used by the Film Room and by Hudl Scout's reports. Picking a game opens it.
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Film, RefreshCw, Search, Telescope, X } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, Film, RefreshCw, Search, Telescope, X } from 'lucide-react';
+import { filmGameKey } from './sharedMerge';
 import type { FilmGame } from './types';
 
 export interface LibraryGame extends FilmGame {
   plays: number;
+  /** A warning shown under the game (e.g. the same scouting game filed in two weeks). */
+  note?: string;
+}
+
+/** Scouting games of a week as Hudl Scout lists them (one unnamed game when the file had no list). */
+function scoutGamesOf(saved: any, opponent: string): { id: string; name: string; playCount?: number }[] {
+  if (Array.isArray(saved?.games) && saved.games.length) return saved.games;
+  const n = Array.isArray(saved?.plays) ? saved.plays.length : 0;
+  return n ? [{ id: 'game-1', name: saved?.datasetName || opponent || 'Scouting film', playCount: n }] : [];
+}
+
+/**
+ * The library for a team: each season week with our game(s) and that week's scouting games, and our
+ * games with no week. A scouting game filed in more than one week is flagged in each.
+ */
+export function buildLibrary(
+  weeks: { key: string; label: string; opponent: string; hudlScout?: any }[],
+  ownGames: { id: string; name: string; week?: string; playCount?: number }[],
+  currentWeek: string,
+  currentOpponentScout?: unknown
+): { weeks: LibraryWeek[]; others: LibraryGame[] } {
+  const weekKeys = new Set(weeks.map((w) => w.key));
+  const ownByWeek = new Map<string, LibraryGame[]>();
+  const others: LibraryGame[] = [];
+  for (const g of ownGames) {
+    const lg: LibraryGame = { key: filmGameKey('own', g.id), source: 'own', gameId: g.id, name: g.name, week: g.week, plays: g.playCount || 0 };
+    if (g.week && weekKeys.has(g.week)) ownByWeek.set(g.week, [...(ownByWeek.get(g.week) || []), lg]);
+    else others.push(lg);
+  }
+  const libWeeks: LibraryWeek[] = weeks.map((w) => ({
+    key: w.key,
+    label: w.label,
+    opponent: w.opponent,
+    games: [
+      ...(ownByWeek.get(w.key) || []),
+      ...scoutGamesOf((w.key === currentWeek && currentOpponentScout) || w.hudlScout, w.opponent).map((g) => ({
+        key: filmGameKey('opponent', g.id, w.key),
+        source: 'opponent' as const,
+        gameId: g.id,
+        name: g.name,
+        week: w.key,
+        plays: Number(g.playCount) || 0,
+      })),
+    ],
+  }));
+  // The same scouting game in two weeks (copied by mistake): say where else it is.
+  const weeksOfGame = new Map<string, string[]>();
+  libWeeks.forEach((w) => w.games.forEach((g) => {
+    if (g.source === 'opponent' && g.gameId !== 'game-1') weeksOfGame.set(g.gameId, [...(weeksOfGame.get(g.gameId) || []), w.label]);
+  }));
+  libWeeks.forEach((w) => w.games.forEach((g) => {
+    const inWeeks = weeksOfGame.get(g.gameId) || [];
+    if (g.source === 'opponent' && inWeeks.length > 1) g.note = `Also in ${inWeeks.filter((l) => l !== w.label).join(', ')}`;
+  }));
+  return { weeks: libWeeks, others };
 }
 
 export interface LibraryWeek {
@@ -16,6 +72,8 @@ export interface LibraryWeek {
 }
 
 interface FilmLibraryProps {
+  /** Heading ("Film library", "Scouting reports"). */
+  title?: string;
   weeks: LibraryWeek[];
   /** Our games not linked to a season week. */
   otherGames: LibraryGame[];
@@ -32,7 +90,7 @@ interface FilmLibraryProps {
 
 const norm = (s: string) => String(s || '').toLowerCase();
 
-export const FilmLibrary: React.FC<FilmLibraryProps> = ({ weeks, otherGames, currentWeek, selectedKey, onOpen, onClose, added, checking, onCheckFolder }) => {
+export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library', weeks, otherGames, currentWeek, selectedKey, onOpen, onClose, added, checking, onCheckFolder }) => {
   const [query, setQuery] = useState('');
   const selectedWeek = weeks.find((w) => w.games.some((g) => g.key === selectedKey))?.key;
   const [open, setOpen] = useState<Set<string>>(() => new Set([currentWeek, selectedWeek || ''].filter(Boolean)));
@@ -71,7 +129,14 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ weeks, otherGames, cur
         title={g.source === 'own' ? 'Our game' : 'Scouting film'}
       >
         <Icon size={13} className={on ? 'text-white shrink-0' : g.source === 'own' ? 'text-indigo-500 shrink-0' : 'text-amber-500 shrink-0'} />
-        <span className="flex-1 min-w-0 truncate font-semibold">{g.name}</span>
+        <span className="flex-1 min-w-0">
+          <span className="block truncate font-semibold">{g.name}</span>
+          {g.note && (
+            <span className={`flex items-center gap-1 text-[10px] font-bold ${on ? 'text-amber-200' : 'text-amber-700 dark:text-amber-400'}`}>
+              <AlertTriangle size={10} /> {g.note}
+            </span>
+          )}
+        </span>
         <span className={`shrink-0 tabular-nums text-[10px] ${on ? 'text-white/80' : 'text-slate-400'}`}>{g.plays}</span>
       </button>
     );
@@ -80,7 +145,7 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ weeks, otherGames, cur
   return (
     <div className="flex flex-col min-h-0 h-full">
       <div className="flex items-center gap-2 px-3 pt-3 pb-2">
-        <span className="text-xs font-black uppercase tracking-wide text-slate-600 dark:text-slate-300 flex-1">Film library</span>
+        <span className="text-xs font-black uppercase tracking-wide text-slate-600 dark:text-slate-300 flex-1">{title}</span>
         <span className="text-[10px] text-slate-400">{total} games</span>
         {onClose && (
           <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white" aria-label="Close the film library">
