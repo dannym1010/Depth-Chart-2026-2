@@ -370,6 +370,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const playLog = (
     <PlaysTable
       plays={shownPlays}
+      writeInPlays={(game?.source === 'opponent' ? opp : own).plays}
       selectedId={play?.id}
       onSelectPlay={setPlayId}
       onOrderChange={onOrderChange}

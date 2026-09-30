@@ -3590,6 +3590,24 @@ describe('balanced formations have no strong side; write-in plays', () => {
     const { strengthText } = await import('../hudlScout/utils/playColumns.ts');
     assert.equal(strengthText(plays[0]), 'Strong'); // side read from the written-in call
   });
+  it('a write-in typed on a "32 DW" play keeps that formation and is offered with every formation', async () => {
+    const { writeInEntry, writeInsFromPlays, tagPlays, callFitsFormation } = await import('../hudlScout/utils/playTags.ts');
+    const w = writeInEntry('47 ZONE', 'offense', '32 DW');
+    assert.equal(w.formation, '32 DW'); // not "47"
+    // Tagged on a play with no formation: the write-in's formation fills it (not "47").
+    const [t] = tagPlays([mk(1, '-', 'L')], ['p1'], w);
+    assert.deepEqual([t.formation, t.playCall], ['32 DW', '47 ZONE']);
+    // On a play filmed "32 DW": formation kept, call "47 ZONE".
+    const [t2] = tagPlays([mk(2, '32 DW', 'L')], ['p2'], w);
+    assert.deepEqual([t2.formation, t2.playCall], ['32 DW', '47 ZONE']);
+    // Offered again from any game's plays, and with any formation's list.
+    const again = writeInsFromPlays([t2]);
+    assert.deepEqual(again.map((e) => [e.name, e.formation]), [['47 ZONE', '32 DW']]);
+    assert.ok(callFitsFormation(again[0], '32 DW'));
+    assert.ok(callFitsFormation(again[0], '21'));
+    // Play Bank plays still follow the formation.
+    assert.ok(!callFitsFormation({ id: 'pb1', name: '21 R 22 DOWN', formation: '21 R' }, '32 DW'));
+  });
 });
 
 describe('tackles on defense and special teams, any number of assists', () => {

@@ -701,6 +701,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                 <CallResultsCard plays={filteredPlays} own={scoutTarget === 'own'} />
                 <PlaysTable
                   plays={filteredPlays}
+                  writeInPlays={allPlays}
                   onSetUnit={scoutTarget === 'own' ? handleSetUnit : undefined}
                   playDatabase={playDatabase}
                   onTagPlays={onUpdatePlayDatabase ? handleTagPlays : undefined}

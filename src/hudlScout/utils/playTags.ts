@@ -58,7 +58,8 @@ export function tagPlays(plays: Play[], ids: string[], entry: Pick<PlayDatabaseE
     // "32L 47 ZONE": the formation is "32 L" and the play call is "47 ZONE" (the tag still points at the
     // Play Bank play). A call without personnel + side keeps the film's formation unless it's blank.
     const split = splitCall(entry.name);
-    const callFormation = formationOfCall(entry.name) || entry.formation || '';
+    // A write-in carries the formation it was typed on ("47 ZONE" isn't formation "47").
+    const callFormation = isWriteIn(entry.id) ? entry.formation || '' : formationOfCall(entry.name) || entry.formation || '';
     return {
       ...p,
       playCallId: entry.id,
@@ -76,26 +77,30 @@ export function tagPlays(plays: Play[], ids: string[], entry: Pick<PlayDatabaseE
 /** Write-in plays: a play tagged with a typed name that isn't in the Play Bank (it isn't added there). */
 const WRITE_IN = 'writein:';
 export const isWriteIn = (id?: string) => String(id || '').startsWith(WRITE_IN);
-export function writeInEntry(name: string, unit: 'offense' | 'defense'): PlayDatabaseEntry {
+/**
+ * A write-in's formation: the one in its name ("32L 47 ZONE" -> "32 L"), else the formation of the play it
+ * was typed on ("47 ZONE" on a "32 DW" play -> "32 DW").
+ */
+export function writeInEntry(name: string, unit: 'offense' | 'defense', playFormation = ''): PlayDatabaseEntry {
   const clean = name.trim().replace(/\s+/g, ' ');
   return {
     id: `${WRITE_IN}${playNameKey(clean)}`,
     name: clean,
     unit,
-    formation: formationOfCall(clean) || '',
+    formation: splitCall(clean).formation || (isNumberFormation(playFormation) ? tidyFormation(playFormation) : ''),
     type: 'run',
     situations: [],
     tags: ['Write-in'],
   };
 }
-/** The write-ins used on these plays, so they can be picked again. */
+/** The write-ins used on these plays (all of a team's games), so they can be picked again anywhere. */
 export function writeInsFromPlays(plays: Play[]): PlayDatabaseEntry[] {
   const seen = new Map<string, PlayDatabaseEntry>();
   for (const p of plays) {
     if (!isWriteIn(p.playCallId) || !p.playCall || seen.has(p.playCallId!)) continue;
     // The call as typed: the formation part ("21 L") went to the formation when it was tagged.
     const name = /^\d\d [LR]$/.test(String(p.formation || '')) ? `${p.formation} ${p.playCall}` : p.playCall;
-    seen.set(p.playCallId!, { ...writeInEntry(name, p.odk === 'D' ? 'defense' : 'offense'), id: p.playCallId! });
+    seen.set(p.playCallId!, { ...writeInEntry(name, p.odk === 'D' ? 'defense' : 'offense', p.formation), id: p.playCallId! });
   }
   return [...seen.values()];
 }
@@ -220,9 +225,11 @@ export function isNumberFormation(s: string | undefined): boolean {
  * Is this call run from that formation? The numbers must match and every letter group the coach gave must
  * be in the call's formation: "21" fits "21 R 31 TOSS SWEEP"; "32 WB" fits "32 R WB 26 DIVE"; "21 L" does not fit "21 R ...".
  */
-export function callFitsFormation(entry: Pick<PlayDatabaseEntry, 'name' | 'formation'>, formation: string): boolean {
+export function callFitsFormation(entry: Pick<PlayDatabaseEntry, 'name' | 'formation'> & { id?: string }, formation: string): boolean {
   const want = formationTokens(formation);
   if (!want.length) return true;
+  // Write-ins are offered with every formation (there are few, and they're marked "Write-in").
+  if (isWriteIn(entry.id)) return true;
   const have = formationTokens(formationOfCall(entry.name) || entry.formation || entry.name);
   if (have[0] !== want[0]) return false;
   return want.slice(1).every((t) => have.includes(t));

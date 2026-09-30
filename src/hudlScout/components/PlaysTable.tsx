@@ -35,6 +35,8 @@ interface PlaysTableProps {
   onSelectPlay?: (id: string) => void;
   /** Film Room: the plays in the order shown (sort and search), so next / previous follow it. */
   onOrderChange?: (ids: string[]) => void;
+  /** Plays whose write-ins are offered when tagging (e.g. every game of the team); default: these plays. */
+  writeInPlays?: Play[];
   /** Film Room: extra marks next to the play number (film, notes). */
   rowBadge?: (play: Play) => React.ReactNode;
   /** Film Room: a one-line toolbar (no title block), with these controls at its start. */
@@ -88,7 +90,7 @@ const UnitPicker: React.FC<{
   );
 };
 
-export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge, compact, toolbarStart }) => {
+export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge, compact, toolbarStart, writeInPlays }) => {
   const [openPlay, setOpenPlay] = useState<string | null>(null);
   const canLineup = Boolean(lineupFor && roster && onSetSub);
   // A play's panel: who was on the field (offense / defense), and tackles on kicks too.
@@ -116,7 +118,10 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
   const canTagCalls = Boolean(onTagPlays && playDatabase);
   const usage = useMemo(() => callUsage(plays), [plays]);
   // Write-ins already used on these plays can be picked again, next to the Play Bank.
-  const callDb = useMemo(() => (playDatabase ? [...playDatabase, ...writeInsFromPlays(plays)] : playDatabase), [playDatabase, plays]);
+  const callDb = useMemo(
+    () => (playDatabase ? [...playDatabase, ...writeInsFromPlays(writeInPlays || plays)] : playDatabase),
+    [playDatabase, plays, writeInPlays]
+  );
   const taggable = useMemo(() => plays.filter(isTaggablePlay), [plays]);
   const callsTagged = taggable.filter((p) => p.playCallId).length;
   const needsTag = (p: Play) => (onSetUnit && playIsUnitTaggable(p) && !p.unit) || (canTagCalls && isTaggablePlay(p) && !p.playCallId);

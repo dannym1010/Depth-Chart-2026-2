@@ -99,7 +99,7 @@ export const CallList: React.FC<CallListProps> = ({ play, db, usage, onPick, onC
   // A write-in: tag just this play with what was typed; nothing is added to the Play Bank.
   const canWriteIn = Boolean(query.trim() && !exact);
   const writeIn = () => {
-    if (canWriteIn) onPick(writeInEntry(query, typedUnit));
+    if (canWriteIn) onPick(writeInEntry(query, typedUnit, play.formation));
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
