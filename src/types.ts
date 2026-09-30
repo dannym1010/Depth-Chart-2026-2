@@ -50,6 +50,17 @@ export interface Team {
   notes?: string;
   /** Formations with no strong side (the same both ways), e.g. "32"; unset = ["32"]. */
   balancedFormations?: string[];
+  /** Our defense for the scouting report's calls (base front, two-tight-end check, contain, blitzes); unset = 4-4 Cover 3 / 5-3. */
+  defenseSystem?: {
+    base?: string;
+    baseCoverage?: string;
+    baseContain?: string;
+    check?: string;
+    checkCoverage?: string;
+    checkContain?: string;
+    over?: string;
+    blitzes?: string[];
+  };
 }
 
 export interface WeekOption {

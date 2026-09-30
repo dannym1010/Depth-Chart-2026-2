@@ -6951,6 +6951,10 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onChangeBalancedFormations={
                   mayEditTeam(activeTeamId) ? (list) => handleUpdateTeam(activeTeamId, { balancedFormations: list }) : undefined
                 }
+                defenseSystem={(currentActiveTeam as Team).defenseSystem}
+                onChangeDefenseSystem={
+                  mayEditTeam(activeTeamId) ? (next) => handleUpdateTeam(activeTeamId, { defenseSystem: next }) : undefined
+                }
               />
             )}
 

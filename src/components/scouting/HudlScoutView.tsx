@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SAMPLE_DATASETS, SampleDataset } from '../../hudlScout/data/sampleDatasets';
 import { ColumnMapping, autoDetectColumnMapping, normalizeHudlRow, parseCsvRows } from '../../hudlScout/utils/csvParser';
 import { calculateTendencies } from '../../hudlScout/utils/tendencyEngine';
+import { defenseSystem, setDefenseSystem, type DefenseSystem } from '../../hudlScout/utils/ourDefense';
 import { Play } from '../../hudlScout/types/football';
 import { Header, ScoutGame, ScoutTarget, ScoutUnit } from '../../hudlScout/components/Header';
 import { PlaysTable } from '../../hudlScout/components/PlaysTable';
@@ -81,6 +82,9 @@ export interface HudlScoutViewProps {
   /** Formations with no strong side (like 32), and who may change them. */
   balancedFormations?: string[];
   onChangeBalancedFormations?: (list: string[]) => void;
+  /** Our defense (fronts, contain, blitzes) the calls are made from, and who may change it. */
+  defenseSystem?: Partial<DefenseSystem>;
+  onChangeDefenseSystem?: (next: DefenseSystem) => void;
 }
 
 export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
@@ -106,7 +110,13 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   onChangeBalancedFormations,
   reportsLibrary,
   onOpenReport,
+  defenseSystem: teamDefense,
+  onChangeDefenseSystem,
 }) => {
+  // The calls read our defense from the scouting helpers; rebuild them when it changes.
+  setDefenseSystem(teamDefense);
+  const defense = defenseSystem();
+  const defenseKey = JSON.stringify(defense);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const saved = scouting.hudlScout;
   const weekLabel = (() => {
@@ -288,17 +298,20 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     });
   }, [plays, filters]);
 
-  const analysis = useMemo(() => calculateTendencies(filteredPlays), [filteredPlays]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const analysis = useMemo(() => calculateTendencies(filteredPlays), [filteredPlays, defenseKey]);
   // The game plan and call sheet are always built against the offense on film,
   // whatever unit or filters the coach is looking at.
   const planPlays = useMemo(() => {
     const offense = plays.filter((p) => p.odk === 'O');
     return offense.length ? offense : plays;
   }, [plays]);
-  const planAnalysis = useMemo(() => calculateTendencies(planPlays), [planPlays]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const planAnalysis = useMemo(() => calculateTendencies(planPlays), [planPlays, defenseKey]);
   const localReport = useMemo(
     () => (planPlays.length ? buildLocalGameplan(planAnalysis, planPlays, reportName) : null),
-    [planAnalysis, planPlays, reportName]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [planAnalysis, planPlays, reportName, defenseKey]
   );
   const voice = makeVoice(scoutTarget, filters.odk);
   const filterLabels = activeFilterLabels(filters);
@@ -753,6 +766,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                 coachNotes={coachNotes}
                 onCoachNotesChange={(notes) => setBundle((prev) => ({ ...prev, coachNotes: notes, updatedAt: Date.now() }))}
                 onPrintCallSheet={() => setIsCallSheetOpen(true)}
+                defense={defense}
+                onChangeDefense={onChangeDefenseSystem}
               />
             )}
             {activeTab === 'plays' && (

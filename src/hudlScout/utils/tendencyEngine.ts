@@ -1,5 +1,6 @@
 import { DownDistGroup, FormationStat, HashPosition, OpponentTell, Play, TendencyAnalysis } from '../types/football';
 import { classifyRunSide, hasMotionDirectionData, isBoundaryRun, isRecordedMotion, isWideSideRun } from './csvParser';
+import { defenseSystem, formationCounter } from './ourDefense';
 
 export function calculateTendencies(plays: Play[]): TendencyAnalysis {
   // Filter out special teams (K) and stoppages (S) so scrimmage run/pass down & distance stats are clean
@@ -439,7 +440,7 @@ function detectOpponentTells(
       statEvidence: `${thirdGroup.passPct}% Pass rate (${thirdGroup.passCount}/${thirdGroup.count} plays). Primary target concept: ${thirdGroup.topPlays[0]?.name || 'Quick Concept'}.`,
       confidencePct: thirdGroup.passPct,
       sampleSize: thirdGroup.count,
-      recommendedCounter: 'Check out of run fits into Cover 2 Man-Under or 5-man fire zone blitz. Drop edge defenders into curl/flat passing lanes.',
+      recommendedCounter: `Passing down: ${defenseSystem().blitzes[0] || 'a blitz package'} with ${defenseSystem().baseCoverage} behind it. Contain (${defenseSystem().baseContain} in the ${defenseSystem().base}) keeps the QB in the pocket.`,
       severity: 'HIGH',
     });
   }
@@ -473,7 +474,7 @@ function detectOpponentTells(
       statEvidence: `${hash.left.boundaryPct}% of left-hash runs attack the boundary (short side). ${hash.left.widePct}% go wide/field.`,
       confidencePct: hash.left.boundaryPct,
       sampleSize: hash.left.total,
-      recommendedCounter: 'Set defensive strength / 3-technique to boundary. Walk boundary OLB down to set hard edge and spill ball back inside to pursuit.',
+      recommendedCounter: `Set our strength to the boundary. The boundary contain player (${defenseSystem().baseContain} in the ${defenseSystem().base}, ${defenseSystem().checkContain} in the ${defenseSystem().check}) sets a hard edge and spills it inside.`,
       severity: 'HIGH',
     });
   }
@@ -490,7 +491,7 @@ function detectOpponentTells(
           statEvidence: `${f.runPct}% Run rate (${f.runCount}/${f.count} plays). Top call: ${f.topPlays[0]?.name || 'Power'} (${f.topPlays[0]?.avgGain} avg).`,
           confidencePct: f.runPct,
           sampleSize: f.count,
-          recommendedCounter: `Roll strong safety down into the box. Slide defensive line into an Under front to plug the interior running lanes.`,
+          recommendedCounter: formationCounter(f.formation, true),
           severity: 'HIGH',
         });
       } else if (f.passPct >= 80) {
@@ -502,7 +503,7 @@ function detectOpponentTells(
           statEvidence: `${f.passPct}% Pass rate (${f.passCount}/${f.count} plays). Efficiency rate: ${f.efficiencyRate}%.`,
           confidencePct: f.passPct,
           sampleSize: f.count,
-          recommendedCounter: `Shift to Nickel/Dime personnel. Align corners in press-bail Cover 3 or Cover 4 Quarters to rob the seam routes.`,
+          recommendedCounter: formationCounter(f.formation, false),
           severity: 'HIGH',
         });
       }
@@ -526,7 +527,7 @@ function detectOpponentTells(
         sampleSize: motionPlays.length,
         recommendedCounter: isPassIndicator
           ? 'Bump coverage call to alert for drag routes, mesh, or wheel route out of motion. Do not rotate linebackers out of pass zones.'
-          : 'Flow linebackers with the motion path. Edge defensive end must hold outside contain against the jet sweep / perimeter sweep.',
+          : `Flow linebackers with the motion. Contain (${defenseSystem().baseContain} in the ${defenseSystem().base}, ${defenseSystem().checkContain} in the ${defenseSystem().check}) holds against the jet / sweep.`,
         severity: 'MEDIUM',
       });
     }
@@ -548,7 +549,7 @@ function detectOpponentTells(
         confidencePct: isRunHeavy ? rzRunPct : 100 - rzRunPct,
         sampleSize: rzPlays.length,
         recommendedCounter: isRunHeavy
-          ? 'Transition to 5-2 goal line or Bear front with 8 in the box. Pinch tackles to eliminate A-gap dives.'
+          ? `Check ${defenseSystem().check} (${defenseSystem().over} to the strength) and pinch the A gaps. ${defenseSystem().checkContain} have contain.`
           : 'Play Bracket coverage on the primary slot receiver and watch for back-shoulder fade or pick routes in tight splits.',
         severity: 'MEDIUM',
       });

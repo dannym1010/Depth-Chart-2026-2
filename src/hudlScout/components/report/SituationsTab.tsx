@@ -1,7 +1,7 @@
 import React from 'react';
 import { AIScoutingReport, DownDistGroup, Play, TendencyAnalysis } from '../../types/football';
 import { DownDistanceHeatmap, FieldZoneStrip, GainDistributionChart, PASS_COLOR, RUN_COLOR } from '../ScoutCharts';
-import { callForRunPass } from '../../utils/buildLocalGameplan';
+import { callForRunPass, playsInGroup } from '../../utils/buildLocalGameplan';
 import { ReportVoice, isRealCall, plural } from './reportText';
 import { Card, EmptyNote, MeterRow, PlanCallout, RunPassBar, SectionHeader } from './ui';
 
@@ -16,7 +16,7 @@ interface SituationsTabProps {
 
 const cleanName = (s: string) => (s && s !== '-' && !/^unspecified$/i.test(s) ? s : '');
 
-const SituationDetail: React.FC<{ group?: DownDistGroup; voice: ReportVoice }> = ({ group: g, voice }) => {
+const SituationDetail: React.FC<{ group?: DownDistGroup; voice: ReportVoice; plays: Play[] }> = ({ group: g, voice, plays }) => {
   if (!g || g.count === 0) {
     return (
       <Card>
@@ -24,7 +24,8 @@ const SituationDetail: React.FC<{ group?: DownDistGroup; voice: ReportVoice }> =
       </Card>
     );
   }
-  const call = callForRunPass(g.runPct, g.distMax <= 3);
+  // Our defense for this down and distance: base, two-tight-end check, Over, or a blitz on passing downs.
+  const call = callForRunPass(g.runPct, g.distMax <= 3, playsInGroup(plays, g), g.down >= 3 && g.distMin >= 7);
   const formations = g.topFormations.filter((f) => cleanName(f.name));
   const calls = g.topPlays.filter((p) => isRealCall(p.name));
   const we = voice.subject === 'We';
@@ -99,7 +100,7 @@ export const SituationsTab: React.FC<SituationsTabProps> = ({ analysis: a, plays
     withPlays.reduce<DownDistGroup | undefined>((best, g) => (!best || g.count > best.count ? g : best), undefined);
   const third = a.thirdDownConversions;
   const rz = a.redZonePlays;
-  const rzCall = callForRunPass(rz.runPct, rz.runPct >= 55);
+  const rzCall = callForRunPass(rz.runPct, rz.runPct >= 55, plays.filter((p) => p.fieldZone === 'red_zone' || p.fieldZone === 'goal_line'));
   const we = voice.subject === 'We';
 
   return (
@@ -112,7 +113,7 @@ export const SituationsTab: React.FC<SituationsTabProps> = ({ analysis: a, plays
           heading="By down & distance"
           subheading={`Green = run, blue = pass. Bolder color = stronger lean. Tap a box to see what ${we ? 'we' : 'they'} call.`}
         />
-        <SituationDetail group={selected} voice={voice} />
+        <SituationDetail group={selected} voice={voice} plays={plays} />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">

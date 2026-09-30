@@ -1,5 +1,7 @@
-import { AIScoutingReport, Play, TendencyAnalysis } from '../types/football';
+import { AIScoutingReport, DownDistGroup, Play, TendencyAnalysis } from '../types/football';
 import { isRecordedMotion } from './csvParser';
+import { defenseSystem, ourDefenseCall, tightEnds } from './ourDefense';
+import { sideSplit } from './strength';
 
 function groupName(plays: Play[], pick: (p: Play) => string, limit = 4) {
   const counts: Record<string, { count: number; yards: number }> = {};
@@ -24,33 +26,14 @@ function sit(analysis: TendencyAnalysis, labelPart: string) {
   return analysis.situationalGroups.find((g) => g.label.toLowerCase().includes(labelPart.toLowerCase()));
 }
 
-export function callForRunPass(runPct: number, shortYardage: boolean) {
-  if (shortYardage || runPct >= 70) {
-    return {
-      coverage: 'Cover 1 Hole / Tight Man',
-      front: '4-4 Over · 8-man box',
-      emphasis: `They run it ${runPct}% here. Plug A/B gaps and spill bounce plays to the sideline.`,
-    };
-  }
-  if (runPct >= 55) {
-    return {
-      coverage: 'Cover 3 Sky',
-      front: '4-4 Over / 4-2-5 with walked-up nickel',
-      emphasis: `Run-first (${runPct}% run). Keep a safety in the box and play the cutback.`,
-    };
-  }
-  if (runPct <= 40) {
-    return {
-      coverage: 'Cover 4 Quarters or Cover 2',
-      front: '4-2-5 Under',
-      emphasis: `Pass-leaning (${100 - runPct}% pass). Rush 4, drop 7, and sit on screens.`,
-    };
-  }
-  return {
-    coverage: 'Cover 3 Match',
-    front: 'Base 4-4',
-    emphasis: `Balanced (${runPct}% run). Read formation and hash, then cheat the extra hat to the run strength.`,
-  };
+/** Our call (from our defense: base, two-tight-end check, Over, blitzes) for a situation's plays. */
+export function callForRunPass(runPct: number, shortYardage: boolean, plays: Play[] = [], passDown = false) {
+  return ourDefenseCall(runPct, shortYardage, plays, passDown);
+}
+
+/** The plays of a down-and-distance box. */
+export function playsInGroup(plays: Play[], g?: Pick<DownDistGroup, 'down' | 'distMin' | 'distMax'>) {
+  return g ? plays.filter((p) => p.down === g.down && p.distance >= g.distMin && p.distance <= g.distMax) : [];
 }
 
 export function buildLocalGameplan(analysis: TendencyAnalysis, plays: Play[], opponentName: string): AIScoutingReport {
@@ -81,13 +64,20 @@ export function buildLocalGameplan(analysis: TendencyAnalysis, plays: Play[], op
     (p) => p.oppReceiver || p.carrierOrTarget
   );
 
-  const firstCall = callForRunPass(first?.runPct ?? analysis.runPct, false);
-  const secondShortCall = callForRunPass(secondShort?.runPct ?? 70, true);
-  const secondLongCall = callForRunPass(secondLong?.runPct ?? 35, false);
-  const thirdShortCall = callForRunPass(thirdShort?.runPct ?? 75, true);
-  const thirdLongCall = callForRunPass(thirdLong?.runPct ?? 25, false);
+  const firstCall = callForRunPass(first?.runPct ?? analysis.runPct, false, first ? playsInGroup(plays, first) : plays);
+  const secondShortCall = callForRunPass(secondShort?.runPct ?? 70, true, playsInGroup(plays, secondShort));
+  const secondLongCall = callForRunPass(secondLong?.runPct ?? 35, false, playsInGroup(plays, secondLong));
+  const thirdShortCall = callForRunPass(thirdShort?.runPct ?? 75, true, playsInGroup(plays, thirdShort));
+  const thirdLongCall = callForRunPass(thirdLong?.runPct ?? 25, false, playsInGroup(plays, thirdLong), true);
   const rzRun = analysis.redZonePlays.runPct;
-  const redZoneCall = callForRunPass(rzRun || analysis.runPct, rzRun >= 55);
+  const rzPlays = plays.filter((p) => p.fieldZone === 'red_zone' || p.fieldZone === 'goal_line');
+  const redZoneCall = callForRunPass(rzRun || analysis.runPct, rzRun >= 55, rzPlays);
+  const def = defenseSystem();
+  const blitzName = def.blitzes[0] || 'Blitz';
+  const scrimmage = plays.filter((p) => p.odk !== 'K' && p.playType !== 'SPECIAL');
+  const teKnown = scrimmage.filter((p) => tightEnds(p) !== undefined);
+  const strongRuns = sideSplit(scrimmage.filter((p) => p.playType === 'RUN'));
+  const twoTePct = teKnown.length ? Math.round((teKnown.filter((p) => (tightEnds(p) || 0) >= 2).length / teKnown.length) * 100) : 0;
 
   const strengths: string[] = [];
   if (analysis.runPct >= 55) strengths.push(`${analysis.runPct}% run rate, ${analysis.avgGainRun} yards per carry.`);
@@ -109,24 +99,29 @@ export function buildLocalGameplan(analysis: TendencyAnalysis, plays: Play[], op
   if (analysis.hashTendencies.right.runPct >= 65 && analysis.hashTendencies.right.total >= 8) {
     vulnerabilities.push(`Right hash is ${analysis.hashTendencies.right.runPct}% run. Crowd the boundary.`);
   }
-  if (!vulnerabilities.length) vulnerabilities.push('No strong tells yet. Play sound 4-4 gaps and make them beat you on 3rd down.');
+  if (!vulnerabilities.length) vulnerabilities.push(`No strong tells yet. Play sound ${def.base} gaps and make them beat you on 3rd down.`);
 
-  const baseFront = analysis.runPct >= 58 ? '4-4 Over, extra hat in the box' : analysis.runPct <= 42 ? '4-2-5 Under, two-high until they prove the run' : '4-4 Base, nickel as needed';
-  const secondary = analysis.runPct >= 58 ? 'Cover 3 Sky, safety downhill' : 'Cover 4 / Cover 3 Match';
+  const checkHeavy = twoTePct >= 50;
+  const baseFront = checkHeavy
+    ? `${def.check} (they're in two tight ends ${twoTePct}% of the time; ${def.over} when they run to the strength)`
+    : twoTePct > 0
+      ? `${def.base}, check ${def.check} vs two tight ends (${twoTePct}% of snaps)`
+      : def.base;
+  const secondary = checkHeavy ? def.checkCoverage : def.baseCoverage;
 
   const wristband = {
     firstDownCalls: [
       firstCall.front + ' · ' + firstCall.coverage,
-      topForm ? `Vs ${topForm.formation}: ${topForm.runPct >= 55 ? 'Box the run' : 'Stay two-high'}` : 'Base 4-4 · Cover 3',
+      topForm ? `Vs ${topForm.formation}: ${topForm.runPct >= 55 ? 'extra hat to the strength' : `${def.baseCoverage}, keep contain`}` : `${def.base} · ${def.baseCoverage}`,
       'Check hash — extra defender to the run strength',
     ],
     runStopCalls: [
-      '8-man box · plug A-gaps',
-      'Set the edge, spill bounce',
-      thirdShort && thirdShort.runPct >= 60 ? '3rd & short: goal-line 5-2' : 'Force cutback to the Mike',
+      `Two TEs: check ${def.check} (${def.checkContain} contain)`,
+      `Runs to the strength: ${def.over}`,
+      `${def.base}: ${def.baseContain} keep contain`,
     ],
     passBlitzCalls: [
-      thirdLong && thirdLong.passPct >= 55 ? '3rd & long: 5-man fire zone' : 'Rush 4, drop 7',
+      thirdLong && thirdLong.passPct >= 55 ? `3rd & long: ${blitzName}` : `${def.base} · ${def.baseCoverage}`,
       'Sit on screens and bubble',
       'Boundary pressure if they empty',
     ],
@@ -175,7 +170,7 @@ export function buildLocalGameplan(analysis: TendencyAnalysis, plays: Play[], op
   return {
     executiveSummary: `${opponentName} is a ${identity} team in this ${analysis.totalPlays}-play sample (${analysis.runPct}% run / ${analysis.passPct}% pass, ${analysis.avgGainOverall} yards per snap). They work the ${hashBias}. ${
       topTell ? `Biggest tell: ${topTell.title.replace(/\s*Tell$/i, '')}: ${topTell.statEvidence.replace(/\.\s*$/, '')}.` : 'No single tell jumps off the sheet yet.'
-    } Play gap-sound 10U defense: extra hat vs the run, do not get the edges cracked, and make them execute on 3rd & long.`,
+    } Start in our ${def.base} ${def.baseCoverage}${twoTePct ? `, check ${def.check} when they go to two tight ends` : ''}; do not get the edges cracked, and make them execute on 3rd & long.`,
     opponentIdentity: {
       offensiveSystem: identity + (topForm ? ` out of ${topForm.formation}` : ''),
       tempoPace: analysis.totalPlays >= 80 ? 'Higher snap volume — stay in huddle tempo and sub cleanly' : 'Standard youth pace',
@@ -185,7 +180,7 @@ export function buildLocalGameplan(analysis: TendencyAnalysis, plays: Play[], op
     defensivePhilosophyRecommendation: {
       recommendedBaseFront: baseFront,
       secondaryAlignment: secondary,
-      rationale: `Match their ${analysis.runPct}% run rate. ${firstCall.emphasis}`,
+      rationale: `${analysis.runPct}% run. ${firstCall.emphasis}`,
     },
     downAndDistanceGameplan: {
       firstAndTen: firstCall,
@@ -199,8 +194,20 @@ export function buildLocalGameplan(analysis: TendencyAnalysis, plays: Play[], op
       {
         name: 'Edge Set',
         situation: 'Early downs / run hash',
-        description: 'DE stay wide, LB fill C-gap. No bounce.',
+        description: `${def.baseContain} keep contain in the ${def.base} (${def.checkContain} in the ${def.check}). Spill it inside, no bounce.`,
         targetWeakness: hashBias + ' run lean',
+      },
+      {
+        name: `${def.check} check`,
+        situation: 'Two tight ends',
+        description: `Check out of the ${def.base} into the ${def.check}. ${def.checkContain} have contain. Straight ${def.check} against a balanced set.`,
+        targetWeakness: twoTePct ? `Two tight ends on ${twoTePct}% of their snaps` : 'Not on film yet: check it when you see it',
+      },
+      {
+        name: def.over,
+        situation: 'Two tight ends, runs to the strength',
+        description: `Slide the line one gap toward the strength. ${def.checkContain} still have contain.`,
+        targetWeakness: `${strongRuns.total ? `${strongRuns.pct.strong}% of their runs go to the strength` : 'Their runs to the strength'}`,
       },
       {
         name: 'A-Gap Plug',
@@ -208,16 +215,16 @@ export function buildLocalGameplan(analysis: TendencyAnalysis, plays: Play[], op
         description: 'Mike and Will step into the A-gaps. No sneak, no trap.',
         targetWeakness: `${analysis.thirdDownConversions.short.runPct}% run on 3rd & short`,
       },
-      {
-        name: 'Fire Zone 5',
-        situation: '3rd & long',
-        description: 'Five-man pressure, three-deep behind it. Force a hot throw.',
+      ...(def.blitzes.length ? def.blitzes : ['Blitz']).map((name) => ({
+        name,
+        situation: '3rd & long / passing downs',
+        description: `${def.baseCoverage} behind it. Whoever has contain keeps the QB in the pocket.${def.blitzes.length ? '' : ' Name your blitz packages under Our defense.'}`,
         targetWeakness: `${analysis.thirdDownConversions.long.passPct}% pass on 3rd & long`,
-      },
+      })),
       {
         name: 'Screen Sit',
         situation: '2nd & long / obvious pass',
-        description: 'Ends peek back. Do not chase upfield.',
+        description: 'Contain players peek back. Do not chase upfield.',
         targetWeakness: 'Youth teams throw bubble and slow screen when behind the sticks',
       },
     ],

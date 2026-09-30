@@ -3901,3 +3901,47 @@ describe('film room', () => {
     assert.equal(sharedDocId('team_10u', 'own_g 1'), 'filmroom_team_10u_own_g1');
   });
 });
+
+describe('our defense in the scouting calls', () => {
+  const mk = (n: number, formation: string, runSide: string, extra: any = {}) =>
+    ({ id: `d${n}`, playNumber: n, odk: 'O', down: 1, distance: 10, formation, personnel: '-', runSide, direction: runSide === 'L' ? 'Left' : runSide === 'R' ? 'Right' : 'Middle', playType: 'RUN', gainLoss: 4, isEfficient: true, ...extra }) as any;
+  it('4-4 Cover 3 with OLB contain; 5-3 vs two tight ends with DE contain; 5-3 Over when they run to the strength; blitz on passing downs', async () => {
+    const { ourDefenseCall, tightEnds, setDefenseSystem, formationCounter } = await import('../hudlScout/utils/ourDefense.ts');
+    const { setBalancedFormations } = await import('../hudlScout/utils/strength.ts');
+    setBalancedFormations(undefined);
+    setDefenseSystem(undefined);
+    assert.equal(tightEnds(mk(1, '21 L', 'L')), 1);
+    assert.equal(tightEnds(mk(1, '22 R', 'L')), 2);
+    assert.equal(tightEnds(mk(1, '32', 'L')), 2);
+    assert.equal(tightEnds(mk(1, 'Pro Right', 'L', { personnel: '12' })), 2);
+    assert.equal(tightEnds(mk(1, 'Double TE Wing', 'L')), 2);
+    assert.equal(tightEnds(mk(1, 'Trips Rt', 'L')), undefined);
+
+    const base = ourDefenseCall(60, false, [mk(1, '21 L', 'L'), mk(2, '21 R', 'L'), mk(3, '11 R', 'R')]);
+    assert.equal(base.front, '4-4');
+    assert.equal(base.coverage, 'Cover 3');
+    assert.match(base.emphasis, /OLBs have contain/);
+
+    // Two tight ends, runs split: the straight 5-3, DEs contain.
+    const check = ourDefenseCall(70, false, [mk(1, '22 L', 'L'), mk(2, '22 R', 'L'), mk(3, '22 L', 'R'), mk(4, '22 R', 'R')]);
+    assert.equal(check.front, '5-3');
+    assert.match(check.emphasis, /DEs have contain/);
+
+    // Two tight ends, runs to the strength: 5-3 Over.
+    const over = ourDefenseCall(80, false, [mk(1, '22 L', 'L'), mk(2, '22 R', 'R'), mk(3, '22 L', 'L'), mk(4, '22 R', 'R')]);
+    assert.equal(over.front, '5-3 Over');
+    assert.match(over.emphasis, /one gap to the strength/);
+
+    // Balanced 32 has no strength: the straight 5-3.
+    assert.equal(ourDefenseCall(80, false, [mk(1, '32', 'L'), mk(2, '32', 'R'), mk(3, '32', 'L')]).front, '5-3');
+
+    // Passing down: the team's first blitz.
+    setDefenseSystem({ blitzes: ['Fire', 'Storm'] });
+    const pass = ourDefenseCall(20, false, [mk(1, '11 R', 'R', { playType: 'PASS' })], true);
+    assert.equal(pass.front, '4-4 + Fire');
+    assert.match(pass.emphasis, /bring Fire with Cover 3/);
+    assert.match(formationCounter('22 R', true), /check 5-3.*DEs have contain/);
+    assert.match(formationCounter('Trips Rt', false), /4-4 Cover 3\. OLBs keep contain/);
+    setDefenseSystem(undefined);
+  });
+});

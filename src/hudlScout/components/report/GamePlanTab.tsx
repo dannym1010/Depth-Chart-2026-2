@@ -3,6 +3,8 @@ import { Printer, Send } from 'lucide-react';
 import { AIScoutingReport, Play, TendencyAnalysis } from '../../types/football';
 import { answerCoachQuestion } from '../../utils/buildLocalGameplan';
 import { Card, EmptyNote, RunPassBar, SectionHeader } from './ui';
+import { OurDefenseCard } from './OurDefenseCard';
+import type { DefenseSystem } from '../../utils/ourDefense';
 
 interface GamePlanTabProps {
   report: AIScoutingReport | null;
@@ -14,6 +16,9 @@ interface GamePlanTabProps {
   coachNotes: string;
   onCoachNotesChange: (notes: string) => void;
   onPrintCallSheet: () => void;
+  /** Our defense the calls are made from, and changing it (unset = this coach can't). */
+  defense?: DefenseSystem;
+  onChangeDefense?: (next: DefenseSystem) => void;
 }
 
 export const GamePlanTab: React.FC<GamePlanTabProps> = ({
@@ -25,6 +30,8 @@ export const GamePlanTab: React.FC<GamePlanTabProps> = ({
   coachNotes,
   onCoachNotesChange,
   onPrintCallSheet,
+  defense,
+  onChangeDefense,
 }) => {
   const [question, setQuestion] = useState('');
   const [answers, setAnswers] = useState<{ q: string; a: string }[]>([]);
@@ -91,6 +98,8 @@ export const GamePlanTab: React.FC<GamePlanTabProps> = ({
           ))}
         </div>
       </Card>
+
+      {!own && defense && <OurDefenseCard defense={defense} onChange={onChangeDefense} />}
 
       <Card>
         <SectionHeader title="Calls by situation" subtitle={`What ${own ? 'we' : 'they'} do, and the front and coverage to start in.`} />
