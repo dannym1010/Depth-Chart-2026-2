@@ -3524,6 +3524,50 @@ describe('strong side / weak side (formation side letter vs play direction)', ()
   });
 });
 
+describe('balanced formations have no strong side; write-in plays', () => {
+  const mk = (n: number, formation: string, runSide: string, extra: any = {}) =>
+    ({ id: `p${n}`, playNumber: n, odk: 'O', down: 1, distance: 10, formation, runSide, direction: runSide === 'L' ? 'Left' : 'Right', playType: 'RUN', gainLoss: 4, isEfficient: true, ...extra }) as any;
+  it('32 is balanced (even when the call says R); 21 L is still strong / weak; the list is per team', async () => {
+    const { playStrengthSide, isBalancedPlay, setBalancedFormations, strengthReport } = await import('../hudlScout/utils/strength.ts');
+    const { strengthText } = await import('../hudlScout/utils/playColumns.ts');
+    setBalancedFormations(undefined); // default: 32
+    const plays = [
+      mk(1, '32', 'L'),
+      mk(2, '32 WB', 'R'),
+      mk(3, '-', 'R', { playCall: '32 WISHBONE R 28 SWEEP' }),
+      mk(4, '21', 'L', { playCall: '21 L 26 DIVE' }),
+      mk(5, '21', 'R', { playCall: '21 L 26 DIVE' }),
+    ];
+    assert.deepEqual(plays.map(isBalancedPlay), [true, true, true, false, false]);
+    assert.deepEqual(plays.map(playStrengthSide), [undefined, undefined, undefined, 'strong', 'weak']);
+    assert.deepEqual(plays.map(strengthText), ['Balanced', 'Balanced', 'Balanced', 'Strong', 'Weak']);
+    const r = strengthReport(plays, (p: any) => p.playType === 'RUN', () => false);
+    assert.equal(r.runs.total, 2);
+    assert.equal(r.balanced, 3);
+    assert.equal(r.strengthLeft + r.strengthRight, 2); // balanced plays aren't "strength left / right"
+    // A team can add more (e.g. 22) or have none.
+    setBalancedFormations(['32', '22']);
+    assert.ok(isBalancedPlay(mk(6, '22', 'L')));
+    setBalancedFormations([]);
+    assert.equal(playStrengthSide(mk(7, '32 R', 'R')), 'strong');
+    setBalancedFormations(undefined);
+  });
+  it('a write-in tags the play with the typed name, isn\'t in the Play Bank, and is offered again', async () => {
+    const { writeInEntry, writeInsFromPlays, isWriteIn, tagPlays } = await import('../hudlScout/utils/playTags.ts');
+    const entry = writeInEntry('  21 L  Jet Sweep ', 'offense');
+    assert.ok(isWriteIn(entry.id));
+    assert.equal(entry.name, '21 L Jet Sweep');
+    const plays = tagPlays([mk(1, '-', 'L'), mk(2, '-', 'R')], ['p1'], entry);
+    assert.equal(plays[0].playCall, '21 L Jet Sweep');
+    assert.equal(plays[0].playCallId, entry.id);
+    assert.equal(plays[0].formation, '21 L'); // the call's formation fills a blank one
+    const again = writeInsFromPlays(plays);
+    assert.deepEqual(again.map((e) => [e.id, e.name]), [[entry.id, '21 L Jet Sweep']]);
+    const { strengthText } = await import('../hudlScout/utils/playColumns.ts');
+    assert.equal(strengthText(plays[0]), 'Strong'); // side read from the written-in call
+  });
+});
+
 describe('tackles on defense and special teams, any number of assists', () => {
   it('keeps several assists (no one twice, not the tackler), reads the old single assist, and counts them', async () => {
     const { setPlayDefPlay, defAssists } = await import('./filmLineup.ts');

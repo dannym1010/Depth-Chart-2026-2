@@ -45,6 +45,31 @@ export function tagPlays(plays: Play[], ids: string[], entry: Pick<PlayDatabaseE
 }
 
 /** Film plays that could carry a call (offense / defense snaps, not kicks or timeouts). */
+/** Write-in plays: a play tagged with a typed name that isn't in the Play Bank (it isn't added there). */
+const WRITE_IN = 'writein:';
+export const isWriteIn = (id?: string) => String(id || '').startsWith(WRITE_IN);
+export function writeInEntry(name: string, unit: 'offense' | 'defense'): PlayDatabaseEntry {
+  const clean = name.trim().replace(/\s+/g, ' ');
+  return {
+    id: `${WRITE_IN}${playNameKey(clean)}`,
+    name: clean,
+    unit,
+    formation: formationOfCall(clean) || '',
+    type: 'run',
+    situations: [],
+    tags: ['Write-in'],
+  };
+}
+/** The write-ins used on these plays, so they can be picked again. */
+export function writeInsFromPlays(plays: Play[]): PlayDatabaseEntry[] {
+  const seen = new Map<string, PlayDatabaseEntry>();
+  for (const p of plays) {
+    if (!isWriteIn(p.playCallId) || !p.playCall || seen.has(p.playCallId!)) continue;
+    seen.set(p.playCallId!, { ...writeInEntry(p.playCall, p.odk === 'D' ? 'defense' : 'offense'), id: p.playCallId! });
+  }
+  return [...seen.values()];
+}
+
 export function isTaggablePlay(p: Play): boolean {
   if (!callUnitForPlay(p)) return false;
   return !/\btimeout\b/i.test(p.result || '');

@@ -9,6 +9,8 @@ interface RunGameTabProps {
   analysis: TendencyAnalysis;
   plays: Play[];
   voice: ReportVoice;
+  balancedFormations?: string[];
+  onChangeBalancedFormations?: (list: string[]) => void;
 }
 
 type HashKey = 'left' | 'middle' | 'right';
@@ -77,7 +79,7 @@ const HashField: React.FC<{ hash: HashKey; leftPct: number; insidePct: number; r
   );
 };
 
-export const RunGameTab: React.FC<RunGameTabProps> = ({ analysis: a, plays, voice }) => {
+export const RunGameTab: React.FC<RunGameTabProps> = ({ analysis: a, plays, voice, balancedFormations, onChangeBalancedFormations }) => {
   const sides = runSides(a);
   const runs = plays.filter(isRunPlay);
   const runCalls = topNames(runs, (p) => p.playName, 6);
@@ -115,7 +117,7 @@ export const RunGameTab: React.FC<RunGameTabProps> = ({ analysis: a, plays, voic
         </Card>
       )}
 
-      <StrengthCard plays={plays} voice={voice} />
+      <StrengthCard plays={plays} voice={voice} balanced={balancedFormations} onChangeBalanced={onChangeBalancedFormations} />
 
       <Card>
         <SectionHeader

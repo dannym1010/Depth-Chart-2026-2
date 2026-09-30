@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { Play, TeamUnit } from '../types/football';
 import { TEAM_UNITS, playIsUnitTaggable } from '../utils/unitStats';
 import { isRecordedMotion } from '../utils/csvParser';
-import { callUsage, isNumberFormation, isTaggablePlay, restOfSeriesIds, tidyFormation } from '../utils/playTags';
+import { callUsage, isNumberFormation, isTaggablePlay, restOfSeriesIds, tidyFormation, writeInsFromPlays } from '../utils/playTags';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { CallButton, FormationEditor, TagPlaysPanel } from '../../components/playbook/CallPicker';
 import { Search, ChevronDown, ChevronUp, ChevronRight, Zap, Flame, CheckCircle2, ListChecks, Users, Filter, X } from 'lucide-react';
@@ -115,6 +115,8 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
   const [tagging, setTagging] = useState<{ startId?: string } | null>(null);
   const canTagCalls = Boolean(onTagPlays && playDatabase);
   const usage = useMemo(() => callUsage(plays), [plays]);
+  // Write-ins already used on these plays can be picked again, next to the Play Bank.
+  const callDb = useMemo(() => (playDatabase ? [...playDatabase, ...writeInsFromPlays(plays)] : playDatabase), [playDatabase, plays]);
   const taggable = useMemo(() => plays.filter(isTaggablePlay), [plays]);
   const callsTagged = taggable.filter((p) => p.playCallId).length;
   const needsTag = (p: Play) => (onSetUnit && playIsUnitTaggable(p) && !p.unit) || (canTagCalls && isTaggablePlay(p) && !p.playCallId);
@@ -432,7 +434,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               {((onSetUnit && playIsUnitTaggable(play)) || (canTagCalls && isTaggablePlay(play))) && (
                 <div className="pt-1 flex flex-wrap items-center gap-2">
                   {canTagCalls && isTaggablePlay(play) && (
-                    <CallButton play={play} db={playDatabase!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
+                    <CallButton play={play} db={callDb!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
                   )}
                   {onSetUnit && playIsUnitTaggable(play) && <UnitPicker play={play} onSetUnit={onSetUnit} />}
                 </div>
@@ -587,7 +589,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   <td className="py-2 px-3 font-medium text-slate-100">
                     {canTagCalls && isTaggablePlay(play) ? (
                       <div className={`flex items-start gap-0.5 ${compact ? 'flex-row items-center gap-1.5' : 'flex-col'}`}>
-                        <CallButton play={play} db={playDatabase!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
+                        <CallButton play={play} db={callDb!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
                         {play.playCallId && play.untaggedName && play.untaggedName !== play.playCall && (
                           <span className="text-[10px] text-slate-400">Film: {play.untaggedName}</span>
                         )}
@@ -678,7 +680,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
       {tagging && canTagCalls && (
         <TagPlaysPanel
           plays={filteredPlays}
-          db={playDatabase!}
+          db={callDb!}
           onTag={onTagPlays!}
           onCreate={onCreateCall}
           onSetUnit={onSetUnit ? (id, unit) => onSetUnit(id, unit, 'fill_series') : undefined}
@@ -764,7 +766,7 @@ const namesMissing = (plays: Play[]) => {
 };
 
 /** Strong / weak side of a play (formation side letter vs play direction). */
-const SIDE_TAG_COLOR: Record<string, string> = { Strong: '#d97706', Middle: '#64748b', Weak: '#0284c7' };
+const SIDE_TAG_COLOR: Record<string, string> = { Strong: '#d97706', Middle: '#64748b', Weak: '#0284c7', Balanced: '#7c3aed' };
 const SideTag: React.FC<{ play: Play }> = ({ play }) => {
   const t = strengthText(play);
   return t ? <span style={{ color: SIDE_TAG_COLOR[t] }} title={`${t} side (formation ${play.formation})`}>{t}</span> : <span className="text-slate-500">-</span>;

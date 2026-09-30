@@ -1,6 +1,7 @@
 // Strong side / weak side tendencies: the formation's side letter is the strength ("21 L" = left);
 // a play in that direction went to the strong side.
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
+import { X } from 'lucide-react';
 import type { Play } from '../../types/football';
 import { strengthReport, type SideSplit, type StrengthSide } from '../../utils/strength';
 import { ReportVoice, isPassPlay, isRunPlay } from './reportText';
@@ -66,8 +67,56 @@ function summary(r: ReturnType<typeof strengthReport>, v: ReportVoice): string |
   return s;
 }
 
-export const StrengthCard: React.FC<{ plays: Play[]; voice: ReportVoice }> = ({ plays, voice }) => {
-  const r = useMemo(() => strengthReport(plays, isRunPlay, isPassPlay), [plays]);
+/** The team's balanced formations (no strong side), editable by coaches who can edit the team. */
+const BalancedList: React.FC<{ list: string[]; onChange?: (list: string[]) => void }> = ({ list, onChange }) => {
+  const [draft, setDraft] = useState('');
+  const add = () => {
+    const v = draft.trim().toUpperCase().replace(/\s+/g, ' ');
+    if (v && !list.includes(v)) onChange?.([...list, v]);
+    setDraft('');
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+      <span className="font-bold text-slate-600 dark:text-slate-300">Balanced (no strong side):</span>
+      {list.length === 0 && <span className="text-slate-400">none</span>}
+      {list.map((f) => (
+        <span key={f} className="inline-flex items-center gap-1 h-6 pl-2 pr-1 rounded-full border border-violet-300 dark:border-violet-500/50 text-violet-700 dark:text-violet-300 font-bold">
+          {f}
+          {onChange && (
+            <button type="button" onClick={() => onChange(list.filter((x) => x !== f))} aria-label={`Remove ${f}`} className="p-0.5 rounded-full hover:bg-violet-100 dark:hover:bg-violet-500/20 cursor-pointer">
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </span>
+      ))}
+      {onChange && (
+        <span className="inline-flex items-center gap-1">
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && add()}
+            placeholder="add, e.g. 22"
+            aria-label="Add a balanced formation"
+            className="w-24 h-6 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-1.5 text-[11px] text-slate-900 dark:text-white"
+          />
+          <button type="button" onClick={add} disabled={!draft.trim()} className="h-6 px-2 rounded-md bg-violet-600 text-white font-bold disabled:opacity-40 cursor-pointer">
+            Add
+          </button>
+        </span>
+      )}
+    </div>
+  );
+};
+
+export const StrengthCard: React.FC<{ plays: Play[]; voice: ReportVoice; balanced?: string[]; onChangeBalanced?: (list: string[]) => void }> = ({
+  plays,
+  voice,
+  balanced,
+  onChangeBalanced,
+}) => {
+  const balancedKey = (balanced || []).join('|');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const r = useMemo(() => strengthReport(plays, isRunPlay, isPassPlay), [plays, balancedKey]);
   const counted = r.runs.total + r.passes.total;
   const strengthTotal = r.strengthLeft + r.strengthRight;
   const line = summary(r, voice);
@@ -79,9 +128,15 @@ export const StrengthCard: React.FC<{ plays: Play[]; voice: ReportVoice }> = ({ 
           <>
             The side letter on the formation or the tagged play is the strength (<b>21 L</b> or <b>21 L 26 DIVE</b> = strength left). A play in that direction went to the{' '}
             <b style={{ color: SIDE_COLOR.strong }}>strong side</b>, the other way is the <b style={{ color: SIDE_COLOR.weak }}>weak side</b>.
+            Balanced formations (like 32) have no strong side and aren't counted.
           </>
         }
       />
+      {balanced && (
+        <div className="mb-3">
+          <BalancedList list={balanced} onChange={onChangeBalanced} />
+        </div>
+      )}
       {counted === 0 ? (
         <EmptyNote>
           No plays with both a strength side and a play direction yet. The side comes from the formation (21 L / 21 R) or the tagged play
@@ -92,6 +147,11 @@ export const StrengthCard: React.FC<{ plays: Play[]; voice: ReportVoice }> = ({ 
           {line && <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{line}</p>}
           {r.runs.total > 0 && <SplitBar title="Runs" split={r.runs} unit="runs" />}
           {r.passes.total > 0 && <SplitBar title="Passes" split={r.passes} unit="passes" />}
+          {r.balanced > 0 && (
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              {r.balanced} play{r.balanced === 1 ? '' : 's'} from balanced formations ({(balanced || []).join(', ') || 'none'}) not counted: no strong side.
+            </p>
+          )}
           {strengthTotal > 0 && (
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
               Strength set left {Math.round((r.strengthLeft / strengthTotal) * 100)}% · right {Math.round((r.strengthRight / strengthTotal) * 100)}% ({strengthTotal} plays with a side).

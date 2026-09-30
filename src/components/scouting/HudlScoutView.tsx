@@ -72,6 +72,9 @@ export interface HudlScoutViewProps {
   onViewChange?: (view: { target: ScoutTarget; tab: string }) => void;
   /** Open this Hudl game (from the Film Room). */
   focusGameId?: string;
+  /** Formations with no strong side (like 32), and who may change them. */
+  balancedFormations?: string[];
+  onChangeBalancedFormations?: (list: string[]) => void;
 }
 
 export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
@@ -93,6 +96,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   tab,
   onViewChange,
   focusGameId,
+  balancedFormations,
+  onChangeBalancedFormations,
 }) => {
   const saved = scouting.hudlScout;
   const weekLabel = (() => {
@@ -664,7 +669,15 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                     onSelect={(g) => setSelectedSituation(g.label)}
                   />
                 )}
-                {activeTab === 'run' && <RunGameTab analysis={analysis} plays={filteredPlays} voice={voice} />}
+                {activeTab === 'run' && (
+                  <RunGameTab
+                    analysis={analysis}
+                    plays={filteredPlays}
+                    voice={voice}
+                    balancedFormations={balancedFormations}
+                    onChangeBalancedFormations={onChangeBalancedFormations}
+                  />
+                )}
               </>
             )}
             {activeTab === 'players' && scoutTarget === 'own' && weekBoards && (

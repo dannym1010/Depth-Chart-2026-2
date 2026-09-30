@@ -174,6 +174,7 @@ import { syncWristbandToCallSheet } from './utils/wristbandLinking';
 import { saveCallSheetSnapshot, countCallSheetPlays } from './utils/callSheetStorage';
 import { ScoutingView } from './components/ScoutingView';
 import { FilmRoomView } from './filmroom/FilmRoomView';
+import { DEFAULT_BALANCED, setBalancedFormations } from './hudlScout/utils/strength';
 import { HudlScoutSections, type HudlSection } from './components/scouting/HudlScoutSections';
 import { TendenciesView } from './components/scouting/TendenciesView';
 import { PlaybookGuidesView } from './components/PlaybookGuidesView';
@@ -4326,6 +4327,8 @@ export default function App() {
       teams[0] || { id: 'team-10u', name: '10U Youth Tackle', ageGroup: '10U', color: 'amber' }
     );
   }, [teams, accessibleTeams, activeTeamId]);
+  // Strong / weak side: this team's balanced formations (no strong side), used by every report and log.
+  setBalancedFormations((currentActiveTeam as Team).balancedFormations);
 
   // Filter roster, schedule events, and practice plans by active team (strictly isolated)
   const activeTeamRoster = React.useMemo(() => {
@@ -6924,6 +6927,10 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 tab={hudlView.tab}
                 onViewChange={setHudlView}
                 focusGameId={hudlFocusGameId}
+                balancedFormations={(currentActiveTeam as Team).balancedFormations ?? DEFAULT_BALANCED}
+                onChangeBalancedFormations={
+                  mayEditTeam(activeTeamId) ? (list) => handleUpdateTeam(activeTeamId, { balancedFormations: list }) : undefined
+                }
               />
             )}
 

@@ -68,8 +68,30 @@ function hasDirection(p: Play): boolean {
   return Boolean(v) && v !== '-';
 }
 
-/** Strong side, weak side or middle for a play (undefined when the formation has no side or no direction). */
+// Balanced formations (the same on both sides, like "32") have no strong side, whatever the call says.
+// Set per team; "32" when the team hasn't set any.
+export const DEFAULT_BALANCED = ['32'];
+const tidy = (s: string) => String(s || '').toUpperCase().trim().replace(/\s+/g, ' ');
+let balanced: string[] = DEFAULT_BALANCED;
+/** The team's balanced formations (undefined = the default "32"; [] = none). */
+export function setBalancedFormations(list?: string[]) {
+  balanced = (list ?? DEFAULT_BALANCED).map(tidy).filter(Boolean);
+}
+export const balancedFormations = () => balanced;
+/** "32", "32 WB", "32 WISHBONE" are all the balanced "32". */
+export const isBalancedFormation = (base: string) => {
+  const b = tidy(base);
+  return balanced.some((x) => b === x || b.startsWith(`${x} `));
+};
+/** A play from a balanced formation (no strong or weak side). */
+export function isBalancedPlay(p: Pick<Play, 'formation' | 'playCall' | 'playName' | 'hudlCall'>): boolean {
+  const base = playFormationBase(p);
+  return base !== '(no formation)' && isBalancedFormation(base);
+}
+
+/** Strong side, weak side or middle for a play (undefined when balanced, or no side or no direction). */
 export function playStrengthSide(p: Play): StrengthSide | undefined {
+  if (isBalancedPlay(p)) return undefined;
   const strength = playStrength(p);
   if (!strength || !hasDirection(p)) return undefined;
   if (p.runSide === 'M') return 'middle';
@@ -120,6 +142,8 @@ export interface StrengthReport {
   /** How often the strength is set left vs right. */
   strengthLeft: number;
   strengthRight: number;
+  /** Plays from balanced formations (not counted as strong or weak). */
+  balanced: number;
 }
 
 export function strengthReport(plays: Play[], isRun: (p: Play) => boolean, isPass: (p: Play) => boolean): StrengthReport {
@@ -137,7 +161,7 @@ export function strengthReport(plays: Play[], isRun: (p: Play) => boolean, isPas
   const byDown = [1, 2, 3, 4]
     .map((down) => ({ down, runs: sideSplit(runs.filter((p) => p.down === down)), passes: sideSplit(passes.filter((p) => p.down === down)) }))
     .filter((d) => d.runs.total + d.passes.total > 0);
-  const strong = plays.map((p) => playStrength(p)).filter(Boolean);
+  const strong = plays.filter((p) => !isBalancedPlay(p)).map((p) => playStrength(p)).filter(Boolean);
   return {
     runs: sideSplit(runs),
     passes: sideSplit(passes),
@@ -145,5 +169,6 @@ export function strengthReport(plays: Play[], isRun: (p: Play) => boolean, isPas
     byDown,
     strengthLeft: strong.filter((s) => s === 'L').length,
     strengthRight: strong.filter((s) => s === 'R').length,
+    balanced: plays.filter((p) => (isRun(p) || isPass(p)) && isBalancedPlay(p)).length,
   };
 }

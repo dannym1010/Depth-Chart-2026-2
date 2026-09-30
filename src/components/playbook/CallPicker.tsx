@@ -11,9 +11,11 @@ import {
   formationChoices,
   isNumberFormation,
   isTaggablePlay,
+  isWriteIn,
   rankCalls,
   restOfSeriesIds,
   tidyFormation,
+  writeInEntry,
 } from '../../hudlScout/utils/playTags';
 import { playNameKey } from '../../utils/playbookImport';
 
@@ -84,9 +86,15 @@ export const CallList: React.FC<CallListProps> = ({ play, db, usage, onPick, onC
     listRef.current?.querySelector<HTMLElement>(`[data-row="${cursor}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [cursor]);
 
+  const typedUnit = unit === 'all' ? defaultUnit || 'offense' : unit;
   const create = () => {
     if (!onCreate || !query.trim()) return;
-    onPick(onCreate(query.trim(), unit === 'all' ? defaultUnit || 'offense' : unit));
+    onPick(onCreate(query.trim(), typedUnit));
+  };
+  // A write-in: tag just this play with what was typed; nothing is added to the Play Bank.
+  const canWriteIn = Boolean(query.trim() && !exact);
+  const writeIn = () => {
+    if (canWriteIn) onPick(writeInEntry(query, typedUnit));
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -99,7 +107,7 @@ export const CallList: React.FC<CallListProps> = ({ play, db, usage, onPick, onC
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (results[cursor]) onPick(results[cursor]);
-      else if (canCreate) create();
+      else if (canWriteIn) writeIn();
     } else if (numberKeys && !query && /^[1-9]$/.test(e.key) && results[Number(e.key) - 1]) {
       e.preventDefault();
       onPick(results[Number(e.key) - 1]);
@@ -168,6 +176,28 @@ export const CallList: React.FC<CallListProps> = ({ play, db, usage, onPick, onC
             <X className="w-3.5 h-3.5" /> Remove tag ({play.playCall})
           </button>
         )}
+        {canWriteIn && (
+          <div className="border-b border-slate-200 dark:border-slate-700">
+            <button
+              type="button"
+              onClick={writeIn}
+              className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs font-black text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+              title="Tags this play only; nothing is added to the Play Bank"
+            >
+              <Tag className="w-4 h-4 text-amber-600 dark:text-amber-400" /> Tag as “{query.trim()}” <span className="font-semibold text-slate-500 dark:text-slate-400">(write-in)</span>
+            </button>
+            {canCreate && (
+              <button
+                type="button"
+                onClick={create}
+                className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs font-black text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" /> Add “{query.trim()}” to the Play Bank and tag it
+              </button>
+            )}
+            {results.length > 0 && <div className="px-3 pt-1.5 pb-1 text-[10px] font-black uppercase tracking-wide text-slate-400">Or pick from the Play Bank</div>}
+          </div>
+        )}
         {results.map((e, i) => {
           const active = i === cursor;
           const chosen = e.id === play.playCallId;
@@ -193,7 +223,7 @@ export const CallList: React.FC<CallListProps> = ({ play, db, usage, onPick, onC
               <span className="min-w-0 flex-1">
                 <span className="block text-[13px] font-black text-slate-900 dark:text-white truncate">{e.name}</span>
                 <span className="block text-[10.5px] text-slate-500 dark:text-slate-400 truncate">
-                  {e.unit === 'defense' ? 'Defense' : 'Offense'} · {TYPE_LABEL[e.type] || e.type}
+                  {e.unit === 'defense' ? 'Defense' : 'Offense'} · {isWriteIn(e.id) ? 'Write-in' : TYPE_LABEL[e.type] || e.type}
                   {e.category ? ` · ${e.category}` : ''}
                   {e.wristbandNum ? ` · Wristband ${e.wristbandNum}` : ''}
                 </span>
@@ -203,19 +233,10 @@ export const CallList: React.FC<CallListProps> = ({ play, db, usage, onPick, onC
             </button>
           );
         })}
-        {!results.length && !canCreate && (
+        {!results.length && !canWriteIn && (
           <p className="px-3 py-6 text-center text-xs text-slate-500 dark:text-slate-400">
             No plays in the Play Bank{unit !== 'all' ? ` for ${unit}` : ''} yet. Import your Hudl playbook in Play Library.
           </p>
-        )}
-        {canCreate && (
-          <button
-            type="button"
-            onClick={create}
-            className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs font-black text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-slate-800 cursor-pointer"
-          >
-            <Plus className="w-4 h-4" /> Add “{query.trim()}” to the Play Bank and tag it
-          </button>
         )}
       </div>
     </div>

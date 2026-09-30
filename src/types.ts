@@ -48,6 +48,8 @@ export interface Team {
   headCoachName?: string;
   calendarUrl?: string; // Team-specific TeamSnap / iCal schedule feed URL
   notes?: string;
+  /** Formations with no strong side (the same both ways), e.g. "32"; unset = ["32"]. */
+  balancedFormations?: string[];
 }
 
 export interface WeekOption {
