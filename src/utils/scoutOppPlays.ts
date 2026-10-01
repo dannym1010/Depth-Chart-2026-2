@@ -15,6 +15,8 @@ export interface ScoutOppPlay {
   /** On this week's scouting report, so it is in the practice script. */
   onReport: boolean;
   editedAt: number;
+  /** The play the film's snaps were tagged with (one of our Play Library plays, or a write-in). */
+  fromPlayId?: string;
 }
 
 export interface ScoutScriptLine {
@@ -77,12 +79,20 @@ export interface LinkedSnap {
 }
 
 /** Snaps on this film that are this call, so the diagram and the videos stay on the same play. */
-export function snapsForCall(plays: Play[], gameId: string | undefined, callName: string, playEntryId?: string): LinkedSnap[] {
+export function snapsForCall(
+  plays: Play[],
+  gameId: string | undefined,
+  callName: string,
+  playEntryId?: string,
+  /** The play those snaps were tagged with (a card made from tags). */
+  fromPlayId?: string
+): LinkedSnap[] {
   const key = callName.trim().toLowerCase();
   return plays
     .filter((p) => {
       if (gameId && p.gameId && p.gameId !== gameId) return false;
       if (playEntryId && p.playCallId === playEntryId) return true;
+      if (fromPlayId && p.playCallId === fromPlayId) return true;
       return Boolean(key) && filmCall(p).toLowerCase() === key;
     })
     .sort((a, b) => (Number(a.playNumber) || 0) - (Number(b.playNumber) || 0))
@@ -172,6 +182,71 @@ function downFrom(play: Play): string {
   if (play.down === 2) return '2nd';
   if (play.down === 3 || play.down === 4) return '3rd';
   return 'other';
+}
+
+/** The most common down / field zone of these snaps (red zone first). */
+function mostCommonDown(rows: Play[]): string {
+  const downs = new Map<string, number>();
+  rows.forEach((r) => {
+    const d = downFrom(r);
+    downs.set(d, (downs.get(d) || 0) + 1);
+  });
+  return [...downs.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || 'other';
+}
+
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+
+/** The id of the card made for a tagged play on a film (the same on every coach's device, so copies merge). */
+export const tagCardId = (gameId: string, playId: string) => `tag-${gameId}-${slug(playId)}`;
+
+/**
+ * A card for every play the coaches tagged on this film's snaps (from our Play Library or written in)
+ * that isn't in Their plays yet. Named as tagged: the library play's name, or a write-in with the
+ * formation it was tagged on. Cards a coach removed don't come back.
+ */
+export function cardsFromTags(
+  gameId: string,
+  film: Play[],
+  existing: ScoutOppPlay[],
+  deleted: string[],
+  libraryName: (playId: string) => string | undefined
+): ScoutOppPlay[] {
+  const gone = new Set(deleted);
+  const haveIds = new Set(existing.map((c) => c.id));
+  const haveNames = new Set(existing.map((c) => c.name.trim().toLowerCase()));
+  const haveFrom = new Set(existing.map((c) => c.fromPlayId).filter(Boolean));
+  const groups = new Map<string, Play[]>();
+  for (const p of film) {
+    const id = String(p.playCallId || '');
+    // Snaps already linked to a Their-plays card (scout_...) are that card's.
+    if (!id || id.startsWith('scout_') || p.odk === 'K' || p.odk === 'S') continue;
+    groups.set(id, [...(groups.get(id) || []), p]);
+  }
+  const now = Date.now();
+  const out: ScoutOppPlay[] = [];
+  for (const [playId, rows] of groups) {
+    const cardId = tagCardId(gameId, playId);
+    const sample = rows[0];
+    const formation = sample.formation && sample.formation !== '-' ? sample.formation : '';
+    const call = String(sample.playCall || sample.playName || '').trim();
+    const name = (libraryName(playId) || [formation, call].filter(Boolean).join(' ')).trim().slice(0, 120);
+    if (!name || gone.has(cardId) || haveIds.has(cardId) || haveFrom.has(playId) || haveNames.has(name.toLowerCase())) continue;
+    haveNames.add(name.toLowerCase());
+    out.push({
+      id: cardId,
+      gameId,
+      name,
+      formation,
+      personnel: sample.personnel && sample.personnel !== '-' ? sample.personnel : (formation.match(/^\d{2}\b/) || [''])[0],
+      kind: kindFrom(sample),
+      down: mostCommonDown(rows),
+      notes: `Tagged on ${rows.length} snap${rows.length === 1 ? '' : 's'}.`,
+      onReport: true,
+      editedAt: now,
+      fromPlayId: playId,
+    });
+  }
+  return out;
 }
 
 /** One card per call on this film. The down is the one they used it on most. */

@@ -4104,3 +4104,30 @@ describe('opponent plays drawn from Their plays stay out of our playbook', () =>
     assert.equal(isScoutPlayEntry(null), false);
   });
 });
+
+describe('Their plays: every play tagged on the film gets a card', () => {
+  const snap = (n: number, extra: any) => ({ id: `s${n}`, playNumber: n, odk: 'O', down: 1, distance: 10, fieldZone: 'own_territory', formation: '21 L', personnel: '-', playType: 'RUN', gameId: 'g1', ...extra }) as any;
+  it('a library play keeps its name, a write-in gets its formation, ids are the same on every device, removed cards stay gone', async () => {
+    const { cardsFromTags, tagCardId, snapsForCall } = await import('./scoutOppPlays.ts');
+    const film = [
+      snap(1, { playCallId: 'usr_play_8', playCall: '38 POWER', playName: '38 POWER' }),
+      snap(2, { playCallId: 'usr_play_8', playCall: '38 POWER', playName: '38 POWER', down: 3, distance: 2 }),
+      snap(3, { playCallId: 'writein:47 zone', playCall: '47 ZONE', playName: '47 ZONE', formation: '32 DW' }),
+      snap(4, { playCallId: 'scout_opp-1', playCall: 'CARMEL TOSS' }),
+      snap(5, {}),
+    ];
+    const names: Record<string, string> = { usr_play_8: '21 L 38 POWER' };
+    const cards = cardsFromTags('g1', film, [], [], (id) => names[id]);
+    assert.deepEqual(cards.map((c) => [c.name, c.formation, c.fromPlayId, c.notes]), [
+      ['21 L 38 POWER', '21 L', 'usr_play_8', 'Tagged on 2 snaps.'],
+      ['32 DW 47 ZONE', '32 DW', 'writein:47 zone', 'Tagged on 1 snap.'],
+    ]);
+    assert.equal(cards[0].id, tagCardId('g1', 'usr_play_8'));
+    assert.equal(cards[1].personnel, '32');
+    // Already a card, or removed: not made again.
+    assert.equal(cardsFromTags('g1', film, cards, [], (id) => names[id]).length, 0);
+    assert.deepEqual(cardsFromTags('g1', film, [], [cards[0].id], (id) => names[id]).map((c) => c.name), ['32 DW 47 ZONE']);
+    // The card's film snaps are the tagged ones.
+    assert.deepEqual(snapsForCall(film, 'g1', cards[0].name, `scout_${cards[0].id}`, cards[0].fromPlayId).map((s) => s.id), ['s1', 's2']);
+  });
+});

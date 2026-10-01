@@ -7055,6 +7055,33 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onChangeDefenseSystem={
                   mayEditTeam(activeTeamId) ? (next) => handleUpdateTeam(activeTeamId, { defenseSystem: next }) : undefined
                 }
+                onAddTaggedPlays={(cards) => {
+                  // Each tagged play becomes the opponent's own play: a copy of our play (its diagram and
+                  // builder settings come along, to change as they ran it), or a new play for a write-in.
+                  const teamId = activeTeamIdRef.current;
+                  const mine = (latestStateRef.current.playDatabase || []).filter((p) => p && sameTeamId(playTeamOf(p), teamId));
+                  const have = new Set(mine.map((p) => p.id));
+                  const now = Date.now();
+                  const made = cards
+                    .filter((c) => !have.has(`scout_${c.id}`))
+                    .map((c) => {
+                      const ours = mine.find((p) => p.id === c.fromPlayId && !isScoutPlayEntry(p));
+                      const base = ours
+                        ? { ...ours, wristbandNum: undefined, assignments: ours.assignments }
+                        : { ...newPlayEntry(c.name, 'offense'), formation: c.formation || undefined };
+                      return {
+                        ...base,
+                        id: `scout_${c.id}`,
+                        name: c.name,
+                        source: 'scout',
+                        category: 'Opponent plays',
+                        teamId,
+                        notes: ours ? [ours.notes, `Copied from our ${ours.name}.`].filter(Boolean).join(' ') : c.notes,
+                        importedAt: now,
+                      } as PlayDatabaseEntry;
+                    });
+                  if (made.length) handleUpdateTeamPlayDatabase([...mine, ...made]);
+                }}
                 onRemoveDrawnPlays={(ids) => {
                   const teamId = activeTeamIdRef.current;
                   const mine = (latestStateRef.current.playDatabase || []).filter((p) => p && sameTeamId(playTeamOf(p), teamId));
@@ -7097,7 +7124,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                     scoutId: play.id,
                     gameId: play.gameId,
                     playEntryId: entryId,
-                    snaps: snapsForCall(linked, play.gameId, play.name, entryId),
+                    snaps: snapsForCall(linked, play.gameId, play.name, entryId, play.fromPlayId),
                     // A play drawn before re-opens as it was left.
                     builder: mine.find((p) => p.id === entryId)?.builder,
                   });

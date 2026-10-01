@@ -26,7 +26,7 @@ import { Card, SectionHeader } from '../../hudlScout/components/report/ui';
 import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { ScoutOppPlayLibrary } from './ScoutOppPlayLibrary';
-import { isScoutPlayEntry, type ScoutOppPlay } from '../../utils/scoutOppPlays';
+import { buildScoutScript, cardsFromTags, isScoutPlayEntry, reportPlays, type ScoutOppPlay } from '../../utils/scoutOppPlays';
 import { autoTagFromHudl, setPlaysFormation, tagPlays } from '../../hudlScout/utils/playTags';
 import { newPlayEntry } from '../../utils/playbookImport';
 import { hudlExportCsv } from '../../hudlScout/utils/hudlExport';
@@ -89,6 +89,8 @@ export interface HudlScoutViewProps {
   onChangeDefenseSystem?: (next: DefenseSystem) => void;
   /** Open the play builder to draw this opponent play. */
   onDrawPlay?: (play: ScoutOppPlay) => void;
+  /** Cards made from plays tagged on the film: make each its own opponent play (a copy of our play, or a new one). */
+  onAddTaggedPlays?: (cards: ScoutOppPlay[]) => void;
   /** Opponent plays removed from Their plays: delete the diagrams drawn for them. */
   onRemoveDrawnPlays?: (playEntryIds: string[]) => void;
 }
@@ -120,6 +122,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   onChangeDefenseSystem,
   onDrawPlay,
   onRemoveDrawnPlays,
+  onAddTaggedPlays,
 }) => {
   // The calls read our defense from the scouting helpers; rebuild them when it changes.
   setDefenseSystem(teamDefense);
@@ -248,6 +251,32 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     }));
   }, [ownBundle.games, scheduleEvents]);
   const allPlays = bundle.plays;
+  // Their plays shows every play the coaches tagged on the film: a card for each tagged play that
+  // isn't there yet (a copy of our play, or a write-in to finish in the play builder).
+  const theirPlaysOpen = scoutTarget === 'opponent' && activeTab === 'theirplays';
+  useEffect(() => {
+    if (!theirPlaysOpen) return;
+    const libs = oppBundle.playLibraries || {};
+    const nameOf = (id: string) => (playDatabase || []).find((e) => e.id === id && !isScoutPlayEntry(e))?.name;
+    const firstGame = oppBundle.games[0]?.id;
+    const added: ScoutOppPlay[] = [];
+    for (const g of oppBundle.games) {
+      const film = oppBundle.plays.filter((pl) => (pl.gameId ? pl.gameId === g.id : g.id === firstGame));
+      const cards = cardsFromTags(g.id, film, libs[g.id] || [], oppBundle.deletedOppPlayIds || [], nameOf);
+      added.push(...cards);
+    }
+    if (!added.length) return;
+    setOppBundle((prev) => {
+      const playLibraries = { ...(prev.playLibraries || {}) };
+      for (const c of added) {
+        const list = playLibraries[c.gameId] || [];
+        if (!list.some((x) => x.id === c.id)) playLibraries[c.gameId] = [...list, c];
+      }
+      return { ...prev, playLibraries, practiceScript: buildScoutScript(reportPlays(playLibraries), reportName), updatedAt: Date.now() };
+    });
+    onAddTaggedPlays?.(added);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theirPlaysOpen, oppBundle.plays, oppBundle.games]);
   // A game picked in another report (or removed since) isn't in this one: show all games.
   const selectedGameId = pickedGameId === 'all' || bundle.games.some((g) => g.id === pickedGameId) ? pickedGameId : 'all';
   const plays = useMemo(() => {
