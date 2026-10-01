@@ -18,6 +18,7 @@ import {
   eligiblePlayers,
   eligibleName,
   compatibleBackfields,
+  isValidEleven,
   tryAssemblePlay,
   diagramSvg,
   autoDrawPlay,
@@ -83,6 +84,23 @@ interface Props {
 }
 
 const PERSONNEL_NUMS = '10|11|12|20|21|22|30|31|32';
+
+/** Backfield words a call can carry. */
+const BACKFIELD_WORDS: [RegExp, string][] = [
+  [/\bbeast\b/i, 'BEAST'],
+  [/\b(dw|double ?wing)\b/i, 'DOUBLE_WING'],
+  [/\b(wb|wishbone|bone)\b/i, 'WISHBONE'],
+  [/\bpower ?i\b/i, 'POWER_I'],
+  [/\bmaryland\b/i, 'MARYLAND_I'],
+  [/\b(full ?house)\b/i, 'FULLHOUSE'],
+  [/\bsplit\b/i, 'SPLIT_BACKS'],
+  [/\bwing ?t\b/i, 'WING_T'],
+  [/\b(gun|shotgun)\b/i, 'GUN_OFFSET'],
+  [/\bpistol\b/i, 'PISTOL'],
+  [/\bstrong ?i\b/i, 'I_OFFSET_R'],
+  [/\bweak ?i\b/i, 'I_OFFSET_L'],
+  [/\bi\b/i, 'I_FORM'],
+];
 
 /**
  * Our defenses, named from the team's defense (Our defense card): the base and check fronts, the
@@ -155,10 +173,13 @@ function startFromSeed(seed?: PlayBuilderSeed | null) {
                     ? 'keep'
                     : 'zone';
   const family = seed?.kind === 'pass' || seed?.kind === 'screen' ? seed.kind : 'run';
+  // The backfield named in the call ("32 DW 47 ZONE", "31 BEAST 38 POWER"), when it fits the personnel.
+  const fits = compatibleBackfields(base?.baseKey || '21_PRO');
+  const named = BACKFIELD_WORDS.find(([re, key]) => re.test(`${name} ${seed.formation || ''}`) && fits.includes(key))?.[1];
   return {
     personnel,
     baseKey: base?.baseKey || '21_PRO',
-    backfield: compatibleBackfields(base?.baseKey || '21_PRO')[0] || 'I_FORM',
+    backfield: named || fits[0] || 'I_FORM',
     ball: call?.[1] || '3',
     hole: call ? Number(call[2]) : ('' as number | ''),
     run,
@@ -212,10 +233,11 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const locations = TE_LOCATIONS[personnelPick] || [];
   const locationId = locations.find((l) => l.baseKey === baseKey)?.id || locations[0]?.id || '';
   const validBacks = backs.length ? backs : ['I_FORM'];
-  const activeBack = validBacks.includes(backfieldKey) ? backfieldKey : validBacks[0];
-  const preferredBacks = validBacks.filter((k) => BACKFIELD_STRUCTURES[k].allowedPersonnel.includes(personnelPick));
-  const extraBacks = validBacks.filter((k) => !preferredBacks.includes(k));
-  const backfieldChips = preferredBacks.length ? preferredBacks : validBacks.slice(0, 12);
+  // A play saved with a backfield that's no longer offered (a copy of another) still opens with it.
+  const activeBack = validBacks.includes(backfieldKey) || isValidEleven(baseKey, backfieldKey) ? backfieldKey : validBacks[0];
+  // The everyday backfields are buttons; the rest are in "More backfields".
+  const backfieldChips = validBacks.filter((k) => BACKFIELD_STRUCTURES[k].common);
+  const extraBacks = validBacks.filter((k) => !backfieldChips.includes(k));
   const runMode = family === 'all' || family === 'run';
   const run = RUN_SCHEMES.find((s) => s.id === runId) || RUN_SCHEMES[0];
   const activeConceptKey = runMode ? run.conceptKey : conceptKey;
@@ -428,8 +450,9 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     const next = locs.find((l) => l.id === 'tight') || locs[0];
     if (!next) return;
     setBaseKey(next.baseKey);
+    // Keep the backfield when it still fits (same number of backs), else the first that does.
     const nextBacks = compatibleBackfields(next.baseKey);
-    setBackfieldKey(nextBacks[0] || 'I_FORM');
+    setBackfieldKey(nextBacks.includes(backfieldKey) ? backfieldKey : nextBacks[0] || 'I_FORM');
     setTags((prev) => prev.filter((t) => t !== 'Thumper'));
   };
 
@@ -658,6 +681,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 setOverrides({});
                 setUserDrew(false);
               }}
+              linesFollow={userDrew}
             />
           ) : (
             <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/50 p-2 min-h-[200px] flex items-center justify-center">

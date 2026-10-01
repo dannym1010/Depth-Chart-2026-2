@@ -4131,3 +4131,41 @@ describe('Their plays: every play tagged on the film gets a card', () => {
     assert.deepEqual(snapsForCall(film, 'g1', cards[0].name, `scout_${cards[0].id}`, cards[0].fromPlayId).map((s) => s.id), ['s1', 's2']);
   });
 });
+
+describe('play builder backfields', () => {
+  it('each backfield fits the personnel with its number of backs, nobody is stacked on anybody, Beast is Power I with a wing', async () => {
+    const { BASE_FORMATIONS, BACKFIELD_STRUCTURES, compatibleBackfields, combinedNodes, hasStackedPlayers, PERSONNEL_DEFINITIONS } = await import('./footballEngine.ts');
+    for (const [key, b] of Object.entries(BACKFIELD_STRUCTURES)) {
+      const backs = b.nodes.filter((n) => n.role !== '1').length;
+      assert.deepEqual(b.allowedPersonnel, [backs * 10, backs * 10 + 1, backs * 10 + 2], key);
+    }
+    for (const baseKey of Object.keys(BASE_FORMATIONS)) {
+      for (const bk of compatibleBackfields(baseKey)) {
+        assert.equal(hasStackedPlayers(combinedNodes(baseKey, bk)!), false, `${baseKey} + ${bk}`);
+        assert.equal(BACKFIELD_STRUCTURES[bk].hidden, undefined, bk);
+        assert.equal(PERSONNEL_DEFINITIONS[BASE_FORMATIONS[baseKey].personnel].rb, BACKFIELD_STRUCTURES[bk].nodes.length - 1, `${baseKey} + ${bk}`);
+      }
+    }
+    // 31 personnel gets the 3-back sets (Wishbone was 30 / 32 only).
+    assert.ok(compatibleBackfields('31_POWER').includes('WISHBONE'));
+    assert.ok(compatibleBackfields('31_POWER').includes('BEAST'));
+    // Beast: QB, FB and TB stacked, the wing a yard off the ball just outside the strong-side end.
+    const beast = combinedNodes('32_WISHBONE', 'BEAST')!;
+    const at = (r: string) => beast.find((n) => n.role === r)!;
+    assert.deepEqual([at('1').x, at('2').x, at('3').x], [0, 0, 0]);
+    assert.ok(at('3').y < at('2').y && at('2').y < at('1').y);
+    assert.ok(at('4').x > at('Y2').x && at('4').x - at('Y2').x < 3 && at('4').y < 0 && at('4').y > -2);
+    // Tackle over: the end is further out, so is the wing.
+    const over = combinedNodes('32_TE_OVER', 'BEAST')!;
+    assert.ok(over.find((n) => n.role === '4')!.x > over.find((n) => n.role === 'Y2')!.x);
+    // Maryland I is the three-back stack.
+    assert.ok(BACKFIELD_STRUCTURES.MARYLAND_I.nodes.every((n) => n.x === 0));
+    // Copies aren't offered.
+    assert.ok(!compatibleBackfields('11_PRO').includes('KING'));
+  });
+  it('a freehand line keeps only its bends', async () => {
+    const { simplifyLine } = await import('../components/playbook/PlayDiagramCanvas.tsx');
+    const wobbly = [{ x: 0, y: 0 }, { x: 1, y: 0.05 }, { x: 2, y: -0.04 }, { x: 3, y: 0 }, { x: 3.05, y: 1 }, { x: 2.98, y: 2 }, { x: 3, y: 3 }];
+    assert.deepEqual(simplifyLine(wobbly), [{ x: 0, y: 0 }, { x: 3, y: 0 }, { x: 3, y: 3 }]);
+  });
+});

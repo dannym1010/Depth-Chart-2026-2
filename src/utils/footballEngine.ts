@@ -489,6 +489,7 @@ export const TE_LOCATIONS: Record<number, { id: string; label: string; baseKey: 
     { id: 'wing', label: 'Wing', baseKey: '11_TE_WING' },
     { id: 'slot', label: 'Slot', baseKey: '11_TE_SLOT' },
     { id: 'twins', label: 'Twins', baseKey: '11_TE_WEAK' },
+    { id: 'trips', label: 'Trips', baseKey: '11_TRIPS' },
   ],
   12: [
     { id: 'tight', label: 'Tight', baseKey: '12_ACE' },
@@ -509,6 +510,8 @@ export const TE_LOCATIONS: Record<number, { id: string; label: string; baseKey: 
     { id: 'split', label: 'Split', baseKey: '21_TE_SPLIT' },
     { id: 'twins', label: 'Twins', baseKey: '21_TWINS' },
     { id: 'over', label: 'Tackle over', baseKey: '21_BEAST' },
+    { id: 'zwing', label: 'Z wing', baseKey: '21_WING_T' },
+    { id: 'close', label: 'Close', baseKey: '21_TIGHT' },
   ],
   22: [
     { id: 'tight', label: 'Tight', baseKey: '22_DOUBLE_TIGHT' },
@@ -538,13 +541,21 @@ export const TE_LOCATIONS: Record<number, { id: string; label: string; baseKey: 
 
 export interface BackfieldStructure {
   hudlBackfield: string;
+  /** Personnel groups it fits. Set from how many backs it has (2 backs = 20 / 21 / 22). */
   allowedPersonnel: number[];
   nodes: PlayNode[];
+  /** One of the everyday backfields, shown as a button; the rest are under "More backfields". */
+  common?: boolean;
+  /** The same spots as another backfield: kept so plays saved with it still open, not offered. */
+  hidden?: boolean;
+  /** This back is a wingback: he lines up just outside the strong-side end, wherever the end is. */
+  wing?: string;
 }
 
 export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
   I_FORM: {
     hudlBackfield: 'I-Form',
+    common: true,
     allowedPersonnel: [20, 21, 22],
     nodes: [
       { role: '1', x: 0, y: -2.6 },
@@ -554,6 +565,7 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
   },
   WISHBONE: {
     hudlBackfield: 'Wishbone',
+    common: true,
     allowedPersonnel: [30, 32],
     nodes: [
       { role: '1', x: 0, y: -2.6 },
@@ -564,6 +576,7 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
   },
   DOUBLE_WING: {
     hudlBackfield: 'Double Wing',
+    common: true,
     allowedPersonnel: [32],
     nodes: [
       { role: '1', x: 0, y: -2.6 },
@@ -574,6 +587,7 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
   },
   SPLIT_BACKS: {
     hudlBackfield: 'Split',
+    common: true,
     allowedPersonnel: [20, 21, 22],
     nodes: [
       { role: '1', x: 0, y: -2.6 },
@@ -583,6 +597,7 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
   },
   WING_T: {
     hudlBackfield: 'Wing-T',
+    common: true,
     allowedPersonnel: [20, 21, 22],
     nodes: [
       { role: '1', x: 0, y: -2.6 },
@@ -592,6 +607,7 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
   },
   GUN_OFFSET: {
     hudlBackfield: 'Gun',
+    common: true,
     allowedPersonnel: [10, 11, 12],
     nodes: [
       { role: '1', x: 0, y: -5.0 },
@@ -600,6 +616,7 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
   },
   PISTOL: {
     hudlBackfield: 'Pistol',
+    common: true,
     allowedPersonnel: [10, 11, 12],
     nodes: [
       { role: '1', x: 0, y: -4.8 },
@@ -608,6 +625,7 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
   },
   UNDER_SINGLE: {
     hudlBackfield: 'Under',
+    common: true,
     allowedPersonnel: [10, 11, 12, 32],
     nodes: [
       { role: '1', x: 0, y: -2.6 },
@@ -615,7 +633,8 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
     ],
   },
   I_OFFSET_R: {
-    hudlBackfield: 'I Offset Right',
+    hudlBackfield: 'Strong I',
+    common: true,
     allowedPersonnel: [20, 21, 22],
     nodes: [
       { role: '1', x: 0, y: -2.6 },
@@ -624,7 +643,8 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
     ],
   },
   I_OFFSET_L: {
-    hudlBackfield: 'I Offset Left',
+    hudlBackfield: 'Weak I',
+    common: true,
     allowedPersonnel: [20, 21, 22],
     nodes: [
       { role: '1', x: 0, y: -2.6 },
@@ -634,15 +654,17 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
   },
   MARYLAND_I: {
     hudlBackfield: 'Maryland I',
-    allowedPersonnel: [20, 21, 22],
+    allowedPersonnel: [30, 31, 32],
     nodes: [
       { role: '1', x: 0, y: -2.6 },
-      { role: '2', x: 0, y: -5.4 },
-      { role: '3', x: 2.4, y: -8.0 },
+      { role: '2', x: 0, y: -5.0 },
+      { role: '4', x: 0, y: -7.4 },
+      { role: '3', x: 0, y: -9.8 },
     ],
   },
   WEAK_I: {
-    hudlBackfield: 'Weak I',
+    hudlBackfield: 'I Far',
+    hidden: true,
     allowedPersonnel: [20, 21, 22],
     nodes: [
       { role: '1', x: 0, y: -2.6 },
@@ -651,7 +673,7 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
     ],
   },
   GUN_LEFT: {
-    hudlBackfield: 'Gun Left',
+    hudlBackfield: 'Gun Weak',
     allowedPersonnel: [10, 11, 12],
     nodes: [
       { role: '1', x: 0, y: -5.0 },
@@ -685,6 +707,7 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
   },
   UNDER_SPLIT: {
     hudlBackfield: 'Under Split',
+    hidden: true,
     allowedPersonnel: [20, 21, 22],
     nodes: [
       { role: '1', x: 0, y: -2.6 },
@@ -694,6 +717,7 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
   },
   QUEEN: {
     hudlBackfield: 'Queen',
+    hidden: true,
     allowedPersonnel: [10, 11, 12],
     nodes: [
       { role: '1', x: 0, y: -2.6 },
@@ -702,6 +726,7 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
   },
   KING: {
     hudlBackfield: 'King',
+    hidden: true,
     allowedPersonnel: [10, 11, 12],
     nodes: [
       { role: '1', x: 0, y: -2.6 },
@@ -710,6 +735,7 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
   },
   T_FORM: {
     hudlBackfield: 'T',
+    common: true,
     allowedPersonnel: [30, 31, 32],
     nodes: [
       { role: '1', x: 0, y: -2.6 },
@@ -720,6 +746,7 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
   },
   POWER_I: {
     hudlBackfield: 'Power I',
+    common: true,
     allowedPersonnel: [30, 31, 32],
     nodes: [
       { role: '1', x: 0, y: -2.6 },
@@ -730,6 +757,7 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
   },
   FULLHOUSE: {
     hudlBackfield: 'Fullhouse',
+    common: true,
     allowedPersonnel: [30, 32],
     nodes: [
       { role: '1', x: 0, y: -2.6 },
@@ -794,7 +822,7 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
     ],
   },
   WING_T_L: {
-    hudlBackfield: 'Wing-T Left',
+    hudlBackfield: 'Wing-T Weak',
     allowedPersonnel: [20, 21, 22],
     nodes: [
       { role: '1', x: 0, y: -2.6 },
@@ -898,6 +926,7 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
   },
   UNDER_STRONG: {
     hudlBackfield: 'Under Strong',
+    hidden: true,
     allowedPersonnel: [10, 11, 12],
     nodes: [
       { role: '1', x: 0, y: -2.6 },
@@ -942,6 +971,18 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
       { role: '4', x: 3.2, y: -7.6 },
     ],
   },
+  BEAST: {
+    hudlBackfield: 'Beast',
+    common: true,
+    allowedPersonnel: [30, 31, 32],
+    wing: '4',
+    nodes: [
+      { role: '1', x: 0, y: -2.6 },
+      { role: '2', x: 0, y: -5.4 },
+      { role: '3', x: 0, y: -8.2 },
+      { role: '4', x: 8.4, y: -1.15 },
+    ],
+  },
   WISHBONE_OFFSET: {
     hudlBackfield: 'Wishbone Offset',
     allowedPersonnel: [30, 32],
@@ -953,6 +994,12 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
     ],
   },
 };
+
+// A backfield fits the personnel groups with its number of backs (QB not counted): 3 backs = 30 / 31 / 32.
+for (const b of Object.values(BACKFIELD_STRUCTURES)) {
+  const backs = b.nodes.filter((n) => n.role !== '1').length;
+  b.allowedPersonnel = [backs * 10, backs * 10 + 1, backs * 10 + 2];
+}
 
 export const INTERIOR_LINE_NODES: PlayNode[] = [
   { role: 'C', x: 0, y: 0, line: true },
@@ -1420,7 +1467,16 @@ export function combinedNodes(baseKey: string, backfieldKey: string): PlayNode[]
   const base = BASE_FORMATIONS[baseKey];
   const backfield = BACKFIELD_STRUCTURES[backfieldKey];
   if (!base || !backfield) return null;
-  return withTackleOver([...INTERIOR_LINE_NODES, ...base.perimeterNodes, ...backfield.nodes], baseKey);
+  const nodes = withTackleOver([...INTERIOR_LINE_NODES, ...base.perimeterNodes, ...backfield.nodes], baseKey);
+  if (!backfield.wing) return nodes;
+  // The wingback sets up a yard off the ball, just outside the last tight player on the strong side.
+  const end = Math.max(...nodes.filter((n) => n.line && n.x > 0 && n.x <= 9.5).map((n) => n.x));
+  return nodes.map((n) => (n.role === backfield.wing ? { ...n, x: end + 2.3, y: -1.15 } : n));
+}
+
+/** Two players on the same spot (closer than about a yard). */
+export function hasStackedPlayers(nodes: PlayNode[]) {
+  return nodes.some((a, i) => nodes.some((b, j) => j > i && Math.hypot(a.x - b.x, a.y - b.y) < 1.3));
 }
 
 export function isValidEleven(baseKey: string, backfieldKey: string) {
@@ -1434,9 +1490,12 @@ export function isValidEleven(baseKey: string, backfieldKey: string) {
   }
 }
 
+/** Backfields that make 11 with this formation, with nobody on top of anybody. Copies aren't offered. */
 export function compatibleBackfields(baseKey: string) {
   const base = BASE_FORMATIONS[baseKey];
-  const keys = Object.keys(BACKFIELD_STRUCTURES).filter((k) => isValidEleven(baseKey, k));
+  const keys = Object.keys(BACKFIELD_STRUCTURES).filter(
+    (k) => !BACKFIELD_STRUCTURES[k].hidden && isValidEleven(baseKey, k) && !hasStackedPlayers(combinedNodes(baseKey, k) || [])
+  );
   if (!base) return keys;
   const preferred = keys.filter((k) => BACKFIELD_STRUCTURES[k].allowedPersonnel.includes(base.personnel));
   const rest = keys.filter((k) => !preferred.includes(k));
@@ -1749,10 +1808,13 @@ export function autoDrawPlay(opts: {
     if (/counter/.test(blob)) {
       add(line('run', [pt(carrier.x, carrier.y), pt(carrier.x - sign * 2.4, carrier.y + 0.5), mesh, pt(-hx * 0.15, -0.15), atLos, through]));
     } else if (/zone/.test(blob)) {
+      // First step toward the hole, wherever he lines up (a wingback outside the hole comes back inside).
+      const toHole = Math.sign(hx - carrier.x) || sign;
+      const step = Math.min(2.6, Math.abs(hx - carrier.x) * 0.6);
       add(
         line('run', [
           pt(carrier.x, carrier.y),
-          pt(carrier.x + sign * 2.6, carrier.y + 0.2),
+          ...(step >= 0.5 ? [pt(carrier.x + toHole * step, carrier.y + 0.2)] : []),
           pt(hx + sign * 0.15, -0.05),
           pt(hx + sign * 0.55, 4.2),
         ])
@@ -1760,11 +1822,14 @@ export function autoDrawPlay(opts: {
       if (tb && tb.role !== carrier.role) add(line('block', [pt(tb.x, tb.y), pt(tb.x - sign * 0.2, 0.2)]));
       if (wb && wb.role !== carrier.role && wb !== tb) add(line('block', [pt(wb.x, wb.y), pt(wb.x + sign * 0.4, 0.15)]));
     } else if (/toss|sweep|stretch/.test(blob)) {
+      // Out toward the hole and turn up there: from a back behind the QB, or from a wing already out wide.
+      const toHole = Math.sign(hx - carrier.x) || sign;
+      const gap = Math.abs(hx - carrier.x);
       add(
         line('run', [
           pt(carrier.x, carrier.y),
-          pt(carrier.x + sign * 2.1, carrier.y + 0.25),
-          pt(hx * 0.62, -0.55),
+          ...(gap >= 3 ? [pt(carrier.x + toHole * 2.1, carrier.y + 0.25)] : []),
+          pt(carrier.x + (hx - carrier.x) * 0.7, -0.55),
           pt(hx, 0.45),
           through,
         ])
