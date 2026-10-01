@@ -1,5 +1,6 @@
 import type { PracticePeriod } from '../types';
 import type { Play } from '../hudlScout/types/football';
+import { isWholeCall } from './playCallParse';
 
 /** A play the opponent ran, kept with one scouting film. */
 export interface ScoutOppPlay {
@@ -196,6 +197,14 @@ function mostCommonDown(rows: Play[]): string {
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
 
+
+/** The name of a tagged play: our library play's name, a whole call as typed, or the film formation + the call. */
+export function tagCardName(sample: Partial<Pick<Play, 'formation' | 'playCall' | 'playName'>>, libraryName?: string): string {
+  const formation = sample.formation && sample.formation !== '-' ? sample.formation : '';
+  const call = String(sample.playCall || sample.playName || '').trim();
+  return (libraryName || (isWholeCall(call) ? call : [formation, call].filter(Boolean).join(' '))).trim().slice(0, 120);
+}
+
 /** The id of the card made for a tagged play on a film (the same on every coach's device, so copies merge). */
 export const tagCardId = (gameId: string, playId: string) => `tag-${gameId}-${slug(playId)}`;
 
@@ -228,8 +237,7 @@ export function cardsFromTags(
     const cardId = tagCardId(gameId, playId);
     const sample = rows[0];
     const formation = sample.formation && sample.formation !== '-' ? sample.formation : '';
-    const call = String(sample.playCall || sample.playName || '').trim();
-    const name = (libraryName(playId) || [formation, call].filter(Boolean).join(' ')).trim().slice(0, 120);
+    const name = tagCardName(sample, libraryName(playId));
     if (!name || gone.has(cardId) || haveIds.has(cardId) || haveFrom.has(playId) || haveNames.has(name.toLowerCase())) continue;
     haveNames.add(name.toLowerCase());
     out.push({

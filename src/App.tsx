@@ -7111,8 +7111,12 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                     playEntryId: entryId,
                     playName: play.name,
                   });
-                  if (hudl && linked.some((p, i) => p !== (hudl.plays || [])[i])) {
-                    persistWeekScouting('hudlScout', { ...hudl, plays: linked, updatedAt: Date.now() });
+                  const libs = hudl?.playLibraries || {};
+                  const cardSaved = Boolean(play.gameId && (libs[play.gameId] || []).some((c) => c.id === play.id));
+                  if (hudl && (!cardSaved || linked.some((p, i) => p !== (hudl.plays || [])[i]))) {
+                    const playLibraries =
+                      cardSaved || !play.gameId ? libs : { ...libs, [play.gameId]: [...(libs[play.gameId] || []), play] };
+                    persistWeekScouting('hudlScout', { ...hudl, plays: linked, playLibraries, updatedAt: Date.now() });
                   }
                   savePlayBuilderSeed({
                     name: play.name,

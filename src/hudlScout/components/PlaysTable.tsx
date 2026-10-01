@@ -35,6 +35,8 @@ interface PlaysTableProps {
   onSelectPlay?: (id: string) => void;
   /** Film Room: the plays in the order shown (sort and search), so next / previous follow it. */
   onOrderChange?: (ids: string[]) => void;
+  /** Draw a tagged play in the play builder (scouting film). */
+  onDrawCall?: (play: Play) => void;
   /** Plays whose write-ins are offered when tagging (e.g. every game of the team); default: these plays. */
   writeInPlays?: Play[];
   /** Film Room: extra marks next to the play number (film, notes). */
@@ -43,6 +45,19 @@ interface PlaysTableProps {
   compact?: boolean;
   toolbarStart?: React.ReactNode;
 }
+
+/** Open a tagged play in the play builder, drawn from its name. */
+const DrawButton: React.FC<{ play: Play; onDraw: (play: Play) => void }> = ({ play, onDraw }) => (
+  <button
+    type="button"
+    onClick={() => onDraw(play)}
+    title={`Draw ${play.playCall} in the play builder`}
+    aria-label={`Draw ${play.playCall}`}
+    className="h-7 px-1.5 rounded-md border border-slate-600 text-[10px] font-black text-slate-200 hover:bg-slate-800 cursor-pointer whitespace-nowrap"
+  >
+    ✎ Draw
+  </button>
+);
 
 /** A click on a row that wasn't on one of its buttons or fields. */
 const isRowClick = (e: React.MouseEvent) => !(e.target as HTMLElement).closest('button, input, select, textarea, a, label, [role=dialog]');
@@ -90,7 +105,7 @@ const UnitPicker: React.FC<{
   );
 };
 
-export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge, compact, toolbarStart, writeInPlays }) => {
+export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge, compact, toolbarStart, writeInPlays, onDrawCall }) => {
   const [openPlay, setOpenPlay] = useState<string | null>(null);
   const canLineup = Boolean(lineupFor && roster && onSetSub);
   // A play's panel: who was on the field (offense / defense), and tackles on kicks too.
@@ -441,6 +456,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   {canTagCalls && isTaggablePlay(play) && (
                     <CallButton play={play} db={callDb!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
                   )}
+                  {onDrawCall && play.playCallId && <DrawButton play={play} onDraw={onDrawCall} />}
                   {onSetUnit && playIsUnitTaggable(play) && <UnitPicker play={play} onSetUnit={onSetUnit} />}
                 </div>
               )}
@@ -594,7 +610,10 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   <td className="py-2 px-3 font-medium text-slate-100">
                     {canTagCalls && isTaggablePlay(play) ? (
                       <div className={`flex items-start gap-0.5 ${compact ? 'flex-row items-center gap-1.5' : 'flex-col'}`}>
-                        <CallButton play={play} db={callDb!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
+                        <span className="inline-flex items-center gap-1">
+                          <CallButton play={play} db={callDb!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
+                          {onDrawCall && play.playCallId && <DrawButton play={play} onDraw={onDrawCall} />}
+                        </span>
                         {play.playCallId && play.untaggedName && play.untaggedName !== play.playCall && (
                           <span className="text-[10px] text-slate-400">Film: {play.untaggedName}</span>
                         )}

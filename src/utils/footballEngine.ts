@@ -983,6 +983,19 @@ export const BACKFIELD_STRUCTURES: Record<string, BackfieldStructure> = {
       { role: '4', x: 8.4, y: -1.15 },
     ],
   },
+  // Wing-T with three backs (30 / 31 / 32): FB behind the QB, the halfback offset weak, a wingback outside the strong end.
+  WING_T_3: {
+    hudlBackfield: 'Wing-T',
+    common: true,
+    allowedPersonnel: [30, 31, 32],
+    wing: '4',
+    nodes: [
+      { role: '1', x: 0, y: -2.6 },
+      { role: '2', x: 0, y: -5.4 },
+      { role: '3', x: -4.2, y: -5.4 },
+      { role: '4', x: 8.4, y: -1.15 },
+    ],
+  },
   WISHBONE_OFFSET: {
     hudlBackfield: 'Wishbone Offset',
     allowedPersonnel: [30, 32],
@@ -1825,15 +1838,20 @@ export function autoDrawPlay(opts: {
       // Out toward the hole and turn up there: from a back behind the QB, or from a wing already out wide.
       const toHole = Math.sign(hx - carrier.x) || sign;
       const gap = Math.abs(hx - carrier.x);
-      add(
-        line('run', [
-          pt(carrier.x, carrier.y),
-          ...(gap >= 3 ? [pt(carrier.x + toHole * 2.1, carrier.y + 0.25)] : []),
-          pt(carrier.x + (hx - carrier.x) * 0.7, -0.55),
-          pt(hx, 0.45),
-          through,
-        ])
-      );
+      // A wingback taking it across the formation (the 4 back to the 1 hole) goes behind the backfield.
+      if (Math.abs(carrier.x) > 3 && Math.sign(carrier.x) !== Math.sign(hx) && hx !== 0) {
+        add(line('run', [pt(carrier.x, carrier.y), pt(carrier.x * 0.45, -3.6), pt(hx * 0.45, -3.6), pt(hx * 0.85, -0.9), pt(hx, 0.45), through]));
+      } else {
+        add(
+          line('run', [
+            pt(carrier.x, carrier.y),
+            ...(gap >= 3 ? [pt(carrier.x + toHole * 2.1, carrier.y + 0.25)] : []),
+            pt(carrier.x + (hx - carrier.x) * 0.7, -0.55),
+            pt(hx, 0.45),
+            through,
+          ])
+        );
+      }
     } else if (/draw/.test(blob)) {
       add(line('run', [pt(carrier.x, carrier.y), pt(carrier.x, carrier.y + 0.35), mesh, pt(hx, -0.45), through]));
     } else if (carrier.role === '1') {

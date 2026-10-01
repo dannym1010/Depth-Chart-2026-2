@@ -31,6 +31,7 @@ import {
 } from '../../utils/footballEngine';
 import { PlayDiagramCanvas } from './PlayDiagramCanvas';
 import type { PlayBuilderSeed } from '../../utils/playBuilderSeed';
+import { parsePlayCall } from '../../utils/playCallParse';
 
 const SELECT =
   'h-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 w-full';
@@ -85,23 +86,6 @@ interface Props {
 
 const PERSONNEL_NUMS = '10|11|12|20|21|22|30|31|32';
 
-/** Backfield words a call can carry. */
-const BACKFIELD_WORDS: [RegExp, string][] = [
-  [/\bbeast\b/i, 'BEAST'],
-  [/\b(dw|double ?wing)\b/i, 'DOUBLE_WING'],
-  [/\b(wb|wishbone|bone)\b/i, 'WISHBONE'],
-  [/\bpower ?i\b/i, 'POWER_I'],
-  [/\bmaryland\b/i, 'MARYLAND_I'],
-  [/\b(full ?house)\b/i, 'FULLHOUSE'],
-  [/\bsplit\b/i, 'SPLIT_BACKS'],
-  [/\bwing ?t\b/i, 'WING_T'],
-  [/\b(gun|shotgun)\b/i, 'GUN_OFFSET'],
-  [/\bpistol\b/i, 'PISTOL'],
-  [/\bstrong ?i\b/i, 'I_OFFSET_R'],
-  [/\bweak ?i\b/i, 'I_OFFSET_L'],
-  [/\bi\b/i, 'I_FORM'],
-];
-
 /**
  * Our defenses, named from the team's defense (Our defense card): the base and check fronts, the
  * Over, who has contain, and a look for each of our blitzes.
@@ -137,6 +121,7 @@ function startFromSeed(seed?: PlayBuilderSeed | null) {
       ball: '4',
       hole: '' as number | '',
       run: 'zone',
+      strength: 'Left' as const,
       family: 'run' as const,
       name: '',
       note: '',
@@ -144,46 +129,27 @@ function startFromSeed(seed?: PlayBuilderSeed | null) {
     };
   }
   const name = seed.name;
-  const calls = [...name.matchAll(new RegExp('\\b([1-4])([1-9])\\b', 'g'))];
-  const call = calls[calls.length - 1];
+  // Read the call as written: personnel, formation, side, who gets the ball to which hole, the play
+  // ("30 DW 41 SWEEP"). The card's own formation fills in what the name leaves out.
+  const call = parsePlayCall(name);
+  const form = parsePlayCall(seed.formation || '');
   const fromField = String(seed?.personnel || '').match(new RegExp(`\\b(${PERSONNEL_NUMS})\\b`));
-  const fromName = name.match(new RegExp(`\\b(${PERSONNEL_NUMS})\\b`));
-  const callDigits = call ? `${call[1]}${call[2]}` : '';
-  const personnel = Number(fromField?.[1] || (fromName && fromName[1] !== callDigits ? fromName[1] : '') || 21);
+  const personnel = call.personnel ?? form.personnel ?? Number(fromField?.[1] || 21);
   const locs = TE_LOCATIONS[personnel] || [];
-  const base = locs.find((l) => l.id === 'tight') || locs[0];
-  const word = name.toLowerCase();
-  const run = /toss|sweep/.test(word)
-    ? 'toss'
-    : /counter/.test(word)
-      ? 'counter'
-      : /power/.test(word)
-        ? 'power'
-        : /dive/.test(word)
-          ? 'dive'
-          : /stretch/.test(word)
-            ? 'stretch'
-            : /wedge/.test(word)
-              ? 'wedge'
-              : /trap/.test(word)
-                ? 'trap'
-                : /iso/.test(word)
-                  ? 'iso'
-                  : /keep/.test(word)
-                    ? 'keep'
-                    : 'zone';
-  const family = seed?.kind === 'pass' || seed?.kind === 'screen' ? seed.kind : 'run';
-  // The backfield named in the call ("32 DW 47 ZONE", "31 BEAST 38 POWER"), when it fits the personnel.
+  const base = ((call.tackleOver || form.tackleOver) && locs.find((l) => l.id === 'over')) || locs.find((l) => l.id === 'tight') || locs[0];
   const fits = compatibleBackfields(base?.baseKey || '21_PRO');
-  const named = BACKFIELD_WORDS.find(([re, key]) => re.test(`${name} ${seed.formation || ''}`) && fits.includes(key))?.[1];
+  const wanted = call.backfields.length ? call.backfields : form.backfields;
+  const backfield = wanted.find((k) => fits.includes(k)) || fits[0] || 'I_FORM';
+  const family = call.family || (seed?.kind === 'pass' || seed?.kind === 'screen' ? seed.kind : 'run');
   return {
     personnel,
     baseKey: base?.baseKey || '21_PRO',
-    backfield: named || fits[0] || 'I_FORM',
-    ball: call?.[1] || '3',
-    hole: call ? Number(call[2]) : ('' as number | ''),
-    run,
-    family: family as 'run' | 'pass' | 'screen',
+    backfield,
+    strength: call.strength || form.strength || ('Left' as const),
+    ball: call.ball || '3',
+    hole: call.hole ?? ('' as number | ''),
+    run: call.run || 'zone',
+    family: family as 'run' | 'pass' | 'screen' | 'option',
     name,
     note: seed?.notes || '',
     holdName: true,
@@ -200,7 +166,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [conceptKey, setConceptKey] = useState(saved?.conceptKey || '37_ZONE');
   const [runId, setRunId] = useState(saved?.runId || opened.run);
   const [family, setFamily] = useState<'all' | 'run' | 'pass' | 'option' | 'screen'>(saved?.family || opened.family);
-  const [strength, setStrength] = useState<'Left' | 'Right'>(saved?.strength || 'Left');
+  const [strength, setStrength] = useState<'Left' | 'Right'>(saved?.strength || opened.strength);
   const [hash, setHash] = useState<'Left' | 'Middle' | 'Right'>(saved?.hash || 'Middle');
   const [holeOverride, setHoleOverride] = useState<number | ''>(saved ? saved.hole : opened.hole);
   const [ballCarrier, setBallCarrier] = useState(saved?.ball || opened.ball);

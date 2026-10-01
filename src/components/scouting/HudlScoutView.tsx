@@ -26,7 +26,7 @@ import { Card, SectionHeader } from '../../hudlScout/components/report/ui';
 import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { ScoutOppPlayLibrary } from './ScoutOppPlayLibrary';
-import { buildScoutScript, cardsFromTags, isScoutPlayEntry, reportPlays, type ScoutOppPlay } from '../../utils/scoutOppPlays';
+import { buildScoutScript, cardsFromTags, isScoutPlayEntry, reportPlays, tagCardName, type ScoutOppPlay } from '../../utils/scoutOppPlays';
 import { autoTagFromHudl, setPlaysFormation, tagPlays } from '../../hudlScout/utils/playTags';
 import { newPlayEntry } from '../../utils/playbookImport';
 import { hudlExportCsv } from '../../hudlScout/utils/hudlExport';
@@ -254,18 +254,18 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   // Their plays shows every play the coaches tagged on the film: a card for each tagged play that
   // isn't there yet (a copy of our play, or a write-in to finish in the play builder).
   const theirPlaysOpen = scoutTarget === 'opponent' && activeTab === 'theirplays';
-  useEffect(() => {
-    if (!theirPlaysOpen) return;
+  const libraryNameOf = (id: string) => (playDatabase || []).find((e) => e.id === id && !isScoutPlayEntry(e))?.name;
+  /** Cards for tagged plays that don't have one yet: added to Their plays (and made opponent plays). */
+  const addTagCards = (): ScoutOppPlay[] => {
     const libs = oppBundle.playLibraries || {};
-    const nameOf = (id: string) => (playDatabase || []).find((e) => e.id === id && !isScoutPlayEntry(e))?.name;
     const firstGame = oppBundle.games[0]?.id;
     const added: ScoutOppPlay[] = [];
     for (const g of oppBundle.games) {
       const film = oppBundle.plays.filter((pl) => (pl.gameId ? pl.gameId === g.id : g.id === firstGame));
-      const cards = cardsFromTags(g.id, film, libs[g.id] || [], oppBundle.deletedOppPlayIds || [], nameOf);
+      const cards = cardsFromTags(g.id, film, libs[g.id] || [], oppBundle.deletedOppPlayIds || [], libraryNameOf);
       added.push(...cards);
     }
-    if (!added.length) return;
+    if (!added.length) return [];
     setOppBundle((prev) => {
       const playLibraries = { ...(prev.playLibraries || {}) };
       for (const c of added) {
@@ -275,8 +275,28 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       return { ...prev, playLibraries, practiceScript: buildScoutScript(reportPlays(playLibraries), reportName), updatedAt: Date.now() };
     });
     onAddTaggedPlays?.(added);
+    return added;
+  };
+  useEffect(() => {
+    if (theirPlaysOpen) addTagCards();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theirPlaysOpen, oppBundle.plays, oppBundle.games]);
+  /** Draw a play tagged on the scouting film: its Their-plays card in the play builder, drawn from its name. */
+  const drawTagged = (playCallId: string, gameId?: string) => {
+    if (!onDrawPlay) return;
+    const firstGame = oppBundle.games[0]?.id;
+    const cards = [...Object.values(oppBundle.playLibraries || {}).flat(), ...addTagCards()];
+    const snap = oppBundle.plays.find((pl) => pl.playCallId === playCallId && (!gameId || (pl.gameId || firstGame) === gameId));
+    const game = gameId || snap?.gameId || firstGame;
+    const name = snap ? tagCardName(snap, libraryNameOf(playCallId)).toLowerCase() : '';
+    const inGame = (c: ScoutOppPlay) => !game || c.gameId === game;
+    const card =
+      cards.find((c) => inGame(c) && (`scout_${c.id}` === playCallId || c.fromPlayId === playCallId)) ||
+      cards.find((c) => inGame(c) && name && c.name.trim().toLowerCase() === name) ||
+      cards.find((c) => `scout_${c.id}` === playCallId || c.fromPlayId === playCallId);
+    if (card) onDrawPlay(card);
+  };
+  const drawFromLog = scoutTarget === 'opponent' && onDrawPlay;
   // A game picked in another report (or removed since) isn't in this one: show all games.
   const selectedGameId = pickedGameId === 'all' || bundle.games.some((g) => g.id === pickedGameId) ? pickedGameId : 'all';
   const plays = useMemo(() => {
@@ -843,7 +863,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
             )}
             {activeTab === 'plays' && (
               <>
-                <CallResultsCard plays={filteredPlays} own={scoutTarget === 'own'} />
+                <CallResultsCard plays={filteredPlays} own={scoutTarget === 'own'} onDraw={drawFromLog ? (id) => drawTagged(id) : undefined} />
                 <PlaysTable
                   plays={filteredPlays}
                   writeInPlays={allPlays}
@@ -852,6 +872,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                   onTagPlays={onUpdatePlayDatabase ? handleTagPlays : undefined}
                   onCreateCall={onUpdatePlayDatabase ? handleCreateCall : undefined}
                   onSetFormation={handleSetFormation}
+                  onDrawCall={drawFromLog ? (pl) => drawTagged(String(pl.playCallId), pl.gameId || oppBundle.games[0]?.id) : undefined}
                   lineupFor={scoutTarget === 'own' && weekBoards ? lineupFor : undefined}
                   roster={roster}
                   onSetSub={scoutTarget === 'own' ? handleSetSub : undefined}

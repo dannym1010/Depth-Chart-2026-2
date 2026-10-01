@@ -4,6 +4,7 @@
 import type { Play } from '../types/football';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { formationOfCall, playNameKey } from '../../utils/playbookImport';
+import { isWholeCall } from '../../utils/playCallParse';
 
 export type CallUnit = 'offense' | 'defense';
 
@@ -182,7 +183,8 @@ export function callResults(plays: Play[]): CallResult[] {
     const r =
       map.get(p.playCallId) ||
       // "32 L 47 ZONE": the formation with the call, so the same play name from two formations isn't mixed up.
-      { id: p.playCallId, name: isNumberFormation(p.formation) && p.playCall ? `${tidyFormation(p.formation)} ${p.playCall}` : p.playCall || p.playName, count: 0, yards: 0, avgGain: 0, successRate: 0, explosive: 0, touchdowns: 0, negative: 0 };
+      // A call typed whole ("30 DW 41 SWEEP") already has its formation.
+      { id: p.playCallId, name: isNumberFormation(p.formation) && p.playCall && !isWholeCall(p.playCall) ? `${tidyFormation(p.formation)} ${p.playCall}` : p.playCall || p.playName, count: 0, yards: 0, avgGain: 0, successRate: 0, explosive: 0, touchdowns: 0, negative: 0 };
     const gain = Number(p.gainLoss) || 0;
     r.count += 1;
     r.yards += gain;

@@ -4,7 +4,7 @@ import { callResults, isTaggablePlay } from '../../hudlScout/utils/playTags';
 import { Card, SectionHeader } from '../../hudlScout/components/report/ui';
 
 /** What each tagged play call gained on film. Shows once at least one play is tagged. */
-export const CallResultsCard: React.FC<{ plays: Play[]; own: boolean }> = ({ plays, own }) => {
+export const CallResultsCard: React.FC<{ plays: Play[]; own: boolean; onDraw?: (playCallId: string) => void }> = ({ plays, own, onDraw }) => {
   const [showAll, setShowAll] = useState(false);
   const rows = useMemo(() => callResults(plays), [plays]);
   const taggable = plays.filter(isTaggablePlay).length;
@@ -15,7 +15,7 @@ export const CallResultsCard: React.FC<{ plays: Play[]; own: boolean }> = ({ pla
     <Card>
       <SectionHeader
         title={own ? 'How our plays did' : 'Their plays by call'}
-        subtitle={`${tagged} of ${taggable} plays tagged. Success = stayed on schedule (Hudl efficiency).`}
+        subtitle={`${tagged} of ${taggable} plays tagged. Success = stayed on schedule (Hudl efficiency).${onDraw ? ' Draw opens the play in the play builder, drawn from its name.' : ''}`}
       />
       <div className="overflow-x-auto -mx-1">
         <table className="w-full text-xs">
@@ -28,6 +28,7 @@ export const CallResultsCard: React.FC<{ plays: Play[]; own: boolean }> = ({ pla
               <th className="py-1.5 px-1 font-black text-right hidden sm:table-cell">10+</th>
               <th className="py-1.5 px-1 font-black text-right hidden sm:table-cell">TD</th>
               <th className="py-1.5 px-1 font-black text-right hidden sm:table-cell">Lost yds</th>
+              {onDraw && <th className="py-1.5 px-1" />}
             </tr>
           </thead>
           <tbody>
@@ -53,6 +54,18 @@ export const CallResultsCard: React.FC<{ plays: Play[]; own: boolean }> = ({ pla
                 <td className="py-1.5 px-1 text-right text-slate-700 dark:text-slate-300 hidden sm:table-cell">{r.explosive || '–'}</td>
                 <td className="py-1.5 px-1 text-right text-slate-700 dark:text-slate-300 hidden sm:table-cell">{r.touchdowns || '–'}</td>
                 <td className="py-1.5 px-1 text-right text-slate-700 dark:text-slate-300 hidden sm:table-cell">{r.negative || '–'}</td>
+                {onDraw && (
+                  <td className="py-1 px-1 text-right">
+                    <button
+                      type="button"
+                      onClick={() => onDraw(r.id)}
+                      title={`Draw ${r.name} in the play builder`}
+                      className="h-7 px-2 rounded-md border border-slate-300 dark:border-slate-600 text-[11px] font-black text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer whitespace-nowrap"
+                    >
+                      ✎ Draw
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

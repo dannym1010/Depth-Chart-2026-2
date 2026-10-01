@@ -4169,3 +4169,36 @@ describe('play builder backfields', () => {
     assert.deepEqual(simplifyLine(wobbly), [{ x: 0, y: 0 }, { x: 3, y: 0 }, { x: 3, y: 3 }]);
   });
 });
+
+describe('reading a play call to draw it', () => {
+  it('personnel, formation, side, the back to the hole, and the play', async () => {
+    const { parsePlayCall } = await import('./playCallParse.ts');
+    const a = parsePlayCall('30 DW 41 SWEEP');
+    assert.equal(a.personnel, 30);
+    assert.deepEqual(a.backfields, ['DOUBLE_WING']);
+    assert.equal(a.ball, '4');
+    assert.equal(a.hole, 1);
+    assert.equal(a.run, 'toss');
+    assert.equal(a.family, 'run');
+    const b = parsePlayCall('21 L WT 26 DIVE');
+    assert.deepEqual([b.personnel, b.strength, b.backfields[0], b.ball, b.hole, b.run], [21, 'Left', 'WING_T_3', '2', 6, 'dive']);
+    const c = parsePlayCall('32R Beast 38 Power');
+    assert.deepEqual([c.personnel, c.strength, c.backfields[0], c.ball, c.hole, c.run], [32, 'Right', 'BEAST', '3', 8, 'power']);
+    // The personnel isn't read as the ball and hole; no number = no hole.
+    const d = parsePlayCall('31 DOUBLE WING WEDGE');
+    assert.deepEqual([d.personnel, d.backfields[0], d.ball, d.hole, d.run], [31, 'DOUBLE_WING', undefined, undefined, 'wedge']);
+    assert.equal(parsePlayCall('20 WING T 18 BOOT PASS').family, 'pass');
+    assert.equal(parsePlayCall('22 OVER I 38 POWER').tackleOver, true);
+  });
+  it('a write-in typed whole keeps its own name (no film formation in front)', async () => {
+    const { tagCardName } = await import('./scoutOppPlays.ts');
+    const { callResults } = await import('../hudlScout/utils/playTags.ts');
+    assert.equal(tagCardName({ formation: '21 R', playCall: '30 DW 41 SWEEP' }), '30 DW 41 SWEEP');
+    assert.equal(tagCardName({ formation: '32 DW', playCall: '47 ZONE' }), '32 DW 47 ZONE');
+    const rows = callResults([
+      { id: 'a', playCallId: 'writein:x', playCall: '30 DW 41 SWEEP', formation: '21 R', gainLoss: 3 } as any,
+      { id: 'b', playCallId: 'p1', playCall: '47 ZONE', formation: '32 L', gainLoss: 3 } as any,
+    ]);
+    assert.deepEqual(rows.map((r) => r.name).sort(), ['30 DW 41 SWEEP', '32 L 47 ZONE']);
+  });
+});
