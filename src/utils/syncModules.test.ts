@@ -4202,3 +4202,19 @@ describe('reading a play call to draw it', () => {
     assert.deepEqual(rows.map((r) => r.name).sort(), ['30 DW 41 SWEEP', '32 L 47 ZONE']);
   });
 });
+
+describe('a scout play drawn from its name', () => {
+  it('lines up the call and draws it against our defense', async () => {
+    const { callSetup, drawCall } = await import('./callDiagram.ts');
+    const s = callSetup({ name: '30 DW 41 SWEEP' });
+    assert.deepEqual([s.personnel, s.backfield, s.ball, s.hole, s.run, s.family], [30, 'DOUBLE_WING', '4', 1, 'toss', 'run']);
+    const url = drawCall({ name: '30 DW 41 SWEEP' })!;
+    assert.ok(url.startsWith('data:image/svg+xml'));
+    const svg = decodeURIComponent(url.split(',')[1]);
+    assert.ok((svg.match(/<circle|<rect/g) || []).length >= 11, 'the offense is drawn');
+    assert.ok(svg.includes('#e11d2a'), 'the ball path is drawn');
+    // A Hudl name with no personnel still draws (21 personnel, the play from its word).
+    assert.ok(drawCall({ name: 'CARMEL 3 ZONE' }));
+    assert.equal(callSetup({ name: '21 L 38 POWER', formation: '21 L' }).strength, 'Left');
+  });
+});

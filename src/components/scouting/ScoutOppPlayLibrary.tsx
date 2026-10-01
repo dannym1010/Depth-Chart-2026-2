@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { ScoutGame } from '../../hudlScout/components/Header';
 import type { Play } from '../../hudlScout/types/football';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { DiagramImage } from '../playbook/DiagramImage';
 import { playNameKey } from '../../utils/playbookImport';
 import { resolveDiagram, unsavedDiagram } from '../../utils/playDiagrams';
+import { drawCall } from '../../utils/callDiagram';
 import {
   buildScoutScript,
   playsFromFilm,
@@ -47,10 +48,19 @@ export const ScoutOppPlayLibrary: React.FC<{
   const [filmName, setFilmName] = useState('');
   const [printNote, setPrintNote] = useState('');
 
-  const diagramFor = (play: ScoutOppPlay) => {
+  // A play saved from the builder shows that drawing; one not saved yet is drawn from its name
+  // ("30 DW 41 SWEEP"), the way the builder first draws it.
+  const savedDiagram = (play: ScoutOppPlay) => {
     const entry = (playDatabase || []).find((p) => p.id === `scout_${play.id}`);
     return entry?.diagramUrl || unsavedDiagram(playNameKey(play.name));
   };
+  const drawnFromName = useMemo(() => {
+    const out = new Map<string, string | null>();
+    for (const p of onTheReport) if (!savedDiagram(p)) out.set(p.id, drawCall(p));
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onTheReport.map((p) => `${p.id}:${p.name}:${p.formation}:${p.personnel}:${p.kind}`).join('|'), playDatabase]);
+  const diagramFor = (play: ScoutOppPlay) => savedDiagram(play) || drawnFromName.get(play.id) || drawCall(play) || undefined;
 
   const printScript = async () => {
     setPrintNote('');
@@ -248,7 +258,19 @@ export const ScoutOppPlayLibrary: React.FC<{
                             <div className="text-sm font-black">{line.name}</div>
                             {line.detail && <div className="text-[11px] text-slate-500">{line.detail}</div>}
                             {diagram ? (
-                              <DiagramImage url={diagram} alt={line.name} className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white" />
+                              <>
+                                <DiagramImage url={diagram} alt={line.name} className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white" />
+                                {play && !savedDiagram(play) && (
+                                  <p className="mt-0.5 text-[10px] text-slate-400">
+                                    Drawn from the play name.{' '}
+                                    {onDraw && (
+                                      <button type="button" className="font-bold underline cursor-pointer" onClick={() => onDraw(play)}>
+                                        Open to change it
+                                      </button>
+                                    )}
+                                  </p>
+                                )}
+                              </>
                             ) : (
                               <p className="mt-1 text-[11px] text-slate-400">No diagram yet. Open the play to draw it.</p>
                             )}

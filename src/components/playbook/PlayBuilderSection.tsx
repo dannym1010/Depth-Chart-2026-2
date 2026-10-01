@@ -31,7 +31,7 @@ import {
 } from '../../utils/footballEngine';
 import { PlayDiagramCanvas } from './PlayDiagramCanvas';
 import type { PlayBuilderSeed } from '../../utils/playBuilderSeed';
-import { parsePlayCall } from '../../utils/playCallParse';
+import { callSetup } from '../../utils/callDiagram';
 
 const SELECT =
   'h-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 w-full';
@@ -84,7 +84,6 @@ interface Props {
   onWatchFilm?: (label: string) => void;
 }
 
-const PERSONNEL_NUMS = '10|11|12|20|21|22|30|31|32';
 
 /**
  * Our defenses, named from the team's defense (Our defense card): the base and check fronts, the
@@ -131,25 +130,8 @@ function startFromSeed(seed?: PlayBuilderSeed | null) {
   const name = seed.name;
   // Read the call as written: personnel, formation, side, who gets the ball to which hole, the play
   // ("30 DW 41 SWEEP"). The card's own formation fills in what the name leaves out.
-  const call = parsePlayCall(name);
-  const form = parsePlayCall(seed.formation || '');
-  const fromField = String(seed?.personnel || '').match(new RegExp(`\\b(${PERSONNEL_NUMS})\\b`));
-  const personnel = call.personnel ?? form.personnel ?? Number(fromField?.[1] || 21);
-  const locs = TE_LOCATIONS[personnel] || [];
-  const base = ((call.tackleOver || form.tackleOver) && locs.find((l) => l.id === 'over')) || locs.find((l) => l.id === 'tight') || locs[0];
-  const fits = compatibleBackfields(base?.baseKey || '21_PRO');
-  const wanted = call.backfields.length ? call.backfields : form.backfields;
-  const backfield = wanted.find((k) => fits.includes(k)) || fits[0] || 'I_FORM';
-  const family = call.family || (seed?.kind === 'pass' || seed?.kind === 'screen' ? seed.kind : 'run');
   return {
-    personnel,
-    baseKey: base?.baseKey || '21_PRO',
-    backfield,
-    strength: call.strength || form.strength || ('Left' as const),
-    ball: call.ball || '3',
-    hole: call.hole ?? ('' as number | ''),
-    run: call.run || 'zone',
-    family: family as 'run' | 'pass' | 'screen' | 'option',
+    ...callSetup({ name, formation: seed.formation, personnel: seed.personnel, kind: seed.kind }),
     name,
     note: seed?.notes || '',
     holdName: true,
