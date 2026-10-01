@@ -63,6 +63,7 @@ interface FilmRoomViewProps {
   builderCanEdit?: boolean;
   onSaveBuilderPlay?: (entry: PlayDatabaseEntry, seed: PlayBuilderSeed | null) => PlayDatabaseEntry;
   onRenameScoutPlay?: (change: { from: string; to: string; scoutId?: string; gameId?: string; playEntryId?: string }) => void;
+  onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: Record<string, { x: number; y: number }> }) => void;
 }
 
 type OdkFilter = 'all' | 'O' | 'D' | 'K';
@@ -72,7 +73,7 @@ const newId = () => `fn_${Date.now().toString(36)}${Math.random().toString(36).s
 export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   teamId, teamName, currentWeek, weekLabel, opponentName, opponentScout, ownTeamScout, authorName, onOpenHudlGame,
   onUpdateOwnTeamScout, onUpdateScouting, playDatabase, onUpdatePlayDatabase, roster, weekBoards, weekOptions,
-  filmWeeks, onSelectWeek, onSaveWeekScouting, onBackToPlay, builderCanEdit, onSaveBuilderPlay, onRenameScoutPlay,
+  filmWeeks, onSelectWeek, onSaveWeekScouting, onBackToPlay, builderCanEdit, onSaveBuilderPlay, onRenameScoutPlay, onSaveFilmBackfield,
 }) => {
   const own = useMemo(() => bundleFromSaved(ownTeamScout, teamName), [ownTeamScout, teamName]);
   const opp = useMemo(() => bundleFromSaved(opponentScout, opponentName || 'Opponent'), [opponentScout, opponentName]);
@@ -425,13 +426,31 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       canEdit={Boolean(builderCanEdit && onSaveBuilderPlay)}
       seed={builderSeed}
       onStateChange={(state) => {
-        // The play as it is on screen goes back to the builder with Back.
-        if (seedRef.current) savePlayBuilderSeed({ ...seedRef.current, builder: state });
+        // The play as it is on screen, including a name they typed, goes back to the builder with Back.
+        if (!seedRef.current) return;
+        const name = state.name?.trim() || seedRef.current.name;
+        seedRef.current = { ...seedRef.current, name, builder: { ...state, name } };
+        savePlayBuilderSeed(seedRef.current);
+        if (name) setCutup((c) => (c && c.label !== name ? { ...c, label: name } : c));
       }}
       onRename={
         builderSeed.scoutId && onRenameScoutPlay
           ? (from, to) =>
               onRenameScoutPlay({ from, to, scoutId: builderSeed.scoutId, gameId: builderSeed.gameId, playEntryId: builderSeed.playEntryId })
+          : undefined
+      }
+      onSaveFilmBackfield={
+        onSaveFilmBackfield
+          ? (change) => {
+              if (seedRef.current) {
+                seedRef.current = {
+                  ...seedRef.current,
+                  filmBases: { ...(seedRef.current.filmBases || {}), [change.backfield]: change.spots },
+                };
+                savePlayBuilderSeed(seedRef.current);
+              }
+              onSaveFilmBackfield(change);
+            }
           : undefined
       }
       onAdd={(entry) => {

@@ -133,6 +133,8 @@ export interface PlayBuilderState {
   overrides: Record<string, { x: number; y: number }>;
   /** The lines as the coach drew them (missing = the builder's own drawing). */
   strokes?: unknown[];
+  /** The name as the coach typed it (a scout play keeps this instead of the generated call). */
+  name?: string;
 }
 
 export interface PlayDatabaseEntry {

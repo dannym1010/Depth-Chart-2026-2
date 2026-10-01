@@ -1,4 +1,5 @@
 import type { PlayBuilderState, PlayDatabaseEntry } from '../types/callSheet';
+import type { BackfieldSpots } from './footballEngine';
 
 /** A play handed to the play builder: an opponent's play from Their plays, or one of ours to edit. */
 export interface PlayBuilderSeed {
@@ -17,6 +18,10 @@ export interface PlayBuilderSeed {
   snaps?: { id: string; playNumber: number; gain?: number; result?: string }[];
   /** The builder's settings saved with that play, to pick up where it was left. */
   builder?: PlayBuilderState;
+  /** This film's backfield shapes (Beast on this video), so the picture starts from them. */
+  filmBases?: Record<string, BackfieldSpots>;
+  /** Opened to adjust that backfield for the whole film, rather than one play. */
+  backfieldEdit?: string;
 }
 
 /**

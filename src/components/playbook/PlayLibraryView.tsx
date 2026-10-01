@@ -33,6 +33,8 @@ interface Props {
   onRenameScoutPlay?: (change: { from: string; to: string; scoutId?: string; gameId?: string; playEntryId?: string }) => void;
   /** Watch the film snaps linked to the play open in the builder. */
   onWatchScoutFilm?: (cutup: { gameId: string; playIds: string[]; label: string }, seed: PlayBuilderSeed) => void;
+  /** This backfield alignment becomes the one for every play on that scout film that uses it. */
+  onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: Record<string, { x: number; y: number }> }) => void;
 }
 
 const TYPES: { id: PlayType; label: string }[] = [
@@ -69,6 +71,7 @@ export const PlayLibraryView: React.FC<Props> = ({
   onBackToPlayList,
   onRenameScoutPlay,
   onWatchScoutFilm,
+  onSaveFilmBackfield,
 }) => {
   const canEdit = userRole === 'admin' || userRole === 'assistant';
   const [query, setQuery] = useState('');
@@ -245,7 +248,7 @@ export const PlayLibraryView: React.FC<Props> = ({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {builderSeed?.scoutId && onBackToPlayList && (
+            {(builderSeed?.scoutId || builderSeed?.backfieldEdit) && onBackToPlayList && (
               <button
                 type="button"
                 onClick={onBackToPlayList}
@@ -333,7 +336,20 @@ export const PlayLibraryView: React.FC<Props> = ({
         key={builderSeed?.playEntryId || builderSeed?.name || 'new'}
         canEdit={canEdit}
         seed={builderSeed}
-        onBack={builderSeed?.scoutId && onBackToPlayList ? onBackToPlayList : undefined}
+        onBack={(builderSeed?.scoutId || builderSeed?.backfieldEdit) && onBackToPlayList ? onBackToPlayList : undefined}
+        onSaveFilmBackfield={
+          onSaveFilmBackfield
+            ? (change) => {
+                setBuilderSeed((s) => {
+                  if (!s) return s;
+                  const next = { ...s, filmBases: { ...(s.filmBases || {}), [change.backfield]: change.spots } };
+                  savePlayBuilderSeed(next);
+                  return next;
+                });
+                onSaveFilmBackfield(change);
+              }
+            : undefined
+        }
         onRename={
           builderSeed?.scoutId && onRenameScoutPlay
             ? (from, to) =>

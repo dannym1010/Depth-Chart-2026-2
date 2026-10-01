@@ -166,6 +166,8 @@ import { blankCallSheetData, blankWristbandData } from './utils/blankSheets';
 import { missingPracticePlans } from './utils/autoPracticePlans';
 import { clearPlayBuilderSeed, consumeSeedHold, holdPlayBuilderSeed, mergeBuilderSave, savePlayBuilderSeed, type PlayBuilderSeed } from './utils/playBuilderSeed';
 import { isScoutPlayEntry, renameOppCall, linkSnapsToCall, snapsForCall } from './utils/scoutOppPlays';
+import { backfieldOf, formationForBackfield, redrawWithBackfield, spotsForGame } from './utils/filmBackfields';
+import { BACKFIELD_STRUCTURES } from './utils/footballEngine';
 import { newPlayEntry } from './utils/playbookImport';
 import { clearFilmCutup, consumeCutupHold, holdFilmCutup, saveFilmCutup } from './utils/filmCutup';
 import { callSheetSlots, isCopiedScoutReport, isNearCopy, primarySheetSlots, withoutCopiedGames, wristbandSlots } from './utils/teamCopies';
@@ -4208,6 +4210,71 @@ export default function App() {
     handleUpdateTeamPlayDatabase(plays);
     return saved;
   };
+  /** This film's backfield shape, then every play on that film that lines up in it. */
+  const saveFilmBackfield = (change: { gameId: string; backfield: string; spots: Record<string, { x: number; y: number }> }) => {
+    const teamId = activeTeamIdRef.current;
+    const week = currentWeekRef.current;
+    const scopedKey = getScopedWeekKey(teamId, week);
+    const weekState = latestStateRef.current.weeklyData?.[scopedKey] || latestStateRef.current.weeklyData?.[week];
+    const hudl = weekState?.scouting?.hudlScout;
+    if (!hudl) return;
+    const now = Date.now();
+    const prevGame = hudl.backfieldBases?.[change.gameId] || {};
+    const backfieldBases = {
+      ...(hudl.backfieldBases || {}),
+      [change.gameId]: { ...prevGame, [change.backfield]: { spots: change.spots, editedAt: now } },
+    };
+    persistWeekScouting('hudlScout', { ...hudl, backfieldBases, updatedAt: now });
+    const cards = hudl.playLibraries?.[change.gameId] || [];
+    const mine = (latestStateRef.current.playDatabase || []).filter((p) => p && sameTeamId(playTeamOf(p), teamId));
+    let next = mine;
+    let changed = false;
+    for (const card of cards) {
+      const id = `scout_${card.id}`;
+      const entry = next.find((p) => p.id === id);
+      if (backfieldOf(card, entry) !== change.backfield) continue;
+      const base = entry || { ...newPlayEntry(card.name, 'offense'), id, source: 'scout' as const, category: 'Opponent plays', teamId, notes: card.notes || '' };
+      const drawn = redrawWithBackfield(base, card, change.backfield, change.spots);
+      next = entry ? next.map((p) => (p.id === id ? drawn : p)) : [...next, drawn];
+      changed = true;
+    }
+    if (changed) handleUpdateTeamPlayDatabase(next);
+  };
+  const openFilmBackfield = (gameId: string, backfield: string) => {
+    const teamId = activeTeamIdRef.current;
+    const week = currentWeekRef.current;
+    const scopedKey = getScopedWeekKey(teamId, week);
+    const weekState = latestStateRef.current.weeklyData?.[scopedKey] || latestStateRef.current.weeklyData?.[week];
+    const hudl = weekState?.scouting?.hudlScout;
+    const { personnel, baseKey } = formationForBackfield(backfield);
+    const label = BACKFIELD_STRUCTURES[backfield]?.hudlBackfield || backfield;
+    savePlayBuilderSeed({
+      name: `${label} base`,
+      gameId,
+      backfieldEdit: backfield,
+      filmBases: spotsForGame(hudl?.backfieldBases, gameId),
+      builder: {
+        personnel,
+        baseKey,
+        backfield,
+        conceptKey: '37_ZONE',
+        runId: 'zone',
+        family: 'run',
+        strength: 'Right',
+        hash: 'Middle',
+        hole: '',
+        ball: '3',
+        tags: [],
+        coachNote: '',
+        situations: [],
+        defenseKey: '44_C3_LIZ',
+        putDefInName: false,
+        overrides: {},
+      },
+    });
+    holdPlayBuilderSeed();
+    setActiveUnit('playbook');
+  };
   /** A screen saved this team's plays: keep every other team's, tag new plays with this team. */
   const handleUpdateTeamPlayDatabase = (teamPlays: PlayDatabaseEntry[]) => {
     const teamId = activeTeamIdRef.current;
@@ -6710,6 +6777,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   });
                 }}
                 onRenameScoutPlay={renameScoutPlay}
+                onSaveFilmBackfield={saveFilmBackfield}
                 onWatchScoutFilm={(cutup, seed) => {
                   savePlayBuilderSeed(seed);
                   saveFilmCutup(cutup);
@@ -7018,6 +7086,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 builderCanEdit={userRole === 'admin' || userRole === 'assistant'}
                 onSaveBuilderPlay={saveBuilderPlay}
                 onRenameScoutPlay={renameScoutPlay}
+                onSaveFilmBackfield={saveFilmBackfield}
               />
             )}
 
@@ -7104,6 +7173,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   handleUpdateTeamPlayDatabase(mine.filter((p) => !gone.has(p.id)));
                   handleUpdateDeletedPlayIds(Array.from(new Set([...(latestStateRef.current.deletedPlayIds || []), ...gone])));
                 }}
+                onAdjustBackfield={openFilmBackfield}
                 onDrawPlay={(play) => {
                   const entryId = `scout_${play.id}`;
                   const teamId = activeTeamIdRef.current;
@@ -7145,6 +7215,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                     snaps: snapsForCall(linked, play.gameId, play.name, entryId, play.fromPlayId),
                     // A play drawn before re-opens as it was left.
                     builder: mine.find((p) => p.id === entryId)?.builder,
+                    filmBases: spotsForGame(hudl?.backfieldBases, play.gameId),
                   });
                   holdPlayBuilderSeed();
                   setActiveUnit('playbook');

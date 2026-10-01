@@ -93,6 +93,8 @@ export interface HudlScoutViewProps {
   onAddTaggedPlays?: (cards: ScoutOppPlay[]) => void;
   /** Opponent plays removed from Their plays: delete the diagrams drawn for them. */
   onRemoveDrawnPlays?: (playEntryIds: string[]) => void;
+  /** Set one backfield's alignment for every play on that scout film that uses it. */
+  onAdjustBackfield?: (gameId: string, backfield: string) => void;
 }
 
 export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
@@ -123,6 +125,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   onDrawPlay,
   onRemoveDrawnPlays,
   onAddTaggedPlays,
+  onAdjustBackfield,
 }) => {
   // The calls read our defense from the scouting helpers; rebuild them when it changes.
   setDefenseSystem(teamDefense);
@@ -749,6 +752,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
               setBundle((prev) => ({ ...prev, playLibraries, deletedOppPlayIds, practiceScript, updatedAt: Date.now() }));
             }}
             onDraw={onDrawPlay}
+            backfieldBases={bundle.backfieldBases}
+            onAdjustBackfield={onAdjustBackfield}
           />
         ) : plays.length === 0 ? (
           <Card>

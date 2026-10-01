@@ -6,6 +6,8 @@ import { DiagramImage } from '../playbook/DiagramImage';
 import { playNameKey } from '../../utils/playbookImport';
 import { resolveDiagram, unsavedDiagram } from '../../utils/playDiagrams';
 import { drawCall } from '../../utils/callDiagram';
+import { BACKFIELD_STRUCTURES } from '../../utils/footballEngine';
+import { backfieldOf, type FilmBackfieldBases } from '../../utils/filmBackfields';
 import {
   buildScoutScript,
   playsFromFilm,
@@ -38,7 +40,11 @@ export const ScoutOppPlayLibrary: React.FC<{
   onAddFilm: (name: string) => void;
   playDatabase?: PlayDatabaseEntry[];
   onDraw?: (play: ScoutOppPlay) => void;
-}> = ({ games, libraries, filmPlays, opponent, selectedGameId, onSelectGame, onSave, deletedIds, onAddFilm, playDatabase, onDraw }) => {
+  /** This film's own backfield shapes. */
+  backfieldBases?: FilmBackfieldBases;
+  /** Open the builder to set that backfield for every play on this film that uses it. */
+  onAdjustBackfield?: (gameId: string, backfield: string) => void;
+}> = ({ games, libraries, filmPlays, opponent, selectedGameId, onSelectGame, onSave, deletedIds, onAddFilm, playDatabase, onDraw, backfieldBases, onAdjustBackfield }) => {
   const films = games.length ? games : [];
   const gameId = films.some((g) => g.id === selectedGameId) ? selectedGameId : films[0]?.id || '';
   const plays = libraries[gameId] || [];
@@ -54,13 +60,30 @@ export const ScoutOppPlayLibrary: React.FC<{
     const entry = (playDatabase || []).find((p) => p.id === `scout_${play.id}`);
     return entry?.diagramUrl || unsavedDiagram(playNameKey(play.name));
   };
+  const spotsFor = (play: ScoutOppPlay) => {
+    const entry = (playDatabase || []).find((p) => p.id === `scout_${play.id}`);
+    return backfieldBases?.[play.gameId]?.[backfieldOf(play, entry)]?.spots;
+  };
   const drawnFromName = useMemo(() => {
     const out = new Map<string, string | null>();
-    for (const p of onTheReport) if (!savedDiagram(p)) out.set(p.id, drawCall(p));
+    for (const p of onTheReport) if (!savedDiagram(p)) out.set(p.id, drawCall(p, spotsFor(p)));
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onTheReport.map((p) => `${p.id}:${p.name}:${p.formation}:${p.personnel}:${p.kind}`).join('|'), playDatabase]);
-  const diagramFor = (play: ScoutOppPlay) => savedDiagram(play) || drawnFromName.get(play.id) || drawCall(play) || undefined;
+  }, [onTheReport.map((p) => `${p.id}:${p.name}:${p.formation}:${p.personnel}:${p.kind}`).join('|'), playDatabase, backfieldBases]);
+  const diagramFor = (play: ScoutOppPlay) => savedDiagram(play) || drawnFromName.get(play.id) || drawCall(play, spotsFor(play)) || undefined;
+  const filmBackfields = useMemo(() => {
+    const keys = new Set<string>(['BEAST']);
+    for (const p of plays) {
+      const entry = (playDatabase || []).find((e) => e.id === `scout_${p.id}`);
+      const key = backfieldOf(p, entry);
+      if (BACKFIELD_STRUCTURES[key]) keys.add(key);
+    }
+    return [...keys].sort((a, b) => {
+      if (a === 'BEAST') return -1;
+      if (b === 'BEAST') return 1;
+      return (BACKFIELD_STRUCTURES[a]?.hudlBackfield || a).localeCompare(BACKFIELD_STRUCTURES[b]?.hudlBackfield || b);
+    });
+  }, [plays, playDatabase]);
 
   const printScript = async () => {
     setPrintNote('');
@@ -205,6 +228,24 @@ export const ScoutOppPlayLibrary: React.FC<{
             <button type="button" className="h-9 rounded-lg bg-indigo-600 text-white text-xs font-black cursor-pointer" onClick={addPlay}>
               Add play
             </button>
+          </div>
+        )}
+        {gameId && onAdjustBackfield && (
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Base backfields for this film</div>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Adjusting one changes every play on this film that lines up in it.</p>
+            <div className="flex flex-wrap gap-1.5">
+              {filmBackfields.map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  className="h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-black cursor-pointer"
+                  onClick={() => onAdjustBackfield(gameId, key)}
+                >
+                  Adjust {BACKFIELD_STRUCTURES[key]?.hudlBackfield || key}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {!gameId && <p className="text-sm text-slate-500">Add a film library, or upload this week's scouting film, then put their plays here.</p>}

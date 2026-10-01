@@ -1476,15 +1476,25 @@ function withTackleOver(nodes: PlayNode[], baseKey: string): PlayNode[] {
   return nodes.map((n) => (n.role === 'LT' ? { ...n, x: 6.2 } : n));
 }
 
-export function combinedNodes(baseKey: string, backfieldKey: string): PlayNode[] | null {
+/** A film's own spots for a backfield, in the strong-to-the-right picture (before strength flips them). */
+export type BackfieldSpots = Record<string, { x: number; y: number }>;
+
+function withBackfieldSpots(nodes: PlayNode[], spots?: BackfieldSpots | null): PlayNode[] {
+  if (!spots) return nodes;
+  return nodes.map((n) => (spots[n.role] ? { ...n, x: spots[n.role].x, y: spots[n.role].y } : n));
+}
+
+export function combinedNodes(baseKey: string, backfieldKey: string, spots?: BackfieldSpots | null): PlayNode[] | null {
   const base = BASE_FORMATIONS[baseKey];
   const backfield = BACKFIELD_STRUCTURES[backfieldKey];
   if (!base || !backfield) return null;
   const nodes = withTackleOver([...INTERIOR_LINE_NODES, ...base.perimeterNodes, ...backfield.nodes], baseKey);
-  if (!backfield.wing) return nodes;
+  if (!backfield.wing) return withBackfieldSpots(nodes, spots);
   // The wingback sets up a yard off the ball, just outside the last tight player on the strong side.
+  // A film's own spots replace that, including the wing, when this film has adjusted the backfield.
   const end = Math.max(...nodes.filter((n) => n.line && n.x > 0 && n.x <= 9.5).map((n) => n.x));
-  return nodes.map((n) => (n.role === backfield.wing ? { ...n, x: end + 2.3, y: -1.15 } : n));
+  const winged = nodes.map((n) => (n.role === backfield.wing ? { ...n, x: end + 2.3, y: -1.15 } : n));
+  return withBackfieldSpots(winged, spots);
 }
 
 /** Two players on the same spot (closer than about a yard). */
@@ -1527,7 +1537,8 @@ export function assemblePlay(
   backfieldKey: string,
   conceptKey: string,
   strength: 'Left' | 'Right' = 'Right',
-  tagKeys: string[] = []
+  tagKeys: string[] = [],
+  spots?: BackfieldSpots | null
 ): AssembledPlay {
   const base = BASE_FORMATIONS[baseKey];
   const backfield = BACKFIELD_STRUCTURES[backfieldKey];
@@ -1535,7 +1546,7 @@ export function assemblePlay(
   if (!base || !backfield || !concept) {
     throw new Error('Invalid Base, Backfield, or Concept key passed to builder.');
   }
-  const nodes = combinedNodes(baseKey, backfieldKey);
+  const nodes = combinedNodes(baseKey, backfieldKey, spots);
   if (!nodes) throw new Error('Invalid Base, Backfield, or Concept key passed to builder.');
   validate11Players(nodes);
   const dir = strength === 'Left' ? 'L' : 'R';
@@ -1564,10 +1575,11 @@ export function tryAssemblePlay(
   backfieldKey: string,
   conceptKey: string,
   strength: 'Left' | 'Right' = 'Right',
-  tagKeys: string[] = []
+  tagKeys: string[] = [],
+  spots?: BackfieldSpots | null
 ): AssembledPlay | null {
   try {
-    return assemblePlay(baseKey, backfieldKey, conceptKey, strength, tagKeys);
+    return assemblePlay(baseKey, backfieldKey, conceptKey, strength, tagKeys, spots);
   } catch {
     return null;
   }

@@ -429,6 +429,8 @@ export interface ScoutingData {
     playLibraries?: Record<string, import('./utils/scoutOppPlays').ScoutOppPlay[]>;
     deletedOppPlayIds?: string[];
     practiceScript?: import('./utils/scoutOppPlays').ScoutPracticeScript;
+    /** Each film's own backfield shapes, keyed by game id then backfield. */
+    backfieldBases?: import('./utils/filmBackfields').FilmBackfieldBases;
     updatedAt?: number;
   };
 }

@@ -2,6 +2,7 @@ import type { Play } from './types/football';
 import type { FilterState } from './components/report/FilterPanel';
 import type { ScoutGame } from './components/Header';
 import { splitTaggedCalls } from './utils/playTags';
+import type { FilmBackfieldBases } from '../utils/filmBackfields';
 import type { ScoutOppPlay, ScoutPracticeScript } from '../utils/scoutOppPlays';
 
 export const DEFAULT_SCOUT_FILTERS: FilterState = {
@@ -48,6 +49,8 @@ export interface ScoutBundle {
   deletedOppPlayIds?: string[];
   /** Practice script built from the plays checked onto this report. */
   practiceScript?: ScoutPracticeScript;
+  /** Each film's own backfield shapes (Beast on this video is not Beast on another). */
+  backfieldBases?: FilmBackfieldBases;
 }
 
 export function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
@@ -75,6 +78,7 @@ export function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
     playLibraries: saved?.playLibraries && typeof saved.playLibraries === 'object' ? saved.playLibraries : {},
     deletedOppPlayIds: Array.isArray(saved?.deletedOppPlayIds) ? saved.deletedOppPlayIds : [],
     practiceScript: saved?.practiceScript && typeof saved.practiceScript === 'object' ? saved.practiceScript : undefined,
+    backfieldBases: saved?.backfieldBases && typeof saved.backfieldBases === 'object' ? saved.backfieldBases : undefined,
   };
 }
 
@@ -111,6 +115,9 @@ export function removeScoutGame(bundle: ScoutBundle, gameId: string, fallbackNam
     datasetName: remainingGames[0]?.name || fallbackName,
     sourceCleared: false,
     playLibraries: Object.fromEntries(Object.entries(bundle.playLibraries || {}).filter(([id]) => id !== gameId)),
+    backfieldBases: bundle.backfieldBases
+      ? Object.fromEntries(Object.entries(bundle.backfieldBases).filter(([id]) => id !== gameId))
+      : undefined,
     updatedAt: Date.now(),
   };
 }

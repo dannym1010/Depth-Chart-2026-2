@@ -123,6 +123,16 @@ interface Props {
   formLabel: string;
   playLabel: string;
   vsLabel: string;
+  /** The name the coach calls it. When set, that box on the diagram is an input. */
+  playName?: string;
+  onPlayName?: (value: string) => void;
+  onPlayNameCommit?: (value: string) => void;
+  /** Our defense on the play. When set, the "vs." box is a menu. */
+  defenseChoices?: { id: string; name: string }[];
+  defenseValue?: string;
+  onDefense?: (id: string) => void;
+  /** Shorter picture, so the name and the call stay on screen beside the video. */
+  dense?: boolean;
   coachNote: string;
   onCoachNote: (v: string) => void;
   onMove: (role: string, x: number, y: number) => void;
@@ -148,6 +158,13 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   formLabel,
   playLabel,
   vsLabel,
+  playName,
+  onPlayName,
+  onPlayNameCommit,
+  defenseChoices,
+  defenseValue,
+  onDefense,
+  dense,
   coachNote,
   onCoachNote,
   onMove,
@@ -424,12 +441,43 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
         <div className="border border-slate-300 rounded-sm px-3 py-2 text-[13px] font-bold tracking-wide text-slate-800 uppercase truncate" title={formLabel}>
           {formLabel}
         </div>
-        <div className="border border-slate-300 rounded-sm px-3 py-2 text-[13px] font-bold tracking-wide text-slate-800 uppercase truncate" title={playLabel}>
-          {playLabel}
-        </div>
-        <div className="border border-slate-300 rounded-sm px-3 py-2 text-[13px] font-bold tracking-wide text-slate-800 uppercase flex items-center gap-2">
-          <span className="text-slate-400 font-semibold normal-case">vs.</span> {vsLabel || '—'}
-        </div>
+        {onPlayName ? (
+          <input
+            aria-label="Play name"
+            value={playName ?? ''}
+            placeholder={playLabel}
+            onChange={(e) => onPlayName(e.target.value)}
+            onBlur={(e) => (onPlayNameCommit || onPlayName)(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            }}
+            className="w-full border border-slate-300 rounded-sm px-3 py-2 text-[13px] font-bold tracking-wide text-slate-800 uppercase bg-white outline-none focus:border-sky-500"
+          />
+        ) : (
+          <div className="border border-slate-300 rounded-sm px-3 py-2 text-[13px] font-bold tracking-wide text-slate-800 uppercase truncate" title={playLabel}>
+            {playLabel}
+          </div>
+        )}
+        {onDefense && defenseChoices ? (
+          <label className="border border-slate-300 rounded-sm px-2 py-1 text-[13px] font-bold text-slate-800 flex items-center gap-1.5 min-w-0">
+            <span className="text-slate-400 font-semibold shrink-0">vs.</span>
+            <select
+              aria-label="Defense"
+              value={defenseValue || ''}
+              onChange={(e) => onDefense(e.target.value)}
+              className="min-w-0 flex-1 bg-transparent font-bold uppercase outline-none cursor-pointer"
+            >
+              <option value="">Offense only</option>
+              {defenseChoices.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <div className="border border-slate-300 rounded-sm px-3 py-2 text-[13px] font-bold tracking-wide text-slate-800 uppercase flex items-center gap-2">
+            <span className="text-slate-400 font-semibold normal-case">vs.</span> {vsLabel || '—'}
+          </div>
+        )}
       </div>
       <div className="relative">
         <button
@@ -448,7 +496,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
         <svg
           ref={svgRef}
           viewBox={zoomed ? `80 70 ${w - 160} ${h - 130}` : `0 0 ${w} ${h}`}
-          className={`w-full h-auto bg-[#f3f3f4] touch-none ${tool === 'move' ? 'cursor-default' : 'cursor-crosshair'}`}
+          className={`bg-[#f3f3f4] touch-none ${dense ? 'max-h-64 w-auto max-w-full mx-auto' : 'w-full h-auto'} ${tool === 'move' ? 'cursor-default' : 'cursor-crosshair'}`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}

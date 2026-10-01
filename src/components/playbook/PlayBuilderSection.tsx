@@ -27,6 +27,7 @@ import {
   resolveTaggedCall,
   type AssembledPlay,
   type OurDefenseLook,
+  type BackfieldSpots,
   type PlayStroke,
 } from '../../utils/footballEngine';
 import { PlayDiagramCanvas } from './PlayDiagramCanvas';
@@ -86,6 +87,8 @@ interface Props {
   compact?: boolean;
   /** Every change to the play, so the screen it's open on can keep it (e.g. going back and forth to the film). */
   onStateChange?: (state: PlayBuilderState) => void;
+  /** This alignment becomes the backfield for every play on this scout film that uses it. */
+  onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: BackfieldSpots }) => void;
 }
 
 
@@ -142,7 +145,7 @@ function startFromSeed(seed?: PlayBuilderSeed | null) {
   };
 }
 
-export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, onStateChange }) => {
+export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, onStateChange, onSaveFilmBackfield }) => {
   const opened = useMemo(() => startFromSeed(seed), [seed]);
   // A play saved from the builder re-opens as it was left.
   const saved = seed?.builder;
@@ -175,10 +178,12 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     setDefenseKey((k) => (k === '44_C3_LIZ' || k === '44_C3_RIP' ? (s === 'Left' ? '44_C3_LIZ' : '44_C3_RIP') : k));
   };
   const [personnelPick, setPersonnelPick] = useState<number>(saved?.personnel || opened.personnel);
-  const [nameIn, setNameIn] = useState(opened.name);
-  const [committedName, setCommittedName] = useState(opened.name);
+  const [nameIn, setNameIn] = useState(saved?.name || opened.name);
+  const [committedName, setCommittedName] = useState(saved?.name || opened.name);
   const [putDefInName, setPutDefInName] = useState(Boolean(saved?.putDefInName));
   const [overrides, setOverrides] = useState<Record<string, { x: number; y: number }>>(saved?.overrides || {});
+  const [filmBases, setFilmBases] = useState<Record<string, BackfieldSpots>>(seed?.filmBases || {});
+  const [baseNote, setBaseNote] = useState('');
   const [strokes, setStrokes] = useState<PlayStroke[]>((saved?.strokes as PlayStroke[]) || []);
   const [userDrew, setUserDrew] = useState(Boolean(saved?.strokes));
 
@@ -193,7 +198,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const runMode = family === 'all' || family === 'run';
   const run = RUN_SCHEMES.find((s) => s.id === runId) || RUN_SCHEMES[0];
   const activeConceptKey = runMode ? run.conceptKey : conceptKey;
-  const basePlay = tryAssemblePlay(baseKey, activeBack, activeConceptKey, strength, tags);
+  const basePlay = tryAssemblePlay(baseKey, activeBack, activeConceptKey, strength, tags, filmBases[activeBack]);
   const hashDx = hash === 'Left' ? -4.2 : hash === 'Right' ? 4.2 : 0;
   const offNodes = basePlay
     ? applyNodeOverrides(basePlay.nodes, overrides).map((n) => (overrides[n.role] ? n : { ...n, x: n.x + hashDx }))
@@ -307,6 +312,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       putDefInName,
       overrides,
       ...(userDrew ? { strokes } : {}),
+      name: nameIn,
   });
   const stateKey = JSON.stringify(currentState());
   useEffect(() => {
@@ -314,7 +320,35 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stateKey]);
 
+  /** Spots in the strong-to-the-right picture, without the hash shift, so every play on the film can use them. */
+  const currentBackfieldSpots = (): BackfieldSpots => {
+    const spots: BackfieldSpots = {};
+    for (const n of offNodes) {
+      if (!/^[1-4]$/.test(n.role)) continue;
+      const xField = n.x - hashDx;
+      spots[n.role] = { x: strength === 'Left' ? -xField : xField, y: n.y };
+    }
+    return spots;
+  };
+  const backfieldLabel = BACKFIELD_STRUCTURES[activeBack]?.hudlBackfield || activeBack;
+  const publishBackfield = () => {
+    if (!seed?.gameId || !onSaveFilmBackfield) return;
+    const spots = currentBackfieldSpots();
+    setFilmBases((prev) => ({ ...prev, [activeBack]: spots }));
+    setOverrides((prev) => {
+      const next = { ...prev };
+      for (const role of ['1', '2', '3', '4']) delete next[role];
+      return next;
+    });
+    onSaveFilmBackfield({ gameId: seed.gameId, backfield: activeBack, spots });
+    setBaseNote(`Saved. Every ${backfieldLabel} play on this film uses this alignment.`);
+  };
+
   const saveOffense = () => {
+    if (seed?.backfieldEdit) {
+      publishBackfield();
+      return;
+    }
     if (!play) return;
     const calledHole = hole;
     const holeData = calledHole != null ? HOLE_SYSTEM[calledHole] : play.metadata.holeData;
@@ -648,6 +682,13 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 setUserDrew(false);
               }}
               linesFollow={userDrew}
+              dense={compact}
+              playName={nameIn}
+              onPlayName={setNameIn}
+              onPlayNameCommit={commitName}
+              defenseChoices={Object.entries(looks).map(([id, d]) => ({ id, name: d.name }))}
+              defenseValue={defenseKey}
+              onDefense={setDefenseKey}
             />
           ) : (
             <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/50 p-2 min-h-[200px] flex items-center justify-center">
@@ -714,10 +755,21 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                   onClick={saveOffense}
                   className="h-9 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-black inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40"
                 >
-                  <Plus className="w-4 h-4" /> Save
+                  <Plus className="w-4 h-4" /> {seed?.backfieldEdit ? `Save ${backfieldLabel} for this film` : 'Save'}
                 </button>
               )}
             </div>
+            {canEdit && seed?.gameId && !seed.backfieldEdit && onSaveFilmBackfield && (
+              <button
+                type="button"
+                disabled={!play}
+                onClick={publishBackfield}
+                className="w-full h-9 px-3 rounded-lg border border-indigo-300 dark:border-indigo-700 text-indigo-800 dark:text-indigo-200 text-xs font-black cursor-pointer disabled:opacity-40"
+              >
+                Use this {backfieldLabel} for every {backfieldLabel} play on this film
+              </button>
+            )}
+            {baseNote && <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400">{baseNote}</p>}
             <label className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-200">
               <input type="checkbox" checked={putDefInName} onChange={(e) => setPutDefInName(e.target.checked)} />
               Put our defense in the play name

@@ -1,6 +1,24 @@
 // Putting two copies of a Hudl Scout report together (no imports, so the storage layer can use it too).
 import { mergeOppLibraries } from './scoutOppPlays';
 
+/** A film's backfield shape: the newer edit wins, per film and per backfield. */
+function mergeBackfieldBases(a?: any, b?: any) {
+  const games = new Set([...Object.keys(a || {}), ...Object.keys(b || {})]);
+  const out: Record<string, Record<string, any>> = {};
+  for (const gameId of games) {
+    const keys = new Set([...Object.keys(a?.[gameId] || {}), ...Object.keys(b?.[gameId] || {})]);
+    const game: Record<string, any> = {};
+    for (const key of keys) {
+      const left = a?.[gameId]?.[key];
+      const right = b?.[gameId]?.[key];
+      const pick = (Number(right?.editedAt) || 0) >= (Number(left?.editedAt) || 0) ? right || left : left;
+      if (pick?.spots) game[key] = pick;
+    }
+    if (Object.keys(game).length) out[gameId] = game;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
 export function scoutFingerprint(scout: any): string {
   if (!scout || typeof scout !== 'object') return '';
   const plays = Array.isArray(scout.plays) ? scout.plays : [];
@@ -95,12 +113,14 @@ export function pickScoutBundle(a?: any, b?: any) {
     .map((g) => ({ ...g, playCount: plays.filter((p) => p.gameId === g.id).length || g.playCount }));
   const deletedOpp = [...new Set([...(Array.isArray(a.deletedOppPlayIds) ? a.deletedOppPlayIds : []), ...(Array.isArray(b.deletedOppPlayIds) ? b.deletedOppPlayIds : [])])];
   const script = (Number(newer.practiceScript?.builtAt) || 0) >= (Number(older.practiceScript?.builtAt) || 0) ? newer.practiceScript : older.practiceScript;
+  const backfieldBases = mergeBackfieldBases(older.backfieldBases, newer.backfieldBases);
   return {
     ...older,
     ...newer,
     plays,
     games: mergedGames,
     playLibraries: mergeOppLibraries(older.playLibraries, newer.playLibraries, deletedOpp),
+    ...(backfieldBases ? { backfieldBases } : {}),
     ...(deletedOpp.length ? { deletedOppPlayIds: deletedOpp } : {}),
     ...(script ? { practiceScript: script } : {}),
     ...(deleted.size ? { deletedGameIds: [...deleted] } : {}),
