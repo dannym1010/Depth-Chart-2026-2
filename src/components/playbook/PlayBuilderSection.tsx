@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Film, LayoutGrid, Plus } from 'lucide-react';
-import type { PlayDatabaseEntry, PlayType } from '../../types/callSheet';
+import type { PlayBuilderState, PlayDatabaseEntry, PlayType } from '../../types/callSheet';
+import { defenseSystem, type DefenseSystem } from '../../hudlScout/utils/ourDefense';
 import { inferPlayType, newPlayEntry } from '../../utils/playbookImport';
 import {
   BACKFIELD_STRUCTURES,
@@ -24,6 +25,7 @@ import {
   conceptFamily,
   resolveTaggedCall,
   type AssembledPlay,
+  type OurDefenseLook,
   type PlayStroke,
 } from '../../utils/footballEngine';
 import { PlayDiagramCanvas } from './PlayDiagramCanvas';
@@ -81,6 +83,32 @@ interface Props {
 }
 
 const PERSONNEL_NUMS = '10|11|12|20|21|22|30|31|32';
+
+/**
+ * Our defenses, named from the team's defense (Our defense card): the base and check fronts, the
+ * Over, who has contain, and a look for each of our blitzes.
+ */
+function teamDefenseLooks(sys: DefenseSystem): Record<string, OurDefenseLook> {
+  const out: Record<string, OurDefenseLook> = {};
+  for (const [k, d] of Object.entries(OUR_DEFENSE_LOOKS)) {
+    const isBase = d.front === '4-4';
+    const isCheck = d.front === '5-3';
+    const name = d.name.replace(/^5-3 Over/, sys.over).replace(/^5-3/, sys.check).replace(/^4-4/, sys.base);
+    const contain = isBase ? `${sys.baseContain} have contain` : isCheck ? `${sys.checkContain} have contain` : '';
+    out[k] = { ...d, name, front: isBase ? sys.base : isCheck ? sys.check : d.front, notes: [d.notes, contain].filter(Boolean).join(' · ') };
+  }
+  for (const b of sys.blitzes) {
+    const base = OUR_DEFENSE_LOOKS['44_C3_LIZ'];
+    out[`blitz_${b.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`] = {
+      ...base,
+      name: `${sys.base} ${b}`,
+      front: sys.base,
+      shell: sys.baseCoverage,
+      notes: `${b} blitz, ${sys.baseCoverage} behind it · ${sys.baseContain} keep contain`,
+    };
+  }
+  return out;
+}
 
 function startFromSeed(seed?: PlayBuilderSeed | null) {
   if (!seed?.name) {
@@ -143,36 +171,43 @@ function startFromSeed(seed?: PlayBuilderSeed | null) {
 
 export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm }) => {
   const opened = useMemo(() => startFromSeed(seed), [seed]);
-  const [baseKey, setBaseKey] = useState(opened.baseKey);
+  // A play saved from the builder re-opens as it was left.
+  const saved = seed?.builder;
+  const [baseKey, setBaseKey] = useState(saved?.baseKey || opened.baseKey);
   const backs = useMemo(() => compatibleBackfields(baseKey), [baseKey]);
-  const [backfieldKey, setBackfieldKey] = useState(opened.backfield);
-  const [conceptKey, setConceptKey] = useState('37_ZONE');
-  const [runId, setRunId] = useState(opened.run);
-  const [family, setFamily] = useState<'all' | 'run' | 'pass' | 'option' | 'screen'>(opened.family);
-  const [strength, setStrength] = useState<'Left' | 'Right'>('Left');
-  const [hash, setHash] = useState<'Left' | 'Middle' | 'Right'>('Middle');
-  const [holeOverride, setHoleOverride] = useState<number | ''>(opened.hole);
-  const [ballCarrier, setBallCarrier] = useState(opened.ball);
-  const [tags, setTags] = useState<string[]>([]);
-  const [coachNote, setCoachNote] = useState(opened.note);
+  const [backfieldKey, setBackfieldKey] = useState(saved?.backfield || opened.backfield);
+  const [conceptKey, setConceptKey] = useState(saved?.conceptKey || '37_ZONE');
+  const [runId, setRunId] = useState(saved?.runId || opened.run);
+  const [family, setFamily] = useState<'all' | 'run' | 'pass' | 'option' | 'screen'>(saved?.family || opened.family);
+  const [strength, setStrength] = useState<'Left' | 'Right'>(saved?.strength || 'Left');
+  const [hash, setHash] = useState<'Left' | 'Middle' | 'Right'>(saved?.hash || 'Middle');
+  const [holeOverride, setHoleOverride] = useState<number | ''>(saved ? saved.hole : opened.hole);
+  const [ballCarrier, setBallCarrier] = useState(saved?.ball || opened.ball);
+  const [tags, setTags] = useState<string[]>(saved?.tags || []);
+  const [coachNote, setCoachNote] = useState(saved ? saved.coachNote : opened.note);
   const [holdName] = useState(opened.holdName);
-  const [situations, setSituations] = useState<string[]>([]);
+  const [situations, setSituations] = useState<string[]>(saved?.situations || []);
+  const looks = teamDefenseLooks(defenseSystem());
   // An opponent's play opens against our call for it: the 5-3 against two tight ends, else the base 4-4.
   const [defenseKey, setDefenseKey] = useState(() =>
-    seed?.name && (PERSONNEL_DEFINITIONS[opened.personnel]?.te || 0) >= 2 ? '53_C3' : '44_C3_LIZ'
+    saved && (saved.defenseKey === '' || looks[saved.defenseKey])
+      ? saved.defenseKey
+      : seed?.name && (PERSONNEL_DEFINITIONS[opened.personnel]?.te || 0) >= 2
+        ? '53_C3'
+        : '44_C3_LIZ'
   );
   // The 4-4 Cover 3 sets its strength (LIZ / RIP) to the offense's.
   const pickStrength = (s: 'Left' | 'Right') => {
     setStrength(s);
     setDefenseKey((k) => (k === '44_C3_LIZ' || k === '44_C3_RIP' ? (s === 'Left' ? '44_C3_LIZ' : '44_C3_RIP') : k));
   };
-  const [personnelPick, setPersonnelPick] = useState<number>(opened.personnel);
+  const [personnelPick, setPersonnelPick] = useState<number>(saved?.personnel || opened.personnel);
   const [nameIn, setNameIn] = useState(opened.name);
   const [committedName, setCommittedName] = useState(opened.name);
-  const [putDefInName, setPutDefInName] = useState(false);
-  const [overrides, setOverrides] = useState<Record<string, { x: number; y: number }>>({});
-  const [strokes, setStrokes] = useState<PlayStroke[]>([]);
-  const [userDrew, setUserDrew] = useState(false);
+  const [putDefInName, setPutDefInName] = useState(Boolean(saved?.putDefInName));
+  const [overrides, setOverrides] = useState<Record<string, { x: number; y: number }>>(saved?.overrides || {});
+  const [strokes, setStrokes] = useState<PlayStroke[]>((saved?.strokes as PlayStroke[]) || []);
+  const [userDrew, setUserDrew] = useState(Boolean(saved?.strokes));
 
   const locations = TE_LOCATIONS[personnelPick] || [];
   const locationId = locations.find((l) => l.baseKey === baseKey)?.id || locations[0]?.id || '';
@@ -189,7 +224,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const offNodes = basePlay
     ? applyNodeOverrides(basePlay.nodes, overrides).map((n) => (overrides[n.role] ? n : { ...n, x: n.x + hashDx }))
     : [];
-  const dLook = defenseKey ? OUR_DEFENSE_LOOKS[defenseKey] : null;
+  const dLook = defenseKey ? looks[defenseKey] || null : null;
   const dNodes = useMemo(() => {
     if (!dLook) return [];
     return applyNodeOverrides(dLook.nodes, overrides).map((n) => (overrides[n.role] ? n : { ...n, x: n.x + hashDx }));
@@ -207,14 +242,23 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     if (!concepts.some(([k]) => k === conceptKey) && concepts[0]) setConceptKey(concepts[0][0]);
   }, [concepts, conceptKey]);
 
+  // Changing the look or the play starts the drawing over. Only a change does: a saved play opens as it was left.
+  const lookKey = `${baseKey}|${activeBack}|${strength}|${hash}`;
+  const lastLook = useRef(lookKey);
   useEffect(() => {
+    if (lastLook.current === lookKey) return;
+    lastLook.current = lookKey;
     setOverrides({});
     setUserDrew(false);
-  }, [baseKey, activeBack, strength, hash]);
+  }, [lookKey]);
 
+  const playKey = `${tags.join('|')}|${activeConceptKey}`;
+  const lastPlay = useRef(playKey);
   useEffect(() => {
+    if (lastPlay.current === playKey) return;
+    lastPlay.current = playKey;
     setUserDrew(false);
-  }, [tags.join('|'), activeConceptKey]);
+  }, [playKey]);
 
   const concept = PLAY_CONCEPTS[activeConceptKey];
   const eligibles = eligiblePlayers(offNodes);
@@ -279,7 +323,27 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     const name = (nameIn.trim() || committedName || play.playName).slice(0, 120);
     const type: PlayType = inferPlayType(name, 'offense');
     const extra = dLook ? dLook.nodes.map((n) => (overrides[n.role] ? { ...n, ...overrides[n.role] } : n)) : [];
+    const builder: PlayBuilderState = {
+      personnel: personnelPick,
+      baseKey,
+      backfield: activeBack,
+      conceptKey,
+      runId,
+      family,
+      strength,
+      hash,
+      hole: holeOverride,
+      ball: String(ballCarrier),
+      tags,
+      coachNote,
+      situations,
+      defenseKey,
+      putDefInName,
+      overrides,
+      ...(userDrew ? { strokes } : {}),
+    };
     onAdd({
+      builder,
       ...newPlayEntry(name, 'offense'),
       formation: `${play.hudlExport.OFF_FORM} ${play.hudlExport.BACKFIELD}${customBack ? ' custom' : ''}`,
       type,
@@ -332,11 +396,11 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   };
 
   const addDefenseLook = (key: string) => {
-    const d = OUR_DEFENSE_LOOKS[key];
+    const d = looks[key];
     onAdd({
       ...newPlayEntry(d.name, 'defense'),
       formation: d.front,
-      type: d.shell.toLowerCase().includes('0') || d.name.includes('Dog') || d.name.includes('Sting') ? 'blitz' : 'coverage',
+      type: key.startsWith('blitz_') || d.shell.toLowerCase().includes('0') || d.name.includes('Dog') || d.name.includes('Sting') ? 'blitz' : 'coverage',
       category: 'Play builder',
       source: 'builder',
       vsDefense: d.name,
@@ -646,7 +710,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 Defense
                 <select className={`${SELECT} mt-1`} value={defenseKey} onChange={(e) => setDefenseKey(e.target.value)}>
                   <option value="">Offense only</option>
-                  {Object.entries(OUR_DEFENSE_LOOKS).map(([k, d]) => (
+                  {Object.entries(looks).map(([k, d]) => (
                     <option key={k} value={k}>
                       {d.name}
                     </option>
@@ -724,7 +788,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       <details className="rounded-2xl border border-slate-200 dark:border-slate-700 p-3">
         <summary className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 cursor-pointer">Save a defense-only card</summary>
         <div className="flex flex-wrap gap-2 mt-2">
-          {Object.entries(OUR_DEFENSE_LOOKS).map(([k, d]) => (
+          {Object.entries(looks).map(([k, d]) => (
             <button
               key={k}
               type="button"

@@ -181,6 +181,7 @@ import { FilmRoomView } from './filmroom/FilmRoomView';
 import { buildLibrary } from './filmroom/FilmLibrary';
 import { bundleFromSaved } from './hudlScout/scoutBundle';
 import { DEFAULT_BALANCED, setBalancedFormations } from './hudlScout/utils/strength';
+import { setDefenseSystem } from './hudlScout/utils/ourDefense';
 import { HudlScoutSections, type HudlSection } from './components/scouting/HudlScoutSections';
 import { TendenciesView } from './components/scouting/TendenciesView';
 import { PlaybookGuidesView } from './components/PlaybookGuidesView';
@@ -4394,6 +4395,8 @@ export default function App() {
   }, [teams, accessibleTeams, activeTeamId]);
   // Strong / weak side: this team's balanced formations (no strong side), used by every report and log.
   setBalancedFormations((currentActiveTeam as Team).balancedFormations);
+  // Our defense (Our defense card): the scouting calls and the play builder's defenses use it.
+  setDefenseSystem((currentActiveTeam as Team).defenseSystem);
 
   // Filter roster, schedule events, and practice plans by active team (strictly isolated)
   const activeTeamRoster = React.useMemo(() => {
@@ -7052,6 +7055,14 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onChangeDefenseSystem={
                   mayEditTeam(activeTeamId) ? (next) => handleUpdateTeam(activeTeamId, { defenseSystem: next }) : undefined
                 }
+                onRemoveDrawnPlays={(ids) => {
+                  const teamId = activeTeamIdRef.current;
+                  const mine = (latestStateRef.current.playDatabase || []).filter((p) => p && sameTeamId(playTeamOf(p), teamId));
+                  const gone = new Set(ids.filter((id) => mine.some((p) => p.id === id)));
+                  if (!gone.size) return;
+                  handleUpdateTeamPlayDatabase(mine.filter((p) => !gone.has(p.id)));
+                  handleUpdateDeletedPlayIds(Array.from(new Set([...(latestStateRef.current.deletedPlayIds || []), ...gone])));
+                }}
                 onDrawPlay={(play) => {
                   const entryId = `scout_${play.id}`;
                   const teamId = activeTeamIdRef.current;
@@ -7087,6 +7098,8 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                     gameId: play.gameId,
                     playEntryId: entryId,
                     snaps: snapsForCall(linked, play.gameId, play.name, entryId),
+                    // A play drawn before re-opens as it was left.
+                    builder: mine.find((p) => p.id === entryId)?.builder,
                   });
                   holdPlayBuilderSeed();
                   setActiveUnit('playbook');

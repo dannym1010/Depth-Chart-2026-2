@@ -89,6 +89,8 @@ export interface HudlScoutViewProps {
   onChangeDefenseSystem?: (next: DefenseSystem) => void;
   /** Open the play builder to draw this opponent play. */
   onDrawPlay?: (play: ScoutOppPlay) => void;
+  /** Opponent plays removed from Their plays: delete the diagrams drawn for them. */
+  onRemoveDrawnPlays?: (playEntryIds: string[]) => void;
 }
 
 export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
@@ -117,6 +119,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   defenseSystem: teamDefense,
   onChangeDefenseSystem,
   onDrawPlay,
+  onRemoveDrawnPlays,
 }) => {
   // The calls read our defense from the scouting helpers; rebuild them when it changes.
   setDefenseSystem(teamDefense);
@@ -691,6 +694,9 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
               setSelectedGameId(id);
             }}
             onSave={(playLibraries, deletedOppPlayIds, practiceScript) => {
+              const before = new Set(bundle.deletedOppPlayIds || []);
+              const gone = deletedOppPlayIds.filter((id) => !before.has(id));
+              if (gone.length) onRemoveDrawnPlays?.(gone.map((id) => `scout_${id}`));
               setBundle((prev) => ({ ...prev, playLibraries, deletedOppPlayIds, practiceScript, updatedAt: Date.now() }));
             }}
             onDraw={onDrawPlay}

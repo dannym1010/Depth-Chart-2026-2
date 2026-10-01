@@ -113,6 +113,28 @@ export interface CallSheetFullData {
 
 export type CallSheetData = CallSheetFullData;
 
+/** Everything the play builder needs to re-open a play: the look, the play, the moved spots and the lines drawn. */
+export interface PlayBuilderState {
+  personnel: number;
+  baseKey: string;
+  backfield: string;
+  conceptKey: string;
+  runId: string;
+  family: 'all' | 'run' | 'pass' | 'option' | 'screen';
+  strength: 'Left' | 'Right';
+  hash: 'Left' | 'Middle' | 'Right';
+  hole: number | '';
+  ball: string;
+  tags: string[];
+  coachNote: string;
+  situations: string[];
+  defenseKey: string;
+  putDefInName: boolean;
+  overrides: Record<string, { x: number; y: number }>;
+  /** The lines as the coach drew them (missing = the builder's own drawing). */
+  strokes?: unknown[];
+}
+
 export interface PlayDatabaseEntry {
   id: string;
   name: string;
@@ -140,6 +162,8 @@ export interface PlayDatabaseEntry {
   tags?: string[];
   /** Our defensive look drawn / saved with this offensive play. */
   vsDefense?: string;
+  /** The play builder's settings for this play, so its diagram re-opens as it was left. */
+  builder?: PlayBuilderState;
   notes?: string;
   isFavorite?: boolean;
   /** Playbook section the play sits under in Hudl (e.g. "PLAY ACTION PASS"). */

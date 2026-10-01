@@ -1,4 +1,6 @@
-/** A scout play handed to the play builder so the coach can draw it. */
+import type { PlayBuilderState } from '../types/callSheet';
+
+/** A play handed to the play builder: an opponent's play from Their plays, or one of ours to edit. */
 export interface PlayBuilderSeed {
   name: string;
   personnel?: string;
@@ -13,6 +15,8 @@ export interface PlayBuilderSeed {
   playEntryId?: string;
   /** Film snaps of this call, in play order. Their clips are the videos for the play. */
   snaps?: { id: string; playNumber: number; gain?: number; result?: string }[];
+  /** The builder's settings saved with that play, to pick up where it was left. */
+  builder?: PlayBuilderState;
 }
 
 const KEY = 'playBuilderSeed';

@@ -81,7 +81,12 @@ export const PlayLibraryView: React.FC<Props> = ({
   const [importing, setImporting] = useState(false);
   const [toast, setToast] = useState<{ msg: string; undo?: () => void } | null>(null);
   const [zoom, setZoom] = useState<PlayDatabaseEntry | null>(null);
-  const [builderSeed] = useState<PlayBuilderSeed | null>(() => peekPlayBuilderSeed());
+  const [builderSeed, setBuilderSeed] = useState<PlayBuilderSeed | null>(() => peekPlayBuilderSeed());
+  // One of our plays opened in the builder from its row (saving updates that play).
+  const openInBuilder = (p: PlayDatabaseEntry) => {
+    setBuilderSeed({ name: p.name, playEntryId: p.id, builder: p.builder });
+    goPane('builder');
+  };
   const [pane, setPane] = useState<LibraryPane>(() => {
     if (builderSeed) return 'builder';
     try {
@@ -240,7 +245,7 @@ export const PlayLibraryView: React.FC<Props> = ({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {builderSeed && onBackToPlayList && (
+            {builderSeed?.scoutId && onBackToPlayList && (
               <button
                 type="button"
                 onClick={onBackToPlayList}
@@ -261,7 +266,11 @@ export const PlayLibraryView: React.FC<Props> = ({
               </button>
               <button
                 type="button"
-                onClick={() => goPane('builder')}
+                onClick={() => {
+                  // "Play builder" from the tabs starts a new play (an opponent's play stays open).
+                  if (builderSeed && !builderSeed.scoutId) setBuilderSeed(null);
+                  goPane('builder');
+                }}
                 className={`h-10 px-3.5 inline-flex items-center gap-1.5 cursor-pointer ${
                   pane === 'builder' ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200'
                 }`}
@@ -321,10 +330,10 @@ export const PlayLibraryView: React.FC<Props> = ({
 
       {pane === 'builder' ? (
       <PlayBuilderSection
-        key={builderSeed?.name || 'new'}
+        key={builderSeed?.playEntryId || builderSeed?.name || 'new'}
         canEdit={canEdit}
         seed={builderSeed}
-        onBack={builderSeed && onBackToPlayList ? onBackToPlayList : undefined}
+        onBack={builderSeed?.scoutId && onBackToPlayList ? onBackToPlayList : undefined}
         onRename={
           builderSeed?.scoutId && onRenameScoutPlay
             ? (from, to) =>
@@ -348,11 +357,22 @@ export const PlayLibraryView: React.FC<Props> = ({
         }
         onAdd={(entry) => {
           const linked = builderSeed?.playEntryId;
-          const saved = linked ? { ...entry, id: linked, source: 'scout', category: 'Opponent plays' } : entry;
-          const exists = linked && playDatabase.some((p) => p.id === linked);
-          onUpdatePlayDatabase(exists ? playDatabase.map((p) => (p.id === linked ? { ...p, ...saved, id: linked } : p)) : [...playDatabase, saved]);
-          if (builderSeed) {
-            showToast(`Saved ${entry.name}`);
+          const scout = Boolean(builderSeed?.scoutId);
+          const existing = linked ? playDatabase.find((p) => p.id === linked) : undefined;
+          // Fields the builder left blank keep what the play had (wristband number, section...).
+          const drawn = Object.fromEntries(Object.entries(entry).filter(([, v]) => v !== undefined)) as PlayDatabaseEntry;
+          // One of our plays only takes the picture from the builder (and its name): its formation,
+          // assignments, notes, section and wristband number stay as the coach set them.
+          const saved: PlayDatabaseEntry = linked
+            ? scout || !existing
+              ? { ...drawn, id: linked, ...(scout ? { source: 'scout', category: 'Opponent plays' } : {}) }
+              : { ...existing, name: drawn.name, diagramUrl: drawn.diagramUrl, builder: drawn.builder, vsDefense: drawn.vsDefense }
+            : entry;
+          onUpdatePlayDatabase(existing ? playDatabase.map((p) => (p.id === linked ? { ...p, ...saved, id: linked } : p)) : [...playDatabase, saved]);
+          if (linked) {
+            // Keep the builder on this play, so the next Save updates it again.
+            setBuilderSeed((s) => (s ? { ...s, name: saved.name, builder: saved.builder } : s));
+            showToast(`Saved ${saved.name}`);
             return;
           }
           setSection('Play builder');
@@ -548,6 +568,7 @@ export const PlayLibraryView: React.FC<Props> = ({
                       onDelete={() => window.confirm(`Delete ${p.name}?`) && remove([p.id])}
                       diagram={diagramOf(p)}
                       onZoom={() => setZoom(p)}
+                      onOpenBuilder={canEdit && p.unit === 'offense' ? () => openInBuilder(p) : undefined}
                     />
                     </React.Fragment>
                   ))}
@@ -632,7 +653,9 @@ const PlayRow: React.FC<{
   onDelete: () => void;
   diagram?: string;
   onZoom: () => void;
-}> = ({ play, result, open, onToggle, selected, onSelect, canEdit, onUpdate, onDelete, diagram, onZoom }) => {
+  /** Open this play in the play builder to draw or change its diagram. */
+  onOpenBuilder?: () => void;
+}> = ({ play, result, open, onToggle, selected, onSelect, canEdit, onUpdate, onDelete, diagram, onZoom, onOpenBuilder }) => {
   return (
     <div className={open ? 'bg-slate-50/70 dark:bg-slate-950/40' : ''}>
       <div className="flex items-center gap-2 px-3 py-2">
@@ -688,6 +711,15 @@ const PlayRow: React.FC<{
           {diagram && (
             <button type="button" onClick={onZoom} className="block w-full max-w-2xl rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden bg-white cursor-zoom-in" aria-label={`Open the diagram for ${play.name}`}>
               <DiagramImage url={diagram} alt={`${play.name} diagram`} className="w-full" />
+            </button>
+          )}
+          {onOpenBuilder && (
+            <button
+              type="button"
+              onClick={onOpenBuilder}
+              className="h-8 px-3 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-black text-slate-800 dark:text-slate-100 inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <LayoutGrid className="w-3.5 h-3.5" /> {play.builder ? 'Edit in play builder' : 'Draw in play builder'}
             </button>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
