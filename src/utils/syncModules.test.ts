@@ -3100,6 +3100,154 @@ describe('play library order', () => {
   });
 });
 
+describe('play builder engine', () => {
+  it('assembles 21 Pro I-Form toss as 11 players with a Hudl name', async () => {
+    const { assemblePlay, isValidEleven, compatibleBackfields, autoDrawPlay, findBack } = await import('./footballEngine.ts');
+    const play = assemblePlay('21_PRO', 'I_FORM', '31_TOSS', 'Right');
+    assert.equal(play.nodes.length, 11);
+    assert.ok(findBack(play.nodes, 1));
+    assert.ok(findBack(play.nodes, 2));
+    assert.ok(findBack(play.nodes, 3));
+    assert.equal(play.hudlExport.OFF_FORM, 'Pro');
+    assert.equal(play.hudlExport.BACKFIELD, 'I-Form');
+    assert.ok(play.playName.includes('31 Toss Sweep'));
+    assert.equal(play.metadata.targetHole, 1);
+    assert.equal(isValidEleven('21_PRO', 'I_FORM'), true);
+    assert.ok(compatibleBackfields('21_PRO').includes('I_FORM'));
+    assert.ok(compatibleBackfields('21_PRO').includes('I_OFFSET_R'));
+    assert.ok(compatibleBackfields('21_PRO').includes('WILDCAT'));
+    const beast = assemblePlay('21_BEAST', 'WING_T', 'BEAST_SWEEP', 'Right');
+    assert.equal(beast.nodes.length, 11);
+    assert.equal(beast.hudlExport.OFF_FORM, 'Beast');
+    assert.equal(beast.hudlExport.BACKFIELD, 'Wing-T');
+    const twinsOpt = assemblePlay('21_TWINS_I', 'WING_T', 'TWINS_OPTION', 'Right');
+    assert.ok(twinsOpt.playName.includes('Twins Speed Option'));
+    const gunI = assemblePlay('21_PRO', 'GUN_I', '32_POWER', 'Right');
+    assert.equal(gunI.nodes.length, 11);
+    const { OUR_DEFENSE_LOOKS, conceptFamily, PLAY_CONCEPTS } = await import('./footballEngine.ts');
+    assert.equal(OUR_DEFENSE_LOOKS['44_C3_LIZ'].nodes.length, 11);
+    assert.equal(conceptFamily(PLAY_CONCEPTS.SMASH), 'pass');
+    const lines = autoDrawPlay({
+      nodes: play.nodes,
+      hole: 1,
+      primaryBack: 3,
+      concept: PLAY_CONCEPTS['31_TOSS'].concept,
+      scheme: PLAY_CONCEPTS['31_TOSS'].scheme,
+      tags: ['Jet'],
+      family: conceptFamily(PLAY_CONCEPTS['31_TOSS']),
+    });
+    assert.ok(lines.some((s) => s.kind === 'run' && s.points[s.points.length - 1].x > 4));
+    assert.ok(lines.length >= 2);
+  });
+
+  it('numbers running holes from Center: 5 over C, 6 C-LG, 7 LG-T', async () => {
+    const { assemblePlay, runningHoleXs } = await import('./footballEngine.ts');
+    const right = assemblePlay('21_PRO', 'I_FORM', '26_DIVE', 'Right');
+    const xs = runningHoleXs(right.nodes);
+    const C = right.nodes.find((n) => n.role === 'C')!.x;
+    const LG = right.nodes.find((n) => n.role === 'LG')!.x;
+    const LT = right.nodes.find((n) => n.role === 'LT')!.x;
+    const RG = right.nodes.find((n) => n.role === 'RG')!.x;
+    assert.equal(xs[5], C);
+    assert.equal(xs[6], (C + LG) / 2);
+    assert.equal(xs[7], (LG + LT) / 2);
+    assert.ok(xs[6] < xs[5]);
+    assert.ok(xs[4] > xs[5]);
+    assert.equal(xs[4], (C + RG) / 2);
+    const left = assemblePlay('21_PRO', 'I_FORM', '26_DIVE', 'Left');
+    const lxs = runningHoleXs(left.nodes);
+    const lgL = left.nodes.find((n) => n.role === 'LG')!.x;
+    assert.equal(lxs[6], (left.nodes.find((n) => n.role === 'C')!.x + lgL) / 2);
+    assert.ok(lxs[6] < 0);
+  });
+
+  it('numbers the QB as 1 and applies tags to the diagram', async () => {
+    const { assemblePlay, applyFormationTags, resolveTaggedCall, autoDrawPlay, conceptFamily, PLAY_CONCEPTS, diagramLabel } = await import('./footballEngine.ts');
+    assert.equal(diagramLabel('1'), '1');
+    const pro = assemblePlay('21_PRO', 'I_FORM', '31_TOSS', 'Right');
+    const x0 = pro.nodes.find((n) => n.role === 'X')!.x;
+    const tight = applyFormationTags(pro.nodes, ['Tight'], 'Right');
+    assert.ok(Math.abs(tight.find((n) => n.role === 'X')!.x) < Math.abs(x0));
+    const flex = applyFormationTags(pro.nodes, ['Flex'], 'Right');
+    assert.ok(Math.abs(flex.find((n) => n.role === 'Y')!.x) > Math.abs(pro.nodes.find((n) => n.role === 'Y')!.x));
+    const keep = resolveTaggedCall({ hole: 7, primaryBack: 4, family: 'run', tags: ['Keep'], hasBack: () => true });
+    assert.equal(keep.primaryBack, 1);
+    const stretch = resolveTaggedCall({ hole: 7, primaryBack: 4, family: 'run', tags: ['Stretch'] });
+    assert.equal(stretch.hole, 9);
+    const thump = assemblePlay('32_WISHBONE', 'WISHBONE', '47_ZONE', 'Left', ['Thumper']);
+    const y1 = thump.nodes.find((n) => n.role === 'Y1')!;
+    const y2 = thump.nodes.find((n) => n.role === 'Y2')!;
+    const lt = thump.nodes.find((n) => n.role === 'LT')!.x;
+    assert.ok(y1.x < 0 && y2.x < 0);
+    assert.ok(y1.line && y2.line);
+    assert.ok(Math.min(y1.x, y2.x) < lt);
+    assert.ok(Math.max(y1.x, y2.x) < 0);
+    const bone = assemblePlay('32_WISHBONE', 'WISHBONE', '47_ZONE', 'Left', ['Jet']);
+    const jet = autoDrawPlay({
+      nodes: bone.nodes,
+      hole: 7,
+      primaryBack: 4,
+      concept: PLAY_CONCEPTS['47_ZONE'].concept,
+      scheme: PLAY_CONCEPTS['47_ZONE'].scheme,
+      tags: ['Jet'],
+      family: conceptFamily(PLAY_CONCEPTS['47_ZONE']),
+    });
+    assert.ok(jet.some((s) => s.kind === 'run' && s.points.length >= 3 && Math.abs(s.points[0].x) > 4));
+  });
+
+  it('every backfield uses 1-2-3-4 and textbook alignment', async () => {
+    const { BACKFIELD_STRUCTURES } = await import('./footballEngine.ts');
+    const keys = Object.keys(BACKFIELD_STRUCTURES);
+    assert.ok(keys.length >= 40);
+    for (const key of keys) {
+      const b = BACKFIELD_STRUCTURES[key];
+      const roles = b.nodes.map((n) => n.role);
+      assert.equal(new Set(roles).size, roles.length, key);
+      assert.ok(roles.every((r) => /^[1-4]$/.test(r)), key);
+      if (key !== 'WILDCAT') assert.ok(roles.includes('1'), key);
+      for (let i = 0; i < b.nodes.length; i++) {
+        for (let j = i + 1; j < b.nodes.length; j++) {
+          const a = b.nodes[i];
+          const c = b.nodes[j];
+          assert.ok(Math.hypot(a.x - c.x, a.y - c.y) > 0.9, `${key} ${a.role}/${c.role} overlap`);
+        }
+      }
+    }
+    const bone = BACKFIELD_STRUCTURES.WISHBONE.nodes;
+    assert.equal(bone.find((n) => n.role === '2')!.x, 0);
+    assert.ok(bone.find((n) => n.role === '3')!.x < 0);
+    assert.ok(bone.find((n) => n.role === '4')!.x > 0);
+    const gunI = BACKFIELD_STRUCTURES.GUN_I.nodes;
+    const q = gunI.find((n) => n.role === '1')!;
+    const f = gunI.find((n) => n.role === '2')!;
+    const t = gunI.find((n) => n.role === '3')!;
+    assert.ok(q.y < -4);
+    assert.ok(f.y < q.y);
+    assert.ok(t.y < f.y);
+    assert.ok(BACKFIELD_STRUCTURES.KING.nodes.find((n) => n.role === '3')!.x < 0);
+    assert.ok(BACKFIELD_STRUCTURES.QUEEN.nodes.find((n) => n.role === '3')!.x > 0);
+    const { BASE_FORMATIONS, isValidEleven, compatibleBackfields, assemblePlay, autoDrawPlay } = await import('./footballEngine.ts');
+    for (const key of Object.keys(BASE_FORMATIONS)) {
+      const backs = compatibleBackfields(key);
+      assert.ok(backs.length > 0, key);
+      assert.equal(isValidEleven(key, backs[0]), true, key);
+    }
+    const dw = assemblePlay('32_DOUBLE_WING', 'DOUBLE_WING', '38_POWER', 'Right');
+    assert.equal(dw.nodes.length, 11);
+    assert.ok(dw.nodes.some((n) => n.role === '3' && n.x < -4));
+    const power = autoDrawPlay({
+      nodes: dw.nodes,
+      hole: 8,
+      primaryBack: 3,
+      concept: '38 Power',
+      scheme: 'Power',
+      tags: [],
+      family: 'run',
+    });
+    assert.ok(power.some((s) => s.kind === 'block' && s.points.length >= 4));
+  });
+});
+
 describe('this device\'s storage', () => {
   it('stores each week once and moves film out, and reads it back the same', async () => {
     const { packWeeklyData, unpackWeeklyData } = await import('./bigLocalStore.ts');
@@ -3943,5 +4091,16 @@ describe('our defense in the scouting calls', () => {
     assert.match(formationCounter('22 R', true), /check 5-3.*DEs have contain/);
     assert.match(formationCounter('Trips Rt', false), /4-4 Cover 3\. OLBs keep contain/);
     setDefenseSystem(undefined);
+  });
+});
+
+describe('opponent plays drawn from Their plays stay out of our playbook', () => {
+  it('a scout_ row or a scout source is an opponent play; our plays are not', async () => {
+    const { isScoutPlayEntry } = await import('./scoutOppPlays.ts');
+    assert.equal(isScoutPlayEntry({ id: 'scout_opp-1', source: 'builder' }), true);
+    assert.equal(isScoutPlayEntry({ id: 'p1', source: 'scout' }), true);
+    assert.equal(isScoutPlayEntry({ id: 'p1', source: 'builder' }), false);
+    assert.equal(isScoutPlayEntry({ id: 'p2' }), false);
+    assert.equal(isScoutPlayEntry(null), false);
   });
 });

@@ -425,6 +425,10 @@ export interface ScoutingData {
       sourceCleared?: boolean;
       updatedAt?: number;
     };
+    /** Their plays for each scouting film (keyed by game id), removed ones, and the script built from them. */
+    playLibraries?: Record<string, import('./utils/scoutOppPlays').ScoutOppPlay[]>;
+    deletedOppPlayIds?: string[];
+    practiceScript?: import('./utils/scoutOppPlays').ScoutPracticeScript;
     updatedAt?: number;
   };
 }

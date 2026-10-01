@@ -2,6 +2,7 @@ import type { Play } from './types/football';
 import type { FilterState } from './components/report/FilterPanel';
 import type { ScoutGame } from './components/Header';
 import { splitTaggedCalls } from './utils/playTags';
+import type { ScoutOppPlay, ScoutPracticeScript } from '../utils/scoutOppPlays';
 
 export const DEFAULT_SCOUT_FILTERS: FilterState = {
   odk: 'O',
@@ -41,6 +42,12 @@ export interface ScoutBundle {
   callSheet?: CallSheetEdits;
   /** Games a coach removed or replaced, so an older copy can't bring them back. */
   deletedGameIds?: string[];
+  /** Opponent plays for each scouting film. Keyed by game id. */
+  playLibraries?: Record<string, ScoutOppPlay[]>;
+  /** Plays removed from a film's library, so an older copy can't bring them back. */
+  deletedOppPlayIds?: string[];
+  /** Practice script built from the plays checked onto this report. */
+  practiceScript?: ScoutPracticeScript;
 }
 
 export function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
@@ -65,6 +72,9 @@ export function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
         ? { ...saved.callSheet, sections: saved.callSheet.sections && typeof saved.callSheet.sections === 'object' ? saved.callSheet.sections : {} }
         : undefined,
     deletedGameIds: Array.isArray(saved?.deletedGameIds) ? saved.deletedGameIds : undefined,
+    playLibraries: saved?.playLibraries && typeof saved.playLibraries === 'object' ? saved.playLibraries : {},
+    deletedOppPlayIds: Array.isArray(saved?.deletedOppPlayIds) ? saved.deletedOppPlayIds : [],
+    practiceScript: saved?.practiceScript && typeof saved.practiceScript === 'object' ? saved.practiceScript : undefined,
   };
 }
 
@@ -100,6 +110,7 @@ export function removeScoutGame(bundle: ScoutBundle, gameId: string, fallbackNam
     })),
     datasetName: remainingGames[0]?.name || fallbackName,
     sourceCleared: false,
+    playLibraries: Object.fromEntries(Object.entries(bundle.playLibraries || {}).filter(([id]) => id !== gameId)),
     updatedAt: Date.now(),
   };
 }

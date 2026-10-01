@@ -116,6 +116,7 @@ export const Header: React.FC<HeaderProps> = ({
     ['players', 'Players'],
     ...(own ? ([['units', 'Black / Blue / Gold']] as [string, string][]) : []),
     ['gameplan', own ? 'Self-scout plan' : 'Game plan'],
+    ...(own ? [] : ([['theirplays', 'Their plays']] as [string, string][])),
     ['plays', `Play log (${totalPlays})`],
   ];
 

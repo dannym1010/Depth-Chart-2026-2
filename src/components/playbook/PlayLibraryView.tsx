@@ -1,11 +1,14 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Film, Image as ImageIcon, Library, ListChecks, Plus, Search, Trash2, Undo2, Upload, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Film, Image as ImageIcon, LayoutGrid, Library, ListChecks, Plus, Search, Trash2, Undo2, Upload, X, ArrowLeft } from 'lucide-react';
 import type { PlayAssignment, PlayDatabaseEntry, PlayType } from '../../types/callSheet';
 import type { UserRole } from '../../types';
 import { bundleFromSaved } from '../../hudlScout/scoutBundle';
 import { CallResult, callResults } from '../../hudlScout/utils/playTags';
 import { compareByFormation, formationGroupOf, newPlayEntry, playNameKey, playSideOf } from '../../utils/playbookImport';
 import { PlaybookImportModal } from './PlaybookImportModal';
+import { PlayBuilderSection } from './PlayBuilderSection';
+import { peekPlayBuilderSeed, type PlayBuilderSeed } from '../../utils/playBuilderSeed';
+import { isScoutPlayEntry } from '../../utils/scoutOppPlays';
 import { unsavedDiagram } from '../../utils/playDiagrams';
 import { DiagramImage } from './DiagramImage';
 
@@ -24,6 +27,12 @@ interface Props {
   userRole: UserRole;
   onOpenScouting?: () => void;
   onOpenPff?: () => void;
+  /** Leave a scout play's diagram and return to Their plays. */
+  onBackToPlayList?: () => void;
+  /** A renamed scout play: update Their plays and the film snaps. */
+  onRenameScoutPlay?: (change: { from: string; to: string; scoutId?: string; gameId?: string; playEntryId?: string }) => void;
+  /** Watch the film snaps linked to the play open in the builder. */
+  onWatchScoutFilm?: (cutup: { gameId: string; playIds: string[]; label: string }, seed: PlayBuilderSeed) => void;
 }
 
 const TYPES: { id: PlayType; label: string }[] = [
@@ -42,6 +51,8 @@ const typeLabel = (t: string) => TYPES.find((x) => x.id === t)?.label || t;
 
 type SortKey = 'formation' | 'section' | 'name' | 'used' | 'avg';
 
+type LibraryPane = 'library' | 'builder';
+
 const input =
   'h-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500';
 
@@ -55,6 +66,9 @@ export const PlayLibraryView: React.FC<Props> = ({
   userRole,
   onOpenScouting,
   onOpenPff,
+  onBackToPlayList,
+  onRenameScoutPlay,
+  onWatchScoutFilm,
 }) => {
   const canEdit = userRole === 'admin' || userRole === 'assistant';
   const [query, setQuery] = useState('');
@@ -67,6 +81,23 @@ export const PlayLibraryView: React.FC<Props> = ({
   const [importing, setImporting] = useState(false);
   const [toast, setToast] = useState<{ msg: string; undo?: () => void } | null>(null);
   const [zoom, setZoom] = useState<PlayDatabaseEntry | null>(null);
+  const [builderSeed] = useState<PlayBuilderSeed | null>(() => peekPlayBuilderSeed());
+  const [pane, setPane] = useState<LibraryPane>(() => {
+    if (builderSeed) return 'builder';
+    try {
+      return localStorage.getItem('playLibraryPane') === 'builder' ? 'builder' : 'library';
+    } catch {
+      return 'library';
+    }
+  });
+  const goPane = (next: LibraryPane) => {
+    setPane(next);
+    try {
+      localStorage.setItem('playLibraryPane', next);
+    } catch {
+      /* per-device */
+    }
+  };
   // Formation / section groups the coach closed (remembered on this device).
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     try {
@@ -86,7 +117,9 @@ export const PlayLibraryView: React.FC<Props> = ({
   // The factory sample plays stay out of the library unless the coach asks to see them.
   const [showSamples, setShowSamples] = useState(false);
   const sampleCount = useMemo(() => playDatabase.filter(isBuiltInSample).length, [playDatabase]);
-  const myPlays = useMemo(() => (showSamples ? playDatabase : playDatabase.filter((p) => !isBuiltInSample(p))), [playDatabase, showSamples]);
+  // Opponent plays drawn from Hudl Scout's Their plays are kept there, not listed with ours.
+  const ourPlays = useMemo(() => playDatabase.filter((p) => !isScoutPlayEntry(p)), [playDatabase]);
+  const myPlays = useMemo(() => (showSamples ? ourPlays : ourPlays.filter((p) => !isBuiltInSample(p))), [ourPlays, showSamples]);
   const toastTimer = useRef<any>(null);
 
   const showToast = (msg: string, undo?: () => void) => {
@@ -206,7 +239,37 @@ export const PlayLibraryView: React.FC<Props> = ({
               </p>
             </div>
           </div>
-          {canEdit && (
+          <div className="flex flex-wrap items-center gap-2">
+            {builderSeed && onBackToPlayList && (
+              <button
+                type="button"
+                onClick={onBackToPlayList}
+                className="h-10 px-3 rounded-xl border border-slate-300 dark:border-slate-600 text-sm font-black text-slate-800 dark:text-slate-100 inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4" /> Back
+              </button>
+            )}
+            <div className="flex rounded-xl border border-slate-300 dark:border-slate-600 overflow-hidden text-xs font-black">
+              <button
+                type="button"
+                onClick={() => goPane('library')}
+                className={`h-10 px-3.5 inline-flex items-center gap-1.5 cursor-pointer ${
+                  pane === 'library' ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                <Library className="w-4 h-4" /> Library
+              </button>
+              <button
+                type="button"
+                onClick={() => goPane('builder')}
+                className={`h-10 px-3.5 inline-flex items-center gap-1.5 cursor-pointer ${
+                  pane === 'builder' ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                <LayoutGrid className="w-4 h-4" /> Play builder
+              </button>
+            </div>
+          {canEdit && pane === 'library' && (
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -224,8 +287,9 @@ export const PlayLibraryView: React.FC<Props> = ({
               </button>
             </div>
           )}
+          </div>
         </div>
-        {/* How it connects */}
+        {pane === 'library' && (
         <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
           <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
             <div className="font-black text-slate-900 dark:text-white">1 · Import your playbook</div>
@@ -252,8 +316,53 @@ export const PlayLibraryView: React.FC<Props> = ({
             <div className="text-slate-600 dark:text-slate-400 mt-0.5">Same play log. Players fill in from the called formation’s depth chart.</div>
           </button>
         </div>
+        )}
       </div>
 
+      {pane === 'builder' ? (
+      <PlayBuilderSection
+        key={builderSeed?.name || 'new'}
+        canEdit={canEdit}
+        seed={builderSeed}
+        onBack={builderSeed && onBackToPlayList ? onBackToPlayList : undefined}
+        onRename={
+          builderSeed?.scoutId && onRenameScoutPlay
+            ? (from, to) =>
+                onRenameScoutPlay({
+                  from,
+                  to,
+                  scoutId: builderSeed.scoutId,
+                  gameId: builderSeed.gameId,
+                  playEntryId: builderSeed.playEntryId,
+                })
+            : undefined
+        }
+        onWatchFilm={
+          builderSeed?.gameId && builderSeed.snaps?.length && onWatchScoutFilm
+            ? (label) =>
+                onWatchScoutFilm(
+                  { gameId: builderSeed.gameId!, playIds: builderSeed.snaps!.map((s) => s.id), label },
+                  { ...builderSeed, name: label }
+                )
+            : undefined
+        }
+        onAdd={(entry) => {
+          const linked = builderSeed?.playEntryId;
+          const saved = linked ? { ...entry, id: linked, source: 'scout', category: 'Opponent plays' } : entry;
+          const exists = linked && playDatabase.some((p) => p.id === linked);
+          onUpdatePlayDatabase(exists ? playDatabase.map((p) => (p.id === linked ? { ...p, ...saved, id: linked } : p)) : [...playDatabase, saved]);
+          if (builderSeed) {
+            showToast(`Saved ${entry.name}`);
+            return;
+          }
+          setSection('Play builder');
+          setOpenId(entry.id);
+          goPane('library');
+          showToast(`Added ${entry.name}`);
+        }}
+      />
+      ) : (
+      <>
       {/* Filters */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 flex flex-wrap items-center gap-2 sticky top-[62px] sm:top-2 z-20 shadow-sm">
         <div className="relative flex-1 min-w-[180px]">
@@ -449,6 +558,8 @@ export const PlayLibraryView: React.FC<Props> = ({
           })}
         </div>
       )}
+      </>
+      )}
 
       {importing && (
         <PlaybookImportModal
@@ -552,6 +663,7 @@ const PlayRow: React.FC<{
               </span>{' '}
               · {typeLabel(play.type)}
               {play.formation ? ` · ${play.formation}` : ''}
+              {play.vsDefense ? ` · vs ${play.vsDefense}` : ''}
               {play.wristbandNum ? ` · Wristband ${play.wristbandNum}` : ''}
               {play.assignments?.length ? ` · ${play.assignments.length} jobs` : ''}
             </span>

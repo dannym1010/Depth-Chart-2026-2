@@ -3,7 +3,7 @@
 // whole staff sees. The play log under the video is Hudl Scout's own: sorting it sets the play order, and
 // tags changed here are the same tags Hudl Scout shows.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink } from 'lucide-react';
+import { ExternalLink, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft } from 'lucide-react';
 import { PlaysTable } from '../hudlScout/components/PlaysTable';
 import { bundleFromSaved, type ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play, TeamUnit } from '../hudlScout/types/football';
@@ -15,6 +15,7 @@ import type { PlayDatabaseEntry } from '../types/callSheet';
 import { filmLineup, setPlayBallPlayer, setPlayDefPlay, setPlaySub, type BallRole, type WeekBoards } from '../utils/filmLineup';
 import { newPlayEntry } from '../utils/playbookImport';
 import { clipMatchMode, matchClipsToPlays } from './clipMatching';
+import { clearFilmCutup, peekFilmCutup, type FilmCutup } from '../utils/filmCutup';
 import { FilmPlayer, type PlayerApi } from './FilmPlayer';
 import { LinkFilmDialog } from './LinkFilmDialog';
 import { FilmLibrary, buildLibrary, type LibraryGame } from './FilmLibrary';
@@ -54,6 +55,8 @@ interface FilmRoomViewProps {
   onSelectWeek?: (week: string) => void;
   /** Save a week's scouting film (a breakdown file found in that week's folder). */
   onSaveWeekScouting?: (week: string, hudlScout: any) => void;
+  /** Leave a cutup of one play and return to the play builder. */
+  onBackToPlay?: () => void;
 }
 
 type OdkFilter = 'all' | 'O' | 'D' | 'K';
@@ -63,7 +66,7 @@ const newId = () => `fn_${Date.now().toString(36)}${Math.random().toString(36).s
 export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   teamId, teamName, currentWeek, weekLabel, opponentName, opponentScout, ownTeamScout, authorName, onOpenHudlGame,
   onUpdateOwnTeamScout, onUpdateScouting, playDatabase, onUpdatePlayDatabase, roster, weekBoards, weekOptions,
-  filmWeeks, onSelectWeek, onSaveWeekScouting,
+  filmWeeks, onSelectWeek, onSaveWeekScouting, onBackToPlay,
 }) => {
   const own = useMemo(() => bundleFromSaved(ownTeamScout, teamName), [ownTeamScout, teamName]);
   const opp = useMemo(() => bundleFromSaved(opponentScout, opponentName || 'Opponent'), [opponentScout, opponentName]);
@@ -79,6 +82,12 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   // The film library: every week of the season with our game and that week's scouting film.
   const library = useMemo(() => buildLibrary(filmWeeks || [], own.games, currentWeek, opponentScout), [filmWeeks, own.games, opponentScout, currentWeek]);
 
+  // One play's snaps from the play builder ("Watch film"). Showing the whole game, or picking another, ends it.
+  const [cutup, setCutup] = useState<FilmCutup | null>(() => peekFilmCutup());
+  const endCutup = () => {
+    setCutup(null);
+    clearFilmCutup();
+  };
   const pickKey = `footballFilmroomGame_${teamId}`;
   const [gameKey, setGameKey] = useState<string | undefined>(() => safeJSONParse<string | null>(pickKey, null) || undefined);
   const game = games.find((g) => g.key === gameKey) || games[0];
@@ -96,7 +105,13 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   }, [game, own, opp]);
 
   const [odk, setOdk] = useState<OdkFilter>('all');
-  const shownPlays = useMemo(() => (odk === 'all' ? plays : plays.filter((p) => p.odk === odk)), [plays, odk]);
+  const shownPlays = useMemo(() => {
+    const base = odk === 'all' ? plays : plays.filter((p) => p.odk === odk);
+    if (!cutup) return base;
+    const want = new Set(cutup.playIds);
+    const byId = new Map(base.filter((p) => want.has(p.id)).map((p) => [p.id, p]));
+    return cutup.playIds.map((id) => byId.get(id)).filter(Boolean) as Play[];
+  }, [plays, odk, cutup]);
 
   const { shared, update } = useSharedGame(teamId, game?.key);
   // Unlinking saves an empty link (newest wins when coaches' copies merge, so it doesn't come back).
@@ -152,7 +167,22 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     resumeAt.current = 0;
     setPlayIdState(id);
   }, []);
-  useEffect(() => setPlayId(undefined), [game?.key, setPlayId]);
+  // Open the game those snaps are in, once (tagging a play later mustn't pull the coach back to it).
+  const cutupGamePicked = useRef(false);
+  useEffect(() => {
+    if (!cutup || cutupGamePicked.current) return;
+    const score = (g: (typeof games)[number]) => {
+      const b = g.source === 'own' ? own : opp;
+      const ids = new Set(cutup.playIds);
+      return b.plays.filter((p) => ids.has(p.id) && (!p.gameId || p.gameId === g.gameId)).length;
+    };
+    const g = [...games].sort((a, b) => score(b) - score(a))[0];
+    if (g && score(g) > 0) {
+      cutupGamePicked.current = true;
+      setGameKey(g.key);
+    }
+  }, [cutup, games, own, opp]);
+  useEffect(() => setPlayId(cutup?.playIds[0]), [game?.key, setPlayId, cutup]);
   const switchView = (i: number) => {
     resumeAt.current = apiRef.current?.time() || 0;
     setView(i);
@@ -358,6 +388,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   );
   const openFromLibrary = (g: LibraryGame) => {
     if (g.source === 'opponent' && g.week && g.week !== currentWeek) onSelectWeek?.(g.week);
+    if (cutup) endCutup();
     setGameKey(g.key);
     setLibraryPhone(false);
   };
@@ -389,6 +420,28 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     <div className="flex flex-col gap-2 lg:h-[calc(100dvh-6.5rem)]">
       {/* Game and film */}
       <div className={`${panel} px-2.5 py-1.5 flex flex-wrap items-center gap-2 shrink-0`}>
+        {cutup && onBackToPlay && (
+          <button
+            type="button"
+            onClick={onBackToPlay}
+            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-black text-slate-800 dark:text-slate-100 shrink-0"
+          >
+            <ArrowLeft size={15} /> Back
+          </button>
+        )}
+        {cutup && (
+          <span className="inline-flex items-center gap-1.5 h-8 pl-2.5 pr-1 rounded-lg bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-200 text-xs font-black shrink-0">
+            {cutup.label} · {shownPlays.length} snap{shownPlays.length === 1 ? '' : 's'}
+            <button
+              type="button"
+              onClick={endCutup}
+              className="h-6 px-2 rounded-md bg-white/70 dark:bg-slate-900/60 text-[11px] font-bold cursor-pointer"
+              title="Show every play of this game"
+            >
+              Whole game
+            </button>
+          </span>
+        )}
         <button
           onClick={() => {
             if (isDesktop) {

@@ -138,6 +138,8 @@ export interface PlayDatabaseEntry {
     highlightTarget?: 'number_only' | 'full_row';
   };
   tags?: string[];
+  /** Our defensive look drawn / saved with this offensive play. */
+  vsDefense?: string;
   notes?: string;
   isFavorite?: boolean;
   /** Playbook section the play sits under in Hudl (e.g. "PLAY ACTION PASS"). */

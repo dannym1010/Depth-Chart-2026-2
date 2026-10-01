@@ -164,6 +164,10 @@ import { MASTER_PLAY_DATABASE, DEFAULT_CALL_SHEET_DATA } from './data/callSheetD
 import { mergeDeletedPlayIds, mergePlayBanks, stampPlayEdits } from './utils/playBankMerge';
 import { blankCallSheetData, blankWristbandData } from './utils/blankSheets';
 import { missingPracticePlans } from './utils/autoPracticePlans';
+import { clearPlayBuilderSeed, consumeSeedHold, holdPlayBuilderSeed, savePlayBuilderSeed } from './utils/playBuilderSeed';
+import { isScoutPlayEntry, renameOppCall, linkSnapsToCall, snapsForCall } from './utils/scoutOppPlays';
+import { newPlayEntry } from './utils/playbookImport';
+import { clearFilmCutup, consumeCutupHold, holdFilmCutup, saveFilmCutup } from './utils/filmCutup';
 import { callSheetSlots, isCopiedScoutReport, isNearCopy, primarySheetSlots, withoutCopiedGames, wristbandSlots } from './utils/teamCopies';
 import { diffCoachNames, mergeTeamCoaches, noteCoachNames, type CoachNameMeta } from './utils/coachNamesMerge';
 import { mergeAttendanceLogs, mergeRosters, mergeStaffLists, mergeTombstones, removedIds, staffKey, stampEdits, stampStaffEdits, type Tombstones } from './utils/recordMerge';
@@ -692,6 +696,9 @@ export default function App() {
         setAutoOpenTakeAttendance(true);
       }
 
+      if (unit === 'playbook' && !consumeSeedHold()) clearPlayBuilderSeed();
+      if (unit === 'filmroom' && !consumeCutupHold()) clearFilmCutup();
+
       _setActiveUnitRaw(unit);
       safeJSONSet('footballActiveUnit', unit);
 
@@ -704,6 +711,7 @@ export default function App() {
           openTakeAttendance: options?.openTakeAttendance,
         });
 
+        const prevSeq = typeof window.history.state?.navSeq === 'number' ? window.history.state.navSeq : 0;
         const stateObj = {
           unit,
           subUnit: effectiveSubUnit,
@@ -711,6 +719,9 @@ export default function App() {
           drillCategory: options?.drillCategory,
           practiceId: options?.practiceId,
           openTakeAttendance: options?.openTakeAttendance,
+          navSeq: options?.replace ? prevSeq : prevSeq + 1,
+          hudlTarget: window.history.state?.hudlTarget,
+          hudlTab: window.history.state?.hudlTab,
         };
 
         if (window.location.hash !== hash) {
@@ -751,6 +762,25 @@ export default function App() {
   }, []);
   const [hudlFocusGameId, setHudlFocusGameId] = useState<string | undefined>();
 
+  // Remember which Hudl tab is on this history entry, so the mouse back button returns to it.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (activeUnit !== 'hudl_scout' && activeUnit !== 'scouting' && activeUnit !== 'ppr') return;
+    const prev = window.history.state || {};
+    if (prev.hudlTarget === hudlView.target && prev.hudlTab === hudlView.tab && typeof prev.navSeq === 'number') return;
+    window.history.replaceState(
+      {
+        ...prev,
+        unit: activeUnit,
+        navSeq: typeof prev.navSeq === 'number' ? prev.navSeq : 0,
+        hudlTarget: hudlView.target,
+        hudlTab: hudlView.tab,
+      },
+      '',
+      window.location.hash
+    );
+  }, [activeUnit, hudlView]);
+
   // Wrapped setActiveUnit maintaining backward compatibility across the entire application
   const setActiveUnit = useCallback(
     (action: React.SetStateAction<UnitType>) => {
@@ -768,6 +798,16 @@ export default function App() {
     },
     [navigateToUnit]
   );
+
+  // On-screen Back and the mouse back button share one history trail.
+  const goToPreviousScreen = useCallback((fallback: () => void) => {
+    const seq = window.history.state?.navSeq;
+    if (typeof seq === 'number' && seq > 0) {
+      window.history.back();
+      return;
+    }
+    fallback();
+  }, []);
 
   // Synchronize browser history Back and Forward buttons with internal unit and drill state
   useEffect(() => {
@@ -790,9 +830,16 @@ export default function App() {
           drillId: activeUnit === 'whiteboard' ? activeWhiteboardDrillId : undefined,
           drillCategory: activeUnit === 'whiteboard' ? activeWhiteboardCategory : undefined,
           practiceId: activeUnit === 'practice' ? currentPracticeId || undefined : undefined,
+          navSeq: 0,
         },
         '',
         initialHash
+      );
+    } else if (typeof window.history.state?.navSeq !== 'number') {
+      window.history.replaceState(
+        { ...(window.history.state || {}), unit: currentParsed.unit, navSeq: 0 },
+        '',
+        window.location.hash
       );
     } else if (currentParsed.unit !== activeUnit && VALID_UNITS.has(currentParsed.unit)) {
       _setActiveUnitRaw(currentParsed.unit as UnitType);
@@ -848,6 +895,13 @@ export default function App() {
 
         if (e?.state?.openTakeAttendance || parsed.openTakeAttendance) {
           setAutoOpenTakeAttendance(true);
+        }
+
+        if (e?.state?.hudlTab && (targetUnit === 'hudl_scout' || targetUnit === 'scouting' || targetUnit === 'ppr')) {
+          setHudlView({
+            target: e.state.hudlTarget === 'own' ? 'own' : 'opponent',
+            tab: String(e.state.hudlTab),
+          });
         }
       }
     };
@@ -4118,6 +4172,15 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [playDatabase, activeTeamId]
   );
+  // Opponent plays drawn from Hudl Scout's Their plays live in the same list, but they aren't ours:
+  // they stay out of the call sheet, wristband, game day and our own film tagging.
+  const ourPlayDatabase = React.useMemo(() => teamPlayDatabase.filter((p) => !isScoutPlayEntry(p)), [teamPlayDatabase]);
+  /** A screen that only sees our plays saved them: keep this team's opponent plays as they are. */
+  const handleUpdateOurPlays = (ours: PlayDatabaseEntry[]) => {
+    const teamId = activeTeamIdRef.current;
+    const scout = (latestStateRef.current.playDatabase || []).filter((p) => p && sameTeamId(playTeamOf(p), teamId) && isScoutPlayEntry(p));
+    handleUpdateTeamPlayDatabase([...ours.filter((p) => !isScoutPlayEntry(p)), ...scout]);
+  };
   /** A screen saved this team's plays: keep every other team's, tag new plays with this team. */
   const handleUpdateTeamPlayDatabase = (teamPlays: PlayDatabaseEntry[]) => {
     const teamId = activeTeamIdRef.current;
@@ -6611,6 +6674,34 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 userRole={userRole}
                 onOpenScouting={() => setActiveUnit('hudl_scout')}
                 onOpenPff={() => setActiveUnit('ppr')}
+                onBackToPlayList={() => {
+                  goToPreviousScreen(() => {
+                    setHudlView({ target: 'opponent', tab: 'theirplays' });
+                    setActiveUnit('hudl_scout');
+                  });
+                }}
+                onRenameScoutPlay={({ from, to, scoutId, gameId, playEntryId }) => {
+                  if (!scoutId) return;
+                  const teamId = activeTeamIdRef.current;
+                  const week = currentWeekRef.current;
+                  const scopedKey = getScopedWeekKey(teamId, week);
+                  const weekState = latestStateRef.current.weeklyData?.[scopedKey] || latestStateRef.current.weeklyData?.[week];
+                  const hudl = weekState?.scouting?.hudlScout;
+                  if (hudl) {
+                    const renamed = renameOppCall(hudl.plays || [], hudl.playLibraries, { scoutId, gameId, from, to, playEntryId });
+                    persistWeekScouting('hudlScout', { ...hudl, ...renamed, updatedAt: Date.now() });
+                  }
+                  if (playEntryId) {
+                    const full = latestStateRef.current.playDatabase || [];
+                    handleUpdatePlayDatabase(full.map((p) => (p.id === playEntryId ? { ...p, name: to, editedAt: Date.now() } : p)));
+                  }
+                }}
+                onWatchScoutFilm={(cutup, seed) => {
+                  savePlayBuilderSeed(seed);
+                  saveFilmCutup(cutup);
+                  holdFilmCutup();
+                  setActiveUnit('filmroom');
+                }}
               />
             )}
 
@@ -6689,8 +6780,8 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   teamName: currentActiveTeam?.name || 'Mahopac 10U',
                   ownTeamScout: teamOwnScout,
                   onUpdateOwnTeamScout: persistOwnTeamHudlScout,
-                  playDatabase: teamPlayDatabase,
-                  onUpdatePlayDatabase: handleUpdateTeamPlayDatabase,
+                  playDatabase: ourPlayDatabase,
+                  onUpdatePlayDatabase: handleUpdateOurPlays,
                 }}
                 filmSession={
                   resolveWeekState(
@@ -6797,8 +6888,8 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   });
                 }}
                 currentWeek={currentWeek}
-                playDatabase={teamPlayDatabase}
-                onUpdatePlayDatabase={handleUpdateTeamPlayDatabase}
+                playDatabase={ourPlayDatabase}
+                onUpdatePlayDatabase={handleUpdateOurPlays}
                 callSheetData={callSheetData}
                 onUpdateCallSheetData={handleUpdateCallSheetData}
                 deletedPlayIds={deletedPlayIds}
@@ -6839,11 +6930,11 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 wristbandData={effectiveWristbandData}
                 userRole={userRole}
                 masterPlayLibrary={masterPlayLibrary}
-                playDatabase={teamPlayDatabase}
+                playDatabase={ourPlayDatabase}
                 callSheetData={callSheetData}
                 activeTeamName={currentActiveTeam?.name || 'Mahopac 10U'}
                 onUpdateCallSheetData={handleUpdateCallSheetData}
-                onUpdatePlayDatabase={handleUpdateTeamPlayDatabase}
+                onUpdatePlayDatabase={handleUpdateOurPlays}
                 onUpdateWristbandData={handleUpdateWristbandData}
                 previousWeekLabel={previousWeekCopyLabel}
                 onCopyWristbandFromPreviousWeek={handleCopyWristbandFromPreviousWeek}
@@ -6862,8 +6953,8 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   safeJSONSet('footballMasterPlays', newPlays);
                   debouncedSave('plays');
                 }}
-                playDatabase={teamPlayDatabase}
-                onUpdatePlayDatabase={handleUpdateTeamPlayDatabase}
+                playDatabase={ourPlayDatabase}
+                onUpdatePlayDatabase={handleUpdateOurPlays}
                 callSheetData={callSheetData}
                 onUpdateCallSheetData={handleUpdateCallSheetData}
                 deletedPlayIds={deletedPlayIds}
@@ -6888,8 +6979,8 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 authorName={currentUser?.displayName || (currentUser?.email || 'Coach').split('@')[0]}
                 onUpdateOwnTeamScout={persistOwnTeamHudlScout}
                 onUpdateScouting={persistWeekScouting}
-                playDatabase={teamPlayDatabase}
-                onUpdatePlayDatabase={handleUpdateTeamPlayDatabase}
+                playDatabase={ourPlayDatabase}
+                onUpdatePlayDatabase={handleUpdateOurPlays}
                 roster={activeTeamRoster}
                 weekBoards={weekBoardsFor}
                 weekOptions={seasonWeekOptions}
@@ -6903,6 +6994,12 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   setHudlFocusGameId(gameId);
                   setHudlView({ target, tab: 'plays' });
                   setActiveUnit('hudl_scout');
+                }}
+                onBackToPlay={() => {
+                  goToPreviousScreen(() => {
+                    holdPlayBuilderSeed();
+                    setActiveUnit('playbook');
+                  });
                 }}
               />
             )}
@@ -6955,6 +7052,45 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onChangeDefenseSystem={
                   mayEditTeam(activeTeamId) ? (next) => handleUpdateTeam(activeTeamId, { defenseSystem: next }) : undefined
                 }
+                onDrawPlay={(play) => {
+                  const entryId = `scout_${play.id}`;
+                  const teamId = activeTeamIdRef.current;
+                  const week = currentWeekRef.current;
+                  const scopedKey = getScopedWeekKey(teamId, week);
+                  const weekState = latestStateRef.current.weeklyData?.[scopedKey] || latestStateRef.current.weeklyData?.[week];
+                  const hudl = weekState?.scouting?.hudlScout;
+                  const full = latestStateRef.current.playDatabase || [];
+                  const mine = full.filter((p) => p && sameTeamId(p.teamId || 'team_10u', teamId));
+                  if (!mine.some((p) => p.id === entryId)) {
+                    handleUpdateTeamPlayDatabase([
+                      ...mine,
+                      { ...newPlayEntry(play.name, 'offense'), id: entryId, source: 'scout', teamId, notes: play.notes || '' },
+                    ]);
+                  }
+                  const linked = linkSnapsToCall(hudl?.plays || [], {
+                    gameId: play.gameId,
+                    callName: play.name,
+                    playEntryId: entryId,
+                    playName: play.name,
+                  });
+                  if (hudl && linked.some((p, i) => p !== (hudl.plays || [])[i])) {
+                    persistWeekScouting('hudlScout', { ...hudl, plays: linked, updatedAt: Date.now() });
+                  }
+                  savePlayBuilderSeed({
+                    name: play.name,
+                    personnel: play.personnel,
+                    formation: play.formation,
+                    kind: play.kind,
+                    down: play.down,
+                    notes: play.notes,
+                    scoutId: play.id,
+                    gameId: play.gameId,
+                    playEntryId: entryId,
+                    snaps: snapsForCall(linked, play.gameId, play.name, entryId),
+                  });
+                  holdPlayBuilderSeed();
+                  setActiveUnit('playbook');
+                }}
               />
             )}
 

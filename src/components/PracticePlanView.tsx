@@ -146,7 +146,7 @@ interface PracticePlanViewProps {
 }
 
 export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
-  practices,
+  practices: allPractices,
   currentPracticeId,
   practiceTemplates,
   cascadingDrills,
@@ -189,6 +189,8 @@ export const PracticePlanView: React.FC<PracticePlanViewProps> = ({
   depthChart = {},
   activeTeamName,
 }) => {
+  // Scout scripts print on their own. An older copy may still be stored as a plan.
+  const practices = allPractices.filter((p) => !String(p?.id || '').startsWith('scout_script_'));
   const [isPlanLibraryOpen, setIsPlanLibraryOpen] = useState(false);
   const [dropdownSearchTerm, setDropdownSearchTerm] = useState('');
   const [dropdownViewMode, setDropdownViewMode] = useState<'tree' | 'flat' | 'schedule'>('tree');

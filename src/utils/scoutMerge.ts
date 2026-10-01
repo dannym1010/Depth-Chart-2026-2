@@ -1,4 +1,5 @@
 // Putting two copies of a Hudl Scout report together (no imports, so the storage layer can use it too).
+import { mergeOppLibraries } from './scoutOppPlays';
 
 export function scoutFingerprint(scout: any): string {
   if (!scout || typeof scout !== 'object') return '';
@@ -92,11 +93,16 @@ export function pickScoutBundle(a?: any, b?: any) {
   const mergedGames = [...games.values()]
     .sort((x, y) => (Number(x.addedAt) || 0) - (Number(y.addedAt) || 0))
     .map((g) => ({ ...g, playCount: plays.filter((p) => p.gameId === g.id).length || g.playCount }));
+  const deletedOpp = [...new Set([...(Array.isArray(a.deletedOppPlayIds) ? a.deletedOppPlayIds : []), ...(Array.isArray(b.deletedOppPlayIds) ? b.deletedOppPlayIds : [])])];
+  const script = (Number(newer.practiceScript?.builtAt) || 0) >= (Number(older.practiceScript?.builtAt) || 0) ? newer.practiceScript : older.practiceScript;
   return {
     ...older,
     ...newer,
     plays,
     games: mergedGames,
+    playLibraries: mergeOppLibraries(older.playLibraries, newer.playLibraries, deletedOpp),
+    ...(deletedOpp.length ? { deletedOppPlayIds: deletedOpp } : {}),
+    ...(script ? { practiceScript: script } : {}),
     ...(deleted.size ? { deletedGameIds: [...deleted] } : {}),
     sourceCleared: plays.length === 0 && Boolean(newer.sourceCleared || older.sourceCleared),
     updatedAt: Math.max(aT, bT),

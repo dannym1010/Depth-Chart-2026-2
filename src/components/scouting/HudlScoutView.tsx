@@ -25,6 +25,8 @@ import { makeVoice } from '../../hudlScout/components/report/reportText';
 import { Card, SectionHeader } from '../../hudlScout/components/report/ui';
 import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
+import { ScoutOppPlayLibrary } from './ScoutOppPlayLibrary';
+import { isScoutPlayEntry, type ScoutOppPlay } from '../../utils/scoutOppPlays';
 import { autoTagFromHudl, setPlaysFormation, tagPlays } from '../../hudlScout/utils/playTags';
 import { newPlayEntry } from '../../utils/playbookImport';
 import { hudlExportCsv } from '../../hudlScout/utils/hudlExport';
@@ -85,6 +87,8 @@ export interface HudlScoutViewProps {
   /** Our defense (fronts, contain, blitzes) the calls are made from, and who may change it. */
   defenseSystem?: Partial<DefenseSystem>;
   onChangeDefenseSystem?: (next: DefenseSystem) => void;
+  /** Open the play builder to draw this opponent play. */
+  onDrawPlay?: (play: ScoutOppPlay) => void;
 }
 
 export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
@@ -112,6 +116,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   onOpenReport,
   defenseSystem: teamDefense,
   onChangeDefenseSystem,
+  onDrawPlay,
 }) => {
   // The calls read our defense from the scouting helpers; rebuild them when it changes.
   setDefenseSystem(teamDefense);
@@ -160,6 +165,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     setSelectedSituation(null);
     let t = nextTab || activeTab;
     if (next !== 'own' && t === 'units') t = 'summary';
+    if (next === 'own' && t === 'theirplays') t = 'summary';
     setActiveTabState(t);
     onViewChange?.({ target: next, tab: t });
   };
@@ -348,7 +354,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   useEffect(() => {
     if (skipSave.current) {
       skipSave.current = false;
-      if (!oppBundle.plays.length && !oppBundle.sourceCleared) return;
+      const hasLibrary = Object.keys(oppBundle.playLibraries || {}).length > 0;
+      if (!oppBundle.plays.length && !oppBundle.sourceCleared && !hasLibrary && !oppBundle.games.length) return;
     }
     onUpdateScouting('hudlScout', {
       plays: oppBundle.plays,
@@ -360,6 +367,9 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       sourceCleared: oppBundle.sourceCleared,
       callSheet: oppBundle.callSheet,
       deletedGameIds: oppBundle.deletedGameIds,
+      playLibraries: oppBundle.playLibraries,
+      deletedOppPlayIds: oppBundle.deletedOppPlayIds,
+      practiceScript: oppBundle.practiceScript,
       updatedAt: oppBundle.updatedAt,
     });
     if (oppBundle.datasetName && oppBundle.datasetName !== opponentFallback) {
@@ -398,14 +408,16 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     }));
   };
 
+  // The Play Bank for tagging film: our plays (opponent plays drawn from Their plays aren't ours).
+  const playBank = useMemo(() => (playDatabase || []).filter((p) => !isScoutPlayEntry(p)), [playDatabase]);
   // Called plays Hudl listed that aren't in the Play Bank yet (offer to add them).
   const [newCalls, setNewCalls] = useState<{ names: string[]; gameId: string } | null>(null);
   const [uploadNote, setUploadNote] = useState('');
   // Tag a game's plays from the play Hudl says was called; plays a coach already tagged are left alone.
   const tagFromHudl = (b: ScoutBundle, gameId: string): ScoutBundle => {
-    if (!playDatabase?.length) return b;
+    if (!playBank.length) return b;
     const ids = new Set(b.plays.filter((p) => p.gameId === gameId).map((p) => p.id));
-    const res = autoTagFromHudl(b.plays, playDatabase, ids);
+    const res = autoTagFromHudl(b.plays, playBank, ids);
     if (scoutTarget === 'own' && res.unmatched.length) setNewCalls({ names: res.unmatched, gameId });
     else setNewCalls(null);
     if (res.tagged) setUploadNote(`Tagged ${res.tagged} plays from the play Hudl says was called.`);
@@ -659,7 +671,31 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
             </div>
           </div>
         )}
-        {plays.length === 0 ? (
+        {scoutTarget === 'opponent' && activeTab === 'theirplays' ? (
+          <ScoutOppPlayLibrary
+            games={bundle.games}
+            libraries={bundle.playLibraries || {}}
+            deletedIds={bundle.deletedOppPlayIds || []}
+            filmPlays={bundle.plays}
+            opponent={reportName}
+            selectedGameId={selectedGameId}
+            onSelectGame={setSelectedGameId}
+            playDatabase={playDatabase}
+            onAddFilm={(name) => {
+              const id = `film-${Date.now()}`;
+              setBundle((prev) => ({
+                ...prev,
+                games: [...prev.games, { id, name, playCount: 0, addedAt: Date.now(), editedAt: Date.now() }],
+                updatedAt: Date.now(),
+              }));
+              setSelectedGameId(id);
+            }}
+            onSave={(playLibraries, deletedOppPlayIds, practiceScript) => {
+              setBundle((prev) => ({ ...prev, playLibraries, deletedOppPlayIds, practiceScript, updatedAt: Date.now() }));
+            }}
+            onDraw={onDrawPlay}
+          />
+        ) : plays.length === 0 ? (
           <Card>
             <SectionHeader
               title={scoutTarget === 'own' ? 'Self-scout our team' : `New scouting report for ${emptyLabel}`}
@@ -777,7 +813,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                   plays={filteredPlays}
                   writeInPlays={allPlays}
                   onSetUnit={scoutTarget === 'own' ? handleSetUnit : undefined}
-                  playDatabase={playDatabase}
+                  playDatabase={playBank}
                   onTagPlays={onUpdatePlayDatabase ? handleTagPlays : undefined}
                   onCreateCall={onUpdatePlayDatabase ? handleCreateCall : undefined}
                   onSetFormation={handleSetFormation}
