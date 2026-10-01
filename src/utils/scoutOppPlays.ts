@@ -16,6 +16,8 @@ export interface ScoutOppPlay {
   /** On this week's scouting report, so it is in the practice script. */
   onReport: boolean;
   editedAt: number;
+  /** Set on every play in a film when that film's list is reordered, so the newer order wins. */
+  reorderedAt?: number;
   /** The play the film's snaps were tagged with (one of our Play Library plays, or a write-in). */
   fromPlayId?: string;
 }
@@ -62,7 +64,21 @@ export function mergeOppLibraries(
       const cur = byId.get(play.id);
       if (!cur || (Number(play.editedAt) || 0) >= (Number(cur.editedAt) || 0)) byId.set(play.id, play);
     }
-    if (byId.size) out[key] = [...byId.values()];
+    if (!byId.size) continue;
+    // The list that was reordered more recently sets the order. Plays only the other copy has are added after.
+    const aList = a?.[key] || [];
+    const bList = b?.[key] || [];
+    const stamp = (list: ScoutOppPlay[]) => Math.max(0, ...list.map((p) => Number(p.reorderedAt) || 0));
+    const primary = stamp(bList) >= stamp(aList) ? bList : aList;
+    const secondary = primary === bList ? aList : bList;
+    const ordered: ScoutOppPlay[] = [];
+    const seen = new Set<string>();
+    for (const play of [...primary, ...secondary]) {
+      if (!play?.id || seen.has(play.id) || !byId.has(play.id)) continue;
+      seen.add(play.id);
+      ordered.push(byId.get(play.id)!);
+    }
+    out[key] = ordered;
   }
   return out;
 }
@@ -293,35 +309,41 @@ export function playsFromFilm(gameId: string, film: Play[], existing: ScoutOppPl
   });
 }
 
+/** Put plays in a saved order. Ones that are not in that order stay at the end, in the order they already had. */
+export function orderByIds<T extends { id: string }>(plays: T[], ids?: string[]): T[] {
+  if (!ids?.length) return plays;
+  const rank = new Map(ids.map((id, i) => [id, i]));
+  return [...plays].sort((a, b) => (rank.get(a.id) ?? ids.length) - (rank.get(b.id) ?? ids.length));
+}
+
+export function moveItem<T>(list: T[], from: number, to: number): T[] {
+  if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return list;
+  const next = list.slice();
+  const [row] = next.splice(from, 1);
+  next.splice(to, 0, row);
+  return next;
+}
+
+const periodLabel = (down: string) => PERIODS.find((p) => p.id === (down || 'other'))?.label || 'Other';
+
 export function buildScoutScript(plays: ScoutOppPlay[], opponent: string): ScoutPracticeScript {
   const who = opponent.trim() || 'Opponent';
-  const lines: ScoutScriptLine[] = [];
-  const periods: PracticePeriod[] = [];
-  for (const period of PERIODS) {
-    const group = plays.filter((p) => (p.down || 'other') === period.id);
-    if (!group.length) continue;
-    const text = group
-      .map((p, i) => {
-        const bits = [p.formation, p.personnel, p.kind].filter((s) => s && s !== '-').join(' · ');
-        const detail = [bits, p.notes].filter(Boolean).join('. ');
-        lines.push({ playId: p.id, name: p.name, detail, period: period.label });
-        return `${i + 1}. ${p.name}${detail ? ` — ${detail}` : ''}`;
-      })
-      .join('\n');
-    periods.push({
-      time: Math.max(8, group.length * 3),
-      category: `${who} — ${period.label}`,
-      format: 'static',
-      stations: [
+  const lines: ScoutScriptLine[] = plays.map((p) => {
+    const bits = [periodLabel(p.down), p.formation, p.personnel, p.kind].filter((s) => s && s !== '-').join(' · ');
+    const detail = [bits, p.notes].filter(Boolean).join('. ');
+    return { playId: p.id, name: p.name, detail, period: periodLabel(p.down) };
+  });
+  const text = lines.map((l, i) => `${i + 1}. ${l.name}${l.detail ? ` — ${l.detail}` : ''}`).join('\n');
+  const periods: PracticePeriod[] = lines.length
+    ? [
         {
-          name: `Their ${period.label}`,
-          desc: text,
-          coach: '',
-          focus: 'Rep their play, then our answer.',
+          time: Math.max(8, lines.length * 3),
+          category: `${who} scout`,
+          format: 'static',
+          stations: [{ name: 'Their plays', desc: text, coach: '', focus: 'Rep their play, then our answer.' }],
         },
-      ],
-    });
-  }
+      ]
+    : [];
   return {
     title: `${who} scout script`,
     builtAt: Date.now(),

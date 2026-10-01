@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
 import type { ScoutGame } from '../../hudlScout/components/Header';
 import type { Play } from '../../hudlScout/types/football';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
@@ -10,6 +11,8 @@ import { BACKFIELD_STRUCTURES } from '../../utils/footballEngine';
 import { backfieldOf, type FilmBackfieldBases } from '../../utils/filmBackfields';
 import {
   buildScoutScript,
+  moveItem,
+  orderByIds,
   playsFromFilm,
   reportPlays,
   scoutScriptPrintHtml,
@@ -44,15 +47,18 @@ export const ScoutOppPlayLibrary: React.FC<{
   backfieldBases?: FilmBackfieldBases;
   /** Open the builder to set that backfield for every play on this film that uses it. */
   onAdjustBackfield?: (gameId: string, backfield: string) => void;
-}> = ({ games, libraries, filmPlays, opponent, selectedGameId, onSelectGame, onSave, deletedIds, onAddFilm, playDatabase, onDraw, backfieldBases, onAdjustBackfield }) => {
+  /** The practice order of the plays on the report. */
+  scriptOrder?: string[];
+}> = ({ games, libraries, filmPlays, opponent, selectedGameId, onSelectGame, onSave, deletedIds, onAddFilm, playDatabase, onDraw, backfieldBases, onAdjustBackfield, scriptOrder }) => {
   const films = games.length ? games : [];
   const gameId = films.some((g) => g.id === selectedGameId) ? selectedGameId : films[0]?.id || '';
   const plays = libraries[gameId] || [];
-  const onTheReport = reportPlays(libraries);
+  const onTheReport = orderByIds(reportPlays(libraries), scriptOrder);
   const script = buildScoutScript(onTheReport, opponent);
   const [draft, setDraft] = useState(emptyDraft);
   const [filmName, setFilmName] = useState('');
   const [printNote, setPrintNote] = useState('');
+  const [drag, setDrag] = useState<{ list: 'film' | 'script'; index: number } | null>(null);
 
   // A play saved from the builder shows that drawing; one not saved yet is drawn from its name
   // ("30 DW 41 SWEEP"), the way the builder first draws it.
@@ -95,17 +101,15 @@ export const ScoutOppPlayLibrary: React.FC<{
 
   const printScript = async () => {
     setPrintNote('');
-    const groups = ['1st', '2nd', '3rd', 'red', 'other'].map((id) => {
-      const label = id === 'red' ? 'Red zone' : id === 'other' ? 'Other' : `${id} down`;
-      const plays = onTheReport
-        .filter((p) => (p.down || 'other') === id)
-        .map((p) => ({
-          name: p.name,
-          detail: [p.formation, p.personnel, p.kind, p.notes].filter((s) => s && s !== '-').join(' · '),
-          diagram: diagramFor(p),
-        }));
-      return { label, plays };
-    });
+    const groups = [
+      {
+        label: 'Scout script',
+        plays: script.lines.map((line) => {
+          const play = onTheReport.find((p) => p.id === line.playId);
+          return { name: line.name, detail: line.detail, diagram: play ? diagramFor(play) : undefined };
+        }),
+      },
+    ];
     const withPictures = await Promise.all(
       groups.map(async (g) => ({
         ...g,
@@ -124,9 +128,22 @@ export const ScoutOppPlayLibrary: React.FC<{
     setTimeout(() => win.print(), 250);
   };
 
-  const write = (next: Record<string, ScoutOppPlay[]>, extraDeleted: string[] = []) => {
-    const report = reportPlays(next);
+  const write = (next: Record<string, ScoutOppPlay[]>, extraDeleted: string[] = [], reportIds?: string[]) => {
+    const report = orderByIds(reportPlays(next), reportIds || script.lines.map((l) => l.playId));
     onSave(next, [...deletedIds, ...extraDeleted], buildScoutScript(report, opponent));
+  };
+
+  const reorderFilm = (from: number, to: number) => {
+    const next = moveItem(plays, from, to);
+    if (next === plays) return;
+    const now = Date.now();
+    write({ ...libraries, [gameId]: next.map((p) => ({ ...p, reorderedAt: now })) });
+  };
+
+  const reorderScript = (from: number, to: number) => {
+    const next = moveItem(onTheReport, from, to);
+    if (next === onTheReport) return;
+    onSave(libraries, deletedIds, buildScoutScript(next, opponent));
   };
 
   const addPlay = () => {
@@ -168,7 +185,7 @@ export const ScoutOppPlayLibrary: React.FC<{
       <section className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 space-y-3">
         <div>
           <h2 className="text-sm font-black text-slate-900 dark:text-white">Their plays, by film</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Each scouting video keeps the plays that team ran. Check a play to put it on this week's report.</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Each scouting video keeps the plays that team ran. Drag a play to reorder it. Check it to put it on this week's report.</p>
         </div>
         <div className="flex flex-wrap gap-1.5">
           {films.map((g) => (
@@ -258,8 +275,36 @@ export const ScoutOppPlayLibrary: React.FC<{
         )}
         {!gameId && <p className="text-sm text-slate-500">Add a film library, or upload this week's scouting film, then put their plays here.</p>}
         <ul className="space-y-1.5">
-          {plays.map((p) => (
-            <li key={p.id} className="flex items-start gap-2 rounded-lg border border-slate-200 dark:border-slate-700 px-2 py-1.5">
+          {plays.map((p, index) => (
+            <li
+              key={p.id}
+              className={`flex items-start gap-1.5 rounded-lg border px-2 py-1.5 ${drag?.list === 'film' && drag.index === index ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30' : 'border-slate-200 dark:border-slate-700'}`}
+              onDragOver={(e) => {
+                if (drag?.list === 'film') e.preventDefault();
+              }}
+              onDrop={() => {
+                if (drag?.list === 'film') reorderFilm(drag.index, index);
+                setDrag(null);
+              }}
+            >
+              <button
+                type="button"
+                draggable
+                aria-label={`Drag ${p.name}`}
+                onDragStart={() => setDrag({ list: 'film', index })}
+                onDragEnd={() => setDrag(null)}
+                className="mt-1 cursor-grab text-slate-400 active:cursor-grabbing"
+              >
+                <GripVertical className="w-3.5 h-3.5" />
+              </button>
+              <div className="flex flex-col">
+                <button type="button" aria-label={`Move ${p.name} up`} disabled={index === 0} onClick={() => reorderFilm(index, index - 1)} className="text-slate-400 disabled:opacity-20 cursor-pointer">
+                  <ChevronUp className="w-3.5 h-3.5" />
+                </button>
+                <button type="button" aria-label={`Move ${p.name} down`} disabled={index === plays.length - 1} onClick={() => reorderFilm(index, index + 1)} className="text-slate-400 disabled:opacity-20 cursor-pointer">
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
+              </div>
               <input type="checkbox" className="mt-1" checked={p.onReport} onChange={(e) => patch(p.id, { onReport: e.target.checked })} aria-label={`Put ${p.name} on the report`} />
               <button type="button" className="min-w-0 flex-1 text-left cursor-pointer" onClick={() => onDraw?.(p)}>
                 <span className="block text-sm font-black truncate">{p.name}</span>
@@ -285,56 +330,76 @@ export const ScoutOppPlayLibrary: React.FC<{
       <section className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 space-y-3 lg:sticky lg:top-3 h-fit">
         <div>
           <h2 className="text-sm font-black">{script.title}</h2>
-          <p className="text-xs text-slate-500 mt-0.5">{onTheReport.length} play{onTheReport.length === 1 ? '' : 's'} on the report. Print includes the diagram for each play. This is separate from the practice plan.</p>
+          <p className="text-xs text-slate-500 mt-0.5">{onTheReport.length} play{onTheReport.length === 1 ? '' : 's'} on the report. Drag to set the practice order. Print follows this order. This is separate from the practice plan.</p>
         </div>
-        {script.periods.length === 0 ? (
+        {script.lines.length === 0 ? (
           <p className="text-sm text-slate-500">Check plays to build the practice script.</p>
         ) : (
-          <ol className="space-y-3">
-            {script.lines.length > 0 &&
-              ['1st down', '2nd down', '3rd down', 'Red zone', 'Other'].map((label) => {
-                const rows = script.lines.filter((l) => l.period === label);
-                if (!rows.length) return null;
-                return (
-                  <li key={label}>
-                    <div className="text-[11px] font-black uppercase text-slate-500">{label}</div>
-                    <div className="mt-1 space-y-2">
-                      {rows.map((line) => {
-                        const play = onTheReport.find((p) => p.id === line.playId);
-                        const diagram = play ? diagramFor(play) : undefined;
-                        return (
-                          <div key={line.playId}>
-                            <div className="text-sm font-black">{line.name}</div>
-                            {line.detail && <div className="text-[11px] text-slate-500">{line.detail}</div>}
-                            {diagram ? (
-                              <>
-                                <DiagramImage url={diagram} alt={line.name} className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white" />
-                                {play && !savedDiagram(play) && (
-                                  <p className="mt-0.5 text-[10px] text-slate-400">
-                                    Drawn from the play name.{' '}
-                                    {onDraw && (
-                                      <button type="button" className="font-bold underline cursor-pointer" onClick={() => onDraw(play)}>
-                                        Open to change it
-                                      </button>
-                                    )}
-                                  </p>
-                                )}
-                              </>
-                            ) : (
-                              <p className="mt-1 text-[11px] text-slate-400">No diagram yet. Open the play to draw it.</p>
-                            )}
-                          </div>
-                        );
-                      })}
+          <ol className="space-y-2">
+            {script.lines.map((line, index) => {
+              const play = onTheReport.find((p) => p.id === line.playId);
+              const diagram = play ? diagramFor(play) : undefined;
+              return (
+                <li
+                  key={line.playId}
+                  className={`rounded-lg border p-2 ${drag?.list === 'script' && drag.index === index ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30' : 'border-slate-200 dark:border-slate-700'}`}
+                  onDragOver={(e) => {
+                    if (drag?.list === 'script') e.preventDefault();
+                  }}
+                  onDrop={() => {
+                    if (drag?.list === 'script') reorderScript(drag.index, index);
+                    setDrag(null);
+                  }}
+                >
+                  <div className="flex items-start gap-1.5">
+                    <button
+                      type="button"
+                      draggable
+                      aria-label={`Drag ${line.name}`}
+                      onDragStart={() => setDrag({ list: 'script', index })}
+                      onDragEnd={() => setDrag(null)}
+                      className="mt-0.5 cursor-grab text-slate-400 active:cursor-grabbing"
+                    >
+                      <GripVertical className="w-3.5 h-3.5" />
+                    </button>
+                    <div className="flex flex-col">
+                      <button type="button" aria-label={`Move ${line.name} up in the script`} disabled={index === 0} onClick={() => reorderScript(index, index - 1)} className="text-slate-400 disabled:opacity-20 cursor-pointer">
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button type="button" aria-label={`Move ${line.name} down in the script`} disabled={index === script.lines.length - 1} onClick={() => reorderScript(index, index + 1)} className="text-slate-400 disabled:opacity-20 cursor-pointer">
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </button>
                     </div>
-                  </li>
-                );
-              })}
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-black">{index + 1}. {line.name}</div>
+                      {line.detail && <div className="text-[11px] text-slate-500">{line.detail}</div>}
+                    </div>
+                  </div>
+                  {diagram ? (
+                    <>
+                      <DiagramImage url={diagram} alt={line.name} className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white" />
+                      {play && !savedDiagram(play) && (
+                        <p className="mt-0.5 text-[10px] text-slate-400">
+                          Drawn from the play name.{' '}
+                          {onDraw && (
+                            <button type="button" className="font-bold underline cursor-pointer" onClick={() => onDraw(play)}>
+                              Open to change it
+                            </button>
+                          )}
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="mt-1 text-[11px] text-slate-400">No diagram yet. Open the play to draw it.</p>
+                  )}
+                </li>
+              );
+            })}
           </ol>
         )}
         <button
           type="button"
-          disabled={!script.periods.length}
+          disabled={!script.lines.length}
           className="h-9 px-3 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-black cursor-pointer disabled:opacity-40"
           onClick={() => void printScript()}
         >

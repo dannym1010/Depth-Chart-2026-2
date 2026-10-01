@@ -74,7 +74,7 @@ export function backfieldOf(card: ScoutOppPlay, entry?: PlayDatabaseEntry | null
 /** The formation to open: the one this film's backfield was saved on, otherwise a formation it can line up in. */
 export function openFormation(backfield: string, savedBaseKey?: string): { personnel: number; baseKey: string } {
   const saved = savedBaseKey ? BASE_FORMATIONS[savedBaseKey] : undefined;
-  if (saved && savedBaseKey) return { personnel: saved.personnel, baseKey: savedBaseKey };
+  if (saved && savedBaseKey && isValidEleven(savedBaseKey, backfield)) return { personnel: saved.personnel, baseKey: savedBaseKey };
   return formationForBackfield(backfield);
 }
 

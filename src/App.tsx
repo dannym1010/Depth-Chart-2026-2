@@ -4224,7 +4224,12 @@ export default function App() {
       ...(hudl.backfieldBases || {}),
       [change.gameId]: { ...prevGame, [change.backfield]: { spots: change.spots, editedAt: now, baseKey: change.baseKey } },
     };
-    persistWeekScouting('hudlScout', { ...hudl, backfieldBases, updatedAt: now });
+    const nextHudl = { ...hudl, backfieldBases, updatedAt: now };
+    // The next play opened in this film has to see this shape immediately, before React commits the save.
+    const weekly = latestStateRef.current.weeklyData || {};
+    const stamped = { ...weekState, scouting: { ...(weekState.scouting || {}), hudlScout: nextHudl } };
+    latestStateRef.current.weeklyData = { ...weekly, [scopedKey]: stamped, [week]: stamped };
+    persistWeekScouting('hudlScout', nextHudl);
     const cards = hudl.playLibraries?.[change.gameId] || [];
     const mine = (latestStateRef.current.playDatabase || []).filter((p) => p && sameTeamId(playTeamOf(p), teamId));
     let next = mine;

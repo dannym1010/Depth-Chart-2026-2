@@ -34,6 +34,7 @@ import {
 import { PlayDiagramCanvas } from './PlayDiagramCanvas';
 import type { PlayBuilderSeed } from '../../utils/playBuilderSeed';
 import { callSetup } from '../../utils/callDiagram';
+import { openFormation } from '../../utils/filmBackfields';
 
 const SELECT =
   'h-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 w-full';
@@ -333,7 +334,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     return spots;
   };
   const backfieldLabel = BACKFIELD_STRUCTURES[activeBack]?.hudlBackfield || activeBack;
-  const publishBackfield = () => {
+  const publishBackfield = (announce = true) => {
     if (!seed?.gameId || !onSaveFilmBackfield) return;
     const spots = currentBackfieldSpots();
     setFilmBases((prev) => ({ ...prev, [activeBack]: spots }));
@@ -344,7 +345,29 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       return next;
     });
     onSaveFilmBackfield({ gameId: seed.gameId, backfield: activeBack, spots, baseKey });
-    setBaseNote(`Saved. Every ${backfieldLabel} play on this film uses these backs and receivers. Tight or wide stays on each play.`);
+    if (announce) setBaseNote(`Saved. Every ${backfieldLabel} play on this film uses these backs and receivers. Tight or wide stays on each play.`);
+  };
+  const publishRef = useRef(publishBackfield);
+  publishRef.current = publishBackfield;
+  const rememberTimer = useRef<number | null>(null);
+  /** A moved player on this film becomes the backfield the other plays pick up. */
+  const rememberBackfield = () => {
+    if (!seed?.gameId || !onSaveFilmBackfield) return;
+    if (rememberTimer.current) window.clearTimeout(rememberTimer.current);
+    rememberTimer.current = window.setTimeout(() => publishRef.current(false), 400);
+  };
+  /**
+   * Beast (or any backfield) edited for this film: another play that selects it
+   * lines up the same way, including the formation it was saved on.
+   */
+  const chooseBackfield = (key: string) => {
+    if (seed?.gameId && filmBases[key]) {
+      const aligned = openFormation(key, filmBaseKeys[key]);
+      setPersonnelPick(aligned.personnel);
+      setBaseKey(aligned.baseKey);
+      setOverrides({});
+    }
+    setBackfieldKey(key);
   };
 
   const saveOffense = () => {
@@ -352,6 +375,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       publishBackfield();
       return;
     }
+    if (seed?.gameId) publishBackfield(false);
     if (!play) return;
     const calledHole = hole;
     const holeData = calledHole != null ? HOLE_SYSTEM[calledHole] : play.metadata.holeData;
@@ -504,8 +528,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
             <div>
               <div className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">Backfield</div>
               <div className="flex flex-wrap gap-1.5">
-                {backfieldChips.map((k) => (
-                  <Chip key={k} on={activeBack === k} onClick={() => setBackfieldKey(k)}>
+                {[...backfieldChips, ...Object.keys(filmBases).filter((k) => BACKFIELD_STRUCTURES[k] && !backfieldChips.includes(k) && !extraBacks.includes(k))].map((k) => (
+                  <Chip key={k} on={activeBack === k} onClick={() => chooseBackfield(k)}>
                     {BACKFIELD_STRUCTURES[k].hudlBackfield}
                   </Chip>
                 ))}
@@ -515,7 +539,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                   className={`${SELECT} mt-2`}
                   aria-label="More backfields"
                   value={extraBacks.includes(activeBack) ? activeBack : ''}
-                  onChange={(e) => e.target.value && setBackfieldKey(e.target.value)}
+                  onChange={(e) => e.target.value && chooseBackfield(e.target.value)}
                 >
                   <option value="">More backfields</option>
                   {extraBacks.map((k) => (
@@ -678,7 +702,10 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               vsLabel={dLook ? dLook.front : '—'}
               coachNote={coachNote}
               onCoachNote={setCoachNote}
-              onMove={(role, x, y) => setOverrides((prev) => ({ ...prev, [role]: { x, y } }))}
+              onMove={(role, x, y) => {
+                setOverrides((prev) => ({ ...prev, [role]: { x, y } }));
+                if (/^(?:[1-4]|X|Z|Y|W|H|Y1|Y2|W1|W2)$/.test(role)) rememberBackfield();
+              }}
               onStrokes={(next) => {
                 setUserDrew(true);
                 setStrokes(next);
@@ -769,7 +796,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               <button
                 type="button"
                 disabled={!play}
-                onClick={publishBackfield}
+                onClick={() => publishBackfield()}
                 className="w-full h-9 px-3 rounded-lg border border-indigo-300 dark:border-indigo-700 text-indigo-800 dark:text-indigo-200 text-xs font-black cursor-pointer disabled:opacity-40"
               >
                 Use this {backfieldLabel} for every {backfieldLabel} play on this film

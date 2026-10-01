@@ -26,7 +26,7 @@ import { Card, SectionHeader } from '../../hudlScout/components/report/ui';
 import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { ScoutOppPlayLibrary } from './ScoutOppPlayLibrary';
-import { buildScoutScript, cardsFromTags, isScoutPlayEntry, reportPlays, tagCardName, type ScoutOppPlay } from '../../utils/scoutOppPlays';
+import { buildScoutScript, cardsFromTags, isScoutPlayEntry, orderByIds, reportPlays, tagCardName, type ScoutOppPlay } from '../../utils/scoutOppPlays';
 import { autoTagFromHudl, setPlaysFormation, tagPlays } from '../../hudlScout/utils/playTags';
 import { newPlayEntry } from '../../utils/playbookImport';
 import { hudlExportCsv } from '../../hudlScout/utils/hudlExport';
@@ -275,7 +275,12 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         const list = playLibraries[c.gameId] || [];
         if (!list.some((x) => x.id === c.id)) playLibraries[c.gameId] = [...list, c];
       }
-      return { ...prev, playLibraries, practiceScript: buildScoutScript(reportPlays(playLibraries), reportName), updatedAt: Date.now() };
+      return {
+        ...prev,
+        playLibraries,
+        practiceScript: buildScoutScript(orderByIds(reportPlays(playLibraries), (prev.practiceScript?.lines || []).map((l) => l.playId)), reportName),
+        updatedAt: Date.now(),
+      };
     });
     onAddTaggedPlays?.(added);
     return added;
@@ -754,6 +759,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
             onDraw={onDrawPlay}
             backfieldBases={bundle.backfieldBases}
             onAdjustBackfield={onAdjustBackfield}
+            scriptOrder={(bundle.practiceScript?.lines || []).map((l) => l.playId)}
           />
         ) : plays.length === 0 ? (
           <Card>
