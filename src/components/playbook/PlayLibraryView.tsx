@@ -34,7 +34,7 @@ interface Props {
   /** Watch the film snaps linked to the play open in the builder. */
   onWatchScoutFilm?: (cutup: { gameId: string; playIds: string[]; label: string }, seed: PlayBuilderSeed) => void;
   /** This backfield alignment becomes the one for every play on that scout film that uses it. */
-  onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: Record<string, { x: number; y: number }> }) => void;
+  onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: Record<string, { x: number; y: number }>; baseKey: string }) => void;
 }
 
 const TYPES: { id: PlayType; label: string }[] = [
@@ -342,7 +342,11 @@ export const PlayLibraryView: React.FC<Props> = ({
             ? (change) => {
                 setBuilderSeed((s) => {
                   if (!s) return s;
-                  const next = { ...s, filmBases: { ...(s.filmBases || {}), [change.backfield]: change.spots } };
+                  const next = {
+                    ...s,
+                    filmBases: { ...(s.filmBases || {}), [change.backfield]: change.spots },
+                    filmBaseKeys: { ...(s.filmBaseKeys || {}), [change.backfield]: change.baseKey },
+                  };
                   savePlayBuilderSeed(next);
                   return next;
                 });

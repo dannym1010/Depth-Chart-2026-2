@@ -20,6 +20,8 @@ export interface PlayBuilderSeed {
   builder?: PlayBuilderState;
   /** This film's backfield shapes (Beast on this video), so the picture starts from them. */
   filmBases?: Record<string, BackfieldSpots>;
+  /** Formation each of those shapes was measured on, so tight or wide can still change per play. */
+  filmBaseKeys?: Record<string, string>;
   /** Opened to adjust that backfield for the whole film, rather than one play. */
   backfieldEdit?: string;
 }

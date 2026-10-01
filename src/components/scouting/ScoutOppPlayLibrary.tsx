@@ -62,15 +62,23 @@ export const ScoutOppPlayLibrary: React.FC<{
   };
   const spotsFor = (play: ScoutOppPlay) => {
     const entry = (playDatabase || []).find((p) => p.id === `scout_${play.id}`);
-    return backfieldBases?.[play.gameId]?.[backfieldOf(play, entry)]?.spots;
+    const base = backfieldBases?.[play.gameId]?.[backfieldOf(play, entry)];
+    return { spots: base?.spots, baseKey: base?.baseKey };
   };
   const drawnFromName = useMemo(() => {
     const out = new Map<string, string | null>();
-    for (const p of onTheReport) if (!savedDiagram(p)) out.set(p.id, drawCall(p, spotsFor(p)));
+    for (const p of onTheReport) {
+      if (savedDiagram(p)) continue;
+      const spot = spotsFor(p);
+      out.set(p.id, drawCall(p, spot.spots, spot.baseKey));
+    }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onTheReport.map((p) => `${p.id}:${p.name}:${p.formation}:${p.personnel}:${p.kind}`).join('|'), playDatabase, backfieldBases]);
-  const diagramFor = (play: ScoutOppPlay) => savedDiagram(play) || drawnFromName.get(play.id) || drawCall(play, spotsFor(play)) || undefined;
+  const diagramFor = (play: ScoutOppPlay) => {
+    const spot = spotsFor(play);
+    return savedDiagram(play) || drawnFromName.get(play.id) || drawCall(play, spot.spots, spot.baseKey) || undefined;
+  };
   const filmBackfields = useMemo(() => {
     const keys = new Set<string>(['BEAST']);
     for (const p of plays) {

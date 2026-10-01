@@ -4,6 +4,7 @@ import type { PlayBuilderState, PlayDatabaseEntry } from '../types/callSheet';
 import { callSetup } from './callDiagram';
 import {
   BACKFIELD_STRUCTURES,
+  BASE_FORMATIONS,
   OUR_DEFENSE_LOOKS,
   PLAY_CONCEPTS,
   RUN_SCHEMES,
@@ -23,6 +24,8 @@ import type { ScoutOppPlay } from './scoutOppPlays';
 export interface FilmBackfieldBase {
   spots: BackfieldSpots;
   editedAt: number;
+  /** Formation the receiver spots were measured on. Another play can still pick tight or wide. */
+  baseKey?: string;
 }
 
 /** game id -> backfield key -> that film's spots. */
@@ -54,9 +57,25 @@ export function spotsForGame(bases: FilmBackfieldBases | undefined, gameId?: str
   return Object.keys(out).length ? out : undefined;
 }
 
+/** Which formation each saved backfield was measured on. */
+export function baseKeysForGame(bases: FilmBackfieldBases | undefined, gameId?: string): Record<string, string> | undefined {
+  const game = gameId ? bases?.[gameId] : undefined;
+  if (!game) return undefined;
+  const out: Record<string, string> = {};
+  for (const [key, base] of Object.entries(game)) if (base?.baseKey) out[key] = base.baseKey;
+  return Object.keys(out).length ? out : undefined;
+}
+
 /** The backfield a play lines up in: the one saved on it, otherwise the one its name calls. */
 export function backfieldOf(card: ScoutOppPlay, entry?: PlayDatabaseEntry | null): string {
   return entry?.builder?.backfield || callSetup(card).backfield;
+}
+
+/** The formation to open: the one this film's backfield was saved on, otherwise a formation it can line up in. */
+export function openFormation(backfield: string, savedBaseKey?: string): { personnel: number; baseKey: string } {
+  const saved = savedBaseKey ? BASE_FORMATIONS[savedBaseKey] : undefined;
+  if (saved && savedBaseKey) return { personnel: saved.personnel, baseKey: savedBaseKey };
+  return formationForBackfield(backfield);
 }
 
 /** A formation this backfield can line up in, so the base can be drawn on its own. */
@@ -67,10 +86,16 @@ export function formationForBackfield(backfield: string): { personnel: number; b
   return { personnel, baseKey };
 }
 
-const BACK_ROLES = new Set(['1', '2', '3', '4']);
+const FILM_ROLES = new Set(['1', '2', '3', '4', 'X', 'Z', 'Y', 'W', 'H', 'Y1', 'Y2', 'W1', 'W2']);
 
-/** Redraw one opponent play with this film's backfield spots. Back spots on the play itself are cleared so it follows the film. */
-export function redrawWithBackfield(entry: PlayDatabaseEntry, card: ScoutOppPlay, backfield: string, spots: BackfieldSpots): PlayDatabaseEntry {
+/** Redraw one opponent play with this film's backfield spots. Those players' own spots are cleared so the play follows the film. Tight or wide stays on the play. */
+export function redrawWithBackfield(
+  entry: PlayDatabaseEntry,
+  card: ScoutOppPlay,
+  backfield: string,
+  spots: BackfieldSpots,
+  spotBaseKey?: string
+): PlayDatabaseEntry {
   const b = entry.builder;
   const setup = callSetup(card);
   const baseKey = b?.baseKey || setup.baseKey;
@@ -79,10 +104,10 @@ export function redrawWithBackfield(entry: PlayDatabaseEntry, card: ScoutOppPlay
   const family = b?.family && b.family !== 'all' ? b.family : setup.family;
   const run = RUN_SCHEMES.find((r) => r.id === (b?.runId || setup.run)) || RUN_SCHEMES[0];
   const conceptKey = family === 'run' ? run.conceptKey : b?.conceptKey || Object.keys(PLAY_CONCEPTS).find((k) => conceptFamily(PLAY_CONCEPTS[k]) === family) || run.conceptKey;
-  const play = tryAssemblePlay(baseKey, backfield, conceptKey, strength, tags, spots);
+  const play = tryAssemblePlay(baseKey, backfield, conceptKey, strength, tags, spots, spotBaseKey);
   if (!play) return entry;
   const overrides = { ...(b?.overrides || {}) };
-  for (const role of BACK_ROLES) delete overrides[role];
+  for (const role of FILM_ROLES) delete overrides[role];
   const hashDx = b?.hash === 'Left' ? -4.2 : b?.hash === 'Right' ? 4.2 : 0;
   const nodes = applyNodeOverrides(play.nodes, overrides).map((n) => (overrides[n.role] ? n : { ...n, x: n.x + hashDx }));
   const concept = PLAY_CONCEPTS[conceptKey];

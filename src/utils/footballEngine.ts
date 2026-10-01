@@ -1479,9 +1479,54 @@ function withTackleOver(nodes: PlayNode[], baseKey: string): PlayNode[] {
 /** A film's own spots for a backfield, in the strong-to-the-right picture (before strength flips them). */
 export type BackfieldSpots = Record<string, { x: number; y: number }>;
 
+const FILM_SKILL_ROLES = new Set(['X', 'Z', 'Y', 'W', 'H', 'Y1', 'Y2', 'W1', 'W2']);
+
 function withBackfieldSpots(nodes: PlayNode[], spots?: BackfieldSpots | null): PlayNode[] {
   if (!spots) return nodes;
-  return nodes.map((n) => (spots[n.role] ? { ...n, x: spots[n.role].x, y: spots[n.role].y } : n));
+  return nodes.map((n) => {
+    const spot = spots[n.role];
+    if (!spot) return n;
+    // A receiver or tight end off the ball is no longer an end man on the line.
+    const line = FILM_SKILL_ROLES.has(n.role) ? Math.abs(spot.y) < 0.2 : n.line;
+    return { ...n, x: spot.x, y: spot.y, line };
+  });
+}
+
+/**
+ * WR/TE spots were measured on one formation. Another play's tight or wide uses its own formation,
+ * plus how far those players were moved from the formation they were saved on.
+ */
+export function fitBackfieldSpots(
+  baseKey: string,
+  backfieldKey: string,
+  spots?: BackfieldSpots | null,
+  spotBaseKey?: string | null
+): BackfieldSpots | null | undefined {
+  if (!spots || !spotBaseKey || spotBaseKey === baseKey) return spots;
+  const saved = combinedNodes(spotBaseKey, backfieldKey);
+  const play = combinedNodes(baseKey, backfieldKey);
+  if (!saved || !play) return spots;
+  const out: BackfieldSpots = { ...spots };
+  for (const role of FILM_SKILL_ROLES) {
+    if (!spots[role]) continue;
+    const from = saved.find((n) => n.role === role);
+    const to = play.find((n) => n.role === role);
+    if (!from || !to) {
+      delete out[role];
+      continue;
+    }
+    out[role] = { x: to.x + (spots[role].x - from.x), y: to.y + (spots[role].y - from.y) };
+  }
+  return out;
+}
+
+/** Take Tight / Wide back off a receiver, so the saved spot is the normal alignment and each play can still pick tight or wide. */
+export function neutralSkillX(x: number, role: string, tags: string[]): number {
+  if (!FILM_SKILL_ROLES.has(role)) return x;
+  let v = x;
+  if (tagged(tags, 'Wide')) v /= 1.28;
+  if (tagged(tags, 'Tight')) v /= 0.62;
+  return v;
 }
 
 export function combinedNodes(baseKey: string, backfieldKey: string, spots?: BackfieldSpots | null): PlayNode[] | null {
@@ -1538,7 +1583,8 @@ export function assemblePlay(
   conceptKey: string,
   strength: 'Left' | 'Right' = 'Right',
   tagKeys: string[] = [],
-  spots?: BackfieldSpots | null
+  spots?: BackfieldSpots | null,
+  spotBaseKey?: string | null
 ): AssembledPlay {
   const base = BASE_FORMATIONS[baseKey];
   const backfield = BACKFIELD_STRUCTURES[backfieldKey];
@@ -1546,7 +1592,7 @@ export function assemblePlay(
   if (!base || !backfield || !concept) {
     throw new Error('Invalid Base, Backfield, or Concept key passed to builder.');
   }
-  const nodes = combinedNodes(baseKey, backfieldKey, spots);
+  const nodes = combinedNodes(baseKey, backfieldKey, fitBackfieldSpots(baseKey, backfieldKey, spots, spotBaseKey));
   if (!nodes) throw new Error('Invalid Base, Backfield, or Concept key passed to builder.');
   validate11Players(nodes);
   const dir = strength === 'Left' ? 'L' : 'R';
@@ -1576,10 +1622,11 @@ export function tryAssemblePlay(
   conceptKey: string,
   strength: 'Left' | 'Right' = 'Right',
   tagKeys: string[] = [],
-  spots?: BackfieldSpots | null
+  spots?: BackfieldSpots | null,
+  spotBaseKey?: string | null
 ): AssembledPlay | null {
   try {
-    return assemblePlay(baseKey, backfieldKey, conceptKey, strength, tagKeys, spots);
+    return assemblePlay(baseKey, backfieldKey, conceptKey, strength, tagKeys, spots, spotBaseKey);
   } catch {
     return null;
   }

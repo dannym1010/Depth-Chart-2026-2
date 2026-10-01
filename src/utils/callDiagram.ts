@@ -61,13 +61,14 @@ export function callSetup(call: { name: string; formation?: string; personnel?: 
 /** The diagram (an SVG picture) of a play drawn from its name, against our call for it. Null when it can't be lined up. */
 export function drawCall(
   call: { name: string; formation?: string; personnel?: string; kind?: string },
-  spots?: BackfieldSpots | null
+  spots?: BackfieldSpots | null,
+  spotBaseKey?: string | null
 ): string | null {
   const s = callSetup(call);
   const runMode = s.family === 'run';
   const run = RUN_SCHEMES.find((r) => r.id === s.run) || RUN_SCHEMES[0];
   const conceptKey = runMode ? run.conceptKey : Object.keys(PLAY_CONCEPTS).find((k) => conceptFamily(PLAY_CONCEPTS[k]) === s.family) || run.conceptKey;
-  const play = tryAssemblePlay(s.baseKey, s.backfield, conceptKey, s.strength, [], spots);
+  const play = tryAssemblePlay(s.baseKey, s.backfield, conceptKey, s.strength, [], spots, spotBaseKey);
   const concept = PLAY_CONCEPTS[conceptKey];
   if (!play || !concept) return null;
   const eligibles = eligiblePlayers(play.nodes);

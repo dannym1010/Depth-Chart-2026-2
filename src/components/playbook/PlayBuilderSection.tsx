@@ -20,6 +20,7 @@ import {
   compatibleBackfields,
   isValidEleven,
   tryAssemblePlay,
+  neutralSkillX,
   diagramSvg,
   autoDrawPlay,
   applyNodeOverrides,
@@ -88,7 +89,7 @@ interface Props {
   /** Every change to the play, so the screen it's open on can keep it (e.g. going back and forth to the film). */
   onStateChange?: (state: PlayBuilderState) => void;
   /** This alignment becomes the backfield for every play on this scout film that uses it. */
-  onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: BackfieldSpots }) => void;
+  onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: BackfieldSpots; baseKey: string }) => void;
 }
 
 
@@ -183,6 +184,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [putDefInName, setPutDefInName] = useState(Boolean(saved?.putDefInName));
   const [overrides, setOverrides] = useState<Record<string, { x: number; y: number }>>(saved?.overrides || {});
   const [filmBases, setFilmBases] = useState<Record<string, BackfieldSpots>>(seed?.filmBases || {});
+  const [filmBaseKeys, setFilmBaseKeys] = useState<Record<string, string>>(seed?.filmBaseKeys || {});
   const [baseNote, setBaseNote] = useState('');
   const [strokes, setStrokes] = useState<PlayStroke[]>((saved?.strokes as PlayStroke[]) || []);
   const [userDrew, setUserDrew] = useState(Boolean(saved?.strokes));
@@ -198,7 +200,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const runMode = family === 'all' || family === 'run';
   const run = RUN_SCHEMES.find((s) => s.id === runId) || RUN_SCHEMES[0];
   const activeConceptKey = runMode ? run.conceptKey : conceptKey;
-  const basePlay = tryAssemblePlay(baseKey, activeBack, activeConceptKey, strength, tags, filmBases[activeBack]);
+  const basePlay = tryAssemblePlay(baseKey, activeBack, activeConceptKey, strength, tags, filmBases[activeBack], filmBaseKeys[activeBack]);
   const hashDx = hash === 'Left' ? -4.2 : hash === 'Right' ? 4.2 : 0;
   const offNodes = basePlay
     ? applyNodeOverrides(basePlay.nodes, overrides).map((n) => (overrides[n.role] ? n : { ...n, x: n.x + hashDx }))
@@ -320,12 +322,12 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stateKey]);
 
-  /** Spots in the strong-to-the-right picture, without the hash shift, so every play on the film can use them. */
+  /** Backs and receivers, strong side to the right, without the hash or a Tight/Wide squeeze, so each play can still pick tight or wide. */
   const currentBackfieldSpots = (): BackfieldSpots => {
     const spots: BackfieldSpots = {};
     for (const n of offNodes) {
-      if (!/^[1-4]$/.test(n.role)) continue;
-      const xField = n.x - hashDx;
+      if (!/^(?:[1-4]|X|Z|Y|W|H|Y1|Y2|W1|W2)$/.test(n.role)) continue;
+      const xField = neutralSkillX(n.x - hashDx, n.role, tags);
       spots[n.role] = { x: strength === 'Left' ? -xField : xField, y: n.y };
     }
     return spots;
@@ -335,13 +337,14 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     if (!seed?.gameId || !onSaveFilmBackfield) return;
     const spots = currentBackfieldSpots();
     setFilmBases((prev) => ({ ...prev, [activeBack]: spots }));
+    setFilmBaseKeys((prev) => ({ ...prev, [activeBack]: baseKey }));
     setOverrides((prev) => {
       const next = { ...prev };
-      for (const role of ['1', '2', '3', '4']) delete next[role];
+      for (const role of ['1', '2', '3', '4', 'X', 'Z', 'Y', 'W', 'H', 'Y1', 'Y2', 'W1', 'W2']) delete next[role];
       return next;
     });
-    onSaveFilmBackfield({ gameId: seed.gameId, backfield: activeBack, spots });
-    setBaseNote(`Saved. Every ${backfieldLabel} play on this film uses this alignment.`);
+    onSaveFilmBackfield({ gameId: seed.gameId, backfield: activeBack, spots, baseKey });
+    setBaseNote(`Saved. Every ${backfieldLabel} play on this film uses these backs and receivers. Tight or wide stays on each play.`);
   };
 
   const saveOffense = () => {
@@ -534,6 +537,9 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                   </Chip>
                 ))}
               </div>
+              {seed?.gameId && (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Tight or wide is this play. Saving the backfield keeps the backs and the receivers.</p>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

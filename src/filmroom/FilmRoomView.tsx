@@ -63,7 +63,7 @@ interface FilmRoomViewProps {
   builderCanEdit?: boolean;
   onSaveBuilderPlay?: (entry: PlayDatabaseEntry, seed: PlayBuilderSeed | null) => PlayDatabaseEntry;
   onRenameScoutPlay?: (change: { from: string; to: string; scoutId?: string; gameId?: string; playEntryId?: string }) => void;
-  onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: Record<string, { x: number; y: number }> }) => void;
+  onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: Record<string, { x: number; y: number }>; baseKey: string }) => void;
 }
 
 type OdkFilter = 'all' | 'O' | 'D' | 'K';
@@ -446,6 +446,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                 seedRef.current = {
                   ...seedRef.current,
                   filmBases: { ...(seedRef.current.filmBases || {}), [change.backfield]: change.spots },
+                  filmBaseKeys: { ...(seedRef.current.filmBaseKeys || {}), [change.backfield]: change.baseKey },
                 };
                 savePlayBuilderSeed(seedRef.current);
               }
