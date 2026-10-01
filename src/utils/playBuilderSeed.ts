@@ -1,4 +1,4 @@
-import type { PlayBuilderState } from '../types/callSheet';
+import type { PlayBuilderState, PlayDatabaseEntry } from '../types/callSheet';
 
 /** A play handed to the play builder: an opponent's play from Their plays, or one of ours to edit. */
 export interface PlayBuilderSeed {
@@ -17,6 +17,33 @@ export interface PlayBuilderSeed {
   snaps?: { id: string; playNumber: number; gain?: number; result?: string }[];
   /** The builder's settings saved with that play, to pick up where it was left. */
   builder?: PlayBuilderState;
+}
+
+/**
+ * Put a play saved from the builder into the team's plays. An opponent's play (from Their plays)
+ * stays an opponent play; one of ours only takes the picture and the name (its formation,
+ * assignments, notes and wristband number stay); anything else is a new play.
+ */
+export function mergeBuilderSave(
+  plays: PlayDatabaseEntry[],
+  entry: PlayDatabaseEntry,
+  seed?: PlayBuilderSeed | null
+): { plays: PlayDatabaseEntry[]; saved: PlayDatabaseEntry; linked: boolean } {
+  const linked = seed?.playEntryId;
+  if (!linked) return { plays: [...plays, entry], saved: entry, linked: false };
+  const scout = Boolean(seed?.scoutId);
+  const existing = plays.find((p) => p.id === linked);
+  // Fields the builder left blank keep what the play had.
+  const drawn = Object.fromEntries(Object.entries(entry).filter(([, v]) => v !== undefined)) as PlayDatabaseEntry;
+  const saved: PlayDatabaseEntry =
+    scout || !existing
+      ? { ...drawn, id: linked, ...(scout ? { source: 'scout', category: 'Opponent plays' } : {}) }
+      : { ...existing, name: drawn.name, diagramUrl: drawn.diagramUrl, builder: drawn.builder, vsDefense: drawn.vsDefense };
+  return {
+    plays: existing ? plays.map((p) => (p.id === linked ? { ...p, ...saved, id: linked } : p)) : [...plays, saved],
+    saved,
+    linked: true,
+  };
 }
 
 const KEY = 'playBuilderSeed';

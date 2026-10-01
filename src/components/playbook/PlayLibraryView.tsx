@@ -7,7 +7,7 @@ import { CallResult, callResults } from '../../hudlScout/utils/playTags';
 import { compareByFormation, formationGroupOf, newPlayEntry, playNameKey, playSideOf } from '../../utils/playbookImport';
 import { PlaybookImportModal } from './PlaybookImportModal';
 import { PlayBuilderSection } from './PlayBuilderSection';
-import { peekPlayBuilderSeed, type PlayBuilderSeed } from '../../utils/playBuilderSeed';
+import { mergeBuilderSave, peekPlayBuilderSeed, savePlayBuilderSeed, type PlayBuilderSeed } from '../../utils/playBuilderSeed';
 import { isScoutPlayEntry } from '../../utils/scoutOppPlays';
 import { unsavedDiagram } from '../../utils/playDiagrams';
 import { DiagramImage } from './DiagramImage';
@@ -348,27 +348,21 @@ export const PlayLibraryView: React.FC<Props> = ({
         }
         onWatchFilm={
           builderSeed?.gameId && builderSeed.snaps?.length && onWatchScoutFilm
-            ? (label) =>
+            ? (label, state) =>
                 onWatchScoutFilm(
                   { gameId: builderSeed.gameId!, playIds: builderSeed.snaps!.map((s) => s.id), label },
-                  { ...builderSeed, name: label }
+                  // The play as it is on screen (saved or not), so it opens the same beside the video.
+                  { ...builderSeed, name: label, builder: state }
                 )
             : undefined
         }
+        onStateChange={(state) => {
+          // Keep the play as it is on screen, so going to the film and back brings it back the same.
+          if (builderSeed) savePlayBuilderSeed({ ...builderSeed, builder: state });
+        }}
         onAdd={(entry) => {
-          const linked = builderSeed?.playEntryId;
-          const scout = Boolean(builderSeed?.scoutId);
-          const existing = linked ? playDatabase.find((p) => p.id === linked) : undefined;
-          // Fields the builder left blank keep what the play had (wristband number, section...).
-          const drawn = Object.fromEntries(Object.entries(entry).filter(([, v]) => v !== undefined)) as PlayDatabaseEntry;
-          // One of our plays only takes the picture from the builder (and its name): its formation,
-          // assignments, notes, section and wristband number stay as the coach set them.
-          const saved: PlayDatabaseEntry = linked
-            ? scout || !existing
-              ? { ...drawn, id: linked, ...(scout ? { source: 'scout', category: 'Opponent plays' } : {}) }
-              : { ...existing, name: drawn.name, diagramUrl: drawn.diagramUrl, builder: drawn.builder, vsDefense: drawn.vsDefense }
-            : entry;
-          onUpdatePlayDatabase(existing ? playDatabase.map((p) => (p.id === linked ? { ...p, ...saved, id: linked } : p)) : [...playDatabase, saved]);
+          const { plays: next, saved, linked } = mergeBuilderSave(playDatabase, entry, builderSeed);
+          onUpdatePlayDatabase(next);
           if (linked) {
             // Keep the builder on this play, so the next Save updates it again.
             setBuilderSeed((s) => (s ? { ...s, name: saved.name, builder: saved.builder } : s));

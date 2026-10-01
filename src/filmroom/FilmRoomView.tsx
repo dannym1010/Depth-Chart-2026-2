@@ -16,6 +16,8 @@ import { filmLineup, setPlayBallPlayer, setPlayDefPlay, setPlaySub, type BallRol
 import { newPlayEntry } from '../utils/playbookImport';
 import { clipMatchMode, matchClipsToPlays } from './clipMatching';
 import { clearFilmCutup, peekFilmCutup, type FilmCutup } from '../utils/filmCutup';
+import { peekPlayBuilderSeed, savePlayBuilderSeed, type PlayBuilderSeed } from '../utils/playBuilderSeed';
+import { PlayBuilderSection } from '../components/playbook/PlayBuilderSection';
 import { FilmPlayer, type PlayerApi } from './FilmPlayer';
 import { LinkFilmDialog } from './LinkFilmDialog';
 import { FilmLibrary, buildLibrary, type LibraryGame } from './FilmLibrary';
@@ -57,6 +59,10 @@ interface FilmRoomViewProps {
   onSaveWeekScouting?: (week: string, hudlScout: any) => void;
   /** Leave a cutup of one play and return to the play builder. */
   onBackToPlay?: () => void;
+  /** The play builder beside the video ("Watch film" from the builder): who may save, saving, renaming. */
+  builderCanEdit?: boolean;
+  onSaveBuilderPlay?: (entry: PlayDatabaseEntry, seed: PlayBuilderSeed | null) => PlayDatabaseEntry;
+  onRenameScoutPlay?: (change: { from: string; to: string; scoutId?: string; gameId?: string; playEntryId?: string }) => void;
 }
 
 type OdkFilter = 'all' | 'O' | 'D' | 'K';
@@ -66,7 +72,7 @@ const newId = () => `fn_${Date.now().toString(36)}${Math.random().toString(36).s
 export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   teamId, teamName, currentWeek, weekLabel, opponentName, opponentScout, ownTeamScout, authorName, onOpenHudlGame,
   onUpdateOwnTeamScout, onUpdateScouting, playDatabase, onUpdatePlayDatabase, roster, weekBoards, weekOptions,
-  filmWeeks, onSelectWeek, onSaveWeekScouting, onBackToPlay,
+  filmWeeks, onSelectWeek, onSaveWeekScouting, onBackToPlay, builderCanEdit, onSaveBuilderPlay, onRenameScoutPlay,
 }) => {
   const own = useMemo(() => bundleFromSaved(ownTeamScout, teamName), [ownTeamScout, teamName]);
   const opp = useMemo(() => bundleFromSaved(opponentScout, opponentName || 'Opponent'), [opponentScout, opponentName]);
@@ -88,6 +94,12 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     setCutup(null);
     clearFilmCutup();
   };
+  // Opened from the play builder: that play, in the builder beside the video, to change while watching.
+  const [builderSeed] = useState<PlayBuilderSeed | null>(() => (cutup ? peekPlayBuilderSeed() : null));
+  const seedRef = useRef(builderSeed);
+  const [sideTab, setSideTab] = useState<'builder' | 'notes'>(builderSeed ? 'builder' : 'notes');
+  const [hideBuilder, setHideBuilder] = useState(false);
+  const [builderSaved, setBuilderSaved] = useState('');
   const pickKey = `footballFilmroomGame_${teamId}`;
   const [gameKey, setGameKey] = useState<string | undefined>(() => safeJSONParse<string | null>(pickKey, null) || undefined);
   const game = games.find((g) => g.key === gameKey) || games[0];
@@ -221,9 +233,10 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
 
   const apiRef = useRef<PlayerApi | null>(null);
   const [linkOpen, setLinkOpen] = useState(false);
-  const [libraryDesk, setLibraryDesk] = useState(() => safeJSONParse<boolean>('footballFilmroomLibrary', true));
+  // Opened from the play builder, the library starts closed so the builder has room beside the video.
+  const [libraryDesk, setLibraryDesk] = useState(() => !builderSeed && safeJSONParse<boolean>('footballFilmroomLibrary', true));
   const [libraryPhone, setLibraryPhone] = useState(false);
-  const [mobileTab, setMobileTab] = useState<'plays' | 'notes'>('plays');
+  const [mobileTab, setMobileTab] = useState<'plays' | 'notes' | 'builder'>('plays');
 
   // Computer layout: the video, then a bar to drag, then the play log in its own scroll area.
   // The video's height and whether notes show are remembered on this device.
@@ -405,6 +418,52 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       onCheckFolder={sources.local || sources.drive ? breakdowns.checkNow : undefined}
     />
   );
+  const builderEl = builderSeed ? (
+    <PlayBuilderSection
+      key={builderSeed.playEntryId || builderSeed.name}
+      compact
+      canEdit={Boolean(builderCanEdit && onSaveBuilderPlay)}
+      seed={builderSeed}
+      onStateChange={(state) => {
+        // The play as it is on screen goes back to the builder with Back.
+        if (seedRef.current) savePlayBuilderSeed({ ...seedRef.current, builder: state });
+      }}
+      onRename={
+        builderSeed.scoutId && onRenameScoutPlay
+          ? (from, to) =>
+              onRenameScoutPlay({ from, to, scoutId: builderSeed.scoutId, gameId: builderSeed.gameId, playEntryId: builderSeed.playEntryId })
+          : undefined
+      }
+      onAdd={(entry) => {
+        const saved = onSaveBuilderPlay?.(entry, seedRef.current);
+        if (!saved || !seedRef.current) return;
+        seedRef.current = { ...seedRef.current, name: saved.name, builder: saved.builder };
+        savePlayBuilderSeed(seedRef.current);
+        setBuilderSaved(`Saved ${saved.name}`);
+        window.setTimeout(() => setBuilderSaved(''), 2500);
+      }}
+    />
+  ) : null;
+  // Beside the video: the play builder (when it sent us here) or the notes, with a switch between them.
+  const sideShown = builderSeed ? !hideBuilder : showNotes;
+  const sideIsBuilder = Boolean(builderSeed) && sideTab === 'builder';
+  const sideTabs = builderSeed ? (
+    <div className="flex items-center gap-1 px-2 pt-2">
+      {(['builder', 'notes'] as const).map((t) => (
+        <button
+          key={t}
+          type="button"
+          onClick={() => setSideTab(t)}
+          className={`h-7 px-2.5 rounded-lg text-xs font-black ${
+            sideTab === t ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          {t === 'builder' ? 'Play builder' : `Notes${play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}`}
+        </button>
+      ))}
+      {builderSaved && <span className="ml-auto text-[11px] font-bold text-emerald-700 dark:text-emerald-400">{builderSaved}</span>}
+    </div>
+  ) : null;
   const notesEl = (
     <PlayNotes
       play={play}
@@ -531,13 +590,20 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
 
         <div className="flex items-center gap-1.5 ml-auto">
           <button
-            onClick={toggleNotes}
+            onClick={builderSeed ? () => setHideBuilder((v) => !v) : toggleNotes}
             className={`hidden lg:inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold ${
-              showNotes ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' : 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300'
+              sideShown ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' : 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300'
             }`}
-            title={showNotes ? 'Hide notes to make the video bigger' : 'Show notes beside the video'}
+            title={sideShown ? 'Hide the side panel to make the video bigger' : 'Show it beside the video'}
           >
-            <MessageSquare size={14} /> {showNotes ? 'Hide notes' : `Show notes${play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}`}
+            <MessageSquare size={14} />{' '}
+            {builderSeed
+              ? sideShown
+                ? 'Hide play builder'
+                : 'Show play builder'
+              : showNotes
+                ? 'Hide notes'
+                : `Show notes${play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}`}
           </button>
           <button onClick={() => setLinkOpen(true)} className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-indigo-600 text-white">
             <Link2 size={14} /> {film.status === 'ready' ? 'Change film' : 'Link film'}
@@ -573,7 +639,9 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       })}</aside>}
       <div className="flex flex-col gap-2 flex-1 min-w-0 lg:min-h-0">
       {/* Phones held upright: the video stays pinned under the app header while the plays scroll under it. */}
-      <div className={`grid gap-3 shrink-0 max-lg:portrait:sticky max-lg:portrait:top-[62px] max-lg:portrait:z-20 max-lg:portrait:rounded-xl max-lg:portrait:bg-black ${showNotes ? 'lg:grid-cols-[minmax(0,1fr)_20rem]' : ''}`}>
+      <div className={`grid gap-3 shrink-0 max-lg:portrait:sticky max-lg:portrait:top-[62px] max-lg:portrait:z-20 max-lg:portrait:rounded-xl max-lg:portrait:bg-black ${
+        sideShown ? (sideIsBuilder ? 'lg:grid-cols-[minmax(0,1fr)_minmax(24rem,42%)]' : 'lg:grid-cols-[minmax(0,1fr)_20rem]') : ''
+      }`}>
         <FilmPlayer
           maxVideoHeight={isDesktop ? `${clampVideoH(videoH)}px` : 'calc(100dvh - 7rem)'}
           src={placeholder ? undefined : clipUrl.url}
@@ -593,13 +661,20 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         />
 
         {/* Notes: beside the video on a computer (as tall as the video, scrolling), a tab on phones and tablets */}
-        {showNotes && (
+        {sideShown && (
           <div className="hidden lg:block relative">
             <div className={`${panel} absolute inset-0 overflow-y-auto`}>
-              <div className="px-3 pt-3 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Notes {play ? `· play #${play.playNumber}` : ''}
-              </div>
-              {notesEl}
+              {sideTabs}
+              {sideIsBuilder ? (
+                builderEl
+              ) : (
+                <>
+                  <div className="px-3 pt-3 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Notes {play ? `· play #${play.playNumber}` : ''}
+                  </div>
+                  {notesEl}
+                </>
+              )}
             </div>
           </div>
         )}
@@ -629,8 +704,14 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         <button className={chip(mobileTab === 'notes')} onClick={() => setMobileTab('notes')}>
           Notes{play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}
         </button>
+        {builderSeed && (
+          <button className={chip(mobileTab === 'builder')} onClick={() => setMobileTab('builder')}>
+            Play builder
+          </button>
+        )}
       </div>
       {mobileTab === 'notes' && <div className={`${panel} lg:hidden`}>{notesEl}</div>}
+      {mobileTab === 'builder' && builderEl && <div className={`${panel} lg:hidden`}>{builderEl}</div>}
 
       {/* The game's play log: click a play to watch it, sort by any column, change tags */}
       <div className={`flex-col gap-2 lg:flex-1 lg:min-h-0 ${mobileTab === 'plays' ? 'flex' : 'hidden lg:flex'}`}>

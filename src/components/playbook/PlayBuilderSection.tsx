@@ -81,7 +81,11 @@ interface Props {
   /** The play name changed. Their plays and the play log should use the new name. */
   onRename?: (from: string, to: string) => void;
   /** Open the film clips tagged to this play. */
-  onWatchFilm?: (label: string) => void;
+  onWatchFilm?: (label: string, state: PlayBuilderState) => void;
+  /** Narrow layout (beside the video in the Film Room): the diagram first, the settings under it. */
+  compact?: boolean;
+  /** Every change to the play, so the screen it's open on can keep it (e.g. going back and forth to the film). */
+  onStateChange?: (state: PlayBuilderState) => void;
 }
 
 
@@ -138,7 +142,7 @@ function startFromSeed(seed?: PlayBuilderSeed | null) {
   };
 }
 
-export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm }) => {
+export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, onStateChange }) => {
   const opened = useMemo(() => startFromSeed(seed), [seed]);
   // A play saved from the builder re-opens as it was left.
   const saved = seed?.builder;
@@ -284,16 +288,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     if (next !== nameIn) setNameIn(next);
   };
 
-  const saveOffense = () => {
-    if (!play) return;
-    const calledHole = hole;
-    const holeData = calledHole != null ? HOLE_SYSTEM[calledHole] : play.metadata.holeData;
-    const vs = dLook?.name;
-    commitName();
-    const name = (nameIn.trim() || committedName || play.playName).slice(0, 120);
-    const type: PlayType = inferPlayType(name, 'offense');
-    const extra = dLook ? dLook.nodes.map((n) => (overrides[n.role] ? { ...n, ...overrides[n.role] } : n)) : [];
-    const builder: PlayBuilderState = {
+  /** Everything about the play as it stands, to save with it or carry to another screen. */
+  const currentState = (): PlayBuilderState => ({
       personnel: personnelPick,
       baseKey,
       backfield: activeBack,
@@ -311,7 +307,23 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       putDefInName,
       overrides,
       ...(userDrew ? { strokes } : {}),
-    };
+  });
+  const stateKey = JSON.stringify(currentState());
+  useEffect(() => {
+    onStateChange?.(currentState());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateKey]);
+
+  const saveOffense = () => {
+    if (!play) return;
+    const calledHole = hole;
+    const holeData = calledHole != null ? HOLE_SYSTEM[calledHole] : play.metadata.holeData;
+    const vs = dLook?.name;
+    commitName();
+    const name = (nameIn.trim() || committedName || play.playName).slice(0, 120);
+    const type: PlayType = inferPlayType(name, 'offense');
+    const extra = dLook ? dLook.nodes.map((n) => (overrides[n.role] ? { ...n, ...overrides[n.role] } : n)) : [];
+    const builder = currentState();
     onAdd({
       builder,
       ...newPlayEntry(name, 'offense'),
@@ -405,8 +417,14 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   };
 
   return (
-    <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-sm space-y-4">
-      <div className="flex items-start gap-3">
+    <section
+      className={
+        compact
+          ? 'bg-white dark:bg-slate-900 p-2.5 space-y-3'
+          : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-sm space-y-4'
+      }
+    >
+      <div className={compact ? 'hidden' : 'flex items-start gap-3'}>
         {onBack && (
           <button
             type="button"
@@ -427,7 +445,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)] gap-4 items-start">
+      <div className={compact ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-1 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)] gap-4 items-start'}>
         <div className="space-y-3">
           <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-3 space-y-3">
             <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Alignment</div>
@@ -589,7 +607,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
           </div>
         </div>
 
-        <div className="space-y-3 lg:sticky lg:top-3">
+        <div className={compact ? 'space-y-3 order-first' : 'space-y-3 lg:sticky lg:top-3'}>
           {play ? (
             <PlayDiagramCanvas
               play={{
@@ -659,7 +677,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                   {onWatchFilm && (
                     <button
                       type="button"
-                      onClick={() => onWatchFilm(nameIn.trim() || seed.name)}
+                      onClick={() => onWatchFilm(nameIn.trim() || seed.name, currentState())}
                       className="h-8 px-2.5 rounded-lg bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 text-xs font-black inline-flex items-center gap-1.5 cursor-pointer"
                     >
                       <Film className="w-3.5 h-3.5" /> Watch film
@@ -757,7 +775,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
         </div>
       </div>
 
-      <details className="rounded-2xl border border-slate-200 dark:border-slate-700 p-3">
+      <details className={compact ? 'hidden' : 'rounded-2xl border border-slate-200 dark:border-slate-700 p-3'}>
         <summary className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 cursor-pointer">Save a defense-only card</summary>
         <div className="flex flex-wrap gap-2 mt-2">
           {Object.entries(looks).map(([k, d]) => (

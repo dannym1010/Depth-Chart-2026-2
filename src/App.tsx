@@ -164,7 +164,7 @@ import { MASTER_PLAY_DATABASE, DEFAULT_CALL_SHEET_DATA } from './data/callSheetD
 import { mergeDeletedPlayIds, mergePlayBanks, stampPlayEdits } from './utils/playBankMerge';
 import { blankCallSheetData, blankWristbandData } from './utils/blankSheets';
 import { missingPracticePlans } from './utils/autoPracticePlans';
-import { clearPlayBuilderSeed, consumeSeedHold, holdPlayBuilderSeed, savePlayBuilderSeed } from './utils/playBuilderSeed';
+import { clearPlayBuilderSeed, consumeSeedHold, holdPlayBuilderSeed, mergeBuilderSave, savePlayBuilderSeed, type PlayBuilderSeed } from './utils/playBuilderSeed';
 import { isScoutPlayEntry, renameOppCall, linkSnapsToCall, snapsForCall } from './utils/scoutOppPlays';
 import { newPlayEntry } from './utils/playbookImport';
 import { clearFilmCutup, consumeCutupHold, holdFilmCutup, saveFilmCutup } from './utils/filmCutup';
@@ -4182,6 +4182,32 @@ export default function App() {
     const scout = (latestStateRef.current.playDatabase || []).filter((p) => p && sameTeamId(playTeamOf(p), teamId) && isScoutPlayEntry(p));
     handleUpdateTeamPlayDatabase([...ours.filter((p) => !isScoutPlayEntry(p)), ...scout]);
   };
+  /** A scout play renamed in the play builder: its Their-plays card, the film snaps and its play row. */
+  const renameScoutPlay = (change: { from: string; to: string; scoutId?: string; gameId?: string; playEntryId?: string }) => {
+    const { from, to, scoutId, gameId, playEntryId } = change;
+    if (!scoutId) return;
+    const teamId = activeTeamIdRef.current;
+    const week = currentWeekRef.current;
+    const scopedKey = getScopedWeekKey(teamId, week);
+    const weekState = latestStateRef.current.weeklyData?.[scopedKey] || latestStateRef.current.weeklyData?.[week];
+    const hudl = weekState?.scouting?.hudlScout;
+    if (hudl) {
+      const renamed = renameOppCall(hudl.plays || [], hudl.playLibraries, { scoutId, gameId, from, to, playEntryId });
+      persistWeekScouting('hudlScout', { ...hudl, ...renamed, updatedAt: Date.now() });
+    }
+    if (playEntryId) {
+      const full = latestStateRef.current.playDatabase || [];
+      handleUpdatePlayDatabase(full.map((p) => (p.id === playEntryId ? { ...p, name: to, editedAt: Date.now() } : p)));
+    }
+  };
+  /** A play saved from the play builder outside the Play Library (beside the video in the Film Room). */
+  const saveBuilderPlay = (entry: PlayDatabaseEntry, seed: PlayBuilderSeed | null) => {
+    const teamId = activeTeamIdRef.current;
+    const mine = (latestStateRef.current.playDatabase || []).filter((p) => p && sameTeamId(playTeamOf(p), teamId));
+    const { plays, saved } = mergeBuilderSave(mine, entry, seed);
+    handleUpdateTeamPlayDatabase(plays);
+    return saved;
+  };
   /** A screen saved this team's plays: keep every other team's, tag new plays with this team. */
   const handleUpdateTeamPlayDatabase = (teamPlays: PlayDatabaseEntry[]) => {
     const teamId = activeTeamIdRef.current;
@@ -6683,22 +6709,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                     setActiveUnit('hudl_scout');
                   });
                 }}
-                onRenameScoutPlay={({ from, to, scoutId, gameId, playEntryId }) => {
-                  if (!scoutId) return;
-                  const teamId = activeTeamIdRef.current;
-                  const week = currentWeekRef.current;
-                  const scopedKey = getScopedWeekKey(teamId, week);
-                  const weekState = latestStateRef.current.weeklyData?.[scopedKey] || latestStateRef.current.weeklyData?.[week];
-                  const hudl = weekState?.scouting?.hudlScout;
-                  if (hudl) {
-                    const renamed = renameOppCall(hudl.plays || [], hudl.playLibraries, { scoutId, gameId, from, to, playEntryId });
-                    persistWeekScouting('hudlScout', { ...hudl, ...renamed, updatedAt: Date.now() });
-                  }
-                  if (playEntryId) {
-                    const full = latestStateRef.current.playDatabase || [];
-                    handleUpdatePlayDatabase(full.map((p) => (p.id === playEntryId ? { ...p, name: to, editedAt: Date.now() } : p)));
-                  }
-                }}
+                onRenameScoutPlay={renameScoutPlay}
                 onWatchScoutFilm={(cutup, seed) => {
                   savePlayBuilderSeed(seed);
                   saveFilmCutup(cutup);
@@ -7004,6 +7015,9 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                     setActiveUnit('playbook');
                   });
                 }}
+                builderCanEdit={userRole === 'admin' || userRole === 'assistant'}
+                onSaveBuilderPlay={saveBuilderPlay}
+                onRenameScoutPlay={renameScoutPlay}
               />
             )}
 
