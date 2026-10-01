@@ -4210,7 +4210,7 @@ export default function App() {
     handleUpdateTeamPlayDatabase(plays);
     return saved;
   };
-  /** This film's backfield shape, then every play on that film that lines up in it. */
+  /** This report's backfield shape, then every play in the week's scout that lines up in it. */
   const saveFilmBackfield = (change: { gameId: string; backfield: string; spots: Record<string, { x: number; y: number }>; baseKey: string }) => {
     const teamId = activeTeamIdRef.current;
     const week = currentWeekRef.current;
@@ -4219,18 +4219,19 @@ export default function App() {
     const hudl = weekState?.scouting?.hudlScout;
     if (!hudl) return;
     const now = Date.now();
-    const prevGame = hudl.backfieldBases?.[change.gameId] || {};
-    const backfieldBases = {
-      ...(hudl.backfieldBases || {}),
-      [change.gameId]: { ...prevGame, [change.backfield]: { spots: change.spots, editedAt: now, baseKey: change.baseKey } },
-    };
+    const shared = { spots: change.spots, editedAt: now, baseKey: change.baseKey };
+    const gameIds = new Set<string>([change.gameId, ...Object.keys(hudl.playLibraries || {})]);
+    const backfieldBases = { ...(hudl.backfieldBases || {}) };
+    for (const gid of gameIds) {
+      backfieldBases[gid] = { ...(backfieldBases[gid] || {}), [change.backfield]: shared };
+    }
     const nextHudl = { ...hudl, backfieldBases, updatedAt: now };
-    // The next play opened in this film has to see this shape immediately, before React commits the save.
+    // The next play opened in this report has to see this shape immediately, before React commits the save.
     const weekly = latestStateRef.current.weeklyData || {};
     const stamped = { ...weekState, scouting: { ...(weekState.scouting || {}), hudlScout: nextHudl } };
     latestStateRef.current.weeklyData = { ...weekly, [scopedKey]: stamped, [week]: stamped };
     persistWeekScouting('hudlScout', nextHudl);
-    const cards = hudl.playLibraries?.[change.gameId] || [];
+    const cards = [...gameIds].flatMap((gid) => hudl.playLibraries?.[gid] || []);
     const mine = (latestStateRef.current.playDatabase || []).filter((p) => p && sameTeamId(playTeamOf(p), teamId));
     let next = mine;
     let changed = false;

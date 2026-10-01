@@ -8,7 +8,7 @@ import { playNameKey } from '../../utils/playbookImport';
 import { resolveDiagram, unsavedDiagram } from '../../utils/playDiagrams';
 import { drawCall } from '../../utils/callDiagram';
 import { BACKFIELD_STRUCTURES } from '../../utils/footballEngine';
-import { backfieldOf, type FilmBackfieldBases } from '../../utils/filmBackfields';
+import { backfieldOf, redrawWithBackfield, type FilmBackfieldBases } from '../../utils/filmBackfields';
 import {
   buildScoutScript,
   moveItem,
@@ -82,6 +82,19 @@ export const ScoutOppPlayLibrary: React.FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onTheReport.map((p) => `${p.id}:${p.name}:${p.formation}:${p.personnel}:${p.kind}`).join('|'), playDatabase, backfieldBases]);
   const diagramFor = (play: ScoutOppPlay) => {
+    const entry = (playDatabase || []).find((p) => p.id === `scout_${play.id}`);
+    const backfield = backfieldOf(play, entry);
+    const base = backfieldBases?.[play.gameId]?.[backfield];
+    if (base?.spots) {
+      const drawn = redrawWithBackfield(
+        entry || { id: `scout_${play.id}`, name: play.name, diagramUrl: '' } as PlayDatabaseEntry,
+        play,
+        backfield,
+        base.spots,
+        base.baseKey
+      );
+      if (drawn.diagramUrl) return drawn.diagramUrl;
+    }
     const spot = spotsFor(play);
     return savedDiagram(play) || drawnFromName.get(play.id) || drawCall(play, spot.spots, spot.baseKey) || undefined;
   };

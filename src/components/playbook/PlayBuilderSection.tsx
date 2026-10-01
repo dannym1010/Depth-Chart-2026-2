@@ -10,6 +10,7 @@ import {
   TAG_GROUPS,
   PERSONNEL_DEFINITIONS,
   TE_LOCATIONS,
+  alignmentsFor,
   DEFENSIVE_FRONTS,
   STUNTS_AND_PRESSURES,
   OUR_DEFENSE_LOOKS,
@@ -191,7 +192,18 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [userDrew, setUserDrew] = useState(Boolean(saved?.strokes));
 
   const locations = TE_LOCATIONS[personnelPick] || [];
-  const locationId = locations.find((l) => l.baseKey === baseKey)?.id || locations[0]?.id || '';
+  const wrCount = PERSONNEL_DEFINITIONS[personnelPick]?.wr || 0;
+  const alignmentGroups = alignmentsFor(personnelPick);
+  const activeAlign = alignmentGroups.find((g) => g.locations.some((l) => l.baseKey === baseKey)) || alignmentGroups[0];
+  const spotChoices = wrCount === 0 ? locations : activeAlign && activeAlign.locations.length > 1 ? activeAlign.locations : [];
+  const locationId = (spotChoices.length ? spotChoices : locations).find((l) => l.baseKey === baseKey)?.id || '';
+  const chooseAlignment = (id: string) => {
+    const group = alignmentGroups.find((g) => g.id === id);
+    if (!group?.locations.length) return;
+    const current = locations.find((l) => l.baseKey === baseKey);
+    const same = group.locations.find((l) => l.label === current?.label);
+    setBaseKey((same || group.locations[0]).baseKey);
+  };
   const validBacks = backs.length ? backs : ['I_FORM'];
   // A play saved with a backfield that's no longer offered (a copy of another) still opens with it.
   const activeBack = validBacks.includes(backfieldKey) || isValidEleven(baseKey, backfieldKey) ? backfieldKey : validBacks[0];
@@ -345,7 +357,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       return next;
     });
     onSaveFilmBackfield({ gameId: seed.gameId, backfield: activeBack, spots, baseKey });
-    if (announce) setBaseNote(`Saved. Every ${backfieldLabel} play on this film uses these backs and receivers. Tight or wide stays on each play.`);
+    if (announce) setBaseNote(`Saved. Every ${backfieldLabel} play on this scouting report uses this formation. Tight or wide stays on each play.`);
   };
   const publishRef = useRef(publishBackfield);
   publishRef.current = publishBackfield;
@@ -550,13 +562,28 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 </select>
               )}
             </div>
+            {wrCount > 0 && activeAlign && (
+              <div>
+                <div className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">
+                  Alignment · {wrCount} receiver{wrCount === 1 ? '' : 's'}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {alignmentGroups.map((g) => (
+                    <Chip key={g.id} on={activeAlign.id === g.id} onClick={() => chooseAlignment(g.id)}>
+                      {g.label}
+                    </Chip>
+                  ))}
+                </div>
+              </div>
+            )}
+            {spotChoices.length > 0 && (
             <div>
               <div className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">
                 {(PERSONNEL_DEFINITIONS[personnelPick]?.te || 0) > 0 ? 'Tight end spot' : 'Receivers'}
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {locations.map((l) => (
-                  <Chip key={l.id} on={locationId === l.id} onClick={() => setBaseKey(l.baseKey)}>
+                {spotChoices.map((l) => (
+                  <Chip key={l.baseKey} on={locationId === l.id} onClick={() => setBaseKey(l.baseKey)}>
                     {l.label}
                   </Chip>
                 ))}
@@ -565,6 +592,10 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Tight or wide is this play. Saving the backfield keeps the backs and the receivers.</p>
               )}
             </div>
+            )}
+            {wrCount > 0 && spotChoices.length === 0 && seed?.gameId && (
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Tight or wide is this play. Saving the backfield keeps the backs and the receivers.</p>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <div className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">Strength</div>
@@ -799,7 +830,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 onClick={() => publishBackfield()}
                 className="w-full h-9 px-3 rounded-lg border border-indigo-300 dark:border-indigo-700 text-indigo-800 dark:text-indigo-200 text-xs font-black cursor-pointer disabled:opacity-40"
               >
-                Use this {backfieldLabel} for every {backfieldLabel} play on this film
+                Use this {backfieldLabel} for every {backfieldLabel} play on this report
               </button>
             )}
             {baseNote && <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400">{baseNote}</p>}

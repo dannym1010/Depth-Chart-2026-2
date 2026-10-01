@@ -35,7 +35,17 @@ export function scoutFingerprint(scout: any): string {
   }
   const gameEdits = games.reduce((m: number, g: any) => Math.max(m, Number(g?.editedAt) || 0), 0);
   const deleted = Array.isArray(scout.deletedGameIds) ? scout.deletedGameIds.length : 0;
-  return `${Number(scout.updatedAt) || 0}|${plays.length}|${games.length}|${scout.datasetName || ''}|${scout.sourceCleared ? 1 : 0}|${edits}|${lastEdit}|${gameEdits}|${deleted}`;
+  let baseEdit = 0;
+  const bases = scout.backfieldBases;
+  if (bases && typeof bases === 'object') {
+    for (const game of Object.values(bases)) {
+      if (!game || typeof game !== 'object') continue;
+      for (const base of Object.values(game as Record<string, { editedAt?: number }>)) {
+        baseEdit = Math.max(baseEdit, Number(base?.editedAt) || 0);
+      }
+    }
+  }
+  return `${Number(scout.updatedAt) || 0}|${plays.length}|${games.length}|${scout.datasetName || ''}|${scout.sourceCleared ? 1 : 0}|${edits}|${lastEdit}|${gameEdits}|${deleted}|${baseEdit}`;
 }
 
 /**

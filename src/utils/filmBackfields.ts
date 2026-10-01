@@ -98,7 +98,8 @@ export function redrawWithBackfield(
 ): PlayDatabaseEntry {
   const b = entry.builder;
   const setup = callSetup(card);
-  const baseKey = b?.baseKey || setup.baseKey;
+  const formed = spotBaseKey && BASE_FORMATIONS[spotBaseKey] ? spotBaseKey : '';
+  const baseKey = formed || b?.baseKey || setup.baseKey;
   const strength = b?.strength || setup.strength;
   const tags = b?.tags || [];
   const family = b?.family && b.family !== 'all' ? b.family : setup.family;
@@ -136,7 +137,7 @@ export function redrawWithBackfield(
   const lookKey = b ? b.defenseKey : setup.personnel >= 30 ? '53_C3' : strength === 'Right' ? '44_C3_RIP' : '44_C3_LIZ';
   const defense = lookKey ? OUR_DEFENSE_LOOKS[lookKey]?.nodes || [] : [];
   const builder: PlayBuilderState = {
-    personnel: b?.personnel || setup.personnel,
+    personnel: BASE_FORMATIONS[baseKey]?.personnel || b?.personnel || setup.personnel,
     baseKey,
     backfield,
     conceptKey,

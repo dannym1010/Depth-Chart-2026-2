@@ -61,6 +61,18 @@ export const BASE_FORMATIONS: Record<string, BaseFormation> = {
       { role: 'Z', x: 16, y: 0, line: true },
     ],
   },
+  '10_QUADS': {
+    personnel: 10,
+    hudlBase: 'Quads',
+    tackleOver: true,
+    tags: ['Flood', 'All Hitch', 'Stick'],
+    perimeterNodes: [
+      { role: 'H', x: 8, y: -1, line: false },
+      { role: 'Y', x: 11.5, y: -1, line: false },
+      { role: 'X', x: 15, y: 0, line: true },
+      { role: 'Z', x: 18.5, y: 0, line: true },
+    ],
+  },
   '11_PRO': {
     personnel: 11,
     hudlBase: 'Pro',
@@ -77,10 +89,10 @@ export const BASE_FORMATIONS: Record<string, BaseFormation> = {
     hudlBase: 'Trips',
     tags: ['Laser', 'Flood', 'Stick', 'Snag'],
     perimeterNodes: [
-      { role: 'X', x: -14, y: -0.5, line: false },
-      { role: 'Y', x: 6, y: 0, line: true },
-      { role: 'W', x: 10, y: -0.5, line: false },
-      { role: 'Z', x: 14, y: 0, line: true },
+      { role: 'Y', x: -6, y: 0, line: true },
+      { role: 'X', x: 8, y: -1, line: false },
+      { role: 'W', x: 12, y: -1, line: false },
+      { role: 'Z', x: 16, y: 0, line: true },
     ],
   },
   '12_ACE': {
@@ -133,6 +145,17 @@ export const BASE_FORMATIONS: Record<string, BaseFormation> = {
       { role: 'X', x: -14, y: 0, line: true },
       { role: 'W', x: 9, y: -1.4, line: false },
       { role: 'Z', x: 14, y: 0, line: true },
+    ],
+  },
+  '20_TRIPS': {
+    personnel: 20,
+    hudlBase: 'Trips',
+    tackleOver: true,
+    tags: ['Laser', 'Flood', 'Bubble'],
+    perimeterNodes: [
+      { role: 'W', x: 8, y: -1, line: false },
+      { role: 'X', x: 12, y: 0, line: true },
+      { role: 'Z', x: 16, y: 0, line: true },
     ],
   },
   '21_PRO': {
@@ -420,6 +443,16 @@ export const BASE_FORMATIONS: Record<string, BaseFormation> = {
       { role: 'Z', x: 8, y: 0, line: true },
     ],
   },
+  '30_TWINS': {
+    personnel: 30,
+    hudlBase: 'Twins',
+    tackleOver: true,
+    tags: ['Crack', 'Bubble', 'Option'],
+    perimeterNodes: [
+      { role: 'Z', x: 9, y: 0, line: true },
+      { role: 'X', x: 13, y: 0, line: true },
+    ],
+  },
   '31_TE_SPLIT': {
     personnel: 31,
     hudlBase: 'TE Split',
@@ -446,6 +479,33 @@ export const BASE_FORMATIONS: Record<string, BaseFormation> = {
     perimeterNodes: [
       { role: 'X', x: -14, y: 0, line: true },
       { role: 'Y', x: 8.5, y: 0, line: true },
+    ],
+  },
+  '31_WR_RIGHT': {
+    personnel: 31,
+    hudlBase: 'Pro',
+    tags: ['Blast', 'Wedge', 'Power Lead'],
+    perimeterNodes: [
+      { role: 'Y', x: -6, y: 0, line: true },
+      { role: 'X', x: 14, y: 0, line: true },
+    ],
+  },
+  '31_SPLIT_RIGHT': {
+    personnel: 31,
+    hudlBase: 'TE Split',
+    tags: ['Stretch', 'Crack', 'Power'],
+    perimeterNodes: [
+      { role: 'Y', x: -12, y: 0, line: true },
+      { role: 'X', x: 14, y: 0, line: true },
+    ],
+  },
+  '31_NASTY_RIGHT': {
+    personnel: 31,
+    hudlBase: 'TE Nasty',
+    tags: ['Down', 'Wedge', 'Blast'],
+    perimeterNodes: [
+      { role: 'Y', x: -5.4, y: 0, line: true },
+      { role: 'X', x: 8, y: 0, line: true },
     ],
   },
   '32_TE_SPLIT': {
@@ -483,6 +543,7 @@ export const TE_LOCATIONS: Record<number, { id: string; label: string; baseKey: 
   10: [
     { id: '2x2', label: '2x2', baseKey: '10_SPREAD_2X2' },
     { id: 'trips', label: 'Trips', baseKey: '10_TRIPS' },
+    { id: 'quads', label: 'Quads', baseKey: '10_QUADS' },
   ],
   11: [
     { id: 'tight', label: 'Tight', baseKey: '11_PRO' },
@@ -502,6 +563,7 @@ export const TE_LOCATIONS: Record<number, { id: string; label: string; baseKey: 
     { id: 'spread', label: 'Spread', baseKey: '20_SPREAD_OPEN' },
     { id: 'twins', label: 'Twins', baseKey: '20_TWINS' },
     { id: 'wing', label: 'Wing', baseKey: '20_WING_T' },
+    { id: 'trips', label: 'Trips', baseKey: '20_TRIPS' },
   ],
   21: [
     { id: 'tight', label: 'Tight', baseKey: '21_PRO' },
@@ -524,12 +586,16 @@ export const TE_LOCATIONS: Record<number, { id: string; label: string; baseKey: 
   30: [
     { id: 'split', label: 'Split', baseKey: '30_FULLHOUSE_OPEN' },
     { id: 'tight', label: 'Tight', baseKey: '30_TIGHT' },
+    { id: 'twins', label: 'Twins', baseKey: '30_TWINS' },
   ],
   31: [
     { id: 'tight', label: 'Tight', baseKey: '31_POWER' },
     { id: 'split', label: 'Split', baseKey: '31_TE_SPLIT' },
     { id: 'nasty', label: 'Snug', baseKey: '31_TE_NASTY' },
     { id: 'over', label: 'Tackle over', baseKey: '31_TE_OVER' },
+    { id: 'tight-r', label: 'Tight', baseKey: '31_WR_RIGHT' },
+    { id: 'split-r', label: 'Split', baseKey: '31_SPLIT_RIGHT' },
+    { id: 'nasty-r', label: 'Snug', baseKey: '31_NASTY_RIGHT' },
   ],
   32: [
     { id: 'tight', label: 'Tight', baseKey: '32_WISHBONE' },
@@ -538,6 +604,60 @@ export const TE_LOCATIONS: Record<number, { id: string; label: string; baseKey: 
     { id: 'over', label: 'Tackle over', baseKey: '32_TE_OVER' },
   ],
 };
+
+const RECEIVER_ALIGN_ORDER = ['left', 'right', 'twins', '1x1', '2x1', 'trips', '2x2', '3x1', 'quads'] as const;
+
+const RECEIVER_ALIGN_LABEL: Record<(typeof RECEIVER_ALIGN_ORDER)[number], string> = {
+  left: 'Left',
+  right: 'Right',
+  twins: 'Twins',
+  '1x1': '1x1',
+  '2x1': '2x1',
+  trips: 'Trips',
+  '2x2': '2x2',
+  '3x1': 'Trips',
+  quads: 'Quads',
+};
+
+/** How the wide receivers are split: 1 is left or right, 2 is twins or 1x1, 3 is 2x1 or trips. */
+export function receiverAlignment(baseKey: string): string | null {
+  const base = BASE_FORMATIONS[baseKey];
+  if (!base) return null;
+  const te = PERSONNEL_DEFINITIONS[base.personnel]?.te ?? 0;
+  let left = 0;
+  let right = 0;
+  for (const n of base.perimeterNodes) {
+    if (te > 0 && (n.role === 'Y' || n.role === 'Y1' || n.role === 'Y2')) continue;
+    if (n.x < -0.5) left += 1;
+    else if (n.x > 0.5) right += 1;
+  }
+  const count = left + right;
+  if (!count) return null;
+  const fewer = Math.min(left, right);
+  if (count === 1) return right > left ? 'right' : 'left';
+  if (count === 2) return fewer === 0 ? 'twins' : '1x1';
+  if (count === 3) return fewer === 0 ? 'trips' : '2x1';
+  if (fewer === 0) return 'quads';
+  if (fewer === 1) return '3x1';
+  return '2x2';
+}
+
+/** Alignment choices for this personnel, each with the tight-end spots that fit it. */
+export function alignmentsFor(personnel: number): { id: string; label: string; locations: { id: string; label: string; baseKey: string }[] }[] {
+  const groups = new Map<string, { id: string; label: string; baseKey: string }[]>();
+  for (const loc of TE_LOCATIONS[personnel] || []) {
+    const id = receiverAlignment(loc.baseKey);
+    if (!id) continue;
+    const list = groups.get(id) || [];
+    list.push(loc);
+    groups.set(id, list);
+  }
+  return RECEIVER_ALIGN_ORDER.filter((id) => groups.has(id)).map((id) => ({
+    id,
+    label: RECEIVER_ALIGN_LABEL[id],
+    locations: groups.get(id) || [],
+  }));
+}
 
 export interface BackfieldStructure {
   hudlBackfield: string;
