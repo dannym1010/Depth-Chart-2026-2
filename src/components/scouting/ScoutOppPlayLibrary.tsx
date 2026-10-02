@@ -383,23 +383,30 @@ export const ScoutOppPlayLibrary: React.FC<{
                         <ChevronDown className="w-3.5 h-3.5" />
                       </button>
                     </div>
-                    <div className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-left cursor-pointer disabled:cursor-default"
+                      disabled={!play || !onDraw}
+                      onClick={() => play && onDraw?.(play)}
+                    >
                       <div className="text-sm font-black">{index + 1}. {line.name}</div>
                       {line.detail && <div className="text-[11px] text-slate-500">{line.detail}</div>}
-                    </div>
+                      {onDraw && play && <div className="text-[11px] text-slate-500">Open in play builder</div>}
+                    </button>
                   </div>
                   {diagram ? (
                     <>
-                      <DiagramImage url={diagram} alt={line.name} className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white" />
+                      <button
+                        type="button"
+                        className="mt-1 block w-full cursor-pointer disabled:cursor-default"
+                        disabled={!play || !onDraw}
+                        aria-label={`Open ${line.name}`}
+                        onClick={() => play && onDraw?.(play)}
+                      >
+                        <DiagramImage url={diagram} alt={line.name} className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white" />
+                      </button>
                       {play && !savedDiagram(play) && (
-                        <p className="mt-0.5 text-[10px] text-slate-400">
-                          Drawn from the play name.{' '}
-                          {onDraw && (
-                            <button type="button" className="font-bold underline cursor-pointer" onClick={() => onDraw(play)}>
-                              Open to change it
-                            </button>
-                          )}
-                        </p>
+                        <p className="mt-0.5 text-[10px] text-slate-400">Drawn from the play name.</p>
                       )}
                     </>
                   ) : (
