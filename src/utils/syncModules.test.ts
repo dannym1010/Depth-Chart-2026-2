@@ -2313,6 +2313,21 @@ describe('Hudl playbook import', () => {
     const { fixOcrCall, parseAssignmentLines } = await import('./playbookImport.ts');
     assert.equal(fixOcrCall('211 26 DIVE'), '21L 26 DIVE');
     assert.equal(fixOcrCall('21 R 31 TOSS SWEEP'), '21 R 31 TOSS SWEEP');
+    const { sheetPlayName, sheetSectionName, sheetBody, isSheetHeader } = await import('./playbookImport.ts');
+    assert.equal(sheetPlayName('Bl 32 Wishbone 26 Dive'), '32 Wishbone 26 Dive');
+    assert.equal(sheetPlayName('8 | 32 Wishbone Y Waggle'), '32 Wishbone Y Waggle');
+    assert.equal(sheetPlayName('31 6un T 23 Blast'), '31 Gun T 23 Blast');
+    assert.equal(sheetPlayName('316un T 32 Counter'), '31 Gun T 32 Counter');
+    assert.equal(sheetPlayName('56 Air Raid Empty 5 Wide 4 Zone Jet'), 'Air Raid Empty 5 Wide 4 Zone Jet');
+    assert.equal(sheetPlayName('32 Wishbone 0B Sweep 11'), '32 Wishbone QB Sweep 11');
+    assert.equal(sheetPlayName('J Air Raid Pistol Vapor Jet Right'), 'Air Raid Pistol Vapor Jet Right');
+    assert.equal(sheetSectionName('FORMATION 32 WISHBONE'), '32 WISHBONE');
+    assert.equal(sheetSectionName('MAHOPAC OFFENSE'), '');
+    assert.equal(isSheetHeader(20, 200), true);
+    assert.equal(isSheetHeader(250, 250), false);
+    const body = sheetBody('Inside-Over free blocking scheme for the line.\nQB Hand off to the fullback and carry out the fake.\nWR Stalk the corner.');
+    assert.equal(body.assignments?.find((a) => a.pos === 'QB')?.text.startsWith('Hand off'), true);
+    assert.match(body.notes || '', /blocking scheme/i);
     const jobs = parseAssignmentLines('z Stalk\n\nY On-Playside-Backer\n1 Toss To 3, Boot Away\nCc On-Playside-Backer\nNo\n\n—\n© —\nBSG Pull Kick Out');
     assert.deepEqual(jobs, [
       { pos: 'Z', text: 'Stalk' },

@@ -33,9 +33,11 @@ function fingerprint(src: HTMLCanvasElement): string {
 }
 
 /** Cut the play drawing out of a rendered install page. */
-export async function diagramFromPage(page: HTMLCanvasElement): Promise<DiagramDraft | undefined> {
-  const top = Math.round(page.height * DIAGRAM_TOP);
-  const height = Math.round(page.height * (DIAGRAM_BOTTOM - DIAGRAM_TOP));
+export async function diagramFromPage(page: HTMLCanvasElement, band?: { top: number; bottom: number }): Promise<DiagramDraft | undefined> {
+  const topRatio = band?.top ?? DIAGRAM_TOP;
+  const bottomRatio = band?.bottom ?? DIAGRAM_BOTTOM;
+  const top = Math.round(page.height * topRatio);
+  const height = Math.round(page.height * (bottomRatio - topRatio));
   const scale = Math.min(1, MAX_WIDTH / page.width);
   const c = document.createElement('canvas');
   c.width = Math.round(page.width * scale);

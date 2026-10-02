@@ -288,7 +288,7 @@ export const PlayLibraryView: React.FC<Props> = ({
                 onClick={() => setImporting(true)}
                 className="h-10 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-black inline-flex items-center gap-2 cursor-pointer"
               >
-                <Upload className="w-4 h-4" /> Import Hudl playbook
+                <Upload className="w-4 h-4" /> Import playbook
               </button>
               <button
                 type="button"

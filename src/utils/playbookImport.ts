@@ -65,6 +65,75 @@ export function fixOcrCall(name: string): string {
   return tidyPlayName(name).replace(/^(\d{2})[1Il|](?=\s)/, '$1L').replace(/^(\d{2})[Rr](?=\s)/, '$1R');
 }
 
+/** Grey title bar plus a black number box: this page is one play, not a Hudl install card. */
+export function isSheetHeader(badgeAvg: number, barAvg: number): boolean {
+  return badgeAvg < 90 && barAvg > 150 && barAvg < 240;
+}
+
+/**
+ * Title bar of a one-play sheet. The black box holds the sheet number ("8 | 32 Wishbone Y Waggle"),
+ * and text recognition reads "Gun" as "6un".
+ */
+export function sheetPlayName(raw: string): string {
+  let t = tidyPlayName(raw).replace(/[|]/g, ' ');
+  t = t.replace(/(\d{2})\s*6un\b/gi, '$1 Gun').replace(/\b6un\b/gi, 'Gun').replace(/\b0B\b/g, 'QB');
+  t = t.replace(/^[J\]]\s+/i, '');
+  const atPersonnel = t.match(/^(.*?)(\d{2}\s+[A-Za-z].*)$/);
+  if (atPersonnel) {
+    const before = tidyPlayName(atPersonnel[1]);
+    const junk = !before || before.split(' ').every((w) => w.length <= 2);
+    if (junk) t = atPersonnel[2];
+  }
+  // A sheet number in front of a name that does not start with personnel ("56 Air Raid ...").
+  if (!/^(10|11|12|20|21|22|30|31|32)\b/.test(t)) t = t.replace(/^\d{1,2}\s+(?=[A-Za-z])/, '');
+  t = fixOcrCall(t);
+  if ((t.match(/[A-Za-z]/g) || []).length < 3) return '';
+  if (/^FORMATION$/i.test(t)) return '';
+  return t;
+}
+
+/** The formation named on a divider page ("FORMATION / 32 WISHBONE"). */
+export function sheetSectionName(raw: string): string {
+  const t = tidyPlayName(raw)
+    .replace(/\bFORMATION\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if ((t.match(/[A-Za-z]/g) || []).length < 3) return '';
+  if (!/\b(WISHBONE|GUN|AIR|RAID|EMPTY|TWINS|TRIPS|SPREAD|BONE|WING|PISTOL)\b/i.test(t) && !/\b(10|11|12|20|21|22|30|31|32)\b/.test(t)) return '';
+  return t.toUpperCase();
+}
+
+/** Coaching text under the diagram. Lines that start with a position become that position's job. */
+export function sheetBody(raw: string): { notes?: string; assignments?: PlayAssignment[] } {
+  const cleaned = String(raw || '')
+    .replace(/\(0B\)/g, '(QB)')
+    .replace(/\b0B\b/g, 'QB');
+  const lines = cleaned
+    .split(/\r?\n/)
+    .map((l) => tidyPlayName(l))
+    .filter((l) => {
+      const letters = (l.match(/[A-Za-z]/g) || []).length;
+      return letters >= 8 && letters / Math.max(l.length, 1) > 0.4;
+    });
+  if (!lines.length) return {};
+  const assignments = parseAssignmentLines(lines.join('\n'));
+  const used = new Set(assignments.map((a) => a.pos));
+  const notes = lines
+    .filter((l) => {
+      const m = l.match(/^(\S+)\s+/);
+      if (!m) return true;
+      const pos = (POSITION_FIXES[m[1]] || m[1]).toUpperCase().replace(/[^A-Z0-9]/g, '');
+      return !used.has(POSITION_FIXES[pos] || pos);
+    })
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return {
+    notes: notes.length >= 12 ? notes.slice(0, 1200) : undefined,
+    assignments: assignments.length ? assignments : undefined,
+  };
+}
+
 /** A heading such as "NOW SCREENS" or "PLAY ACTION PASS": short, no numbers, all capitals. */
 export function isSectionName(name: string): boolean {
   const n = tidyPlayName(name);

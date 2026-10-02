@@ -236,7 +236,7 @@ export const PlaybookImportModal: React.FC<Props> = ({ playDatabase, onImport, o
               }`}
             >
               <Upload className="w-8 h-8 mx-auto text-indigo-600 dark:text-indigo-400" />
-              <p className="mt-2 text-sm font-black text-slate-800 dark:text-slate-100">Drop Hudl playbook files here, or tap to choose</p>
+              <p className="mt-2 text-sm font-black text-slate-800 dark:text-slate-100">Drop a playbook PDF here, or tap to choose</p>
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                 Best: Hudl → Playbook → an install → <strong>Export</strong> (PDF). Also works: Ctrl+P of the install page, Excel/CSV lists, screenshots. You can add several files.
               </p>

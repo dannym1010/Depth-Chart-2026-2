@@ -10,10 +10,14 @@ import {
   DraftInput,
   PdfTextItem,
   isSectionName,
+  isSheetHeader,
   parseAssignmentLines,
   parseHudlListPages,
   fixOcrCall,
   parseLooseList,
+  sheetBody,
+  sheetPlayName,
+  sheetSectionName,
   tidyPlayName,
 } from './playbookImport';
 import { diagramFromPage } from './playDiagrams';
@@ -33,7 +37,11 @@ export interface PlaybookReadResult {
   warnings: string[];
 }
 
-type OcrWorker = { recognize: (image: HTMLCanvasElement | File) => Promise<{ data: { text: string } }>; terminate: () => Promise<unknown> };
+type OcrWorker = {
+  recognize: (image: HTMLCanvasElement | File) => Promise<{ data: { text: string } }>;
+  setParameters?: (params: Record<string, string>) => Promise<unknown>;
+  terminate: () => Promise<unknown>;
+};
 
 async function loadPdf(file: File) {
   const pdfjs = await import('pdfjs-dist');
@@ -44,6 +52,52 @@ async function loadPdf(file: File) {
 async function makeOcrWorker(): Promise<OcrWorker> {
   const { createWorker } = await import('tesseract.js');
   return (await createWorker('eng', 1, { workerPath: ocrWorkerUrl })) as unknown as OcrWorker;
+}
+
+function avg(data: Uint8ClampedArray): number {
+  let s = 0;
+  const n = data.length / 4;
+  for (let i = 0; i < data.length; i += 4) s += data[i] + data[i + 1] + data[i + 2];
+  return n ? s / n / 3 : 255;
+}
+
+/** Black number box on the left, grey title bar beside it. */
+function sheetHeader(canvas: HTMLCanvasElement): boolean {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return false;
+  const w = canvas.width;
+  const h = canvas.height;
+  const badge = ctx.getImageData(Math.round(w * 0.055), Math.round(h * 0.045), Math.max(1, Math.round(w * 0.04)), Math.max(1, Math.round(h * 0.025)));
+  const bar = ctx.getImageData(Math.round(w * 0.4), Math.round(h * 0.048), Math.max(1, Math.round(w * 0.15)), Math.max(1, Math.round(h * 0.02)));
+  return isSheetHeader(avg(badge.data), avg(bar.data));
+}
+
+function region(src: HTMLCanvasElement, x0: number, y0: number, x1: number, y1: number, scale = 3): HTMLCanvasElement {
+  const sx = Math.round(src.width * x0);
+  const sy = Math.round(src.height * y0);
+  const sw = Math.max(1, Math.round(src.width * (x1 - x0)));
+  const sh = Math.max(1, Math.round(src.height * (y1 - y0)));
+  const c = document.createElement('canvas');
+  c.width = sw * scale;
+  c.height = sh * scale;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.drawImage(src, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  return c;
+}
+
+async function paintPage(doc: Awaited<ReturnType<typeof loadPdf>>, i: number, scale: number): Promise<HTMLCanvasElement> {
+  const page = await doc.getPage(i);
+  const vp = page.getViewport({ scale });
+  const canvas = document.createElement('canvas');
+  canvas.width = vp.width;
+  canvas.height = vp.height;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvasContext: ctx, viewport: vp, canvas } as any).promise;
+  return canvas;
 }
 
 function crop(src: HTMLCanvasElement, top: number, bottom: number): HTMLCanvasElement {
@@ -106,6 +160,7 @@ export async function readPlaybookPdf(file: File, onProgress?: (p: PlaybookReadP
   const inputs: DraftInput[] = [];
   const sectionCards: string[] = [];
   const warnings: string[] = [];
+  let readSheets = false;
   let worker: OcrWorker;
   try {
     onProgress?.({ done: 0, total: doc.numPages, message: 'Loading the text reader…' });
@@ -122,17 +177,51 @@ export async function readPlaybookPdf(file: File, onProgress?: (p: PlaybookReadP
     };
   }
   try {
-    for (let i = 1; i <= doc.numPages; i++) {
+    const painted = new Map<number, HTMLCanvasElement>();
+    let sheet = false;
+    for (let i = 1; i <= Math.min(6, doc.numPages); i++) {
+      const canvas = await paintPage(doc, i, 2);
+      painted.set(i, canvas);
+      if (sheetHeader(canvas)) {
+        sheet = true;
+        break;
+      }
+    }
+    if (sheet) {
+      readSheets = true;
+      let category = '';
+      const psm = (mode: string) => worker.setParameters?.({ tessedit_pageseg_mode: mode });
+      for (let i = 1; i <= doc.numPages; i++) {
+        onProgress?.({ done: i - 1, total: doc.numPages, message: `Reading play ${i} of ${doc.numPages}` });
+        const canvas = painted.get(i) || (await paintPage(doc, i, 2));
+        try {
+        if (!sheetHeader(canvas)) {
+          await psm('6');
+          const section = sheetSectionName((await worker.recognize(region(canvas, 0.15, 0.42, 0.85, 0.62, 2))).data.text);
+          if (section) category = section;
+          continue;
+        }
+        await psm('7');
+        const name = sheetPlayName((await worker.recognize(region(canvas, 0.11, 0.03, 0.98, 0.09))).data.text);
+        if (!name) continue;
+        await psm('6');
+        const body = sheetBody((await worker.recognize(region(canvas, 0.03, 0.58, 0.98, 0.98, 2))).data.text);
+        inputs.push({
+          name,
+          where: `page ${i}`,
+          category: category || undefined,
+          notes: body.notes,
+          assignments: body.assignments,
+          diagram: await diagramFromPage(canvas, { top: 0.07, bottom: 0.58 }).catch(() => undefined),
+        });
+        } catch {
+          // A blank divider or a page the text reader cannot scale is skipped.
+        }
+      }
+    }
+    for (let i = 1; !sheet && i <= doc.numPages; i++) {
       onProgress?.({ done: i - 1, total: doc.numPages, message: `Reading play ${i} of ${doc.numPages}` });
-      const page = await doc.getPage(i);
-      const vp = page.getViewport({ scale: 3 });
-      const canvas = document.createElement('canvas');
-      canvas.width = vp.width;
-      canvas.height = vp.height;
-      const ctx = canvas.getContext('2d')!;
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      await page.render({ canvasContext: ctx, viewport: vp, canvas } as any).promise;
+      const canvas = await paintPage(doc, i, 3);
       const heading = headingFromOcr((await worker.recognize(crop(canvas, 0, 0.075))).data.text);
       if (!heading || /^printed/i.test(heading)) continue; // cover page
       const { name, versus } = splitVersus(heading);
@@ -149,6 +238,7 @@ export async function readPlaybookPdf(file: File, onProgress?: (p: PlaybookReadP
     await worker.terminate().catch(() => undefined);
   }
   onProgress?.({ done: doc.numPages, total: doc.numPages, message: 'Done' });
+  if (readSheets) warnings.push('Read from the play sheets. Check the names before adding them.');
   if (sectionCards.length) {
     warnings.push(
       `Section card${sectionCards.length > 1 ? 's' : ''} ${sectionCards.map((s) => `"${s}"`).join(', ')} show several plays drawn sideways, which can't be read. If any of those plays are missing, paste the play list from Hudl.`
