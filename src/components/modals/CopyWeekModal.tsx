@@ -6,14 +6,14 @@ import {
   Users,
   BookOpen,
   Sparkles,
+  Smartphone,
+  Zap,
 } from 'lucide-react';
 import { Team, SeasonConfig, ScheduleEvent, WeekState } from '../../types';
 import { getSeasonWeekList, getWeekDisplayLabelWithOpponent, formatWeekLabel } from '../../utils/seasonWeekUtils';
+import { CopyWeekMode } from '../../utils/copyWeek';
 
-/* =========================================================================
-   COPY WEEK MODAL
-   ========================================================================= */
-export type CopyWeekMode = 'both' | 'formations_only' | 'positions_only';
+export type { CopyWeekMode };
 
 interface CopyWeekModalProps {
   isOpen: boolean;
@@ -118,10 +118,10 @@ export const CopyWeekModal: React.FC<CopyWeekModalProps> = ({
             </div>
             <div>
               <h3 className="font-black text-base text-slate-100">
-                Copy Week Formations &amp; Depth Chart
+                Copy Week &amp; Game Day Data
               </h3>
               <p className="text-[11px] text-slate-400 font-semibold">
-                Transfer playbook schemes and player assignments across any weeks
+                Transfer playbook schemes, depth charts, or wristbands across any weeks
               </p>
             </div>
           </div>
@@ -134,6 +134,28 @@ export const CopyWeekModal: React.FC<CopyWeekModalProps> = ({
         </div>
 
         <div className="space-y-4 text-xs font-semibold">
+          {/* Quick Preset for Just Copy Wristband */}
+          <div className="flex items-center justify-between p-2.5 bg-indigo-950/50 border border-indigo-500/30 rounded-2xl">
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-amber-400" />
+              <span className="text-xs font-bold text-indigo-200">Quick Mode: Just want to copy wristband?</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setCopyMode('wristband_only');
+                setCopyWristband(true);
+              }}
+              className={`px-3 py-1 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                copyMode === 'wristband_only'
+                  ? 'bg-emerald-600 text-white shadow-md'
+                  : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+              }`}
+            >
+              {copyMode === 'wristband_only' ? '✓ Wristband Only Selected' : 'Just Copy Wristband'}
+            </button>
+          </div>
+
           {/* Source Selection Group */}
           <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-750 space-y-3">
             <span className="text-[11px] font-black text-indigo-400 uppercase tracking-wider block">
@@ -298,6 +320,38 @@ export const CopyWeekModal: React.FC<CopyWeekModalProps> = ({
                   </div>
                   <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed font-normal">
                     Preserves the target week's existing formation schemes, and maps player depth chart slots onto matching positions.
+                  </p>
+                </div>
+              </label>
+
+              <label
+                onClick={() => {
+                  setCopyMode('wristband_only');
+                  setCopyWristband(true);
+                }}
+                className={`flex items-start gap-3 p-3 rounded-2xl border cursor-pointer transition-all ${
+                  copyMode === 'wristband_only'
+                    ? 'bg-emerald-600/15 border-emerald-500 text-slate-100 shadow-sm'
+                    : 'bg-slate-900/60 border-slate-750 text-slate-300 hover:bg-slate-800/80'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="copyMode"
+                  checked={copyMode === 'wristband_only'}
+                  onChange={() => {
+                    setCopyMode('wristband_only');
+                    setCopyWristband(true);
+                  }}
+                  className="mt-1 text-emerald-600 focus:ring-emerald-500"
+                />
+                <div>
+                  <div className="flex items-center gap-1.5 font-bold text-xs text-white">
+                    <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Wristband Only (Just Copy Wristband &amp; Game Day Plays)</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed font-normal">
+                    Leaves target formations and depth chart completely untouched, and only copies the wristband plays (and optional call sheet) from the source week.
                   </p>
                 </div>
               </label>

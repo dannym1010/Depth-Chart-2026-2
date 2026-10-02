@@ -129,6 +129,18 @@ describe('copyWeek', () => {
     assert.equal(result.depthChart['pos-tgt'][0].name, 'Dan');
   });
 
+  it('keeps target formations and depth chart intact in wristband_only mode', () => {
+    const result = copyWeekCharts({
+      src,
+      targetExisting: target,
+      defaultFormations: [],
+      mode: 'wristband_only',
+    });
+    assert.equal(result.mode, 'wristband_only');
+    assert.equal(result.formations[0].id, 'form_b');
+    assert.equal(Object.keys(result.depthChart).length, 0);
+  });
+
   it('un-deletes copied formation ids', () => {
     const next = applyCopiedFormationsToDeletedIds(['form_a', 'other'], [srcForm], 'both');
     assert.deepEqual(next, ['other']);
@@ -388,6 +400,35 @@ describe('copy wristband plays to call sheet row 1', () => {
     const pink = sheet.offenseSections.find((s) => /pink/i.test(s.title));
     assert.equal(green?.plays[0]?.name, '32 L 26 DIVE');
     assert.equal(pink?.plays[0]?.name, '32 R 24 DIVE');
+  });
+
+  it('does not copy Blue/Gold plays onto Green/Pink even when card 1 is same_per_card', async () => {
+    const { mergeRichestWristbandData } = await import('./wristbandNormalize.ts');
+    const wb = {
+      lastEdited: 100,
+      wristbands: [
+        {
+          id: 'wb_1',
+          title: 'Blue Gold',
+          labelingMode: 'same_per_card',
+          columns: [
+            { name: 'BLUE', color: '#2563eb', plays: [{ text: '21 L 26 DIVE' }] },
+            { name: 'GOLD', color: '#facc15', plays: [{ text: '21 R 24 DIVE' }] },
+          ],
+        },
+        {
+          id: 'wb_2',
+          title: 'Green Pink',
+          labelingMode: 'same_per_card',
+          columns: [
+            { name: 'GREEN', color: '#16a34a', plays: [] },
+            { name: 'PINK', color: '#ec4899', plays: [] },
+          ],
+        },
+      ],
+    };
+    const merged = mergeRichestWristbandData(wb as any);
+    assert.equal(merged?.wristbands?.[1]?.columns?.[0]?.plays?.length || 0, 0);
   });
 
   it('does not fill the whole call sheet cell when the wristband is number-only highlight', async () => {

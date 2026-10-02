@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Watch,
   Printer,
@@ -1407,6 +1407,19 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
               <BookOpen className="w-3.5 h-3.5" />
               <span>Play Bank ({playDatabase.length})</span>
             </button>
+
+            {onCopyWristbandFromPreviousWeek && previousWeekLabel && (
+              <button
+                type="button"
+                onClick={() => onCopyWristbandFromPreviousWeek()}
+                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-750 transition-all cursor-pointer flex items-center gap-1.5"
+                title={`Copy ${previousWeekLabel}'s wristband to this week`}
+              >
+                <Copy className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="hidden sm:inline">Copy {previousWeekLabel}&apos;s Wristband</span>
+                <span className="sm:hidden">Copy Wristband</span>
+              </button>
+            )}
 
             <button
               type="button"

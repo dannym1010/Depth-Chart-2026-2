@@ -302,22 +302,6 @@ export function mergeRichestWristbandData(
     }
   }
 
-  for (const id of order) {
-    const entry = byId.get(id);
-    if (!entry) continue;
-    const columns = (entry.wb.columns || []).map((col) => {
-      if (filledPlayCount(col.plays) > 0 && !looksLikeFactoryGreenPink(col)) return col;
-      const fam = colorFamily(col.name, col.color);
-      if (!fam) return col;
-      const donor = extraFilled.find(
-        (c) => colorFamily(c.name, c.color) === fam && filledPlayCount(c.plays) > 0 && !looksLikeFactoryGreenPink(c)
-      );
-      if (!donor) return col;
-      return { ...col, plays: donor.plays };
-    });
-    byId.set(id, { ...entry, wb: { ...entry.wb, columns } });
-  }
-
   const newest = list.reduce((best, src) =>
     (Number(src.lastEdited) || 0) > (Number(best.lastEdited) || 0) ? src : best
   );
@@ -330,40 +314,11 @@ export function mergeRichestWristbandData(
 }
 
 /**
- * First card "Same on Each Card" means later color cards should carry those
- * plays. Green/Pink often still holds the factory 32-series after Blue/Gold
- * was updated, so call-sheet copy would miss the real wristband plays.
+ * Keep each wristband card's plays distinct to prevent Card 1 (Blue/Gold)
+ * from overwriting Card 2 (Green/Pink) or bringing back deleted plays.
  */
 export function applySameCardPlayMirror(data?: WristbandData | null): WristbandData | undefined {
-  if (!data?.wristbands?.length) return data || undefined;
-  const first = data.wristbands[0];
-  const sameCard = (first.labelingMode || 'same_per_card') === 'same_per_card';
-  if (!sameCard) return data;
-
-  let changed = false;
-  const wristbands = data.wristbands.map((wb, idx) => {
-    if (idx === 0) return wb;
-    const columns = (wb.columns || []).map((col, colIdx) => {
-      const donor = first.columns?.[colIdx];
-      if (!donor || filledPlayCount(donor.plays) === 0) return col;
-      if (filledPlayCount(col.plays) > 0 && !looksLikeFactoryGreenPink(col)) return col;
-      changed = true;
-      const rows = Math.max(donor.plays.length, col.plays?.length || 0, wb.rowsCount || 13);
-      const plays = Array.from({ length: rows }, (_, rowIdx) => {
-        const src = donor.plays[rowIdx];
-        const dest = col.plays?.[rowIdx];
-        if (!src) return dest;
-        return {
-          ...src,
-          wristbandNum: dest?.wristbandNum || src.wristbandNum,
-          customLabel: dest?.customLabel || src.customLabel,
-        };
-      });
-      return { ...col, plays };
-    });
-    return { ...wb, columns };
-  });
-  return changed ? { ...data, wristbands } : data;
+  return data || undefined;
 }
 
 /**

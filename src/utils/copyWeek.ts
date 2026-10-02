@@ -1,7 +1,7 @@
 import { FormationBoard, PlacedPlayer, WeekState } from '../types';
 import { deepClone } from '../services/storageService';
 
-export type CopyWeekMode = 'both' | 'formations_only' | 'positions_only';
+export type CopyWeekMode = 'both' | 'formations_only' | 'positions_only' | 'wristband_only';
 
 export function normalizeCopyWeekMode(
   copyModeOrPlayerSpots: CopyWeekMode | boolean = 'both'
@@ -52,6 +52,10 @@ export function copyWeekCharts(opts: {
     formations = deepClone(src.formations && src.formations.length > 0 ? src.formations : defaultFormations);
     depthChart = {};
     scrimmageChart = {};
+  } else if (mode === 'wristband_only') {
+    formations = deepClone(targetExisting.formations && targetExisting.formations.length > 0 ? targetExisting.formations : defaultFormations);
+    depthChart = deepClone(targetExisting.depthChart || {});
+    scrimmageChart = deepClone(targetExisting.scrimmageChart || {});
   } else {
     formations = deepClone(targetExisting.formations || []);
     const mappedDepthChart: Record<string, PlacedPlayer[]> = {};

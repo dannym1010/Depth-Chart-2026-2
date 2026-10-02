@@ -5843,7 +5843,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
   const handleExecuteCopyWeek = (
     srcWeek: string,
     targetWeek: string,
-    copyModeOrPlayerSpots: 'both' | 'formations_only' | 'positions_only' | boolean = 'both',
+    copyModeOrPlayerSpots: 'both' | 'formations_only' | 'positions_only' | 'wristband_only' | boolean = 'both',
     srcTeamIdParam?: string,
     showAlert: boolean = true,
     extras?: { copyWristband?: boolean; copyCallSheet?: boolean }
@@ -5946,7 +5946,9 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
     const copiedCount = countPlacedPlayers(updatedDepthChart);
 
     setSyncStatus({
-      text: `✅ Copied ${srcLabel} → ${targetLabel} (${copiedCount} players)`,
+      text: mode === 'wristband_only'
+        ? `✅ Copied wristband: ${srcLabel} → ${targetLabel}`
+        : `✅ Copied ${srcLabel} → ${targetLabel} (${copiedCount} players)`,
       color: '#22c55e',
     });
 
@@ -5958,8 +5960,10 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
               ? `all formations and player depth spots (${copiedCount} player placements)`
               : mode === 'formations_only'
               ? 'formations only'
+              : mode === 'wristband_only'
+              ? 'wristband'
               : `player depth spots (${copiedCount} player placements)`
-          }${copyWristband ? ', wristband' : ''}${copyCallSheet ? ', and call sheet' : ''} from ${srcLabel} to ${targetLabel}!`
+          }${mode !== 'wristband_only' && copyWristband ? ', wristband' : ''}${copyCallSheet ? ', and call sheet' : ''} from ${srcLabel} to ${targetLabel}!`
         );
       }, 60);
     }
