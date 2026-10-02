@@ -21,7 +21,7 @@ if not exist "dist\server.cjs" (
 
 start "" http://localhost:3000/
 echo.
-echo Mahopac Operations Manager is starting on http://localhost:3000/
+echo Field General Operations Manager is starting on http://localhost:3000/
 echo Close this window to stop the server.
 echo.
 node dist\server.cjs

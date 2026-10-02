@@ -15,7 +15,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo Mahopac Operations Manager is starting on http://localhost:3000/
+echo Field General Operations Manager is starting on http://localhost:3000/
 echo Close this window to stop the server.
 echo.
 

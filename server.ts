@@ -51,7 +51,7 @@ async function startServer() {
   // '::' is dual-stack: browsers that resolve localhost to ::1 (IPv6) can reach it,
   // and IPv4 / LAN devices still connect as before.
   app.listen(PORT, '::', () => {
-    console.log(`Football Operations Server running on port ${PORT}`);
+    console.log(`Field General Operations Server running on port ${PORT}`);
   });
 }
 
