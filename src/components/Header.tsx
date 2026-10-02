@@ -273,11 +273,11 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             onClick={onNavigateToHome}
-            title="Home"
+            title="Field General Home"
             aria-label="Go to home dashboard"
-            className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shrink-0 cursor-pointer hover:bg-indigo-500 transition-colors"
+            className="w-9 h-9 rounded-xl bg-slate-900 border border-slate-700/80 overflow-hidden flex items-center justify-center shrink-0 cursor-pointer hover:border-indigo-500 transition-all shadow-sm"
           >
-            <span className="text-lg select-none">🏈</span>
+            <img src="/field_general_logo.jpg" alt="Field General" className="w-full h-full object-cover" />
           </button>
           {accessibleTeams.length > 1 ? (
             <select
