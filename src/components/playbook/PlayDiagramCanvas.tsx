@@ -133,6 +133,8 @@ interface Props {
   chrome?: 'full' | 'minimal';
   /** Where the "who does what" panel goes (e.g. a side tab). Under the field when not given. */
   assignmentHost?: HTMLElement | null;
+  /** Rename a player on the diagram. */
+  onLabelChange?: (role: string, label: string) => void;
 }
 
 type Tool = DrawKind | 'move';
@@ -169,6 +171,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   onSelectPlayer,
   chrome = 'full',
   assignmentHost,
+  onLabelChange,
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [tool, setTool] = useState<Tool>('move');
@@ -411,84 +414,61 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
 
   const glyph = (n: PlayNode) => {
     const { cx, cy } = fieldToSvg(n.x, n.y);
-    const label = diagramLabel(n.role);
     const cursor = tool === 'move' ? 'pointer' : 'crosshair';
     const isSelected = selectedRole === n.role;
+    const custom = n.label?.trim();
+    const font = 'system-ui, -apple-system, sans-serif';
+    // A name the coach typed can be longer than the usual letter: shrink it to fit the circle.
+    const fit = (text: string, base: number, room: number) => Math.min(base, room / Math.max(1, text.length * 0.62));
 
-    // Defense in distinct, punchy Cardinal Red badge with white text
+    // Defense: a red box, wide enough for its name.
     if (isDefenseRole(n.role)) {
+      const text = custom || diagramLabel(n.role);
+      const bw = Math.max(23, text.length * 7 + 8);
       return (
         <g key={n.role} style={{ cursor }}>
           {isSelected && (
-            <rect x={cx - 15} y={cy - 14} width={30} height={28} rx={6} fill="none" stroke="#60a5fa" strokeWidth={2.5} strokeDasharray="4 3" />
+            <rect x={cx - bw / 2 - 4} y={cy - 14} width={bw + 8} height={28} rx={6} fill="none" stroke="#6366f1" strokeWidth={2.5} strokeDasharray="4 3" />
           )}
-          <rect x={cx - 11.5} y={cy - 10.5} width={23} height={20} rx={4} fill="#dc2626" stroke="#ffffff" strokeWidth={1.8} />
-          <text x={cx} y={cy + 4.5} textAnchor="middle" fill="#ffffff" fontSize="10.5" fontFamily="system-ui, -apple-system, sans-serif" fontWeight="900">
-            {label}
+          <rect x={cx - bw / 2} y={cy - 10.5} width={bw} height={20} rx={4} fill="#dc2626" stroke="#ffffff" strokeWidth={1.8} />
+          <text x={cx} y={cy + 4} textAnchor="middle" fill="#ffffff" fontSize="10.5" fontFamily={font} fontWeight="900">
+            {text}
           </text>
         </g>
       );
     }
     if (n.role === 'C') {
+      const text = custom || 'C';
+      const bw = Math.max(18, text.length * 6.5 + 6);
       return (
         <g key={n.role} style={{ cursor }}>
           {isSelected && (
-            <rect x={cx - 13} y={cy - 13} width={26} height={26} rx={5} fill="none" stroke="#6366f1" strokeWidth={2.5} strokeDasharray="4 3" />
+            <rect x={cx - bw / 2 - 4} y={cy - 13} width={bw + 8} height={26} rx={5} fill="none" stroke="#6366f1" strokeWidth={2.5} strokeDasharray="4 3" />
           )}
-          <rect x={cx - 9} y={cy - 9} width={18} height={18} rx={3} fill="#ffffff" stroke="#0f172a" strokeWidth={2} />
-          <text x={cx} y={cy + 4.5} textAnchor="middle" fill="#0f172a" fontSize="10.5" fontFamily="system-ui, -apple-system, sans-serif" fontWeight="900">
-            C
+          <rect x={cx - bw / 2} y={cy - 9} width={bw} height={18} rx={3} fill="#ffffff" stroke="#0f172a" strokeWidth={2} />
+          <text x={cx} y={cy + 4} textAnchor="middle" fill="#0f172a" fontSize="10" fontFamily={font} fontWeight="900">
+            {text}
           </text>
         </g>
       );
     }
     const skill = skillDiagramLabel(n.role);
-    if (skill) {
-      const isBall = n.role === ballRole;
-      const fill = isBall ? '#ea580c' : '#ffffff';
-      const ink = isBall ? '#ffffff' : '#0f172a';
-      const stroke = isBall ? '#ffffff' : '#0f172a';
-      return (
-        <g key={n.role} style={{ cursor }}>
-          {isSelected && (
-            <circle cx={cx} cy={cy} r="16" fill="none" stroke="#6366f1" strokeWidth={2.5} strokeDasharray="4 3" />
-          )}
-          {isBall && <circle cx={cx} cy={cy} r="14" fill="none" stroke="#fb923c" strokeWidth="2.5" strokeOpacity="0.85" />}
-          <circle cx={cx} cy={cy} r="11" fill={fill} stroke={stroke} strokeWidth={isBall ? 2.4 : 1.8} />
-          <text x={cx} y={cy + 3.5} textAnchor="middle" fill={ink} fontSize="9" fontFamily="system-ui, -apple-system, sans-serif" fontWeight="900">
-            {skill}
-          </text>
-        </g>
-      );
-    }
-    if (n.line || !/^[1-4]$/.test(n.role)) {
-      const lineLabel = n.role.replace(/^O_?/, '');
-      const shortLabel = lineLabel.length <= 2 ? lineLabel : lineLabel.slice(0, 2);
-      return (
-        <g key={n.role} style={{ cursor }}>
-          {isSelected && (
-            <circle cx={cx} cy={cy} r="15" fill="none" stroke="#6366f1" strokeWidth={2.5} strokeDasharray="4 3" />
-          )}
-          <circle cx={cx} cy={cy} r="10" fill="#ffffff" stroke="#0f172a" strokeWidth={1.8} />
-          <text x={cx} y={cy + 3.5} textAnchor="middle" fill="#0f172a" fontSize="7.5" fontFamily="system-ui, -apple-system, sans-serif" fontWeight="800">
-            {shortLabel}
-          </text>
-        </g>
-      );
-    }
-    const isBall = n.role === ballRole;
+    const isBack = !skill && !(n.line || !/^[1-4]$/.test(n.role));
+    const isBall = (skill || isBack) && n.role === ballRole;
+    const r = skill || isBack ? 11 : 10;
+    const text = custom || (skill ? skill : isBack ? diagramLabel(n.role) : n.role.replace(/^O_?/, '').slice(0, 2));
+    const base = skill ? 9 : isBack ? 12 : 7.5;
+    const size = fit(text, base, r * 2);
     const fill = isBall ? '#ea580c' : '#ffffff';
     const ink = isBall ? '#ffffff' : '#0f172a';
     const stroke = isBall ? '#ffffff' : '#0f172a';
     return (
       <g key={n.role} style={{ cursor }}>
-        {isSelected && (
-          <circle cx={cx} cy={cy} r="16" fill="none" stroke="#6366f1" strokeWidth={2.5} strokeDasharray="4 3" />
-        )}
+        {isSelected && <circle cx={cx} cy={cy} r={r + 5} fill="none" stroke="#6366f1" strokeWidth={2.5} strokeDasharray="4 3" />}
         {isBall && <circle cx={cx} cy={cy} r="14" fill="none" stroke="#fb923c" strokeWidth="2.5" strokeOpacity="0.85" />}
-        <circle cx={cx} cy={cy} r="11" fill={fill} stroke={stroke} strokeWidth={isBall ? 2.4 : 1.8} />
-        <text x={cx} y={cy + 4.5} textAnchor="middle" fill={ink} fontSize="12" fontFamily="system-ui, -apple-system, sans-serif" fontWeight="900">
-          {label}
+        <circle cx={cx} cy={cy} r={r} fill={fill} stroke={stroke} strokeWidth={isBall ? 2.4 : 1.8} />
+        <text x={cx} y={cy + size * 0.36} textAnchor="middle" fill={ink} fontSize={size} fontFamily={font} fontWeight="900">
+          {text}
         </text>
       </g>
     );
@@ -539,6 +519,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       onClear={handleClearPlayerRoute}
       onPreview={setPreviewAction}
       onBallCarrierChange={onBallCarrierChange}
+    onLabelChange={onLabelChange}
       ctx={{ holesXs, qbNode: nodes.find((n) => n.role === '1' || n.role === 'QB') }}
     />
   );

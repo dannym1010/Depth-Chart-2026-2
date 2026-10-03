@@ -139,6 +139,8 @@ interface Props {
   onClear: (role: string) => void;
   onPreview: (preset: PlayerActionPreset | null) => void;
   onBallCarrierChange?: (role: string) => void;
+  /** Rename a player on the diagram ("" puts the usual letter back). */
+  onLabelChange?: (role: string, label: string) => void;
   ctx: Ctx;
   readOnly?: boolean;
 }
@@ -159,6 +161,7 @@ export const PlayerAssignmentPanel: React.FC<Props> = ({
   onClear,
   onPreview,
   onBallCarrierChange,
+  onLabelChange,
   ctx,
   readOnly,
 }) => {
@@ -188,7 +191,7 @@ export const PlayerAssignmentPanel: React.FC<Props> = ({
                 : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
           }`}
         >
-          {n.role}
+          {n.label?.trim() || n.role}
         </span>
         <span className={`text-[11px] font-bold truncate ${text ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-500 italic'}`}>
           {text || 'Nothing yet'}
@@ -289,6 +292,28 @@ export const PlayerAssignmentPanel: React.FC<Props> = ({
           </button>
         </div>
       </div>
+
+      {onLabelChange && !readOnly && (
+        <label className="flex items-center gap-2">
+          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 shrink-0">Name on diagram</span>
+          <input
+            value={player.label || ''}
+            maxLength={6}
+            placeholder={isDefenseRole(player.role) ? 'e.g. Sam' : 'e.g. Jake'}
+            onChange={(e) => onLabelChange(player.role, e.target.value)}
+            className="h-8 w-28 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+          />
+          {player.label && (
+            <button
+              type="button"
+              onClick={() => onLabelChange(player.role, '')}
+              className="text-[11px] font-bold text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+            >
+              Use {player.role}
+            </button>
+          )}
+        </label>
+      )}
 
       {hasSides && (
         <div className="flex items-center gap-1.5">

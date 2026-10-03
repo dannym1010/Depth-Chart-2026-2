@@ -115,7 +115,9 @@ export function redrawWithBackfield(
   const overrides = { ...(b?.overrides || {}) };
   for (const role of FILM_ROLES) delete overrides[role];
   const hashDx = b?.hash === 'Left' ? -4.2 : b?.hash === 'Right' ? 4.2 : 0;
-  const nodes = applyNodeOverrides(play.nodes, overrides).map((n) => (overrides[n.role] ? n : { ...n, x: n.x + hashDx }));
+  const names = b?.labels || {};
+  const named = <T extends { role: string }>(n: T): T => (names[n.role] ? { ...n, label: names[n.role] } : n);
+  const nodes = applyNodeOverrides(play.nodes, overrides).map((n) => named(overrides[n.role] ? n : { ...n, x: n.x + hashDx }));
   const concept = PLAY_CONCEPTS[conceptKey];
   const eligibles = eligiblePlayers(nodes);
   const ball = eligibles.some((n) => n.role === (b?.ball || setup.ball)) ? b?.ball || setup.ball : eligibles.find((n) => n.role === '3')?.role || eligibles[0]?.role || '1';
@@ -143,7 +145,7 @@ export function redrawWithBackfield(
   // Our defense as the coach set it in the builder: lined up on this formation, moved defenders kept,
   // and the lines drawn for defenders kept (the offense's lines are drawn again).
   const look = lookKey ? OUR_DEFENSE_LOOKS[lookKey]?.nodes || [] : [];
-  const defense = applyNodeOverrides(alignDefenseTechniques(look, nodes), overrides).map((n) => (overrides[n.role] ? n : { ...n, x: n.x + hashDx }));
+  const defense = applyNodeOverrides(alignDefenseTechniques(look, nodes), overrides).map((n) => named(overrides[n.role] ? n : { ...n, x: n.x + hashDx }));
   const savedStrokes = (b?.strokes as PlayStroke[] | undefined) || [];
   const defenseStrokes = savedStrokes.filter(
     (st) => st.points?.length && defense.some((d) => isDefenseRole(d.role) && Math.hypot(st.points[0].x - d.x, st.points[0].y - d.y) < 1.4)
@@ -166,6 +168,7 @@ export function redrawWithBackfield(
     defenseKey: b?.defenseKey ?? lookKey,
     putDefInName: Boolean(b?.putDefInName),
     overrides,
+    ...(b?.labels ? { labels: b.labels } : {}),
     ...(b?.strokes ? { strokes: allStrokes } : {}),
   };
   return {

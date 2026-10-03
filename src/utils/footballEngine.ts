@@ -3,7 +3,8 @@
  * Ported from Mahopac 10U / Hudl decoupled models (Gemini footballEngine).
  */
 
-export type PlayNode = { role: string; x: number; y: number; line?: boolean };
+/** label: the name a coach gave this player ("Sam", "Jake"), shown on the diagram instead of the usual letter. */
+export type PlayNode = { role: string; x: number; y: number; line?: boolean; label?: string };
 
 export const HOLE_SYSTEM: Record<number, { side: string; type: string; description: string }> = {
   1: { side: 'Right', type: 'Perimeter', description: 'Outside sweep / D-gap right' },
@@ -2510,32 +2511,32 @@ export function fieldBgSvg() {
 
 export function playerGlyphSvg(n: PlayNode, ballRole?: string) {
   const { cx, cy } = fieldToSvg(n.x, n.y);
-  const label = diagramLabel(n.role);
+  const custom = n.label?.trim();
+  const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] || c));
+  const font = 'system-ui, -apple-system, sans-serif';
+  // A name the coach typed can be longer than the usual letter: shrink it to fit the circle.
+  const fit = (text: string, base: number, room: number) => Math.min(base, room / Math.max(1, text.length * 0.62));
   if (isDefenseRole(n.role)) {
-    // Defense in distinct, high-contrast Cardinal Red badge
-    return `<g><rect x="${cx - 11}" y="${cy - 10}" width="22" height="19" rx="4" fill="#dc2626" stroke="#ffffff" stroke-width="1.8"/><text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="#ffffff" font-size="10.5" font-family="system-ui, -apple-system, sans-serif" font-weight="900">${label}</text></g>`;
+    // Defense in a red box, wide enough for its name.
+    const text = custom || diagramLabel(n.role);
+    const bw = Math.max(22, text.length * 7 + 8);
+    return `<g><rect x="${cx - bw / 2}" y="${cy - 10}" width="${bw}" height="19" rx="4" fill="#dc2626" stroke="#ffffff" stroke-width="1.8"/><text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="#ffffff" font-size="10.5" font-family="${font}" font-weight="900">${esc(text)}</text></g>`;
   }
   if (n.role === 'C') {
-    return `<g><rect x="${cx - 8.5}" y="${cy - 8.5}" width="17" height="17" rx="2.5" fill="#ffffff" stroke="#0f172a" stroke-width="2"/><text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="#0f172a" font-size="10" font-family="system-ui, -apple-system, sans-serif" font-weight="900">C</text></g>`;
+    const text = custom || 'C';
+    const bw = Math.max(17, text.length * 6.5 + 6);
+    return `<g><rect x="${cx - bw / 2}" y="${cy - 8.5}" width="${bw}" height="17" rx="2.5" fill="#ffffff" stroke="#0f172a" stroke-width="2"/><text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="#0f172a" font-size="10" font-family="${font}" font-weight="900">${esc(text)}</text></g>`;
   }
   const skill = skillDiagramLabel(n.role);
-  if (skill) {
-    const isBall = ballRole != null && n.role === String(ballRole);
-    const fill = isBall ? '#ea580c' : '#ffffff';
-    const ink = isBall ? '#ffffff' : '#0f172a';
-    const stroke = isBall ? '#ffffff' : '#0f172a';
-    return `<g><circle cx="${cx}" cy="${cy}" r="11" fill="${fill}" stroke="${stroke}" stroke-width="${isBall ? 2.4 : 1.8}"/><text x="${cx}" y="${cy + 3.5}" text-anchor="middle" fill="${ink}" font-size="9" font-family="system-ui, -apple-system, sans-serif" font-weight="800">${skill}</text></g>`;
-  }
-  if (n.line || !/^[1-4]$/.test(n.role)) {
-    const lineLabel = n.role.replace(/^O_?/, '');
-    const shortLabel = lineLabel.length <= 2 ? lineLabel : lineLabel.slice(0, 2);
-    return `<g><circle cx="${cx}" cy="${cy}" r="9.5" fill="#ffffff" stroke="#0f172a" stroke-width="1.8"/><text x="${cx}" y="${cy + 3.5}" text-anchor="middle" fill="#0f172a" font-size="7.5" font-family="system-ui, -apple-system, sans-serif" font-weight="800">${shortLabel}</text></g>`;
-  }
-  const isBall = ballRole != null && n.role === String(ballRole);
+  const isBack = !skill && !(n.line || !/^[1-4]$/.test(n.role));
+  const isBall = (Boolean(skill) || isBack) && ballRole != null && n.role === String(ballRole);
+  const r = skill || isBack ? 11 : 9.5;
+  const text = custom || (skill ? skill : isBack ? diagramLabel(n.role) : n.role.replace(/^O_?/, '').slice(0, 2));
+  const size = fit(text, skill ? 9 : isBack ? 12 : 7.5, r * 2);
   const fill = isBall ? '#ea580c' : '#ffffff';
   const ink = isBall ? '#ffffff' : '#0f172a';
   const stroke = isBall ? '#ffffff' : '#0f172a';
-  return `<g><circle cx="${cx}" cy="${cy}" r="11" fill="${fill}" stroke="${stroke}" stroke-width="${isBall ? 2.4 : 1.8}"/><text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="${ink}" font-size="12" font-family="system-ui, -apple-system, sans-serif" font-weight="900">${label}</text></g>`;
+  return `<g><circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${isBall ? 2.4 : 1.8}"/><text x="${cx}" y="${cy + size * 0.36}" text-anchor="middle" fill="${ink}" font-size="${size}" font-family="${font}" font-weight="${isBack ? 900 : 800}">${esc(text)}</text></g>`;
 }
 
 export function holeMarksSvg(_nodes: PlayNode[] = [], _targetHole?: number | null) {

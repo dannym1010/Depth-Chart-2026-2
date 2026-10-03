@@ -704,7 +704,18 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
   };
 
   // How many of the sheet's grid columns a table takes.
-  const tableSpan = (s: CallSheetSection) => Math.max(1, Math.min(gridColumns || 4, s.colSpan || (s.columnsCount && s.columnsCount > 1 ? s.columnsCount : 1)));
+  const tableSpan = (s: CallSheetSection) => Math.max(1, Math.min(6, s.colSpan || (s.columnsCount && s.columnsCount > 1 ? s.columnsCount : 1)));
+
+  // Every situational row shares one set of columns, so Width 1 is the same size in every row:
+  // the Grid setting, or the widest row if that is more (four wristband tables make four).
+  const sheetCols = useMemo(() => {
+    const widest = Math.max(0, ...situationalRows.map((r) => r.sections.reduce((n, s) => n + tableSpan(s), 0)));
+    return Math.max(1, Math.min(6, Math.max(gridColumns || 4, widest)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [situationalRows, gridColumns]);
+  const SHEET_ROW =
+    'grid w-full gap-2.5 items-start grid-cols-1 sm:grid-cols-2 lg:[grid-template-columns:repeat(var(--cs-cols),minmax(0,1fr))] print:[grid-template-columns:repeat(var(--cs-cols),minmax(0,1fr))]';
+  const SHEET_CELL = 'lg:[grid-column:span_var(--cs-span)/span_var(--cs-span)] print:[grid-column:span_var(--cs-span)/span_var(--cs-span)]';
 
   // Helper to determine responsive grid classes and template style based on table count and multi-column spans in a row
   const getRowGridConfig = (sections: CallSheetSection[]) => {
@@ -940,8 +951,7 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
         <div className="space-y-3.5">
           {situationalRows.map((row, rowIdx) => {
             const tableCount = row.sections.length;
-            const rowGrid = getRowGridConfig(row.sections);
-            const evenWidths = row.sections.every((s) => tableSpan(s) === 1);
+            const used = row.sections.reduce((n, s) => n + tableSpan(s), 0);
             return (
               <React.Fragment key={`sit-row-${row.rowIndex}`}>
                 <div className="space-y-1.5 transition-all callsheet-row-container print:overflow-visible">
@@ -957,11 +967,7 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
                     </span>
                     {tableCount > 0 && (
                       <span className="text-[9.5px] text-slate-400 font-mono hidden md:inline">
-                        {rowGrid.wrapped
-                          ? '(Wider than the grid: wraps to a second line)'
-                          : evenWidths
-                            ? `(Each spans 1/${tableCount} width)`
-                            : '(Widths set per table)'}
+                        {used > sheetCols ? '(Wider than the grid: wraps to a second line)' : `(${used} of ${sheetCols} columns used)`}
                       </span>
                     )}
                   </div>
@@ -1051,8 +1057,8 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
                   </div>
                 ) : (
                   <div
-                    className={rowGrid.className}
-                    style={rowGrid.style}
+                    className={SHEET_ROW}
+                    style={{ '--cs-cols': sheetCols } as React.CSSProperties}
                     onDragOver={(e) => {
                       if (e.dataTransfer.types.includes('application/callsheet-table-drag')) {
                         e.preventDefault();
@@ -1066,8 +1072,8 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
                       return (
                         <div
                           key={sec.id}
-                          className="relative flex flex-col min-w-0"
-                          style={rowGrid.wrapped ? { gridColumn: `span ${tableSpan(sec)} / span ${tableSpan(sec)}` } : undefined}
+                          className={`relative flex flex-col min-w-0 ${SHEET_CELL}`}
+                          style={{ '--cs-span': Math.min(tableSpan(sec), sheetCols) } as React.CSSProperties}
                           onDragOver={(e) => handleDragOverTable(e, sec.id, row.rowIndex)}
                           onDrop={(e) => handleDropOnTable(e, sec.id, row.rowIndex)}
                         >

@@ -2235,7 +2235,8 @@ describe('call sheet first row mirrors the wristbands', () => {
     assert.equal(auto[0].plays[0]?.name, '21 L 26 DIVE');
     assert.equal(auto[0].plays[1]?.name, '21 L 37 ZONE');
     assert.equal(auto[1].plays[0]?.name, '21 R 24 DIVE');
-    assert.equal(auto[1].plays[1], null);
+    assert.equal(auto[1].plays.length, 1, 'empty wristband slots at the bottom are not shown');
+    assert.equal(auto[1].slotsCount, 1);
     assert.equal(auto[2].plays[0]?.name, '11 L JET');
     assert.equal(auto[2].plays[1]?.name, '11 R BUBBLE');
     assert.equal(auto[3].plays[0]?.name, 'BOOT');

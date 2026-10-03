@@ -828,6 +828,10 @@ export function buildWristbandColorColumnSections(
   const cols = listWristbandColumns(wbData);
   return cols.map((col, i) => {
     const headerBg = col.color || '#1e3a8a';
+    // Only as long as the plays on that color: empty wristband slots at the bottom aren't shown.
+    let last = col.plays.length - 1;
+    while (last >= 0 && !col.plays[last]) last--;
+    const plays = last >= 0 ? col.plays.slice(0, last + 1) : col.plays.slice(0, 1);
     return {
       id: firstRowColorTableId(unit, col.wbId, col.colIdx),
       title: col.header,
@@ -836,7 +840,7 @@ export function buildWristbandColorColumnSections(
       headerTextColor: isDarkColor(headerBg) ? '#ffffff' : '#000000',
       targetUnit: unit,
       group: 'top_situations' as const,
-      slotsCount: Math.max(col.plays.length, 1),
+      slotsCount: Math.max(plays.length, 1),
       columnsCount: 1,
       columnHeaders: [col.header],
       colSpan: 1,
@@ -844,7 +848,7 @@ export function buildWristbandColorColumnSections(
       wristbandColIdx: col.colIdx,
       wristbandPresetMode: 'wb_color_col' as const,
       highlightEnabled: false,
-      plays: col.plays,
+      plays,
       rowIndex: Math.floor(i / WRISTBAND_TABLES_PER_ROW),
       order: i % WRISTBAND_TABLES_PER_ROW,
     };

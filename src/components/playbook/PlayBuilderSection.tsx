@@ -200,6 +200,16 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [filmBaseKeys, setFilmBaseKeys] = useState<Record<string, string>>(seed?.filmBaseKeys || {});
   const [baseNote, setBaseNote] = useState('');
   const [strokes, setStrokes] = useState<PlayStroke[]>((saved?.strokes as PlayStroke[]) || []);
+  const [labels, setLabels] = useState<Record<string, string>>(saved?.labels || {});
+  const withLabel = <T extends { role: string }>(n: T): T => (labels[n.role] ? { ...n, label: labels[n.role] } : n);
+  const renamePlayer = (role: string, label: string) =>
+    setLabels((prev) => {
+      const next = { ...prev };
+      const clean = label.slice(0, 6);
+      if (clean.trim()) next[role] = clean;
+      else delete next[role];
+      return next;
+    });
   const [userDrew, setUserDrew] = useState(Boolean(saved?.strokes));
 
   const locations = TE_LOCATIONS[personnelPick] || [];
@@ -227,14 +237,15 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const basePlay = tryAssemblePlay(baseKey, activeBack, activeConceptKey, strength, tags, filmBases[activeBack], filmBaseKeys[activeBack]);
   const hashDx = hash === 'Left' ? -4.2 : hash === 'Right' ? 4.2 : 0;
   const offNodes = basePlay
-    ? applyNodeOverrides(basePlay.nodes, overrides).map((n) => (overrides[n.role] ? n : { ...n, x: n.x + hashDx }))
+    ? applyNodeOverrides(basePlay.nodes, overrides).map((n) => withLabel(overrides[n.role] ? n : { ...n, x: n.x + hashDx }))
     : [];
   const dLook = defenseKey ? looks[defenseKey] || null : null;
   const dNodes = useMemo(() => {
     if (!dLook) return [];
     const aligned = alignDefenseTechniques(dLook.nodes, offNodes);
-    return applyNodeOverrides(aligned, overrides).map((n) => (overrides[n.role] ? n : { ...n, x: n.x + hashDx }));
-  }, [dLook, offNodes, overrides, hashDx]);
+    return applyNodeOverrides(aligned, overrides).map((n) => withLabel(overrides[n.role] ? n : { ...n, x: n.x + hashDx }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dLook, offNodes, overrides, hashDx, labels]);
   const play = basePlay ? { ...basePlay, nodes: offNodes } : null;
   const customBack = Object.keys(overrides).some((r) => !r.match(/^(DE|DT|NT|SAM|WILL|MIKE|ROV|CB|FS)/i));
 
@@ -338,6 +349,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       defenseKey,
       putDefInName,
       overrides,
+      ...(Object.keys(labels).length ? { labels } : {}),
       ...(userDrew ? { strokes } : {}),
       name: nameIn,
   });
@@ -734,6 +746,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               }}
               onBallCarrierChange={(role) => setBallCarrier(role)}
               onHoleChange={(h) => setHoleOverride(h)}
+              onLabelChange={renamePlayer}
             />
           ) : (
             <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/50 p-6 min-h-[220px] flex items-center justify-center">
