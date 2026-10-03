@@ -315,6 +315,12 @@ export const PlayerAssignmentPanel: React.FC<Props> = ({
         </label>
       )}
 
+      {!readOnly && !isDefenseRole(player.role) && (
+        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+          To have {player.role} block someone: double-click that defender on the field.
+        </p>
+      )}
+
       {hasSides && (
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">Show</span>

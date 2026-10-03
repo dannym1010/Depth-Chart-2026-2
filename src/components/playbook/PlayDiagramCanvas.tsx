@@ -183,6 +183,9 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   const selectedPlayer = selectedRole ? nodes.find((n) => n.role === selectedRole) || null : null;
   const [previewAction, setPreviewAction] = useState<PlayerActionPreset | null>(null);
   const drag = useRef<Drag>(null);
+  // The last tap on a player, and who was selected before it: a quick second tap on the same player
+  // is a double-click, which draws the selected player blocking them.
+  const lastTap = useRef<{ role: string; at: number; from: string | null } | null>(null);
   const history = useRef<PlayStroke[][]>([]);
   const strokesRef = useRef(strokes);
   strokesRef.current = strokes;
@@ -247,6 +250,28 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     if (preset.category === 'run' && preset.hole != null && pNode.role === ballRole && onHoleChange) {
       onHoleChange(preset.hole);
     }
+  };
+
+  /** Draw the blocker's line to a player, ending at the edge of that player with the block's T. */
+  const drawBlock = (blockerRole: string, targetRole: string) => {
+    const blocker = nodesRef.current.find((n) => n.role === blockerRole);
+    const target = nodesRef.current.find((n) => n.role === targetRole);
+    if (!blocker || !target || blockerRole === targetRole) return;
+    const a = fieldToSvg(blocker.x, blocker.y);
+    const b = fieldToSvg(target.x, target.y);
+    const dist = Math.hypot(b.cx - a.cx, b.cy - a.cy);
+    // Stop just short of the player's center so the T lands on them, not under their number.
+    const back = Math.min(14, dist / 2);
+    const end = svgToField(b.cx - ((b.cx - a.cx) / (dist || 1)) * back, b.cy - ((b.cy - a.cy) / (dist || 1)) * back);
+    const name = target.label?.trim() || diagramLabel(target.role);
+    const line: PlayStroke = {
+      kind: 'block',
+      points: [{ x: blocker.x, y: blocker.y }, { x: Math.round(end.x * 100) / 100, y: Math.round(end.y * 100) / 100 }],
+      label: `Block ${name}`,
+    };
+    const mine = strokeFor(strokesRef.current, blocker);
+    remember();
+    change([...strokesRef.current.filter((st) => st !== mine), line]);
   };
 
   const handleClearPlayerRoute = (role: string) => {
@@ -356,6 +381,17 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     if (!d) return;
     const cur = strokesRef.current;
     if (d.mode === 'player' && !d.moved) {
+      const now = Date.now();
+      const last = lastTap.current;
+      const clicked = nodesRef.current.find((n) => n.role === d.role);
+      // Double-click a player while another (offense) player was selected: that player blocks them.
+      if (last && clicked && last.role === d.role && now - last.at < 450 && last.from && last.from !== d.role && !isDefenseRole(last.from)) {
+        lastTap.current = null;
+        drawBlock(last.from, d.role);
+        selectPlayer(last.from);
+        return;
+      }
+      lastTap.current = { role: d.role, at: now, from: selectedRole };
       selectPlayer(selectedRole === d.role ? null : d.role);
       return;
     }
@@ -503,7 +539,9 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     tool === 'move'
       ? sel != null
         ? 'Drag a dot to bend the line, drag the line to move it. Double-click the line to add a bend, a dot to take it out. Delete removes it.'
-        : 'Tap a player to pick the assignment. Drag a player to move the spot.'
+        : selectedPlayer && !isDefenseRole(selectedPlayer.role)
+          ? `${selectedPlayer.role} is selected: double-click a defender to draw ${selectedPlayer.role} blocking that player.`
+          : 'Tap a player to pick the assignment. Drag a player to move the spot.'
       : straight
         ? `Drag to draw a straight ${KIND_LABEL[tool].toLowerCase()} line (hold Shift to draw freehand).`
         : `Draw a ${KIND_LABEL[tool].toLowerCase()} line freehand (hold Shift for straight).`;
