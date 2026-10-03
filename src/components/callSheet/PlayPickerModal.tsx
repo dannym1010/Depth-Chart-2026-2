@@ -42,8 +42,10 @@ interface PlayPickerModalProps {
   onDeleteFromDatabase?: (playId: string) => void;
   onOpenExcelImport?: () => void;
   initialMultiSelect?: boolean;
-  /** When given, the play already in the slot can be renamed right here (it keeps its number and colors). */
-  onRenameCurrent?: (name: string) => void;
+  /** When given, the play already in the slot can be edited right here (it keeps its number and colors). */
+  onEditCurrent?: (play: { name: string; formation: string; type: PlayType; highlight: string }) => void;
+  /** Row highlight colors offered when editing. */
+  highlightChoices?: { name: string; bg: string }[];
 }
 
 const PLAY_TYPE_COLORS: Record<PlayType, { bg: string; text: string; border: string }> = {
@@ -74,15 +76,27 @@ export const PlayPickerModal: React.FC<PlayPickerModalProps> = ({
   onAddCustomToDatabase,
   onDeleteFromDatabase,
   onOpenExcelImport,
-  onRenameCurrent,
+  onEditCurrent,
+  highlightChoices,
   initialMultiSelect,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [renameValue, setRenameValue] = useState(currentPlay?.name || '');
-  const saveRename = () => {
-    const next = renameValue.trim();
-    if (!onRenameCurrent || !next || next === currentPlay?.name) return;
-    onRenameCurrent(next);
+  const startEdit = () => ({
+    name: currentPlay?.name || '',
+    formation: currentPlay?.formation || '',
+    type: (currentPlay?.type || 'run') as PlayType,
+    highlight: currentPlay?.wristbandRowColor || '',
+  });
+  const [edit, setEdit] = useState(startEdit);
+  const original = startEdit();
+  const editChanged =
+    edit.name.trim() !== original.name ||
+    edit.formation.trim() !== original.formation ||
+    edit.type !== original.type ||
+    edit.highlight !== original.highlight;
+  const saveEdit = () => {
+    if (!onEditCurrent || !edit.name.trim() || !editChanged) return;
+    onEditCurrent({ name: edit.name.trim(), formation: edit.formation.trim(), type: edit.type, highlight: edit.highlight });
     onClose();
   };
   const [selectedType, setSelectedType] = useState<string>('all');
@@ -328,54 +342,134 @@ export const PlayPickerModal: React.FC<PlayPickerModalProps> = ({
 
         {/* Current Play Info Bar (if one is already assigned) */}
         {currentPlay && !isCreatingCustom && (
-          <div className="px-5 py-2.5 bg-slate-100/80 dark:bg-slate-850/70 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <span className="text-slate-500 dark:text-slate-400 shrink-0">Current Slot:</span>
-              {onRenameCurrent ? (
-                <>
+          onEditCurrent ? (
+            <div className="px-5 py-3 bg-slate-100/80 dark:bg-slate-850/70 border-b border-slate-200 dark:border-slate-800 space-y-2.5 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Edit this play</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClearSlot();
+                    onClose();
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-red-100 hover:bg-red-200 dark:bg-red-950/40 dark:hover:bg-red-900/60 border border-red-300 dark:border-red-500/30 text-red-700 dark:text-red-300 font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Clear Slot</span>
+                </button>
+              </div>
+              <label className="block">
+                <span className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">Play name</span>
+                <input
+                  aria-label="Play name"
+                  autoFocus
+                  onFocus={(e) => e.target.select()}
+                  value={edit.name}
+                  onChange={(e) => setEdit({ ...edit, name: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      saveEdit();
+                    }
+                  }}
+                  className="mt-0.5 w-full h-9 px-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 font-bold uppercase text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">Formation</span>
                   <input
-                    aria-label="Play name"
-                    autoFocus
-                    onFocus={(e) => e.target.select()}
-                    value={renameValue}
-                    onChange={(e) => setRenameValue(e.target.value)}
+                    aria-label="Formation"
+                    value={edit.formation}
+                    placeholder="e.g. 21 L"
+                    onChange={(e) => setEdit({ ...edit, formation: e.target.value })}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
-                        saveRename();
+                        saveEdit();
                       }
                     }}
-                    className="flex-1 min-w-0 h-8 px-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 font-bold uppercase text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                    className="mt-0.5 w-full h-9 px-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 font-bold uppercase text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
                   />
-                  <button
-                    type="button"
-                    onClick={saveRename}
-                    disabled={!renameValue.trim() || renameValue.trim() === currentPlay.name}
-                    className="h-8 px-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[11px] cursor-pointer disabled:opacity-40 shrink-0"
+                </label>
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">Type</span>
+                  <select
+                    aria-label="Play type"
+                    value={edit.type}
+                    onChange={(e) => setEdit({ ...edit, type: e.target.value as PlayType })}
+                    className="mt-0.5 w-full h-9 px-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 font-bold text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
                   >
-                    Save name
-                  </button>
-                </>
-              ) : (
-                <span className="font-bold text-slate-800 dark:text-slate-200 truncate">{currentPlay.name}</span>
+                    {(Object.keys(PLAY_TYPE_COLORS) as PlayType[]).map((t) => (
+                      <option key={t} value={t}>
+                        {t.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              {highlightChoices && highlightChoices.length > 0 && (
+                <div>
+                  <span className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">Row highlight</span>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setEdit({ ...edit, highlight: '' })}
+                      className={`h-7 px-2 rounded-md border text-[11px] font-bold cursor-pointer ${
+                        !edit.highlight ? 'border-indigo-500 text-indigo-600 dark:text-indigo-300' : 'border-slate-300 dark:border-slate-600 text-slate-500'
+                      }`}
+                    >
+                      None
+                    </button>
+                    {highlightChoices.map((c) => (
+                      <button
+                        key={c.bg}
+                        type="button"
+                        title={c.name}
+                        aria-label={c.name}
+                        onClick={() => setEdit({ ...edit, highlight: c.bg })}
+                        className={`w-7 h-7 rounded-md border-2 cursor-pointer ${edit.highlight === c.bg ? 'border-indigo-500 ring-2 ring-indigo-400/50' : 'border-slate-300 dark:border-slate-600'}`}
+                        style={{ backgroundColor: c.bg }}
+                      />
+                    ))}
+                  </div>
+                </div>
               )}
-              {currentPlay.formation && (
-                <span className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-mono">
-                  {currentPlay.formation}
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={saveEdit}
+                  disabled={!edit.name.trim() || !editChanged}
+                  className="h-9 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs cursor-pointer disabled:opacity-40"
+                >
+                  Save changes
+                </button>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">Or pick a different play below.</span>
+              </div>
             </div>
-            <button
-              onClick={() => {
-                onClearSlot();
-                onClose();
-              }}
-              className="ml-2 shrink-0 px-2.5 py-1 rounded-lg bg-red-100 hover:bg-red-200 dark:bg-red-950/40 dark:hover:bg-red-900/60 border border-red-300 dark:border-red-500/30 text-red-700 dark:text-red-300 font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
-            >
-              <Trash2 className="w-3 h-3" />
-              <span>Clear Slot</span>
-            </button>
-          </div>
+          ) : (
+            <div className="px-5 py-2.5 bg-slate-100/80 dark:bg-slate-850/70 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-slate-500 dark:text-slate-400">Current Slot:</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200 truncate">{currentPlay.name}</span>
+                {currentPlay.formation && (
+                  <span className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-mono">
+                    {currentPlay.formation}
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  onClearSlot();
+                  onClose();
+                }}
+                className="px-2.5 py-1 rounded-lg bg-red-100 hover:bg-red-200 dark:bg-red-950/40 dark:hover:bg-red-900/60 border border-red-300 dark:border-red-500/30 text-red-700 dark:text-red-300 font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
+              >
+                <Trash2 className="w-3 h-3" />
+                <span>Clear Slot</span>
+              </button>
+            </div>
+          )
         )}
 
         {/* Action Toggle (Browse Database vs Create Custom vs Multi-Select) */}

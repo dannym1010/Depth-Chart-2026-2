@@ -360,7 +360,9 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
     colHeaderName: string,
     formation?: string,
     type?: PlayType,
-    freshWristbandData?: WristbandData
+    freshWristbandData?: WristbandData,
+    /** The coach edited this play's details: the library copy takes the new formation and type too. */
+    updateDetails?: boolean
   ) => {
     if (!playText || !playText.trim()) return;
     const norm = normalizePlayName(playText);
@@ -374,6 +376,7 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
           foundMatch = true;
           return {
             ...dbEntry,
+            ...(updateDetails ? { formation: formation || dbEntry.formation, type: type || dbEntry.type } : {}),
             wristbandNum: slotNumber,
             wristbandColor: colHighlightColor,
             wristbandNumberColor: colHighlightColor,
@@ -683,9 +686,15 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
     }
   };
 
-  // Rename the play in a slot: only the name changes (number, colors, formation and highlight stay).
-  const handleRenameSlot = (wbId: string, colIdx: number, rowIdx: number, name: string) => {
-    const playName = name.trim().toUpperCase();
+  // Edit the play in a slot: name, formation, type and row highlight. The number and column colors stay.
+  const handleEditSlot = (
+    wbId: string,
+    colIdx: number,
+    rowIdx: number,
+    changes: { name: string; formation: string; type: PlayType; highlight: string }
+  ) => {
+    const playName = changes.name.trim().toUpperCase();
+    const formation = changes.formation.trim().toUpperCase();
     const targetWb = wristbands.find((w) => w.id === wbId) || currentWristband;
     const existing = targetWb.columns[colIdx]?.plays?.[rowIdx];
     if (!playName || !existing?.text) return;
@@ -693,7 +702,13 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
       if (wb.id !== targetWb.id) return wb;
       const nextCols = [...wb.columns];
       const nextPlays = [...(nextCols[colIdx].plays || [])];
-      nextPlays[rowIdx] = { ...nextPlays[rowIdx], text: playName };
+      nextPlays[rowIdx] = {
+        ...nextPlays[rowIdx],
+        text: playName,
+        formation: formation || undefined,
+        type: changes.type,
+        rowHighlightColor: changes.highlight || undefined,
+      };
       nextCols[colIdx] = { ...nextCols[colIdx], plays: nextPlays };
       return { ...wb, columns: nextCols };
     });
@@ -711,9 +726,10 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
       colColor,
       col?.numberTextColor || getContrastTextColor(colColor),
       col?.name || (colIdx === 0 ? 'Left Column' : 'Right Column'),
-      existing.formation || '',
-      existing.type as PlayType | undefined,
-      nextData
+      formation,
+      changes.type,
+      nextData,
+      true
     );
   };
 
@@ -1183,11 +1199,16 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
     return {
       id: `picked_${play.text}`,
       name: play.text,
-      formation: play.formation || '',
+      // A slot with no formation of its own shows the library play's.
+      formation:
+        play.formation ||
+        playDatabase.find((e) => normalizePlayName(e.name) === normalizePlayName(play.text))?.formation ||
+        '',
       type: (play.type as PlayType) || 'run',
       wristbandNum: play.wristbandNum,
+      wristbandRowColor: play.rowHighlightColor,
     };
-  }, [pickingSlot, currentWristband]);
+  }, [pickingSlot, currentWristband, playDatabase]);
 
   // Physical 4.5" x 2.25" Card Cutout Renderer (Used for exact physical printing & live miniature preview)
   const renderPhysicalPrintCard = (wb: SingleWristband, isForPrint: boolean) => {
@@ -2324,11 +2345,12 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
             }
           }}
           onOpenExcelImport={() => setIsExcelImportOpen(true)}
-          onRenameCurrent={
+          onEditCurrent={
             userRole === 'admin'
-              ? (name) => handleRenameSlot(pickingSlot.wbId, pickingSlot.colIdx, pickingSlot.rowIdx, name)
+              ? (changes) => handleEditSlot(pickingSlot.wbId, pickingSlot.colIdx, pickingSlot.rowIdx, changes)
               : undefined
           }
+          highlightChoices={[...ATHLETIC_NEON_PALETTE, ...PASTEL_HIGHLIGHTER_PALETTE]}
         />
       )}
 
