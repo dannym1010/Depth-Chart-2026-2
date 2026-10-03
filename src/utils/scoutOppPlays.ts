@@ -111,7 +111,8 @@ export function snapsForCall(
       if (gameId && p.gameId && p.gameId !== gameId) return false;
       if (playEntryId && p.playCallId === playEntryId) return true;
       if (fromPlayId && p.playCallId === fromPlayId) return true;
-      return Boolean(key) && filmCall(p).toLowerCase() === key;
+      // Matched by name, a kick or defensive snap with the same words isn't this offensive play.
+      return Boolean(key) && filmCall(p).toLowerCase() === key && (!p.odk || p.odk === 'O');
     })
     .sort((a, b) => (Number(a.playNumber) || 0) - (Number(b.playNumber) || 0))
     .map((p) => ({
@@ -134,7 +135,7 @@ export function linkSnapsToCall(
   return plays.map((p) => {
     if (link.gameId && p.gameId && p.gameId !== link.gameId) return p;
     const mine = p.playCallId === link.playEntryId;
-    const sameCall = Boolean(key) && filmCall(p).toLowerCase() === key;
+    const sameCall = Boolean(key) && filmCall(p).toLowerCase() === key && (!p.odk || p.odk === 'O');
     if (!mine && !sameCall) return p;
     if (p.playCallId && p.playCallId !== link.playEntryId) return p;
     if (p.playCallId === link.playEntryId && p.playCall === link.playName) return p;

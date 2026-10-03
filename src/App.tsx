@@ -180,6 +180,8 @@ import { syncWristbandToCallSheet } from './utils/wristbandLinking';
 import { saveCallSheetSnapshot, countCallSheetPlays } from './utils/callSheetStorage';
 import { ScoutingView } from './components/ScoutingView';
 import { FilmRoomView } from './filmroom/FilmRoomView';
+import { FilmWindowHost } from './filmroom/FilmWindow';
+import { filmWindowAutoOpen, openFilmWindow } from './filmroom/filmWindowStore';
 import { buildLibrary } from './filmroom/FilmLibrary';
 import { bundleFromSaved } from './hudlScout/scoutBundle';
 import { DEFAULT_BALANCED, setBalancedFormations } from './hudlScout/utils/strength';
@@ -7193,7 +7195,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   handleUpdateDeletedPlayIds(Array.from(new Set([...(latestStateRef.current.deletedPlayIds || []), ...gone])));
                 }}
                 onAdjustBackfield={openFilmBackfield}
-                onDrawPlay={(play) => {
+                onDrawPlay={(play, group) => {
                   const entryId = `scout_${play.id}`;
                   const teamId = activeTeamIdRef.current;
                   const week = currentWeekRef.current;
@@ -7221,6 +7223,14 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                       cardSaved || !play.gameId ? libs : { ...libs, [play.gameId]: [...(libs[play.gameId] || []), play] };
                     persistWeekScouting('hudlScout', { ...hudl, plays: linked, playLibraries, updatedAt: Date.now() });
                   }
+                  // The snaps of this play, or of every call in the play type when several were combined.
+                  const snapsById = new Map<string, { id: string; playNumber: number; gain?: number; result?: string }>();
+                  for (const member of group?.plays?.length ? group.plays : [play]) {
+                    for (const snap of snapsForCall(linked, member.gameId, member.name, `scout_${member.id}`, member.fromPlayId)) {
+                      snapsById.set(snap.id, snap);
+                    }
+                  }
+                  const snaps = [...snapsById.values()].sort((a, b) => a.playNumber - b.playNumber);
                   savePlayBuilderSeed({
                     name: play.name,
                     personnel: play.personnel,
@@ -7231,13 +7241,18 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                     scoutId: play.id,
                     gameId: play.gameId,
                     playEntryId: entryId,
-                    snaps: snapsForCall(linked, play.gameId, play.name, entryId, play.fromPlayId),
+                    snaps,
+                    watchLabel: group?.label,
                     // A play drawn before re-opens as it was left.
                     builder: mine.find((p) => p.id === entryId)?.builder,
                     filmBases: spotsForGame(hudl?.backfieldBases, play.gameId),
                     filmBaseKeys: baseKeysForGame(hudl?.backfieldBases, play.gameId),
                   });
                   holdPlayBuilderSeed();
+                  // Their film of this play opens in the film window while the coach works on it.
+                  if (play.gameId && snaps.length && filmWindowAutoOpen()) {
+                    openFilmWindow({ gameId: play.gameId, playIds: snaps.map((x) => x.id), label: group?.label || play.name });
+                  }
                   setActiveUnit('playbook');
                 }}
               />
@@ -7936,6 +7951,16 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
         userRole={userRole}
         activeTeamName={currentActiveTeam?.name || 'Mahopac 10U'}
         onOpenPreferencesModal={() => setIsPreferencesModalOpen(true)}
+      />
+
+      {/* The film window: their film of a play, floating over Their plays and the play builder */}
+      <FilmWindowHost
+        teamId={activeTeamId}
+        teamName={currentActiveTeam?.name || 'Mahopac 10U'}
+        currentWeek={currentWeek}
+        opponentName={currentWeekState.opponent || currentWeekState.scouting?.opponent || ''}
+        opponentScout={currentWeekState.scouting?.hudlScout}
+        authorName={currentUser?.displayName || (currentUser?.email || 'Coach').split('@')[0]}
       />
 
       {/* Global Dialog Modals */}

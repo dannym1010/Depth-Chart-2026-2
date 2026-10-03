@@ -90,7 +90,7 @@ export interface HudlScoutViewProps {
   defenseSystem?: Partial<DefenseSystem>;
   onChangeDefenseSystem?: (next: DefenseSystem) => void;
   /** Open the play builder to draw this opponent play. */
-  onDrawPlay?: (play: ScoutOppPlay) => void;
+  onDrawPlay?: (play: ScoutOppPlay, group?: { label: string; plays: ScoutOppPlay[] }) => void;
   /** Cards made from plays tagged on the film: make each its own opponent play (a copy of our play, or a new one). */
   onAddTaggedPlays?: (cards: ScoutOppPlay[]) => void;
   /** Opponent plays removed from Their plays: delete the diagrams drawn for them. */

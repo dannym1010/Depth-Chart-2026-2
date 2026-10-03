@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ClipboardList, Film, LayoutGrid, Save, Search, Users, Wand2, Zap } from 'lucide-react';
+import { ArrowLeft, ClipboardList, Film, LayoutGrid, Play as PlayIcon, Save, Search, Users, Wand2, Zap } from 'lucide-react';
 import type { PlayBuilderState, PlayDatabaseEntry, PlayType } from '../../types/callSheet';
 import { defenseSystem, type DefenseSystem } from '../../hudlScout/utils/ourDefense';
 import { inferPlayType, newPlayEntry } from '../../utils/playbookImport';
@@ -39,6 +39,7 @@ import type { PlayBuilderSeed } from '../../utils/playBuilderSeed';
 import { callSetup } from '../../utils/callDiagram';
 import { openFormation } from '../../utils/filmBackfields';
 import { parsePlayCall } from '../../utils/playCallParse';
+import { openFilmWindow } from '../../filmroom/filmWindowStore';
 
 const SELECT =
   'h-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 w-full';
@@ -652,13 +653,24 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
           >
             <Wand2 className="w-4 h-4" /> Draw it
           </button>
+          {!compact && !!seed?.snaps?.length && !!seed.gameId && (
+            <button
+              type="button"
+              onClick={() => openFilmWindow({ gameId: seed.gameId!, playIds: seed.snaps!.map((x) => x.id), label: seed.watchLabel || seed.name })}
+              title="Watch their film of this play in a window while you work"
+              className="h-11 px-3 rounded-xl border-2 border-indigo-500 text-sm font-black text-indigo-700 dark:text-indigo-300 inline-flex items-center gap-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 cursor-pointer shrink-0"
+            >
+              <PlayIcon className="w-4 h-4" /> Watch film ({seed.snaps.length})
+            </button>
+          )}
           {!compact && !!seed?.snaps?.length && onWatchFilm && (
             <button
               type="button"
+              title="Open the Film Room with this play beside the video"
               onClick={() => onWatchFilm(nameIn.trim() || seed.name, currentState())}
               className="h-11 px-3 rounded-xl border border-slate-300 dark:border-slate-600 text-sm font-bold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer shrink-0"
             >
-              <Film className="w-4 h-4 text-indigo-500" /> Film ({seed.snaps.length})
+              <Film className="w-4 h-4 text-indigo-500" /> Film Room
             </button>
           )}
           {!compact && canEdit && (

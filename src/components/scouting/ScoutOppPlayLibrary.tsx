@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp, GripVertical, Layers, Printer, Shield } from 'lucide-react';
+import { ChevronDown, ChevronUp, GripVertical, Layers, Play as PlayIcon, Printer, Shield } from 'lucide-react';
 import type { ScoutGame } from '../../hudlScout/components/Header';
 import type { Play } from '../../hudlScout/types/football';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { DiagramImage } from '../playbook/DiagramImage';
+import { openFilmWindow } from '../../filmroom/filmWindowStore';
 import { playNameKey } from '../../utils/playbookImport';
 import { resolveDiagram, unsavedDiagram } from '../../utils/playDiagrams';
 import { drawCall } from '../../utils/callDiagram';
@@ -44,7 +45,7 @@ export const ScoutOppPlayLibrary: React.FC<{
   deletedIds: string[];
   onAddFilm: (name: string) => void;
   playDatabase?: PlayDatabaseEntry[];
-  onDraw?: (play: ScoutOppPlay) => void;
+  onDraw?: (play: ScoutOppPlay, group?: { label: string; plays: ScoutOppPlay[] }) => void;
   /** This film's own backfield shapes. */
   backfieldBases?: FilmBackfieldBases;
   /** Open the builder to set that backfield for every play on this film that uses it. */
@@ -85,7 +86,19 @@ export const ScoutOppPlayLibrary: React.FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [filmPlays, gameId]
   );
-  const snapCount = (p: ScoutOppPlay) => snapsForCall(film, gameId, p.name, `scout_${p.id}`, p.fromPlayId).length;
+  const snapsOf = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof snapsForCall>>();
+    for (const p of plays) map.set(p.id, snapsForCall(film, gameId, p.name, `scout_${p.id}`, p.fromPlayId));
+    return map;
+  }, [plays, film, gameId]);
+  const snapCount = (p: ScoutOppPlay) => snapsOf.get(p.id)?.length || 0;
+  // The film of these calls (a play, or every call in a play type), in play order, in the film window.
+  const watchFilm = (members: ScoutOppPlay[], label: string) => {
+    const byId = new Map<string, { id: string; playNumber: number }>();
+    for (const m of members) for (const snap of snapsOf.get(m.id) || []) byId.set(snap.id, snap);
+    const ids = [...byId.values()].sort((a, b) => a.playNumber - b.playNumber).map((x) => x.id);
+    if (ids.length && gameId) openFilmWindow({ gameId, playIds: ids, label });
+  };
   const drewDefense = (p: ScoutOppPlay) => (playDatabase || []).some((e) => e.id === `scout_${p.id}` && e.builder);
 
   // A play saved from the builder shows that drawing; one not saved yet is drawn from its name
@@ -382,7 +395,7 @@ export const ScoutOppPlayLibrary: React.FC<{
                       type="button"
                       className="sm:w-48 shrink-0 cursor-pointer disabled:cursor-default"
                       disabled={!onDraw}
-                      onClick={() => onDraw?.(lead)}
+                      onClick={() => onDraw?.(lead, g)}
                       aria-label={`Open ${g.label}`}
                     >
                       {picture ? (
@@ -432,11 +445,20 @@ export const ScoutOppPlayLibrary: React.FC<{
                         <div className="flex flex-wrap items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => onDraw(lead)}
+                            onClick={() => onDraw(lead, g)}
                             className="h-8 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black inline-flex items-center gap-1.5 cursor-pointer"
                           >
                             <Shield className="w-3.5 h-3.5" /> {drawn ? 'Edit our defense' : 'Draw our defense'}
                           </button>
+                          {snaps > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => watchFilm(g.plays, g.label)}
+                              className="h-8 px-3 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-black text-slate-700 dark:text-slate-200 hover:border-indigo-400 inline-flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <PlayIcon className="w-3.5 h-3.5" /> Watch film ({snaps})
+                            </button>
+                          )}
                           <span className="text-[11px] text-slate-400">
                             {drawn ? `Drawn on ${lead.name}` : 'Drag our players into place, then Save'}
                           </span>
@@ -501,6 +523,16 @@ export const ScoutOppPlayLibrary: React.FC<{
                   {onDraw ? ' · Open in play builder' : ''}
                 </span>
               </button>
+              {snapCount(p) > 0 && (
+                <button
+                  type="button"
+                  title={`Watch ${snapCount(p)} snap${snapCount(p) === 1 ? '' : 's'} of ${p.name}`}
+                  onClick={() => watchFilm([p], p.name)}
+                  className="h-7 px-2 rounded-md border border-slate-300 dark:border-slate-600 text-[11px] font-bold text-indigo-700 dark:text-indigo-300 hover:border-indigo-400 inline-flex items-center gap-1 cursor-pointer shrink-0"
+                >
+                  <PlayIcon className="w-3 h-3" /> {snapCount(p)}
+                </button>
+              )}
               <button
                 type="button"
                 className="text-[11px] font-bold text-slate-400 cursor-pointer"

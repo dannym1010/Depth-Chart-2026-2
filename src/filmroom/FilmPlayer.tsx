@@ -41,6 +41,8 @@ interface FilmPlayerProps {
   maxVideoHeight?: string;
   /** Where a new clip starts (seconds): the same moment when switching camera view, else the top. */
   startAt?: number;
+  /** Keyboard shortcuts (space, arrows, D, S...). Off while a coach is working elsewhere on the page. */
+  shortcuts?: boolean;
 }
 
 const btn = 'inline-flex items-center justify-center gap-1 h-9 min-w-9 px-2 rounded-lg text-xs font-bold transition-colors disabled:opacity-40';
@@ -56,6 +58,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   src, placeholder, title, marks, onMarksChange, hasPrev, hasNext, onPrev, onNext, onStopwatch, apiRef,
   maxVideoHeight = 'calc(100dvh - 20rem)',
   startAt = 0,
+  shortcuts = true,
 }) => {
   const rootRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -205,6 +208,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   }, [zoomTo]);
 
   useEffect(() => {
+    if (!shortcuts) return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
@@ -229,7 +233,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [togglePlay, step, hasPrev, hasNext, onPrev, onNext, toggleDraw, stopwatch, fullscreen, toggleMute]);
+  }, [shortcuts, togglePlay, step, hasPrev, hasNext, onPrev, onNext, toggleDraw, stopwatch, fullscreen, toggleMute]);
 
   const onEnded = () => {
     if (!loop && autoNext && hasNext) onNext();
