@@ -683,6 +683,40 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
     }
   };
 
+  // Rename the play in a slot: only the name changes (number, colors, formation and highlight stay).
+  const handleRenameSlot = (wbId: string, colIdx: number, rowIdx: number, name: string) => {
+    const playName = name.trim().toUpperCase();
+    const targetWb = wristbands.find((w) => w.id === wbId) || currentWristband;
+    const existing = targetWb.columns[colIdx]?.plays?.[rowIdx];
+    if (!playName || !existing?.text) return;
+    const nextWristbands = wristbands.map((wb) => {
+      if (wb.id !== targetWb.id) return wb;
+      const nextCols = [...wb.columns];
+      const nextPlays = [...(nextCols[colIdx].plays || [])];
+      nextPlays[rowIdx] = { ...nextPlays[rowIdx], text: playName };
+      nextCols[colIdx] = { ...nextCols[colIdx], plays: nextPlays };
+      return { ...wb, columns: nextCols };
+    });
+    const nextData: WristbandData = { ...normalizedData, wristbands: nextWristbands, activeWristbandId: currentWristband.id };
+    commitWristbandData(nextData);
+    const col = targetWb.columns[colIdx];
+    const colColor = col?.numberBgColor || col?.color || (colIdx === 0 ? '#facc15' : '#38bdf8');
+    const rows = targetWb.rowsCount || 13;
+    const wbIndex = wristbands.findIndex((w) => w.id === targetWb.id);
+    const wbStart = getWristbandStartNumber(wristbands, wbIndex >= 0 ? wbIndex : 0);
+    const slotNumber = targetWb.labelingMode === 'same_per_card' ? colIdx * rows + rowIdx + 1 : wbStart + colIdx * rows + rowIdx;
+    syncPlayToDatabaseAndCallSheet(
+      playName,
+      slotNumber,
+      colColor,
+      col?.numberTextColor || getContrastTextColor(colColor),
+      col?.name || (colIdx === 0 ? 'Left Column' : 'Right Column'),
+      existing.formation || '',
+      existing.type as PlayType | undefined,
+      nextData
+    );
+  };
+
   // Handle assigning multiple plays in order starting at a given slot
   const handleAssignMultiplePlaysInOrder = (
     wbId: string,
@@ -1970,7 +2004,7 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
                               ? 'bg-slate-900 hover:bg-slate-800 text-slate-100'
                               : 'bg-slate-850 hover:bg-slate-800 text-slate-100'
                           } ${isFilled ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
-                          title={`Slot #${slotLabel}: Click to open Play Picker, drag from Play Bank, or double-click to type`}
+                          title={`Slot #${slotLabel}: Click to rename it or pick another play, or drag from the Play Bank`}
                         >
                           {/* Large, Crisp Slot Number Badge */}
                           <span
@@ -2290,6 +2324,11 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
             }
           }}
           onOpenExcelImport={() => setIsExcelImportOpen(true)}
+          onRenameCurrent={
+            userRole === 'admin'
+              ? (name) => handleRenameSlot(pickingSlot.wbId, pickingSlot.colIdx, pickingSlot.rowIdx, name)
+              : undefined
+          }
         />
       )}
 
