@@ -5879,19 +5879,26 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
       safeJSONSet('footballDeletedFormationIds', nextDeletedIds);
     }
 
-    const copyWristband = extras?.copyWristband !== false;
+    // "Just copy wristband" always copies the wristband.
+    const copyWristband = mode === 'wristband_only' || extras?.copyWristband !== false;
     const copyCallSheet = extras?.copyCallSheet !== false;
-    const liveWb = latestStateRef.current.wristbandData;
-    const liveCs = latestStateRef.current.callSheetData;
-    const copiedWb = copyWristband
-      ? deepClone(
-          wristbandHasPlays(src.wristbandData) ? src.wristbandData : liveWb
-        )
+    // The sheets on screen stand in for the source only when the source is the week on screen.
+    const srcIsShown = srcWeek === currentWeekRef.current && sameTeamId(srcTeamId, activeTeamId);
+    const liveWb = srcIsShown ? latestStateRef.current.wristbandData : undefined;
+    const liveCs = srcIsShown ? latestStateRef.current.callSheetData : undefined;
+    const srcWb = wristbandHasPlays(src.wristbandData) ? src.wristbandData : liveWb;
+    const srcCs = countCallSheetPlays(src.callSheetData) > 0 ? src.callSheetData : liveCs;
+    if (mode === 'wristband_only' && !wristbandHasPlays(srcWb)) {
+      if (showAlert) alert(`${formatWeekCopyLabel(srcWeek)} does not have wristband plays to copy.`);
+      return;
+    }
+    // A copy is a new edit for the target week: tagged for it and newest, so it shows over an older one there.
+    const copiedAt = Date.now();
+    const copiedWb = copyWristband && srcWb
+      ? { ...deepClone(srcWb), lastEdited: copiedAt, teamId: activeTeamId, week: targetWeek }
       : undefined;
-    const copiedCs = copyCallSheet
-      ? deepClone(
-          countCallSheetPlays(src.callSheetData) > 0 ? src.callSheetData : liveCs
-        )
+    const copiedCs = copyCallSheet && srcCs
+      ? { ...deepClone(srcCs), lastEdited: copiedAt, teamId: activeTeamId, week: targetWeek }
       : undefined;
 
     const updatedState: WeekState = {

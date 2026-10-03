@@ -26,7 +26,9 @@ import { Card, SectionHeader } from '../../hudlScout/components/report/ui';
 import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { ScoutOppPlayLibrary } from './ScoutOppPlayLibrary';
-import { buildScoutScript, cardsFromTags, isScoutPlayEntry, orderByIds, reportPlays, tagCardName, type ScoutOppPlay } from '../../utils/scoutOppPlays';
+import { buildScoutScript, cardsFromTags, groupOppPlays, isScoutPlayEntry, orderByIds, reportPlays, snapsForCall, tagCardName, type ScoutOppPlay } from '../../utils/scoutOppPlays';
+import { leadOppPlay, oppPlayDiagram } from '../../utils/filmBackfields';
+import type { ReportPlayType } from '../../hudlScout/components/CallSheetModal';
 import { autoTagFromHudl, setPlaysFormation, tagPlays } from '../../hudlScout/utils/playTags';
 import { newPlayEntry } from '../../utils/playbookImport';
 import { hudlExportCsv } from '../../hudlScout/utils/hudlExport';
@@ -193,6 +195,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   const skipSave = useRef(true);
   const skipOwnSave = useRef(true);
 
+
   // Our-team play log: tag which unit (Black / Blue / Gold) was on the field.
   // Bumping updatedAt makes the newest-bundle sync keep the tag.
   const handleSetUnit = (playId: string, unit: TeamUnit | undefined, scope: 'play' | 'rest_of_series' | 'fill_series') => {
@@ -254,6 +257,21 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     }));
   }, [ownBundle.games, scheduleEvents]);
   const allPlays = bundle.plays;
+  // The printed report: each of their play types on this week's report, drawn against our defense.
+  const reportPlayTypes = useMemo<ReportPlayType[]>(() => {
+    if (!isCallSheetOpen || scoutTarget !== 'opponent') return [];
+    return groupOppPlays(reportPlays(bundle.playLibraries)).map((g) => {
+      const lead = leadOppPlay(g.plays, playDatabase);
+      const snaps = g.plays.reduce((n, p) => n + snapsForCall(bundle.plays, p.gameId, p.name, `scout_${p.id}`, p.fromPlayId).length, 0);
+      return {
+        key: g.key,
+        label: g.label,
+        detail: [g.plays.map((p) => p.name).join(' · '), snaps ? `ran it ${snaps} time${snaps === 1 ? '' : 's'}` : ''].filter(Boolean).join(' — '),
+        diagram: oppPlayDiagram(lead, playDatabase, bundle.backfieldBases),
+      };
+    });
+  }, [isCallSheetOpen, scoutTarget, bundle.playLibraries, bundle.plays, bundle.backfieldBases, playDatabase]);
+
   // Their plays shows every play the coaches tagged on the film: a card for each tagged play that
   // isn't there yet (a copy of our play, or a write-in to finish in the play builder).
   const theirPlaysOpen = scoutTarget === 'opponent' && activeTab === 'theirplays';
@@ -926,6 +944,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         edits={bundle.callSheet}
         onSaveEdits={(callSheet) => setBundle((prev) => ({ ...prev, callSheet, updatedAt: Date.now() }))}
         editorName={currentUser?.displayName || (currentUser?.email ? String(currentUser.email).split('@')[0] : '')}
+        playTypes={reportPlayTypes}
       />
     </div>
   );

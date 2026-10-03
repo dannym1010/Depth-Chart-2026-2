@@ -1,6 +1,7 @@
 import type { PracticePeriod } from '../types';
 import type { Play } from '../hudlScout/types/football';
-import { isWholeCall } from './playCallParse';
+import { isWholeCall, parsePlayCall } from './playCallParse';
+import { BACKFIELD_STRUCTURES, RUN_SCHEMES } from './footballEngine';
 
 /** A play the opponent ran, kept with one scouting film. */
 export interface ScoutOppPlay {
@@ -307,6 +308,66 @@ export function playsFromFilm(gameId: string, film: Play[], existing: ScoutOppPl
       editedAt: now,
     };
   });
+}
+
+const SIDE = /^(L|R|LT|RT|LFT|RGT|LEFT|RIGHT|LIZ|RIP|LARRY|ROGER)$/;
+const words = (text: string) =>
+  String(text || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+
+/**
+ * The kind of play this is, whichever way they ran it: the side (L / R) and which back goes to which
+ * hole don't count, so 32 L WB 44 ZONE, 32 R WB 43 ZONE and 37 ZONE from the same set are one type.
+ */
+export function oppPlayType(play: Pick<ScoutOppPlay, 'name' | 'formation' | 'personnel' | 'kind'>): { key: string; label: string } {
+  const named = parsePlayCall(play.name);
+  const form = parsePlayCall(play.formation || '');
+  const personnel = named.personnel ?? form.personnel ?? (String(play.personnel || '').match(/^\d{2}\b/) || [''])[0];
+  const backfield = named.backfields[0] || form.backfields[0] || '';
+  const formWords = words(play.formation).filter((w) => !SIDE.test(w) && !/^\d{2}[LR]?$/.test(w));
+  const formLabel = backfield && BACKFIELD_STRUCTURES[backfield] ? BACKFIELD_STRUCTURES[backfield].hudlBackfield : formWords.join(' ');
+  let playKey: string;
+  let playLabel: string;
+  if (named.run) {
+    playKey = named.run;
+    playLabel = RUN_SCHEMES.find((r) => r.id === named.run)?.label || named.run;
+  } else {
+    // Not a run we know: the words of the call without the personnel, side, formation and back + hole.
+    const skip = new Set([...words(named.formationWord || ''), ...formWords]);
+    const rest = words(play.name).filter((w, i) => {
+      if (i === 0 && /^\d{2}[LR]?$/.test(w)) return false;
+      return !SIDE.test(w) && !/^[1-4][1-9]$/.test(w) && !/^\d$/.test(w) && !skip.has(w);
+    });
+    playKey = rest.join(' ') || play.kind || 'play';
+    playLabel = rest.join(' ') || play.kind || 'Play';
+  }
+  const key = [personnel, backfield || formWords.join(' '), playKey].join('|').toLowerCase();
+  const label = [personnel ? `${personnel}` : '', formLabel, '·', playLabel.replace(/\b\w/g, (c) => c.toUpperCase())]
+    .filter(Boolean)
+    .join(' ')
+    .replace(/^· /, '');
+  return { key, label };
+}
+
+export interface OppPlayGroup {
+  key: string;
+  label: string;
+  plays: ScoutOppPlay[];
+}
+
+/** Their plays put together by play type, in the order the first of each shows up. */
+export function groupOppPlays(plays: ScoutOppPlay[]): OppPlayGroup[] {
+  const out = new Map<string, OppPlayGroup>();
+  for (const p of plays) {
+    const t = oppPlayType(p);
+    const g = out.get(t.key);
+    if (g) g.plays.push(p);
+    else out.set(t.key, { key: t.key, label: t.label, plays: [p] });
+  }
+  return [...out.values()];
 }
 
 /** Put plays in a saved order. Ones that are not in that order stay at the end, in the order they already had. */

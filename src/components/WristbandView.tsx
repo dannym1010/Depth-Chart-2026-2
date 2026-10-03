@@ -1264,7 +1264,7 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
 
                       {/* Play Text */}
                       <span className="wristband-print-play-text flex-1 px-1.5 self-center font-mono font-bold uppercase truncate text-[8.5px] text-black">
-                        {play.text || 'â€”'}
+                        {play.text || '—'}
                       </span>
                     </div>
                   );
@@ -1310,8 +1310,8 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
                 >
                   <Watch className="w-3.5 h-3.5" />
                   <span>
-                    {wb.title && wb.title.includes('â€¢')
-                      ? wb.title.split('â€¢').slice(1).join('â€¢').trim()
+                    {wb.title && wb.title.includes('•')
+                      ? wb.title.split('•').slice(1).join('•').trim()
                       : wb.title || `Wristband ${idx + 1}`}
                   </span>
                 </button>
@@ -1502,8 +1502,8 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
                 disabled={userRole !== 'admin'}
                 value={currentWristband.title || ''}
                 onChange={(e) => updateCurrentWristband((wb) => ({ ...wb, title: e.target.value }))}
-                className="flex-1 bg-slate-950 border border-slate-750 text-white font-black px-3 py-1.5 rounded-xl text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none uppercase placeholder:text-slate-500"
-                placeholder="e.g. MAHOPAC 10U â€¢ BLUE (1-13) & GOLD (14-26)"
+                className="flex-1 min-w-0 bg-slate-950 border border-slate-750 text-white font-black px-3 py-1.5 rounded-xl text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none uppercase placeholder:text-slate-500"
+                placeholder="e.g. MAHOPAC 10U • BLUE (1-13) & GOLD (14-26)"
               />
               {userRole === 'admin' && (
                 <button
@@ -1526,7 +1526,7 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
                     );
                     updateCurrentWristband((wb) => ({ ...wb, title: autoTitle }));
                   }}
-                  className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-300 text-[10px] font-bold border border-slate-700 transition-colors whitespace-nowrap cursor-pointer"
+                  className="shrink-0 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-300 text-[10px] font-bold border border-slate-700 transition-colors whitespace-nowrap cursor-pointer"
                   title="Auto-format title with Team, 10U, Colors, and Play numbers"
                 >
                   Auto Title

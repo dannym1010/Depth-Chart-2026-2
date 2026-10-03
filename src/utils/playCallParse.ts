@@ -46,16 +46,27 @@ const FORMATION_WORDS: [RegExp, string[]][] = [
 
 const RUN_WORDS: [RegExp, string][] = [
   [/^(SWEEP|TOSS|PITCH|STRETCH ?SWEEP)$/, 'toss'],
-  [/^STRETCH$/, 'stretch'],
+  [/^STRETCH$/, 'outside_zone'],
   [/^POWER$/, 'power'],
-  [/^(COUNTER|CTR|CNTR)$/, 'counter'],
-  [/^DIVE$/, 'dive'],
+  [/^(BUCK|BUCK ?SWEEP)$/, 'buck'],
   [/^TRAP$/, 'trap'],
+  [/^BELLY$/, 'belly'],
+  [/^(BELLY ?G|DOWN ?G)$/, 'belly_g'],
+  [/^(COUNTER|CTR|CNTR|COUNTER ?GT)$/, 'counter'],
+  [/^(INSIDE ?ZONE|IZ)$/, 'inside_zone'],
+  [/^(OUTSIDE ?ZONE|OZ)$/, 'outside_zone'],
+  [/^DUO$/, 'duo'],
+  [/^(PIN ?(?:&|AND) ?PULL|PIN ?PULL)$/, 'pin_pull'],
   [/^ISO$/, 'iso'],
-  [/^(WEDGE|SNEAK)$/, 'wedge'],
-  [/^(KEEP|KEEPER)$/, 'keep'],
+  [/^DIVE$/, 'dive'],
   [/^DOWN$/, 'down'],
-  [/^ZONE$/, 'zone'],
+  [/^(JET|JET ?SWEEP)$/, 'jet_sweep'],
+  [/^(REVERSE|REV)$/, 'reverse'],
+  [/^(DRAW|DELAY)$/, 'draw'],
+  [/^WEDGE$/, 'wedge'],
+  [/^(QB ?SNEAK|SNEAK)$/, 'qb_sneak'],
+  [/^(KEEP|KEEPER)$/, 'keep'],
+  [/^ZONE$/, 'inside_zone'],
 ];
 
 const LEFT = /^(L|LT|LFT|LEFT|LIZ)$/;

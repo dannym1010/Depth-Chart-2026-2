@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Playbook database, hole numbers, formation coordinates, and assemblePlay.
  * Ported from Mahopac 10U / Hudl decoupled models (Gemini footballEngine).
  */
@@ -115,6 +115,17 @@ export const BASE_FORMATIONS: Record<string, BaseFormation> = {
       { role: 'Y1', x: 6, y: 0, line: true },
       { role: 'Y2', x: 9.2, y: -1.6, line: false },
       { role: 'Z', x: 14, y: -0.5, line: false },
+    ],
+  },
+  '12_DOUBLE_TE_SIDE': {
+    personnel: 12,
+    hudlBase: 'Double TE Heavy',
+    tags: ['Power', 'Buck Sweep', 'Belly', 'Toss Sweep', 'Down'],
+    perimeterNodes: [
+      { role: 'X', x: -15, y: 0, line: true },
+      { role: 'Y1', x: 6, y: 0, line: true },
+      { role: 'Y2', x: 8.4, y: 0, line: true },
+      { role: 'Z', x: 15, y: -1, line: false },
     ],
   },
   '20_SPREAD_OPEN': {
@@ -248,6 +259,16 @@ export const BASE_FORMATIONS: Record<string, BaseFormation> = {
       { role: 'X', x: -14, y: 0, line: true },
       { role: 'Y1', x: 6, y: 0, line: true },
       { role: 'Y2', x: 9.2, y: -1.6, line: false },
+    ],
+  },
+  '22_DOUBLE_TE_SIDE': {
+    personnel: 22,
+    hudlBase: 'Double TE Heavy',
+    tags: ['Power', 'Buck Sweep', 'Belly', 'Blast', 'Down G'],
+    perimeterNodes: [
+      { role: 'X', x: -14, y: 0, line: true },
+      { role: 'Y1', x: 6, y: 0, line: true },
+      { role: 'Y2', x: 8.4, y: 0, line: true },
     ],
   },
   '30_FULLHOUSE_OPEN': {
@@ -536,6 +557,15 @@ export const BASE_FORMATIONS: Record<string, BaseFormation> = {
       { role: 'Y2', x: 8.5, y: 0, line: true },
     ],
   },
+  '32_DOUBLE_TE_SIDE': {
+    personnel: 32,
+    hudlBase: 'Double TE Heavy',
+    tags: ['Power', 'Buck Sweep', 'Belly', 'Wedge', 'Blast'],
+    perimeterNodes: [
+      { role: 'Y1', x: 6, y: 0, line: true },
+      { role: 'Y2', x: 8.4, y: 0, line: true },
+    ],
+  },
 };
 
 /** Where the tight end (or the receivers, when there is no tight end) lines up. Backfield is separate. */
@@ -554,6 +584,7 @@ export const TE_LOCATIONS: Record<number, { id: string; label: string; baseKey: 
   ],
   12: [
     { id: 'tight', label: 'Tight', baseKey: '12_ACE' },
+    { id: 'double_te', label: 'Double TE (1-Side)', baseKey: '12_DOUBLE_TE_SIDE' },
     { id: 'wing', label: 'Wing', baseKey: '12_TE_WING' },
     { id: 'slot', label: 'Slot', baseKey: '12_TE_SLOT' },
     { id: 'twins', label: 'Twins', baseKey: '12_TWINS' },
@@ -577,6 +608,7 @@ export const TE_LOCATIONS: Record<number, { id: string; label: string; baseKey: 
   ],
   22: [
     { id: 'tight', label: 'Tight', baseKey: '22_DOUBLE_TIGHT' },
+    { id: 'double_te', label: 'Double TE (1-Side)', baseKey: '22_DOUBLE_TE_SIDE' },
     { id: 'wing', label: 'Wing', baseKey: '22_TE_WING' },
     { id: 'slot', label: 'Slot', baseKey: '22_TE_SLOT' },
     { id: 'split', label: 'Split', baseKey: '22_TE_SPLIT' },
@@ -599,6 +631,7 @@ export const TE_LOCATIONS: Record<number, { id: string; label: string; baseKey: 
   ],
   32: [
     { id: 'tight', label: 'Tight', baseKey: '32_WISHBONE' },
+    { id: 'double_te', label: 'Double TE (1-Side)', baseKey: '32_DOUBLE_TE_SIDE' },
     { id: 'split', label: 'Split', baseKey: '32_TE_SPLIT' },
     { id: 'nasty', label: 'Snug', baseKey: '32_TE_NASTY' },
     { id: 'over', label: 'Tackle over', baseKey: '32_TE_OVER' },
@@ -1204,6 +1237,56 @@ export const PLAY_CONCEPTS: Record<string, PlayConcept> = {
   RPO_SLANT: { concept: 'RPO Slant', hole: 4, scheme: 'Give or throw slant', primaryBack: 3, primaryTarget: 'Slant' },
   TUNNEL: { concept: 'Tunnel Screen', hole: null, scheme: 'Interior screen', primaryBack: 1, primaryTarget: 'X / Z' },
   SPRINT_OUT: { concept: 'Sprint Out', hole: 1, scheme: 'QB sprint, flood backside', primaryBack: 1, primaryTarget: 'Flat / corner' },
+  // Buck Sweep
+  '31_BUCK': { concept: '31 Buck Sweep', hole: 1, scheme: 'Buck Sweep (Both Guards Pull)', primaryBack: 3, fake: 'FB Dive 4-Hole', lead: 'PSG Kick / BSG Wrap' },
+  '39_BUCK': { concept: '39 Buck Sweep', hole: 9, scheme: 'Buck Sweep (Both Guards Pull)', primaryBack: 3, fake: 'FB Dive 6-Hole', lead: 'PSG Kick / BSG Wrap' },
+  '41_BUCK': { concept: '41 Buck Sweep', hole: 1, scheme: 'Buck Sweep (Both Guards Pull)', primaryBack: 4, fake: 'FB Dive 4-Hole', lead: 'PSG Kick / BSG Wrap' },
+  '49_BUCK': { concept: '49 Buck Sweep', hole: 9, scheme: 'Buck Sweep (Both Guards Pull)', primaryBack: 4, fake: 'FB Dive 6-Hole', lead: 'PSG Kick / BSG Wrap' },
+
+  // Belly
+  '24_BELLY': { concept: '24 Belly', hole: 4, scheme: 'Belly (Down Block / FB B-Gap)', primaryBack: 2, fake: 'QB Boot Fake' },
+  '26_BELLY': { concept: '26 Belly', hole: 6, scheme: 'Belly (Down Block / FB B-Gap)', primaryBack: 2, fake: 'QB Boot Fake' },
+  '34_BELLY': { concept: '34 Belly', hole: 4, scheme: 'Belly (Down Block / TB B-Gap)', primaryBack: 3, fake: 'QB Boot Fake' },
+  '36_BELLY': { concept: '36 Belly', hole: 6, scheme: 'Belly (Down Block / TB B-Gap)', primaryBack: 3, fake: 'QB Boot Fake' },
+
+  // Belly G / Down G
+  '22_BELLY_G': { concept: '22 Belly G', hole: 2, scheme: 'Belly G (PSG Pull Kickout)', primaryBack: 2, lead: 'PSG Kickout' },
+  '28_BELLY_G': { concept: '28 Belly G', hole: 8, scheme: 'Belly G (PSG Pull Kickout)', primaryBack: 2, lead: 'PSG Kickout' },
+  '32_BELLY_G': { concept: '32 Belly G', hole: 2, scheme: 'Belly G (PSG Pull Kickout)', primaryBack: 3, lead: 'PSG Kickout' },
+  '38_BELLY_G': { concept: '38 Belly G', hole: 8, scheme: 'Belly G (PSG Pull Kickout)', primaryBack: 3, lead: 'PSG Kickout' },
+
+  // Inside Zone
+  '34_INSIDE_ZONE': { concept: '34 Inside Zone', hole: 4, scheme: 'Inside Zone Combo-Climb', primaryBack: 3, lead: 'FB Cutback Seal' },
+  '36_INSIDE_ZONE': { concept: '36 Inside Zone', hole: 6, scheme: 'Inside Zone Combo-Climb', primaryBack: 3, lead: 'FB Cutback Seal' },
+  '33_INSIDE_ZONE': { concept: '33 Inside Zone', hole: 3, scheme: 'Inside Zone Combo-Climb', primaryBack: 3, lead: 'FB Cutback Seal' },
+  '37_INSIDE_ZONE': { concept: '37 Inside Zone', hole: 7, scheme: 'Inside Zone Combo-Climb', primaryBack: 3, lead: 'FB Cutback Seal' },
+
+  // Outside Zone / Stretch
+  '31_OUTSIDE_ZONE': { concept: '31 Outside Zone', hole: 1, scheme: 'Outside Zone Lateral Reach', primaryBack: 3, lead: 'FB Edge Hook' },
+  '39_OUTSIDE_ZONE': { concept: '39 Outside Zone', hole: 9, scheme: 'Outside Zone Lateral Reach', primaryBack: 3, lead: 'FB Edge Hook' },
+  '41_OUTSIDE_ZONE': { concept: '41 Outside Zone', hole: 1, scheme: 'Outside Zone Lateral Reach', primaryBack: 4, lead: 'TB Edge Hook' },
+  '49_OUTSIDE_ZONE': { concept: '49 Outside Zone', hole: 9, scheme: 'Outside Zone Lateral Reach', primaryBack: 4, lead: 'TB Edge Hook' },
+
+  // Duo
+  '34_DUO': { concept: '34 Duo', hole: 4, scheme: 'Duo Double-Teams (Power No-Pull)', primaryBack: 3, lead: 'FB Insert on LB' },
+  '36_DUO': { concept: '36 Duo', hole: 6, scheme: 'Duo Double-Teams (Power No-Pull)', primaryBack: 3, lead: 'FB Insert on LB' },
+
+  // Pin & Pull
+  '32_PIN_PULL': { concept: '32 Pin & Pull', hole: 2, scheme: 'Pin & Pull (Uncovered Pull)', primaryBack: 3, lead: 'Puller Lead Alley' },
+  '38_PIN_PULL': { concept: '38 Pin & Pull', hole: 8, scheme: 'Pin & Pull (Uncovered Pull)', primaryBack: 3, lead: 'Puller Lead Alley' },
+  '31_PIN_PULL': { concept: '31 Pin & Pull', hole: 1, scheme: 'Pin & Pull (Edge Sweep)', primaryBack: 3, lead: 'Puller Lead Edge' },
+  '39_PIN_PULL': { concept: '39 Pin & Pull', hole: 9, scheme: 'Pin & Pull (Edge Sweep)', primaryBack: 3, lead: 'Puller Lead Edge' },
+
+  // Jet Sweep
+  '41_JET': { concept: '41 Jet Sweep', hole: 1, scheme: 'Full Sprint Motion Sweep', primaryBack: 4, lead: 'Perimeter Reach' },
+  '49_JET': { concept: '49 Jet Sweep', hole: 9, scheme: 'Full Sprint Motion Sweep', primaryBack: 4, lead: 'Perimeter Reach' },
+
+  // Reverse
+  '28_REVERSE': { concept: '28 Reverse', hole: 8, scheme: 'Counter Flow End-Around Hand', primaryBack: 4, fake: 'Dive / Sweep Fake' },
+  '22_REVERSE': { concept: '22 Reverse', hole: 2, scheme: 'Counter Flow End-Around Hand', primaryBack: 4, fake: 'Dive / Sweep Fake' },
+
+  // QB Sneak
+  QB_SNEAK: { concept: 'QB Sneak', hole: 5, scheme: 'Direct Plunge Behind Center', primaryBack: 1, lead: 'Center-Guard Wedge' },
 };
 
 export function conceptFamily(c: PlayConcept): 'run' | 'pass' | 'option' | 'screen' {
@@ -1216,17 +1299,29 @@ export function conceptFamily(c: PlayConcept): 'run' | 'pass' | 'option' | 'scre
 
 /** Run fits. The ball carrier and the hole are picked separately. */
 export const RUN_SCHEMES: { id: string; label: string; conceptKey: string }[] = [
-  { id: 'zone', label: 'Zone', conceptKey: '37_ZONE' },
   { id: 'power', label: 'Power', conceptKey: '38_POWER' },
-  { id: 'counter', label: 'Counter', conceptKey: '38_COUNTER' },
-  { id: 'dive', label: 'Dive', conceptKey: '34_DIVE' },
-  { id: 'toss', label: 'Toss / Sweep', conceptKey: '31_TOSS' },
-  { id: 'stretch', label: 'Stretch', conceptKey: '21_STRETCH' },
-  { id: 'down', label: 'Down', conceptKey: '28_DOWN' },
-  { id: 'iso', label: 'Iso', conceptKey: '34_ISO' },
+  { id: 'buck', label: 'Buck Sweep', conceptKey: '31_BUCK' },
   { id: 'trap', label: 'Trap', conceptKey: '32_TRAP' },
+  { id: 'belly', label: 'Belly', conceptKey: '24_BELLY' },
+  { id: 'belly_g', label: 'Belly G / Down G', conceptKey: '32_BELLY_G' },
+  { id: 'counter', label: 'Counter GT', conceptKey: '38_COUNTER' },
+  { id: 'inside_zone', label: 'Inside Zone', conceptKey: '34_INSIDE_ZONE' },
+  { id: 'outside_zone', label: 'Outside Zone / Stretch', conceptKey: '31_OUTSIDE_ZONE' },
+  { id: 'duo', label: 'Duo', conceptKey: '34_DUO' },
+  { id: 'pin_pull', label: 'Pin & Pull', conceptKey: '32_PIN_PULL' },
+  { id: 'iso', label: 'Iso', conceptKey: '34_ISO' },
+  { id: 'dive', label: 'Dive', conceptKey: '34_DIVE' },
+  { id: 'down', label: 'Down', conceptKey: '28_DOWN' },
+  { id: 'toss', label: 'Toss / Sweep', conceptKey: '31_TOSS' },
+  { id: 'jet_sweep', label: 'Jet Sweep', conceptKey: '41_JET' },
+  { id: 'reverse', label: 'Reverse', conceptKey: '28_REVERSE' },
+  { id: 'draw', label: 'Draw', conceptKey: '25_DRAW' },
   { id: 'wedge', label: 'Wedge', conceptKey: 'CHECK_15_SNEAK' },
-  { id: 'keep', label: 'QB Keep', conceptKey: '11_KEEP' },
+  { id: 'qb_sneak', label: 'QB Sneak', conceptKey: 'QB_SNEAK' },
+  { id: 'keep', label: 'QB Keep / Option', conceptKey: '11_KEEP' },
+  // Backward compatibility aliases
+  { id: 'zone', label: 'Zone', conceptKey: '34_INSIDE_ZONE' },
+  { id: 'stretch', label: 'Stretch', conceptKey: '31_OUTSIDE_ZONE' },
 ];
 
 const ELIGIBLE_ORDER = ['1', '2', '3', '4', 'Y', 'Y1', 'Y2', 'X', 'Z', 'W', 'H', 'W1', 'W2'];
@@ -1288,7 +1383,7 @@ export const MASTER_TAGS: Record<string, { type: string; effect: string; axis?: 
   Flood: { type: 'Pass', effect: 'Three-level flood' },
   Mesh: { type: 'Pass', effect: 'Two shallow crossers pick' },
   Slant: { type: 'Pass', effect: 'Inside breaking slant' },
-  Hitch: { type: 'Pass', effect: 'Stop route at 5â€“6' },
+  Hitch: { type: 'Pass', effect: 'Stop route at 5–6' },
   Fade: { type: 'Pass', effect: 'Fade / go to the pylon' },
   Screen: { type: 'Pass', effect: 'Tagged screen' },
   'Red Zone': { type: 'Situation', effect: 'Inside the 20' },
@@ -1464,6 +1559,69 @@ function nodes53(shift = 0): PlayNode[] {
     { role: 'FS', x: shift, y: 8.2 },
     { role: 'CBR', x: 14, y: 3.4 },
   ];
+}
+
+/**
+ * Automatically lines up defensive players based on their technique label (e.g. E9, T3, T1, E5, NT0, E7, T2).
+ * Adjusts dynamically based on the offensive line and tight end positions.
+ */
+export function alignDefenseTechniques(defenseNodes: PlayNode[], offenseNodes: PlayNode[]): PlayNode[] {
+  if (!defenseNodes.length || !offenseNodes.length) return defenseNodes;
+
+  const C = offenseNodes.find((n) => n.role === 'C')?.x ?? 0;
+  const LG = offenseNodes.find((n) => n.role === 'LG')?.x ?? C - 2;
+  const RG = offenseNodes.find((n) => n.role === 'RG')?.x ?? C + 2;
+  const ltRaw = offenseNodes.find((n) => n.role === 'LT')?.x ?? C - 4;
+  const rtRaw = offenseNodes.find((n) => n.role === 'RT')?.x ?? C + 4;
+  const LT = ltRaw < C ? ltRaw : LG - 2;
+  const RT = rtRaw > C ? rtRaw : RG + 2;
+
+  // Find tight ends on each side
+  const tightEnds = offenseNodes.filter((n) => n.line && ['Y', 'Y1', 'Y2'].includes(n.role));
+  const leftTEs = tightEnds.filter((n) => n.x < C).sort((a, b) => b.x - a.x); // closest to farthest left
+  const rightTEs = tightEnds.filter((n) => n.x > C).sort((a, b) => a.x - b.x); // closest to farthest right
+
+  const outermostRightTE = rightTEs.length ? rightTEs[rightTEs.length - 1].x : RT + 2;
+  const primaryRightTE = rightTEs.length ? rightTEs[0].x : RT + 2;
+
+  const outermostLeftTE = leftTEs.length ? leftTEs[leftTEs.length - 1].x : LT - 2;
+  const primaryLeftTE = leftTEs.length ? leftTEs[0].x : LT - 2;
+
+  return defenseNodes.map((dNode) => {
+    const roleUpper = dNode.role.toUpperCase();
+    const side = dNode.x < C ? -1 : 1;
+    const match = roleUpper.match(/^(?:D[ET]|NT|E|T)(\d+i?)$/i);
+    let tech = match ? match[1].toLowerCase() : '';
+    if (!tech && roleUpper === 'NT') tech = '0';
+    if (!tech) return dNode;
+    let newX = dNode.x;
+
+    if (tech === '0') {
+      newX = C;
+    } else if (tech === '1') {
+      newX = C + side * 0.9;
+    } else if (tech === '2i') {
+      newX = (side > 0 ? RG : LG) - side * 0.75;
+    } else if (tech === '2') {
+      newX = side > 0 ? RG : LG;
+    } else if (tech === '3') {
+      newX = (side > 0 ? RG : LG) + side * 0.85;
+    } else if (tech === '4i') {
+      newX = (side > 0 ? RT : LT) - side * 0.8;
+    } else if (tech === '4') {
+      newX = side > 0 ? RT : LT;
+    } else if (tech === '5') {
+      newX = (side > 0 ? RT : LT) + side * 0.85;
+    } else if (tech === '6') {
+      newX = side > 0 ? primaryRightTE : primaryLeftTE;
+    } else if (tech === '7') {
+      newX = side > 0 ? primaryRightTE - 0.85 : primaryLeftTE + 0.85;
+    } else if (tech === '9') {
+      newX = side > 0 ? outermostRightTE + 0.9 : outermostLeftTE - 0.9;
+    }
+
+    return { ...dNode, x: Number(newX.toFixed(2)), y: dNode.y <= 2.5 ? 1.85 : dNode.y };
+  });
 }
 
 export interface OurDefenseLook {
@@ -1806,6 +1964,8 @@ export type DrawKind = 'run' | 'pass' | 'block';
 export interface PlayStroke {
   kind: DrawKind;
   points: { x: number; y: number }[];
+  /** The assignment picked for this player (e.g. "Reach Right"). Hand-drawn lines have none. */
+  label?: string;
 }
 
 /** TE and WR marks for the diagram. Offensive line stays blank. */
@@ -1924,45 +2084,221 @@ export function autoDrawPlay(opts: {
   const atLos = pt(hx, 0.2);
   const through = pt(hx + sign * (hole === 1 || hole === 9 ? 1.6 : 0.15), hole === 1 || hole === 9 ? 2.5 : 2.3);
 
-  const rule = /counter/.test(blob)
-    ? 'counter'
-    : /power|iso|blast/.test(blob)
-      ? 'power'
-      : /toss|sweep|stretch/.test(blob)
-        ? 'toss'
-        : /zone/.test(blob)
-          ? 'zone'
-          : 'gap';
+  const rule = /buck/.test(blob)
+    ? 'buck'
+    : /trap/.test(blob)
+      ? 'trap'
+      : /belly.*g|down.*g/.test(blob)
+        ? 'belly_g'
+        : /belly/.test(blob)
+          ? 'belly'
+          : /counter|reverse/.test(blob)
+            ? 'counter'
+            : /pin.*pull/.test(blob)
+              ? 'pin_pull'
+              : /duo/.test(blob)
+                ? 'duo'
+                : /power/.test(blob)
+                  ? 'power'
+                  : /iso|blast/.test(blob)
+                    ? 'iso'
+                    : /wedge|sneak/.test(blob)
+                      ? 'wedge'
+                      : /draw|delay/.test(blob)
+                        ? 'draw'
+                        : /toss|sweep|stretch|jet/.test(blob)
+                          ? 'toss'
+                          : /zone/.test(blob)
+                            ? 'zone'
+                            : /down/.test(blob)
+                              ? 'down'
+                              : 'gap';
 
   const ol = ['LT', 'LG', 'C', 'RG', 'RT']
     .map((r) => nodes.find((n) => n.role === r))
     .filter((n): n is PlayNode => !!n);
-  const puller = sign > 0 ? ol.find((n) => n.role === 'LG') : ol.find((n) => n.role === 'RG');
+  const centerNode = ol.find((n) => n.role === 'C');
+  const cx = centerNode?.x ?? 0;
+  const psg = sign > 0 ? ol.find((n) => n.role === 'RG') : ol.find((n) => n.role === 'LG');
+  const bsg = sign > 0 ? ol.find((n) => n.role === 'LG') : ol.find((n) => n.role === 'RG');
+  const pst = sign > 0 ? ol.find((n) => n.role === 'RT') : ol.find((n) => n.role === 'LT');
+  const bst = sign > 0 ? ol.find((n) => n.role === 'LT') : ol.find((n) => n.role === 'RT');
 
   if (family === 'run' || family === 'option') {
     for (const l of ol) {
-      const onPlay = Math.sign(l.x - (nodes.find((n) => n.role === 'C')?.x ?? 0)) === sign || Math.abs(l.x) < 0.4;
-      if ((rule === 'power' || rule === 'counter') && puller && l.role === puller.role) {
-        add(line('block', [pt(l.x, l.y), pt(0, -1.15), pt(hx + sign * 1.3, -0.7), pt(hx + sign * 2.2, 0.85)]));
+      const onPlay = Math.sign(l.x - cx) === sign || Math.abs(l.x - cx) < 0.4;
+
+      // 1. Buck Sweep (Both Guards Pull: PSG kicks out edge, BSG wraps through alley, Center blocks back)
+      if (rule === 'buck') {
+        if (psg && l.role === psg.role) {
+          add(line('block', [pt(l.x, l.y), pt(l.x, l.y - 1.0), pt(hx * 0.7, -0.6), pt(hx + sign * 1.5, 0.95)]));
+          continue;
+        }
+        if (bsg && l.role === bsg.role) {
+          add(line('block', [pt(l.x, l.y), pt(l.x, l.y - 1.25), pt(hx * 0.45, -0.75), pt(hx + sign * 0.35, 2.2)]));
+          continue;
+        }
+        if (centerNode && l.role === centerNode.role) {
+          add(line('block', [pt(l.x, l.y), pt(l.x - sign * 1.2, 0.85)]));
+          continue;
+        }
+        if (pst && l.role === pst.role) {
+          add(line('block', [pt(l.x, l.y), pt(l.x - sign * 1.35, 0.9)]));
+          continue;
+        }
+        add(line('block', [pt(l.x, l.y), pt(l.x - sign * 0.6, 0.85)]));
         continue;
       }
+
+      // 2. Trap (BSG pulls flat across center to trap, Center blocks back, PSG climbs)
+      if (rule === 'trap') {
+        if (bsg && l.role === bsg.role) {
+          add(line('block', [pt(l.x, l.y), pt(l.x, l.y - 0.95), pt(hx * 0.6, -0.45), pt(hx + sign * 0.85, 0.85)]));
+          continue;
+        }
+        if (centerNode && l.role === centerNode.role) {
+          add(line('block', [pt(l.x, l.y), pt(l.x - sign * 0.95, 0.85)]));
+          continue;
+        }
+        if (psg && l.role === psg.role) {
+          add(line('block', [pt(l.x, l.y), pt(l.x - sign * 0.3, 1.8)]));
+          continue;
+        }
+        if (pst && l.role === pst.role) {
+          add(line('block', [pt(l.x, l.y), pt(l.x - sign * 1.35, 0.95)]));
+          continue;
+        }
+        add(line('block', [pt(l.x, l.y), pt(l.x - sign * 0.5, 0.8)]));
+        continue;
+      }
+
+      // 3. Belly G / Down (PSG pulls to kick out edge defender, PST blocks down)
+      if (rule === 'belly_g' || rule === 'down') {
+        if (psg && l.role === psg.role) {
+          add(line('block', [pt(l.x, l.y), pt(l.x, l.y - 1.0), pt(hx + sign * 1.3, 0.85)]));
+          continue;
+        }
+        if (pst && l.role === pst.role) {
+          add(line('block', [pt(l.x, l.y), pt(l.x - sign * 1.35, 0.95)]));
+          continue;
+        }
+        add(line('block', [pt(l.x, l.y), pt(l.x - sign * 0.65, 0.85)]));
+        continue;
+      }
+
+      // 4. Belly (Down blocks on DL, B-gap dive)
+      if (rule === 'belly') {
+        if (pst && l.role === pst.role) {
+          add(line('block', [pt(l.x, l.y), pt(l.x - sign * 1.35, 0.95)]));
+          continue;
+        }
+        if (psg && l.role === psg.role) {
+          add(line('block', [pt(l.x, l.y), pt(l.x, 0.95)]));
+          continue;
+        }
+        add(line('block', [pt(l.x, l.y), pt(l.x - sign * 0.65, 0.85)]));
+        continue;
+      }
+
+      // 5. Pin & Pull (PSG pulls around pinned tackle into edge alley)
+      if (rule === 'pin_pull') {
+        if (psg && l.role === psg.role) {
+          add(line('block', [pt(l.x, l.y), pt(l.x, l.y - 1.05), pt(hx + sign * 0.9, -0.45), pt(hx + sign * 1.6, 1.7)]));
+          continue;
+        }
+        if (pst && l.role === pst.role) {
+          add(line('block', [pt(l.x, l.y), pt(l.x - sign * 1.4, 0.9)]));
+          continue;
+        }
+        if (centerNode && l.role === centerNode.role) {
+          add(line('block', [pt(l.x, l.y), pt(l.x - sign * 0.8, 0.9)]));
+          continue;
+        }
+        add(line('block', [pt(l.x, l.y), pt(l.x + sign * 0.4, 0.9)]));
+        continue;
+      }
+
+      // 6. Duo (Heavy double teams driving vertically into LBs)
+      if (rule === 'duo') {
+        add(line('block', [pt(l.x, l.y), pt(l.x + sign * 0.25, 1.45)]));
+        continue;
+      }
+
+      // 7. Counter / Counter GT (BSG kicks out edge, BST wraps through hole)
+      if (rule === 'counter') {
+        if (bsg && l.role === bsg.role) {
+          add(line('block', [pt(l.x, l.y), pt(0, -1.15), pt(hx + sign * 1.3, -0.7), pt(hx + sign * 2.2, 0.85)]));
+          continue;
+        }
+        if (bst && l.role === bst.role) {
+          add(line('block', [pt(l.x, l.y), pt(l.x, l.y - 1.35), pt(hx * 0.6, -0.8), pt(hx + sign * 0.3, 1.9)]));
+          continue;
+        }
+        add(line('block', [pt(l.x, l.y), pt(l.x - sign * 0.9, 0.9)]));
+        continue;
+      }
+
+      // 8. Power (BSG wraps through hole, other line blocks down)
+      if (rule === 'power') {
+        if (bsg && l.role === bsg.role) {
+          add(line('block', [pt(l.x, l.y), pt(0, -1.15), pt(hx * 0.5, -0.7), pt(hx + sign * 0.3, 2.0)]));
+          continue;
+        }
+        add(line('block', [pt(l.x, l.y), pt(l.x - sign * 0.85, 0.9)]));
+        continue;
+      }
+
+      // 9. Wedge / QB Sneak (Converge into center wedge)
+      if (rule === 'wedge') {
+        add(line('block', [pt(l.x, l.y), pt(cx + (l.x - cx) * 0.25, 1.3)]));
+        continue;
+      }
+
+      // 10. Draw (Pass set delay, seal pass rushers wide)
+      if (rule === 'draw') {
+        add(line('block', [pt(l.x, l.y), pt(l.x + (l.x > 0 ? 0.35 : -0.35), l.y - 1.1), pt(l.x + (l.x > 0 ? 0.65 : -0.65), l.y - 0.2)]));
+        continue;
+      }
+
+      // 11. Zone / Toss (Lateral reach playside)
       if (rule === 'zone' || rule === 'toss') {
         add(line('block', [pt(l.x, l.y), pt(l.x + sign * (onPlay ? 1.15 : 0.45), 0.95)]));
-      } else {
-        add(line('block', [pt(l.x, l.y), pt(l.x - sign * (Math.abs(l.x) < 0.4 ? 0.15 : 0.7), 0.9)]));
+        continue;
       }
+
+      // 12. Gap / Dive / Iso
+      add(line('block', [pt(l.x, l.y), pt(l.x - sign * (Math.abs(l.x - cx) < 0.4 ? 0.15 : 0.7), 0.9)]));
     }
+
     for (const te of nodes.filter((n) => n.line && ['Y', 'Y1', 'Y2'].includes(n.role) && n.role !== carrier?.role)) {
       const tePlay = Math.sign(te.x || sign) === sign;
       if (rule === 'toss' && tePlay) add(line('block', [pt(te.x, te.y), pt(te.x + sign * 1.6, 1.1)]));
       else if (rule === 'zone') add(line('block', [pt(te.x, te.y), pt(te.x + sign * 0.9, 0.95)]));
-      else add(line('block', [pt(te.x, te.y), pt(te.x - sign * 0.35, 0.85)]));
+      else if (rule === 'buck' || rule === 'belly' || rule === 'belly_g' || rule === 'down') {
+        add(line('block', [pt(te.x, te.y), pt(te.x - sign * 1.3, 0.95)]));
+      } else {
+        add(line('block', [pt(te.x, te.y), pt(te.x - sign * 0.35, 0.85)]));
+      }
     }
   }
 
-  const lead = rule === 'power' || rule === 'gap' || /iso|dive|blast/.test(blob);
-  if (fb && carrier && fb.role !== carrier.role && lead && (family === 'run' || family === 'option')) {
-    add(line('block', [pt(fb.x, fb.y), pt(hx * 0.4, -0.3), pt(hx + sign * 0.4, 1.15)]));
+  // Lead / FB assignments
+  if (fb && carrier && fb.role !== carrier.role && (family === 'run' || family === 'option')) {
+    if (rule === 'power') {
+      add(line('block', [pt(fb.x, fb.y), pt(hx + sign * 1.3, -0.4), pt(hx + sign * 1.8, 0.85)]));
+    } else if (rule === 'iso') {
+      add(line('block', [pt(fb.x, fb.y), pt(hx * 0.5, -0.3), pt(hx, 1.85)]));
+    } else if (rule === 'duo') {
+      add(line('block', [pt(fb.x, fb.y), pt(hx * 0.5, -0.3), pt(hx + sign * 0.2, 1.7)]));
+    } else if (rule === 'buck') {
+      add(line('run', [pt(fb.x, fb.y), pt(-sign * 2.2, -0.2), pt(-sign * 2.8, 1.4)]));
+    } else if (rule === 'trap' || rule === 'counter') {
+      add(line('run', [pt(fb.x, fb.y), pt(-sign * 2.4, 0.2), pt(-sign * 3.0, 1.3)]));
+    } else if (rule === 'belly' || rule === 'belly_g') {
+      add(line('block', [pt(fb.x, fb.y), pt(hx * 0.4, -0.3), pt(hx - sign * 0.5, 1.2)]));
+    } else if (rule === 'gap') {
+      add(line('block', [pt(fb.x, fb.y), pt(hx * 0.4, -0.3), pt(hx + sign * 0.4, 1.15)]));
+    }
   }
 
   const screen = family === 'screen' || has('Bubble') || has('Smoke') || has('Screen');
@@ -1997,9 +2333,28 @@ export function autoDrawPlay(opts: {
     if (wr) add(line('run', [pt(wr.x, wr.y), pt(0, -2), pt(-Math.sign(wr.x || 1) * 8, 1.1)]));
     if (carrier) add(line('run', [pt(carrier.x, carrier.y), mesh]));
   } else if (carrier) {
-    if (/counter/.test(blob)) {
+    if (rule === 'buck') {
+      add(line('run', [pt(carrier.x, carrier.y), pt(carrier.x + sign * 2.0, carrier.y + 0.35), pt(hx * 0.8, -0.5), pt(hx, 0.4), through]));
+      if (qb) add(line('run', [pt(qb.x, qb.y), pt(qb.x + sign * 0.8, qb.y + 0.3), pt(qb.x - sign * 3.5, 0.2), pt(qb.x - sign * 6, 0.5)]));
+    } else if (rule === 'trap') {
+      add(line('run', [pt(carrier.x, carrier.y), pt(hx * 0.6, -0.4), atLos, through]));
+    } else if (rule === 'belly') {
+      add(line('run', [pt(carrier.x, carrier.y), pt(hx * 0.75, -0.4), atLos, through]));
+      if (qb) add(line('run', [pt(qb.x, qb.y), pt(qb.x + sign * 1.0, qb.y + 0.4), pt(qb.x - sign * 3.5, 0.2), pt(qb.x - sign * 6, 0.5)]));
+      if (tb && tb.role !== carrier.role) add(line('run', [pt(tb.x, tb.y), pt(hx + sign * 2.5, -0.6), pt(hx + sign * 4.5, 1.8)]));
+    } else if (rule === 'belly_g') {
+      add(line('run', [pt(carrier.x, carrier.y), pt(carrier.x + sign * 1.5, carrier.y + 0.4), pt(hx * 0.8, -0.4), atLos, through]));
+    } else if (rule === 'pin_pull') {
+      add(line('run', [pt(carrier.x, carrier.y), pt(carrier.x + sign * 2.2, carrier.y + 0.3), pt(hx * 0.85, -0.5), pt(hx, 0.45), through]));
+    } else if (rule === 'duo') {
+      add(line('run', [pt(carrier.x, carrier.y), pt(hx * 0.6, -0.4), atLos, through]));
+    } else if (rule === 'counter') {
       add(line('run', [pt(carrier.x, carrier.y), pt(carrier.x - sign * 2.4, carrier.y + 0.5), mesh, pt(-hx * 0.15, -0.15), atLos, through]));
-    } else if (/zone/.test(blob)) {
+    } else if (rule === 'wedge' || (carrier.role === '1' && (hole === 5 || !hole))) {
+      add(line('run', [pt(carrier.x, carrier.y), atLos, through]));
+    } else if (rule === 'draw') {
+      add(line('run', [pt(carrier.x, carrier.y), pt(carrier.x, carrier.y + 0.35), mesh, pt(hx, -0.45), through]));
+    } else if (rule === 'zone') {
       // First step toward the hole, wherever he lines up (a wingback outside the hole comes back inside).
       const toHole = Math.sign(hx - carrier.x) || sign;
       const step = Math.min(2.6, Math.abs(hx - carrier.x) * 0.6);
@@ -2013,7 +2368,7 @@ export function autoDrawPlay(opts: {
       );
       if (tb && tb.role !== carrier.role) add(line('block', [pt(tb.x, tb.y), pt(tb.x - sign * 0.2, 0.2)]));
       if (wb && wb.role !== carrier.role && wb !== tb) add(line('block', [pt(wb.x, wb.y), pt(wb.x + sign * 0.4, 0.15)]));
-    } else if (/toss|sweep|stretch/.test(blob)) {
+    } else if (rule === 'toss') {
       // Out toward the hole and turn up there: from a back behind the QB, or from a wing already out wide.
       const toHole = Math.sign(hx - carrier.x) || sign;
       const gap = Math.abs(hx - carrier.x);
@@ -2031,8 +2386,6 @@ export function autoDrawPlay(opts: {
           ])
         );
       }
-    } else if (/draw/.test(blob)) {
-      add(line('run', [pt(carrier.x, carrier.y), pt(carrier.x, carrier.y + 0.35), mesh, pt(hx, -0.45), through]));
     } else if (carrier.role === '1') {
       add(line('run', [pt(carrier.x, carrier.y), atLos, through]));
     } else {
@@ -2049,14 +2402,27 @@ export function autoDrawPlay(opts: {
   return out;
 }
 
-export const FIELD_SVG = { w: 760, h: 520, losY: 292, scaleX: 17, scaleY: 12.2, originX: 380 };
+/**
+ * The diagram is a whiteboard, not to scale. Inside the box (7 yards each way) a yard is wider, so
+ * linemen and backs stand apart and their lines read. Outside it a yard is about as wide as it is
+ * deep, so receivers at the numbers still fit. Less room behind the backfield, more downfield.
+ */
+export const FIELD_SVG = { w: 760, h: 520, losY: 360, scaleX: 24, scaleY: 14, originX: 380 };
+const BOX_YARDS = 7;
+const OUTSIDE_SCALE = (FIELD_SVG.originX - BOX_YARDS * FIELD_SVG.scaleX) / 15;
 
 export function fieldToSvg(x: number, y: number) {
-  return { cx: FIELD_SVG.originX + x * FIELD_SVG.scaleX, cy: FIELD_SVG.losY - y * FIELD_SVG.scaleY };
+  const ax = Math.abs(x);
+  const dx = ax <= BOX_YARDS ? ax * FIELD_SVG.scaleX : BOX_YARDS * FIELD_SVG.scaleX + (ax - BOX_YARDS) * OUTSIDE_SCALE;
+  return { cx: FIELD_SVG.originX + Math.sign(x) * dx, cy: FIELD_SVG.losY - y * FIELD_SVG.scaleY };
 }
 
 export function svgToField(cx: number, cy: number) {
-  return { x: (cx - FIELD_SVG.originX) / FIELD_SVG.scaleX, y: (FIELD_SVG.losY - cy) / FIELD_SVG.scaleY };
+  const d = cx - FIELD_SVG.originX;
+  const ad = Math.abs(d);
+  const box = BOX_YARDS * FIELD_SVG.scaleX;
+  const ax = ad <= box ? ad / FIELD_SVG.scaleX : BOX_YARDS + (ad - box) / OUTSIDE_SCALE;
+  return { x: Math.sign(d) * ax, y: (FIELD_SVG.losY - cy) / FIELD_SVG.scaleY };
 }
 
 export function applyNodeOverrides(nodes: PlayNode[], overrides: Record<string, { x: number; y: number }>) {
@@ -2106,25 +2472,31 @@ function arrowHead(x1: number, y1: number, x2: number, y2: number) {
 }
 
 export function fieldBgSvg() {
-  const { w, h, losY, originX, scaleX, scaleY } = FIELD_SVG;
+  const { w, losY, scaleY } = FIELD_SVG;
+  // A plain whiteboard: light gray, faint yard lines, a blue line of scrimmage.
   const yards = [
-    { y: -20, n: '0' },
     { y: -10, n: '10' },
     { y: 0, n: '20' },
     { y: 10, n: '30' },
+    { y: 20, n: '40' },
   ];
   const lines = yards
     .map(({ y, n }) => {
       const cy = losY - y * scaleY;
-      const big = n === '20';
-      return `<line x1="0" y1="${cy}" x2="${w}" y2="${cy}" stroke="${big ? '#3b82f6' : '#d4d4d8'}" stroke-width="${big ? 2 : 1}"/><text x="28" y="${cy - 6}" fill="#d4d4d8" font-size="28" font-family="system-ui" font-weight="800">${n}</text><text x="${w - 28}" y="${cy - 6}" text-anchor="end" fill="#d4d4d8" font-size="28" font-family="system-ui" font-weight="800">${n}</text>`;
+      return `<line x1="0" y1="${cy}" x2="${w}" y2="${cy}" stroke="#d4d4d8" stroke-width="1"/><text x="28" y="${cy - 6}" fill="#d4d4d8" font-size="28" font-family="system-ui" font-weight="800">${n}</text><text x="${w - 28}" y="${cy - 6}" text-anchor="end" fill="#d4d4d8" font-size="28" font-family="system-ui" font-weight="800">${n}</text>`;
     })
     .join('');
-  const hashes = [-20, -10, 0, 10]
+  const fives = [-5, 5, 15]
     .map((y) => {
       const cy = losY - y * scaleY;
-      const left = originX - 3.4 * scaleX;
-      const right = originX + 3.4 * scaleX;
+      return `<line x1="0" y1="${cy}" x2="${w}" y2="${cy}" stroke="#e4e4e7" stroke-width="1"/>`;
+    })
+    .join('');
+  const hashes = [-10, 0, 10, 20]
+    .map((y) => {
+      const cy = losY - y * scaleY;
+      const left = fieldToSvg(-3.4, 0).cx;
+      const right = fieldToSvg(3.4, 0).cx;
       let ticks = '';
       for (let i = 0; i < 5; i++) {
         const yy = cy - i * (scaleY / 5);
@@ -2133,35 +2505,41 @@ export function fieldBgSvg() {
       return ticks;
     })
     .join('');
-  return `<rect width="100%" height="100%" fill="#f4f4f5"/>${lines}${hashes}<line x1="0" y1="${losY}" x2="${w}" y2="${losY}" stroke="#2563eb" stroke-width="2"/>`;
+  return `<rect width="100%" height="100%" fill="#f4f4f5"/>${fives}${lines}${hashes}<line x1="0" y1="${losY}" x2="${w}" y2="${losY}" stroke="#2563eb" stroke-width="2"/>`;
 }
 
 export function playerGlyphSvg(n: PlayNode, ballRole?: string) {
   const { cx, cy } = fieldToSvg(n.x, n.y);
   const label = diagramLabel(n.role);
   if (isDefenseRole(n.role)) {
-    return `<text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="#3f3f46" font-size="13" font-family="system-ui" font-weight="700">${label}</text>`;
+    // Defense in distinct, high-contrast Cardinal Red badge
+    return `<g><rect x="${cx - 11}" y="${cy - 10}" width="22" height="19" rx="4" fill="#dc2626" stroke="#ffffff" stroke-width="1.8"/><text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="#ffffff" font-size="10.5" font-family="system-ui, -apple-system, sans-serif" font-weight="900">${label}</text></g>`;
   }
   if (n.role === 'C') {
-    return `<rect x="${cx - 6}" y="${cy - 6}" width="12" height="12" fill="#fff" stroke="#111827" stroke-width="1.6"/>`;
+    return `<g><rect x="${cx - 8.5}" y="${cy - 8.5}" width="17" height="17" rx="2.5" fill="#ffffff" stroke="#0f172a" stroke-width="2"/><text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="#0f172a" font-size="10" font-family="system-ui, -apple-system, sans-serif" font-weight="900">C</text></g>`;
   }
   const skill = skillDiagramLabel(n.role);
   if (skill) {
     const isBall = ballRole != null && n.role === String(ballRole);
-    const fill = isBall ? '#dc2626' : '#fff';
-    const ink = isBall ? '#fff' : '#111827';
-    return `<circle cx="${cx}" cy="${cy}" r="10" fill="${fill}" stroke="#111827" stroke-width="1.6"/><text x="${cx}" y="${cy + 3}" text-anchor="middle" fill="${ink}" font-size="8" font-family="system-ui" font-weight="800">${skill}</text>`;
+    const fill = isBall ? '#ea580c' : '#ffffff';
+    const ink = isBall ? '#ffffff' : '#0f172a';
+    const stroke = isBall ? '#ffffff' : '#0f172a';
+    return `<g><circle cx="${cx}" cy="${cy}" r="11" fill="${fill}" stroke="${stroke}" stroke-width="${isBall ? 2.4 : 1.8}"/><text x="${cx}" y="${cy + 3.5}" text-anchor="middle" fill="${ink}" font-size="9" font-family="system-ui, -apple-system, sans-serif" font-weight="800">${skill}</text></g>`;
   }
   if (n.line || !/^[1-4]$/.test(n.role)) {
-    return `<circle cx="${cx}" cy="${cy}" r="7" fill="#fff" stroke="#111827" stroke-width="1.6"/>`;
+    const lineLabel = n.role.replace(/^O_?/, '');
+    const shortLabel = lineLabel.length <= 2 ? lineLabel : lineLabel.slice(0, 2);
+    return `<g><circle cx="${cx}" cy="${cy}" r="9.5" fill="#ffffff" stroke="#0f172a" stroke-width="1.8"/><text x="${cx}" y="${cy + 3.5}" text-anchor="middle" fill="#0f172a" font-size="7.5" font-family="system-ui, -apple-system, sans-serif" font-weight="800">${shortLabel}</text></g>`;
   }
   const isBall = ballRole != null && n.role === String(ballRole);
-  const fill = isBall ? '#dc2626' : '#fff';
-  const ink = isBall ? '#fff' : '#111827';
-  return `<circle cx="${cx}" cy="${cy}" r="9" fill="${fill}" stroke="#111827" stroke-width="1.6"/><text x="${cx}" y="${cy + 3.5}" text-anchor="middle" fill="${ink}" font-size="11" font-family="system-ui" font-weight="800">${label}</text>`;
+  const fill = isBall ? '#ea580c' : '#ffffff';
+  const ink = isBall ? '#ffffff' : '#0f172a';
+  const stroke = isBall ? '#ffffff' : '#0f172a';
+  return `<g><circle cx="${cx}" cy="${cy}" r="11" fill="${fill}" stroke="${stroke}" stroke-width="${isBall ? 2.4 : 1.8}"/><text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="${ink}" font-size="12" font-family="system-ui, -apple-system, sans-serif" font-weight="900">${label}</text></g>`;
 }
 
-export function holeMarksSvg(_nodes?: PlayNode[], _targetHole?: number | null) {
+export function holeMarksSvg(_nodes: PlayNode[] = [], _targetHole?: number | null) {
+  // Running hole numbers removed per user request for clear, uncluttered view
   return '';
 }
 

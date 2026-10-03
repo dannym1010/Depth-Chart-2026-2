@@ -762,11 +762,49 @@ export function wristbandRowFingerprint(
 
 const WRISTBAND_TABLES_PER_ROW = 4;
 
+/**
+ * Keep where a coach put each wristband table and how wide it is. Rebuilding the tables from the
+ * wristband changes only the plays, never the layout. A table for a new color column goes at the
+ * end of the last wristband table's row.
+ */
+function keepWristbandTableLayout(tables: CallSheetSection[], before: CallSheetSection[]): CallSheetSection[] {
+  const old = new Map(before.filter(isAutoWristbandRowTable).map((s) => [s.id, s]));
+  const placed = tables.filter((t) => old.has(t.id));
+  if (!placed.length) return tables;
+  let lastRow = 0;
+  let lastOrder = -1;
+  for (const t of placed) {
+    const o = old.get(t.id)!;
+    const row = typeof o.rowIndex === 'number' ? o.rowIndex : 0;
+    const order = typeof o.order === 'number' ? o.order : 0;
+    if (row > lastRow || (row === lastRow && order > lastOrder)) {
+      lastRow = row;
+      lastOrder = order;
+    }
+  }
+  return tables.map((t) => {
+    const o = old.get(t.id);
+    if (!o) {
+      lastOrder += 1;
+      return { ...t, rowIndex: lastRow, order: lastOrder };
+    }
+    const kept: Partial<CallSheetSection> = {};
+    for (const k of ['rowIndex', 'order', 'colSpan', 'columnsCount', 'highlightEnabled', 'highlightColor'] as const) {
+      if (o[k] !== undefined) (kept as Record<string, unknown>)[k] = o[k];
+    }
+    if ((o.columnsCount || 1) > 1 && o.columnHeaders) kept.columnHeaders = o.columnHeaders;
+    return { ...t, ...kept };
+  });
+}
+
 function placeWristbandColorTables(
   tables: CallSheetSection[],
   leftover: CallSheetSection[],
-  perRow = WRISTBAND_TABLES_PER_ROW
+  perRow = WRISTBAND_TABLES_PER_ROW,
+  before: CallSheetSection[] = []
 ): CallSheetSection[] {
+  // Once the wristband tables are on the sheet, they and everything else stay where the coach put them.
+  if (before.some(isAutoWristbandRowTable)) return [...keepWristbandTableLayout(tables, before), ...leftover];
   const wbRows = Math.max(1, Math.ceil(tables.length / WRISTBAND_TABLES_PER_ROW));
   const leftoverTop = leftover.filter((s) => (s.group || 'top_situations') === 'top_situations');
   const leftoverOther = leftover.filter((s) => (s.group || 'top_situations') !== 'top_situations');
@@ -828,7 +866,12 @@ export function copyWristbandPlaysToFirstRow(
   return {
     ...callSheetData,
     lastEdited: Date.now(),
-    [key]: placeWristbandColorTables(tables, leftover, callSheetData.desktopGridColumns || WRISTBAND_TABLES_PER_ROW),
+    [key]: placeWristbandColorTables(
+      tables,
+      leftover,
+      callSheetData.desktopGridColumns || WRISTBAND_TABLES_PER_ROW,
+      callSheetData[key] || []
+    ),
   };
 }
 
@@ -1332,7 +1375,7 @@ export function syncWristbandToCallSheet(
       (s) => !isAutoWristbandRowTable(s) && (unit !== 'offense' || !isLegacyWristbandTable(s))
     );
     if (!tables.length) return leftover;
-    return placeWristbandColorTables(tables, leftover, callSheetData.desktopGridColumns || WRISTBAND_TABLES_PER_ROW);
+    return placeWristbandColorTables(tables, leftover, callSheetData.desktopGridColumns || WRISTBAND_TABLES_PER_ROW, sections);
   };
 
   return {

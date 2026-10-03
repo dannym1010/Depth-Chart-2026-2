@@ -2,6 +2,15 @@ import React, { useState } from 'react';
 import { AIScoutingReport, TendencyAnalysis } from '../types/football';
 import { Printer, X, Shield, AlertTriangle, Pencil, Plus, RotateCcw } from 'lucide-react';
 import type { CallSheetEdits, CallSheetSectionKey } from '../scoutBundle';
+import { DiagramImage } from '../../components/playbook/DiagramImage';
+
+/** One of their play types, with our defense drawn against it, for the printed report. */
+export interface ReportPlayType {
+  key: string;
+  label: string;
+  detail: string;
+  diagram?: string;
+}
 
 interface CallSheetModalProps {
   isOpen: boolean;
@@ -14,6 +23,8 @@ interface CallSheetModalProps {
   /** When given, the sheet shows an Edit button. */
   onSaveEdits?: (edits: CallSheetEdits) => void;
   editorName?: string;
+  /** Their play types on this week's report, each drawn against our defense. Printed on its own page. */
+  playTypes?: ReportPlayType[];
 }
 
 const SECTIONS: { key: CallSheetSectionKey; title: string; tag: string; wide?: boolean }[] = [
@@ -98,6 +109,7 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
   edits,
   onSaveEdits,
   editorName,
+  playTypes,
 }) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<{ sections: Record<CallSheetSectionKey, string[]>; alerts: string[]; note: string } | null>(null);
@@ -367,6 +379,37 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
             )}
             <span className="shrink-0 sm:self-end">HUDLSCOUT DC CALL SHEET</span>
           </div>
+
+          {/* Their plays and how we line up against each one */}
+          {!editing && playTypes && playTypes.length > 0 && (
+            <div className="pt-3 space-y-3" style={{ breakBefore: 'page' }}>
+              <div className="border-b-2 border-slate-900 dark:border-slate-300 print:border-black pb-2">
+                <div className="text-[10px] uppercase tracking-widest text-slate-500 dark:text-slate-400 print:text-slate-700 font-bold">
+                  Their plays vs. our defense
+                </div>
+                <h2 className="text-lg font-black tracking-tight text-slate-900 dark:text-white print:text-black">
+                  {opponentName.toUpperCase()}: HOW WE LINE UP
+                </h2>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-3">
+                {playTypes.map((t) => (
+                  <div
+                    key={t.key}
+                    className="border border-slate-200 dark:border-slate-800 rounded p-2 bg-white dark:bg-slate-900/60 print:border-black"
+                    style={{ breakInside: 'avoid' }}
+                  >
+                    <div className="font-black text-sm text-slate-900 dark:text-slate-100 print:text-black">{t.label}</div>
+                    {t.detail && <div className="text-[11px] text-slate-500 dark:text-slate-400 print:text-slate-700">{t.detail}</div>}
+                    {t.diagram ? (
+                      <DiagramImage url={t.diagram} alt={t.label} loading="eager" className="mt-1.5 w-full rounded border border-slate-200 print:border-slate-400 bg-white" />
+                    ) : (
+                      <div className="mt-1.5 text-[11px] text-slate-500 border border-dashed border-slate-300 rounded p-4 text-center">Not drawn yet.</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

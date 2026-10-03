@@ -225,6 +225,14 @@ export const CallSheetSectionBox: React.FC<CallSheetSectionBoxProps> = ({
     }
   };
 
+  // How much of the row the table takes, apart from how many columns of plays are inside it.
+  const handleSetWidth = (span: number) => {
+    if (onUpdateSection) {
+      onUpdateSection({ ...section, colSpan: span });
+    }
+  };
+  const width = section.colSpan || (columnsCount > 1 ? columnsCount : 1);
+
   const handleUpdateColumnHeader = (colIdx: number, text: string) => {
     if (onUpdateSection) {
       const current = [...(section.columnHeaders || Array.from({ length: columnsCount }).map((_, i) => `Col ${i + 1}`))];
@@ -491,6 +499,26 @@ export const CallSheetSectionBox: React.FC<CallSheetSectionBoxProps> = ({
                   }`}
                 >
                   {cols}
+                </button>
+              ))}
+            </div>
+
+            {/* Width in the row (1-4) */}
+            <div
+              className="flex items-center gap-1 bg-slate-850 px-1.5 py-0.5 rounded border border-slate-750 shadow-2xs"
+              title="How much of the row this table takes"
+            >
+              <span className="text-[10px] font-bold text-slate-400 uppercase">Width:</span>
+              {[1, 2, 3, 4].map((span) => (
+                <button
+                  key={span}
+                  type="button"
+                  onClick={() => handleSetWidth(span)}
+                  className={`px-1.5 py-0.2 rounded text-[10px] font-black cursor-pointer ${
+                    width === span ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {span}
                 </button>
               ))}
             </div>

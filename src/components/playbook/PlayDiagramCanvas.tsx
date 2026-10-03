@@ -1,4 +1,5 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   FIELD_SVG,
   fieldToSvg,
@@ -6,13 +7,15 @@ import {
   diagramLabel,
   skillDiagramLabel,
   svgToField,
+  runningHoleXs,
   type AssembledPlay,
   type DrawKind,
   type PlayNode,
   type PlayStroke,
 } from '../../utils/footballEngine';
+import { COLOR, PlayerAssignmentPanel, arrowPts, strokeFor, tBar } from './PlayerAssignmentPanel';
+import type { PlayerActionPreset } from '../../utils/playActionPresets';
 
-const COLOR: Record<DrawKind, string> = { run: '#e11d2a', pass: '#2563eb', block: '#111827' };
 const KIND_LABEL: Record<DrawKind, string> = { run: 'Run', pass: 'Pass', block: 'Block' };
 
 type Pt = { x: number; y: number };
@@ -29,7 +32,7 @@ function clientToSvg(svg: SVGSVGElement, clientX: number, clientY: number) {
 
 function hitNode(nodes: PlayNode[], cx: number, cy: number) {
   let best: PlayNode | null = null;
-  let bestD = 16;
+  let bestD = 18;
   nodes.forEach((n) => {
     const p = fieldToSvg(n.x, n.y);
     const d = Math.hypot(p.cx - cx, p.cy - cy);
@@ -95,25 +98,8 @@ export function simplifyLine(points: Pt[], tolerance = 0.35): Pt[] {
   return [...simplifyLine(points.slice(0, far + 1), tolerance).slice(0, -1), ...simplifyLine(points.slice(far), tolerance)];
 }
 
-function tBar(x1: number, y1: number, x2: number, y2: number) {
-  const ang = Math.atan2(y2 - y1, x2 - x1);
-  const w = 7;
-  return {
-    x1: x2 + w * Math.cos(ang + Math.PI / 2),
-    y1: y2 + w * Math.sin(ang + Math.PI / 2),
-    x2: x2 + w * Math.cos(ang - Math.PI / 2),
-    y2: y2 + w * Math.sin(ang - Math.PI / 2),
-  };
-}
-
-function arrowPts(x1: number, y1: number, x2: number, y2: number) {
-  const ang = Math.atan2(y2 - y1, x2 - x1);
-  const l = 9;
-  return `${x2},${y2} ${x2 - l * Math.cos(ang - 0.45)},${y2 - l * Math.sin(ang - 0.45)} ${x2 - l * Math.cos(ang + 0.45)},${y2 - l * Math.sin(ang + 0.45)}`;
-}
-
 const ICON_BTN =
-  'h-9 min-w-9 px-2 rounded-sm border border-slate-300 bg-white text-slate-700 inline-flex items-center justify-center gap-1 cursor-pointer hover:bg-slate-50 disabled:opacity-40 text-[11px] font-bold';
+  'h-9 min-w-9 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 inline-flex items-center justify-center gap-1.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-750 disabled:opacity-40 text-xs font-black shadow-xs transition-all active:scale-95';
 
 interface Props {
   play: AssembledPlay;
@@ -140,11 +126,18 @@ interface Props {
   onReset: () => void;
   /** The lines are the coach's own (not the builder's drawing): moving a player carries his lines with him. */
   linesFollow?: boolean;
+  onBallCarrierChange?: (role: string) => void;
+  onHoleChange?: (hole: number) => void;
+  onSelectPlayer?: (node: PlayNode | null) => void;
+  /** 'minimal': just the field and its tools. The screen around it shows the name, defense and note. */
+  chrome?: 'full' | 'minimal';
+  /** Where the "who does what" panel goes (e.g. a side tab). Under the field when not given. */
+  assignmentHost?: HTMLElement | null;
 }
 
 type Tool = DrawKind | 'move';
 type Drag =
-  | { mode: 'player'; role: string }
+  | { mode: 'player'; role: string; startCx: number; startCy: number; moved: boolean }
   | { mode: 'vertex'; index: number; vertex: number }
   | { mode: 'line'; index: number; from: Pt; start: Pt[] }
   | { mode: 'draw'; straight: boolean }
@@ -171,26 +164,35 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   onStrokes,
   onReset,
   linesFollow,
+  onBallCarrierChange,
+  onHoleChange,
+  onSelectPlayer,
+  chrome = 'full',
+  assignmentHost,
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [tool, setTool] = useState<Tool>('move');
   const [straight, setStraight] = useState(true);
-  const [zoomed, setZoomed] = useState(false);
+  // Phones open zoomed in on the box, so the players are big enough to tap.
+  const [zoomed, setZoomed] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640);
   const [selected, setSelected] = useState<number | null>(null);
+  const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  const selectedPlayer = selectedRole ? nodes.find((n) => n.role === selectedRole) || null : null;
+  const [previewAction, setPreviewAction] = useState<PlayerActionPreset | null>(null);
   const drag = useRef<Drag>(null);
   const history = useRef<PlayStroke[][]>([]);
   const strokesRef = useRef(strokes);
   strokesRef.current = strokes;
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
-  const { w, h, losY, originX, scaleX, scaleY } = FIELD_SVG;
+  const { w, h, losY, scaleY } = FIELD_SVG;
   const sel = selected != null && selected < strokes.length ? selected : null;
 
   const yardRows = [
-    { y: -20, n: '0' },
     { y: -10, n: '10' },
     { y: 0, n: '20' },
     { y: 10, n: '30' },
+    { y: 20, n: '40' },
   ];
 
   /** Remember the lines before a change, for Undo. */
@@ -219,6 +221,40 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     change(strokes.map((s, i) => (i === sel ? { ...s, kind } : s)));
   };
 
+  const selectPlayer = (role: string | null) => {
+    setSelectedRole(role);
+    setPreviewAction(null);
+    if (role) {
+      setSelected(null);
+      setTool('move');
+    }
+    onSelectPlayer?.(role ? nodesRef.current.find((n) => n.role === role) || null : null);
+  };
+
+  const handleApplyAction = (preset: PlayerActionPreset) => {
+    if (!selectedPlayer) return;
+    const pNode = selectedPlayer;
+    remember();
+    const hXs = runningHoleXs(nodes);
+    const qb = nodes.find((n) => n.role === '1' || n.role === 'QB');
+    const newStroke = { ...preset.generateStroke(pNode, { holesXs: hXs, qbNode: qb }), label: preset.name };
+    const mine = strokeFor(strokes, pNode);
+    change([...strokes.filter((s) => s !== mine), newStroke]);
+    // A run for the ball carrier calls the hole. Anyone else's path (a lead block, a fake) leaves it alone.
+    if (preset.category === 'run' && preset.hole != null && pNode.role === ballRole && onHoleChange) {
+      onHoleChange(preset.hole);
+    }
+  };
+
+  const handleClearPlayerRoute = (role: string) => {
+    const pNode = nodes.find((n) => n.role === role);
+    if (!pNode) return;
+    const mine = strokeFor(strokes, pNode);
+    if (!mine) return;
+    remember();
+    change(strokes.filter((s) => s !== mine));
+  };
+
   const pointFromEvent = (e: React.PointerEvent | React.MouseEvent) => {
     const svg = svgRef.current;
     if (!svg) return { x: 0, y: 0, cx: 0, cy: 0 };
@@ -232,7 +268,6 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     svg.setPointerCapture(e.pointerId);
     const p = pointFromEvent(e);
     if (tool === 'move') {
-      // 1. A bend point of the selected line. 2. A player. 3. A line (select it and drag it).
       const vertex = sel != null ? hitVertex(strokes[sel], p.cx, p.cy) : -1;
       if (sel != null && vertex >= 0) {
         remember();
@@ -242,7 +277,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       const n = hitNode(nodes, p.cx, p.cy);
       if (n) {
         if (linesFollow) remember();
-        drag.current = { mode: 'player', role: n.role };
+        drag.current = { mode: 'player', role: n.role, startCx: p.cx, startCy: p.cy, moved: false };
         return;
       }
       const hit = hitStroke(strokes, p.cx, p.cy);
@@ -270,11 +305,13 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     const p = pointFromEvent(e);
     const cur = strokesRef.current;
     if (d.mode === 'player') {
+      if (Math.hypot(p.cx - d.startCx, p.cy - d.startCy) > 4) {
+        d.moved = true;
+      }
       const x = Math.max(-18, Math.min(18, p.x));
-      const y = Math.max(-8, Math.min(12, p.y));
+      const y = Math.max(-11, Math.min(20, p.y));
       const from = nodesRef.current.find((n) => n.role === d.role);
       onMove(d.role, x, y);
-      // His lines start where he stands: they come along.
       if (linesFollow && from) {
         const dx = x - from.x;
         const dy = y - from.y;
@@ -299,7 +336,6 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       change(cur.map((s, i) => (i === d.index ? { ...s, points: d.start.map((q) => ({ x: q.x + dx, y: q.y + dy })) } : s)));
       return;
     }
-    // Drawing: a straight line follows the pointer; freehand adds points.
     const last = cur[cur.length - 1];
     if (!last) return;
     if (d.straight) {
@@ -316,12 +352,15 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     drag.current = null;
     if (!d) return;
     const cur = strokesRef.current;
+    if (d.mode === 'player' && !d.moved) {
+      selectPlayer(selectedRole === d.role ? null : d.role);
+      return;
+    }
     if (d.mode === 'draw') {
       const last = cur[cur.length - 1];
       if (!last) return;
       const pts = d.straight ? last.points : simplifyLine(last.points);
       const span = Math.hypot(pts[pts.length - 1].x - pts[0].x, pts[pts.length - 1].y - pts[0].y);
-      // A tap isn't a line.
       if (pts.length < 2 || span < 0.6) {
         history.current.pop();
         setSelected(null);
@@ -331,12 +370,10 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       change(cur.map((s, i) => (i === cur.length - 1 ? { ...s, points: pts } : s)));
       return;
     }
-    // A drag that didn't move anything isn't an undo step.
     const before = history.current[history.current.length - 1];
     if (before === cur) history.current.pop();
   };
 
-  // Double-click the selected line: on a bend, take it out; anywhere else on the line, add one.
   const onDoubleClick = (e: React.MouseEvent) => {
     if (tool !== 'move' || sel == null) return;
     const p = pointFromEvent(e);
@@ -357,7 +394,6 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    // Typing in the note isn't editing lines.
     if ((e.target as HTMLElement).closest('input, textarea, select')) return;
     if ((e.key === 'Delete' || e.key === 'Backspace') && sel != null) {
       e.preventDefault();
@@ -367,105 +403,183 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       undo();
     } else if (e.key === 'Escape') {
       setSelected(null);
+      selectPlayer(null);
     }
   };
+
+  const holesXs = runningHoleXs(nodes);
 
   const glyph = (n: PlayNode) => {
     const { cx, cy } = fieldToSvg(n.x, n.y);
     const label = diagramLabel(n.role);
-    const cursor = tool === 'move' ? 'grab' : 'crosshair';
+    const cursor = tool === 'move' ? 'pointer' : 'crosshair';
+    const isSelected = selectedRole === n.role;
+
+    // Defense in distinct, punchy Cardinal Red badge with white text
     if (isDefenseRole(n.role)) {
       return (
-        <text key={n.role} x={cx} y={cy + 4} textAnchor="middle" fill="#3f3f46" fontSize="13" fontFamily="system-ui" fontWeight="700" style={{ cursor }}>
-          {label}
-        </text>
+        <g key={n.role} style={{ cursor }}>
+          {isSelected && (
+            <rect x={cx - 15} y={cy - 14} width={30} height={28} rx={6} fill="none" stroke="#60a5fa" strokeWidth={2.5} strokeDasharray="4 3" />
+          )}
+          <rect x={cx - 11.5} y={cy - 10.5} width={23} height={20} rx={4} fill="#dc2626" stroke="#ffffff" strokeWidth={1.8} />
+          <text x={cx} y={cy + 4.5} textAnchor="middle" fill="#ffffff" fontSize="10.5" fontFamily="system-ui, -apple-system, sans-serif" fontWeight="900">
+            {label}
+          </text>
+        </g>
       );
     }
     if (n.role === 'C') {
-      return <rect key={n.role} x={cx - 6} y={cy - 6} width="12" height="12" fill="#fff" stroke="#111827" strokeWidth="1.6" style={{ cursor }} />;
+      return (
+        <g key={n.role} style={{ cursor }}>
+          {isSelected && (
+            <rect x={cx - 13} y={cy - 13} width={26} height={26} rx={5} fill="none" stroke="#6366f1" strokeWidth={2.5} strokeDasharray="4 3" />
+          )}
+          <rect x={cx - 9} y={cy - 9} width={18} height={18} rx={3} fill="#ffffff" stroke="#0f172a" strokeWidth={2} />
+          <text x={cx} y={cy + 4.5} textAnchor="middle" fill="#0f172a" fontSize="10.5" fontFamily="system-ui, -apple-system, sans-serif" fontWeight="900">
+            C
+          </text>
+        </g>
+      );
     }
     const skill = skillDiagramLabel(n.role);
     if (skill) {
       const isBall = n.role === ballRole;
+      const fill = isBall ? '#ea580c' : '#ffffff';
+      const ink = isBall ? '#ffffff' : '#0f172a';
+      const stroke = isBall ? '#ffffff' : '#0f172a';
       return (
         <g key={n.role} style={{ cursor }}>
-          <circle cx={cx} cy={cy} r="10" fill={isBall ? '#dc2626' : '#fff'} stroke="#111827" strokeWidth="1.6" />
-          <text x={cx} y={cy + 3} textAnchor="middle" fill={isBall ? '#fff' : '#111827'} fontSize="8" fontFamily="system-ui" fontWeight="800">
+          {isSelected && (
+            <circle cx={cx} cy={cy} r="16" fill="none" stroke="#6366f1" strokeWidth={2.5} strokeDasharray="4 3" />
+          )}
+          {isBall && <circle cx={cx} cy={cy} r="14" fill="none" stroke="#fb923c" strokeWidth="2.5" strokeOpacity="0.85" />}
+          <circle cx={cx} cy={cy} r="11" fill={fill} stroke={stroke} strokeWidth={isBall ? 2.4 : 1.8} />
+          <text x={cx} y={cy + 3.5} textAnchor="middle" fill={ink} fontSize="9" fontFamily="system-ui, -apple-system, sans-serif" fontWeight="900">
             {skill}
           </text>
         </g>
       );
     }
     if (n.line || !/^[1-4]$/.test(n.role)) {
-      return <circle key={n.role} cx={cx} cy={cy} r="7" fill="#fff" stroke="#111827" strokeWidth="1.6" style={{ cursor }} />;
+      const lineLabel = n.role.replace(/^O_?/, '');
+      const shortLabel = lineLabel.length <= 2 ? lineLabel : lineLabel.slice(0, 2);
+      return (
+        <g key={n.role} style={{ cursor }}>
+          {isSelected && (
+            <circle cx={cx} cy={cy} r="15" fill="none" stroke="#6366f1" strokeWidth={2.5} strokeDasharray="4 3" />
+          )}
+          <circle cx={cx} cy={cy} r="10" fill="#ffffff" stroke="#0f172a" strokeWidth={1.8} />
+          <text x={cx} y={cy + 3.5} textAnchor="middle" fill="#0f172a" fontSize="7.5" fontFamily="system-ui, -apple-system, sans-serif" fontWeight="800">
+            {shortLabel}
+          </text>
+        </g>
+      );
     }
     const isBall = n.role === ballRole;
+    const fill = isBall ? '#ea580c' : '#ffffff';
+    const ink = isBall ? '#ffffff' : '#0f172a';
+    const stroke = isBall ? '#ffffff' : '#0f172a';
     return (
       <g key={n.role} style={{ cursor }}>
-        <circle cx={cx} cy={cy} r="9" fill={isBall ? '#dc2626' : '#fff'} stroke="#111827" strokeWidth="1.6" />
-        <text x={cx} y={cy + 3.5} textAnchor="middle" fill={isBall ? '#fff' : '#111827'} fontSize="11" fontFamily="system-ui" fontWeight="800">
+        {isSelected && (
+          <circle cx={cx} cy={cy} r="16" fill="none" stroke="#6366f1" strokeWidth={2.5} strokeDasharray="4 3" />
+        )}
+        {isBall && <circle cx={cx} cy={cy} r="14" fill="none" stroke="#fb923c" strokeWidth="2.5" strokeOpacity="0.85" />}
+        <circle cx={cx} cy={cy} r="11" fill={fill} stroke={stroke} strokeWidth={isBall ? 2.4 : 1.8} />
+        <text x={cx} y={cy + 4.5} textAnchor="middle" fill={ink} fontSize="12" fontFamily="system-ui, -apple-system, sans-serif" fontWeight="900">
           {label}
         </text>
       </g>
     );
   };
 
-  const toolBtn = (id: Tool, title: string, children: React.ReactNode) => (
-    <button
-      key={id}
-      type="button"
-      title={title}
-      aria-pressed={tool === id}
-      onClick={() => {
-        setTool(id);
-        if (id !== 'move') setSelected(null);
-      }}
-      className={`${ICON_BTN} ${tool === id ? 'bg-sky-600 text-white border-sky-600 hover:bg-sky-600' : ''}`}
-    >
-      {children}
-    </button>
-  );
+  const toolBtn = (id: Tool, title: string, children: React.ReactNode) => {
+    let activeStyle = '';
+    if (tool === id) {
+      if (id === 'move') activeStyle = 'bg-sky-600 text-white border-sky-600 hover:bg-sky-500';
+      else if (id === 'run') activeStyle = 'bg-red-600 text-white border-red-600 hover:bg-red-500';
+      else if (id === 'pass') activeStyle = 'bg-blue-600 text-white border-blue-600 hover:bg-blue-500';
+      else if (id === 'block') activeStyle = 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800';
+    }
+    return (
+      <button
+        key={id}
+        type="button"
+        title={title}
+        aria-pressed={tool === id}
+        onClick={() => {
+          setTool(id);
+          if (id !== 'move') setSelected(null);
+        }}
+        className={`${ICON_BTN} ${activeStyle}`}
+      >
+        {children}
+      </button>
+    );
+  };
 
   const hint =
     tool === 'move'
       ? sel != null
         ? 'Drag a dot to bend the line, drag the line to move it. Double-click the line to add a bend, a dot to take it out. Delete removes it.'
-        : 'Drag a player to move him. Click a line to change it.'
+        : 'Tap a player to pick the assignment. Drag a player to move the spot.'
       : straight
         ? `Drag to draw a straight ${KIND_LABEL[tool].toLowerCase()} line (hold Shift to draw freehand).`
         : `Draw a ${KIND_LABEL[tool].toLowerCase()} line freehand (hold Shift for straight).`;
 
+  const assignmentPanel = (
+    <PlayerAssignmentPanel
+      nodes={nodes}
+      strokes={strokes}
+      ballRole={ballRole}
+      selectedRole={selectedPlayer ? selectedPlayer.role : null}
+      onSelect={selectPlayer}
+      onApply={handleApplyAction}
+      onClear={handleClearPlayerRoute}
+      onPreview={setPreviewAction}
+      onBallCarrierChange={onBallCarrierChange}
+      ctx={{ holesXs, qbNode: nodes.find((n) => n.role === '1' || n.role === 'QB') }}
+    />
+  );
+
   return (
-    <div className="bg-white border border-slate-300 rounded-sm overflow-hidden" onKeyDown={onKeyDown} tabIndex={-1}>
-      <div className="grid grid-cols-1 sm:grid-cols-[1.45fr_1fr_minmax(140px,0.7fr)] gap-2 p-2 border-b border-slate-200 bg-white">
-        <div className="border border-slate-300 rounded-sm px-3 py-2 text-[13px] font-bold tracking-wide text-slate-800 uppercase truncate" title={formLabel}>
-          {formLabel}
+    <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden shadow-xs" onKeyDown={onKeyDown} tabIndex={-1}>
+      {/* Unified Minimalist Header Bar */}
+      {chrome === 'full' && (
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="text-[11px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 shrink-0 truncate max-w-[220px]" title={formLabel}>
+            {formLabel}
+          </span>
+          {onPlayName ? (
+            <input
+              aria-label="Play name"
+              value={playName ?? ''}
+              placeholder={playLabel}
+              onChange={(e) => onPlayName(e.target.value)}
+              onBlur={(e) => (onPlayNameCommit || onPlayName)(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              }}
+              className="text-xs sm:text-sm font-black uppercase tracking-wide text-slate-900 dark:text-white bg-transparent hover:bg-white dark:hover:bg-slate-900 focus:bg-white dark:focus:bg-slate-900 border border-transparent hover:border-slate-300 dark:hover:border-slate-700 focus:border-indigo-500 rounded-lg px-2 py-0.5 outline-none transition-all flex-1 min-w-[120px] max-w-[280px]"
+            />
+          ) : (
+            <span className="text-xs sm:text-sm font-black uppercase tracking-wide text-slate-900 dark:text-white truncate">
+              {playLabel}
+            </span>
+          )}
         </div>
-        {onPlayName ? (
-          <input
-            aria-label="Play name"
-            value={playName ?? ''}
-            placeholder={playLabel}
-            onChange={(e) => onPlayName(e.target.value)}
-            onBlur={(e) => (onPlayNameCommit || onPlayName)(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-            }}
-            className="w-full border border-slate-300 rounded-sm px-3 py-2 text-[13px] font-bold tracking-wide text-slate-800 uppercase bg-white outline-none focus:border-sky-500"
-          />
-        ) : (
-          <div className="border border-slate-300 rounded-sm px-3 py-2 text-[13px] font-bold tracking-wide text-slate-800 uppercase truncate" title={playLabel}>
-            {playLabel}
-          </div>
-        )}
+
+        {/* Defense Matchup Pill */}
         {onDefense && defenseChoices ? (
-          <label className="border border-slate-300 rounded-sm px-2 py-1 text-[13px] font-bold text-slate-800 flex items-center gap-1.5 min-w-0">
-            <span className="text-slate-400 font-semibold shrink-0">vs.</span>
+          <label className="flex items-center gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 shrink-0 cursor-pointer shadow-2xs">
+            <span className="text-[10px] uppercase font-black text-slate-400">vs</span>
             <select
               aria-label="Defense"
               value={defenseValue || ''}
               onChange={(e) => onDefense(e.target.value)}
-              className="min-w-0 flex-1 bg-transparent font-bold uppercase outline-none cursor-pointer"
+              className="bg-transparent font-bold uppercase outline-none cursor-pointer text-slate-800 dark:text-slate-200 text-xs"
             >
               <option value="">Offense only</option>
               {defenseChoices.map((d) => (
@@ -474,69 +588,71 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             </select>
           </label>
         ) : (
-          <div className="border border-slate-300 rounded-sm px-3 py-2 text-[13px] font-bold tracking-wide text-slate-800 uppercase flex items-center gap-2">
-            <span className="text-slate-400 font-semibold normal-case">vs.</span> {vsLabel || '—'}
+          <div className="text-xs font-bold text-slate-600 dark:text-slate-300 px-2 py-1 shrink-0">
+            <span className="text-[10px] uppercase font-black text-slate-400">vs</span> {vsLabel || '—'}
           </div>
         )}
       </div>
+      )}
+
+      {/* Field Canvas Container */}
       <div className="relative">
-        <button
-          type="button"
-          onClick={() => setZoomed((z) => !z)}
-          className="absolute top-2 left-2 z-10 h-7 px-2 rounded-sm border border-slate-300 bg-white text-[11px] font-semibold text-slate-600 cursor-pointer"
-        >
-          {zoomed ? 'Zoom Out' : 'Zoom In'}
-        </button>
+        <div className="absolute top-2.5 left-2.5 z-10 flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setZoomed((z) => !z)}
+            className="h-7 px-2.5 rounded-lg border border-white/20 bg-slate-900/80 backdrop-blur-sm text-[11px] font-bold text-white shadow-xs cursor-pointer hover:bg-slate-900"
+          >
+            {zoomed ? 'Zoom Out' : 'Zoom In'}
+          </button>
+        </div>
+        {chrome === 'full' && (
         <input
           value={coachNote}
           onChange={(e) => onCoachNote(e.target.value)}
           placeholder={play.metadata.scheme}
-          className="absolute top-2 right-3 z-10 w-[42%] max-w-[280px] bg-transparent text-right text-[13px] font-semibold text-zinc-500 outline-none placeholder:text-zinc-400"
+          className="absolute top-2.5 right-3 z-10 w-[42%] max-w-[280px] bg-transparent text-right text-[13px] font-bold text-slate-700 outline-none placeholder:text-slate-400"
         />
+        )}
+
         <svg
           ref={svgRef}
-          viewBox={zoomed ? `80 70 ${w - 160} ${h - 130}` : `0 0 ${w} ${h}`}
-          className={`bg-[#f3f3f4] touch-none ${dense ? 'max-h-64 w-auto max-w-full mx-auto' : 'w-full h-auto'} ${tool === 'move' ? 'cursor-default' : 'cursor-crosshair'}`}
+          viewBox={zoomed ? `110 150 540 370` : `0 0 ${w} ${h}`}
+          className={`bg-[#f4f4f5] touch-none ${dense ? 'max-h-64 w-auto max-w-full mx-auto' : 'w-full h-auto'} ${tool === 'move' ? 'cursor-default' : 'cursor-crosshair'}`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
           onDoubleClick={onDoubleClick}
         >
-          <rect width="100%" height="100%" fill="#f3f3f4" />
-          {[-20, -15, -10, -5, 0, 5, 10, 15].map((y) => {
+          <rect width="100%" height="100%" fill="#f4f4f5" />
+          {[-5, 5, 15].map((y) => {
             const cy = losY - y * scaleY;
-            const major = y % 10 === 0;
-            return (
-              <line
-                key={`g-${y}`}
-                x1="0"
-                y1={cy}
-                x2={w}
-                y2={cy}
-                stroke={y === 0 ? '#2563eb' : major ? '#d4d4d8' : '#e4e4e7'}
-                strokeWidth={y === 0 ? 2.2 : 1}
-              />
-            );
+            return <line key={`five-${y}`} x1="0" y1={cy} x2={w} y2={cy} stroke="#e4e4e7" strokeWidth="1" />;
           })}
+          {[-10, 10, 20].map((y) => {
+            const cy = losY - y * scaleY;
+            return <line key={`ten-${y}`} x1="0" y1={cy} x2={w} y2={cy} stroke="#d4d4d8" strokeWidth="1" />;
+          })}
+          <line x1="0" y1={losY} x2={w} y2={losY} stroke="#2563eb" strokeWidth="2.2" />
           {yardRows.map(({ y, n }) => {
             const cy = losY - y * scaleY;
             return (
               <g key={n}>
-                <text x="26" y={cy - 10} fill="#d4d4d8" fontSize="42" fontFamily="system-ui" fontWeight="800">
+                <text x="26" y={cy - 8} fill="#d4d4d8" fontSize="34" fontFamily="system-ui, -apple-system, sans-serif" fontWeight="800">
                   {n}
                 </text>
-                <text x={w - 26} y={cy - 10} textAnchor="end" fill="#d4d4d8" fontSize="42" fontFamily="system-ui" fontWeight="800">
+                <text x={w - 26} y={cy - 8} textAnchor="end" fill="#d4d4d8" fontSize="34" fontFamily="system-ui, -apple-system, sans-serif" fontWeight="800">
                   {n}
                 </text>
               </g>
             );
           })}
-          {[-20, -15, -10, -5, 0, 5, 10].map((y) =>
+          {[-10, -5, 0, 5, 10, 15, 20].map((y) =>
             [0, 1, 2, 3, 4].map((i) => {
               const cy = losY - y * scaleY - i * (scaleY / 5);
-              const left = originX - 3.35 * scaleX;
-              const right = originX + 3.35 * scaleX;
+              const left = fieldToSvg(-3.35, 0).cx;
+              const right = fieldToSvg(3.35, 0).cx;
               return (
                 <g key={`${y}-${i}`}>
                   <line x1={left} y1={cy} x2={left + 9} y2={cy} stroke="#a1a1aa" strokeWidth="1" />
@@ -545,6 +661,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
               );
             })
           )}
+          {/* Render Assigned Strokes */}
           {strokes.map((s, i) => {
             if (s.points.length < 2) return null;
             const d = s.points
@@ -566,21 +683,59 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
                   d={d}
                   fill="none"
                   stroke={COLOR[s.kind]}
-                  strokeWidth={s.kind === 'block' ? 2.4 : 2.8}
+                  strokeWidth={s.kind === 'block' ? 2.8 : 3.2}
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  strokeDasharray={s.kind === 'pass' ? '6 5' : undefined}
+                  strokeDasharray={s.kind === 'pass' ? '6 4' : undefined}
                 />
                 {s.kind === 'block' ? (
-                  <line x1={cap.x1} y1={cap.y1} x2={cap.x2} y2={cap.y2} stroke={COLOR.block} strokeWidth="2.4" strokeLinecap="round" />
+                  <line x1={cap.x1} y1={cap.y1} x2={cap.x2} y2={cap.y2} stroke={COLOR.block} strokeWidth="3" strokeLinecap="round" />
                 ) : (
                   <polygon points={arrowPts(a.cx, a.cy, b.cx, b.cy)} fill={COLOR[s.kind]} />
                 )}
               </g>
             );
           })}
+
+          {/* Live Dashed Preview on Hover */}
+          {previewAction && selectedPlayer && (() => {
+            const newStroke = previewAction.generateStroke(selectedPlayer, { holesXs, qbNode: nodes.find((n) => n.role === '1' || n.role === 'QB') });
+            if (newStroke.points.length < 2) return null;
+            const d = newStroke.points
+              .map((pt, j) => {
+                const { cx, cy } = fieldToSvg(pt.x, pt.y);
+                return `${j === 0 ? 'M' : 'L'}${cx},${cy}`;
+              })
+              .join(' ');
+            const last = newStroke.points[newStroke.points.length - 1];
+            const prev = newStroke.points[newStroke.points.length - 2];
+            const a = fieldToSvg(prev.x, prev.y);
+            const b = fieldToSvg(last.x, last.y);
+            const cap = tBar(a.cx, a.cy, b.cx, b.cy);
+            return (
+              <g key="preview-stroke" opacity="0.85">
+                <path
+                  d={d}
+                  fill="none"
+                  stroke={COLOR[newStroke.kind]}
+                  strokeWidth={newStroke.kind === 'block' ? 2.8 : 3.2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeDasharray="5 3"
+                />
+                {newStroke.kind === 'block' ? (
+                  <line x1={cap.x1} y1={cap.y1} x2={cap.x2} y2={cap.y2} stroke={COLOR.block} strokeWidth="3" strokeLinecap="round" />
+                ) : (
+                  <polygon points={arrowPts(a.cx, a.cy, b.cx, b.cy)} fill={COLOR[newStroke.kind]} />
+                )}
+              </g>
+            );
+          })()}
+
+          {/* Players: Offense in clean circles/squares, Defense in Cardinal Red badges */}
           {nodes.map(glyph)}
-          {/* The selected line's bend points, on top so they can be grabbed. */}
+
+          {/* Selected line bend vertices */}
           {sel != null &&
             strokes[sel].points.map((pt, j) => {
               const { cx, cy } = fieldToSvg(pt.x, pt.y);
@@ -588,92 +743,102 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             })}
         </svg>
       </div>
-      <div className="flex flex-wrap items-center gap-1 px-2 py-1.5 border-t border-slate-200 bg-[#f7f7f8]">
-        {toolBtn(
-          'move',
-          'Move players and change lines',
-          <>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M5 3l14 8-6 2-2 6z" />
-            </svg>
-            Select
-          </>
-        )}
-        {toolBtn(
-          'run',
-          'Draw a run / ball path',
-          <>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 19V5M7 10l5-5 5 5" />
-            </svg>
-            Run
-          </>
-        )}
-        {toolBtn(
-          'pass',
-          'Draw a pass route',
-          <>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="3 2">
-              <path d="M5 17l9-9" />
-              <path d="M14 8h5v5" />
-            </svg>
-            Pass
-          </>
-        )}
-        {toolBtn(
-          'block',
-          'Draw a block',
-          <>
-            <span className="text-[12px] font-black">⊥</span>
-            Block
-          </>
-        )}
-        <button
-          type="button"
-          title="Straight lines, or freehand (Shift switches while drawing)"
-          onClick={() => setStraight((s) => !s)}
-          className={ICON_BTN}
-        >
-          {straight ? 'Straight' : 'Freehand'}
-        </button>
-        <span className="w-px h-6 bg-slate-200 mx-0.5" />
-        {sel != null && (
-          <>
-            {(['run', 'pass', 'block'] as DrawKind[]).map((k) => (
-              <button
-                key={k}
-                type="button"
-                title={`Make this line a ${KIND_LABEL[k].toLowerCase()} line`}
-                onClick={() => setKind(k)}
-                className={`${ICON_BTN} ${strokes[sel].kind === k ? 'border-sky-600 text-sky-700' : ''}`}
-                style={{ color: strokes[sel].kind === k ? undefined : COLOR[k] }}
-              >
-                {KIND_LABEL[k]}
+
+      {/* Bottom Tool & Controls Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-1.5 px-3 py-1.5 border-t border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70">
+        <div className="flex flex-wrap items-center gap-1">
+          {toolBtn(
+            'move',
+            'Select and move players',
+            <>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+                <path d="M5 3l14 8-6 2-2 6z" />
+              </svg>
+              <span className="hidden sm:inline">Select</span>
+            </>
+          )}
+          {toolBtn(
+            'run',
+            'Draw a run / ball path',
+            <>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+                <path d="M12 19V5M7 10l5-5 5 5" />
+              </svg>
+              <span className="hidden sm:inline">Run</span>
+            </>
+          )}
+          {toolBtn(
+            'pass',
+            'Draw a pass route',
+            <>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeDasharray="3 2">
+                <path d="M5 17l9-9" />
+                <path d="M14 8h5v5" />
+              </svg>
+              <span className="hidden sm:inline">Pass</span>
+            </>
+          )}
+          {toolBtn(
+            'block',
+            'Draw a block',
+            <>
+              <span className="text-xs font-black">⊥</span>
+              <span className="hidden sm:inline">Block</span>
+            </>
+          )}
+          <span className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
+          <button
+            type="button"
+            title="Straight lines, or freehand (Shift switches while drawing)"
+            onClick={() => setStraight((s) => !s)}
+            className={ICON_BTN}
+          >
+            {straight ? 'Straight' : 'Freehand'}
+          </button>
+        </div>
+
+        <div className="flex items-center gap-1">
+          {sel != null && (
+            <>
+              {(['run', 'pass', 'block'] as DrawKind[]).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  title={`Make this line a ${KIND_LABEL[k].toLowerCase()} line`}
+                  onClick={() => setKind(k)}
+                  className={`${ICON_BTN} ${strokes[sel].kind === k ? 'border-sky-600 text-sky-700 dark:text-sky-400' : ''}`}
+                  style={{ color: strokes[sel].kind === k ? undefined : COLOR[k] }}
+                >
+                  {KIND_LABEL[k]}
+                </button>
+              ))}
+              <button type="button" title="Delete this line" onClick={removeSelected} className={`${ICON_BTN} text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40`}>
+                Delete
               </button>
-            ))}
-            <button type="button" title="Delete this line" onClick={removeSelected} className={`${ICON_BTN} text-red-700`}>
-              Delete line
-            </button>
-            <span className="w-px h-6 bg-slate-200 mx-0.5" />
-          </>
-        )}
-        <button type="button" title="Undo (Ctrl+Z)" onClick={undo} disabled={!history.current.length} className={ICON_BTN}>
-          ↩ Undo
-        </button>
-        <button
-          type="button"
-          title="Start over: players back in place and the builder's own lines"
-          onClick={() => {
-            history.current = [];
-            setSelected(null);
-            onReset();
-          }}
-          className={ICON_BTN}
-        >
-          ↻ Reset
-        </button>
+              <span className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
+            </>
+          )}
+          <button type="button" title="Undo (Ctrl+Z)" onClick={undo} disabled={!history.current.length} className={ICON_BTN}>
+            ↩<span className="hidden sm:inline"> Undo</span>
+          </button>
+          <button
+            type="button"
+            title="Start over: players back in place and reset lines"
+            onClick={() => {
+              history.current = [];
+              setSelected(null);
+              onReset();
+            }}
+            className={ICON_BTN}
+          >
+            ↻<span className="hidden sm:inline"> Reset</span>
+          </button>
+        </div>
       </div>
-      <p className="px-2 pb-1.5 bg-[#f7f7f8] text-[11px] text-slate-500">{hint}</p>
+      <div className="px-3 py-1 bg-slate-50/50 dark:bg-slate-950/50 border-t border-slate-100 dark:border-slate-800/40 text-[10px] text-slate-400 dark:text-slate-500 font-medium truncate">
+        {hint}
+      </div>
+      {assignmentHost ? createPortal(assignmentPanel, assignmentHost) : assignmentPanel}
     </div>
   );
 };

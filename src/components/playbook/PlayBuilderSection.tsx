@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Film, LayoutGrid, Plus } from 'lucide-react';
+import { ArrowLeft, ClipboardList, Film, LayoutGrid, Save, Search, Users, Wand2, Zap } from 'lucide-react';
 import type { PlayBuilderState, PlayDatabaseEntry, PlayType } from '../../types/callSheet';
 import { defenseSystem, type DefenseSystem } from '../../hudlScout/utils/ourDefense';
 import { inferPlayType, newPlayEntry } from '../../utils/playbookImport';
@@ -25,6 +25,7 @@ import {
   diagramSvg,
   autoDrawPlay,
   applyNodeOverrides,
+  alignDefenseTechniques,
   conceptFamily,
   resolveTaggedCall,
   type AssembledPlay,
@@ -33,9 +34,11 @@ import {
   type PlayStroke,
 } from '../../utils/footballEngine';
 import { PlayDiagramCanvas } from './PlayDiagramCanvas';
+import { assignmentText } from './PlayerAssignmentPanel';
 import type { PlayBuilderSeed } from '../../utils/playBuilderSeed';
 import { callSetup } from '../../utils/callDiagram';
 import { openFormation } from '../../utils/filmBackfields';
+import { parsePlayCall } from '../../utils/playCallParse';
 
 const SELECT =
   'h-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 w-full';
@@ -56,7 +59,7 @@ function Chip({
       type="button"
       title={title}
       onClick={onClick}
-      className={`h-8 px-2.5 rounded-lg text-xs font-bold border cursor-pointer ${
+      className={`h-9 px-3 rounded-lg text-xs font-bold border cursor-pointer transition-colors ${
         on
           ? 'bg-indigo-600 text-white border-indigo-600'
           : 'bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-600 hover:border-indigo-400'
@@ -66,6 +69,11 @@ function Chip({
     </button>
   );
 }
+
+const DEF_BTN =
+  'h-8 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-40';
+
+type BuilderTab = 'formation' | 'play' | 'players' | 'notes';
 
 const SITUATIONS = ['1-10', '2nd long', '2nd med', '3rd long', '3rd short', 'RED ZONE', 'Goaline', '2 MIN O', '4 Min O'];
 
@@ -164,7 +172,10 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [ballCarrier, setBallCarrier] = useState(saved?.ball || opened.ball);
   const [tags, setTags] = useState<string[]>(saved?.tags || []);
   const [coachNote, setCoachNote] = useState(saved ? saved.coachNote : opened.note);
-  const [holdName] = useState(opened.holdName);
+  const [holdName, setHoldName] = useState(opened.holdName);
+  const [tab, setTab] = useState<BuilderTab>('formation');
+  // The side panel's Players tab: the field draws its "who does what" panel into it.
+  const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [situations, setSituations] = useState<string[]>(saved?.situations || []);
   const looks = teamDefenseLooks(defenseSystem());
   // An opponent's play opens against our call for it: the 5-3 against two tight ends, else the base 4-4.
@@ -221,8 +232,9 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const dLook = defenseKey ? looks[defenseKey] || null : null;
   const dNodes = useMemo(() => {
     if (!dLook) return [];
-    return applyNodeOverrides(dLook.nodes, overrides).map((n) => (overrides[n.role] ? n : { ...n, x: n.x + hashDx }));
-  }, [dLook, overrides, hashDx]);
+    const aligned = alignDefenseTechniques(dLook.nodes, offNodes);
+    return applyNodeOverrides(aligned, overrides).map((n) => (overrides[n.role] ? n : { ...n, x: n.x + hashDx }));
+  }, [dLook, offNodes, overrides, hashDx]);
   const play = basePlay ? { ...basePlay, nodes: offNodes } : null;
   const customBack = Object.keys(overrides).some((r) => !r.match(/^(DE|DT|NT|SAM|WILL|MIKE|ROV|CB|FS)/i));
 
@@ -295,7 +307,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     const call = runMode ? `${who} ${run.label}` : `${who} ${play.metadata.concept}`;
     const named = play.metadata.concept ? play.playName.replace(play.metadata.concept, call) : `${play.playName} ${call}`;
     setNameIn(`${named}${vs}`);
-  }, [play?.playName, play?.metadata.concept, ball, hole, run.label, runMode, dLook?.name, putDefInName]);
+  }, [play?.playName, play?.metadata.concept, ball, hole, run.label, runMode, dLook?.name, putDefInName, holdName]);
 
   const tagged = (t: string) => tags.includes(t);
   const toggleTag = (t: string) => setTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
@@ -395,7 +407,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     commitName();
     const name = (nameIn.trim() || committedName || play.playName).slice(0, 120);
     const type: PlayType = inferPlayType(name, 'offense');
-    const extra = dLook ? dLook.nodes.map((n) => (overrides[n.role] ? { ...n, ...overrides[n.role] } : n)) : [];
+    // The defense as it stands on the screen: lined up on the offense, moved by the coach.
+    const extra = dNodes;
     const builder = currentState();
     onAdd({
       builder,
@@ -422,10 +435,10 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       assignments: [
         ...play.nodes.map((n) => ({
           pos: n.role,
-          text: n.role === '1' ? 'QB' : n.role === '2' ? 'FB' : n.role === '3' ? 'RB' : n.role === '4' ? 'Wing / extra back' : n.line ? 'On the line' : 'Off the line',
+          text: assignmentText(strokes, n) || (n.role === '1' ? 'QB' : n.role === '2' ? 'FB' : n.role === '3' ? 'RB' : n.role === '4' ? 'Wing / extra back' : n.line ? 'On the line' : 'Off the line'),
         })),
         ...(dLook
-          ? dLook.nodes.map((n) => ({ pos: n.role, text: `${dLook.front} ${dLook.shell} · ${dLook.notes}` }))
+          ? extra.map((n) => ({ pos: n.role, text: assignmentText(strokes, n) || `${dLook.front} ${dLook.shell} · ${dLook.notes}` }))
           : []),
       ],
     });
@@ -489,220 +502,199 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     setTags((prev) => prev.filter((t) => t !== 'Thumper'));
   };
 
+  const parsed = useMemo(() => parsePlayCall(nameIn), [nameIn]);
+  const readParts = [
+    parsed.personnel != null && PERSONNEL_DEFINITIONS[parsed.personnel] ? `${parsed.personnel} personnel` : '',
+    parsed.strength ? `${parsed.strength}` : '',
+    parsed.backfields[0] && BACKFIELD_STRUCTURES[parsed.backfields[0]] ? BACKFIELD_STRUCTURES[parsed.backfields[0]].hudlBackfield : '',
+    parsed.tackleOver ? 'Tackle over' : '',
+    parsed.ball ? `${eligibleName(parsed.ball)} (${parsed.ball}) carries${parsed.hole != null ? ` to the ${parsed.hole} hole` : ''}` : '',
+    parsed.run ? RUN_SCHEMES.find((r) => r.id === parsed.run)?.label || '' : '',
+    !parsed.run && parsed.family && parsed.family !== 'run' ? parsed.family : '',
+  ].filter(Boolean);
+
+  /** Set the formation and play from the call as typed: "32 L WB 44 ZONE". Only what it can read changes. */
+  const applyCall = () => {
+    const p = parsePlayCall(nameIn);
+    let bk = baseKey;
+    const locs = p.personnel != null ? TE_LOCATIONS[p.personnel] || [] : [];
+    if (p.personnel != null && locs.length) {
+      const loc = (p.tackleOver && locs.find((l) => l.id === 'over')) || locs.find((l) => l.id === 'tight') || locs[0];
+      setPersonnelPick(p.personnel);
+      bk = loc.baseKey;
+      setBaseKey(bk);
+      setTags((prev) => prev.filter((t) => t !== 'Thumper'));
+    }
+    const fits = compatibleBackfields(bk);
+    const want = p.backfields.find((k) => fits.includes(k));
+    if (want) setBackfieldKey(want);
+    else if (bk !== baseKey && !fits.includes(backfieldKey)) setBackfieldKey(fits[0] || 'I_FORM');
+    if (p.strength) pickStrength(p.strength);
+    if (p.family) setFamily(p.family);
+    if (p.run) setRunId(p.run);
+    if (p.ball) setBallCarrier(p.ball);
+    if (p.hole != null) setHoleOverride(p.hole);
+    setHoldName(true);
+    commitName();
+  };
+
+  const callLabel = runMode
+    ? `${/^[1-4]$/.test(String(ball)) && hole != null ? `${ball}${hole}` : ball} ${run.label}`
+    : `${ball} ${play?.metadata.concept || ''}`;
+  const summary: { tab: BuilderTab; text: string }[] = [
+    { tab: 'formation', text: `${personnelPick} personnel · ${backfieldLabel}` },
+    { tab: 'formation', text: `Strength ${strength} · ${hash === 'Middle' ? 'Mid' : hash} hash` },
+    { tab: 'play', text: `${eligibleName(String(ball))} ${hole != null ? `→ ${hole} hole` : ''} · ${runMode ? run.label : play?.metadata.concept || ''}` },
+    { tab: 'notes', text: dLook ? `vs ${dLook.name}` : 'No defense' },
+  ];
+
+  const label = (text: string, extra?: React.ReactNode) => (
+    <div className="flex items-center justify-between mb-1.5">
+      <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">{text}</span>
+      {extra}
+    </div>
+  );
+
+  const segmented = <T extends string>(options: readonly T[], value: T, onPick: (v: T) => void, show: (v: T) => string = (v) => v) => (
+    <div className="flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden text-xs font-black">
+      {options.map((o) => (
+        <button
+          key={o}
+          type="button"
+          onClick={() => onPick(o)}
+          className={`flex-1 h-9 capitalize cursor-pointer transition-colors ${
+            value === o
+              ? 'bg-indigo-600 text-white'
+              : 'bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+          }`}
+        >
+          {show(o)}
+        </button>
+      ))}
+    </div>
+  );
+
+  const tabs: { id: BuilderTab; label: string; icon: React.ReactNode }[] = [
+    { id: 'formation', label: 'Formation', icon: <LayoutGrid className="w-4 h-4" /> },
+    { id: 'play', label: 'Play', icon: <Zap className="w-4 h-4" /> },
+    { id: 'players', label: 'Players', icon: <Users className="w-4 h-4" /> },
+    { id: 'notes', label: 'Game plan', icon: <ClipboardList className="w-4 h-4" /> },
+  ];
+
   return (
     <section
       className={
         compact
           ? 'bg-white dark:bg-slate-900 p-2.5 space-y-3'
-          : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-sm space-y-4'
+          : 'bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-sm space-y-4'
       }
     >
-      <div className={compact ? 'hidden' : 'flex items-start gap-3'}>
-        {onBack && (
+      {/* The call: type it the way it is called and the field draws it. */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {onBack && !compact && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="h-11 px-3 rounded-xl border border-slate-300 dark:border-slate-600 text-sm font-black text-slate-800 dark:text-slate-100 inline-flex items-center gap-1.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 shrink-0"
+            >
+              <ArrowLeft className="w-4 h-4" /> Back
+            </button>
+          )}
+          <div className="flex-1 min-w-[220px] flex items-center gap-2 h-11 px-3 rounded-xl border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 focus-within:border-indigo-500">
+            <Search className="w-4 h-4 text-slate-400 shrink-0" />
+            <input
+              aria-label="Play call"
+              value={nameIn}
+              placeholder="Type the call, e.g. 32 L WB 44 ZONE"
+              onChange={(e) => {
+                setNameIn(e.target.value);
+                setHoldName(true);
+              }}
+              onBlur={() => commitName()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  applyCall();
+                }
+              }}
+              className="flex-1 min-w-0 bg-transparent outline-none text-base sm:text-lg font-black uppercase tracking-wide text-slate-900 dark:text-white placeholder:normal-case placeholder:font-semibold placeholder:tracking-normal placeholder:text-slate-400"
+            />
+            {holdName && !seed?.scoutId && (
+              <button
+                type="button"
+                onClick={() => setHoldName(false)}
+                title="Name it from the diagram again"
+                className="h-7 px-2 rounded-md text-[11px] font-bold text-slate-500 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer shrink-0"
+              >
+                Auto name
+              </button>
+            )}
+          </div>
           <button
             type="button"
-            onClick={onBack}
-            className="h-10 px-3 rounded-xl border border-slate-300 dark:border-slate-600 text-sm font-black text-slate-800 dark:text-slate-100 inline-flex items-center gap-1.5 cursor-pointer shrink-0"
+            onClick={applyCall}
+            disabled={!readParts.length}
+            title="Set the formation and play from the call (Enter)"
+            className="h-11 px-4 rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-sm font-black inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-30 shrink-0"
           >
-            <ArrowLeft className="w-4 h-4" /> Back
+            <Wand2 className="w-4 h-4" /> Draw it
           </button>
-        )}
-        <span className="p-2.5 rounded-2xl bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 shrink-0">
-          <LayoutGrid className="w-5 h-5" />
-        </span>
-        <div>
-          <h2 className="text-base font-black text-slate-900 dark:text-white">Play builder</h2>
-          <p className="text-xs text-slate-600 dark:text-slate-400">
-            Set the look, then who has the ball and the play. The picture stays beside the call.
-          </p>
+          {!compact && !!seed?.snaps?.length && onWatchFilm && (
+            <button
+              type="button"
+              onClick={() => onWatchFilm(nameIn.trim() || seed.name, currentState())}
+              className="h-11 px-3 rounded-xl border border-slate-300 dark:border-slate-600 text-sm font-bold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer shrink-0"
+            >
+              <Film className="w-4 h-4 text-indigo-500" /> Film ({seed.snaps.length})
+            </button>
+          )}
+          {!compact && canEdit && (
+            <button
+              type="button"
+              disabled={!play}
+              onClick={saveOffense}
+              className="h-11 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-black inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-40 shrink-0"
+            >
+              <Save className="w-4 h-4" /> {seed?.backfieldEdit ? `Save ${backfieldLabel}` : 'Save play'}
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px] min-h-6">
+          {readParts.length > 0 ? (
+            <>
+              <span className="font-bold text-slate-400">Reads as:</span>
+              {readParts.map((p) => (
+                <span key={p} className="px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-bold">
+                  {p}
+                </span>
+              ))}
+              <span className="text-slate-400">· press Enter to draw it</span>
+            </>
+          ) : (
+            <span className="text-slate-400">
+              Personnel, side, formation, back + hole, play: <b className="text-slate-500 dark:text-slate-300">30 DW 41 SWEEP</b> ·{' '}
+              <b className="text-slate-500 dark:text-slate-300">21 R WT 26 DIVE</b>. Or set it up with the tabs.
+            </span>
+          )}
         </div>
       </div>
 
-      <div className={compact ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-1 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)] gap-4 items-start'}>
-        <div className="space-y-3">
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-3 space-y-3">
-            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Alignment</div>
-            <div>
-              <div className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">Personnel</div>
-              <div className="flex flex-wrap gap-1.5">
-                {[10, 11, 12, 20, 21, 22, 30, 31, 32].map((p) => (
-                  <Chip key={p} on={personnelPick === p} title={PERSONNEL_DEFINITIONS[p]?.label} onClick={() => pickPersonnel(p)}>
-                    {p}
-                  </Chip>
-                ))}
-              </div>
-              {PERSONNEL_DEFINITIONS[personnelPick] && (
-                <p className="mt-1.5 text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                  {PERSONNEL_DEFINITIONS[personnelPick].rb} RB · {PERSONNEL_DEFINITIONS[personnelPick].te} TE · {PERSONNEL_DEFINITIONS[personnelPick].wr} WR
-                </p>
-              )}
-            </div>
-            <div>
-              <div className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">Backfield</div>
-              <div className="flex flex-wrap gap-1.5">
-                {[...backfieldChips, ...Object.keys(filmBases).filter((k) => BACKFIELD_STRUCTURES[k] && !backfieldChips.includes(k) && !extraBacks.includes(k))].map((k) => (
-                  <Chip key={k} on={activeBack === k} onClick={() => chooseBackfield(k)}>
-                    {BACKFIELD_STRUCTURES[k].hudlBackfield}
-                  </Chip>
-                ))}
-              </div>
-              {extraBacks.length > 0 && (
-                <select
-                  className={`${SELECT} mt-2`}
-                  aria-label="More backfields"
-                  value={extraBacks.includes(activeBack) ? activeBack : ''}
-                  onChange={(e) => e.target.value && chooseBackfield(e.target.value)}
-                >
-                  <option value="">More backfields</option>
-                  {extraBacks.map((k) => (
-                    <option key={k} value={k}>
-                      {BACKFIELD_STRUCTURES[k].hudlBackfield}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-            {wrCount > 0 && activeAlign && (
-              <div>
-                <div className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">
-                  Alignment · {wrCount} receiver{wrCount === 1 ? '' : 's'}
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {alignmentGroups.map((g) => (
-                    <Chip key={g.id} on={activeAlign.id === g.id} onClick={() => chooseAlignment(g.id)}>
-                      {g.label}
-                    </Chip>
-                  ))}
-                </div>
-              </div>
-            )}
-            {spotChoices.length > 0 && (
-            <div>
-              <div className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">
-                {(PERSONNEL_DEFINITIONS[personnelPick]?.te || 0) > 0 ? 'Tight end spot' : 'Receivers'}
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {spotChoices.map((l) => (
-                  <Chip key={l.baseKey} on={locationId === l.id} onClick={() => setBaseKey(l.baseKey)}>
-                    {l.label}
-                  </Chip>
-                ))}
-              </div>
-              {seed?.gameId && (
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Tight or wide is this play. Saving the backfield keeps the backs and the receivers.</p>
-              )}
-            </div>
-            )}
-            {wrCount > 0 && spotChoices.length === 0 && seed?.gameId && (
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Tight or wide is this play. Saving the backfield keeps the backs and the receivers.</p>
-            )}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <div className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">Strength</div>
-                <div className="flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden text-xs font-black">
-                  {(['Left', 'Right'] as const).map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => pickStrength(s)}
-                      className={`flex-1 h-8 cursor-pointer ${strength === s ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300'}`}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <div className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">Hash</div>
-                <div className="flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden text-xs font-black">
-                  {(['Left', 'Middle', 'Right'] as const).map((h) => (
-                    <button
-                      key={h}
-                      type="button"
-                      onClick={() => setHash(h)}
-                      className={`flex-1 h-8 cursor-pointer ${hash === h ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300'}`}
-                    >
-                      {h === 'Middle' ? 'Mid' : h[0]}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
+      <div className={compact ? 'space-y-3' : 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-4 items-start'}>
+        {/* The field */}
+        <div className="space-y-2 min-w-0">
+          <div className="hidden sm:flex flex-wrap gap-1.5">
+            {summary.map((s) => (
+              <button
+                key={s.text}
+                type="button"
+                onClick={() => setTab(s.tab)}
+                className="h-7 px-2.5 rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:border-indigo-400 cursor-pointer"
+              >
+                {s.text}
+              </button>
+            ))}
           </div>
-
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-3 space-y-3">
-            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">The play</div>
-            <div className="flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden text-xs font-black">
-              {(['run', 'option', 'pass', 'screen'] as const).map((f) => (
-                <button
-                  key={f}
-                  type="button"
-                  onClick={() => setFamily(f)}
-                  className={`flex-1 h-8 capitalize cursor-pointer ${family === f ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300'}`}
-                >
-                  {f}
-                </button>
-              ))}
-            </div>
-            <div>
-              <div className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">{runMode ? 'Run' : family}</div>
-              <div className="flex flex-wrap gap-1.5">
-                {runMode
-                  ? RUN_SCHEMES.map((s) => (
-                      <Chip
-                        key={s.id}
-                        on={run.id === s.id}
-                        onClick={() => {
-                          setRunId(s.id);
-                          if (s.id === 'keep') setBallCarrier('1');
-                        }}
-                      >
-                        {s.label}
-                      </Chip>
-                    ))
-                  : concepts.map(([k, c]) => (
-                      <Chip key={k} on={conceptKey === k} onClick={() => setConceptKey(k)}>
-                        {c.concept}
-                      </Chip>
-                    ))}
-              </div>
-            </div>
-            <div>
-              <div className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">Ball</div>
-              <div className="flex flex-wrap gap-1.5">
-                {eligibles.map((n) => (
-                  <Chip key={n.role} on={ball === n.role} onClick={() => setBallCarrier(n.role)}>
-                    {n.role} {eligibleName(n.role)}
-                  </Chip>
-                ))}
-              </div>
-            </div>
-            <div>
-              <div className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">
-                Hole {hole != null ? `· ${hole} ${HOLE_SYSTEM[hole].type}` : ''}
-              </div>
-              <div className="grid grid-cols-9 gap-1">
-                {[9, 8, 7, 6, 5, 4, 3, 2, 1].map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    title={HOLE_SYSTEM[n].description}
-                    onClick={() => setHoleOverride(holeOverride === n ? '' : n)}
-                    className={`h-9 rounded-lg text-sm font-black border cursor-pointer ${
-                      hole === n
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-600'
-                    }`}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className={compact ? 'space-y-3 order-first' : 'space-y-3 lg:sticky lg:top-3'}>
           {play ? (
             <PlayDiagramCanvas
               play={{
@@ -716,20 +708,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               nodes={diagramNodes}
               strokes={strokes}
               ballRole={String(ball)}
-              formLabel={[
-                play.metadata.personnel,
-                strength === 'Left' ? 'L' : 'R',
-                play.hudlExport.OFF_FORM,
-                play.hudlExport.BACKFIELD !== play.hudlExport.OFF_FORM ? play.hudlExport.BACKFIELD : '',
-                ...tags,
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              playLabel={
-                runMode
-                  ? `${/^[1-4]$/.test(String(ball)) && hole != null ? `${ball}${hole}` : ball} ${run.label}`
-                  : `${ball} ${play.metadata.concept}`
-              }
+              formLabel=""
+              playLabel={callLabel}
               vsLabel={dLook ? dLook.front : '—'}
               coachNote={coachNote}
               onCoachNote={setCoachNote}
@@ -747,188 +727,311 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               }}
               linesFollow={userDrew}
               dense={compact}
-              playName={nameIn}
-              onPlayName={setNameIn}
-              onPlayNameCommit={commitName}
-              defenseChoices={Object.entries(looks).map(([id, d]) => ({ id, name: d.name }))}
-              defenseValue={defenseKey}
-              onDefense={setDefenseKey}
+              chrome="minimal"
+              assignmentHost={host}
+              onSelectPlayer={(n) => {
+                if (n) setTab('players');
+              }}
+              onBallCarrierChange={(role) => setBallCarrier(role)}
+              onHoleChange={(h) => setHoleOverride(h)}
             />
           ) : (
-            <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/50 p-2 min-h-[200px] flex items-center justify-center">
-              <span className="text-xs text-slate-500">This formation and backfield do not add up to 11. Pick another backfield.</span>
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/50 p-6 min-h-[220px] flex items-center justify-center">
+              <span className="text-xs font-bold text-slate-500">This formation and backfield do not add up to 11. Pick another backfield.</span>
+            </div>
+          )}
+          {baseNote && <p className="px-1 text-xs font-bold text-emerald-600 dark:text-emerald-400">{baseNote}</p>}
+        </div>
+
+        {/* One panel, one job at a time */}
+        <div className={`rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden ${compact ? '' : 'lg:sticky lg:top-3'}`}>
+          <div className="grid grid-cols-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                aria-pressed={tab === t.id}
+                className={`h-12 flex flex-col items-center justify-center gap-0.5 text-[11px] font-black cursor-pointer border-b-2 transition-colors ${
+                  tab === t.id
+                    ? 'border-indigo-600 text-indigo-700 dark:text-indigo-300 bg-white dark:bg-slate-900'
+                    : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+              >
+                {t.icon}
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {tab === 'formation' && (
+            <div className="p-3.5 space-y-4">
+              <div>
+                {label('Personnel', PERSONNEL_DEFINITIONS[personnelPick] && (
+                  <span className="text-[11px] font-semibold text-slate-400">
+                    {PERSONNEL_DEFINITIONS[personnelPick].rb} backs · {PERSONNEL_DEFINITIONS[personnelPick].te} TE · {PERSONNEL_DEFINITIONS[personnelPick].wr} WR
+                  </span>
+                ))}
+                <div className="grid grid-cols-5 gap-1.5">
+                  {[10, 11, 12, 20, 21, 22, 30, 31, 32].map((p) => (
+                    <Chip key={p} on={personnelPick === p} title={PERSONNEL_DEFINITIONS[p]?.label} onClick={() => pickPersonnel(p)}>
+                      {p}
+                    </Chip>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                {label('Backfield')}
+                <div className="flex flex-wrap gap-1.5">
+                  {[...backfieldChips, ...Object.keys(filmBases).filter((k) => BACKFIELD_STRUCTURES[k] && !backfieldChips.includes(k) && !extraBacks.includes(k))].map((k) => (
+                    <Chip key={k} on={activeBack === k} onClick={() => chooseBackfield(k)}>
+                      {BACKFIELD_STRUCTURES[k].hudlBackfield}
+                    </Chip>
+                  ))}
+                </div>
+                {extraBacks.length > 0 && (
+                  <select
+                    className={`${SELECT} mt-1.5`}
+                    aria-label="More backfields"
+                    value={extraBacks.includes(activeBack) ? activeBack : ''}
+                    onChange={(e) => e.target.value && chooseBackfield(e.target.value)}
+                  >
+                    <option value="">More backfields…</option>
+                    {extraBacks.map((k) => (
+                      <option key={k} value={k}>
+                        {BACKFIELD_STRUCTURES[k].hudlBackfield}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {wrCount > 0 && activeAlign && (
+                <div>
+                  {label(`Receivers (${wrCount})`)}
+                  <div className="flex flex-wrap gap-1.5">
+                    {alignmentGroups.map((g) => (
+                      <Chip key={g.id} on={activeAlign.id === g.id} onClick={() => chooseAlignment(g.id)}>
+                        {g.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {spotChoices.length > 0 && (
+                <div>
+                  {label((PERSONNEL_DEFINITIONS[personnelPick]?.te || 0) > 0 ? 'Tight end spot' : 'Receiver spot')}
+                  <div className="flex flex-wrap gap-1.5">
+                    {spotChoices.map((l) => (
+                      <Chip key={l.baseKey} on={locationId === l.id} onClick={() => setBaseKey(l.baseKey)}>
+                        {l.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  {label('Strength')}
+                  {segmented<'Left' | 'Right'>(['Left', 'Right'], strength, pickStrength)}
+                </div>
+                <div>
+                  {label('Hash')}
+                  {segmented<'Left' | 'Middle' | 'Right'>(['Left', 'Middle', 'Right'], hash, setHash, (h) => (h === 'Middle' ? 'Mid' : h[0]))}
+                </div>
+              </div>
+
+              {canEdit && seed?.gameId && !seed.backfieldEdit && onSaveFilmBackfield && (
+                <button
+                  type="button"
+                  disabled={!play}
+                  onClick={() => publishBackfield()}
+                  className="w-full h-9 rounded-lg border border-dashed border-indigo-300 dark:border-indigo-700 text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 cursor-pointer disabled:opacity-40"
+                >
+                  Use this {backfieldLabel} for every play on this report
+                </button>
+              )}
+              <p className="text-[11px] text-slate-400">Drag any player on the field to move the spot.</p>
             </div>
           )}
 
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-3 space-y-2">
-            <label className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400">
-              Play name
-              <input
-                className={`${SELECT} mt-1`}
-                value={nameIn}
-                onChange={(e) => setNameIn(e.target.value)}
-                onBlur={(e) => commitName(e.currentTarget.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                }}
-              />
-            </label>
-            {!!seed?.snaps?.length && (
-              <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-2 space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400">
-                    {seed.snaps.length} film snap{seed.snaps.length === 1 ? '' : 's'} tagged to this play
-                  </span>
-                  {onWatchFilm && (
-                    <button
-                      type="button"
-                      onClick={() => onWatchFilm(nameIn.trim() || seed.name, currentState())}
-                      className="h-8 px-2.5 rounded-lg bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 text-xs font-black inline-flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Film className="w-3.5 h-3.5" /> Watch film
-                    </button>
-                  )}
-                </div>
-                <ul className="max-h-28 overflow-y-auto text-[11px] text-slate-600 dark:text-slate-300 space-y-0.5">
-                  {seed.snaps.map((s) => (
-                    <li key={s.id}>
-                      Play {s.playNumber || '—'}
-                      {s.result ? ` · ${s.result}` : ''}
-                      {typeof s.gain === 'number' ? ` · ${s.gain > 0 ? `+${s.gain}` : s.gain}` : ''}
-                    </li>
-                  ))}
-                </ul>
+          {tab === 'play' && (
+            <div className="p-3.5 space-y-4">
+              <div>
+                {label('Kind of play')}
+                {segmented<'run' | 'option' | 'pass' | 'screen'>(['run', 'option', 'pass', 'screen'], family === 'all' ? 'run' : family, setFamily)}
               </div>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 items-end">
-              <label className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400">
-                Defense
-                <select className={`${SELECT} mt-1`} value={defenseKey} onChange={(e) => setDefenseKey(e.target.value)}>
+
+              <div>
+                {label(runMode ? 'Run' : 'Concept')}
+                <div className="flex flex-wrap gap-1.5">
+                  {runMode
+                    ? RUN_SCHEMES.map((s) => (
+                        <Chip
+                          key={s.id}
+                          on={run.id === s.id}
+                          onClick={() => {
+                            setRunId(s.id);
+                            if (s.id === 'keep') setBallCarrier('1');
+                          }}
+                        >
+                          {s.label}
+                        </Chip>
+                      ))
+                    : concepts.map(([k, c]) => (
+                        <Chip key={k} on={conceptKey === k} onClick={() => setConceptKey(k)}>
+                          {c.concept}
+                        </Chip>
+                      ))}
+                </div>
+              </div>
+
+              <div>
+                {label('Ball carrier')}
+                <div className="flex flex-wrap gap-1.5">
+                  {eligibles.map((n) => (
+                    <Chip key={n.role} on={ball === n.role} onClick={() => setBallCarrier(n.role)}>
+                      {n.role} · {eligibleName(n.role)}
+                    </Chip>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                {label(
+                  'Hole',
+                  hole != null && (
+                    <span className="text-[11px] font-black text-amber-600 dark:text-amber-400">
+                      {hole} · {HOLE_SYSTEM[hole].type}
+                    </span>
+                  )
+                )}
+                <div className="grid grid-cols-9 gap-1">
+                  {[9, 8, 7, 6, 5, 4, 3, 2, 1].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      title={HOLE_SYSTEM[n].description}
+                      onClick={() => setHoleOverride(holeOverride === n ? '' : n)}
+                      className={`h-10 rounded-lg text-sm font-black border cursor-pointer transition-colors ${
+                        hole === n
+                          ? 'bg-amber-500 text-white border-amber-500'
+                          : 'bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:border-amber-400'
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex justify-between mt-1 text-[10px] font-bold text-slate-400">
+                  <span>← Left</span>
+                  <span>Right →</span>
+                </div>
+              </div>
+
+              <details className="group rounded-xl border border-slate-200 dark:border-slate-800">
+                <summary className="list-none cursor-pointer px-3 h-10 flex items-center justify-between text-xs font-black text-slate-700 dark:text-slate-200">
+                  <span>Tags &amp; motions</span>
+                  <span className="text-[11px] font-bold text-slate-400">{tags.length ? tags.join(', ') : 'none'}</span>
+                </summary>
+                <div className="px-3 pb-3 space-y-2.5">
+                  {TAG_GROUPS.map((group) => {
+                    const keys = Object.keys(MASTER_TAGS).filter((t) => MASTER_TAGS[t].type === group);
+                    return (
+                      <div key={group}>
+                        <div className="text-[10px] font-bold uppercase text-slate-400 mb-1">{group}</div>
+                        <div className="flex flex-wrap gap-1">
+                          {keys.map((t) => (
+                            <Chip key={t} on={tagged(t)} title={MASTER_TAGS[t]?.effect} onClick={() => toggleTag(t)}>
+                              {t}
+                            </Chip>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
+            </div>
+          )}
+
+          {/* Always mounted: the field puts its "who does what" panel here. */}
+          <div ref={setHost} className={tab === 'players' ? '' : 'hidden'} />
+
+          {tab === 'notes' && (
+            <div className="p-3.5 space-y-4">
+              <div>
+                {label('Our defense on the diagram')}
+                <select className={SELECT} aria-label="Defense" value={defenseKey} onChange={(e) => setDefenseKey(e.target.value)}>
                   <option value="">Offense only</option>
-                  {Object.entries(looks).map(([k, d]) => (
-                    <option key={k} value={k}>
+                  {Object.entries(looks).map(([id, d]) => (
+                    <option key={id} value={id}>
                       {d.name}
                     </option>
                   ))}
                 </select>
-              </label>
-              {canEdit && (
-                <button
-                  type="button"
-                  disabled={!play}
-                  onClick={saveOffense}
-                  className="h-9 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-black inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40"
-                >
-                  <Plus className="w-4 h-4" /> {seed?.backfieldEdit ? `Save ${backfieldLabel} for this film` : 'Save'}
-                </button>
+                {dLook && (
+                  <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                    {dLook.front} {dLook.shell} · {dLook.notes}
+                  </p>
+                )}
+                <label className="mt-2 flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer">
+                  <input type="checkbox" checked={putDefInName} onChange={(e) => setPutDefInName(e.target.checked)} />
+                  Put the defense in the play name
+                </label>
+              </div>
+
+              <div>
+                {label('When to call it')}
+                <div className="flex flex-wrap gap-1.5">
+                  {SITUATIONS.map((s) => (
+                    <Chip key={s} on={situations.includes(s)} onClick={() => setSituations((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]))}>
+                      {s}
+                    </Chip>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                {label('Coaching point')}
+                <textarea
+                  className={`${SELECT} h-20 py-2 resize-none`}
+                  placeholder={play?.metadata.scheme || 'Key read, checkdown rule, coaching point…'}
+                  value={coachNote}
+                  onChange={(e) => setCoachNote(e.target.value)}
+                />
+              </div>
+
+              {!compact && (
+                <details className="rounded-xl border border-slate-200 dark:border-slate-800">
+                  <summary className="list-none cursor-pointer px-3 h-10 flex items-center text-xs font-black text-slate-700 dark:text-slate-200">
+                    Save a defense-only card
+                  </summary>
+                  <div className="flex flex-wrap gap-1.5 px-3 pb-3">
+                    {Object.entries(looks).map(([k, d]) => (
+                      <button key={k} type="button" disabled={!canEdit} onClick={() => addDefenseLook(k)} className={DEF_BTN}>
+                        {d.name}
+                      </button>
+                    ))}
+                    {Object.entries(DEFENSIVE_FRONTS).map(([k, d]) => (
+                      <button key={k} type="button" disabled={!canEdit} onClick={() => addFront(k)} className={DEF_BTN}>
+                        {d.front} {d.shell}
+                      </button>
+                    ))}
+                    {Object.keys(STUNTS_AND_PRESSURES).map((k) => (
+                      <button key={k} type="button" disabled={!canEdit} onClick={() => addPressure(k)} className={DEF_BTN}>
+                        {k.replace(/_/g, ' ')}
+                      </button>
+                    ))}
+                  </div>
+                </details>
               )}
             </div>
-            {canEdit && seed?.gameId && !seed.backfieldEdit && onSaveFilmBackfield && (
-              <button
-                type="button"
-                disabled={!play}
-                onClick={() => publishBackfield()}
-                className="w-full h-9 px-3 rounded-lg border border-indigo-300 dark:border-indigo-700 text-indigo-800 dark:text-indigo-200 text-xs font-black cursor-pointer disabled:opacity-40"
-              >
-                Use this {backfieldLabel} for every {backfieldLabel} play on this report
-              </button>
-            )}
-            {baseNote && <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400">{baseNote}</p>}
-            <label className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-200">
-              <input type="checkbox" checked={putDefInName} onChange={(e) => setPutDefInName(e.target.checked)} />
-              Put our defense in the play name
-            </label>
-            {dLook && <p className="text-xs text-slate-600 dark:text-slate-400">{dLook.notes} · {dLook.shell} · strength {dLook.strength}</p>}
-          </div>
+          )}
         </div>
       </div>
-
-      <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-3 space-y-3">
-        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Tags and situations</div>
-        {TAG_GROUPS.map((group) => {
-          const keys = Object.keys(MASTER_TAGS).filter((t) => MASTER_TAGS[t].type === group);
-          return (
-            <div key={group}>
-              <div className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">{group}</div>
-              <div className="flex flex-wrap gap-1.5">
-                {keys.map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => toggleTag(t)}
-                    title={MASTER_TAGS[t]?.effect}
-                    className={`h-8 px-2.5 rounded-lg text-[11px] font-bold border cursor-pointer ${
-                      tagged(t)
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-600'
-                    }`}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-        <div>
-          <div className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">When we call it</div>
-          <div className="flex flex-wrap gap-1.5">
-            {SITUATIONS.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setSituations((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]))}
-                className={`h-8 px-2.5 rounded-lg text-[11px] font-bold border cursor-pointer ${
-                  situations.includes(s)
-                    ? 'bg-emerald-700 text-white border-emerald-700'
-                    : 'bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-600'
-                }`}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <details className={compact ? 'hidden' : 'rounded-2xl border border-slate-200 dark:border-slate-700 p-3'}>
-        <summary className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 cursor-pointer">Save a defense-only card</summary>
-        <div className="flex flex-wrap gap-2 mt-2">
-          {Object.entries(looks).map(([k, d]) => (
-            <button
-              key={k}
-              type="button"
-              disabled={!canEdit}
-              onClick={() => addDefenseLook(k)}
-              className="h-8 px-3 rounded-lg border border-slate-300 dark:border-slate-600 text-[11px] font-black text-slate-800 dark:text-slate-100 cursor-pointer disabled:opacity-40"
-            >
-              {d.name}
-            </button>
-          ))}
-          {Object.entries(DEFENSIVE_FRONTS).map(([k, d]) => (
-            <button
-              key={k}
-              type="button"
-              disabled={!canEdit}
-              onClick={() => addFront(k)}
-              className="h-8 px-3 rounded-lg border border-slate-300 dark:border-slate-600 text-[11px] font-black text-slate-800 dark:text-slate-100 cursor-pointer disabled:opacity-40"
-            >
-              {d.front} {d.shell}
-            </button>
-          ))}
-          {Object.keys(STUNTS_AND_PRESSURES).map((k) => (
-            <button
-              key={k}
-              type="button"
-              disabled={!canEdit}
-              onClick={() => addPressure(k)}
-              className="h-8 px-3 rounded-lg border border-slate-300 dark:border-slate-600 text-[11px] font-black text-slate-800 dark:text-slate-100 cursor-pointer disabled:opacity-40"
-            >
-              {k.replace(/_/g, ' ')}
-            </button>
-          ))}
-        </div>
-      </details>
     </section>
   );
 };

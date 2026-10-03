@@ -1,7 +1,9 @@
 // Each scouting film keeps its own backfield shapes. Adjusting Beast on that film
 // redraws every play on that film that lines up in Beast.
 import type { PlayBuilderState, PlayDatabaseEntry } from '../types/callSheet';
-import { callSetup } from './callDiagram';
+import { callSetup, drawCall } from './callDiagram';
+import { unsavedDiagram } from './playDiagrams';
+import { playNameKey } from './playbookImport';
 import {
   BACKFIELD_STRUCTURES,
   BASE_FORMATIONS,
@@ -9,8 +11,10 @@ import {
   PLAY_CONCEPTS,
   RUN_SCHEMES,
   TE_LOCATIONS,
+  alignDefenseTechniques,
   applyNodeOverrides,
   autoDrawPlay,
+  isDefenseRole,
   conceptFamily,
   diagramSvg,
   eligiblePlayers,
@@ -18,6 +22,7 @@ import {
   resolveTaggedCall,
   tryAssemblePlay,
   type BackfieldSpots,
+  type PlayStroke,
 } from './footballEngine';
 import type { ScoutOppPlay } from './scoutOppPlays';
 
@@ -135,7 +140,15 @@ export function redrawWithBackfield(
     family: runMode ? 'run' : tagged.family,
   });
   const lookKey = b ? b.defenseKey : setup.personnel >= 30 ? '53_C3' : strength === 'Right' ? '44_C3_RIP' : '44_C3_LIZ';
-  const defense = lookKey ? OUR_DEFENSE_LOOKS[lookKey]?.nodes || [] : [];
+  // Our defense as the coach set it in the builder: lined up on this formation, moved defenders kept,
+  // and the lines drawn for defenders kept (the offense's lines are drawn again).
+  const look = lookKey ? OUR_DEFENSE_LOOKS[lookKey]?.nodes || [] : [];
+  const defense = applyNodeOverrides(alignDefenseTechniques(look, nodes), overrides).map((n) => (overrides[n.role] ? n : { ...n, x: n.x + hashDx }));
+  const savedStrokes = (b?.strokes as PlayStroke[] | undefined) || [];
+  const defenseStrokes = savedStrokes.filter(
+    (st) => st.points?.length && defense.some((d) => isDefenseRole(d.role) && Math.hypot(st.points[0].x - d.x, st.points[0].y - d.y) < 1.4)
+  );
+  const allStrokes = [...strokes, ...defenseStrokes];
   const builder: PlayBuilderState = {
     personnel: BASE_FORMATIONS[baseKey]?.personnel || b?.personnel || setup.personnel,
     baseKey,
@@ -153,11 +166,38 @@ export function redrawWithBackfield(
     defenseKey: b?.defenseKey ?? lookKey,
     putDefInName: Boolean(b?.putDefInName),
     overrides,
+    ...(b?.strokes ? { strokes: allStrokes } : {}),
   };
   return {
     ...entry,
     builder,
-    diagramUrl: diagramSvg({ ...play, nodes }, strokes, defense, String(ball)),
+    diagramUrl: diagramSvg({ ...play, nodes }, allStrokes, defense, String(ball)),
     editedAt: Date.now(),
   };
+}
+
+/**
+ * The picture of one of their plays: as saved from the builder (with our defense as the coach set it),
+ * redrawn on this film's backfield when one is saved, or drawn from its name.
+ */
+export function oppPlayDiagram(play: ScoutOppPlay, playDatabase: PlayDatabaseEntry[] = [], bases?: FilmBackfieldBases): string | undefined {
+  const entry = playDatabase.find((p) => p.id === `scout_${play.id}`);
+  const backfield = backfieldOf(play, entry);
+  const base = bases?.[play.gameId]?.[backfield];
+  if (base?.spots) {
+    const drawn = redrawWithBackfield(
+      entry || ({ id: `scout_${play.id}`, name: play.name, diagramUrl: '' } as PlayDatabaseEntry),
+      play,
+      backfield,
+      base.spots,
+      base.baseKey
+    );
+    if (drawn.diagramUrl) return drawn.diagramUrl;
+  }
+  return entry?.diagramUrl || unsavedDiagram(playNameKey(play.name)) || drawCall(play, base?.spots, base?.baseKey) || undefined;
+}
+
+/** The play a play type is drawn on: the first one the coach drew in the builder, else the first one. */
+export function leadOppPlay(plays: ScoutOppPlay[], playDatabase: PlayDatabaseEntry[] = []): ScoutOppPlay {
+  return plays.find((p) => playDatabase.some((e) => e.id === `scout_${p.id}` && e.builder)) || plays[0];
 }

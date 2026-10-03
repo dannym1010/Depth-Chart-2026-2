@@ -2055,6 +2055,45 @@ describe('call sheets and wristbands saved for the shown team and week', () => {
   });
 });
 
+describe('their plays combined by play type', () => {
+  const card = (name: string, formation = '', personnel = '', kind: any = 'run') =>
+    ({ id: name, gameId: 'g', name, formation, personnel, kind, down: '1st', notes: '', onReport: true, editedAt: 0 }) as any;
+
+  it('counts the same play run left or right, or by another back to the other hole, as one type', async () => {
+    const { groupOppPlays } = await import('./scoutOppPlays.ts');
+    const groups = groupOppPlays([
+      card('32 L WB 44 ZONE'),
+      card('32 R WB 43 ZONE'),
+      card('37 Zone', 'Wishbone', '32'),
+      card('43 zone', 'WISHBONE', '32'),
+      card('30 DW 41 SWEEP'),
+      card('30 DW 49 SWEEP'),
+      card('21 R WT 23 DIVE'),
+      card('21 R WT 23 POWER'),
+      card('TWINS L Z BUBBLE', 'TWINS LT', '11', 'screen'),
+      card('TWINS R Z BUBBLE', 'TWINS RT', '11', 'screen'),
+    ]);
+    const byLabel = Object.fromEntries(groups.map((g) => [g.label, g.plays.map((p: any) => p.name)]));
+    assert.deepEqual(byLabel['32 Wishbone · Inside Zone'], ['32 L WB 44 ZONE', '32 R WB 43 ZONE', '37 Zone', '43 zone']);
+    assert.deepEqual(byLabel['30 Double Wing · Toss / Sweep'], ['30 DW 41 SWEEP', '30 DW 49 SWEEP']);
+    assert.equal(groups.length, 5, 'dive and power stay apart; the bubbles go together');
+  });
+
+  it('keeps a different formation or personnel as its own type', async () => {
+    const { groupOppPlays } = await import('./scoutOppPlays.ts');
+    const groups = groupOppPlays([card('32 L WB 44 ZONE'), card('21 L WT 44 ZONE'), card('32 L DW 44 ZONE')]);
+    assert.equal(groups.length, 3);
+  });
+
+  it('draws a play type on the play the coach drew', async () => {
+    const { leadOppPlay } = await import('./filmBackfields.ts');
+    const a = card('32 L WB 44 ZONE');
+    const b = card('32 R WB 43 ZONE');
+    assert.equal(leadOppPlay([a, b], []).id, a.id);
+    assert.equal(leadOppPlay([a, b], [{ id: `scout_${b.id}`, builder: {} } as any]).id, b.id);
+  });
+});
+
 describe('call sheet first row mirrors the wristbands', () => {
   it('adds one table per wristband color column on row 1 and stays stable on re-sync', async () => {
     const { syncWristbandToCallSheet, listWristbandColumns, isAutoWristbandRowTable } = await import('./wristbandLinking.ts');
@@ -2086,6 +2125,39 @@ describe('call sheet first row mirrors the wristbands', () => {
     assert.deepEqual(twice.offenseSections, once.offenseSections, 're-sync does not keep shifting rows');
     // defense sheet is left alone unless it already has wristband tables
     assert.deepEqual(once.defenseSections.filter(isAutoWristbandRowTable).length, base.defenseSections.filter(isAutoWristbandRowTable).length);
+  });
+
+  it('keeps where a coach moved a wristband table and how wide it is', async () => {
+    const { syncWristbandToCallSheet, isAutoWristbandRowTable } = await import('./wristbandLinking.ts');
+    const { INITIAL_TWO_WRISTBANDS_DATA } = await import('../data/userGameDayPlays.ts');
+    const { DEFAULT_CALL_SHEET_DATA } = await import('../data/callSheetData.ts');
+    const { deepClone } = await import('../services/storageService.ts');
+    const base = { ...DEFAULT_CALL_SHEET_DATA, offenseSections: DEFAULT_CALL_SHEET_DATA.offenseSections.filter((s: any) => !isAutoWristbandRowTable(s)) };
+    const first = syncWristbandToCallSheet(INITIAL_TWO_WRISTBANDS_DATA, base);
+    const firstAuto = first.offenseSections.filter(isAutoWristbandRowTable);
+    const movedId = firstAuto[0].id;
+    // the coach drags the first color table to row 3, last in the row, two wide; and a coach table to row 1
+    const coachTable = first.offenseSections.find((s: any) => !isAutoWristbandRowTable(s) && (s.group || 'top_situations') === 'top_situations');
+    const arranged = {
+      ...first,
+      offenseSections: first.offenseSections.map((s: any) =>
+        s.id === movedId ? { ...s, rowIndex: 2, order: 9, colSpan: 2 } : coachTable && s.id === coachTable.id ? { ...s, rowIndex: 0, order: 5 } : s
+      ),
+    };
+    const edited = deepClone(INITIAL_TWO_WRISTBANDS_DATA);
+    edited.wristbands[0].columns[0].plays[0] = { ...edited.wristbands[0].columns[0].plays[0], text: '99 TEST POWER' };
+    const next = syncWristbandToCallSheet(edited, arranged);
+    const moved = next.offenseSections.find((s: any) => s.id === movedId);
+    assert.equal(moved.rowIndex, 2);
+    assert.equal(moved.order, 9);
+    assert.equal(moved.colSpan, 2);
+    assert.equal(moved.plays[0]?.name, '99 TEST POWER', 'plays still follow the wristband');
+    if (coachTable) {
+      const c = next.offenseSections.find((s: any) => s.id === coachTable.id);
+      assert.equal(c.rowIndex, 0, 'coach tables are not pushed down again');
+      assert.equal(c.order, 5);
+    }
+    assert.deepEqual(syncWristbandToCallSheet(edited, next).offenseSections, next.offenseSections);
   });
 
   it('updates the first four color tables when a wristband play changes', async () => {
@@ -4274,3 +4346,32 @@ describe('a scout play drawn from its name', () => {
     assert.equal(callSetup({ name: '21 L 38 POWER', formation: '21 L' }).strength, 'Left');
   });
 });
+
+describe('position action presets and auto-draw routes', () => {
+  it('generates role metadata and routes for QB, backs, receivers, and linemen', async () => {
+    const { getPositionMeta, getActionsForPosition } = await import('./playActionPresets.ts');
+    assert.equal(getPositionMeta('1').group, 'qb');
+    assert.equal(getPositionMeta('3').group, 'back');
+    assert.equal(getPositionMeta('X').group, 'receiver');
+    assert.equal(getPositionMeta('C').group, 'lineman');
+
+    const qbActions = getActionsForPosition('1');
+    const sneak = qbActions.find((a) => a.id === 'qb_sneak');
+    assert.ok(sneak);
+    const sneakLine = sneak.generateStroke({ x: 0, y: -4, role: '1' }, { holesXs: { 5: 0 } });
+    assert.equal(sneakLine.kind, 'run');
+
+    const rbActions = getActionsForPosition('3');
+    const hole2 = rbActions.find((a) => a.hole === 2);
+    assert.ok(hole2);
+    const hole2Line = hole2.generateStroke({ x: 0, y: -5, role: '3' }, { holesXs: { 2: 5.5 } });
+    assert.equal(hole2Line.kind, 'run');
+
+    const xActions = getActionsForPosition('X');
+    const slant = xActions.find((a) => a.id === 'rec_1_slant');
+    assert.ok(slant);
+    const slantLine = slant.generateStroke({ x: -14, y: 0, role: 'X' }, { holesXs: {} });
+    assert.equal(slantLine.kind, 'pass');
+  });
+});
+

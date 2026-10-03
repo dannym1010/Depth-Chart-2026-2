@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
+import { ChevronDown, ChevronUp, GripVertical, Layers, Printer, Shield } from 'lucide-react';
 import type { ScoutGame } from '../../hudlScout/components/Header';
 import type { Play } from '../../hudlScout/types/football';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
@@ -8,10 +8,12 @@ import { playNameKey } from '../../utils/playbookImport';
 import { resolveDiagram, unsavedDiagram } from '../../utils/playDiagrams';
 import { drawCall } from '../../utils/callDiagram';
 import { BACKFIELD_STRUCTURES } from '../../utils/footballEngine';
-import { backfieldOf, redrawWithBackfield, type FilmBackfieldBases } from '../../utils/filmBackfields';
+import { backfieldOf, leadOppPlay, redrawWithBackfield, type FilmBackfieldBases } from '../../utils/filmBackfields';
 import {
   buildScoutScript,
+  groupOppPlays,
   moveItem,
+  snapsForCall,
   orderByIds,
   playsFromFilm,
   reportPlays,
@@ -59,6 +61,32 @@ export const ScoutOppPlayLibrary: React.FC<{
   const [filmName, setFilmName] = useState('');
   const [printNote, setPrintNote] = useState('');
   const [drag, setDrag] = useState<{ list: 'film' | 'script'; index: number } | null>(null);
+  // Same play run either way (L / R, or another back to the other hole) shown as one play type.
+  const [combine, setCombine] = useState(() => {
+    try {
+      return localStorage.getItem('scoutCombinePlays') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleCombine = () => {
+    setCombine((on) => {
+      try {
+        localStorage.setItem('scoutCombinePlays', on ? '0' : '1');
+      } catch {
+        // per-device preference only
+      }
+      return !on;
+    });
+  };
+  const groups = useMemo(() => groupOppPlays(plays), [plays]);
+  const film = useMemo(
+    () => filmPlays.filter((p) => (p.gameId ? p.gameId === gameId : films[0]?.id === gameId)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filmPlays, gameId]
+  );
+  const snapCount = (p: ScoutOppPlay) => snapsForCall(film, gameId, p.name, `scout_${p.id}`, p.fromPlayId).length;
+  const drewDefense = (p: ScoutOppPlay) => (playDatabase || []).some((e) => e.id === `scout_${p.id}` && e.builder);
 
   // A play saved from the builder shows that drawing; one not saved yet is drawn from its name
   // ("30 DW 41 SWEEP"), the way the builder first draws it.
@@ -181,6 +209,39 @@ export const ScoutOppPlayLibrary: React.FC<{
     });
   };
 
+  const setGroupOnReport = (members: ScoutOppPlay[], on: boolean) => {
+    const ids = new Set(members.map((m) => m.id));
+    const now = Date.now();
+    write({ ...libraries, [gameId]: plays.map((p) => (ids.has(p.id) ? { ...p, onReport: on, editedAt: now } : p)) });
+  };
+
+  const printPlayTypes = async () => {
+    setPrintNote('');
+    const shown = groups.filter((g) => g.plays.some((p) => p.onReport));
+    const list = shown.length ? shown : groups;
+    const cards = await Promise.all(
+      list.map(async (g) => {
+        const lead = leadOppPlay(g.plays, playDatabase);
+        const snaps = g.plays.reduce((n, p) => n + snapCount(p), 0);
+        return {
+          name: g.label,
+          detail: [g.plays.map((p) => p.name).join(' · '), snaps ? `${snaps} snaps` : ''].filter(Boolean).join(' — '),
+          diagram: await resolveDiagram(diagramFor(lead)),
+        };
+      })
+    );
+    const title = `${opponent.trim() || 'Opponent'}: their plays vs. our defense`;
+    const win = window.open('', '_blank');
+    if (!win) {
+      setPrintNote('Allow pop-ups to print.');
+      return;
+    }
+    win.document.write(scoutScriptPrintHtml(title, [{ label: 'Play types', plays: cards }]));
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 250);
+  };
+
   const remove = (id: string) => {
     write({ ...libraries, [gameId]: plays.filter((p) => p.id !== id) }, [id]);
   };
@@ -196,9 +257,27 @@ export const ScoutOppPlayLibrary: React.FC<{
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(280px,340px)] gap-4">
       <section className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 space-y-3">
-        <div>
-          <h2 className="text-sm font-black text-slate-900 dark:text-white">Their plays, by film</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Each scouting video keeps the plays that team ran. Drag a play to reorder it. Check it to put it on this week's report.</p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="text-sm font-black text-slate-900 dark:text-white">Their plays, by film</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              {combine
+                ? 'Same play run either way is one play type: L or R, or another back to the other hole (37 Zone = 43 Zone). Draw how our defense lines up against each one.'
+                : "Each scouting video keeps the plays that team ran. Drag a play to reorder it. Check it to put it on this week's report."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={toggleCombine}
+            aria-pressed={combine}
+            className={`h-9 px-3 rounded-lg text-xs font-black inline-flex items-center gap-1.5 cursor-pointer border shrink-0 ${
+              combine
+                ? 'bg-indigo-600 text-white border-indigo-600'
+                : 'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:border-indigo-400'
+            }`}
+          >
+            <Layers className="w-4 h-4" /> {combine ? `Combined (${groups.length} types)` : 'Combine same plays'}
+          </button>
         </div>
         <div className="flex flex-wrap gap-1.5">
           {films.map((g) => (
@@ -287,7 +366,102 @@ export const ScoutOppPlayLibrary: React.FC<{
           </div>
         )}
         {!gameId && <p className="text-sm text-slate-500">Add a film library, or upload this week's scouting film, then put their plays here.</p>}
-        <ul className="space-y-1.5">
+        {combine && gameId && (
+          <div className="space-y-2">
+            <ul className="space-y-2">
+              {groups.map((g) => {
+                const lead = leadOppPlay(g.plays, playDatabase);
+                const picture = diagramFor(lead);
+                const drawn = drewDefense(lead);
+                const snaps = g.plays.reduce((n, p) => n + snapCount(p), 0);
+                const allOn = g.plays.every((p) => p.onReport);
+                const someOn = g.plays.some((p) => p.onReport);
+                return (
+                  <li key={g.key} className="rounded-xl border border-slate-200 dark:border-slate-700 p-2.5 flex flex-col sm:flex-row gap-3">
+                    <button
+                      type="button"
+                      className="sm:w-48 shrink-0 cursor-pointer disabled:cursor-default"
+                      disabled={!onDraw}
+                      onClick={() => onDraw?.(lead)}
+                      aria-label={`Open ${g.label}`}
+                    >
+                      {picture ? (
+                        <DiagramImage url={picture} alt={g.label} className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white" />
+                      ) : (
+                        <div className="h-24 rounded-lg border border-dashed border-slate-300 dark:border-slate-600 text-[11px] text-slate-400 flex items-center justify-center">No picture yet</div>
+                      )}
+                    </button>
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <div className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          className="mt-1"
+                          checked={allOn}
+                          ref={(el) => {
+                            if (el) el.indeterminate = someOn && !allOn;
+                          }}
+                          onChange={(e) => setGroupOnReport(g.plays, e.target.checked)}
+                          aria-label={`Put ${g.label} on the report`}
+                        />
+                        <div className="min-w-0">
+                          <div className="text-sm font-black text-slate-900 dark:text-white">{g.label}</div>
+                          <div className="text-[11px] text-slate-500">
+                            {g.plays.length} call{g.plays.length === 1 ? '' : 's'}
+                            {snaps ? ` · ran it ${snaps} time${snaps === 1 ? '' : 's'}` : ''}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {g.plays.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => onDraw?.(p)}
+                            title="Open this call in the play builder"
+                            className={`h-7 px-2 rounded-md text-[11px] font-bold border cursor-pointer ${
+                              p.id === lead.id
+                                ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300'
+                                : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                            }`}
+                          >
+                            {p.name}
+                          </button>
+                        ))}
+                      </div>
+                      {onDraw && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => onDraw(lead)}
+                            className="h-8 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black inline-flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Shield className="w-3.5 h-3.5" /> {drawn ? 'Edit our defense' : 'Draw our defense'}
+                          </button>
+                          <span className="text-[11px] text-slate-400">
+                            {drawn ? `Drawn on ${lead.name}` : 'Drag our players into place, then Save'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={!groups.length}
+                onClick={() => void printPlayTypes()}
+                className="h-9 px-3 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-black inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+              >
+                <Printer className="w-4 h-4" /> Print play types vs. our defense
+              </button>
+              <span className="text-[11px] text-slate-400">The checked ones also print on the scouting report (Game plan → Print sideline call sheet).</span>
+            </div>
+            {printNote && <p className="text-xs font-bold text-amber-700 dark:text-amber-300">{printNote}</p>}
+          </div>
+        )}
+        <ul className={combine ? 'hidden' : 'space-y-1.5'}>
           {plays.map((p, index) => (
             <li
               key={p.id}

@@ -145,6 +145,7 @@ export const CopyWeekModal: React.FC<CopyWeekModalProps> = ({
               onClick={() => {
                 setCopyMode('wristband_only');
                 setCopyWristband(true);
+                setCopyCallSheet(false);
               }}
               className={`px-3 py-1 rounded-xl text-xs font-black transition-all cursor-pointer ${
                 copyMode === 'wristband_only'
@@ -328,6 +329,7 @@ export const CopyWeekModal: React.FC<CopyWeekModalProps> = ({
                 onClick={() => {
                   setCopyMode('wristband_only');
                   setCopyWristband(true);
+                  setCopyCallSheet(false);
                 }}
                 className={`flex items-start gap-3 p-3 rounded-2xl border cursor-pointer transition-all ${
                   copyMode === 'wristband_only'
@@ -342,6 +344,7 @@ export const CopyWeekModal: React.FC<CopyWeekModalProps> = ({
                   onChange={() => {
                     setCopyMode('wristband_only');
                     setCopyWristband(true);
+                    setCopyCallSheet(false);
                   }}
                   className="mt-1 text-emerald-600 focus:ring-emerald-500"
                 />

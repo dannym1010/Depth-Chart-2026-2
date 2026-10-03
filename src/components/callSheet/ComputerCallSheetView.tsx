@@ -703,6 +703,9 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
     setDragOverTarget(null);
   };
 
+  // How many of the sheet's grid columns a table takes.
+  const tableSpan = (s: CallSheetSection) => Math.max(1, Math.min(gridColumns || 4, s.colSpan || (s.columnsCount && s.columnsCount > 1 ? s.columnsCount : 1)));
+
   // Helper to determine responsive grid classes and template style based on table count and multi-column spans in a row
   const getRowGridConfig = (sections: CallSheetSection[]) => {
     const count = sections.length;
@@ -718,16 +721,25 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
             : count
         ),
         style: undefined as React.CSSProperties | undefined,
+        wrapped: false,
       };
     }
 
     // When multi-column tables are present (e.g. 2-column wristband table), dynamically size columns so that 2-column tables get double width
-    const template = sections
-      .map((s) => {
-        const span = s.colSpan || (s.columnsCount && s.columnsCount > 1 ? s.columnsCount : 1);
-        return `minmax(0, ${span}fr)`;
-      })
-      .join(' ');
+    const spans = sections.map((s) => tableSpan(s));
+    const perRow = gridColumns || 4;
+    if (spans.reduce((a, b) => a + b, 0) > perRow) {
+      // More than the sheet's grid holds: wrap onto a second line inside the row instead of squeezing every table.
+      return {
+        className: 'grid w-full gap-2.5 items-start',
+        style: {
+          display: 'grid',
+          gridTemplateColumns: `repeat(${perRow}, minmax(0, 1fr))`,
+        } as React.CSSProperties,
+        wrapped: true,
+      };
+    }
+    const template = spans.map((span) => `minmax(0, ${span}fr)`).join(' ');
 
     return {
       className: 'grid w-full gap-2.5 items-start',
@@ -735,6 +747,7 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
         display: 'grid',
         gridTemplateColumns: template,
       } as React.CSSProperties,
+      wrapped: false,
     };
   };
 
@@ -927,6 +940,8 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
         <div className="space-y-3.5">
           {situationalRows.map((row, rowIdx) => {
             const tableCount = row.sections.length;
+            const rowGrid = getRowGridConfig(row.sections);
+            const evenWidths = row.sections.every((s) => tableSpan(s) === 1);
             return (
               <React.Fragment key={`sit-row-${row.rowIndex}`}>
                 <div className="space-y-1.5 transition-all callsheet-row-container print:overflow-visible">
@@ -942,7 +957,11 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
                     </span>
                     {tableCount > 0 && (
                       <span className="text-[9.5px] text-slate-400 font-mono hidden md:inline">
-                        (Each spans 1/{tableCount} width)
+                        {rowGrid.wrapped
+                          ? '(Wider than the grid: wraps to a second line)'
+                          : evenWidths
+                            ? `(Each spans 1/${tableCount} width)`
+                            : '(Widths set per table)'}
                       </span>
                     )}
                   </div>
@@ -1032,8 +1051,8 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
                   </div>
                 ) : (
                   <div
-                    className={getRowGridConfig(row.sections).className}
-                    style={getRowGridConfig(row.sections).style}
+                    className={rowGrid.className}
+                    style={rowGrid.style}
                     onDragOver={(e) => {
                       if (e.dataTransfer.types.includes('application/callsheet-table-drag')) {
                         e.preventDefault();
@@ -1048,11 +1067,7 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
                         <div
                           key={sec.id}
                           className="relative flex flex-col min-w-0"
-                          style={
-                            sec.colSpan && sec.colSpan > 1
-                              ? { gridColumn: `span ${sec.colSpan} / span ${sec.colSpan}` }
-                              : undefined
-                          }
+                          style={rowGrid.wrapped ? { gridColumn: `span ${tableSpan(sec)} / span ${tableSpan(sec)}` } : undefined}
                           onDragOver={(e) => handleDragOverTable(e, sec.id, row.rowIndex)}
                           onDrop={(e) => handleDropOnTable(e, sec.id, row.rowIndex)}
                         >
