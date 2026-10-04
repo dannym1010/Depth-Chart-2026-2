@@ -7,6 +7,7 @@ import {
   diagramLabel,
   skillDiagramLabel,
   svgToField,
+  DEFENSE_COLOR,
   shownText,
   tagColors,
   tagWidth,
@@ -492,7 +493,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           {isSelected && (
             <rect x={cx - bw / 2 - 4} y={cy - 14} width={bw + 8} height={28} rx={6} fill="none" stroke="#6366f1" strokeWidth={2.5} strokeDasharray="4 3" />
           )}
-          <rect x={cx - bw / 2} y={cy - 10.5} width={bw} height={20} rx={4} fill="#dc2626" stroke="#ffffff" strokeWidth={1.8} />
+          <rect x={cx - bw / 2} y={cy - 10.5} width={bw} height={20} rx={4} fill={DEFENSE_COLOR} stroke="#ffffff" strokeWidth={1.8} />
           <text x={cx} y={cy + 3.6} textAnchor="middle" fill="#ffffff" fontSize={byName ? 9 : 10.5} fontFamily={font} fontWeight="900">
             {text}
           </text>

@@ -8,6 +8,9 @@
 export type NodePlayer = { num: string; name: string; unit?: 'black' | 'gold' | 'blue'; pos?: string };
 export type PlayNode = { role: string; x: number; y: number; line?: boolean; label?: string; player?: NodePlayer };
 
+/** Our defense on the play diagrams (the builder and the saved pictures). One place to change it. */
+export const DEFENSE_COLOR = '#15803d';
+
 /** The little number tag on a tagged defender: the unit's color (Black / Gold / Blue). */
 export const UNIT_TAG: Record<string, { bg: string; ink: string }> = {
   black: { bg: '#0f172a', ink: '#ffffff' },
@@ -2545,7 +2548,7 @@ export function playerGlyphSvg(n: PlayNode, ballRole?: string) {
       const c = tagColors(n.player);
       chip = `<rect x="${cx + bw / 2 - tw / 2 - 1}" y="${cy - 17}" width="${tw}" height="11" rx="5.5" fill="${c.bg}" stroke="#ffffff" stroke-width="1"/><text x="${cx + bw / 2 - 1}" y="${cy - 8.8}" text-anchor="middle" fill="${c.ink}" font-size="7.5" font-family="${font}" font-weight="900">${esc(n.player.num)}</text>`;
     }
-    return `<g><rect x="${cx - bw / 2}" y="${cy - 10}" width="${bw}" height="19" rx="4" fill="#dc2626" stroke="#ffffff" stroke-width="1.8"/><text x="${cx}" y="${cy + 3.6}" text-anchor="middle" fill="#ffffff" font-size="${byName ? 9 : 10.5}" font-family="${font}" font-weight="900">${esc(text)}</text>${chip}</g>`;
+    return `<g><rect x="${cx - bw / 2}" y="${cy - 10}" width="${bw}" height="19" rx="4" fill="${DEFENSE_COLOR}" stroke="#ffffff" stroke-width="1.8"/><text x="${cx}" y="${cy + 3.6}" text-anchor="middle" fill="#ffffff" font-size="${byName ? 9 : 10.5}" font-family="${font}" font-weight="900">${esc(text)}</text>${chip}</g>`;
   }
   if (n.role === 'C') {
     const text = custom || 'C';

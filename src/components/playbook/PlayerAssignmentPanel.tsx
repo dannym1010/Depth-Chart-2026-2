@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, Star, Trash2, X } from 'lucide-react';
 import {
   fieldToSvg,
+  DEFENSE_COLOR,
   isDefenseRole,
   type NodePlayer,
   type DrawKind,
@@ -132,7 +133,7 @@ function ActionThumb({ preset, node, ctx }: { preset: PlayerActionPreset; node: 
         </>
       )}
       {isDefenseRole(node.role) ? (
-        <rect x={me.cx - unit * 5} y={me.cy - unit * 5} width={unit * 10} height={unit * 10} rx={unit * 2} fill="#dc2626" />
+        <rect x={me.cx - unit * 5} y={me.cy - unit * 5} width={unit * 10} height={unit * 10} rx={unit * 2} fill={DEFENSE_COLOR} />
       ) : (
         <circle cx={me.cx} cy={me.cy} r={unit * 5} fill="#fff" stroke="#0f172a" strokeWidth={unit * 1.6} />
       )}
@@ -203,7 +204,7 @@ export const PlayerAssignmentPanel: React.FC<Props> = ({
             isBall
               ? 'bg-orange-600 text-white'
               : isDef
-                ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300'
+                ? 'bg-green-100 text-green-800 dark:bg-green-950/60 dark:text-green-300'
                 : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
           }`}
         >
