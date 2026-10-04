@@ -32,6 +32,7 @@ import {
   type OurDefenseLook,
   type BackfieldSpots,
   type PlayStroke,
+  type NodePlayer,
 } from '../../utils/footballEngine';
 import { PlayDiagramCanvas } from './PlayDiagramCanvas';
 import { assignmentText } from './PlayerAssignmentPanel';
@@ -40,6 +41,8 @@ import { callSetup } from '../../utils/callDiagram';
 import { openFormation } from '../../utils/filmBackfields';
 import { parsePlayCall } from '../../utils/playCallParse';
 import { openFilmWindow } from '../../filmroom/filmWindowStore';
+import { DEF_UNITS, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
+import { rememberDefenseUnit, rememberedDefenseUnit, useDefenseRosterSource } from '../../utils/defenseRosterStore';
 
 const SELECT =
   'h-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 w-full';
@@ -201,6 +204,16 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [filmBaseKeys, setFilmBaseKeys] = useState<Record<string, string>>(seed?.filmBaseKeys || {});
   const [baseNote, setBaseNote] = useState('');
   const [strokes, setStrokes] = useState<PlayStroke[]>((saved?.strokes as PlayStroke[]) || []);
+  // Our defense tagged from the depth chart: which unit is in (Black 1s / Gold 2s / Blue 3s), and any
+  // defender a coach set by hand.
+  const rosterSrc = useDefenseRosterSource();
+  const hasDepth = Object.keys(rosterSrc.depthChart || {}).length > 0;
+  const [defUnit, setDefUnit] = useState<DefUnit | 'off'>(() => saved?.defenseUnit || rememberedDefenseUnit());
+  const [defWho, setDefWho] = useState<Record<string, NodePlayer>>(saved?.defenseWho || {});
+  const pickUnit = (u: DefUnit | 'off') => {
+    setDefUnit(u);
+    rememberDefenseUnit(u);
+  };
   const [labels, setLabels] = useState<Record<string, string>>(saved?.labels || {});
   const withLabel = <T extends { role: string }>(n: T): T => (labels[n.role] ? { ...n, label: labels[n.role] } : n);
   const renamePlayer = (role: string, label: string) =>
@@ -241,12 +254,22 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     ? applyNodeOverrides(basePlay.nodes, overrides).map((n) => withLabel(overrides[n.role] ? n : { ...n, x: n.x + hashDx }))
     : [];
   const dLook = defenseKey ? looks[defenseKey] || null : null;
+  const defFront = frontOfLook(defenseKey);
+  const strongLeft = dLook && (dLook.strength === 'Left' || dLook.strength === 'Right') ? dLook.strength === 'Left' : strength === 'Left';
+  const tagging = Boolean(dLook) && defUnit !== 'off' && hasDepth;
+  const taggedWho = useMemo(
+    () => (dLook && tagging ? lineupForDefense(dLook.nodes, { unit: defUnit as DefUnit, front: defFront, strongLeft, src: rosterSrc, overrides: defWho }) : {}),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [defenseKey, tagging, defUnit, defFront, strongLeft, rosterSrc, defWho]
+  );
   const dNodes = useMemo(() => {
     if (!dLook) return [];
     const aligned = alignDefenseTechniques(dLook.nodes, offNodes);
-    return applyNodeOverrides(aligned, overrides).map((n) => withLabel(overrides[n.role] ? n : { ...n, x: n.x + hashDx }));
+    return applyNodeOverrides(aligned, overrides)
+      .map((n) => withLabel(overrides[n.role] ? n : { ...n, x: n.x + hashDx }))
+      .map((n) => (taggedWho[n.role] ? { ...n, player: taggedWho[n.role] } : n));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dLook, offNodes, overrides, hashDx, labels]);
+  }, [dLook, offNodes, overrides, hashDx, labels, taggedWho]);
   const play = basePlay ? { ...basePlay, nodes: offNodes } : null;
   const customBack = Object.keys(overrides).some((r) => !r.match(/^(DE|DT|NT|SAM|WILL|MIKE|ROV|CB|FS)/i));
 
@@ -351,6 +374,9 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       putDefInName,
       overrides,
       ...(Object.keys(labels).length ? { labels } : {}),
+      defenseUnit: defUnit,
+      ...(Object.keys(defWho).length ? { defenseWho: defWho } : {}),
+      ...(Object.keys(taggedWho).length ? { defensePlayers: taggedWho } : {}),
       ...(userDrew ? { strokes } : {}),
       name: nameIn,
   });
@@ -707,6 +733,34 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       <div className={compact ? 'space-y-3' : 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-4 items-start'}>
         {/* The field */}
         <div className="space-y-2 min-w-0">
+          {dNodes.length > 0 && hasDepth && (
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">Who&apos;s in</span>
+              <div role="group" aria-label="Which unit plays our defense" className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-[11px] font-black">
+                {(['off', 'black', 'gold', 'blue'] as const).map((u) => {
+                  const on = defUnit === u;
+                  const dot = u === 'black' ? '#0f172a' : u === 'gold' ? '#f59e0b' : u === 'blue' ? '#2563eb' : '';
+                  return (
+                    <button
+                      key={u}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => pickUnit(u)}
+                      className={`h-7 px-2.5 inline-flex items-center gap-1.5 cursor-pointer transition-colors ${
+                        on
+                          ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                          : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      {dot && <span className="h-2 w-2 rounded-full ring-1 ring-slate-300 dark:ring-slate-500" style={{ background: dot }} />}
+                      {u === 'off' ? 'Off' : DEF_UNITS.find((x) => x.id === u)!.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {defUnit !== 'off' && <span className="hidden sm:inline text-[11px] text-slate-400">Hover a defender to see who plays there</span>}
+            </div>
+          )}
           <div className="hidden sm:flex flex-wrap gap-1.5">
             {summary.map((s) => (
               <button
@@ -759,6 +813,26 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               onBallCarrierChange={(role) => setBallCarrier(role)}
               onHoleChange={(h) => setHoleOverride(h)}
               onLabelChange={renamePlayer}
+              defenseWho={
+                tagging
+                  ? {
+                      current: (role) => ({
+                        player: taggedWho[role] || null,
+                        spot: taggedWho[role]?.pos || defenseSpotName(role, defFront, strongLeft),
+                        unit: DEF_UNITS.find((x) => x.id === defUnit)?.label || '',
+                      }),
+                      overridden: (role) => Boolean(defWho[role]),
+                      options: (role) => whoOptions(defenseSpotName(role, defFront, strongLeft), defFront, rosterSrc),
+                      onPick: (role, p) =>
+                        setDefWho((prev) => {
+                          const next = { ...prev };
+                          if (p) next[role] = p;
+                          else delete next[role];
+                          return next;
+                        }),
+                    }
+                  : undefined
+              }
             />
           ) : (
             <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/50 p-6 min-h-[220px] flex items-center justify-center">

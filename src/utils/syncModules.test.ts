@@ -2055,6 +2055,71 @@ describe('call sheets and wristbands saved for the shown team and week', () => {
   });
 });
 
+describe('our defense tagged from the depth chart', () => {
+  const pos = (id: string, name: string) => ({ id, name });
+  const board = (name: string, unit: string, positions: { id: string; name: string }[]) =>
+    ({ id: name, unit, name, rows: [{ id: 'r', positions }] }) as any;
+  const formations = [
+    board('44 Defense', 'defense', [pos('44-WDE', 'WDE'), pos('44-DT1', 'DT 1'), pos('44-DT2', 'DT 2'), pos('44-SDE', 'SDE'), pos('44-MIKE', 'MIKE'), pos('44-CB1', 'CB 1'), pos('44-CB2', 'CB 2')]),
+    board('53 Defense', 'defense', [pos('53-DE1', 'DE 1'), pos('53-NT', 'NT'), pos('53-MIKE', 'MIKE')]),
+    board('Defensive Depth Chart', 'groups', [pos('GRP-MIKE', 'MIKE'), pos('GRP-SAM', 'SAM')]),
+  ];
+  const p = (num: string, name: string) => ({ num, name });
+  const depthChart = {
+    '44-MIKE': [p('21', 'Ward'), p('40', 'Sokol'), p('44', 'Jones')],
+    '44-SDE': [p('55', 'Strong'), p('56', 'Gold SDE')],
+    '44-WDE': [p('50', 'Weak')],
+    '44-CB1': [p('3', 'Corner One')],
+    '44-CB2': [p('4', 'Corner Two')],
+    '53-NT': [p('77', 'Nose')],
+    '53-DE1': [p('90', 'End One')],
+    'GRP-SAM': [p('10', 'Sam Black'), p('11', 'Sam Gold')],
+  } as any;
+  const src = { depthChart, formations, roster: [{ num: '21', firstName: 'Landon', lastName: 'Ward' }] as any };
+  const nodes = ['E9', 'T3', 'T1', 'E5', 'MIKE', 'CBL', 'CBR', 'SAM'].map((role) => ({ role, x: 0, y: 1 }));
+
+  it('takes Black, Gold or Blue from the depth chart order', async () => {
+    const { lineupForDefense } = await import('./defenseLineup.ts');
+    const at = (unit: any) => lineupForDefense(nodes, { unit, front: '44', strongLeft: false, src });
+    assert.equal(at('black').MIKE.num, '21');
+    assert.equal(at('gold').MIKE.num, '40');
+    assert.equal(at('blue').MIKE.num, '44');
+    assert.equal(at('black').MIKE.unit, 'black');
+    assert.equal(at('black').MIKE.pos, 'MIKE');
+  });
+
+  it('puts the strong-side end and the corners on the side the look is set to', async () => {
+    const { lineupForDefense } = await import('./defenseLineup.ts');
+    const right = lineupForDefense(nodes, { unit: 'black', front: '44', strongLeft: false, src });
+    assert.equal(right.E5.pos, 'SDE');
+    assert.equal(right.E9.pos, 'WDE');
+    assert.equal(right.CBR.pos, 'CB 1');
+    const left = lineupForDefense(nodes, { unit: 'black', front: '44', strongLeft: true, src });
+    assert.equal(left.E9.pos, 'SDE');
+    assert.equal(left.E9.num, '55');
+    assert.equal(left.E5.pos, 'WDE');
+    assert.equal(left.CBL.pos, 'CB 1');
+  });
+
+  it('leaves out a spot nobody is on, and uses the defensive depth chart when the board is empty', async () => {
+    const { lineupForDefense } = await import('./defenseLineup.ts');
+    const out = lineupForDefense(nodes, { unit: 'blue', front: '44', strongLeft: false, src });
+    assert.equal(out.E5, undefined, 'nobody third string at SDE');
+    assert.equal(out.SAM, undefined, 'no blue SAM anywhere');
+    const gold = lineupForDefense(nodes, { unit: 'gold', front: '44', strongLeft: false, src });
+    assert.equal(gold.SAM.num, '11', 'SAM is on the groups board only');
+  });
+
+  it('lets a coach set one defender, and reads the 5-3 board for a 5-3 look', async () => {
+    const { lineupForDefense } = await import('./defenseLineup.ts');
+    const set = lineupForDefense(nodes, { unit: 'black', front: '44', strongLeft: false, src, overrides: { MIKE: p('99', 'Sub') } });
+    assert.equal(set.MIKE.num, '99');
+    const five = lineupForDefense([{ role: 'NT', x: 0, y: 1 }, { role: 'E9', x: -7, y: 1 }], { unit: 'black', front: '53', strongLeft: false, src });
+    assert.equal(five.NT.num, '77');
+    assert.equal(five.E9.num, '90');
+  });
+});
+
 describe('their plays combined by play type', () => {
   const card = (name: string, formation = '', personnel = '', kind: any = 'run') =>
     ({ id: name, gameId: 'g', name, formation, personnel, kind, down: '1st', notes: '', onReport: true, editedAt: 0 }) as any;

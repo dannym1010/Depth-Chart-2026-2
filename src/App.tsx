@@ -182,6 +182,7 @@ import { ScoutingView } from './components/ScoutingView';
 import { FilmRoomView } from './filmroom/FilmRoomView';
 import { FilmWindowHost } from './filmroom/FilmWindow';
 import { filmWindowAutoOpen, openFilmWindow } from './filmroom/filmWindowStore';
+import { setDefenseRosterSource } from './utils/defenseRosterStore';
 import { buildLibrary } from './filmroom/FilmLibrary';
 import { bundleFromSaved } from './hudlScout/scoutBundle';
 import { DEFAULT_BALANCED, setBalancedFormations } from './hudlScout/utils/strength';
@@ -4516,6 +4517,11 @@ export default function App() {
       return isPrimaryTeamId(activeTeamId);
     });
   }, [roster, activeTeamId, teams]);
+
+  // The play builder tags our defense from this week's depth chart (Black / Gold / Blue).
+  useEffect(() => {
+    setDefenseRosterSource({ depthChart: currentWeekState.depthChart, formations: currentFormations, roster: activeTeamRoster });
+  }, [currentWeekState.depthChart, currentFormations, activeTeamRoster]);
 
   const activeTeamScheduleEvents = React.useMemo(() => {
     return scheduleEvents.filter((e) => {

@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Star, Trash2, X } from 'lucide-react';
 import {
   fieldToSvg,
   isDefenseRole,
+  type NodePlayer,
   type DrawKind,
   type PlayNode,
   type PlayStroke,
@@ -45,6 +46,18 @@ export function assignmentText(strokes: PlayStroke[], n: { x: number; y: number 
 }
 
 type Ctx = { holesXs: Record<number, number>; qbNode?: { x: number; y: number } | null };
+
+/** Our defense tagged from the depth chart (see defenseLineup). */
+export interface DefenseWho {
+  /** The player at this defender (null: nobody on the chart), the chart spot's name, and the unit. */
+  current: (role: string) => { player: NodePlayer | null; spot: string; unit: string };
+  /** A defender the coach set by hand. */
+  overridden: (role: string) => boolean;
+  /** Each unit's player there, and the whole roster, to pick from. */
+  options: (role: string) => { depth: NodePlayer[]; roster: NodePlayer[] };
+  /** Set this defender's player (null: back to the depth chart). */
+  onPick: (role: string, player: NodePlayer | null) => void;
+}
 
 const GROUPS: { id: ActionCategory; label: string }[] = [
   { id: 'run', label: 'Runs' },
@@ -141,6 +154,8 @@ interface Props {
   onBallCarrierChange?: (role: string) => void;
   /** Rename a player on the diagram ("" puts the usual letter back). */
   onLabelChange?: (role: string, label: string) => void;
+  /** Who plays this defender (when defenders are tagged from the depth chart). */
+  defenseWho?: DefenseWho;
   ctx: Ctx;
   readOnly?: boolean;
 }
@@ -162,6 +177,7 @@ export const PlayerAssignmentPanel: React.FC<Props> = ({
   onPreview,
   onBallCarrierChange,
   onLabelChange,
+  defenseWho,
   ctx,
   readOnly,
 }) => {
@@ -314,6 +330,49 @@ export const PlayerAssignmentPanel: React.FC<Props> = ({
           )}
         </label>
       )}
+
+      {defenseWho && !readOnly && isDefenseRole(player.role) && (() => {
+        const info = defenseWho.current(player.role);
+        const opts = defenseWho.options(player.role);
+        const mine = defenseWho.overridden(player.role) && info.player ? `r:${info.player.num}` : 'auto';
+        return (
+          <label className="flex items-center gap-2">
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 shrink-0">Playing here</span>
+            <select
+              aria-label="Player at this spot"
+              value={mine}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === 'auto') return defenseWho.onPick(player.role, null);
+                const [kind, key] = [v.slice(0, 1), v.slice(2)];
+                const from = kind === 'd' ? opts.depth.find((p) => `${p.unit}:${p.num}` === key) : opts.roster.find((p) => p.num === key);
+                if (from) defenseWho.onPick(player.role, from);
+              }}
+              className="h-8 min-w-0 flex-1 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+            >
+              <option value="auto">{info.player && !defenseWho.overridden(player.role) ? `#${info.player.num} ${info.player.name} · depth chart` : 'From the depth chart'}</option>
+              {opts.depth.length > 0 && (
+                <optgroup label="Depth chart">
+                  {opts.depth.map((p) => (
+                    <option key={`${p.unit}:${p.num}`} value={`d:${p.unit}:${p.num}`}>
+                      #{p.num} {p.name} · {p.unit}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {opts.roster.length > 0 && (
+                <optgroup label="Roster">
+                  {opts.roster.map((p) => (
+                    <option key={p.num} value={`r:${p.num}`}>
+                      #{p.num} {p.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+          </label>
+        );
+      })()}
 
       {!readOnly && !isDefenseRole(player.role) && (
         <p className="text-[11px] text-slate-500 dark:text-slate-400">

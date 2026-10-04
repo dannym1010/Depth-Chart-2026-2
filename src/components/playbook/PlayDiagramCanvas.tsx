@@ -7,6 +7,9 @@ import {
   diagramLabel,
   skillDiagramLabel,
   svgToField,
+  tagColors,
+  tagWidth,
+  type NodePlayer,
   runningHoleXs,
   type AssembledPlay,
   type DrawKind,
@@ -15,6 +18,7 @@ import {
 } from '../../utils/footballEngine';
 import { COLOR, PlayerAssignmentPanel, arrowPts, strokeFor, tBar } from './PlayerAssignmentPanel';
 import type { PlayerActionPreset } from '../../utils/playActionPresets';
+import type { DefenseWho } from './PlayerAssignmentPanel';
 
 const KIND_LABEL: Record<DrawKind, string> = { run: 'Run', pass: 'Pass', block: 'Block' };
 
@@ -135,6 +139,8 @@ interface Props {
   assignmentHost?: HTMLElement | null;
   /** Rename a player on the diagram. */
   onLabelChange?: (role: string, label: string) => void;
+  /** Our defense tagged from the depth chart: who is at each spot (hover shows it) and a way to change one. */
+  defenseWho?: DefenseWho;
 }
 
 type Tool = DrawKind | 'move';
@@ -172,6 +178,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   chrome = 'full',
   assignmentHost,
   onLabelChange,
+  defenseWho,
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [tool, setTool] = useState<Tool>('move');
@@ -183,6 +190,8 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   const selectedPlayer = selectedRole ? nodes.find((n) => n.role === selectedRole) || null : null;
   const [previewAction, setPreviewAction] = useState<PlayerActionPreset | null>(null);
   const drag = useRef<Drag>(null);
+  const fieldRef = useRef<HTMLDivElement | null>(null);
+  const [hover, setHover] = useState<{ role: string; x: number; y: number; w: number } | null>(null);
   // The last tap on a player, and who was selected before it: a quick second tap on the same player
   // is a double-click, which draws the selected player blocking them.
   const lastTap = useRef<{ role: string; at: number; from: string | null } | null>(null);
@@ -327,9 +336,23 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     change([...strokes, { kind: tool, points: isStraight ? [start, start] : [start] }]);
   };
 
+  /** The defender under the pointer (when defenders are tagged), for the "who plays here" card. */
+  const updateHover = (e: React.PointerEvent) => {
+    if (!defenseWho || e.pointerType === 'touch') return;
+    const svg = svgRef.current;
+    const box = fieldRef.current?.getBoundingClientRect();
+    if (!svg || !box) return;
+    const { cx, cy } = clientToSvg(svg, e.clientX, e.clientY);
+    const n = hitNode(nodesRef.current.filter((x) => isDefenseRole(x.role)), cx, cy);
+    if (!n) return setHover((h) => (h ? null : h));
+    setHover((h) => (h && h.role === n.role && Math.abs(h.x - (e.clientX - box.left)) < 2 && Math.abs(h.y - (e.clientY - box.top)) < 2 ? h : { role: n.role, x: e.clientX - box.left, y: e.clientY - box.top, w: box.width }));
+  };
+
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
+    if (!d) updateHover(e);
     if (!svgRef.current || !d) return;
+    if (hover) setHover(null);
     const p = pointFromEvent(e);
     const cur = strokesRef.current;
     if (d.mode === 'player') {
@@ -470,6 +493,14 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           <text x={cx} y={cy + 4} textAnchor="middle" fill="#ffffff" fontSize="10.5" fontFamily={font} fontWeight="900">
             {text}
           </text>
+          {n.player?.num && (
+            <g>
+              <rect x={cx + bw / 2 - tagWidth(n.player.num) / 2 - 1} y={cy - 17} width={tagWidth(n.player.num)} height={11} rx={5.5} fill={tagColors(n.player).bg} stroke="#ffffff" strokeWidth={1} />
+              <text x={cx + bw / 2 - 1} y={cy - 8.8} textAnchor="middle" fill={tagColors(n.player).ink} fontSize="7.5" fontFamily={font} fontWeight="900">
+                {n.player.num}
+              </text>
+            </g>
+          )}
         </g>
       );
     }
@@ -558,6 +589,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       onPreview={setPreviewAction}
       onBallCarrierChange={onBallCarrierChange}
     onLabelChange={onLabelChange}
+    defenseWho={defenseWho}
       ctx={{ holesXs, qbNode: nodes.find((n) => n.role === '1' || n.role === 'QB') }}
     />
   );
@@ -615,7 +647,32 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       )}
 
       {/* Field Canvas Container */}
-      <div className="relative">
+      <div className="relative" ref={fieldRef} onPointerLeave={() => setHover(null)}>
+        {hover && defenseWho && (() => {
+          const info = defenseWho.current(hover.role);
+          const flip = hover.x > hover.w - 190;
+          return (
+            <div
+              className="pointer-events-none absolute z-20 rounded-lg bg-slate-900/95 px-2.5 py-1.5 text-white shadow-lg ring-1 ring-white/10 whitespace-nowrap"
+              style={{ left: flip ? undefined : hover.x + 14, right: flip ? hover.w - hover.x + 14 : undefined, top: Math.max(4, hover.y - 14) }}
+            >
+              <div className="flex items-center gap-1.5 text-[12px] font-black leading-tight">
+                {info.player ? (
+                  <>
+                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: tagColors(info.player).bg === '#0f172a' ? '#e2e8f0' : tagColors(info.player).bg }} />
+                    #{info.player.num} {info.player.name}
+                  </>
+                ) : (
+                  <span className="text-slate-300">Nobody on the chart</span>
+                )}
+              </div>
+              <div className="mt-0.5 text-[10.5px] font-semibold leading-tight text-slate-400">
+                {info.spot || hover.role}
+                {info.unit ? ` · ${info.unit}` : ''}
+              </div>
+            </div>
+          );
+        })()}
         <div className="absolute top-2.5 left-2.5 z-10 flex items-center gap-1.5">
           <button
             type="button"

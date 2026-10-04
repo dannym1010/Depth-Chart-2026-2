@@ -145,7 +145,11 @@ export function redrawWithBackfield(
   // Our defense as the coach set it in the builder: lined up on this formation, moved defenders kept,
   // and the lines drawn for defenders kept (the offense's lines are drawn again).
   const look = lookKey ? OUR_DEFENSE_LOOKS[lookKey]?.nodes || [] : [];
-  const defense = applyNodeOverrides(alignDefenseTechniques(look, nodes), overrides).map((n) => named(overrides[n.role] ? n : { ...n, x: n.x + hashDx }));
+  const whoByRole = b?.defensePlayers || {};
+  const defense = applyNodeOverrides(alignDefenseTechniques(look, nodes), overrides).map((n) => {
+    const moved = named(overrides[n.role] ? n : { ...n, x: n.x + hashDx });
+    return whoByRole[n.role] ? { ...moved, player: whoByRole[n.role] } : moved;
+  });
   const savedStrokes = (b?.strokes as PlayStroke[] | undefined) || [];
   const defenseStrokes = savedStrokes.filter(
     (st) => st.points?.length && defense.some((d) => isDefenseRole(d.role) && Math.hypot(st.points[0].x - d.x, st.points[0].y - d.y) < 1.4)
@@ -169,6 +173,9 @@ export function redrawWithBackfield(
     putDefInName: Boolean(b?.putDefInName),
     overrides,
     ...(b?.labels ? { labels: b.labels } : {}),
+    ...(b?.defenseUnit ? { defenseUnit: b.defenseUnit } : {}),
+    ...(b?.defenseWho ? { defenseWho: b.defenseWho } : {}),
+    ...(b?.defensePlayers ? { defensePlayers: b.defensePlayers } : {}),
     ...(b?.strokes ? { strokes: allStrokes } : {}),
   };
   return {

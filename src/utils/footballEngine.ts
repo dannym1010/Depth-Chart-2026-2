@@ -4,7 +4,18 @@
  */
 
 /** label: the name a coach gave this player ("Sam", "Jake"), shown on the diagram instead of the usual letter. */
-export type PlayNode = { role: string; x: number; y: number; line?: boolean; label?: string };
+/** The player tagged at a spot (from the depth chart): jersey number, name, the unit, and the spot's name. */
+export type NodePlayer = { num: string; name: string; unit?: 'black' | 'gold' | 'blue'; pos?: string };
+export type PlayNode = { role: string; x: number; y: number; line?: boolean; label?: string; player?: NodePlayer };
+
+/** The little number tag on a tagged defender: the unit's color (Black / Gold / Blue). */
+export const UNIT_TAG: Record<string, { bg: string; ink: string }> = {
+  black: { bg: '#0f172a', ink: '#ffffff' },
+  gold: { bg: '#f59e0b', ink: '#111827' },
+  blue: { bg: '#2563eb', ink: '#ffffff' },
+};
+export const tagColors = (player?: NodePlayer) => UNIT_TAG[player?.unit || ''] || { bg: '#64748b', ink: '#ffffff' };
+export const tagWidth = (num: string) => Math.max(13, String(num).length * 5.4 + 7);
 
 export const HOLE_SYSTEM: Record<number, { side: string; type: string; description: string }> = {
   1: { side: 'Right', type: 'Perimeter', description: 'Outside sweep / D-gap right' },
@@ -2520,7 +2531,13 @@ export function playerGlyphSvg(n: PlayNode, ballRole?: string) {
     // Defense in a red box, wide enough for its name.
     const text = custom || diagramLabel(n.role);
     const bw = Math.max(22, text.length * 7 + 8);
-    return `<g><rect x="${cx - bw / 2}" y="${cy - 10}" width="${bw}" height="19" rx="4" fill="#dc2626" stroke="#ffffff" stroke-width="1.8"/><text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="#ffffff" font-size="10.5" font-family="${font}" font-weight="900">${esc(text)}</text></g>`;
+    let chip = '';
+    if (n.player?.num) {
+      const tw = tagWidth(n.player.num);
+      const c = tagColors(n.player);
+      chip = `<rect x="${cx + bw / 2 - tw / 2 - 1}" y="${cy - 17}" width="${tw}" height="11" rx="5.5" fill="${c.bg}" stroke="#ffffff" stroke-width="1"/><text x="${cx + bw / 2 - 1}" y="${cy - 8.8}" text-anchor="middle" fill="${c.ink}" font-size="7.5" font-family="${font}" font-weight="900">${esc(n.player.num)}</text>`;
+    }
+    return `<g><rect x="${cx - bw / 2}" y="${cy - 10}" width="${bw}" height="19" rx="4" fill="#dc2626" stroke="#ffffff" stroke-width="1.8"/><text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="#ffffff" font-size="10.5" font-family="${font}" font-weight="900">${esc(text)}</text>${chip}</g>`;
   }
   if (n.role === 'C') {
     const text = custom || 'C';

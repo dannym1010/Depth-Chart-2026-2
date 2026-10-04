@@ -135,6 +135,12 @@ export interface PlayBuilderState {
   strokes?: unknown[];
   /** Names the coach gave players on the diagram, by role (e.g. MIKE: "Sam"). */
   labels?: Record<string, string>;
+  /** Which unit's depth chart tags our defenders (Black 1s, Gold 2s, Blue 3s), or 'off'. */
+  defenseUnit?: 'black' | 'gold' | 'blue' | 'off';
+  /** A defender the coach set by hand instead of the depth chart, by role. */
+  defenseWho?: Record<string, { num: string; name: string; unit?: 'black' | 'gold' | 'blue'; pos?: string }>;
+  /** Who was tagged on each defender when the play was saved (so a redraw keeps the tags). */
+  defensePlayers?: Record<string, { num: string; name: string; unit?: 'black' | 'gold' | 'blue'; pos?: string }>;
   /** The name as the coach typed it (a scout play keeps this instead of the generated call). */
   name?: string;
 }
