@@ -14,6 +14,13 @@ export const UNIT_TAG: Record<string, { bg: string; ink: string }> = {
   gold: { bg: '#f59e0b', ink: '#111827' },
   blue: { bg: '#2563eb', ink: '#ffffff' },
 };
+/** A player's name cut short enough for a defender's box ("Cambigia…"). */
+export const shortPlayerName = (name?: string) => {
+  const n = String(name || '').trim();
+  return n.length > 9 ? `${n.slice(0, 8)}…` : n;
+};
+/** What a defender's box says: the name a coach typed, else the tagged player's name, else `fallback` (the position letter). */
+export const shownText = (n: PlayNode, fallback: string) => n.label?.trim() || shortPlayerName(n.player?.name) || fallback;
 export const tagColors = (player?: NodePlayer) => UNIT_TAG[player?.unit || ''] || { bg: '#64748b', ink: '#ffffff' };
 export const tagWidth = (num: string) => Math.max(13, String(num).length * 5.4 + 7);
 
@@ -1548,7 +1555,7 @@ function nodes44(shift = 0): PlayNode[] {
     { role: 'T1', x: 2.25, y: 1.9 },
     { role: 'E5', x: 6.7, y: 1.9 },
     { role: 'SAM', x: -11.2, y: 3.7 },
-    { role: 'ROV', x: -8.1, y: 3.25 },
+    { role: 'ROV', x: -8.1, y: 3.7 },
     { role: 'MIKE', x: -1.2 + shift, y: 4.15 },
     { role: 'WILL', x: 5.3, y: 4.05 },
     { role: 'CBL', x: -14.4, y: 4.25 },
@@ -2529,15 +2536,16 @@ export function playerGlyphSvg(n: PlayNode, ballRole?: string) {
   const fit = (text: string, base: number, room: number) => Math.min(base, room / Math.max(1, text.length * 0.62));
   if (isDefenseRole(n.role)) {
     // Defense in a red box, wide enough for its name.
-    const text = custom || diagramLabel(n.role);
-    const bw = Math.max(22, text.length * 7 + 8);
+    const text = shownText(n, diagramLabel(n.role));
+    const byName = !custom && Boolean(n.player?.name?.trim());
+    const bw = byName ? Math.max(22, text.length * 5.9 + 9) : Math.max(22, text.length * 7 + 8);
     let chip = '';
     if (n.player?.num) {
       const tw = tagWidth(n.player.num);
       const c = tagColors(n.player);
       chip = `<rect x="${cx + bw / 2 - tw / 2 - 1}" y="${cy - 17}" width="${tw}" height="11" rx="5.5" fill="${c.bg}" stroke="#ffffff" stroke-width="1"/><text x="${cx + bw / 2 - 1}" y="${cy - 8.8}" text-anchor="middle" fill="${c.ink}" font-size="7.5" font-family="${font}" font-weight="900">${esc(n.player.num)}</text>`;
     }
-    return `<g><rect x="${cx - bw / 2}" y="${cy - 10}" width="${bw}" height="19" rx="4" fill="#dc2626" stroke="#ffffff" stroke-width="1.8"/><text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="#ffffff" font-size="10.5" font-family="${font}" font-weight="900">${esc(text)}</text>${chip}</g>`;
+    return `<g><rect x="${cx - bw / 2}" y="${cy - 10}" width="${bw}" height="19" rx="4" fill="#dc2626" stroke="#ffffff" stroke-width="1.8"/><text x="${cx}" y="${cy + 3.6}" text-anchor="middle" fill="#ffffff" font-size="${byName ? 9 : 10.5}" font-family="${font}" font-weight="900">${esc(text)}</text>${chip}</g>`;
   }
   if (n.role === 'C') {
     const text = custom || 'C';

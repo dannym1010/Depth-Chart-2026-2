@@ -2110,6 +2110,23 @@ describe('our defense tagged from the depth chart', () => {
     assert.equal(gold.SAM.num, '11', 'SAM is on the groups board only');
   });
 
+  it('uses the 44 Defense chart for every look, and the 5-3 chart only for spots the 44 does not have', async () => {
+    const { lineupForDefense } = await import('./defenseLineup.ts');
+    const withFiveThree = { ...src, depthChart: { ...depthChart, '53-MIKE': [p('22', 'Pestone')] } };
+    const out = lineupForDefense([{ role: 'MIKE', x: 0, y: 3 }, { role: 'NT', x: 0, y: 1 }], { unit: 'black', front: '53', strongLeft: false, src: withFiveThree });
+    assert.equal(out.MIKE.num, '21', 'MIKE comes from the 44 Defense chart');
+    assert.equal(out.NT.num, '77', 'NT is only on the 53 chart');
+  });
+
+  it('shows the tagged player\'s name on a defender, unless the coach typed one', async () => {
+    const { shownText, shortPlayerName } = await import('./footballEngine.ts');
+    const node = { role: 'MIKE', x: 0, y: 3 } as any;
+    assert.equal(shownText(node, 'M'), 'M');
+    assert.equal(shownText({ ...node, player: { num: '21', name: 'Ward' } }, 'M'), 'Ward');
+    assert.equal(shownText({ ...node, player: { num: '21', name: 'Ward' }, label: 'Sam' }, 'M'), 'Sam');
+    assert.equal(shortPlayerName('Cambigianis'), 'Cambigia\u2026');
+  });
+
   it('lets a coach set one defender, and reads the 5-3 board for a 5-3 look', async () => {
     const { lineupForDefense } = await import('./defenseLineup.ts');
     const set = lineupForDefense(nodes, { unit: 'black', front: '44', strongLeft: false, src, overrides: { MIKE: p('99', 'Sub') } });

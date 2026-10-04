@@ -7,6 +7,7 @@ import {
   diagramLabel,
   skillDiagramLabel,
   svgToField,
+  shownText,
   tagColors,
   tagWidth,
   type NodePlayer,
@@ -272,7 +273,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     // Stop just short of the player's center so the T lands on them, not under their number.
     const back = Math.min(14, dist / 2);
     const end = svgToField(b.cx - ((b.cx - a.cx) / (dist || 1)) * back, b.cy - ((b.cy - a.cy) / (dist || 1)) * back);
-    const name = target.label?.trim() || diagramLabel(target.role);
+    const name = shownText(target, diagramLabel(target.role));
     const line: PlayStroke = {
       kind: 'block',
       points: [{ x: blocker.x, y: blocker.y }, { x: Math.round(end.x * 100) / 100, y: Math.round(end.y * 100) / 100 }],
@@ -482,15 +483,17 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
 
     // Defense: a red box, wide enough for its name.
     if (isDefenseRole(n.role)) {
-      const text = custom || diagramLabel(n.role);
-      const bw = Math.max(23, text.length * 7 + 8);
+      const text = shownText(n, diagramLabel(n.role));
+      // A player's name is set a little smaller, so the defenders don't crowd each other.
+      const byName = !custom && Boolean(n.player?.name?.trim());
+      const bw = byName ? Math.max(23, text.length * 5.9 + 9) : Math.max(23, text.length * 7 + 8);
       return (
         <g key={n.role} style={{ cursor }}>
           {isSelected && (
             <rect x={cx - bw / 2 - 4} y={cy - 14} width={bw + 8} height={28} rx={6} fill="none" stroke="#6366f1" strokeWidth={2.5} strokeDasharray="4 3" />
           )}
           <rect x={cx - bw / 2} y={cy - 10.5} width={bw} height={20} rx={4} fill="#dc2626" stroke="#ffffff" strokeWidth={1.8} />
-          <text x={cx} y={cy + 4} textAnchor="middle" fill="#ffffff" fontSize="10.5" fontFamily={font} fontWeight="900">
+          <text x={cx} y={cy + 3.6} textAnchor="middle" fill="#ffffff" fontSize={byName ? 9 : 10.5} fontFamily={font} fontWeight="900">
             {text}
           </text>
           {n.player?.num && (

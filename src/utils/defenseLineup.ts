@@ -52,12 +52,17 @@ const placedPlayer = (p: PlacedPlayer | undefined, roster: RosterPlayer[]): { nu
   return { num, name: (p.name || r?.rosterName || r?.lastName || '').trim() };
 };
 
-/** The boards to look in, the front's own first, then the defensive depth chart groups, then the rest. */
+/**
+ * The boards to look in: the 44 Defense chart first (it is the one we use for every look), then the
+ * look's own board for spots the 44 doesn't have (the 5-3's NT and DE 1 / DE 2), then the defensive
+ * depth chart groups, then the rest.
+ */
 function boardsFor(front: DefenseFront, formations: FormationBoard[] | undefined): FormationBoard[] {
-  const own = front === '53' ? /^\s*(53|5-3)\b/i : /^\s*(44|4-4)\b/i;
   const defense = (formations || []).filter((f) => f.unit === 'defense');
   const groups = (formations || []).filter((f) => f.unit === 'groups' && /defens/i.test(f.name));
-  const first = defense.filter((f) => own.test(f.name));
+  const base = defense.filter((f) => /^\s*(44|4-4)\b/i.test(f.name));
+  const own = front === '53' ? defense.filter((f) => /^\s*(53|5-3)\b/i.test(f.name)) : [];
+  const first = [...base, ...own];
   return [...first, ...groups, ...defense.filter((f) => !first.includes(f))];
 }
 
