@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { AIScoutingReport, TendencyAnalysis } from '../types/football';
-import { Printer, X, Shield, AlertTriangle, Pencil, Plus, RotateCcw } from 'lucide-react';
+import { Printer, X, Shield, AlertTriangle, Pencil, Plus, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import type { CallSheetEdits, CallSheetSectionKey } from '../scoutBundle';
 import { DiagramImage } from '../../components/playbook/DiagramImage';
+import { resolveDiagram } from '../../utils/playDiagrams';
+import { SheetPrintPanel } from './SheetPrintPanel';
+import { defenseSheetHtml, loadSheetOptions, saveSheetOptions, type SheetPrintOptions } from '../utils/defenseSheetPrint';
 
 /** One of their play types, with our defense drawn against it, for the printed report. */
 export interface ReportPlayType {
@@ -112,6 +115,14 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
   playTypes,
 }) => {
   const [editing, setEditing] = useState(false);
+  // What prints and how (kept on this device).
+  const [printOpts, setPrintOpts] = useState<SheetPrintOptions>(loadSheetOptions);
+  const [optsOpen, setOptsOpen] = useState(false);
+  const [printNote, setPrintNote] = useState('');
+  const changeOpts = (next: SheetPrintOptions) => {
+    setPrintOpts(next);
+    saveSheetOptions(next);
+  };
   const [draft, setDraft] = useState<{ sections: Record<CallSheetSectionKey, string[]>; alerts: string[]; note: string } | null>(null);
 
   if (!isOpen) return null;
@@ -176,6 +187,37 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
     if (!window.confirm('Replace the edited calls with the suggestions from the film?')) return;
     onSaveEdits({ sections: {}, updatedAt: Date.now(), editedBy: editorName || undefined });
     stopEditing();
+  };
+
+  const printSheet = async () => {
+    setPrintNote('');
+    const types = printOpts.playTypes && playTypes?.length
+      ? await Promise.all(playTypes.map(async (t) => ({ label: t.label, detail: t.detail, diagram: await resolveDiagram(t.diagram) })))
+      : [];
+    const html = defenseSheetHtml(
+      {
+        opponentName,
+        stats: { totalPlays: analysis.totalPlays, runPct: analysis.runPct, passPct: analysis.passPct, avgGain: analysis.avgGainOverall },
+        alerts,
+        sections: SECTIONS.map(({ key, title, tag, wide }) => ({ key, title, tag, wide, lines: linesFor(key) })),
+        note,
+        playTypes: types,
+      },
+      printOpts
+    );
+    const win = window.open('', '_blank');
+    if (!win) {
+      setPrintNote('Allow pop-ups to print the call sheet.');
+      return;
+    }
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    // Wait for the pictures, so the first print isn't missing them.
+    await Promise.all(
+      Array.from(win.document.images).map((img) => (img.complete ? null : new Promise((res) => { img.onload = img.onerror = () => res(null); })))
+    );
+    setTimeout(() => win.print(), 150);
   };
 
   const close = () => {
@@ -245,7 +287,19 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
                 )}
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={() => setOptsOpen((v) => !v)}
+                  aria-pressed={optsOpen}
+                  className={`min-h-[36px] flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded border cursor-pointer ${
+                    optsOpen
+                      ? 'bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100'
+                      : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-900 dark:hover:bg-slate-800 dark:text-slate-200 dark:border-slate-700'
+                  }`}
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" /> Print options
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void printSheet()}
                   className="min-h-[36px] flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:text-white font-bold text-xs rounded transition-colors cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5" />
@@ -264,10 +318,20 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
           </div>
         </div>
 
+        {!editing && optsOpen && (
+          <SheetPrintPanel
+            options={printOpts}
+            onChange={changeOpts}
+            sections={SECTIONS.map(({ key, title }) => ({ key, title }))}
+            playTypeCount={playTypes?.length || 0}
+          />
+        )}
+        {printNote && <p className="px-4 py-2 text-xs font-bold text-amber-700 dark:text-amber-300 print:hidden">{printNote}</p>}
+
         {/* Printable sheet */}
         <div className="p-4 sm:p-6 overflow-y-auto space-y-4 text-xs bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 print:p-0 print:bg-white print:text-black">
           <div className="border-b-2 border-slate-900 dark:border-slate-300 print:border-black pb-3 flex flex-col sm:flex-row sm:items-end justify-between gap-2">
-            <div>
+            <div className={!printOpts.title ? 'opacity-35' : ''}>
               <div className="text-[10px] uppercase tracking-widest text-slate-500 dark:text-slate-400 print:text-slate-700 font-bold">
                 DEFENSIVE COORDINATOR GAMEPLAN
               </div>
@@ -275,7 +339,7 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
                 OPPONENT SCOUT: {opponentName.toUpperCase()}
               </h1>
             </div>
-            <div className="sm:text-right text-[11px] text-slate-500 dark:text-slate-400 print:text-slate-700">
+            <div className={`sm:text-right text-[11px] text-slate-500 dark:text-slate-400 print:text-slate-700 ${!printOpts.stats ? 'opacity-35' : ''}`}>
               <div>Sample: {analysis.totalPlays} Plays Analyzed</div>
               <div className="font-bold text-slate-900 dark:text-slate-100 print:text-black">
                 {analysis.runPct}% Run / {analysis.passPct}% Pass · Avg {analysis.avgGainOverall} yds
@@ -285,7 +349,7 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
 
           {/* High-alert tells */}
           {(editing || alerts.length > 0) && (
-            <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-500/40 rounded p-2.5 text-[11px] text-amber-900 dark:text-amber-200 print:bg-amber-50 print:border-amber-300 print:text-amber-900">
+            <div className={`bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-500/40 rounded p-2.5 text-[11px] text-amber-900 dark:text-amber-200 print:bg-amber-50 print:border-amber-300 print:text-amber-900 ${!printOpts.alerts && !editing ? 'opacity-35' : ''}`}>
               <div className="font-bold flex items-center gap-1 mb-1.5 text-amber-800 dark:text-amber-300 print:text-amber-800">
                 <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400" />
                 <span>HIGH-ALERT SIDELINE TELLS:</span>
@@ -327,7 +391,7 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
               return (
                 <div
                   key={key}
-                  className={`border border-slate-200 dark:border-slate-800 rounded p-3 bg-slate-50 dark:bg-slate-900/60 print:bg-white print:border-black ${wide ? 'md:col-span-2' : ''}`}
+                  className={`border border-slate-200 dark:border-slate-800 rounded p-3 bg-slate-50 dark:bg-slate-900/60 print:bg-white print:border-black ${wide ? 'md:col-span-2' : ''} ${!printOpts.sections[key] && !editing ? 'opacity-35' : ''}`}
                 >
                   <div className="font-bold text-slate-900 dark:text-slate-100 print:text-black uppercase tracking-wider text-[11px] border-b border-slate-200 dark:border-slate-800 pb-1 mb-2 flex justify-between gap-2">
                     <span>
@@ -363,7 +427,7 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
           </div>
 
           {/* Reminder line */}
-          <div className="pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400 print:text-slate-700 flex flex-col sm:flex-row sm:justify-between gap-2">
+          <div className={`pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400 print:text-slate-700 flex flex-col sm:flex-row sm:justify-between gap-2 ${!printOpts.note && !editing ? 'opacity-35' : ''}`}>
             {editing && draft ? (
               <label className="flex-1 flex flex-col gap-1">
                 <span className="font-bold text-slate-700 dark:text-slate-200">Reminder at the bottom of the sheet</span>
@@ -377,12 +441,12 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
             ) : (
               <span>{note}</span>
             )}
-            <span className="shrink-0 sm:self-end">HUDLSCOUT DC CALL SHEET</span>
+            <span className="shrink-0 sm:self-end">DEFENSIVE CALL SHEET</span>
           </div>
 
           {/* Their plays and how we line up against each one */}
           {!editing && playTypes && playTypes.length > 0 && (
-            <div className="pt-3 space-y-3" style={{ breakBefore: 'page' }}>
+            <div className={`pt-3 space-y-3 ${!printOpts.playTypes ? 'opacity-35' : ''}`} style={{ breakBefore: 'page' }}>
               <div className="border-b-2 border-slate-900 dark:border-slate-300 print:border-black pb-2">
                 <div className="text-[10px] uppercase tracking-widest text-slate-500 dark:text-slate-400 print:text-slate-700 font-bold">
                   Their plays vs. our defense
