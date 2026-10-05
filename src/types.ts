@@ -432,6 +432,8 @@ export interface ScoutingData {
     practiceScript?: import('./utils/scoutOppPlays').ScoutPracticeScript;
     /** Each film's own backfield shapes, keyed by game id then backfield. */
     backfieldBases?: import('./utils/filmBackfields').FilmBackfieldBases;
+    /** Their formations, drawn once in the play builder; their plays start from them. */
+    oppFormations?: import('./utils/scoutOppPlays').OppFormation[];
     updatedAt?: number;
   };
 }

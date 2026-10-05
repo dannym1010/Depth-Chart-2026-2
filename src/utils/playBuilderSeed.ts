@@ -26,6 +26,8 @@ export interface PlayBuilderSeed {
   filmBaseKeys?: Record<string, string>;
   /** Opened to adjust that backfield for the whole film, rather than one play. */
   backfieldEdit?: string;
+  /** Opened to draw one of their formations (saved as the formation, not a play). */
+  formationEdit?: { id: string };
 }
 
 /**

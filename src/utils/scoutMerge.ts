@@ -1,5 +1,5 @@
 // Putting two copies of a Hudl Scout report together (no imports, so the storage layer can use it too).
-import { mergeOppLibraries } from './scoutOppPlays';
+import { mergeOppFormations, mergeOppLibraries } from './scoutOppPlays';
 
 /** A film's backfield shape: the newer edit wins, per film and per backfield. */
 function mergeBackfieldBases(a?: any, b?: any) {
@@ -124,6 +124,7 @@ export function pickScoutBundle(a?: any, b?: any) {
   const deletedOpp = [...new Set([...(Array.isArray(a.deletedOppPlayIds) ? a.deletedOppPlayIds : []), ...(Array.isArray(b.deletedOppPlayIds) ? b.deletedOppPlayIds : [])])];
   const script = (Number(newer.practiceScript?.builtAt) || 0) >= (Number(older.practiceScript?.builtAt) || 0) ? newer.practiceScript : older.practiceScript;
   const backfieldBases = mergeBackfieldBases(older.backfieldBases, newer.backfieldBases);
+  const oppFormations = mergeOppFormations(older.oppFormations, newer.oppFormations);
   return {
     ...older,
     ...newer,
@@ -131,6 +132,7 @@ export function pickScoutBundle(a?: any, b?: any) {
     games: mergedGames,
     playLibraries: mergeOppLibraries(older.playLibraries, newer.playLibraries, deletedOpp),
     ...(backfieldBases ? { backfieldBases } : {}),
+    ...(oppFormations ? { oppFormations } : {}),
     ...(deletedOpp.length ? { deletedOppPlayIds: deletedOpp } : {}),
     ...(script ? { practiceScript: script } : {}),
     ...(deleted.size ? { deletedGameIds: [...deleted] } : {}),

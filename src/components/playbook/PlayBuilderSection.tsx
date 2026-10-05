@@ -104,6 +104,8 @@ interface Props {
   onStateChange?: (state: PlayBuilderState) => void;
   /** This alignment becomes the backfield for every play on this scout film that uses it. */
   onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: BackfieldSpots; baseKey: string }) => void;
+  /** Drawing one of their formations (seed.formationEdit): saved as the formation their plays start from. */
+  onSaveFormation?: (formation: { id: string; name: string; builder: PlayBuilderState; diagramUrl: string }) => void;
 }
 
 
@@ -160,7 +162,9 @@ function startFromSeed(seed?: PlayBuilderSeed | null) {
   };
 }
 
-export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, onStateChange, onSaveFilmBackfield }) => {
+export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, onStateChange, onSaveFilmBackfield, onSaveFormation }) => {
+  // Drawing their formation: just the alignment (no play lines), saved as the formation.
+  const formationMode = Boolean(seed?.formationEdit);
   const opened = useMemo(() => startFromSeed(seed), [seed]);
   // A play saved from the builder re-opens as it was left.
   const saved = seed?.builder;
@@ -415,7 +419,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const rememberTimer = useRef<number | null>(null);
   /** A moved player on this film becomes the backfield the other plays pick up. */
   const rememberBackfield = () => {
-    if (!seed?.gameId || !onSaveFilmBackfield) return;
+    if (!seed?.gameId || !onSaveFilmBackfield || formationMode) return;
     if (rememberTimer.current) window.clearTimeout(rememberTimer.current);
     rememberTimer.current = window.setTimeout(() => publishRef.current(false), 400);
   };
@@ -434,6 +438,14 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   };
 
   const saveOffense = () => {
+    if (formationMode) {
+      if (!play || !seed?.formationEdit || !onSaveFormation) return;
+      const { strokes: _drawn, ...builder } = currentState();
+      const name = (nameIn.trim() || seed.name).slice(0, 80);
+      onSaveFormation({ id: seed.formationEdit.id, name, builder: { ...builder, name }, diagramUrl: diagramSvg(play, [], [], String(ball)) });
+      setBaseNote(`Saved ${name}. Their plays drawn from it start lined up like this.`);
+      return;
+    }
     if (seed?.backfieldEdit) {
       publishBackfield();
       return;
@@ -645,7 +657,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
             <input
               aria-label="Play call"
               value={nameIn}
-              placeholder="Type the call, e.g. 32 L WB 44 ZONE"
+              placeholder={formationMode ? 'Name their formation, e.g. Trips Rt or 21 Beast R' : 'Type the call, e.g. 32 L WB 44 ZONE'}
               onChange={(e) => {
                 setNameIn(e.target.value);
                 setHoldName(true);
@@ -659,7 +671,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               }}
               className="flex-1 min-w-0 bg-transparent outline-none text-base sm:text-lg font-black uppercase tracking-wide text-slate-900 dark:text-white placeholder:normal-case placeholder:font-semibold placeholder:tracking-normal placeholder:text-slate-400"
             />
-            {holdName && !seed?.scoutId && (
+            {holdName && !seed?.scoutId && !formationMode && (
               <button
                 type="button"
                 onClick={() => setHoldName(false)}
@@ -706,7 +718,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               onClick={saveOffense}
               className="h-11 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-black inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-40 shrink-0"
             >
-              <Save className="w-4 h-4" /> {seed?.backfieldEdit ? `Save ${backfieldLabel}` : 'Save play'}
+              <Save className="w-4 h-4" /> {formationMode ? 'Save formation' : seed?.backfieldEdit ? `Save ${backfieldLabel}` : 'Save play'}
             </button>
           )}
         </div>
@@ -784,7 +796,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 },
               }}
               nodes={diagramNodes}
-              strokes={strokes}
+              strokes={formationMode ? [] : strokes}
               ballRole={String(ball)}
               formLabel=""
               playLabel={callLabel}
@@ -796,6 +808,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 if (/^(?:[1-4]|X|Z|Y|W|H|Y1|Y2|W1|W2)$/.test(role)) rememberBackfield();
               }}
               onStrokes={(next) => {
+                if (formationMode) return;
                 setUserDrew(true);
                 setStrokes(next);
               }}
@@ -845,7 +858,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
         {/* One panel, one job at a time */}
         <div className={`rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden ${compact ? '' : 'lg:sticky lg:top-3'}`}>
           <div className="grid grid-cols-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
-            {tabs.map((t) => (
+            {tabs.filter((t) => !formationMode || t.id !== 'play').map((t) => (
               <button
                 key={t.id}
                 type="button"

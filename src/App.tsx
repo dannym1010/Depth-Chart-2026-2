@@ -159,13 +159,13 @@ import { CallSheetMainView } from './components/CallSheetMainView';
 import { GameDayHubView } from './components/GameDayHubView';
 import { USER_IMPORTED_GAME_DAY_PLAYS, INITIAL_TWO_WRISTBANDS_DATA } from './data/userGameDayPlays';
 import { ExcelPlayImportModal } from './components/callSheet/ExcelPlayImportModal';
-import { PlayDatabaseEntry, CallSheetData, CallSheetFullData } from './types/callSheet';
+import { PlayBuilderState, PlayDatabaseEntry, CallSheetData, CallSheetFullData } from './types/callSheet';
 import { MASTER_PLAY_DATABASE, DEFAULT_CALL_SHEET_DATA } from './data/callSheetData';
 import { mergeDeletedPlayIds, mergePlayBanks, stampPlayEdits } from './utils/playBankMerge';
 import { blankCallSheetData, blankWristbandData } from './utils/blankSheets';
 import { missingPracticePlans } from './utils/autoPracticePlans';
 import { clearPlayBuilderSeed, consumeSeedHold, holdPlayBuilderSeed, mergeBuilderSave, savePlayBuilderSeed, type PlayBuilderSeed } from './utils/playBuilderSeed';
-import { isScoutPlayEntry, renameOppCall, linkSnapsToCall, snapsForCall } from './utils/scoutOppPlays';
+import { builderFromFormation, isScoutPlayEntry, renameOppCall, linkSnapsToCall, snapsForCall, type OppFormation } from './utils/scoutOppPlays';
 import { backfieldOf, baseKeysForGame, openFormation, redrawWithBackfield, spotsForGame } from './utils/filmBackfields';
 import { BACKFIELD_STRUCTURES } from './utils/footballEngine';
 import { newPlayEntry } from './utils/playbookImport';
@@ -4212,6 +4212,61 @@ export default function App() {
     handleUpdateTeamPlayDatabase(plays);
     return saved;
   };
+  /** The week's scouting report as saved, and a way to save it (stamped at once, so the next screen sees it). */
+  const weekHudl = () => {
+    const teamId = activeTeamIdRef.current;
+    const week = currentWeekRef.current;
+    const scopedKey = getScopedWeekKey(teamId, week);
+    const weekState = latestStateRef.current.weeklyData?.[scopedKey] || latestStateRef.current.weeklyData?.[week];
+    const hudl = weekState?.scouting?.hudlScout;
+    const put = (nextHudl: any) => {
+      const weekly = latestStateRef.current.weeklyData || {};
+      const stamped = { ...weekState, scouting: { ...(weekState?.scouting || {}), hudlScout: nextHudl } };
+      latestStateRef.current.weeklyData = { ...weekly, [scopedKey]: stamped, [week]: stamped };
+      persistWeekScouting('hudlScout', nextHudl);
+    };
+    return { hudl, put };
+  };
+  /** Their formation drawn in the builder: its picture and alignment, for their plays to start from. */
+  const saveOppFormation = (f: { id: string; name: string; builder: PlayBuilderState; diagramUrl: string }) => {
+    const { hudl, put } = weekHudl();
+    if (!hudl) return;
+    const now = Date.now();
+    const list: OppFormation[] = (hudl.oppFormations || []).filter((x: OppFormation) => x?.id);
+    const old = list.find((x) => x.id === f.id);
+    const next: OppFormation = { ...(old || {}), id: f.id, name: f.name, builder: f.builder, diagramUrl: f.diagramUrl, editedAt: now, deleted: false };
+    put({ ...hudl, oppFormations: old ? list.map((x) => (x.id === f.id ? next : x)) : [...list, next], updatedAt: now });
+  };
+  /** Open the builder to draw one of their formations (a new one, or one drawn before), with its clip in the film window. */
+  const openOppFormation = (req: { id?: string; name: string; gameId?: string; clip?: number }) => {
+    const { hudl, put } = weekHudl();
+    const list: OppFormation[] = (hudl?.oppFormations || []).filter((x: OppFormation) => x?.id);
+    const old = req.id ? list.find((x) => x.id === req.id) : undefined;
+    const now = Date.now();
+    const formation: OppFormation = old
+      ? { ...old, ...(req.gameId ? { gameId: req.gameId } : {}), ...(req.clip ? { clip: req.clip } : {}) }
+      : { id: `form-${now}`, name: req.name.trim().slice(0, 80) || 'Formation', gameId: req.gameId, clip: req.clip, editedAt: now };
+    // A new one is listed at once ("not drawn yet"), so it isn't lost if the coach leaves without saving.
+    if (hudl && (!old || formation.gameId !== old.gameId || formation.clip !== old.clip)) {
+      const stamped = { ...formation, editedAt: now };
+      put({ ...hudl, oppFormations: old ? list.map((x) => (x.id === old.id ? stamped : x)) : [...list, stamped], updatedAt: now });
+    }
+    const gameId = formation.gameId;
+    const snaps = gameId && formation.clip ? snapsForCall(hudl?.plays || [], gameId, '', undefined, undefined, [formation.clip]) : [];
+    savePlayBuilderSeed({
+      name: formation.name,
+      gameId,
+      formationEdit: { id: formation.id },
+      snaps,
+      watchLabel: `${formation.name}${formation.clip ? ` · clip ${formation.clip}` : ''}`,
+      builder: formation.builder,
+      filmBases: spotsForGame(hudl?.backfieldBases, gameId),
+      filmBaseKeys: baseKeysForGame(hudl?.backfieldBases, gameId),
+    });
+    holdPlayBuilderSeed();
+    if (gameId && snaps.length) openFilmWindow({ gameId, playIds: snaps.map((x) => x.id), label: `${formation.name} · clip ${formation.clip}` });
+    setActiveUnit('playbook');
+  };
   /** This report's backfield shape, then every play in the week's scout that lines up in it. */
   const saveFilmBackfield = (change: { gameId: string; backfield: string; spots: Record<string, { x: number; y: number }>; baseKey: string }) => {
     const teamId = activeTeamIdRef.current;
@@ -6833,6 +6888,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 }}
                 onRenameScoutPlay={renameScoutPlay}
                 onSaveFilmBackfield={saveFilmBackfield}
+                onSaveOppFormation={saveOppFormation}
                 onWatchScoutFilm={(cutup, seed) => {
                   savePlayBuilderSeed(seed);
                   saveFilmCutup(cutup);
@@ -7229,6 +7285,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   handleUpdateDeletedPlayIds(Array.from(new Set([...(latestStateRef.current.deletedPlayIds || []), ...gone])));
                 }}
                 onAdjustBackfield={openFilmBackfield}
+                onEditFormation={openOppFormation}
                 onDrawPlay={(play, group) => {
                   const entryId = `scout_${play.id}`;
                   const teamId = activeTeamIdRef.current;
@@ -7249,6 +7306,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                     callName: play.name,
                     playEntryId: entryId,
                     playName: play.name,
+                    clips: play.clips,
                   });
                   const libs = hudl?.playLibraries || {};
                   const cardSaved = Boolean(play.gameId && (libs[play.gameId] || []).some((c) => c.id === play.id));
@@ -7260,7 +7318,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   // The snaps of this play, or of every call in the play type when several were combined.
                   const snapsById = new Map<string, { id: string; playNumber: number; gain?: number; result?: string }>();
                   for (const member of group?.plays?.length ? group.plays : [play]) {
-                    for (const snap of snapsForCall(linked, member.gameId, member.name, `scout_${member.id}`, member.fromPlayId)) {
+                    for (const snap of snapsForCall(linked, member.gameId, member.name, `scout_${member.id}`, member.fromPlayId, member.clips)) {
                       snapsById.set(snap.id, snap);
                     }
                   }
@@ -7277,14 +7335,19 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                     playEntryId: entryId,
                     snaps,
                     watchLabel: group?.label,
-                    // A play drawn before re-opens as it was left.
-                    builder: mine.find((p) => p.id === entryId)?.builder,
+                    // A play drawn before re-opens as it was left; a new one from their formation starts lined up in it.
+                    builder:
+                      mine.find((p) => p.id === entryId)?.builder ||
+                      (() => {
+                        const f = (hudl?.oppFormations || []).find((x: OppFormation) => x?.id === play.formationId && !x.deleted);
+                        return f ? builderFromFormation(f, play.name) : undefined;
+                      })(),
                     filmBases: spotsForGame(hudl?.backfieldBases, play.gameId),
                     filmBaseKeys: baseKeysForGame(hudl?.backfieldBases, play.gameId),
                   });
                   holdPlayBuilderSeed();
                   // Their film of this play opens in the film window while the coach works on it.
-                  if (play.gameId && snaps.length && filmWindowAutoOpen()) {
+                  if (play.gameId && snaps.length && (filmWindowAutoOpen() || play.clips?.length)) {
                     openFilmWindow({ gameId: play.gameId, playIds: snaps.map((x) => x.id), label: group?.label || play.name });
                   }
                   setActiveUnit('playbook');

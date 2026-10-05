@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp, GripVertical, Layers, Play as PlayIcon, Printer, Shield } from 'lucide-react';
+import { ChevronDown, ChevronUp, GripVertical, Layers, Pencil, Play as PlayIcon, Plus, Printer, Shield, X } from 'lucide-react';
 import type { ScoutGame } from '../../hudlScout/components/Header';
 import type { Play } from '../../hudlScout/types/football';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
@@ -14,6 +14,8 @@ import {
   buildScoutScript,
   groupOppPlays,
   moveItem,
+  parseClips,
+  type OppFormation,
   snapsForCall,
   orderByIds,
   playsFromFilm,
@@ -52,13 +54,23 @@ export const ScoutOppPlayLibrary: React.FC<{
   onAdjustBackfield?: (gameId: string, backfield: string) => void;
   /** The practice order of the plays on the report. */
   scriptOrder?: string[];
-}> = ({ games, libraries, filmPlays, opponent, selectedGameId, onSelectGame, onSave, deletedIds, onAddFilm, playDatabase, onDraw, backfieldBases, onAdjustBackfield, scriptOrder }) => {
+  /** Their formations (drawn once; their plays start from them). */
+  formations?: OppFormation[];
+  onEditFormation?: (req: { id?: string; name: string; gameId?: string; clip?: number }) => void;
+  onSaveFormations?: (list: OppFormation[]) => void;
+}> = ({ games, libraries, filmPlays, opponent, selectedGameId, onSelectGame, onSave, deletedIds, onAddFilm, playDatabase, onDraw, backfieldBases, onAdjustBackfield, scriptOrder, formations, onEditFormation, onSaveFormations }) => {
   const films = games.length ? games : [];
   const gameId = films.some((g) => g.id === selectedGameId) ? selectedGameId : films[0]?.id || '';
   const plays = libraries[gameId] || [];
   const onTheReport = orderByIds(reportPlays(libraries), scriptOrder);
   const script = buildScoutScript(onTheReport, opponent);
   const [draft, setDraft] = useState(emptyDraft);
+  const shownFormations = (formations || []).filter((f) => f?.id && !f.deleted);
+  const [formName, setFormName] = useState('');
+  const [formClip, setFormClip] = useState('');
+  const [fromFormation, setFromFormation] = useState('');
+  const [clipText, setClipText] = useState('');
+  const clipInput = React.useRef<HTMLInputElement>(null);
   const [filmName, setFilmName] = useState('');
   const [printNote, setPrintNote] = useState('');
   const [drag, setDrag] = useState<{ list: 'film' | 'script'; index: number } | null>(null);
@@ -88,7 +100,7 @@ export const ScoutOppPlayLibrary: React.FC<{
   );
   const snapsOf = useMemo(() => {
     const map = new Map<string, ReturnType<typeof snapsForCall>>();
-    for (const p of plays) map.set(p.id, snapsForCall(film, gameId, p.name, `scout_${p.id}`, p.fromPlayId));
+    for (const p of plays) map.set(p.id, snapsForCall(film, gameId, p.name, `scout_${p.id}`, p.fromPlayId, p.clips));
     return map;
   }, [plays, film, gameId]);
   const snapCount = (p: ScoutOppPlay) => snapsOf.get(p.id)?.length || 0;
@@ -201,18 +213,39 @@ export const ScoutOppPlayLibrary: React.FC<{
   };
 
   const addPlay = () => {
-    const name = draft.name.trim();
+    const f = shownFormations.find((x) => x.id === fromFormation);
+    const clips = parseClips(clipText);
+    const name = draft.name.trim() || (f ? `${f.name}${clips.length ? ` #${clips[0]}` : ''}` : '');
     if (!gameId || !name) return;
     const play: ScoutOppPlay = {
       ...draft,
       name,
+      formation: f ? f.name : draft.formation,
+      personnel: f?.builder?.personnel != null ? String(f.builder.personnel) : draft.personnel,
       id: `opp-${Date.now()}`,
       gameId,
       onReport: true,
       editedAt: Date.now(),
+      ...(clips.length ? { clips } : {}),
+      ...(f ? { formationId: f.id } : {}),
     };
-    write({ ...libraries, [gameId]: [...plays, play] });
     setDraft(emptyDraft());
+    setClipText('');
+    // Straight into the builder, lined up in their formation, with the clip playing beside it.
+    if (onDraw) onDraw(play);
+    else write({ ...libraries, [gameId]: [...plays, play] });
+  };
+  const addClip = (p: ScoutOppPlay) => {
+    const typed = window.prompt(`Clip number(s) on this film where they ran ${p.name}:`, '');
+    const clips = parseClips(typed || '');
+    if (!clips.length) return;
+    patch(p.id, { clips: [...new Set([...(p.clips || []), ...clips])].sort((a, b) => a - b) });
+  };
+  const removeFormation = (f: OppFormation) => {
+    if (!onSaveFormations || !window.confirm(`Remove the formation ${f.name}? Plays already drawn from it stay.`)) return;
+    const now = Date.now();
+    onSaveFormations((formations || []).map((x) => (x.id === f.id ? { ...x, deleted: true, editedAt: now } : x)));
+    if (fromFormation === f.id) setFromFormation('');
   };
 
   const patch = (id: string, partial: Partial<ScoutOppPlay>) => {
@@ -331,19 +364,146 @@ export const ScoutOppPlayLibrary: React.FC<{
             </button>
           )}
         </div>
+        {gameId && onEditFormation && (
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2">
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">1 · Their formations</div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Draw each formation once (watch a clip of it while you line them up). Their plays start from it.</p>
+            </div>
+            {shownFormations.length > 0 && (
+              <ul className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
+                {shownFormations.map((f) => (
+                  <li key={f.id} className={`rounded-lg border p-1.5 space-y-1 ${fromFormation === f.id ? 'border-indigo-400 ring-1 ring-indigo-300' : 'border-slate-200 dark:border-slate-700'}`}>
+                    <button
+                      type="button"
+                      className="block w-full cursor-pointer"
+                      onClick={() => onEditFormation({ id: f.id, name: f.name, gameId: f.gameId || gameId })}
+                      aria-label={`Draw ${f.name}`}
+                    >
+                      {f.diagramUrl ? (
+                        <DiagramImage url={f.diagramUrl} alt={f.name} className="w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white" />
+                      ) : (
+                        <div className="h-16 rounded-md border border-dashed border-slate-300 dark:border-slate-600 text-[11px] text-slate-400 flex items-center justify-center">Not drawn yet</div>
+                      )}
+                    </button>
+                    <div className="flex items-center gap-1">
+                      <span className="min-w-0 flex-1 truncate text-xs font-black text-slate-900 dark:text-white" title={f.name}>{f.name}</span>
+                      {f.clip ? <span className="text-[10px] text-slate-400 shrink-0">clip {f.clip}</span> : null}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFromFormation(f.id);
+                          window.setTimeout(() => clipInput.current?.focus(), 0);
+                        }}
+                        disabled={!f.builder}
+                        title={f.builder ? 'Make a play that starts from this formation' : 'Draw the formation first'}
+                        className="flex-1 h-7 rounded-md bg-indigo-600 text-white text-[11px] font-black inline-flex items-center justify-center gap-1 cursor-pointer disabled:opacity-40"
+                      >
+                        <Plus className="w-3 h-3" /> Play
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onEditFormation({ id: f.id, name: f.name, gameId: f.gameId || gameId })}
+                        title="Draw / adjust this formation"
+                        className="h-7 w-7 rounded-md border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 inline-flex items-center justify-center cursor-pointer"
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                      {onSaveFormations && (
+                        <button
+                          type="button"
+                          onClick={() => removeFormation(f)}
+                          title="Remove this formation"
+                          className="h-7 w-7 rounded-md text-slate-400 hover:text-rose-500 inline-flex items-center justify-center cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="text-[11px] font-bold text-slate-500 flex-1 min-w-[160px]">
+                New formation
+                <input
+                  className={`${INPUT} mt-1`}
+                  placeholder="Trips Rt, 21 Beast R…"
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && formName.trim()) {
+                      onEditFormation({ name: formName, gameId, clip: parseClips(formClip)[0] });
+                      setFormName('');
+                      setFormClip('');
+                    }
+                  }}
+                />
+              </label>
+              <label className="text-[11px] font-bold text-slate-500 w-20">
+                Clip #
+                <input className={`${INPUT} mt-1`} inputMode="numeric" placeholder="12" value={formClip} onChange={(e) => setFormClip(e.target.value)} />
+              </label>
+              <button
+                type="button"
+                disabled={!formName.trim()}
+                onClick={() => {
+                  onEditFormation({ name: formName, gameId, clip: parseClips(formClip)[0] });
+                  setFormName('');
+                  setFormClip('');
+                }}
+                className="h-9 px-3 rounded-lg border border-indigo-500 text-indigo-700 dark:text-indigo-300 text-xs font-black cursor-pointer disabled:opacity-40"
+              >
+                Draw formation
+              </button>
+            </div>
+          </div>
+        )}
         {gameId && (
           <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-end">
+            {onEditFormation && <div className="col-span-2 sm:col-span-6 -mb-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">2 · Their plays</div>}
+            {shownFormations.length > 0 ? (
+              <label className="sm:col-span-2 text-[11px] font-bold text-slate-500">
+                From formation
+                <select className={`${INPUT} mt-1`} value={fromFormation} onChange={(e) => setFromFormation(e.target.value)}>
+                  <option value="">None (draw from the name)</option>
+                  {shownFormations.filter((f) => f.builder).map((f) => (
+                    <option key={f.id} value={f.id}>{f.name}</option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label className="sm:col-span-2 text-[11px] font-bold text-slate-500">
+                Formation
+                <input className={`${INPUT} mt-1`} value={draft.formation} onChange={(e) => setDraft({ ...draft, formation: e.target.value })} />
+              </label>
+            )}
+            <label className="text-[11px] font-bold text-slate-500">
+              Clip #
+              <input
+                ref={clipInput}
+                className={`${INPUT} mt-1`}
+                inputMode="numeric"
+                placeholder="12"
+                title="The clip on this film where they ran it (several: 12, 15)"
+                value={clipText}
+                onChange={(e) => setClipText(e.target.value)}
+              />
+            </label>
             <label className="sm:col-span-2 text-[11px] font-bold text-slate-500">
               Play
-              <input className={`${INPUT} mt-1`} placeholder="36 Dive" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-            </label>
-            <label className="text-[11px] font-bold text-slate-500">
-              Formation
-              <input className={`${INPUT} mt-1`} value={draft.formation} onChange={(e) => setDraft({ ...draft, formation: e.target.value })} />
-            </label>
-            <label className="text-[11px] font-bold text-slate-500">
-              Personnel
-              <input className={`${INPUT} mt-1`} value={draft.personnel} onChange={(e) => setDraft({ ...draft, personnel: e.target.value })} />
+              <input
+                className={`${INPUT} mt-1`}
+                placeholder={fromFormation ? 'Name (optional), e.g. 36 Dive' : '36 Dive'}
+                value={draft.name}
+                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') addPlay();
+                }}
+              />
             </label>
             <label className="text-[11px] font-bold text-slate-500">
               Down
@@ -355,8 +515,13 @@ export const ScoutOppPlayLibrary: React.FC<{
                 <option value="other">Other</option>
               </select>
             </label>
-            <button type="button" className="h-9 rounded-lg bg-indigo-600 text-white text-xs font-black cursor-pointer" onClick={addPlay}>
-              Add play
+            <button
+              type="button"
+              className="h-9 rounded-lg bg-indigo-600 text-white text-xs font-black cursor-pointer disabled:opacity-40"
+              disabled={!draft.name.trim() && !fromFormation}
+              onClick={addPlay}
+            >
+              {onDraw ? 'Draw play' : 'Add play'}
             </button>
           </div>
         )}
@@ -522,6 +687,19 @@ export const ScoutOppPlayLibrary: React.FC<{
                   {p.notes ? ` · ${p.notes}` : ''}
                   {onDraw ? ' · Open in play builder' : ''}
                 </span>
+              </button>
+              {p.clips?.length ? (
+                <span className="text-[11px] font-bold text-slate-500 shrink-0 mt-1" title="Clips tagged with this play">
+                  Clip {p.clips.join(', ')}
+                </span>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => addClip(p)}
+                title="Tag a clip number with this play"
+                className="h-7 px-1.5 rounded-md border border-dashed border-slate-300 dark:border-slate-600 text-[11px] font-bold text-slate-500 hover:border-indigo-400 shrink-0 cursor-pointer"
+              >
+                + clip
               </button>
               {snapCount(p) > 0 && (
                 <button

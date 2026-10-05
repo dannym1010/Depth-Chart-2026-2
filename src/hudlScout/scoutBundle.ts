@@ -3,7 +3,7 @@ import type { FilterState } from './components/report/FilterPanel';
 import type { ScoutGame } from './components/Header';
 import { splitTaggedCalls } from './utils/playTags';
 import type { FilmBackfieldBases } from '../utils/filmBackfields';
-import type { ScoutOppPlay, ScoutPracticeScript } from '../utils/scoutOppPlays';
+import type { OppFormation, ScoutOppPlay, ScoutPracticeScript } from '../utils/scoutOppPlays';
 
 export const DEFAULT_SCOUT_FILTERS: FilterState = {
   odk: 'O',
@@ -51,6 +51,8 @@ export interface ScoutBundle {
   practiceScript?: ScoutPracticeScript;
   /** Each film's own backfield shapes (Beast on this video is not Beast on another). */
   backfieldBases?: FilmBackfieldBases;
+  /** Their formations, drawn once; their plays start from them. */
+  oppFormations?: OppFormation[];
 }
 
 export function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
@@ -79,6 +81,7 @@ export function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
     deletedOppPlayIds: Array.isArray(saved?.deletedOppPlayIds) ? saved.deletedOppPlayIds : [],
     practiceScript: saved?.practiceScript && typeof saved.practiceScript === 'object' ? saved.practiceScript : undefined,
     backfieldBases: saved?.backfieldBases && typeof saved.backfieldBases === 'object' ? saved.backfieldBases : undefined,
+    oppFormations: Array.isArray(saved?.oppFormations) ? saved.oppFormations : undefined,
   };
 }
 

@@ -97,6 +97,8 @@ export interface HudlScoutViewProps {
   onRemoveDrawnPlays?: (playEntryIds: string[]) => void;
   /** Set one backfield's alignment for every play on that scout film that uses it. */
   onAdjustBackfield?: (gameId: string, backfield: string) => void;
+  /** Draw one of their formations in the play builder (new, or one drawn before), with its clip. */
+  onEditFormation?: (req: { id?: string; name: string; gameId?: string; clip?: number }) => void;
 }
 
 export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
@@ -128,6 +130,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   onRemoveDrawnPlays,
   onAddTaggedPlays,
   onAdjustBackfield,
+  onEditFormation,
 }) => {
   // The calls read our defense from the scouting helpers; rebuild them when it changes.
   setDefenseSystem(teamDefense);
@@ -778,6 +781,9 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
             onDraw={onDrawPlay}
             backfieldBases={bundle.backfieldBases}
             onAdjustBackfield={onAdjustBackfield}
+            formations={bundle.oppFormations}
+            onEditFormation={onEditFormation}
+            onSaveFormations={(oppFormations) => setBundle((prev) => ({ ...prev, oppFormations, updatedAt: Date.now() }))}
             scriptOrder={(bundle.practiceScript?.lines || []).map((l) => l.playId)}
           />
         ) : plays.length === 0 ? (

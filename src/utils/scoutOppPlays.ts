@@ -1,4 +1,5 @@
 import type { PracticePeriod } from '../types';
+import type { PlayBuilderState } from '../types/callSheet';
 import type { Play } from '../hudlScout/types/football';
 import { isWholeCall, parsePlayCall } from './playCallParse';
 import { BACKFIELD_STRUCTURES, RUN_SCHEMES } from './footballEngine';
@@ -21,6 +22,51 @@ export interface ScoutOppPlay {
   reorderedAt?: number;
   /** The play the film's snaps were tagged with (one of our Play Library plays, or a write-in). */
   fromPlayId?: string;
+  /** Clip numbers on this film (the film's play numbers) where they ran it. */
+  clips?: number[];
+  /** Their formation it was drawn from (OppFormation id). */
+  formationId?: string;
+}
+
+/**
+ * One of the opponent's formations, drawn once in the play builder: their plays start from it.
+ * Kept for the week's whole scouting report (every film of that opponent).
+ */
+export interface OppFormation {
+  id: string;
+  name: string;
+  /** The builder as it was saved: personnel, formation, backfield, strength, moved players. No play drawn. */
+  builder?: PlayBuilderState;
+  diagramUrl?: string;
+  /** A clip that shows it (film + play number), to watch while drawing. */
+  gameId?: string;
+  clip?: number;
+  editedAt: number;
+  /** Removed (kept so an older copy can't bring it back). */
+  deleted?: boolean;
+}
+
+/** Two copies of the formations: per formation, the newer edit wins (a removal is an edit). */
+export function mergeOppFormations(a?: OppFormation[], b?: OppFormation[]): OppFormation[] | undefined {
+  const byId = new Map<string, OppFormation>();
+  for (const f of [...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])]) {
+    if (!f?.id) continue;
+    const cur = byId.get(f.id);
+    if (!cur || (Number(f.editedAt) || 0) >= (Number(cur.editedAt) || 0)) byId.set(f.id, f);
+  }
+  return byId.size ? [...byId.values()] : undefined;
+}
+
+/** The builder to start a new play from a formation: its alignment, nothing drawn yet. */
+export function builderFromFormation(f: OppFormation, name: string): PlayBuilderState | undefined {
+  if (!f.builder) return undefined;
+  const { strokes: _strokes, ...rest } = f.builder;
+  return { ...rest, name };
+}
+
+/** Clip numbers typed by a coach ("12", "12, 15", "#7 9"). */
+export function parseClips(text: string): number[] {
+  return [...new Set((text.match(/\d+/g) || []).map(Number).filter((n) => n > 0 && n < 1000))];
 }
 
 export interface ScoutScriptLine {
@@ -103,13 +149,17 @@ export function snapsForCall(
   callName: string,
   playEntryId?: string,
   /** The play those snaps were tagged with (a card made from tags). */
-  fromPlayId?: string
+  fromPlayId?: string,
+  /** Clip numbers the play was tagged on. */
+  clips?: number[]
 ): LinkedSnap[] {
   const key = callName.trim().toLowerCase();
+  const clipSet = new Set(clips || []);
   return plays
     .filter((p) => {
       if (gameId && p.gameId && p.gameId !== gameId) return false;
       if (playEntryId && p.playCallId === playEntryId) return true;
+      if (clipSet.has(Number(p.playNumber)) && (!p.playCallId || p.playCallId === playEntryId)) return true;
       if (fromPlayId && p.playCallId === fromPlayId) return true;
       // Matched by name, a kick or defensive snap with the same words isn't this offensive play.
       return Boolean(key) && filmCall(p).toLowerCase() === key && (!p.odk || p.odk === 'O');
@@ -128,15 +178,18 @@ export function snapsForCall(
  */
 export function linkSnapsToCall(
   plays: Play[],
-  link: { gameId?: string; callName: string; playEntryId: string; playName: string }
+  link: { gameId?: string; callName: string; playEntryId: string; playName: string; clips?: number[] }
 ): Play[] {
   const key = link.callName.trim().toLowerCase();
+  const clipSet = new Set(link.clips || []);
   const now = Date.now();
   return plays.map((p) => {
     if (link.gameId && p.gameId && p.gameId !== link.gameId) return p;
     const mine = p.playCallId === link.playEntryId;
     const sameCall = Boolean(key) && filmCall(p).toLowerCase() === key && (!p.odk || p.odk === 'O');
-    if (!mine && !sameCall) return p;
+    // A clip the coach tagged with this play (needs the film's game, so another film's clip N isn't it).
+    const tagged = Boolean(link.gameId) && p.gameId === link.gameId && clipSet.has(Number(p.playNumber));
+    if (!mine && !sameCall && !tagged) return p;
     if (p.playCallId && p.playCallId !== link.playEntryId) return p;
     if (p.playCallId === link.playEntryId && p.playCall === link.playName) return p;
     return { ...p, playCallId: link.playEntryId, playCall: link.playName, editedAt: now };

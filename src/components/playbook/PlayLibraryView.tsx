@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Film, Image as ImageIcon, LayoutGrid, Library, List, ListChecks, Plus, Search, Trash2, Undo2, Upload, X, ArrowLeft } from 'lucide-react';
-import type { PlayAssignment, PlayDatabaseEntry, PlayType } from '../../types/callSheet';
+import type { PlayAssignment, PlayBuilderState, PlayDatabaseEntry, PlayType } from '../../types/callSheet';
 import type { UserRole } from '../../types';
 import { bundleFromSaved } from '../../hudlScout/scoutBundle';
 import { CallResult, callResults } from '../../hudlScout/utils/playTags';
@@ -35,6 +35,8 @@ interface Props {
   onWatchScoutFilm?: (cutup: { gameId: string; playIds: string[]; label: string }, seed: PlayBuilderSeed) => void;
   /** This backfield alignment becomes the one for every play on that scout film that uses it. */
   onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: Record<string, { x: number; y: number }>; baseKey: string }) => void;
+  /** Their formation drawn in the builder (Hudl Scout → Their plays → Their formations). */
+  onSaveOppFormation?: (formation: { id: string; name: string; builder: PlayBuilderState; diagramUrl: string }) => void;
 }
 
 const TYPES: { id: PlayType; label: string }[] = [
@@ -72,6 +74,7 @@ export const PlayLibraryView: React.FC<Props> = ({
   onRenameScoutPlay,
   onWatchScoutFilm,
   onSaveFilmBackfield,
+  onSaveOppFormation,
 }) => {
   const canEdit = userRole === 'admin' || userRole === 'assistant';
   const [query, setQuery] = useState('');
@@ -337,7 +340,8 @@ export const PlayLibraryView: React.FC<Props> = ({
         key={builderSeed?.playEntryId || builderSeed?.name || 'new'}
         canEdit={canEdit}
         seed={builderSeed}
-        onBack={(builderSeed?.scoutId || builderSeed?.backfieldEdit) && onBackToPlayList ? onBackToPlayList : undefined}
+        onBack={(builderSeed?.scoutId || builderSeed?.backfieldEdit || builderSeed?.formationEdit) && onBackToPlayList ? onBackToPlayList : undefined}
+        onSaveFormation={onSaveOppFormation}
         onSaveFilmBackfield={
           onSaveFilmBackfield
             ? (change) => {
