@@ -7,15 +7,18 @@ import { ExternalLink, Film, GripHorizontal, Library as LibraryIcon, Link2, Mess
 import { PlaysTable } from '../hudlScout/components/PlaysTable';
 import { bundleFromSaved, type ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play, TeamUnit } from '../hudlScout/types/football';
+import type { ScoutGame } from '../hudlScout/components/Header';
 import { setPlaysFormation, tagPlays } from '../hudlScout/utils/playTags';
 import { tagPlayUnits } from '../hudlScout/utils/unitStats';
-import { safeJSONParse, safeJSONSet } from '../services/storageService';
+import { isReadOnlySession, safeJSONParse, safeJSONSet } from '../services/storageService';
 import type { FilmPlayerRef, RosterPlayer } from '../types';
 import type { PlayDatabaseEntry } from '../types/callSheet';
 import { filmLineup, setPlayBallPlayer, setPlayDefPlay, setPlaySub, type BallRole, type WeekBoards } from '../utils/filmLineup';
 import { newPlayEntry } from '../utils/playbookImport';
 import { clipMatchMode, matchClipsToPlays } from './clipMatching';
 import { playsFromClips } from './clipPlays';
+import { applyBreakdown, blankPlays, breakdownPlayId, isBrokenDown, type BreakdownRow } from './breakdownEntry';
+import { BreakdownPanel } from './BreakdownPanel';
 import type { FilmFolderGame, UnplacedFolder } from './folderRoutes';
 import { clearFilmCutup, peekFilmCutup, type FilmCutup } from '../utils/filmCutup';
 import { peekPlayBuilderSeed, savePlayBuilderSeed, type PlayBuilderSeed } from '../utils/playBuilderSeed';
@@ -101,8 +104,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
 
   const games = useMemo(() => {
     const list: FilmGame[] = [
-      ...own.games.map((g) => ({ key: filmGameKey('own', g.id), source: 'own' as const, gameId: g.id, name: g.name, week: g.week })),
-      ...opp.games.map((g) => ({ key: filmGameKey('opponent', g.id, currentWeek), source: 'opponent' as const, gameId: g.id, name: g.name, week: currentWeek })),
+      ...own.games.map((g) => ({ key: filmGameKey('own', g.id), source: 'own' as const, gameId: g.id, name: g.name, week: g.week, fromFilm: g.fromFilm })),
+      ...opp.games.map((g) => ({ key: filmGameKey('opponent', g.id, currentWeek), source: 'opponent' as const, gameId: g.id, name: g.name, week: currentWeek, fromFilm: g.fromFilm })),
       ...filmOnlyGames.map((g) => ({ key: g.key, source: g.source, gameId: g.gameId, name: g.name, week: g.week, filmOnly: true })),
     ];
     return list;
@@ -118,7 +121,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   // Opened from the play builder: that play, in the builder beside the video, to change while watching.
   const [builderSeed] = useState<PlayBuilderSeed | null>(() => (cutup ? peekPlayBuilderSeed() : null));
   const seedRef = useRef(builderSeed);
-  const [sideTab, setSideTab] = useState<'builder' | 'notes'>(builderSeed ? 'builder' : 'notes');
+  const [sideTab, setSideTab] = useState<'builder' | 'breakdown' | 'notes'>(builderSeed ? 'builder' : 'breakdown');
   const [hideBuilder, setHideBuilder] = useState(false);
   const [builderSaved, setBuilderSaved] = useState('');
   const pickKey = `footballFilmroomGame_${teamId}`;
@@ -174,6 +177,39 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     const next = film.status === 'ready' ? playsFromClips(film.clips, game.gameId) : [];
     setClipPlays((c) => (c.length === 0 && next.length === 0 ? c : next));
   }, [game?.key, game?.filmOnly, game?.gameId, film]);
+
+  // Film with no Hudl breakdown: once its clips are in, it becomes a Hudl Scout game with one blank play per
+  // clip (same game id, so the film link and notes stay), and the coach fills the plays in while watching.
+  const madeBreakdown = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!game?.filmOnly || film.status !== 'ready' || !film.clips.length || isReadOnlySession()) return;
+    if (madeBreakdown.current.has(game.key)) return;
+    const week = game.week || '';
+    const w = filmWeeks?.find((x) => x.key === week);
+    const target = game.source === 'own' ? own : bundleFromSaved(week === currentWeek ? opponentScout : w?.hudlScout, w?.opponent || 'Opponent');
+    // Deleted in Hudl Scout: leave it as plain film.
+    if (target.games.some((g) => g.id === game.gameId) || (target.deletedGameIds || []).includes(game.gameId)) return;
+    madeBreakdown.current.add(game.key);
+    const fresh = blankPlays(film.clips, game.gameId);
+    const now = Date.now();
+    const g: ScoutGame = { id: game.gameId, name: game.name, playCount: fresh.length, addedAt: now, fromFilm: true, ...(week ? { week } : {}) };
+    // Notes and drawings already made on the clips move to their plays.
+    const moved = new Map(playsFromClips(film.clips, game.gameId).map((p) => [p.id, breakdownPlayId(p.id, game.gameId)]));
+    if ([...moved.keys()].some((id) => shared.notes.some((n) => n.playId === id) || shared.drawings[id])) {
+      update((st) => ({
+        ...st,
+        notes: st.notes.map((n) => (moved.has(n.playId) ? { ...n, playId: moved.get(n.playId)!, editedAt: now } : n)),
+        drawings: Object.fromEntries(Object.entries(st.drawings).map(([id, d]) => [moved.get(id) || id, moved.has(id) ? { ...d, editedAt: now } : d])),
+      }));
+    }
+    const next = { plays: [...target.plays, ...fresh], games: [...target.games, g], sourceCleared: false, updatedAt: now };
+    if (game.source === 'own') onUpdateOwnTeamScout({ ...own, ...next });
+    else {
+      onSaveWeekScouting?.(week, { ...((week === currentWeek ? opponentScout : w?.hudlScout) || {}), ...next, datasetName: target.datasetName || w?.opponent || '', deletedGameIds: target.deletedGameIds });
+      if (week && week !== currentWeek) onSelectWeek?.(week);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game?.key, game?.filmOnly, film]);
 
   // Breakdown files in the film folder become Hudl Scout games (checked when the film folder can be read).
   const breakdowns = useFolderBreakdowns({
@@ -241,6 +277,23 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     else onUpdateScouting('hudlScout', { ...((opponentScout as object) || {}), plays: change(opp.plays), updatedAt: now });
   };
   const isOwn = source === 'own';
+  const saveBreakdown = (changes: { play: Play; row: BreakdownRow }[]) =>
+    editPlays((all) => all.map((p) => {
+      const c = changes.find((x) => x.play.id === p.id);
+      return c ? applyBreakdown(p, c.row) : p;
+    }));
+  const breakdownNext = (row: BreakdownRow) => {
+    if (!play) return;
+    const changes = [{ play, row }];
+    if (next && !isBrokenDown(next)) {
+      const carry: BreakdownRow = {};
+      if (row.QTR) carry.QTR = row.QTR;
+      if (row.ODK) carry.ODK = row.ODK;
+      if (Object.keys(carry).length) changes.push({ play: next, row: carry });
+    }
+    saveBreakdown(changes);
+    if (next) setPlayId(next.id);
+  };
   const lineupFor = (p: Play) => {
     const g = own.games.find((x) => x.id === p.gameId) || (!p.gameId ? own.games[0] : undefined);
     const week = g?.week || '';
@@ -265,7 +318,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   // Opened from the play builder, the library starts closed so the builder has room beside the video.
   const [libraryDesk, setLibraryDesk] = useState(() => !builderSeed && safeJSONParse<boolean>('footballFilmroomLibrary', true));
   const [libraryPhone, setLibraryPhone] = useState(false);
-  const [mobileTab, setMobileTab] = useState<'plays' | 'notes' | 'builder'>('plays');
+  const [mobileTab, setMobileTab] = useState<'plays' | 'notes' | 'builder' | 'breakdown'>('plays');
 
   // Computer layout: the video, then a bar to drag, then the play log in its own scroll area.
   // The video's height and whether notes show are remembered on this device.
@@ -428,7 +481,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       toolbarStart={odkChips}
     />
   );
-  // A game with film but no Hudl breakdown yet: a plain list of its clips (a play table of blanks would only confuse).
+  // Film with no breakdown that can't get one here (a player account, or the game was deleted in Hudl Scout): its clips.
   const clipLog = (
     <div className={`${panel} flex-1 min-h-0 overflow-y-auto p-2`}>
       <p className="px-2 pb-2 text-xs text-slate-500 dark:text-slate-400">
@@ -531,24 +584,37 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   ) : null;
   // Beside the video: the play builder (when it sent us here) or the notes, with a switch between them.
   const sideShown = builderSeed ? !hideBuilder : showNotes;
-  const sideIsBuilder = Boolean(builderSeed) && sideTab === 'builder';
-  const sideTabs = builderSeed ? (
+  const fromFilm = Boolean(game?.fromFilm);
+  const sideTabList = [...(builderSeed ? (['builder'] as const) : []), ...(fromFilm ? (['breakdown'] as const) : []), 'notes' as const];
+  const activeSide = sideTabList.includes(sideTab as never) ? sideTab : sideTabList[0];
+  const sideIsBuilder = activeSide === 'builder';
+  const sideTabs = sideTabList.length > 1 ? (
     <div className="flex items-center gap-1 px-2 pt-2">
-      {(['builder', 'notes'] as const).map((t) => (
+      {sideTabList.map((t) => (
         <button
           key={t}
           type="button"
           onClick={() => setSideTab(t)}
           className={`h-7 px-2.5 rounded-lg text-xs font-black ${
-            sideTab === t ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+            activeSide === t ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          {t === 'builder' ? 'Play builder' : `Notes${play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}`}
+          {t === 'builder' ? 'Play builder' : t === 'breakdown' ? `Breakdown${play ? ` · #${play.playNumber}` : ''}` : `Notes${play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}`}
         </button>
       ))}
       {builderSaved && <span className="ml-auto text-[11px] font-bold text-emerald-700 dark:text-emerald-400">{builderSaved}</span>}
     </div>
   ) : null;
+  const breakdownEl = (
+    <BreakdownPanel
+      play={play}
+      suggestFrom={(isOwn ? own : opp).plays}
+      onSave={(p, row) => saveBreakdown([{ play: p, row }])}
+      next={next}
+      onNext={breakdownNext}
+      readOnly={isReadOnlySession()}
+    />
+  );
   const notesEl = (
     <PlayNotes
       play={play}
@@ -614,8 +680,10 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-full">
           {film.status === 'ready'
             ? game?.filmOnly
-              ? `${film.kind === 'drive' ? 'Drive' : 'Folder'}: ${film.label} · ${clips.length} clip${clips.length === 1 ? '' : 's'} · no Hudl breakdown yet (add its CSV to the folder for plays)`
-              : `${film.kind === 'drive' ? 'Drive' : film.kind === 'folder' ? 'Folder' : 'Clips'}: ${film.label} · ${clipFor.size}/${plays.length} plays have film`
+              ? `${film.kind === 'drive' ? 'Drive' : 'Folder'}: ${film.label} · ${clips.length} clip${clips.length === 1 ? '' : 's'} · setting up a breakdown to fill in…`
+              : `${film.kind === 'drive' ? 'Drive' : film.kind === 'folder' ? 'Folder' : 'Clips'}: ${film.label} · ${clipFor.size}/${plays.length} plays have film${
+                  fromFilm ? ` · ${plays.filter(isBrokenDown).length}/${plays.length} broken down` : ''
+                }`
             : film.status === 'none'
               ? 'No film linked'
               : 'label' in film && film.label
@@ -688,7 +756,11 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
               ? sideShown
                 ? 'Hide play builder'
                 : 'Show play builder'
-              : showNotes
+              : fromFilm
+                ? showNotes
+                  ? 'Hide breakdown'
+                  : 'Show breakdown'
+                : showNotes
                 ? 'Hide notes'
                 : `Show notes${play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}`}
           </button>
@@ -745,6 +817,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           }}
           apiRef={apiRef}
           startAt={resumeAt.current}
+          autoNextDefault={!game?.fromFilm}
         />
 
         {/* Notes: beside the video on a computer (as tall as the video, scrolling), a tab on phones and tablets */}
@@ -754,6 +827,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
               {sideTabs}
               {sideIsBuilder ? (
                 builderEl
+              ) : activeSide === 'breakdown' ? (
+                breakdownEl
               ) : (
                 <>
                   <div className="px-3 pt-3 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -788,6 +863,11 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
 
       <div className="flex items-center gap-2 lg:hidden">
         <button className={chip(mobileTab === 'plays')} onClick={() => setMobileTab('plays')}>Plays &amp; tags</button>
+        {fromFilm && (
+          <button className={chip(mobileTab === 'breakdown')} onClick={() => setMobileTab('breakdown')}>
+            Breakdown
+          </button>
+        )}
         <button className={chip(mobileTab === 'notes')} onClick={() => setMobileTab('notes')}>
           Notes{play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}
         </button>
@@ -798,6 +878,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         )}
       </div>
       {mobileTab === 'notes' && <div className={`${panel} lg:hidden`}>{notesEl}</div>}
+      {mobileTab === 'breakdown' && fromFilm && <div className={`${panel} lg:hidden`}>{breakdownEl}</div>}
       {mobileTab === 'builder' && builderEl && <div className={`${panel} lg:hidden`}>{builderEl}</div>}
 
       {/* The game's play log: click a play to watch it, sort by any column, change tags */}

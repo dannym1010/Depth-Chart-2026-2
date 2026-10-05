@@ -30,6 +30,13 @@ declare global {
   }
 }
 
+// A player account only looks: while one is signed in, nothing is sent to the server or the cloud.
+let readOnlySession = false;
+export function setReadOnlySession(on: boolean) {
+  readOnlySession = on;
+}
+export const isReadOnlySession = () => readOnlySession;
+
 export function safeJSONParse<T>(key: string, fallback: T): T {
   try {
     const val = localStorage.getItem(key);
@@ -618,6 +625,7 @@ export async function saveServerState(
   author: string = 'coach',
   metadata?: any
 ): Promise<{ success: boolean; version?: number; updatedAt?: number } | null> {
+  if (readOnlySession) return null;
   if (isServerApiAvailable === false) return null;
   try {
     const bodyString = safeJSONStringify({
@@ -789,6 +797,7 @@ export async function saveHudlScoutCloud(payload: {
   opponentScout?: any;
   ownTeamScout?: any;
 }): Promise<{ ok: boolean }> {
+  if (readOnlySession) return { ok: false };
   let apiOk = false;
   let firestoreOk = false;
   const week = hudlCloudWeek(payload.week);
@@ -1039,6 +1048,7 @@ export async function saveSharedBoardCloud(payload: {
     | 'formations'
   >;
 }): Promise<boolean> {
+  if (readOnlySession) return false;
   try {
     if (isFirestoreQuotaPaused()) return false;
     const { db } = getFirebaseServices();
@@ -1214,6 +1224,7 @@ export async function savePffWeekCloud(payload: {
   mergeReviews: (cloud: any, mine: any) => any;
   mergeFilm: (cloud: any, mine: any) => any;
 }): Promise<{ pffReviews?: any; filmSession?: any } | null> {
+  if (readOnlySession) return null;
   try {
     if (isFirestoreQuotaPaused()) return null;
     const { db } = getFirebaseServices();
@@ -1283,6 +1294,7 @@ export async function mergeStaffIntoCloud(
   staffList: any[],
   deletedStaff?: Record<string, number>
 ): Promise<{ staff: any[]; deleted: Record<string, number> } | null> {
+  if (readOnlySession) return null;
   try {
     if (isFirestoreQuotaPaused()) return null;
     const { db } = getFirebaseServices();
@@ -1325,6 +1337,7 @@ export async function patchSharedWeekCloud(payload: {
   formationOrder?: string[];
   deletedFormationIds?: string[];
 }): Promise<boolean> {
+  if (readOnlySession) return false;
   try {
     if (isFirestoreQuotaPaused()) return false;
     const { db } = getFirebaseServices();

@@ -1,5 +1,5 @@
 import type { Express } from 'express';
-import { requireOpsSession } from '../opsSession';
+import { requireOpsSession, requireWriter } from '../opsSession';
 import {
   broadcastLocks,
   activeLocks,
@@ -18,7 +18,7 @@ export function registerLockRoutes(app: Express) {
     });
   });
 
-  app.post('/api/locks/acquire', requireOpsSession, (req, res) => {
+  app.post('/api/locks/acquire', requireOpsSession, requireWriter, (req, res) => {
     try {
       cleanExpiredLocks();
       const session = opsSessionOf(req);

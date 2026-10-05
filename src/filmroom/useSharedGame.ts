@@ -1,7 +1,7 @@
 // A game's shared Film Room data (notes, drawings, Drive folder) for everyone on the team: kept on this
 // device, live from the cloud, and saved merged with what other coaches already saved.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { cleanFirestoreData, getFirebaseServices, isFirestoreQuotaPaused, safeJSONParse, safeJSONSet } from '../services/storageService';
+import { cleanFirestoreData, getFirebaseServices, isFirestoreQuotaPaused, isReadOnlySession, safeJSONParse, safeJSONSet } from '../services/storageService';
 import { mergeShared, sharedDocId } from './sharedMerge';
 import { emptyShared, type FilmGameShared } from './types';
 
@@ -55,7 +55,7 @@ export function useSharedGame(teamId: string, gameKey: string | undefined) {
   /** Change this game's shared data; saved to the cloud merged with other coaches' changes. */
   const update = useCallback(
     (change: (s: FilmGameShared) => FilmGameShared) => {
-      if (!docId) return;
+      if (!docId || isReadOnlySession()) return;
       const next = change(sharedRef.current);
       sharedRef.current = next;
       setShared(next);

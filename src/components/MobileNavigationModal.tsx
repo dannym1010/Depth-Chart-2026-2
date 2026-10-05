@@ -23,6 +23,8 @@ import {
 import { UnitType, DepthSubUnit, UserRole } from '../types';
 
 interface MobileNavigationModalProps {
+  /** Player accounts: only these screens are listed. */
+  canSeeUnit?: (unit: UnitType) => boolean;
   isOpen: boolean;
   onClose: () => void;
   activeUnit: UnitType;
@@ -58,6 +60,7 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
   depthSubUnit = 'offense',
   onSelectUnit,
   userRole,
+  canSeeUnit,
   activeTeamName = 'Mahopac 10U',
   onOpenPreferencesModal,
 }) => {
@@ -252,8 +255,8 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
     if (!searchTerm.trim()) {
       return SECTIONS.map((sec) => ({
         ...sec,
-        items: sec.items.filter((item) => !item.adminOnly || userRole === 'admin'),
-      }));
+        items: sec.items.filter((item) => (!item.adminOnly || userRole === 'admin') && (!canSeeUnit || canSeeUnit(item.id as UnitType))),
+      })).filter((sec) => sec.items.length > 0);
     }
 
     const term = searchTerm.toLowerCase();
@@ -261,6 +264,7 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
       ...sec,
       items: sec.items.filter((item) => {
         if (item.adminOnly && userRole !== 'admin') return false;
+        if (canSeeUnit && !canSeeUnit(item.id as UnitType)) return false;
         return (
           item.label.toLowerCase().includes(term) ||
           item.subtitle.toLowerCase().includes(term) ||
@@ -268,7 +272,7 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
         );
       }),
     })).filter((sec) => sec.items.length > 0);
-  }, [SECTIONS, searchTerm, userRole]);
+  }, [SECTIONS, searchTerm, userRole, canSeeUnit]);
 
   if (!isOpen) return null;
 

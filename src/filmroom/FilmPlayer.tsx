@@ -43,6 +43,8 @@ interface FilmPlayerProps {
   startAt?: number;
   /** Keyboard shortcuts (space, arrows, D, S...). Off while a coach is working elsewhere on the page. */
   shortcuts?: boolean;
+  /** Start with "Auto" (next play when a clip ends) on or off; off while breaking a game down. */
+  autoNextDefault?: boolean;
 }
 
 const btn = 'inline-flex items-center justify-center gap-1 h-9 min-w-9 px-2 rounded-lg text-xs font-bold transition-colors disabled:opacity-40';
@@ -59,6 +61,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   maxVideoHeight = 'calc(100dvh - 20rem)',
   startAt = 0,
   shortcuts = true,
+  autoNextDefault = true,
 }) => {
   const rootRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -67,7 +70,8 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   const [duration, setDuration] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [loop, setLoop] = useState(false);
-  const [autoNext, setAutoNext] = useState(true);
+  const [autoNext, setAutoNext] = useState(autoNextDefault);
+  useEffect(() => setAutoNext(autoNextDefault), [autoNextDefault]);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [drawing, setDrawing] = useState(false);

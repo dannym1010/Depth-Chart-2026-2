@@ -174,7 +174,7 @@ import { callSheetSlots, isCopiedScoutReport, isNearCopy, primarySheetSlots, wit
 import { diffCoachNames, mergeTeamCoaches, noteCoachNames, type CoachNameMeta } from './utils/coachNamesMerge';
 import { mergeAttendanceLogs, mergeRosters, mergeStaffLists, mergeTombstones, removedIds, staffKey, stampEdits, stampStaffEdits, type Tombstones } from './utils/recordMerge';
 import { syncEntireRosterWithLogs } from './utils/hoursCalculation';
-import { canManageCoach, coachTeamIds, hasNoTeamYet, isProgramAdminCoach, isProgramAdminEmail, sameTeamId } from './utils/staffAccess';
+import { appRoleFor, canManageCoach, coachTeamIds, hasNoTeamYet, isProgramAdminCoach, isProgramAdminEmail, sameTeamId } from './utils/staffAccess';
 import { OWN_HUDL_KEY, WEEKLY_HUDL_KEY, bigGet, bigStoreAvailable, markBigStoreReady } from './utils/bigLocalStore';
 import { syncWristbandToCallSheet } from './utils/wristbandLinking';
 import { saveCallSheetSnapshot, countCallSheetPlays } from './utils/callSheetStorage';
@@ -183,6 +183,8 @@ import { FilmRoomView } from './filmroom/FilmRoomView';
 import { FilmWindowHost } from './filmroom/FilmWindow';
 import { filmWindowAutoOpen, openFilmWindow } from './filmroom/filmWindowStore';
 import { setDefenseRosterSource } from './utils/defenseRosterStore';
+import { setReadOnlySession } from './services/storageService';
+import { firstPlayerScreen, isPlayerRole, playerCanSee } from './utils/playerAccess';
 import { buildLibrary } from './filmroom/FilmLibrary';
 import { bundleFromSaved } from './hudlScout/scoutBundle';
 import { DEFAULT_BALANCED, setBalancedFormations } from './hudlScout/utils/strength';
@@ -937,6 +939,7 @@ export default function App() {
       : null
   );
   const [userRole, setUserRole] = useState<UserRole>('admin');
+  const userRoleRef = useRef<UserRole>('admin');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isPendingApproval, setIsPendingApproval] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{ text: string; color: string }>({
@@ -1930,10 +1933,7 @@ export default function App() {
           setUserRole('admin');
         } else if (myCoach && myCoach.status === 'Active') {
           setIsPendingApproval(false);
-          const isHead =
-            myCoach.role?.toLowerCase().includes('head coach') ||
-            myCoach.role?.toLowerCase().includes('admin');
-          setUserRole(isHead ? 'admin' : 'assistant');
+          setUserRole(appRoleFor(myCoach));
         } else if (!myCoach || myCoach.status === 'Pending') {
           setIsPendingApproval(true);
         }
@@ -2112,6 +2112,7 @@ export default function App() {
 
   // Trigger Save to LocalStorage, Server API & Firestore
   const saveStateToStorage = async (scope: string = 'all', extraMeta?: Record<string, any>) => {
+    if (userRoleRef.current === 'player') return;
     if (scope === 'focusout') return;
     if (isRemoteSyncRef.current && (scope === 'all' || scope === 'formation')) return;
     const currentState = latestStateRef.current;
@@ -2517,6 +2518,7 @@ export default function App() {
   };
 
   const flushAndSaveStateToStorage = async (scope: string = 'immediate', extraMeta?: Record<string, any>) => {
+    if (userRoleRef.current === 'player') return;
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
@@ -3863,10 +3865,7 @@ export default function App() {
             const coachEntry = latestStaff[existingIdx];
             if (coachEntry.status === 'Active') {
               setIsPendingApproval(false);
-              const isHead =
-                coachEntry.role?.toLowerCase().includes('head coach') ||
-                coachEntry.role?.toLowerCase().includes('admin');
-              setUserRole(isHead ? 'admin' : 'assistant');
+              setUserRole(appRoleFor(coachEntry));
               setIsAuthModalOpen(false);
             } else {
               setIsPendingApproval(true);
@@ -4449,6 +4448,7 @@ export default function App() {
 
   const staffPublishTimerRef = useRef<any>(null);
   const queueStaffTeamsPublish = () => {
+    if (userRoleRef.current === 'player') return;
     if (staffPublishTimerRef.current) clearTimeout(staffPublishTimerRef.current);
     staffPublishTimerRef.current = setTimeout(() => {
       staffPublishTimerRef.current = null;
@@ -4517,6 +4517,34 @@ export default function App() {
       return isPrimaryTeamId(activeTeamId);
     });
   }, [roster, activeTeamId, teams]);
+
+  // Player accounts: only the tabs a coach gave them, and view-only (nothing they do is saved).
+  const myStaffEntry = useMemo(() => {
+    const email = String(currentUser?.email || '').toLowerCase().trim();
+    return email ? staffList.find((c) => String(c.email || '').toLowerCase().trim() === email) : undefined;
+  }, [staffList, currentUser?.email]);
+  const isPlayer = userRole === 'player';
+  const myPlayerTabs = myStaffEntry?.playerTabs;
+  const canSeeUnit = useMemo(
+    () => (isPlayer ? (unit: UnitType) => playerCanSee(myPlayerTabs, unit) : undefined),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isPlayer, (myPlayerTabs || []).join('|'), myPlayerTabs === undefined]
+  );
+  const playerHome = isPlayer ? firstPlayerScreen(myPlayerTabs) : null;
+  userRoleRef.current = userRole;
+  useEffect(() => {
+    setReadOnlySession(isPlayer);
+  }, [isPlayer]);
+  // Whatever path signed someone in, a Player entry in the staff list means a player (and back again when a coach changes it).
+  useEffect(() => {
+    if (!myStaffEntry || myStaffEntry.status !== 'Active' || isProgramAdminEmail(String(currentUser?.email || ''))) return;
+    if (isPlayerRole(myStaffEntry.role) !== isPlayer) setUserRole(appRoleFor(myStaffEntry));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myStaffEntry?.role, myStaffEntry?.status, isPlayer]);
+  useEffect(() => {
+    if (canSeeUnit && playerHome && !canSeeUnit(activeUnit)) setActiveUnit(playerHome);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canSeeUnit, activeUnit, playerHome]);
 
   // The play builder tags our defense from this week's depth chart (Black / Gold / Blue).
   useEffect(() => {
@@ -4874,7 +4902,8 @@ export default function App() {
     assignedTeamIds: string[] = [activeTeamId],
     favoriteTeamId: string = activeTeamId || 'team_10u',
     startScreen: UnitType = 'schedule',
-    idleTimeoutMinutes: number = 30
+    idleTimeoutMinutes: number = 30,
+    playerTabs?: string[]
   ) => {
     const cleanEmail = email.toLowerCase().trim();
     if (userRole !== 'admin') return;
@@ -4896,6 +4925,7 @@ export default function App() {
       favoriteTeamId,
       startScreen,
       idleTimeoutMinutes,
+      ...(playerTabs ? { playerTabs } : {}),
     };
     let updatedStaff: StaffCoach[] = [];
     setStaffList((prev) => {
@@ -6163,7 +6193,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
               } else {
                 setIsPendingApproval(false);
                 setIsAuthModalOpen(false);
-                setUserRole(isMaster ? 'admin' : 'assistant');
+                setUserRole(isMaster ? 'admin' : appRoleFor(staffList.find((c) => c.email.toLowerCase().trim() === clean)));
                 applyUserPreferencesOnLogin(clean);
               }
               await establishOpsSession({ method: 'loopback', email: clean });
@@ -6206,10 +6236,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   const found = data.staffList.find((c: StaffCoach) => c.email.toLowerCase().trim() === clean);
                   if (found && found.status === 'Active') {
                     setIsPendingApproval(false);
-                    const isHead =
-                      found.role?.toLowerCase().includes('head coach') ||
-                      found.role?.toLowerCase().includes('admin');
-                    setUserRole(isHead ? 'admin' : 'assistant');
+                    setUserRole(appRoleFor(found));
                   } else {
                     alert('Your account is still pending approval. The Head Coach or Admin will approve you in the Staff Portal.');
                   }
@@ -6337,6 +6364,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
 
       {/* Left Vertical Sidebar Navigation (Folder System with Cascading Expansion & Hover Details) */}
       <SidebarNavigation
+        canSeeUnit={canSeeUnit}
         activeUnit={activeUnit}
         onSelectUnit={(unit) => {
           if (unit === 'depth_chart') {
@@ -7675,6 +7703,18 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   });
                   queueStaffTeamsPublish();
                 }}
+                onUpdateStaffPlayerTabs={(idx, tabs) => {
+                  if (!mayManageStaffAt(idx)) return;
+                  setStaffList((prev) => {
+                    const updated = [...prev];
+                    if (!updated[idx]) return prev;
+                    updated[idx] = { ...updated[idx], playerTabs: tabs };
+                    safeJSONSet('footballTeamCoaches', updated);
+                    latestStateRef.current.staffList = updated;
+                    return updated;
+                  });
+                  queueStaffTeamsPublish();
+                }}
                 onToggleStaffApproval={(idx) => {
                   if (!mayManageStaffAt(idx)) return;
                   setStaffList((prev) => {
@@ -7840,6 +7880,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
 
       {/* Mobile Bottom Quick Launch Dock (Phone Viewports) */}
       <nav aria-label="Mobile Navigation" className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-950/95 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800 px-2 py-1.5 flex items-center justify-around shadow-2xl print:hidden">
+        {(!canSeeUnit || canSeeUnit('mobile_hub')) && (
         <button
           type="button"
           onClick={() => setActiveUnit('mobile_hub')}
@@ -7850,7 +7891,9 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
           <Smartphone className="w-5 h-5" />
           <span className="text-[10px]">Hub</span>
         </button>
+        )}
 
+        {(!canSeeUnit || canSeeUnit('offense')) && (
         <button
           type="button"
           onClick={() => {
@@ -7867,7 +7910,9 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
           <Layers className="w-5 h-5" />
           <span className="text-[10px]">Depth</span>
         </button>
+        )}
 
+        {(!canSeeUnit || canSeeUnit('call_sheet')) && (
         <button
           type="button"
           onClick={() => setActiveUnit('call_sheet')}
@@ -7880,7 +7925,9 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
           <Swords className="w-5 h-5" />
           <span className="text-[10px]">Call Sheet</span>
         </button>
+        )}
 
+        {(!canSeeUnit || canSeeUnit('drills')) && (
         <button
           type="button"
           onClick={() => setActiveUnit('drills')}
@@ -7893,6 +7940,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
           <PenTool className="w-5 h-5" />
           <span className="text-[10px]">Drills</span>
         </button>
+        )}
 
         <button
           type="button"
@@ -7921,6 +7969,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
 
       {/* Full Mobile Navigation Sheet Modal */}
       <MobileNavigationModal
+        canSeeUnit={canSeeUnit}
         isOpen={isMobileNavOpen}
         onClose={() => {
           setIsMobileNavOpen(false);
@@ -7958,6 +8007,15 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
         activeTeamName={currentActiveTeam?.name || 'Mahopac 10U'}
         onOpenPreferencesModal={() => setIsPreferencesModalOpen(true)}
       />
+
+      {isPlayer && !playerHome && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/90 p-6">
+          <div className="max-w-sm rounded-2xl bg-white dark:bg-slate-900 p-6 text-center shadow-2xl">
+            <h2 className="text-lg font-black text-slate-900 dark:text-white">Nothing to show yet</h2>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Your coach hasn&apos;t turned on any tabs for your account. Ask them to pick what you can see in the Staff screen.</p>
+          </div>
+        </div>
+      )}
 
       {/* The film window: their film of a play, floating over Their plays and the play builder */}
       <FilmWindowHost

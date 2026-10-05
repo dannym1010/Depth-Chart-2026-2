@@ -8,6 +8,7 @@ export const staffRoleForEmail = (email: string): OpsSession['role'] => {
     (c: any) => String(c?.email || '').toLowerCase().trim() === email
   );
   const role = String(coach?.role || '').toLowerCase();
+  if (/\bplayer\b/.test(role)) return 'player';
   if (role.includes('head') || role.includes('admin')) return 'admin';
   return 'coach';
 };

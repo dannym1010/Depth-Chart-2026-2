@@ -427,10 +427,10 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                 <span>#{play.playNumber}</span>
                 {rowBadge?.(play)}
                 {play.series != null && <span className="font-bold text-slate-300">Drive {play.series}</span>}
-                <span>{play.odk}</span>
-                <span>Q{play.quarter}</span>
-                <span>{play.down} &amp; {play.distance}</span>
-                <span>Hash {play.hash}</span>
+                {play.odk !== 'UNKNOWN' && <span>{play.odk}</span>}
+                {play.quarter > 0 && <span>Q{play.quarter}</span>}
+                {play.down > 0 && <span>{play.down} &amp; {play.distance}</span>}
+                {play.hash && <span>Hash {play.hash}</span>}
                 <span className={play.playType === 'RUN' ? 'text-emerald-400' : play.playType === 'PASS' ? 'text-sky-400' : 'text-amber-400'}>
                   {play.playType}
                 </span>
@@ -562,7 +562,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                           : 'Unknown'
                       }
                     >
-                      {play.odk}
+                      {play.odk === 'UNKNOWN' ? '–' : play.odk}
                     </span>
                   </td>
                   {onSetUnit && (
@@ -571,7 +571,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     </td>
                   )}
                   <td className="py-2.5 px-2 text-center text-slate-300 font-mono">
-                    Q{play.quarter}
+                    {play.quarter > 0 ? `Q${play.quarter}` : ''}
                     {play.series != null &&
                       (compact ? (
                         <span className="ml-1 text-[10px] font-sans font-bold text-slate-500" title={`Drive ${play.series}`}>D{play.series}</span>
@@ -581,12 +581,12 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   </td>
                   <td className="py-2.5 px-3 font-mono">
                     <span className="font-bold text-slate-200">
-                      {play.down === 0 ? 'Kick' : `${play.down} & ${play.distance}`}
+                      {play.down === 0 ? (play.odk === 'K' ? 'Kick' : '') : `${play.down} & ${play.distance}`}
                     </span>
                   </td>
                   <td className="py-2.5 px-3 font-mono text-slate-300">
                     <span className={play.yardLineSide === 'OPP' ? 'text-rose-300' : 'text-slate-300'}>
-                      {play.rawYardLine || `${play.yardLineSide} ${play.yardLine}`}
+                      {play.rawYardLine || (play.yardLine ? `${play.yardLineSide} ${play.yardLine}` : '')}
                     </span>
                   </td>
                   <td className="py-2.5 px-2 text-center font-mono font-bold">
@@ -639,7 +639,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   <td className="py-2.5 px-2 text-slate-300 text-[11px]">{play.result && play.result !== '-' ? play.result : ''}</td>
                   <td className="py-2.5 px-3 text-right font-mono font-bold">
                     <span className={isGain ? 'text-emerald-400' : isLoss ? 'text-rose-400' : 'text-slate-400'}>
-                      {play.gainLoss > 0 ? `+${play.gainLoss}` : play.gainLoss}
+                      {play.odk === 'UNKNOWN' && !play.gainLoss ? '' : play.gainLoss > 0 ? `+${play.gainLoss}` : play.gainLoss}
                     </span>
                   </td>
                   <td className="py-2.5 px-3 text-center">

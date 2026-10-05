@@ -12,6 +12,8 @@ export interface FilmGame {
   week?: string;
   /** Found as film in the film folder with no Hudl breakdown: its clips are the plays, in order. */
   filmOnly?: boolean;
+  /** A breakdown the coaches fill in while watching (made from a film-only game). */
+  fromFilm?: boolean;
 }
 
 /** A film clip found for a game (one file = one play). */

@@ -14,6 +14,8 @@ export interface ScoutGame {
   week?: string;
   /** When a coach last changed this game (its week). */
   editedAt?: number;
+  /** Made in the Film Room from a film folder with no Hudl breakdown: coaches fill in its plays while watching. */
+  fromFilm?: boolean;
 }
 
 interface HeaderProps {

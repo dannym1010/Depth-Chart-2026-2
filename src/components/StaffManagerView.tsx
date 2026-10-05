@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { DEFAULT_PLAYER_TABS, PLAYER_ROLE, PLAYER_TAB_OPTIONS, isPlayerRole, playerTabsOf } from '../utils/playerAccess';
 import {
   Users,
   UserPlus,
@@ -50,8 +51,10 @@ interface StaffManagerViewProps {
   onAddTeam: (team: Omit<Team, 'id'>) => void;
   onUpdateTeam: (teamId: string, updated: Partial<Team>) => void;
   onDeleteTeam: (teamId: string) => void;
-  onAddStaffCoach: (email: string, role?: string, assignedTeamIds?: string[], favoriteTeamId?: string, startScreen?: UnitType, idleTimeoutMinutes?: number) => void;
+  onAddStaffCoach: (email: string, role?: string, assignedTeamIds?: string[], favoriteTeamId?: string, startScreen?: UnitType, idleTimeoutMinutes?: number, playerTabs?: string[]) => void;
   onUpdateStaffRole: (idx: number, role: string) => void;
+  /** Player accounts: which tabs this player sees. */
+  onUpdateStaffPlayerTabs?: (idx: number, tabs: string[]) => void;
   onToggleStaffApproval: (idx: number) => void;
   onRemoveStaffCoach: (idx: number) => void;
   onUpdateStaffAssignedTeams: (idx: number, teamIds: string[]) => void;
@@ -82,6 +85,7 @@ export const StaffManagerView: React.FC<StaffManagerViewProps> = ({
   onDeleteTeam,
   onAddStaffCoach,
   onUpdateStaffRole,
+  onUpdateStaffPlayerTabs,
   onToggleStaffApproval,
   onRemoveStaffCoach,
   onUpdateStaffAssignedTeams,
@@ -107,6 +111,7 @@ export const StaffManagerView: React.FC<StaffManagerViewProps> = ({
   const [showAddStaffModal, setShowAddStaffModal] = useState(false);
   const [newStaffEmail, setNewStaffEmail] = useState('');
   const [newStaffRole, setNewStaffRole] = useState('Head Coach (Admin)');
+  const [newPlayerTabs, setNewPlayerTabs] = useState<string[]>(DEFAULT_PLAYER_TABS);
   const [newStaffAssignedTeams, setNewStaffAssignedTeams] = useState<string[]>([activeTeamId]);
   // Each team has its own coaches: the list shows one team at a time (the program owner can pick all).
   const [staffTeamFilter, setStaffTeamFilter] = useState<string>(activeTeamId);
@@ -230,7 +235,8 @@ Looking forward to a great season!`;
       assignedIds,
       activeTeamId,
       'schedule',
-      newStaffIdleTimeout
+      newStaffIdleTimeout,
+      isPlayerRole(newStaffRole) ? newPlayerTabs : undefined
     );
 
     const teamNames = teams
@@ -255,6 +261,7 @@ Looking forward to a great season!`;
 
     setNewStaffEmail('');
     setNewStaffRole('Head Coach (Admin)');
+    setNewPlayerTabs(DEFAULT_PLAYER_TABS);
     setNewStaffAssignedTeams([activeTeamId]);
   };
 
@@ -711,11 +718,19 @@ Looking forward to a great season!`;
                             <option value="Assistant Coach">
                               Assistant Coach
                             </option>
+                            <option value={PLAYER_ROLE}>Player (view only)</option>
                           </select>
                         ) : (
                           <span className="font-semibold text-slate-300">
                             {coach.role}
                           </span>
+                        )}
+                        {!isMaster && isPlayerRole(coach.role) && (
+                          <PlayerTabPicker
+                            tabs={playerTabsOf(coach.playerTabs)}
+                            disabled={!canEdit}
+                            onChange={(tabs) => onUpdateStaffPlayerTabs?.(idx, tabs)}
+                          />
                         )}
                       </td>
 
@@ -1344,10 +1359,20 @@ Looking forward to a great season!`;
                 >
                   <option value="Head Coach (Admin)">Head Coach (Admin)</option>
                   <option value="Assistant Coach">Assistant Coach</option>
+                  <option value={PLAYER_ROLE}>Player (view only)</option>
                 </select>
-                <p className="text-[10.5px] text-slate-400 mt-1">
-                  Head Coaches can build plays &amp; schedules for their allowed teams.
-                </p>
+                {isPlayerRole(newStaffRole) ? (
+                  <>
+                    <p className="text-[10.5px] text-slate-400 mt-1">
+                      Players only look: nothing they do is saved. They see just the tabs you pick.
+                    </p>
+                    <PlayerTabPicker tabs={newPlayerTabs} onChange={setNewPlayerTabs} />
+                  </>
+                ) : (
+                  <p className="text-[10.5px] text-slate-400 mt-1">
+                    Head Coaches can build plays &amp; schedules for their allowed teams.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -1978,3 +2003,29 @@ Looking forward to a great season!`;
     </div>
   );
 };
+
+/** The tabs a player account sees: one chip per tab, on or off. */
+function PlayerTabPicker({ tabs, onChange, disabled }: { tabs: string[]; onChange: (tabs: string[]) => void; disabled?: boolean }) {
+  const on = new Set(tabs);
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1 max-w-xs" aria-label="Tabs this player can see">
+      {PLAYER_TAB_OPTIONS.map((o) => {
+        const active = on.has(o.id);
+        return (
+          <button
+            key={o.id}
+            type="button"
+            disabled={disabled}
+            aria-pressed={active}
+            onClick={() => onChange(active ? tabs.filter((t) => t !== o.id) : PLAYER_TAB_OPTIONS.map((x) => x.id).filter((id) => id === o.id || on.has(id)))}
+            className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors ${
+              active ? 'bg-sky-600 text-white border-sky-500' : 'bg-slate-900 text-slate-500 border-slate-800 hover:border-slate-600'
+            } ${disabled ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}

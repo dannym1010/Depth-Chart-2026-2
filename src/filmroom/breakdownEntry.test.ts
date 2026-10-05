@@ -1,0 +1,68 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { applyBreakdown, blankPlays, breakdownRowOf, isBrokenDown } from './breakdownEntry.ts';
+import type { FilmClip } from './types.ts';
+
+const clips: FilmClip[] = [
+  { kind: 'drive', id: 'a', name: 'IMG_0012.mp4' },
+  { kind: 'drive', id: 'b', name: 'IMG_0013.mp4' },
+];
+
+describe('breakdown filled in while watching', () => {
+  it('starts with one blank play per clip, in order', () => {
+    const plays = blankPlays(clips, 'g1');
+    assert.equal(plays.length, 2);
+    assert.deepEqual(plays.map((p) => p.playNumber), [1, 2]);
+    assert.deepEqual(plays.map((p) => p.id), ['clip-img-0012-g1', 'clip-img-0013-g1']);
+    const p = plays[0];
+    assert.equal(p.odk, 'UNKNOWN');
+    assert.equal(p.quarter, 0);
+    assert.equal(p.down, 0);
+    assert.equal(p.playName, '');
+    assert.equal(p.rawYardLine, '');
+    assert.equal(p.gameId, 'g1');
+    assert.equal(isBrokenDown(p), false);
+  });
+
+  it('reads what was entered like a Hudl row and leaves the rest blank', () => {
+    const [p] = blankPlays(clips, 'g1');
+    const done = applyBreakdown(p, { ODK: 'O', QTR: '2', DN: '3', DIST: '4', 'YARD LN': '-35', HASH: 'L', 'OFF FORM': 'Trips Rt', 'OFF PLAY': '34 Power', 'PLAY TYPE': 'Run', 'PLAY DIR': 'R', RESULT: 'Rush', 'GN/LS': '12' });
+    assert.equal(done.id, p.id);
+    assert.equal(done.odk, 'O');
+    assert.equal(done.quarter, 2);
+    assert.equal(done.down, 3);
+    assert.equal(done.distance, 4);
+    assert.equal(done.yardLineSide, 'OWN');
+    assert.equal(done.hash, 'L');
+    assert.equal(done.formation, 'Trips Rt');
+    assert.equal(done.playName, '34 Power');
+    assert.equal(done.playType, 'RUN');
+    assert.equal(done.runSide, 'R');
+    assert.equal(done.gainLoss, 12);
+    assert.equal(done.isExplosive, true);
+    assert.equal(isBrokenDown(done), true);
+    assert.equal(breakdownRowOf(done)['OFF PLAY'], '34 Power');
+
+    const some = applyBreakdown(p, { ODK: 'D', QTR: '1' });
+    assert.equal(some.odk, 'D');
+    assert.equal(some.down, 0);
+    assert.equal(some.distance, 0);
+    assert.equal(some.rawYardLine, '');
+    assert.equal(some.result, '');
+    assert.equal(some.playType, '');
+    assert.equal(some.playName, '');
+  });
+
+  it('keeps a Play Bank tag and the unit when the columns change, and clears back to blank', () => {
+    const [p] = blankPlays(clips, 'g1');
+    const tagged = { ...p, playCallId: 'pc1', playCall: 'Jet Sweep', playName: 'Jet Sweep', unit: 'black' as const };
+    const done = applyBreakdown(tagged, { ODK: 'O', 'OFF PLAY': '28 Sweep' });
+    assert.equal(done.playName, 'Jet Sweep');
+    assert.equal(done.untaggedName, '28 Sweep');
+    assert.equal(done.unit, 'black');
+    const cleared = applyBreakdown(done, {});
+    assert.equal(cleared.odk, 'UNKNOWN');
+    assert.equal(isBrokenDown(cleared), false);
+    assert.equal(cleared.playCallId, 'pc1');
+  });
+});

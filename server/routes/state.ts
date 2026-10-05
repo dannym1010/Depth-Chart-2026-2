@@ -1,5 +1,5 @@
 import type { Express } from 'express';
-import { requireOpsSession } from '../opsSession';
+import { requireOpsSession, requireWriter } from '../opsSession';
 import { sanitizeStateSecrets } from '../../src/utils/passcodeHash';
 import { applyHudlScoutPatch, normalizeScoutWeekKey } from '../../src/utils/remoteStateMerge';
 import { store, saveStateToDisk } from '../stateStore';
@@ -29,7 +29,7 @@ export function registerStateRoutes(app: Express) {
     });
   });
 
-  app.post('/api/hudl-scout', requireOpsSession, (req, res) => {
+  app.post('/api/hudl-scout', requireOpsSession, requireWriter, (req, res) => {
     try {
       const { teamId, week, opponentScout, ownTeamScout } = req.body || {};
       store.state = applyHudlScoutPatch(store.state || {}, {
@@ -72,7 +72,7 @@ export function registerStateRoutes(app: Express) {
   });
 
   // State Persistence: Save full or scoped state from any coach
-  app.post('/api/state', requireOpsSession, (req, res) => {
+  app.post('/api/state', requireOpsSession, requireWriter, (req, res) => {
     try {
       const { state, author, clientId, metadata } = req.body;
       if (!state || typeof state !== 'object') {

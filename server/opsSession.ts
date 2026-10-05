@@ -8,7 +8,8 @@ const FIREBASE_WEB_API_KEY = 'AIzaSyByWAe6BpeDboNzqsC_NxWw0pfnca0sfqE';
 
 export type OpsSession = {
   email: string;
-  role: 'admin' | 'coach';
+  /** 'player': a view-only player account; it may read but never save. */
+  role: 'admin' | 'coach' | 'player';
   createdAt: number;
   expiresAt: number;
 };
@@ -135,6 +136,15 @@ export function requireOpsSession(req: Request, res: Response, next: NextFunctio
     return res.status(401).json({ error: 'Sign in required.' });
   }
   (req as Request & { opsSession: OpsSession }).opsSession = session;
+  next();
+}
+
+/** For routes that save: a player account only looks. Use after requireOpsSession. */
+export function requireWriter(req: Request, res: Response, next: NextFunction) {
+  const session = (req as Request & { opsSession?: OpsSession }).opsSession;
+  if (session?.role === 'player') {
+    return res.status(403).json({ error: 'Player accounts are view-only.' });
+  }
   next();
 }
 

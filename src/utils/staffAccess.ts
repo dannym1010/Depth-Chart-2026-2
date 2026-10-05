@@ -69,3 +69,11 @@ export function canSeeCoach(manager: StaffManager, target: StaffCoach, teams: Te
   if (target.status === 'Pending' && hasNoTeamYet(target)) return true;
   return coachTeamIds(target, teams).some((id) => manager.teamIds.some((m) => sameTeamId(m, id)));
 }
+
+/** The app role for an approved staff entry: Head Coach / admin roles edit, players only look, the rest are assistants. */
+export function appRoleFor(entry: { role?: string } | null | undefined): 'admin' | 'assistant' | 'player' {
+  const role = String(entry?.role || '').toLowerCase();
+  if (/\bplayer\b/.test(role)) return 'player';
+  if (role.includes('head coach') || role.includes('admin')) return 'admin';
+  return 'assistant';
+}

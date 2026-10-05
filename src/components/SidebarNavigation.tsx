@@ -47,6 +47,8 @@ import {
 } from './whiteboard/whiteboardDrillData';
 
 export interface SidebarNavigationProps {
+  /** Player accounts: only these screens are listed. Unset = everything the role allows. */
+  canSeeUnit?: (unit: UnitType) => boolean;
   activeUnit: UnitType;
   onSelectUnit: (unit: UnitType) => void;
   userRole: UserRole;
@@ -420,6 +422,7 @@ const POSITION_CATEGORIES: DefensivePositionCategory[] = [
 ];
 
 export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
+  canSeeUnit,
   activeUnit,
   onSelectUnit,
   userRole,
@@ -809,6 +812,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
         <div className="flex-1 overflow-y-auto px-2.5 py-3 space-y-1.5 scrollbar-thin scrollbar-thumb-slate-800">
           {MAIN_NAV_ITEMS.map((item) => {
             if (item.adminOnly && userRole !== 'admin') return null;
+            if (canSeeUnit && !canSeeUnit(item.id as UnitType)) return null;
 
             const Icon = item.icon;
             const active = isItemActive(item.id);

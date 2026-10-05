@@ -26,7 +26,8 @@ export type UnitType =
   | 'whiteboard'
   | 'users';
 
-export type UserRole = 'admin' | 'assistant';
+/** 'player': a player or parent account, view-only, seeing only the tabs a coach picked. */
+export type UserRole = 'admin' | 'assistant' | 'player';
 
 export interface CustomTabGroup {
   id: string;
@@ -635,6 +636,8 @@ export interface StaffCoach {
   startScreen?: UnitType; // Startup screen linked to this user login
   startDepthSubUnit?: DepthSubUnit;
   idleTimeoutMinutes?: number; // Inactivity logout timeout in minutes (e.g. 10, 15, 30, 60, 120, 240, or 0 = disabled/never)
+  /** Player accounts (role "Player"): the tabs they may see (ids from PLAYER_TAB_OPTIONS). Unset = the defaults. */
+  playerTabs?: string[];
 }
 
 export interface PlaybookGuideTree {
