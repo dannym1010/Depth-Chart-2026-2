@@ -4,11 +4,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, Film, RefreshCw, Search, Telescope, X } from 'lucide-react';
 import { filmGameKey } from './sharedMerge';
 import type { FilmGame } from './types';
+import type { FilmFolderGame, UnplacedFolder } from './folderRoutes';
 
 export interface LibraryGame extends FilmGame {
   plays: number;
   /** A warning shown under the game (e.g. the same scouting game filed in two weeks). */
   note?: string;
+  /** Film in the film folder with no Hudl breakdown yet. */
+  filmOnly?: boolean;
 }
 
 /** Scouting games of a week as Hudl Scout lists them (one unnamed game when the file had no list). */
@@ -26,7 +29,9 @@ export function buildLibrary(
   weeks: { key: string; label: string; opponent: string; hudlScout?: any }[],
   ownGames: { id: string; name: string; week?: string; playCount?: number }[],
   currentWeek: string,
-  currentOpponentScout?: unknown
+  currentOpponentScout?: unknown,
+  /** Game folders with film found in the film folder (with or without a breakdown). */
+  filmFolders: FilmFolderGame[] = []
 ): { weeks: LibraryWeek[]; others: LibraryGame[] } {
   const weekKeys = new Set(weeks.map((w) => w.key));
   const ownByWeek = new Map<string, LibraryGame[]>();
@@ -61,6 +66,26 @@ export function buildLibrary(
     const inWeeks = weeksOfGame.get(g.gameId) || [];
     if (g.source === 'opponent' && inWeeks.length > 1) g.note = `Also in ${inWeeks.filter((l) => l !== w.label).join(', ')}`;
   }));
+  // Film in the film folder for a game Hudl Scout doesn't have yet: listed so it can still be watched.
+  // A week that already has a game of that kind (uploaded by hand or from a breakdown) is left alone.
+  for (const f of filmFolders) {
+    const w = libWeeks.find((x) => x.key === f.week);
+    const game: LibraryGame = {
+      key: filmGameKey(f.source, f.id, f.week),
+      source: f.source,
+      gameId: f.id,
+      name: f.name,
+      week: f.week,
+      plays: 0,
+      filmOnly: true,
+    };
+    if (!w) {
+      if (!others.some((g) => g.key === game.key)) others.push(game);
+      continue;
+    }
+    if (w.games.some((g) => g.source === f.source && !g.filmOnly)) continue;
+    if (!w.games.some((g) => g.key === game.key)) w.games.push(game);
+  }
   return { weeks: libWeeks, others };
 }
 
@@ -86,11 +111,13 @@ interface FilmLibraryProps {
   checking?: boolean;
   /** Look in the film folder for new breakdown files now. */
   onCheckFolder?: () => void;
+  /** Folders with film in them that couldn't be placed in the season, and why. */
+  unplaced?: UnplacedFolder[];
 }
 
 const norm = (s: string) => String(s || '').toLowerCase();
 
-export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library', weeks, otherGames, currentWeek, selectedKey, onOpen, onClose, added, checking, onCheckFolder }) => {
+export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library', weeks, otherGames, currentWeek, selectedKey, onOpen, onClose, added, checking, onCheckFolder, unplaced }) => {
   const [query, setQuery] = useState('');
   const selectedWeek = weeks.find((w) => w.games.some((g) => g.key === selectedKey))?.key;
   const [open, setOpen] = useState<Set<string>>(() => new Set([currentWeek, selectedWeek || ''].filter(Boolean)));
@@ -126,7 +153,7 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library'
         className={`w-full text-left flex items-center gap-2 pl-7 pr-2 py-1.5 rounded-md text-xs transition-colors ${
           on ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
         }`}
-        title={g.source === 'own' ? 'Our game' : 'Scouting film'}
+        title={g.filmOnly ? 'Film is in the film folder; no Hudl breakdown yet, so each clip is a play' : g.source === 'own' ? 'Our game' : 'Scouting film'}
       >
         <Icon size={13} className={on ? 'text-white shrink-0' : g.source === 'own' ? 'text-indigo-500 shrink-0' : 'text-amber-500 shrink-0'} />
         <span className="flex-1 min-w-0">
@@ -137,7 +164,7 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library'
             </span>
           )}
         </span>
-        <span className={`shrink-0 tabular-nums text-[10px] ${on ? 'text-white/80' : 'text-slate-400'}`}>{g.plays}</span>
+        <span className={`shrink-0 tabular-nums text-[10px] ${on ? 'text-white/80' : 'text-slate-400'}`}>{g.filmOnly ? 'film' : g.plays}</span>
       </button>
     );
   };
@@ -211,14 +238,30 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library'
           </div>
         )}
         {!shown.length && !others.length && <p className="px-3 py-4 text-xs text-slate-400">No games match “{query}”.</p>}
+        {unplaced && unplaced.length > 0 && (
+          <div className="mx-1.5 mt-2 rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-900 dark:text-amber-200">
+            <div className="flex items-center gap-1 font-black">
+              <AlertTriangle size={12} /> Film folders I couldn&apos;t place ({unplaced.length})
+            </div>
+            <ul className="mt-1 space-y-1.5">
+              {unplaced.map((u) => (
+                <li key={u.path.join('/')}>
+                  <span className="font-bold">{u.path.slice(1).join(' › ')}</span>
+                  <span className="block opacity-80">{u.reason}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1.5 opacity-80">Rename a folder to start with its week (for example &quot;Week 3 - Shrub Oak&quot;) and check the film folder again.</p>
+          </div>
+        )}
         {onCheckFolder && (
           <button
             onClick={onCheckFolder}
             disabled={checking}
             className="mt-2 mx-1.5 inline-flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 dark:text-indigo-300 hover:underline disabled:opacity-60"
-            title="Look in the film folder for breakdown files (CSV / Excel) of games not in Hudl Scout yet"
+            title="Look in the film folder for games with film (and breakdown files) not in the library yet"
           >
-            <RefreshCw size={12} className={checking ? 'animate-spin' : ''} /> {checking ? 'Checking the film folder…' : 'Check film folder for breakdown files'}
+            <RefreshCw size={12} className={checking ? 'animate-spin' : ''} /> {checking ? 'Checking the film folder…' : 'Check the film folder for new games'}
           </button>
         )}
       </div>

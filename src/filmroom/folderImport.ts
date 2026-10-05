@@ -7,7 +7,7 @@ import type { Play } from '../hudlScout/types/football';
 import { autoDetectColumnMapping, isSpreadsheetFilename, normalizeHudlRow, parseCsvRows, workbookBufferToCsv } from '../hudlScout/utils/csvParser';
 import { autoTagFromHudl } from '../hudlScout/utils/playTags';
 import type { PlayDatabaseEntry } from '../types/callSheet';
-import { findBreakdowns, type FolderNode } from './folderRoutes';
+import { findBreakdowns, findFilmFolders, type FilmFolderGame, type FolderNode, type UnplacedFolder } from './folderRoutes';
 
 /** A breakdown file's plays, read the same way as a Hudl Scout upload. */
 export async function readBreakdown(name: string, blob: Blob): Promise<Play[]> {
@@ -49,6 +49,8 @@ export function useFolderBreakdowns(opts: {
   playDatabase?: PlayDatabaseEntry[];
   onUpdateOwnTeamScout: (bundle: ScoutBundle) => void;
   onSaveWeekScouting?: (week: string, hudlScout: any) => void;
+  /** Every game folder with film in it, and the folders that couldn't be placed (film with no breakdown yet). */
+  onFilmFolders?: (found: { games: FilmFolderGame[]; unplaced: UnplacedFolder[] }) => void;
 }) {
   const [added, setAdded] = useState<string[]>([]);
   const [checking, setChecking] = useState(false);
@@ -64,6 +66,12 @@ export function useFolderBreakdowns(opts: {
     lastRun.set(key, Date.now());
     setChecking(true);
     try {
+      // Film folders first (cheap to show), then the breakdown files that add games with plays.
+      try {
+        o.onFilmFolders?.(await findFilmFolders(root, o.teamName));
+      } catch (err) {
+        console.warn('Looking for game folders with film:', err);
+      }
       const found = await findBreakdowns(root, o.teamName);
       const seen = loadSeen();
       const notes: string[] = [];

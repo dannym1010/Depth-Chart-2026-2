@@ -268,3 +268,68 @@ export async function gameViews(node: FolderNode): Promise<FolderNode[]> {
   withClips.sort((a, b) => Number(/side/i.test(b.name)) - Number(/side/i.test(a.name)) || a.name.localeCompare(b.name, undefined, { numeric: true }));
   return videos ? [node, ...withClips] : withClips;
 }
+
+/** A game folder with film in it, found in the shared film folder (with or without a Hudl breakdown). */
+export interface FilmFolderGame {
+  source: 'own' | 'opponent';
+  /** The week key ("3", "pre-4"). */
+  week: string;
+  name: string;
+  /** Fixed for the folder, the same on every coach's device. */
+  id: string;
+  path: string[];
+}
+
+/** A folder with film in it that couldn't be placed in the season, and why. */
+export interface UnplacedFolder {
+  path: string[];
+  reason: string;
+}
+
+/**
+ * Every game folder of the team that has film in it (video directly, or in its camera-view folders),
+ * and the folders with film that can't be placed (no "Week 3" in the name). The film library lists
+ * these even when the game has no Hudl breakdown yet.
+ */
+export async function findFilmFolders(root: FolderNode, teamName: string): Promise<{ games: FilmFolderGame[]; unplaced: UnplacedFolder[] }> {
+  const games: FilmFolderGame[] = [];
+  const unplaced: UnplacedFolder[] = [];
+  const top = await root.open();
+  const team = pickTeamFolder(top.dirs, teamName);
+  if (!team) return { games, unplaced };
+  const hasFilm = async (node: FolderNode, inside?: { dirs: FolderNode[]; videos: number }) => {
+    const here = inside || (await node.open());
+    if (here.videos) return true;
+    for (const d of here.dirs) if ((await d.open()).videos) return true;
+    return false;
+  };
+  const t = await team.open();
+  const add = (source: 'own' | 'opponent', week: string, name: string, path: string[]) =>
+    games.push({ source, week, name, path, id: `film-${source}-${slug(path.join(' '))}` });
+
+  for (const wk of t.dirs) {
+    if (isScoutingFolder(wk.name)) continue;
+    const week = weekKeyFromFolder(wk.name);
+    if (!(await hasFilm(wk))) continue;
+    if (week) add('own', week, wk.name, [team.name, wk.name]);
+    else unplaced.push({ path: [team.name, wk.name], reason: 'No "Week 3" (or "Pre-Season Week 3", "Playoffs") at the start of the folder name.' });
+  }
+  const scouting = t.dirs.find((d) => isScoutingFolder(d.name));
+  if (scouting) {
+    for (const wk of (await scouting.open()).dirs) {
+      const inside = await wk.open();
+      const week = weekKeyFromFolder(wk.name);
+      const path = [team.name, scouting.name, wk.name];
+      if (!(await hasFilm(wk, inside))) continue;
+      if (!week) {
+        unplaced.push({ path, reason: 'No "Week 5" at the start of the folder name, so the week is unknown.' });
+        continue;
+      }
+      const gameDirs = inside.dirs.filter((d) => !isViewName(d.name));
+      // Video right in the week's folder: one game. Otherwise a folder for each game that week.
+      if (inside.videos || !gameDirs.length) add('opponent', week, wk.name, path);
+      else for (const g of gameDirs) if (await hasFilm(g)) add('opponent', week, `${afterWeek(wk.name)} ${g.name}`.trim(), [...path, g.name]);
+    }
+  }
+  return { games, unplaced };
+}

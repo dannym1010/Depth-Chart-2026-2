@@ -15,6 +15,8 @@ import type { PlayDatabaseEntry } from '../types/callSheet';
 import { filmLineup, setPlayBallPlayer, setPlayDefPlay, setPlaySub, type BallRole, type WeekBoards } from '../utils/filmLineup';
 import { newPlayEntry } from '../utils/playbookImport';
 import { clipMatchMode, matchClipsToPlays } from './clipMatching';
+import { playsFromClips } from './clipPlays';
+import type { FilmFolderGame, UnplacedFolder } from './folderRoutes';
 import { clearFilmCutup, peekFilmCutup, type FilmCutup } from '../utils/filmCutup';
 import { peekPlayBuilderSeed, savePlayBuilderSeed, type PlayBuilderSeed } from '../utils/playBuilderSeed';
 import { PlayBuilderSection } from '../components/playbook/PlayBuilderSection';
@@ -78,16 +80,34 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const own = useMemo(() => bundleFromSaved(ownTeamScout, teamName), [ownTeamScout, teamName]);
   const opp = useMemo(() => bundleFromSaved(opponentScout, opponentName || 'Opponent'), [opponentScout, opponentName]);
 
+  // Game folders with film in them, found in the film folder (kept on this device, so they are listed at once).
+  const foldersKey = `footballFilmroomFolders_${teamId}`;
+  const [filmFolders, setFilmFolders] = useState<{ games: FilmFolderGame[]; unplaced: UnplacedFolder[] }>(
+    () => safeJSONParse<{ games: FilmFolderGame[]; unplaced: UnplacedFolder[] }>(foldersKey, { games: [], unplaced: [] }) || { games: [], unplaced: [] }
+  );
+  const onFilmFolders = useCallback(
+    (found: { games: FilmFolderGame[]; unplaced: UnplacedFolder[] }) => {
+      setFilmFolders(found);
+      safeJSONSet(foldersKey, found);
+    },
+    [foldersKey]
+  );
+  // Film with no breakdown yet: each clip is a play, in order (filled in once the film is open).
+  const [clipPlays, setClipPlays] = useState<Play[]>([]);
+
+  // The film library: every week of the season with our game and that week's scouting film.
+  const library = useMemo(() => buildLibrary(filmWeeks || [], own.games, currentWeek, opponentScout, filmFolders.games), [filmWeeks, own.games, opponentScout, currentWeek, filmFolders.games]);
+  const filmOnlyGames = useMemo(() => [...library.weeks.flatMap((w) => w.games), ...library.others].filter((g) => g.filmOnly), [library]);
+
   const games = useMemo(() => {
     const list: FilmGame[] = [
       ...own.games.map((g) => ({ key: filmGameKey('own', g.id), source: 'own' as const, gameId: g.id, name: g.name, week: g.week })),
       ...opp.games.map((g) => ({ key: filmGameKey('opponent', g.id, currentWeek), source: 'opponent' as const, gameId: g.id, name: g.name, week: currentWeek })),
+      ...filmOnlyGames.map((g) => ({ key: g.key, source: g.source, gameId: g.gameId, name: g.name, week: g.week, filmOnly: true })),
     ];
     return list;
-  }, [own.games, opp.games, currentWeek]);
+  }, [own.games, opp.games, currentWeek, filmOnlyGames]);
 
-  // The film library: every week of the season with our game and that week's scouting film.
-  const library = useMemo(() => buildLibrary(filmWeeks || [], own.games, currentWeek, opponentScout), [filmWeeks, own.games, opponentScout, currentWeek]);
 
   // One play's snaps from the play builder ("Watch film"). Showing the whole game, or picking another, ends it.
   const [cutup, setCutup] = useState<FilmCutup | null>(() => peekFilmCutup());
@@ -110,12 +130,13 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
 
   const plays = useMemo(() => {
     if (!game) return [];
+    if (game.filmOnly) return clipPlays;
     const b = game.source === 'own' ? own : opp;
     const onlyGame = b.games.length === 1;
     return b.plays
       .filter((p) => p.gameId === game.gameId || (onlyGame && !p.gameId))
       .sort((a, c) => (Number(a.playNumber) || 0) - (Number(c.playNumber) || 0));
-  }, [game, own, opp]);
+  }, [game, own, opp, clipPlays]);
 
   const [odk, setOdk] = useState<OdkFilter>('all');
   const shownPlays = useMemo(() => {
@@ -147,6 +168,12 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     pick: shared.folderPick?.name,
     setPick,
   });
+  // A film-only game's plays are its clips.
+  useEffect(() => {
+    if (!game?.filmOnly) return setClipPlays((c) => (c.length ? [] : c));
+    const next = film.status === 'ready' ? playsFromClips(film.clips, game.gameId) : [];
+    setClipPlays((c) => (c.length === 0 && next.length === 0 ? c : next));
+  }, [game?.key, game?.filmOnly, game?.gameId, film]);
 
   // Breakdown files in the film folder become Hudl Scout games (checked when the film folder can be read).
   const breakdowns = useFolderBreakdowns({
@@ -160,6 +187,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     playDatabase,
     onUpdateOwnTeamScout,
     onSaveWeekScouting,
+    onFilmFolders,
   });
 
   const clips = film.status === 'ready' ? film.clips : [];
@@ -400,8 +428,44 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       toolbarStart={odkChips}
     />
   );
+  // A game with film but no Hudl breakdown yet: a plain list of its clips (a play table of blanks would only confuse).
+  const clipLog = (
+    <div className={`${panel} flex-1 min-h-0 overflow-y-auto p-2`}>
+      <p className="px-2 pb-2 text-xs text-slate-500 dark:text-slate-400">
+        {plays.length} clip{plays.length === 1 ? '' : 's'}, in the order of the file names. There&apos;s no Hudl breakdown for this game yet: put its CSV or Excel file in this game&apos;s folder
+        and check the film folder, and the plays fill in.
+      </p>
+      <ol className="space-y-0.5">
+        {plays.map((p) => {
+          const on = p.id === play?.id;
+          const notes = notesFor(p.id).length;
+          return (
+            <li key={p.id}>
+              <button
+                type="button"
+                onClick={() => setPlayId(p.id)}
+                aria-current={on || undefined}
+                className={`w-full text-left flex items-center gap-2 px-2.5 h-9 rounded-lg text-sm font-bold ${
+                  on ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <span className={`w-6 text-right tabular-nums text-xs ${on ? 'text-white/80' : 'text-slate-400'}`}>{p.playNumber}</span>
+                <span className="flex-1 min-w-0 truncate">{p.playName}</span>
+                {notes > 0 && (
+                  <span className={`inline-flex items-center gap-0.5 text-[11px] ${on ? 'text-amber-200' : 'text-amber-500'}`}>
+                    <MessageSquare size={11} />
+                    {notes}
+                  </span>
+                )}
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
   const openFromLibrary = (g: LibraryGame) => {
-    if (g.source === 'opponent' && g.week && g.week !== currentWeek) onSelectWeek?.(g.week);
+    if (g.source === 'opponent' && g.week && g.week !== currentWeek && !g.filmOnly) onSelectWeek?.(g.week);
     if (cutup) endCutup();
     setGameKey(g.key);
     setLibraryPhone(false);
@@ -417,6 +481,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       added={breakdowns.added}
       checking={breakdowns.checking}
       onCheckFolder={sources.local || sources.drive ? breakdowns.checkNow : undefined}
+      unplaced={filmFolders.unplaced}
     />
   );
   const builderEl = builderSeed ? (
@@ -548,7 +613,9 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
 
         <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-full">
           {film.status === 'ready'
-            ? `${film.kind === 'drive' ? 'Drive' : film.kind === 'folder' ? 'Folder' : 'Clips'}: ${film.label} · ${clipFor.size}/${plays.length} plays have film`
+            ? game?.filmOnly
+              ? `${film.kind === 'drive' ? 'Drive' : 'Folder'}: ${film.label} · ${clips.length} clip${clips.length === 1 ? '' : 's'} · no Hudl breakdown yet (add its CSV to the folder for plays)`
+              : `${film.kind === 'drive' ? 'Drive' : film.kind === 'folder' ? 'Folder' : 'Clips'}: ${film.label} · ${clipFor.size}/${plays.length} plays have film`
             : film.status === 'none'
               ? 'No film linked'
               : 'label' in film && film.label
@@ -735,7 +802,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
 
       {/* The game's play log: click a play to watch it, sort by any column, change tags */}
       <div className={`flex-col gap-2 lg:flex-1 lg:min-h-0 ${mobileTab === 'plays' ? 'flex' : 'hidden lg:flex'}`}>
-        {playLog}
+        {game?.filmOnly ? clipLog : playLog}
       </div>
 
       </div>

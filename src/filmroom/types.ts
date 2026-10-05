@@ -10,6 +10,8 @@ export interface FilmGame {
   gameId: string;
   name: string;
   week?: string;
+  /** Found as film in the film folder with no Hudl breakdown: its clips are the plays, in order. */
+  filmOnly?: boolean;
 }
 
 /** A film clip found for a game (one file = one play). */

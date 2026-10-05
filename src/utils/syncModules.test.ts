@@ -2055,6 +2055,72 @@ describe('call sheets and wristbands saved for the shown team and week', () => {
   });
 });
 
+describe('games with film but no Hudl breakdown', () => {
+  const node = (name: string, videos = 0, dirs: any[] = []): any => ({ name, open: async () => ({ dirs, videos }) });
+  const tree = () =>
+    node('Mahopac Film', 0, [
+      node('10U', 0, [
+        node('Week 1 - Suffern', 5),
+        node('Week 2 - Yorktown', 0, [node('Sideline', 4), node('End Zone', 4)]),
+        node('Game vs Beacon', 3),
+        node('Week 4 - Empty'),
+        node('Scouting', 0, [
+          node('Week 5 - Wappingers', 0, [node('vs Carmel 9-6', 6), node('vs Somers 9-13', 5)]),
+          node('Wappingers Film', 3),
+        ]),
+      ]),
+    ]);
+
+  it('finds every game folder with film, and says which folders it could not place', async () => {
+    const { findFilmFolders } = await import('../filmroom/folderRoutes.ts');
+    const found = await findFilmFolders(tree(), 'Mahopac 10U Youth Tackle');
+    const label = (g: any) => `${g.source}:${g.week}:${g.name}`;
+    assert.deepEqual(found.games.map(label), [
+      'own:1:Week 1 - Suffern',
+      'own:2:Week 2 - Yorktown',
+      'opponent:5:Wappingers vs Carmel 9-6',
+      'opponent:5:Wappingers vs Somers 9-13',
+    ]);
+    assert.deepEqual(found.unplaced.map((u) => u.path.slice(1).join('/')), ['Game vs Beacon', 'Scouting/Wappingers Film']);
+    assert.match(found.unplaced[0].reason, /Week 3/);
+    assert.ok(new Set(found.games.map((g) => g.id)).size === found.games.length, 'each folder has its own id');
+  });
+
+  it('lists film-only games in their week, and leaves a week alone that already has a game', async () => {
+    const { findFilmFolders } = await import('../filmroom/folderRoutes.ts');
+    const { buildLibrary } = await import('../filmroom/FilmLibrary.tsx');
+    const { games } = await findFilmFolders(tree(), 'Mahopac 10U Youth Tackle');
+    const weeks = [
+      { key: '1', label: 'Week 1', opponent: 'Suffern' },
+      { key: '2', label: 'Week 2', opponent: 'Yorktown' },
+      { key: '5', label: 'Week 5', opponent: 'Wappingers' },
+    ];
+    const lib = buildLibrary(weeks, [{ id: 'g2', name: 'MSA vs Yorktown', week: '2', playCount: 40 }], '5', undefined, games);
+    const byWeek = Object.fromEntries(lib.weeks.map((w) => [w.key, w.games.map((g) => `${g.name}${g.filmOnly ? ' (film)' : ''}`)]));
+    assert.deepEqual(byWeek['1'], ['Week 1 - Suffern (film)']);
+    assert.deepEqual(byWeek['2'], ['MSA vs Yorktown'], 'week 2 already has our game from Hudl');
+    assert.deepEqual(byWeek['5'], ['Wappingers vs Carmel 9-6 (film)', 'Wappingers vs Somers 9-13 (film)']);
+    // Hudl's own scouting game for the week wins over the film-only ones.
+    const withScout = buildLibrary(weeks, [], '5', { games: [{ id: 'a', name: 'Somers vs Carmel O', playCount: 80 }], plays: [{}] }, games);
+    assert.deepEqual(withScout.weeks.find((w) => w.key === '5')!.games.map((g) => g.name), ['Somers vs Carmel O']);
+  });
+
+  it('makes each clip a play, in order, with notes that stay with the clip', async () => {
+    const { playsFromClips } = await import('../filmroom/clipPlays.ts');
+    const clips = [
+      { kind: 'drive', id: 'a', name: 'IMG_0012.MOV' },
+      { kind: 'drive', id: 'b', name: 'IMG_0013.MOV' },
+      { kind: 'drive', id: 'c', name: 'IMG_0013.MOV' },
+    ] as any;
+    const plays = playsFromClips(clips, 'film-own-x');
+    assert.deepEqual(plays.map((p) => p.playNumber), [1, 2, 3]);
+    assert.equal(plays[0].id, 'clip-img-0012');
+    assert.equal(new Set(plays.map((p) => p.id)).size, 3, 'two clips with the same name still get their own id');
+    assert.equal(plays[0].playName, 'IMG_0012');
+    assert.equal(plays[0].gameId, 'film-own-x');
+  });
+});
+
 describe('our defense tagged from the depth chart', () => {
   const pos = (id: string, name: string) => ({ id, name });
   const board = (name: string, unit: string, positions: { id: string; name: string }[]) =>
