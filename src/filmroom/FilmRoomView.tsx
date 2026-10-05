@@ -639,7 +639,9 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   // Beside the video: the play builder (when it sent us here) or the notes, with a switch between them.
   const sideShown = builderSeed ? !hideBuilder : showNotes;
   const fromFilm = Boolean(game?.fromFilm);
-  const sideTabList = [...(builderSeed ? (['builder'] as const) : []), ...(fromFilm ? (['breakdown'] as const) : []), 'notes' as const];
+  // Every game's breakdown can be changed beside the video (Hudl's or one broken down here).
+  const editable = Boolean(game && !game.filmOnly);
+  const sideTabList = [...(builderSeed ? (['builder'] as const) : []), ...(editable ? (['breakdown'] as const) : []), 'notes' as const];
   const activeSide = sideTabList.includes(sideTab as never) ? sideTab : sideTabList[0];
   const sideIsBuilder = activeSide === 'builder';
   const sideTabs = sideTabList.length > 1 ? (
@@ -667,6 +669,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       next={next}
       onNext={breakdownNext}
       readOnly={isReadOnlySession()}
+      onSetUnit={isOwn ? (p, unit) => editPlays((all) => tagPlayUnits(all, p.id, unit, 'play')) : undefined}
     />
   );
   const notesEl = (
@@ -810,10 +813,10 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
               ? sideShown
                 ? 'Hide play builder'
                 : 'Show play builder'
-              : fromFilm
+              : editable
                 ? showNotes
-                  ? 'Hide breakdown'
-                  : 'Show breakdown'
+                  ? 'Hide breakdown & notes'
+                  : 'Show breakdown & notes'
                 : showNotes
                 ? 'Hide notes'
                 : `Show notes${play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}`}
@@ -941,7 +944,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
 
       <div className="flex items-center gap-2 lg:hidden">
         <button className={chip(mobileTab === 'plays')} onClick={() => setMobileTab('plays')}>Plays &amp; tags</button>
-        {fromFilm && (
+        {editable && (
           <button className={chip(mobileTab === 'breakdown')} onClick={() => setMobileTab('breakdown')}>
             Breakdown
           </button>
@@ -956,7 +959,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         )}
       </div>
       {mobileTab === 'notes' && <div className={`${panel} lg:hidden`}>{notesEl}</div>}
-      {mobileTab === 'breakdown' && fromFilm && <div className={`${panel} lg:hidden`}>{breakdownEl}</div>}
+      {mobileTab === 'breakdown' && editable && <div className={`${panel} lg:hidden`}>{breakdownEl}</div>}
       {mobileTab === 'builder' && builderEl && <div className={`${panel} lg:hidden`}>{builderEl}</div>}
 
       {/* The game's play log: click a play to watch it, sort by any column, change tags */}

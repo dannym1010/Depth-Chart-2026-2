@@ -81,3 +81,27 @@ describe('importing a Hudl breakdown into a Film Room game', () => {
     assert.ok(out.every((p) => p.gameId === 'g1'));
   });
 });
+
+describe('editing a play from Hudl', () => {
+  it('shows its columns, changes only what was edited, and keeps the rest of the file', () => {
+    const hudl = {
+      id: 'h1', playNumber: 7, odk: 'O', quarter: 2, down: 3, distance: 4, yardLine: 35, rawYardLine: '-35', yardLineSide: 'OWN',
+      fieldZone: 'own_territory', hash: 'L', playType: 'RUN', formation: 'Trips Rt', backfield: '', motion: '', playName: '34 Power',
+      hudlCall: '34 Power', direction: 'Right', runSide: 'R', gainLoss: 6, result: 'Rush', personnel: '', carrierOrTarget: '',
+      isExplosive: false, isEfficient: true, rusher: '#21 Ward', unit: 'gold', gameId: 'g1',
+      hudlRow: { 'PLAY #': '7', 'OFF FORMATION': 'Trips Rt', 'RUSHER': '21', 'NOTES': 'cutback' },
+    } as any;
+    const row = breakdownRowOf(hudl);
+    assert.deepEqual(row, { ODK: 'O', QTR: '2', DN: '3', DIST: '4', 'YARD LN': '-35', HASH: 'L', 'OFF FORM': 'Trips Rt', 'OFF PLAY': '34 Power', 'PLAY TYPE': 'Run', 'PLAY DIR': 'R', RESULT: 'Rush', 'GN/LS': '6' });
+    const edited = applyBreakdown(hudl, { ...row, 'GN/LS': '12', QTR: 'OT' });
+    assert.equal(edited.gainLoss, 12);
+    assert.equal(edited.quarter, 5);
+    assert.equal(edited.down, 3);
+    assert.equal(edited.rusher, '#21 Ward');
+    assert.equal(edited.unit, 'gold');
+    assert.equal(edited.hudlRow?.RUSHER, '21');
+    assert.equal(edited.hudlRow?.NOTES, 'cutback');
+    assert.equal(edited.hudlRow?.['OFF FORMATION'], undefined);
+    assert.equal(edited.hudlRow?.['OFF FORM'], 'Trips Rt');
+  });
+});

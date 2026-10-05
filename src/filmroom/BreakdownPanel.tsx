@@ -3,7 +3,8 @@
 // carrying the quarter and ODK to a blank next play.
 import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronRight, Eraser } from 'lucide-react';
-import type { Play } from '../hudlScout/types/football';
+import type { Play, TeamUnit } from '../hudlScout/types/football';
+import { playIsUnitTaggable } from '../hudlScout/utils/unitStats';
 import { breakdownRowOf, type BreakdownColumn, type BreakdownRow } from './breakdownEntry';
 
 interface Props {
@@ -16,6 +17,8 @@ interface Props {
   onNext: (row: BreakdownRow) => void;
   /** View-only (a player account): show what's entered, no editing. */
   readOnly?: boolean;
+  /** Our film: which unit was on the field (Black / Blue / Gold). */
+  onSetUnit?: (play: Play, unit: TeamUnit | undefined) => void;
 }
 
 const ODK = [
@@ -32,7 +35,13 @@ const RESULTS = ['Rush', 'Complete', 'Incomplete', 'Sack', 'Scramble', 'Intercep
 
 const uniq = (xs: string[]) => [...new Set(xs.map((x) => x.trim()).filter((x) => x && x !== '-'))].sort((a, b) => a.localeCompare(b));
 
-export const BreakdownPanel: React.FC<Props> = ({ play, suggestFrom, onSave, next, onNext, readOnly }) => {
+const UNITS: { id: TeamUnit; label: string; dot: string }[] = [
+  { id: 'black', label: 'Black', dot: '#0f172a' },
+  { id: 'blue', label: 'Blue', dot: '#2563eb' },
+  { id: 'gold', label: 'Gold', dot: '#f59e0b' },
+];
+
+export const BreakdownPanel: React.FC<Props> = ({ play, suggestFrom, onSave, next, onNext, readOnly, onSetUnit }) => {
   const saved = useMemo(() => (play ? breakdownRowOf(play) : {}), [play]);
   // Typed boxes: kept here until they're saved.
   const [draft, setDraft] = useState<BreakdownRow>(saved);
@@ -115,6 +124,32 @@ export const BreakdownPanel: React.FC<Props> = ({ play, suggestFrom, onSave, nex
 
   return (
     <div className="flex flex-col gap-2 p-3">
+      {onSetUnit && playIsUnitTaggable(play) && (
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">Unit</span>
+          <div className="flex gap-1">
+            {UNITS.map((u) => {
+              const on = play.unit === u.id;
+              return (
+                <button
+                  key={u.id}
+                  type="button"
+                  disabled={readOnly}
+                  aria-pressed={on}
+                  onClick={() => onSetUnit(play, on ? undefined : u.id)}
+                  className={`h-7 px-2 rounded-md text-xs font-bold inline-flex items-center gap-1.5 ${
+                    on ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <span className="h-2 w-2 rounded-full ring-1 ring-white/60" style={{ background: u.dot }} />
+                  {u.label}
+                </button>
+              );
+            })}
+          </div>
+          <span className="text-[10px] text-slate-400 truncate">Subs: ▸ next to the play number in the play log</span>
+        </div>
+      )}
       <div className="grid grid-cols-[auto_1fr] gap-x-3">
         {field('ODK', chips('ODK', ODK))}
         {field('Quarter', chips('QTR', plain(QTR)))}

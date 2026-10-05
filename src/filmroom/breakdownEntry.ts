@@ -46,16 +46,42 @@ function blankPlay(p: Play): Play {
     isExplosive: false,
     isEfficient: false,
     hudlRow: {},
+    hudlCall: undefined,
+    rawPlayType: undefined,
+    // A Play Bank tag stays; the film's own name and formation under it are cleared too.
+    ...(p.playCallId ? { untaggedName: '', untaggedFormation: '' } : {}),
   };
 }
 
-/** What the coach has entered for a play (its Hudl columns). */
+const clean = (v?: string) => (v && v.trim() !== '-' ? v.trim() : '');
+const TYPE_WORD: Partial<Record<string, string>> = { RUN: 'Run', PASS: 'Pass', RPO: 'RPO', SCREEN: 'Screen' };
+
+/**
+ * A play's breakdown columns as they stand, read from the play itself (so a play from Hudl, whatever its file
+ * called the columns, edits the same as one broken down here). Blank where nothing is known.
+ */
 export function breakdownRowOf(p: Play): BreakdownRow {
   const row: BreakdownRow = {};
-  for (const c of BREAKDOWN_COLUMNS) {
-    const v = p.hudlRow?.[c];
-    if (v) row[c] = v;
+  const put = (c: BreakdownColumn, v: unknown) => {
+    const t = String(v ?? '').trim();
+    if (t) row[c] = t;
+  };
+  if (p.odk && p.odk !== 'UNKNOWN') put('ODK', p.odk);
+  if (p.quarter) put('QTR', p.quarter >= 5 ? 'OT' : p.quarter);
+  if (p.down) {
+    put('DN', p.down);
+    put('DIST', p.distance);
   }
+  put('YARD LN', p.rawYardLine);
+  put('HASH', p.hash);
+  put('OFF FORM', clean(p.playCallId ? p.untaggedFormation ?? p.formation : p.formation));
+  put('OFF PLAY', clean(p.hudlCall) || clean(p.playCallId ? p.untaggedName : p.playName));
+  put('PLAY TYPE', clean(p.rawPlayType) || TYPE_WORD[p.playType] || '');
+  put('PLAY DIR', p.direction ? p.runSide : '');
+  put('RESULT', clean(p.result));
+  if (p.gainLoss || (p.odk && p.odk !== 'UNKNOWN' && (p.result || p.down))) put('GN/LS', p.gainLoss);
+  // A result Hudl only put in the play's name isn't a play call.
+  if (row['OFF PLAY'] && row['OFF PLAY'].toLowerCase() === String(p.result || '').trim().toLowerCase()) delete row['OFF PLAY'];
   return row;
 }
 
@@ -79,7 +105,7 @@ export function applyBreakdown(base: Play, entered: BreakdownRow): Play {
   return {
     ...blank,
     odk: p.odk,
-    quarter: has('QTR') ? p.quarter : 0,
+    quarter: has('QTR') ? (/^OT$/i.test(row.QTR || '') ? 5 : p.quarter) : 0,
     down: has('DN') ? p.down : 0,
     distance: has('DIST') ? p.distance : 0,
     ...(has('YARD LN') ? { yardLine: p.yardLine, rawYardLine: p.rawYardLine, yardLineSide: p.yardLineSide, fieldZone: p.fieldZone } : {}),
@@ -96,10 +122,17 @@ export function applyBreakdown(base: Play, entered: BreakdownRow): Play {
     result: row.RESULT || '',
     isExplosive: has('GN/LS') ? p.isExplosive : false,
     isEfficient: has('GN/LS') || has('RESULT') ? p.isEfficient : false,
-    hudlRow: { 'PLAY #': String(base.playNumber), ...row },
+    hudlRow: {
+      ...Object.fromEntries(Object.entries(base.hudlRow || {}).filter(([k]) => !(BREAKDOWN_COLUMNS as readonly string[]).includes(k) && !SAME_AS.has(k.toUpperCase().replace(/[^A-Z]/g, '')))),
+      'PLAY #': String(base.playNumber),
+      ...row,
+    },
     editedAt: Date.now(),
   };
 }
+
+/** Other names files use for the breakdown columns (replaced, not kept beside, when edited here). */
+const SAME_AS = new Set(['ODK', 'QTR', 'QUARTER', 'DN', 'DOWN', 'DIST', 'DISTANCE', 'YARDLN', 'YARDLINE', 'HASH', 'OFFFORM', 'OFFFORMATION', 'FORMATION', 'OFFPLAY', 'OFFPLAYCALL', 'PLAYCALL', 'PLAY', 'PLAYTYPE', 'OFFPLAYTYPE', 'PLAYDIR', 'PLAYDIRECTION', 'DIRECTION', 'RESULT', 'GNLS', 'GNLOSS', 'GAINLOSS', 'GAIN']);
 
 /**
  * A Hudl breakdown file imported into a game that's already in the Film Room: its plays replace the game's,
