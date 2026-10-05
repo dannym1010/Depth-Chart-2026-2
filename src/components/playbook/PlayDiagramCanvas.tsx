@@ -6,6 +6,8 @@ import {
   isDefenseRole,
   diagramLabel,
   skillDiagramLabel,
+  strokePaths,
+  MOTION_COLOR,
   svgToField,
   DEFENSE_COLOR,
   shownText,
@@ -22,7 +24,9 @@ import { COLOR, PlayerAssignmentPanel, arrowPts, strokeFor, tBar } from './Playe
 import type { PlayerActionPreset } from '../../utils/playActionPresets';
 import type { DefenseWho } from './PlayerAssignmentPanel';
 
-const KIND_LABEL: Record<DrawKind, string> = { run: 'Run', pass: 'Pass', block: 'Block' };
+const KIND_LABEL: Record<DrawKind, string> = { run: 'Run', pass: 'Route', block: 'Block' };
+/** Keyboard shortcuts for the tools (when the field has focus). */
+const TOOL_KEYS: Record<string, Tool> = { v: 'move', r: 'run', p: 'pass', b: 'block', m: 'motion' };
 
 type Pt = { x: number; y: number };
 
@@ -36,9 +40,9 @@ function clientToSvg(svg: SVGSVGElement, clientX: number, clientY: number) {
   return { cx: p.x, cy: p.y };
 }
 
-function hitNode(nodes: PlayNode[], cx: number, cy: number) {
+function hitNode(nodes: PlayNode[], cx: number, cy: number, tolerance = 18) {
   let best: PlayNode | null = null;
-  let bestD = 18;
+  let bestD = tolerance;
   nodes.forEach((n) => {
     const p = fieldToSvg(n.x, n.y);
     const d = Math.hypot(p.cx - cx, p.cy - cy);
@@ -60,7 +64,7 @@ function toSegment(px: number, py: number, ax: number, ay: number, bx: number, b
 }
 
 /** The line under the pointer (topmost first), and which segment of it. */
-function hitStroke(strokes: PlayStroke[], cx: number, cy: number, tolerance = 9) {
+function hitStroke(strokes: PlayStroke[], cx: number, cy: number, tolerance = 12) {
   for (let i = strokes.length - 1; i >= 0; i--) {
     const pts = strokes[i].points.map((p) => fieldToSvg(p.x, p.y));
     for (let j = 0; j < pts.length - 1; j++) {
@@ -71,7 +75,7 @@ function hitStroke(strokes: PlayStroke[], cx: number, cy: number, tolerance = 9)
 }
 
 /** The bend point of a line under the pointer. */
-function hitVertex(stroke: PlayStroke | undefined, cx: number, cy: number, tolerance = 10) {
+function hitVertex(stroke: PlayStroke | undefined, cx: number, cy: number, tolerance = 12) {
   if (!stroke) return -1;
   let best = -1;
   let bestD = tolerance;
@@ -145,12 +149,13 @@ interface Props {
   defenseWho?: DefenseWho;
 }
 
-type Tool = DrawKind | 'move';
+type Tool = DrawKind | 'move' | 'motion';
 type Drag =
   | { mode: 'player'; role: string; startCx: number; startCy: number; moved: boolean }
   | { mode: 'vertex'; index: number; vertex: number }
   | { mode: 'line'; index: number; from: Pt; start: Pt[] }
-  | { mode: 'draw'; straight: boolean }
+  /** Drawing: the open line, how many points it had before this press, freehand or straight, a new line or not. */
+  | { mode: 'draw'; index: number; anchor: number; freehand: boolean; fresh: boolean; downCx: number; downCy: number; moved: boolean }
   | null;
 
 export const PlayDiagramCanvas: React.FC<Props> = ({
@@ -184,7 +189,13 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [tool, setTool] = useState<Tool>('move');
-  const [straight, setStraight] = useState(true);
+  // Freehand lines are smoothed into curves; otherwise each drag or click is a straight leg.
+  const [curve, setCurve] = useState(false);
+  // The line being drawn (stays open for more legs until it's finished), and the pointer for its next leg.
+  const [openIdx, setOpenIdx] = useState<number | null>(null);
+  const openRef = useRef<number | null>(null);
+  const [ghost, setGhost] = useState<Pt | null>(null);
+  const boxRef = useRef<HTMLDivElement | null>(null);
   // Phones open zoomed in on the box, so the players are big enough to tap.
   const [zoomed, setZoomed] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640);
   const [selected, setSelected] = useState<number | null>(null);
@@ -242,10 +253,70 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     setSelectedRole(role);
     setPreviewAction(null);
     if (role) {
+      finishLine();
       setSelected(null);
       setTool('move');
     }
     onSelectPlayer?.(role ? nodesRef.current.find((n) => n.role === role) || null : null);
+  };
+
+  const setOpen = (i: number | null) => {
+    openRef.current = i;
+    setOpenIdx(i);
+    if (i == null) setGhost(null);
+  };
+  /** Finish the line being drawn: drop repeated points (a double-click lands twice), and a line with no legs. */
+  const finishLine = () => {
+    const i = openRef.current;
+    if (i == null) return;
+    setOpen(null);
+    const cur = strokesRef.current;
+    const line = cur[i];
+    if (!line) return;
+    const kept: number[] = [];
+    line.points.forEach((p, j) => {
+      const prev = kept.length ? line.points[kept[kept.length - 1]] : null;
+      if (!prev || Math.hypot(p.x - prev.x, p.y - prev.y) > 0.3) kept.push(j);
+    });
+    if (kept.length < 2) {
+      change(cur.filter((_, j) => j !== i));
+      setSelected(null);
+      return;
+    }
+    const motion = line.motion ? kept.filter((j) => j <= line.motion!).length - 1 : 0;
+    const { motion: _m, ...rest } = line;
+    change(cur.map((x, j) => (j === i ? { ...rest, points: kept.map((k) => line.points[k]), ...(motion > 0 ? { motion } : {}) } : x)));
+  };
+  /** Pick a tool. Picking Route, Run or Block while a motion is being drawn keeps drawing that player's line. */
+  const pickTool = (id: Tool) => {
+    if (id === 'move') finishLine();
+    setTool(id);
+    if (id !== 'move' && openRef.current == null) setSelected(null);
+  };
+  /** The legs just drawn take the tool's kind: motion only right off the player, before the play's line. */
+  const withKind = (line: PlayStroke, anchor: number, t: Tool): PlayStroke => {
+    const last = line.points.length - 1;
+    if (t === 'motion') {
+      const allMotion = (line.motion || 0) >= anchor - 1;
+      return allMotion ? { ...line, motion: last } : line;
+    }
+    return t === 'move' ? line : { ...line, kind: t };
+  };
+  /** A block that ends on a defender stops at his edge with the T, and says who. */
+  const snapBlock = (line: PlayStroke): { line: PlayStroke; done: boolean } => {
+    const end = line.points[line.points.length - 1];
+    const from = line.points[line.points.length - 2];
+    if (!end || !from) return { line, done: false };
+    const e = fieldToSvg(end.x, end.y);
+    const target = hitNode(nodesRef.current.filter((n) => isDefenseRole(n.role)), e.cx, e.cy, 22);
+    if (!target) return { line, done: false };
+    const a = fieldToSvg(from.x, from.y);
+    const b = fieldToSvg(target.x, target.y);
+    const dist = Math.hypot(b.cx - a.cx, b.cy - a.cy);
+    const back = Math.min(14, dist / 2);
+    const stop = svgToField(b.cx - ((b.cx - a.cx) / (dist || 1)) * back, b.cy - ((b.cy - a.cy) / (dist || 1)) * back);
+    const points = [...line.points.slice(0, -1), { x: Math.round(stop.x * 100) / 100, y: Math.round(stop.y * 100) / 100 }];
+    return { line: { ...line, points, label: line.label || `Block ${shownText(target, diagramLabel(target.role))}` }, done: true };
   };
 
   const handleApplyAction = (preset: PlayerActionPreset) => {
@@ -330,12 +401,35 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       drag.current = null;
       return;
     }
+    // Drawing. A press on another of our players starts his line (from his spot); anywhere else adds a leg
+    // to the line being drawn (or starts one there).
+    boxRef.current?.focus({ preventScroll: true });
+    const near = hitNode(nodesRef.current, p.cx, p.cy, 20);
+    let cur = strokesRef.current;
+    let i = openRef.current;
+    const open = i != null ? cur[i] : null;
+    const onOurs = near && !isDefenseRole(near.role);
+    const atStart = open && near && Math.hypot(open.points[0].x - near.x, open.points[0].y - near.y) < 1.2;
+    if (open && onOurs && !atStart) {
+      finishLine();
+      cur = strokesRef.current;
+      i = null;
+    }
     remember();
-    const isStraight = straight !== e.shiftKey;
-    drag.current = { mode: 'draw', straight: isStraight };
-    const start = { x: p.x, y: p.y };
-    setSelected(strokes.length);
-    change([...strokes, { kind: tool, points: isStraight ? [start, start] : [start] }]);
+    const freehand = curve !== e.shiftKey;
+    const here = { x: p.x, y: p.y };
+    if (i == null || !cur[i]) {
+      const start = onOurs ? { x: near!.x, y: near!.y } : here;
+      const line: PlayStroke = tool === 'motion' ? { kind: 'pass', points: [start, here], motion: 1 } : { kind: tool as DrawKind, points: [start, here] };
+      i = cur.length;
+      change([...cur, line]);
+      setOpen(i);
+      drag.current = { mode: 'draw', index: i, anchor: 1, freehand, fresh: true, downCx: p.cx, downCy: p.cy, moved: false };
+    } else {
+      drag.current = { mode: 'draw', index: i, anchor: cur[i].points.length, freehand, fresh: false, downCx: p.cx, downCy: p.cy, moved: false };
+      change(cur.map((x, j) => (j === i ? { ...x, points: [...x.points, here] } : x)));
+    }
+    setSelected(i);
   };
 
   /** The defender under the pointer (when defenders are tagged), for the "who plays here" card. */
@@ -353,6 +447,10 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
     if (!d) updateHover(e);
+    if (!d && openRef.current != null && e.pointerType !== 'touch') {
+      const g = pointFromEvent(e);
+      setGhost({ x: g.x, y: g.y });
+    }
     if (!svgRef.current || !d) return;
     if (hover) setHover(null);
     const p = pointFromEvent(e);
@@ -389,15 +487,16 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       change(cur.map((s, i) => (i === d.index ? { ...s, points: d.start.map((q) => ({ x: q.x + dx, y: q.y + dy })) } : s)));
       return;
     }
-    const last = cur[cur.length - 1];
-    if (!last) return;
-    if (d.straight) {
-      change(cur.map((s, i) => (i === cur.length - 1 ? { ...s, points: [s.points[0], { x: p.x, y: p.y }] } : s)));
+    const line = cur[d.index];
+    if (!line) return;
+    if (Math.hypot(p.cx - d.downCx, p.cy - d.downCy) > 5) d.moved = true;
+    if (!d.freehand) {
+      change(cur.map((s, i) => (i === d.index ? { ...s, points: [...s.points.slice(0, d.anchor), { x: p.x, y: p.y }] } : s)));
       return;
     }
-    const prev = last.points[last.points.length - 1];
+    const prev = line.points[line.points.length - 1];
     if (prev && Math.hypot(p.x - prev.x, p.y - prev.y) < 0.2) return;
-    change(cur.map((s, i) => (i === cur.length - 1 ? { ...s, points: [...s.points, { x: p.x, y: p.y }] } : s)));
+    change(cur.map((s, i) => (i === d.index ? { ...s, points: [...s.points, { x: p.x, y: p.y }] } : s)));
   };
 
   const endDrag = () => {
@@ -421,17 +520,20 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       return;
     }
     if (d.mode === 'draw') {
-      const last = cur[cur.length - 1];
-      if (!last) return;
-      const pts = d.straight ? last.points : simplifyLine(last.points);
-      const span = Math.hypot(pts[pts.length - 1].x - pts[0].x, pts[pts.length - 1].y - pts[0].y);
-      if (pts.length < 2 || span < 0.6) {
-        history.current.pop();
-        setSelected(null);
-        change(cur.slice(0, -1));
-        return;
+      let line = cur[d.index];
+      if (!line) return;
+      if (!d.moved) {
+        // A tap: on a new line it only picks the start (click again for each break); otherwise it adds a break.
+        if (d.fresh) line = { ...line, points: line.points.slice(0, 1), ...(line.motion ? { motion: 0 } : {}) };
+      } else if (d.freehand) {
+        const leg = simplifyLine(line.points.slice(d.anchor - 1), 0.3);
+        line = { ...line, points: [...line.points.slice(0, d.anchor - 1), ...leg], curve: true };
       }
-      change(cur.map((s, i) => (i === cur.length - 1 ? { ...s, points: pts } : s)));
+      if (line.points.length > d.anchor || !d.fresh) line = withKind(line, d.anchor, tool);
+      let done = false;
+      if (tool === 'block' && line.points.length >= 2) ({ line, done } = snapBlock(line));
+      change(cur.map((s, i) => (i === d.index ? line! : s)));
+      if (done) finishLine();
       return;
     }
     const before = history.current[history.current.length - 1];
@@ -439,7 +541,11 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   };
 
   const onDoubleClick = (e: React.MouseEvent) => {
-    if (tool !== 'move' || sel == null) return;
+    if (tool !== 'move') {
+      finishLine();
+      return;
+    }
+    if (sel == null) return;
     const p = pointFromEvent(e);
     const s = strokes[sel];
     const vertex = hitVertex(s, p.cx, p.cy);
@@ -465,9 +571,19 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
       e.preventDefault();
       undo();
-    } else if (e.key === 'Escape') {
-      setSelected(null);
-      selectPlayer(null);
+    } else if (e.key === 'Escape' || e.key === 'Enter') {
+      if (openRef.current != null) {
+        e.preventDefault();
+        finishLine();
+        return;
+      }
+      if (e.key === 'Escape') {
+        setSelected(null);
+        selectPlayer(null);
+      }
+    } else if (!e.ctrlKey && !e.metaKey && !e.altKey && TOOL_KEYS[e.key.toLowerCase()]) {
+      e.preventDefault();
+      pickTool(TOOL_KEYS[e.key.toLowerCase()]);
     }
   };
 
@@ -552,6 +668,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       else if (id === 'run') activeStyle = 'bg-red-600 text-white border-red-600 hover:bg-red-500';
       else if (id === 'pass') activeStyle = 'bg-blue-600 text-white border-blue-600 hover:bg-blue-500';
       else if (id === 'block') activeStyle = 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800';
+      else if (id === 'motion') activeStyle = 'bg-violet-600 text-white border-violet-600 hover:bg-violet-500';
     }
     return (
       <button
@@ -559,10 +676,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
         type="button"
         title={title}
         aria-pressed={tool === id}
-        onClick={() => {
-          setTool(id);
-          if (id !== 'move') setSelected(null);
-        }}
+        onClick={() => pickTool(id)}
         className={`${ICON_BTN} ${activeStyle}`}
       >
         {children}
@@ -570,16 +684,23 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     );
   };
 
+  const drawing = openIdx != null;
   const hint =
     tool === 'move'
       ? sel != null
         ? 'Drag a dot to bend the line, drag the line to move it. Double-click the line to add a bend, a dot to take it out. Delete removes it.'
         : selectedPlayer && !isDefenseRole(selectedPlayer.role)
           ? `${selectedPlayer.role} is selected: double-click a defender to draw ${selectedPlayer.role} blocking that player.`
-          : 'Tap a player to pick the assignment. Drag a player to move the spot.'
-      : straight
-        ? `Drag to draw a straight ${KIND_LABEL[tool].toLowerCase()} line (hold Shift to draw freehand).`
-        : `Draw a ${KIND_LABEL[tool].toLowerCase()} line freehand (hold Shift for straight).`;
+          : 'Tap a player to pick the assignment. Drag a player to move the spot. Keys: V select · R run · P route · B block · M motion.'
+      : tool === 'motion'
+        ? drawing
+          ? 'Keep clicking or dragging his motion. Then pick Route or Run to draw the play from where the motion ends. Double-click or Enter to finish.'
+          : 'Motion: start on the player, then drag or click where he goes before the snap.'
+        : tool === 'block'
+          ? 'Start on the blocker, end on the defender (the line stops on him with the T).'
+          : drawing
+            ? `Drag or click for each break of the ${KIND_LABEL[tool as DrawKind].toLowerCase()}. Double-click or Enter to finish.${curve ? '' : ' Hold Shift to draw a curve.'}`
+            : `Start on a player, then drag or click for each break of the ${KIND_LABEL[tool as DrawKind].toLowerCase()}.`;
 
   const assignmentPanel = (
     <PlayerAssignmentPanel
@@ -599,7 +720,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   );
 
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden shadow-xs" onKeyDown={onKeyDown} tabIndex={-1}>
+    <div ref={boxRef} className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden shadow-xs outline-none" onKeyDown={onKeyDown} tabIndex={-1}>
       {/* Unified Minimalist Header Bar */}
       {chrome === 'full' && (
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40">
@@ -651,7 +772,14 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       )}
 
       {/* Field Canvas Container */}
-      <div className="relative" ref={fieldRef} onPointerLeave={() => setHover(null)}>
+      <div
+        className="relative"
+        ref={fieldRef}
+        onPointerLeave={() => {
+          setHover(null);
+          setGhost(null);
+        }}
+      >
         {hover && defenseWho && (() => {
           const info = defenseWho.current(hover.role);
           const flip = hover.x > hover.w - 190;
@@ -698,7 +826,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
         <svg
           ref={svgRef}
           viewBox={zoomed ? `110 150 540 370` : `0 0 ${w} ${h}`}
-          className={`bg-[#f4f4f5] touch-none ${dense ? 'max-h-64 w-auto max-w-full mx-auto' : 'w-full h-auto'} ${tool === 'move' ? 'cursor-default' : 'cursor-crosshair'}`}
+          className={`bg-[#f4f4f5] touch-none select-none ${dense ? 'max-h-64 w-auto max-w-full mx-auto' : 'w-full h-auto'} ${tool === 'move' ? 'cursor-default' : 'cursor-crosshair'}`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
@@ -741,41 +869,46 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
               );
             })
           )}
-          {/* Render Assigned Strokes */}
-          {strokes.map((s, i) => {
-            if (s.points.length < 2) return null;
-            const d = s.points
-              .map((pt, j) => {
-                const { cx, cy } = fieldToSvg(pt.x, pt.y);
-                return `${j === 0 ? 'M' : 'L'}${cx},${cy}`;
-              })
-              .join(' ');
-            const last = s.points[s.points.length - 1];
-            const prev = s.points[s.points.length - 2];
-            const a = fieldToSvg(prev.x, prev.y);
-            const b = fieldToSvg(last.x, last.y);
+          {/* The lines: motion zigzag, then the play (dashed route, curve if drawn freehand), arrow or block T */}
+          {strokes.map((st, i) => {
+            const sp = strokePaths(st);
+            if (!sp) return null;
+            const { a, b } = sp.cap;
             const cap = tBar(a.cx, a.cy, b.cx, b.cy);
             const isSel = i === sel;
             return (
               <g key={i}>
-                {isSel && <path d={d} fill="none" stroke="#38bdf8" strokeOpacity="0.45" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round" />}
-                <path
-                  d={d}
-                  fill="none"
-                  stroke={COLOR[s.kind]}
-                  strokeWidth={s.kind === 'block' ? 2.8 : 3.2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeDasharray={s.kind === 'pass' ? '6 4' : undefined}
-                />
-                {s.kind === 'block' ? (
-                  <line x1={cap.x1} y1={cap.y1} x2={cap.x2} y2={cap.y2} stroke={COLOR.block} strokeWidth="3" strokeLinecap="round" />
+                {isSel && [sp.motionD, sp.mainD].filter(Boolean).map((d, k) => (
+                  <path key={k} d={d} fill="none" stroke="#38bdf8" strokeOpacity="0.45" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round" />
+                ))}
+                {sp.motionD && <path d={sp.motionD} fill="none" stroke={MOTION_COLOR} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />}
+                {sp.mainD && (
+                  <path
+                    d={sp.mainD}
+                    fill="none"
+                    stroke={sp.color}
+                    strokeWidth={sp.width + 0.4}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeDasharray={sp.dashed ? '6 4' : undefined}
+                  />
+                )}
+                {sp.cap.t ? (
+                  <line x1={cap.x1} y1={cap.y1} x2={cap.x2} y2={cap.y2} stroke={sp.color} strokeWidth="3" strokeLinecap="round" />
                 ) : (
-                  <polygon points={arrowPts(a.cx, a.cy, b.cx, b.cy)} fill={COLOR[s.kind]} />
+                  <polygon points={arrowPts(a.cx, a.cy, b.cx, b.cy)} fill={sp.cap.color} />
                 )}
               </g>
             );
           })}
+          {/* The next leg of the line being drawn follows the pointer */}
+          {openIdx != null && ghost && strokes[openIdx]?.points.length ? (() => {
+            const lastPt = strokes[openIdx].points[strokes[openIdx].points.length - 1];
+            const a = fieldToSvg(lastPt.x, lastPt.y);
+            const b = fieldToSvg(ghost.x, ghost.y);
+            const color = tool === 'motion' ? MOTION_COLOR : tool === 'move' ? '#94a3b8' : COLOR[tool];
+            return <line x1={a.cx} y1={a.cy} x2={b.cx} y2={b.cy} stroke={color} strokeOpacity="0.55" strokeWidth="2" strokeDasharray="3 4" pointerEvents="none" />;
+          })() : null}
 
           {/* Live Dashed Preview on Hover */}
           {previewAction && selectedPlayer && (() => {
@@ -819,7 +952,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           {sel != null &&
             strokes[sel].points.map((pt, j) => {
               const { cx, cy } = fieldToSvg(pt.x, pt.y);
-              return <circle key={`v-${j}`} cx={cx} cy={cy} r="5.5" fill="#fff" stroke="#0284c7" strokeWidth="2" style={{ cursor: 'move' }} />;
+              return <circle key={`v-${j}`} cx={cx} cy={cy} r="6.5" fill="#fff" stroke="#0284c7" strokeWidth="2" style={{ cursor: 'move' }} />;
             })}
         </svg>
       </div>
@@ -838,8 +971,19 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             </>
           )}
           {toolBtn(
+            'pass',
+            'Draw a pass route (P)',
+            <>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeDasharray="3 2">
+                <path d="M5 17l9-9" />
+                <path d="M14 8h5v5" />
+              </svg>
+              <span className="hidden sm:inline">Route</span>
+            </>
+          )}
+          {toolBtn(
             'run',
-            'Draw a run / ball path',
+            'Draw a run / ball path (R)',
             <>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
                 <path d="M12 19V5M7 10l5-5 5 5" />
@@ -848,39 +992,53 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             </>
           )}
           {toolBtn(
-            'pass',
-            'Draw a pass route',
-            <>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeDasharray="3 2">
-                <path d="M5 17l9-9" />
-                <path d="M14 8h5v5" />
-              </svg>
-              <span className="hidden sm:inline">Pass</span>
-            </>
-          )}
-          {toolBtn(
             'block',
-            'Draw a block',
+            'Draw a block: start on the blocker, end on the defender (B)',
             <>
               <span className="text-xs font-black">⊥</span>
               <span className="hidden sm:inline">Block</span>
             </>
           )}
+          {toolBtn(
+            'motion',
+            'Draw pre-snap motion, then switch to Route or Run to keep drawing the play (M)',
+            <>
+              <svg width="16" height="14" viewBox="0 0 26 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round">
+                <path d="M2 14l3-5 3 6 3-6 3 6 3-6 3 5" />
+                <path d="M21 9l3 4-4 2" />
+              </svg>
+              <span className="hidden sm:inline">Motion</span>
+            </>
+          )}
           <span className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
           <button
             type="button"
-            title="Straight lines, or freehand (Shift switches while drawing)"
-            onClick={() => setStraight((s) => !s)}
-            className={ICON_BTN}
+            title="Curve: freehand lines become smooth curves (Shift switches while drawing)"
+            aria-pressed={curve}
+            onClick={() => setCurve((c) => !c)}
+            className={`${ICON_BTN} ${curve ? 'border-sky-600 text-sky-700 dark:text-sky-400' : ''}`}
           >
-            {straight ? 'Straight' : 'Freehand'}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+              <path d="M4 18c4-12 12-12 16 0" />
+            </svg>
+            <span className="hidden sm:inline">Curve</span>
           </button>
+          {drawing && (
+            <button
+              type="button"
+              title="Finish this line (double-click or Enter)"
+              onClick={finishLine}
+              className={`${ICON_BTN} bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-500`}
+            >
+              ✓ Done
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-1">
-          {sel != null && (
+          {sel != null && !drawing && (
             <>
-              {(['run', 'pass', 'block'] as DrawKind[]).map((k) => (
+              {(['pass', 'run', 'block'] as DrawKind[]).map((k) => (
                 <button
                   key={k}
                   type="button"

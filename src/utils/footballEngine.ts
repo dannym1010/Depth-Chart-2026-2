@@ -1988,6 +1988,74 @@ export interface PlayStroke {
   points: { x: number; y: number }[];
   /** The assignment picked for this player (e.g. "Reach Right"). Hand-drawn lines have none. */
   label?: string;
+  /** Pre-snap motion: points 0..motion are the motion (a zigzag); the rest is the play (`kind`). */
+  motion?: number;
+  /** Drawn freehand: shown as a smooth curve rather than straight breaks. */
+  curve?: boolean;
+}
+
+/** Pre-snap motion is drawn as a zigzag in its own color. */
+export const MOTION_COLOR = '#7c3aed';
+
+type SvgPt = { cx: number; cy: number };
+const fmt = (p: SvgPt) => `${p.cx.toFixed(1)},${p.cy.toFixed(1)}`;
+function polyPath(pts: SvgPt[]) {
+  return pts.map((p, i) => `${i ? 'L' : 'M'}${fmt(p)}`).join(' ');
+}
+/** Through the points with rounded turns (each corner becomes a curve to the middle of the next leg). */
+function curvePath(pts: SvgPt[]) {
+  if (pts.length < 3) return polyPath(pts);
+  let d = `M${fmt(pts[0])}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const mid = { cx: (pts[i].cx + pts[i + 1].cx) / 2, cy: (pts[i].cy + pts[i + 1].cy) / 2 };
+    d += ` Q${fmt(pts[i])} ${fmt(mid)}`;
+  }
+  return `${d} L${fmt(pts[pts.length - 1])}`;
+}
+/** A zigzag along the points (motion before the snap). */
+function zigzagPath(pts: SvgPt[], amp = 4, step = 7) {
+  let d = `M${fmt(pts[0])}`;
+  let side = 1;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    const len = Math.hypot(b.cx - a.cx, b.cy - a.cy);
+    const n = Math.max(2, Math.round(len / step));
+    const ux = (b.cx - a.cx) / (len || 1);
+    const uy = (b.cy - a.cy) / (len || 1);
+    for (let k = 1; k < n; k++) {
+      const t = (len * k) / n;
+      d += ` L${fmt({ cx: a.cx + ux * t - uy * amp * side, cy: a.cy + uy * t + ux * amp * side })}`;
+      side = -side;
+    }
+    d += ` L${fmt(b)}`;
+  }
+  return d;
+}
+
+/**
+ * How a line is drawn (in picture units), the same in the editor, the saved picture and print: the motion
+ * zigzag, then the play's line (dashed for a pass, curved if drawn freehand), and its end (arrow, or a T
+ * for a block). Null for a line with fewer than two points.
+ */
+export function strokePaths(s: PlayStroke) {
+  const pts = s.points.map((p) => fieldToSvg(p.x, p.y));
+  if (pts.length < 2) return null;
+  const m = Math.min(Math.max(0, Math.round(Number(s.motion) || 0)), pts.length - 1);
+  const motionPts = m > 0 ? pts.slice(0, m + 1) : [];
+  const mainPts = pts.slice(m);
+  const hasMain = mainPts.length >= 2;
+  const color = STROKE_COLOR[s.kind];
+  const endPts = hasMain ? mainPts : motionPts;
+  return {
+    motionD: motionPts.length >= 2 ? zigzagPath(motionPts) : '',
+    mainD: hasMain ? (s.curve ? curvePath(mainPts) : polyPath(mainPts)) : '',
+    color,
+    dashed: hasMain && s.kind === 'pass',
+    width: s.kind === 'block' ? 2.6 : 2.8,
+    /** The line ends in a T (a block) or an arrow, from a to b. */
+    cap: { t: hasMain && s.kind === 'block', color: hasMain ? color : MOTION_COLOR, a: endPts[endPts.length - 2], b: endPts[endPts.length - 1] },
+  };
 }
 
 /** TE and WR marks for the diagram. Offensive line stays blank. */
@@ -2456,19 +2524,15 @@ const STROKE_COLOR: Record<DrawKind, string> = { run: '#e11d2a', pass: '#2563eb'
 function strokeSvg(strokes: PlayStroke[]) {
   return strokes
     .map((s) => {
-      if (s.points.length < 2) return '';
-      const d = s.points.map((p, i) => {
-        const { cx, cy } = fieldToSvg(p.x, p.y);
-        return `${i === 0 ? 'M' : 'L'}${cx.toFixed(1)},${cy.toFixed(1)}`;
-      }).join(' ');
-      const last = s.points[s.points.length - 1];
-      const prev = s.points[s.points.length - 2];
-      const a = fieldToSvg(prev.x, prev.y);
-      const b = fieldToSvg(last.x, last.y);
-      const dash = s.kind === 'pass' ? ' stroke-dasharray="5 4"' : '';
-      const width = s.kind === 'block' ? 2.4 : 2.6;
-      const cap = s.kind === 'block' ? tBar(a.cx, a.cy, b.cx, b.cy, STROKE_COLOR[s.kind]) : `<polygon points="${arrowHead(a.cx, a.cy, b.cx, b.cy)}" fill="${STROKE_COLOR[s.kind]}" />`;
-      return `<path d="${d}" fill="none" stroke="${STROKE_COLOR[s.kind]}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round"${dash}/>${cap}`;
+      const sp = strokePaths(s);
+      if (!sp) return '';
+      const { a, b } = sp.cap;
+      const motion = sp.motionD ? `<path d="${sp.motionD}" fill="none" stroke="${MOTION_COLOR}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>` : '';
+      const main = sp.mainD
+        ? `<path d="${sp.mainD}" fill="none" stroke="${sp.color}" stroke-width="${sp.width}" stroke-linecap="round" stroke-linejoin="round"${sp.dashed ? ' stroke-dasharray="5 4"' : ''}/>`
+        : '';
+      const cap = sp.cap.t ? tBar(a.cx, a.cy, b.cx, b.cy, sp.color) : `<polygon points="${arrowHead(a.cx, a.cy, b.cx, b.cy)}" fill="${sp.cap.color}" />`;
+      return `${motion}${main}${cap}`;
     })
     .join('');
 }

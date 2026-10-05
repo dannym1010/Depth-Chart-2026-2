@@ -43,7 +43,10 @@ export function strokeFor(strokes: PlayStroke[], n: { x: number; y: number }) {
 export function assignmentText(strokes: PlayStroke[], n: { x: number; y: number }) {
   const s = strokeFor(strokes, n);
   if (!s) return '';
-  return s.label || (s.kind === 'block' ? 'Block' : s.kind === 'pass' ? 'Route' : 'Run');
+  const job = s.label || (s.kind === 'block' ? 'Block' : s.kind === 'pass' ? 'Route' : 'Run');
+  if (!s.motion) return job;
+  // Motion only, or motion and then the play.
+  return s.motion >= s.points.length - 1 ? 'Motion' : `Motion, then ${job.charAt(0).toLowerCase()}${job.slice(1)}`;
 }
 
 type Ctx = { holesXs: Record<number, number>; qbNode?: { x: number; y: number } | null };
