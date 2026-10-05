@@ -42,12 +42,29 @@ export interface OppFormation {
   defenseUrl?: string;
   /** Name of our defense in that picture ("4-4 Cover 3 LIZ"). */
   defenseName?: string;
+  /** Our calls against it: the base call and the calls for situations (ids of our defensive plays). */
+  plan?: FormationPlan;
   /** A clip that shows it (film + play number), to watch while drawing. */
   gameId?: string;
   clip?: number;
   editedAt: number;
   /** Removed (kept so an older copy can't bring it back). */
   deleted?: boolean;
+}
+
+export interface FormationPlan {
+  base?: string;
+  calls: { id: string; situation: string; callId: string }[];
+}
+
+/** Situations offered for a call against a formation (a coach can type any other). */
+export const PLAN_SITUATIONS = ['1st & 10', '2nd & long', '2nd & short', '3rd & long', '3rd & short', '4th & short', 'Red zone', 'Goal line', '2-pt', 'Backed up', '2-minute'];
+
+/** A formation's plan as lines for a call sheet: "Base: 4-4 Stack LIZ", "3rd & long: Blow Sting". */
+export function planLines(plan: FormationPlan | undefined, nameOf: (id: string) => string | undefined): { situation: string; call: string; id: string }[] {
+  if (!plan) return [];
+  const rows = [...(plan.base ? [{ situation: 'Base', callId: plan.base, id: 'base' }] : []), ...(plan.calls || [])];
+  return rows.map((r) => ({ situation: r.situation, call: nameOf(r.callId) || '', id: r.id })).filter((r) => r.call);
 }
 
 /** Two copies of the formations: per formation, the newer edit wins (a removal is an edit). */

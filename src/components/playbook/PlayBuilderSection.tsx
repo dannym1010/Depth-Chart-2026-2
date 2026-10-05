@@ -42,7 +42,7 @@ import { openFormation } from '../../utils/filmBackfields';
 import { parsePlayCall } from '../../utils/playCallParse';
 import { openFilmWindow } from '../../filmroom/filmWindowStore';
 import { DiagramImage } from './DiagramImage';
-import { defenseAlignmentSaver, withMyAlignment } from '../../hudlScout/utils/ourDefense';
+import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, withMyAlignment } from '../../hudlScout/utils/ourDefense';
 import { DEF_UNITS, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
 import { rememberDefenseUnit, rememberedDefenseUnit, useDefenseRosterSource } from '../../utils/defenseRosterStore';
 
@@ -124,6 +124,10 @@ function teamDefenseLooks(sys: DefenseSystem): Record<string, OurDefenseLook> {
     const contain = isBase ? `${sys.baseContain} have contain` : isCheck ? `${sys.checkContain} have contain` : '';
     out[k] = { ...d, name, front: isBase ? sys.base : isCheck ? sys.check : d.front, notes: [d.notes, contain].filter(Boolean).join(' · ') };
   }
+  for (const f of sys.fronts || []) {
+    const from = OUR_DEFENSE_LOOKS[f.from];
+    if (from) out[`front_${f.id}`] = { ...from, name: f.name, front: f.name, notes: `Your front (made from ${from.name})` };
+  }
   for (const b of sys.blitzes) {
     const base = OUR_DEFENSE_LOOKS['44_C3_LIZ'];
     out[`blitz_${b.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`] = {
@@ -137,8 +141,31 @@ function teamDefenseLooks(sys: DefenseSystem): Record<string, OurDefenseLook> {
   return out;
 }
 
+/** The defense a defensive play's name reads as ("4-4 BASE STACK BLOW STING LIZ" -> 4-4 Blow Sting LIZ). */
+function guessDefense(name: string, looks: Record<string, OurDefenseLook>): string {
+  const words = (t: string) => new Set(t.toUpperCase().replace(/[^A-Z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean));
+  const want = words(name);
+  let best = '';
+  let bestScore = 0;
+  for (const [key, look] of Object.entries(looks)) {
+    const have = words(look.name);
+    let score = 0;
+    have.forEach((w) => {
+      if (want.has(w)) score += /^\d/.test(w) ? 1 : 2;
+    });
+    if (score > bestScore) {
+      bestScore = score;
+      best = key;
+    }
+  }
+  if (best) return best;
+  const rip = /\bRIP\b/i.test(name);
+  if (/\b5-?3\b/.test(name)) return looks['53_C3'] ? '53_C3' : Object.keys(looks)[0];
+  return rip ? '44_C3_RIP' : '44_C3_LIZ';
+}
+
 function startFromSeed(seed?: PlayBuilderSeed | null) {
-  if (!seed?.name) {
+  if (!seed?.name || seed.defenseCall) {
     return {
       personnel: 32,
       baseKey: '32_WISHBONE',
@@ -148,9 +175,9 @@ function startFromSeed(seed?: PlayBuilderSeed | null) {
       run: 'zone',
       strength: 'Left' as const,
       family: 'run' as const,
-      name: '',
-      note: '',
-      holdName: false,
+      name: seed?.defenseCall ? seed.name : '',
+      note: seed?.defenseCall ? seed.notes || '' : '',
+      holdName: Boolean(seed?.defenseCall),
     };
   }
   const name = seed.name;
@@ -167,6 +194,8 @@ function startFromSeed(seed?: PlayBuilderSeed | null) {
 export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, onStateChange, onSaveFilmBackfield, onSaveFormation }) => {
   // Drawing their formation: just the alignment (no play lines), saved as the formation.
   const formationMode = Boolean(seed?.formationEdit);
+  // One of our defensive plays: the defense is what's drawn (front, alignment, blitz arrows).
+  const defenseMode = Boolean(seed?.defenseCall);
   const opened = useMemo(() => startFromSeed(seed), [seed]);
   // A play saved from the builder re-opens as it was left.
   const saved = seed?.builder;
@@ -192,7 +221,9 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [defenseKey, setDefenseKey] = useState(() =>
     saved && (saved.defenseKey === '' || looks[saved.defenseKey])
       ? saved.defenseKey
-      : seed?.name && (PERSONNEL_DEFINITIONS[opened.personnel]?.te || 0) >= 2
+      : defenseMode
+        ? guessDefense(seed?.name || '', looks)
+        : seed?.name && (PERSONNEL_DEFINITIONS[opened.personnel]?.te || 0) >= 2
         ? '53_C3'
         : '44_C3_LIZ'
   );
@@ -230,7 +261,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       else delete next[role];
       return next;
     });
-  const [userDrew, setUserDrew] = useState(Boolean(saved?.strokes));
+  const [userDrew, setUserDrew] = useState(Boolean(saved?.strokes) || defenseMode);
 
   const locations = TE_LOCATIONS[personnelPick] || [];
   const wrCount = PERSONNEL_DEFINITIONS[personnelPick]?.wr || 0;
@@ -305,6 +336,32 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     setDefaultNote(`${dLook.name} is back to the standard alignment.`);
     window.setTimeout(() => setDefaultNote(''), 4000);
   };
+  const frontSaver = defenseFrontSaver();
+  const isOwnFront = defenseKey.startsWith('front_');
+  const saveAsFront = () => {
+    if (!dLook || !frontSaver) return;
+    const name = window.prompt('Name this front (e.g. 6-2, Bear, Goal line):', '')?.trim();
+    if (!name) return;
+    const from = baseLookKey(defenseKey);
+    const standard = alignDefenseTechniques(dLook.nodes, offNodes);
+    const moves: Record<string, { dx: number; dy: number }> = {};
+    for (const n of standard) {
+      const now = overrides[n.role] ? { x: overrides[n.role].x - hashDx, y: overrides[n.role].y } : { x: n.x + (myDefault?.[n.role]?.dx || 0), y: n.y + (myDefault?.[n.role]?.dy || 0) };
+      const dx = Math.round((now.x - n.x) * 100) / 100;
+      const dy = Math.round((now.y - n.y) * 100) / 100;
+      if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) moves[n.role] = { dx, dy };
+    }
+    const key = frontSaver.add({ name, from, moves });
+    setOverrides((prev) => Object.fromEntries(Object.entries(prev).filter(([role]) => !dLook.nodes.some((n) => n.role === role))));
+    setDefenseKey(key);
+    setDefaultNote(`Saved the front ${name}. It's in every defense menu now.`);
+    window.setTimeout(() => setDefaultNote(''), 4000);
+  };
+  const removeFront = () => {
+    if (!dLook || !frontSaver || !isOwnFront || !window.confirm(`Delete your front ${dLook.name}? Plays already drawn with it keep their pictures.`)) return;
+    frontSaver.remove(defenseKey);
+    setDefenseKey(baseLookKey(defenseKey));
+  };
   const defaultButtons = dLook && saveAlignment ? (
     <span className="inline-flex flex-wrap items-center gap-1.5">
       <button
@@ -324,6 +381,21 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
           className="h-8 px-2 rounded-lg border border-slate-300 dark:border-slate-600 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer"
         >
           Standard
+        </button>
+      )}
+      {frontSaver && (
+        <button
+          type="button"
+          onClick={saveAsFront}
+          title="Save the alignment on the field as a new front of your own (it joins the defense menus)"
+          className="h-8 px-2.5 rounded-lg border border-emerald-600 text-emerald-700 dark:text-emerald-300 text-[11px] font-black cursor-pointer"
+        >
+          Save as new front
+        </button>
+      )}
+      {frontSaver && isOwnFront && (
+        <button type="button" onClick={removeFront} className="h-8 px-2 rounded-lg text-[11px] font-bold text-rose-600 cursor-pointer" title="Delete this front">
+          Delete front
         </button>
       )}
       {defaultNote && <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">{defaultNote}</span>}
@@ -390,8 +462,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   }, [nodeKey, hole, ball, drawTags.join('|'), activeConceptKey, runMode, run.label, taggedCall.family]);
 
   useEffect(() => {
-    if (!userDrew) setStrokes(drawn);
-  }, [drawn, userDrew]);
+    if (!userDrew && !defenseMode) setStrokes(drawn);
+  }, [drawn, userDrew, defenseMode]);
 
   useEffect(() => {
     if (!play || holdName) return;
@@ -520,6 +592,25 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       saveFormation(true);
       return;
     }
+    if (defenseMode) {
+      if (!play) return;
+      commitName();
+      const name = (nameIn.trim() || committedName || seed?.name || 'Defense').slice(0, 120);
+      const blitzing = strokes.some((st) => dNodes.some((n) => st.points[0] && Math.hypot(st.points[0].x - n.x, st.points[0].y - n.y) < 1.4) && st.points.some((p) => p.y > 0));
+      onAdd({
+        builder: currentState(),
+        ...newPlayEntry(name, 'defense'),
+        unit: 'defense',
+        type: blitzing ? 'blitz' : 'coverage',
+        formation: dLook?.front || '',
+        category: 'Play builder',
+        source: 'builder',
+        notes: dLook ? `${dLook.front} ${dLook.shell}` : '',
+        diagramUrl: diagramSvg(play, strokes, dNodes, String(ball)),
+        assignments: dNodes.map((n) => ({ pos: n.role, text: assignmentText(strokes, n) || (dLook ? `${dLook.front} ${dLook.shell}` : '') })),
+      });
+      return;
+    }
     if (seed?.backfieldEdit) {
       publishBackfield();
       return;
@@ -640,6 +731,10 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
 
   /** Set the formation and play from the call as typed: "32 L WB 44 ZONE". Only what it can read changes. */
   const applyCall = () => {
+    if (defenseMode) {
+      commitName();
+      return;
+    }
     const p = parsePlayCall(nameIn);
     let bk = baseKey;
     const locs = p.personnel != null ? TE_LOCATIONS[p.personnel] || [] : [];
@@ -731,7 +826,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
             <input
               aria-label="Play call"
               value={nameIn}
-              placeholder={formationMode ? 'Name their formation, e.g. Trips Rt or 21 Beast R' : 'Type the call, e.g. 32 L WB 44 ZONE'}
+              placeholder={formationMode ? 'Name their formation, e.g. Trips Rt or 21 Beast R' : defenseMode ? 'Name the defensive call, e.g. 4-4 Stack Fire' : 'Type the call, e.g. 32 L WB 44 ZONE'}
               onChange={(e) => {
                 setNameIn(e.target.value);
                 setHoldName(true);
@@ -745,7 +840,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               }}
               className="flex-1 min-w-0 bg-transparent outline-none text-base sm:text-lg font-black uppercase tracking-wide text-slate-900 dark:text-white placeholder:normal-case placeholder:font-semibold placeholder:tracking-normal placeholder:text-slate-400"
             />
-            {holdName && !seed?.scoutId && !formationMode && (
+            {holdName && !seed?.scoutId && !formationMode && !defenseMode && (
               <button
                 type="button"
                 onClick={() => setHoldName(false)}
@@ -759,7 +854,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
           <button
             type="button"
             onClick={applyCall}
-            disabled={!readParts.length}
+            disabled={!readParts.length || defenseMode}
             title="Set the formation and play from the call (Enter)"
             className="h-11 px-4 rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-sm font-black inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-30 shrink-0"
           >
@@ -792,11 +887,11 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               onClick={saveOffense}
               className="h-11 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-black inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-40 shrink-0"
             >
-              <Save className="w-4 h-4" /> {formationMode ? 'Save formation' : seed?.backfieldEdit ? `Save ${backfieldLabel}` : 'Save play'}
+              <Save className="w-4 h-4" /> {formationMode ? 'Save formation' : defenseMode ? 'Save defense' : seed?.backfieldEdit ? `Save ${backfieldLabel}` : 'Save play'}
             </button>
           )}
         </div>
-        <div className="flex flex-wrap items-center gap-1.5 text-[11px] min-h-6">
+        <div className={`flex flex-wrap items-center gap-1.5 text-[11px] min-h-6 ${defenseMode ? 'hidden' : ''}`}>
           {readParts.length > 0 ? (
             <>
               <span className="font-bold text-slate-400">Reads as:</span>
@@ -819,16 +914,16 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       <div className={compact ? 'space-y-3' : 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-4 items-start'}>
         {/* The field */}
         <div className="space-y-2 min-w-0">
-          {formationMode && (
+          {(formationMode || defenseMode) && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-300/70 dark:border-emerald-700/60 bg-emerald-50/60 dark:bg-emerald-950/20 px-2.5 py-1.5">
-              <span className="text-[11px] font-black uppercase tracking-wider text-emerald-800 dark:text-emerald-300">Our defense vs it</span>
+              <span className="text-[11px] font-black uppercase tracking-wider text-emerald-800 dark:text-emerald-300">{defenseMode ? 'Front' : 'Our defense vs it'}</span>
               <select
                 aria-label="Our defense against this formation"
                 value={defenseKey}
                 onChange={(e) => setDefenseKey(e.target.value)}
                 className="h-8 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-xs font-bold text-slate-800 dark:text-slate-100"
               >
-                <option value="">None (formation only)</option>
+                {!defenseMode && <option value="">None (formation only)</option>}
                 {Object.entries(looks).map(([id, d]) => (
                   <option key={id} value={id}>
                     {d.name}
@@ -836,7 +931,11 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 ))}
               </select>
               <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                {dLook ? 'Drag our defenders where they line up against this formation. It saves as you go.' : 'Pick our defense to line it up against this formation.'}
+                {defenseMode
+                  ? 'Drag defenders where they line up. Pick Route, Run or Block and draw from a defender for blitzes, stunts and drops. Formation tab: the offense to draw it against.'
+                  : dLook
+                    ? 'Drag our defenders where they line up against this formation. It saves as you go.'
+                    : 'Pick our defense to line it up against this formation.'}
               </span>
               {defaultButtons}
             </div>
@@ -893,6 +992,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               }}
               nodes={diagramNodes}
               strokes={formationMode ? [] : strokes}
+              drawFor={defenseMode ? 'defense' : 'offense'}
               ballRole={String(ball)}
               formLabel=""
               playLabel={callLabel}
@@ -993,7 +1093,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
         {/* One panel, one job at a time */}
         <div className={`rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden ${compact ? '' : 'lg:sticky lg:top-3'}`}>
           <div className="grid grid-cols-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
-            {tabs.filter((t) => !formationMode || t.id !== 'play').map((t) => (
+            {tabs.filter((t) => !(formationMode || defenseMode) || t.id !== 'play').map((t) => (
               <button
                 key={t.id}
                 type="button"

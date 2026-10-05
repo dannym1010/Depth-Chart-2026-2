@@ -159,13 +159,13 @@ import { CallSheetMainView } from './components/CallSheetMainView';
 import { GameDayHubView } from './components/GameDayHubView';
 import { USER_IMPORTED_GAME_DAY_PLAYS, INITIAL_TWO_WRISTBANDS_DATA } from './data/userGameDayPlays';
 import { ExcelPlayImportModal } from './components/callSheet/ExcelPlayImportModal';
-import { PlayBuilderState, PlayDatabaseEntry, CallSheetData, CallSheetFullData } from './types/callSheet';
+import { PlayBuilderState, PlayDatabaseEntry, CallSheetData, CallSheetFullData, CallSheetSection } from './types/callSheet';
 import { MASTER_PLAY_DATABASE, DEFAULT_CALL_SHEET_DATA } from './data/callSheetData';
 import { mergeDeletedPlayIds, mergePlayBanks, stampPlayEdits } from './utils/playBankMerge';
 import { blankCallSheetData, blankWristbandData } from './utils/blankSheets';
 import { missingPracticePlans } from './utils/autoPracticePlans';
 import { clearPlayBuilderSeed, consumeSeedHold, holdPlayBuilderSeed, mergeBuilderSave, savePlayBuilderSeed, type PlayBuilderSeed } from './utils/playBuilderSeed';
-import { builderFromFormation, cardForSnap, isScoutPlayEntry, realCall, renameOppCall, linkSnapsToCall, snapsForCall, type OppFormation, type ScoutOppPlay } from './utils/scoutOppPlays';
+import { builderFromFormation, cardForSnap, isScoutPlayEntry, planLines, realCall, renameOppCall, linkSnapsToCall, snapsForCall, type OppFormation, type ScoutOppPlay } from './utils/scoutOppPlays';
 import type { Play as FilmPlay } from './hudlScout/types/football';
 import { backfieldOf, baseKeysForGame, openFormation, redrawWithBackfield, spotsForGame } from './utils/filmBackfields';
 import { BACKFIELD_STRUCTURES } from './utils/footballEngine';
@@ -189,7 +189,7 @@ import { firstPlayerScreen, isPlayerRole, playerCanSee } from './utils/playerAcc
 import { buildLibrary } from './filmroom/FilmLibrary';
 import { bundleFromSaved } from './hudlScout/scoutBundle';
 import { DEFAULT_BALANCED, setBalancedFormations } from './hudlScout/utils/strength';
-import { setDefenseAlignmentSaver, setDefenseSystem } from './hudlScout/utils/ourDefense';
+import { setDefenseAlignmentSaver, setDefenseFrontSaver, setDefenseSystem } from './hudlScout/utils/ourDefense';
 import { HudlScoutSections, type HudlSection } from './components/scouting/HudlScoutSections';
 import { TendenciesView } from './components/scouting/TendenciesView';
 import { PlaybookGuidesView } from './components/PlaybookGuidesView';
@@ -4228,6 +4228,55 @@ export default function App() {
     };
     return { hudl, put };
   };
+  /**
+   * Our calls against their formations, on the defense side of the call sheet: a section per formation
+   * ("vs Trips Rt") with the base call first, then each situation's call. A coach's layout of the section
+   * (where it sits, its color, its width) is kept; formations with no calls lose their section.
+   */
+  const putFormationPlansOnCallSheet = (list: OppFormation[]) => {
+    const cs = latestStateRef.current.callSheetData;
+    if (!cs) return;
+    const db = latestStateRef.current.playDatabase || [];
+    const nameOf = (id: string) => db.find((p) => p.id === id)?.name;
+    const old = cs.defenseSections || [];
+    const built = new Map<string, CallSheetSection>();
+    // New "vs" tables go on their own row at the bottom of the situation tables.
+    const topRows = old.filter((x) => x.group === 'top_situations' || (!x.group && !x.id.includes('rz_')));
+    const numbered = topRows.filter((x) => !x.id.startsWith('vsform-')).every((x) => typeof x.rowIndex === 'number');
+    const newRow = numbered
+      ? topRows.reduce((m, x) => Math.max(m, x.id.startsWith('vsform-') ? -1 : (x.rowIndex as number)), -1) + 1
+      : Math.ceil(topRows.filter((x) => !x.id.startsWith('vsform-')).length / 4);
+    let placed = old.filter((x) => x.id.startsWith('vsform-')).length;
+    for (const f of list) {
+      if (!f?.id || f.deleted) continue;
+      const lines = planLines(f.plan, nameOf);
+      if (!lines.length) continue;
+      const id = `vsform-${f.id}`;
+      const prev = old.find((x) => x.id === id);
+      built.set(id, {
+        headerBgColor: '#065f46',
+        headerTextColor: '#ffffff',
+        targetUnit: 'defense',
+        columnsCount: 1,
+        ...(prev ? {} : { rowIndex: newRow + Math.floor(placed / 4), order: placed++ % 4 }),
+        ...(prev || {}),
+        group: 'top_situations',
+        id,
+        title: `vs ${f.name}`,
+        subtitle: 'Their formation',
+        slotsCount: lines.length,
+        plays: lines.map((l, i) => {
+          const entry = db.find((p) => p.name === l.call);
+          return { id: `${id}-${i}`, name: `${l.situation}: ${l.call}`, ...(entry?.type ? { type: entry.type } : {}), ...(l.situation === 'Base' ? { isStarred: true } : {}) };
+        }),
+      } as CallSheetSection);
+    }
+    const kept = old.filter((x) => !x.id.startsWith('vsform-') || built.has(x.id)).map((x) => built.get(x.id) || x);
+    const added = [...built.values()].filter((x) => !old.some((o) => o.id === x.id));
+    const defenseSections = [...kept, ...added];
+    if (JSON.stringify(defenseSections) === JSON.stringify(old)) return;
+    handleUpdateCallSheetData({ ...cs, defenseSections, lastEdited: Date.now() });
+  };
   /** Their formation drawn in the builder: its picture and alignment, for their plays to start from. */
   const saveOppFormation = (f: { id: string; name: string; builder: PlayBuilderState; diagramUrl: string; defenseUrl?: string; defenseName?: string }) => {
     const { hudl, put } = weekHudl();
@@ -4664,6 +4713,26 @@ export default function App() {
           if (moves) alignments[lookKey] = moves;
           else delete alignments[lookKey];
           handleUpdateTeam(activeTeamId, { defenseSystem: { ...sys, alignments } });
+        }
+      : null
+  );
+  setDefenseFrontSaver(
+    mayEditTeam(activeTeamId)
+      ? {
+          add: ({ name, from, moves }) => {
+            const sys = (currentActiveTeam as Team).defenseSystem || {};
+            const id = `f${Date.now().toString(36)}`;
+            const alignments = { ...(sys.alignments || {}) };
+            if (Object.keys(moves).length) alignments[`front_${id}`] = moves;
+            handleUpdateTeam(activeTeamId, { defenseSystem: { ...sys, fronts: [...(sys.fronts || []), { id, name, from }], alignments } });
+            return `front_${id}`;
+          },
+          remove: (key) => {
+            const sys = (currentActiveTeam as Team).defenseSystem || {};
+            const alignments = { ...(sys.alignments || {}) };
+            delete alignments[key];
+            handleUpdateTeam(activeTeamId, { defenseSystem: { ...sys, fronts: (sys.fronts || []).filter((f) => `front_${f.id}` !== key), alignments } });
+          },
         }
       : null
   );
@@ -7398,6 +7467,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 }}
                 onAdjustBackfield={openFilmBackfield}
                 onEditFormation={openOppFormation}
+                onFormationPlans={putFormationPlansOnCallSheet}
                 onDrawPlay={drawOppPlay}
                 onDrawSnap={drawSnap}
               />

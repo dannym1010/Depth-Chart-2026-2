@@ -28,6 +28,8 @@ interface CallSheetModalProps {
   editorName?: string;
   /** Their play types on this week's report, each drawn against our defense. Printed on its own page. */
   playTypes?: ReportPlayType[];
+  /** Our calls against each of their formations (base + situations), with the picture of our defense vs it. */
+  formationPlans?: { name: string; lines: { situation: string; call: string }[]; diagram?: string }[];
 }
 
 const SECTIONS: { key: CallSheetSectionKey; title: string; tag: string; wide?: boolean }[] = [
@@ -113,6 +115,7 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
   onSaveEdits,
   editorName,
   playTypes,
+  formationPlans,
 }) => {
   const [editing, setEditing] = useState(false);
   // What prints and how (kept on this device).
@@ -202,6 +205,9 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
         sections: SECTIONS.map(({ key, title, tag, wide }) => ({ key, title, tag, wide, lines: linesFor(key) })),
         note,
         playTypes: types,
+        formationPlans: printOpts.formationPlans && formationPlans?.length
+          ? await Promise.all(formationPlans.map(async (f) => ({ ...f, diagram: f.diagram ? (await resolveDiagram(f.diagram)) || undefined : undefined })))
+          : [],
       },
       printOpts
     );
@@ -324,6 +330,7 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
             onChange={changeOpts}
             sections={SECTIONS.map(({ key, title }) => ({ key, title }))}
             playTypeCount={playTypes?.length || 0}
+            formationPlanCount={formationPlans?.length || 0}
           />
         )}
         {printNote && <p className="px-4 py-2 text-xs font-bold text-amber-700 dark:text-amber-300 print:hidden">{printNote}</p>}

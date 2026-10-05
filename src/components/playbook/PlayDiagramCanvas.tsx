@@ -147,6 +147,8 @@ interface Props {
   onLabelChange?: (role: string, label: string) => void;
   /** Our defense tagged from the depth chart: who is at each spot (hover shows it) and a way to change one. */
   defenseWho?: DefenseWho;
+  /** Whose lines are drawn: the offense's (default) or our defense's (a defensive play: blitzes, drops). */
+  drawFor?: 'offense' | 'defense';
 }
 
 type Tool = DrawKind | 'move' | 'motion';
@@ -186,6 +188,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   assignmentHost,
   onLabelChange,
   defenseWho,
+  drawFor = 'offense',
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [tool, setTool] = useState<Tool>('move');
@@ -408,7 +411,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     let cur = strokesRef.current;
     let i = openRef.current;
     const open = i != null ? cur[i] : null;
-    const onOurs = near && !isDefenseRole(near.role);
+    const onOurs = near && (drawFor === 'defense' ? isDefenseRole(near.role) : !isDefenseRole(near.role));
     const atStart = open && near && Math.hypot(open.points[0].x - near.x, open.points[0].y - near.y) < 1.2;
     if (open && onOurs && !atStart) {
       finishLine();

@@ -23,6 +23,15 @@ export interface DefenseSystem {
    * each defender's move from where the defense lines up by itself on the offense (yards).
    */
   alignments?: DefenseAlignments;
+  /** The coach's own fronts ("6-2", "Bear"): each starts from one of the standard defenses, lined up their way. */
+  fronts?: DefenseFront[];
+}
+
+export interface DefenseFront {
+  id: string;
+  name: string;
+  /** The standard defense it was made from (its players and coverage). */
+  from: string;
 }
 
 export type DefenseAlignments = Record<string, Record<string, { dx: number; dy: number }>>;
@@ -49,6 +58,7 @@ export function setDefenseSystem(s?: Partial<DefenseSystem>) {
       else if (typeof v === 'string' && v.trim()) (next as any)[k] = v.trim();
     });
     if (s.alignments && typeof s.alignments === 'object') next.alignments = s.alignments;
+    if (Array.isArray(s.fronts)) next.fronts = s.fronts.filter((f) => f && f.id && f.name && f.from);
   }
   system = next;
 }
@@ -60,6 +70,23 @@ export function withMyAlignment<T extends { role: string; x: number; y: number }
   if (!mine) return nodes;
   return nodes.map((n) => (mine[n.role] ? { ...n, x: n.x + mine[n.role].dx, y: n.y + mine[n.role].dy } : n));
 }
+
+/**
+ * The standard defense a defense menu entry is drawn from: the coach's own front -> the defense it was made
+ * from; a blitz package -> the base 4-4; anything else is itself.
+ */
+export function baseLookKey(key: string): string {
+  if (key.startsWith('front_')) return system.fronts?.find((f) => `front_${f.id}` === key)?.from || '44_C3_LIZ';
+  if (key.startsWith('blitz_')) return '44_C3_LIZ';
+  return key;
+}
+
+/** Who adds and removes the coach's own fronts (set by the app for a coach who may edit the team). */
+let frontSaver: { add: (f: { name: string; from: string; moves: Record<string, { dx: number; dy: number }> }) => string; remove: (key: string) => void } | null = null;
+export function setDefenseFrontSaver(fn: typeof frontSaver) {
+  frontSaver = fn;
+}
+export const defenseFrontSaver = () => frontSaver;
 
 /** Who saves the team's defense (set by the app for a coach who may edit the team; null for others). */
 let saveAlignment: ((lookKey: string, moves: Record<string, { dx: number; dy: number }> | null) => void) | null = null;

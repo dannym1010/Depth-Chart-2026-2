@@ -91,7 +91,7 @@ export const PlayLibraryView: React.FC<Props> = ({
   const [builderSeed, setBuilderSeed] = useState<PlayBuilderSeed | null>(() => peekPlayBuilderSeed());
   // One of our plays opened in the builder from its row (saving updates that play).
   const openInBuilder = (p: PlayDatabaseEntry) => {
-    setBuilderSeed({ name: p.name, playEntryId: p.id, builder: p.builder });
+    setBuilderSeed({ name: p.name, playEntryId: p.id, builder: p.builder, ...(p.unit === 'defense' ? { defenseCall: true, notes: p.notes } : {}) });
     goPane('builder');
   };
   const [pane, setPane] = useState<LibraryPane>(() => {
@@ -603,7 +603,7 @@ export const PlayLibraryView: React.FC<Props> = ({
                           onDelete={() => window.confirm(`Delete ${p.name}?`) && remove([p.id])}
                           diagram={diagramOf(p)}
                           onZoom={() => setZoom(p)}
-                          onOpenBuilder={canEdit && p.unit === 'offense' ? () => openInBuilder(p) : undefined}
+                          onOpenBuilder={canEdit && (p.unit === 'offense' || p.unit === 'defense') ? () => openInBuilder(p) : undefined}
                         />
                       ))}
                     </div>
@@ -630,7 +630,7 @@ export const PlayLibraryView: React.FC<Props> = ({
                             onDelete={() => window.confirm(`Delete ${p.name}?`) && remove([p.id])}
                             diagram={diagramOf(p)}
                             onZoom={() => setZoom(p)}
-                            onOpenBuilder={canEdit && p.unit === 'offense' ? () => openInBuilder(p) : undefined}
+                            onOpenBuilder={canEdit && (p.unit === 'offense' || p.unit === 'defense') ? () => openInBuilder(p) : undefined}
                           />
                         </React.Fragment>
                       ))}
@@ -693,7 +693,7 @@ export const PlayLibraryView: React.FC<Props> = ({
                 )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {canEdit && zoom.unit === 'offense' && (
+                {canEdit && (zoom.unit === 'offense' || zoom.unit === 'defense') && (
                   <button
                     type="button"
                     onClick={() => {

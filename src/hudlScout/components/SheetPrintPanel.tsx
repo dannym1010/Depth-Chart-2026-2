@@ -8,6 +8,8 @@ interface Props {
   sections: { key: CallSheetSectionKey; title: string }[];
   /** How many of their play types are on the report (the play page is hidden when there are none). */
   playTypeCount: number;
+  /** How many of their formations have our calls set (Their plays → Our calls vs their formations). */
+  formationPlanCount?: number;
 }
 
 const chip = (on: boolean) =>
@@ -42,7 +44,7 @@ const label = (text: string) => (
 );
 
 /** What prints, and how: one quiet panel under the sheet's buttons. */
-export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, sections, playTypeCount }) => {
+export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, sections, playTypeCount, formationPlanCount = 0 }) => {
   const set = (patch: Partial<SheetPrintOptions>) => onChange({ ...o, ...patch });
   const toggleSection = (key: CallSheetSectionKey) => set({ sections: { ...o.sections, [key]: !o.sections[key] } });
   const isDefault = JSON.stringify(o) === JSON.stringify(DEFAULT_SHEET_OPTIONS);
@@ -76,6 +78,15 @@ export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, section
             onClick={() => set({ playTypes: !o.playTypes })}
           >
             Their plays vs. our defense{playTypeCount ? ` (${playTypeCount})` : ''}
+          </button>
+          <button
+            type="button"
+            disabled={!formationPlanCount}
+            title={!formationPlanCount ? 'No calls set against their formations yet (Their plays)' : undefined}
+            className={`${chip(o.formationPlans && Boolean(formationPlanCount))} disabled:opacity-40 disabled:cursor-not-allowed`}
+            onClick={() => set({ formationPlans: !o.formationPlans })}
+          >
+            Our calls vs their formations{formationPlanCount ? ` (${formationPlanCount})` : ''}
           </button>
         </div>
       </div>

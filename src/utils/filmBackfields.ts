@@ -25,7 +25,7 @@ import {
   type PlayStroke,
 } from './footballEngine';
 import type { ScoutOppPlay } from './scoutOppPlays';
-import { withMyAlignment } from '../hudlScout/utils/ourDefense';
+import { baseLookKey, withMyAlignment } from '../hudlScout/utils/ourDefense';
 
 export interface FilmBackfieldBase {
   spots: BackfieldSpots;
@@ -145,7 +145,7 @@ export function redrawWithBackfield(
   const lookKey = b ? b.defenseKey : setup.personnel >= 30 ? '53_C3' : strength === 'Right' ? '44_C3_RIP' : '44_C3_LIZ';
   // Our defense as the coach set it in the builder: lined up on this formation, moved defenders kept,
   // and the lines drawn for defenders kept (the offense's lines are drawn again).
-  const look = lookKey ? OUR_DEFENSE_LOOKS[lookKey]?.nodes || [] : [];
+  const look = lookKey ? (OUR_DEFENSE_LOOKS[lookKey] || OUR_DEFENSE_LOOKS[baseLookKey(lookKey)])?.nodes || [] : [];
   const whoByRole = b?.defensePlayers || {};
   const defense = applyNodeOverrides(withMyAlignment(lookKey, alignDefenseTechniques(look, nodes)), overrides).map((n) => {
     const moved = named(overrides[n.role] ? n : { ...n, x: n.x + hashDx });
@@ -193,6 +193,8 @@ export function redrawWithBackfield(
  */
 export function oppPlayDiagram(play: ScoutOppPlay, playDatabase: PlayDatabaseEntry[] = [], bases?: FilmBackfieldBases): string | undefined {
   const entry = playDatabase.find((p) => p.id === `scout_${play.id}`);
+  // Drawn in the builder: exactly what was saved there (a film backfield change already saved it again).
+  if (entry?.builder && entry.diagramUrl) return entry.diagramUrl;
   const backfield = backfieldOf(play, entry);
   const base = bases?.[play.gameId]?.[backfield];
   if (base?.spots) {

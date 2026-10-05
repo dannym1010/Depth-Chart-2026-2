@@ -63,6 +63,8 @@ export interface Team {
     blitzes?: string[];
     /** The coach's default alignment of each defense (moves from the standard spots). */
     alignments?: Record<string, Record<string, { dx: number; dy: number }>>;
+    /** The coach's own fronts, each made from a standard defense. */
+    fronts?: { id: string; name: string; from: string }[];
   };
 }
 

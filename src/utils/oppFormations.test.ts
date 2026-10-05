@@ -1,9 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { builderFromFormation, cardForSnap, realCall, linkSnapsToCall, mergeOppFormations, parseClips, snapsForCall, type OppFormation } from './scoutOppPlays.ts';
+import { builderFromFormation, cardForSnap, planLines, realCall, linkSnapsToCall, mergeOppFormations, parseClips, snapsForCall, type OppFormation } from './scoutOppPlays.ts';
 import { pickScoutBundle } from './scoutMerge.ts';
 import { theirCallEntries } from './theirCalls.ts';
 import { tagPlays } from '../hudlScout/utils/playTags.ts';
+import { oppPlayDiagram } from './filmBackfields.ts';
 import type { Play } from '../hudlScout/types/football.ts';
 
 const film = (n: number, extra: Partial<Play> = {}) => ({ id: `c${n}`, playNumber: n, gameId: 'g1', odk: 'UNKNOWN', playName: '', ...extra }) as unknown as Play;
@@ -92,5 +93,20 @@ describe('tagging their film with their plays', () => {
     assert.equal(p.playCallId, 'scout_a');
     assert.equal(p.playCall, '21 R 36 Dive');
     assert.equal(p.formation, 'Trips Rt');
+  });
+});
+
+describe('our calls vs their formations', () => {
+  it('reads as the base call first, then each situation, skipping calls no longer in the library', () => {
+    const names: Record<string, string> = { a: '4-4 BASE STACK LIZ', b: 'BLOW STING' };
+    const lines = planLines({ base: 'a', calls: [{ id: 'x', situation: '3rd & long', callId: 'b' }, { id: 'y', situation: 'Red zone', callId: 'gone' }] }, (id) => names[id]);
+    assert.deepEqual(lines.map((l) => l.situation + ': ' + l.call), ['Base: 4-4 BASE STACK LIZ', '3rd & long: BLOW STING']);
+    assert.deepEqual(planLines(undefined, () => 'x'), []);
+  });
+  it('a play drawn in the builder previews exactly as saved, even with a film backfield', () => {
+    const card = { id: 'p1', gameId: 'g1', name: '21 BEAST 36 DIVE', formation: '', personnel: '21', kind: 'run' } as any;
+    const db = [{ id: 'scout_p1', name: '21 BEAST 36 DIVE', diagramUrl: 'data:saved', builder: { backfield: 'BEAST' } } as any];
+    const bases = { g1: { BEAST: { spots: { 1: { x: 0, y: -2 } }, editedAt: 1, baseKey: '21_BEAST' } } } as any;
+    assert.equal(oppPlayDiagram(card, db, bases), 'data:saved');
   });
 });

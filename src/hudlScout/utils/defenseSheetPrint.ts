@@ -16,6 +16,8 @@ export interface SheetPrintOptions {
   note: boolean;
   /** Their plays against our defense, on its own page(s). */
   playTypes: boolean;
+  /** Our calls against each of their formations (base + situations). */
+  formationPlans: boolean;
   /** Plays across the page on that page. */
   playTypeCols: 1 | 2 | 3;
   /** The calls and film counts under each play's name. */
@@ -34,6 +36,7 @@ export const DEFAULT_SHEET_OPTIONS: SheetPrintOptions = {
   sections: { firstDownCalls: true, runStopCalls: true, thirdDownMustStops: true, passBlitzCalls: true, redZoneLocks: true },
   note: true,
   playTypes: true,
+  formationPlans: true,
   playTypeCols: 2,
   playTypeDetail: true,
   numbers: true,
@@ -69,6 +72,8 @@ export interface SheetData {
   sections: { key: CallSheetSectionKey; title: string; tag: string; wide?: boolean; lines: string[] }[];
   note: string;
   playTypes: { label: string; detail: string; diagram?: string | null }[];
+  /** Our calls against each of their formations. */
+  formationPlans?: { name: string; lines: { situation: string; call: string }[]; diagram?: string }[];
 }
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] || c));
@@ -139,7 +144,19 @@ export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedO
     ? `<section class="plays"><header><div><div class="kicker">Their plays vs. our defense</div><h1>${esc(data.opponentName)}: how we line up</h1></div></header><div class="cards">${cards}</div></section>`
     : '';
 
-  const hasFront = Boolean(header || alertHtml || boxes || noteHtml);
+  // Our calls against each of their formations: the formation (with our defense), the base call, then the situations.
+  const plans = o.formationPlans ? data.formationPlans || [] : [];
+  const plansHtml = plans.length
+    ? `<section class="fplans"><div class="fplans-h">Our calls vs their formations</div><div class="fgrid">${plans
+        .map(
+          (f) =>
+            `<article class="fplan">${f.diagram ? `<img src="${esc(f.diagram)}" alt="${esc(f.name)}"/>` : ''}<div><h3>vs ${esc(f.name)}</h3><ul>${f.lines
+              .map((l) => `<li class="${l.situation === 'Base' ? 'base' : ''}"><b>${esc(l.situation)}</b><span>${esc(l.call)}</span></li>`)
+              .join('')}</ul></div></article>`
+        )
+        .join('')}</div></section>`
+    : '';
+  const hasFront = Boolean(header || alertHtml || boxes || noteHtml || plansHtml);
   const title = `${data.opponentName} - defensive call sheet`;
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${esc(title)}</title><style>
     @page { size: letter ${o.orientation}; margin: 0.4in; }
@@ -177,6 +194,17 @@ export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedO
     .card .nm { font-weight: 900; font-size: ${base * (o.playTypeCols === 3 ? 1 : 1.2)}px; text-transform: uppercase; letter-spacing: 0.02em; }
     .card .detail { color: #475569; font-size: ${base * (o.playTypeCols === 3 ? 0.78 : 0.9)}px; margin-top: 1px; }
     .card img { display: block; width: 100%; height: auto; margin-top: 5px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; ${bw ? 'filter: grayscale(1) contrast(1.15);' : ''} }
+    .fplans { margin-top: 10px; break-inside: auto; }
+    .fplans-h { font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; font-size: ${base * 0.95}px; border-bottom: 2px solid #0f172a; padding-bottom: 3px; margin-bottom: 6px; }
+    .fgrid { display: grid; grid-template-columns: repeat(${landscape ? 3 : 2}, 1fr); gap: 8px; }
+    .fplan { border: 1.5px solid ${bw ? '#111' : '#065f46'}; border-radius: 6px; padding: 5px 7px; break-inside: avoid; display: flex; flex-direction: column; gap: 4px; }
+    .fplan img { width: 100%; height: auto; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; ${bw ? 'filter: grayscale(1) contrast(1.15);' : ''} }
+    .fplan h3 { margin: 0; font-size: ${base * 1.05}px; font-weight: 900; text-transform: uppercase; color: ${bw ? '#111' : '#065f46'}; }
+    .fplan ul { list-style: none; margin: 2px 0 0; padding: 0; }
+    .fplan li { display: flex; gap: 6px; align-items: baseline; padding: 2px 0; border-bottom: 1px solid #e2e8f0; font-size: ${base * 1.02}px; }
+    .fplan li:last-child { border-bottom: 0; }
+    .fplan li b { min-width: 6.5em; font-size: ${base * 0.85}px; text-transform: uppercase; color: #475569; }
+    .fplan li.base span { font-weight: 900; }
     .empty { margin-top: 6px; border: 1px dashed #94a3b8; border-radius: 4px; padding: 18px 8px; text-align: center; color: #64748b; font-size: ${base * 0.9}px; }
-  </style></head><body>${header}${alertHtml}${boxes ? `<div class="calls">${boxes}</div>` : ''}${noteHtml}${hasFront ? `<div class="printed">Printed ${esc(printed)}</div>` : ''}${playTypesHtml}</body></html>`;
+  </style></head><body>${header}${alertHtml}${boxes ? `<div class="calls">${boxes}</div>` : ''}${plansHtml}${noteHtml}${hasFront ? `<div class="printed">Printed ${esc(printed)}</div>` : ''}${playTypesHtml}</body></html>`;
 }

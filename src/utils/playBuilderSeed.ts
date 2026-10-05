@@ -26,6 +26,8 @@ export interface PlayBuilderSeed {
   filmBaseKeys?: Record<string, string>;
   /** Opened to adjust that backfield for the whole film, rather than one play. */
   backfieldEdit?: string;
+  /** One of our defensive plays: the defense is drawn (front, alignment, blitz arrows) against an offense. */
+  defenseCall?: boolean;
   /** Opened to draw one of their formations (saved as the formation, not a play). */
   formationEdit?: { id: string };
   /** Drawing a formation: the plays on the film in it (clip, call, its picture), to look at while adjusting it. */

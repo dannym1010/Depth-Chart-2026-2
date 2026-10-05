@@ -26,7 +26,7 @@ import { Card, SectionHeader } from '../../hudlScout/components/report/ui';
 import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { ScoutOppPlayLibrary } from './ScoutOppPlayLibrary';
-import { buildScoutScript, cardsFromTags, groupOppPlays, isScoutPlayEntry, orderByIds, reportPlays, snapsForCall, tagCardName, type ScoutOppPlay } from '../../utils/scoutOppPlays';
+import { buildScoutScript, cardsFromTags, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
 import { leadOppPlay, oppPlayDiagram } from '../../utils/filmBackfields';
 import { theirCallEntries } from '../../utils/theirCalls';
 import type { ReportPlayType } from '../../hudlScout/components/CallSheetModal';
@@ -102,6 +102,8 @@ export interface HudlScoutViewProps {
   onEditFormation?: (req: { id?: string; name: string; gameId?: string; clip?: number }) => void;
   /** Draw this clip's play in the builder, lined up in its base formation, with the clip playing. */
   onDrawSnap?: (play: Play) => void;
+  /** Our calls against their formations changed: put them on the call sheet. */
+  onFormationPlans?: (list: OppFormation[]) => void;
 }
 
 export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
@@ -135,6 +137,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   onAdjustBackfield,
   onEditFormation,
   onDrawSnap,
+  onFormationPlans,
 }) => {
   // The calls read our defense from the scouting helpers; rebuild them when it changes.
   setDefenseSystem(teamDefense);
@@ -278,6 +281,16 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       };
     });
   }, [isCallSheetOpen, scoutTarget, bundle.playLibraries, bundle.plays, bundle.backfieldBases, playDatabase]);
+
+  // The sideline sheet: our calls against each of their formations (with our defense lined up against it).
+  const formationPlans = useMemo(() => {
+    if (!isCallSheetOpen || scoutTarget !== 'opponent') return [];
+    const nameOf = (id: string) => (playDatabase || []).find((p) => p.id === id)?.name;
+    return (bundle.oppFormations || [])
+      .filter((f) => f?.id && !f.deleted)
+      .map((f) => ({ name: f.name, lines: planLines(f.plan, nameOf), diagram: f.defenseUrl || f.diagramUrl || undefined }))
+      .filter((f) => f.lines.length);
+  }, [isCallSheetOpen, scoutTarget, bundle.oppFormations, playDatabase]);
 
   // Their plays shows every play the coaches tagged on the film: a card for each tagged play that
   // isn't there yet (a copy of our play, or a write-in to finish in the play builder).
@@ -814,6 +827,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
             formations={bundle.oppFormations}
             onEditFormation={onEditFormation}
             onSaveFormations={(oppFormations) => setBundle((prev) => ({ ...prev, oppFormations, updatedAt: Date.now() }))}
+            onPlansChange={onFormationPlans}
             scriptOrder={(bundle.practiceScript?.lines || []).map((l) => l.playId)}
           />
         ) : plays.length === 0 ? (
@@ -988,6 +1002,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         onSaveEdits={(callSheet) => setBundle((prev) => ({ ...prev, callSheet, updatedAt: Date.now() }))}
         editorName={currentUser?.displayName || (currentUser?.email ? String(currentUser.email).split('@')[0] : '')}
         playTypes={reportPlayTypes}
+        formationPlans={formationPlans}
       />
     </div>
   );
