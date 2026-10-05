@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { builderFromFormation, linkSnapsToCall, mergeOppFormations, parseClips, snapsForCall, type OppFormation } from './scoutOppPlays.ts';
+import { builderFromFormation, cardForSnap, realCall, linkSnapsToCall, mergeOppFormations, parseClips, snapsForCall, type OppFormation } from './scoutOppPlays.ts';
 import { pickScoutBundle } from './scoutMerge.ts';
 import type { Play } from '../hudlScout/types/football.ts';
 
@@ -46,5 +46,35 @@ describe('their formations and clip tags', () => {
     assert.equal(linked[2].playCallId, 'scout_other'); // already another play's
     assert.equal(linked[3].playCallId, undefined); // clip 2 of another film
     assert.equal(linked[0].playCallId, undefined);
+  });
+});
+
+describe('the play call is never the result', () => {
+  it('reads the real call, not the result Hudl filled in', () => {
+    assert.equal(realCall({ playName: 'Rush', result: 'Rush' }), '');
+    assert.equal(realCall({ playName: 'Sack', result: 'Sack' }), '');
+    assert.equal(realCall({ playName: 'Complete' }), '');
+    assert.equal(realCall({ playName: 'Rush, TD', result: 'Rush, TD' }), '');
+    assert.equal(realCall({ playName: '36 Dive', result: 'Rush' }), '36 Dive');
+    assert.equal(realCall({ hudlCall: '28 Sweep', playName: 'Rush' }), '28 Sweep');
+  });
+
+  it('a clip with no call opens a new play from its drawn base, named by formation and clip', () => {
+    const f: OppFormation = { id: 'f1', name: 'Trips Rt', editedAt: 1, builder: { personnel: 11 } as any };
+    const snap = film(7, { formation: 'TRIPS  RT', playName: 'Sack', result: 'Sack', playType: 'PASS' as any, down: 3 });
+    const card = cardForSnap(snap, [f], [], 5);
+    assert.equal(card.name, 'Trips Rt #7');
+    assert.equal(card.formationId, 'f1');
+    assert.deepEqual(card.clips, [7]);
+    assert.equal(card.kind, 'pass');
+    assert.equal(card.personnel, '11');
+    const named = cardForSnap(film(8, { formation: 'Doubles', playName: '36 Dive', result: 'Rush' }), [f], [], 6);
+    assert.equal(named.name, '36 Dive');
+    assert.equal(named.formationId, undefined);
+  });
+
+  it('a clip already tagged opens that play', () => {
+    const card = { id: 'opp-1', gameId: 'g1', name: 'Trips Rt #2' } as any;
+    assert.equal(cardForSnap(film(2, { playCallId: 'scout_opp-1' }), [], [card]), card);
   });
 });

@@ -69,6 +69,8 @@ interface FilmRoomViewProps {
   onSaveBuilderPlay?: (entry: PlayDatabaseEntry, seed: PlayBuilderSeed | null) => PlayDatabaseEntry;
   onRenameScoutPlay?: (change: { from: string; to: string; scoutId?: string; gameId?: string; playEntryId?: string }) => void;
   onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: Record<string, { x: number; y: number }>; baseKey: string }) => void;
+  /** Their film: draw a clip's play in the play builder, lined up in its base formation, with the clip playing. */
+  onDrawSnap?: (play: Play) => void;
 }
 
 type OdkFilter = 'all' | 'O' | 'D' | 'K';
@@ -78,7 +80,7 @@ const newId = () => `fn_${Date.now().toString(36)}${Math.random().toString(36).s
 export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   teamId, teamName, currentWeek, weekLabel, opponentName, opponentScout, ownTeamScout, authorName, onOpenHudlGame,
   onUpdateOwnTeamScout, onUpdateScouting, playDatabase, onUpdatePlayDatabase, roster, weekBoards, weekOptions,
-  filmWeeks, onSelectWeek, onSaveWeekScouting, onBackToPlay, builderCanEdit, onSaveBuilderPlay, onRenameScoutPlay, onSaveFilmBackfield,
+  filmWeeks, onSelectWeek, onSaveWeekScouting, onBackToPlay, builderCanEdit, onSaveBuilderPlay, onRenameScoutPlay, onSaveFilmBackfield, onDrawSnap,
 }) => {
   const own = useMemo(() => bundleFromSaved(ownTeamScout, teamName), [ownTeamScout, teamName]);
   const opp = useMemo(() => bundleFromSaved(opponentScout, opponentName || 'Opponent'), [opponentScout, opponentName]);
@@ -510,6 +512,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       onSetDefPlay={isOwn ? (id, patch) => editPlays((all) => setPlayDefPlay(all, id, patch)) : undefined}
       compact
       toolbarStart={odkChips}
+      onDrawCall={!isOwn && onDrawSnap && !isReadOnlySession() ? onDrawSnap : undefined}
+      drawUntagged={!isOwn && Boolean(onDrawSnap)}
     />
   );
   // Film with no breakdown that can't get one here (a player account, or the game was deleted in Hudl Scout): its clips.

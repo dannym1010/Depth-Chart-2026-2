@@ -37,6 +37,8 @@ interface PlaysTableProps {
   onOrderChange?: (ids: string[]) => void;
   /** Draw a tagged play in the play builder (scouting film). */
   onDrawCall?: (play: Play) => void;
+  /** Offer Draw on plays not tagged yet too (their film: draw the play from its base formation). */
+  drawUntagged?: boolean;
   /** Plays whose write-ins are offered when tagging (e.g. every game of the team); default: these plays. */
   writeInPlays?: Play[];
   /** Film Room: extra marks next to the play number (film, notes). */
@@ -51,8 +53,8 @@ const DrawButton: React.FC<{ play: Play; onDraw: (play: Play) => void }> = ({ pl
   <button
     type="button"
     onClick={() => onDraw(play)}
-    title={`Draw ${play.playCall} in the play builder`}
-    aria-label={`Draw ${play.playCall}`}
+    title={play.playCall ? `Draw ${play.playCall} in the play builder` : `Draw clip ${play.playNumber} in the play builder, from its base formation`}
+    aria-label={play.playCall ? `Draw ${play.playCall}` : `Draw clip ${play.playNumber}`}
     className="h-7 px-1.5 rounded-md border border-slate-600 text-[10px] font-black text-slate-200 hover:bg-slate-800 cursor-pointer whitespace-nowrap"
   >
     ✎ Draw
@@ -105,7 +107,8 @@ const UnitPicker: React.FC<{
   );
 };
 
-export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge, compact, toolbarStart, writeInPlays, onDrawCall }) => {
+export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge, compact, toolbarStart, writeInPlays, onDrawCall, drawUntagged }) => {
+  const showDraw = (p: Play) => Boolean(onDrawCall && (p.playCallId || drawUntagged));
   const [openPlay, setOpenPlay] = useState<string | null>(null);
   const canLineup = Boolean(lineupFor && roster && onSetSub);
   // A play's panel: who was on the field (offense / defense), and tackles on kicks too.
@@ -456,8 +459,13 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   {canTagCalls && isTaggablePlay(play) && (
                     <CallButton play={play} db={callDb!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
                   )}
-                  {onDrawCall && play.playCallId && <DrawButton play={play} onDraw={onDrawCall} />}
+                  {showDraw(play) && <DrawButton play={play} onDraw={onDrawCall!} />}
                   {onSetUnit && playIsUnitTaggable(play) && <UnitPicker play={play} onSetUnit={onSetUnit} />}
+                </div>
+              )}
+              {!((onSetUnit && playIsUnitTaggable(play)) || (canTagCalls && isTaggablePlay(play))) && showDraw(play) && (
+                <div className="pt-1">
+                  <DrawButton play={play} onDraw={onDrawCall!} />
                 </div>
               )}
               {canOpen(play) && (
@@ -612,12 +620,17 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                       <div className={`flex items-start gap-0.5 ${compact ? 'flex-row items-center gap-1.5' : 'flex-col'}`}>
                         <span className="inline-flex items-center gap-1">
                           <CallButton play={play} db={callDb!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
-                          {onDrawCall && play.playCallId && <DrawButton play={play} onDraw={onDrawCall} />}
+                          {showDraw(play) && <DrawButton play={play} onDraw={onDrawCall!} />}
                         </span>
                         {play.playCallId && play.untaggedName && play.untaggedName !== play.playCall && (
                           <span className="text-[10px] text-slate-400">Film: {play.untaggedName}</span>
                         )}
                       </div>
+                    ) : showDraw(play) ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        {play.playName && <span>{play.playName}</span>}
+                        <DrawButton play={play} onDraw={onDrawCall!} />
+                      </span>
                     ) : (
                       play.playName
                     )}

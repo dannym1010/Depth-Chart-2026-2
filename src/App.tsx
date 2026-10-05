@@ -165,7 +165,8 @@ import { mergeDeletedPlayIds, mergePlayBanks, stampPlayEdits } from './utils/pla
 import { blankCallSheetData, blankWristbandData } from './utils/blankSheets';
 import { missingPracticePlans } from './utils/autoPracticePlans';
 import { clearPlayBuilderSeed, consumeSeedHold, holdPlayBuilderSeed, mergeBuilderSave, savePlayBuilderSeed, type PlayBuilderSeed } from './utils/playBuilderSeed';
-import { builderFromFormation, isScoutPlayEntry, renameOppCall, linkSnapsToCall, snapsForCall, type OppFormation } from './utils/scoutOppPlays';
+import { builderFromFormation, cardForSnap, isScoutPlayEntry, realCall, renameOppCall, linkSnapsToCall, snapsForCall, type OppFormation, type ScoutOppPlay } from './utils/scoutOppPlays';
+import type { Play as FilmPlay } from './hudlScout/types/football';
 import { backfieldOf, baseKeysForGame, openFormation, redrawWithBackfield, spotsForGame } from './utils/filmBackfields';
 import { BACKFIELD_STRUCTURES } from './utils/footballEngine';
 import { newPlayEntry } from './utils/playbookImport';
@@ -4260,7 +4261,7 @@ export default function App() {
     const drawnPlays = latestStateRef.current.playDatabase || [];
     const formationPlays = inFormation.map((p) => {
       const card = String(p.playCallId || '').startsWith('scout_') ? drawnPlays.find((e) => e.id === p.playCallId) : undefined;
-      const call = String(p.playCall || p.playName || '').trim();
+      const call = String(p.playCall || '').trim() || realCall(p);
       return { snapId: p.id, playNumber: Number(p.playNumber) || 0, name: call && call !== '-' ? call : '', ...(card?.diagramUrl ? { diagramUrl: card.diagramUrl } : {}) };
     });
     const clipSnaps = gameId && formation.clip ? snapsForCall(hudl?.plays || [], gameId, '', undefined, undefined, [formation.clip]) : [];
@@ -4282,6 +4283,79 @@ export default function App() {
     holdPlayBuilderSeed();
     if (gameId && snaps.length) openFilmWindow({ gameId, playIds: snaps.map((x) => x.id), label: formation.name, ...(startId ? { startId } : {}) });
     setActiveUnit('playbook');
+  };
+  /** Their play in the play builder (from Their plays, the play log or a clip), with its film in the film window. */
+  const drawOppPlay = (play: ScoutOppPlay, group?: { label: string; plays: ScoutOppPlay[] }) => {
+    const entryId = `scout_${play.id}`;
+    const teamId = activeTeamIdRef.current;
+    const week = currentWeekRef.current;
+    const scopedKey = getScopedWeekKey(teamId, week);
+    const weekState = latestStateRef.current.weeklyData?.[scopedKey] || latestStateRef.current.weeklyData?.[week];
+    const hudl = weekState?.scouting?.hudlScout;
+    const full = latestStateRef.current.playDatabase || [];
+    const mine = full.filter((p) => p && sameTeamId(p.teamId || 'team_10u', teamId));
+    if (!mine.some((p) => p.id === entryId)) {
+      handleUpdateTeamPlayDatabase([
+        ...mine,
+        { ...newPlayEntry(play.name, 'offense'), id: entryId, source: 'scout', teamId, notes: play.notes || '' },
+      ]);
+    }
+    const linked = linkSnapsToCall(hudl?.plays || [], {
+      gameId: play.gameId,
+      callName: play.name,
+      playEntryId: entryId,
+      playName: play.name,
+      clips: play.clips,
+    });
+    const libs = hudl?.playLibraries || {};
+    const cardSaved = Boolean(play.gameId && (libs[play.gameId] || []).some((c) => c.id === play.id));
+    if (hudl && (!cardSaved || linked.some((p, i) => p !== (hudl.plays || [])[i]))) {
+      const playLibraries =
+        cardSaved || !play.gameId ? libs : { ...libs, [play.gameId]: [...(libs[play.gameId] || []), play] };
+      persistWeekScouting('hudlScout', { ...hudl, plays: linked, playLibraries, updatedAt: Date.now() });
+    }
+    // The snaps of this play, or of every call in the play type when several were combined.
+    const snapsById = new Map<string, { id: string; playNumber: number; gain?: number; result?: string }>();
+    for (const member of group?.plays?.length ? group.plays : [play]) {
+      for (const snap of snapsForCall(linked, member.gameId, member.name, `scout_${member.id}`, member.fromPlayId, member.clips)) {
+        snapsById.set(snap.id, snap);
+      }
+    }
+    const snaps = [...snapsById.values()].sort((a, b) => a.playNumber - b.playNumber);
+    savePlayBuilderSeed({
+      name: play.name,
+      personnel: play.personnel,
+      formation: play.formation,
+      kind: play.kind,
+      down: play.down,
+      notes: play.notes,
+      scoutId: play.id,
+      gameId: play.gameId,
+      playEntryId: entryId,
+      snaps,
+      watchLabel: group?.label,
+      // A play drawn before re-opens as it was left; a new one from their formation starts lined up in it.
+      builder:
+        mine.find((p) => p.id === entryId)?.builder ||
+        (() => {
+          const f = (hudl?.oppFormations || []).find((x: OppFormation) => x?.id === play.formationId && !x.deleted);
+          return f ? builderFromFormation(f, play.name) : undefined;
+        })(),
+      filmBases: spotsForGame(hudl?.backfieldBases, play.gameId),
+      filmBaseKeys: baseKeysForGame(hudl?.backfieldBases, play.gameId),
+    });
+    holdPlayBuilderSeed();
+    // Their film of this play opens in the film window while the coach works on it.
+    if (play.gameId && snaps.length && (filmWindowAutoOpen() || play.clips?.length)) {
+      openFilmWindow({ gameId: play.gameId, playIds: snaps.map((x) => x.id), label: group?.label || play.name });
+    }
+    setActiveUnit('playbook');
+  };
+  /** A clip of their film: its play (tagged before), or a new one from the clip's base formation. */
+  const drawSnap = (snap: FilmPlay) => {
+    const { hudl } = weekHudl();
+    const cards = Object.values((hudl?.playLibraries || {}) as Record<string, ScoutOppPlay[]>).flat();
+    drawOppPlay(cardForSnap(snap, hudl?.oppFormations, cards));
   };
   /** This report's backfield shape, then every play in the week's scout that lines up in it. */
   const saveFilmBackfield = (change: { gameId: string; backfield: string; spots: Record<string, { x: number; y: number }>; baseKey: string }) => {
@@ -7214,6 +7288,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onSaveBuilderPlay={saveBuilderPlay}
                 onRenameScoutPlay={renameScoutPlay}
                 onSaveFilmBackfield={saveFilmBackfield}
+                onDrawSnap={drawSnap}
               />
             )}
 
@@ -7302,72 +7377,8 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 }}
                 onAdjustBackfield={openFilmBackfield}
                 onEditFormation={openOppFormation}
-                onDrawPlay={(play, group) => {
-                  const entryId = `scout_${play.id}`;
-                  const teamId = activeTeamIdRef.current;
-                  const week = currentWeekRef.current;
-                  const scopedKey = getScopedWeekKey(teamId, week);
-                  const weekState = latestStateRef.current.weeklyData?.[scopedKey] || latestStateRef.current.weeklyData?.[week];
-                  const hudl = weekState?.scouting?.hudlScout;
-                  const full = latestStateRef.current.playDatabase || [];
-                  const mine = full.filter((p) => p && sameTeamId(p.teamId || 'team_10u', teamId));
-                  if (!mine.some((p) => p.id === entryId)) {
-                    handleUpdateTeamPlayDatabase([
-                      ...mine,
-                      { ...newPlayEntry(play.name, 'offense'), id: entryId, source: 'scout', teamId, notes: play.notes || '' },
-                    ]);
-                  }
-                  const linked = linkSnapsToCall(hudl?.plays || [], {
-                    gameId: play.gameId,
-                    callName: play.name,
-                    playEntryId: entryId,
-                    playName: play.name,
-                    clips: play.clips,
-                  });
-                  const libs = hudl?.playLibraries || {};
-                  const cardSaved = Boolean(play.gameId && (libs[play.gameId] || []).some((c) => c.id === play.id));
-                  if (hudl && (!cardSaved || linked.some((p, i) => p !== (hudl.plays || [])[i]))) {
-                    const playLibraries =
-                      cardSaved || !play.gameId ? libs : { ...libs, [play.gameId]: [...(libs[play.gameId] || []), play] };
-                    persistWeekScouting('hudlScout', { ...hudl, plays: linked, playLibraries, updatedAt: Date.now() });
-                  }
-                  // The snaps of this play, or of every call in the play type when several were combined.
-                  const snapsById = new Map<string, { id: string; playNumber: number; gain?: number; result?: string }>();
-                  for (const member of group?.plays?.length ? group.plays : [play]) {
-                    for (const snap of snapsForCall(linked, member.gameId, member.name, `scout_${member.id}`, member.fromPlayId, member.clips)) {
-                      snapsById.set(snap.id, snap);
-                    }
-                  }
-                  const snaps = [...snapsById.values()].sort((a, b) => a.playNumber - b.playNumber);
-                  savePlayBuilderSeed({
-                    name: play.name,
-                    personnel: play.personnel,
-                    formation: play.formation,
-                    kind: play.kind,
-                    down: play.down,
-                    notes: play.notes,
-                    scoutId: play.id,
-                    gameId: play.gameId,
-                    playEntryId: entryId,
-                    snaps,
-                    watchLabel: group?.label,
-                    // A play drawn before re-opens as it was left; a new one from their formation starts lined up in it.
-                    builder:
-                      mine.find((p) => p.id === entryId)?.builder ||
-                      (() => {
-                        const f = (hudl?.oppFormations || []).find((x: OppFormation) => x?.id === play.formationId && !x.deleted);
-                        return f ? builderFromFormation(f, play.name) : undefined;
-                      })(),
-                    filmBases: spotsForGame(hudl?.backfieldBases, play.gameId),
-                    filmBaseKeys: baseKeysForGame(hudl?.backfieldBases, play.gameId),
-                  });
-                  holdPlayBuilderSeed();
-                  // Their film of this play opens in the film window while the coach works on it.
-                  if (play.gameId && snaps.length && (filmWindowAutoOpen() || play.clips?.length)) {
-                    openFilmWindow({ gameId: play.gameId, playIds: snaps.map((x) => x.id), label: group?.label || play.name });
-                  }
-                  setActiveUnit('playbook');
-                }}
+                onDrawPlay={drawOppPlay}
+                onDrawSnap={drawSnap}
               />
             )}
 

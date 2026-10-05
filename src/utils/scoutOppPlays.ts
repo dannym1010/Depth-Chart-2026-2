@@ -132,7 +132,57 @@ export function mergeOppLibraries(
 
 /** The call on a film snap, the same text Their plays groups by. */
 export function filmCall(play: Play): string {
-  return String(play.hudlCall || play.playName || '').trim();
+  return realCall(play);
+}
+
+/** Hudl's words for what happened, which it puts in the play name when the file has no play call. */
+const RESULT_WORDS = /^(rush|run|pass|play|special teams play|gain|loss|penalty|incomplete|complete|completion|sack|scramble|interception|int|fumble|no play|kneel|td|touchdown|return|touchback|fair catch|-)$/i;
+
+/**
+ * The play they called, as the film has it: Hudl's play-call column, or the name, unless the name is only
+ * the result Hudl filled in ("Rush", "Sack", "Complete") when the file had no play call.
+ */
+export function realCall(play: Partial<Pick<Play, 'hudlCall' | 'playName' | 'result'>>): string {
+  const hudl = String(play.hudlCall || '').trim();
+  if (hudl && hudl !== '-') return hudl;
+  const name = String(play.playName || '').trim();
+  if (!name || RESULT_WORDS.test(name)) return '';
+  const result = String(play.result || '').trim().toLowerCase();
+  if (result && name.toLowerCase() === result) return '';
+  return name;
+}
+
+/** Formation names match without caring about capitals or extra spaces. */
+export const formationKey = (name?: string) => String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+/**
+ * Their play for one clip on the film, to open in the play builder: the play it's already tagged with, or a
+ * new one lined up in its drawn base formation, named by the call (or "Trips Rt #12"), with the clip on it.
+ */
+export function cardForSnap(snap: Play, formations: OppFormation[] | undefined, cards: ScoutOppPlay[], now = Date.now()): ScoutOppPlay {
+  const gameId = snap.gameId || '';
+  const tag = String(snap.playCallId || '');
+  const n = Number(snap.playNumber) || 0;
+  const linked = tag ? cards.find((c) => c.gameId === gameId && (`scout_${c.id}` === tag || c.fromPlayId === tag)) : undefined;
+  if (linked) return linked;
+  const form = snap.formation && snap.formation !== '-' ? snap.formation.trim() : '';
+  const f = (formations || []).find((x) => x?.id && !x.deleted && x.builder && formationKey(x.name) === formationKey(form));
+  const call = String(snap.playCall || '').trim() || realCall(snap);
+  return {
+    id: `opp-${now}`,
+    gameId,
+    name: call || `${f?.name || form || 'Play'} #${n}`,
+    formation: f?.name || form,
+    personnel: f?.builder?.personnel != null ? String(f.builder.personnel) : snap.personnel && snap.personnel !== '-' ? snap.personnel : '',
+    kind: kindFrom(snap),
+    down: downFrom(snap),
+    notes: '',
+    onReport: true,
+    editedAt: now,
+    clips: [n],
+    ...(f ? { formationId: f.id } : {}),
+    ...(tag && !tag.startsWith('scout_') ? { fromPlayId: tag } : {}),
+  };
 }
 
 export interface LinkedSnap {
@@ -270,9 +320,9 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
 
 
 /** The name of a tagged play: our library play's name, a whole call as typed, or the film formation + the call. */
-export function tagCardName(sample: Partial<Pick<Play, 'formation' | 'playCall' | 'playName'>>, libraryName?: string): string {
+export function tagCardName(sample: Partial<Pick<Play, 'formation' | 'playCall' | 'playName' | 'hudlCall' | 'result'>>, libraryName?: string): string {
   const formation = sample.formation && sample.formation !== '-' ? sample.formation : '';
-  const call = String(sample.playCall || sample.playName || '').trim();
+  const call = String(sample.playCall || '').trim() || realCall(sample);
   return (libraryName || (isWholeCall(call) ? call : [formation, call].filter(Boolean).join(' '))).trim().slice(0, 120);
 }
 
@@ -334,8 +384,8 @@ export function playsFromFilm(gameId: string, film: Play[], existing: ScoutOppPl
   const groups = new Map<string, Play[]>();
   for (const play of film) {
     if (play.odk !== 'O') continue;
-    const name = String(play.hudlCall || play.playName || '').trim();
-    if (!name || name === '-' || /^(penalty|rush|pass|incomplete|no play|kneel)$/i.test(name) || have.has(name.toLowerCase())) continue;
+    const name = realCall(play);
+    if (!name || have.has(name.toLowerCase())) continue;
     const list = groups.get(name) || [];
     list.push(play);
     groups.set(name, list);

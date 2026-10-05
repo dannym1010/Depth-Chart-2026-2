@@ -15,6 +15,7 @@ import {
   groupOppPlays,
   moveItem,
   parseClips,
+  realCall,
   type OppFormation,
   snapsForCall,
   orderByIds,
@@ -250,7 +251,7 @@ export const ScoutOppPlayLibrary: React.FC<{
       if (!name || name === '-') continue;
       const key = formKey(name);
       if (!byKey.has(key)) byKey.set(key, { name, clips: [] });
-      const call = String(p.playCall || p.playName || '').trim();
+      const call = String(p.playCall || '').trim() || realCall(p);
       byKey.get(key)!.clips.push({
         n: Number(p.playNumber) || 0,
         call: call === '-' ? '' : call,

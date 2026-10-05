@@ -99,6 +99,8 @@ export interface HudlScoutViewProps {
   onAdjustBackfield?: (gameId: string, backfield: string) => void;
   /** Draw one of their formations in the play builder (new, or one drawn before), with its clip. */
   onEditFormation?: (req: { id?: string; name: string; gameId?: string; clip?: number }) => void;
+  /** Draw this clip's play in the builder, lined up in its base formation, with the clip playing. */
+  onDrawSnap?: (play: Play) => void;
 }
 
 export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
@@ -131,6 +133,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   onAddTaggedPlays,
   onAdjustBackfield,
   onEditFormation,
+  onDrawSnap,
 }) => {
   // The calls read our defense from the scouting helpers; rebuild them when it changes.
   setDefenseSystem(teamDefense);
@@ -777,7 +780,23 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
               const before = new Set(bundle.deletedOppPlayIds || []);
               const gone = deletedOppPlayIds.filter((id) => !before.has(id));
               if (gone.length) onRemoveDrawnPlays?.(gone.map((id) => `scout_${id}`));
-              setBundle((prev) => ({ ...prev, playLibraries, deletedOppPlayIds, practiceScript, updatedAt: Date.now() }));
+              // The clips tagged with a removed play go back to untagged.
+              const goneTags = new Set(gone.map((id) => `scout_${id}`));
+              const now = Date.now();
+              setBundle((prev) => ({
+                ...prev,
+                plays: goneTags.size
+                  ? prev.plays.map((p) => {
+                      if (!p.playCallId || !goneTags.has(p.playCallId)) return p;
+                      const { playCallId: _id, playCall: _call, ...rest } = p;
+                      return { ...rest, ...(p.untaggedName ? { playName: p.untaggedName } : {}), editedAt: now };
+                    })
+                  : prev.plays,
+                playLibraries,
+                deletedOppPlayIds,
+                practiceScript,
+                updatedAt: now,
+              }));
             }}
             onDraw={onDrawPlay}
             backfieldBases={bundle.backfieldBases}
@@ -909,7 +928,12 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                   onTagPlays={onUpdatePlayDatabase ? handleTagPlays : undefined}
                   onCreateCall={onUpdatePlayDatabase ? handleCreateCall : undefined}
                   onSetFormation={handleSetFormation}
-                  onDrawCall={drawFromLog ? (pl) => drawTagged(String(pl.playCallId), pl.gameId || oppBundle.games[0]?.id) : undefined}
+                  onDrawCall={
+                    drawFromLog
+                      ? (pl) => (pl.playCallId ? drawTagged(String(pl.playCallId), pl.gameId || oppBundle.games[0]?.id) : onDrawSnap?.(pl))
+                      : undefined
+                  }
+                  drawUntagged={Boolean(drawFromLog && onDrawSnap)}
                   lineupFor={scoutTarget === 'own' && weekBoards ? lineupFor : undefined}
                   roster={roster}
                   onSetSub={scoutTarget === 'own' ? handleSetSub : undefined}
