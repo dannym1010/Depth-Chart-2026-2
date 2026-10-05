@@ -45,7 +45,10 @@ export function scoutFingerprint(scout: any): string {
       }
     }
   }
-  return `${Number(scout.updatedAt) || 0}|${plays.length}|${games.length}|${scout.datasetName || ''}|${scout.sourceCleared ? 1 : 0}|${edits}|${lastEdit}|${gameEdits}|${deleted}|${baseEdit}`;
+  const formEdit = Array.isArray(scout.oppFormations)
+    ? scout.oppFormations.reduce((m: number, f: any) => Math.max(m, Number(f?.editedAt) || 0), 0)
+    : 0;
+  return `${Number(scout.updatedAt) || 0}|${plays.length}|${games.length}|${scout.datasetName || ''}|${scout.sourceCleared ? 1 : 0}|${edits}|${lastEdit}|${gameEdits}|${deleted}|${baseEdit}|${formEdit}`;
 }
 
 /**

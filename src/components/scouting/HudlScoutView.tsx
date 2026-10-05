@@ -452,6 +452,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       deletedOppPlayIds: oppBundle.deletedOppPlayIds,
       practiceScript: oppBundle.practiceScript,
       backfieldBases: oppBundle.backfieldBases,
+      oppFormations: oppBundle.oppFormations,
       updatedAt: oppBundle.updatedAt,
     });
     if (oppBundle.datasetName && oppBundle.datasetName !== opponentFallback) {

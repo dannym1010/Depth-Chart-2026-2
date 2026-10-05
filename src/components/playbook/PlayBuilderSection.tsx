@@ -390,6 +390,14 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     onStateChange?.(currentState());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stateKey]);
+  // Drawing their formation: each change saves itself a moment later, so leaving (Back) never loses it.
+  const openedKey = useRef(stateKey);
+  const autoSave = useRef<() => void>(() => {});
+  useEffect(() => {
+    if (!formationMode || !canEdit || stateKey === openedKey.current) return;
+    const t = window.setTimeout(() => autoSave.current(), 700);
+    return () => window.clearTimeout(t);
+  }, [stateKey, formationMode, canEdit]);
 
   /** Backs and receivers, strong side to the right, without the hash or a Tight/Wide squeeze, so each play can still pick tight or wide. */
   const currentBackfieldSpots = (): BackfieldSpots => {
@@ -438,13 +446,17 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     setBackfieldKey(key);
   };
 
+  const saveFormation = (announce: boolean) => {
+    if (!play || !seed?.formationEdit || !onSaveFormation) return;
+    const { strokes: _drawn, ...builder } = currentState();
+    const name = (nameIn.trim() || seed.name).slice(0, 80);
+    onSaveFormation({ id: seed.formationEdit.id, name, builder: { ...builder, name }, diagramUrl: diagramSvg(play, [], [], String(ball)) });
+    setBaseNote(announce ? `Saved ${name}. Their plays drawn from it start lined up like this.` : `Saved ${name} (changes save as you go).`);
+  };
+  autoSave.current = () => saveFormation(false);
   const saveOffense = () => {
     if (formationMode) {
-      if (!play || !seed?.formationEdit || !onSaveFormation) return;
-      const { strokes: _drawn, ...builder } = currentState();
-      const name = (nameIn.trim() || seed.name).slice(0, 80);
-      onSaveFormation({ id: seed.formationEdit.id, name, builder: { ...builder, name }, diagramUrl: diagramSvg(play, [], [], String(ball)) });
-      setBaseNote(`Saved ${name}. Their plays drawn from it start lined up like this.`);
+      saveFormation(true);
       return;
     }
     if (seed?.backfieldEdit) {
