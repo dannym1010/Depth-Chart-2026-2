@@ -18,6 +18,7 @@ import {
   writeInEntry,
 } from '../../hudlScout/utils/playTags';
 import { playNameKey } from '../../utils/playbookImport';
+import { formationKey, isScoutPlayEntry } from '../../utils/scoutOppPlays';
 
 type UnitFilter = 'offense' | 'defense' | 'all';
 
@@ -74,7 +75,13 @@ export const CallList: React.FC<CallListProps> = ({ play, db, usage, onPick, onC
   const unitPool = useMemo(() => (unit === 'all' ? db : db.filter((e) => e.unit === unit)), [db, unit]);
   const inFormation = useMemo(() => (formation ? unitPool.filter((e) => callFitsFormation(e, formation)) : []), [unitPool, formation]);
   const filtering = Boolean(formation) && !allFormations && inFormation.length > 0;
-  const results = useMemo(() => {
+  // Their film: their plays already made from this clip's formation come first.
+  const theirKey = formationKey(play.formation);
+  const theirHere = useMemo(
+    () => (theirKey && theirKey !== '-' ? unitPool.filter((e) => isScoutPlayEntry(e) && formationKey(e.formation) === theirKey) : []),
+    [unitPool, theirKey]
+  );
+  const baseResults = useMemo(() => {
     // Browsing: the formation's plays. Typing: every formation (a play called from another formation,
     // e.g. "32L 47 Zone" on a play filmed as 21, must still be found), this formation's first.
     if (!query.trim() || !filtering) return rankCalls(play, filtering ? inFormation : unitPool, usage, query).slice(0, 60);
@@ -82,6 +89,12 @@ export const CallList: React.FC<CallListProps> = ({ play, db, usage, onPick, onC
     const ids = new Set(here.map((e) => e.id));
     return [...here, ...rankCalls(play, unitPool, usage, query).filter((e) => !ids.has(e.id))].slice(0, 60);
   }, [unitPool, inFormation, filtering, play, usage, query]);
+  const theirTop = useMemo(() => rankCalls(play, theirHere, usage, query), [theirHere, play, usage, query]);
+  const results = useMemo(() => {
+    if (!theirTop.length) return baseResults;
+    const ids = new Set(theirTop.map((e) => e.id));
+    return [...theirTop, ...baseResults.filter((e) => !ids.has(e.id))].slice(0, 60);
+  }, [theirTop, baseResults]);
 
   const exact = query.trim() && db.some((e) => playNameKey(e.name) === playNameKey(query));
   const canCreate = Boolean(onCreate && query.trim() && !exact);
@@ -201,6 +214,11 @@ export const CallList: React.FC<CallListProps> = ({ play, db, usage, onPick, onC
               </button>
             )}
             {results.length > 0 && <div className="px-3 pt-1.5 pb-1 text-[10px] font-black uppercase tracking-wide text-slate-400">Or pick from the Play Bank</div>}
+          </div>
+        )}
+        {theirTop.length > 0 && (
+          <div className="px-3 pt-1.5 pb-1 text-[10px] font-black uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+            Their plays in {play.formation} ({theirTop.length})
           </div>
         )}
         {results.map((e, i) => {

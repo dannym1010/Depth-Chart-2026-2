@@ -15,6 +15,7 @@ import type { FilmPlayerRef, RosterPlayer } from '../types';
 import type { PlayDatabaseEntry } from '../types/callSheet';
 import { filmLineup, setPlayBallPlayer, setPlayDefPlay, setPlaySub, type BallRole, type WeekBoards } from '../utils/filmLineup';
 import { newPlayEntry } from '../utils/playbookImport';
+import { theirCallEntries } from '../utils/theirCalls';
 import { clipMatchMode, matchClipsToPlays } from './clipMatching';
 import { playsFromClips } from './clipPlays';
 import { applyBreakdown, blankPlays, breakdownPlayId, importIntoGame, isBrokenDown, type BreakdownRow } from './breakdownEntry';
@@ -279,6 +280,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     else onUpdateScouting('hudlScout', { ...((opponentScout as object) || {}), plays: change(opp.plays), updatedAt: now });
   };
   const isOwn = source === 'own';
+  // Their film: the plays already in Their plays (each with its formation) can be picked when tagging.
+  const theirCalls = useMemo(() => theirCallEntries(opp.playLibraries), [opp.playLibraries]);
   // Import breakdown: a Hudl file's plays go into the game that's open (not a new game), play N onto play N.
   const importInput = useRef<HTMLInputElement>(null);
   const [importNote, setImportNote] = useState('');
@@ -514,6 +517,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       toolbarStart={odkChips}
       onDrawCall={!isOwn && onDrawSnap && !isReadOnlySession() ? onDrawSnap : undefined}
       drawUntagged={!isOwn && Boolean(onDrawSnap)}
+      theirCalls={isOwn ? undefined : theirCalls}
     />
   );
   // Film with no breakdown that can't get one here (a player account, or the game was deleted in Hudl Scout): its clips.

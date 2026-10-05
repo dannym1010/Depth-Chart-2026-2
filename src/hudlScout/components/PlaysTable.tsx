@@ -11,6 +11,7 @@ import { ColumnFilter } from './ColumnFilter';
 import type { FilmPlayerRef, RosterPlayer } from '../../types';
 import { defAssists, type FilmLineup } from '../../utils/filmLineup';
 import { LineupEditor } from '../../components/playbook/LineupEditor';
+import { realCall } from '../../utils/scoutOppPlays';
 
 interface PlaysTableProps {
   plays: Play[];
@@ -39,6 +40,8 @@ interface PlaysTableProps {
   onDrawCall?: (play: Play) => void;
   /** Offer Draw on plays not tagged yet too (their film: draw the play from its base formation). */
   drawUntagged?: boolean;
+  /** Their film: their plays (from Their plays) to tag with, next to the Play Bank. */
+  theirCalls?: PlayDatabaseEntry[];
   /** Plays whose write-ins are offered when tagging (e.g. every game of the team); default: these plays. */
   writeInPlays?: Play[];
   /** Film Room: extra marks next to the play number (film, notes). */
@@ -107,7 +110,7 @@ const UnitPicker: React.FC<{
   );
 };
 
-export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge, compact, toolbarStart, writeInPlays, onDrawCall, drawUntagged }) => {
+export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge, compact, toolbarStart, writeInPlays, onDrawCall, drawUntagged, theirCalls }) => {
   const showDraw = (p: Play) => Boolean(onDrawCall && (p.playCallId || drawUntagged));
   const [openPlay, setOpenPlay] = useState<string | null>(null);
   const canLineup = Boolean(lineupFor && roster && onSetSub);
@@ -137,8 +140,13 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
   const usage = useMemo(() => callUsage(plays), [plays]);
   // Write-ins already used on these plays can be picked again, next to the Play Bank.
   const callDb = useMemo(
-    () => (playDatabase ? [...playDatabase, ...writeInsFromPlays(writeInPlays || plays)] : playDatabase),
-    [playDatabase, plays, writeInPlays]
+    () => {
+      if (!playDatabase) return playDatabase;
+      const all = [...(theirCalls || []), ...playDatabase, ...writeInsFromPlays(writeInPlays || plays)];
+      const seen = new Set<string>();
+      return all.filter((e) => (seen.has(e.id) ? false : (seen.add(e.id), true)));
+    },
+    [playDatabase, plays, writeInPlays, theirCalls]
   );
   const taggable = useMemo(() => plays.filter(isTaggablePlay), [plays]);
   const callsTagged = taggable.filter((p) => p.playCallId).length;
@@ -622,7 +630,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                           <CallButton play={play} db={callDb!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
                           {showDraw(play) && <DrawButton play={play} onDraw={onDrawCall!} />}
                         </span>
-                        {play.playCallId && play.untaggedName && play.untaggedName !== play.playCall && (
+                        {play.playCallId && play.untaggedName && play.untaggedName !== play.playCall && realCall({ playName: play.untaggedName, result: play.result }) && (
                           <span className="text-[10px] text-slate-400">Film: {play.untaggedName}</span>
                         )}
                       </div>

@@ -58,7 +58,9 @@ export function tagPlays(plays: Play[], ids: string[], entry: Pick<PlayDatabaseE
     const blankFormation = !baseFormation || baseFormation === '-' || /^unspecified$/i.test(baseFormation);
     // "32L 47 ZONE": the formation is "32 L" and the play call is "47 ZONE" (the tag still points at the
     // Play Bank play). A call without personnel + side keeps the film's formation unless it's blank.
-    const split = splitCall(entry.name);
+    // Their play (from Their plays) is tagged by its whole name; the clip keeps the formation it was filmed in.
+    const theirs = String(entry.id).startsWith('scout_');
+    const split = theirs ? { play: entry.name, formation: '' } : splitCall(entry.name);
     // A write-in carries the formation it was typed on ("47 ZONE" isn't formation "47").
     const callFormation = isWriteIn(entry.id) ? entry.formation || '' : formationOfCall(entry.name) || entry.formation || '';
     return {

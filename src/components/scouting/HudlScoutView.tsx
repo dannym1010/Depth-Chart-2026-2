@@ -28,6 +28,7 @@ import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { ScoutOppPlayLibrary } from './ScoutOppPlayLibrary';
 import { buildScoutScript, cardsFromTags, groupOppPlays, isScoutPlayEntry, orderByIds, reportPlays, snapsForCall, tagCardName, type ScoutOppPlay } from '../../utils/scoutOppPlays';
 import { leadOppPlay, oppPlayDiagram } from '../../utils/filmBackfields';
+import { theirCallEntries } from '../../utils/theirCalls';
 import type { ReportPlayType } from '../../hudlScout/components/CallSheetModal';
 import { autoTagFromHudl, setPlaysFormation, tagPlays } from '../../hudlScout/utils/playTags';
 import { newPlayEntry } from '../../utils/playbookImport';
@@ -329,6 +330,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     if (card) onDrawPlay(card);
   };
   const drawFromLog = scoutTarget === 'opponent' && onDrawPlay;
+  // Tagging their film: the plays already in Their plays (each with its formation) can be picked again.
+  const theirCalls = useMemo(() => theirCallEntries(oppBundle.playLibraries), [oppBundle.playLibraries]);
   // A game picked in another report (or removed since) isn't in this one: show all games.
   const selectedGameId = pickedGameId === 'all' || bundle.games.some((g) => g.id === pickedGameId) ? pickedGameId : 'all';
   const plays = useMemo(() => {
@@ -934,6 +937,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                       : undefined
                   }
                   drawUntagged={Boolean(drawFromLog && onDrawSnap)}
+                  theirCalls={scoutTarget === 'opponent' ? theirCalls : undefined}
                   lineupFor={scoutTarget === 'own' && weekBoards ? lineupFor : undefined}
                   roster={roster}
                   onSetSub={scoutTarget === 'own' ? handleSetSub : undefined}

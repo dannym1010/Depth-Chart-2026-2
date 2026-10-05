@@ -2,6 +2,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { builderFromFormation, cardForSnap, realCall, linkSnapsToCall, mergeOppFormations, parseClips, snapsForCall, type OppFormation } from './scoutOppPlays.ts';
 import { pickScoutBundle } from './scoutMerge.ts';
+import { theirCallEntries } from './theirCalls.ts';
+import { tagPlays } from '../hudlScout/utils/playTags.ts';
 import type { Play } from '../hudlScout/types/football.ts';
 
 const film = (n: number, extra: Partial<Play> = {}) => ({ id: `c${n}`, playNumber: n, gameId: 'g1', odk: 'UNKNOWN', playName: '', ...extra }) as unknown as Play;
@@ -76,5 +78,19 @@ describe('the play call is never the result', () => {
   it('a clip already tagged opens that play', () => {
     const card = { id: 'opp-1', gameId: 'g1', name: 'Trips Rt #2' } as any;
     assert.equal(cardForSnap(film(2, { playCallId: 'scout_opp-1' }), [], [card]), card);
+  });
+});
+
+describe('tagging their film with their plays', () => {
+  it('offers every play in Their plays, with its formation', () => {
+    const calls = theirCallEntries({ g1: [{ id: 'a', gameId: 'g1', name: '21 R 36 Dive', formation: 'Trips Rt', kind: 'run' } as any], g2: [{ id: 'b', gameId: 'g2', name: 'Bubble', formation: 'Doubles', kind: 'screen' } as any] });
+    assert.deepEqual(calls.map((c) => [c.id, c.formation, c.type, c.source]), [['scout_a', 'Trips Rt', 'run', 'scout'], ['scout_b', 'Doubles', 'screen', 'scout']]);
+  });
+  it('tags the clip with the whole name and keeps its formation', () => {
+    const [entry] = theirCallEntries({ g1: [{ id: 'a', gameId: 'g1', name: '21 R 36 Dive', formation: 'Trips Rt', kind: 'run' } as any] });
+    const [p] = tagPlays([film(4, { formation: 'Trips Rt', playName: 'Rush' })], ['c4'], entry);
+    assert.equal(p.playCallId, 'scout_a');
+    assert.equal(p.playCall, '21 R 36 Dive');
+    assert.equal(p.formation, 'Trips Rt');
   });
 });
