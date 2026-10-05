@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { Play, TeamUnit } from '../types/football';
 import { TEAM_UNITS, playIsUnitTaggable } from '../utils/unitStats';
 import { isRecordedMotion } from '../utils/csvParser';
@@ -42,6 +42,8 @@ interface PlaysTableProps {
   drawUntagged?: boolean;
   /** Their film: their plays (from Their plays) to tag with, next to the Play Bank. */
   theirCalls?: PlayDatabaseEntry[];
+  /** Remember this log's search, sort, filters and page under this name (e.g. while a play is drawn and back). */
+  viewKey?: string;
   /** Plays whose write-ins are offered when tagging (e.g. every game of the team); default: these plays. */
   writeInPlays?: Play[];
   /** Film Room: extra marks next to the play number (film, notes). */
@@ -110,7 +112,9 @@ const UnitPicker: React.FC<{
   );
 };
 
-export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge, compact, toolbarStart, writeInPlays, onDrawCall, drawUntagged, theirCalls }) => {
+export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge, compact, toolbarStart, writeInPlays, onDrawCall, drawUntagged, theirCalls, viewKey }) => {
+  // How the coach left this log (search, sort, column filters, untagged only, page), for coming back to it.
+  const remembered = useMemo(() => readLogView(viewKey), []); // eslint-disable-line react-hooks/exhaustive-deps
   const showDraw = (p: Play) => Boolean(onDrawCall && (p.playCallId || drawUntagged));
   const [openPlay, setOpenPlay] = useState<string | null>(null);
   const canLineup = Boolean(lineupFor && roster && onSetSub);
@@ -134,7 +138,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
       />
     );
   };
-  const [untaggedOnly, setUntaggedOnly] = useState(false);
+  const [untaggedOnly, setUntaggedOnly] = useState(Boolean(remembered?.untaggedOnly));
   const [tagging, setTagging] = useState<{ startId?: string } | null>(null);
   const canTagCalls = Boolean(onTagPlays && playDatabase);
   const usage = useMemo(() => callUsage(plays), [plays]);
@@ -151,13 +155,29 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
   const taggable = useMemo(() => plays.filter(isTaggablePlay), [plays]);
   const callsTagged = taggable.filter((p) => p.playCallId).length;
   const needsTag = (p: Play) => (onSetUnit && playIsUnitTaggable(p) && !p.unit) || (canTagCalls && isTaggablePlay(p) && !p.playCallId);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [sortKey, setSortKey] = useState<PlayColumnKey>('playNumber');
-  const [sortAsc, setSortAsc] = useState(true);
-  const [filters, setFilters] = useState<PlayFilters>({});
+  const [searchTerm, setSearchTerm] = useState(remembered?.searchTerm || '');
+  const [sortKey, setSortKey] = useState<PlayColumnKey>(remembered?.sortKey || 'playNumber');
+  const [sortAsc, setSortAsc] = useState(remembered?.sortAsc ?? true);
+  const [filters, setFilters] = useState<PlayFilters>(remembered?.filters || {});
   const [openFilter, setOpenFilter] = useState<{ key: PlayColumnKey; anchor: HTMLElement } | null>(null);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(remembered?.page || 1);
   const pageSize = compact ? 100000 : 25;
+  // Another log (another game) brings back its own view; every change is remembered.
+  const shownKey = useRef(viewKey);
+  useEffect(() => {
+    if (shownKey.current === viewKey) return;
+    shownKey.current = viewKey;
+    const v = readLogView(viewKey);
+    setSearchTerm(v?.searchTerm || '');
+    setSortKey(v?.sortKey || 'playNumber');
+    setSortAsc(v?.sortAsc ?? true);
+    setFilters(v?.filters || {});
+    setUntaggedOnly(Boolean(v?.untaggedOnly));
+    setPage(v?.page || 1);
+  }, [viewKey]);
+  useEffect(() => {
+    if (shownKey.current === viewKey) writeLogView(viewKey, { searchTerm, sortKey, sortAsc, filters, untaggedOnly, page });
+  }, [viewKey, searchTerm, sortKey, sortAsc, filters, untaggedOnly, page]);
 
   // Click a column heading to sort by it (again to reverse); its funnel filters it like Excel.
   const handleSort = (key: PlayColumnKey) => {
@@ -232,6 +252,9 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
   };
 
   const totalPages = Math.ceil(filteredPlays.length / pageSize) || 1;
+  useEffect(() => {
+    if (filteredPlays.length && page > totalPages) setPage(totalPages);
+  }, [page, totalPages, filteredPlays.length]);
   const paginatedPlays = filteredPlays.slice((page - 1) * pageSize, page * pageSize);
 
   useEffect(() => {
@@ -816,3 +839,31 @@ const SideTag: React.FC<{ play: Play }> = ({ play }) => {
   const t = strengthText(play);
   return t ? <span style={{ color: SIDE_TAG_COLOR[t] }} title={`${t} side (formation ${play.formation})`}>{t}</span> : <span className="text-slate-500">-</span>;
 };
+
+/** A play log's view as the coach left it (this browser tab only). */
+interface LogView {
+  searchTerm: string;
+  sortKey: PlayColumnKey;
+  sortAsc: boolean;
+  filters: PlayFilters;
+  untaggedOnly: boolean;
+  page: number;
+}
+const LOG_VIEW_KEY = 'playLogView:';
+function readLogView(key?: string): Partial<LogView> | null {
+  if (!key) return null;
+  try {
+    const raw = sessionStorage.getItem(LOG_VIEW_KEY + key);
+    return raw ? (JSON.parse(raw) as Partial<LogView>) : null;
+  } catch {
+    return null;
+  }
+}
+function writeLogView(key: string | undefined, view: LogView) {
+  if (!key) return;
+  try {
+    sessionStorage.setItem(LOG_VIEW_KEY + key, JSON.stringify(view));
+  } catch {
+    /* only a convenience */
+  }
+}

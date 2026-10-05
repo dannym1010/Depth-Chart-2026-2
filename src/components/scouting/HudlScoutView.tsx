@@ -166,7 +166,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   const ownFallback = activeTeamName || 'Mahopac';
 
   const [scoutTarget, setScoutTarget] = useState<ScoutTarget>(target || 'opponent');
-  const [pickedGameId, setSelectedGameId] = useState<string>(focusGameId || 'all');
+  const [pickedGameId, setSelectedGameId] = useState<string>(() => focusGameId || readGamePick(target || 'opponent', currentWeek));
   const [oppBundle, setOppBundle] = useState<ScoutBundle>(() => bundleFromSaved(saved, opponentFallback));
   const [ownBundle, setOwnBundle] = useState<ScoutBundle>(() =>
     bundleFromSaved(ownTeamScout || saved?.ownTeam, ownFallback)
@@ -179,7 +179,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   };
   const switchTarget = (next: ScoutTarget, nextTab?: string) => {
     setScoutTarget(next);
-    setSelectedGameId('all');
+    setSelectedGameId(readGamePick(next, currentWeek));
     setSelectedSituation(null);
     let t = nextTab || activeTab;
     if (next !== 'own' && t === 'units') t = 'summary';
@@ -417,8 +417,15 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   useEffect(() => {
     skipSave.current = true;
     setOppBundle(bundleFromSaved(saved, opponentFallback));
-    setSelectedGameId(focusGameId || 'all');
+    setSelectedGameId(focusGameId || readGamePick(scoutTarget, currentWeek));
   }, [currentWeek]);
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(`hudlScoutGame:${scoutTarget}:${currentWeek}`, pickedGameId);
+    } catch {
+      /* only a convenience */
+    }
+  }, [pickedGameId, scoutTarget, currentWeek]);
 
   useEffect(() => {
     const remote = saved;
@@ -924,6 +931,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
               <>
                 <CallResultsCard plays={filteredPlays} own={scoutTarget === 'own'} onDraw={drawFromLog ? (id) => drawTagged(id) : undefined} />
                 <PlaysTable
+                  viewKey={`hudl-${scoutTarget}-${currentWeek}`}
                   plays={filteredPlays}
                   writeInPlays={allPlays}
                   onSetUnit={scoutTarget === 'own' ? handleSetUnit : undefined}
@@ -984,3 +992,12 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     </div>
   );
 };
+
+/** The game last picked in the play log for this side and week (this browser tab only). */
+function readGamePick(target: string, week: string): string {
+  try {
+    return sessionStorage.getItem(`hudlScoutGame:${target}:${week}`) || 'all';
+  } catch {
+    return 'all';
+  }
+}

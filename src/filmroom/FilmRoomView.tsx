@@ -144,7 +144,21 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       .sort((a, c) => (Number(a.playNumber) || 0) - (Number(c.playNumber) || 0));
   }, [game, own, opp, clipPlays]);
 
-  const [odk, setOdk] = useState<OdkFilter>('all');
+  const [odk, setOdkState] = useState<OdkFilter>(() => {
+    try {
+      return (sessionStorage.getItem('filmroomOdk') as OdkFilter) || 'all';
+    } catch {
+      return 'all';
+    }
+  });
+  const setOdk = (next: OdkFilter) => {
+    setOdkState(next);
+    try {
+      sessionStorage.setItem('filmroomOdk', next);
+    } catch {
+      /* only a convenience */
+    }
+  };
   const shownPlays = useMemo(() => {
     const base = odk === 'all' ? plays : plays.filter((p) => p.odk === odk);
     if (!cutup) return base;
@@ -497,6 +511,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   );
   const playLog = (
     <PlaysTable
+      viewKey={game ? `film-${game.key}` : undefined}
       plays={shownPlays}
       writeInPlays={(game?.source === 'opponent' ? opp : own).plays}
       selectedId={play?.id}
