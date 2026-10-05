@@ -104,7 +104,11 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
   }, [gamePlays, idsKey]);
 
   const [index, setIndex] = useState(0);
-  useEffect(() => setIndex(0), [idsKey]);
+  useEffect(() => {
+    const at = request.startId ? watch.findIndex((p) => p.id === request.startId) : 0;
+    setIndex(Math.max(0, at));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsKey, request.startId, watch.length]);
   const play: Play | undefined = watch[Math.min(index, Math.max(0, watch.length - 1))];
   const prev = index > 0 ? watch[index - 1] : undefined;
   const next = watch[index + 1];

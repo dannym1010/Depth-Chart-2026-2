@@ -4252,19 +4252,35 @@ export default function App() {
       put({ ...hudl, oppFormations: old ? list.map((x) => (x.id === old.id ? stamped : x)) : [...list, stamped], updatedAt: now });
     }
     const gameId = formation.gameId;
-    const snaps = gameId && formation.clip ? snapsForCall(hudl?.plays || [], gameId, '', undefined, undefined, [formation.clip]) : [];
+    // Every play on the film tagged in this formation: the film window plays them all, the builder lists them.
+    const key = (n: string) => String(n || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const inFormation = ((hudl?.plays || []) as any[])
+      .filter((p) => p.gameId === gameId && (!p.odk || p.odk === 'O' || p.odk === 'UNKNOWN') && key(p.formation) === key(formation.name))
+      .sort((a, b) => (Number(a.playNumber) || 0) - (Number(b.playNumber) || 0));
+    const drawnPlays = latestStateRef.current.playDatabase || [];
+    const formationPlays = inFormation.map((p) => {
+      const card = String(p.playCallId || '').startsWith('scout_') ? drawnPlays.find((e) => e.id === p.playCallId) : undefined;
+      const call = String(p.playCall || p.playName || '').trim();
+      return { snapId: p.id, playNumber: Number(p.playNumber) || 0, name: call && call !== '-' ? call : '', ...(card?.diagramUrl ? { diagramUrl: card.diagramUrl } : {}) };
+    });
+    const clipSnaps = gameId && formation.clip ? snapsForCall(hudl?.plays || [], gameId, '', undefined, undefined, [formation.clip]) : [];
+    const snaps = inFormation.length
+      ? inFormation.map((p) => ({ id: p.id, playNumber: Number(p.playNumber) || 0 }))
+      : clipSnaps;
+    const startId = clipSnaps[0]?.id;
     savePlayBuilderSeed({
       name: formation.name,
       gameId,
       formationEdit: { id: formation.id },
+      formationPlays,
       snaps,
-      watchLabel: `${formation.name}${formation.clip ? ` · clip ${formation.clip}` : ''}`,
+      watchLabel: formation.name,
       builder: formation.builder,
       filmBases: spotsForGame(hudl?.backfieldBases, gameId),
       filmBaseKeys: baseKeysForGame(hudl?.backfieldBases, gameId),
     });
     holdPlayBuilderSeed();
-    if (gameId && snaps.length) openFilmWindow({ gameId, playIds: snaps.map((x) => x.id), label: `${formation.name} · clip ${formation.clip}` });
+    if (gameId && snaps.length) openFilmWindow({ gameId, playIds: snaps.map((x) => x.id), label: formation.name, ...(startId ? { startId } : {}) });
     setActiveUnit('playbook');
   };
   /** This report's backfield shape, then every play in the week's scout that lines up in it. */

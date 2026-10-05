@@ -10,6 +10,8 @@ export interface FilmWindowRequest {
   playIds: string[];
   /** What is being watched ("32 Wishbone · Inside Zone"). */
   label: string;
+  /** Start on this snap (one of playIds) instead of the first. */
+  startId?: string;
 }
 
 let current: FilmWindowRequest | null = null;
@@ -17,7 +19,7 @@ const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 
 const sameRequest = (a: FilmWindowRequest | null, b: FilmWindowRequest) =>
-  Boolean(a) && a!.gameId === b.gameId && a!.label === b.label && a!.playIds.join('|') === b.playIds.join('|');
+  Boolean(a) && a!.gameId === b.gameId && a!.label === b.label && a!.playIds.join('|') === b.playIds.join('|') && a!.startId === b.startId;
 
 export function openFilmWindow(request: FilmWindowRequest) {
   if (!request.gameId || !request.playIds.length || sameRequest(current, request)) return;

@@ -28,6 +28,8 @@ export interface PlayBuilderSeed {
   backfieldEdit?: string;
   /** Opened to draw one of their formations (saved as the formation, not a play). */
   formationEdit?: { id: string };
+  /** Drawing a formation: the plays on the film in it (clip, call, its picture), to look at while adjusting it. */
+  formationPlays?: { snapId: string; playNumber: number; name: string; diagramUrl?: string }[];
 }
 
 /**

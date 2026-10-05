@@ -41,6 +41,7 @@ import { callSetup } from '../../utils/callDiagram';
 import { openFormation } from '../../utils/filmBackfields';
 import { parsePlayCall } from '../../utils/playCallParse';
 import { openFilmWindow } from '../../filmroom/filmWindowStore';
+import { DiagramImage } from './DiagramImage';
 import { DEF_UNITS, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
 import { rememberDefenseUnit, rememberedDefenseUnit, useDefenseRosterSource } from '../../utils/defenseRosterStore';
 
@@ -853,6 +854,45 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
             </div>
           )}
           {baseNote && <p className="px-1 text-xs font-bold text-emerald-600 dark:text-emerald-400">{baseNote}</p>}
+          {formationMode && !!seed?.formationPlays?.length && !!seed.gameId && (
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Their plays in this formation ({seed.formationPlays.length})
+                </span>
+                <span className="text-[11px] text-slate-400">Click one to watch it</span>
+              </div>
+              <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                {seed.formationPlays.map((fp) => (
+                  <li key={fp.snapId}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openFilmWindow({
+                          gameId: seed.gameId!,
+                          playIds: seed.formationPlays!.map((x) => x.snapId),
+                          label: seed.watchLabel || seed.name,
+                          startId: fp.snapId,
+                        })
+                      }
+                      title={`Watch clip ${fp.playNumber}`}
+                      className="w-full text-left rounded-lg border border-slate-200 dark:border-slate-700 p-1 hover:border-indigo-400 cursor-pointer"
+                    >
+                      {fp.diagramUrl ? (
+                        <DiagramImage url={fp.diagramUrl} alt={fp.name || `Clip ${fp.playNumber}`} className="w-full rounded-md bg-white" />
+                      ) : (
+                        <div className="h-12 rounded-md bg-slate-50 dark:bg-slate-800/60 text-[10px] text-slate-400 flex items-center justify-center">Not drawn yet</div>
+                      )}
+                      <div className="mt-1 flex items-center gap-1 text-[11px]">
+                        <span className="px-1 rounded bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-black tabular-nums shrink-0">{fp.playNumber}</span>
+                        <span className="truncate font-bold text-slate-700 dark:text-slate-200">{fp.name || 'No play name'}</span>
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         {/* One panel, one job at a time */}
