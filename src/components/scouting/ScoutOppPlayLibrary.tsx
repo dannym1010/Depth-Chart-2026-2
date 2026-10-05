@@ -68,6 +68,22 @@ export const ScoutOppPlayLibrary: React.FC<{
   const [draft, setDraft] = useState(emptyDraft);
   const shownFormations = (formations || []).filter((f) => f?.id && !f.deleted);
   const [formName, setFormName] = useState('');
+  // The formation cards show the base, or our defense lined up against it (per device).
+  const [formView, setFormView] = useState<'base' | 'defense'>(() => {
+    try {
+      return localStorage.getItem('scoutFormationView') === 'defense' ? 'defense' : 'base';
+    } catch {
+      return 'base';
+    }
+  });
+  const pickFormView = (v: 'base' | 'defense') => {
+    setFormView(v);
+    try {
+      localStorage.setItem('scoutFormationView', v);
+    } catch {
+      /* per device only */
+    }
+  };
   const [formClip, setFormClip] = useState('');
   const [fromFormation, setFromFormation] = useState('');
   const [clipText, setClipText] = useState('');
@@ -420,7 +436,22 @@ export const ScoutOppPlayLibrary: React.FC<{
         {gameId && onEditFormation && (
           <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2">
             <div>
-              <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">1 · Their formations</div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">1 · Their formations</div>
+                <div role="group" aria-label="Show on the formations" className="inline-flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden text-[11px] font-black">
+                  {(['base', 'defense'] as const).map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      aria-pressed={formView === v}
+                      onClick={() => pickFormView(v)}
+                      className={`h-7 px-2.5 cursor-pointer ${formView === v ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'text-slate-600 dark:text-slate-300'}`}
+                    >
+                      {v === 'base' ? 'Their formation' : 'Our defense vs it'}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Formations tagged on this film show up here with their clips. Draw each base once (a clip of it plays while you line them up), then click a clip to make that play from it. Green clips already have a play.
               </p>
@@ -433,7 +464,14 @@ export const ScoutOppPlayLibrary: React.FC<{
                   return (
                     <li key={f.id || `film:${f.name}`} className={`rounded-lg border p-1.5 space-y-1 ${fromFormation && fromFormation === f.id ? 'border-indigo-400 ring-1 ring-indigo-300' : drawn ? 'border-slate-200 dark:border-slate-700' : 'border-dashed border-slate-300 dark:border-slate-600'}`}>
                       <button type="button" className="block w-full cursor-pointer" onClick={() => drawFormation(f, clips)} aria-label={`Draw ${f.name}`}>
-                        {f.diagramUrl ? (
+                        {formView === 'defense' && f.diagramUrl && !f.defenseUrl ? (
+                          <div className="h-16 rounded-md border border-dashed border-emerald-400/70 text-[11px] text-slate-400 flex flex-col items-center justify-center">
+                            <span className="font-bold text-emerald-700 dark:text-emerald-400">Draw our defense</span>
+                            vs {f.name}
+                          </div>
+                        ) : formView === 'defense' && f.defenseUrl ? (
+                          <DiagramImage url={f.defenseUrl} alt={`${f.name} vs ${f.defenseName || 'our defense'}`} className="w-full rounded-md border border-emerald-300 dark:border-emerald-700 bg-white" />
+                        ) : f.diagramUrl ? (
                           <DiagramImage url={f.diagramUrl} alt={f.name} className="w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white" />
                         ) : (
                           <div className="h-16 rounded-md border border-dashed border-slate-300 dark:border-slate-600 text-[11px] text-slate-400 flex flex-col items-center justify-center">
@@ -443,7 +481,10 @@ export const ScoutOppPlayLibrary: React.FC<{
                         )}
                       </button>
                       <div className="flex items-center gap-1">
-                        <span className="min-w-0 flex-1 truncate text-xs font-black text-slate-900 dark:text-white" title={f.name}>{f.name}</span>
+                        <span className="min-w-0 flex-1 truncate text-xs font-black text-slate-900 dark:text-white" title={f.name}>
+                          {f.name}
+                          {formView === 'defense' && f.defenseName ? <span className="font-bold text-emerald-700 dark:text-emerald-400"> vs {f.defenseName}</span> : null}
+                        </span>
                         {clips.length > 0 && (
                           <span className="text-[10px] text-slate-400 shrink-0" title={`${clips.length} clips tagged in this formation, ${open} without a play yet`}>
                             {clips.length} clip{clips.length === 1 ? '' : 's'}

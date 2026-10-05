@@ -4229,13 +4229,23 @@ export default function App() {
     return { hudl, put };
   };
   /** Their formation drawn in the builder: its picture and alignment, for their plays to start from. */
-  const saveOppFormation = (f: { id: string; name: string; builder: PlayBuilderState; diagramUrl: string }) => {
+  const saveOppFormation = (f: { id: string; name: string; builder: PlayBuilderState; diagramUrl: string; defenseUrl?: string; defenseName?: string }) => {
     const { hudl, put } = weekHudl();
     if (!hudl) return;
     const now = Date.now();
     const list: OppFormation[] = (hudl.oppFormations || []).filter((x: OppFormation) => x?.id);
     const old = list.find((x) => x.id === f.id);
-    const next: OppFormation = { ...(old || {}), id: f.id, name: f.name, builder: f.builder, diagramUrl: f.diagramUrl, editedAt: now, deleted: false };
+    const next: OppFormation = {
+      ...(old || {}),
+      id: f.id,
+      name: f.name,
+      builder: f.builder,
+      diagramUrl: f.diagramUrl,
+      defenseUrl: f.defenseUrl || '',
+      defenseName: f.defenseName || '',
+      editedAt: now,
+      deleted: false,
+    };
     put({ ...hudl, oppFormations: old ? list.map((x) => (x.id === f.id ? next : x)) : [...list, next], updatedAt: now });
   };
   /** Open the builder to draw one of their formations (a new one, or one drawn before), with its clip in the film window. */

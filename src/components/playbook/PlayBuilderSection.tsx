@@ -106,7 +106,7 @@ interface Props {
   /** This alignment becomes the backfield for every play on this scout film that uses it. */
   onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: BackfieldSpots; baseKey: string }) => void;
   /** Drawing one of their formations (seed.formationEdit): saved as the formation their plays start from. */
-  onSaveFormation?: (formation: { id: string; name: string; builder: PlayBuilderState; diagramUrl: string }) => void;
+  onSaveFormation?: (formation: { id: string; name: string; builder: PlayBuilderState; diagramUrl: string; defenseUrl?: string; defenseName?: string }) => void;
 }
 
 
@@ -450,7 +450,15 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     if (!play || !seed?.formationEdit || !onSaveFormation) return;
     const { strokes: _drawn, ...builder } = currentState();
     const name = (nameIn.trim() || seed.name).slice(0, 80);
-    onSaveFormation({ id: seed.formationEdit.id, name, builder: { ...builder, name }, diagramUrl: diagramSvg(play, [], [], String(ball)) });
+    onSaveFormation({
+      id: seed.formationEdit.id,
+      name,
+      builder: { ...builder, name },
+      diagramUrl: diagramSvg(play, [], [], String(ball)),
+      // Our defense lined up against it, as it stands on the field.
+      defenseUrl: dLook ? diagramSvg(play, [], dNodes, String(ball)) : '',
+      defenseName: dLook?.name || '',
+    });
     setBaseNote(announce ? `Saved ${name}. Their plays drawn from it start lined up like this.` : `Saved ${name} (changes save as you go).`);
   };
   autoSave.current = () => saveFormation(false);
@@ -758,6 +766,27 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       <div className={compact ? 'space-y-3' : 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-4 items-start'}>
         {/* The field */}
         <div className="space-y-2 min-w-0">
+          {formationMode && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-300/70 dark:border-emerald-700/60 bg-emerald-50/60 dark:bg-emerald-950/20 px-2.5 py-1.5">
+              <span className="text-[11px] font-black uppercase tracking-wider text-emerald-800 dark:text-emerald-300">Our defense vs it</span>
+              <select
+                aria-label="Our defense against this formation"
+                value={defenseKey}
+                onChange={(e) => setDefenseKey(e.target.value)}
+                className="h-8 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-xs font-bold text-slate-800 dark:text-slate-100"
+              >
+                <option value="">None (formation only)</option>
+                {Object.entries(looks).map(([id, d]) => (
+                  <option key={id} value={id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                {dLook ? 'Drag our defenders where they line up against this formation. It saves as you go.' : 'Pick our defense to line it up against this formation.'}
+              </span>
+            </div>
+          )}
           {dNodes.length > 0 && hasDepth && (
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">Who&apos;s in</span>

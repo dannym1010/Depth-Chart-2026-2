@@ -38,6 +38,10 @@ export interface OppFormation {
   /** The builder as it was saved: personnel, formation, backfield, strength, moved players. No play drawn. */
   builder?: PlayBuilderState;
   diagramUrl?: string;
+  /** The same formation with our defense lined up against it (when a defense is picked). */
+  defenseUrl?: string;
+  /** Name of our defense in that picture ("4-4 Cover 3 LIZ"). */
+  defenseName?: string;
   /** A clip that shows it (film + play number), to watch while drawing. */
   gameId?: string;
   clip?: number;

@@ -36,7 +36,7 @@ interface Props {
   /** This backfield alignment becomes the one for every play on that scout film that uses it. */
   onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: Record<string, { x: number; y: number }>; baseKey: string }) => void;
   /** Their formation drawn in the builder (Hudl Scout → Their plays → Their formations). */
-  onSaveOppFormation?: (formation: { id: string; name: string; builder: PlayBuilderState; diagramUrl: string }) => void;
+  onSaveOppFormation?: (formation: { id: string; name: string; builder: PlayBuilderState; diagramUrl: string; defenseUrl?: string; defenseName?: string }) => void;
 }
 
 const TYPES: { id: PlayType; label: string }[] = [
