@@ -241,6 +241,58 @@ export const ScoutOppPlayLibrary: React.FC<{
     if (!clips.length) return;
     patch(p.id, { clips: [...new Set([...(p.clips || []), ...clips])].sort((a, b) => a - b) });
   };
+  const formKey = (name: string) => name.trim().toLowerCase().replace(/\s+/g, ' ');
+  const taggedFormations = useMemo(() => {
+    const byKey = new Map<string, { name: string; clips: { n: number; call: string; cardId?: string }[] }>();
+    for (const p of film) {
+      if (p.odk && p.odk !== 'O' && p.odk !== 'UNKNOWN') continue;
+      const name = String(p.formation || '').trim();
+      if (!name || name === '-') continue;
+      const key = formKey(name);
+      if (!byKey.has(key)) byKey.set(key, { name, clips: [] });
+      const call = String(p.playCall || p.playName || '').trim();
+      byKey.get(key)!.clips.push({
+        n: Number(p.playNumber) || 0,
+        call: call === '-' ? '' : call,
+        cardId: p.playCallId?.startsWith('scout_') ? p.playCallId.slice(6) : undefined,
+      });
+    }
+    for (const v of byKey.values()) v.clips.sort((a, b) => a.n - b.n);
+    return byKey;
+  }, [film]);
+  // Every formation: the ones drawn or named here, then the ones tagged on the film that aren't yet (not drawn).
+  const formationCards = useMemo(() => {
+    const removed = new Set((formations || []).filter((x) => x?.deleted).map((x) => formKey(x.name || '')));
+    const saved = shownFormations.map((x) => ({ f: x, clips: taggedFormations.get(formKey(x.name))?.clips || [] }));
+    const have = new Set(shownFormations.map((x) => formKey(x.name)));
+    const fromFilm = [...taggedFormations.entries()]
+      .filter(([key]) => !have.has(key) && !removed.has(key))
+      .sort((a, b) => b[1].clips.length - a[1].clips.length)
+      .map(([, v]) => ({ f: { id: '', name: v.name, editedAt: 0 } as OppFormation, clips: v.clips }));
+    return [...saved, ...fromFilm];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownFormations, taggedFormations, formations]);
+  const drawFormation = (x: OppFormation, clips: { n: number }[]) =>
+    onEditFormation?.({ id: x.id || undefined, name: x.name, gameId: x.gameId || gameId, clip: x.clip || clips[0]?.n });
+  /** A clip of this formation: open its play (tagged before), or start one from the formation with the clip playing. */
+  const playFromClip = (x: OppFormation, clip: { n: number; call: string; cardId?: string }) => {
+    const existing = clip.cardId ? plays.find((c) => c.id === clip.cardId) : undefined;
+    if (existing) return onDraw?.(existing);
+    const play: ScoutOppPlay = {
+      ...emptyDraft(),
+      name: clip.call || `${x.name} #${clip.n}`,
+      formation: x.name,
+      personnel: x.builder?.personnel != null ? String(x.builder.personnel) : '',
+      id: `opp-${Date.now()}`,
+      gameId,
+      onReport: true,
+      editedAt: Date.now(),
+      clips: [clip.n],
+      ...(x.builder ? { formationId: x.id } : {}),
+    };
+    if (onDraw) onDraw(play);
+    else write({ ...libraries, [gameId]: [...plays, play] });
+  };
   const removeFormation = (f: OppFormation) => {
     if (!onSaveFormations || !window.confirm(`Remove the formation ${f.name}? Plays already drawn from it stay.`)) return;
     const now = Date.now();
@@ -368,62 +420,89 @@ export const ScoutOppPlayLibrary: React.FC<{
           <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2">
             <div>
               <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">1 · Their formations</div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Draw each formation once (watch a clip of it while you line them up). Their plays start from it.</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Formations tagged on this film show up here with their clips. Draw each base once (a clip of it plays while you line them up), then click a clip to make that play from it. Green clips already have a play.
+              </p>
             </div>
-            {shownFormations.length > 0 && (
+            {formationCards.length > 0 && (
               <ul className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
-                {shownFormations.map((f) => (
-                  <li key={f.id} className={`rounded-lg border p-1.5 space-y-1 ${fromFormation === f.id ? 'border-indigo-400 ring-1 ring-indigo-300' : 'border-slate-200 dark:border-slate-700'}`}>
-                    <button
-                      type="button"
-                      className="block w-full cursor-pointer"
-                      onClick={() => onEditFormation({ id: f.id, name: f.name, gameId: f.gameId || gameId })}
-                      aria-label={`Draw ${f.name}`}
-                    >
-                      {f.diagramUrl ? (
-                        <DiagramImage url={f.diagramUrl} alt={f.name} className="w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white" />
-                      ) : (
-                        <div className="h-16 rounded-md border border-dashed border-slate-300 dark:border-slate-600 text-[11px] text-slate-400 flex items-center justify-center">Not drawn yet</div>
+                {formationCards.map(({ f, clips }) => {
+                  const drawn = Boolean(f.builder);
+                  const open = clips.filter((c) => !c.cardId).length;
+                  return (
+                    <li key={f.id || `film:${f.name}`} className={`rounded-lg border p-1.5 space-y-1 ${fromFormation && fromFormation === f.id ? 'border-indigo-400 ring-1 ring-indigo-300' : drawn ? 'border-slate-200 dark:border-slate-700' : 'border-dashed border-slate-300 dark:border-slate-600'}`}>
+                      <button type="button" className="block w-full cursor-pointer" onClick={() => drawFormation(f, clips)} aria-label={`Draw ${f.name}`}>
+                        {f.diagramUrl ? (
+                          <DiagramImage url={f.diagramUrl} alt={f.name} className="w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white" />
+                        ) : (
+                          <div className="h-16 rounded-md border border-dashed border-slate-300 dark:border-slate-600 text-[11px] text-slate-400 flex flex-col items-center justify-center">
+                            <span className="font-bold text-indigo-600 dark:text-indigo-300">Draw the base</span>
+                            {f.id ? 'Not drawn yet' : 'Tagged on the film'}
+                          </div>
+                        )}
+                      </button>
+                      <div className="flex items-center gap-1">
+                        <span className="min-w-0 flex-1 truncate text-xs font-black text-slate-900 dark:text-white" title={f.name}>{f.name}</span>
+                        {clips.length > 0 && (
+                          <span className="text-[10px] text-slate-400 shrink-0" title={`${clips.length} clips tagged in this formation, ${open} without a play yet`}>
+                            {clips.length} clip{clips.length === 1 ? '' : 's'}
+                          </span>
+                        )}
+                      </div>
+                      {clips.length > 0 && (
+                        <div className="flex flex-wrap gap-0.5" aria-label={`Clips in ${f.name}`}>
+                          {clips.map((c) => (
+                            <button
+                              key={c.n}
+                              type="button"
+                              onClick={() => playFromClip(f, c)}
+                              title={c.cardId ? `Clip ${c.n}: ${c.call || 'play'} (open it)` : `Clip ${c.n}${c.call ? ` (${c.call})` : ''}: make their play from ${f.name}${drawn ? '' : ' (draw the base first to start lined up)'}`}
+                              className={`h-6 min-w-[1.75rem] px-1 rounded text-[10px] font-black tabular-nums cursor-pointer ${
+                                c.cardId
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300'
+                                  : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200 hover:bg-indigo-600 hover:text-white'
+                              }`}
+                            >
+                              {c.n}
+                            </button>
+                          ))}
+                        </div>
                       )}
-                    </button>
-                    <div className="flex items-center gap-1">
-                      <span className="min-w-0 flex-1 truncate text-xs font-black text-slate-900 dark:text-white" title={f.name}>{f.name}</span>
-                      {f.clip ? <span className="text-[10px] text-slate-400 shrink-0">clip {f.clip}</span> : null}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFromFormation(f.id);
-                          window.setTimeout(() => clipInput.current?.focus(), 0);
-                        }}
-                        disabled={!f.builder}
-                        title={f.builder ? 'Make a play that starts from this formation' : 'Draw the formation first'}
-                        className="flex-1 h-7 rounded-md bg-indigo-600 text-white text-[11px] font-black inline-flex items-center justify-center gap-1 cursor-pointer disabled:opacity-40"
-                      >
-                        <Plus className="w-3 h-3" /> Play
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onEditFormation({ id: f.id, name: f.name, gameId: f.gameId || gameId })}
-                        title="Draw / adjust this formation"
-                        className="h-7 w-7 rounded-md border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 inline-flex items-center justify-center cursor-pointer"
-                      >
-                        <Pencil className="w-3 h-3" />
-                      </button>
-                      {onSaveFormations && (
+                      <div className="flex items-center gap-1">
                         <button
                           type="button"
-                          onClick={() => removeFormation(f)}
-                          title="Remove this formation"
-                          className="h-7 w-7 rounded-md text-slate-400 hover:text-rose-500 inline-flex items-center justify-center cursor-pointer"
+                          onClick={() => {
+                            setFromFormation(f.id);
+                            window.setTimeout(() => clipInput.current?.focus(), 0);
+                          }}
+                          disabled={!drawn}
+                          title={drawn ? 'Make a play that starts from this formation' : 'Draw the formation first'}
+                          className="flex-1 h-7 rounded-md bg-indigo-600 text-white text-[11px] font-black inline-flex items-center justify-center gap-1 cursor-pointer disabled:opacity-40"
                         >
-                          <X className="w-3.5 h-3.5" />
+                          <Plus className="w-3 h-3" /> Play
                         </button>
-                      )}
-                    </div>
-                  </li>
-                ))}
+                        <button
+                          type="button"
+                          onClick={() => drawFormation(f, clips)}
+                          title={drawn ? 'Adjust this base formation' : 'Draw this base formation'}
+                          className="h-7 w-7 rounded-md border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 inline-flex items-center justify-center cursor-pointer"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                        {onSaveFormations && f.id && (
+                          <button
+                            type="button"
+                            onClick={() => removeFormation(f)}
+                            title="Remove this formation"
+                            className="h-7 w-7 rounded-md text-slate-400 hover:text-rose-500 inline-flex items-center justify-center cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
             <div className="flex flex-wrap items-end gap-2">
