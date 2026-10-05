@@ -25,6 +25,7 @@ import {
   type PlayStroke,
 } from './footballEngine';
 import type { ScoutOppPlay } from './scoutOppPlays';
+import { withMyAlignment } from '../hudlScout/utils/ourDefense';
 
 export interface FilmBackfieldBase {
   spots: BackfieldSpots;
@@ -146,7 +147,7 @@ export function redrawWithBackfield(
   // and the lines drawn for defenders kept (the offense's lines are drawn again).
   const look = lookKey ? OUR_DEFENSE_LOOKS[lookKey]?.nodes || [] : [];
   const whoByRole = b?.defensePlayers || {};
-  const defense = applyNodeOverrides(alignDefenseTechniques(look, nodes), overrides).map((n) => {
+  const defense = applyNodeOverrides(withMyAlignment(lookKey, alignDefenseTechniques(look, nodes)), overrides).map((n) => {
     const moved = named(overrides[n.role] ? n : { ...n, x: n.x + hashDx });
     return whoByRole[n.role] ? { ...moved, player: whoByRole[n.role] } : moved;
   });

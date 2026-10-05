@@ -9,7 +9,7 @@ interface OurDefenseCardProps {
   onChange?: (next: DefenseSystem) => void;
 }
 
-const FIELDS: { key: Exclude<keyof DefenseSystem, 'blitzes'>; label: string }[] = [
+const FIELDS: { key: Exclude<keyof DefenseSystem, 'blitzes' | 'alignments'>; label: string }[] = [
   { key: 'base', label: 'Base front' },
   { key: 'baseCoverage', label: 'Base coverage' },
   { key: 'baseContain', label: 'Contain in the base' },

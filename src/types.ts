@@ -61,6 +61,8 @@ export interface Team {
     checkContain?: string;
     over?: string;
     blitzes?: string[];
+    /** The coach's default alignment of each defense (moves from the standard spots). */
+    alignments?: Record<string, Record<string, { dx: number; dy: number }>>;
   };
 }
 

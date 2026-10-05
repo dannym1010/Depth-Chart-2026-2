@@ -18,7 +18,14 @@ export interface DefenseSystem {
   over: string;
   /** Blitz package names. */
   blitzes: string[];
+  /**
+   * The coach's own alignment of each defense ("Save as my default" in the play builder): per defense,
+   * each defender's move from where the defense lines up by itself on the offense (yards).
+   */
+  alignments?: DefenseAlignments;
 }
+
+export type DefenseAlignments = Record<string, Record<string, { dx: number; dy: number }>>;
 
 export const DEFAULT_DEFENSE: DefenseSystem = {
   base: '4-4',
@@ -41,10 +48,25 @@ export function setDefenseSystem(s?: Partial<DefenseSystem>) {
       if (k === 'blitzes') next.blitzes = Array.isArray(v) ? (v as string[]).map((b) => String(b).trim()).filter(Boolean) : [];
       else if (typeof v === 'string' && v.trim()) (next as any)[k] = v.trim();
     });
+    if (s.alignments && typeof s.alignments === 'object') next.alignments = s.alignments;
   }
   system = next;
 }
 export const defenseSystem = () => system;
+
+/** A defense lined up on the offense, then moved the way the coach saved it as the default for that defense. */
+export function withMyAlignment<T extends { role: string; x: number; y: number }>(lookKey: string, nodes: T[]): T[] {
+  const mine = lookKey ? system.alignments?.[lookKey] : undefined;
+  if (!mine) return nodes;
+  return nodes.map((n) => (mine[n.role] ? { ...n, x: n.x + mine[n.role].dx, y: n.y + mine[n.role].dy } : n));
+}
+
+/** Who saves the team's defense (set by the app for a coach who may edit the team; null for others). */
+let saveAlignment: ((lookKey: string, moves: Record<string, { dx: number; dy: number }> | null) => void) | null = null;
+export function setDefenseAlignmentSaver(fn: typeof saveAlignment) {
+  saveAlignment = fn;
+}
+export const defenseAlignmentSaver = () => saveAlignment;
 
 const TWO_TE_WORDS = /\b(2\s?TE|DOUBLE\s?TE|DBL\s?TE|TWO\s?TE|TE\s?TE|TWIN\s?TE|HEAVY|JUMBO|TITE)\b/i;
 

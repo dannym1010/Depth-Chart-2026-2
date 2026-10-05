@@ -42,6 +42,7 @@ import { openFormation } from '../../utils/filmBackfields';
 import { parsePlayCall } from '../../utils/playCallParse';
 import { openFilmWindow } from '../../filmroom/filmWindowStore';
 import { DiagramImage } from './DiagramImage';
+import { defenseAlignmentSaver, withMyAlignment } from '../../hudlScout/utils/ourDefense';
 import { DEF_UNITS, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
 import { rememberDefenseUnit, rememberedDefenseUnit, useDefenseRosterSource } from '../../utils/defenseRosterStore';
 
@@ -269,13 +270,65 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   );
   const dNodes = useMemo(() => {
     if (!dLook) return [];
-    const aligned = alignDefenseTechniques(dLook.nodes, offNodes);
+    // Lined up on the offense, then the way the coach saved this defense as the default.
+    const aligned = withMyAlignment(defenseKey, alignDefenseTechniques(dLook.nodes, offNodes));
     return applyNodeOverrides(aligned, overrides)
       .map((n) => withLabel(overrides[n.role] ? n : { ...n, x: n.x + hashDx }))
       .map((n) => (taggedWho[n.role] ? { ...n, player: taggedWho[n.role] } : n));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dLook, offNodes, overrides, hashDx, labels, taggedWho]);
   const play = basePlay ? { ...basePlay, nodes: offNodes } : null;
+  // "Save as my default": this defense starts lined up like this everywhere (moves from its standard spots).
+  const saveAlignment = defenseAlignmentSaver();
+  const myDefault = defenseKey ? defenseSystem().alignments?.[defenseKey] : undefined;
+  const movedDefenders = dLook ? dLook.nodes.filter((n) => overrides[n.role]).length : 0;
+  const [defaultNote, setDefaultNote] = useState('');
+  const saveDefenseDefault = () => {
+    if (!dLook || !saveAlignment) return;
+    const standard = alignDefenseTechniques(dLook.nodes, offNodes);
+    const moves: Record<string, { dx: number; dy: number }> = {};
+    for (const n of standard) {
+      const now = overrides[n.role] ? { x: overrides[n.role].x - hashDx, y: overrides[n.role].y } : { x: n.x + (myDefault?.[n.role]?.dx || 0), y: n.y + (myDefault?.[n.role]?.dy || 0) };
+      const dx = Math.round((now.x - n.x) * 100) / 100;
+      const dy = Math.round((now.y - n.y) * 100) / 100;
+      if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) moves[n.role] = { dx, dy };
+    }
+    saveAlignment(defenseKey, Object.keys(moves).length ? moves : null);
+    // Those spots are the default now, not moves on this play.
+    setOverrides((prev) => Object.fromEntries(Object.entries(prev).filter(([role]) => !dLook.nodes.some((n) => n.role === role))));
+    setDefaultNote(`Saved. ${dLook.name} starts lined up like this everywhere.`);
+    window.setTimeout(() => setDefaultNote(''), 4000);
+  };
+  const clearDefenseDefault = () => {
+    if (!dLook || !saveAlignment || !window.confirm(`Put ${dLook.name} back to the standard alignment everywhere?`)) return;
+    saveAlignment(defenseKey, null);
+    setDefaultNote(`${dLook.name} is back to the standard alignment.`);
+    window.setTimeout(() => setDefaultNote(''), 4000);
+  };
+  const defaultButtons = dLook && saveAlignment ? (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      <button
+        type="button"
+        onClick={saveDefenseDefault}
+        disabled={!movedDefenders}
+        title={movedDefenders ? `Every play and formation starts ${dLook.name} lined up like this` : 'Drag our defenders first, then save their spots as the default'}
+        className="h-8 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black cursor-pointer disabled:opacity-40 disabled:cursor-default"
+      >
+        Save as my default
+      </button>
+      {myDefault && (
+        <button
+          type="button"
+          onClick={clearDefenseDefault}
+          title="Back to the standard alignment for this defense"
+          className="h-8 px-2 rounded-lg border border-slate-300 dark:border-slate-600 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer"
+        >
+          Standard
+        </button>
+      )}
+      {defaultNote && <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">{defaultNote}</span>}
+    </span>
+  ) : null;
   const customBack = Object.keys(overrides).some((r) => !r.match(/^(DE|DT|NT|SAM|WILL|MIKE|ROV|CB|FS)/i));
 
   const concepts = useMemo(() => {
@@ -785,6 +838,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               <span className="text-[11px] text-slate-500 dark:text-slate-400">
                 {dLook ? 'Drag our defenders where they line up against this formation. It saves as you go.' : 'Pick our defense to line it up against this formation.'}
               </span>
+              {defaultButtons}
             </div>
           )}
           {dNodes.length > 0 && hasDepth && (
@@ -1168,8 +1222,10 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 {dLook && (
                   <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
                     {dLook.front} {dLook.shell} · {dLook.notes}
+                    {myDefault ? ' · lined up your way' : ''}
                   </p>
                 )}
+                {defaultButtons && <div className="mt-2">{defaultButtons}</div>}
                 <label className="mt-2 flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer">
                   <input type="checkbox" checked={putDefInName} onChange={(e) => setPutDefInName(e.target.checked)} />
                   Put the defense in the play name

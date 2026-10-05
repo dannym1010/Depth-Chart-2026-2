@@ -189,7 +189,7 @@ import { firstPlayerScreen, isPlayerRole, playerCanSee } from './utils/playerAcc
 import { buildLibrary } from './filmroom/FilmLibrary';
 import { bundleFromSaved } from './hudlScout/scoutBundle';
 import { DEFAULT_BALANCED, setBalancedFormations } from './hudlScout/utils/strength';
-import { setDefenseSystem } from './hudlScout/utils/ourDefense';
+import { setDefenseAlignmentSaver, setDefenseSystem } from './hudlScout/utils/ourDefense';
 import { HudlScoutSections, type HudlSection } from './components/scouting/HudlScoutSections';
 import { TendenciesView } from './components/scouting/TendenciesView';
 import { PlaybookGuidesView } from './components/PlaybookGuidesView';
@@ -4656,6 +4656,17 @@ export default function App() {
   setBalancedFormations((currentActiveTeam as Team).balancedFormations);
   // Our defense (Our defense card): the scouting calls and the play builder's defenses use it.
   setDefenseSystem((currentActiveTeam as Team).defenseSystem);
+  setDefenseAlignmentSaver(
+    mayEditTeam(activeTeamId)
+      ? (lookKey, moves) => {
+          const sys = (currentActiveTeam as Team).defenseSystem || {};
+          const alignments = { ...(sys.alignments || {}) };
+          if (moves) alignments[lookKey] = moves;
+          else delete alignments[lookKey];
+          handleUpdateTeam(activeTeamId, { defenseSystem: { ...sys, alignments } });
+        }
+      : null
+  );
 
   // Filter roster, schedule events, and practice plans by active team (strictly isolated)
   const activeTeamRoster = React.useMemo(() => {
