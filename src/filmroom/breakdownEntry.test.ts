@@ -66,3 +66,18 @@ describe('breakdown filled in while watching', () => {
     assert.equal(cleared.playCallId, 'pc1');
   });
 });
+
+describe('importing a Hudl breakdown into a Film Room game', () => {
+  it('keeps each play id (notes stay) and the coaches tags, in order', async () => {
+    const { importIntoGame } = await import('./breakdownEntry.ts');
+    const old = blankPlays(clips, 'g1').map((p, i) => (i === 0 ? { ...p, unit: 'gold' as const, playCallId: 'pc', playCall: 'Jet' } : p));
+    const file = [1, 2, 3].map((n) => ({ ...old[0], id: `play-${n}`, playNumber: n, odk: 'O' as const, playName: `Call ${n}`, unit: undefined, playCallId: undefined, playCall: undefined }));
+    const out = importIntoGame(old, file, 'g1');
+    assert.deepEqual(out.map((p) => p.id), ['clip-img-0012-g1', 'clip-img-0013-g1', 'imp-g1-3']);
+    assert.equal(out[0].unit, 'gold');
+    assert.equal(out[0].playName, 'Jet');
+    assert.equal(out[0].untaggedName, 'Call 1');
+    assert.equal(out[1].playName, 'Call 2');
+    assert.ok(out.every((p) => p.gameId === 'g1'));
+  });
+});

@@ -100,3 +100,27 @@ export function applyBreakdown(base: Play, entered: BreakdownRow): Play {
     editedAt: Date.now(),
   };
 }
+
+/**
+ * A Hudl breakdown file imported into a game that's already in the Film Room: its plays replace the game's,
+ * in order. Play N keeps play N's id, so notes, drawings and the clip stay with it, and keeps what coaches
+ * tagged on it (unit, Play Bank call, subs, tackles).
+ */
+export function importIntoGame(existing: Play[], imported: Play[], gameId: string): Play[] {
+  const old = [...existing].sort((a, b) => (Number(a.playNumber) || 0) - (Number(b.playNumber) || 0));
+  const now = Date.now();
+  return imported.map((p, i) => {
+    const was = old[i];
+    const tagged = was?.playCallId ? { playCallId: was.playCallId, playCall: was.playCall, playName: was.playCall || p.playName, untaggedName: p.playName } : {};
+    return {
+      ...p,
+      id: was?.id || `imp-${gameId}-${i + 1}`,
+      gameId,
+      ...(was?.unit ? { unit: was.unit } : {}),
+      ...(was?.subs ? { subs: was.subs } : {}),
+      ...(was?.defPlay && !p.defPlay ? { defPlay: was.defPlay } : {}),
+      ...tagged,
+      editedAt: now,
+    };
+  });
+}

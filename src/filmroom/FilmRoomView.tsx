@@ -3,12 +3,12 @@
 // whole staff sees. The play log under the video is Hudl Scout's own: sorting it sets the play order, and
 // tags changed here are the same tags Hudl Scout shows.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft } from 'lucide-react';
+import { ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft } from 'lucide-react';
 import { PlaysTable } from '../hudlScout/components/PlaysTable';
-import { bundleFromSaved, type ScoutBundle } from '../hudlScout/scoutBundle';
+import { assignDrives, bundleFromSaved, type ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play, TeamUnit } from '../hudlScout/types/football';
 import type { ScoutGame } from '../hudlScout/components/Header';
-import { setPlaysFormation, tagPlays } from '../hudlScout/utils/playTags';
+import { autoTagFromHudl, setPlaysFormation, tagPlays } from '../hudlScout/utils/playTags';
 import { tagPlayUnits } from '../hudlScout/utils/unitStats';
 import { isReadOnlySession, safeJSONParse, safeJSONSet } from '../services/storageService';
 import type { FilmPlayerRef, RosterPlayer } from '../types';
@@ -17,7 +17,7 @@ import { filmLineup, setPlayBallPlayer, setPlayDefPlay, setPlaySub, type BallRol
 import { newPlayEntry } from '../utils/playbookImport';
 import { clipMatchMode, matchClipsToPlays } from './clipMatching';
 import { playsFromClips } from './clipPlays';
-import { applyBreakdown, blankPlays, breakdownPlayId, isBrokenDown, type BreakdownRow } from './breakdownEntry';
+import { applyBreakdown, blankPlays, breakdownPlayId, importIntoGame, isBrokenDown, type BreakdownRow } from './breakdownEntry';
 import { BreakdownPanel } from './BreakdownPanel';
 import type { FilmFolderGame, UnplacedFolder } from './folderRoutes';
 import { clearFilmCutup, peekFilmCutup, type FilmCutup } from '../utils/filmCutup';
@@ -32,7 +32,7 @@ import { filmGameKey } from './sharedMerge';
 import type { FilmGame, FilmMark, FilmNote } from './types';
 import { useClipUrl, useGameFilm } from './useGameFilm';
 import { useSharedGame } from './useSharedGame';
-import { useFolderBreakdowns } from './folderImport';
+import { readBreakdown, useFolderBreakdowns } from './folderImport';
 
 interface FilmRoomViewProps {
   teamId: string;
@@ -277,6 +277,37 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     else onUpdateScouting('hudlScout', { ...((opponentScout as object) || {}), plays: change(opp.plays), updatedAt: now });
   };
   const isOwn = source === 'own';
+  // Import breakdown: a Hudl file's plays go into the game that's open (not a new game), play N onto play N.
+  const importInput = useRef<HTMLInputElement>(null);
+  const [importNote, setImportNote] = useState('');
+  const importBreakdown = async (file: File) => {
+    if (!game || game.filmOnly) return;
+    let fresh: Play[];
+    try {
+      fresh = await readBreakdown(file.name, file);
+    } catch {
+      return window.alert(`Couldn't read ${file.name}. Use the CSV or Excel export from Hudl.`);
+    }
+    if (!fresh.length) return window.alert(`No plays found in ${file.name}.`);
+    const entered = plays.filter((p) => !game.fromFilm || isBrokenDown(p)).length;
+    if (entered && !window.confirm(`Replace the ${plays.length} plays of ${game.name} with the ${fresh.length} plays in ${file.name}? Notes, drawings and tags stay with the plays in order.`)) return;
+    const b = isOwn ? own : opp;
+    const ids = new Set(plays.map((p) => p.id));
+    let merged = importIntoGame(plays, fresh, game.gameId);
+    if (isOwn && playDatabase?.length) merged = autoTagFromHudl(merged, playDatabase, new Set(merged.filter((p) => !p.playCallId).map((p) => p.id))).plays;
+    merged = assignDrives(merged);
+    const now = Date.now();
+    const next = {
+      plays: [...b.plays.filter((p) => !ids.has(p.id)), ...merged],
+      games: b.games.map((g) => (g.id === game.gameId ? { ...g, playCount: merged.length, fromFilm: false, editedAt: now } : g)),
+      sourceCleared: false,
+      updatedAt: now,
+    };
+    if (isOwn) onUpdateOwnTeamScout({ ...own, ...next });
+    else onUpdateScouting('hudlScout', { ...((opponentScout as object) || {}), ...next });
+    setImportNote(`Imported ${merged.length} plays from ${file.name}`);
+    window.setTimeout(() => setImportNote(''), 4000);
+  };
   const saveBreakdown = (changes: { play: Play; row: BreakdownRow }[]) =>
     editPlays((all) => all.map((p) => {
       const c = changes.find((x) => x.play.id === p.id);
@@ -778,6 +809,30 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             >
               <Unlink size={14} /> Unlink
             </button>
+          )}
+          {importNote && <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">{importNote}</span>}
+          {game && !game.filmOnly && !isReadOnlySession() && (
+            <>
+              <input
+                ref={importInput}
+                type="file"
+                accept=".csv,.xlsx,.xls,text/csv"
+                aria-label="Hudl breakdown file to import"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (file) void importBreakdown(file);
+                }}
+              />
+              <button
+                onClick={() => importInput.current?.click()}
+                className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                title="Load this game's Hudl breakdown (CSV or Excel) into the plays here, matched to the film in order"
+              >
+                <FileUp size={14} /> <span className="hidden sm:inline">Import breakdown</span>
+              </button>
+            </>
           )}
           {game && (
             <button
