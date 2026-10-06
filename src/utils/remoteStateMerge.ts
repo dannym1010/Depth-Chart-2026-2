@@ -48,6 +48,33 @@ export function applySharedWeekSliceDepth(
   return next;
 }
 
+/**
+ * Another device saved the WHOLE week (a sync / copy, not a single edit): its spots come in, but an empty spot
+ * never clears one that has players here. A device that hadn't loaded the week yet would otherwise wipe the
+ * depth chart for everyone. (A coach clearing a spot sends that spot alone, which still applies.)
+ */
+export function applyFullWeekDepth(
+  localDC: Record<string, PlacedPlayer[]>,
+  remoteDC: Record<string, PlacedPlayer[] | undefined> | undefined,
+  recentlyModifiedPositions?: Map<string, number>,
+  now: number = Date.now(),
+  protectMs: number = RECENT_POSITION_PROTECT_MS
+): Record<string, PlacedPlayer[]> {
+  const kept: Record<string, PlacedPlayer[] | undefined> = {};
+  Object.entries(remoteDC || {}).forEach(([posId, players]) => {
+    if (!Array.isArray(players)) return;
+    const here = localDC?.[posId];
+    if (!players.length && Array.isArray(here) && here.length) return;
+    kept[posId] = players;
+  });
+  return applySharedWeekSliceDepth(localDC, kept, recentlyModifiedPositions, now, protectMs);
+}
+
+/** Only the spots that have players (for a sync that must not clear anything). */
+export function filledSpots(dc?: Record<string, PlacedPlayer[]>): Record<string, PlacedPlayer[]> {
+  return Object.fromEntries(Object.entries(dc || {}).filter(([, list]) => Array.isArray(list) && list.length > 0));
+}
+
 export function isGroupsPositionId(posId: string): boolean {
   const id = String(posId || '');
   return (
@@ -111,6 +138,18 @@ export function pickBetterFormation(
   return local;
 }
 
+/**
+ * The remote board, unless it's just the built-in layout and the board here was set up by a coach (another
+ * device that never loaded this week would send the defaults back).
+ */
+function remoteIfNotDefaultOver(local?: FormationBoard | null, remote?: FormationBoard | null): FormationBoard | undefined {
+  if (!remote) return local || undefined;
+  if (!local) return remote;
+  const init = INITIAL_DEFAULT_FORMATIONS.find((f) => f.id === remote.id);
+  if (init && formationLayoutKey(remote) === formationLayoutKey(init) && formationLayoutKey(local) !== formationLayoutKey(init)) return local;
+  return remote;
+}
+
 export function applySharedFormations(
   localForms: FormationBoard[] | undefined,
   remoteForms: FormationBoard[] | undefined,
@@ -144,7 +183,7 @@ export function applySharedFormations(
     const next = keepThis
       ? loc || base
       : preferRemoteContent
-        ? rem || loc || base
+        ? remoteIfNotDefaultOver(loc, rem) || loc || base
         : pickBetterFormation(loc, rem) || loc || rem;
     if (next && !seen.has(next.id)) {
       seen.add(next.id);
@@ -158,7 +197,7 @@ export function applySharedFormations(
     const loc = localById.get(form.id);
     const rem = remoteById.get(form.id);
     const next = preferRemoteContent
-      ? rem || loc || form
+      ? remoteIfNotDefaultOver(loc, rem) || loc || form
       : pickBetterFormation(loc, rem) || form;
     if (next && !seen.has(next.id)) {
       seen.add(next.id);

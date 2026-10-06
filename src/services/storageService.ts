@@ -489,6 +489,8 @@ export function cloudModulesForScope(scope: string = ''): Array<
   // A copied week replaces the whole week: depth chart, formations, wristband and call sheet.
   if (s === 'copy_week') return ['week', 'formations', 'call_sheet', 'wristband'];
   if (s === 'restore_default_formations') return ['week', 'formations'];
+  // Putting back a depth chart a sync removed: the whole week.
+  if (s === 'restore_week') return ['week'];
   if (s.startsWith('practice') || s.includes('practice_plan') || s === 'remove_station') return ['practice'];
   if (s.startsWith('schedule')) return ['schedule'];
   if (s === 'drills' || s.startsWith('practice_drill')) return ['drills'];
@@ -903,6 +905,8 @@ export async function fetchHudlScoutCloud(
 }
 
 export type SharedBoardCloudUpdate = {
+  /** The week has no shared doc in the cloud yet (it's new for everyone). */
+  weekMissing?: boolean;
   scheduleEvents?: any[];
   deletedScheduleEventIds?: string[];
   scheduleUpdatedAt?: number;
@@ -1495,10 +1499,14 @@ export function subscribeSharedBoardCloud(
   const { db } = getFirebaseServices();
   if (!db || typeof db.collection !== 'function') return () => {};
 
-  const listen = (docId: string, mapFn: (data: any) => SharedBoardCloudUpdate) =>
+  const listen = (docId: string, mapFn: (data: any) => SharedBoardCloudUpdate, onMissing?: () => void) =>
     db.collection('teamData').doc(docId).onSnapshot(
       (snap: any) => {
-        if (!snap?.exists) return;
+        if (!snap?.exists) {
+          // From the server (not just this device's cache): the doc really isn't there yet.
+          if (!snap?.metadata?.fromCache) onMissing?.();
+          return;
+        }
         const data = snap.data();
         if (!data) return;
         if (snap.metadata?.hasPendingWrites && data.writerClientId === CLIENT_ID) return;
@@ -1521,10 +1529,15 @@ export function subscribeSharedBoardCloud(
       deletedPracticePlanIds: data.deletedPracticePlanIds,
       practiceUpdatedAt: data.updatedAt,
     })),
-    listen(opsWeekDocId(teamId, week), (data) => ({
-      weekSlice: data,
-      weekUpdatedAt: data.updatedAt,
-    })),
+    listen(
+      opsWeekDocId(teamId, week),
+      (data) => ({
+        weekSlice: data,
+        weekUpdatedAt: data.updatedAt,
+      }),
+      // No week doc in the cloud yet: still tells the app the week is loaded (it's new for everyone).
+      () => onUpdate({ weekMissing: true })
+    ),
     listen('ops_roster', (data) => ({ roster: data.roster, deletedPlayers: data.deletedPlayers, rosterUpdatedAt: data.updatedAt })),
     listen('ops_season', (data) => ({
       teams: data.teams,

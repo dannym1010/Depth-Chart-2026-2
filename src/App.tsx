@@ -225,6 +225,8 @@ import {
   mergePprPlayCounts,
   mergeDeletedIds,
   applySharedWeekSliceDepth,
+  applyFullWeekDepth,
+  filledSpots,
   applySharedFormations,
   applyFormationBoardPatches,
   reorderFormationsInUnit,
@@ -1037,6 +1039,26 @@ export default function App() {
   const pendingSaveRef = useRef<{ scope: string; extraMeta?: Record<string, any> } | null>(null);
   const lastAppliedOpsAtRef = useRef<Record<string, number>>({});
   const lastWeekPatchSigRef = useRef('');
+  // Weeks this device has loaded from the cloud ("team|week"). Until then it can't overwrite the week
+  // (a sync from a device that hasn't loaded it would send an empty depth chart to everyone).
+  const weekCloudSeenRef = useRef<Set<string>>(new Set());
+  const [weekSeenTick, setWeekSeenTick] = useState(0);
+  const weekSeenKey = (teamId: string, week: string) => `${teamId}|${normalizeScoutWeekKey(week)}`;
+  const markWeekSeen = (teamId: string, week: string) => {
+    const key = weekSeenKey(teamId, week);
+    if (weekCloudSeenRef.current.has(key)) return;
+    weekCloudSeenRef.current.add(key);
+    setWeekSeenTick((n) => n + 1);
+  };
+  const weekLoadedHere = (teamId: string, week: string) => {
+    const { db } = getFirebaseServices();
+    return !db || weekCloudSeenRef.current.has(weekSeenKey(teamId, week));
+  };
+  // A sync from another device took most of this week's depth chart away: what it was, to put back.
+  const [depthLoss, setDepthLoss] = useState<{ teamId: string; week: string; lost: number; before: WeekState; at: number } | null>(() => {
+    const saved = safeJSONParse<any>('footballDepthLossBackup', null);
+    return saved && saved.before && Date.now() - (Number(saved.at) || 0) < 7 * 24 * 3600 * 1000 ? saved : null;
+  });
   const lastSavedPayloadRef = useRef<string>('');
   const localServerVersionRef = useRef<number>(0);
   const localServerUpdatedAtRef = useRef<number>(0);
@@ -2416,6 +2438,11 @@ export default function App() {
       weekSlice:
         !writeWeek || !weekState
           ? undefined
+          : !modules
+            ? // "Save & sync now": never clears a spot or replaces a formation for everyone.
+              weekLoadedHere(activeTeamIdRef.current, weekKey)
+              ? { weekWriteKind: 'patch', depthSpots: filledSpots(weekState.depthChart), scrimmageSpots: filledSpots(weekState.scrimmageChart) }
+              : undefined
           : {
               depthChart: weekState.depthChart || {},
               formations: weekForms,
@@ -2896,6 +2923,14 @@ export default function App() {
     }
     const slice = remote.weekSlice;
     const isPatch = slice?.weekWriteKind === 'patch';
+    // "Newer than what we have" is per week: one timestamp for every week made a week whose doc was last saved
+    // before another week's (e.g. last game's grades) look old, so its depth chart was never taken.
+    const sliceWeek = normalizeScoutWeekKey(String(slice?.week || currentWeekRef.current));
+    const weekTakeKey = `week:${activeTeamIdRef.current}:${sliceWeek}`;
+    // A doc for another week or team (arriving just after a switch) is not this week's.
+    const forThisWeek =
+      sliceWeek === normalizeScoutWeekKey(currentWeekRef.current) &&
+      (!slice?.teamId || sameTeamId(slice.teamId, activeTeamIdRef.current));
     const otherWriter = !remote.writerClientId || remote.writerClientId !== CLIENT_ID;
     const weekAt = Number(remote.weekUpdatedAt || slice?.updatedAt) || 0;
     const patchSig = isPatch
@@ -2910,14 +2945,15 @@ export default function App() {
         slice.depthSpots ||
         slice.scrimmageSpots ||
         slice.formationBoards) &&
-      (isPatch && otherWriter ? true : take('week', weekAt));
+      forThisWeek &&
+      (isPatch && otherWriter ? true : take(weekTakeKey, weekAt));
     if (isPatch && otherWriter && patchSig && lastWeekPatchSigRef.current === patchSig) {
       takeWeek = false;
     }
     if (takeWeek) {
       if (patchSig) lastWeekPatchSigRef.current = patchSig;
-      if (weekAt > (lastAppliedOpsAtRef.current.week || 0)) {
-        lastAppliedOpsAtRef.current.week = weekAt;
+      if (weekAt > (lastAppliedOpsAtRef.current[weekTakeKey] || 0)) {
+        lastAppliedOpsAtRef.current[weekTakeKey] = weekAt;
       }
       const teamId = activeTeamIdRef.current;
       const week = normalizeScoutWeekKey(currentWeekRef.current);
@@ -2932,8 +2968,8 @@ export default function App() {
           const cur = storedWeekForWrite(prev, teamId, weekId);
           const nextDepth = isPatch
             ? applySharedWeekSliceDepth(cur.depthChart || {}, slice.depthSpots, recentSpots, now, liveProtectMs)
-            : applySharedWeekSliceDepth(
-                applySharedWeekSliceDepth(cur.depthChart || {}, slice.depthChart, recentSpots, now, liveProtectMs),
+            : applyFullWeekDepth(
+                applyFullWeekDepth(cur.depthChart || {}, slice.depthChart, recentSpots, now, liveProtectMs),
                 slice.depthSpots,
                 recentSpots,
                 now,
@@ -2941,8 +2977,8 @@ export default function App() {
               );
           const nextScrim = isPatch
             ? applySharedWeekSliceDepth(cur.scrimmageChart || {}, slice.scrimmageSpots, recentSpots, now, liveProtectMs)
-            : applySharedWeekSliceDepth(
-                applySharedWeekSliceDepth(cur.scrimmageChart || {}, slice.scrimmageChart, recentSpots, now, liveProtectMs),
+            : applyFullWeekDepth(
+                applyFullWeekDepth(cur.scrimmageChart || {}, slice.scrimmageChart, recentSpots, now, liveProtectMs),
                 slice.scrimmageSpots,
                 recentSpots,
                 now,
@@ -2999,6 +3035,15 @@ export default function App() {
           };
         };
         const updatedAll = { ...prev, [scopedKey]: patch(scopedKey), [week]: patch(week) };
+        // Most of the depth chart gone in one sync from another device: keep what it was, to put back.
+        const beforeWeek = storedWeekForWrite(prev, teamId, week);
+        const was = countPlacedPlayers(beforeWeek.depthChart);
+        const now2 = countPlacedPlayers(updatedAll[scopedKey]?.depthChart);
+        if (otherWriter && was >= 5 && now2 < was * 0.5) {
+          const loss = { teamId, week, lost: was - now2, before: deepClone(beforeWeek), at: Date.now() };
+          safeJSONSet('footballDepthLossBackup', loss);
+          window.setTimeout(() => setDepthLoss(loss), 0);
+        }
         latestStateRef.current.weeklyData = updatedAll;
         safeJSONSet('footballWeeklyData', updatedAll);
         return updatedAll;
@@ -3204,6 +3249,8 @@ export default function App() {
     const week = normalizeScoutWeekKey(currentWeekRef.current);
     const remote = await fetchSharedBoardCloud(teamId, week);
     applySharedBoardFromRemote(remote);
+    // Fetched (the week's doc, or none yet): this device now knows the week as the cloud has it.
+    if (remote) markWeekSeen(teamId, week);
   };
 
   /** Share this week's (or the given week's) scouting film and our team's film. */
@@ -3348,6 +3395,7 @@ export default function App() {
     if (!db) return;
     const unsub = subscribeSharedBoardCloud(activeTeamId, currentWeek, (remote) => {
       applySharedBoardFromRemote(remote);
+      if (remote?.weekSlice || remote?.weekMissing) markWeekSeen(activeTeamId, currentWeek);
     });
     return () => unsub();
   }, [activeTeamId, currentWeek]);
@@ -4095,6 +4143,8 @@ export default function App() {
   // Check if current week needs prompt to copy players from previous week
   const depthChartCopyCandidate = useMemo(() => {
     if (dismissedCopyPrompts.has(currentWeek)) return null;
+    // Not before this week has loaded from the cloud: it may only look empty on this device.
+    if (!weekLoadedHere(activeTeamId, currentWeek)) return null;
     const targetState = resolveWeekState(weeklyData, activeTeamId, currentWeek);
     const targetDepthCount = countPlacedPlayers(targetState?.depthChart);
     if (targetDepthCount > 0) return null;
@@ -4122,7 +4172,46 @@ export default function App() {
       };
     }
     return null;
-  }, [weeklyData, activeTeamId, currentWeek, dismissedCopyPrompts]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weeklyData, activeTeamId, currentWeek, dismissedCopyPrompts, weekSeenTick]);
+
+  /** Put back the depth chart a sync from another device took away, and send it to everyone. */
+  const restoreDepthLoss = () => {
+    if (!depthLoss) return;
+    const { teamId, week, before } = depthLoss;
+    setWeeklyData((prev) => {
+      const scoped = getScopedWeekKey(teamId, week);
+      const cur = storedWeekForWrite(prev, teamId, week);
+      const back = { ...cur, depthChart: before.depthChart || {}, scrimmageChart: before.scrimmageChart || cur.scrimmageChart, formations: before.formations?.length ? before.formations : cur.formations };
+      const next = { ...prev, [scoped]: back, [week]: back };
+      latestStateRef.current.weeklyData = next;
+      safeJSONSet('footballWeeklyData', next);
+      return next;
+    });
+    lastLocalEditTimeRef.current = Date.now();
+    setDepthLoss(null);
+    safeJSONSet('footballDepthLossBackup', null);
+    window.setTimeout(() => void saveStateToStorage('restore_week'), 50);
+  };
+  /** A head coach sends this device's depth chart for the week to every coach (to fix a chart a bad sync emptied). */
+  const sendWeekToEveryone = () => {
+    const placed = countPlacedPlayers(resolveWeekState(latestStateRef.current.weeklyData || {}, activeTeamId, currentWeek).depthChart);
+    if (
+      !window.confirm(
+        `Send this device's ${formatWeekLabel(currentWeek)} depth chart (${placed} player spots and its formations) to every coach? Use this when another coach's depth chart is wrong or empty.`
+      )
+    )
+      return;
+    lastLocalEditTimeRef.current = Date.now();
+    lastSavedPayloadRef.current = '';
+    void saveStateToStorage('restore_week');
+  };
+  const dismissDepthLoss = () => {
+    setDepthLoss(null);
+    safeJSONSet('footballDepthLossBackup', null);
+  };
+  const showDepthLoss =
+    depthLoss && sameTeamId(depthLoss.teamId, activeTeamId) && normalizeScoutWeekKey(depthLoss.week) === normalizeScoutWeekKey(currentWeek);
 
   const previousWeekCopyLabel = useMemo(() => {
     const srcWk = getPriorSeasonWeekKey(currentWeek, seasonConfig);
@@ -6932,6 +7021,46 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
             {((['offense', 'defense', 'st', 'groups'].includes(activeUnit)) ||
               (activeUnit === 'depth_chart' && ['offense', 'defense', 'st', 'groups'].includes(depthSubUnit))) && (
               <>
+                {showDepthLoss && depthLoss && (
+                  <div className="mb-4 p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-500/60 shadow-xl flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-xs font-black uppercase tracking-wider text-rose-700 dark:text-rose-300">Depth chart changed by another device</div>
+                      <p className="text-sm text-slate-800 dark:text-slate-100 mt-0.5">
+                        A sync from another coach&apos;s device just removed <b>{depthLoss.lost}</b> player spots from this week&apos;s depth chart. If that wasn&apos;t meant to happen, put them back.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={restoreDepthLoss}
+                        className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-black rounded-xl cursor-pointer"
+                      >
+                        Restore the depth chart
+                      </button>
+                      <button
+                        type="button"
+                        onClick={dismissDepthLoss}
+                        className="px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 cursor-pointer"
+                      >
+                        Keep the change
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {userRole === 'admin' && !isPlayer && countPlacedPlayers(currentWeekState.depthChart) > 0 && (
+                  <div className="-mt-1 mb-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={sendWeekToEveryone}
+                      title="Fix another coach's wrong or empty depth chart: sends this device's depth chart and formations for this week to everyone"
+                      className="text-[11px] font-bold text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300 underline-offset-2 hover:underline cursor-pointer"
+                    >
+                      Send this week&apos;s depth chart to every coach
+                    </button>
+                  </div>
+                )}
+
                 {depthChartCopyCandidate && (
                   <div className="mb-4 p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-500/50 shadow-xl flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
                     <div className="flex items-center gap-3">
