@@ -928,7 +928,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
               <OwnTeamReport plays={plays} lineupFor={lineupOnly} roster={roster || []} />
             )}
             {activeTab === 'players' && <PlayersTab analysis={analysis} plays={filteredPlays} allPlays={plays} voice={voice} />}
-            {activeTab === 'stats' && <StatsTab plays={plays} games={bundle.games} selectedGameId={selectedGameId} own={scoutTarget === 'own'} />}
+            {activeTab === 'stats' && <StatsTab plays={plays} games={bundle.games} selectedGameId={selectedGameId} own={scoutTarget === 'own'} playDatabase={playDatabase} />}
             {activeTab === 'gameplan' && (
               <GamePlanTab
                 report={localReport}

@@ -15,8 +15,31 @@ const isScramble = (p: Play) => /scramble/.test(result(p));
 const isTimeout = (p: Play) => /timeout|time out/.test(result(p));
 /** A run: RUN / RPO, or a play with a ball carrier and no pass. */
 // A quarterback scramble is a run (no pass was thrown).
-const isRun = (p: Play) => ((p.playType === 'RUN' || p.playType === 'RPO') && !isSack(p)) || isScramble(p);
-const isPassAttempt = (p: Play) => (p.playType === 'PASS' || p.playType === 'SCREEN') && !isSack(p) && !isScramble(p);
+/** The type of the Play Bank play a snap was tagged with ("pass", "run", "screen"...), when known. */
+export type CallTypeOf = (p: Play) => string | undefined;
+const PASS_CALLS = new Set(['pass', 'screen', 'play_action']);
+const passResult = (p: Play) => /complet|incomplet|intercept|\bint\b|\bpick\b/.test(result(p));
+
+/**
+ * Run, pass or sack. A marked result wins (Complete / Incomplete / Interception = pass, a sack, a scramble =
+ * run), then the Play Bank play a coach tagged it with (it beats Hudl's own guess: Hudl writes "Rush" for
+ * anything it took for a run), then Hudl's result and play type.
+ */
+export function playKind(p: Play, callTypeOf?: CallTypeOf): 'run' | 'pass' | 'sack' | 'other' {
+  if (isSack(p)) return 'sack';
+  if (isScramble(p)) return 'run';
+  if (passResult(p)) return 'pass';
+  const call = callTypeOf?.(p);
+  if (call && PASS_CALLS.has(call)) return 'pass';
+  if (call === 'run' || call === 'rpo') return 'run';
+  if (/\brush/.test(result(p))) return 'run';
+  if (p.playType === 'PASS' || p.playType === 'SCREEN') return 'pass';
+  if (p.playType === 'RUN' || p.playType === 'RPO') return 'run';
+  return 'other';
+}
+
+/** A caught pass: marked Complete, or yards gained on a pass that wasn't marked incomplete or picked off. */
+const caught = (p: Play) => isComplete(p) || (!/incomplet|intercept|\bint\b|\bpick\b/.test(result(p)) && gain(p) > 0);
 const name = (v?: string) => {
   const t = String(v || '').trim();
   return t && t !== '-' ? t : '';
@@ -64,12 +87,13 @@ export interface BoxScore {
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
 /** Team totals and players for these offensive snaps. */
-export function boxScore(offense: Play[]): BoxScore {
+export function boxScore(offense: Play[], callTypeOf?: CallTypeOf): BoxScore {
   const snaps = offense.filter((p) => p.odk !== 'K' && p.odk !== 'S');
   const plays = snaps.filter((p) => !isPenalty(p) && !isTimeout(p));
+  const isRun = (p: Play) => playKind(p, callTypeOf) === 'run';
   const rushes = plays.filter(isRun);
-  const passes = plays.filter(isPassAttempt);
-  const comps = passes.filter(isComplete);
+  const passes = plays.filter((p) => playKind(p, callTypeOf) === 'pass');
+  const comps = passes.filter(caught);
   const sacks = plays.filter(isSack);
   const penalties = snaps.filter(isPenalty);
   const moved = (p: Play) => p.down > 0 && (gain(p) >= (Number(p.distance) || 99) || isTd(p));
@@ -123,7 +147,7 @@ export function boxScore(offense: Play[]): BoxScore {
     if (thrower) {
       const l = passing.get(thrower) || { name: thrower, comp: 0, att: 0, yds: 0, td: 0, int: 0, pct: 0 };
       l.att += 1;
-      if (isComplete(p)) {
+      if (caught(p)) {
         l.comp += 1;
         l.yds += gain(p);
         if (isTd(p)) l.td += 1;
@@ -135,7 +159,7 @@ export function boxScore(offense: Play[]): BoxScore {
     if (catcher) {
       const l = receiving.get(catcher) || { name: catcher, rec: 0, targets: 0, yds: 0, td: 0, long: 0 };
       l.targets += 1;
-      if (isComplete(p)) {
+      if (caught(p)) {
         l.rec += 1;
         l.yds += gain(p);
         l.long = Math.max(l.long, gain(p));
@@ -196,7 +220,7 @@ export interface GameRow {
   defense: TeamLine;
 }
 
-export function gameRows(plays: Play[], games: { id: string; name: string; week?: string }[], offenseOdk: 'O' | 'D' = 'O'): GameRow[] {
+export function gameRows(plays: Play[], games: { id: string; name: string; week?: string }[], offenseOdk: 'O' | 'D' = 'O', callTypeOf?: CallTypeOf): GameRow[] {
   const defenseOdk = offenseOdk === 'O' ? 'D' : 'O';
   return games.map((g) => {
     const mine = plays.filter((p) => p.gameId === g.id || (!p.gameId && games.length === 1));
@@ -204,8 +228,15 @@ export function gameRows(plays: Play[], games: { id: string; name: string; week?
       gameId: g.id,
       name: g.name,
       week: g.week,
-      offense: boxScore(mine.filter((p) => p.odk === offenseOdk)).team,
-      defense: boxScore(mine.filter((p) => p.odk === defenseOdk)).team,
+      offense: boxScore(mine.filter((p) => p.odk === offenseOdk), callTypeOf).team,
+      defense: boxScore(mine.filter((p) => p.odk === defenseOdk), callTypeOf).team,
     };
   });
+}
+
+/** Snaps with a play on them (a type, result or gain) but no ODK: they aren't counted for either side. */
+export function unsidedPlays(plays: Play[]): Play[] {
+  return plays.filter(
+    (p) => (!p.odk || p.odk === 'UNKNOWN') && (Boolean(String(p.result || '').trim()) || Boolean(p.playType) || Number(p.gainLoss) !== 0)
+  );
 }

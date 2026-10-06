@@ -2,7 +2,8 @@
 // game-by-game table. Offense and defense side by side, then rushing, passing, receiving and the defense.
 import React, { useMemo } from 'react';
 import type { Play } from '../../types/football';
-import { boxScore, defenseStats, gameRows, type TeamLine } from '../../utils/gameStats';
+import { boxScore, defenseStats, gameRows, unsidedPlays, type CallTypeOf, type TeamLine } from '../../utils/gameStats';
+import type { PlayDatabaseEntry } from '../../../types/callSheet';
 import { Card, EmptyNote, SectionHeader } from './ui';
 
 interface Props {
@@ -12,6 +13,8 @@ interface Props {
   /** The game picked at the top ('all' = the season). */
   selectedGameId: string;
   own: boolean;
+  /** The Play Bank, so a snap tagged with a pass play counts as a pass. */
+  playDatabase?: PlayDatabaseEntry[];
 }
 
 const th = 'py-2 px-2 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400 text-right first:text-left whitespace-nowrap';
@@ -60,15 +63,20 @@ const Table: React.FC<{ head: string[]; rows: (string | number)[][]; empty: stri
     <EmptyNote>{empty}</EmptyNote>
   );
 
-export const StatsTab: React.FC<Props> = ({ plays, games, selectedGameId, own }) => {
+export const StatsTab: React.FC<Props> = ({ plays, games, selectedGameId, own, playDatabase }) => {
   const season = selectedGameId === 'all';
   const game = games.find((g) => g.id === selectedGameId);
-  const offense = useMemo(() => boxScore(plays.filter((p) => p.odk === 'O')), [plays]);
-  const defense = useMemo(() => boxScore(plays.filter((p) => p.odk === 'D')), [plays]);
+  const callTypeOf = useMemo<CallTypeOf>(() => {
+    const byId = new Map((playDatabase || []).map((e) => [e.id, e.type]));
+    return (p) => (p.playCallId ? byId.get(p.playCallId) : undefined);
+  }, [playDatabase]);
+  const offense = useMemo(() => boxScore(plays.filter((p) => p.odk === 'O'), callTypeOf), [plays, callTypeOf]);
+  const defense = useMemo(() => boxScore(plays.filter((p) => p.odk === 'D'), callTypeOf), [plays, callTypeOf]);
+  const unsided = useMemo(() => unsidedPlays(plays), [plays]);
   const defenders = useMemo(() => defenseStats(plays.filter((p) => p.odk === 'D')), [plays]);
   const byGame = useMemo(
-    () => (season ? gameRows(plays, [...games].sort((a, b) => (Number(a.week) || 99) - (Number(b.week) || 99))) : []),
-    [season, plays, games]
+    () => (season ? gameRows(plays, [...games].sort((a, b) => (Number(a.week) || 99) - (Number(b.week) || 99)), 'O', callTypeOf) : []),
+    [season, plays, games, callTypeOf]
   );
   const us = own ? 'Our' : 'Their';
   const noNames = 'No player names on these plays (Hudl RUSHER / PASSER / RECEIVER columns, or the Film Room breakdown).';
@@ -82,6 +90,12 @@ export const StatsTab: React.FC<Props> = ({ plays, games, selectedGameId, own })
           title={season ? `Season stats · ${games.length} game${games.length === 1 ? '' : 's'}` : `Game stats · ${game?.name || 'This game'}`}
           subtitle={season ? 'Every game added up. Pick one game at the top for its box score.' : `${game?.week ? `Week ${game.week}. ` : ''}Pick All games at the top for the season.`}
         />
+        {unsided.length > 0 && (
+          <p className="mb-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+            <b>{unsided.length}</b> play{unsided.length === 1 ? ' has' : 's have'} no ODK (offense / defense) and {unsided.length === 1 ? "isn't" : "aren't"} counted
+            {unsided.length <= 8 ? ` (play ${unsided.map((p) => p.playNumber).join(', ')})` : ''}. Set ODK in the Film Room breakdown.
+          </p>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full max-w-3xl">
             <thead>

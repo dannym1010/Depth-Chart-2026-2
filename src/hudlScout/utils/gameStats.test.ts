@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { boxScore, defenseStats, gameRows } from './gameStats.ts';
+import { boxScore, defenseStats, gameRows, playKind, unsidedPlays } from './gameStats.ts';
 import type { Play } from '../types/football.ts';
 
 const mk = (n: number, x: Partial<Play>) =>
@@ -52,5 +52,25 @@ describe('game and season stats', () => {
     assert.equal(lines.find((l) => l.name === '#8 Kilkenny')?.tfl, 1);
     const rows = gameRows([...d, mk(3, { gameId: 'g2', gainLoss: 9 })], [{ id: 'g1', name: 'A' }, { id: 'g2', name: 'B' }]);
     assert.deepEqual(rows.map((r) => [r.name, r.offense.totalYds, r.defense.plays]), [['A', 0, 2], ['B', 9, 0]]);
+  });
+});
+
+describe('a play a coach marked as a pass counts as a pass', () => {
+  it('Hudl said Run but the result is Complete: a 3-yard completion', () => {
+    const b = boxScore([mk(1, { playType: 'RUN', result: 'Complete', gainLoss: 3, passer: '#10 Mancini', receiver: '#4 Ward' })]);
+    assert.deepEqual([b.team.passComp, b.team.passAtt, b.team.passYds, b.team.rushes], [1, 1, 3, 0]);
+    assert.equal(b.receiving[0].rec, 1);
+  });
+  it('tagged with a pass play from the Play Bank (Hudl still says Rush): a completion for the yards gained', () => {
+    const tagged = mk(2, { playType: 'RUN', result: 'Rush', gainLoss: 3, playCallId: 'pb_boot' });
+    const typeOf = (p: any) => (p.playCallId === 'pb_boot' ? 'play_action' : undefined);
+    assert.equal(playKind(tagged, typeOf), 'pass');
+    const b = boxScore([tagged], typeOf);
+    assert.deepEqual([b.team.passComp, b.team.passAtt, b.team.passYds, b.team.rushes], [1, 1, 3, 0]);
+    // No yards and not marked: an incompletion.
+    assert.equal(boxScore([{ ...tagged, gainLoss: 0 }], typeOf).team.passComp, 0);
+  });
+  it('flags plays with no ODK', () => {
+    assert.deepEqual(unsidedPlays([mk(3, { odk: 'UNKNOWN' as any, result: 'Complete' }), mk(4, {})]).map((p) => p.playNumber), [3]);
   });
 });
