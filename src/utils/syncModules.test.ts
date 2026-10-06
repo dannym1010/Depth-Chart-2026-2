@@ -4000,8 +4000,9 @@ describe('strong side / weak side (formation side letter vs play direction)', ()
     assert.equal(playFormationBase(tagged[2]), '21');
 
     const { sortPlays, filterPlays } = await import('../hudlScout/utils/playColumns.ts');
-    assert.deepEqual(filterPlays(plays, { strength: ['Weak'] }).map((p) => p.playNumber), [3]);
-    assert.deepEqual(sortPlays(plays, 'strength', true).map((p) => p.playNumber).slice(0, 3), [1, 2, 5]); // strong first, blanks last
+    // The play log's STRENGTH column is the formation's strength: Left / Right / Balanced.
+    assert.deepEqual(filterPlays(plays, { strength: ['Left'] }).map((p) => p.playNumber), [1, 3]);
+    assert.deepEqual(sortPlays(plays, 'strength', true).map((p) => p.playNumber).slice(0, 3), [1, 3, 2]); // left first, blanks last
   });
 });
 

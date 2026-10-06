@@ -2,7 +2,7 @@
 import type { Play } from '../types/football';
 import { TEAM_UNITS } from './unitStats';
 import { isRecordedMotion } from './csvParser';
-import { isBalancedPlay, playStrengthSide } from './strength';
+import { isBalancedPlay, playStrength, playStrengthSide } from './strength';
 
 export type PlayColumnKey =
   | 'playNumber'
@@ -43,13 +43,19 @@ const unitLabel = (p: Play) => TEAM_UNITS.find((u) => u.id === p.unit)?.label ||
 const downDistText = (p: Play) => (p.down ? `${p.down} & ${p.distance}` : 'Kick');
 const callText = (p: Play) => clean(p.playCall) || clean(p.playName);
 const playerText = (p: Play) => clean(p.rusher) || clean(p.passer) || clean(p.receiver) || clean(p.carrierOrTarget) || clean(p.defPlay?.maker);
-const SIDE_ORDER: Record<string, number> = { strong: 1, middle: 2, weak: 3, balanced: 4 };
 /** "Strong" / "Middle" / "Weak" ("" when the formation has no side or the play no direction). */
 export const strengthText = (p: Play) => {
   if (isBalancedPlay(p)) return 'Balanced'; // a balanced formation (like 32) has no strong side
   const s = playStrengthSide(p);
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
 };
+/** The formation's strength: "Left" / "Right" / "Balanced" ("" when the formation has no side). */
+export const strengthSideText = (p: Play) => {
+  if (isBalancedPlay(p)) return 'Balanced';
+  const s = playStrength(p);
+  return s === 'L' ? 'Left' : s === 'R' ? 'Right' : '';
+};
+const STRENGTH_ORDER: Record<string, number> = { Left: 1, Right: 2, Balanced: 3 };
 export const playFlags = (p: Play) =>
   [p.isExplosive ? 'Explosive' : '', p.isEfficient ? 'Efficient' : '', isRecordedMotion(p.motion) ? 'Motion' : ''].filter(Boolean);
 
@@ -69,7 +75,7 @@ export const PLAY_COLUMNS: PlayColumn[] = [
   { key: 'direction', label: 'DIR', sortValue: (p) => clean(p.direction), filterValues: (p) => one(p.direction) },
   // Strong / weak side: the play's direction vs the formation's side letter ("21 L" = strength left).
   { key: 'motion', label: 'MOTION', sortValue: (p) => clean(p.motion), filterValues: (p) => one(p.motion) },
-  { key: 'strength', label: 'SIDE', sortValue: (p) => SIDE_ORDER[isBalancedPlay(p) ? 'balanced' : playStrengthSide(p) || ''] ?? '', filterValues: (p) => [strengthText(p) || BLANK] },
+  { key: 'strength', label: 'STRENGTH', sortValue: (p) => STRENGTH_ORDER[strengthSideText(p)] ?? 9, filterValues: (p) => [strengthSideText(p) || BLANK] },
   { key: 'result', label: 'RESULT', sortValue: (p) => clean(p.result), filterValues: (p) => one(p.result) },
   { key: 'gainLoss', label: 'GN/LS', sortValue: (p) => Number(p.gainLoss) || 0, filterValues: (p) => [String(Number(p.gainLoss) || 0)] },
   { key: 'flags', label: 'FLAGS', sortValue: (p) => playFlags(p).join(' '), filterValues: (p) => (playFlags(p).length ? playFlags(p) : ['None']) },

@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { isBalancedPlay, playStrength, playStrengthSide } from './strength.ts';
-import { strengthText } from './playColumns.ts';
+import { strengthSideText, strengthText } from './playColumns.ts';
 import type { Play } from '../types/football.ts';
 
 const play = (extra: Partial<Play>) => ({ formation: '32', runSide: 'R', direction: 'Right', playName: '', ...extra }) as Play;
@@ -17,5 +17,11 @@ describe('a coach sets the strength on a play', () => {
     assert.equal(playStrength(play({ formation: '21 R', strength: 'balanced' })), undefined);
     assert.equal(strengthText(play({ formation: '21 R', strength: 'balanced' })), 'Balanced');
     assert.equal(playStrength(play({ formation: '21 R' })), 'R');
+    // The play log's STRENGTH column.
+    assert.equal(strengthSideText(play({ formation: '21 R' })), 'Right');
+    assert.equal(strengthSideText(play({ formation: '21 L' })), 'Left');
+    assert.equal(strengthSideText(play({})), 'Balanced');
+    assert.equal(strengthSideText(play({ formation: '21 R', strength: 'L' })), 'Left');
+    assert.equal(strengthSideText(play({ formation: '21' })), '');
   });
 });

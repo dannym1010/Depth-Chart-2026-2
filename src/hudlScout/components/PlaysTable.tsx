@@ -6,7 +6,7 @@ import { callUsage, isNumberFormation, isTaggablePlay, restOfSeriesIds, tidyForm
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { CallButton, FormationEditor, TagPlaysPanel } from '../../components/playbook/CallPicker';
 import { Search, ChevronDown, ChevronUp, ChevronRight, Zap, Flame, CheckCircle2, ListChecks, Users, Filter, X } from 'lucide-react';
-import { PLAY_COLUMNS, columnByKey, filterOptions, filterPlays, sortPlays, strengthText, type PlayColumnKey, type PlayFilters } from '../utils/playColumns';
+import { PLAY_COLUMNS, columnByKey, filterOptions, filterPlays, sortPlays, strengthSideText, strengthText, type PlayColumnKey, type PlayFilters } from '../utils/playColumns';
 import { ColumnFilter } from './ColumnFilter';
 import type { FilmPlayerRef, RosterPlayer } from '../../types';
 import { defAssists, type FilmLineup } from '../../utils/filmLineup';
@@ -473,7 +473,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               <div className="text-[11px] text-slate-300">
                 {play.formation && play.formation !== '-' ? play.formation : 'No formation'}
                 {play.direction ? ` · ${play.direction}` : ''}
-                {strengthText(play) ? <> · <SideTag play={play} /></> : null}
+                {strengthSideText(play) ? <> · <SideTag play={play} /></> : null}
                 {!hasPlayers(play) && play.carrierOrTarget ? ` · ${play.carrierOrTarget}` : ''}
               </div>
               {hasPlayers(play) && (
@@ -836,11 +836,18 @@ const namesMissing = (plays: Play[]) => {
   return off.filter((p) => p.rusher || p.passer || p.receiver).length < off.length * 0.25;
 };
 
-/** Strong / weak side of a play (formation side letter vs play direction). */
-const SIDE_TAG_COLOR: Record<string, string> = { Strong: '#d97706', Middle: '#64748b', Weak: '#0284c7', Balanced: '#7c3aed' };
+/** The formation's strength (Left / Right / Balanced), and which side the play went to (strong / weak / middle). */
+const STRENGTH_COLOR: Record<string, string> = { Left: '#0284c7', Right: '#d97706', Balanced: '#7c3aed' };
 const SideTag: React.FC<{ play: Play }> = ({ play }) => {
-  const t = strengthText(play);
-  return t ? <span style={{ color: SIDE_TAG_COLOR[t] }} title={`${t} side (formation ${play.formation})`}>{t}</span> : <span className="text-slate-500">-</span>;
+  const t = strengthSideText(play);
+  const went = t && t !== 'Balanced' ? strengthText(play).toLowerCase() : '';
+  if (!t) return <span className="text-slate-500">-</span>;
+  return (
+    <span title={`Strength ${t.toLowerCase()}${went ? `; the play went to the ${went} side` : ''} (formation ${play.formation})`}>
+      <span style={{ color: STRENGTH_COLOR[t] }}>{t}</span>
+      {went && <span className="ml-1 font-normal text-slate-500">· {went}</span>}
+    </span>
+  );
 };
 
 /** A play log's view as the coach left it (this browser tab only). */
