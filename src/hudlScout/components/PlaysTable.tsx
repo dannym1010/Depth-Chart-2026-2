@@ -465,6 +465,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                 {play.quarter > 0 && <span>Q{play.quarter}</span>}
                 {play.down > 0 && <span>{play.down} &amp; {play.distance}</span>}
                 {play.hash && <span>Hash {play.hash}</span>}
+                {play.motion && play.motion !== '-' && <span className="text-violet-400">Motion {play.motion}</span>}
                 <span className={play.playType === 'RUN' ? 'text-emerald-400' : play.playType === 'PASS' ? 'text-sky-400' : 'text-amber-400'}>
                   {play.playType}
                 </span>
@@ -536,6 +537,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               {headerCell('players')}
               {headerCell('playType')}
               {headerCell('direction')}
+              {headerCell('motion', 'text-center')}
               {headerCell('strength')}
               {headerCell('result')}
               {headerCell('gainLoss', 'text-right')}
@@ -679,6 +681,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     </span>
                   </td>
                   <td className="py-2.5 px-2 text-slate-400 text-[11px]">{play.direction}</td>
+                  <td className="py-2.5 px-2 text-center text-[11px] font-bold text-violet-400">{play.motion && play.motion !== '-' ? play.motion : ''}</td>
                   <td className="py-2.5 px-2 text-[11px] font-bold"><SideTag play={play} /></td>
                   <td className="py-2.5 px-2 text-slate-300 text-[11px]">{play.result && play.result !== '-' ? play.result : ''}</td>
                   <td className="py-2.5 px-3 text-right font-mono font-bold">

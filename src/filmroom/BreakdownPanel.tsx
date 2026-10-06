@@ -255,8 +255,30 @@ const MoreFields: React.FC<{ play: Play; onPatch: (play: Play, patch: Partial<Pl
       </label>
     );
   };
+  // Motion as Hudl's MOTION DIR has it: L / R (anything else, like "Jet", shows as its own choice).
+  const motion = play.motion && play.motion !== '-' ? play.motion.trim() : '';
+  const otherMotion = motion && !/^(L|R)$/i.test(motion) ? motion : '';
+  const motionChips = [
+    { v: '', label: 'None' },
+    { v: 'L', label: 'Left' },
+    { v: 'R', label: 'Right' },
+    ...(otherMotion ? [{ v: otherMotion, label: otherMotion }] : []),
+  ];
   return (
     <>
+      <div className="flex flex-col gap-1">
+        <span className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">Motion</span>
+        <div className="flex flex-wrap gap-1">
+          {motionChips.map((c) => {
+            const on = motion.toUpperCase() === c.v.toUpperCase();
+            return (
+              <button key={c.label} type="button" disabled={readOnly} aria-pressed={on} onClick={() => onPatch(play, { motion: c.v || '-' })} className={chipClass(on)}>
+                {c.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
       <div className="flex flex-col gap-1">
         <span className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">Strength</span>
         <div className="flex flex-wrap gap-1">
@@ -279,12 +301,12 @@ const MoreFields: React.FC<{ play: Play; onPatch: (play: Play, patch: Partial<Pl
         </div>
       </div>
       <details className="rounded-lg border border-slate-200 dark:border-slate-700 px-2 py-1.5">
-        <summary className="cursor-pointer text-[11px] font-black text-slate-600 dark:text-slate-300">More: personnel, backfield, motion, players, flags</summary>
+        <summary className="cursor-pointer text-[11px] font-black text-slate-600 dark:text-slate-300">More: personnel, backfield, players, flags</summary>
         <div className="mt-2 flex flex-col gap-2">
           <div className="grid grid-cols-3 gap-2">
             {text('personnel', 'Personnel', '21')}
             {text('backfield', 'Backfield', 'I')}
-            {text('motion', 'Motion', 'Jet')}
+            {text('motion', 'Motion (other)', 'Jet, Orbit')}
           </div>
           <div className="grid grid-cols-3 gap-2">
             {text('rusher', 'Ball carrier', '#21')}

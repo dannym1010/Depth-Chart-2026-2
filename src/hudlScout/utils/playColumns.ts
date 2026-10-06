@@ -17,6 +17,7 @@ export type PlayColumnKey =
   | 'players'
   | 'playType'
   | 'direction'
+  | 'motion'
   | 'strength'
   | 'result'
   | 'gainLoss'
@@ -67,6 +68,7 @@ export const PLAY_COLUMNS: PlayColumn[] = [
   { key: 'playType', label: 'TYPE', sortValue: (p) => clean(p.playType), filterValues: (p) => one(p.playType) },
   { key: 'direction', label: 'DIR', sortValue: (p) => clean(p.direction), filterValues: (p) => one(p.direction) },
   // Strong / weak side: the play's direction vs the formation's side letter ("21 L" = strength left).
+  { key: 'motion', label: 'MOTION', sortValue: (p) => clean(p.motion), filterValues: (p) => one(p.motion) },
   { key: 'strength', label: 'SIDE', sortValue: (p) => SIDE_ORDER[isBalancedPlay(p) ? 'balanced' : playStrengthSide(p) || ''] ?? '', filterValues: (p) => [strengthText(p) || BLANK] },
   { key: 'result', label: 'RESULT', sortValue: (p) => clean(p.result), filterValues: (p) => one(p.result) },
   { key: 'gainLoss', label: 'GN/LS', sortValue: (p) => Number(p.gainLoss) || 0, filterValues: (p) => [String(Number(p.gainLoss) || 0)] },
