@@ -26,6 +26,7 @@ import { Card, SectionHeader } from '../../hudlScout/components/report/ui';
 import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { ScoutOppPlayLibrary } from './ScoutOppPlayLibrary';
+import { StatsTab } from '../../hudlScout/components/report/StatsTab';
 import { buildScoutScript, cardsFromTags, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
 import { leadOppPlay, oppPlayDiagram } from '../../utils/filmBackfields';
 import { theirCallEntries } from '../../utils/theirCalls';
@@ -927,6 +928,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
               <OwnTeamReport plays={plays} lineupFor={lineupOnly} roster={roster || []} />
             )}
             {activeTab === 'players' && <PlayersTab analysis={analysis} plays={filteredPlays} allPlays={plays} voice={voice} />}
+            {activeTab === 'stats' && <StatsTab plays={plays} games={bundle.games} selectedGameId={selectedGameId} own={scoutTarget === 'own'} />}
             {activeTab === 'gameplan' && (
               <GamePlanTab
                 report={localReport}
