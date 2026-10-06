@@ -88,6 +88,35 @@ export const FieldTendenciesCard: React.FC<{ plays: Play[]; voice: ReportVoice }
                   ))}
                 </tbody>
               </table>
+              <div className="mt-3 text-[11px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">Runs by where the strength is</div>
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-700">
+                    <th className={th}>Strength to the</th>
+                    <th className={th} title="Runs to the strength / middle / away from the strength">To strength / M / Away</th>
+                    <th className={th}>Yds strong · weak</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(['field', 'boundary'] as const).map((w) => (
+                    <tr key={w} className="border-b border-slate-100 dark:border-slate-800">
+                      <td className={`${td} font-black`} style={{ color: w === 'field' ? FIELD : BOUNDARY }}>
+                        {w === 'field' ? 'Wide side (field)' : 'Boundary'}
+                      </td>
+                      <td className={td}>{shares(r.runsByPlacement[w], [{ k: 'strong', color: STRONG }, { k: 'middle', color: MUTED }, { k: 'weak', color: WEAK }])}</td>
+                      <td className={td}>
+                        {r.runsByPlacement[w].total ? (
+                          <span className="tabular-nums">
+                            {r.runsByPlacement[w === 'field' ? 'fieldAvg' : 'boundaryAvg'].strong} · {r.runsByPlacement[w === 'field' ? 'fieldAvg' : 'boundaryAvg'].weak}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">–</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </>
           ) : (
             <EmptyNote>No formation strength on these plays. Tag the formation with its side (21 L, Trips Rt) or set Strength in the Film Room breakdown.</EmptyNote>

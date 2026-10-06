@@ -38,6 +38,11 @@ describe('strength, field and motion', () => {
     assert.equal(right.runsBySide!.count.weak, 1);
     const bal = r.byStrength.find((g) => g.label === 'Balanced')!;
     assert.equal(bal.byField.pct.boundary, 100);
+    // Strength right with the ball on the left hash = strength to the field: 5 of 6 runs went to it.
+    assert.equal(r.runsByPlacement.field.total, 6);
+    assert.equal(r.runsByPlacement.field.count.strong, 5);
+    assert.equal(r.runsByPlacement.field.pct.strong, 83);
+    assert.equal(r.runsByPlacement.boundary.total, 0);
     assert.equal(r.motion.plays, 5);
     assert.equal(r.motion.toStrength.pct.away, 100);
     assert.equal(r.motion.playVsMotion.pct.away, 100);

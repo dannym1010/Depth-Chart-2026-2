@@ -97,6 +97,8 @@ export interface FieldTendencies {
   /** Of the plays with a strength and the ball on a hash: strength set to the field or the boundary. */
   strengthToField: Split3<'field' | 'boundary'>;
   byStrength: StrengthGroup[];
+  /** Runs when the strength is set to the field, and when it's to the boundary: to the strong side, middle, weak side. */
+  runsByPlacement: { field: Split3<'strong' | 'middle' | 'weak'>; boundary: Split3<'strong' | 'middle' | 'weak'>; fieldAvg: { strong: number; weak: number }; boundaryAvg: { strong: number; weak: number } };
   byHash: HashGroup[];
   motion: MotionReport;
   /** The plain-language tendencies worth acting on (60%+ with enough plays). */
@@ -141,6 +143,28 @@ export function fieldTendencies(all: Play[], subject = 'They'): FieldTendencies 
     };
   };
   const byStrength = [group('Left', 'L'), group('Right', 'R'), group('Balanced', 'B')].filter((g) => g.plays > 0);
+
+  // Runs by where the strength is set: to the field (wide side) or the boundary.
+  const placedRuns = (where: 'field' | 'boundary') =>
+    plays.filter((p) => {
+      const s = strengthOf(p);
+      return isRun(p) && (s === 'L' || s === 'R') && towardField(p, s) === where;
+    });
+  const runSide = (p: Play): 'strong' | 'middle' | 'weak' | undefined => {
+    const went = playWent(p);
+    const s = strengthOf(p);
+    if (!went || (s !== 'L' && s !== 'R')) return undefined;
+    return went === 'M' ? 'middle' : went === s ? 'strong' : 'weak';
+  };
+  const sideAvg = (runs: Play[]) => ({ strong: avg(runs.filter((p) => runSide(p) === 'strong')), weak: avg(runs.filter((p) => runSide(p) === 'weak')) });
+  const fieldRuns = placedRuns('field');
+  const boundaryRuns = placedRuns('boundary');
+  const runsByPlacement = {
+    field: split3(['strong', 'middle', 'weak'], fieldRuns.map(runSide)),
+    boundary: split3(['strong', 'middle', 'weak'], boundaryRuns.map(runSide)),
+    fieldAvg: sideAvg(fieldRuns),
+    boundaryAvg: sideAvg(boundaryRuns),
+  };
 
   const byHash: HashGroup[] = (['L', 'M', 'R'] as const)
     .map((h) => {
@@ -192,6 +216,14 @@ export function fieldTendencies(all: Play[], subject = 'They'): FieldTendencies 
     const toField = sf.pct.field >= sf.pct.boundary;
     tell(sf.total, Math.max(sf.pct.field, sf.pct.boundary), `${subject} set the strength to the ${toField ? 'wide side (field)' : 'boundary'} ${Math.max(sf.pct.field, sf.pct.boundary)}% of the time (${Math.max(sf.count.field, sf.count.boundary)} of ${sf.total}).`);
   }
+  for (const where of ['field', 'boundary'] as const) {
+    const r = runsByPlacement[where];
+    if (!r.total) continue;
+    const strongWay = r.pct.strong >= r.pct.weak;
+    const share = strongWay ? r.pct.strong : r.pct.weak;
+    const place = where === 'field' ? 'wide side (field)' : 'boundary';
+    tell(r.total, share, `Strength to the ${place}: ${share}% of runs go ${strongWay ? 'to the strength' : 'away from the strength'} (${strongWay ? r.count.strong : r.count.weak} of ${r.total}).`);
+  }
   for (const g of byStrength) {
     if (g.runsBySide && g.runsBySide.total) {
       const r = g.runsBySide;
@@ -229,5 +261,5 @@ export function fieldTendencies(all: Play[], subject = 'They'): FieldTendencies 
   }
   tells.sort((a, b) => b.pct - a.pct || b.n - a.n);
 
-  return { total: plays.length, strengthToField, byStrength, byHash, motion, tells };
+  return { total: plays.length, strengthToField, byStrength, runsByPlacement, byHash, motion, tells };
 }
