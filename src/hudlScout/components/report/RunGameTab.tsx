@@ -4,6 +4,7 @@ import { RUN_COLOR, RunGapDiagram, RunPassRing } from '../ScoutCharts';
 import { ReportVoice, isRunPlay, runSides, shareGreen, topNames } from './reportText';
 import { Card, EmptyNote, SectionHeader } from './ui';
 import { StrengthCard } from './StrengthCard';
+import { FieldTendenciesCard } from './FieldTendenciesCard';
 
 interface RunGameTabProps {
   analysis: TendencyAnalysis;
@@ -118,6 +119,8 @@ export const RunGameTab: React.FC<RunGameTabProps> = ({ analysis: a, plays, voic
       )}
 
       <StrengthCard plays={plays} voice={voice} balanced={balancedFormations} onChangeBalanced={onChangeBalancedFormations} />
+
+      <FieldTendenciesCard plays={plays} voice={voice} />
 
       <Card>
         <SectionHeader

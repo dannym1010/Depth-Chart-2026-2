@@ -62,7 +62,7 @@ export function formationBase(formation?: string): string {
 }
 
 /** The play's direction as Hudl had it; a blank direction isn't "middle". */
-function hasDirection(p: Play): boolean {
+export function hasDirection(p: Play): boolean {
   const row = p.hudlRow;
   if (!row) return Boolean(String(p.direction || '').trim());
   const key = Object.keys(row).find((k) => /^(PLAY[\s_]*)?DIR(ECTION)?$|^RUN[\s_]*DIR$/i.test(k.trim()));
