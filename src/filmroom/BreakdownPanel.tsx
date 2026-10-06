@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronRight, Eraser } from 'lucide-react';
 import type { Play, TeamUnit } from '../hudlScout/types/football';
 import { playIsUnitTaggable } from '../hudlScout/utils/unitStats';
+import { isBalancedPlay, playStrength } from '../hudlScout/utils/strength';
 import { breakdownRowOf, type BreakdownColumn, type BreakdownRow } from './breakdownEntry';
 
 interface Props {
@@ -19,6 +20,8 @@ interface Props {
   readOnly?: boolean;
   /** Our film: which unit was on the field (Black / Blue / Gold). */
   onSetUnit?: (play: Play, unit: TeamUnit | undefined) => void;
+  /** Fields that aren't Hudl breakdown columns: strength, personnel, backfield, motion, players, flags. */
+  onPatch?: (play: Play, patch: Partial<Play>) => void;
 }
 
 const ODK = [
@@ -41,7 +44,7 @@ const UNITS: { id: TeamUnit; label: string; dot: string }[] = [
   { id: 'gold', label: 'Gold', dot: '#f59e0b' },
 ];
 
-export const BreakdownPanel: React.FC<Props> = ({ play, suggestFrom, onSave, next, onNext, readOnly, onSetUnit }) => {
+export const BreakdownPanel: React.FC<Props> = ({ play, suggestFrom, onSave, next, onNext, readOnly, onSetUnit, onPatch }) => {
   const saved = useMemo(() => (play ? breakdownRowOf(play) : {}), [play]);
   // Typed boxes: kept here until they're saved.
   const [draft, setDraft] = useState<BreakdownRow>(saved);
@@ -172,6 +175,9 @@ export const BreakdownPanel: React.FC<Props> = ({ play, suggestFrom, onSave, nex
         {field('Result', box('RESULT', { list: `${listId}-result`, placeholder: 'Rush, Complete…' }))}
         {field('Gain', box('GN/LS', { placeholder: '0', inputMode: 'numeric', className: 'w-14' }))}
       </div>
+      {onPatch && (
+        <MoreFields play={play} onPatch={onPatch} readOnly={readOnly} chipClass={chipClass} />
+      )}
       <datalist id={`${listId}-form`}>{lists.form.map((v) => <option key={v} value={v} />)}</datalist>
       <datalist id={`${listId}-play`}>{lists.play.map((v) => <option key={v} value={v} />)}</datalist>
       <datalist id={`${listId}-result`}>{lists.result.map((v) => <option key={v} value={v} />)}</datalist>
@@ -205,3 +211,96 @@ export const BreakdownPanel: React.FC<Props> = ({ play, suggestFrom, onSave, nex
 
 /** The columns typed into a box (saved on leaving it), as opposed to buttons (saved on click). */
 const BREAKDOWN_TYPED: BreakdownColumn[] = ['DIST', 'YARD LN', 'OFF FORM', 'OFF PLAY', 'RESULT', 'GN/LS'];
+
+const chipClass = (on: boolean) =>
+  `min-w-[2rem] h-7 px-2 rounded-md text-xs font-bold ${
+    on ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+  } disabled:cursor-default`;
+
+/** The rest of a play's breakdown: strength (as set, or read from the formation), personnel, backfield,
+ * motion, who had the ball, and the explosive / efficient flags. Typed boxes save on Enter or leaving them. */
+const MoreFields: React.FC<{ play: Play; onPatch: (play: Play, patch: Partial<Play>) => void; readOnly?: boolean; chipClass: (on: boolean) => string }> = ({ play, onPatch, readOnly, chipClass }) => {
+  const auto = (() => {
+    const { strength: _s, ...rest } = play;
+    if (isBalancedPlay(rest)) return 'Balanced';
+    const side = playStrength(rest);
+    return side === 'L' ? 'Left' : side === 'R' ? 'Right' : 'none';
+  })();
+  const strengthChips: { v: Play['strength'] | 'auto'; label: string }[] = [
+    { v: 'auto', label: `Auto (${auto})` },
+    { v: 'L', label: 'Left' },
+    { v: 'R', label: 'Right' },
+    { v: 'balanced', label: 'Balanced' },
+  ];
+  const text = (key: 'personnel' | 'backfield' | 'motion' | 'rusher' | 'passer' | 'receiver', label: string, placeholder: string) => {
+    const shown = play[key] && play[key] !== '-' ? String(play[key]) : '';
+    return (
+      <label className="flex flex-col gap-1 min-w-0">
+        <span className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</span>
+        <input
+          key={`${play.id}-${key}-${shown}`}
+          defaultValue={shown}
+          readOnly={readOnly}
+          placeholder={placeholder}
+          aria-label={label}
+          onBlur={(e) => {
+            const v = e.target.value.trim();
+            if (v !== shown) onPatch(play, { [key]: v });
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+          }}
+          className="h-8 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+        />
+      </label>
+    );
+  };
+  return (
+    <>
+      <div className="flex flex-col gap-1">
+        <span className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">Strength</span>
+        <div className="flex flex-wrap gap-1">
+          {strengthChips.map((c) => {
+            const on = (play.strength || 'auto') === c.v;
+            return (
+              <button
+                key={c.v}
+                type="button"
+                disabled={readOnly}
+                aria-pressed={on}
+                title={c.v === 'auto' ? 'Read from the formation (21 L, Trips Rt...) or the play call' : undefined}
+                onClick={() => onPatch(play, { strength: c.v === 'auto' ? undefined : (c.v as Play['strength']) })}
+                className={chipClass(on)}
+              >
+                {c.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <details className="rounded-lg border border-slate-200 dark:border-slate-700 px-2 py-1.5">
+        <summary className="cursor-pointer text-[11px] font-black text-slate-600 dark:text-slate-300">More: personnel, backfield, motion, players, flags</summary>
+        <div className="mt-2 flex flex-col gap-2">
+          <div className="grid grid-cols-3 gap-2">
+            {text('personnel', 'Personnel', '21')}
+            {text('backfield', 'Backfield', 'I')}
+            {text('motion', 'Motion', 'Jet')}
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {text('rusher', 'Ball carrier', '#21')}
+            {text('passer', 'Passer', '#10')}
+            {text('receiver', 'Receiver', '#4')}
+          </div>
+          <div className="flex flex-wrap gap-1">
+            <button type="button" disabled={readOnly} aria-pressed={play.isExplosive} onClick={() => onPatch(play, { isExplosive: !play.isExplosive })} className={chipClass(play.isExplosive)}>
+              Explosive
+            </button>
+            <button type="button" disabled={readOnly} aria-pressed={play.isEfficient} onClick={() => onPatch(play, { isEfficient: !play.isEfficient })} className={chipClass(play.isEfficient)}>
+              Efficient
+            </button>
+          </div>
+        </div>
+      </details>
+    </>
+  );
+};

@@ -74,7 +74,8 @@ export function breakdownRowOf(p: Play): BreakdownRow {
   }
   put('YARD LN', p.rawYardLine);
   put('HASH', p.hash);
-  put('OFF FORM', clean(p.playCallId ? p.untaggedFormation ?? p.formation : p.formation));
+  // The formation as the play log shows it (a Play Bank tag can have set it).
+  put('OFF FORM', clean(p.formation));
   put('OFF PLAY', clean(p.hudlCall) || clean(p.playCallId ? p.untaggedName : p.playName));
   put('PLAY TYPE', clean(p.rawPlayType) || TYPE_WORD[p.playType] || '');
   put('PLAY DIR', p.direction ? p.runSide : '');
@@ -112,9 +113,9 @@ export function applyBreakdown(base: Play, entered: BreakdownRow): Play {
     hash: has('HASH') ? p.hash : blank.hash,
     playType: typed ? p.playType : blank.playType,
     ...(has('PLAY TYPE') ? { rawPlayType: row['PLAY TYPE'] } : {}),
-    formation: tagged ? base.formation : row['OFF FORM'] || '',
+    formation: row['OFF FORM'] || '',
     playName: tagged ? base.playName : row['OFF PLAY'] || '',
-    ...(tagged ? { untaggedName: row['OFF PLAY'] || '', untaggedFormation: row['OFF FORM'] || '' } : {}),
+    ...(tagged ? { untaggedName: row['OFF PLAY'] || '' } : {}),
     ...(p.hudlCall ? { hudlCall: p.hudlCall } : {}),
     direction: has('PLAY DIR') ? p.direction : '',
     runSide: has('PLAY DIR') ? p.runSide : blank.runSide,

@@ -40,7 +40,10 @@ export function callStrength(call?: string): Side | undefined {
  * Where the play's strength is: the formation's side letter ("21 L"), else the tagged play call's
  * ("21 L 26 DIVE" -- coaches often tag the formation as just "21" and the side is in the call).
  */
-export function playStrength(p: Pick<Play, 'formation' | 'playCall' | 'playName' | 'hudlCall'>): Side | undefined {
+export function playStrength(p: Pick<Play, 'formation' | 'playCall' | 'playName' | 'hudlCall' | 'strength'>): Side | undefined {
+  // A coach set it for this play.
+  if (p.strength === 'L' || p.strength === 'R') return p.strength;
+  if (p.strength === 'balanced') return undefined;
   return formationStrength(p.formation) || callStrength(p.playCall) || callStrength(p.playName) || callStrength(p.hudlCall);
 }
 
@@ -84,7 +87,8 @@ export const isBalancedFormation = (base: string) => {
   return balanced.some((x) => b === x || b.startsWith(`${x} `));
 };
 /** A play from a balanced formation (no strong or weak side). */
-export function isBalancedPlay(p: Pick<Play, 'formation' | 'playCall' | 'playName' | 'hudlCall'>): boolean {
+export function isBalancedPlay(p: Pick<Play, 'formation' | 'playCall' | 'playName' | 'hudlCall' | 'strength'>): boolean {
+  if (p.strength) return p.strength === 'balanced';
   const base = playFormationBase(p);
   return base !== '(no formation)' && isBalancedFormation(base);
 }

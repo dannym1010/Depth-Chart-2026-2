@@ -83,6 +83,8 @@ export interface Play {
   rawPlayType?: string;
   /** The row as uploaded from Hudl (filled columns only), so the play log can be exported back to Hudl. */
   hudlRow?: Record<string, string>;
+  /** A coach set the formation's strength for this play (else it's read from the formation / call). */
+  strength?: 'L' | 'R' | 'balanced';
 }
 
 export interface DownDistGroup {

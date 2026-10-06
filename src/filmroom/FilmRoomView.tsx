@@ -670,6 +670,20 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       onNext={breakdownNext}
       readOnly={isReadOnlySession()}
       onSetUnit={isOwn ? (p, unit) => editPlays((all) => tagPlayUnits(all, p.id, unit, 'play')) : undefined}
+      onPatch={(p, patch) =>
+        editPlays((all) =>
+          all.map((x) => {
+            if (x.id !== p.id) return x;
+            const next = { ...x, ...patch, editedAt: Date.now() };
+            if ('strength' in patch && !patch.strength) delete next.strength;
+            // Who had the ball also reads in the play log's players column.
+            if ('rusher' in patch || 'passer' in patch || 'receiver' in patch) {
+              next.carrierOrTarget = (next.playType === 'RUN' ? next.rusher || next.receiver || next.passer : next.receiver || next.rusher || next.passer) || '';
+            }
+            return next;
+          })
+        )
+      }
     />
   );
   const notesEl = (
