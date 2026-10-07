@@ -10,3 +10,4 @@ _hudlscout_unpack/
 
 # Runtime saved state only. Do not ignore src/data (app seed files).
 /data/
+.agents/

@@ -1457,5 +1457,473 @@ export const DEFENSE_MATRIX_DRILLS: WhiteboardDrill[] = [
         ],
       },
     ],
+    videoUrl: 'https://www.youtube.com/watch?v=afV8ChXnIU8',
+  },
+
+  // ==========================================
+  // COVER 3 DEFENSE & POSITION PROGRESSIONS (5 DRILLS)
+  // ==========================================
+  {
+    id: 'c3-olb-defend-smash',
+    category: 'LB',
+    categoryLabel: 'Linebackers (LB)',
+    title: 'LB: Defend Smash Concept (OLB Route Recognition)',
+    subtitle: 'Collision & Reroute #2, Sneak-a-Peek to #1, Buzz Downhill on Hitch/Flat',
+    objective: 'Train the outside linebacker / apex defender on eye progression and route recognition against Smash (Hitch-Corner) concepts. Collision #2 at 5-6 yards while reading through his chest to locate #1. If #1 sits in the hitch/flat, immediately break ("buzz") downhill on the throw.',
+    setup: 'Offense lines up with #1 outside receiver on the numbers and #2 slot receiver in the seam. QB takes 3-step drop. OLB/Apex defender aligns 4 yards off LOS shaded inside #2. Corner aligns 7 yards deep outside #1.',
+    instructions: [
+      'OLB aligns inside shade of #2 slot receiver with eyes reading through #2 to the quarterback.',
+      'On snap: deliver a firm 2-hand jam/reroute on #2 at 5-6 yards to disrupt the timing of his corner route stem.',
+      'While contacting #2, "sneak a peek" through his chest to identify #1\'s route on the perimeter.',
+      'If #1 sits at 5 yards on a hitch or swings to the flat: immediately disengage, plant outside foot, and drive ("buzz") downhill through #1\'s inside shoulder.',
+      'If #1 pushes vertical (Fade/Streak): sink under #2\'s corner route into the curl-flat window while Corner stays over the top.',
+    ],
+    equipment: '4 cones (marking 5 & 12 yard landmarks), 1 football, coach / QB.',
+    diagramKeys: [
+      { text: 'Collision #2 at 5-6 yards', isHighlight: true },
+      { text: 'Sneak a peek through #2 to locate #1', isHighlight: true },
+      { text: 'Buzz flat immediately when #1 sits on hitch', isHighlight: false },
+      { text: 'Corner maintains deep 1/3 leverage over corner route', isHighlight: false },
+    ],
+    cues: [
+      '"Jam & Reroute #2 at 5 yards!"',
+      '"Sneak a peek through #2 to #1!"',
+      '"Buzz the flat on the hitch throw!"',
+      '"Don\'t let #2 get a free vertical release!"',
+    ],
+    faults: [
+      'Chasing #2 out to the corner route and leaving the 5-yard hitch wide open for easy completion.',
+      'Failing to collision #2, allowing him to push full speed into the deep corner window.',
+      'Staring into the backfield and losing track of perimeter route distribution.',
+    ],
+    videoUrl: 'https://www.youtube.com/watch?v=nVwuQWHCvTo',
+    phases: [
+      {
+        name: 'PHASE 1: COLLISION #2 & PEEK TO #1',
+        description: 'Snap of ball. OLB strikes #2 at 5 yards, redirecting route while peeking at #1 hitch stem.',
+        tokens: [
+          { id: 'qb-1', type: 'O', label: 'QB', x: 350, y: 150, color: '#1a1a24' },
+          { id: 'wr-1', type: 'O', label: '#1 WR', x: 120, y: 200, color: '#b91c1c', subLabel: 'Hitch Stem' },
+          { id: 'wr-2', type: 'O', label: '#2 SLOT', x: 230, y: 200, color: '#b91c1c', subLabel: 'Corner Stem' },
+          { id: 'olb-1', type: 'X', label: 'OLB', x: 230, y: 250, color: '#10b981', subLabel: 'Collision & Peek' },
+          { id: 'cb-1', type: 'X', label: 'CB', x: 120, y: 360, color: '#7c3aed', subLabel: 'Deep 1/3 Bail' },
+        ],
+        arrows: [
+          { id: 'a-wr1-stem', type: 'pass', startX: 120, startY: 200, endX: 120, endY: 245, color: '#b91c1c', label: '5-Yd Hitch' },
+          { id: 'a-wr2-stem', type: 'pass', startX: 230, startY: 200, endX: 230, endY: 250, color: '#b91c1c', label: 'Vertical Stem' },
+          { id: 'a-olb-jam', type: 'block', startX: 230, startY: 250, endX: 230, endY: 240, color: '#10b981', label: '2-Hand Jam' },
+          { id: 'a-cb-bail', type: 'drop', startX: 120, startY: 360, endX: 120, endY: 410, color: '#7c3aed', dashed: true, label: 'Deep 1/3' },
+        ],
+        zones: [
+          { id: 'z-jam', name: '5-YD COLLISION ZONE', cx: 230, cy: 245, rx: 40, ry: 25, color: '#10b981', opacity: 0.2 },
+        ],
+      },
+      {
+        name: 'PHASE 2: BUZZ DOWNHILL ON THE HITCH THROW',
+        description: 'As QB unloads to #1 hitch, OLB plants foot and drives downhill through the catch point while CB caps deep corner.',
+        tokens: [
+          { id: 'qb-1', type: 'O', label: 'QB', x: 350, y: 150, color: '#1a1a24' },
+          { id: 'wr-1', type: 'O', label: '#1 WR', x: 120, y: 245, color: '#b91c1c', subLabel: 'Hitch Sit' },
+          { id: 'wr-2', type: 'O', label: '#2 SLOT', x: 190, y: 350, color: '#b91c1c', subLabel: 'Corner Break' },
+          { id: 'olb-1', type: 'X', label: 'OLB', x: 135, y: 255, color: '#10b981', subLabel: 'Buzz Strike' },
+          { id: 'cb-1', type: 'X', label: 'CB', x: 170, y: 400, color: '#7c3aed', subLabel: 'Cap Corner' },
+        ],
+        arrows: [
+          { id: 'a-throw', type: 'pass', startX: 350, startY: 150, endX: 125, endY: 245, color: '#f59e0b', dashed: true, label: 'Hitch Throw' },
+          { id: 'a-olb-buzz', type: 'run', startX: 230, startY: 250, endX: 135, endY: 255, color: '#10b981', label: 'Drive to Catch' },
+          { id: 'a-wr2-corner', type: 'pass', startX: 230, startY: 250, endX: 190, endY: 350, color: '#b91c1c', label: 'Corner Route' },
+          { id: 'a-cb-cap', type: 'run', startX: 120, startY: 410, endX: 170, endY: 400, color: '#7c3aed', label: 'Top-Down Overlap' },
+        ],
+        zones: [
+          { id: 'z-flat-kill', name: 'FLAT BREAK ZONE', cx: 130, cy: 250, rx: 45, ry: 30, color: '#10b981', opacity: 0.25 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'c3-curl-flat-technique',
+    category: 'LB',
+    categoryLabel: 'Linebackers (LB)',
+    title: 'Cover 3: Elite Curl/Flat Drop & QB Shoulder Read',
+    subtitle: '12-Yard Landmark Drop, Reading QB Shoulder Progression',
+    objective: 'Train apex and outside linebackers to drop efficiently to their 12-yard aiming point near the top of the numbers while reading the quarterback’s shoulders. The QB’s front shoulder tilt dictates when to hold depth in the curl vs. trigger aggressively on the flat.',
+    setup: 'Place cone at 12-yard depth at the top of the numbers (hash to boundary). OLB aligns 4 yards off LOS. QB takes 5-step drop at center.',
+    instructions: [
+      'On pass read: open hips and cross-over sprint to the 12-yard landmark (top of numbers).',
+      'Keep eyes locked onto the quarterback\'s front shoulder rather than turning head to hunt receivers.',
+      'If QB shoulders remain high/neutral: sink deeper under the curl/dig window.',
+      'As soon as QB\'s non-throwing shoulder points to the flat or hand separates from the ball: plant back foot and drive downhill through the catch point.',
+    ],
+    equipment: 'Cone at 12-yard top of numbers, football, coach / QB.',
+    diagramKeys: [
+      { text: 'Sprint to 12 yards top of numbers', isHighlight: true },
+      { text: 'Eyes locked on QB front shoulder', isHighlight: true },
+      { text: 'Hold curl window until QB shoulders commit to flat', isHighlight: false },
+      { text: 'Plant back foot and drive flat throw', isHighlight: true },
+    ],
+    cues: [
+      '"Sprint to 12 yards top of numbers!"',
+      '"Eyes through QB front shoulder!"',
+      '"Don\'t chase ghosts—read the throw!"',
+      '"Plant and drive downhill through the catch!"',
+    ],
+    faults: [
+      'Stopping drop at 6-7 yards and getting thrown over into the curl window.',
+      'Turning head away from QB to chase flat route prematurely.',
+      'Rounding off the transition instead of sticking a clean plant step.',
+    ],
+    videoUrl: 'https://www.youtube.com/watch?v=lVPyL0ZOaMQ',
+    phases: [
+      {
+        name: 'PHASE 1: 12-YARD CURL DROP & QB SHOULDER READ',
+        description: 'OLB sprints to 12-yard top-of-numbers landmark with eyes glued to QB shoulders, holding curl depth.',
+        tokens: [
+          { id: 'qb-1', type: 'O', label: 'QB', x: 350, y: 140, color: '#1a1a24', subLabel: '5-Step Drop' },
+          { id: 'cone-12', type: 'cone', label: '12 YD', x: 200, y: 340, color: '#f97316' },
+          { id: 'olb-1', type: 'X', label: 'OLB', x: 230, y: 240, color: '#10b981', subLabel: 'Cross-Over Drop' },
+          { id: 'wr-flat', type: 'O', label: 'FLAT', x: 100, y: 220, color: '#b91c1c' },
+          { id: 'wr-curl', type: 'O', label: 'CURL', x: 200, y: 350, color: '#b91c1c' },
+        ],
+        arrows: [
+          { id: 'a-olb-drop', type: 'drop', startX: 230, startY: 240, endX: 200, endY: 340, color: '#10b981', dashed: true, label: '12-Yd Landmark' },
+          { id: 'a-wr-flat', type: 'pass', startX: 100, startY: 200, endX: 100, endY: 220, color: '#b91c1c', label: 'Flat Out' },
+          { id: 'a-wr-curl', type: 'pass', startX: 200, startY: 200, endX: 200, endY: 350, color: '#b91c1c', label: '12-Yd Curl' },
+        ],
+        zones: [
+          { id: 'z-curl', name: '12-YD CURL LANDMARK', cx: 200, cy: 340, rx: 60, ry: 35, color: '#10b981', opacity: 0.2 },
+        ],
+      },
+      {
+        name: 'PHASE 2: QB SHOULDERS COMMIT & DOWNHILL DRIVE',
+        description: 'QB shoulder opens to flat. OLB plants back foot and drives downhill on the flat ball while maintaining inside-out leverage.',
+        tokens: [
+          { id: 'qb-1', type: 'O', label: 'QB', x: 350, y: 140, color: '#1a1a24' },
+          { id: 'olb-1', type: 'X', label: 'OLB', x: 120, y: 235, color: '#10b981', subLabel: 'Plant & Drive' },
+          { id: 'wr-flat', type: 'O', label: 'FLAT', x: 100, y: 230, color: '#b91c1c', subLabel: 'Target' },
+        ],
+        arrows: [
+          { id: 'a-throw', type: 'pass', startX: 350, startY: 140, endX: 105, endY: 230, color: '#f59e0b', dashed: true, label: 'Flat Throw' },
+          { id: 'a-olb-drive', type: 'run', startX: 200, startY: 340, endX: 120, endY: 235, color: '#10b981', label: 'Drive to Catch Point' },
+        ],
+        zones: [
+          { id: 'z-drive', name: 'DRIVE & TACKLE ZONE', cx: 110, cy: 230, rx: 50, ry: 30, color: '#10b981', opacity: 0.25 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'c3-db-bail-technique',
+    category: 'DB',
+    categoryLabel: 'Defensive Backs (DB)',
+    title: 'DB: Cover 3 Bail Technique & Deep Third Footwork',
+    subtitle: 'Pre-Turned Inside Foot, Zero False Steps, Staying 2 Yards on Top of #1',
+    objective: 'Master the Cover 3 corner bail technique from pre-snap alignment to top of route. Eliminate false steps, turn the inside foot slightly pre-snap (45 degrees), and push off into a 3-step glide to maintain top-down leverage over vertical routes.',
+    setup: 'Corner aligns 6-7 yards off #1 with inside leverage. Place landmark cones at 15 and 25 yards depth in the deep third boundary.',
+    instructions: [
+      'Corner aligns 6-7 yards off #1 with inside leverage, inside foot forward and turned slightly inward (45-degree pre-turn).',
+      'Weight distributed 60/40 on the front foot to eliminate backward false stepping.',
+      'On snap: push off front toe into a 3-step bail crossover without bouncing helmet level.',
+      'Maintain vision on QB while keeping #1 in peripheral vision; always stay 2 yards deeper than the deepest receiver.',
+      'At 12-15 yards: transition from bail glide to full speed stride if receiver pushes vertical stem.',
+    ],
+    equipment: '2 Boundary landmark cones, football, receiver, coach.',
+    diagramKeys: [
+      { text: 'Pre-turn inside foot 45 degrees', isHighlight: true },
+      { text: '60/40 weight on front foot—zero false steps', isHighlight: true },
+      { text: 'Push and glide into 3-step bail crossover', isHighlight: false },
+      { text: 'Always stay 2 yards on top of #1', isHighlight: true },
+    ],
+    cues: [
+      '"Pre-turn the inside foot 45°!"',
+      '"No false steps—push and glide!"',
+      '"Cap the deep third!"',
+      '"Stay 2 yards on top of #1!"',
+    ],
+    faults: [
+      'False stepping backwards with the back foot on snap.',
+      'Turning shoulders completely toward the sideline and losing quarterback vision.',
+      'Allowing #1 to get even with or behind your hip level.',
+    ],
+    videoUrl: 'https://www.youtube.com/watch?v=2c2qFip1yvc',
+    phases: [
+      {
+        name: 'PHASE 1: 45° PRE-TURN STANCE & 3-STEP PUSH-GLIDE',
+        description: 'Inside foot turned 45 degrees pre-snap, 60/40 weight forward. Smooth push off front toe into 3-step bail crossover.',
+        tokens: [
+          { id: 'qb-1', type: 'O', label: 'QB', x: 350, y: 150, color: '#1a1a24' },
+          { id: 'wr-1', type: 'O', label: '#1 WR', x: 120, y: 200, color: '#b91c1c', subLabel: 'Vertical Stem' },
+          { id: 'cb-1', type: 'X', label: 'CB', x: 130, y: 270, color: '#7c3aed', subLabel: '45° Pre-Turn' },
+          { id: 'cone-15', type: 'cone', label: '15 YD', x: 130, y: 380, color: '#f97316' },
+        ],
+        arrows: [
+          { id: 'a-wr-stem', type: 'pass', startX: 120, startY: 200, endX: 120, endY: 340, color: '#b91c1c', label: 'Go Route Stem' },
+          { id: 'a-cb-bail', type: 'drop', startX: 130, startY: 270, endX: 130, endY: 380, color: '#7c3aed', dashed: true, label: '3-Step Push & Glide' },
+        ],
+        zones: [
+          { id: 'z-top', name: '2-YARD TOP-DOWN CUSHION', cx: 125, cy: 370, rx: 45, ry: 35, color: '#7c3aed', opacity: 0.2 },
+        ],
+      },
+      {
+        name: 'PHASE 2: CAPPING THE DEEP THIRD & HIGH POINT',
+        description: 'Corner stays 2 yards on top of #1, tracks ball in flight, and high-points interception at highest elevation.',
+        tokens: [
+          { id: 'wr-1', type: 'O', label: '#1 WR', x: 120, y: 380, color: '#b91c1c' },
+          { id: 'cb-1', type: 'X', label: 'CB', x: 125, y: 410, color: '#7c3aed', subLabel: 'High Point INT' },
+        ],
+        arrows: [
+          { id: 'a-deep-throw', type: 'pass', startX: 350, startY: 150, endX: 125, endY: 410, color: '#f59e0b', dashed: true, label: 'Deep 1/3 Ball' },
+          { id: 'a-cb-catch', type: 'run', startX: 130, startY: 380, endX: 125, endY: 410, color: '#7c3aed', label: 'Attack Ball at Apex' },
+        ],
+        zones: [
+          { id: 'z-cap', name: 'DEEP 1/3 CAP ZONE', cx: 125, cy: 410, rx: 50, ry: 30, color: '#7c3aed', opacity: 0.25 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'c3-db-feather-eyework',
+    category: 'DB',
+    categoryLabel: 'Defensive Backs (DB)',
+    title: 'DB: Cover 3 Feather Step & Eye Transitions',
+    subtitle: '6-Inch Control Steps, Zone Turn, & High-Pointing Overlapping Seams',
+    objective: 'Train defensive backs to utilize the 6-inch "feather technique" control steps. Drill rapid eye transition from quarterback to receiver stem, executing a clean zone turn, and high-pointing overlapping vertical and post/seam routes.',
+    setup: 'DB aligns at 7 yards depth on hash / boundary. Receiver runs vertical with option to break post/corner at 12 yards.',
+    instructions: [
+      'Initiate backpedal with 6-inch "feather steps"—low, controlled, ready to plant or drive in any direction.',
+      'Eyes read QB drop (3-step quick vs 5-step deep); transition eyes to receiver’s hip at the break point (10-12 yards).',
+      'Execute a clean "zone turn" (opening hips toward the quarterback while running stride-for-stride with receiver).',
+      'Attack the ball at its highest point with two hands and secure into chest.',
+    ],
+    equipment: 'Football, receiver, coach.',
+    diagramKeys: [
+      { text: '6-inch feather backpedal steps', isHighlight: true },
+      { text: 'Transition eyes: QB to receiver hip at 10-12 yds', isHighlight: true },
+      { text: 'Zone turn: open hips to QB while running vertical', isHighlight: false },
+      { text: 'High point ball with 2 hands at apex', isHighlight: true },
+    ],
+    cues: [
+      '"6-inch feather steps!"',
+      '"Fast eyes: QB to receiver hip!"',
+      '"Clean zone turn—keep eyes on the ball!"',
+      '"High point with two hands!"',
+    ],
+    faults: [
+      'Taking long, bounding backpedal steps that lock the hips.',
+      'Staring exclusively at receiver and missing QB pump-fake or scramble.',
+      'Jumping early or mistiming the catch point.',
+    ],
+    videoUrl: 'https://www.youtube.com/watch?v=yR60NY6lUEs',
+    phases: [
+      {
+        name: 'PHASE 1: 6-INCH FEATHER STEP & EYE TRANSITION',
+        description: 'DB pedals with 6-inch feather steps, reads QB drop, and snaps eyes to receiver hip at 10-yard stem.',
+        tokens: [
+          { id: 'qb-1', type: 'O', label: 'QB', x: 350, y: 140, color: '#1a1a24' },
+          { id: 'wr-1', type: 'O', label: 'WR', x: 200, y: 200, color: '#b91c1c', subLabel: 'Vertical Stem' },
+          { id: 'db-1', type: 'X', label: 'DB', x: 200, y: 280, color: '#7c3aed', subLabel: '6" Feather' },
+        ],
+        arrows: [
+          { id: 'a-wr-stem', type: 'pass', startX: 200, startY: 200, endX: 200, endY: 320, color: '#b91c1c', label: '10-Yd Stem' },
+          { id: 'a-db-feather', type: 'drop', startX: 200, startY: 280, endX: 200, endY: 340, color: '#7c3aed', dashed: true, label: 'Feather Steps' },
+        ],
+        zones: [
+          { id: 'z-eye', name: 'EYE TRANSITION POINT', cx: 200, cy: 320, rx: 45, ry: 25, color: '#7c3aed', opacity: 0.2 },
+        ],
+      },
+      {
+        name: 'PHASE 2: ZONE TURN & HIGH POINT AT APEX',
+        description: 'DB opens hips in zone turn facing QB, accelerates with receiver, and elevates with two hands for the interception.',
+        tokens: [
+          { id: 'wr-1', type: 'O', label: 'WR', x: 210, y: 390, color: '#b91c1c' },
+          { id: 'db-1', type: 'X', label: 'DB', x: 205, y: 415, color: '#7c3aed', subLabel: 'Apex Catch' },
+        ],
+        arrows: [
+          { id: 'a-throw', type: 'pass', startX: 350, startY: 140, endX: 205, endY: 415, color: '#f59e0b', dashed: true, label: 'Deep Seam Pass' },
+          { id: 'a-db-turn', type: 'run', startX: 200, startY: 340, endX: 205, endY: 415, color: '#7c3aed', label: 'Zone Turn & High Point' },
+        ],
+        zones: [
+          { id: 'z-apex', name: 'HIGH POINT CATCH ZONE', cx: 205, cy: 415, rx: 50, ry: 30, color: '#7c3aed', opacity: 0.25 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'c3-shell-60-40-overlap',
+    category: 'SCHEME',
+    categoryLabel: 'Defensive Schemes & Shells',
+    title: 'Cover 3 Shell: 60/40 Overlap Rule vs Deep Combinations',
+    subtitle: 'Defending 4-Verticals & Post-Wheel Without Getting Split',
+    objective: 'Teach the 3-deep secondary (Corners and Free Safety) how to apply the 60/40 overlap rule when two vertical threats enter their deep third. Maintain proper divide leverage so no intermediate route pulls a deep defender out of position.',
+    setup: 'Full 3-deep secondary shell (Left CB, Free Safety, Right CB) aligned across the field. Offense lines up in 2x2 spread running 4-Verticals or Post-Wheel.',
+    instructions: [
+      'Secondary aligns in 3-deep shell (Corners at 7 yards outside third, Free Safety at 10-12 yards middle third).',
+      'Offense executes 4-Verticals or Post-Wheel route combination.',
+      'Free Safety plays 60/40 towards the passing strength / QB\'s eyes while capping the inner seam.',
+      'Outside corner stays on top of #1 until #1 breaks inside, squeezing the sideline window while overlapping towards the hash.',
+      'Linebackers drop through hook/curl and curl/flat to take away the intermediate throw, allowing deep DBs to stay over the top.',
+    ],
+    equipment: 'Full field grid, football, offense 4-verts look, secondary unit.',
+    diagramKeys: [
+      { text: 'FS 60/40 Rule: favor QB eyes and passing strength', isHighlight: true },
+      { text: 'Corners cap outside thirds—never let #1 get over top', isHighlight: true },
+      { text: 'Overlap inner seams to squeeze 4-vertical windows', isHighlight: false },
+      { text: 'Underneath LBs rally—DBs stay over the top', isHighlight: true },
+    ],
+    cues: [
+      '"60/40 Rule: favor the QB\'s eyes and strength!"',
+      '"Never let a route get behind you!"',
+      '"Squeeze the seam, overlap the post!"',
+      '"Underneath LBs rally—DBs stay over the top!"',
+    ],
+    faults: [
+      'Corner biting on a short flat route and giving up an 80-yard touchdown over the top.',
+      'Free Safety guessing instead of reading QB eyes and getting divided by 4-verts.',
+      'Linebackers failing to get depth, forcing deep DBs to play short.',
+    ],
+    videoUrl: 'https://www.youtube.com/watch?v=zDSLf9HRKzU',
+    phases: [
+      {
+        name: 'PHASE 1: 3-DEEP COVER 3 ALIGNMENT VS 4-VERTS',
+        description: 'Corners in outside thirds, Free Safety in deep middle. Offense releases 4 vertical threats.',
+        tokens: [
+          { id: 'qb-1', type: 'O', label: 'QB', x: 350, y: 150, color: '#1a1a24' },
+          { id: 'wr-1', type: 'O', label: '#1 L', x: 100, y: 200, color: '#b91c1c' },
+          { id: 'wr-2', type: 'O', label: '#2 L', x: 220, y: 200, color: '#b91c1c' },
+          { id: 'wr-3', type: 'O', label: '#2 R', x: 480, y: 200, color: '#b91c1c' },
+          { id: 'wr-4', type: 'O', label: '#1 R', x: 600, y: 200, color: '#b91c1c' },
+          { id: 'cb-l', type: 'X', label: 'LCB', x: 110, y: 280, color: '#7c3aed', subLabel: 'Deep 1/3 L' },
+          { id: 'fs', type: 'X', label: 'FS', x: 350, y: 350, color: '#0284c7', subLabel: 'Deep Middle' },
+          { id: 'cb-r', type: 'X', label: 'RCB', x: 590, y: 280, color: '#7c3aed', subLabel: 'Deep 1/3 R' },
+          { id: 'lb-l', type: 'X', label: 'WLB', x: 230, y: 240, color: '#10b981', subLabel: 'Curl/Flat' },
+          { id: 'lb-m', type: 'X', label: 'MLB', x: 350, y: 240, color: '#10b981', subLabel: 'Hook' },
+          { id: 'lb-r', type: 'X', label: 'SLB', x: 470, y: 240, color: '#10b981', subLabel: 'Curl/Flat' },
+        ],
+        arrows: [
+          { id: 'a-w1', type: 'pass', startX: 100, startY: 200, endX: 100, endY: 380, color: '#b91c1c', label: 'Vertical' },
+          { id: 'a-w2', type: 'pass', startX: 220, startY: 200, endX: 230, endY: 380, color: '#b91c1c', label: 'Seam' },
+          { id: 'a-w3', type: 'pass', startX: 480, startY: 200, endX: 470, endY: 380, color: '#b91c1c', label: 'Seam' },
+          { id: 'a-w4', type: 'pass', startX: 600, startY: 200, endX: 600, endY: 380, color: '#b91c1c', label: 'Vertical' },
+          { id: 'a-cbl-drop', type: 'drop', startX: 110, startY: 280, endX: 110, endY: 410, color: '#7c3aed', dashed: true },
+          { id: 'a-fs-drop', type: 'drop', startX: 350, startY: 350, endX: 330, endY: 430, color: '#0284c7', dashed: true, label: '60/40 Read' },
+          { id: 'a-cbr-drop', type: 'drop', startX: 590, startY: 280, endX: 590, endY: 410, color: '#7c3aed', dashed: true },
+        ],
+        zones: [
+          { id: 'z-3deep', name: '3-DEEP ZONE SHELL', cx: 350, cy: 410, rx: 280, ry: 45, color: '#0284c7', opacity: 0.15 },
+        ],
+      },
+      {
+        name: 'PHASE 2: 60/40 OVERLAP & SQUEEZING THE WINDOW',
+        description: 'Free Safety overlaps to the throwing side seam, Corner stays over the boundary fade, and LBs re-route underneath.',
+        tokens: [
+          { id: 'qb-1', type: 'O', label: 'QB', x: 350, y: 150, color: '#1a1a24' },
+          { id: 'wr-2', type: 'O', label: '#2 L', x: 230, y: 390, color: '#b91c1c' },
+          { id: 'fs', type: 'X', label: 'FS', x: 270, y: 430, color: '#0284c7', subLabel: '60/40 Overlap' },
+          { id: 'cb-l', type: 'X', label: 'LCB', x: 115, y: 420, color: '#7c3aed', subLabel: 'Capped' },
+          { id: 'wr-1', type: 'O', label: '#1 L', x: 100, y: 390, color: '#b91c1c' },
+        ],
+        arrows: [
+          { id: 'a-fs-break', type: 'run', startX: 350, startY: 350, endX: 270, endY: 430, color: '#0284c7', label: 'Drive on Seam' },
+          { id: 'a-seam-throw', type: 'pass', startX: 350, startY: 150, endX: 250, endY: 410, color: '#f59e0b', dashed: true, label: 'Contested Seam Throw' },
+        ],
+        zones: [
+          { id: 'z-squeeze', name: 'SEAM SQUEEZE & INT ZONE', cx: 250, cy: 415, rx: 70, ry: 35, color: '#0284c7', opacity: 0.25 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'c3-tandem-olb-db-halfline',
+    category: 'SCHEME',
+    categoryLabel: 'Team Defense & Stunts',
+    title: 'OLB & DB: Cover 3 Tandem Half-Line Pass Shell',
+    subtitle: '2-on-2 & 3-on-2 Perimeter Zone: Smash, Flood, & Seam-Wheel Communication',
+    objective: 'Train Outside Linebackers (Curl/Flat) and Cornerbacks (Deep 1/3) to work in complete synchrony against 2-receiver pass concepts (Smash, Flood/Sail, Curl-Flat, Post-Wheel). Drill vocal hand-offs ("Under!", "Buzz!"), route collisions on #2, and high-low bracket leverage so neither defender gets isolated or split.',
+    setup: 'Half-line grid (hash to sideline). QB takes 3-step or 5-step drop. Offense lines up with #1 outside receiver (numbers) and #2 slot/TE (hash). Defense lines up with 1 OLB/Apex (4 yards off inside #2) and 1 CB (7 yards off #1 in bail alignment). Optional: Free Safety capping deep hash.',
+    instructions: [
+      'Pre-snap: CB aligns in 7-yard inside-leverage bail; OLB aligns 4 yards off inside shade of #2.',
+      'On snap: OLB delivers a 2-hand collision on #2 at 5 yards, disrupting the timing of his vertical/corner release.',
+      'If Smash (Hitch/Corner): OLB yells "Under!" and buzzes down on the hitch; CB stays over top of #2\'s corner route.',
+      'If Flood / Sail: CB bails to deep 1/3 over #1\'s go route; OLB drops to 12-yard intermediate out, driving on flat if thrown.',
+      'If Seam-Wheel / Verts: OLB walls #2 up to 10 yards, yells "Go-Go-Go!" or "Under!", handing #2 off to CB/Safety while sinking under the throw.',
+      'On throw: both defenders rally to the ball with inside-out and outside-in vice pursuit.',
+    ],
+    equipment: '4 cones (perimeter half-line grid), 1 football, QB/Coach, 2 Receivers, 1 OLB, 1 CB.',
+    diagramKeys: [
+      { text: 'OLB collision #2 at 5 yards', isHighlight: true },
+      { text: 'CB stays 2 yards deeper than deepest route', isHighlight: true },
+      { text: 'Vocal communication: "Under!" vs "Stay Top!"', isHighlight: true },
+      { text: 'High-low bracket on intermediate throw', isHighlight: false },
+    ],
+    cues: [
+      '"Talk on the release: \'Under-Under!\' or \'Buzz!\'"',
+      '"OLB: Collision #2, sneak a peek to #1!"',
+      '"CB: Stay on top—make everything throw underneath!"',
+      '"High-Low Bracket the window!"',
+    ],
+    faults: [
+      'Silent defense: neither player communicating the route distribution.',
+      'Both defenders biting on the underneath route, allowing a wide-open touchdown over the top.',
+      'OLB not getting hands on #2, giving up a clean vertical release.',
+    ],
+    videoUrl: 'https://www.youtube.com/watch?v=nVwuQWHCvTo',
+    phases: [
+      {
+        name: 'PHASE 1: PRE-SNAP ALIGNMENT & ROUTE RELEASE',
+        description: 'CB in 7-yd bail alignment, OLB in 4-yd apex. Offense stems vertical. OLB delivers 2-hand jam on #2 at 5 yards.',
+        tokens: [
+          { id: 'qb-1', type: 'O', label: 'QB', x: 350, y: 150, color: '#1a1a24' },
+          { id: 'wr-1', type: 'O', label: '#1 WR', x: 120, y: 200, color: '#b91c1c', subLabel: 'Numbers' },
+          { id: 'wr-2', type: 'O', label: '#2 SLOT', x: 230, y: 200, color: '#b91c1c', subLabel: 'Slot / TE' },
+          { id: 'cb-1', type: 'X', label: 'CB', x: 130, y: 270, color: '#7c3aed', subLabel: 'Deep 1/3 Bail' },
+          { id: 'olb-1', type: 'X', label: 'OLB', x: 230, y: 240, color: '#10b981', subLabel: 'Apex / Jam #2' },
+        ],
+        arrows: [
+          { id: 'a-wr1-stem', type: 'pass', startX: 120, startY: 200, endX: 120, endY: 260, color: '#b91c1c', label: 'Vertical Stem' },
+          { id: 'a-wr2-stem', type: 'pass', startX: 230, startY: 200, endX: 230, endY: 245, color: '#b91c1c', label: 'Vertical Stem' },
+          { id: 'a-olb-jam', type: 'block', startX: 230, startY: 240, endX: 230, endY: 245, color: '#10b981', label: '2-Hand Jam' },
+          { id: 'a-cb-bail', type: 'drop', startX: 130, startY: 270, endX: 130, endY: 370, color: '#7c3aed', dashed: true, label: '3-Step Bail' },
+        ],
+        zones: [
+          { id: 'z-jam', name: '5-YD COLLISION ZONE', cx: 230, cy: 245, rx: 35, ry: 25, color: '#10b981', opacity: 0.2 },
+        ],
+      },
+      {
+        name: 'PHASE 2: ROUTE DISTRIBUTION & HIGH-LOW BRACKET',
+        description: 'On Smash/Flood break: OLB calls "Under!" and buzzes flat; CB stays over top of #2 corner route, creating a 2-level bracket.',
+        tokens: [
+          { id: 'qb-1', type: 'O', label: 'QB', x: 350, y: 150, color: '#1a1a24' },
+          { id: 'wr-1', type: 'O', label: '#1 WR', x: 120, y: 250, color: '#b91c1c', subLabel: 'Hitch / Flat' },
+          { id: 'wr-2', type: 'O', label: '#2 SLOT', x: 180, y: 350, color: '#b91c1c', subLabel: 'Corner Break' },
+          { id: 'olb-1', type: 'X', label: 'OLB', x: 135, y: 260, color: '#10b981', subLabel: 'Buzz "Under!"' },
+          { id: 'cb-1', type: 'X', label: 'CB', x: 165, y: 390, color: '#7c3aed', subLabel: 'Over Top' },
+        ],
+        arrows: [
+          { id: 'a-wr1-hitch', type: 'pass', startX: 120, startY: 260, endX: 120, endY: 250, color: '#b91c1c' },
+          { id: 'a-wr2-corner', type: 'pass', startX: 230, startY: 245, endX: 180, endY: 350, color: '#b91c1c', label: 'Corner Stem' },
+          { id: 'a-olb-buzz', type: 'run', startX: 230, startY: 240, endX: 135, endY: 260, color: '#10b981', label: 'Drive on Flat' },
+          { id: 'a-cb-bracket', type: 'run', startX: 130, startY: 370, endX: 165, endY: 390, color: '#7c3aed', label: 'Cap Corner' },
+        ],
+        zones: [
+          { id: 'z-bracket', name: 'HIGH-LOW BRACKET ZONE', cx: 150, cy: 320, rx: 75, ry: 90, color: '#0284c7', opacity: 0.15 },
+        ],
+      },
+      {
+        name: 'PHASE 3: RALLY TO BALL & VICE TACKLE',
+        description: 'As ball is thrown to either receiver, OLB (inside-out) and CB (outside-in) close simultaneously to vice the catch.',
+        tokens: [
+          { id: 'wr-target', type: 'O', label: 'CATCH', x: 130, y: 270, color: '#b91c1c', subLabel: 'Target' },
+          { id: 'olb-1', type: 'X', label: 'OLB', x: 165, y: 275, color: '#10b981', subLabel: 'Inside Hip' },
+          { id: 'cb-1', type: 'X', label: 'CB', x: 110, y: 295, color: '#7c3aed', subLabel: 'Outside Contain' },
+        ],
+        arrows: [
+          { id: 'a-olb-vice', type: 'straight', startX: 200, startY: 290, endX: 165, endY: 275, color: '#10b981', label: 'Pin Inside Hip' },
+          { id: 'a-cb-vice', type: 'straight', startX: 130, startY: 370, endX: 110, endY: 295, color: '#7c3aed', label: 'Top-Down Vice' },
+        ],
+        zones: [
+          { id: 'z-vice-finish', name: 'TANDEM VICE TACKLE', cx: 135, cy: 280, rx: 55, ry: 35, color: '#10b981', opacity: 0.25 },
+        ],
+      },
+    ],
   },
 ];
+
