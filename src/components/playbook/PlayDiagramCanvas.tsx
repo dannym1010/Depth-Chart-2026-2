@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   FIELD_SVG,
@@ -153,7 +153,8 @@ interface Props {
 
 type Tool = DrawKind | 'move' | 'motion';
 type Drag =
-  | { mode: 'player'; role: string; startCx: number; startCy: number; moved: boolean }
+  /** Moving a player: where he started, the lines then (his own move with him), and where he is now. */
+  | { mode: 'player'; role: string; startCx: number; startCy: number; moved: boolean; from: Pt; startLines: PlayStroke[]; at: Pt | null }
   | { mode: 'vertex'; index: number; vertex: number }
   | { mode: 'line'; index: number; from: Pt; start: Pt[] }
   /** Drawing: the open line, how many points it had before this press, freehand or straight, a new line or not. */
@@ -162,8 +163,8 @@ type Drag =
 
 export const PlayDiagramCanvas: React.FC<Props> = ({
   play,
-  nodes,
-  strokes,
+  nodes: nodesProp,
+  strokes: strokesProp,
   ballRole,
   formLabel,
   playLabel,
@@ -191,6 +192,41 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   drawFor = 'offense',
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const drag = useRef<Drag>(null);
+  // While dragging, the lines and the dragged player live here and redraw once a frame; the builder
+  // gets the result once, when the drag ends (redrawing the whole builder on every move was choppy).
+  const [draft, setDraft] = useState<PlayStroke[] | null>(null);
+  const [dragPos, setDragPos] = useState<{ role: string; x: number; y: number } | null>(null);
+  const strokes = draft ?? strokesProp;
+  const nodes = useMemo(
+    () => (dragPos ? nodesProp.map((n) => (n.role === dragPos.role ? { ...n, x: dragPos.x, y: dragPos.y } : n)) : nodesProp),
+    [nodesProp, dragPos]
+  );
+  const frame = useRef<number | null>(null);
+  const pending = useRef<{ strokes?: PlayStroke[]; pos?: { role: string; x: number; y: number }; ghost?: Pt | null }>({});
+  const flushFrame = () => {
+    frame.current = null;
+    const p = pending.current;
+    pending.current = {};
+    if (p.strokes) setDraft(p.strokes);
+    if (p.pos) setDragPos(p.pos);
+    if (p.ghost !== undefined) setGhost(p.ghost);
+  };
+  const schedule = () => {
+    if (frame.current == null) frame.current = requestAnimationFrame(flushFrame);
+  };
+  const cancelFrame = () => {
+    if (frame.current != null) cancelAnimationFrame(frame.current);
+    frame.current = null;
+    pending.current = {};
+  };
+  useEffect(() => cancelFrame, []);
+  /** Lines changed mid-drag: shown on the next frame, sent to the builder when the drag ends. */
+  const preview = (next: PlayStroke[]) => {
+    strokesRef.current = next;
+    pending.current.strokes = next;
+    schedule();
+  };
   const [tool, setTool] = useState<Tool>('move');
   // Freehand lines are smoothed into curves; otherwise each drag or click is a straight leg.
   const [curve, setCurve] = useState(false);
@@ -205,7 +241,6 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const selectedPlayer = selectedRole ? nodes.find((n) => n.role === selectedRole) || null : null;
   const [previewAction, setPreviewAction] = useState<PlayerActionPreset | null>(null);
-  const drag = useRef<Drag>(null);
   const fieldRef = useRef<HTMLDivElement | null>(null);
   const [hover, setHover] = useState<{ role: string; x: number; y: number; w: number } | null>(null);
   // The last tap on a player, and who was selected before it: a quick second tap on the same player
@@ -213,7 +248,8 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   const lastTap = useRef<{ role: string; at: number; from: string | null } | null>(null);
   const history = useRef<PlayStroke[][]>([]);
   const strokesRef = useRef(strokes);
-  strokesRef.current = strokes;
+  // Mid-drag the ref runs ahead of what's drawn (it has this frame's moves), so leave it alone then.
+  if (!drag.current) strokesRef.current = strokes;
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
   const { w, h, losY, scaleY } = FIELD_SVG;
@@ -390,7 +426,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       const n = hitNode(nodes, p.cx, p.cy);
       if (n) {
         if (linesFollow) remember();
-        drag.current = { mode: 'player', role: n.role, startCx: p.cx, startCy: p.cy, moved: false };
+        drag.current = { mode: 'player', role: n.role, startCx: p.cx, startCy: p.cy, moved: false, from: { x: n.x, y: n.y }, startLines: strokesRef.current, at: null };
         return;
       }
       const hit = hitStroke(strokes, p.cx, p.cy);
@@ -452,61 +488,74 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     if (!d) updateHover(e);
     if (!d && openRef.current != null && e.pointerType !== 'touch') {
       const g = pointFromEvent(e);
-      setGhost({ x: g.x, y: g.y });
+      pending.current.ghost = { x: g.x, y: g.y };
+      schedule();
     }
     if (!svgRef.current || !d) return;
     if (hover) setHover(null);
     const p = pointFromEvent(e);
     const cur = strokesRef.current;
     if (d.mode === 'player') {
-      if (Math.hypot(p.cx - d.startCx, p.cy - d.startCy) > 4) {
-        d.moved = true;
-      }
+      // A small wobble on a click doesn't move the player.
+      if (!d.moved && Math.hypot(p.cx - d.startCx, p.cy - d.startCy) <= 4) return;
+      d.moved = true;
       const x = Math.max(-18, Math.min(18, p.x));
       const y = Math.max(-11, Math.min(20, p.y));
-      const from = nodesRef.current.find((n) => n.role === d.role);
-      onMove(d.role, x, y);
-      if (linesFollow && from) {
-        const dx = x - from.x;
-        const dy = y - from.y;
-        if (dx || dy) {
-          const moved = cur.map((s) =>
-            s.points.length && Math.hypot(s.points[0].x - from.x, s.points[0].y - from.y) < 1.1
-              ? { ...s, points: s.points.map((q) => ({ x: q.x + dx, y: q.y + dy })) }
-              : s
-          );
-          if (moved.some((s, i) => s !== cur[i])) change(moved);
-        }
+      d.at = { x, y };
+      pending.current.pos = { role: d.role, x, y };
+      if (linesFollow) {
+        const dx = x - d.from.x;
+        const dy = y - d.from.y;
+        const moved = d.startLines.map((s) =>
+          s.points.length && Math.hypot(s.points[0].x - d.from.x, s.points[0].y - d.from.y) < 1.1
+            ? { ...s, points: s.points.map((q) => ({ x: q.x + dx, y: q.y + dy })) }
+            : s
+        );
+        if (moved.some((s, i) => s !== d.startLines[i])) preview(moved);
       }
+      schedule();
       return;
     }
     if (d.mode === 'vertex') {
-      change(cur.map((s, i) => (i === d.index ? { ...s, points: s.points.map((q, j) => (j === d.vertex ? { x: p.x, y: p.y } : q)) } : s)));
+      preview(cur.map((s, i) => (i === d.index ? { ...s, points: s.points.map((q, j) => (j === d.vertex ? { x: p.x, y: p.y } : q)) } : s)));
       return;
     }
     if (d.mode === 'line') {
       const dx = p.x - d.from.x;
       const dy = p.y - d.from.y;
-      change(cur.map((s, i) => (i === d.index ? { ...s, points: d.start.map((q) => ({ x: q.x + dx, y: q.y + dy })) } : s)));
+      preview(cur.map((s, i) => (i === d.index ? { ...s, points: d.start.map((q) => ({ x: q.x + dx, y: q.y + dy })) } : s)));
       return;
     }
     const line = cur[d.index];
     if (!line) return;
     if (Math.hypot(p.cx - d.downCx, p.cy - d.downCy) > 5) d.moved = true;
     if (!d.freehand) {
-      change(cur.map((s, i) => (i === d.index ? { ...s, points: [...s.points.slice(0, d.anchor), { x: p.x, y: p.y }] } : s)));
+      preview(cur.map((s, i) => (i === d.index ? { ...s, points: [...s.points.slice(0, d.anchor), { x: p.x, y: p.y }] } : s)));
       return;
     }
+    // Freehand: a point every few pixels (the hand's jitter in between is dropped), shown as a curve as it's drawn.
     const prev = line.points[line.points.length - 1];
-    if (prev && Math.hypot(p.x - prev.x, p.y - prev.y) < 0.2) return;
-    change(cur.map((s, i) => (i === d.index ? { ...s, points: [...s.points, { x: p.x, y: p.y }] } : s)));
+    if (prev) {
+      const ps = fieldToSvg(prev.x, prev.y);
+      if (Math.hypot(p.cx - ps.cx, p.cy - ps.cy) < 5) return;
+    }
+    preview(cur.map((s, i) => (i === d.index ? { ...s, points: [...s.points, { x: p.x, y: p.y }], curve: true } : s)));
   };
 
   const endDrag = () => {
     const d = drag.current;
     drag.current = null;
     if (!d) return;
+    // Whatever this frame hasn't drawn yet is in the ref; the drag's result goes to the builder now.
+    cancelFrame();
+    setDraft(null);
+    setDragPos(null);
     const cur = strokesRef.current;
+    if (d.mode === 'player' && d.moved && d.at) {
+      onMove(d.role, d.at.x, d.at.y);
+      if (cur !== strokesProp) onStrokes(cur);
+      return;
+    }
     if (d.mode === 'player' && !d.moved) {
       const now = Date.now();
       const last = lastTap.current;
@@ -541,6 +590,8 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     }
     const before = history.current[history.current.length - 1];
     if (before === cur) history.current.pop();
+    // A bend or a whole line dragged: sent once, now.
+    else if (cur !== strokesProp) onStrokes(cur);
   };
 
   const onDoubleClick = (e: React.MouseEvent) => {

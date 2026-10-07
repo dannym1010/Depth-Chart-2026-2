@@ -2002,15 +2002,23 @@ const fmt = (p: SvgPt) => `${p.cx.toFixed(1)},${p.cy.toFixed(1)}`;
 function polyPath(pts: SvgPt[]) {
   return pts.map((p, i) => `${i ? 'L' : 'M'}${fmt(p)}`).join(' ');
 }
-/** Through the points with rounded turns (each corner becomes a curve to the middle of the next leg). */
+/**
+ * A smooth curve through every point, the way it was drawn (Catmull-Rom as cubic curves). It ends heading
+ * from the next-to-last point to the last, so the arrow lines up with it.
+ */
 function curvePath(pts: SvgPt[]) {
   if (pts.length < 3) return polyPath(pts);
   let d = `M${fmt(pts[0])}`;
-  for (let i = 1; i < pts.length - 1; i++) {
-    const mid = { cx: (pts[i].cx + pts[i + 1].cx) / 2, cy: (pts[i].cy + pts[i + 1].cy) / 2 };
-    d += ` Q${fmt(pts[i])} ${fmt(mid)}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] || pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] || p2;
+    const c1 = { cx: p1.cx + (p2.cx - p0.cx) / 6, cy: p1.cy + (p2.cy - p0.cy) / 6 };
+    const c2 = { cx: p2.cx - (p3.cx - p1.cx) / 6, cy: p2.cy - (p3.cy - p1.cy) / 6 };
+    d += ` C${fmt(c1)} ${fmt(c2)} ${fmt(p2)}`;
   }
-  return `${d} L${fmt(pts[pts.length - 1])}`;
+  return d;
 }
 /** A zigzag along the points (motion before the snap). */
 function zigzagPath(pts: SvgPt[], amp = 4, step = 7) {
