@@ -1925,5 +1925,216 @@ export const DEFENSE_MATRIX_DRILLS: WhiteboardDrill[] = [
       },
     ],
   },
+
+  // ==========================================
+  // DT & ILB GAP CROSS / STUNT PROGRESSIONS (3 DRILLS)
+  // ==========================================
+  {
+    id: 'stunt-dt-ilb-butt-to-hip',
+    category: 'DL',
+    categoryLabel: 'Defensive Line & Linebackers (Stunts)',
+    title: 'DT & ILB: Two-Man "Butt-to-Hip" Fit Drill',
+    subtitle: 'Stunt Timing on Air: Penetrator Slant & Tight Rub Looper',
+    objective: 'Establish the fundamental timing, tight angle, and trajectory of the DT/ILB A/B gap cross stunt on air before live blockers. The DT penetrates across the guard\'s face into the adjacent gap while the ILB takes a 1-step read, scrapes horizontally with zero separation ("butt-to-hip"), and explodes vertically into the vacated gap.',
+    setup: 'Place DT in 2i or 3-technique alignment and stack ILB 4 yards deep in normal alignment. Place a target cone in the stunt gap.',
+    instructions: [
+      'The Penetrator (DT): On the whistle, take a violent vertical first step before slanting hard across the face of the imaginary guard into the adjacent gap, aiming to pin the lineman.',
+      'The Looper (ILB): Take one control/read step forward, push off outside foot to scrape horizontally, and loop tightly off the rear end of the DT with zero separation ("rub shoulders").',
+      'Explode vertically through the vacated gap without bellying out or looping too deep.',
+      'Finish with eyes up tracking the ball carrier in the backfield.',
+    ],
+    equipment: '1 target cone, 1 football, whistle.',
+    diagramKeys: [
+      { text: 'DT: 1st step vertical, slant hard across guard face', isHighlight: true },
+      { text: 'ILB: 1 read step, scrape tight "butt-to-hip"', isHighlight: true },
+      { text: 'Zero daylight between DT rear and ILB loop', isHighlight: true },
+      { text: 'Explode vertically through vacated gap', isHighlight: false },
+    ],
+    cues: [
+      '"Rub shoulders—butt-to-hip!"',
+      '"No daylight between DT and ILB!"',
+      '"DT pins the guard!"',
+      '"ILB: 1 step, scrape, and fire vertical!"',
+    ],
+    faults: [
+      'ILB bellying out 4 yards deep, giving the offensive line time to recover and pick up the stunt.',
+      'DT slanting too flat and tripping or colliding awkwardly with the ILB.',
+      'Defenders tipping the stunt with pre-snap leaning or altered stances.',
+    ],
+    videoUrl: 'https://www.youtube.com/watch?v=9YRRKYGAC_0',
+    phases: [
+      {
+        name: 'PHASE 1: PENETRATOR SLANT & LOOPER SCRAPE',
+        description: 'DT fires vertical step and slants into B-gap. ILB takes 1 read step and scrapes tight off DT rear hip.',
+        tokens: [
+          { id: 'g-dummy', type: 'bag', label: 'GUARD', x: 300, y: 200, color: '#b91c1c' },
+          { id: 'dt-1', type: 'X', label: 'DT', x: 280, y: 240, color: '#4338ca', subLabel: 'Penetrator' },
+          { id: 'ilb-1', type: 'X', label: 'ILB', x: 320, y: 340, color: '#10b981', subLabel: 'Looper' },
+          { id: 'cone-target', type: 'cone', label: 'A-GAP', x: 350, y: 190, color: '#f97316' },
+        ],
+        arrows: [
+          { id: 'a-dt-slant', type: 'blitz', startX: 280, startY: 240, endX: 250, endY: 190, color: '#4338ca', label: 'Slant across Face' },
+          { id: 'a-ilb-step', type: 'drop', startX: 320, startY: 340, endX: 310, endY: 300, color: '#10b981', dashed: true, label: '1-Step Read' },
+        ],
+        zones: [
+          { id: 'z-rub', name: 'BUTT-TO-HIP RUB POINT', cx: 290, cy: 235, rx: 35, ry: 25, color: '#10b981', opacity: 0.25 },
+        ],
+      },
+      {
+        name: 'PHASE 2: TIGHT RUB & VERTICAL EXPLOSION',
+        description: 'ILB rubs shoulders with DT rear, clears the edge, and explodes vertically through the target A-gap.',
+        tokens: [
+          { id: 'dt-1', type: 'X', label: 'DT', x: 250, y: 190, color: '#4338ca', subLabel: 'Pinned Guard' },
+          { id: 'ilb-1', type: 'X', label: 'ILB', x: 350, y: 190, color: '#10b981', subLabel: 'Vertical Burst' },
+          { id: 'qb-target', type: 'O', label: 'QB', x: 350, y: 130, color: '#1a1a24' },
+        ],
+        arrows: [
+          { id: 'a-ilb-loop', type: 'blitz', startX: 310, startY: 300, endX: 350, endY: 190, color: '#10b981', label: 'Tight Butt-to-Hip Loop' },
+          { id: 'a-ilb-sack', type: 'run', startX: 350, startY: 190, endX: 350, endY: 130, color: '#10b981', label: 'Burst to QB' },
+        ],
+        zones: [
+          { id: 'z-gap', name: 'VACATED GAP ATTACK', cx: 350, cy: 190, rx: 40, ry: 30, color: '#10b981', opacity: 0.2 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'stunt-agile-bag-dip-rip-loop',
+    category: 'DL',
+    categoryLabel: 'Defensive Line & Linebackers (Stunts)',
+    title: 'DT & ILB: Agile Bag "Dip, Rip, & Loop" Drill',
+    subtitle: 'Low Pad Level, Lateral Crossover & Upper-Body Rip ("Elbow to Ear-Hole")',
+    objective: 'Build physical tools for clearing blocks at a low pad level. DT executes a violent dip-and-rip past the first agile bag to defeat a down block, while the ILB plants on the 3rd step, crosses over around the second bag, and executes an upper-body rip ("elbow to ear-hole") to flip hips through the gap.',
+    setup: 'Lay two agile step-over bags flat on the ground sideways (3 yards apart) simulating offensive linemen\'s feet. DT and ILB align in stunt depth.',
+    instructions: [
+      'DT fires out with low hips, executes a hard "dip and rip" past the first bag, and anchors the gap.',
+      'ILB takes read step, plants on 3rd step, and executes a lateral crossover around the second bag.',
+      'As the ILB turns the corner, throw a violent upper-body rip ("elbow to ear-hole") to flip hips vertically through the hole.',
+      'Keep weight centered without leaning pre-snap; maintain low pad level throughout lateral movement.',
+    ],
+    equipment: '2 agile step-over bags, football, whistle.',
+    diagramKeys: [
+      { text: 'DT: Dip and rip past 1st bag with low pad level', isHighlight: true },
+      { text: 'ILB: Plant on step 3, lateral crossover around 2nd bag', isHighlight: true },
+      { text: 'Elbow-to-ear-hole upper body rip', isHighlight: true },
+      { text: 'Flip hips vertically to accelerate into backfield', isHighlight: false },
+    ],
+    cues: [
+      '"Elbow to ear-hole rip!"',
+      '"Low hips over the bags!"',
+      '"Plant on 3, crossover, and turn corner!"',
+      '"Flip the hips through the hole!"',
+    ],
+    faults: [
+      'Standing tall through the loop and getting washed out by contact.',
+      'Rounding off the bag instead of sticking a sharp plant-and-turn.',
+      'Leaning forward pre-snap and giving away the stunt direction.',
+    ],
+    videoUrl: 'https://www.youtube.com/watch?v=zrSCoJXVX5I',
+    phases: [
+      {
+        name: 'PHASE 1: DIP & RIP PAST FIRST AGILE BAG',
+        description: 'DT explodes low, dipping outside shoulder and ripping past first bag. ILB initiates crossover stride.',
+        tokens: [
+          { id: 'bag-1', type: 'bag', label: 'AGILE 1', x: 270, y: 220, color: '#f59e0b' },
+          { id: 'bag-2', type: 'bag', label: 'AGILE 2', x: 370, y: 220, color: '#f59e0b' },
+          { id: 'dt-1', type: 'X', label: 'DT', x: 270, y: 280, color: '#4338ca', subLabel: 'Dip & Rip' },
+          { id: 'ilb-1', type: 'X', label: 'ILB', x: 340, y: 350, color: '#10b981', subLabel: 'Plant on 3' },
+        ],
+        arrows: [
+          { id: 'a-dt-rip', type: 'blitz', startX: 270, startY: 280, endX: 240, endY: 200, color: '#4338ca', label: 'Dip & Rip' },
+          { id: 'a-ilb-cross', type: 'drop', startX: 340, startY: 350, endX: 300, endY: 300, color: '#10b981', dashed: true, label: 'Lateral Crossover' },
+        ],
+        zones: [
+          { id: 'z-dip', name: 'LOW PAD LEVEL ZONE', cx: 270, cy: 220, rx: 45, ry: 25, color: '#4338ca', opacity: 0.2 },
+        ],
+      },
+      {
+        name: 'PHASE 2: ELBOW-TO-EAR RIP & VERTICAL CORNER',
+        description: 'ILB rips elbow to ear-hole around second bag, flips hips square, and drives into backfield.',
+        tokens: [
+          { id: 'dt-1', type: 'X', label: 'DT', x: 240, y: 200, color: '#4338ca', subLabel: 'Anchored' },
+          { id: 'ilb-1', type: 'X', label: 'ILB', x: 370, y: 190, color: '#10b981', subLabel: 'Elbow to Ear' },
+        ],
+        arrows: [
+          { id: 'a-ilb-rip', type: 'blitz', startX: 300, startY: 300, endX: 370, endY: 190, color: '#10b981', label: 'Upper Body Rip' },
+          { id: 'a-ilb-finish', type: 'run', startX: 370, startY: 190, endX: 370, endY: 140, color: '#10b981', label: 'Finish Vertical' },
+        ],
+        zones: [
+          { id: 'z-rip', name: 'HIP FLIP & RIP ZONE', cx: 370, cy: 200, rx: 40, ry: 30, color: '#10b981', opacity: 0.25 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'stunt-halfline-live-read',
+    category: 'SCHEME',
+    categoryLabel: 'Team Defense & Stunts',
+    title: 'DT & ILB: Half-Line Live Block Recognition Drill',
+    subtitle: 'Fight a Face vs. Chase a Tail: Reading Shifting Offensive Line Fronts',
+    objective: 'Execute the called stunt against live offensive line blocks (Center & Guard or Guard & Tackle). DT diagnoses "Fight a Face" (hold ground, draw double-team) vs. "Chase a Tail" (chase flat on zone/down blocks), while the wrapping ILB reads the guard\'s hat to take the green-light gap or execute a ricochet move.',
+    setup: 'Live Center, Guard, and QB/RB in backfield. DT in 3-tech, ILB stacked at 4.5 yards.',
+    instructions: [
+      'Fight a Face: If lineman blocks directly into penetrator\'s path, DT aggressively punches, holds ground, and occupies both blockers to keep ILB clean.',
+      'Chase a Tail: If lineman blocks away (zone or down-block), DT closes flat down the line of scrimmage, tracking the hip of the blocker.',
+      'The Wrapper\'s Cue (ILB): If Guard sticks to DT, ILB has green light straight through the gap. If Guard peels off to block the loop, ILB executes a ricochet or arm-over move to beat the block.',
+      'Maintain gap integrity: if run hits before the twist unfolds, abort stunt and tackle nearest threat.',
+    ],
+    equipment: 'Full pads / helmets, 1 football, live Center, Guard, QB, DT, ILB.',
+    diagramKeys: [
+      { text: 'Fight a Face: DT punches & holds ground vs double team', isHighlight: true },
+      { text: 'Chase a Tail: DT closes flat tracking blocker hip', isHighlight: true },
+      { text: 'ILB Green Light: Guard sticks to DT -> shoot gap', isHighlight: true },
+      { text: 'ILB Ricochet: Guard peels -> arm-over move', isHighlight: false },
+    ],
+    cues: [
+      '"Fight a Face = occupy double-team!"',
+      '"Chase a Tail = close down flat!"',
+      '"ILB: Green light if guard commits to DT!"',
+      '"Eyes up—never drop your head!"',
+    ],
+    faults: [
+      'DT getting washed downfield by double-team instead of dropping anchor.',
+      'ILB running into the back of his own DT.',
+      'Dropping head and running blind past a cutback runner.',
+    ],
+    videoUrl: 'https://www.youtube.com/watch?v=574syXWjiZc',
+    phases: [
+      {
+        name: 'PHASE 1: LIVE SNAP & BLOCK DIAGNOSIS',
+        description: 'Center and Guard execute block scheme. DT diagnoses block direction (Face vs. Tail) while ILB takes read step.',
+        tokens: [
+          { id: 'o-c', type: 'O', label: 'C', x: 350, y: 200, color: '#b91c1c' },
+          { id: 'o-g', type: 'O', label: 'RG', x: 420, y: 200, color: '#b91c1c' },
+          { id: 'qb-1', type: 'O', label: 'QB', x: 350, y: 150, color: '#1a1a24' },
+          { id: 'dt-1', type: 'X', label: 'DT', x: 400, y: 250, color: '#4338ca', subLabel: 'Read Block' },
+          { id: 'ilb-1', type: 'X', label: 'ILB', x: 360, y: 330, color: '#10b981', subLabel: 'Read Guard' },
+        ],
+        arrows: [
+          { id: 'a-g-block', type: 'block', startX: 420, startY: 200, endX: 400, endY: 240, color: '#b91c1c', label: 'Guard Blocks DT' },
+          { id: 'a-dt-hold', type: 'blitz', startX: 400, startY: 250, endX: 390, endY: 210, color: '#4338ca', label: 'Fight Face / Anchor' },
+          { id: 'a-ilb-read', type: 'drop', startX: 360, startY: 330, endX: 370, endY: 280, color: '#10b981', dashed: true, label: 'Read Guard Hat' },
+        ],
+        zones: [
+          { id: 'z-los', name: 'LINE OF SCRIMMAGE READ ZONE', cx: 385, cy: 215, rx: 75, ry: 30, color: '#4338ca', opacity: 0.2 },
+        ],
+      },
+      {
+        name: 'PHASE 2: GREEN-LIGHT GAP PENETRATION & SACK',
+        description: 'Guard is pinned to DT. ILB gets green-light signal, looping cleanly through A-gap to record the TFL / sack.',
+        tokens: [
+          { id: 'dt-1', type: 'X', label: 'DT', x: 390, y: 210, color: '#4338ca', subLabel: 'Holding 2 Blocks' },
+          { id: 'ilb-1', type: 'X', label: 'ILB', x: 350, y: 160, color: '#10b981', subLabel: 'Green Light Sack' },
+          { id: 'qb-1', type: 'O', label: 'QB', x: 350, y: 150, color: '#1a1a24' },
+        ],
+        arrows: [
+          { id: 'a-ilb-shoot', type: 'blitz', startX: 370, startY: 280, endX: 350, endY: 160, color: '#10b981', label: 'A-Gap Green Light' },
+        ],
+        zones: [
+          { id: 'z-sack', name: 'TFL / SACK FINISH ZONE', cx: 350, cy: 155, rx: 45, ry: 25, color: '#10b981', opacity: 0.25 },
+        ],
+      },
+    ],
+  },
 ];
 
