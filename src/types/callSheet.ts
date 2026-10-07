@@ -139,6 +139,8 @@ export interface PlayBuilderState {
   defenseUnit?: 'black' | 'gold' | 'blue' | 'off';
   /** A defender the coach set by hand instead of the depth chart, by role. */
   defenseWho?: Record<string, { num: string; name: string; unit?: 'black' | 'gold' | 'blue'; pos?: string }>;
+  /** The coach picked this play's defense himself: it stays, even when their formation has another. */
+  defenseOwn?: boolean;
   /** What our defenders' boxes say: their position (default) or the tagged player's jersey number. */
   defenseShow?: 'position' | 'number';
   /** Our defensive plays: each defender's job as the coach typed it, by role (the rest come from the drawing). */

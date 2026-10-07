@@ -102,12 +102,14 @@ export function redrawWithBackfield(
   spots: BackfieldSpots | undefined,
   spotBaseKey?: string,
   /** Our defense from their formation, in place of the play's own. */
-  ourDefense?: DefenseSetting | null
+  ourDefense?: DefenseSetting | null,
+  /** Keep the play's own formation and moved players (only the defense is changing). */
+  keepOffense = false
 ): PlayDatabaseEntry {
   const b = ourDefense && entry.builder ? builderWithDefense(entry.builder, ourDefense) : entry.builder;
   const setup = callSetup(card);
   const formed = spotBaseKey && BASE_FORMATIONS[spotBaseKey] ? spotBaseKey : '';
-  const baseKey = formed || b?.baseKey || setup.baseKey;
+  const baseKey = (keepOffense && b?.baseKey) || formed || b?.baseKey || setup.baseKey;
   const strength = b?.strength || setup.strength;
   const tags = b?.tags || [];
   const family = b?.family && b.family !== 'all' ? b.family : setup.family;
@@ -116,7 +118,7 @@ export function redrawWithBackfield(
   const play = tryAssemblePlay(baseKey, backfield, conceptKey, strength, tags, spots, spotBaseKey);
   if (!play) return entry;
   const overrides = { ...(b?.overrides || {}) };
-  for (const role of FILM_ROLES) delete overrides[role];
+  if (!keepOffense) for (const role of FILM_ROLES) delete overrides[role];
   const hashDx = b?.hash === 'Left' ? -4.2 : b?.hash === 'Right' ? 4.2 : 0;
   const names = b?.labels || {};
   const named = <T extends { role: string }>(n: T): T => (names[n.role] ? { ...n, label: names[n.role] } : n);
@@ -271,6 +273,8 @@ export function formationOfPlay(card: ScoutOppPlay, formations?: OppFormation[])
  * pick up the formation's moved defenders when the play hasn't moved any of its own.
  */
 function defenseDiffers(b: PlayBuilderState, d: DefenseSetting): boolean {
+  // A defense the coach picked for this play stays.
+  if (b.defenseOwn) return false;
   if (b.defenseKey !== d.key) return true;
   const roles = lookRoles(d.key);
   const ownMoves = Object.keys(b.overrides || {}).some((r) => roles.has(r));
@@ -304,7 +308,7 @@ export function playWithDefense(entry: PlayDatabaseEntry, card: ScoutOppPlay, d:
   const backfield = b0?.backfield || backfieldOf(card, entry);
   const film = bases?.[card.gameId]?.[backfield];
   // Lines drawn by the play's own rules (never hand-drawn): drawn again, the way a film backfield change does.
-  if (!b0?.strokes) return redrawWithBackfield(entry, card, backfield, film?.spots, film?.baseKey, d);
+  if (!b0?.strokes) return redrawWithBackfield(entry, card, backfield, film?.spots, film?.baseKey, d, Boolean(b0));
   const b = builderWithDefense(b0, d);
   const concept = b.family === 'all' || b.family === 'run' ? (RUN_SCHEMES.find((r) => r.id === b.runId) || RUN_SCHEMES[0]).conceptKey : b.conceptKey;
   const basePlay = tryAssemblePlay(b.baseKey, backfield, concept, b.strength, b.tags || [], film?.spots, film?.baseKey);

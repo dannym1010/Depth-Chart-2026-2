@@ -259,6 +259,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     rememberDefenseUnit(u);
   };
   const [labels, setLabels] = useState<Record<string, string>>(saved?.labels || {});
+  // A defense picked for this play (not the one it opened with): it stays, whatever their formation's defense.
+  const [defenseOwn, setDefenseOwn] = useState(Boolean(saved?.defenseOwn));
   // Our defenders' boxes: position (default) or jersey number.
   const [defShow, setDefShow] = useState<'position' | 'number'>(saved?.defenseShow === 'number' ? 'number' : 'position');
   // Our defensive plays: each defender's job as the coach typed it.
@@ -522,6 +524,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       ...(Object.keys(labels).length ? { labels } : {}),
       ...(Object.keys(jobs).length ? { jobs } : {}),
       ...(defShow === 'number' ? { defenseShow: 'number' as const } : {}),
+      ...(defenseOwn ? { defenseOwn: true } : {}),
       defenseUnit: defUnit,
       ...(Object.keys(defWho).length ? { defenseWho: defWho } : {}),
       ...(Object.keys(taggedWho).length ? { defensePlayers: taggedWho } : {}),
@@ -1485,7 +1488,15 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
             <div className="p-3.5 space-y-4">
               <div>
                 {label('Our defense on the diagram')}
-                <select className={SELECT} aria-label="Defense" value={defenseKey} onChange={(e) => setDefenseKey(e.target.value)}>
+                <select
+                  className={SELECT}
+                  aria-label="Defense"
+                  value={defenseKey}
+                  onChange={(e) => {
+                    setDefenseKey(e.target.value);
+                    setDefenseOwn(true);
+                  }}
+                >
                   <option value="">Offense only</option>
                   {Object.entries(looks).map(([id, d]) => (
                     <option key={id} value={id}>

@@ -164,3 +164,21 @@ describe('putting the scout script in order', async () => {
   it('mixes runs and passes', () => assert.equal(ids(orderScript(plays, 'mix')), 'bacde'));
   it('as on the film', () => assert.equal(ids(orderScript(plays, 'film', [plays[4], plays[3], plays[2], plays[1], plays[0]])), 'edcba'));
 });
+
+describe('a play keeps its own edits under its formation\'s defense', () => {
+  const card = { id: 'p1', gameId: 'g1', name: '21 I R 36 DIVE', formation: 'Pro Rt', personnel: '21', kind: 'run' } as any;
+  const base = () => redrawWithBackfield({ id: 'scout_p1', name: card.name, diagramUrl: '' } as any, card, 'I_FORM', undefined, undefined, { key: '44_C3_LIZ', moves: {} });
+  it('a defense the coach picked for the play stays', () => {
+    const e = base();
+    const own = { ...e, builder: { ...e.builder!, defenseKey: '44_C1', defenseOwn: true } };
+    assert.equal(playWithDefense(own as any, card, { key: '53_C3', moves: {} }), own);
+  });
+  it('a moved back stays where the coach put him when the defense changes', () => {
+    const e = base();
+    const moved = { ...e, builder: { ...e.builder!, overrides: { ...e.builder!.overrides, '3': { x: 2.5, y: -6 } } } };
+    const out = playWithDefense(moved as any, card, { key: '53_C3', moves: {} });
+    assert.equal(out.builder!.defenseKey, '53_C3');
+    assert.deepEqual(out.builder!.overrides['3'], { x: 2.5, y: -6 });
+    assert.equal(out.builder!.baseKey, e.builder!.baseKey);
+  });
+});
