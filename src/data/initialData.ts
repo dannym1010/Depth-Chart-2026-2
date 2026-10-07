@@ -1947,6 +1947,11 @@ export const DEFAULT_CASCADING_DRILLS: DrillFolder[] = [
             "name": "Defense DE: Fumble Recovery & Strip-Sack Turnover Circuit",
             "desc": "DE closes on QB dummy from blind side, executes downward tomahawk swipe on football, followed by immediate scoop-and-score recovery or smother drill.",
             "key": "Aim for the throwing arm with tomahawk swipe. If ball is loose, scoop and score with two hands."
+          },
+          {
+            "name": "Defense DE: 10U Setting the Edge Drill (\"The Dirty Work\" - Coach Dub)",
+            "desc": "Teaches 10U edge defenders how to set a firm perimeter wall against sweeps and tosses. DE fires out with outside foot, delivers violent inside-hand strike to blocker's chest, keeps outside arm completely free, squeezes running lane, and turns ballcarrier back inside into pursuit.",
+            "key": "'Never get hooked!' — Punch inside, keep outside arm free, squeeze down the LOS, force the ballcarrier back inside."
           }
         ]
       },
@@ -2070,6 +2075,11 @@ export const DEFAULT_CASCADING_DRILLS: DrillFolder[] = [
             "name": "Defense Team: 9 Cone Vice Tackle Drill (LSU Clinic)",
             "desc": "Two defenders work together to vice the ball carrier from dynamic angles in a 9-cone (10x10 yd) grid. Ball carrier breaks to a cone on the 40; tacklers break to cones on the 50/45. On contact, tacklers call 'Vice! Vice! Vice!', scallop with square shoulders, pin the near hip, and squeeze together.",
             "key": "'Vice! Vice! Vice!' — Scallop under control, pin the near hip, finish near-foot near-shoulder."
+          },
+          {
+            "name": "Defense Team: 10U Setting the Edge Drill (\"The Dirty Work\" - Coach Dub)",
+            "desc": "Teaches 10U edge defenders how to set a firm perimeter wall against sweeps and tosses. DE fires out with outside foot, delivers violent inside-hand strike to blocker's chest, keeps outside arm completely free, squeezes running lane, and turns ballcarrier back inside into pursuit.",
+            "key": "'Never get hooked!' — Punch inside, keep outside arm free, squeeze down the LOS, force the ballcarrier back inside."
           },
           {
             "name": "Defense Team: Cover 3 DB / OLB Tandem Triangle (Smash & Seam-Curl)",

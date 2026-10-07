@@ -2136,5 +2136,78 @@ export const DEFENSE_MATRIX_DRILLS: WhiteboardDrill[] = [
       },
     ],
   },
+  {
+    id: 'dl-edge-setting-10u',
+    category: 'DEFENSE',
+    categoryLabel: 'Defensive Line & Edge Setting',
+    title: '10U Setting the Edge Drill ("The Dirty Work")',
+    subtitle: 'DE / OLB Edge Containment, Strike-and-Shed & Outside Leverage vs Sweeps/Tosses',
+    objective: 'Teaches 10U defensive ends and outside edge defenders how to set a hard perimeter edge against sweeps, tosses, and outside runs (Coach Dub @coachdub11_). Focuses on explosive first-step outside leverage, violent inside-hand punch, keeping the outside arm free, and squeezing the ball carrier back into pursuit.',
+    setup: '1 DE in 5/7-tech stance, 1 Blocker (OT/TE with hand shield or live), 1 Ball Carrier (RB), 4 cones marking 10x10 yd perimeter box.',
+    instructions: [
+      'Explosive Outside Foot Step: On ball movement, fire out with the outside foot to establish perimeter leverage.',
+      'Violent Inside Strike: Punch blocker\'s chest/inside armpit with the inside hand to stop their forward momentum.',
+      'Keep Outside Clean: Keep outside arm and leg completely free—never let the blocker hook or seal you outside.',
+      'Squeeze & Spill: Squeeze the running lane towards the line of scrimmage without running too far upfield.',
+      'Finish Near-Foot Near-Shoulder: Sink hips, clamp the near hip, and drive through contact into the tackle.',
+    ],
+    equipment: 'Full pads / helmets, 1 football, hand shield / agile dummy, 4 cones (10x10 yd box), 1 DE, 1 Blocker (OT/TE), 1 Ball Carrier (RB).',
+    diagramKeys: [
+      { text: 'Outside Leverage Step: Fire outside foot forward-lateral', isHighlight: true },
+      { text: 'Inside Hand Punch: Strike inside armpit, lock out', isHighlight: true },
+      { text: 'Outside Free Arm: Never get hooked or sealed', isHighlight: true },
+      { text: 'Force & Squeeze: Turn runner inside into pursuit', isHighlight: false },
+    ],
+    cues: [
+      '"Learn the dirty work early!"',
+      '"Never get hooked—keep outside clean!"',
+      '"Punch inside, rip outside!"',
+      '"Force it back inside!"',
+    ],
+    faults: [
+      'Rushing too far upfield past the QB/RB, leaving a massive inside running lane.',
+      'Allowing the offensive tackle/tight end to get hands on the outside shoulder and hook the edge.',
+      'Diving head-first without squaring hips and sinking into the tackle.',
+    ],
+    videoUrl: 'https://www.instagram.com/reel/DeHVNW4uaGK/',
+    phases: [
+      {
+        name: 'PHASE 1: STRIKE, LOCK-OUT & KEEP OUTSIDE CLEAN',
+        description: 'DE fires out on snap with outside foot, strikes blocker with inside hand punch to breastplate/armpit, and locks out with outside arm free.',
+        tokens: [
+          { id: 'o-ot', type: 'O', label: 'OT', x: 380, y: 220, color: '#b91c1c' },
+          { id: 'o-rb', type: 'O', label: 'RB', x: 350, y: 160, color: '#b91c1c', subLabel: 'Stretch Flow' },
+          { id: 'x-de', type: 'X', label: 'DE', x: 440, y: 240, color: '#4338ca', subLabel: 'Set Edge' },
+          { id: 'c-edge', type: 'cone', label: 'C', x: 500, y: 220, color: '#f59e0b' },
+        ],
+        arrows: [
+          { id: 'a-ot-reach', type: 'block', startX: 380, startY: 220, endX: 430, endY: 235, color: '#b91c1c', label: 'Reach Block' },
+          { id: 'a-de-strike', type: 'blitz', startX: 440, startY: 240, endX: 425, endY: 225, color: '#4338ca', label: 'Punch & Lock Inside Arm' },
+          { id: 'a-rb-sweep', type: 'run', startX: 350, startY: 160, endX: 430, endY: 190, color: '#b91c1c', label: 'Outside Bounce' },
+        ],
+        zones: [
+          { id: 'z-edge-wall', name: 'HARD PERIMETER EDGE ZONE', cx: 460, cy: 220, rx: 55, ry: 35, color: '#4338ca', opacity: 0.2 },
+        ],
+      },
+      {
+        name: 'PHASE 2: SHED, FORCE INSIDE & NEAR-HIP TACKLE',
+        description: 'DE rips outside arm free, sets hard boundary wall, forces RB to hesitate/cutback, and clamps near hip with driving feet.',
+        tokens: [
+          { id: 'o-ot-shed', type: 'O', label: 'OT', x: 400, y: 230, color: '#b91c1c', subLabel: 'Shed' },
+          { id: 'x-de-tackle', type: 'X', label: 'DE', x: 435, y: 205, color: '#4338ca', subLabel: 'Near-Hip Wrap' },
+          { id: 'o-rb-forced', type: 'O', label: 'RB', x: 425, y: 200, color: '#b91c1c', subLabel: 'Cut Inside' },
+          { id: 'x-pursuit', type: 'X', label: 'LB', x: 380, y: 260, color: '#10b981', subLabel: 'Inside Pursuit' },
+        ],
+        arrows: [
+          { id: 'a-de-shed', type: 'blitz', startX: 425, startY: 225, endX: 435, endY: 205, color: '#4338ca', label: 'Rip & Disengage' },
+          { id: 'a-rb-turn', type: 'run', startX: 430, startY: 190, endX: 415, endY: 215, color: '#b91c1c', label: 'Forced Inside' },
+          { id: 'a-lb-close', type: 'drop', startX: 380, startY: 260, endX: 415, endY: 215, color: '#10b981', dashed: true, label: 'Vice Pursuit' },
+        ],
+        zones: [
+          { id: 'z-tackle-box', name: 'VICE TACKLE COLLAPSE', cx: 425, cy: 210, rx: 45, ry: 30, color: '#10b981', opacity: 0.25 },
+        ],
+      },
+    ],
+  },
 ];
 
