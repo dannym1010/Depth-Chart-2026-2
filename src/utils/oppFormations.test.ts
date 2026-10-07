@@ -4,7 +4,7 @@ import { builderFromFormation, cardForSnap, planLines, realCall, linkSnapsToCall
 import { pickScoutBundle } from './scoutMerge.ts';
 import { theirCallEntries } from './theirCalls.ts';
 import { tagPlays } from '../hudlScout/utils/playTags.ts';
-import { oppPlayDiagram } from './filmBackfields.ts';
+import { formationDefense, formationOfPlay, oppPlayDiagram, playWithDefense, redrawWithBackfield } from './filmBackfields.ts';
 import type { Play } from '../hudlScout/types/football.ts';
 
 const film = (n: number, extra: Partial<Play> = {}) => ({ id: `c${n}`, playNumber: n, gameId: 'g1', odk: 'UNKNOWN', playName: '', ...extra }) as unknown as Play;
@@ -108,5 +108,47 @@ describe('our calls vs their formations', () => {
     const db = [{ id: 'scout_p1', name: '21 BEAST 36 DIVE', diagramUrl: 'data:saved', builder: { backfield: 'BEAST' } } as any];
     const bases = { g1: { BEAST: { spots: { 1: { x: 0, y: -2 } }, editedAt: 1, baseKey: '21_BEAST' } } } as any;
     assert.equal(oppPlayDiagram(card, db, bases), 'data:saved');
+  });
+});
+
+describe('their plays show the defense set on their formation', () => {
+  const card = { id: 'p1', gameId: 'g1', name: '21 I R 36 DIVE', formation: 'Pro Rt', personnel: '21', kind: 'run' } as any;
+  const formation = (defenseKey: string, overrides: Record<string, { x: number; y: number }> = {}): OppFormation =>
+    ({ id: 'f1', name: 'pro rt', editedAt: 1, builder: { defenseKey, overrides } as any }) as OppFormation;
+  // A play drawn by hand in the builder against the 4-4: its lines saved with it.
+  const drawn = () => {
+    const auto = redrawWithBackfield({ id: 'scout_p1', name: card.name, diagramUrl: '' } as any, card, 'I_FORM', undefined, undefined, { key: '44_C3_LIZ', moves: {} });
+    return { ...auto, builder: { ...auto.builder!, strokes: auto.builder!.strokes || [] } };
+  };
+
+  it('finds the formation by link or by name, and reads its defense', () => {
+    assert.equal(formationOfPlay(card, [formation('53_C3')])?.id, 'f1');
+    assert.equal(formationOfPlay({ ...card, formation: 'Trips' }, [formation('53_C3')]), undefined);
+    assert.equal(formationOfPlay({ ...card, formation: 'Trips', formationId: 'f1' }, [formation('53_C3')])?.id, 'f1');
+    assert.equal(formationDefense(formation('53_C3'))?.key, '53_C3');
+    assert.equal(formationDefense(formation('')), null);
+    // No defense drawn on it: the base call from our calls vs the formation.
+    const planned = { ...formation(''), plan: { base: 'd1', calls: [] } };
+    assert.equal(formationDefense(planned, [{ id: 'd1', builder: { defenseKey: '44_C3_RIP' } } as any])?.key, '44_C3_RIP');
+  });
+
+  it('a hand-drawn play keeps its offense and lines, with the formation defense in place of its own', () => {
+    const entry = { ...drawn(), builder: { ...drawn().builder!, strokes: [{ role: '3', kind: 'run', points: [{ x: 0, y: -5 }, { x: 3, y: 2 }] }] as any } };
+    const out = playWithDefense(entry, card, { key: '53_C3', moves: {} });
+    assert.equal(out.builder!.defenseKey, '53_C3');
+    assert.equal(out.builder!.strokes!.length, 1);
+    assert.equal(out.builder!.baseKey, entry.builder.baseKey);
+    assert.notEqual(out.diagramUrl, entry.diagramUrl);
+    // Already against that defense, with its own moved defenders: left exactly as drawn.
+    const own = { ...out, builder: { ...out.builder!, overrides: { ...out.builder!.overrides, MIKE: { x: 1, y: 6 } } } };
+    assert.equal(playWithDefense(own, card, { key: '53_C3', moves: { MIKE: { x: 2, y: 7 } } }), own);
+  });
+
+  it('the scouting report picture uses the formation defense', () => {
+    const entry = drawn();
+    const db = [{ ...entry, builder: { ...entry.builder!, strokes: [] } }];
+    const vs44 = oppPlayDiagram(card, db as any, undefined, []);
+    const vs53 = oppPlayDiagram(card, db as any, undefined, [formation('53_C3')]);
+    assert.ok(vs53 && vs44 && vs53 !== vs44);
   });
 });

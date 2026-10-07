@@ -278,10 +278,10 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         key: g.key,
         label: g.label,
         detail: [g.plays.map((p) => p.name).join(' · '), snaps ? `ran it ${snaps} time${snaps === 1 ? '' : 's'}` : ''].filter(Boolean).join(' — '),
-        diagram: oppPlayDiagram(lead, playDatabase, bundle.backfieldBases),
+        diagram: oppPlayDiagram(lead, playDatabase, bundle.backfieldBases, bundle.oppFormations),
       };
     });
-  }, [isCallSheetOpen, scoutTarget, bundle.playLibraries, bundle.plays, bundle.backfieldBases, playDatabase]);
+  }, [isCallSheetOpen, scoutTarget, bundle.playLibraries, bundle.plays, bundle.backfieldBases, bundle.oppFormations, playDatabase]);
 
   // The sideline sheet: our calls against each of their formations (with our defense lined up against it).
   const formationPlans = useMemo(() => {

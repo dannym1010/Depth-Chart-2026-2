@@ -167,7 +167,7 @@ import { missingPracticePlans } from './utils/autoPracticePlans';
 import { clearPlayBuilderSeed, consumeSeedHold, holdPlayBuilderSeed, mergeBuilderSave, savePlayBuilderSeed, type PlayBuilderSeed } from './utils/playBuilderSeed';
 import { builderFromFormation, cardForSnap, isScoutPlayEntry, planLines, realCall, renameOppCall, linkSnapsToCall, snapsForCall, type OppFormation, type ScoutOppPlay } from './utils/scoutOppPlays';
 import type { Play as FilmPlay } from './hudlScout/types/football';
-import { backfieldOf, baseKeysForGame, openFormation, redrawWithBackfield, spotsForGame } from './utils/filmBackfields';
+import { backfieldOf, baseKeysForGame, formationDefense, formationOfPlay, openFormation, playWithDefense, redrawWithBackfield, spotsForGame } from './utils/filmBackfields';
 import { BACKFIELD_STRUCTURES } from './utils/footballEngine';
 import { newPlayEntry } from './utils/playbookImport';
 import { clearFilmCutup, consumeCutupHold, holdFilmCutup, saveFilmCutup } from './utils/filmCutup';
@@ -4482,11 +4482,17 @@ export default function App() {
       playEntryId: entryId,
       snaps,
       watchLabel: group?.label,
-      // A play drawn before re-opens as it was left; a new one from their formation starts lined up in it.
+      // A play drawn before re-opens as it was left, against the defense set on its formation; a new one
+      // from their formation starts lined up in it.
       builder:
-        mine.find((p) => p.id === entryId)?.builder ||
         (() => {
-          const f = (hudl?.oppFormations || []).find((x: OppFormation) => x?.id === play.formationId && !x.deleted);
+          const drawn = mine.find((p) => p.id === entryId);
+          if (!drawn?.builder) return undefined;
+          const d = formationDefense(formationOfPlay(play, hudl?.oppFormations), full);
+          return d ? playWithDefense(drawn, play, d, hudl?.backfieldBases).builder : drawn.builder;
+        })() ||
+        (() => {
+          const f = formationOfPlay(play, hudl?.oppFormations);
           return f ? builderFromFormation(f, play.name) : undefined;
         })(),
       filmBases: spotsForGame(hudl?.backfieldBases, play.gameId),

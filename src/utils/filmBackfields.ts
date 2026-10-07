@@ -24,7 +24,7 @@ import {
   type BackfieldSpots,
   type PlayStroke,
 } from './footballEngine';
-import type { ScoutOppPlay } from './scoutOppPlays';
+import { formationKey, type OppFormation, type ScoutOppPlay } from './scoutOppPlays';
 import { baseLookKey, withMyAlignment } from '../hudlScout/utils/ourDefense';
 
 export interface FilmBackfieldBase {
@@ -99,10 +99,12 @@ export function redrawWithBackfield(
   entry: PlayDatabaseEntry,
   card: ScoutOppPlay,
   backfield: string,
-  spots: BackfieldSpots,
-  spotBaseKey?: string
+  spots: BackfieldSpots | undefined,
+  spotBaseKey?: string,
+  /** Our defense from their formation, in place of the play's own. */
+  ourDefense?: DefenseSetting | null
 ): PlayDatabaseEntry {
-  const b = entry.builder;
+  const b = ourDefense && entry.builder ? builderWithDefense(entry.builder, ourDefense) : entry.builder;
   const setup = callSetup(card);
   const formed = spotBaseKey && BASE_FORMATIONS[spotBaseKey] ? spotBaseKey : '';
   const baseKey = formed || b?.baseKey || setup.baseKey;
@@ -142,16 +144,18 @@ export function redrawWithBackfield(
     tags: drawTags,
     family: runMode ? 'run' : tagged.family,
   });
-  const lookKey = b ? b.defenseKey : setup.personnel >= 30 ? '53_C3' : strength === 'Right' ? '44_C3_RIP' : '44_C3_LIZ';
+  const lookKey = ourDefense?.key || (b ? b.defenseKey : setup.personnel >= 30 ? '53_C3' : strength === 'Right' ? '44_C3_RIP' : '44_C3_LIZ');
+  if (ourDefense && !b) Object.assign(overrides, ourDefense.moves);
   // Our defense as the coach set it in the builder: lined up on this formation, moved defenders kept,
   // and the lines drawn for defenders kept (the offense's lines are drawn again).
   const look = lookKey ? (OUR_DEFENSE_LOOKS[lookKey] || OUR_DEFENSE_LOOKS[baseLookKey(lookKey)])?.nodes || [] : [];
-  const whoByRole = b?.defensePlayers || {};
+  const whoByRole = b?.defensePlayers || ourDefense?.players || {};
   const defense = applyNodeOverrides(withMyAlignment(lookKey, alignDefenseTechniques(look, nodes)), overrides).map((n) => {
     const moved = named(overrides[n.role] ? n : { ...n, x: n.x + hashDx });
     return whoByRole[n.role] ? { ...moved, player: whoByRole[n.role] } : moved;
   });
-  const savedStrokes = (b?.strokes as PlayStroke[] | undefined) || [];
+  // A different defense than the one the lines were drawn for: its lines don't belong to these defenders.
+  const savedStrokes = ourDefense && entry.builder?.defenseKey !== ourDefense.key ? [] : (b?.strokes as PlayStroke[] | undefined) || [];
   const defenseStrokes = savedStrokes.filter(
     (st) => st.points?.length && defense.some((d) => isDefenseRole(d.role) && Math.hypot(st.points[0].x - d.x, st.points[0].y - d.y) < 1.4)
   );
@@ -170,7 +174,7 @@ export function redrawWithBackfield(
     tags,
     coachNote: b?.coachNote || card.notes || '',
     situations: b?.situations || [],
-    defenseKey: b?.defenseKey ?? lookKey,
+    defenseKey: lookKey,
     putDefInName: Boolean(b?.putDefInName),
     overrides,
     ...(b?.labels ? { labels: b.labels } : {}),
@@ -191,8 +195,19 @@ export function redrawWithBackfield(
  * The picture of one of their plays: as saved from the builder (with our defense as the coach set it),
  * redrawn on this film's backfield when one is saved, or drawn from its name.
  */
-export function oppPlayDiagram(play: ScoutOppPlay, playDatabase: PlayDatabaseEntry[] = [], bases?: FilmBackfieldBases): string | undefined {
+export function oppPlayDiagram(
+  play: ScoutOppPlay,
+  playDatabase: PlayDatabaseEntry[] = [],
+  bases?: FilmBackfieldBases,
+  /** Their formations: a play shows the defense set on its formation. */
+  formations?: OppFormation[]
+): string | undefined {
   const entry = playDatabase.find((p) => p.id === `scout_${play.id}`);
+  const d = formationDefense(formationOfPlay(play, formations), playDatabase);
+  if (d) {
+    const drawn = playWithDefense(entry || ({ id: `scout_${play.id}`, name: play.name, diagramUrl: '' } as PlayDatabaseEntry), play, d, bases);
+    if (drawn.diagramUrl) return drawn.diagramUrl;
+  }
   // Drawn in the builder: exactly what was saved there (a film backfield change already saved it again).
   if (entry?.builder && entry.diagramUrl) return entry.diagramUrl;
   const backfield = backfieldOf(play, entry);
@@ -213,4 +228,109 @@ export function oppPlayDiagram(play: ScoutOppPlay, playDatabase: PlayDatabaseEnt
 /** The play a play type is drawn on: the first one the coach drew in the builder, else the first one. */
 export function leadOppPlay(plays: ScoutOppPlay[], playDatabase: PlayDatabaseEntry[] = []): ScoutOppPlay {
   return plays.find((p) => playDatabase.some((e) => e.id === `scout_${p.id}` && e.builder)) || plays[0];
+}
+
+/** Our defense against one of their formations: the look, defenders the coach moved, and who's tagged in. */
+export interface DefenseSetting {
+  key: string;
+  moves: Record<string, { x: number; y: number }>;
+  players?: PlayBuilderState['defensePlayers'];
+  unit?: PlayBuilderState['defenseUnit'];
+  who?: PlayBuilderState['defenseWho'];
+}
+
+const lookRoles = (key?: string) => {
+  const look = key ? OUR_DEFENSE_LOOKS[key] || OUR_DEFENSE_LOOKS[baseLookKey(key)] : undefined;
+  return new Set((look?.nodes || []).map((n) => n.role));
+};
+
+/**
+ * The defense set on their formation: the one drawn on it in the builder, else the base call from
+ * "Our calls vs their formations" (that defensive play's front).
+ */
+export function formationDefense(f: OppFormation | null | undefined, playDatabase: PlayDatabaseEntry[] = []): DefenseSetting | null {
+  if (!f || f.deleted) return null;
+  const b = f.builder;
+  if (b?.defenseKey) {
+    const roles = lookRoles(b.defenseKey);
+    const moves = Object.fromEntries(Object.entries(b.overrides || {}).filter(([role]) => roles.has(role) || isDefenseRole(role)));
+    return { key: b.defenseKey, moves, players: b.defensePlayers, unit: b.defenseUnit, who: b.defenseWho };
+  }
+  const base = f.plan?.base ? playDatabase.find((p) => p.id === f.plan!.base)?.builder?.defenseKey : '';
+  return base ? { key: base, moves: {} } : null;
+}
+
+/** Their formation a play belongs to: the one it was drawn from, else the one with its formation's name. */
+export function formationOfPlay(card: ScoutOppPlay, formations?: OppFormation[]): OppFormation | undefined {
+  const live = (formations || []).filter((f) => f?.id && !f.deleted);
+  return (card.formationId && live.find((f) => f.id === card.formationId)) || (card.formation ? live.find((f) => formationKey(f.name) === formationKey(card.formation)) : undefined);
+}
+
+/**
+ * Whether a play has to change to show the formation's defense. Another defense: yes. The same one: only to
+ * pick up the formation's moved defenders when the play hasn't moved any of its own.
+ */
+function defenseDiffers(b: PlayBuilderState, d: DefenseSetting): boolean {
+  if (b.defenseKey !== d.key) return true;
+  const roles = lookRoles(d.key);
+  const ownMoves = Object.keys(b.overrides || {}).some((r) => roles.has(r));
+  return !ownMoves && Object.keys(d.moves).length > 0;
+}
+
+/** The play's builder with the formation's defense (offense untouched). */
+export function builderWithDefense(b: PlayBuilderState, d: DefenseSetting): PlayBuilderState {
+  if (!defenseDiffers(b, d)) return b;
+  const defRoles = new Set([...lookRoles(b.defenseKey), ...lookRoles(d.key)]);
+  const offense = Object.fromEntries(Object.entries(b.overrides || {}).filter(([role]) => !defRoles.has(role) && !isDefenseRole(role)));
+  const { defensePlayers: _p, defenseWho: _w, ...rest } = b;
+  return {
+    ...rest,
+    defenseKey: d.key,
+    overrides: { ...offense, ...d.moves },
+    ...(d.unit ? { defenseUnit: d.unit } : {}),
+    ...(d.who ? { defenseWho: d.who } : {}),
+    ...(d.players ? { defensePlayers: d.players } : {}),
+  };
+}
+
+/**
+ * One of their plays against the defense set on its formation. A play drawn in the builder keeps its own
+ * lines and spots exactly (only the defense changes); one never drawn is drawn from its name on the film's
+ * backfield. Unchanged when the play already shows that defense.
+ */
+export function playWithDefense(entry: PlayDatabaseEntry, card: ScoutOppPlay, d: DefenseSetting, bases?: FilmBackfieldBases): PlayDatabaseEntry {
+  const b0 = entry.builder;
+  if (b0 && !defenseDiffers(b0, d)) return entry;
+  const backfield = b0?.backfield || backfieldOf(card, entry);
+  const film = bases?.[card.gameId]?.[backfield];
+  // Lines drawn by the play's own rules (never hand-drawn): drawn again, the way a film backfield change does.
+  if (!b0?.strokes) return redrawWithBackfield(entry, card, backfield, film?.spots, film?.baseKey, d);
+  const b = builderWithDefense(b0, d);
+  const concept = b.family === 'all' || b.family === 'run' ? (RUN_SCHEMES.find((r) => r.id === b.runId) || RUN_SCHEMES[0]).conceptKey : b.conceptKey;
+  const basePlay = tryAssemblePlay(b.baseKey, backfield, concept, b.strength, b.tags || [], film?.spots, film?.baseKey);
+  if (!basePlay) return entry;
+  // The same steps as the builder: offense spots, then our defense lined up on it.
+  const hashDx = b.hash === 'Left' ? -4.2 : b.hash === 'Right' ? 4.2 : 0;
+  const names = b.labels || {};
+  const place = <T extends { role: string; x: number }>(n: T, ov: Record<string, unknown>): T => {
+    const moved = ov[n.role] ? n : { ...n, x: n.x + hashDx };
+    return names[n.role] ? { ...moved, label: names[n.role] } : moved;
+  };
+  const offNodes = applyNodeOverrides(basePlay.nodes, b.overrides).map((n) => place(n, b.overrides));
+  const lineUp = (key: string, ov: Record<string, { x: number; y: number }>) => {
+    const look = OUR_DEFENSE_LOOKS[key] || OUR_DEFENSE_LOOKS[baseLookKey(key)];
+    if (!look) return [];
+    return applyNodeOverrides(withMyAlignment(key, alignDefenseTechniques(look.nodes, offNodes)), ov).map((n) => place(n, ov));
+  };
+  // The old defenders' lines go with them; the offense's lines stay as drawn.
+  const oldDefense = lineUp(b0.defenseKey, b0.overrides || {});
+  const startsOnOld = (st: PlayStroke) => st.points?.[0] && oldDefense.some((n) => Math.hypot(st.points[0].x - n.x, st.points[0].y - n.y) < 1.4);
+  const strokes = (b0.strokes as PlayStroke[]).filter((st) => !startsOnOld(st));
+  const who = b.defensePlayers || {};
+  const defense = lineUp(d.key, b.overrides).map((n) => (who[n.role] ? { ...n, player: who[n.role] } : n));
+  return {
+    ...entry,
+    builder: { ...b, strokes },
+    diagramUrl: diagramSvg({ ...basePlay, nodes: offNodes }, strokes, defense, String(b.ball)),
+  };
 }

@@ -9,7 +9,7 @@ import { playNameKey } from '../../utils/playbookImport';
 import { resolveDiagram, unsavedDiagram } from '../../utils/playDiagrams';
 import { drawCall } from '../../utils/callDiagram';
 import { BACKFIELD_STRUCTURES } from '../../utils/footballEngine';
-import { backfieldOf, leadOppPlay, redrawWithBackfield, type FilmBackfieldBases } from '../../utils/filmBackfields';
+import { backfieldOf, formationDefense, formationOfPlay, leadOppPlay, playWithDefense, redrawWithBackfield, type FilmBackfieldBases } from '../../utils/filmBackfields';
 import {
   buildScoutScript,
   groupOppPlays,
@@ -158,6 +158,12 @@ export const ScoutOppPlayLibrary: React.FC<{
   }, [onTheReport.map((p) => `${p.id}:${p.name}:${p.formation}:${p.personnel}:${p.kind}`).join('|'), playDatabase, backfieldBases]);
   const diagramFor = (play: ScoutOppPlay) => {
     const entry = (playDatabase || []).find((p) => p.id === `scout_${play.id}`);
+    // Against the defense set on their formation (the play's own lines kept).
+    const d = formationDefense(formationOfPlay(play, formations), playDatabase || []);
+    if (d) {
+      const drawn = playWithDefense(entry || ({ id: `scout_${play.id}`, name: play.name, diagramUrl: '' } as PlayDatabaseEntry), play, d, backfieldBases);
+      if (drawn.diagramUrl) return drawn.diagramUrl;
+    }
     // Drawn in the builder: exactly what was saved there (a film backfield change already saved it again).
     if (entry?.builder && entry.diagramUrl) return entry.diagramUrl;
     const backfield = backfieldOf(play, entry);
