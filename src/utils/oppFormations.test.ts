@@ -152,3 +152,15 @@ describe('their plays show the defense set on their formation', () => {
     assert.ok(vs53 && vs44 && vs53 !== vs44);
   });
 });
+
+describe('putting the scout script in order', async () => {
+  const { orderScript } = await import('./scoutOppPlays.ts');
+  const card = (id: string, down: string, formation: string, kind: string) => ({ id, down, formation, kind, name: id }) as any;
+  const plays = [card('a', '3rd', 'Trips', 'pass'), card('b', '1st', 'Pro', 'run'), card('c', '1st', 'Trips', 'run'), card('d', 'red', 'Pro', 'pass'), card('e', '2nd', '', 'screen')];
+  const ids = (list: any[]) => list.map((p) => p.id).join('');
+  it('by down, keeping ties in order', () => assert.equal(ids(orderScript(plays, 'down')), 'bcead'));
+  it('by formation, in the order they first come up; none last', () => assert.equal(ids(orderScript(plays, 'formation')), 'acbde'));
+  it('runs, then screens, then passes', () => assert.equal(ids(orderScript(plays, 'kind')), 'bcead'));
+  it('mixes runs and passes', () => assert.equal(ids(orderScript(plays, 'mix')), 'bacde'));
+  it('as on the film', () => assert.equal(ids(orderScript(plays, 'film', [plays[4], plays[3], plays[2], plays[1], plays[0]])), 'edcba'));
+});

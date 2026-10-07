@@ -572,3 +572,49 @@ export function scoutScriptPrintHtml(
     .empty { margin-top: 8px; font-size: 11px; color: #666; border: 1px dashed #ccc; border-radius: 6px; padding: 16px 8px; text-align: center; }
   </style></head><body><h1>${esc(title)}</h1>${sections}</body></html>`;
 }
+
+/** Ways to put the scout script in order at once (then fine-tune by hand). */
+export type ScriptOrder = 'down' | 'formation' | 'kind' | 'mix' | 'film';
+export const SCRIPT_ORDERS: { id: ScriptOrder; label: string }[] = [
+  { id: 'down', label: 'By down (1st, 2nd, 3rd, red zone)' },
+  { id: 'formation', label: 'By formation' },
+  { id: 'kind', label: 'Runs, then passes' },
+  { id: 'mix', label: 'Mix runs and passes' },
+  { id: 'film', label: 'As on the film' },
+];
+
+const DOWN_RANK: Record<string, number> = { '1st': 0, '2nd': 1, '3rd': 2, red: 3 };
+const KIND_RANK: Record<string, number> = { run: 0, rpo: 1, screen: 2, pass: 3 };
+
+/**
+ * The script in one of those orders. Plays that tie keep their current order, so ordering by down after
+ * ordering by formation keeps each down's formations together.
+ */
+export function orderScript(plays: ScoutOppPlay[], by: ScriptOrder, filmOrder?: ScoutOppPlay[]): ScoutOppPlay[] {
+  const at = new Map(plays.map((p, i) => [p.id, i]));
+  const stable = (rank: (p: ScoutOppPlay) => number) => [...plays].sort((a, b) => rank(a) - rank(b) || at.get(a.id)! - at.get(b.id)!);
+  if (by === 'down') return stable((p) => DOWN_RANK[p.down] ?? 4);
+  if (by === 'kind') return stable((p) => KIND_RANK[p.kind] ?? 4);
+  if (by === 'formation') {
+    // Formations in the order they first come up; no formation last.
+    const first = new Map<string, number>();
+    plays.forEach((p, i) => {
+      const k = formationKey(p.formation);
+      if (k && !first.has(k)) first.set(k, i);
+    });
+    return stable((p) => first.get(formationKey(p.formation)) ?? plays.length);
+  }
+  if (by === 'film') {
+    const film = new Map((filmOrder || []).map((p, i) => [p.id, i]));
+    return stable((p) => film.get(p.id) ?? Number.MAX_SAFE_INTEGER);
+  }
+  // Mix: run, pass, run, pass… while both last, then whatever is left.
+  const runs = plays.filter((p) => p.kind === 'run');
+  const others = plays.filter((p) => p.kind !== 'run');
+  const out: ScoutOppPlay[] = [];
+  while (runs.length || others.length) {
+    if (runs.length) out.push(runs.shift()!);
+    if (others.length) out.push(others.shift()!);
+  }
+  return out;
+}

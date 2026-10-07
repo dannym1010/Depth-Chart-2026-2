@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp, GripVertical, Layers, Pencil, Play as PlayIcon, Plus, Printer, Shield, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, GripVertical, Image as ImageIcon, Layers, Pencil, Play as PlayIcon, Plus, Printer, Shield, X } from 'lucide-react';
 import type { ScoutGame } from '../../hudlScout/components/Header';
 import type { Play } from '../../hudlScout/types/football';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { DiagramImage } from '../playbook/DiagramImage';
 import { openFilmWindow } from '../../filmroom/filmWindowStore';
-import { playNameKey } from '../../utils/playbookImport';
+import { inferPlayType, playNameKey } from '../../utils/playbookImport';
 import { resolveDiagram, unsavedDiagram } from '../../utils/playDiagrams';
 import { drawCall } from '../../utils/callDiagram';
 import { BACKFIELD_STRUCTURES } from '../../utils/footballEngine';
@@ -27,6 +27,9 @@ import {
   scoutScriptPrintHtml,
   type ScoutOppPlay,
   type ScoutPracticeScript,
+  orderScript,
+  SCRIPT_ORDERS,
+  type ScriptOrder,
 } from '../../utils/scoutOppPlays';
 
 const INPUT = 'h-9 w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm';
@@ -96,6 +99,25 @@ export const ScoutOppPlayLibrary: React.FC<{
   const [filmName, setFilmName] = useState('');
   const [printNote, setPrintNote] = useState('');
   const [drag, setDrag] = useState<{ list: 'film' | 'script'; index: number } | null>(null);
+  // The script: short rows to arrange fast, or with each play's picture (remembered on this device).
+  const [scriptPics, setScriptPics] = useState(() => {
+    try {
+      return localStorage.getItem('scoutScriptPictures') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleScriptPics = () =>
+    setScriptPics((on) => {
+      try {
+        localStorage.setItem('scoutScriptPictures', on ? '0' : '1');
+      } catch {
+        // per-device preference only
+      }
+      return !on;
+    });
+  // Dragging a script row (mouse or finger): the order as it would land, shown while dragging.
+  const [scriptDrag, setScriptDrag] = useState<{ id: string; order: string[] } | null>(null);
   // Same play run either way (L / R, or another back to the other hole) shown as one play type.
   const [combine, setCombine] = useState(() => {
     try {
@@ -240,6 +262,29 @@ export const ScoutOppPlayLibrary: React.FC<{
     const next = moveItem(onTheReport, from, to);
     if (next === onTheReport) return;
     onSave(libraries, deletedIds, buildScoutScript(next, opponent));
+  };
+  /** The script in this order (play ids). */
+  const setScriptOrder = (ids: string[]) => {
+    const next = orderByIds(onTheReport, ids);
+    if (next.every((p, i) => p.id === onTheReport[i]?.id)) return;
+    onSave(libraries, deletedIds, buildScoutScript(next, opponent));
+  };
+  /** Move a play straight to a spot (0 = first). */
+  const moveScriptTo = (id: string, to: number) => {
+    const from = onTheReport.findIndex((p) => p.id === id);
+    if (from < 0) return;
+    reorderScript(from, Math.max(0, Math.min(onTheReport.length - 1, to)));
+  };
+  const orderScriptBy = (by: ScriptOrder) => {
+    const filmOrder = [...games.flatMap((g) => libraries[g.id] || []), ...Object.values(libraries).flat()];
+    // A play left at the default (run) goes by what its name says ("BUBBLE PASS" is a pass).
+    const typed = onTheReport.map((p) => {
+      if (p.kind !== 'run') return p;
+      const t = (playDatabase || []).find((e) => e.id === `scout_${p.id}`)?.type || inferPlayType(p.name, 'offense');
+      const kind: ScoutOppPlay['kind'] = t === 'pass' || t === 'play_action' ? 'pass' : t === 'screen' ? 'screen' : t === 'rpo' ? 'rpo' : 'run';
+      return kind === p.kind ? p : { ...p, kind };
+    });
+    setScriptOrder(orderScript(typed, by, filmOrder).map((p) => p.id));
   };
 
   const addPlay = () => {
@@ -983,75 +1028,138 @@ export const ScoutOppPlayLibrary: React.FC<{
       <section className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 space-y-3 lg:sticky lg:top-3 h-fit">
         <div>
           <h2 className="text-sm font-black">{script.title}</h2>
-          <p className="text-xs text-slate-500 mt-0.5">{onTheReport.length} play{onTheReport.length === 1 ? '' : 's'} on the report. Drag to set the practice order. Print follows this order. This is separate from the practice plan.</p>
+          <p className="text-xs text-slate-500 mt-0.5">{onTheReport.length} play{onTheReport.length === 1 ? '' : 's'} on the report. Drag the handle, type a number, or put them in order at once. Print follows this order.</p>
         </div>
+        {script.lines.length > 1 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              aria-label="Put the script in order"
+              value=""
+              onChange={(e) => e.target.value && orderScriptBy(e.target.value as ScriptOrder)}
+              className="h-8 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-xs font-bold"
+            >
+              <option value="">Order by…</option>
+              {SCRIPT_ORDERS.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              aria-pressed={scriptPics}
+              onClick={toggleScriptPics}
+              className={`h-8 px-2.5 rounded-lg border text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer ${scriptPics ? 'border-indigo-500 text-indigo-700 dark:text-indigo-300' : 'border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300'}`}
+            >
+              <ImageIcon className="w-3.5 h-3.5" /> Pictures
+            </button>
+          </div>
+        )}
         {script.lines.length === 0 ? (
           <p className="text-sm text-slate-500">Check plays to build the practice script.</p>
         ) : (
-          <ol className="space-y-2">
-            {script.lines.map((line, index) => {
+          <ol className="space-y-1.5">
+            {(scriptDrag ? scriptDrag.order.map((id) => script.lines.find((l) => l.playId === id)!).filter(Boolean) : script.lines).map((line, index, shown) => {
               const play = onTheReport.find((p) => p.id === line.playId);
-              const diagram = play ? diagramFor(play) : undefined;
+              const diagram = scriptPics && play ? diagramFor(play) : undefined;
+              const dragging = scriptDrag?.id === line.playId;
               return (
                 <li
                   key={line.playId}
-                  className={`rounded-lg border p-2 ${drag?.list === 'script' && drag.index === index ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30' : 'border-slate-200 dark:border-slate-700'}`}
-                  onDragOver={(e) => {
-                    if (drag?.list === 'script') e.preventDefault();
-                  }}
-                  onDrop={() => {
-                    if (drag?.list === 'script') reorderScript(drag.index, index);
-                    setDrag(null);
-                  }}
+                  data-script-id={line.playId}
+                  className={`rounded-lg border ${scriptPics ? 'p-2' : 'px-1.5 py-1'} ${dragging ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 shadow-md' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900'}`}
                 >
-                  <div className="flex items-start gap-1.5">
+                  <div className="flex items-center gap-1.5">
                     <button
                       type="button"
-                      draggable
                       aria-label={`Drag ${line.name}`}
-                      onDragStart={() => setDrag({ list: 'script', index })}
-                      onDragEnd={() => setDrag(null)}
-                      className="mt-0.5 cursor-grab text-slate-400 active:cursor-grabbing"
+                      title="Drag to move"
+                      className="touch-none cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 p-0.5"
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        e.currentTarget.setPointerCapture(e.pointerId);
+                        setScriptDrag({ id: line.playId, order: script.lines.map((l) => l.playId) });
+                      }}
+                      onPointerMove={(e) => {
+                        if (!scriptDrag) return;
+                        // Near the top or bottom of the window: scroll, so a long script can be crossed.
+                        if (e.clientY < 70) window.scrollBy(0, -14);
+                        else if (e.clientY > window.innerHeight - 70) window.scrollBy(0, 14);
+                        const over = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest('[data-script-id]') as HTMLElement | null;
+                        const overId = over?.dataset.scriptId;
+                        if (!overId || overId === scriptDrag.id) return;
+                        const to = scriptDrag.order.indexOf(overId);
+                        const rest = scriptDrag.order.filter((x) => x !== scriptDrag.id);
+                        rest.splice(to, 0, scriptDrag.id);
+                        setScriptDrag({ ...scriptDrag, order: rest });
+                      }}
+                      onPointerUp={() => {
+                        if (scriptDrag) setScriptOrder(scriptDrag.order);
+                        setScriptDrag(null);
+                      }}
+                      onPointerCancel={() => setScriptDrag(null)}
                     >
-                      <GripVertical className="w-3.5 h-3.5" />
+                      <GripVertical className="w-4 h-4" />
                     </button>
-                    <div className="flex flex-col">
-                      <button type="button" aria-label={`Move ${line.name} up in the script`} disabled={index === 0} onClick={() => reorderScript(index, index - 1)} className="text-slate-400 disabled:opacity-20 cursor-pointer">
-                        <ChevronUp className="w-3.5 h-3.5" />
-                      </button>
-                      <button type="button" aria-label={`Move ${line.name} down in the script`} disabled={index === script.lines.length - 1} onClick={() => reorderScript(index, index + 1)} className="text-slate-400 disabled:opacity-20 cursor-pointer">
-                        <ChevronDown className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                    <input
+                      key={`${line.playId}-${index}`}
+                      aria-label={`Spot for ${line.name}`}
+                      title="Type a number to move it there"
+                      inputMode="numeric"
+                      defaultValue={index + 1}
+                      onFocus={(e) => e.target.select()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                      }}
+                      onBlur={(e) => {
+                        const n = parseInt(e.target.value, 10);
+                        if (Number.isFinite(n) && n - 1 !== index) moveScriptTo(line.playId, n - 1);
+                        else e.target.value = String(index + 1);
+                      }}
+                      className="w-8 h-7 shrink-0 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-center text-xs font-black tabular-nums"
+                    />
                     <button
                       type="button"
                       className="min-w-0 flex-1 text-left cursor-pointer disabled:cursor-default"
                       disabled={!play || !onDraw}
                       onClick={() => play && onDraw?.(play)}
+                      title={onDraw && play ? 'Open in play builder' : undefined}
                     >
-                      <div className="text-sm font-black">{index + 1}. {line.name}</div>
-                      {line.detail && <div className="text-[11px] text-slate-500">{line.detail}</div>}
-                      {onDraw && play && <div className="text-[11px] text-slate-500">Open in play builder</div>}
+                      <div className="text-sm font-black truncate">{line.name}</div>
+                      {line.detail && <div className={`text-[11px] text-slate-500 ${scriptPics ? '' : 'truncate'}`}>{line.detail}</div>}
                     </button>
-                  </div>
-                  {diagram ? (
-                    <>
-                      <button
-                        type="button"
-                        className="mt-1 block w-full cursor-pointer disabled:cursor-default"
-                        disabled={!play || !onDraw}
-                        aria-label={`Open ${line.name}`}
-                        onClick={() => play && onDraw?.(play)}
-                      >
-                        <DiagramImage url={diagram} alt={line.name} className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white" />
+                    <div className="flex items-center shrink-0 text-slate-400">
+                      <button type="button" aria-label={`Move ${line.name} to the top`} title="To the top" disabled={index === 0} onClick={() => moveScriptTo(line.playId, 0)} className="p-0.5 disabled:opacity-20 cursor-pointer hover:text-slate-700">
+                        <ChevronsUp className="w-4 h-4" />
                       </button>
-                      {play && !savedDiagram(play) && (
-                        <p className="mt-0.5 text-[10px] text-slate-400">Drawn from the play name.</p>
-                      )}
-                    </>
-                  ) : (
-                    <p className="mt-1 text-[11px] text-slate-400">No diagram yet. Open the play to draw it.</p>
-                  )}
+                      <button type="button" aria-label={`Move ${line.name} up in the script`} disabled={index === 0} onClick={() => reorderScript(index, index - 1)} className="p-0.5 disabled:opacity-20 cursor-pointer hover:text-slate-700">
+                        <ChevronUp className="w-4 h-4" />
+                      </button>
+                      <button type="button" aria-label={`Move ${line.name} down in the script`} disabled={index === shown.length - 1} onClick={() => reorderScript(index, index + 1)} className="p-0.5 disabled:opacity-20 cursor-pointer hover:text-slate-700">
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                      <button type="button" aria-label={`Move ${line.name} to the bottom`} title="To the bottom" disabled={index === shown.length - 1} onClick={() => moveScriptTo(line.playId, shown.length - 1)} className="p-0.5 disabled:opacity-20 cursor-pointer hover:text-slate-700">
+                        <ChevronsDown className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  {scriptPics &&
+                    (diagram ? (
+                      <>
+                        <button
+                          type="button"
+                          className="mt-1 block w-full cursor-pointer disabled:cursor-default"
+                          disabled={!play || !onDraw}
+                          aria-label={`Open ${line.name}`}
+                          onClick={() => play && onDraw?.(play)}
+                        >
+                          <DiagramImage url={diagram} alt={line.name} className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white" />
+                        </button>
+                        {play && !savedDiagram(play) && <p className="mt-0.5 text-[10px] text-slate-400">Drawn from the play name.</p>}
+                      </>
+                    ) : (
+                      <p className="mt-1 text-[11px] text-slate-400">No diagram yet. Open the play to draw it.</p>
+                    ))}
                 </li>
               );
             })}
