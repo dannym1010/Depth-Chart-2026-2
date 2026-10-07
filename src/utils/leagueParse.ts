@@ -204,3 +204,73 @@ export function forLevel(data: LeagueData, level: string, ourTeam: string) {
     isOurs,
   };
 }
+
+export interface ClubLevelRecord {
+  level: string;
+  /** Overall record: from the latest standings when the team is in them, else counted from the posted scores. */
+  w: number;
+  l: number;
+  t: number;
+  /** Division record (standings only). */
+  div?: { w: number; l: number; t: number };
+  division?: string;
+  /** Points for and against in the posted scores. */
+  pf: number;
+  pa: number;
+  fromStandings: boolean;
+}
+
+const levelNum = (l: string) => Number((l.match(/\d+/) || [])[0]) || 99;
+
+/** Every team name in the league files (all levels), A to Z. */
+export function leagueClubs(data: LeagueData): string[] {
+  const names = new Set<string>();
+  for (const g of [...data.schedule, ...data.results]) {
+    if (g.home) names.add(clean(g.home));
+    if (g.away) names.add(clean(g.away));
+  }
+  for (const s of data.standings) for (const d of s.divisions) for (const r of d.rows) names.add(clean(r.team));
+  return [...names].filter(Boolean).sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * One club's record at every age level (8U, 9U, 10U...) and all of them added up. The standings' overall
+ * record is used when the club is in them (it counts every game); otherwise the posted scores are counted.
+ */
+export function clubSummary(data: LeagueData, club: string): { levels: ClubLevelRecord[]; total: { w: number; l: number; t: number; pf: number; pa: number } } {
+  const levels = [...new Set([...data.schedule, ...data.results].map((g) => g.level.toUpperCase()).concat(data.standings.map((s) => s.level.toUpperCase())))];
+  const out: ClubLevelRecord[] = [];
+  for (const level of levels) {
+    const games = data.results.filter((g) => sameLevel(g.level, level) && (sameTeam(g.home, club) || sameTeam(g.away, club)) && g.homeScore != null && g.awayScore != null);
+    let w = 0, l = 0, t = 0, pf = 0, pa = 0;
+    for (const g of games) {
+      const us = sameTeam(g.home, club) ? g.homeScore! : g.awayScore!;
+      const them = sameTeam(g.home, club) ? g.awayScore! : g.homeScore!;
+      pf += us;
+      pa += them;
+      if (us > them) w++;
+      else if (us < them) l++;
+      else t++;
+    }
+    const stand = data.standings.find((s) => sameLevel(s.level, level));
+    let row: StandingRow | undefined;
+    let division: string | undefined;
+    for (const d of stand?.divisions || []) {
+      const r = d.rows.find((x) => sameTeam(x.team, club));
+      if (r) {
+        row = r;
+        division = d.name;
+      }
+    }
+    const scheduled = data.schedule.some((g) => sameLevel(g.level, level) && (sameTeam(g.home, club) || sameTeam(g.away, club)));
+    if (!row && !games.length && !scheduled) continue;
+    out.push(
+      row
+        ? { level, w: row.ow, l: row.ol, t: row.ot, div: { w: row.w, l: row.l, t: row.t }, division, pf, pa, fromStandings: true }
+        : { level, w, l, t, pf, pa, fromStandings: false }
+    );
+  }
+  out.sort((a, b) => levelNum(a.level) - levelNum(b.level));
+  const total = out.reduce((s, r) => ({ w: s.w + r.w, l: s.l + r.l, t: s.t + r.t, pf: s.pf + r.pf, pa: s.pa + r.pa }), { w: 0, l: 0, t: 0, pf: 0, pa: 0 });
+  return { levels: out, total };
+}

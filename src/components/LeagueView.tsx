@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { RefreshCw, Trophy, CalendarDays, ListOrdered, ExternalLink } from 'lucide-react';
 import type { Team } from '../types';
-import { forLevel, sameTeam, type LeagueData, type LeagueGame } from '../utils/leagueParse';
+import { clubSummary, forLevel, leagueClubs, sameLevel, sameTeam, type LeagueData, type LeagueGame } from '../utils/leagueParse';
 import { fetchLeague, leagueIsStale, readCachedLeague } from '../utils/leagueFetch';
 
 const LEAGUE_SITE = 'https://www.taconicyfc.com/Default.aspx?tabid=2251499';
@@ -25,7 +25,7 @@ const isPast = (date: string) => {
   return new Date(y, Number(m[1]) - 1, Number(m[2]) + 1) <= new Date();
 };
 
-type Tab ='ours' | 'scores' | 'standings' | 'schedule';
+type Tab = 'ours' | 'scores' | 'standings' | 'schedule' | 'club';
 
 const card = 'bg-slate-800/90 rounded-2xl border border-slate-700/80 p-4';
 const th = 'py-2 px-2 text-[10px] font-black uppercase tracking-wide text-slate-400 text-right first:text-left whitespace-nowrap';
@@ -83,6 +83,11 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
   const levelTeams = useMemo(() => [...new Set((view?.schedule || []).flatMap((g) => [g.home, g.away]))].sort((a, b) => a.localeCompare(b)), [view]);
   // The team shown on the Team games tab (ours unless a coach picks another).
   const [pickedTeam, setPickedTeam] = useState('');
+  // All levels: one club's record at every age level, added up (ours unless another is picked).
+  const [pickedClub, setPickedClub] = useState('');
+  const clubs = useMemo(() => (data ? leagueClubs(data) : []), [data]);
+  const club = pickedClub && clubs.some((c) => sameTeam(c, pickedClub)) ? pickedClub : clubs.find((c) => sameTeam(c, ourName)) || ourName;
+  const clubView = useMemo(() => (data ? clubSummary(data, club) : null), [data, club]);
   const shownTeam = pickedTeam && levelTeams.some((n) => sameTeam(n, pickedTeam)) ? pickedTeam : ourName;
   const shown = useMemo(() => teamSeason(shownTeam), [view, shownTeam]); // eslint-disable-line react-hooks/exhaustive-deps
   const openTeam = (name: string) => {
@@ -129,6 +134,7 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
     { id: 'scores', label: 'Scores', icon: <ListOrdered className="w-3.5 h-3.5" /> },
     { id: 'standings', label: 'Standings', icon: <Trophy className="w-3.5 h-3.5" /> },
     { id: 'schedule', label: 'League schedule', icon: <CalendarDays className="w-3.5 h-3.5" /> },
+    { id: 'club', label: 'All levels', icon: <ListOrdered className="w-3.5 h-3.5" /> },
   ];
 
   return (
@@ -301,6 +307,70 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
                 ))
               ) : (
                 <div className={`${card} text-sm text-slate-400`}>No {level} standings posted yet.</div>
+              )}
+            </div>
+          )}
+
+          {tab === 'club' && clubView && (
+            <div className={card}>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3 text-xs">
+                <label className="flex items-center gap-2">
+                  <span className="font-bold text-slate-300">Club</span>
+                  <select
+                    value={clubs.find((c) => sameTeam(c, club)) || club}
+                    onChange={(e) => setPickedClub(e.target.value)}
+                    className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-slate-100"
+                  >
+                    {clubs.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                        {sameTeam(c, ourName) ? ' (us)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <span className="text-slate-300">
+                  Every level <b className="text-white text-base tabular-nums">{clubView.total.w}-{clubView.total.l}{clubView.total.t ? `-${clubView.total.t}` : ''}</b>
+                </span>
+              </div>
+              {clubView.levels.length ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-slate-700">
+                        {['Level', 'Record', 'Division', 'Pts for', 'Pts against'].map((h) => (
+                          <th key={h} className={th}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {clubView.levels.map((r) => (
+                        <tr key={r.level} className={`border-b border-slate-700/60 ${sameLevel(r.level, level) && sameTeam(club, ourName) ? 'bg-amber-500/10' : ''}`}>
+                          <td className={`${td} font-black text-slate-100`}>{r.level}</td>
+                          <td className={`${td} font-black text-white`}>
+                            {r.w}-{r.l}{r.t ? `-${r.t}` : ''}
+                            {!r.fromStandings && <span className="ml-1 text-[10px] font-semibold text-slate-400" title="Not in the standings: counted from the posted scores">scores</span>}
+                          </td>
+                          <td className={`${td} text-slate-300`}>{r.div ? `${r.div.w}-${r.div.l}${r.div.t ? `-${r.div.t}` : ''} ${r.division || ''}` : '–'}</td>
+                          <td className={`${td} text-slate-300`}>{r.pf}</td>
+                          <td className={`${td} text-slate-300`}>{r.pa}</td>
+                        </tr>
+                      ))}
+                      <tr className="border-t-2 border-slate-500">
+                        <td className={`${td} font-black text-white`}>All levels</td>
+                        <td className={`${td} font-black text-white`}>{clubView.total.w}-{clubView.total.l}{clubView.total.t ? `-${clubView.total.t}` : ''}</td>
+                        <td className={td} />
+                        <td className={`${td} font-black text-white`}>{clubView.total.pf}</td>
+                        <td className={`${td} font-black text-white`}>{clubView.total.pa}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <p className="mt-2 text-[11px] text-slate-400">
+                    Records are the standings' overall records{data?.standingsWeek ? ` after week ${data.standingsWeek}` : ''} (every game). Points are from the scores the league posted, so a week without results isn't in them.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">No games for {club} in the league files.</p>
               )}
             </div>
           )}

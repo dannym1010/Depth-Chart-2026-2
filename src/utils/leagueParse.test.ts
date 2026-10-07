@@ -74,3 +74,24 @@ test('forLevel keeps one level and puts the scores on the schedule', () => {
   assert.equal(v.ourGames[0].awayScore, 0);
   assert.equal(v.standings?.level, '10U');
 });
+
+test('a club\'s record at every level, added up (standings overall when listed, else the scores)', async () => {
+  const { clubSummary, leagueClubs } = await import('./leagueParse.ts');
+  const row = (team: string, w: number, l: number, ow: number, ol: number) => ({ team, w, l, t: 0, pct: '', ow, ol, ot: 0, opct: '' });
+  const data: LeagueData = {
+    fetchedAt: 0,
+    schedule: [{ week: '1', date: '9/6/26', level: '8U', home: 'Mahopac', away: 'Carmel', location: '', time: '' }],
+    results: [
+      { week: '1', date: '9/6/26', level: '10U', home: 'Mahopac', away: 'Carmel', homeScore: 20, awayScore: 6, location: '', time: '' },
+      { week: '1', date: '9/6/26', level: '9U', home: 'Somers', away: 'Mahopac', homeScore: 14, awayScore: 7, location: '', time: '' },
+      { week: '2', date: '9/13/26', level: '9U', home: 'Mahopac', away: 'Brewster', homeScore: 12, awayScore: 12, location: '', time: '' },
+    ],
+    standings: [{ level: '10U', divisions: [{ name: 'South East', rows: [row('Mahopac', 2, 0, 4, 0)] }] }],
+    byes: [],
+  };
+  const s = clubSummary(data, 'mahopac');
+  assert.deepEqual(s.levels.map((r) => `${r.level} ${r.w}-${r.l}-${r.t}${r.fromStandings ? ' (standings)' : ''}`), ['8U 0-0-0', '9U 0-1-1', '10U 4-0-0 (standings)']);
+  assert.deepEqual(s.total, { w: 4, l: 1, t: 1, pf: 39, pa: 32 });
+  assert.equal(s.levels[2].division, 'South East');
+  assert.deepEqual(leagueClubs(data), ['Brewster', 'Carmel', 'Mahopac', 'Somers']);
+});
