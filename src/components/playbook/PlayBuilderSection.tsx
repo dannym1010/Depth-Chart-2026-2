@@ -83,6 +83,9 @@ function Chip({
 const DEF_BTN =
   'h-8 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-40';
 
+/** Backs and receivers: their spots on a scouting film are shared by every play in that backfield. */
+const FILM_BACKFIELD_ROLES = ['1', '2', '3', '4', 'X', 'Z', 'Y', 'W', 'H', 'Y1', 'Y2', 'W1', 'W2'];
+
 type BuilderTab = 'formation' | 'play' | 'players' | 'notes' | 'jobs';
 
 const SITUATIONS = ['1-10', '2nd long', '2nd med', '3rd long', '3rd short', 'RED ZONE', 'Goaline', '2 MIN O', '4 Min O'];
@@ -563,7 +566,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     setFilmBaseKeys((prev) => ({ ...prev, [activeBack]: baseKey }));
     setOverrides((prev) => {
       const next = { ...prev };
-      for (const role of ['1', '2', '3', '4', 'X', 'Z', 'Y', 'W', 'H', 'Y1', 'Y2', 'W1', 'W2']) delete next[role];
+      for (const role of FILM_BACKFIELD_ROLES) delete next[role];
       return next;
     });
     onSaveFilmBackfield({ gameId: seed.gameId, backfield: activeBack, spots, baseKey });
@@ -678,7 +681,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       publishBackfield();
       return;
     }
-    if (seed?.gameId) publishBackfield(false);
+    // Only when backfield players were moved on this play: saving it shouldn't change the film's other plays.
+    if (seed?.gameId && FILM_BACKFIELD_ROLES.some((r) => overrides[r])) publishBackfield(false);
     if (!play) return;
     const calledHole = hole;
     const holeData = calledHole != null ? HOLE_SYSTEM[calledHole] : play.metadata.holeData;
