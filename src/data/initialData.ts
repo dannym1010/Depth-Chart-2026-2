@@ -2093,8 +2093,8 @@ export const DEFAULT_CASCADING_DRILLS: DrillFolder[] = [
           },
           {
             "name": "Defense Team: Cover 3 DB / OLB Tandem Triangle (Smash & Seam-Curl)",
-            "desc": "Combined tandem drill with Corner, OLB (Buzz/Flat defender), Free Safety, and 2 WRs (or coach/QB). Tests communication and zone handoffs between deep 1/3 and curl/flat on Smash (hitch/corner) and Verticals (seam/go).",
-            "key": "'Under 1, Over 2' — OLB reroutes and buzzes hitch while CB bails over corner. Communicate 'In! In!' or 'Corner! Corner!'."
+            "desc": "Combined tandem drill with Corner, OLB (Buzz/Flat defender), Free Safety, and 2 WRs (or coach/QB). Tests communication and zone handoffs between deep 1/3 and curl/flat on Smash (hitch/corner) and Verticals (seam/go). Goals: communication, correct zone handoffs, eyes/leverage transition, and no open windows.",
+            "key": "Call early ('3-3-3', 'Push', 'Seam', 'Hitch') — Under 1, Over 2! OLB buzzes hitch, CB caps corner over top, FS splits the seams."
           },
           {
             "name": "Defense Group: 11-Man 'Liz' Pursuit Drill",
