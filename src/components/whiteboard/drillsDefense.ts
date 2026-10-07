@@ -1349,8 +1349,8 @@ export const DEFENSE_MATRIX_DRILLS: WhiteboardDrill[] = [
   },
   {
     id: 'team-defense-9-cone',
-    category: 'SCHEME',
-    categoryLabel: 'Team Defense & Stunts',
+    category: 'TEAM',
+    categoryLabel: 'Team Tackling & Circuits',
     title: 'TEAM DEFENSE: 9 Cone Vice Tackle Drill',
     subtitle: 'Two Tacklers, Changing Angles, Inside-Out & Outside-In Squeeze',
     objective: 'Two defenders work together to vice the ball carrier: one from each side, each pinning the near hip, so he has nowhere to cut. Players pick their own cones, so the angles change every rep like they do in a game.',
