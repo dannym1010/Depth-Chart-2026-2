@@ -55,6 +55,7 @@ import { PracticeWizardModal, PracticeWizardGeneratedResult } from './PracticeWi
 import { TeamSnapSyncModal } from './TeamSnapSyncModal';
 import { getPracticeSequenceMap, formatPracticeDayTitle } from '../utils/practiceUtils';
 import { MoreMenu } from './common/MoreMenu';
+import { LeagueView } from './LeagueView';
 import { formatClock, formatClockRange } from '../utils/timeFormat';
 
 interface ScheduleViewProps {
@@ -79,7 +80,7 @@ interface ScheduleViewProps {
   onUpdateTeam?: (teamId: string, updates: Partial<Team>) => void;
 }
 
-type ViewMode = 'timeline' | 'month' | 'grid';
+type ViewMode = 'timeline' | 'month' | 'grid' | 'league';
 type FilterType = 'all' | 'game' | 'pregame' | 'practice' | 'scrimmage' | 'meeting';
 
 export const ScheduleView: React.FC<ScheduleViewProps> = ({
@@ -928,6 +929,18 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
               <ListFilter className="w-3.5 h-3.5" />
               <span>Table</span>
             </button>
+            <button
+              onClick={() => setViewMode('league')}
+              className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                viewMode === 'league'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="League schedule, scores and standings for this team's level"
+            >
+              <Trophy className="w-3.5 h-3.5" />
+              <span>League</span>
+            </button>
           </div>
 
           {/* Event Type Filter Pills */}
@@ -1130,6 +1143,8 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
           </div>
         </div>
       )}
+
+      {viewMode === 'league' && <LeagueView team={activeTeam} onUpdateTeam={onUpdateTeam} canEdit={userRole === 'admin'} />}
 
       {/* VIEW 1: WEEKLY AGENDA / TIMELINE VIEW */}
       {viewMode === 'timeline' && (

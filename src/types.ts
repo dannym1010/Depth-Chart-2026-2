@@ -44,6 +44,8 @@ export interface Team {
   id: string;
   name: string;
   ageGroup?: string; // e.g. "10U", "12U", "8U", "Flag"
+  /** Our name in the league's schedule / standings files (e.g. "Mahopac"); unset = found from the team name. */
+  leagueName?: string;
   season?: string; // e.g. "2026", "Fall 2026"
   color?: string; // e.g. "indigo", "amber", "emerald", "sky", "rose", "purple"
   headCoachName?: string;

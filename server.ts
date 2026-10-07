@@ -9,6 +9,7 @@ import { registerLockRoutes } from './server/routes/locks';
 import { registerPresenceRoutes } from './server/routes/presence';
 import { registerAdminRoutes } from './server/routes/admin';
 import { registerTeamSnapRoutes } from './server/routes/teamsnap';
+import { registerLeagueRoutes } from './server/routes/league';
 
 dotenv.config();
 
@@ -27,6 +28,7 @@ async function startServer() {
   registerPresenceRoutes(app);
   registerAdminRoutes(app);
   registerTeamSnapRoutes(app);
+  registerLeagueRoutes(app);
 
   // Vite middleware for development vs static serve for production
   if (process.env.NODE_ENV !== 'production') {
