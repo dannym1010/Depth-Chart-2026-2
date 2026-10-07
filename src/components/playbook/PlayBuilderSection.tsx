@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ClipboardList, Film, LayoutGrid, ListChecks, Play as PlayIcon, Save, Search, Users, Wand2, Zap } from 'lucide-react';
+import { ArrowLeft, Check, ChevronLeft, ChevronRight, ClipboardList, Film, LayoutGrid, ListChecks, Play as PlayIcon, Save, Search, Users, Wand2, Zap } from 'lucide-react';
 import type { PlayBuilderState, PlayDatabaseEntry, PlayType } from '../../types/callSheet';
 import { defenseSystem, type DefenseSystem } from '../../hudlScout/utils/ourDefense';
 import { inferPlayType, newPlayEntry } from '../../utils/playbookImport';
@@ -95,7 +95,10 @@ function notesFor(play: AssembledPlay, coachNote: string, extra: string[]) {
 
 interface Props {
   canEdit: boolean;
-  onAdd: (entry: PlayDatabaseEntry) => void;
+  /** `auto`: saved by itself (leaving the play, Previous / Next), not the Save button. */
+  onAdd: (entry: PlayDatabaseEntry, opts?: { auto?: boolean }) => void;
+  /** Step to the play before or after this one in the list it was opened from ("3 of 12"). */
+  nav?: { label: string; onPrev?: () => void; onNext?: () => void };
   /** A scout play to draw. The name stays as they called it. */
   seed?: PlayBuilderSeed | null;
   /** Return to the scout play list this diagram was opened from. */
@@ -195,7 +198,7 @@ function startFromSeed(seed?: PlayBuilderSeed | null) {
   };
 }
 
-export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, onStateChange, onSaveFilmBackfield, onSaveFormation }) => {
+export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, onStateChange, onSaveFilmBackfield, onSaveFormation, nav }) => {
   // Drawing their formation: just the alignment (no play lines), saved as the formation.
   const formationMode = Boolean(seed?.formationEdit);
   // One of our defensive plays: the defense is what's drawn (front, alignment, blitz arrows).
@@ -602,7 +605,49 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     setBaseNote(announce ? `Saved ${name}. Their plays drawn from it start lined up like this.` : `Saved ${name} (changes save as you go).`);
   };
   autoSave.current = () => saveFormation(false);
-  const saveOffense = () => {
+
+  // What's on screen as last saved (or as it opened, once it settles): anything else is unsaved.
+  const stateKeyRef = useRef(stateKey);
+  stateKeyRef.current = stateKey;
+  const savedKey = useRef(stateKey);
+  const [, setSaveTick] = useState(0);
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      savedKey.current = stateKeyRef.current;
+      setSaveTick((n) => n + 1);
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, []);
+  const unsaved = stateKey !== savedKey.current;
+  const saveNow = (auto = false) => {
+    saveOffense(auto);
+    savedKey.current = stateKeyRef.current;
+    setSaveTick((n) => n + 1);
+  };
+  /**
+   * Leaving the play (another page, Back, Previous / Next) saves it when it changed. A new play is only
+   * added when something was drawn for it.
+   */
+  const saveOnLeave = useRef<() => void>(() => {});
+  saveOnLeave.current = () => {
+    if (!canEdit || !play || seed?.backfieldEdit || stateKeyRef.current === savedKey.current) return;
+    if (formationMode) {
+      saveFormation(false);
+      savedKey.current = stateKeyRef.current;
+      return;
+    }
+    if (!seed?.playEntryId && !userDrew) return;
+    saveNow(true);
+  };
+  useEffect(() => () => saveOnLeave.current(), []);
+  const step = (go?: () => void) => {
+    if (!go) return;
+    saveOnLeave.current();
+    go();
+  };
+  const saveOffense = (auto = false) => {
+    // Saved by itself (leaving the play, Previous / Next) or by the button.
+    const add = (e: PlayDatabaseEntry) => onAdd(e, { auto });
     if (formationMode) {
       saveFormation(true);
       return;
@@ -612,7 +657,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       commitName();
       const name = (nameIn.trim() || committedName || seed?.name || 'Defense').slice(0, 120);
       const blitzing = strokes.some((st) => dNodes.some((n) => st.points[0] && Math.hypot(st.points[0].x - n.x, st.points[0].y - n.y) < 1.4) && st.points.some((p) => p.y > 0));
-      onAdd({
+      add({
         builder: currentState(),
         ...newPlayEntry(name, 'defense'),
         unit: 'defense',
@@ -641,7 +686,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     // The defense as it stands on the screen: lined up on the offense, moved by the coach.
     const extra = dNodes;
     const builder = currentState();
-    onAdd({
+    add({
       builder,
       ...newPlayEntry(name, 'offense'),
       formation: `${play.hudlExport.OFF_FORM} ${play.hudlExport.BACKFIELD}${customBack ? ' custom' : ''}`,
@@ -896,14 +941,52 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               <Film className="w-4 h-4 text-indigo-500" /> Film Room
             </button>
           )}
+          {!compact && nav && (
+            <div className="inline-flex items-center h-11 rounded-xl border border-slate-300 dark:border-slate-600 overflow-hidden shrink-0">
+              <button
+                type="button"
+                aria-label="Previous play"
+                title="Previous play (saves this one)"
+                disabled={!nav.onPrev}
+                onClick={() => step(nav.onPrev)}
+                className="h-full px-2.5 inline-flex items-center gap-1 text-sm font-black text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-35 disabled:cursor-default"
+              >
+                <ChevronLeft className="w-4 h-4" /> Prev
+              </button>
+              <span className="h-full px-2 border-x border-slate-200 dark:border-slate-700 inline-flex items-center text-xs font-bold tabular-nums text-slate-500 dark:text-slate-400">{nav.label}</span>
+              <button
+                type="button"
+                aria-label="Next play"
+                title="Next play (saves this one)"
+                disabled={!nav.onNext}
+                onClick={() => step(nav.onNext)}
+                className="h-full px-2.5 inline-flex items-center gap-1 text-sm font-black text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-35 disabled:cursor-default"
+              >
+                Next <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
           {!compact && canEdit && (
             <button
               type="button"
-              disabled={!play}
-              onClick={saveOffense}
-              className="h-11 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-black inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-40 shrink-0"
+              disabled={!play || (!unsaved && Boolean(seed?.playEntryId || formationMode))}
+              onClick={() => saveNow()}
+              title={seed?.playEntryId || formationMode ? 'Saves by itself when you leave this play' : 'Add this play to the library (it also adds itself when you leave after drawing it)'}
+              className={`h-11 px-4 rounded-xl text-sm font-black inline-flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                !unsaved && (seed?.playEntryId || formationMode)
+                  ? 'border-2 border-emerald-500 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 cursor-default'
+                  : 'bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-40'
+              }`}
             >
-              <Save className="w-4 h-4" /> {formationMode ? 'Save formation' : defenseMode ? 'Save defense' : seed?.backfieldEdit ? `Save ${backfieldLabel}` : 'Save play'}
+              {!unsaved && (seed?.playEntryId || formationMode) ? (
+                <>
+                  <Check className="w-4 h-4" /> Saved
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" /> {formationMode ? 'Save formation' : defenseMode ? 'Save defense' : seed?.backfieldEdit ? `Save ${backfieldLabel}` : seed?.playEntryId ? 'Save' : 'Save play'}
+                </>
+              )}
             </button>
           )}
         </div>

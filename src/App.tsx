@@ -7204,6 +7204,22 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onRenameScoutPlay={renameScoutPlay}
                 onSaveFilmBackfield={saveFilmBackfield}
                 onSaveOppFormation={saveOppFormation}
+                scoutNeighbors={(scoutId, gameId) => {
+                  // Their plays on that film, in the film's order.
+                  const cards = ((weekHudl().hudl?.playLibraries || {})[gameId] || []) as ScoutOppPlay[];
+                  const index = cards.findIndex((c) => c.id === scoutId);
+                  if (index < 0) return null;
+                  return {
+                    index,
+                    total: cards.length,
+                    open: (dir) => {
+                      const next = cards[index + dir];
+                      if (!next) return false;
+                      drawOppPlay(next);
+                      return true;
+                    },
+                  };
+                }}
                 onWatchScoutFilm={(cutup, seed) => {
                   savePlayBuilderSeed(seed);
                   saveFilmCutup(cutup);

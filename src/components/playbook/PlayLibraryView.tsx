@@ -35,6 +35,8 @@ interface Props {
   onWatchScoutFilm?: (cutup: { gameId: string; playIds: string[]; label: string }, seed: PlayBuilderSeed) => void;
   /** This backfield alignment becomes the one for every play on that scout film that uses it. */
   onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: Record<string, { x: number; y: number }>; baseKey: string }) => void;
+  /** Their play before / after this one on its film (Previous / Next in the builder). */
+  scoutNeighbors?: (scoutId: string, gameId: string) => { index: number; total: number; open: (dir: 1 | -1) => boolean } | null;
   /** Their formation drawn in the builder (Hudl Scout → Their plays → Their formations). */
   onSaveOppFormation?: (formation: { id: string; name: string; builder: PlayBuilderState; diagramUrl: string; defenseUrl?: string; defenseName?: string }) => void;
 }
@@ -75,6 +77,7 @@ export const PlayLibraryView: React.FC<Props> = ({
   onWatchScoutFilm,
   onSaveFilmBackfield,
   onSaveOppFormation,
+  scoutNeighbors,
 }) => {
   const canEdit = userRole === 'admin' || userRole === 'assistant';
   const [query, setQuery] = useState('');
@@ -196,6 +199,31 @@ export const PlayLibraryView: React.FC<Props> = ({
   }, [filtered, sort]);
 
   const selectedIds = Object.keys(selected).filter((id) => selected[id]);
+
+  // Previous / Next in the builder: the plays as the library lists them now, or their plays on that film.
+  const builderNav = (() => {
+    if (!builderSeed?.playEntryId || builderSeed.formationEdit || builderSeed.backfieldEdit) return undefined;
+    if (builderSeed.scoutId && builderSeed.gameId) {
+      const n = scoutNeighbors?.(builderSeed.scoutId, builderSeed.gameId);
+      if (!n) return undefined;
+      const open = (dir: 1 | -1) => {
+        if (n.open(dir)) setBuilderSeed(peekPlayBuilderSeed());
+      };
+      return {
+        label: `${n.index + 1} of ${n.total}`,
+        onPrev: n.index > 0 ? () => open(-1) : undefined,
+        onNext: n.index < n.total - 1 ? () => open(1) : undefined,
+      };
+    }
+    const list = groups.flatMap((g) => g.plays).filter((p) => p.unit === 'offense' || p.unit === 'defense');
+    const i = list.findIndex((p) => p.id === builderSeed.playEntryId);
+    if (i < 0) return undefined;
+    return {
+      label: `${i + 1} of ${list.length}`,
+      onPrev: i > 0 ? () => openInBuilder(list[i - 1]) : undefined,
+      onNext: i < list.length - 1 ? () => openInBuilder(list[i + 1]) : undefined,
+    };
+  })();
 
   const update = (id: string, patch: Partial<PlayDatabaseEntry>) =>
     onUpdatePlayDatabase(playDatabase.map((p) => (p.id === id ? { ...p, ...patch } : p)));
@@ -340,6 +368,7 @@ export const PlayLibraryView: React.FC<Props> = ({
         key={builderSeed?.playEntryId || builderSeed?.name || 'new'}
         canEdit={canEdit}
         seed={builderSeed}
+        nav={builderNav}
         onBack={(builderSeed?.scoutId || builderSeed?.backfieldEdit || builderSeed?.formationEdit) && onBackToPlayList ? onBackToPlayList : undefined}
         onSaveFormation={onSaveOppFormation}
         onSaveFilmBackfield={
@@ -385,13 +414,17 @@ export const PlayLibraryView: React.FC<Props> = ({
           // Keep the play as it is on screen, so going to the film and back brings it back the same.
           if (builderSeed) savePlayBuilderSeed({ ...builderSeed, builder: state });
         }}
-        onAdd={(entry) => {
+        onAdd={(entry, opts) => {
           const { plays: next, saved, linked } = mergeBuilderSave(playDatabase, entry, builderSeed);
           onUpdatePlayDatabase(next);
           if (linked) {
-            // Keep the builder on this play, so the next Save updates it again.
-            setBuilderSeed((s) => (s ? { ...s, name: saved.name, builder: saved.builder } : s));
+            // Keep the builder on this play, so the next Save updates it again (not another play opened since).
+            setBuilderSeed((s) => (s && s.playEntryId === saved.id ? { ...s, name: saved.name, builder: saved.builder } : s));
             showToast(`Saved ${saved.name}`);
+            return;
+          }
+          if (opts?.auto) {
+            showToast(`Added ${entry.name}`);
             return;
           }
           setSection('Play builder');
