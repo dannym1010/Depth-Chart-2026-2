@@ -305,9 +305,23 @@ export function mergePracticeTemplates(
   return result;
 }
 
+function isFolderMatch(f1: string, f2: string): boolean {
+  const s1 = f1.toLowerCase().trim();
+  const s2 = f2.toLowerCase().trim();
+  if (s1 === s2) return true;
+  const n1 = s1.replace(/[^a-z0-9]/g, '');
+  const n2 = s2.replace(/[^a-z0-9]/g, '');
+  if (n1 === n2 && n1.length > 0) return true;
+  if (n1.includes('teamdefense') && n2.includes('teamdefense')) return true;
+  if ((n1.includes('linebacker') || n1 === 'lb') && (n2.includes('linebacker') || n2 === 'lb')) return true;
+  if ((n1.includes('defensiveback') || n1 === 'db') && (n2.includes('defensiveback') || n2 === 'db')) return true;
+  if ((n1.includes('defensiveline') || n1 === 'dl') && (n2.includes('defensiveline') || n2 === 'dl')) return true;
+  return false;
+}
+
 function findDefaultDrillsForFolder(folderName: string, defaults: DrillFolder[]): DrillItem[] {
   for (const def of defaults) {
-    if (def.name.toLowerCase().trim() === folderName.toLowerCase().trim()) return def.drills || [];
+    if (isFolderMatch(def.name, folderName)) return def.drills || [];
     if (def.subfolders && def.subfolders.length > 0) {
       const match = findDefaultDrillsForFolder(folderName, def.subfolders);
       if (match.length > 0) return match;
@@ -318,7 +332,7 @@ function findDefaultDrillsForFolder(folderName: string, defaults: DrillFolder[])
 
 function findDefaultSubfoldersForFolder(folderName: string, defaults: DrillFolder[]): DrillFolder[] {
   for (const def of defaults) {
-    if (def.name.toLowerCase().trim() === folderName.toLowerCase().trim()) return def.subfolders || [];
+    if (isFolderMatch(def.name, folderName)) return def.subfolders || [];
     if (def.subfolders && def.subfolders.length > 0) {
       const match = findDefaultSubfoldersForFolder(folderName, def.subfolders);
       if (match.length > 0) return match;

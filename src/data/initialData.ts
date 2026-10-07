@@ -1998,6 +1998,16 @@ export const DEFAULT_CASCADING_DRILLS: DrillFolder[] = [
             "name": "Defense LB: Read-Step, Scrape & Spill to Alley Tackle",
             "key": "6-inch read step downhill without false stepping; high knees scraping laterally over bags with square shoulders; inside flipper strike to spill runner wide, then buzz feet into alley for chest-to-chest wrap tackle",
             "desc": "Place 3 step-over agile bags simulating interior LOS trash. LB takes 6-inch downhill read step on snap flow, scrapes laterally across bags with square shoulders, strikes oncoming lead blocker with inside shoulder flipper to spill the ball carrier wide into the perimeter alley, and disengages to finish with chest-to-chest wrap tackle."
+          },
+          {
+            "name": "Defense LB: OLB Smash Defense (Collision #2 & Buzz #1)",
+            "desc": "OLB aligns apexed on #2 receiver. On snap, collision and reroute #2 at 5-6 yards while sneaking a peek through him to locate #1. If #1 sits down or runs quick hitch to flat, OLB buzzes down instantly to clamp near hip.",
+            "key": "'Collision 2, Buzz 1' — Force inside release on #2, never give up easy flat throw."
+          },
+          {
+            "name": "Defense LB: High-Low Seam/Wheel Conflict Drill",
+            "desc": "Trains OLB/ILB in Cover 3 hook-to-curl drop vs flood/wheel concept. Drop to 8-10 yards, maintain depth under seam route while keeping vision on QB, drive on flat route only after ball is in flight.",
+            "key": "'Stay Under the Seam!' — Do not bite early on checkdown; make QB throw over your head."
           }
         ]
       },
@@ -2034,6 +2044,21 @@ export const DEFAULT_CASCADING_DRILLS: DrillFolder[] = [
             "name": "Defense DB: Tip & Overturn Turnover Drill",
             "desc": "3 DBs in tandem line, 5 yards apart. Lead DB jumps and tips high pass. Trailing DB tracks deflection, calls 'Ball! Ball!', catches, and sprints 15 yds",
             "key": "Finish the play!. Every interception ends with two hands high and tight"
+          },
+          {
+            "name": "Defense DB: CB Smother the Comeback Drill (Cover 3 Bail & Drive)",
+            "desc": "Corner bails at 45-degree angle maintaining 3-yard vertical cushion over WR vertical stem. At 10-12 yards on WR comeback/curl break, CB plants high foot, drives downhill through receiver's near hip, attacking catch point with inside arm.",
+            "key": "'Plant and Drive' — Do not drift past receiver's break; drive violently downhill through near hip."
+          },
+          {
+            "name": "Defense DB: Post/Wheel Bracket & Over-The-Top Handoff Drill",
+            "desc": "CB and Free Safety coordinate deep 1/3 zones against post/wheel combinations. CB carries wheel up sideline, FS pedals in deep middle and brackets post route.",
+            "key": "'Keep the Roof on!' — Free safety stays deeper than deepest inside route; CB eliminates sideline shot."
+          },
+          {
+            "name": "Defense DB: Red Zone Fade & Boundary Squeeze Drill",
+            "desc": "Corner defends red zone fade/back-shoulder route against sideline. In 1/3 bail, squeeze receiver toward sideline boundary, play through receiver's hands with eyes to pocket.",
+            "key": "'Use the Sideline as Extra Defender' — Squeeze route to boundary, attack hands at high point."
           }
         ]
       },
@@ -2041,6 +2066,16 @@ export const DEFAULT_CASCADING_DRILLS: DrillFolder[] = [
         "subfolders": [],
         "name": "Team Defense & Stunts / Blitzes",
         "drills": [
+          {
+            "name": "Defense Team: 9 Cone Vice Tackle Drill (LSU Clinic)",
+            "desc": "Two defenders work together to vice the ball carrier from dynamic angles in a 9-cone (10x10 yd) grid. Ball carrier breaks to a cone on the 40; tacklers break to cones on the 50/45. On contact, tacklers call 'Vice! Vice! Vice!', scallop with square shoulders, pin the near hip, and squeeze together.",
+            "key": "'Vice! Vice! Vice!' — Scallop under control, pin the near hip, finish near-foot near-shoulder."
+          },
+          {
+            "name": "Defense Team: Cover 3 DB / OLB Tandem Triangle (Smash & Seam-Curl)",
+            "desc": "Combined tandem drill with Corner, OLB (Buzz/Flat defender), Free Safety, and 2 WRs (or coach/QB). Tests communication and zone handoffs between deep 1/3 and curl/flat on Smash (hitch/corner) and Verticals (seam/go).",
+            "key": "'Under 1, Over 2' — OLB reroutes and buzzes hitch while CB bails over corner. Communicate 'In! In!' or 'Corner! Corner!'."
+          },
           {
             "name": "Defense Group: 11-Man 'Liz' Pursuit Drill",
             "desc": "Full 11-man defense executes run fits and inside-out pursuit angles on perimeter sweep. Every player must touch runner",
@@ -2075,6 +2110,21 @@ export const DEFAULT_CASCADING_DRILLS: DrillFolder[] = [
             "key": "Walk through defensive alignments, blitz calls, and gap responsibilities against a scout offense at half-speed",
             "desc": "Install base 4-4/5-3 fronts, gap assignments, stunt checks, and secondary coverages against scout offense",
             "name": "Defense Group: Full Defensive Install & Run Fits"
+          },
+          {
+            "name": "Defense Stunt: Two-Man 'Butt-to-Hip' Fit Drill (DT/ILB Stunt Timing)",
+            "desc": "DT slants hard into target gap across guard's face to pin him; ILB takes read step, pushes off outside foot to loop tightly off DT's rear end with zero separation vertically into vacated gap.",
+            "key": "Zero separation on the loop! Looper's hip brushes penetrator's butt."
+          },
+          {
+            "name": "Defense Stunt: Read-and-Loop Reaction Drill vs Live OL (Crash vs Pick)",
+            "desc": "Live stunt execution with Guard and Tackle. DT crashes A-gap. If Guard blocks down, DT pins him; if Guard slides out, DT drives him into backfield while ILB reads Guard's butt and loops around into open gap.",
+            "key": "Penetrator is the pick, Looper is the hunter. Penetrator must occupy both OL or clear lane for Looper."
+          },
+          {
+            "name": "Defense Stunt: Tandem Finish & Near-Hip Vice Drill",
+            "desc": "Stunt execution finishing with dynamic tackle on ballcarrier in the backfield. Penetrator attacks upfield shoulder, Looper attacks inside hip, meeting at the mesh point to clamp a two-man vice.",
+            "key": "Vice tackle in backfield! One defender high/near-shoulder, one low/near-hip."
           },
           {
             "key": "Call on strong-side run tendency to the Liz (TE) side; shuts down off-tackle power and sweeps",
