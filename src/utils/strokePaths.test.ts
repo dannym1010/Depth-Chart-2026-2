@@ -86,15 +86,14 @@ describe('a line drawn by hand: straight stays straight, a curve stays curved', 
 });
 
 describe('zooming the field', () => {
-  it('shows a smaller part of the field the more you zoom, kept on the field', async () => {
+  it('zooms in 5% steps from 75% to 125%: in, kept on the field; out, the field centered with room around it', async () => {
     const { zoomView, ZOOM_LEVELS } = await import('../components/playbook/PlayDiagramCanvas.tsx');
+    assert.deepEqual(ZOOM_LEVELS, [0.75, 0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1, 1.15, 1.2, 1.25]);
     assert.deepEqual(zoomView(1, { cx: 380, cy: 335 }, 760, 520), { x: 0, y: 0, vw: 760, vh: 520 });
-    const z2 = zoomView(2, { cx: 380, cy: 335 }, 760, 520);
-    assert.deepEqual([z2.vw, z2.vh, z2.x, z2.y], [380, 260, 190, 205]);
-    // Centered past the corner: the view stops at the field's edge.
-    const corner = zoomView(3, { cx: 0, cy: 9999 }, 760, 520);
-    assert.equal(corner.x, 0);
-    assert.ok(Math.abs(corner.y + corner.vh - 520) < 1e-9);
-    assert.ok(ZOOM_LEVELS.length >= 5 && ZOOM_LEVELS[0] === 1);
+    const zin = zoomView(1.25, { cx: 0, cy: 9999 }, 760, 520);
+    assert.equal(zin.x, 0);
+    assert.ok(Math.abs(zin.y + zin.vh - 520) < 1e-9);
+    const out = zoomView(0.8, { cx: 0, cy: 0 }, 760, 520);
+    assert.deepEqual([out.vw, out.vh, out.x, out.y], [950, 650, -95, -65]);
   });
 });

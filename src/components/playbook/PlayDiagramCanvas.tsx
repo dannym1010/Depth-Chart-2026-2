@@ -33,16 +33,19 @@ const TOOL_KEYS: Record<string, Tool> = { v: 'move', r: 'run', p: 'pass', b: 'bl
 
 type Pt = { x: number; y: number };
 
-/** How far the field can zoom in (1 = the whole field). */
-export const ZOOM_LEVELS = [1, 1.25, 1.5, 2, 2.5, 3];
+/** Zoom in steps of 5%: 75% (the field with room around it) to 125% (1 = the whole field). */
+export const ZOOM_LEVELS = Array.from({ length: 11 }, (_, i) => Math.round((0.75 + i * 0.05) * 100) / 100);
 /** Where zooming in centers by default: the box, just behind the line of scrimmage. */
 const ZOOM_HOME = { cx: 380, cy: 335 };
-/** The part of the field shown at this zoom around this center, kept on the field. */
+/**
+ * The part of the field shown at this zoom around this center: zoomed in, kept on the field; zoomed out,
+ * the whole field in the middle with room around it.
+ */
 export function zoomView(zoom: number, center: { cx: number; cy: number }, w: number, h: number) {
   const vw = w / zoom;
   const vh = h / zoom;
-  const x = Math.max(0, Math.min(w - vw, center.cx - vw / 2));
-  const y = Math.max(0, Math.min(h - vh, center.cy - vh / 2));
+  const x = vw >= w ? (w - vw) / 2 : Math.max(0, Math.min(w - vw, center.cx - vw / 2));
+  const y = vh >= h ? (h - vh) / 2 : Math.max(0, Math.min(h - vh, center.cy - vh / 2));
   return { x, y, vw, vh };
 }
 
@@ -251,7 +254,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       e.preventDefault();
       // One step per gesture burst, so a pinch doesn't race through every level.
       const now = Date.now();
-      if (now - last < 120) return;
+      if (now - last < 60) return;
       last = now;
       zoomRef.current(e.deltaY < 0 ? 1 : -1, clientToSvg(svg, e.clientX, e.clientY));
     };
@@ -271,7 +274,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   const [ghost, setGhost] = useState<Pt | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
   // Phones open zoomed in on the box, so the players are big enough to tap.
-  const [zoom, setZoom] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 640 ? 1.5 : 1));
+  const [zoom, setZoom] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 640 ? 1.25 : 1));
   const [center, setCenter] = useState(ZOOM_HOME);
   const zoomBy = (dir: 1 | -1, at?: { cx: number; cy: number }) => {
     const i = ZOOM_LEVELS.findIndex((z) => z >= zoom - 0.001);
