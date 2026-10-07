@@ -33,6 +33,19 @@ const TOOL_KEYS: Record<string, Tool> = { v: 'move', r: 'run', p: 'pass', b: 'bl
 
 type Pt = { x: number; y: number };
 
+/** How far the field can zoom in (1 = the whole field). */
+export const ZOOM_LEVELS = [1, 1.25, 1.5, 2, 2.5, 3];
+/** Where zooming in centers by default: the box, just behind the line of scrimmage. */
+const ZOOM_HOME = { cx: 380, cy: 335 };
+/** The part of the field shown at this zoom around this center, kept on the field. */
+export function zoomView(zoom: number, center: { cx: number; cy: number }, w: number, h: number) {
+  const vw = w / zoom;
+  const vh = h / zoom;
+  const x = Math.max(0, Math.min(w - vw, center.cx - vw / 2));
+  const y = Math.max(0, Math.min(h - vh, center.cy - vh / 2));
+  return { x, y, vw, vh };
+}
+
 function clientToSvg(svg: SVGSVGElement, clientX: number, clientY: number) {
   const pt = svg.createSVGPoint();
   pt.x = clientX;
@@ -163,6 +176,8 @@ type Drag =
   | { mode: 'player'; role: string; startCx: number; startCy: number; moved: boolean; from: Pt; startLines: PlayStroke[]; at: Pt | null }
   | { mode: 'vertex'; index: number; vertex: number }
   | { mode: 'line'; index: number; from: Pt; start: Pt[] }
+  /** Zoomed in: dragging empty field moves the view. */
+  | { mode: 'pan'; clientX: number; clientY: number; from: { cx: number; cy: number } }
   /** Drawing: the open line, how many points it had before this press, a new line or not. */
   | { mode: 'draw'; index: number; anchor: number; fresh: boolean; downCx: number; downCy: number; moved: boolean }
   | null;
@@ -227,6 +242,22 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     pending.current = {};
   };
   useEffect(() => cancelFrame, []);
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    let last = 0;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      // One step per gesture burst, so a pinch doesn't race through every level.
+      const now = Date.now();
+      if (now - last < 120) return;
+      last = now;
+      zoomRef.current(e.deltaY < 0 ? 1 : -1, clientToSvg(svg, e.clientX, e.clientY));
+    };
+    svg.addEventListener('wheel', onWheel, { passive: false });
+    return () => svg.removeEventListener('wheel', onWheel);
+  }, []);
   /** Lines changed mid-drag: shown on the next frame, sent to the builder when the drag ends. */
   const preview = (next: PlayStroke[]) => {
     strokesRef.current = next;
@@ -240,7 +271,25 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   const [ghost, setGhost] = useState<Pt | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
   // Phones open zoomed in on the box, so the players are big enough to tap.
-  const [zoomed, setZoomed] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640);
+  const [zoom, setZoom] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 640 ? 1.5 : 1));
+  const [center, setCenter] = useState(ZOOM_HOME);
+  const zoomBy = (dir: 1 | -1, at?: { cx: number; cy: number }) => {
+    const i = ZOOM_LEVELS.findIndex((z) => z >= zoom - 0.001);
+    const next = ZOOM_LEVELS[Math.max(0, Math.min(ZOOM_LEVELS.length - 1, i + dir))];
+    if (next === zoom) return;
+    // Zooming at a point keeps that point under the pointer.
+    if (at) {
+      const v = zoomView(zoom, center, FIELD_SVG.w, FIELD_SVG.h);
+      const fx = (at.cx - v.x) / v.vw;
+      const fy = (at.cy - v.y) / v.vh;
+      const nw = FIELD_SVG.w / next;
+      const nh = FIELD_SVG.h / next;
+      setCenter({ cx: at.cx - fx * nw + nw / 2, cy: at.cy - fy * nh + nh / 2 });
+    } else if (next > 1 && zoom === 1) setCenter(ZOOM_HOME);
+    setZoom(next);
+  };
+  const zoomRef = useRef(zoomBy);
+  zoomRef.current = zoomBy;
   const [selected, setSelected] = useState<number | null>(null);
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const selectedPlayer = selectedRole ? nodes.find((n) => n.role === selectedRole) || null : null;
@@ -435,7 +484,9 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
         return;
       }
       setSelected(null);
-      drag.current = null;
+      // Zoomed in: dragging empty field moves the view (from where it is now, kept on the field).
+      const v = zoomView(zoom, center, w, h);
+      drag.current = zoom > 1 ? { mode: 'pan', clientX: e.clientX, clientY: e.clientY, from: { cx: v.x + v.vw / 2, cy: v.y + v.vh / 2 } } : null;
       return;
     }
     // Drawing. A press on another of our players starts his line (from his spot); anywhere else adds a leg
@@ -513,6 +564,16 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       schedule();
       return;
     }
+    if (d.mode === 'pan') {
+      const box = svgRef.current.getBoundingClientRect();
+      const v = zoomView(zoom, d.from, w, h);
+      const k = v.vw / (box.width || 1);
+      const next = { cx: d.from.cx - (e.clientX - d.clientX) * k, cy: d.from.cy - (e.clientY - d.clientY) * k };
+      // Kept to where the view can go, so dragging back moves right away.
+      const half = { w: v.vw / 2, h: v.vh / 2 };
+      setCenter({ cx: Math.max(half.w, Math.min(w - half.w, next.cx)), cy: Math.max(half.h, Math.min(h - half.h, next.cy)) });
+      return;
+    }
     if (d.mode === 'vertex') {
       preview(cur.map((s, i) => (i === d.index ? { ...s, points: s.points.map((q, j) => (j === d.vertex ? { ...q, x: p.x, y: p.y } : q)) } : s)));
       return;
@@ -545,6 +606,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     cancelFrame();
     setDraft(null);
     setDragPos(null);
+    if (d.mode === 'pan') return;
     const cur = strokesRef.current;
     if (d.mode === 'player' && d.moved && d.at) {
       onMove(d.role, d.at.x, d.at.y);
@@ -633,6 +695,10 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
         setSelected(null);
         selectPlayer(null);
       }
+    } else if (!e.ctrlKey && !e.metaKey && (e.key === '+' || e.key === '=' || e.key === '-' || e.key === '0')) {
+      e.preventDefault();
+      if (e.key === '0') setZoom(1);
+      else zoomBy(e.key === '-' ? -1 : 1);
     } else if (!e.ctrlKey && !e.metaKey && !e.altKey && TOOL_KEYS[e.key.toLowerCase()]) {
       e.preventDefault();
       pickTool(TOOL_KEYS[e.key.toLowerCase()]);
@@ -845,13 +911,36 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           );
         })()}
         <div className="absolute top-2.5 left-2.5 z-10 flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => setZoomed((z) => !z)}
-            className="h-7 px-2.5 rounded-lg border border-white/20 bg-slate-900/80 backdrop-blur-sm text-[11px] font-bold text-white shadow-xs cursor-pointer hover:bg-slate-900"
-          >
-            {zoomed ? 'Zoom Out' : 'Zoom In'}
-          </button>
+          <div role="group" aria-label="Zoom" className="inline-flex items-center rounded-lg border border-white/20 bg-slate-900/80 backdrop-blur-sm text-white shadow-xs overflow-hidden">
+            <button
+              type="button"
+              aria-label="Zoom out"
+              title="Zoom out (-)"
+              disabled={zoom <= ZOOM_LEVELS[0]}
+              onClick={() => zoomBy(-1)}
+              className="h-7 w-7 text-sm font-black cursor-pointer hover:bg-slate-900 disabled:opacity-35 disabled:cursor-default"
+            >
+              −
+            </button>
+            <button
+              type="button"
+              title="Back to the whole field (0)"
+              onClick={() => setZoom(1)}
+              className="h-7 min-w-11 px-1 border-x border-white/15 text-[11px] font-bold tabular-nums cursor-pointer hover:bg-slate-900"
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+            <button
+              type="button"
+              aria-label="Zoom in"
+              title="Zoom in (+). Zoomed in, drag empty field with Select to move around."
+              disabled={zoom >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}
+              onClick={() => zoomBy(1)}
+              className="h-7 w-7 text-sm font-black cursor-pointer hover:bg-slate-900 disabled:opacity-35 disabled:cursor-default"
+            >
+              +
+            </button>
+          </div>
         </div>
         {chrome === 'full' && (
         <input
@@ -864,8 +953,11 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
 
         <svg
           ref={svgRef}
-          viewBox={zoomed ? `110 150 540 370` : `0 0 ${w} ${h}`}
-          className={`bg-[#f0f0f0] touch-none select-none ${dense ? 'max-h-64 w-auto max-w-full mx-auto' : 'w-full h-auto'} ${tool === 'move' ? 'cursor-default' : 'cursor-crosshair'}`}
+          viewBox={(() => {
+            const v = zoomView(zoom, center, w, h);
+            return `${v.x} ${v.y} ${v.vw} ${v.vh}`;
+          })()}
+          className={`bg-[#f0f0f0] touch-none select-none ${dense ? 'max-h-64 w-auto max-w-full mx-auto' : 'w-full h-auto'} ${tool === 'move' ? (zoom > 1 ? 'cursor-grab' : 'cursor-default') : 'cursor-crosshair'}`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
