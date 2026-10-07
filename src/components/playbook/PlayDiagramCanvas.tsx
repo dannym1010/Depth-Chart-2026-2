@@ -14,6 +14,7 @@ import {
   DEFENSE_COLOR,
   shownText,
   tagColors,
+  UNIT_TAG,
   tagWidth,
   type NodePlayer,
   runningHoleXs,
@@ -822,27 +823,24 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
         }}
       >
         {hover && defenseWho && (() => {
+          // Who plays this spot in every unit; the one on the field (when a unit is picked) stands out.
           const info = defenseWho.current(hover.role);
-          const flip = hover.x > hover.w - 190;
+          const units = defenseWho.everyUnit(hover.role);
+          const flip = hover.x > hover.w - 210;
           return (
             <div
               className="pointer-events-none absolute z-20 rounded-lg bg-slate-900/95 px-2.5 py-1.5 text-white shadow-lg ring-1 ring-white/10 whitespace-nowrap"
               style={{ left: flip ? undefined : hover.x + 14, right: flip ? hover.w - hover.x + 14 : undefined, top: Math.max(4, hover.y - 14) }}
             >
-              <div className="flex items-center gap-1.5 text-[12px] font-black leading-tight">
-                {info.player ? (
-                  <>
-                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: tagColors(info.player).bg === '#0f172a' ? '#e2e8f0' : tagColors(info.player).bg }} />
-                    #{info.player.num} {info.player.name}
-                  </>
-                ) : (
-                  <span className="text-slate-300">Nobody on the chart</span>
-                )}
-              </div>
-              <div className="mt-0.5 text-[10.5px] font-semibold leading-tight text-slate-400">
-                {info.spot || hover.role}
-                {info.unit ? ` · ${info.unit}` : ''}
-              </div>
+              <div className="text-[10.5px] font-black uppercase tracking-wide leading-tight text-slate-400">{info.spot || hover.role}</div>
+              {units.map((u) => (
+                <div key={u.id} className={`mt-0.5 flex items-center gap-1.5 text-[12px] leading-tight ${u.on ? 'font-black text-white' : 'font-semibold text-slate-300'}`}>
+                  <span className="inline-block h-2 w-2 rounded-full ring-1 ring-white/40" style={{ background: UNIT_TAG[u.id].bg }} />
+                  <span className="w-9 text-[10.5px] text-slate-400">{u.unit}</span>
+                  {u.player ? `#${u.player.num} ${u.player.name}` : <span className="text-slate-500">—</span>}
+                  {u.on && <span className="text-[9.5px] font-black uppercase text-emerald-300">on field</span>}
+                </div>
+              ))}
             </div>
           );
         })()}

@@ -61,6 +61,10 @@ export interface DefenseWho {
   options: (role: string) => { depth: NodePlayer[]; roster: NodePlayer[] };
   /** Set this defender's player (null: back to the depth chart). */
   onPick: (role: string, player: NodePlayer | null) => void;
+  /** A unit is tagged on the defenders (Black, Gold or Blue), so one can be set by hand. */
+  tagging: boolean;
+  /** Who plays this spot in every unit (Black 1s, Gold 2s, Blue 3s), for the hover card. */
+  everyUnit: (role: string) => { id: 'black' | 'gold' | 'blue'; unit: string; player: NodePlayer | null; on: boolean }[];
 }
 
 const GROUPS: { id: ActionCategory; label: string }[] = [
@@ -335,7 +339,7 @@ export const PlayerAssignmentPanel: React.FC<Props> = ({
         </label>
       )}
 
-      {defenseWho && !readOnly && isDefenseRole(player.role) && (() => {
+      {defenseWho?.tagging && !readOnly && isDefenseRole(player.role) && (() => {
         const info = defenseWho.current(player.role);
         const opts = defenseWho.options(player.role);
         const mine = defenseWho.overridden(player.role) && info.player ? `r:${info.player.num}` : 'auto';

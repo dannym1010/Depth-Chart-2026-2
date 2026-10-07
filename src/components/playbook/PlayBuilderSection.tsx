@@ -47,7 +47,7 @@ import { openFilmWindow } from '../../filmroom/filmWindowStore';
 import { DiagramImage } from './DiagramImage';
 import { defenseJob, defenseOrder } from '../../utils/defenseJobs';
 import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, withMyAlignment } from '../../hudlScout/utils/ourDefense';
-import { DEF_UNITS, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
+import { DEF_UNITS, defensePlayerAt, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
 import { rememberDefenseUnit, rememberedDefenseUnit, useDefenseRosterSource } from '../../utils/defenseRosterStore';
 
 const SELECT =
@@ -1061,10 +1061,21 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               onHoleChange={(h) => setHoleOverride(h)}
               onLabelChange={renamePlayer}
               defenseWho={
-                tagging
+                dLook && hasDepth
                   ? {
+                      tagging,
+                      // Hover: who plays the spot in each unit; the unit on the field (with any hand pick) is marked.
+                      everyUnit: (role) => {
+                        const spot = defenseSpotName(role, defFront, strongLeft);
+                        return DEF_UNITS.map((u) => ({
+                          id: u.id as 'black' | 'gold' | 'blue',
+                          unit: u.label,
+                          player: tagging && u.id === defUnit ? taggedWho[role] || null : defensePlayerAt(spot, u.id, defFront, rosterSrc),
+                          on: tagging && u.id === defUnit,
+                        }));
+                      },
                       current: (role) => ({
-                        player: taggedWho[role] || null,
+                        player: tagging ? taggedWho[role] || null : null,
                         spot: taggedWho[role]?.pos || defenseSpotName(role, defFront, strongLeft),
                         unit: DEF_UNITS.find((x) => x.id === defUnit)?.label || '',
                       }),
