@@ -1934,6 +1934,92 @@ export const DEFENSE_MATRIX_DRILLS: WhiteboardDrill[] = [
         ],
       },
     ],
+    onePageDiagram: {
+      title: 'COVER 3 DB / OLB TANDEM TRIANGLE DRILL (SMASH & SEAM-CURL)',
+      subtitle: 'Combined tandem drill with Corner, OLB (Buzz/Flat defender), Free Safety, and 2 WRs (or coach/QB). Tests communication and zone handoffs between deep 1/3 and curl/flat on Smash (hitch/corner) and Verticals (seam/go).',
+      goals: [
+        '1. Communication (call, point, pass, carry)',
+        '2. Correct zone handoffs (curl/flat to deep 1/3)',
+        '3. Technique vs Smash and Verticals',
+        '4. Eyes, leverage, and transition',
+        '5. No duplicates and no open windows',
+      ],
+      schematics: [
+        {
+          title: 'COVER 3 ZONE RESPONSIBILITIES',
+          description: 'Deep 1/3: Free Safety (Middle), Left & Right Corners (Outside). Underneath: Left & Right OLBs (Curl/Flat, 10-12 yds depth), ILBs (Hook/Curl).',
+          badge: 'Base Shell',
+        },
+        {
+          title: 'SMASH CONCEPT (HITCH / CORNER)',
+          description: 'Smash = Hitch (flat) + Corner (deep). Tests OLB vs hitch/flat and Corner vs corner with FS as deep middle 1/3.',
+          badge: 'Smash Concept',
+        },
+        {
+          title: 'VERTICALS CONCEPT (SEAM / GO)',
+          description: 'Verticals = Seam/Go by both WRs. Tests Corner vs seam/go and FS midpoint/over-the-top. OLB must expand and carry #2 vertical if released inside.',
+          badge: 'Verticals Concept',
+        },
+      ],
+      reps: [
+        {
+          step: 1,
+          title: 'DRILL SETUP',
+          details: [
+            '2 WRs (or coach/QB) on each side',
+            'Corners at ~7-8 yards, outside leverage',
+            'OLBs at ~5 yards, read #2 to flat/buzz',
+            'FS at 12-15 yards, middle 1/3',
+            'Use half field or full field',
+          ],
+        },
+        {
+          step: 2,
+          title: 'SMASH REP',
+          details: [
+            'WR (left) runs hitch (flat)',
+            'WR (right) runs corner',
+            'OLB (left) takes hitch/flat',
+            'Corner (right) takes corner (if #2 vertical)',
+            'FS stays middle, don\'t get pulled by hitch',
+          ],
+        },
+        {
+          step: 3,
+          title: 'VERTICALS REP',
+          details: [
+            'Both WRs run seam/go',
+            'Corners carry outside verticals',
+            'FS takes middle 1/3 (split the seams)',
+            'OLBs expand and carry inside vertical if released or replace to flat if no vertical',
+          ],
+        },
+      ],
+      coachingKeys: [
+        { num: 1, title: 'CALL IT EARLY', description: '"3-3-3", "Push", "Seam", "Hitch"' },
+        { num: 2, title: 'EYES & KEY', description: 'OLB reads #2 (hitch/vertical)' },
+        { num: 3, title: 'HANDOFFS', description: 'OLB to Corner and OLB to FS' },
+        { num: 4, title: 'LEVERAGE', description: 'Corners stay outside, don\'t get locked inside' },
+        { num: 5, title: 'TRANSITION', description: 'Smooth, no panic, play through the catch' },
+        { num: 6, title: 'FINISH', description: 'Break on ball, tackle, no freebies' },
+      ],
+      successCriteria: [
+        'Correct calls and communication',
+        'No one open on hitch, corner, or seam',
+        'Proper zone handoffs (OLB -> C, OLB -> FS)',
+        'Good leverage and depth',
+        'Breaks on the ball',
+        'Competitive reps with game speed',
+      ],
+      progressions: [
+        '1. Start with air (walk-through)',
+        '2. Add QB/coach at half speed',
+        '3. Full speed',
+        '4. Add motion or stack',
+        '5. Add back-side concepts (e.g., cross or dig)',
+        '6. Make it live (score a point for defense on PBU/INT)',
+      ],
+    },
   },
 
   // ==========================================

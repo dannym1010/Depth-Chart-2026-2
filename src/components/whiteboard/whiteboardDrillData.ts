@@ -24,6 +24,29 @@ export type DefensivePositionCategory =
   | 'ST'
   | 'WARMUP';
 
+export interface OnePageDiagramConfig {
+  title: string;
+  subtitle: string;
+  goals: string[];
+  schematics: {
+    title: string;
+    description: string;
+    badge?: string;
+  }[];
+  reps: {
+    step: number;
+    title: string;
+    details: string[];
+  }[];
+  coachingKeys: {
+    num: number;
+    title: string;
+    description: string;
+  }[];
+  successCriteria: string[];
+  progressions: string[];
+}
+
 export interface WhiteboardDrill {
   id: string;
   category: DefensivePositionCategory;
@@ -50,6 +73,7 @@ export interface WhiteboardDrill {
   videoUrl?: string;
   hudlPlaybookName?: string;
   formationName?: string;
+  onePageDiagram?: OnePageDiagramConfig;
 }
 
 export interface PositionGroupFilter {
