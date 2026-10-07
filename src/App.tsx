@@ -165,9 +165,9 @@ import { mergeDeletedPlayIds, mergePlayBanks, stampPlayEdits } from './utils/pla
 import { blankCallSheetData, blankWristbandData } from './utils/blankSheets';
 import { missingPracticePlans } from './utils/autoPracticePlans';
 import { clearPlayBuilderSeed, consumeSeedHold, holdPlayBuilderSeed, mergeBuilderSave, savePlayBuilderSeed, type PlayBuilderSeed } from './utils/playBuilderSeed';
-import { builderFromFormation, cardForSnap, isScoutPlayEntry, planLines, realCall, renameOppCall, linkSnapsToCall, snapsForCall, type OppFormation, type ScoutOppPlay } from './utils/scoutOppPlays';
+import { builderFromFormation, cardForSnap, groupOppPlays, isScoutPlayEntry, planLines, realCall, renameOppCall, linkSnapsToCall, snapsForCall, type OppFormation, type ScoutOppPlay } from './utils/scoutOppPlays';
 import type { Play as FilmPlay } from './hudlScout/types/football';
-import { backfieldOf, baseKeysForGame, formationDefense, formationOfPlay, openFormation, playWithDefense, redrawWithBackfield, spotsForGame } from './utils/filmBackfields';
+import { backfieldOf, baseKeysForGame, formationDefense, formationOfPlay, openFormation, oppPlayDiagram, playWithDefense, redrawWithBackfield, spotsForGame } from './utils/filmBackfields';
 import { BACKFIELD_STRUCTURES } from './utils/footballEngine';
 import { newPlayEntry } from './utils/playbookImport';
 import { clearFilmCutup, consumeCutupHold, holdFilmCutup, saveFilmCutup } from './utils/filmCutup';
@@ -4407,10 +4407,28 @@ export default function App() {
       .filter((p) => p.gameId === gameId && (!p.odk || p.odk === 'O' || p.odk === 'UNKNOWN') && key(p.formation) === key(formation.name))
       .sort((a, b) => (Number(a.playNumber) || 0) - (Number(b.playNumber) || 0));
     const drawnPlays = latestStateRef.current.playDatabase || [];
+    // Which of their plays each clip is: tagged with it directly, else matched the way the script matches
+    // (its call, a clip number typed in for it, the tag it was made from).
+    const cards = ((hudl?.playLibraries || {})[gameId || ''] || []) as ScoutOppPlay[];
+    const types = groupOppPlays(Object.values((hudl?.playLibraries || {}) as Record<string, ScoutOppPlay[]>).flat());
+    const cardBySnap = new Map<string, ScoutOppPlay>();
+    for (const c of cards) {
+      for (const snap of snapsForCall(hudl?.plays || [], gameId, c.name, `scout_${c.id}`, c.fromPlayId, c.clips)) {
+        if (!cardBySnap.has(snap.id)) cardBySnap.set(snap.id, c);
+      }
+    }
     const formationPlays = inFormation.map((p) => {
-      const card = String(p.playCallId || '').startsWith('scout_') ? drawnPlays.find((e) => e.id === p.playCallId) : undefined;
+      const direct = String(p.playCallId || '').startsWith('scout_') ? cards.find((c) => `scout_${c.id}` === p.playCallId) : undefined;
+      const card = direct || cardBySnap.get(p.id);
+      // Drawn in the builder: its picture, as the script shows it (with our defense for this formation).
+      // Not drawn itself but another play of the same type is (Combine same plays): that one's picture.
+      const isDrawn = (c: ScoutOppPlay) => Boolean(drawnPlays.find((e) => e.id === `scout_${c.id}`)?.builder);
+      const sameType = card ? types.find((g) => g.plays.some((x) => x.id === card.id))?.plays.find(isDrawn) : undefined;
+      const shown = card && isDrawn(card) ? card : sameType;
+      const diagramUrl = shown ? oppPlayDiagram(shown, drawnPlays, hudl?.backfieldBases, hudl?.oppFormations) : undefined;
       const call = String(p.playCall || '').trim() || realCall(p);
-      return { snapId: p.id, playNumber: Number(p.playNumber) || 0, name: call && call !== '-' ? call : '', ...(card?.diagramUrl ? { diagramUrl: card.diagramUrl } : {}) };
+      const name = (call && call !== '-' ? call : '') || card?.name || '';
+      return { snapId: p.id, playNumber: Number(p.playNumber) || 0, name, ...(diagramUrl ? { diagramUrl } : {}) };
     });
     const clipSnaps = gameId && formation.clip ? snapsForCall(hudl?.plays || [], gameId, '', undefined, undefined, [formation.clip]) : [];
     const snaps = inFormation.length

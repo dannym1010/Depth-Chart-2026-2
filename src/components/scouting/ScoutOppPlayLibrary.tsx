@@ -150,6 +150,12 @@ export const ScoutOppPlayLibrary: React.FC<{
     return map;
   }, [plays, film, gameId]);
   const snapCount = (p: ScoutOppPlay) => snapsOf.get(p.id)?.length || 0;
+  /** The play each snap on this film is (the first that claims it). */
+  const cardOfSnap = useMemo(() => {
+    const out = new Map<string, string>();
+    for (const p of plays) for (const snap of snapsOf.get(p.id) || []) if (!out.has(snap.id)) out.set(snap.id, p.id);
+    return out;
+  }, [plays, snapsOf]);
   /** Every play of theirs in the same play type (across films), for a script play with no film of its own. */
   const allTypes = useMemo(() => groupOppPlays(Object.values(libraries).flat()), [libraries]);
   /**
@@ -354,12 +360,13 @@ export const ScoutOppPlayLibrary: React.FC<{
       byKey.get(key)!.clips.push({
         n: Number(p.playNumber) || 0,
         call: call === '-' ? '' : call,
-        cardId: p.playCallId?.startsWith('scout_') ? p.playCallId.slice(6) : undefined,
+        // Its play: tagged with it directly, else matched the way the script matches (call, clip typed in, tag).
+        cardId: p.playCallId?.startsWith('scout_') ? p.playCallId.slice(6) : cardOfSnap.get(p.id),
       });
     }
     for (const v of byKey.values()) v.clips.sort((a, b) => a.n - b.n);
     return byKey;
-  }, [film]);
+  }, [film, cardOfSnap]);
   // Every formation: the ones drawn or named here, then the ones tagged on the film that aren't yet (not drawn).
   const formationCards = useMemo(() => {
     const removed = new Set((formations || []).filter((x) => x?.deleted).map((x) => formKey(x.name || '')));
