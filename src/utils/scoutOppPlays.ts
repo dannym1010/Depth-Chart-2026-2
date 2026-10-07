@@ -230,7 +230,8 @@ export function snapsForCall(
     .filter((p) => {
       if (gameId && p.gameId && p.gameId !== gameId) return false;
       if (playEntryId && p.playCallId === playEntryId) return true;
-      if (clipSet.has(Number(p.playNumber)) && (!p.playCallId || p.playCallId === playEntryId)) return true;
+      // A clip the coach typed in for this play is this play, whatever the film had it tagged as.
+      if (clipSet.has(Number(p.playNumber))) return true;
       if (fromPlayId && p.playCallId === fromPlayId) return true;
       // Matched by name, a kick or defensive snap with the same words isn't this offensive play.
       return Boolean(key) && filmCall(p).toLowerCase() === key && (!p.odk || p.odk === 'O');
@@ -258,10 +259,11 @@ export function linkSnapsToCall(
     if (link.gameId && p.gameId && p.gameId !== link.gameId) return p;
     const mine = p.playCallId === link.playEntryId;
     const sameCall = Boolean(key) && filmCall(p).toLowerCase() === key && (!p.odk || p.odk === 'O');
-    // A clip the coach tagged with this play (needs the film's game, so another film's clip N isn't it).
-    const tagged = Boolean(link.gameId) && p.gameId === link.gameId && clipSet.has(Number(p.playNumber));
+    // A clip the coach tagged with this play (on this film: a snap with no game is the only film's).
+    const tagged = Boolean(link.gameId) && (p.gameId === link.gameId || !p.gameId) && clipSet.has(Number(p.playNumber));
     if (!mine && !sameCall && !tagged) return p;
-    if (p.playCallId && p.playCallId !== link.playEntryId) return p;
+    // Tagged with another call: only a clip the coach typed in for this play moves over.
+    if (p.playCallId && p.playCallId !== link.playEntryId && !tagged) return p;
     if (p.playCallId === link.playEntryId && p.playCall === link.playName) return p;
     return { ...p, playCallId: link.playEntryId, playCall: link.playName, editedAt: now };
   });
@@ -510,13 +512,18 @@ export function moveItem<T>(list: T[], from: number, to: number): T[] {
   return next;
 }
 
+/** "Ran 4 times on this film." as written on a card made from the film's tags. */
+const STALE_RUN_COUNT = /\s*Ran \d+ times? on this film\.?/i;
+
 const periodLabel = (down: string) => PERIODS.find((p) => p.id === (down || 'other'))?.label || 'Other';
 
 export function buildScoutScript(plays: ScoutOppPlay[], opponent: string): ScoutPracticeScript {
   const who = opponent.trim() || 'Opponent';
   const lines: ScoutScriptLine[] = plays.map((p) => {
     const bits = [periodLabel(p.down), p.formation, p.personnel, p.kind].filter((s) => s && s !== '-').join(' · ');
-    const detail = [bits, p.notes].filter(Boolean).join('. ');
+    // The count written when the card was made from the film goes stale; the script shows the live one.
+    const notes = (p.notes || '').replace(STALE_RUN_COUNT, '').trim();
+    const detail = [bits, notes].filter(Boolean).join('. ');
     return { playId: p.id, name: p.name, detail, period: periodLabel(p.down) };
   });
   const text = lines.map((l, i) => `${i + 1}. ${l.name}${l.detail ? ` — ${l.detail}` : ''}`).join('\n');

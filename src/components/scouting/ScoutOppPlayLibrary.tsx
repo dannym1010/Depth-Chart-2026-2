@@ -244,7 +244,10 @@ export const ScoutOppPlayLibrary: React.FC<{
         label: 'Scout script',
         plays: script.lines.map((line) => {
           const play = onTheReport.find((p) => p.id === line.playId);
-          return { name: line.name, detail: line.detail, diagram: play ? diagramFor(play) : undefined };
+          // How many times they ran it (its clips on the film).
+          const ran = play ? scriptFilm(play).snaps.length : 0;
+          const detail = [line.detail, ran ? `Ran it ${ran} time${ran === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+          return { name: line.name, detail, diagram: play ? diagramFor(play) : undefined };
         }),
       },
     ];

@@ -42,11 +42,12 @@ describe('their formations and clip tags', () => {
 
   it('a clip tagged on a play is one of its snaps, and gets linked to it', () => {
     const plays = [film(1), film(2), film(3, { playCallId: 'scout_other' }), { ...film(2), id: 'other-game', gameId: 'g2' }];
-    assert.deepEqual(snapsForCall(plays, 'g1', 'Trips Rt #2', 'scout_p1', undefined, [2, 3]).map((s) => s.id), ['c2']);
+    // Clip 3 was another play's, but the coach typed it in for this one: it's this play's now.
+    assert.deepEqual(snapsForCall(plays, 'g1', 'Trips Rt #2', 'scout_p1', undefined, [2, 3]).map((s) => s.id), ['c2', 'c3']);
     const linked = linkSnapsToCall(plays, { gameId: 'g1', callName: 'Trips Rt #2', playEntryId: 'scout_p1', playName: 'Trips Rt #2', clips: [2, 3] });
     assert.equal(linked[1].playCallId, 'scout_p1');
     assert.equal(linked[1].playCall, 'Trips Rt #2');
-    assert.equal(linked[2].playCallId, 'scout_other'); // already another play's
+    assert.equal(linked[2].playCallId, 'scout_p1'); // typed in for this play, so it moves over
     assert.equal(linked[3].playCallId, undefined); // clip 2 of another film
     assert.equal(linked[0].playCallId, undefined);
   });
@@ -180,5 +181,28 @@ describe('a play keeps its own edits under its formation\'s defense', () => {
     assert.equal(out.builder!.defenseKey, '53_C3');
     assert.deepEqual(out.builder!.overrides['3'], { x: 2.5, y: -6 });
     assert.equal(out.builder!.baseKey, e.builder!.baseKey);
+  });
+});
+
+describe('a clip number typed in for one of their plays', () => {
+  it('counts for that play even when the film had it tagged as something else, and moves over to it', () => {
+    const plays = [film(7, { playCallId: 'scout_other', playCall: 'OTHER' }), film(8)];
+    assert.deepEqual(snapsForCall(plays, 'g1', 'TOSS', 'scout_a', undefined, [7]).map((s) => s.playNumber), [7]);
+    const linked = linkSnapsToCall(plays, { gameId: 'g1', callName: 'TOSS', playEntryId: 'scout_a', playName: 'TOSS', clips: [7] });
+    assert.equal(linked[0].playCallId, 'scout_a');
+    assert.equal(linked[1], plays[1]);
+  });
+  it('links a clip on a film whose snaps have no game (the only film)', () => {
+    const plays = [film(3, { gameId: undefined })];
+    const linked = linkSnapsToCall(plays, { gameId: 'g1', callName: 'TOSS', playEntryId: 'scout_a', playName: 'TOSS', clips: [3] });
+    assert.equal(linked[0].playCallId, 'scout_a');
+  });
+});
+
+describe('the scout script line', () => {
+  it('leaves out the run count written when the card was made (the live count is shown instead)', async () => {
+    const { buildScoutScript } = await import('./scoutOppPlays.ts');
+    const s = buildScoutScript([{ id: 'a', gameId: 'g1', name: 'TOSS', formation: '', personnel: '21', kind: 'run', down: '1st', notes: 'Ran 4 times on this film. Watch the pulling guard', onReport: true, editedAt: 1 }], 'Carmel');
+    assert.equal(s.lines[0].detail, '1st down · 21 · run. Watch the pulling guard');
   });
 });
