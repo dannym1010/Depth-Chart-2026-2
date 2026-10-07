@@ -299,15 +299,28 @@ export const GenericAnimatedWhiteboard: React.FC<GenericAnimatedWhiteboardProps>
                   Step {activeIdx + 1} of {phases.length}: {stepName(currentPhase.name)}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setFullScreen(false)}
-                className="shrink-0 w-10 h-10 rounded-full border border-slate-300 bg-white text-slate-700 flex items-center justify-center cursor-pointer hover:bg-slate-100"
-                title="Close full screen"
-                aria-label="Close full screen"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                {drill.onePageDiagram && (
+                  <button
+                    type="button"
+                    onClick={() => setShowOnePageModal(true)}
+                    className="inline-flex items-center gap-1.5 text-[11px] font-black text-amber-950 bg-gradient-to-r from-amber-400 to-amber-300 hover:from-amber-500 hover:to-amber-400 px-2.5 py-1.5 rounded-md border border-amber-500/50 shadow-2xs transition-all duration-150 cursor-pointer"
+                    title="Open 1-Page Install Diagram & Coaching Sheet"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-amber-950" />
+                    <span className="hidden sm:inline">1-Page Diagram Sheet</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setFullScreen(false)}
+                  className="shrink-0 w-10 h-10 rounded-full border border-slate-300 bg-white text-slate-700 flex items-center justify-center cursor-pointer hover:bg-slate-100"
+                  title="Close full screen"
+                  aria-label="Close full screen"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
             <div
               className="flex-1 min-h-0 flex items-center justify-center p-1.5 select-none"
