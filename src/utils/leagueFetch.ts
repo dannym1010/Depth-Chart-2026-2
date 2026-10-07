@@ -49,6 +49,10 @@ export const leagueIsStale = (d: LeagueData | null) => !d || Date.now() - d.fetc
 
 export async function fetchLeague(): Promise<LeagueData> {
   const res = await fetch('/api/league?what=index');
+  // An app server started before the league route was added answers with something else (not JSON).
+  if (!/json/i.test(res.headers.get('content-type') || '')) {
+    throw new Error('The app server needs a restart to load the league feature (close it and start it again).');
+  }
   if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'Could not reach the league site.');
   const index = (await res.json()) as { schedule: LeagueLink[]; results: LeagueLink[]; standings: LeagueLink[] };
 
