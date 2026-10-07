@@ -70,5 +70,17 @@ describe('a line drawn by hand: straight stays straight, a curve stays curved', 
     const x0 = fieldToSvg(0, 0).cx;
     assert.ok(Math.abs(Number(first[1]) - x0) < 4 && Math.abs(Number(first[2]) - x0) < 4, d);
   });
+  it('a 45-degree cut (post) stays a sharp break', () => {
+    const stem = path((t) => ({ x: wobble(t), y: t * 10 }), 25);
+    const cut = path((t) => ({ x: t * 5, y: 10 + t * 5 }), 15).slice(1);
+    const leg = shapeDrawnLeg([...stem, ...cut]);
+    assert.equal(leg.length, 3);
+    assert.equal(leg.some((p) => p.smooth), false);
+  });
+  it('a tight curve stays one smooth curve, not a string of breaks', () => {
+    // A half circle about 3 yards across (a back's path around the edge).
+    const leg = shapeDrawnLeg(path((t) => ({ x: 3 - Math.cos(t * Math.PI) * 3, y: Math.sin(t * Math.PI) * 4 }), 50));
+    assert.ok(leg.length > 2);
+    assert.ok(leg.slice(1, -1).every((p) => p.smooth));
+  });
 });
-

@@ -256,6 +256,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     rememberDefenseUnit(u);
   };
   const [labels, setLabels] = useState<Record<string, string>>(saved?.labels || {});
+  // Our defenders' boxes: position (default) or jersey number.
+  const [defShow, setDefShow] = useState<'position' | 'number'>(saved?.defenseShow === 'number' ? 'number' : 'position');
   // Our defensive plays: each defender's job as the coach typed it.
   const [jobs, setJobs] = useState<Record<string, string>>(saved?.jobs || {});
   const withLabel = <T extends { role: string }>(n: T): T => (labels[n.role] ? { ...n, label: labels[n.role] } : n);
@@ -311,9 +313,9 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     const aligned = withMyAlignment(defenseKey, alignDefenseTechniques(dLook.nodes, offNodes));
     return applyNodeOverrides(aligned, overrides)
       .map((n) => withLabel(overrides[n.role] ? n : { ...n, x: n.x + hashDx }))
-      .map((n) => (taggedWho[n.role] ? { ...n, player: taggedWho[n.role] } : n));
+      .map((n) => (taggedWho[n.role] ? { ...n, player: taggedWho[n.role], ...(defShow === 'number' ? { show: 'number' as const } : {}) } : n));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dLook, offNodes, overrides, hashDx, labels, taggedWho]);
+  }, [dLook, offNodes, overrides, hashDx, labels, taggedWho, defShow]);
   const play = basePlay ? { ...basePlay, nodes: offNodes } : null;
   const containFor = (front: string) => {
     const sys = defenseSystem();
@@ -516,6 +518,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       overrides,
       ...(Object.keys(labels).length ? { labels } : {}),
       ...(Object.keys(jobs).length ? { jobs } : {}),
+      ...(defShow === 'number' ? { defenseShow: 'number' as const } : {}),
       defenseUnit: defUnit,
       ...(Object.keys(defWho).length ? { defenseWho: defWho } : {}),
       ...(Object.keys(taggedWho).length ? { defensePlayers: taggedWho } : {}),
@@ -978,7 +981,29 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                   );
                 })}
               </div>
-              {defUnit !== 'off' && <span className="hidden sm:inline text-[11px] text-slate-400">Hover a defender to see who plays there</span>}
+              {defUnit !== 'off' && (
+                <div role="group" aria-label="What the defenders show" className="inline-flex items-center gap-1.5">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">Show</span>
+                  <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-[11px] font-black">
+                    {(['position', 'number'] as const).map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        aria-pressed={defShow === v}
+                        onClick={() => setDefShow(v)}
+                        className={`h-7 px-2.5 cursor-pointer transition-colors ${
+                          defShow === v
+                            ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                            : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                        }`}
+                      >
+                        {v === 'position' ? 'Position' : 'Number'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {defUnit !== 'off' && <span className="hidden lg:inline text-[11px] text-slate-400">Hover a defender to see who plays there</span>}
             </div>
           )}
           <div className="hidden sm:flex flex-wrap gap-1.5">

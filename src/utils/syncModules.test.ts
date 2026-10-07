@@ -2184,11 +2184,13 @@ describe('our defense tagged from the depth chart', () => {
     assert.equal(out.NT.num, '77', 'NT is only on the 53 chart');
   });
 
-  it('shows the tagged player\'s name on a defender, unless the coach typed one', async () => {
+  it('a defender shows his position (or, when set, the tagged player\'s number), never his name; a typed name wins', async () => {
     const { shownText, shortPlayerName } = await import('./footballEngine.ts');
     const node = { role: 'MIKE', x: 0, y: 3 } as any;
     assert.equal(shownText(node, 'M'), 'M');
-    assert.equal(shownText({ ...node, player: { num: '21', name: 'Ward' } }, 'M'), 'Ward');
+    assert.equal(shownText({ ...node, player: { num: '21', name: 'Ward' } }, 'M'), 'M');
+    assert.equal(shownText({ ...node, player: { num: '21', name: 'Ward' }, show: 'number' }, 'M'), '21');
+    assert.equal(shownText({ ...node, show: 'number' }, 'M'), 'M');
     assert.equal(shownText({ ...node, player: { num: '21', name: 'Ward' }, label: 'Sam' }, 'M'), 'Sam');
     assert.equal(shortPlayerName('Cambigianis'), 'Cambigia\u2026');
   });

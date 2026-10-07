@@ -652,26 +652,16 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     // Defense: a red box, wide enough for its name.
     if (isDefenseRole(n.role)) {
       const text = shownText(n, diagramLabel(n.role));
-      // A player's name is set a little smaller, so the defenders don't crowd each other.
-      const byName = !custom && Boolean(n.player?.name?.trim());
-      const bw = byName ? Math.max(23, text.length * 5.9 + 9) : Math.max(23, text.length * 7 + 8);
+      const bw = Math.max(23, text.length * 7 + 8);
       return (
         <g key={n.role} style={{ cursor }}>
           {isSelected && (
             <rect x={cx - bw / 2 - 4} y={cy - 14} width={bw + 8} height={28} rx={6} fill="none" stroke="#6366f1" strokeWidth={2.5} strokeDasharray="4 3" />
           )}
           <rect x={cx - bw / 2} y={cy - 10.5} width={bw} height={20} rx={4} fill={DEFENSE_COLOR} stroke="#ffffff" strokeWidth={1.8} />
-          <text x={cx} y={cy + 3.6} textAnchor="middle" fill="#ffffff" fontSize={byName ? 9 : 10.5} fontFamily={font} fontWeight="900">
+          <text x={cx} y={cy + 3.6} textAnchor="middle" fill="#ffffff" fontSize={10.5} fontFamily={font} fontWeight="900">
             {text}
           </text>
-          {n.player?.num && (
-            <g>
-              <rect x={cx + bw / 2 - tagWidth(n.player.num) / 2 - 1} y={cy - 17} width={tagWidth(n.player.num)} height={11} rx={5.5} fill={tagColors(n.player).bg} stroke="#ffffff" strokeWidth={1} />
-              <text x={cx + bw / 2 - 1} y={cy - 8.8} textAnchor="middle" fill={tagColors(n.player).ink} fontSize="7.5" fontFamily={font} fontWeight="900">
-                {n.player.num}
-              </text>
-            </g>
-          )}
         </g>
       );
     }

@@ -6,7 +6,8 @@
 /** label: the name a coach gave this player ("Sam", "Jake"), shown on the diagram instead of the usual letter. */
 /** The player tagged at a spot (from the depth chart): jersey number, name, the unit, and the spot's name. */
 export type NodePlayer = { num: string; name: string; unit?: 'black' | 'gold' | 'blue'; pos?: string };
-export type PlayNode = { role: string; x: number; y: number; line?: boolean; label?: string; player?: NodePlayer };
+/** `show`: a tagged defender shows his jersey number instead of his position. */
+export type PlayNode = { role: string; x: number; y: number; line?: boolean; label?: string; player?: NodePlayer; show?: 'number' };
 
 /** Our defense on the play diagrams (the builder and the saved pictures). One place to change it. */
 export const DEFENSE_COLOR = '#15803d';
@@ -23,7 +24,8 @@ export const shortPlayerName = (name?: string) => {
   return n.length > 9 ? `${n.slice(0, 8)}…` : n;
 };
 /** What a defender's box says: the name a coach typed, else the tagged player's name, else `fallback` (the position letter). */
-export const shownText = (n: PlayNode, fallback: string) => n.label?.trim() || shortPlayerName(n.player?.name) || fallback;
+/** What a player's mark says: the name the coach typed, else (when set) his jersey number, else his position. */
+export const shownText = (n: PlayNode, fallback: string) => n.label?.trim() || (n.show === 'number' && n.player?.num ? String(n.player.num) : '') || fallback;
 export const tagColors = (player?: NodePlayer) => UNIT_TAG[player?.unit || ''] || { bg: '#64748b', ink: '#ffffff' };
 export const tagWidth = (num: string) => Math.max(13, String(num).length * 5.4 + 7);
 
@@ -2067,11 +2069,19 @@ export function shapeDrawnLeg(raw: { x: number; y: number }[]): { x: number; y: 
   };
   simplify(0, sv.length - 1);
   const idx = [...keep].sort((a, b) => a - b);
-  // Sharp breaks: where the direction turns more than 50 degrees.
+  // Sharp breaks: where the hand's direction just before the point and just after it differ by more than
+  // 35 degrees. Measured close in (about 8 px each way), so a tight curve isn't taken for a break and a
+  // 45-degree cut isn't rounded off.
+  const reach = (i: number, step: 1 | -1) => {
+    let j = i;
+    while (j + step >= 0 && j + step < sv.length && dist(sv[i], sv[j]) < 8) j += step;
+    return sv[j];
+  };
   const turn = (k: number) => {
-    const a = sv[idx[k - 1]];
-    const b = sv[idx[k]];
-    const c = sv[idx[k + 1]];
+    const i = idx[k];
+    const a = reach(i, -1);
+    const b = sv[i];
+    const c = reach(i, 1);
     const a1 = Math.atan2(b.cy - a.cy, b.cx - a.cx);
     const a2 = Math.atan2(c.cy - b.cy, c.cx - b.cx);
     let d = Math.abs(a2 - a1);
@@ -2079,7 +2089,7 @@ export function shapeDrawnLeg(raw: { x: number; y: number }[]): { x: number; y: 
     return d;
   };
   const corners = [0];
-  for (let k = 1; k < idx.length - 1; k++) if (turn(k) > (50 * Math.PI) / 180) corners.push(k);
+  for (let k = 1; k < idx.length - 1; k++) if (turn(k) > (35 * Math.PI) / 180) corners.push(k);
   corners.push(idx.length - 1);
   const out: { x: number; y: number; smooth?: boolean }[] = [{ x: raw[0].x, y: raw[0].y }];
   for (let c = 0; c < corners.length - 1; c++) {
@@ -2686,15 +2696,8 @@ export function playerGlyphSvg(n: PlayNode, ballRole?: string) {
   if (isDefenseRole(n.role)) {
     // Defense in a red box, wide enough for its name.
     const text = shownText(n, diagramLabel(n.role));
-    const byName = !custom && Boolean(n.player?.name?.trim());
-    const bw = byName ? Math.max(22, text.length * 5.9 + 9) : Math.max(22, text.length * 7 + 8);
-    let chip = '';
-    if (n.player?.num) {
-      const tw = tagWidth(n.player.num);
-      const c = tagColors(n.player);
-      chip = `<rect x="${cx + bw / 2 - tw / 2 - 1}" y="${cy - 17}" width="${tw}" height="11" rx="5.5" fill="${c.bg}" stroke="#ffffff" stroke-width="1"/><text x="${cx + bw / 2 - 1}" y="${cy - 8.8}" text-anchor="middle" fill="${c.ink}" font-size="7.5" font-family="${font}" font-weight="900">${esc(n.player.num)}</text>`;
-    }
-    return `<g><rect x="${cx - bw / 2}" y="${cy - 10}" width="${bw}" height="19" rx="4" fill="${DEFENSE_COLOR}" stroke="#ffffff" stroke-width="1.8"/><text x="${cx}" y="${cy + 3.6}" text-anchor="middle" fill="#ffffff" font-size="${byName ? 9 : 10.5}" font-family="${font}" font-weight="900">${esc(text)}</text>${chip}</g>`;
+    const bw = Math.max(22, text.length * 7 + 8);
+    return `<g><rect x="${cx - bw / 2}" y="${cy - 10}" width="${bw}" height="19" rx="4" fill="${DEFENSE_COLOR}" stroke="#ffffff" stroke-width="1.8"/><text x="${cx}" y="${cy + 3.6}" text-anchor="middle" fill="#ffffff" font-size="10.5" font-family="${font}" font-weight="900">${esc(text)}</text></g>`;
   }
   if (n.role === 'C') {
     const text = custom || 'C';

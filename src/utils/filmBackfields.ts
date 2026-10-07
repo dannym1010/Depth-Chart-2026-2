@@ -152,7 +152,7 @@ export function redrawWithBackfield(
   const whoByRole = b?.defensePlayers || ourDefense?.players || {};
   const defense = applyNodeOverrides(withMyAlignment(lookKey, alignDefenseTechniques(look, nodes)), overrides).map((n) => {
     const moved = named(overrides[n.role] ? n : { ...n, x: n.x + hashDx });
-    return whoByRole[n.role] ? { ...moved, player: whoByRole[n.role] } : moved;
+    return whoByRole[n.role] ? { ...moved, player: whoByRole[n.role], ...(b?.defenseShow === 'number' ? { show: 'number' as const } : {}) } : moved;
   });
   // A different defense than the one the lines were drawn for: its lines don't belong to these defenders.
   const savedStrokes = ourDefense && entry.builder?.defenseKey !== ourDefense.key ? [] : (b?.strokes as PlayStroke[] | undefined) || [];
@@ -327,7 +327,7 @@ export function playWithDefense(entry: PlayDatabaseEntry, card: ScoutOppPlay, d:
   const startsOnOld = (st: PlayStroke) => st.points?.[0] && oldDefense.some((n) => Math.hypot(st.points[0].x - n.x, st.points[0].y - n.y) < 1.4);
   const strokes = (b0.strokes as PlayStroke[]).filter((st) => !startsOnOld(st));
   const who = b.defensePlayers || {};
-  const defense = lineUp(d.key, b.overrides).map((n) => (who[n.role] ? { ...n, player: who[n.role] } : n));
+  const defense = lineUp(d.key, b.overrides).map((n) => (who[n.role] ? { ...n, player: who[n.role], ...(b.defenseShow === 'number' ? { show: 'number' as const } : {}) } : n));
   return {
     ...entry,
     builder: { ...b, strokes },
