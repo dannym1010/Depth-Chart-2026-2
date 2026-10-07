@@ -1,4 +1,4 @@
-import { WhiteboardDrill, isDrillWhiteboardEnabled } from './whiteboardDrillData';
+import { WhiteboardDrill, isDrillWhiteboardEnabled, OnePageDiagramConfig } from './whiteboardDrillData';
 import { printCleanHTML } from '../../utils/printUtils';
 import { spreadDiagramElements } from './whiteboardSpreadHelper';
 import { createElement } from 'react';
@@ -1029,4 +1029,550 @@ export function extractDrillCardMarkup(drill: WhiteboardDrill, activePhaseIndex:
   }
   return '';
 }
+
+/**
+ * Generates standalone 1-Page Install Diagram sheet HTML matching the coaching install card layout.
+ */
+export function generateOnePageDiagramPrintHTML(config: OnePageDiagramConfig): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>${config.title} - 1-Page Install Sheet</title>
+  <style>
+    ${extractOnePageDiagramStyles()}
+  </style>
+</head>
+<body>
+  ${extractOnePageDiagramMarkup(config)}
+</body>
+</html>`;
+}
+
+/**
+ * Extracts CSS styles for 1-Page Diagram sheets.
+ */
+export function extractOnePageDiagramStyles(): string {
+  return `
+    @media print {
+      @page {
+        size: letter portrait;
+        margin: 0.2in 0.25in;
+      }
+      body {
+        background: #ffffff !important;
+        color: #000000 !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      .one-page-sheet-container {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-shadow: none !important;
+        border: 2px solid #0f172a !important;
+        padding: 6px !important;
+        background: #090e1a !important;
+        color: #ffffff !important;
+        border-radius: 6px !important;
+      }
+    }
+
+    @media screen {
+      .one-page-sheet-container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 12px;
+        background: #090e1a;
+        color: #ffffff;
+        border-radius: 8px;
+        border: 1px solid #1e293b;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+    }
+
+    .op-header-grid {
+      display: grid;
+      grid-template-columns: 2.8fr 1.2fr;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+    .op-title-box {
+      background: #0d1527;
+      border: 1px solid #1e293b;
+      padding: 6px 8px;
+      border-radius: 6px;
+    }
+    .op-main-title {
+      font-size: 14px;
+      font-weight: 900;
+      text-transform: uppercase;
+      color: #ffffff;
+      line-height: 1.1;
+      margin: 0;
+      letter-spacing: 0.5px;
+    }
+    .op-sub-title {
+      font-size: 11px;
+      font-weight: 900;
+      color: #fbbf24;
+      text-transform: uppercase;
+      margin-top: 1px;
+    }
+    .op-overview {
+      font-size: 8.5px;
+      color: #cbd5e1;
+      line-height: 1.2;
+      margin-top: 3px;
+    }
+    .op-goals-box {
+      background: #0d1627;
+      border: 1px solid #d97706;
+      padding: 5px 7px;
+      border-radius: 6px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .op-goals-title {
+      font-size: 9.5px;
+      font-weight: 900;
+      text-transform: uppercase;
+      color: #fbbf24;
+      border-bottom: 1px solid #78350f;
+      padding-bottom: 2px;
+      margin-bottom: 3px;
+    }
+    .op-goals-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      font-size: 8px;
+      color: #e2e8f0;
+      line-height: 1.25;
+    }
+    .op-row-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+    .op-card {
+      background: #0c1424;
+      border: 1px solid #1e293b;
+      border-radius: 6px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .op-card-header-yellow {
+      background: #0f172a;
+      border-bottom: 1px solid #1e293b;
+      padding: 3px 4px;
+      text-align: center;
+      font-size: 8.5px;
+      font-weight: 900;
+      color: #fbbf24;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .op-card-header-navy {
+      background: #0b1836;
+      border-bottom: 1px solid #1e3a8a;
+      padding: 3px 5px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 8.5px;
+      font-weight: 900;
+      color: #ffffff;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .op-step-badge {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      line-height: 12px;
+      text-align: center;
+      background: #000000;
+      border: 1px solid #475569;
+      color: #ffffff;
+      font-size: 7.5px;
+      font-weight: 900;
+      border-radius: 2px;
+    }
+    .op-field-mockup {
+      position: relative;
+      height: 96px;
+      background: linear-gradient(to bottom, #164627, #0f331c);
+      border: 1px solid #15803d;
+      border-radius: 4px;
+      margin: 4px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 4px;
+      box-sizing: border-box;
+    }
+    .op-field-repmockup {
+      position: relative;
+      height: 80px;
+      background: #143e24;
+      border: 1px solid #166534;
+      border-radius: 4px;
+      margin: 4px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 4px;
+      box-sizing: border-box;
+    }
+    .op-zone-pill {
+      background: rgba(14, 165, 233, 0.35);
+      border: 1px solid rgba(56, 189, 248, 0.8);
+      border-radius: 3px;
+      padding: 1px;
+      text-align: center;
+    }
+    .op-zone-pill-yellow {
+      background: rgba(250, 204, 21, 0.35);
+      border: 1px solid rgba(253, 224, 71, 0.8);
+      border-radius: 3px;
+      padding: 1px;
+      text-align: center;
+    }
+    .op-token-c {
+      width: 14px;
+      height: 14px;
+      line-height: 14px;
+      text-align: center;
+      background: #2563eb;
+      color: #ffffff;
+      font-size: 7.5px;
+      font-weight: 900;
+      border-radius: 50%;
+      border: 1px solid #ffffff;
+      margin: 0 auto;
+    }
+    .op-token-olb {
+      width: 14px;
+      height: 14px;
+      line-height: 14px;
+      text-align: center;
+      background: #f59e0b;
+      color: #000000;
+      font-size: 6.5px;
+      font-weight: 900;
+      border-radius: 50%;
+      border: 1px solid #fef08a;
+      margin: 0 auto;
+    }
+    .op-token-wr {
+      width: 13px;
+      height: 13px;
+      line-height: 13px;
+      text-align: center;
+      background: #dc2626;
+      color: #ffffff;
+      font-size: 6.5px;
+      font-weight: 900;
+      border-radius: 50%;
+      border: 1px solid #ffffff;
+    }
+    .op-card-caption {
+      font-size: 7.5px;
+      color: #cbd5e1;
+      padding: 3px 5px;
+      line-height: 1.2;
+      text-align: center;
+    }
+    .op-rep-details {
+      background: #080d1a;
+      margin: 3px 4px 4px 4px;
+      padding: 4px;
+      border-radius: 4px;
+      border: 1px solid #1e293b;
+      font-size: 7.5px;
+      color: #cbd5e1;
+      line-height: 1.25;
+    }
+    .op-rep-details ul {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .op-bottom-grid {
+      display: grid;
+      grid-template-columns: 1.4fr 1.2fr 1fr;
+      gap: 6px;
+    }
+    .op-panel {
+      background: #0b1220;
+      border: 1px solid #1e293b;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .op-panel-header {
+      background: #0d1e40;
+      border-bottom: 1px solid #1e3a8a;
+      padding: 3px 6px;
+      font-size: 8px;
+      font-weight: 900;
+      color: #ffffff;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .op-panel-body {
+      padding: 5px 6px;
+      font-size: 7.5px;
+      color: #e2e8f0;
+      line-height: 1.25;
+    }
+    .op-key-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 4px;
+      margin-bottom: 3px;
+    }
+    .op-num-badge {
+      display: inline-block;
+      width: 11px;
+      height: 11px;
+      line-height: 11px;
+      text-align: center;
+      font-size: 7px;
+      font-weight: 900;
+      border-radius: 50%;
+      color: #ffffff;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .op-check-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 3px;
+      font-size: 7.5px;
+      color: #f1f5f9;
+    }
+    .op-check-mark {
+      color: #10b981;
+      font-weight: 900;
+      font-size: 9px;
+    }
+  `;
+}
+
+/**
+ * Extracts inner HTML markup for the 1-Page Diagram Sheet to embed in multi-page practice plans.
+ */
+export function extractOnePageDiagramMarkup(config: OnePageDiagramConfig): string {
+  return `
+    <div class="one-page-sheet-container">
+      <!-- HEADER -->
+      <div class="op-header-grid">
+        <div class="op-title-box">
+          <h1 class="op-main-title">${config.title.split('(')[0]}</h1>
+          ${config.title.includes('(') ? `<div class="op-sub-title">(${config.title.split('(')[1]}</div>` : ''}
+          <div class="op-overview">${config.subtitle}</div>
+        </div>
+        <div class="op-goals-box">
+          <div class="op-goals-title">DRILL GOALS</div>
+          <ul class="op-goals-list">
+            ${config.goals.map((g) => `<li>${g}</li>`).join('')}
+          </ul>
+        </div>
+      </div>
+
+      <!-- ROW 1: 3 FIELD CONCEPTS -->
+      <div class="op-row-3">
+        <!-- Card 1: Cover 3 Zone Responsibilities -->
+        <div class="op-card">
+          <div class="op-card-header-yellow">COVER 3 ZONE RESPONSIBILITIES</div>
+          <div class="op-field-mockup">
+            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:2px;">
+              <div class="op-zone-pill"><div class="op-token-c">C</div><div style="font-size:6px; font-weight:900; color:#bae6fd;">DEEP 1/3</div></div>
+              <div class="op-zone-pill"><div class="op-token-c">FS</div><div style="font-size:6px; font-weight:900; color:#bae6fd;">DEEP MID 1/3</div></div>
+              <div class="op-zone-pill"><div class="op-token-c">C</div><div style="font-size:6px; font-weight:900; color:#bae6fd;">DEEP 1/3</div></div>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:auto 4px;">
+              <div class="op-zone-pill-yellow"><div class="op-token-olb">OLB</div><div style="font-size:6px; font-weight:900; color:#fef08a;">CURL/FLAT</div></div>
+              <div class="op-zone-pill-yellow"><div class="op-token-olb">OLB</div><div style="font-size:6px; font-weight:900; color:#fef08a;">CURL/FLAT</div></div>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px dashed rgba(253,224,71,0.5); padding-top:1px;">
+              <div class="op-token-wr">WR</div>
+              <div style="display:flex; gap:2px;"><div style="width:7px; height:7px; background:#fff; border-radius:1px;"></div><div style="width:7px; height:7px; background:#fff; border-radius:1px;"></div><div style="width:7px; height:7px; background:#fff; border-radius:1px;"></div><div style="width:7px; height:7px; background:#fff; border-radius:1px;"></div><div style="width:7px; height:7px; background:#fff; border-radius:1px;"></div></div>
+              <div class="op-token-wr">QB</div>
+              <div class="op-token-wr">WR</div>
+            </div>
+          </div>
+          <div class="op-card-caption">Cover 3 Zone Shell: 3-Deep & 4-Underneath with OLBs protecting flats and curl seams.</div>
+        </div>
+
+        <!-- Card 2: Smash Concept -->
+        <div class="op-card">
+          <div class="op-card-header-yellow">SMASH CONCEPT (HITCH/CORNER)</div>
+          <div class="op-field-mockup">
+            <div style="display:flex; justify-content:space-between; padding:0 6px;">
+              <div class="op-token-c">C</div>
+              <div class="op-token-c">FS</div>
+              <div class="op-token-c" style="border-color:#f87171;">C</div>
+            </div>
+            <div style="display:flex; justify-content:space-between; padding:0 14px; margin:auto 0;">
+              <div style="text-align:center;"><div style="font-size:6px; font-weight:900; color:#fde047;">↰ HITCH</div><div class="op-token-olb">OLB</div></div>
+              <div style="text-align:center;"><div style="font-size:6px; font-weight:900; color:#fca5a5;">CORNER ⤢</div><div class="op-token-olb">OLB</div></div>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px dashed rgba(253,224,71,0.5); padding-top:1px;">
+              <div class="op-token-wr">WR</div>
+              <div class="op-token-wr">QB</div>
+              <div class="op-token-wr">WR</div>
+            </div>
+          </div>
+          <div class="op-card-caption"><strong style="color:#fde047;">Smash = Hitch (flat) + Corner (deep).</strong> Tests OLB vs hitch and Corner vs corner with FS middle.</div>
+        </div>
+
+        <!-- Card 3: Verticals Concept -->
+        <div class="op-card">
+          <div class="op-card-header-yellow">VERTICALS CONCEPT (SEAM/GO)</div>
+          <div class="op-field-mockup">
+            <div style="display:flex; justify-content:space-between; padding:0 6px;">
+              <div class="op-token-c">C</div>
+              <div class="op-token-c" style="border-color:#38bdf8;">FS</div>
+              <div class="op-token-c">C</div>
+            </div>
+            <div style="display:flex; justify-content:space-between; padding:0 14px; margin:auto 0;">
+              <div class="op-token-olb">OLB</div>
+              <div class="op-token-olb">OLB</div>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px dashed rgba(253,224,71,0.5); padding-top:1px;">
+              <div style="text-align:center;"><span style="font-size:6px; font-weight:900; color:#fca5a5;">▲ SEAM</span><div class="op-token-wr">WR</div></div>
+              <div class="op-token-wr">QB</div>
+              <div style="text-align:center;"><span style="font-size:6px; font-weight:900; color:#fca5a5;">▲ GO</span><div class="op-token-wr">WR</div></div>
+            </div>
+          </div>
+          <div class="op-card-caption"><strong style="color:#fde047;">Verticals = Seam/Go.</strong> Tests Corner vs outside vertical and FS split seams. OLB walls inside.</div>
+        </div>
+      </div>
+
+      <!-- ROW 2: 3 PRACTICE REPS -->
+      <div class="op-row-3">
+        <!-- Rep 1 -->
+        <div class="op-card">
+          <div class="op-card-header-navy"><span class="op-step-badge">1</span><span>DRILL SETUP</span></div>
+          <div class="op-field-repmockup">
+            <div style="display:flex; justify-content:center;"><div class="op-token-c">FS</div></div>
+            <div style="display:flex; justify-content:space-between; padding:0 6px;"><div class="op-token-c">C</div><div class="op-token-olb">OLB</div><div class="op-token-c">C</div></div>
+            <div style="display:flex; justify-content:space-between; padding:0 4px;"><div class="op-token-wr">WR</div><div class="op-token-wr" style="font-size:5px;">COACH</div><div class="op-token-wr">WR</div></div>
+          </div>
+          <div class="op-rep-details">
+            <ul>
+              <li>• 2 WRs (or coach/QB) each side</li>
+              <li>• Defense aligned in Cover 3:</li>
+              <li style="padding-left:6px;">- Corners ~7-8 yds, outside leverage</li>
+              <li style="padding-left:6px;">- OLBs ~5 yds, read #2 to flat/buzz</li>
+              <li style="padding-left:6px;">- FS 12-15 yds, middle 1/3</li>
+              <li>• Use half field or full field.</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Rep 2 -->
+        <div class="op-card">
+          <div class="op-card-header-navy"><span class="op-step-badge">2</span><span>SMASH REP</span></div>
+          <div class="op-field-repmockup">
+            <div style="display:flex; justify-content:center;"><div class="op-token-c">FS</div></div>
+            <div style="display:flex; justify-content:space-between; padding:0 6px; align-items:center;">
+              <div class="op-token-olb">OLB</div>
+              <span style="font-size:6px; color:#fde047; font-weight:900;">↰ Hitch</span>
+              <span style="font-size:6px; color:#fca5a5; font-weight:900;">Corner ⤢</span>
+              <div class="op-token-c">C</div>
+            </div>
+            <div style="display:flex; justify-content:center;"><div class="op-token-wr">QB</div></div>
+          </div>
+          <div class="op-rep-details">
+            <ul>
+              <li>• WR (left) runs hitch (flat).</li>
+              <li>• WR (right) runs corner.</li>
+              <li>• OLB (left) takes hitch/flat.</li>
+              <li>• Corner (right) takes corner (#2 vertical).</li>
+              <li>• FS stays middle, don't bite hitch.</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Rep 3 -->
+        <div class="op-card">
+          <div class="op-card-header-navy"><span class="op-step-badge">3</span><span>VERTICALS REP</span></div>
+          <div class="op-field-repmockup">
+            <div style="display:flex; justify-content:center;"><div class="op-token-c">FS</div></div>
+            <div style="display:flex; justify-content:space-between; padding:0 6px; align-items:center;">
+              <span style="font-size:7px; color:#f87171; font-weight:900;">▲</span>
+              <div class="op-token-c">C</div>
+              <div class="op-token-c">C</div>
+              <span style="font-size:7px; color:#f87171; font-weight:900;">▲</span>
+            </div>
+            <div style="display:flex; justify-content:center;"><div class="op-token-wr">QB</div></div>
+          </div>
+          <div class="op-rep-details">
+            <ul>
+              <li>• Both WRs run seam/go.</li>
+              <li>• Corners carry outside verticals.</li>
+              <li>• FS takes middle 1/3 (split seams).</li>
+              <li>• OLBs wall/carry inside vertical or replace to flat if no vertical.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- ROW 3: BOTTOM 3 PANELS -->
+      <div class="op-bottom-grid">
+        <!-- Panel 1 -->
+        <div class="op-panel">
+          <div class="op-panel-header">KEY COACHING POINTS (TRIANGLE COMMUNICATION)</div>
+          <div class="op-panel-body">
+            <div class="op-key-row"><span class="op-num-badge" style="background:#dc2626;">1</span><div><strong>CALL IT EARLY – </strong><span>"3-3-3", "Push", "Seam", "Hitch"</span></div></div>
+            <div class="op-key-row"><span class="op-num-badge" style="background:#d97706;">2</span><div><strong>EYES &amp; KEY – </strong><span>OLB reads #2 (hitch/vertical)</span></div></div>
+            <div class="op-key-row"><span class="op-num-badge" style="background:#2563eb;">3</span><div><strong>HANDOFFS – </strong><span>OLB to Corner and OLB to FS</span></div></div>
+            <div class="op-key-row"><span class="op-num-badge" style="background:#16a34a;">4</span><div><strong>LEVERAGE – </strong><span>Corners stay outside leverage</span></div></div>
+            <div class="op-key-row"><span class="op-num-badge" style="background:#9333ea;">5</span><div><strong>TRANSITION – </strong><span>Smooth, play through catch</span></div></div>
+            <div class="op-key-row"><span class="op-num-badge" style="background:#0284c7;">6</span><div><strong>FINISH – </strong><span>Break on ball, tackle, no freebies</span></div></div>
+          </div>
+        </div>
+
+        <!-- Panel 2 -->
+        <div class="op-panel">
+          <div class="op-panel-header">SUCCESS CRITERIA</div>
+          <div class="op-panel-body">
+            <div class="op-check-item"><span class="op-check-mark">✓</span><span>Correct calls & communication</span></div>
+            <div class="op-check-item"><span class="op-check-mark">✓</span><span>No one open on hitch, corner, seam</span></div>
+            <div class="op-check-item"><span class="op-check-mark">✓</span><span>Proper zone handoffs (OLB → C/FS)</span></div>
+            <div class="op-check-item"><span class="op-check-mark">✓</span><span>Good leverage & depth</span></div>
+            <div class="op-check-item"><span class="op-check-mark">✓</span><span>Breaks on the ball</span></div>
+            <div class="op-check-item"><span class="op-check-mark">✓</span><span>Competitive game speed reps</span></div>
+          </div>
+        </div>
+
+        <!-- Panel 3 -->
+        <div class="op-panel">
+          <div class="op-panel-header">PROGRESSIONS</div>
+          <div class="op-panel-body">
+            <div class="op-key-row"><span class="op-step-badge">1</span><span>Start with air (walk-through)</span></div>
+            <div class="op-key-row"><span class="op-step-badge">2</span><span>Add QB/coach at half speed</span></div>
+            <div class="op-key-row"><span class="op-step-badge">3</span><span>Full speed</span></div>
+            <div class="op-key-row"><span class="op-step-badge">4</span><span>Add motion or stack</span></div>
+            <div class="op-key-row"><span class="op-step-badge">5</span><span>Add back-side concepts (dig/cross)</span></div>
+            <div class="op-key-row"><span class="op-step-badge">6</span><span>Make it live (points for PBU/INT)</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 

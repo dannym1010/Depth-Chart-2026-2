@@ -6,7 +6,12 @@ import {
   printCleanHTML,
   openCleanPrintTab,
 } from './printUtils';
-import { extractDrillCardMarkup, extractDrillPrintStyles } from '../components/whiteboard/drillPrintHelper';
+import {
+  extractDrillCardMarkup,
+  extractDrillPrintStyles,
+  extractOnePageDiagramMarkup,
+  extractOnePageDiagramStyles,
+} from '../components/whiteboard/drillPrintHelper';
 
 export interface PlanDrillItem {
   key: string;
@@ -31,7 +36,7 @@ export interface PracticePlanPrintPackageOptions {
   seqInfo?: { practiceNumber?: number; isCancelled?: boolean } | null;
   fontSize?: number;
   includePlanTable?: boolean;
-  selectedDrills?: { drill: WhiteboardDrill; phaseIndex?: number }[];
+  selectedDrills?: { drill: WhiteboardDrill; phaseIndex?: number; useOnePageDiagram?: boolean }[];
   includeFormations?: boolean;
   formations?: FormationBoard[];
   depthChart?: Record<string, PlacedPlayer[]>;
@@ -519,6 +524,7 @@ export function generatePracticePlanPackageHTML(options: PracticePlanPrintPackag
   // 2. Generate drill styles and drill cards
   const sampleDrill = selectedDrills[0]?.drill;
   const drillStyles = sampleDrill ? extractDrillPrintStyles(sampleDrill) : '';
+  const onePageStyles = extractOnePageDiagramStyles();
 
   // 3. Generate formations pocket depth chart if requested
   let formationsStyles = '';
@@ -555,13 +561,16 @@ export function generatePracticePlanPackageHTML(options: PracticePlanPrintPackag
 
   const drillSheetsHtml = selectedDrills
     .map((item, idx) => {
-      const cardMarkup = extractDrillCardMarkup(item.drill, item.phaseIndex || 0);
+      const isOnePage = Boolean(item.useOnePageDiagram && item.drill.onePageDiagram);
+      const cardMarkup = isOnePage
+        ? extractOnePageDiagramMarkup(item.drill.onePageDiagram!)
+        : extractDrillCardMarkup(item.drill, item.phaseIndex || 0);
       const needsPageBreakBefore = includePlanTable || idx > 0;
       return `
-        <div class="drill-page-wrapper ${needsPageBreakBefore ? 'page-break-before' : ''}">
+        <div class="drill-page-wrapper ${isOnePage ? 'one-page-diagram-wrapper' : ''} ${needsPageBreakBefore ? 'page-break-before' : ''}">
           <div class="drill-header-plan-banner print:block">
             <span class="banner-title">${plan?.title || 'MAHOPAC 10U DEFENSE'}</span>
-            <span class="banner-meta">DRILL ATTACHMENT • PAGE ${ (includePlanTable ? 2 : 1) + idx }</span>
+            <span class="banner-meta">${isOnePage ? '1-PAGE INSTALL DIAGRAM SHEET' : 'DRILL ATTACHMENT'} • PAGE ${ (includePlanTable ? 2 : 1) + idx }</span>
           </div>
           ${cardMarkup}
         </div>
@@ -592,6 +601,7 @@ export function generatePracticePlanPackageHTML(options: PracticePlanPrintPackag
   <style>
     ${planStyles}
     ${drillStyles}
+    ${onePageStyles}
     ${formationsStyles}
 
     /* Page Break & Combined Print Rules */
