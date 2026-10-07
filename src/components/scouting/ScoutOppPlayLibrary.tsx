@@ -148,6 +148,26 @@ export const ScoutOppPlayLibrary: React.FC<{
     return map;
   }, [plays, film, gameId]);
   const snapCount = (p: ScoutOppPlay) => snapsOf.get(p.id)?.length || 0;
+  /** Every play of theirs in the same play type (across films), for a script play with no film of its own. */
+  const allTypes = useMemo(() => groupOppPlays(Object.values(libraries).flat()), [libraries]);
+  /**
+   * The film for a play on the script (any film, not just the one picked above): its own snaps, else every
+   * snap of its play type. Clicking it opens the builder with the same film, so Watch film is there too.
+   */
+  const scriptFilm = (p: ScoutOppPlay) => {
+    const filmOf = (gid: string) => filmPlays.filter((fp) => (fp.gameId ? fp.gameId === gid : films[0]?.id === gid));
+    const own = snapsForCall(filmOf(p.gameId), p.gameId, p.name, `scout_${p.id}`, p.fromPlayId, p.clips);
+    if (own.length) return { snaps: own, group: undefined };
+    const g = allTypes.find((t) => t.plays.some((x) => x.id === p.id));
+    if (!g || g.plays.length < 2) return { snaps: own, group: undefined };
+    const byId = new Map<string, { id: string; playNumber: number }>();
+    for (const m of g.plays) for (const snap of snapsForCall(filmOf(m.gameId), m.gameId, m.name, `scout_${m.id}`, m.fromPlayId, m.clips)) byId.set(snap.id, snap);
+    return { snaps: [...byId.values()].sort((a, b) => a.playNumber - b.playNumber), group: { label: g.label, plays: g.plays } };
+  };
+  const openScriptPlay = (p: ScoutOppPlay) => {
+    const { snaps, group } = scriptFilm(p);
+    onDraw?.(p, snaps.length && group ? group : undefined);
+  };
   // The film of these calls (a play, or every call in a play type), in play order, in the film window.
   const watchFilm = (members: ScoutOppPlay[], label: string) => {
     const byId = new Map<string, { id: string; playNumber: number }>();
@@ -1122,12 +1142,27 @@ export const ScoutOppPlayLibrary: React.FC<{
                       type="button"
                       className="min-w-0 flex-1 text-left cursor-pointer disabled:cursor-default"
                       disabled={!play || !onDraw}
-                      onClick={() => play && onDraw?.(play)}
+                      onClick={() => play && openScriptPlay(play)}
                       title={onDraw && play ? 'Open in play builder' : undefined}
                     >
                       <div className="text-sm font-black truncate">{line.name}</div>
                       {line.detail && <div className={`text-[11px] text-slate-500 ${scriptPics ? '' : 'truncate'}`}>{line.detail}</div>}
                     </button>
+                    {(() => {
+                      const film = play ? scriptFilm(play) : null;
+                      if (!play || !film?.snaps.length) return null;
+                      return (
+                        <button
+                          type="button"
+                          title={`Watch their film of this play (${film.snaps.length} clip${film.snaps.length === 1 ? '' : 's'})`}
+                          aria-label={`Watch ${line.name}`}
+                          onClick={() => openFilmWindow({ gameId: play.gameId, playIds: film.snaps.map((x) => x.id), label: film.group?.label || line.name })}
+                          className="shrink-0 h-7 px-1.5 rounded-md border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 text-[11px] font-black inline-flex items-center gap-0.5 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 cursor-pointer"
+                        >
+                          <PlayIcon className="w-3 h-3" /> {film.snaps.length}
+                        </button>
+                      );
+                    })()}
                     <div className="flex items-center shrink-0 text-slate-400">
                       <button type="button" aria-label={`Move ${line.name} to the top`} title="To the top" disabled={index === 0} onClick={() => moveScriptTo(line.playId, 0)} className="p-0.5 disabled:opacity-20 cursor-pointer hover:text-slate-700">
                         <ChevronsUp className="w-4 h-4" />
@@ -1151,7 +1186,7 @@ export const ScoutOppPlayLibrary: React.FC<{
                           className="mt-1 block w-full cursor-pointer disabled:cursor-default"
                           disabled={!play || !onDraw}
                           aria-label={`Open ${line.name}`}
-                          onClick={() => play && onDraw?.(play)}
+                          onClick={() => play && openScriptPlay(play)}
                         >
                           <DiagramImage url={diagram} alt={line.name} className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white" />
                         </button>
