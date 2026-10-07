@@ -2018,6 +2018,11 @@ export const DEFAULT_CASCADING_DRILLS: DrillFolder[] = [
             "name": "Defense LB: TJ Neal Redirection & Clean-Foot Tackle Drill",
             "desc": "Teaches LBs how to maintain square shoulders and clean feet over agile bags, plant the outside cleat on sudden cutbacks, and drive downhill into a near-foot near-shoulder wrap tackle.",
             "key": "'Clean feet, good leverage!' — Stay square, no crossing cleats, plant outside foot to redirect, finish near-hip."
+          },
+          {
+            "name": "Defense LB: Cover 3 DB / OLB Tandem Triangle Drill (Smash & Seam-Curl)",
+            "desc": "Combined tandem drill with Corner, OLB (Buzz/Flat defender), Free Safety, and 2 WRs (or coach/QB). Tests communication and zone handoffs between deep 1/3 and curl/flat on Smash (hitch/corner) and Verticals (seam/go).",
+            "key": "Call early ('3-3-3', 'Push', 'Seam', 'Hitch') — Under 1, Over 2! OLB buzzes hitch, CB caps corner over top, FS splits the seams."
           }
         ]
       },
@@ -2025,6 +2030,11 @@ export const DEFAULT_CASCADING_DRILLS: DrillFolder[] = [
         "subfolders": [],
         "name": "Defensive Backs (DB)",
         "drills": [
+          {
+            "name": "Defense DB: Cover 3 DB / OLB Tandem Triangle Drill (Smash & Seam-Curl)",
+            "desc": "Combined tandem drill with Corner, OLB (Buzz/Flat defender), Free Safety, and 2 WRs (or coach/QB). Tests communication and zone handoffs between deep 1/3 and curl/flat on Smash (hitch/corner) and Verticals (seam/go).",
+            "key": "Call early ('3-3-3', 'Push', 'Seam', 'Hitch') — Under 1, Over 2! OLB buzzes hitch, CB caps corner over top, FS splits the seams."
+          },
           {
             "name": "Defense DB: Fast Alley Trigger & Breakdown",
             "desc": "FS takes 2 downhill read steps, inside-out pursuit angle, chops feet at 3 yds, clamps near hip",
