@@ -550,20 +550,32 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 /** A printable sheet of the script: each checked play and its diagram, separate from the practice plan. */
 export function scoutScriptPrintHtml(
   title: string,
-  groups: { label: string; plays: { name: string; detail: string; diagram?: string | null }[] }[]
+  groups: { label: string; plays: { name: string; detail: string; diagram?: string | null; kind?: string }[] }[],
+  /** Each group (a formation) starts its own page. */
+  opts: { pagePerGroup?: boolean } = {}
 ): string {
   const sections = groups
     .filter((g) => g.plays.length)
-    .map((g) => {
+    .map((g, gi) => {
       const cards = g.plays
         .map((p) => {
           const picture = p.diagram
             ? `<img src="${esc(p.diagram)}" alt="${esc(p.name)}"/>`
             : `<div class="empty">No diagram yet. Open this play and draw it.</div>`;
-          return `<article class="card"><div class="name">${esc(p.name)}</div>${p.detail ? `<div class="detail">${esc(p.detail)}</div>` : ''}${picture}</article>`;
+          const k = p.kind ? KIND_LOOK[p.kind] : undefined;
+          const badge = k ? `<span class="kind" style="background:${k.color}">${k.label}</span>` : '';
+          const edge = k ? ` style="border-left:6px solid ${k.color}"` : '';
+          return `<article class="card"${edge}><div class="name">${badge}${esc(p.name)}</div>${p.detail ? `<div class="detail">${esc(p.detail)}</div>` : ''}${picture}</article>`;
         })
         .join('');
-      return `<h2>${esc(g.label)}</h2><div class="grid">${cards}</div>`;
+      const counts = g.plays.some((p) => p.kind)
+        ? ` <span class="count">${Object.entries(KIND_LOOK)
+            .map(([id, k]) => [k.label, g.plays.filter((p) => p.kind === id).length] as const)
+            .filter(([, n]) => n)
+            .map(([label, n]) => `${n} ${label.toLowerCase()}`)
+            .join(' · ')}</span>`
+        : '';
+      return `<section class="${opts.pagePerGroup && gi > 0 ? 'page' : ''}"><h2>${esc(g.label)}${counts}</h2><div class="grid">${cards}</div></section>`;
     })
     .join('');
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${esc(title)}</title><style>
@@ -577,7 +589,33 @@ export function scoutScriptPrintHtml(
     .detail { font-size: 11px; color: #444; margin-top: 2px; }
     img { width: 100%; height: auto; margin-top: 6px; }
     .empty { margin-top: 8px; font-size: 11px; color: #666; border: 1px dashed #ccc; border-radius: 6px; padding: 16px 8px; text-align: center; }
+    .page { break-before: page; }
+    .kind { display: inline-block; color: #fff; font-size: 10px; font-weight: 900; letter-spacing: 0.05em; border-radius: 4px; padding: 1px 6px; margin-right: 6px; vertical-align: 2px; }
+    .count { font-weight: 600; text-transform: none; letter-spacing: 0; color: #555; margin-left: 8px; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   </style></head><body><h1>${esc(title)}</h1>${sections}</body></html>`;
+}
+
+/** Run and pass stand out on the script: the same red and blue as the lines on the diagrams. */
+export const KIND_LOOK: Record<string, { label: string; color: string }> = {
+  run: { label: 'RUN', color: '#e11d2a' },
+  pass: { label: 'PASS', color: '#2563eb' },
+  screen: { label: 'SCREEN', color: '#0891b2' },
+  rpo: { label: 'RPO', color: '#7c3aed' },
+};
+
+/** The script split by formation for printing: each formation once, in the order it first comes up, plays in script order. */
+export function scriptByFormation<T extends { formation?: string }>(plays: T[]): { label: string; plays: T[] }[] {
+  const out = new Map<string, { label: string; plays: T[] }>();
+  for (const p of plays) {
+    // Hudl writes "-" for no formation.
+    const raw = String(p.formation || '').trim();
+    const name = raw === '-' ? '' : raw;
+    const key = formationKey(name) || '—';
+    if (!out.has(key)) out.set(key, { label: name || 'No formation', plays: [] });
+    out.get(key)!.plays.push(p);
+  }
+  return [...out.values()];
 }
 
 /** Ways to put the scout script in order at once (then fine-tune by hand). */

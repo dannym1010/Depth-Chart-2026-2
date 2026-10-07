@@ -206,3 +206,22 @@ describe('the scout script line', () => {
     assert.equal(s.lines[0].detail, '1st down · 21 · run. Watch the pulling guard');
   });
 });
+
+describe('the printed scout script', async () => {
+  const { scriptByFormation, scoutScriptPrintHtml } = await import('./scoutOppPlays.ts');
+  it('puts each formation on its own page, in script order, with run and pass marked', () => {
+    const lines = [
+      { name: 'A', detail: '', formation: 'Pro Rt', kind: 'run' },
+      { name: 'B', detail: '', formation: 'Trips', kind: 'pass' },
+      { name: 'C', detail: '', formation: 'pro rt', kind: 'pass' },
+      { name: 'D', detail: '', formation: '-', kind: 'run' },
+    ];
+    const pages = scriptByFormation(lines);
+    assert.deepEqual(pages.map((g) => [g.label, g.plays.map((p) => p.name).join('')]), [['Pro Rt', 'AC'], ['Trips', 'B'], ['No formation', 'D']]);
+    const html = scoutScriptPrintHtml('Carmel scout script', pages, { pagePerGroup: true });
+    assert.equal((html.match(/<section class="page">/g) || []).length, 2);
+    assert.match(html, /<h2>Pro Rt <span class="count">1 run · 1 pass<\/span><\/h2>/);
+    assert.equal((html.match(/>RUN</g) || []).length, 2);
+    assert.equal((html.match(/>PASS</g) || []).length, 2);
+  });
+});

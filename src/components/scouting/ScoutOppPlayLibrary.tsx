@@ -30,6 +30,8 @@ import {
   orderScript,
   SCRIPT_ORDERS,
   type ScriptOrder,
+  KIND_LOOK,
+  scriptByFormation,
 } from '../../utils/scoutOppPlays';
 
 const INPUT = 'h-9 w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm';
@@ -164,6 +166,12 @@ export const ScoutOppPlayLibrary: React.FC<{
     for (const m of g.plays) for (const snap of snapsForCall(filmOf(m.gameId), m.gameId, m.name, `scout_${m.id}`, m.fromPlayId, m.clips)) byId.set(snap.id, snap);
     return { snaps: [...byId.values()].sort((a, b) => a.playNumber - b.playNumber), group: { label: g.label, plays: g.plays } };
   };
+  /** Run, pass, screen or RPO: a play left at the default (run) goes by what its name says ("BUBBLE PASS" is a pass). */
+  const kindOf = (p: ScoutOppPlay): ScoutOppPlay['kind'] => {
+    if (p.kind !== 'run') return p.kind;
+    const t = (playDatabase || []).find((e) => e.id === `scout_${p.id}`)?.type || inferPlayType(p.name, 'offense');
+    return t === 'pass' || t === 'play_action' ? 'pass' : t === 'screen' ? 'screen' : t === 'rpo' ? 'rpo' : 'run';
+  };
   const openScriptPlay = (p: ScoutOppPlay) => {
     const { snaps, group } = scriptFilm(p);
     onDraw?.(p, snaps.length && group ? group : undefined);
@@ -239,25 +247,25 @@ export const ScoutOppPlayLibrary: React.FC<{
 
   const printScript = async () => {
     setPrintNote('');
-    const groups = [
-      {
-        label: 'Scout script',
-        plays: script.lines.map((line) => {
-          const play = onTheReport.find((p) => p.id === line.playId);
-          // How many times they ran it (its clips on the film).
-          const ran = play ? scriptFilm(play).snaps.length : 0;
-          const detail = [line.detail, ran ? `Ran it ${ran} time${ran === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
-          return { name: line.name, detail, diagram: play ? diagramFor(play) : undefined };
-        }),
-      },
-    ];
+    // Each formation on its own page, the plays in script order, run / pass marked.
+    const lines = script.lines.map((line) => {
+      const play = onTheReport.find((p) => p.id === line.playId);
+      // How many times they ran it (its clips on the film).
+      const ran = play ? scriptFilm(play).snaps.length : 0;
+      const detail = [line.detail, ran ? `Ran it ${ran} time${ran === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+      // Its formation as tagged, else the one of theirs it was drawn from.
+      const tagged = play?.formation && play.formation.trim() !== '-' ? play.formation : '';
+      const formation = tagged || (play ? formationOfPlay(play, formations)?.name : '') || '';
+      return { name: line.name, detail, diagram: play ? diagramFor(play) : undefined, kind: play ? kindOf(play) : undefined, formation };
+    });
+    const groups = scriptByFormation(lines);
     const withPictures = await Promise.all(
       groups.map(async (g) => ({
         ...g,
         plays: await Promise.all(g.plays.map(async (p) => ({ ...p, diagram: await resolveDiagram(p.diagram) }))),
       }))
     );
-    const html = scoutScriptPrintHtml(script.title, withPictures);
+    const html = scoutScriptPrintHtml(script.title, withPictures, { pagePerGroup: true });
     const win = window.open('', '_blank');
     if (!win) {
       setPrintNote('Allow pop-ups to print the script.');
@@ -300,13 +308,7 @@ export const ScoutOppPlayLibrary: React.FC<{
   };
   const orderScriptBy = (by: ScriptOrder) => {
     const filmOrder = [...games.flatMap((g) => libraries[g.id] || []), ...Object.values(libraries).flat()];
-    // A play left at the default (run) goes by what its name says ("BUBBLE PASS" is a pass).
-    const typed = onTheReport.map((p) => {
-      if (p.kind !== 'run') return p;
-      const t = (playDatabase || []).find((e) => e.id === `scout_${p.id}`)?.type || inferPlayType(p.name, 'offense');
-      const kind: ScoutOppPlay['kind'] = t === 'pass' || t === 'play_action' ? 'pass' : t === 'screen' ? 'screen' : t === 'rpo' ? 'rpo' : 'run';
-      return kind === p.kind ? p : { ...p, kind };
-    });
+    const typed = onTheReport.map((p) => (kindOf(p) === p.kind ? p : { ...p, kind: kindOf(p) }));
     setScriptOrder(orderScript(typed, by, filmOrder).map((p) => p.id));
   };
 
@@ -1086,10 +1088,12 @@ export const ScoutOppPlayLibrary: React.FC<{
               const play = onTheReport.find((p) => p.id === line.playId);
               const diagram = scriptPics && play ? diagramFor(play) : undefined;
               const dragging = scriptDrag?.id === line.playId;
+              const look = play ? KIND_LOOK[kindOf(play)] : undefined;
               return (
                 <li
                   key={line.playId}
                   data-script-id={line.playId}
+                  style={look ? { borderLeft: `5px solid ${look.color}` } : undefined}
                   className={`rounded-lg border ${scriptPics ? 'p-2' : 'px-1.5 py-1'} ${dragging ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 shadow-md' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900'}`}
                 >
                   <div className="flex items-center gap-1.5">
@@ -1148,7 +1152,14 @@ export const ScoutOppPlayLibrary: React.FC<{
                       onClick={() => play && openScriptPlay(play)}
                       title={onDraw && play ? 'Open in play builder' : undefined}
                     >
-                      <div className="text-sm font-black truncate">{line.name}</div>
+                      <div className="text-sm font-black leading-tight break-words">
+                        {look && (
+                          <span className="mr-1.5 inline-block rounded px-1.5 py-px align-[1px] text-[9.5px] font-black tracking-wide text-white" style={{ background: look.color }}>
+                            {look.label}
+                          </span>
+                        )}
+                        {line.name}
+                      </div>
                       {line.detail && <div className={`text-[11px] text-slate-500 ${scriptPics ? '' : 'truncate'}`}>{line.detail}</div>}
                     </button>
                     {(() => {
