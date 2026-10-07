@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   FIELD_SVG,
+  fieldBgSvg,
   fieldToSvg,
+  shapeDrawnLeg,
   isDefenseRole,
   diagramLabel,
   skillDiagramLabel,
@@ -108,6 +110,9 @@ export function simplifyLine(points: Pt[], tolerance = 0.35): Pt[] {
   return [...simplifyLine(points.slice(0, far + 1), tolerance).slice(0, -1), ...simplifyLine(points.slice(far), tolerance)];
 }
 
+/** The field (yard lines, ticks, numbers, line of scrimmage): the same as the saved picture. */
+const FIELD_BG = fieldBgSvg();
+
 const ICON_BTN =
   'h-9 min-w-9 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 inline-flex items-center justify-center gap-1.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-750 disabled:opacity-40 text-xs font-black shadow-xs transition-all active:scale-95';
 
@@ -157,8 +162,8 @@ type Drag =
   | { mode: 'player'; role: string; startCx: number; startCy: number; moved: boolean; from: Pt; startLines: PlayStroke[]; at: Pt | null }
   | { mode: 'vertex'; index: number; vertex: number }
   | { mode: 'line'; index: number; from: Pt; start: Pt[] }
-  /** Drawing: the open line, how many points it had before this press, freehand or straight, a new line or not. */
-  | { mode: 'draw'; index: number; anchor: number; freehand: boolean; fresh: boolean; downCx: number; downCy: number; moved: boolean }
+  /** Drawing: the open line, how many points it had before this press, a new line or not. */
+  | { mode: 'draw'; index: number; anchor: number; fresh: boolean; downCx: number; downCy: number; moved: boolean }
   | null;
 
 export const PlayDiagramCanvas: React.FC<Props> = ({
@@ -228,8 +233,6 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     schedule();
   };
   const [tool, setTool] = useState<Tool>('move');
-  // Freehand lines are smoothed into curves; otherwise each drag or click is a straight leg.
-  const [curve, setCurve] = useState(false);
   // The line being drawn (stays open for more legs until it's finished), and the pointer for its next leg.
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const openRef = useRef<number | null>(null);
@@ -255,12 +258,6 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   const { w, h, losY, scaleY } = FIELD_SVG;
   const sel = selected != null && selected < strokes.length ? selected : null;
 
-  const yardRows = [
-    { y: -10, n: '10' },
-    { y: 0, n: '20' },
-    { y: 10, n: '30' },
-    { y: 20, n: '40' },
-  ];
 
   /** Remember the lines before a change, for Undo. */
   const remember = () => {
@@ -455,7 +452,6 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       i = null;
     }
     remember();
-    const freehand = curve !== e.shiftKey;
     const here = { x: p.x, y: p.y };
     if (i == null || !cur[i]) {
       const start = onOurs ? { x: near!.x, y: near!.y } : here;
@@ -463,9 +459,9 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       i = cur.length;
       change([...cur, line]);
       setOpen(i);
-      drag.current = { mode: 'draw', index: i, anchor: 1, freehand, fresh: true, downCx: p.cx, downCy: p.cy, moved: false };
+      drag.current = { mode: 'draw', index: i, anchor: 1, fresh: true, downCx: p.cx, downCy: p.cy, moved: false };
     } else {
-      drag.current = { mode: 'draw', index: i, anchor: cur[i].points.length, freehand, fresh: false, downCx: p.cx, downCy: p.cy, moved: false };
+      drag.current = { mode: 'draw', index: i, anchor: cur[i].points.length, fresh: false, downCx: p.cx, downCy: p.cy, moved: false };
       change(cur.map((x, j) => (j === i ? { ...x, points: [...x.points, here] } : x)));
     }
     setSelected(i);
@@ -508,7 +504,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
         const dy = y - d.from.y;
         const moved = d.startLines.map((s) =>
           s.points.length && Math.hypot(s.points[0].x - d.from.x, s.points[0].y - d.from.y) < 1.1
-            ? { ...s, points: s.points.map((q) => ({ x: q.x + dx, y: q.y + dy })) }
+            ? { ...s, points: s.points.map((q) => ({ ...q, x: q.x + dx, y: q.y + dy })) }
             : s
         );
         if (moved.some((s, i) => s !== d.startLines[i])) preview(moved);
@@ -517,29 +513,27 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       return;
     }
     if (d.mode === 'vertex') {
-      preview(cur.map((s, i) => (i === d.index ? { ...s, points: s.points.map((q, j) => (j === d.vertex ? { x: p.x, y: p.y } : q)) } : s)));
+      preview(cur.map((s, i) => (i === d.index ? { ...s, points: s.points.map((q, j) => (j === d.vertex ? { ...q, x: p.x, y: p.y } : q)) } : s)));
       return;
     }
     if (d.mode === 'line') {
       const dx = p.x - d.from.x;
       const dy = p.y - d.from.y;
-      preview(cur.map((s, i) => (i === d.index ? { ...s, points: d.start.map((q) => ({ x: q.x + dx, y: q.y + dy })) } : s)));
+      preview(cur.map((s, i) => (i === d.index ? { ...s, points: d.start.map((q) => ({ ...q, x: q.x + dx, y: q.y + dy })) } : s)));
       return;
     }
     const line = cur[d.index];
     if (!line) return;
     if (Math.hypot(p.cx - d.downCx, p.cy - d.downCy) > 5) d.moved = true;
-    if (!d.freehand) {
-      preview(cur.map((s, i) => (i === d.index ? { ...s, points: [...s.points.slice(0, d.anchor), { x: p.x, y: p.y }] } : s)));
-      return;
-    }
-    // Freehand: a point every few pixels (the hand's jitter in between is dropped), shown as a curve as it's drawn.
+    // The hand's path: a point every few pixels (jitter in between is dropped), drawn smooth as it goes. When
+    // the drag ends it becomes straight if it was drawn straight, or keeps its curve.
     const prev = line.points[line.points.length - 1];
     if (prev) {
       const ps = fieldToSvg(prev.x, prev.y);
       if (Math.hypot(p.cx - ps.cx, p.cy - ps.cy) < 5) return;
     }
-    preview(cur.map((s, i) => (i === d.index ? { ...s, points: [...s.points, { x: p.x, y: p.y }], curve: true } : s)));
+    const smoothed = line.points.map((q, j) => (j > d.anchor && !q.smooth ? { ...q, smooth: true } : q));
+    preview(cur.map((s, i) => (i === d.index ? { ...s, points: [...smoothed, { x: p.x, y: p.y }] } : s)));
   };
 
   const endDrag = () => {
@@ -577,9 +571,12 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       if (!d.moved) {
         // A tap: on a new line it only picks the start (click again for each break); otherwise it adds a break.
         if (d.fresh) line = { ...line, points: line.points.slice(0, 1), ...(line.motion ? { motion: 0 } : {}) };
-      } else if (d.freehand) {
-        const leg = simplifyLine(line.points.slice(d.anchor - 1), 0.3);
-        line = { ...line, points: [...line.points.slice(0, d.anchor - 1), ...leg], curve: true };
+      } else {
+        // Straight where it was drawn straight, curved where it was drawn curved. A new line starts on the player;
+        // a later leg starts where the press added its point.
+        const from = d.fresh ? d.anchor - 1 : d.anchor;
+        const leg = shapeDrawnLeg(line.points.slice(from));
+        line = { ...line, points: [...line.points.slice(0, from + 1), ...leg.slice(1)] };
       }
       if (line.points.length > d.anchor || !d.fresh) line = withKind(line, d.anchor, tool);
       let done = false;
@@ -753,7 +750,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
         : tool === 'block'
           ? 'Start on the blocker, end on the defender (the line stops on him with the T).'
           : drawing
-            ? `Drag or click for each break of the ${KIND_LABEL[tool as DrawKind].toLowerCase()}. Double-click or Enter to finish.${curve ? '' : ' Hold Shift to draw a curve.'}`
+            ? `Drag or click for each break of the ${KIND_LABEL[tool as DrawKind].toLowerCase()}. Draw it straight and it stays straight; curve it and it curves. Double-click or Enter to finish.`
             : `Start on a player, then drag or click for each break of the ${KIND_LABEL[tool as DrawKind].toLowerCase()}.`;
 
   const assignmentPanel = (
@@ -880,49 +877,14 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
         <svg
           ref={svgRef}
           viewBox={zoomed ? `110 150 540 370` : `0 0 ${w} ${h}`}
-          className={`bg-[#f4f4f5] touch-none select-none ${dense ? 'max-h-64 w-auto max-w-full mx-auto' : 'w-full h-auto'} ${tool === 'move' ? 'cursor-default' : 'cursor-crosshair'}`}
+          className={`bg-[#f0f0f0] touch-none select-none ${dense ? 'max-h-64 w-auto max-w-full mx-auto' : 'w-full h-auto'} ${tool === 'move' ? 'cursor-default' : 'cursor-crosshair'}`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
           onDoubleClick={onDoubleClick}
         >
-          <rect width="100%" height="100%" fill="#f4f4f5" />
-          {[-5, 5, 15].map((y) => {
-            const cy = losY - y * scaleY;
-            return <line key={`five-${y}`} x1="0" y1={cy} x2={w} y2={cy} stroke="#e4e4e7" strokeWidth="1" />;
-          })}
-          {[-10, 10, 20].map((y) => {
-            const cy = losY - y * scaleY;
-            return <line key={`ten-${y}`} x1="0" y1={cy} x2={w} y2={cy} stroke="#d4d4d8" strokeWidth="1" />;
-          })}
-          <line x1="0" y1={losY} x2={w} y2={losY} stroke="#2563eb" strokeWidth="2.2" />
-          {yardRows.map(({ y, n }) => {
-            const cy = losY - y * scaleY;
-            return (
-              <g key={n}>
-                <text x="26" y={cy - 8} fill="#d4d4d8" fontSize="34" fontFamily="system-ui, -apple-system, sans-serif" fontWeight="800">
-                  {n}
-                </text>
-                <text x={w - 26} y={cy - 8} textAnchor="end" fill="#d4d4d8" fontSize="34" fontFamily="system-ui, -apple-system, sans-serif" fontWeight="800">
-                  {n}
-                </text>
-              </g>
-            );
-          })}
-          {[-10, -5, 0, 5, 10, 15, 20].map((y) =>
-            [0, 1, 2, 3, 4].map((i) => {
-              const cy = losY - y * scaleY - i * (scaleY / 5);
-              const left = fieldToSvg(-3.35, 0).cx;
-              const right = fieldToSvg(3.35, 0).cx;
-              return (
-                <g key={`${y}-${i}`}>
-                  <line x1={left} y1={cy} x2={left + 9} y2={cy} stroke="#a1a1aa" strokeWidth="1" />
-                  <line x1={right - 9} y1={cy} x2={right} y2={cy} stroke="#a1a1aa" strokeWidth="1" />
-                </g>
-              );
-            })
-          )}
+          <g dangerouslySetInnerHTML={{ __html: FIELD_BG }} />
           {/* The lines: motion zigzag, then the play (dashed route, curve if drawn freehand), arrow or block T */}
           {strokes.map((st, i) => {
             const sp = strokePaths(st);
@@ -1065,18 +1027,6 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             </>
           )}
           <span className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
-          <button
-            type="button"
-            title="Curve: freehand lines become smooth curves (Shift switches while drawing)"
-            aria-pressed={curve}
-            onClick={() => setCurve((c) => !c)}
-            className={`${ICON_BTN} ${curve ? 'border-sky-600 text-sky-700 dark:text-sky-400' : ''}`}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
-              <path d="M4 18c4-12 12-12 16 0" />
-            </svg>
-            <span className="hidden sm:inline">Curve</span>
-          </button>
           {drawing && (
             <button
               type="button"

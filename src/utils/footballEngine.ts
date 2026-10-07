@@ -1985,12 +1985,13 @@ export function holeFieldX(hole: number | null, _strength?: string, nodes: PlayN
 export type DrawKind = 'run' | 'pass' | 'block';
 export interface PlayStroke {
   kind: DrawKind;
-  points: { x: number; y: number }[];
+  /** `smooth`: the line curves through this point (part of a curve the coach drew), not a sharp break. */
+  points: { x: number; y: number; smooth?: boolean }[];
   /** The assignment picked for this player (e.g. "Reach Right"). Hand-drawn lines have none. */
   label?: string;
   /** Pre-snap motion: points 0..motion are the motion (a zigzag); the rest is the play (`kind`). */
   motion?: number;
-  /** Drawn freehand: shown as a smooth curve rather than straight breaks. */
+  /** Older lines drawn freehand: the whole line is a smooth curve (newer ones mark each `smooth` point). */
   curve?: boolean;
 }
 
@@ -1999,16 +2000,12 @@ export const MOTION_COLOR = '#7c3aed';
 
 type SvgPt = { cx: number; cy: number };
 const fmt = (p: SvgPt) => `${p.cx.toFixed(1)},${p.cy.toFixed(1)}`;
-function polyPath(pts: SvgPt[]) {
-  return pts.map((p, i) => `${i ? 'L' : 'M'}${fmt(p)}`).join(' ');
-}
 /**
  * A smooth curve through every point, the way it was drawn (Catmull-Rom as cubic curves). It ends heading
  * from the next-to-last point to the last, so the arrow lines up with it.
  */
-function curvePath(pts: SvgPt[]) {
-  if (pts.length < 3) return polyPath(pts);
-  let d = `M${fmt(pts[0])}`;
+function curveSegs(pts: SvgPt[]) {
+  let d = '';
   for (let i = 0; i < pts.length - 1; i++) {
     const p0 = pts[i - 1] || pts[i];
     const p1 = pts[i];
@@ -2019,6 +2016,85 @@ function curvePath(pts: SvgPt[]) {
     d += ` C${fmt(c1)} ${fmt(c2)} ${fmt(p2)}`;
   }
   return d;
+}
+/**
+ * The line through its points: straight between sharp breaks, and a smooth curve through the points marked
+ * smooth (the parts the coach drew curved).
+ */
+function linePath(pts: SvgPt[], smooth: (i: number) => boolean) {
+  let d = `M${fmt(pts[0])}`;
+  let start = 0;
+  for (let i = 1; i < pts.length; i++) {
+    if (i < pts.length - 1 && smooth(i)) continue;
+    d += i - start < 2 ? ` L${fmt(pts[i])}` : curveSegs(pts.slice(start, i + 1));
+    start = i;
+  }
+  return d;
+}
+
+/**
+ * One leg as the coach drew it with a drag (in field yards): straight where it was drawn straight, curved
+ * where it was drawn curved, and a sharp break where the hand turned sharply. The first point stays put.
+ */
+export function shapeDrawnLeg(raw: { x: number; y: number }[]): { x: number; y: number; smooth?: boolean }[] {
+  if (raw.length < 2) return raw.map((p) => ({ x: p.x, y: p.y }));
+  // In picture units, so a yard across and a yard up count the way they look.
+  const sv = raw.map((p) => fieldToSvg(p.x, p.y));
+  const dist = (a: SvgPt, b: SvgPt) => Math.hypot(a.cx - b.cx, a.cy - b.cy);
+  const offLine = (p: SvgPt, a: SvgPt, b: SvgPt) => {
+    const dx = b.cx - a.cx;
+    const dy = b.cy - a.cy;
+    const len = dx * dx + dy * dy;
+    const t = len ? Math.max(0, Math.min(1, ((p.cx - a.cx) * dx + (p.cy - a.cy) * dy) / len)) : 0;
+    return Math.hypot(p.cx - (a.cx + t * dx), p.cy - (a.cy + t * dy));
+  };
+  // The drawn shape's key points (Douglas-Peucker, 4 px).
+  const keep = new Set([0, sv.length - 1]);
+  const simplify = (a: number, b: number) => {
+    let far = -1;
+    let farD = 4;
+    for (let i = a + 1; i < b; i++) {
+      const d = offLine(sv[i], sv[a], sv[b]);
+      if (d > farD) {
+        farD = d;
+        far = i;
+      }
+    }
+    if (far < 0) return;
+    keep.add(far);
+    simplify(a, far);
+    simplify(far, b);
+  };
+  simplify(0, sv.length - 1);
+  const idx = [...keep].sort((a, b) => a - b);
+  // Sharp breaks: where the direction turns more than 50 degrees.
+  const turn = (k: number) => {
+    const a = sv[idx[k - 1]];
+    const b = sv[idx[k]];
+    const c = sv[idx[k + 1]];
+    const a1 = Math.atan2(b.cy - a.cy, b.cx - a.cx);
+    const a2 = Math.atan2(c.cy - b.cy, c.cx - b.cx);
+    let d = Math.abs(a2 - a1);
+    if (d > Math.PI) d = 2 * Math.PI - d;
+    return d;
+  };
+  const corners = [0];
+  for (let k = 1; k < idx.length - 1; k++) if (turn(k) > (50 * Math.PI) / 180) corners.push(k);
+  corners.push(idx.length - 1);
+  const out: { x: number; y: number; smooth?: boolean }[] = [{ x: raw[0].x, y: raw[0].y }];
+  for (let c = 0; c < corners.length - 1; c++) {
+    const from = idx[corners[c]];
+    const to = idx[corners[c + 1]];
+    // Straight if no drawn point strays far from the straight line between the breaks.
+    let stray = 0;
+    for (let i = from + 1; i < to; i++) stray = Math.max(stray, offLine(sv[i], sv[from], sv[to]));
+    const straight = stray < Math.max(7, dist(sv[from], sv[to]) * 0.06);
+    if (!straight) {
+      for (let k = corners[c] + 1; k < corners[c + 1]; k++) out.push({ x: raw[idx[k]].x, y: raw[idx[k]].y, smooth: true });
+    }
+    out.push({ x: raw[to].x, y: raw[to].y });
+  }
+  return out;
 }
 /** A zigzag along the points (motion before the snap). */
 function zigzagPath(pts: SvgPt[], amp = 4, step = 7) {
@@ -2057,7 +2133,7 @@ export function strokePaths(s: PlayStroke) {
   const endPts = hasMain ? mainPts : motionPts;
   return {
     motionD: motionPts.length >= 2 ? zigzagPath(motionPts) : '',
-    mainD: hasMain ? (s.curve ? curvePath(mainPts) : polyPath(mainPts)) : '',
+    mainD: hasMain ? linePath(mainPts, (k) => Boolean(s.curve || s.points[m + k]?.smooth)) : '',
     color,
     dashed: hasMain && s.kind === 'pass',
     width: s.kind === 'block' ? 2.6 : 2.8,
@@ -2566,40 +2642,38 @@ function arrowHead(x1: number, y1: number, x2: number, y2: number) {
 }
 
 export function fieldBgSvg() {
-  const { w, losY, scaleY } = FIELD_SVG;
-  // A plain whiteboard: light gray, faint yard lines, a blue line of scrimmage.
-  const yards = [
-    { y: -10, n: '10' },
-    { y: 0, n: '20' },
-    { y: 10, n: '30' },
-    { y: 20, n: '40' },
-  ];
-  const lines = yards
-    .map(({ y, n }) => {
-      const cy = losY - y * scaleY;
-      return `<line x1="0" y1="${cy}" x2="${w}" y2="${cy}" stroke="#d4d4d8" stroke-width="1"/><text x="28" y="${cy - 6}" fill="#d4d4d8" font-size="28" font-family="system-ui" font-weight="800">${n}</text><text x="${w - 28}" y="${cy - 6}" text-anchor="end" fill="#d4d4d8" font-size="28" font-family="system-ui" font-weight="800">${n}</text>`;
-    })
-    .join('');
-  const fives = [-5, 5, 15]
-    .map((y) => {
-      const cy = losY - y * scaleY;
-      return `<line x1="0" y1="${cy}" x2="${w}" y2="${cy}" stroke="#e4e4e7" stroke-width="1"/>`;
-    })
-    .join('');
-  const hashes = [-10, 0, 10, 20]
-    .map((y) => {
-      const cy = losY - y * scaleY;
-      const left = fieldToSvg(-3.4, 0).cx;
-      const right = fieldToSvg(3.4, 0).cx;
-      let ticks = '';
-      for (let i = 0; i < 5; i++) {
-        const yy = cy - i * (scaleY / 5);
-        ticks += `<line x1="${left}" y1="${yy}" x2="${left + 8}" y2="${yy}" stroke="#a1a1aa" stroke-width="1"/><line x1="${right - 8}" y1="${yy}" x2="${right}" y2="${yy}" stroke="#a1a1aa" stroke-width="1"/>`;
-      }
-      return ticks;
-    })
-    .join('');
-  return `<rect width="100%" height="100%" fill="#f4f4f5"/>${fives}${lines}${hashes}<line x1="0" y1="${losY}" x2="${w}" y2="${losY}" stroke="#2563eb" stroke-width="2"/>`;
+  const { w, h, losY, scaleY } = FIELD_SVG;
+  // A light gray field: a line every 5 yards, a tick every yard on both sidelines and both hashes, big
+  // outlined yard numbers turned toward each sideline, and the line of scrimmage in blue.
+  const line = (cy: number, stroke: string, width: number) => `<line x1="0" y1="${cy}" x2="${w}" y2="${cy}" stroke="${stroke}" stroke-width="${width}"/>`;
+  const top = Math.floor(-(h - losY) / scaleY);
+  const bottom = Math.ceil(losY / scaleY);
+  let fives = '';
+  let ticks = '';
+  const hashL = fieldToSvg(-3.4, 0).cx;
+  const hashR = fieldToSvg(3.4, 0).cx;
+  for (let y = top; y <= bottom; y++) {
+    const cy = losY - y * scaleY;
+    if (y % 5 === 0) {
+      if (y !== 0) fives += line(cy, '#b4b4b4', 1.6);
+      continue;
+    }
+    const t = (x1: number, x2: number) => `<line x1="${x1}" y1="${cy}" x2="${x2}" y2="${cy}" stroke="#b4b4b4" stroke-width="1.2"/>`;
+    ticks += t(0, 9) + t(w - 9, w) + t(hashL - 5, hashL + 5) + t(hashR - 5, hashR + 5);
+  }
+  // Numbers on the 10s, 20 at the line of scrimmage: tops toward the near sideline.
+  const font = 'Oswald, Impact, Arial Narrow, system-ui, sans-serif';
+  let numbers = '';
+  for (let y = top; y <= bottom; y++) {
+    if (y % 10 !== 0) continue;
+    const n = 20 + y;
+    if (n <= 0 || n > 50) continue;
+    const cy = losY - y * scaleY;
+    const style = `fill="none" stroke="#c7c7c7" stroke-width="1.6" font-size="40" font-weight="700" font-family="${font}" text-anchor="middle" letter-spacing="2"`;
+    numbers += `<text x="0" y="0" transform="translate(${92} ${cy}) rotate(90)" dy="14" ${style}>${n}</text>`;
+    numbers += `<text x="0" y="0" transform="translate(${w - 92} ${cy}) rotate(-90)" dy="14" ${style}>${n}</text>`;
+  }
+  return `<rect width="100%" height="100%" fill="#f0f0f0"/>${fives}${ticks}${numbers}<line x1="0" y1="${losY}" x2="${w}" y2="${losY}" stroke="#7b7bef" stroke-width="2.2"/>`;
 }
 
 export function playerGlyphSvg(n: PlayNode, ballRole?: string) {

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ClipboardList, Film, LayoutGrid, Play as PlayIcon, Save, Search, Users, Wand2, Zap } from 'lucide-react';
+import { ArrowLeft, ClipboardList, Film, LayoutGrid, ListChecks, Play as PlayIcon, Save, Search, Users, Wand2, Zap } from 'lucide-react';
 import type { PlayBuilderState, PlayDatabaseEntry, PlayType } from '../../types/callSheet';
 import { defenseSystem, type DefenseSystem } from '../../hudlScout/utils/ourDefense';
 import { inferPlayType, newPlayEntry } from '../../utils/playbookImport';
@@ -33,6 +33,9 @@ import {
   type BackfieldSpots,
   type PlayStroke,
   type NodePlayer,
+  type PlayNode,
+  diagramLabel,
+  shownText,
 } from '../../utils/footballEngine';
 import { PlayDiagramCanvas } from './PlayDiagramCanvas';
 import { assignmentText } from './PlayerAssignmentPanel';
@@ -42,6 +45,7 @@ import { openFormation } from '../../utils/filmBackfields';
 import { parsePlayCall } from '../../utils/playCallParse';
 import { openFilmWindow } from '../../filmroom/filmWindowStore';
 import { DiagramImage } from './DiagramImage';
+import { defenseJob, defenseOrder } from '../../utils/defenseJobs';
 import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, withMyAlignment } from '../../hudlScout/utils/ourDefense';
 import { DEF_UNITS, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
 import { rememberDefenseUnit, rememberedDefenseUnit, useDefenseRosterSource } from '../../utils/defenseRosterStore';
@@ -79,7 +83,7 @@ function Chip({
 const DEF_BTN =
   'h-8 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-40';
 
-type BuilderTab = 'formation' | 'play' | 'players' | 'notes';
+type BuilderTab = 'formation' | 'play' | 'players' | 'notes' | 'jobs';
 
 const SITUATIONS = ['1-10', '2nd long', '2nd med', '3rd long', '3rd short', 'RED ZONE', 'Goaline', '2 MIN O', '4 Min O'];
 
@@ -212,7 +216,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [tags, setTags] = useState<string[]>(saved?.tags || []);
   const [coachNote, setCoachNote] = useState(saved ? saved.coachNote : opened.note);
   const [holdName, setHoldName] = useState(opened.holdName);
-  const [tab, setTab] = useState<BuilderTab>('formation');
+  const [tab, setTab] = useState<BuilderTab>(seed?.defenseCall ? 'jobs' : 'formation');
   // The side panel's Players tab: the field draws its "who does what" panel into it.
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [situations, setSituations] = useState<string[]>(saved?.situations || []);
@@ -252,6 +256,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     rememberDefenseUnit(u);
   };
   const [labels, setLabels] = useState<Record<string, string>>(saved?.labels || {});
+  // Our defensive plays: each defender's job as the coach typed it.
+  const [jobs, setJobs] = useState<Record<string, string>>(saved?.jobs || {});
   const withLabel = <T extends { role: string }>(n: T): T => (labels[n.role] ? { ...n, label: labels[n.role] } : n);
   const renamePlayer = (role: string, label: string) =>
     setLabels((prev) => {
@@ -309,6 +315,11 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dLook, offNodes, overrides, hashDx, labels, taggedWho]);
   const play = basePlay ? { ...basePlay, nodes: offNodes } : null;
+  const containFor = (front: string) => {
+    const sys = defenseSystem();
+    return String(sys.base || '').startsWith(front) ? sys.baseContain : sys.checkContain;
+  };
+  const jobOf = (n: PlayNode) => defenseJob(n, { typed: jobs[n.role], strokes, look: dLook, contain: dLook ? containFor(dLook.front) : '' });
   // "Save as my default": this defense starts lined up like this everywhere (moves from its standard spots).
   const saveAlignment = defenseAlignmentSaver();
   const myDefault = defenseKey ? defenseSystem().alignments?.[defenseKey] : undefined;
@@ -504,6 +515,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       putDefInName,
       overrides,
       ...(Object.keys(labels).length ? { labels } : {}),
+      ...(Object.keys(jobs).length ? { jobs } : {}),
       defenseUnit: defUnit,
       ...(Object.keys(defWho).length ? { defenseWho: defWho } : {}),
       ...(Object.keys(taggedWho).length ? { defensePlayers: taggedWho } : {}),
@@ -607,7 +619,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
         source: 'builder',
         notes: dLook ? `${dLook.front} ${dLook.shell}` : '',
         diagramUrl: diagramSvg(play, strokes, dNodes, String(ball)),
-        assignments: dNodes.map((n) => ({ pos: n.role, text: assignmentText(strokes, n) || (dLook ? `${dLook.front} ${dLook.shell}` : '') })),
+        assignments: dNodes.map((n) => ({ pos: n.role, text: jobOf(n) || (dLook ? `${dLook.front} ${dLook.shell}` : '') })),
       });
       return;
     }
@@ -797,6 +809,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const tabs: { id: BuilderTab; label: string; icon: React.ReactNode }[] = [
     { id: 'formation', label: 'Formation', icon: <LayoutGrid className="w-4 h-4" /> },
     { id: 'play', label: 'Play', icon: <Zap className="w-4 h-4" /> },
+    { id: 'jobs', label: 'Jobs', icon: <ListChecks className="w-4 h-4" /> },
     { id: 'players', label: 'Players', icon: <Users className="w-4 h-4" /> },
     { id: 'notes', label: 'Game plan', icon: <ClipboardList className="w-4 h-4" /> },
   ];
@@ -1093,7 +1106,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
         {/* One panel, one job at a time */}
         <div className={`rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden ${compact ? '' : 'lg:sticky lg:top-3'}`}>
           <div className="grid grid-cols-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
-            {tabs.filter((t) => !(formationMode || defenseMode) || t.id !== 'play').map((t) => (
+            {tabs.filter((t) => (t.id === 'jobs' ? defenseMode : !(formationMode || defenseMode) || t.id !== 'play')).map((t) => (
               <button
                 key={t.id}
                 type="button"
@@ -1301,6 +1314,48 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                   })}
                 </div>
               </details>
+            </div>
+          )}
+
+          {tab === 'jobs' && defenseMode && (
+            <div className="p-3.5 space-y-3">
+              <div>
+                <div className="text-sm font-black text-slate-900 dark:text-white">{dLook ? dLook.name : 'Pick a front'}</div>
+                {dLook && <div className="text-xs text-slate-500 dark:text-slate-400">{dLook.notes}</div>}
+                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  Each defender's job. A line you draw for him fills it in (to the line = Blitz, back = Drop); type to say it your way.
+                </p>
+              </div>
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                {defenseOrder(dNodes).map((n) => {
+                  const auto = defenseJob(n, { strokes, look: dLook, contain: dLook ? containFor(dLook.front) : '' });
+                  const who = n.player ? `#${n.player.num} ${n.player.name}`.trim() : '';
+                  return (
+                    <li key={n.role} className="py-1.5 flex items-center gap-2">
+                      <span className="shrink-0 min-w-9 h-6 px-1.5 rounded bg-green-700 text-white text-[11px] font-black inline-flex items-center justify-center">
+                        {shownText(n, diagramLabel(n.role))}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        {who && <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 truncate">{who}</div>}
+                        <input
+                          value={jobs[n.role] ?? ''}
+                          placeholder={auto || 'Type his job'}
+                          aria-label={`${n.role} job`}
+                          onChange={(e) =>
+                            setJobs((prev) => {
+                              const next = { ...prev };
+                              if (e.target.value.trim()) next[n.role] = e.target.value.slice(0, 80);
+                              else delete next[n.role];
+                              return next;
+                            })
+                          }
+                          className="w-full h-8 px-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm text-slate-900 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400"
+                        />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
           )}
 
