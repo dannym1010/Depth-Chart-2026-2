@@ -2013,6 +2013,11 @@ export const DEFAULT_CASCADING_DRILLS: DrillFolder[] = [
             "name": "Defense LB: High-Low Seam/Wheel Conflict Drill",
             "desc": "Trains OLB/ILB in Cover 3 hook-to-curl drop vs flood/wheel concept. Drop to 8-10 yards, maintain depth under seam route while keeping vision on QB, drive on flat route only after ball is in flight.",
             "key": "'Stay Under the Seam!' — Do not bite early on checkdown; make QB throw over your head."
+          },
+          {
+            "name": "Defense LB: TJ Neal Redirection & Clean-Foot Tackle Drill",
+            "desc": "Teaches LBs how to maintain square shoulders and clean feet over agile bags, plant the outside cleat on sudden cutbacks, and drive downhill into a near-foot near-shoulder wrap tackle.",
+            "key": "'Clean feet, good leverage!' — Stay square, no crossing cleats, plant outside foot to redirect, finish near-hip."
           }
         ]
       },
@@ -2080,6 +2085,11 @@ export const DEFAULT_CASCADING_DRILLS: DrillFolder[] = [
             "name": "Defense Team: 10U Setting the Edge Drill (\"The Dirty Work\" - Coach Dub)",
             "desc": "Teaches 10U edge defenders how to set a firm perimeter wall against sweeps and tosses. DE fires out with outside foot, delivers violent inside-hand strike to blocker's chest, keeps outside arm completely free, squeezes running lane, and turns ballcarrier back inside into pursuit.",
             "key": "'Never get hooked!' — Punch inside, keep outside arm free, squeeze down the LOS, force the ballcarrier back inside."
+          },
+          {
+            "name": "Defense Team: TJ Neal Redirection & Clean-Foot Tackle Drill",
+            "desc": "Teaches defenders how to maintain square shoulders and clean feet over agile bags, plant the outside cleat on sudden cutbacks, and drive downhill into a near-foot near-shoulder wrap tackle.",
+            "key": "'Clean feet, good leverage!' — Stay square, no crossing cleats, plant outside foot to redirect, finish near-hip."
           },
           {
             "name": "Defense Team: Cover 3 DB / OLB Tandem Triangle (Smash & Seam-Curl)",
@@ -2173,6 +2183,11 @@ export const DEFAULT_CASCADING_DRILLS: DrillFolder[] = [
   {
     "subfolders": [],
     "drills": [
+      {
+        "name": "Tackling: TJ Neal Redirection & Clean-Foot Finish Drill",
+        "desc": "Defender mirrors ball carrier flow with rapid, non-crossing square shuffles over 3 agile bags. On sudden cutback against the grain, defender plants outside cleat to stop lateral momentum, drops pad level, and drives downhill into a near-foot near-shoulder wrap tackle.",
+        "key": "'Clean feet, good leverage!' — Stay square, no crossing feet, plant outside cleat to redirect, finish near-hip."
+      },
       {
         "key": "This is the foundation of safe tackling. Do not let players advance to contact until they can perfectly demonstrate this swooping, coiled posture on command",
         "desc": "Players start in athletic stance. 1. Feet: shoulder-width apart, light on toes. 2. Squeeze: shoulder blades pinched, chest proud. 3. Sink: lower hips into a coiled power position (holsters). 4. Hands: hands up in holsters ready to strike",

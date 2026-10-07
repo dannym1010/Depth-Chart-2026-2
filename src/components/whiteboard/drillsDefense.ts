@@ -2209,5 +2209,89 @@ export const DEFENSE_MATRIX_DRILLS: WhiteboardDrill[] = [
       },
     ],
   },
+  {
+    id: 'lb-redirect-tackle-tjneal',
+    category: 'DEFENSE',
+    categoryLabel: 'Linebackers & Tackling',
+    title: 'LB / Defender: Redirection & Clean-Foot Tackle Drill (TJ Neal)',
+    subtitle: 'Stay Square, Clean Feet, Plant-and-Redirect vs Sudden Cutback & Near-Hip Finish',
+    objective: 'Teaches linebackers and secondary defenders how to maintain square shoulders, keep clean feet without crossing cleats, and rapidly plant and redirect downhill against sudden cutbacks to finish a wrap tackle (Coach Tyrone "TJ" Neal).',
+    setup: '3 agile step-over bags or cones spaced 2 yards apart. 1 Defender (LB/DB), 1 Ball Carrier (or Coach mirroring), 1 finish tackle dummy or live partner.',
+    instructions: [
+      'Clean Feet Shuffle: Defender mirrors ball carrier lateral flow with low, rhythmic, non-crossing shuffle steps with nose over toes.',
+      'Stay Square to LOS: Keep shoulders and chest parallel to the line of scrimmage; never turn hips 90 degrees.',
+      'The Plant & Redirect: When ball carrier hard-plants against the grain, stick the outside cleat firmly in the turf to arrest lateral momentum.',
+      'Downhill 45° Drive: Fire downhill through the runner\'s inside hip crease, lowering pad level.',
+      'Near-Foot Near-Shoulder Finish: Step aggressively with the near foot right before contact, strike through near hip, clamp arms, and churn feet.',
+    ],
+    equipment: '3 agile step-over bags or cones, 1 football, full pads / helmets, 1 Defender, 1 Ball Carrier / Coach.',
+    diagramKeys: [
+      { text: 'Clean Feet Scrape: Short square shuffles over bags', isHighlight: true },
+      { text: 'Plant & Redirect: Outside cleat in ground, arrest flow', isHighlight: true },
+      { text: 'Downhill 45° Angle: Drive through runner inside hip', isHighlight: true },
+      { text: 'Near-Hip Finish: Near foot strike & wrap tackle', isHighlight: false },
+    ],
+    cues: [
+      '"Clean feet, good leverage!"',
+      '"Stay square—don\'t turn your hips!"',
+      '"Plant the outside cleat and explode downhill!"',
+      '"Near foot, near shoulder, finish the tackle!"',
+    ],
+    faults: [
+      'Crossing feet while shuffling laterally (leaves defender stuck on cutbacks).',
+      'Turning hips 90 degrees sideways to run with the ball carrier.',
+      'Lunging with upper body and dropping eyes before contact.',
+    ],
+    videoUrl: 'https://www.facebook.com/reel/1855703092464454',
+    phases: [
+      {
+        name: 'PHASE 1: CLEAN FEET LATERAL SCRAPE OVER BAGS',
+        description: 'Ball carrier slides laterally. Defender shuffles with square shoulders and rapid, non-crossing feet over 3 agile bags.',
+        tokens: [
+          { id: 'o-rb-slide', type: 'O', label: 'RB', x: 320, y: 170, color: '#b91c1c', subLabel: 'Lateral Flow' },
+          { id: 'c-bag1', type: 'cone', label: 'B1', x: 300, y: 220, color: '#f59e0b' },
+          { id: 'c-bag2', type: 'cone', label: 'B2', x: 360, y: 220, color: '#f59e0b' },
+          { id: 'c-bag3', type: 'cone', label: 'B3', x: 420, y: 220, color: '#f59e0b' },
+          { id: 'x-lb-scrape', type: 'X', label: 'LB', x: 320, y: 270, color: '#10b981', subLabel: 'Clean Feet' },
+        ],
+        arrows: [
+          { id: 'a-rb-flow', type: 'run', startX: 320, startY: 170, endX: 420, endY: 170, color: '#b91c1c', label: 'Stretch Flow' },
+          { id: 'a-lb-scrape', type: 'drop', startX: 320, startY: 270, endX: 420, endY: 270, color: '#10b981', dashed: true, label: 'Square Shuffle' },
+        ],
+        zones: [
+          { id: 'z-scrape', name: 'SQUARE SHUFFLE TRACK', cx: 370, cy: 245, rx: 75, ry: 35, color: '#10b981', opacity: 0.18 },
+        ],
+      },
+      {
+        name: 'PHASE 2: SUDDEN CUTBACK PLANT & REDIRECT',
+        description: 'RB plants outside foot and cuts back hard against the grain. LB plants outside cleat, sinks hips, and redirects instantly.',
+        tokens: [
+          { id: 'o-rb-cut', type: 'O', label: 'RB', x: 420, y: 170, color: '#b91c1c', subLabel: 'Hard Plant Cutback' },
+          { id: 'x-lb-plant', type: 'X', label: 'LB', x: 420, y: 270, color: '#10b981', subLabel: 'Plant Cleat & Redirect' },
+        ],
+        arrows: [
+          { id: 'a-rb-cutback', type: 'run', startX: 420, startY: 170, endX: 350, endY: 220, color: '#b91c1c', label: 'Inside Cutback' },
+          { id: 'a-lb-drive', type: 'blitz', startX: 420, startY: 270, endX: 355, endY: 225, color: '#10b981', label: '45° Downhill Trigger' },
+        ],
+        zones: [
+          { id: 'z-redirect', name: 'REDIRECTION ZONE', cx: 385, cy: 220, rx: 55, ry: 30, color: '#f59e0b', opacity: 0.22 },
+        ],
+      },
+      {
+        name: 'PHASE 3: DOWNHILL NEAR-HIP TACKLE FINISH',
+        description: 'LB closes on RB inside hip, drives near foot through contact, strikes with near shoulder, and wraps for the tackle.',
+        tokens: [
+          { id: 'o-rb-finish', type: 'O', label: 'RB', x: 350, y: 220, color: '#b91c1c' },
+          { id: 'x-lb-finish', type: 'X', label: 'LB', x: 355, y: 225, color: '#10b981', subLabel: 'Near-Hip Wrap & Churn' },
+        ],
+        arrows: [
+          { id: 'a-tackle-drive', type: 'blitz', startX: 355, startY: 225, endX: 350, endY: 190, color: '#10b981', label: 'Drive Feet 5 Yards' },
+        ],
+        zones: [
+          { id: 'z-finish', name: 'NEAR-HIP TACKLE FINISH', cx: 352, cy: 210, rx: 40, ry: 25, color: '#10b981', opacity: 0.28 },
+        ],
+      },
+    ],
+  },
 ];
 
