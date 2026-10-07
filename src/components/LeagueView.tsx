@@ -63,18 +63,32 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
 
   const ourName = leagueNameFor(team, data);
   const view = useMemo(() => (data && level ? forLevel(data, level, ourName) : null), [data, level, ourName]);
-  const record = useMemo(() => {
-    let w = 0, l = 0, t = 0;
-    for (const g of view?.ourGames || []) {
+  /** A team's games at this level, and its record and points from the scores posted. */
+  const teamSeason = (name: string) => {
+    const games = (view?.schedule || []).filter((g) => sameTeam(g.home, name) || sameTeam(g.away, name));
+    let w = 0, l = 0, t = 0, pf = 0, pa = 0;
+    for (const g of games) {
       if (g.homeScore == null || g.awayScore == null) continue;
-      const us = sameTeam(g.home, ourName) ? g.homeScore : g.awayScore;
-      const them = sameTeam(g.home, ourName) ? g.awayScore : g.homeScore;
+      const us = sameTeam(g.home, name) ? g.homeScore : g.awayScore;
+      const them = sameTeam(g.home, name) ? g.awayScore : g.homeScore;
+      pf += us;
+      pa += them;
       if (us > them) w++;
       else if (us < them) l++;
       else t++;
     }
-    return { w, l, t };
-  }, [view, ourName]);
+    return { games, w, l, t, pf, pa };
+  };
+  const record = useMemo(() => teamSeason(ourName), [view, ourName]); // eslint-disable-line react-hooks/exhaustive-deps
+  const levelTeams = useMemo(() => [...new Set((view?.schedule || []).flatMap((g) => [g.home, g.away]))].sort((a, b) => a.localeCompare(b)), [view]);
+  // The team shown on the Team games tab (ours unless a coach picks another).
+  const [pickedTeam, setPickedTeam] = useState('');
+  const shownTeam = pickedTeam && levelTeams.some((n) => sameTeam(n, pickedTeam)) ? pickedTeam : ourName;
+  const shown = useMemo(() => teamSeason(shownTeam), [view, shownTeam]); // eslint-disable-line react-hooks/exhaustive-deps
+  const openTeam = (name: string) => {
+    setPickedTeam(name);
+    setTab('ours');
+  };
   const weeks = useMemo(() => [...new Set((view?.schedule || []).map((g) => g.week))].sort((a, b) => Number(a) - Number(b)), [view]);
   const lastScoredWeek = useMemo(() => [...new Set((view?.results || []).map((g) => g.week))].sort((a, b) => Number(b) - Number(a))[0], [view]);
   const [week, setWeek] = useState<string>('');
@@ -94,8 +108,14 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
         {g.date}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between gap-2"><span className={`truncate ${hl(g.away)}`}>{g.away}</span>{score(g, 'away')}</div>
-        <div className="flex items-center justify-between gap-2"><span className={`truncate ${hl(g.home)}`}>@ {g.home}</span>{score(g, 'home')}</div>
+        <div className="flex items-center justify-between gap-2">
+          <button onClick={() => openTeam(g.away)} className={`truncate text-left hover:underline ${hl(g.away)}`} title={`See ${g.away}'s games`}>{g.away}</button>
+          {score(g, 'away')}
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <button onClick={() => openTeam(g.home)} className={`truncate text-left hover:underline ${hl(g.home)}`} title={`See ${g.home}'s games`}>@ {g.home}</button>
+          {score(g, 'home')}
+        </div>
       </div>
       <div className="w-32 shrink-0 text-right text-xs text-slate-400 hidden sm:block">
         <div>{g.homeScore != null ? 'Final' : isPast(g.date) ? 'No score posted' : g.time}</div>
@@ -105,7 +125,7 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
   );
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'ours', label: `${ourName} games`, icon: <Trophy className="w-3.5 h-3.5" /> },
+    { id: 'ours', label: 'Team games', icon: <Trophy className="w-3.5 h-3.5" /> },
     { id: 'scores', label: 'Scores', icon: <ListOrdered className="w-3.5 h-3.5" /> },
     { id: 'standings', label: 'Standings', icon: <Trophy className="w-3.5 h-3.5" /> },
     { id: 'schedule', label: 'League schedule', icon: <CalendarDays className="w-3.5 h-3.5" /> },
@@ -187,12 +207,35 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
 
           {tab === 'ours' && (
             <div className={card}>
-              {view.ourGames.length ? (
-                view.ourGames.map((g, i) => <GameRow key={i} g={g} showWeek />)
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-2 text-xs">
+                <label className="flex items-center gap-2">
+                  <span className="font-bold text-slate-300">Team</span>
+                  <select
+                    value={levelTeams.find((n) => sameTeam(n, shownTeam)) || shownTeam}
+                    onChange={(e) => setPickedTeam(e.target.value)}
+                    className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-slate-100"
+                  >
+                    {levelTeams.map((n) => (
+                      <option key={n} value={n}>{n}{sameTeam(n, ourName) ? ' (us)' : ''}</option>
+                    ))}
+                  </select>
+                </label>
+                <span className="text-slate-300">
+                  Record <b className="text-white tabular-nums">{shown.w}-{shown.l}{shown.t ? `-${shown.t}` : ''}</b>
+                </span>
+                <span className="text-slate-300">
+                  Points <b className="text-white tabular-nums">{shown.pf}</b> for · <b className="text-white tabular-nums">{shown.pa}</b> against
+                </span>
+                {!sameTeam(shownTeam, ourName) && (
+                  <button onClick={() => setPickedTeam('')} className="text-indigo-300 hover:underline">Back to {ourName}</button>
+                )}
+              </div>
+              {shown.games.length ? (
+                shown.games.map((g, i) => <GameRow key={i} g={g} showWeek />)
               ) : (
-                <p className="text-sm text-slate-400">No {level} games for {ourName} in the league schedule.</p>
+                <p className="text-sm text-slate-400">No {level} games for {shownTeam} in the league schedule.</p>
               )}
-              {view.byes.filter((b) => sameTeam(b.team, ourName)).map((b) => (
+              {view.byes.filter((b) => sameTeam(b.team, shownTeam)).map((b) => (
                 <p key={b.week} className="text-xs text-slate-400 mt-2">Week {b.week} ({b.date}): bye</p>
               ))}
             </div>
@@ -238,7 +281,11 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
                         <tbody>
                           {d.rows.map((r) => (
                             <tr key={r.team} className={`border-b border-slate-700/60 last:border-0 ${sameTeam(r.team, ourName) ? 'bg-amber-500/10' : ''}`}>
-                              <td className={`${td} ${hl(r.team)}`}>{r.team}</td>
+                              <td className={`${td} ${hl(r.team)}`}>
+                                <button onClick={() => openTeam(r.team)} className="hover:underline text-left" title={`See ${r.team}'s games and scores`}>
+                                  {r.team}
+                                </button>
+                              </td>
                               <td className={`${td} text-slate-100`}>{r.w}</td>
                               <td className={`${td} text-slate-100`}>{r.l}</td>
                               <td className={`${td} text-slate-100`}>{r.t}</td>
