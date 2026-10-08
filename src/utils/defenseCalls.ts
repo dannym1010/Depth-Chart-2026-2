@@ -20,7 +20,8 @@ export const PRESSURES: { id: string; label: string; short: string; group: 'Blit
   { id: 'slant_r', label: 'Slant right (whole line)', short: 'Slant R', group: 'Stunt' },
   { id: 'pinch', label: 'Pinch (line crashes inside)', short: 'Pinch', group: 'Stunt' },
   { id: 'fan', label: 'Fan (line slants outside)', short: 'Fan', group: 'Stunt' },
-  { id: 'cross_tt', label: 'Tackle cross (tackles trade A gaps)', short: 'T-T cross', group: 'Stunt' },
+  { id: 'cross_tt', label: 'Cross LIZ: left tackle goes first, right tackle loops behind', short: 'Cross LIZ', group: 'Stunt' },
+  { id: 'cross_tt_r', label: 'Cross RIP: right tackle goes first, left tackle loops behind', short: 'Cross RIP', group: 'Stunt' },
   { id: 'cross_et_l', label: 'E-T cross left (end in, tackle loops out)', short: 'E-T cross L', group: 'Stunt' },
   { id: 'cross_et_r', label: 'E-T cross right (end in, tackle loops out)', short: 'E-T cross R', group: 'Stunt' },
   { id: 'twist_l', label: 'E-T twist left (tackle out, end loops in)', short: 'Twist L', group: 'Stunt' },
@@ -237,13 +238,17 @@ function pressurePaths(id: string, def: PlayNode[], off: PlayNode[]): { strokes:
       add({ kind: 'run', color: BLITZ_COLOR, label: 'Cross: loop outside', points: [pt(tackle.x, tackle.y), pt((end.x + tackle.x) / 2, tackle.y + 0.9), pt(g[side].C, -1.4)] }, tackle.role);
     }
   }
-  if (id === 'cross_tt') {
-    // The two tackles nearest the ball trade A gaps: the left one goes first, the right one loops behind him.
+  if (id === 'cross_tt' || id === 'cross_tt_r') {
+    // The two tackles nearest the ball trade A gaps. LIZ: the left one goes first and the right one loops
+    // behind him; RIP: the right one goes first.
     const tackles = [...line].sort((a, b) => Math.abs(a.x - g.C) - Math.abs(b.x - g.C)).slice(0, 2).sort((a, b) => a.x - b.x);
     if (tackles.length === 2) {
       const [l, r] = tackles;
-      add({ kind: 'run', color: BLITZ_COLOR, label: 'Cross: go first', points: [pt(l.x, l.y), pt(g.right.A, -1.4)] }, l.role);
-      add({ kind: 'run', color: BLITZ_COLOR, label: 'Cross: loop behind', points: [pt(r.x, r.y), pt(g.C, r.y + 1), pt(g.left.A, -1.4)] }, r.role);
+      const rip = id === 'cross_tt_r';
+      const first = rip ? r : l;
+      const second = rip ? l : r;
+      add({ kind: 'run', color: BLITZ_COLOR, label: 'Cross: go first', points: [pt(first.x, first.y), pt(rip ? g.left.A : g.right.A, -1.4)] }, first.role);
+      add({ kind: 'run', color: BLITZ_COLOR, label: 'Cross: loop behind', points: [pt(second.x, second.y), pt(g.C, second.y + 1), pt(rip ? g.right.A : g.left.A, -1.4)] }, second.role);
     }
   }
   if (id === 'twist_l' || id === 'twist_r') {

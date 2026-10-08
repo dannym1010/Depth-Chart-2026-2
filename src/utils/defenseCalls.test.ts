@@ -76,7 +76,7 @@ describe('our defensive call drawn on the field', () => {
   it('every new front has eleven', () => {
     for (const k of ['62', '43', '52', '353']) assert.equal(OUR_DEFENSE_LOOKS[k].nodes.length, 11, k);
     assert.equal(defenseCallName('4-4', 'edge_l', 'cover3'), '4-4 · Edge L · Cover 3');
-    assert.equal(defenseCallName('4-4', 'edge_l+cross_tt', 'cover3'), '4-4 · Edge L · T-T cross · Cover 3');
+    assert.equal(defenseCallName('4-4', 'edge_l+cross_tt', 'cover3'), '4-4 · Edge L · Cross LIZ · Cover 3');
   });
 });
 
@@ -152,5 +152,19 @@ describe('stunts with a blitz, and a lineman on his own', () => {
     const loop = defenseCallStrokes(d, off, '', '', { T3: 'loop:in' });
     assert.equal(loop[0].points.length, 3);
     assert.ok(end(loop[0]).x > t3.x);
+  });
+});
+
+describe('tackle cross: who goes first', () => {
+  it('LIZ: the left tackle goes first; RIP: the right one, and the other loops behind', () => {
+    const d = front('44_C3_LIZ');
+    const first = (s: any[]) => s.find((x) => /go first/.test(x.label));
+    const loop = (s: any[]) => s.find((x) => /loop behind/.test(x.label));
+    const liz = defenseCallStrokes(d, off, 'cross_tt');
+    const rip = defenseCallStrokes(d, off, 'cross_tt_r');
+    assert.ok(first(liz).points[0].x < 0 && end(first(liz)).x > 0);
+    assert.ok(first(rip).points[0].x > 0 && end(first(rip)).x < 0);
+    assert.equal(loop(rip).points.length, 3);
+    assert.ok(loop(rip).points[0].x < 0 && end(loop(rip)).x > 0);
   });
 });
