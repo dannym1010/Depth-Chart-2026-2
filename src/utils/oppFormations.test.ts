@@ -152,6 +152,24 @@ describe('their plays show the defense set on their formation', () => {
     const vs53 = oppPlayDiagram(card, db as any, undefined, [formation('53_C3')]);
     assert.ok(vs53 && vs44 && vs53 !== vs44);
   });
+
+  it('preserves drawn defensive blitz and coverage strokes on the formation', () => {
+    const defStroke = { kind: 'run' as const, points: [{ x: 0, y: 4 }, { x: 0, y: -1 }] };
+    const fWithStrokes: OppFormation = {
+      id: 'f1',
+      name: 'Pro Rt',
+      editedAt: 1,
+      builder: { defenseKey: '44_C3_LIZ', overrides: {}, strokes: [defStroke] } as any,
+    };
+    const def = formationDefense(fWithStrokes);
+    assert.equal(def?.key, '44_C3_LIZ');
+    assert.equal(def?.strokes?.length, 1);
+    assert.deepEqual(def?.strokes?.[0].points, defStroke.points);
+
+    const entry = { ...drawn(), builder: { ...drawn().builder!, strokes: [{ role: '3', kind: 'run' as const, points: [{ x: 0, y: -5 }, { x: 3, y: 2 }] }] as any } };
+    const out = playWithDefense(entry, card, def!);
+    assert.equal(out.builder!.strokes!.length, 2);
+  });
 });
 
 describe('putting the scout script in order', async () => {

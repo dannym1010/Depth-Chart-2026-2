@@ -499,7 +499,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     let cur = strokesRef.current;
     let i = openRef.current;
     const open = i != null ? cur[i] : null;
-    const onOurs = near && (drawFor === 'defense' ? isDefenseRole(near.role) : !isDefenseRole(near.role));
+    const onOurs = Boolean(near);
     const atStart = open && near && Math.hypot(open.points[0].x - near.x, open.points[0].y - near.y) < 1.2;
     if (open && onOurs && !atStart) {
       finishLine();

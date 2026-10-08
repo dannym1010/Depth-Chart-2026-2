@@ -531,7 +531,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       defenseUnit: defUnit,
       ...(Object.keys(defWho).length ? { defenseWho: defWho } : {}),
       ...(Object.keys(taggedWho).length ? { defensePlayers: taggedWho } : {}),
-      ...(userDrew ? { strokes } : {}),
+      ...(userDrew || strokes.length > 0 ? { strokes } : {}),
       name: nameIn,
   });
   const stateKey = JSON.stringify(currentState());
@@ -597,15 +597,15 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
 
   const saveFormation = (announce: boolean) => {
     if (!play || !seed?.formationEdit || !onSaveFormation) return;
-    const { strokes: _drawn, ...builder } = currentState();
+    const builder = currentState();
     const name = (nameIn.trim() || seed.name).slice(0, 80);
     onSaveFormation({
       id: seed.formationEdit.id,
       name,
       builder: { ...builder, name },
       diagramUrl: diagramSvg(play, [], [], String(ball)),
-      // Our defense lined up against it, as it stands on the field.
-      defenseUrl: dLook ? diagramSvg(play, [], dNodes, String(ball)) : '',
+      // Our defense lined up against it, as it stands on the field, with any drawn blitzes/drops/stunts.
+      defenseUrl: dLook ? diagramSvg(play, strokes, dNodes, String(ball)) : '',
       defenseName: dLook?.name || '',
     });
     setBaseNote(announce ? `Saved ${name}. Their plays drawn from it start lined up like this.` : `Saved ${name} (changes save as you go).`);
@@ -1040,7 +1040,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 {defenseMode
                   ? 'Drag defenders where they line up. Pick Route, Run or Block and draw from a defender for blitzes, stunts and drops. Formation tab: the offense to draw it against.'
                   : dLook
-                    ? 'Drag our defenders where they line up against this formation. It saves as you go.'
+                    ? 'Drag our defenders where they line up against this formation. Pick Route, Run or Block to draw blitzes, stunts, and drops. It saves as you go.'
                     : 'Pick our defense to line it up against this formation.'}
               </span>
               {defaultButtons}
@@ -1119,8 +1119,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 },
               }}
               nodes={diagramNodes}
-              strokes={formationMode ? [] : strokes}
-              drawFor={defenseMode ? 'defense' : 'offense'}
+              strokes={strokes}
+              drawFor={defenseMode || (formationMode && Boolean(dLook)) ? 'defense' : 'offense'}
               ballRole={String(ball)}
               formLabel=""
               playLabel={callLabel}
@@ -1132,7 +1132,6 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 if (/^(?:[1-4]|X|Z|Y|W|H|Y1|Y2|W1|W2)$/.test(role)) rememberBackfield();
               }}
               onStrokes={(next) => {
-                if (formationMode) return;
                 setUserDrew(true);
                 setStrokes(next);
               }}
@@ -1232,7 +1231,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
         {/* One panel, one job at a time */}
         <div className={`rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden ${compact ? '' : 'lg:sticky lg:top-3'}`}>
           <div className="grid grid-cols-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
-            {tabs.filter((t) => (t.id === 'jobs' ? defenseMode : !(formationMode || defenseMode) || t.id !== 'play')).map((t) => (
+            {tabs.filter((t) => (t.id === 'jobs' ? (defenseMode || Boolean(dLook)) : !(formationMode || defenseMode) || t.id !== 'play')).map((t) => (
               <button
                 key={t.id}
                 type="button"
@@ -1443,7 +1442,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
             </div>
           )}
 
-          {tab === 'jobs' && defenseMode && (
+          {tab === 'jobs' && (defenseMode || Boolean(dLook)) && (
             <div className="p-3.5 space-y-3">
               <div>
                 <div className="text-sm font-black text-slate-900 dark:text-white">{dLook ? dLook.name : 'Pick a front'}</div>

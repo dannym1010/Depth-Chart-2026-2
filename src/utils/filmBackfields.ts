@@ -239,6 +239,7 @@ export interface DefenseSetting {
   players?: PlayBuilderState['defensePlayers'];
   unit?: PlayBuilderState['defenseUnit'];
   who?: PlayBuilderState['defenseWho'];
+  strokes?: PlayStroke[];
 }
 
 const lookRoles = (key?: string) => {
@@ -256,7 +257,7 @@ export function formationDefense(f: OppFormation | null | undefined, playDatabas
   if (b?.defenseKey) {
     const roles = lookRoles(b.defenseKey);
     const moves = Object.fromEntries(Object.entries(b.overrides || {}).filter(([role]) => roles.has(role) || isDefenseRole(role)));
-    return { key: b.defenseKey, moves, players: b.defensePlayers, unit: b.defenseUnit, who: b.defenseWho };
+    return { key: b.defenseKey, moves, players: b.defensePlayers, unit: b.defenseUnit, who: b.defenseWho, strokes: b.strokes as PlayStroke[] | undefined };
   }
   const base = f.plan?.base ? playDatabase.find((p) => p.id === f.plan!.base)?.builder?.defenseKey : '';
   return base ? { key: base, moves: {} } : null;
@@ -329,7 +330,9 @@ export function playWithDefense(entry: PlayDatabaseEntry, card: ScoutOppPlay, d:
   // The old defenders' lines go with them; the offense's lines stay as drawn.
   const oldDefense = lineUp(b0.defenseKey, b0.overrides || {});
   const startsOnOld = (st: PlayStroke) => st.points?.[0] && oldDefense.some((n) => Math.hypot(st.points[0].x - n.x, st.points[0].y - n.y) < 1.4);
-  const strokes = (b0.strokes as PlayStroke[]).filter((st) => !startsOnOld(st));
+  const offenseStrokes = (b0.strokes as PlayStroke[]).filter((st) => !startsOnOld(st));
+  const defStrokes = d.strokes || [];
+  const strokes = [...offenseStrokes, ...defStrokes];
   const who = b.defensePlayers || {};
   const defense = lineUp(d.key, b.overrides).map((n) => (who[n.role] ? { ...n, player: who[n.role], ...(b.defenseShow === 'number' ? { show: 'number' as const } : {}) } : n));
   return {
