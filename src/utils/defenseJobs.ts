@@ -3,8 +3,10 @@
 import type { PlayNode, PlayStroke } from './footballEngine';
 
 const LINE: Record<string, string> = { E9: '9 technique', E5: '5 technique', T3: '3 technique', T1: '1 technique', NT: '0 technique, both A gaps' };
-const EDGE_LB = new Set(['SAM', 'ROV']);
-const INSIDE_LB = new Set(['MIKE', 'WILL']);
+/** A lineman's technique ("DT5" → 5 technique), any front. */
+const lineJob = (role: string) => LINE[role] || ((m) => (m ? `${m[1]} technique` : ''))(role.match(/^(?:D[ET]|E|T)(\d+i?)$/i));
+const EDGE_LB = { has: (r: string) => r === 'SAM' || r === 'ROV' || /^OLB/.test(r) };
+const INSIDE_LB = { has: (r: string) => r === 'MIKE' || r === 'WILL' || /^ILB/.test(r) };
 
 /** The blitzes and stunts named in a look's notes, for the defenders they send. */
 function pressureJob(role: string, notes: string): string {
@@ -12,8 +14,8 @@ function pressureJob(role: string, notes: string): string {
   if (EDGE_LB.has(role) && /sam\/rover fire c-?gap/.test(n)) return 'Fire C gap';
   if ((role === 'E9' || role === 'E5') && /de pinch/.test(n)) return 'Pinch inside';
   if (INSIDE_LB.has(role) && /both ilbs a-?gap/.test(n)) return 'Blitz A gap';
-  if (LINE[role] && /dl crash a\/b/.test(n)) return 'Crash A/B gap';
-  if (LINE[role] && /dl wide contain/.test(n)) return 'Fan, wide contain';
+  if (lineJob(role) && /dl crash a\/b/.test(n)) return 'Crash A/B gap';
+  if (lineJob(role) && /dl wide contain/.test(n)) return 'Fan, wide contain';
   return '';
 }
 
@@ -39,7 +41,7 @@ export function standardDefenseJob(role: string, look: { front: string; shell: s
   const containHere = (EDGE_LB.has(role) && /olb|outside|sam|rov/.test(c)) || ((role === 'E9' || role === 'E5') && /\bde|end/.test(c));
   const five = /^5/.test(look.front);
   const parts: string[] = [];
-  if (LINE[role]) parts.push(five && (role === 'E9' || role === 'E5') ? 'Outside shade' : LINE[role]);
+  if (lineJob(role)) parts.push(five && (role === 'E9' || role === 'E5') ? 'Outside shade' : lineJob(role));
   else if (EDGE_LB.has(role)) parts.push(five ? 'Curl-flat' : 'C/D gap, force · curl-flat');
   else if (INSIDE_LB.has(role)) parts.push(five ? 'Hook-curl' : 'A/B gap, spill · hook-curl');
   else {
@@ -70,6 +72,6 @@ export function defenseJob(
 
 /** Line first, then linebackers, then the secondary; left to right in each. */
 export function defenseOrder(nodes: PlayNode[]): PlayNode[] {
-  const rank = (r: string) => (LINE[r] ? 0 : EDGE_LB.has(r) || INSIDE_LB.has(r) ? 1 : 2);
+  const rank = (r: string) => (lineJob(r) ? 0 : EDGE_LB.has(r) || INSIDE_LB.has(r) ? 1 : 2);
   return [...nodes].sort((a, b) => rank(a.role) - rank(b.role) || a.x - b.x);
 }

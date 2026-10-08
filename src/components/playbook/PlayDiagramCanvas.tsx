@@ -171,6 +171,8 @@ interface Props {
   defenseWho?: DefenseWho;
   /** Whose lines are drawn: the offense's (default) or our defense's (a defensive play: blitzes, drops). */
   drawFor?: 'offense' | 'defense';
+  /** Lines drawn from our defensive call (blitz, stunt, coverage): shown under the coach's own, not editable. */
+  extraStrokes?: PlayStroke[];
 }
 
 type Tool = DrawKind | 'move' | 'motion';
@@ -214,6 +216,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   onLabelChange,
   defenseWho,
   drawFor = 'offense',
+  extraStrokes,
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const drag = useRef<Drag>(null);
@@ -968,6 +971,19 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           onDoubleClick={onDoubleClick}
         >
           <g dangerouslySetInnerHTML={{ __html: FIELD_BG }} />
+          {/* Our defensive call's lines (blitz, stunt, coverage drops and zones), under everything the coach drew */}
+          {(extraStrokes || []).map((st, i) => {
+            const sp = strokePaths(st);
+            if (!sp) return null;
+            const { a, b } = sp.cap;
+            return (
+              <g key={`call-${i}`} pointerEvents="none">
+                {sp.zone && <ellipse cx={sp.zone.cx} cy={sp.zone.cy} rx={sp.zone.rx} ry={sp.zone.ry} fill={sp.color} fillOpacity={0.12} stroke={sp.color} strokeOpacity={0.55} strokeWidth={1.2} />}
+                {sp.mainD && <path d={sp.mainD} fill="none" stroke={sp.color} strokeWidth={sp.width} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={sp.dashed ? '6 4' : undefined} />}
+                <polygon points={arrowPts(a.cx, a.cy, b.cx, b.cy)} fill={sp.cap.color} />
+              </g>
+            );
+          })}
           {/* The lines: motion zigzag, then the play (dashed route, curve if drawn freehand), arrow or block T */}
           {strokes.map((st, i) => {
             const sp = strokePaths(st);
@@ -977,6 +993,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             const isSel = i === sel;
             return (
               <g key={i}>
+                {sp.zone && <ellipse cx={sp.zone.cx} cy={sp.zone.cy} rx={sp.zone.rx} ry={sp.zone.ry} fill={sp.color} fillOpacity={0.12} stroke={sp.color} strokeOpacity={0.55} strokeWidth={1.2} />}
                 {isSel && [sp.motionD, sp.mainD].filter(Boolean).map((d, k) => (
                   <path key={k} d={d} fill="none" stroke="#38bdf8" strokeOpacity="0.45" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round" />
                 ))}

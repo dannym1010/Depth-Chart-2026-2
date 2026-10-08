@@ -1550,7 +1550,7 @@ export function resolveTaggedCall(opts: {
 }
 
 export function isDefenseRole(role: string) {
-  return /^(DE|DT|NT|SAM|WILL|MIKE|ROV|CB|FS|OLB|ILB|E\d|T\d)/i.test(role);
+  return /^(DE|DT|NT|SAM|WILL|MIKE|ROV|CB|FS|SS|OLB|ILB|E\d|T\d)/i.test(role);
 }
 
 function nodes44(shift = 0): PlayNode[] {
@@ -1582,6 +1582,74 @@ function nodes53(shift = 0): PlayNode[] {
     { role: 'CBL', x: -14, y: 3.4 },
     { role: 'FS', x: shift, y: 8.2 },
     { role: 'CBR', x: 14, y: 3.4 },
+  ];
+}
+
+/** 6-2: six on the line (ends, tackles, guards), two linebackers, three deep. */
+function nodes62(): PlayNode[] {
+  return [
+    { role: 'E9', x: -7.4, y: 1.35 },
+    { role: 'T5', x: -4.4, y: 1.35 },
+    { role: 'T1', x: -1.1, y: 1.35 },
+    { role: 'DT1', x: 1.1, y: 1.35 },
+    { role: 'DT5', x: 4.4, y: 1.35 },
+    { role: 'DE9', x: 7.4, y: 1.35 },
+    { role: 'MIKE', x: -2.2, y: 4 },
+    { role: 'WILL', x: 2.2, y: 4 },
+    { role: 'CBL', x: -13.5, y: 5 },
+    { role: 'FS', x: 0, y: 9 },
+    { role: 'CBR', x: 13.5, y: 5 },
+  ];
+}
+
+/** 4-3: four down (5 and 3 techniques), three linebackers, four defensive backs. */
+function nodes43(): PlayNode[] {
+  return [
+    { role: 'DE5', x: -5, y: 1.35 },
+    { role: 'T3', x: -2.6, y: 1.35 },
+    { role: 'T1', x: 1, y: 1.35 },
+    { role: 'E5', x: 5, y: 1.35 },
+    { role: 'SAM', x: -4.6, y: 4.6 },
+    { role: 'MIKE', x: 0, y: 4.8 },
+    { role: 'WILL', x: 4.6, y: 4.6 },
+    { role: 'CBL', x: -14, y: 5 },
+    { role: 'FS', x: -4, y: 10 },
+    { role: 'SS', x: 4, y: 9 },
+    { role: 'CBR', x: 14, y: 5 },
+  ];
+}
+
+/** 5-2: five down (nose head-up), two linebackers, four defensive backs. */
+function nodes52(): PlayNode[] {
+  return [
+    { role: 'DE5', x: -5.2, y: 1.35 },
+    { role: 'T4', x: -3, y: 1.35 },
+    { role: 'NT', x: 0, y: 1.35 },
+    { role: 'DT4', x: 3, y: 1.35 },
+    { role: 'E5', x: 5.2, y: 1.35 },
+    { role: 'MIKE', x: -2.4, y: 4.2 },
+    { role: 'WILL', x: 2.4, y: 4.2 },
+    { role: 'CBL', x: -14, y: 5 },
+    { role: 'FS', x: -4, y: 10 },
+    { role: 'SS', x: 4, y: 9 },
+    { role: 'CBR', x: 14, y: 5 },
+  ];
+}
+
+/** 3-5-3 (3-3 stack): three down, three stacked linebackers and two outside, three deep. */
+function nodes353(): PlayNode[] {
+  return [
+    { role: 'DE5', x: -4.8, y: 1.35 },
+    { role: 'NT', x: 0, y: 1.35 },
+    { role: 'E5', x: 4.8, y: 1.35 },
+    { role: 'OLBL', x: -9, y: 3.6 },
+    { role: 'WILL', x: -4.8, y: 4.4 },
+    { role: 'MIKE', x: 0, y: 4.4 },
+    { role: 'SAM', x: 4.8, y: 4.4 },
+    { role: 'OLBR', x: 9, y: 3.6 },
+    { role: 'CBL', x: -14, y: 5.5 },
+    { role: 'FS', x: 0, y: 10 },
+    { role: 'CBR', x: 14, y: 5.5 },
   ];
 }
 
@@ -1682,6 +1750,10 @@ export const OUR_DEFENSE_LOOKS: Record<string, OurDefenseLook> = {
   '53_C3': { name: '5-3 Cover 3', front: '5-3', shell: 'Cover 3', strength: 'Even', notes: 'Odd front vs 2 TE', nodes: nodes53(0) },
   '53_OVER': { name: '5-3 Over', front: '5-3', shell: 'Cover 3', strength: 'Left', notes: 'Over-shift to their strength', nodes: nodes53(-0.8) },
   '53_C1': { name: '5-3 Cover 1', front: '5-3', shell: 'Cover 1', strength: 'Even', notes: 'Man under odd front', nodes: nodes53(0) },
+  '62': { name: '6-2', front: '6-2', shell: '', strength: 'Even', notes: 'Six on the line, two backers', nodes: nodes62() },
+  '43': { name: '4-3', front: '4-3', shell: '', strength: 'Even', notes: 'Four down, three backers', nodes: nodes43() },
+  '52': { name: '5-2', front: '5-2', shell: '', strength: 'Even', notes: 'Five down, two backers', nodes: nodes52() },
+  '353': { name: '3-5-3', front: '3-5-3', shell: '', strength: 'Even', notes: 'Three down, stacked backers, three deep', nodes: nodes353() },
 };
 
 export const DEFENSIVE_FRONTS: Record<
@@ -1995,6 +2067,10 @@ export interface PlayStroke {
   motion?: number;
   /** Older lines drawn freehand: the whole line is a smooth curve (newer ones mark each `smooth` point). */
   curve?: boolean;
+  /** Its own color (our defense's blitzes and coverage), instead of the kind's. */
+  color?: string;
+  /** A coverage zone at the end of the line, in yards across (rx) and deep (ry). */
+  zone?: { rx: number; ry: number };
 }
 
 /** Pre-snap motion is drawn as a zigzag in its own color. */
@@ -2139,9 +2215,20 @@ export function strokePaths(s: PlayStroke) {
   const motionPts = m > 0 ? pts.slice(0, m + 1) : [];
   const mainPts = pts.slice(m);
   const hasMain = mainPts.length >= 2;
-  const color = STROKE_COLOR[s.kind];
+  const color = s.color || STROKE_COLOR[s.kind];
   const endPts = hasMain ? mainPts : motionPts;
+  // A zone: an oval around the end of the line (yards to picture units, either way from its center).
+  const last = s.points[s.points.length - 1];
+  const zone =
+    s.zone && last
+      ? (() => {
+          const c = fieldToSvg(last.x, last.y);
+          const rx = Math.abs(fieldToSvg(last.x + s.zone!.rx, last.y).cx - fieldToSvg(last.x - s.zone!.rx, last.y).cx) / 2;
+          return { cx: c.cx, cy: c.cy, rx, ry: s.zone!.ry * FIELD_SVG.scaleY };
+        })()
+      : null;
   return {
+    zone,
     motionD: motionPts.length >= 2 ? zigzagPath(motionPts) : '',
     mainD: hasMain ? linePath(mainPts, (k) => Boolean(s.curve || s.points[m + k]?.smooth)) : '',
     color,
@@ -2169,6 +2256,9 @@ export function diagramLabel(role: string) {
   if (role === 'ROV') return 'R';
   if (role.startsWith('CB')) return 'C';
   if (role === 'FS') return 'FS';
+  if (role === 'SS') return 'SS';
+  if (/^D[ET]\d/.test(role)) return role.slice(1);
+  if (/^OLB/.test(role)) return 'O';
   return role.replace(/\d+$/, '').slice(0, 3);
 }
 
@@ -2621,12 +2711,13 @@ function strokeSvg(strokes: PlayStroke[]) {
       const sp = strokePaths(s);
       if (!sp) return '';
       const { a, b } = sp.cap;
+      const zone = sp.zone ? `<ellipse cx="${sp.zone.cx.toFixed(1)}" cy="${sp.zone.cy.toFixed(1)}" rx="${sp.zone.rx.toFixed(1)}" ry="${sp.zone.ry.toFixed(1)}" fill="${sp.color}" fill-opacity="0.12" stroke="${sp.color}" stroke-opacity="0.55" stroke-width="1.2"/>` : '';
       const motion = sp.motionD ? `<path d="${sp.motionD}" fill="none" stroke="${MOTION_COLOR}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>` : '';
       const main = sp.mainD
         ? `<path d="${sp.mainD}" fill="none" stroke="${sp.color}" stroke-width="${sp.width}" stroke-linecap="round" stroke-linejoin="round"${sp.dashed ? ' stroke-dasharray="5 4"' : ''}/>`
         : '';
       const cap = sp.cap.t ? tBar(a.cx, a.cy, b.cx, b.cy, sp.color) : `<polygon points="${arrowHead(a.cx, a.cy, b.cx, b.cy)}" fill="${sp.cap.color}" />`;
-      return `${motion}${main}${cap}`;
+      return `${zone}${motion}${main}${cap}`;
     })
     .join('');
 }
