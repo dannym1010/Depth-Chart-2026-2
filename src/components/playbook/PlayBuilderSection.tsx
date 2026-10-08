@@ -162,6 +162,8 @@ const FRONT_CHOICES: { chip: string; label: string }[] = [
   { chip: '52', label: '5-2' },
   { chip: '353', label: '3-5-3' },
 ];
+/** Order of the players' job menus: linebackers, then the secondary, then the line. */
+const playerRank = (role: string) => (/^(SAM|ROV|MIKE|WILL|OLB|ILB)/.test(role) ? 0 : /^(CB|FS|SS)/.test(role) ? 1 : 2);
 /** Which front button a defense key belongs to. */
 const frontChipOf = (key: string) =>
   !key ? '' : key.startsWith('44') || key.startsWith('blitz_') ? '44' : key === '53_OVER' ? '53_OVER' : key.startsWith('53') ? '53_C3' : key;
@@ -490,13 +492,19 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
           </>
         )}
         {dLook && (
-          <details className="rounded-lg border border-slate-200 dark:border-slate-700 px-2 py-1" open={Object.keys(defAssign).length > 0}>
+          <details
+            // Open once there's a coverage or blitz to adjust (the linebackers' jobs are the usual change).
+            key={coverage || pressure ? 'open' : 'closed'}
+            className="rounded-lg border border-slate-200 dark:border-slate-700 px-2 py-1"
+            open={Boolean(coverage || pressure) || Object.keys(defAssign).length > 0}
+          >
             <summary className="cursor-pointer text-[11px] font-black text-slate-600 dark:text-slate-300">
               4 Players: set a player's job{Object.keys(defAssign).length ? ` (${Object.keys(defAssign).length} set)` : ''}
             </summary>
             <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Pick a job for anyone you want different (e.g. S and R in the flats). The rest of the coverage fills in around them.</p>
             <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-1">
-              {defenseOrder(dNodes).map((n) => (
+              {/* Linebackers first (S, R, M, W), then the secondary, then the line. */}
+              {[...defenseOrder(dNodes)].sort((a, b) => playerRank(a.role) - playerRank(b.role)).map((n) => (
                 <label key={n.role} className="flex items-center gap-1.5">
                   <span className="shrink-0 min-w-8 h-6 px-1 rounded bg-green-700 text-white text-[10px] font-black inline-flex items-center justify-center">{shownText(n, diagramLabel(n.role))}</span>
                   <select
