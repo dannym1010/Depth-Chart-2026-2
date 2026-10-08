@@ -81,14 +81,27 @@ describe('our defensive call drawn on the field', () => {
 });
 
 describe("more calls, and a player's own job", () => {
-  it('Blow Sting: Sam and Will both fire, outside the tight end on his side (D), else outside the tackle (C)', () => {
-    const d = front('43');
-    const s = defenseCallStrokes(d, off, 'blow_sting');
-    assert.equal(s.length, 2);
-    const sam = s.find((x) => x.points[0].x < 0)!;
-    const will = s.find((x) => x.points[0].x > 0)!;
-    assert.equal(sam.label, 'Fire C gap');
-    assert.equal(will.label, 'Fire D gap');
+  it('Blow Sting: Sam and Rover take the called gap, and the end on each side the other one', () => {
+    // Rover on the right side (the way coaches line him up when he's the other outside backer).
+    const d = front('44_C3_LIZ').map((n) => (n.role === 'ROV' ? { ...n, x: 9 } : n));
+    const D = defenseCallStrokes(d, off, 'blow_sting');
+    const label = (role: string, s: any[]) => s.find((x) => { const n = d.find((m) => m.role === role)!; return Math.abs(x.points[0].x - n.x) < 0.05 && Math.abs(x.points[0].y - n.y) < 0.05; })?.label;
+    assert.equal(label('SAM', D), 'Sting D gap');
+    assert.equal(label('ROV', D), 'Sting D gap');
+    assert.equal(label('E9', D), 'End C gap');
+    assert.equal(label('E5', D), 'End C gap');
+    const C = defenseCallStrokes(d, off, 'blow_sting_c');
+    assert.equal(label('ROV', C), 'Sting C gap');
+    assert.equal(label('E5', C), 'End D gap');
+    // The end goes outside the Rover when Rover takes C.
+    const rov = C.find((x) => x.label === 'Sting C gap' && x.points[0].x > 0)!;
+    const e5 = C.find((x) => x.label === 'End D gap' && x.points[0].x > 0)!;
+    assert.ok(end(e5).x > end(rov).x);
+  });
+
+  it('Blow Sting with Sam and Rover on one side: the outer takes the call, the inner the other gap, the end pinches', () => {
+    const s = defenseCallStrokes(front('44_C3_LIZ'), off, 'blow_sting');
+    assert.deepEqual(s.map((x) => x.label).sort(), ['End B gap', 'Sting C gap', 'Sting D gap']);
   });
 
   it('Will B gap and Mike B gap go through the B gap on their side', () => {

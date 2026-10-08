@@ -10,7 +10,8 @@ export const PRESSURES: { id: string; label: string; short: string; group: 'Blit
   { id: 'edge_l', label: 'Edge fire left', short: 'Edge L', group: 'Blitz' },
   { id: 'edge_r', label: 'Edge fire right', short: 'Edge R', group: 'Blitz' },
   { id: 'edge_both', label: 'Edge fire both', short: 'Edge both', group: 'Blitz' },
-  { id: 'blow_sting', label: 'Blow Sting (Sam & Will fire C/D)', short: 'Blow Sting', group: 'Blitz' },
+  { id: 'blow_sting', label: 'Blow Sting D: Sam & Rover blitz the D gap, the end on each side takes C', short: 'Blow Sting D', group: 'Blitz' },
+  { id: 'blow_sting_c', label: 'Blow Sting C: Sam & Rover blitz the C gap, the end on each side takes D', short: 'Blow Sting C', group: 'Blitz' },
   { id: 'mike_a', label: 'Mike A gap', short: 'Mike A', group: 'Blitz' },
   { id: 'mike_b', label: 'Mike B gap', short: 'Mike B', group: 'Blitz' },
   { id: 'will_a', label: 'Will A gap', short: 'Will A', group: 'Blitz' },
@@ -189,14 +190,27 @@ function pressurePaths(id: string, def: PlayNode[], off: PlayNode[]): { strokes:
     const gap = id === 'will_a' ? 'A' : 'B';
     if (who) add(rush(who, who.x < g.C ? g.left[gap] : g.right[gap], `Blitz ${gap} gap`), who.role);
   }
-  if (id === 'blow_sting') {
-    // Sam and Will off their edges: outside the tight end (D) when there is one on that side, else outside the tackle (C).
-    for (const role of ['SAM', 'WILL']) {
-      const who = named(role);
-      if (!who) continue;
-      const side = who.x < g.C ? 'left' : 'right';
-      const gap: GapName = g[side].hasTE ? 'D' : 'C';
-      add(rush(who, g[side][gap], `Fire ${gap} gap`), who.role);
+  if (id === 'blow_sting' || id === 'blow_sting_c') {
+    // Sam and Rover blitz (no Rover: the outside backer on the other side). Each takes the called gap and
+    // the end on his side runs the other one: D and C, or C and D. Two blitzers on one side: the outer one
+    // takes the called gap, the inner one the other, and the end pinches to B.
+    const called: GapName = id === 'blow_sting' ? 'D' : 'C';
+    const other: GapName = called === 'D' ? 'C' : 'D';
+    const sam = named('SAM') || lbs.filter((n) => n.x < g.C).sort((a, b) => a.x - b.x)[0];
+    const rov = named('ROV') || lbs.filter((n) => n.x >= g.C && n !== sam).sort((a, b) => b.x - a.x)[0];
+    const blitzers = [sam, rov].filter(Boolean) as PlayNode[];
+    const usedEnds = new Set<string>();
+    for (const side of ['left', 'right'] as const) {
+      const mine = blitzers.filter((n) => (side === 'left' ? n.x < g.C : n.x >= g.C)).sort((a, b) => (side === 'left' ? a.x - b.x : b.x - a.x));
+      if (!mine.length) continue;
+      const end = line.filter((n) => (side === 'left' ? n.x < g.C : n.x >= g.C) && !usedEnds.has(n.role)).sort((a, b) => (side === 'left' ? a.x - b.x : b.x - a.x))[0];
+      add(rush(mine[0], g[side][called], `Sting ${called} gap`), mine[0].role);
+      if (mine[1]) add(rush(mine[1], g[side][other], `Sting ${other} gap`), mine[1].role);
+      if (end) {
+        usedEnds.add(end.role);
+        const endGap: GapName = mine[1] ? 'B' : other;
+        add({ kind: 'run', color: BLITZ_COLOR, label: `End ${endGap} gap`, points: [pt(end.x, end.y), pt(g[side][endGap], -1.4)] }, end.role);
+      }
     }
   }
   if (id === 'double_a') {
