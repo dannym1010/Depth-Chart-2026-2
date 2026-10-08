@@ -6,25 +6,34 @@ import type { PlayNode, PlayStroke } from './footballEngine';
 export const BLITZ_COLOR = '#ea580c';
 export const COVERAGE_COLOR = '#0f766e';
 
-export const PRESSURES: { id: string; label: string; group: 'Blitz' | 'Stunt' }[] = [
-  { id: 'edge_l', label: 'Edge fire left', group: 'Blitz' },
-  { id: 'edge_r', label: 'Edge fire right', group: 'Blitz' },
-  { id: 'edge_both', label: 'Edge fire both', group: 'Blitz' },
-  { id: 'mike_a', label: 'Mike A gap', group: 'Blitz' },
-  { id: 'double_a', label: 'Double A (Mike & Will)', group: 'Blitz' },
-  { id: 'mike_b', label: 'Mike B gap', group: 'Blitz' },
-  { id: 'will_a', label: 'Will A gap', group: 'Blitz' },
-  { id: 'will_b', label: 'Will B gap', group: 'Blitz' },
-  { id: 'blow_sting', label: 'Blow Sting (Sam & Will fire C/D)', group: 'Blitz' },
-  { id: 'pinch', label: 'Pinch (line crashes inside)', group: 'Stunt' },
-  { id: 'slant_l', label: 'Slant left', group: 'Stunt' },
-  { id: 'slant_r', label: 'Slant right', group: 'Stunt' },
-  { id: 'twist_l', label: 'E-T twist left', group: 'Stunt' },
-  { id: 'twist_r', label: 'E-T twist right', group: 'Stunt' },
-  { id: 'cross_et_l', label: 'E-T cross left (end in, tackle out)', group: 'Stunt' },
-  { id: 'cross_et_r', label: 'E-T cross right (end in, tackle out)', group: 'Stunt' },
-  { id: 'cross_tt', label: 'Tackle cross (tackles trade A gaps)', group: 'Stunt' },
+export const PRESSURES: { id: string; label: string; short: string; group: 'Blitz' | 'Stunt' }[] = [
+  { id: 'edge_l', label: 'Edge fire left', short: 'Edge L', group: 'Blitz' },
+  { id: 'edge_r', label: 'Edge fire right', short: 'Edge R', group: 'Blitz' },
+  { id: 'edge_both', label: 'Edge fire both', short: 'Edge both', group: 'Blitz' },
+  { id: 'blow_sting', label: 'Blow Sting (Sam & Will fire C/D)', short: 'Blow Sting', group: 'Blitz' },
+  { id: 'mike_a', label: 'Mike A gap', short: 'Mike A', group: 'Blitz' },
+  { id: 'mike_b', label: 'Mike B gap', short: 'Mike B', group: 'Blitz' },
+  { id: 'will_a', label: 'Will A gap', short: 'Will A', group: 'Blitz' },
+  { id: 'will_b', label: 'Will B gap', short: 'Will B', group: 'Blitz' },
+  { id: 'double_a', label: 'Double A (Mike & Will)', short: 'Double A', group: 'Blitz' },
+  { id: 'slant_l', label: 'Slant left (whole line)', short: 'Slant L', group: 'Stunt' },
+  { id: 'slant_r', label: 'Slant right (whole line)', short: 'Slant R', group: 'Stunt' },
+  { id: 'pinch', label: 'Pinch (line crashes inside)', short: 'Pinch', group: 'Stunt' },
+  { id: 'fan', label: 'Fan (line slants outside)', short: 'Fan', group: 'Stunt' },
+  { id: 'cross_tt', label: 'Tackle cross (tackles trade A gaps)', short: 'T-T cross', group: 'Stunt' },
+  { id: 'cross_et_l', label: 'E-T cross left (end in, tackle loops out)', short: 'E-T cross L', group: 'Stunt' },
+  { id: 'cross_et_r', label: 'E-T cross right (end in, tackle loops out)', short: 'E-T cross R', group: 'Stunt' },
+  { id: 'twist_l', label: 'E-T twist left (tackle out, end loops in)', short: 'Twist L', group: 'Stunt' },
+  { id: 'twist_r', label: 'E-T twist right (tackle out, end loops in)', short: 'Twist R', group: 'Stunt' },
 ];
+
+/** A call's blitz and stunt (either can be blank): "edge_l+cross_tt". */
+export const pressureParts = (pressure?: string) => {
+  const ids = String(pressure || '').split('+').filter(Boolean);
+  const group = (g: 'Blitz' | 'Stunt') => ids.find((id) => PRESSURES.find((p) => p.id === id)?.group === g) || '';
+  return { blitz: group('Blitz'), stunt: group('Stunt') };
+};
+export const joinPressure = (blitz: string, stunt: string) => [blitz, stunt].filter(Boolean).join('+');
 
 /** A job a coach can give one defender, over what the call would have him do. */
 export const PLAYER_JOBS: { id: string; label: string; group: 'Blitz' | 'Zone' | 'Other' }[] = [
@@ -48,6 +57,10 @@ export const PLAYER_JOBS: { id: string; label: string; group: 'Blitz' | 'Zone' |
   { id: 'zone:deep4IL', label: 'Deep 1/4 (inside left)', group: 'Zone' },
   { id: 'zone:deep4IR', label: 'Deep 1/4 (inside right)', group: 'Zone' },
   { id: 'zone:deep4OR', label: 'Deep 1/4 (outside right)', group: 'Zone' },
+  { id: 'stunt:in', label: 'Slant inside', group: 'Other' },
+  { id: 'stunt:out', label: 'Slant outside', group: 'Other' },
+  { id: 'loop:in', label: 'Loop inside', group: 'Other' },
+  { id: 'loop:out', label: 'Loop outside', group: 'Other' },
   { id: 'man', label: 'Man (nearest receiver)', group: 'Other' },
   { id: 'spy', label: 'Spy the quarterback', group: 'Other' },
 ];
@@ -130,6 +143,15 @@ function gapOf(n: PlayNode, g: ReturnType<typeof gaps>): { side: 'left' | 'right
   return { side, gap: best };
 }
 
+/** Where a lineman ends up moving `steps` gaps inside (negative) or outside (positive) from his gap. */
+function shiftedGap(n: PlayNode, g: ReturnType<typeof gaps>, steps: number): number {
+  const at = gapOf(n, g);
+  const idx = GAP_ORDER.indexOf(at.gap) + steps;
+  // Inside past the A gap: the other A gap.
+  if (idx < 0) return g[at.side === 'left' ? 'right' : 'left'].A;
+  return g[at.side][GAP_ORDER[Math.min(3, idx)]];
+}
+
 /** The blitz or stunt's paths. Returns who rushes (so they don't drop into coverage). */
 function pressurePaths(id: string, def: PlayNode[], off: PlayNode[]): { strokes: PlayStroke[]; rushers: Set<string> } {
   const g = gaps(off);
@@ -191,6 +213,15 @@ function pressurePaths(id: string, def: PlayNode[], off: PlayNode[]): { strokes:
     if (at.gap === 'A' && step < 0) return dir === 'in' ? g[at.side].A : g[at.side === 'left' ? 'right' : 'left'].A;
     return g[at.side][next];
   };
+  if (id === 'fan') {
+    for (const n of line) {
+      // One gap outside; the man already outside the last gap just widens.
+      const side = n.x < g.C ? -1 : 1;
+      const t = moveGap(n, side as -1 | 1);
+      const x = (t - g.C) * side > (n.x - g.C) * side + 0.3 ? t : n.x + side * 1.5;
+      add({ kind: 'run', color: BLITZ_COLOR, label: 'Fan outside', points: [pt(n.x, n.y), pt(x, -1.4)] }, n.role);
+    }
+  }
   if (id === 'pinch') for (const n of line) add({ kind: 'run', color: BLITZ_COLOR, label: 'Pinch inside', points: [pt(n.x, n.y), pt(moveGap(n, 'in'), -1.4)] }, n.role);
   if (id === 'slant_l' || id === 'slant_r') {
     const dir = id === 'slant_l' ? -1 : 1;
@@ -343,7 +374,14 @@ export function defenseCallStrokes(
 ): PlayStroke[] {
   const set = Object.fromEntries(Object.entries(assign || {}).filter(([role, job]) => job && def.some((n) => n.role === role)));
   if (!def.length || (!pressure && !coverage && !Object.keys(set).length)) return [];
-  const p = pressure ? pressurePaths(pressure, def, off) : { strokes: [] as PlayStroke[], rushers: new Set<string>() };
+  // A blitz and a stunt can go together; where both move one player, the later one wins.
+  const p = { strokes: [] as PlayStroke[], rushers: new Set<string>() };
+  for (const id of String(pressure || '').split('+').filter(Boolean)) {
+    const one = pressurePaths(id, def, off);
+    const starts = new Set(one.strokes.map((st) => `${st.points[0]?.x},${st.points[0]?.y}`));
+    p.strokes = [...p.strokes.filter((st) => !starts.has(`${st.points[0]?.x},${st.points[0]?.y}`)), ...one.strokes];
+    one.rushers.forEach((r) => p.rushers.add(r));
+  }
   // A defender with his own job isn't part of the call's blitz or coverage.
   const startsOn = (st: PlayStroke, role: string) => {
     const n = def.find((x) => x.role === role);
@@ -364,6 +402,16 @@ export function defenseCallStrokes(
     } else if (job.startsWith('zone:')) {
       const z = ZONE_SPOTS[job.slice(5)];
       if (z) mine.push(drop(n, z.x, z.y, z.rx, z.ry, z.label));
+    } else if (job.startsWith('stunt:') || job.startsWith('loop:')) {
+      // A lineman's own move: one gap in or out, or a loop (around his neighbor) two gaps over.
+      const loop = job.startsWith('loop:');
+      const out = job.endsWith(':out');
+      const steps = (loop ? 2 : 1) * (out ? 1 : -1);
+      const tx = shiftedGap(n, g, steps);
+      const side = n.x < g.C ? -1 : 1;
+      const label = `${loop ? 'Loop' : 'Slant'} ${out ? 'outside' : 'inside'}`;
+      const points = loop ? [pt(n.x, n.y), pt(n.x + side * (out ? 1 : -1) * 0.9, n.y + 0.9), pt(tx, -1.4)] : [pt(n.x, n.y), pt(tx, -1.4)];
+      mine.push({ kind: 'run', color: BLITZ_COLOR, label, points });
     } else if (job === 'man') {
       const near = [...receivers].sort((a, b) => Math.hypot(a.x - n.x, a.y - n.y) - Math.hypot(b.x - n.x, b.y - n.y))[0];
       if (near) mine.push({ kind: 'pass', color: COVERAGE_COLOR, label: `Man on ${near.label || near.role}`, points: [pt(n.x, n.y), pt(n.x + (near.x - n.x) * 0.72, Math.max(n.y + (near.y - n.y) * 0.72, 0.6))] });
@@ -377,5 +425,6 @@ export function defenseCallStrokes(
 
 /** "4-4 · Edge fire left · Cover 3" */
 export function defenseCallName(front: string, pressure?: string, coverage?: string): string {
-  return [front, PRESSURES.find((x) => x.id === pressure)?.label, COVERAGES.find((x) => x.id === coverage)?.short].filter(Boolean).join(' · ');
+  const parts = String(pressure || '').split('+').filter(Boolean).map((id) => PRESSURES.find((x) => x.id === id)?.short || '');
+  return [front, ...parts, COVERAGES.find((x) => x.id === coverage)?.short].filter(Boolean).join(' · ');
 }

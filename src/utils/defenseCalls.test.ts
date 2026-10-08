@@ -75,7 +75,8 @@ describe('our defensive call drawn on the field', () => {
 
   it('every new front has eleven', () => {
     for (const k of ['62', '43', '52', '353']) assert.equal(OUR_DEFENSE_LOOKS[k].nodes.length, 11, k);
-    assert.equal(defenseCallName('4-4', 'edge_l', 'cover3'), '4-4 · Edge fire left · Cover 3');
+    assert.equal(defenseCallName('4-4', 'edge_l', 'cover3'), '4-4 · Edge L · Cover 3');
+    assert.equal(defenseCallName('4-4', 'edge_l+cross_tt', 'cover3'), '4-4 · Edge L · T-T cross · Cover 3');
   });
 });
 
@@ -128,5 +129,28 @@ describe("more calls, and a player's own job", () => {
     assert.equal(by(s, /Fire/).length, 0);
     assert.equal(by(s, /Blitz B gap/).length, 1);
     assert.deepEqual(defenseCallStrokes(d, off, '', 'cover3', { SAM: '' }), defenseCallStrokes(d, off, '', 'cover3'));
+  });
+});
+
+describe('stunts with a blitz, and a lineman on his own', () => {
+  it('a blitz and a stunt together: both drawn, each player once', () => {
+    const s = defenseCallStrokes(front('44_C3_LIZ'), off, 'edge_l+cross_tt');
+    assert.equal(by(s, /Fire/).length, 1);
+    assert.equal(by(s, /Cross/).length, 2);
+  });
+  it('Fan: every lineman one gap outside', () => {
+    const s = defenseCallStrokes(front('44_C3_LIZ'), off, 'fan');
+    assert.equal(s.length, 4);
+    for (const x of s) assert.ok(Math.abs(end(x).x) > Math.abs(x.points[0].x) - 0.01);
+  });
+  it('a lineman slants or loops on his own', () => {
+    const d = front('44_C3_LIZ');
+    const t3 = d.find((n) => n.role === 'T3')!;
+    const slant = defenseCallStrokes(d, off, '', '', { T3: 'stunt:out' });
+    assert.equal(slant[0].label, 'Slant outside');
+    assert.ok(end(slant[0]).x < t3.x);
+    const loop = defenseCallStrokes(d, off, '', '', { T3: 'loop:in' });
+    assert.equal(loop[0].points.length, 3);
+    assert.ok(end(loop[0]).x > t3.x);
   });
 });
