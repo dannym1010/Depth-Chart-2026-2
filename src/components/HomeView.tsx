@@ -32,6 +32,7 @@ import {
   RosterPlayer,
 } from '../types';
 import { formatClock, formatClockRange } from '../utils/timeFormat';
+import { EventWeatherChip } from './EventWeatherChip';
 
 interface HomeViewProps {
   scheduleEvents: ScheduleEvent[];
@@ -324,6 +325,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   </div>
                 )}
 
+                <EventWeatherChip event={practiceEventData.event} tone="auto" large />
+
                 {/* Practice Script Preview / Highlights */}
                 {practiceEventData.plan ? (
                   <div className="p-3 sm:p-3.5 bg-slate-50 dark:bg-slate-950/70 rounded-2xl border border-slate-200 dark:border-slate-800/70 space-y-2">
@@ -478,6 +481,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     </a>
                   </div>
                 )}
+
+                <EventWeatherChip event={gameEventData.event} tone="auto" large />
 
                 {/* Uniform & Arrival Info */}
                 <div className="grid grid-cols-2 gap-2">
