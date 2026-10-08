@@ -190,17 +190,15 @@ export const GenericAnimatedWhiteboard: React.FC<GenericAnimatedWhiteboardProps>
                 <span className="hidden sm:inline px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-600/30 text-amber-900 font-black text-[10px] uppercase tracking-wider">
                   {drill.categoryLabel || `${drill.category} Drill Progression`}
                 </span>
-                {drill.onePageDiagram && (
-                  <button
-                    type="button"
-                    onClick={() => setShowOnePageModal(true)}
-                    className="inline-flex items-center gap-1.5 text-[11px] font-black text-amber-950 bg-gradient-to-r from-amber-400 to-amber-300 hover:from-amber-500 hover:to-amber-400 px-2.5 py-1 rounded-md border border-amber-500/50 shadow-2xs transition-all duration-150 cursor-pointer"
-                    title="Open 1-Page Install Diagram & Coaching Sheet"
-                  >
-                    <FileText className="w-3.5 h-3.5 text-amber-950" />
-                    <span>1-Page Diagram Sheet</span>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setShowOnePageModal(true)}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-black text-amber-950 bg-gradient-to-r from-amber-400 to-amber-300 hover:from-amber-500 hover:to-amber-400 px-2.5 py-1 rounded-md border border-amber-500/50 shadow-2xs transition-all duration-150 cursor-pointer"
+                  title="Open 1-Page Printable Install Diagram & Coaching Sheet"
+                >
+                  <FileText className="w-3.5 h-3.5 text-amber-950" />
+                  <span>1-Page Diagram Sheet</span>
+                </button>
                 {drill.videoUrl && (
                   <a
                     href={drill.videoUrl}
@@ -300,17 +298,15 @@ export const GenericAnimatedWhiteboard: React.FC<GenericAnimatedWhiteboardProps>
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {drill.onePageDiagram && (
-                  <button
-                    type="button"
-                    onClick={() => setShowOnePageModal(true)}
-                    className="inline-flex items-center gap-1.5 text-[11px] font-black text-amber-950 bg-gradient-to-r from-amber-400 to-amber-300 hover:from-amber-500 hover:to-amber-400 px-2.5 py-1.5 rounded-md border border-amber-500/50 shadow-2xs transition-all duration-150 cursor-pointer"
-                    title="Open 1-Page Install Diagram & Coaching Sheet"
-                  >
-                    <FileText className="w-3.5 h-3.5 text-amber-950" />
-                    <span className="hidden sm:inline">1-Page Diagram Sheet</span>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setShowOnePageModal(true)}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-black text-amber-950 bg-gradient-to-r from-amber-400 to-amber-300 hover:from-amber-500 hover:to-amber-400 px-2.5 py-1.5 rounded-md border border-amber-500/50 shadow-2xs transition-all duration-150 cursor-pointer"
+                  title="Open 1-Page Printable Install Diagram & Coaching Sheet"
+                >
+                  <FileText className="w-3.5 h-3.5 text-amber-950" />
+                  <span className="hidden sm:inline">1-Page Diagram Sheet</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => setFullScreen(false)}
@@ -346,8 +342,9 @@ export const GenericAnimatedWhiteboard: React.FC<GenericAnimatedWhiteboardProps>
         )}
 
       {/* 1-PAGE INSTALL DIAGRAM & COACHING SHEET MODAL */}
-      {showOnePageModal && drill.onePageDiagram && (
+      {showOnePageModal && (
         <OnePageDiagramModal
+          drill={drill}
           config={drill.onePageDiagram}
           onClose={() => setShowOnePageModal(false)}
         />

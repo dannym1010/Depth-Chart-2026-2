@@ -15,8 +15,10 @@ import {
   Sparkles,
   ChevronRight,
   Shield,
+  FileText,
 } from 'lucide-react';
 import { WhiteboardDrill, DEFENSIVE_POSITION_GROUPS } from './whiteboardDrillData';
+import { OnePageDiagramModal } from './OnePageDiagramModal';
 
 export interface DrillInstructionsModalProps {
   isOpen: boolean;
@@ -47,6 +49,7 @@ export const DrillInstructionsModal: React.FC<DrillInstructionsModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'instructions' | 'diagram'>('instructions');
   const [activePhaseIndex, setActivePhaseIndex] = useState<number>(0);
+  const [showOnePageModal, setShowOnePageModal] = useState<boolean>(false);
 
   // Fallback / Effective drill data
   const effectiveTitle = drill?.title || stationName || 'Practice Drill';
@@ -185,26 +188,36 @@ export const DrillInstructionsModal: React.FC<DrillInstructionsModalProps> = ({
             </button>
           </div>
 
-          {/* Single clean action button on top right */}
-          {onOpenWhiteboard && (
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
             <button
               type="button"
-              onClick={() => {
-                onClose();
-                if (drill) {
-                  onOpenWhiteboard(drill.id, drill.category);
-                } else if (stationName) {
-                  onOpenWhiteboard(stationName);
-                }
-              }}
-              className="px-3.5 py-1.5 text-xs font-black rounded-xl shadow-md flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer shrink-0 bg-indigo-600 hover:bg-indigo-500 text-white"
-              title="Open this drill in interactive animated whiteboard"
+              onClick={() => setShowOnePageModal(true)}
+              className="px-3 py-1.5 text-xs font-black rounded-xl shadow-md flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer bg-gradient-to-r from-amber-400 to-amber-300 hover:from-amber-500 hover:to-amber-400 text-amber-950 border border-amber-500/50"
+              title="Open 1-Page Printable Install Diagram & Coaching Sheet"
             >
-              <PenTool className="w-3.5 h-3.5 text-blue-200" />
-              <span>Open Full Whiteboard</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              <FileText className="w-3.5 h-3.5" />
+              <span>1-Page Diagram Sheet</span>
             </button>
-          )}
+            {onOpenWhiteboard && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  if (drill) {
+                    onOpenWhiteboard(drill.id, drill.category);
+                  } else if (stationName) {
+                    onOpenWhiteboard(stationName);
+                  }
+                }}
+                className="px-3.5 py-1.5 text-xs font-black rounded-xl shadow-md flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white"
+                title="Open this drill in interactive animated whiteboard"
+              >
+                <PenTool className="w-3.5 h-3.5 text-blue-200" />
+                <span>Open Full Whiteboard</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Modal Scrollable Body */}
@@ -626,6 +639,14 @@ export const DrillInstructionsModal: React.FC<DrillInstructionsModalProps> = ({
           )}
         </div>
       </div>
+
+      {showOnePageModal && (
+        <OnePageDiagramModal
+          drill={drill || undefined}
+          config={drill?.onePageDiagram}
+          onClose={() => setShowOnePageModal(false)}
+        />
+      )}
     </div>
   );
 };

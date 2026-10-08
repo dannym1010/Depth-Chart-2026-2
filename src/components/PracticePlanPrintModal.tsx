@@ -84,13 +84,11 @@ export const PracticePlanPrintModal: React.FC<PracticePlanPrintModalProps> = ({
   // Track selected phase index per drill key
   const [phaseSelections, setPhaseSelections] = useState<Record<string, number>>({});
 
-  // Track format selection ('onePage' vs 'whiteboard') per drill key
+  // Track format selection ('onePage' vs 'whiteboard') per drill key (default to 'onePage' for all drills)
   const [formatSelections, setFormatSelections] = useState<Record<string, 'onePage' | 'whiteboard'>>(() => {
     const initial: Record<string, 'onePage' | 'whiteboard'> = {};
     planDrills.forEach((d) => {
-      if (d.effectiveDrill.onePageDiagram || d.whiteboardDrill?.onePageDiagram) {
-        initial[d.key] = 'onePage';
-      }
+      initial[d.key] = 'onePage';
     });
     return initial;
   });
@@ -130,8 +128,7 @@ export const PracticePlanPrintModal: React.FC<PracticePlanPrintModalProps> = ({
   const selectedDrillPackages = planDrills
     .filter((item) => includeDrillSheets && selectedDrillKeys.has(item.key))
     .map((item) => {
-      const hasOnePage = Boolean(item.effectiveDrill.onePageDiagram || item.whiteboardDrill?.onePageDiagram);
-      const isOnePage = hasOnePage && (formatSelections[item.key] ?? 'onePage') === 'onePage';
+      const isOnePage = (formatSelections[item.key] ?? 'onePage') === 'onePage';
       return {
         drill: item.effectiveDrill,
         phaseIndex: phaseSelections[item.key] !== undefined ? phaseSelections[item.key] : 0,
@@ -344,21 +341,10 @@ export const PracticePlanPrintModal: React.FC<PracticePlanPrintModalProps> = ({
                                   <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700">
                                     P{drillItem.periodNumber} • S{drillItem.stationIndex + 1}
                                   </span>
-                                  {drillItem.effectiveDrill.onePageDiagram || drillItem.whiteboardDrill?.onePageDiagram ? (
-                                    <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/40 flex items-center gap-1">
-                                      <FileText className="w-2.5 h-2.5 text-amber-400" />
-                                      1-Page Install Sheet Available
-                                    </span>
-                                  ) : drillItem.isMatched ? (
-                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                                      <CheckCircle2 className="w-2.5 h-2.5" />
-                                      Whiteboard Diagram
-                                    </span>
-                                  ) : (
-                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                                      Custom Station Sheet
-                                    </span>
-                                  )}
+                                  <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/40 flex items-center gap-1">
+                                    <FileText className="w-2.5 h-2.5 text-amber-400" />
+                                    1-Page Install Sheet
+                                  </span>
                                   {drillItem.stationCoach && (
                                     <span className="text-[10px] text-slate-400">
                                       Coach: {drillItem.stationCoach}
@@ -396,12 +382,12 @@ export const PracticePlanPrintModal: React.FC<PracticePlanPrintModalProps> = ({
                             )}
                           </div>
 
-                          {/* Print Format Selector (if 1-page diagram is available) */}
-                          {isChecked && (drillItem.effectiveDrill.onePageDiagram || drillItem.whiteboardDrill?.onePageDiagram) && (
+                          {/* Print Format Selector (for all drills) */}
+                          {isChecked && (
                             <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-center justify-between gap-2 flex-wrap pl-6.5 text-[11px]">
                               <span className="text-slate-300 font-bold flex items-center gap-1">
                                 <FileText className="w-3.5 h-3.5 text-amber-400" />
-                                <span>Print Layout Option:</span>
+                                <span>Print Layout:</span>
                               </span>
                               <div className="flex items-center gap-1.5">
                                 <button
@@ -412,7 +398,7 @@ export const PracticePlanPrintModal: React.FC<PracticePlanPrintModalProps> = ({
                                       ? 'bg-gradient-to-r from-amber-400 to-amber-300 text-amber-950 shadow-sm border border-amber-500 ring-1 ring-amber-400/50'
                                       : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
                                   }`}
-                                  title="Print full 1-page coaching install sheet with field schematics & rep demos"
+                                  title="Print full 1-page coaching install sheet"
                                 >
                                   <FileText className="w-3 h-3" />
                                   <span>1-Page Diagram Sheet (Recommended)</span>
@@ -435,7 +421,7 @@ export const PracticePlanPrintModal: React.FC<PracticePlanPrintModalProps> = ({
 
                           {/* Phase Selector (if whiteboard format is selected and multiple phases exist) */}
                           {isChecked &&
-                            (!drillItem.effectiveDrill.onePageDiagram || (formatSelections[drillItem.key] ?? 'onePage') === 'whiteboard') &&
+                            (formatSelections[drillItem.key] ?? 'onePage') === 'whiteboard' &&
                             hasMultiplePhases && (
                             <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-center gap-2 pl-6.5 text-[11px]">
                               <span className="text-slate-400 font-bold">Diagram Phase:</span>

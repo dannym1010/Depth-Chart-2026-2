@@ -437,8 +437,53 @@ export function createCustomDrillFromStation(
 }
 
 /**
+ * Identifies whether a practice period or station is a non-drill activity
+ * (such as Water Break, Chalk Talk, Dynamic Warmup/Stretch, Team Meeting, etc.)
+ */
+export function isNonDrillPeriodOrStation(name: string, category?: string): boolean {
+  if (!name && !category) return true;
+  const n = (name || '').toLowerCase().trim();
+  const c = (category || '').toLowerCase().trim();
+
+  const nonDrillKeywords = [
+    'water break',
+    'water',
+    'hydration',
+    'drink break',
+    'chalk talk',
+    'chaulk talk',
+    'whiteboard talk',
+    'film talk',
+    'film room',
+    'team meeting',
+    'classroom',
+    'break',
+    'rest',
+    'warm up',
+    'warmup',
+    'warm-up',
+    'dynamic warm',
+    'dynamic stretch',
+    'stretch',
+    'stretching',
+    'cool down',
+    'cooldown',
+    'cool-down',
+    'huddle',
+    'team huddle',
+    'announcements',
+    'dismissal',
+    'wrap up',
+    'wrap-up',
+  ];
+
+  return nonDrillKeywords.some((kw) => n.includes(kw) || c.includes(kw));
+}
+
+/**
  * Extracts all drills from a practice plan's periods and stations,
  * mapping each to an interactive or printable Whiteboard drill.
+ * Automatically excludes non-drill periods like water breaks and chalk talks.
  */
 export function extractPlanDrillItems(
   plan: PracticePlan | null,
@@ -455,9 +500,19 @@ export function extractPlanDrillItems(
     const periodName = period.name || period.title || `Period ${periodNum}: ${period.category || 'Station'}`;
     const stations = period.stations || [];
 
+    // Skip entire non-drill periods (e.g. "Water Break", "Chalk Talk", "Dynamic Warm-up")
+    if (isNonDrillPeriodOrStation(periodName, period.category)) {
+      return;
+    }
+
     stations.forEach((station, sIdx) => {
       const stationName = (station.name || '').trim();
       if (!stationName) return;
+
+      // Skip non-drill stations
+      if (isNonDrillPeriodOrStation(stationName, period.category)) {
+        return;
+      }
 
       const matchedDrill = findMatchingWhiteboardDrill(stationName, allWhiteboardDrills);
       const effectiveDrill = matchedDrill || createCustomDrillFromStation(station, periodNum, period.category);
