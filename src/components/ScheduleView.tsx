@@ -56,6 +56,7 @@ import { TeamSnapSyncModal } from './TeamSnapSyncModal';
 import { getPracticeSequenceMap, formatPracticeDayTitle } from '../utils/practiceUtils';
 import { MoreMenu } from './common/MoreMenu';
 import { LeagueView } from './LeagueView';
+import { EventWeatherChip } from './EventWeatherChip';
 import { formatClock, formatClockRange } from '../utils/timeFormat';
 
 interface ScheduleViewProps {
@@ -1095,6 +1096,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                   <MapPin className="w-3.5 h-3.5 text-slate-500" />
                   {nextEvent.location}
                 </span>
+                <EventWeatherChip event={nextEvent} />
                 {nextEvent.uniform && (
                   <span className="flex items-center gap-1 text-slate-300 font-medium">
                     <Shirt className="w-3.5 h-3.5 text-indigo-400" />
@@ -1508,6 +1510,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                                       <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                                       <span className="truncate">{evt.location}</span>
                                     </div>
+                                    <EventWeatherChip event={evt} />
 
                                     {evt.arrivalMinutesBefore && (
                                       <div className="flex items-center gap-2 text-slate-400 text-[11px]">
