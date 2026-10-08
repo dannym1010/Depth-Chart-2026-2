@@ -1,8 +1,8 @@
 // Our defensive call, picked step by step: the front, a blitz and / or a stunt, the coverage, then any
 // player's own job. Players sit on a small map like they line up; tapping one (here or on the field) opens
 // his options: a mini field of zones to drop to, the gaps to rush, man or spy; linemen slant or loop.
-import React, { useState } from 'react';
-import { RotateCcw, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ChevronDown, RotateCcw, X } from 'lucide-react';
 import type { PlayNode, PlayStroke } from '../../utils/footballEngine';
 import { COVERAGES, PRESSURES, isLineman, joinPressure, pressureParts } from '../../utils/defenseCalls';
 
@@ -130,17 +130,70 @@ export const DefenseCallPicker: React.FC<Props> = (p) => {
     p.defenders.filter((d) => isLineman(d.node.role)),
   ].map((row) => [...row].sort((a, b) => a.node.x - b.node.x));
   const changed = Object.keys(p.assign).length;
+  type Step = 'front' | 'blitz' | 'stunt' | 'cover' | 'players';
+  const [open, setOpen] = useState<Step | null>(null);
+  const toggle = (step: Step) => setOpen((o) => (o === step ? null : step));
+  // A defender tapped on the field opens his card.
+  useEffect(() => {
+    if (p.selected) setOpen('players');
+  }, [p.selected]);
+  const pickFront = (id: string) => {
+    p.onFront(id);
+    setOpen(null);
+  };
+  const pickPressure = (v: string) => {
+    p.onPressure(v);
+    setOpen(null);
+  };
+  const pickCoverage = (v: string) => {
+    p.onCoverage(v);
+    setOpen(null);
+  };
+  const frontLabel = !p.frontId ? 'None' : p.fronts.find((f) => f.id === p.frontId)?.label || p.otherLooks.find((o) => o.id === p.frontId)?.label || p.frontId;
+  const short = (id: string) => PRESSURES.find((x) => x.id === id)?.short || 'None';
+  const steps: { id: Step; label: string; value: string }[] = [
+    { id: 'front', label: 'Front', value: frontLabel },
+    ...(p.hasLook
+      ? ([
+          { id: 'blitz', label: 'Blitz', value: blitz ? short(blitz) : 'None' },
+          { id: 'stunt', label: 'Stunt', value: stunt ? short(stunt) : 'None' },
+          { id: 'cover', label: 'Cover', value: COVERAGES.find((c) => c.id === p.coverage)?.short || 'None' },
+          { id: 'players', label: 'Players', value: changed ? `${changed} changed` : 'As called' },
+        ] as { id: Step; label: string; value: string }[])
+      : []),
+  ];
 
   return (
     <div className="space-y-2.5">
+      {/* What's picked, one button a step: tap one to change it. */}
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Our call">
+        {steps.map((st) => (
+          <button
+            key={st.id}
+            type="button"
+            aria-expanded={open === st.id}
+            onClick={() => toggle(st.id)}
+            className={`h-8 pl-3 pr-2 rounded-full border text-xs inline-flex items-center gap-1.5 cursor-pointer transition-colors ${
+              open === st.id
+                ? 'border-slate-900 bg-slate-900 text-white dark:border-white dark:bg-white dark:text-slate-900'
+                : 'border-slate-200 bg-white text-slate-700 hover:border-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'
+            }`}
+          >
+            <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">{st.label}</span>
+            <span className="font-semibold">{st.value}</span>
+            <ChevronDown className={`w-3.5 h-3.5 opacity-60 transition-transform ${open === st.id ? 'rotate-180' : ''}`} />
+          </button>
+        ))}
+      </div>
+      {open === 'front' && (
       <Row label="Front">
         {p.allowNone && (
-          <button type="button" aria-pressed={!p.frontId} className={chip(!p.frontId)} onClick={() => p.onFront('')}>
+          <button type="button" aria-pressed={!p.frontId} className={chip(!p.frontId)} onClick={() => pickFront('')}>
             None
           </button>
         )}
         {p.fronts.map((f) => (
-          <button key={f.id} type="button" aria-pressed={p.frontId === f.id} className={chip(p.frontId === f.id)} onClick={() => p.onFront(f.id)}>
+          <button key={f.id} type="button" aria-pressed={p.frontId === f.id} className={chip(p.frontId === f.id)} onClick={() => pickFront(f.id)}>
             {f.label}
           </button>
         ))}
@@ -148,7 +201,7 @@ export const DefenseCallPicker: React.FC<Props> = (p) => {
           <select
             aria-label="Other saved looks"
             value={p.otherLooks.some((o) => o.id === p.frontId) ? p.frontId : ''}
-            onChange={(e) => e.target.value && p.onFront(e.target.value)}
+            onChange={(e) => e.target.value && pickFront(e.target.value)}
             className="h-7 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 text-xs font-semibold text-slate-600 dark:text-slate-300 border-0 cursor-pointer"
           >
             <option value="">More…</option>
@@ -160,41 +213,49 @@ export const DefenseCallPicker: React.FC<Props> = (p) => {
           </select>
         )}
       </Row>
+      )}
 
       {p.hasLook && (
         <>
+          {open === 'blitz' && (
           <Row label="Blitz">
-            <button type="button" aria-pressed={!blitz} className={chip(!blitz)} onClick={() => p.onPressure(joinPressure('', stunt))}>
+            <button type="button" aria-pressed={!blitz} className={chip(!blitz)} onClick={() => pickPressure(joinPressure('', stunt))}>
               None
             </button>
             {PRESSURES.filter((x) => x.group === 'Blitz').map((x) => (
-              <button key={x.id} type="button" title={x.label} aria-pressed={blitz === x.id} className={chip(blitz === x.id)} onClick={() => p.onPressure(joinPressure(x.id, stunt))}>
+              <button key={x.id} type="button" title={x.label} aria-pressed={blitz === x.id} className={chip(blitz === x.id)} onClick={() => pickPressure(joinPressure(x.id, stunt))}>
                 {x.short}
               </button>
             ))}
           </Row>
+          )}
+          {open === 'stunt' && (
           <Row label="Stunt">
-            <button type="button" aria-pressed={!stunt} className={chip(!stunt)} onClick={() => p.onPressure(joinPressure(blitz, ''))}>
+            <button type="button" aria-pressed={!stunt} className={chip(!stunt)} onClick={() => pickPressure(joinPressure(blitz, ''))}>
               None
             </button>
             {PRESSURES.filter((x) => x.group === 'Stunt').map((x) => (
-              <button key={x.id} type="button" title={x.label} aria-pressed={stunt === x.id} className={chip(stunt === x.id)} onClick={() => p.onPressure(joinPressure(blitz, x.id))}>
+              <button key={x.id} type="button" title={x.label} aria-pressed={stunt === x.id} className={chip(stunt === x.id)} onClick={() => pickPressure(joinPressure(blitz, x.id))}>
                 {x.short}
               </button>
             ))}
           </Row>
+          )}
+          {open === 'cover' && (
           <Row label="Cover">
-            <button type="button" aria-pressed={!p.coverage} className={chip(!p.coverage)} onClick={() => p.onCoverage('')}>
+            <button type="button" aria-pressed={!p.coverage} className={chip(!p.coverage)} onClick={() => pickCoverage('')}>
               None
             </button>
             {COVERAGES.map((c) => (
-              <button key={c.id} type="button" title={c.label} aria-pressed={p.coverage === c.id} className={chip(p.coverage === c.id)} onClick={() => p.onCoverage(c.id)}>
+              <button key={c.id} type="button" title={c.label} aria-pressed={p.coverage === c.id} className={chip(p.coverage === c.id)} onClick={() => pickCoverage(c.id)}>
                 {c.short}
               </button>
             ))}
           </Row>
+          )}
 
           {/* Players, set out like they line up. Tap one to change his job. */}
+          {open === 'players' && (
           <div className="flex gap-2">
             <span className="w-14 shrink-0 pt-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Players</span>
             <div className="min-w-0 flex-1 space-y-1.5">
@@ -287,6 +348,7 @@ export const DefenseCallPicker: React.FC<Props> = (p) => {
               )}
             </div>
           </div>
+          )}
         </>
       )}
     </div>
