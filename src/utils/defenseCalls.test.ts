@@ -78,3 +78,55 @@ describe('our defensive call drawn on the field', () => {
     assert.equal(defenseCallName('4-4', 'edge_l', 'cover3'), '4-4 · Edge fire left · Cover 3');
   });
 });
+
+describe("more calls, and a player's own job", () => {
+  it('Blow Sting: Sam and Will both fire, outside the tight end on his side (D), else outside the tackle (C)', () => {
+    const d = front('43');
+    const s = defenseCallStrokes(d, off, 'blow_sting');
+    assert.equal(s.length, 2);
+    const sam = s.find((x) => x.points[0].x < 0)!;
+    const will = s.find((x) => x.points[0].x > 0)!;
+    assert.equal(sam.label, 'Fire C gap');
+    assert.equal(will.label, 'Fire D gap');
+  });
+
+  it('Will B gap and Mike B gap go through the B gap on their side', () => {
+    const d = front('44_C3_LIZ');
+    const w = defenseCallStrokes(d, off, 'will_b');
+    assert.equal(w[0].label, 'Blitz B gap');
+    assert.equal(end(w[0]).x, 3);
+    const m = defenseCallStrokes(d, off, 'mike_b');
+    assert.equal(end(m[0]).x, -3);
+  });
+
+  it('crosses: the tackles trade A gaps; on an E-T cross the end goes inside and the tackle loops outside', () => {
+    const tt = defenseCallStrokes(front('44_C3_LIZ'), off, 'cross_tt');
+    assert.equal(tt.length, 2);
+    assert.deepEqual(tt.map((x) => end(x).x).sort((a, b) => a - b), [-1, 1]);
+    assert.ok(tt.some((x) => x.points.length === 3), 'one loops behind');
+    const et = defenseCallStrokes(front('44_C3_LIZ'), off, 'cross_et_r');
+    const endMan = et.find((x) => /slant inside/.test(x.label!))!;
+    const tackle = et.find((x) => /loop outside/.test(x.label!))!;
+    assert.ok(end(endMan).x < end(tackle).x);
+  });
+
+  it('Cover 3 with S and R in the flats: they take the flats, the rest of the coverage fills in', () => {
+    const s = defenseCallStrokes(front('44_C3_LIZ'), off, '', 'cover3', { SAM: 'zone:flatL', ROV: 'zone:flatR' });
+    const flats = by(s, /^Flat$/);
+    assert.equal(flats.length, 2);
+    assert.deepEqual(flats.map((x) => end(x).x).sort((a, b) => a - b), [-13, 13]);
+    // Each defender has one job: S and R aren't also given a zone by the call.
+    const starts = s.map((x) => `${x.points[0].x},${x.points[0].y}`);
+    assert.equal(new Set(starts).size, starts.length);
+    assert.equal(by(s, /Deep/).length, 3);
+    assert.equal(s.length, 7);
+  });
+
+  it('a player sent on a blitz leaves the call, and a blank job changes nothing', () => {
+    const d = front('44_C3_LIZ');
+    const s = defenseCallStrokes(d, off, 'edge_l', 'cover3', { SAM: 'blitz:B' });
+    assert.equal(by(s, /Fire/).length, 0);
+    assert.equal(by(s, /Blitz B gap/).length, 1);
+    assert.deepEqual(defenseCallStrokes(d, off, '', 'cover3', { SAM: '' }), defenseCallStrokes(d, off, '', 'cover3'));
+  });
+});

@@ -12,12 +12,63 @@ export const PRESSURES: { id: string; label: string; group: 'Blitz' | 'Stunt' }[
   { id: 'edge_both', label: 'Edge fire both', group: 'Blitz' },
   { id: 'mike_a', label: 'Mike A gap', group: 'Blitz' },
   { id: 'double_a', label: 'Double A (Mike & Will)', group: 'Blitz' },
+  { id: 'mike_b', label: 'Mike B gap', group: 'Blitz' },
+  { id: 'will_a', label: 'Will A gap', group: 'Blitz' },
+  { id: 'will_b', label: 'Will B gap', group: 'Blitz' },
+  { id: 'blow_sting', label: 'Blow Sting (Sam & Will fire C/D)', group: 'Blitz' },
   { id: 'pinch', label: 'Pinch (line crashes inside)', group: 'Stunt' },
   { id: 'slant_l', label: 'Slant left', group: 'Stunt' },
   { id: 'slant_r', label: 'Slant right', group: 'Stunt' },
   { id: 'twist_l', label: 'E-T twist left', group: 'Stunt' },
   { id: 'twist_r', label: 'E-T twist right', group: 'Stunt' },
+  { id: 'cross_et_l', label: 'E-T cross left (end in, tackle out)', group: 'Stunt' },
+  { id: 'cross_et_r', label: 'E-T cross right (end in, tackle out)', group: 'Stunt' },
+  { id: 'cross_tt', label: 'Tackle cross (tackles trade A gaps)', group: 'Stunt' },
 ];
+
+/** A job a coach can give one defender, over what the call would have him do. */
+export const PLAYER_JOBS: { id: string; label: string; group: 'Blitz' | 'Zone' | 'Other' }[] = [
+  { id: 'blitz:A', label: 'Blitz A gap', group: 'Blitz' },
+  { id: 'blitz:B', label: 'Blitz B gap', group: 'Blitz' },
+  { id: 'blitz:C', label: 'Blitz C gap', group: 'Blitz' },
+  { id: 'blitz:D', label: 'Blitz D gap', group: 'Blitz' },
+  { id: 'zone:flatL', label: 'Flat (left)', group: 'Zone' },
+  { id: 'zone:flatR', label: 'Flat (right)', group: 'Zone' },
+  { id: 'zone:curlL', label: 'Curl (left)', group: 'Zone' },
+  { id: 'zone:curlR', label: 'Curl (right)', group: 'Zone' },
+  { id: 'zone:hookL', label: 'Hook (left)', group: 'Zone' },
+  { id: 'zone:hookR', label: 'Hook (right)', group: 'Zone' },
+  { id: 'zone:mid', label: 'Middle hook', group: 'Zone' },
+  { id: 'zone:deep3L', label: 'Deep 1/3 (left)', group: 'Zone' },
+  { id: 'zone:deep3M', label: 'Deep middle 1/3', group: 'Zone' },
+  { id: 'zone:deep3R', label: 'Deep 1/3 (right)', group: 'Zone' },
+  { id: 'zone:deep2L', label: 'Deep 1/2 (left)', group: 'Zone' },
+  { id: 'zone:deep2R', label: 'Deep 1/2 (right)', group: 'Zone' },
+  { id: 'zone:deep4OL', label: 'Deep 1/4 (outside left)', group: 'Zone' },
+  { id: 'zone:deep4IL', label: 'Deep 1/4 (inside left)', group: 'Zone' },
+  { id: 'zone:deep4IR', label: 'Deep 1/4 (inside right)', group: 'Zone' },
+  { id: 'zone:deep4OR', label: 'Deep 1/4 (outside right)', group: 'Zone' },
+  { id: 'man', label: 'Man (nearest receiver)', group: 'Other' },
+  { id: 'spy', label: 'Spy the quarterback', group: 'Other' },
+];
+const ZONE_SPOTS: Record<string, { x: number; y: number; rx: number; ry: number; label: string }> = {
+  flatL: { x: -13, y: 5, rx: 3, ry: 1.7, label: 'Flat' },
+  flatR: { x: 13, y: 5, rx: 3, ry: 1.7, label: 'Flat' },
+  curlL: { x: -8.5, y: 8.5, rx: 3, ry: 1.7, label: 'Curl' },
+  curlR: { x: 8.5, y: 8.5, rx: 3, ry: 1.7, label: 'Curl' },
+  hookL: { x: -3.6, y: 8, rx: 3, ry: 1.7, label: 'Hook' },
+  hookR: { x: 3.6, y: 8, rx: 3, ry: 1.7, label: 'Hook' },
+  mid: { x: 0, y: 8, rx: 3, ry: 1.7, label: 'Middle hook' },
+  deep3L: { x: -12, y: 15, rx: 5.2, ry: 2.4, label: 'Deep 1/3' },
+  deep3M: { x: 0, y: 15, rx: 5.2, ry: 2.4, label: 'Deep middle 1/3' },
+  deep3R: { x: 12, y: 15, rx: 5.2, ry: 2.4, label: 'Deep 1/3' },
+  deep2L: { x: -8, y: 15, rx: 7.5, ry: 2.4, label: 'Deep 1/2' },
+  deep2R: { x: 8, y: 15, rx: 7.5, ry: 2.4, label: 'Deep 1/2' },
+  deep4OL: { x: -13, y: 15, rx: 4.2, ry: 2.4, label: 'Deep 1/4' },
+  deep4IL: { x: -4.5, y: 15, rx: 4.2, ry: 2.4, label: 'Deep 1/4' },
+  deep4IR: { x: 4.5, y: 15, rx: 4.2, ry: 2.4, label: 'Deep 1/4' },
+  deep4OR: { x: 13, y: 15, rx: 4.2, ry: 2.4, label: 'Deep 1/4' },
+};
 
 export const COVERAGES: { id: string; label: string; short: string }[] = [
   { id: 'cover0', label: 'Cover 0 (all man)', short: 'Cover 0' },
@@ -105,6 +156,26 @@ function pressurePaths(id: string, def: PlayNode[], off: PlayNode[]): { strokes:
     const who = def.find((n) => n.role === 'MIKE') || inside[0];
     if (who) add(rush(who, who.x < g.C ? g.left.A : g.right.A, 'Blitz A gap'), who.role);
   }
+  const named = (role: string) => def.find((n) => n.role === role);
+  if (id === 'mike_b') {
+    const who = named('MIKE') || inside[0];
+    if (who) add(rush(who, who.x < g.C ? g.left.B : g.right.B, 'Blitz B gap'), who.role);
+  }
+  if (id === 'will_a' || id === 'will_b') {
+    const who = named('WILL') || inside[1] || inside[0];
+    const gap = id === 'will_a' ? 'A' : 'B';
+    if (who) add(rush(who, who.x < g.C ? g.left[gap] : g.right[gap], `Blitz ${gap} gap`), who.role);
+  }
+  if (id === 'blow_sting') {
+    // Sam and Will off their edges: outside the tight end (D) when there is one on that side, else outside the tackle (C).
+    for (const role of ['SAM', 'WILL']) {
+      const who = named(role);
+      if (!who) continue;
+      const side = who.x < g.C ? 'left' : 'right';
+      const gap: GapName = g[side].hasTE ? 'D' : 'C';
+      add(rush(who, g[side][gap], `Fire ${gap} gap`), who.role);
+    }
+  }
   if (id === 'double_a') {
     const pair = inside.slice(0, 2).sort((a, b) => a.x - b.x);
     pair.forEach((who, i) => add(rush(who, i === 0 ? g.left.A : g.right.A, 'Blitz A gap'), who.role));
@@ -124,6 +195,25 @@ function pressurePaths(id: string, def: PlayNode[], off: PlayNode[]): { strokes:
   if (id === 'slant_l' || id === 'slant_r') {
     const dir = id === 'slant_l' ? -1 : 1;
     for (const n of line) add({ kind: 'run', color: BLITZ_COLOR, label: `Slant ${dir < 0 ? 'left' : 'right'}`, points: [pt(n.x, n.y), pt(moveGap(n, dir), -1.4)] }, n.role);
+  }
+  if (id === 'cross_et_l' || id === 'cross_et_r') {
+    const side = id === 'cross_et_l' ? 'left' : 'right';
+    const mine = line.filter((n) => (side === 'left' ? n.x < g.C : n.x >= g.C)).sort((a, b) => (side === 'left' ? a.x - b.x : b.x - a.x));
+    const [end, tackle] = mine;
+    if (end && tackle) {
+      // The end slants inside first; the tackle loops around him to the outside.
+      add({ kind: 'run', color: BLITZ_COLOR, label: 'Cross: slant inside', points: [pt(end.x, end.y), pt(g[side].B, -1.4)] }, end.role);
+      add({ kind: 'run', color: BLITZ_COLOR, label: 'Cross: loop outside', points: [pt(tackle.x, tackle.y), pt((end.x + tackle.x) / 2, tackle.y + 0.9), pt(g[side].C, -1.4)] }, tackle.role);
+    }
+  }
+  if (id === 'cross_tt') {
+    // The two tackles nearest the ball trade A gaps: the left one goes first, the right one loops behind him.
+    const tackles = [...line].sort((a, b) => Math.abs(a.x - g.C) - Math.abs(b.x - g.C)).slice(0, 2).sort((a, b) => a.x - b.x);
+    if (tackles.length === 2) {
+      const [l, r] = tackles;
+      add({ kind: 'run', color: BLITZ_COLOR, label: 'Cross: go first', points: [pt(l.x, l.y), pt(g.right.A, -1.4)] }, l.role);
+      add({ kind: 'run', color: BLITZ_COLOR, label: 'Cross: loop behind', points: [pt(r.x, r.y), pt(g.C, r.y + 1), pt(g.left.A, -1.4)] }, r.role);
+    }
   }
   if (id === 'twist_l' || id === 'twist_r') {
     const side = id === 'twist_l' ? 'left' : 'right';
@@ -243,10 +333,46 @@ function coveragePaths(id: string, def: PlayNode[], off: PlayNode[], rushers: Se
  * The call drawn on the field: the blitz or stunt paths, then the coverage for everyone else. Blank picks
  * draw nothing.
  */
-export function defenseCallStrokes(def: PlayNode[], off: PlayNode[], pressure?: string, coverage?: string): PlayStroke[] {
-  if (!def.length || (!pressure && !coverage)) return [];
-  const p = pressure ? pressurePaths(pressure, def, off) : { strokes: [], rushers: new Set<string>() };
-  return [...p.strokes, ...(coverage ? coveragePaths(coverage, def, off, p.rushers) : [])];
+export function defenseCallStrokes(
+  def: PlayNode[],
+  off: PlayNode[],
+  pressure?: string,
+  coverage?: string,
+  /** Jobs the coach gave single defenders (by role), over what the call has them do. */
+  assign: Record<string, string> = {}
+): PlayStroke[] {
+  const set = Object.fromEntries(Object.entries(assign || {}).filter(([role, job]) => job && def.some((n) => n.role === role)));
+  if (!def.length || (!pressure && !coverage && !Object.keys(set).length)) return [];
+  const p = pressure ? pressurePaths(pressure, def, off) : { strokes: [] as PlayStroke[], rushers: new Set<string>() };
+  // A defender with his own job isn't part of the call's blitz or coverage.
+  const startsOn = (st: PlayStroke, role: string) => {
+    const n = def.find((x) => x.role === role);
+    return Boolean(n && st.points[0] && Math.abs(st.points[0].x - n.x) < 0.05 && Math.abs(st.points[0].y - n.y) < 0.05);
+  };
+  const own = Object.keys(set);
+  const callStrokes = p.strokes.filter((st) => !own.some((r) => startsOn(st, r)));
+  const busy = new Set([...p.rushers, ...own]);
+  const g = gaps(off);
+  const receivers = off.filter((n) => ELIGIBLE.test(n.role) && n.role !== '1');
+  const mine: PlayStroke[] = [];
+  for (const [role, job] of Object.entries(set)) {
+    const n = def.find((x) => x.role === role)!;
+    if (job.startsWith('blitz:')) {
+      const gap = job.slice(6) as GapName;
+      const side = n.x < g.C ? 'left' : 'right';
+      mine.push(rush(n, g[side][gap], `Blitz ${gap} gap`));
+    } else if (job.startsWith('zone:')) {
+      const z = ZONE_SPOTS[job.slice(5)];
+      if (z) mine.push(drop(n, z.x, z.y, z.rx, z.ry, z.label));
+    } else if (job === 'man') {
+      const near = [...receivers].sort((a, b) => Math.hypot(a.x - n.x, a.y - n.y) - Math.hypot(b.x - n.x, b.y - n.y))[0];
+      if (near) mine.push({ kind: 'pass', color: COVERAGE_COLOR, label: `Man on ${near.label || near.role}`, points: [pt(n.x, n.y), pt(n.x + (near.x - n.x) * 0.72, Math.max(n.y + (near.y - n.y) * 0.72, 0.6))] });
+    } else if (job === 'spy') {
+      const qb = off.find((x) => x.role === '1');
+      mine.push(drop(n, qb ? qb.x : g.C, 4.5, 2.4, 1.4, 'Spy the QB'));
+    }
+  }
+  return [...callStrokes, ...mine, ...(coverage ? coveragePaths(coverage, def, off, busy) : [])];
 }
 
 /** "4-4 · Edge fire left · Cover 3" */

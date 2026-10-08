@@ -46,7 +46,7 @@ import { parsePlayCall } from '../../utils/playCallParse';
 import { openFilmWindow } from '../../filmroom/filmWindowStore';
 import { DiagramImage } from './DiagramImage';
 import { defenseJob, defenseOrder } from '../../utils/defenseJobs';
-import { COVERAGES, PRESSURES, defenseCallName, defenseCallStrokes } from '../../utils/defenseCalls';
+import { COVERAGES, PLAYER_JOBS, PRESSURES, defenseCallName, defenseCallStrokes } from '../../utils/defenseCalls';
 import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, withMyAlignment } from '../../hudlScout/utils/ourDefense';
 import { DEF_UNITS, defensePlayerAt, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
 import { rememberDefenseUnit, rememberedDefenseUnit, useDefenseRosterSource } from '../../utils/defenseRosterStore';
@@ -280,6 +280,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   // Our call on top of the front: a blitz or stunt, and a coverage. Drawn on the field from the picks.
   const [pressure, setPressure] = useState(saved?.defensePressure || '');
   const [coverage, setCoverage] = useState(saved?.defenseCoverage || '');
+  // Single defenders the coach gave their own job (over the call).
+  const [defAssign, setDefAssign] = useState<Record<string, string>>(saved?.defenseAssign || {});
   // A defense picked for this play (not the one it opened with): it stays, whatever their formation's defense.
   const [defenseOwn, setDefenseOwn] = useState(Boolean(saved?.defenseOwn));
   // Our defenders' boxes: position (default) or jersey number.
@@ -348,7 +350,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     return String(sys.base || '').startsWith(front) ? sys.baseContain : sys.checkContain;
   };
   // The blitz / stunt and coverage drawn on the defenders where they stand against this offense.
-  const callStrokes = useMemo(() => (dLook ? defenseCallStrokes(dNodes, offNodes, pressure, coverage) : []), [dLook, dNodes, offNodes, pressure, coverage]);
+  const callStrokes = useMemo(() => (dLook ? defenseCallStrokes(dNodes, offNodes, pressure, coverage, defAssign) : []), [dLook, dNodes, offNodes, pressure, coverage, defAssign]);
   const callName = dLook ? defenseCallName(dLook.name, pressure, coverage) : '';
   const jobOf = (n: PlayNode) => defenseJob(n, { typed: jobs[n.role], strokes: [...strokes, ...callStrokes], look: dLook, contain: dLook ? containFor(dLook.front) : '' });
   // "Save as my default": this defense starts lined up like this everywhere (moves from its standard spots).
@@ -486,6 +488,52 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               ))}
             </div>
           </>
+        )}
+        {dLook && (
+          <details className="rounded-lg border border-slate-200 dark:border-slate-700 px-2 py-1" open={Object.keys(defAssign).length > 0}>
+            <summary className="cursor-pointer text-[11px] font-black text-slate-600 dark:text-slate-300">
+              4 Players: set a player's job{Object.keys(defAssign).length ? ` (${Object.keys(defAssign).length} set)` : ''}
+            </summary>
+            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Pick a job for anyone you want different (e.g. S and R in the flats). The rest of the coverage fills in around them.</p>
+            <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-1">
+              {defenseOrder(dNodes).map((n) => (
+                <label key={n.role} className="flex items-center gap-1.5">
+                  <span className="shrink-0 min-w-8 h-6 px-1 rounded bg-green-700 text-white text-[10px] font-black inline-flex items-center justify-center">{shownText(n, diagramLabel(n.role))}</span>
+                  <select
+                    aria-label={`${n.role} assignment`}
+                    value={defAssign[n.role] || ''}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setDefAssign((prev) => {
+                        const next = { ...prev };
+                        if (v) next[n.role] = v;
+                        else delete next[n.role];
+                        return next;
+                      });
+                      if (own) setDefenseOwn(true);
+                    }}
+                    className="h-7 min-w-0 flex-1 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-1.5 text-[11px] font-bold text-slate-800 dark:text-slate-100"
+                  >
+                    <option value="">As the call has him</option>
+                    {(['Zone', 'Blitz', 'Other'] as const).map((grp) => (
+                      <optgroup key={grp} label={grp === 'Zone' ? 'Zones' : grp === 'Blitz' ? 'Blitz' : 'Other'}>
+                        {PLAYER_JOBS.filter((j) => j.group === grp).map((j) => (
+                          <option key={j.id} value={j.id}>
+                            {j.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+            {Object.keys(defAssign).length > 0 && (
+              <button type="button" onClick={() => setDefAssign({})} className="mt-1.5 text-[11px] font-bold text-indigo-600 dark:text-indigo-300 hover:underline cursor-pointer">
+                Back to the call for everyone
+              </button>
+            )}
+          </details>
         )}
         {otherLooks.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
@@ -655,6 +703,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       ...(defenseOwn ? { defenseOwn: true } : {}),
       ...(pressure ? { defensePressure: pressure } : {}),
       ...(coverage ? { defenseCoverage: coverage } : {}),
+      ...(Object.keys(defAssign).length ? { defenseAssign: defAssign } : {}),
       defenseUnit: defUnit,
       ...(Object.keys(defWho).length ? { defenseWho: defWho } : {}),
       ...(Object.keys(taggedWho).length ? { defensePlayers: taggedWho } : {}),

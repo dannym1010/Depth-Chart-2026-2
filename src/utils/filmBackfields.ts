@@ -187,8 +187,9 @@ export function redrawWithBackfield(
     ...(b?.strokes ? { strokes: allStrokes } : {}),
     ...((b?.defensePressure ?? ourDefense?.pressure) ? { defensePressure: b?.defensePressure ?? ourDefense?.pressure } : {}),
     ...((b?.defenseCoverage ?? ourDefense?.coverage) ? { defenseCoverage: b?.defenseCoverage ?? ourDefense?.coverage } : {}),
+    ...((b?.defenseAssign ?? ourDefense?.assign) ? { defenseAssign: b?.defenseAssign ?? ourDefense?.assign } : {}),
   };
-  const call = defenseCallStrokes(defense, nodes, builder.defensePressure, builder.defenseCoverage);
+  const call = defenseCallStrokes(defense, nodes, builder.defensePressure, builder.defenseCoverage, builder.defenseAssign);
   return {
     ...entry,
     builder,
@@ -247,6 +248,7 @@ export interface DefenseSetting {
   /** The call on top of the front: blitz / stunt and coverage (drawn from the picks). */
   pressure?: string;
   coverage?: string;
+  assign?: Record<string, string>;
 }
 
 const lookRoles = (key?: string) => {
@@ -264,7 +266,7 @@ export function formationDefense(f: OppFormation | null | undefined, playDatabas
   if (b?.defenseKey) {
     const roles = lookRoles(b.defenseKey);
     const moves = Object.fromEntries(Object.entries(b.overrides || {}).filter(([role]) => roles.has(role) || isDefenseRole(role)));
-    return { key: b.defenseKey, moves, players: b.defensePlayers, unit: b.defenseUnit, who: b.defenseWho, strokes: b.strokes as PlayStroke[] | undefined, pressure: b.defensePressure, coverage: b.defenseCoverage };
+    return { key: b.defenseKey, moves, players: b.defensePlayers, unit: b.defenseUnit, who: b.defenseWho, strokes: b.strokes as PlayStroke[] | undefined, pressure: b.defensePressure, coverage: b.defenseCoverage, assign: b.defenseAssign };
   }
   const base = f.plan?.base ? playDatabase.find((p) => p.id === f.plan!.base)?.builder?.defenseKey : '';
   return base ? { key: base, moves: {} } : null;
@@ -285,6 +287,7 @@ function defenseDiffers(b: PlayBuilderState, d: DefenseSetting): boolean {
   if (b.defenseOwn) return false;
   if (b.defenseKey !== d.key) return true;
   if ((b.defensePressure || '') !== (d.pressure || '') || (b.defenseCoverage || '') !== (d.coverage || '')) return true;
+  if (JSON.stringify(b.defenseAssign || {}) !== JSON.stringify(d.assign || {})) return true;
   // Defense lines drawn on the formation (a blitz, a drop) that the play doesn't have yet.
   const mine = ((b.strokes as PlayStroke[] | undefined) || []).map((st) => JSON.stringify(st.points));
   if ((d.strokes || []).some((st) => !mine.includes(JSON.stringify(st.points)))) return true;
@@ -298,12 +301,13 @@ export function builderWithDefense(b: PlayBuilderState, d: DefenseSetting): Play
   if (!defenseDiffers(b, d)) return b;
   const defRoles = new Set([...lookRoles(b.defenseKey), ...lookRoles(d.key)]);
   const offense = Object.fromEntries(Object.entries(b.overrides || {}).filter(([role]) => !defRoles.has(role) && !isDefenseRole(role)));
-  const { defensePlayers: _p, defenseWho: _w, defensePressure: _pr, defenseCoverage: _cv, ...rest } = b;
+  const { defensePlayers: _p, defenseWho: _w, defensePressure: _pr, defenseCoverage: _cv, defenseAssign: _as, ...rest } = b;
   return {
     ...rest,
     defenseKey: d.key,
     ...(d.pressure ? { defensePressure: d.pressure } : {}),
     ...(d.coverage ? { defenseCoverage: d.coverage } : {}),
+    ...(d.assign && Object.keys(d.assign).length ? { defenseAssign: d.assign } : {}),
     overrides: { ...offense, ...d.moves },
     ...(d.unit ? { defenseUnit: d.unit } : {}),
     ...(d.who ? { defenseWho: d.who } : {}),
@@ -351,6 +355,6 @@ export function playWithDefense(entry: PlayDatabaseEntry, card: ScoutOppPlay, d:
   return {
     ...entry,
     builder: { ...b, strokes },
-    diagramUrl: diagramSvg({ ...basePlay, nodes: offNodes }, [...defenseCallStrokes(defense, offNodes, b.defensePressure, b.defenseCoverage), ...strokes], defense, String(b.ball)),
+    diagramUrl: diagramSvg({ ...basePlay, nodes: offNodes }, [...defenseCallStrokes(defense, offNodes, b.defensePressure, b.defenseCoverage, b.defenseAssign), ...strokes], defense, String(b.ball)),
   };
 }
