@@ -548,12 +548,22 @@ export function buildScoutScript(plays: ScoutOppPlay[], opponent: string): Scout
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] || c));
 
 /** A printable sheet of the script: each checked play and its diagram, separate from the practice plan. */
+/** How big the printed script is: one play per landscape page (to read outside), two, or four. */
+export type ScriptPrintSize = 'big' | 'two' | 'four';
+export const SCRIPT_PRINT_SIZES: { id: ScriptPrintSize; label: string }[] = [
+  { id: 'big', label: 'Big: 1 play per page' },
+  { id: 'two', label: '2 plays per page' },
+  { id: 'four', label: '4 plays per page' },
+];
+
 export function scoutScriptPrintHtml(
   title: string,
-  groups: { label: string; plays: { name: string; detail: string; diagram?: string | null; kind?: string }[] }[],
-  /** Each group (a formation) starts its own page. */
-  opts: { pagePerGroup?: boolean } = {}
+  groups: { label: string; plays: { name: string; detail: string; diagram?: string | null; kind?: string; n?: number }[] }[],
+  /** Each group (a formation) starts its own page; how many plays to a page. */
+  opts: { pagePerGroup?: boolean; size?: ScriptPrintSize } = {}
 ): string {
+  const size = opts.size || 'four';
+  const large = size !== 'four';
   const sections = groups
     .filter((g) => g.plays.length)
     .map((g, gi) => {
@@ -564,8 +574,11 @@ export function scoutScriptPrintHtml(
             : `<div class="empty">No diagram yet. Open this play and draw it.</div>`;
           const k = p.kind ? KIND_LOOK[p.kind] : undefined;
           const badge = k ? `<span class="kind" style="background:${k.color}">${k.label}</span>` : '';
-          const edge = k ? ` style="border-left:6px solid ${k.color}"` : '';
-          return `<article class="card"${edge}><div class="name">${badge}${esc(p.name)}</div>${p.detail ? `<div class="detail">${esc(p.detail)}</div>` : ''}${picture}</article>`;
+          const edge = k ? ` style="border-left:${large ? 14 : 6}px solid ${k.color}"` : '';
+          const num = large && p.n ? `<span class="num">${p.n}</span>` : '';
+          // Big pages carry the formation on each play (there's no room for a heading).
+          const form = large && g.label ? `<span class="form">${esc(g.label)}</span>` : '';
+          return `<article class="card"${edge}><div class="head"><div class="name">${num}${badge}${esc(p.name)}</div>${form}</div>${p.detail ? `<div class="detail">${esc(p.detail)}</div>` : ''}<div class="pic">${picture}</div></article>`;
         })
         .join('');
       const counts = g.plays.some((p) => p.kind)
@@ -578,21 +591,55 @@ export function scoutScriptPrintHtml(
       return `<section class="${opts.pagePerGroup && gi > 0 ? 'page' : ''}"><h2>${esc(g.label)}${counts}</h2><div class="grid">${cards}</div></section>`;
     })
     .join('');
+  // Big: one play fills a landscape page. Two: a play fills half a portrait page. Four: the small grid.
+  const sizeCss =
+    size === 'big'
+      ? `
+    @page { size: letter landscape; margin: 0.3in; }
+    h1, h2 { display: none; }
+    .grid { display: block; }
+    .card { height: 7.75in; box-sizing: border-box; display: flex; flex-direction: column; break-after: page; border: 2px solid #222; border-radius: 10px; padding: 0.12in 0.18in; }
+    section:last-child .card:last-child { break-after: auto; }
+    .page { break-before: auto; }
+    .name { font-size: 34px; line-height: 1.1; }
+    .kind { font-size: 20px; padding: 2px 10px; border-radius: 6px; margin-right: 12px; vertical-align: 5px; }
+    .num { font-size: 22px; vertical-align: 5px; }
+    .form { font-size: 20px; }
+    .detail { font-size: 18px; color: #222; margin-top: 4px; }
+    .pic { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; margin-top: 6px; }
+    .pic img { width: 100%; height: 100%; object-fit: contain; margin: 0; }`
+      : size === 'two'
+        ? `
+    @page { size: letter; margin: 0.35in; }
+    h1, h2 { display: none; }
+    .grid { display: block; }
+    .card { height: 4.95in; box-sizing: border-box; display: flex; flex-direction: column; break-inside: avoid; border: 2px solid #222; border-radius: 10px; padding: 0.1in 0.15in; margin-bottom: 0.15in; }
+    .name { font-size: 24px; line-height: 1.1; }
+    .kind { font-size: 15px; padding: 2px 8px; margin-right: 10px; vertical-align: 3px; }
+    .num { font-size: 17px; vertical-align: 3px; }
+    .form { font-size: 15px; }
+    .detail { font-size: 14px; color: #222; margin-top: 3px; }
+    .pic { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; margin-top: 4px; }
+    .pic img { width: 100%; height: 100%; object-fit: contain; margin: 0; }`
+        : `
+    @page { size: letter; margin: 0.45in; }`;
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${esc(title)}</title><style>
-    @page { size: letter; margin: 0.45in; }
     body { font-family: system-ui, sans-serif; color: #111; margin: 0; }
     h1 { font-size: 18px; margin: 0 0 4px; }
     h2 { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; margin: 16px 0 8px; border-bottom: 1px solid #ccc; padding-bottom: 3px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .card { break-inside: avoid; border: 1px solid #ccc; border-radius: 8px; padding: 8px; }
+    .head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
     .name { font-weight: 800; font-size: 14px; }
+    .num { display: inline-block; min-width: 1.4em; text-align: center; background: #111; color: #fff; border-radius: 6px; padding: 0 6px; margin-right: 10px; font-weight: 900; }
+    .form { font-weight: 800; color: #333; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; }
     .detail { font-size: 11px; color: #444; margin-top: 2px; }
     img { width: 100%; height: auto; margin-top: 6px; }
     .empty { margin-top: 8px; font-size: 11px; color: #666; border: 1px dashed #ccc; border-radius: 6px; padding: 16px 8px; text-align: center; }
     .page { break-before: page; }
     .kind { display: inline-block; color: #fff; font-size: 10px; font-weight: 900; letter-spacing: 0.05em; border-radius: 4px; padding: 1px 6px; margin-right: 6px; vertical-align: 2px; }
     .count { font-weight: 600; text-transform: none; letter-spacing: 0; color: #555; margin-left: 8px; }
-    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }${sizeCss}
   </style></head><body><h1>${esc(title)}</h1>${sections}</body></html>`;
 }
 

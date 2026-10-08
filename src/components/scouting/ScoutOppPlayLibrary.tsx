@@ -32,6 +32,8 @@ import {
   type ScriptOrder,
   KIND_LOOK,
   scriptByFormation,
+  SCRIPT_PRINT_SIZES,
+  type ScriptPrintSize,
 } from '../../utils/scoutOppPlays';
 
 const INPUT = 'h-9 w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm';
@@ -118,6 +120,23 @@ export const ScoutOppPlayLibrary: React.FC<{
       }
       return !on;
     });
+  // How big the script prints: one play per page by default (to read on the field).
+  const [printSize, setPrintSize] = useState<ScriptPrintSize>(() => {
+    try {
+      const v = localStorage.getItem('scoutScriptPrintSize');
+      return v === 'two' || v === 'four' ? v : 'big';
+    } catch {
+      return 'big';
+    }
+  });
+  const pickPrintSize = (v: ScriptPrintSize) => {
+    setPrintSize(v);
+    try {
+      localStorage.setItem('scoutScriptPrintSize', v);
+    } catch {
+      // per-device preference only
+    }
+  };
   // Dragging a script row (mouse or finger): the order as it would land, shown while dragging.
   const [scriptDrag, setScriptDrag] = useState<{ id: string; order: string[] } | null>(null);
   // Same play run either way (L / R, or another back to the other hole) shown as one play type.
@@ -254,7 +273,7 @@ export const ScoutOppPlayLibrary: React.FC<{
   const printScript = async () => {
     setPrintNote('');
     // Each formation on its own page, the plays in script order, run / pass marked.
-    const lines = script.lines.map((line) => {
+    const lines = script.lines.map((line, i) => {
       const play = onTheReport.find((p) => p.id === line.playId);
       // How many times they ran it (its clips on the film).
       const ran = play ? scriptFilm(play).snaps.length : 0;
@@ -262,7 +281,7 @@ export const ScoutOppPlayLibrary: React.FC<{
       // Its formation as tagged, else the one of theirs it was drawn from.
       const tagged = play?.formation && play.formation.trim() !== '-' ? play.formation : '';
       const formation = tagged || (play ? formationOfPlay(play, formations)?.name : '') || '';
-      return { name: line.name, detail, diagram: play ? diagramFor(play) : undefined, kind: play ? kindOf(play) : undefined, formation };
+      return { name: line.name, detail, diagram: play ? diagramFor(play) : undefined, kind: play ? kindOf(play) : undefined, formation, n: i + 1 };
     });
     const groups = scriptByFormation(lines);
     const withPictures = await Promise.all(
@@ -271,7 +290,7 @@ export const ScoutOppPlayLibrary: React.FC<{
         plays: await Promise.all(g.plays.map(async (p) => ({ ...p, diagram: await resolveDiagram(p.diagram) }))),
       }))
     );
-    const html = scoutScriptPrintHtml(script.title, withPictures, { pagePerGroup: true });
+    const html = scoutScriptPrintHtml(script.title, withPictures, { pagePerGroup: true, size: printSize });
     const win = window.open('', '_blank');
     if (!win) {
       setPrintNote('Allow pop-ups to print the script.');
@@ -1221,14 +1240,28 @@ export const ScoutOppPlayLibrary: React.FC<{
             })}
           </ol>
         )}
-        <button
-          type="button"
-          disabled={!script.lines.length}
-          className="h-9 px-3 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-black cursor-pointer disabled:opacity-40"
-          onClick={() => void printScript()}
-        >
-          Print script
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={!script.lines.length}
+            className="h-9 px-3 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-black cursor-pointer disabled:opacity-40"
+            onClick={() => void printScript()}
+          >
+            Print script
+          </button>
+          <select
+            aria-label="Print size"
+            value={printSize}
+            onChange={(e) => pickPrintSize(e.target.value as ScriptPrintSize)}
+            className="h-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-xs font-bold"
+          >
+            {SCRIPT_PRINT_SIZES.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
         {printNote && <p className="text-xs font-bold text-amber-700 dark:text-amber-300">{printNote}</p>}
       </section>
     </div>
