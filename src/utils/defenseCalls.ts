@@ -12,6 +12,10 @@ export const PRESSURES: { id: string; label: string; short: string; group: 'Blit
   { id: 'edge_both', label: 'Edge fire both', short: 'Edge both', group: 'Blitz' },
   { id: 'blow_sting', label: 'Blow Sting D: Sam & Rover blitz the D gap, the end on each side takes C', short: 'Blow Sting D', group: 'Blitz' },
   { id: 'blow_sting_c', label: 'Blow Sting C: Sam & Rover blitz the C gap, the end on each side takes D', short: 'Blow Sting C', group: 'Blitz' },
+  { id: 'sting_strong_d', label: 'Strong Blow Sting D: the strong-side backer blitzes D, the end takes C', short: 'Sting Strong D', group: 'Blitz' },
+  { id: 'sting_strong_c', label: 'Strong Blow Sting C: the strong-side backer blitzes C, the end takes D', short: 'Sting Strong C', group: 'Blitz' },
+  { id: 'sting_weak_d', label: 'Weak Blow Sting D: the weak-side backer blitzes D, the end takes C', short: 'Sting Weak D', group: 'Blitz' },
+  { id: 'sting_weak_c', label: 'Weak Blow Sting C: the weak-side backer blitzes C, the end takes D', short: 'Sting Weak C', group: 'Blitz' },
   { id: 'mike_a', label: 'Mike A gap', short: 'Mike A', group: 'Blitz' },
   { id: 'mike_b', label: 'Mike B gap', short: 'Mike B', group: 'Blitz' },
   { id: 'will_a', label: 'Will A gap', short: 'Will A', group: 'Blitz' },
@@ -154,6 +158,18 @@ function shiftedGap(n: PlayNode, g: ReturnType<typeof gaps>, steps: number): num
   return g[at.side][GAP_ORDER[Math.min(3, idx)]];
 }
 
+/** Their strong side: where the tight end is (more tight ends wins), else more receivers, else the right. */
+export function strongSide(off: PlayNode[], center = 0): 'left' | 'right' {
+  const te = off.filter((n) => n.line && /^Y\d?$/.test(n.role));
+  const l = te.filter((n) => n.x < center).length;
+  const r = te.filter((n) => n.x > center).length;
+  if (l !== r) return l > r ? 'left' : 'right';
+  const rec = off.filter((n) => ELIGIBLE.test(n.role) && !/^[1-4]$/.test(n.role));
+  const rl = rec.filter((n) => n.x < center).length;
+  const rr = rec.filter((n) => n.x > center).length;
+  return rl > rr ? 'left' : 'right';
+}
+
 /** The blitz or stunt's paths. Returns who rushes (so they don't drop into coverage). */
 function pressurePaths(id: string, def: PlayNode[], off: PlayNode[]): { strokes: PlayStroke[]; rushers: Set<string> } {
   const g = gaps(off);
@@ -190,17 +206,26 @@ function pressurePaths(id: string, def: PlayNode[], off: PlayNode[]): { strokes:
     const gap = id === 'will_a' ? 'A' : 'B';
     if (who) add(rush(who, who.x < g.C ? g.left[gap] : g.right[gap], `Blitz ${gap} gap`), who.role);
   }
-  if (id === 'blow_sting' || id === 'blow_sting_c') {
+  const sting = /^(blow_sting|blow_sting_c|sting_(strong|weak)_(d|c))$/.exec(id);
+  if (sting) {
     // Sam and Rover blitz (no Rover: the outside backer on the other side). Each takes the called gap and
     // the end on his side runs the other one: D and C, or C and D. Two blitzers on one side: the outer one
-    // takes the called gap, the inner one the other, and the end pinches to B.
-    const called: GapName = id === 'blow_sting' ? 'D' : 'C';
+    // takes the called gap, the inner one the other, and the end pinches to B. Strong / weak: only that side
+    // (its outside backer when neither Sam nor Rover lines up there).
+    const called: GapName = id === 'blow_sting' || id.endsWith('_d') ? 'D' : 'C';
     const other: GapName = called === 'D' ? 'C' : 'D';
+    const only = sting[2] ? (sting[2] === 'strong' ? strongSide(off, g.C) : strongSide(off, g.C) === 'left' ? 'right' : 'left') : null;
     const sam = named('SAM') || lbs.filter((n) => n.x < g.C).sort((a, b) => a.x - b.x)[0];
     const rov = named('ROV') || lbs.filter((n) => n.x >= g.C && n !== sam).sort((a, b) => b.x - a.x)[0];
-    const blitzers = [sam, rov].filter(Boolean) as PlayNode[];
+    let blitzers = [sam, rov].filter(Boolean) as PlayNode[];
+    if (only) {
+      const onSide = (n: PlayNode) => (only === 'left' ? n.x < g.C : n.x >= g.C);
+      const outer = (a: PlayNode, b: PlayNode) => (only === 'left' ? a.x - b.x : b.x - a.x);
+      const own = blitzers.filter(onSide).sort(outer);
+      blitzers = own.length ? own.slice(0, 1) : lbs.filter(onSide).sort(outer).slice(0, 1);
+    }
     const usedEnds = new Set<string>();
-    for (const side of ['left', 'right'] as const) {
+    for (const side of (only ? [only] : ['left', 'right']) as ('left' | 'right')[]) {
       const mine = blitzers.filter((n) => (side === 'left' ? n.x < g.C : n.x >= g.C)).sort((a, b) => (side === 'left' ? a.x - b.x : b.x - a.x));
       if (!mine.length) continue;
       const end = line.filter((n) => (side === 'left' ? n.x < g.C : n.x >= g.C) && !usedEnds.has(n.role)).sort((a, b) => (side === 'left' ? a.x - b.x : b.x - a.x))[0];

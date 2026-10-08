@@ -181,3 +181,19 @@ describe('tackle cross: who goes first', () => {
     assert.ok(loop(rip).points[0].x < 0 && end(loop(rip)).x > 0);
   });
 });
+
+describe('strong and weak Blow Sting', () => {
+  it("only the strong side's (tight end side) backer and end, or only the weak side's", () => {
+    // Rover lined up on the right, the tight end's side.
+    const d = front('44_C3_LIZ').map((n) => (n.role === 'ROV' ? { ...n, x: 9 } : n));
+    const on = (role: string, s: any[]) => { const n = d.find((m) => m.role === role)!; return s.find((x) => Math.abs(x.points[0].x - n.x) < 0.05 && Math.abs(x.points[0].y - n.y) < 0.05)?.label; };
+    const strong = defenseCallStrokes(d, off, 'sting_strong_d');
+    assert.equal(strong.length, 2);
+    assert.equal(on('ROV', strong), 'Sting D gap');
+    assert.equal(on('E5', strong), 'End C gap');
+    const weak = defenseCallStrokes(d, off, 'sting_weak_c');
+    assert.equal(weak.length, 2);
+    assert.equal(on('SAM', weak), 'Sting C gap');
+    assert.equal(on('E9', weak), 'End D gap');
+  });
+});
