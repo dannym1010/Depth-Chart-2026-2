@@ -4873,12 +4873,12 @@ export default function App() {
   setDefenseFrontSaver(
     mayEditTeam(activeTeamId)
       ? {
-          add: ({ name, from, moves }) => {
+          add: ({ name, from, moves, call }) => {
             const sys = (currentActiveTeam as Team).defenseSystem || {};
             const id = `f${Date.now().toString(36)}`;
             const alignments = { ...(sys.alignments || {}) };
             if (Object.keys(moves).length) alignments[`front_${id}`] = moves;
-            handleUpdateTeam(activeTeamId, { defenseSystem: { ...sys, fronts: [...(sys.fronts || []), { id, name, from }], alignments } });
+            handleUpdateTeam(activeTeamId, { defenseSystem: { ...sys, fronts: [...(sys.fronts || []), { id, name, from, ...(call ? { call } : {}) }], alignments } });
             return `front_${id}`;
           },
           remove: (key) => {

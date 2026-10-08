@@ -401,7 +401,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       const dy = Math.round((now.y - n.y) * 100) / 100;
       if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) moves[n.role] = { dx, dy };
     }
-    const key = frontSaver.add({ name, from, moves });
+    const call = { ...(pressure ? { pressure } : {}), ...(coverage ? { coverage } : {}), ...(Object.keys(defAssign).length ? { assign: defAssign } : {}) };
+    const key = frontSaver.add({ name, from, moves, ...(Object.keys(call).length ? { call } : {}) });
     setOverrides((prev) => Object.fromEntries(Object.entries(prev).filter(([role]) => !dLook.nodes.some((n) => n.role === role))));
     setDefenseKey(key);
     setDefaultNote(`Saved the front ${name}. It's in every defense menu now.`);
@@ -414,8 +415,18 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   };
   const pickFront = (chip: string, own: boolean) => {
     const key = chip === '44' ? (strength === 'Right' ? '44_C3_RIP' : '44_C3_LIZ') : chip;
+    if (key !== defenseKey) {
+      // The new front lines everyone up its way (spots dragged for the last one don't carry over).
+      setOverrides((prev) => Object.fromEntries(Object.entries(prev).filter(([role]) => !isDefenseRole(role))));
+    }
     setDefenseKey(key);
-    if (key && !coverage) setCoverage('cover3');
+    const saved = key.startsWith('front_') ? (defenseSystem().fronts || []).find((f) => `front_${f.id}` === key) : undefined;
+    if (saved?.call) {
+      // The call saved with the front comes with it.
+      setPressure(saved.call.pressure || '');
+      setCoverage(saved.call.coverage || '');
+      setDefAssign(saved.call.assign || {});
+    } else if (key && !coverage) setCoverage('cover3');
     if (own) setDefenseOwn(true);
   };
   const ownFronts = Object.entries(looks).filter(([k]) => k.startsWith('front_'));
