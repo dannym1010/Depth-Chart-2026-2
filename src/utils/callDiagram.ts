@@ -58,12 +58,15 @@ export function callSetup(call: { name: string; formation?: string; personnel?: 
   };
 }
 
-/** The diagram (an SVG picture) of a play drawn from its name, against our call for it. Null when it can't be lined up. */
-export function drawCall(
+/**
+ * A play drawn from its name, step by step (what the builder does first): the lined-up offense, its lines,
+ * who has the ball, and our call against it (the 5-3 against two tight ends, else the 4-4 to their strength).
+ */
+export function callDrawing(
   call: { name: string; formation?: string; personnel?: string; kind?: string },
   spots?: BackfieldSpots | null,
   spotBaseKey?: string | null
-): string | null {
+) {
   const s = callSetup(call);
   const runMode = s.family === 'run';
   const run = RUN_SCHEMES.find((r) => r.id === s.run) || RUN_SCHEMES[0];
@@ -91,7 +94,17 @@ export function drawCall(
     tags,
     family: runMode ? 'run' : tagged.family,
   });
-  // Our call for it: the 5-3 against two tight ends, else the 4-4 set to their strength.
   const lookKey = (PERSONNEL_DEFINITIONS[s.personnel]?.te || 0) >= 2 ? '53_C3' : s.strength === 'Right' ? '44_C3_RIP' : '44_C3_LIZ';
-  return diagramSvg(play, strokes, OUR_DEFENSE_LOOKS[lookKey]?.nodes || [], ball);
+  return { setup: s, play, strokes, ball, conceptKey, runId: run.id, hole, tags, lookKey };
+}
+
+/** The diagram (an SVG picture) of a play drawn from its name, against our call for it. Null when it can't be lined up. */
+export function drawCall(
+  call: { name: string; formation?: string; personnel?: string; kind?: string },
+  spots?: BackfieldSpots | null,
+  spotBaseKey?: string | null
+): string | null {
+  const d = callDrawing(call, spots, spotBaseKey);
+  if (!d) return null;
+  return diagramSvg(d.play, d.strokes, OUR_DEFENSE_LOOKS[d.lookKey]?.nodes || [], d.ball);
 }

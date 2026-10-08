@@ -128,6 +128,41 @@ export function resolveDiagram(url?: string): Promise<string | null> {
   return loading.get(docId)!;
 }
 
+/** A short fingerprint of a picture's text (the same picture gets the same document). */
+function textHash(text: string) {
+  let h1 = 5381;
+  let h2 = 52711;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    h1 = (h1 * 33) ^ c;
+    h2 = (h2 * 33) ^ c;
+  }
+  return ((h1 >>> 0).toString(16) + (h2 >>> 0).toString(16)).padStart(16, '0');
+}
+
+/**
+ * A play picture drawn here (an SVG), saved as its own document in the team's cloud database. Returns its
+ * link, or null when the cloud can't be reached (the caller keeps what it had).
+ */
+export async function saveDrawnDiagram(key: string, dataUrl: string): Promise<string | null> {
+  const { db } = getFirebaseServices();
+  if (!db || !dataUrl || dataUrl.length > MAX_DOC_CHARS) return null;
+  const hash = textHash(dataUrl);
+  const docId = `diagram_${key.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 60)}_${hash}`;
+  if (loaded.get(docId) === dataUrl) return DOC_PREFIX + docId;
+  try {
+    await Promise.race([
+      db.collection('teamData').doc(docId).set({ image: dataUrl, key, hash, updatedAt: Date.now() }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 20000)),
+    ]);
+    loaded.set(docId, dataUrl);
+    return DOC_PREFIX + docId;
+  } catch (err) {
+    console.warn('Could not save play diagram', err);
+    return null;
+  }
+}
+
 /** Shows a diagram link as a picture once it has loaded. */
 export function useDiagramSrc(url?: string): string | null {
   const direct = url && !url.startsWith(DOC_PREFIX) ? url : url ? loaded.get(url.slice(DOC_PREFIX.length)) || null : null;

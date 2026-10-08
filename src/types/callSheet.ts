@@ -198,6 +198,8 @@ export interface PlayDatabaseEntry {
   importedAt?: number;
   /** Picture of the play drawn in Hudl (from the install PDF). */
   diagramUrl?: string;
+  /** The picture the play came with (a playbook import), kept when it was redrawn here. */
+  importDiagramUrl?: string;
   /** Fingerprint of that picture, to spot a changed diagram when the install is uploaded again. */
   diagramHash?: string;
   /** When a coach last changed this play (decides which copy wins when two coaches' Play Banks merge). */

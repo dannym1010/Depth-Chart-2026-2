@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Film, Image as ImageIcon, LayoutGrid, Library, List, ListChecks, Plus, Search, Trash2, Undo2, Upload, X, ArrowLeft } from 'lucide-react';
+import { ChevronDown, ChevronRight, Film, Wand2, Image as ImageIcon, LayoutGrid, Library, List, ListChecks, Plus, Search, Trash2, Undo2, Upload, X, ArrowLeft } from 'lucide-react';
 import type { PlayAssignment, PlayBuilderState, PlayDatabaseEntry, PlayType } from '../../types/callSheet';
 import type { UserRole } from '../../types';
 import { bundleFromSaved } from '../../hudlScout/scoutBundle';
@@ -9,7 +9,8 @@ import { PlaybookImportModal } from './PlaybookImportModal';
 import { PlayBuilderSection } from './PlayBuilderSection';
 import { mergeBuilderSave, peekPlayBuilderSeed, savePlayBuilderSeed, type PlayBuilderSeed } from '../../utils/playBuilderSeed';
 import { isScoutPlayEntry } from '../../utils/scoutOppPlays';
-import { unsavedDiagram } from '../../utils/playDiagrams';
+import { saveDrawnDiagram, unsavedDiagram } from '../../utils/playDiagrams';
+import { needsRedraw, redrawFromName } from '../../utils/redrawImported';
 import { DiagramImage } from './DiagramImage';
 
 /** The factory sample plays that came with the app (not the coach's own game-day plays). */
@@ -136,6 +137,54 @@ export const PlayLibraryView: React.FC<Props> = ({
   const ourPlays = useMemo(() => playDatabase.filter((p) => !isScoutPlayEntry(p)), [playDatabase]);
   const myPlays = useMemo(() => (showSamples ? ourPlays : ourPlays.filter((p) => !isBuiltInSample(p))), [ourPlays, showSamples]);
   const toastTimer = useRef<any>(null);
+  // The plays as they are now (the redraw below runs a while; edits made meanwhile aren't lost).
+  const latestPlays = useRef(playDatabase);
+  latestPlays.current = playDatabase;
+  // Imported plays (never drawn in the builder) to redraw in the builder's style, and how far along it is.
+  const toRedraw = useMemo(() => ourPlays.filter((p) => needsRedraw(p) && !isBuiltInSample(p)), [ourPlays]);
+  const [redrawing, setRedrawing] = useState<{ done: number; total: number } | null>(null);
+  const redrawImported = async () => {
+    const targets = toRedraw;
+    if (!targets.length || redrawing) return;
+    if (
+      !window.confirm(
+        `Redraw ${targets.length} imported play${targets.length === 1 ? '' : 's'} the way the play builder draws yours?\n\nEach is drawn from its name (formation, backfield, side, hole) with its blocking and ball path, and routes or blocks named in its assignments (STALK, CRACK, SLANT...). Names, assignments, notes, wristband numbers and tags stay. The old pictures are kept, so you can undo.`
+      )
+    )
+      return;
+    setRedrawing({ done: 0, total: targets.length });
+    const done = new Map<string, PlayDatabaseEntry>();
+    let offline = false;
+    for (const p of targets) {
+      const r = redrawFromName(p);
+      if (r) {
+        // The picture goes in its own document; the play keeps a link (the plays document has to stay small).
+        const link = await saveDrawnDiagram(p.id, r.diagramUrl);
+        if (!link) {
+          offline = true;
+          break;
+        }
+        done.set(p.id, { ...p, builder: r.builder, diagramUrl: link, ...(p.diagramUrl ? { importDiagramUrl: p.diagramUrl } : {}) });
+      }
+      setRedrawing({ done: done.size, total: targets.length });
+    }
+    setRedrawing(null);
+    if (done.size) {
+      onUpdatePlayDatabase(latestPlays.current.map((p) => (done.has(p.id) && !p.builder ? done.get(p.id)! : p)));
+      const ids = new Set(done.keys());
+      showToast(`Redrew ${done.size} play${done.size === 1 ? '' : 's'}${offline ? ' (the rest need the cloud: try again online)' : ''}`, () =>
+        onUpdatePlayDatabase(
+          latestPlays.current.map((p) => {
+            if (!ids.has(p.id)) return p;
+            const { builder: _b, importDiagramUrl, ...rest } = p;
+            return { ...rest, diagramUrl: importDiagramUrl };
+          })
+        )
+      );
+    } else if (offline) {
+      showToast("Couldn't reach the cloud to save the pictures, so nothing changed. Try again when you're online.");
+    }
+  };
 
   const showToast = (msg: string, undo?: () => void) => {
     setToast({ msg, undo });
@@ -322,6 +371,18 @@ export const PlayLibraryView: React.FC<Props> = ({
               >
                 <Upload className="w-4 h-4" /> Import playbook
               </button>
+              {toRedraw.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void redrawImported()}
+                  disabled={Boolean(redrawing)}
+                  title="Draw the imported plays the way the play builder draws yours (keeps their names, assignments, notes and wristband numbers)"
+                  className="h-10 px-4 rounded-xl border-2 border-indigo-500 text-indigo-700 dark:text-indigo-300 text-sm font-black inline-flex items-center gap-2 cursor-pointer hover:bg-indigo-50 dark:hover:bg-indigo-950/40 disabled:opacity-60"
+                >
+                  <Wand2 className="w-4 h-4" />
+                  {redrawing ? `Redrawing ${redrawing.done} of ${redrawing.total}…` : `Redraw imported plays (${toRedraw.length})`}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={addPlay}

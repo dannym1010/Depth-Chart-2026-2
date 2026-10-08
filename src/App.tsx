@@ -169,6 +169,7 @@ import { builderFromFormation, cardForSnap, groupOppPlays, isScoutPlayEntry, pla
 import type { Play as FilmPlay } from './hudlScout/types/football';
 import { backfieldOf, baseKeysForGame, formationDefense, formationOfPlay, openFormation, oppPlayDiagram, playWithDefense, redrawWithBackfield, spotsForGame } from './utils/filmBackfields';
 import { BACKFIELD_STRUCTURES, compactPlayDiagrams } from './utils/footballEngine';
+import { saveDrawnDiagram } from './utils/playDiagrams';
 import { newPlayEntry } from './utils/playbookImport';
 import { clearFilmCutup, consumeCutupHold, holdFilmCutup, saveFilmCutup } from './utils/filmCutup';
 import { callSheetSlots, isCopiedScoutReport, isNearCopy, primarySheetSlots, withoutCopiedGames, wristbandSlots } from './utils/teamCopies';
@@ -4270,6 +4271,33 @@ export default function App() {
     safeJSONSet('footballPlayDatabase', small);
     setPlayDatabase(small);
   }, [playDatabase]);
+
+  // A picture saved inline (from the builder) goes to its own document, and the play keeps the link: every
+  // play shares one cloud document, which can't pass 1 MB. Coaches who can edit plays do it; offline, it waits.
+  const movingPictures = useRef(new Set<string>());
+  useEffect(() => {
+    if (userRole !== 'admin' && userRole !== 'assistant') return;
+    if (!getFirebaseServices().db) return;
+    const big = (playDatabase || []).filter(
+      (p) => p?.id && typeof p.diagramUrl === 'string' && p.diagramUrl.startsWith('data:image/svg+xml') && p.diagramUrl.length > 6000 && !movingPictures.current.has(p.id)
+    );
+    if (!big.length) return;
+    big.forEach((p) => movingPictures.current.add(p.id));
+    void (async () => {
+      const links = new Map<string, { from: string; to: string }>();
+      for (const p of big) {
+        const link = await saveDrawnDiagram(p.id, p.diagramUrl!);
+        if (link) links.set(p.id, { from: p.diagramUrl!, to: link });
+      }
+      if (links.size) {
+        const cur = latestStateRef.current.playDatabase || [];
+        // Only where the picture is still the one that was saved (not changed again meanwhile).
+        handleUpdatePlayDatabase(cur.map((p) => (links.get(p.id)?.from === p.diagramUrl ? { ...p, diagramUrl: links.get(p.id)!.to } : p)));
+      }
+      big.forEach((p) => movingPictures.current.delete(p.id));
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playDatabase, userRole]);
 
   // Each team has its own plays; a play without a team is 10U's (the original team).
   const playTeamOf = (p: PlayDatabaseEntry) => p.teamId || 'team_10u';
