@@ -4490,7 +4490,7 @@ describe('a scout play drawn from its name', () => {
     assert.deepEqual([s.personnel, s.backfield, s.ball, s.hole, s.run, s.family], [30, 'DOUBLE_WING', '4', 1, 'toss', 'run']);
     const url = drawCall({ name: '30 DW 41 SWEEP' })!;
     assert.ok(url.startsWith('data:image/svg+xml'));
-    const svg = decodeURIComponent(url.split(',')[1]);
+    const svg = decodeURIComponent(url.slice(url.indexOf(',') + 1));
     assert.ok((svg.match(/<circle|<rect/g) || []).length >= 11, 'the offense is drawn');
     assert.ok(svg.includes('#e11d2a'), 'the ball path is drawn');
     // A Hudl name with no personnel still draws (21 personnel, the play from its word).

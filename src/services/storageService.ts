@@ -23,6 +23,7 @@ import {
   DEFAULT_TEAM_COACHES,
   MASTER_PLAY_LIBRARY,
 } from '../data/initialData';
+import { compactPlayDiagrams } from '../utils/footballEngine';
 
 declare global {
   interface Window {
@@ -1168,7 +1169,8 @@ export async function saveSharedBoardCloud(payload: {
         col.doc('ops_plays').set(
           opsMeta({
             masterPlayLibrary: payload.masterPlayLibrary,
-            playDatabase: payload.playDatabase,
+            // Small pictures: this document can't pass Firestore's 1 MB.
+            playDatabase: Array.isArray(payload.playDatabase) ? compactPlayDiagrams(payload.playDatabase) : payload.playDatabase,
             deletedPlayIds: payload.deletedPlayIds || [],
           })
         )

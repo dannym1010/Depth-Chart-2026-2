@@ -2745,36 +2745,79 @@ function arrowHead(x1: number, y1: number, x2: number, y2: number) {
 export function fieldBgSvg() {
   const { w, h, losY, scaleY } = FIELD_SVG;
   // A light gray field: a line every 5 yards, a tick every yard on both sidelines and both hashes, big
-  // outlined yard numbers turned toward each sideline, and the line of scrimmage in blue.
-  const line = (cy: number, stroke: string, width: number) => `<line x1="0" y1="${cy}" x2="${w}" y2="${cy}" stroke="${stroke}" stroke-width="${width}"/>`;
-  const top = Math.floor(-(h - losY) / scaleY);
-  const bottom = Math.ceil(losY / scaleY);
-  let fives = '';
-  let ticks = '';
-  const hashL = fieldToSvg(-3.4, 0).cx;
-  const hashR = fieldToSvg(3.4, 0).cx;
-  for (let y = top; y <= bottom; y++) {
-    const cy = losY - y * scaleY;
-    if (y % 5 === 0) {
-      if (y !== 0) fives += line(cy, '#b4b4b4', 1.6);
-      continue;
-    }
-    const t = (x1: number, x2: number) => `<line x1="${x1}" y1="${cy}" x2="${x2}" y2="${cy}" stroke="#b4b4b4" stroke-width="1.2"/>`;
-    ticks += t(0, 9) + t(w - 9, w) + t(hashL - 5, hashL + 5) + t(hashR - 5, hashR + 5);
-  }
-  // Numbers on the 10s, 20 at the line of scrimmage: tops toward the near sideline.
+  // outlined yard numbers turned toward each sideline, and the line of scrimmage in blue. Drawn with
+  // repeating patterns: every saved play carries this, and they all go to the cloud in one document.
+  const hashL = Math.round(fieldToSvg(-3.4, 0).cx);
+  const hashR = Math.round(fieldToSvg(3.4, 0).cx);
   const font = 'Oswald, Impact, Arial Narrow, system-ui, sans-serif';
   let numbers = '';
-  for (let y = top; y <= bottom; y++) {
-    if (y % 10 !== 0) continue;
+  for (let y = -30; y <= 40; y += 10) {
     const n = 20 + y;
-    if (n <= 0 || n > 50) continue;
     const cy = losY - y * scaleY;
-    const style = `fill="none" stroke="#c7c7c7" stroke-width="1.6" font-size="40" font-weight="700" font-family="${font}" text-anchor="middle" letter-spacing="2"`;
-    numbers += `<text x="0" y="0" transform="translate(${92} ${cy}) rotate(90)" dy="14" ${style}>${n}</text>`;
-    numbers += `<text x="0" y="0" transform="translate(${w - 92} ${cy}) rotate(-90)" dy="14" ${style}>${n}</text>`;
+    if (n <= 0 || n > 50 || cy < 0 || cy > h) continue;
+    numbers += `<text transform="translate(92 ${cy}) rotate(90)" dy="14">${n}</text><text transform="translate(${w - 92} ${cy}) rotate(-90)" dy="14">${n}</text>`;
   }
-  return `<rect width="100%" height="100%" fill="#f0f0f0"/>${fives}${ticks}${numbers}<line x1="0" y1="${losY}" x2="${w}" y2="${losY}" stroke="#7b7bef" stroke-width="2.2"/>`;
+  return (
+    `<defs><pattern id="fgT" width="${w}" height="${scaleY}" y="${losY - 0.6}" patternUnits="userSpaceOnUse"><path d="M0 .6h9M${w - 9} .6h9M${hashL - 5} .6h10M${hashR - 5} .6h10" stroke="#b4b4b4" stroke-width="1.2"/></pattern>` +
+    `<pattern id="fgF" width="${w}" height="${scaleY * 5}" y="${losY - 0.8}" patternUnits="userSpaceOnUse"><path d="M0 .8H${w}" stroke="#b4b4b4" stroke-width="1.6"/></pattern></defs>` +
+    `<rect width="100%" height="100%" fill="#f0f0f0"/><rect width="${w}" height="${h}" fill="url(#fgF)"/><rect width="${w}" height="${h}" fill="url(#fgT)"/>` +
+    `<g fill="none" stroke="#c7c7c7" stroke-width="1.6" font-size="40" font-weight="700" font-family="${font}" text-anchor="middle" letter-spacing="2">${numbers}</g>` +
+    `<line x1="0" y1="${losY}" x2="${w}" y2="${losY}" stroke="#7b7bef" stroke-width="2.2"/>`
+  );
+}
+
+/**
+ * An SVG as a data URL, small: single quotes and only the characters that must be escaped (encoding every
+ * character made each picture about three times its size).
+ */
+export function svgDataUrl(svg: string) {
+  const body = svg
+    .replace(/'/g, '&#39;')
+    .replace(/"/g, "'")
+    .replace(/\s+/g, ' ')
+    .replace(/%/g, '%25')
+    .replace(/#/g, '%23')
+    .replace(/</g, '%3C')
+    .replace(/>/g, '%3E');
+  return `data:image/svg+xml;charset=utf-8,${body}`;
+}
+
+/** The field background as it was drawn from 7 to 8 Oct 2026 (one line per tick): about 30 KB in every picture. */
+const OLD_BG_START = '<rect width="100%" height="100%" fill="#f0f0f0"/>';
+const OLD_BG_END = '<line x1="0" y1="360" x2="760" y2="360" stroke="#7b7bef" stroke-width="2.2"/>';
+
+/**
+ * A saved play picture made small: the old, large field background swapped for the current one, and the
+ * picture re-encoded the small way. Anything else (a photo, a link) comes back as it was.
+ */
+export function compactDiagramUrl(url: string | undefined): string | undefined {
+  if (!url || !url.startsWith('data:image/svg+xml')) return url;
+  const comma = url.indexOf(',');
+  if (comma < 0 || /;base64/i.test(url.slice(0, comma))) return url;
+  let svg: string;
+  try {
+    svg = decodeURIComponent(url.slice(comma + 1));
+  } catch {
+    return url;
+  }
+  const a = svg.indexOf(OLD_BG_START);
+  const b = svg.indexOf(OLD_BG_END);
+  if (a >= 0 && b > a) svg = svg.slice(0, a) + fieldBgSvg() + svg.slice(b + OLD_BG_END.length);
+  const out = svgDataUrl(svg);
+  return out.length < url.length ? out : url;
+}
+
+/** Every play's picture made small (the same list back when nothing changes). */
+export function compactPlayDiagrams<T extends { diagramUrl?: string }>(plays: T[]): T[] {
+  let changed = false;
+  const out = plays.map((p) => {
+    if (!p?.diagramUrl) return p;
+    const small = compactDiagramUrl(p.diagramUrl);
+    if (small === p.diagramUrl) return p;
+    changed = true;
+    return { ...p, diagramUrl: small };
+  });
+  return changed ? out : plays;
 }
 
 export function playerGlyphSvg(n: PlayNode, ballRole?: string) {
@@ -2816,5 +2859,5 @@ export function diagramSvg(play: AssembledPlay, strokes: PlayStroke[] = [], extr
   const { w, h } = FIELD_SVG;
   const dots = [...play.nodes, ...extraNodes].map((n) => playerGlyphSvg(n, ballRole)).join('');
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">${fieldBgSvg()}${strokeSvg(strokes)}${dots}</svg>`;
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  return svgDataUrl(svg);
 }

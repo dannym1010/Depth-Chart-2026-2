@@ -168,7 +168,7 @@ import { clearPlayBuilderSeed, consumeSeedHold, holdPlayBuilderSeed, mergeBuilde
 import { builderFromFormation, cardForSnap, groupOppPlays, isScoutPlayEntry, planLines, realCall, renameOppCall, linkSnapsToCall, snapsForCall, type OppFormation, type ScoutOppPlay } from './utils/scoutOppPlays';
 import type { Play as FilmPlay } from './hudlScout/types/football';
 import { backfieldOf, baseKeysForGame, formationDefense, formationOfPlay, openFormation, oppPlayDiagram, playWithDefense, redrawWithBackfield, spotsForGame } from './utils/filmBackfields';
-import { BACKFIELD_STRUCTURES } from './utils/footballEngine';
+import { BACKFIELD_STRUCTURES, compactPlayDiagrams } from './utils/footballEngine';
 import { newPlayEntry } from './utils/playbookImport';
 import { clearFilmCutup, consumeCutupHold, holdFilmCutup, saveFilmCutup } from './utils/filmCutup';
 import { callSheetSlots, isCopiedScoutReport, isNearCopy, primarySheetSlots, withoutCopiedGames, wristbandSlots } from './utils/teamCopies';
@@ -4253,12 +4253,23 @@ export default function App() {
   const handleUpdatePlayDatabase = (edited: PlayDatabaseEntry[]) => {
     lastLocalEditTimeRef.current = Date.now();
     // Stamp what this coach changed, so it wins over older copies when Play Banks merge.
-    const newDb = stampPlayEdits(latestStateRef.current.playDatabase || [], edited);
+    // Pictures kept small: the plays go to the cloud as one document, which can't pass 1 MB.
+    const newDb = compactPlayDiagrams(stampPlayEdits(latestStateRef.current.playDatabase || [], edited));
     setPlayDatabase(newDb);
     latestStateRef.current.playDatabase = newDb;
     safeJSONSet('footballPlayDatabase', newDb);
     debouncedSave('plays');
   };
+
+  // Plays loaded (saved here before, or from another coach) with large pictures: made small right away. Not an
+  // edit (no new stamps), so it can't win over a coach's change; the next save sends the small ones.
+  useEffect(() => {
+    const small = compactPlayDiagrams(playDatabase);
+    if (small === playDatabase) return;
+    latestStateRef.current.playDatabase = small;
+    safeJSONSet('footballPlayDatabase', small);
+    setPlayDatabase(small);
+  }, [playDatabase]);
 
   // Each team has its own plays; a play without a team is 10U's (the original team).
   const playTeamOf = (p: PlayDatabaseEntry) => p.teamId || 'team_10u';

@@ -97,3 +97,33 @@ describe('zooming the field', () => {
     assert.deepEqual([out.vw, out.vh, out.x, out.y], [950, 650, -95, -65]);
   });
 });
+
+describe('play pictures stay small (the plays go to the cloud as one document, max 1 MB)', () => {
+  it('a new picture is a few KB, and an old one with the big field shrinks and keeps its players', async () => {
+    const { compactDiagramUrl, compactPlayDiagrams, diagramSvg, fieldBgSvg, svgDataUrl } = await import('./footballEngine.ts');
+    const play = { nodes: [{ role: 'C', x: 0, y: 0, line: true }, { role: '3', x: 0, y: -6 }], metadata: {} } as any;
+    const fresh = diagramSvg(play, [{ kind: 'run', points: [{ x: 0, y: -6 }, { x: 3, y: 2 }] }]);
+    assert.ok(fresh.length < 6000, `new picture is ${fresh.length} characters`);
+    assert.ok(fieldBgSvg().length < 2500, `field is ${fieldBgSvg().length} characters`);
+    // As saved before: every character encoded and the field drawn one tick at a time.
+    let ticks = '';
+    for (let i = 0; i < 140; i++) ticks += `<line x1="0" y1="${i}" x2="9" y2="${i}" stroke="#b4b4b4" stroke-width="1.2"/>`;
+    const oldSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 520"><rect width="100%" height="100%" fill="#f0f0f0"/>${ticks}<line x1="0" y1="360" x2="760" y2="360" stroke="#7b7bef" stroke-width="2.2"/><circle cx="380" cy="444" r="11" fill="#ffffff"/><text>O'Neil</text></svg>`;
+    const old = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(oldSvg)}`;
+    const small = compactDiagramUrl(old)!;
+    assert.ok(small.length < old.length / 4, `${old.length} -> ${small.length}`);
+    const back = decodeURIComponent(small.slice(small.indexOf(',') + 1));
+    assert.match(back, /<circle cx='380' cy='444' r='11'/);
+    assert.match(back, /O&#39;Neil/);
+    assert.match(back, /pattern id='fgT'/);
+    // Already small, a link, or a photo: unchanged.
+    assert.equal(compactDiagramUrl(small), small);
+    assert.equal(compactDiagramUrl('https://x/y.png'), 'https://x/y.png');
+    const plays = [{ id: 'a', diagramUrl: old }, { id: 'b' }];
+    const out = compactPlayDiagrams(plays);
+    assert.notEqual(out, plays);
+    assert.equal(out[1], plays[1]);
+    assert.equal(compactPlayDiagrams(out), out);
+    assert.equal(svgDataUrl('<a b="1">#%</a>'), "data:image/svg+xml;charset=utf-8,%3Ca b='1'%3E%23%25%3C/a%3E");
+  });
+});
