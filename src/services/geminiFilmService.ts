@@ -45,7 +45,11 @@ const GEMINI_MODEL_KEY = 'football_gemini_model';
 
 export const getSavedGeminiKey = (): string => {
   try {
-    return localStorage.getItem(GEMINI_STORAGE_KEY) || '';
+    const saved = localStorage.getItem(GEMINI_STORAGE_KEY) || '';
+    if (saved) return saved.trim();
+    const envKey = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_GEMINI_API_KEY ||
+      (import.meta as unknown as { env?: Record<string, string> }).env?.GEMINI_API_KEY || '';
+    return envKey.trim();
   } catch {
     return '';
   }
