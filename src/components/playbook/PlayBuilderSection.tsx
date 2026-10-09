@@ -933,7 +933,11 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     const p = parsePlayCall(nameIn);
     let bk = baseKey;
     const locs = p.personnel != null ? TE_LOCATIONS[p.personnel] || [] : [];
-    if (p.personnel != null && locs.length) {
+    // Only another personnel (or "over" asked for) picks a new formation spot: the same personnel keeps the
+    // one on the field, and with it every player the coach placed and the lines drawn from them.
+    const overNow = locs.find((l) => l.id === 'over')?.baseKey === baseKey;
+    const newSpot = p.personnel !== personnelPick || (Boolean(p.tackleOver) && !overNow);
+    if (p.personnel != null && locs.length && newSpot) {
       const loc = (p.tackleOver && locs.find((l) => l.id === 'over')) || locs.find((l) => l.id === 'tight') || locs[0];
       setPersonnelPick(p.personnel);
       bk = loc.baseKey;
