@@ -72,6 +72,8 @@ interface FilmRoomViewProps {
   onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: Record<string, { x: number; y: number }>; baseKey: string }) => void;
   /** Their film: draw a clip's play in the play builder, lined up in its base formation, with the clip playing. */
   onDrawSnap?: (play: Play) => void;
+  /** True if currently logged in user is the program owner / master super admin */
+  isProgramAdmin?: boolean;
 }
 
 type OdkFilter = 'all' | 'O' | 'D' | 'K';
@@ -82,6 +84,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   teamId, teamName, currentWeek, weekLabel, opponentName, opponentScout, ownTeamScout, authorName, onOpenHudlGame,
   onUpdateOwnTeamScout, onUpdateScouting, playDatabase, onUpdatePlayDatabase, roster, weekBoards, weekOptions,
   filmWeeks, onSelectWeek, onSaveWeekScouting, onBackToPlay, builderCanEdit, onSaveBuilderPlay, onRenameScoutPlay, onSaveFilmBackfield, onDrawSnap,
+  isProgramAdmin = false,
 }) => {
   const own = useMemo(() => bundleFromSaved(ownTeamScout, teamName), [ownTeamScout, teamName]);
   const opp = useMemo(() => bundleFromSaved(opponentScout, opponentName || 'Opponent'), [opponentScout, opponentName]);
@@ -673,6 +676,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       videoElement={apiRef.current?.video?.() || null}
       roster={roster}
       opponentName={opponentName}
+      isProgramAdmin={isProgramAdmin}
       onAddNote={(id, text) => addNote(text, undefined, apiRef.current?.time() || 0)}
       onPatch={(p, patch) =>
         editPlays((all) =>

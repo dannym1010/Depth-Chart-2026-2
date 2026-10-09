@@ -29,6 +29,8 @@ interface Props {
   opponentName?: string;
   /** Add coaching note to play */
   onAddNote?: (playId: string, text: string) => void;
+  /** Only master / program admin sees AI Auto-Breakdown assistant */
+  isProgramAdmin?: boolean;
 }
 
 const ODK = [
@@ -64,6 +66,7 @@ export const BreakdownPanel: React.FC<Props> = ({
   roster = [],
   opponentName = 'Opponent',
   onAddNote,
+  isProgramAdmin = false,
 }) => {
   const saved = useMemo(() => (play ? breakdownRowOf(play) : {}), [play]);
   // Typed boxes: kept here until they're saved.
@@ -159,8 +162,8 @@ export const BreakdownPanel: React.FC<Props> = ({
 
   return (
     <div className="flex flex-col gap-2 p-3">
-      {/* AI Breakdown Quick Action Header */}
-      {!readOnly && (
+      {/* AI Breakdown Quick Action Header - Master Admin only */}
+      {!readOnly && isProgramAdmin && (
         <div className="flex items-center justify-between p-2 rounded-xl bg-gradient-to-r from-indigo-50 to-violet-50 dark:from-indigo-950/40 dark:to-violet-950/40 border border-indigo-200/80 dark:border-indigo-800/50">
           <div className="flex items-center gap-1.5">
             <span className="p-1 rounded-md bg-indigo-600 text-white shadow-xs">
@@ -257,20 +260,22 @@ export const BreakdownPanel: React.FC<Props> = ({
         </div>
       )}
 
-      {/* AI Breakdown Modal */}
-      <AiClipAnalyzerModal
-        isOpen={showAiModal}
-        onClose={() => setShowAiModal(false)}
-        play={play}
-        videoElement={videoElement}
-        roster={roster}
-        knownFormations={lists.form}
-        knownPlays={lists.play}
-        opponentName={opponentName}
-        onApply={handleAiApply}
-        onApplyAndNext={next ? handleAiApplyAndNext : undefined}
-        hasNextPlay={Boolean(next)}
-      />
+      {/* AI Breakdown Modal - Master Admin only */}
+      {isProgramAdmin && (
+        <AiClipAnalyzerModal
+          isOpen={showAiModal}
+          onClose={() => setShowAiModal(false)}
+          play={play}
+          videoElement={videoElement}
+          roster={roster}
+          knownFormations={lists.form}
+          knownPlays={lists.play}
+          opponentName={opponentName}
+          onApply={handleAiApply}
+          onApplyAndNext={next ? handleAiApplyAndNext : undefined}
+          hasNextPlay={Boolean(next)}
+        />
+      )}
     </div>
   );
 };

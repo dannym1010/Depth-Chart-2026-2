@@ -7589,6 +7589,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onRenameScoutPlay={renameScoutPlay}
                 onSaveFilmBackfield={saveFilmBackfield}
                 onDrawSnap={drawSnap}
+                isProgramAdmin={isProgramAdmin}
               />
             )}
 
