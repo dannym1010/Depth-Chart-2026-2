@@ -292,9 +292,9 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                   onChange={(e) => setModel(e.target.value)}
                   className="h-9 px-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-bold text-slate-900 dark:text-white cursor-pointer"
                 >
-                  <option value="gemini-1.5-flash">Gemini 1.5 Flash (Fast)</option>
-                  <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
-                  <option value="gemini-1.5-pro">Gemini 1.5 Pro (Deep)</option>
+                  <option value="gemini-flash-latest">Gemini 3.8 Flash (Recommended)</option>
+                  <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
+                  <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
                 </select>
                 <button
                   type="button"

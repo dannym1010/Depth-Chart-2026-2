@@ -67,12 +67,12 @@ export const saveGeminiKey = (key: string) => {
 export const getSavedGeminiModel = (): string => {
   try {
     const saved = localStorage.getItem(GEMINI_MODEL_KEY);
-    if (saved && ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'].includes(saved)) {
+    if (saved && ['gemini-flash-latest', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'].includes(saved)) {
       return saved;
     }
-    return 'gemini-1.5-flash';
+    return 'gemini-flash-latest';
   } catch {
-    return 'gemini-1.5-flash';
+    return 'gemini-flash-latest';
   }
 };
 
@@ -281,7 +281,7 @@ Respond with pure JSON strictly matching this structure:
   };
 
   const candidateModels = Array.from(
-    new Set([modelName, 'gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'].filter(Boolean))
+    new Set([modelName, 'gemini-flash-latest', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash', 'gemini-2.0-flash'].filter(Boolean))
   );
 
   let lastErrorText = '';
