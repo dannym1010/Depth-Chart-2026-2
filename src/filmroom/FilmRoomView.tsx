@@ -740,6 +740,9 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       onSetUnit={isOwn ? (p, unit) => editPlays((all) => tagPlayUnits(all, p.id, unit, 'play')) : undefined}
       videoElement={apiRef.current?.video?.() || null}
       roster={roster}
+      teamName={teamName}
+      isOwnGame={isOwn}
+      gameId={game?.gameId || game?.key || ''}
       opponentName={opponentName}
       isProgramAdmin={isProgramAdmin}
       onAddNote={(id, text) => addNote(text, undefined, apiRef.current?.time() || 0)}

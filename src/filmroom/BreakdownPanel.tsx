@@ -27,7 +27,13 @@ interface Props {
   roster?: RosterPlayer[];
   /** Opponent team name */
   opponentName?: string;
-  /** Add coaching note to play */
+  /** Our team name (e.g. Mahopac 10U) */
+  teamName?: string;
+  /** True if this is our game, false if opponent scout film */
+  isOwnGame?: boolean;
+  /** Active game id or key for persisting game setup */
+  gameId?: string;
+  /** Add a text note to the play */
   onAddNote?: (playId: string, text: string) => void;
   /** Only master / program admin sees AI Auto-Breakdown assistant */
   isProgramAdmin?: boolean;
@@ -65,6 +71,9 @@ export const BreakdownPanel: React.FC<Props> = ({
   videoElement,
   roster = [],
   opponentName = 'Opponent',
+  teamName = 'Mahopac 10U',
+  isOwnGame = true,
+  gameId = '',
   onAddNote,
   isProgramAdmin = false,
 }) => {
@@ -266,11 +275,15 @@ export const BreakdownPanel: React.FC<Props> = ({
           isOpen={showAiModal}
           onClose={() => setShowAiModal(false)}
           play={play}
+          nextPlay={next}
           videoElement={videoElement}
           roster={roster}
           knownFormations={lists.form}
           knownPlays={lists.play}
+          teamName={teamName}
           opponentName={opponentName}
+          isOwnGame={isOwnGame}
+          gameId={gameId}
           onApply={handleAiApply}
           onApplyAndNext={next ? handleAiApplyAndNext : undefined}
           hasNextPlay={Boolean(next)}

@@ -3,6 +3,24 @@
 import type { Play, TeamUnit } from '../hudlScout/types/football';
 import type { RosterPlayer } from '../types';
 import type { BreakdownRow } from '../filmroom/breakdownEntry';
+import {
+  crossCheckPlayYardage,
+  formatAbsoluteYard,
+  parseAbsoluteYard,
+  type YardageAlignmentResult,
+} from './yardageCalculator';
+
+export interface FilmGameContext {
+  gameType: 'our_game' | 'scout_game';
+  ourTeamName: string;
+  opponentTeamName: string;
+  offenseTeam: string;
+  defenseTeam: string;
+  offenseJerseyColor?: string;
+  defenseJerseyColor?: string;
+  linkOurRoster: boolean;
+  ourUnitRole: 'offense' | 'defense' | 'none';
+}
 
 export interface AiFilmAnalysisResult {
   odk: 'O' | 'D' | 'K';
@@ -32,6 +50,14 @@ export interface AiFilmAnalysisResult {
   isExplosive?: boolean;
   isEfficient?: boolean;
   confidenceScore: number; // 0 - 100
+  // Smart Yardage & Penalty Cross-Check
+  whistleYardLine?: string; // Where runner was tackled on whistle
+  nextPlayYardLine?: string; // Next play LOS from playlist
+  spotAligned?: boolean; // True if next play LOS matches tackle spot
+  penaltyDetected?: boolean; // True if discrepancy indicates penalty
+  penaltyDetails?: string; // Description e.g. "Offensive Holding (-10 yds)"
+  penaltyYards?: number;
+  penaltyOn?: 'Offense' | 'Defense' | 'None';
 }
 
 export interface ExtractedFrame {
@@ -161,21 +187,7 @@ function formatRosterContext(roster: RosterPlayer[]): string {
     .join(', ');
 }
 
-/**
- * Calls Gemini Multimodal Vision API to break down football video frames into structured stats.
- */
-export async function analyzeFilmWithGemini({
-  frames,
-  play,
-  roster = [],
-  knownFormations = [],
-  knownPlays = [],
-  opponentName = 'Opponent',
-  userPrompt = '',
-  apiKey = getSavedGeminiKey(),
-  modelName = getSavedGeminiModel(),
-  onStatusUpdate,
-}: {
+export interface AnalyzeFilmOptions {
   frames: ExtractedFrame[];
   play?: Play;
   roster?: RosterPlayer[];
@@ -186,39 +198,98 @@ export async function analyzeFilmWithGemini({
   apiKey?: string;
   modelName?: string;
   onStatusUpdate?: (status: string) => void;
-}): Promise<AiFilmAnalysisResult> {
+  // Game Setup & Context
+  gameType?: 'our_game' | 'scout_game';
+  ourTeamName?: string;
+  offenseTeam?: string;
+  defenseTeam?: string;
+  offenseJerseyColor?: string;
+  defenseJerseyColor?: string;
+  linkOurRoster?: boolean;
+  ourUnitRole?: 'offense' | 'defense' | 'none';
+  // Next Play for Yardage & Penalty Verification
+  nextPlayStartYard?: string;
+  nextPlayOdk?: string;
+}
+
+/**
+ * Calls Gemini Multimodal Vision API to break down football video frames into structured stats.
+ */
+export async function analyzeFilmWithGemini(opts: AnalyzeFilmOptions): Promise<AiFilmAnalysisResult> {
+  const {
+    frames,
+    play,
+    roster = [],
+    knownFormations = [],
+    knownPlays = [],
+    opponentName = 'Opponent',
+    userPrompt = '',
+    apiKey = getSavedGeminiKey(),
+    modelName = getSavedGeminiModel(),
+    onStatusUpdate,
+    gameType = 'our_game',
+    ourTeamName = 'Mahopac 10U',
+    offenseTeam = 'Our Team',
+    defenseTeam = opponentName,
+    offenseJerseyColor = 'Dark',
+    defenseJerseyColor = 'White',
+    linkOurRoster = gameType === 'our_game',
+    ourUnitRole = 'offense',
+    nextPlayStartYard,
+    nextPlayOdk,
+  } = opts;
+
   const cleanKey = apiKey.trim();
 
   // If no API key is set, return a smart simulated breakdown with real roster linking and instructions
   if (!cleanKey) {
-    return simulateLocalAiBreakdown(frames, play, roster, knownFormations, knownPlays);
+    return simulateLocalAiBreakdown(frames, play, roster, knownFormations, knownPlays, {
+      gameType,
+      offenseTeam,
+      defenseTeam,
+      linkOurRoster,
+      ourUnitRole,
+      nextPlayStartYard,
+      nextPlayOdk,
+    });
   }
 
-  const rosterList = formatRosterContext(roster);
+  const isScout = gameType === 'scout_game';
+  const rosterList = linkOurRoster ? formatRosterContext(roster) : 'ROSTER LINKING DISABLED';
   const knownFormsList = knownFormations.filter(Boolean).slice(0, 15).join(', ') || 'Wishbone, Pro-I, Double Wing, Trips Right, Spread, Beast, Pistol';
-  const knownPlaysList = knownPlays.filter(Boolean).slice(0, 20).join(', ') || '26 Dive, 31 Sweep, 44 Power, Counter, Quick Slant, Bubble Screen, QB Sneak';
+  const knownPlaysList = knownPlays.filter(Boolean).slice(0, 20).join(', ') || '24 Blast, 26 Dive, 31 Sweep, 44 Power, Counter, Quick Slant, Bubble Screen, QB Sneak';
 
-  const systemInstruction = `You are an expert youth football (10U / Pop Warner / High School) film coordinator and scout analyst.
+  const startLOS = play?.rawYardLine || '-25';
+
+  const systemInstruction = `You are an expert football film coordinator and scout analyst.
 Your job is to analyze sequential game footage frames of an American football play and produce an exact, structured breakdown matching Hudl/PFF scouting standards.
 
-Team Context:
-- Active Team Roster: ${rosterList}
-- Opponent: ${opponentName}
-- Common Team Formations: ${knownFormsList}
-- Common Play Calls: ${knownPlaysList}
+Game Setup Context:
+- Game Type: ${isScout ? 'SCOUT GAME (Two opponent teams playing each other). DO NOT LINK OUR TEAM ROSTER. Only output visible jersey numbers.' : `OUR GAME: ${ourTeamName} vs ${opponentName}`}
+- Offense (Team with Ball): ${offenseTeam} (Jerseys: ${offenseJerseyColor})
+- Defense: ${defenseTeam} (Jerseys: ${defenseJerseyColor})
+- Roster Linking: ${linkOurRoster ? `ENABLED: Active Roster: ${rosterList}. Only match players on ${ourUnitRole === 'defense' ? 'Defense (Tacklers)' : 'Offense (Ball Carrier/Passer)'}.` : 'DISABLED: Output jersey numbers only (e.g. #24). Do not assign team player names.'}
 
-Instructions:
-1. Examine the pre-snap alignment to determine Offensive Formation (e.g., "Wishbone", "Pro I-Form", "Trips Rt", "Beast", "Double Wing", "Spread", "Shotgun") and Defensive Front (e.g., "4-4 Stack", "5-3 Over", "Cover 3", "Goal Line").
-2. Determine ODK ('O' for Offense, 'D' for Defense, 'K' for Kicking/Special Teams).
-3. Identify Line of Scrimmage (yard line, e.g. "-25" for own 25, "+30" for opp 30, "OWN 35", "OPP 20"), Down (1-4), Distance to first down (yards), and Hash ('L', 'M', or 'R').
-4. Track the point of attack: determine Play Type ('Run', 'Pass', 'RPO', 'Screen', 'Punt', 'KO') and Play Direction ('L', 'M', 'R').
-5. Recognize jersey numbers:
-   - Identify the Ball Carrier / Rusher, Passer, or Target Receiver. Cross-reference with the active roster list.
-   - Identify the primary and secondary Tackler(s) / defender(s) who made the stop.
-6. Calculate net Gain/Loss (yards from line of scrimmage to tackle/whistle) and determine Play Result (e.g., "Rush", "Complete", "Incomplete", "Sack", "Rush, TD", "Fumble").
-7. Write concise, actionable coaching notes explaining gap execution, perimeter edge sealing, missed tackles, or coverage drops.
+Core Analysis Focus:
+1. WHO RAN THE BALL (Ball Carrier / Rusher):
+   - Identify the primary ball carrier / rusher by visible jersey number ("carrierNum", e.g. "24").
+   - If a pass play, identify "passerNum" and "receiverNum".
+   - Identify run direction ('L', 'M', or 'R') and hole/path.
+2. GAINS OR LOSSES & YARDAGE:
+   - Line of scrimmage at snap: ${startLOS}
+   - Identify where the ball carrier went down / tackle was made ("whistleYardLine", e.g. "-31" or "OWN 31").
+   - Net Gain/Loss ("gainLoss", positive for gain, negative for loss, 0 for incomplete/no gain).
+   ${nextPlayStartYard ? `- CRITICAL YARDAGE & PENALTY CROSS-CHECK:
+     * The next play in the game sequence starts at: ${nextPlayStartYard}.
+     * Compare the whistle/tackle spot with ${nextPlayStartYard}.
+     * If the whistle spot does NOT align with ${nextPlayStartYard} (e.g. 5, 10, or 15 yard difference), check if a PENALTY occurred on the play!
+     * Look for: yellow penalty flag on the field, referee signaling holding/offside/facemask, penalty yardage walk-off.
+     * Report penaltyDetected (true/false), penaltyDetails, penaltyYards, penaltyOn ('Offense' | 'Defense' | 'None').` : ''}
+3. WHO MADE THE TACKLE:
+   - Identify the primary defensive tackler jersey number ("tacklerNums", e.g. ["52"]).
+   - Identify any secondary assist tacklers (e.g. ["52", "44"]).
 
-Output MUST be strictly valid JSON according to the schema provided.`;
+Output MUST be strictly valid JSON matching the schema provided.`;
 
   const promptText = `Analyze these ${frames.length} sequential keyframes from Play #${play?.playNumber || 1}.
 Frames provided:
@@ -231,29 +302,30 @@ Respond with pure JSON strictly matching this structure:
   "quarter": 1 | 2 | 3 | 4,
   "down": 1 | 2 | 3 | 4,
   "distance": 10,
-  "yardLine": "-30" | "+25" | "OWN 40",
+  "yardLine": "-25",
   "hash": "L" | "M" | "R",
-  "formation": "Trips Right" | "Wishbone" | "Pro I-Form" | "Double Wing" | "Spread",
-  "backfield": "I-Form" | "Wishbone" | "Shotgun" | "Offset",
-  "motion": "Jet L-R" | "None",
+  "formation": "Wishbone" | "Pro I-Form" | "Double Wing" | "Spread",
+  "backfield": "I-Form" | "Wishbone" | "Shotgun",
+  "motion": "None",
   "playType": "Run" | "Pass" | "RPO" | "Screen" | "KO" | "Punt",
-  "playName": "26 Dive" | "31 Sweep" | "Power" | "Quick Slant",
+  "playName": "24 Blast" | "26 Dive" | "31 Sweep",
   "playDir": "L" | "M" | "R",
   "result": "Rush" | "Complete" | "Incomplete" | "Sack" | "Rush, TD",
-  "gainLoss": 5,
-  "carrierNum": "21",
-  "carrierName": "Nash Ward",
-  "passerNum": "12",
-  "passerName": "",
+  "gainLoss": 6,
+  "whistleYardLine": "-31",
+  "carrierNum": "24",
+  "passerNum": "",
   "receiverNum": "",
-  "receiverName": "",
   "defensiveFront": "4-4 Stack",
-  "tacklerNums": ["52"],
-  "tacklerNames": ["Jaxson Pestone"],
-  "coachingNotes": "Short sentence analyzing the blocking, gap penetration, or pursuit leverage.",
+  "tacklerNums": ["52", "44"],
+  "coachingNotes": "Off-tackle run behind FB lead. Linebacker made tackle after 6 yard gain.",
+  "penaltyDetected": false,
+  "penaltyDetails": "",
+  "penaltyYards": 0,
+  "penaltyOn": "None",
   "isExplosive": false,
   "isEfficient": true,
-  "confidenceScore": 88
+  "confidenceScore": 90
 }`;
 
   // Prepare Gemini API multimodal payload
@@ -292,7 +364,7 @@ Respond with pure JSON strictly matching this structure:
 
   for (const m of candidateModels) {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${cleanKey}`;
-    
+
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         if (attempt > 1) {
@@ -340,66 +412,150 @@ Respond with pure JSON strictly matching this structure:
 
   try {
     const parsed = JSON.parse(textContent);
-    return sanitizeAiResult(parsed, roster);
+    return sanitizeAiResult(parsed, roster, {
+      linkOurRoster,
+      ourUnitRole,
+      currentStartYard: play?.rawYardLine,
+      nextPlayStartYard,
+      currentOdk: play?.odk,
+      nextPlayOdk,
+    });
   } catch (err) {
     // Attempt fallback clean
     const match = textContent.match(/\{[\s\S]*\}/);
     if (match) {
       const parsed = JSON.parse(match[0]);
-      return sanitizeAiResult(parsed, roster);
+      return sanitizeAiResult(parsed, roster, {
+        linkOurRoster,
+        ourUnitRole,
+        currentStartYard: play?.rawYardLine,
+        nextPlayStartYard,
+        currentOdk: play?.odk,
+        nextPlayOdk,
+      });
     }
     throw new Error('Failed to parse AI breakdown JSON response');
   }
 }
 
 /**
- * Sanitizes and fills names from roster numbers.
+ * Sanitizes and fills names from roster numbers, applying smart yardage cross-check.
  */
-function sanitizeAiResult(raw: any, roster: RosterPlayer[]): AiFilmAnalysisResult {
+function sanitizeAiResult(
+  raw: any,
+  roster: RosterPlayer[],
+  context: {
+    linkOurRoster?: boolean;
+    ourUnitRole?: 'offense' | 'defense' | 'none';
+    currentStartYard?: string;
+    nextPlayStartYard?: string;
+    currentOdk?: string;
+    nextPlayOdk?: string;
+  } = {}
+): AiFilmAnalysisResult {
+  const { linkOurRoster = true, ourUnitRole = 'offense', currentStartYard, nextPlayStartYard, currentOdk, nextPlayOdk } = context;
+
   const findPlayer = (num?: string) => {
-    if (!num) return undefined;
+    if (!num || !linkOurRoster) return undefined;
     const cleanNum = String(num).replace(/[^0-9]/g, '');
     return roster.find((p) => p.num === cleanNum);
   };
 
-  const carrier = findPlayer(raw.carrierNum);
-  const passer = findPlayer(raw.passerNum);
-  const receiver = findPlayer(raw.receiverNum);
+  const carrierNum = raw.carrierNum ? String(raw.carrierNum).replace(/[^0-9]/g, '') : undefined;
+  const passerNum = raw.passerNum ? String(raw.passerNum).replace(/[^0-9]/g, '') : undefined;
+  const receiverNum = raw.receiverNum ? String(raw.receiverNum).replace(/[^0-9]/g, '') : undefined;
 
-  const tacklerNames = Array.isArray(raw.tacklerNums)
-    ? raw.tacklerNums.map((n: string) => {
-        const p = findPlayer(n);
-        return p ? `#${p.num} ${p.firstName} ${p.lastName}` : `#${n}`;
-      })
+  // Only link offensive players to our roster if our team was on offense
+  const linkOffense = linkOurRoster && ourUnitRole === 'offense';
+  const carrier = linkOffense ? findPlayer(carrierNum) : undefined;
+  const passer = linkOffense ? findPlayer(passerNum) : undefined;
+  const receiver = linkOffense ? findPlayer(receiverNum) : undefined;
+
+  // Only link tacklers to our roster if our team was on defense
+  const linkDefense = linkOurRoster && ourUnitRole === 'defense';
+  const tacklerNums = Array.isArray(raw.tacklerNums)
+    ? raw.tacklerNums.map((x: string) => String(x).replace(/[^0-9]/g, '')).filter(Boolean)
     : [];
+
+  const tacklerNames = tacklerNums.map((n: string) => {
+    if (linkDefense) {
+      const p = findPlayer(n);
+      return p ? `#${p.num} ${p.firstName} ${p.lastName}` : `#${n}`;
+    }
+    return `#${n}`;
+  });
+
+  const carrierName = carrier
+    ? `#${carrier.num} ${carrier.firstName} ${carrier.lastName}`
+    : carrierNum
+    ? `#${carrierNum}`
+    : raw.carrierName || '';
+
+  const passerName = passer
+    ? `#${passer.num} ${passer.firstName} ${passer.lastName}`
+    : passerNum
+    ? `#${passerNum}`
+    : raw.passerName || '';
+
+  const receiverName = receiver
+    ? `#${receiver.num} ${receiver.firstName} ${receiver.lastName}`
+    : receiverNum
+    ? `#${receiverNum}`
+    : raw.receiverName || '';
+
+  // Smart Yardage & Penalty Cross-Check
+  const rawStart = String(raw.yardLine || currentStartYard || '-25');
+  const rawWhistle = raw.whistleYardLine ? String(raw.whistleYardLine) : undefined;
+  const rawGain = Number(raw.gainLoss) || 0;
+
+  const yardCheck = crossCheckPlayYardage({
+    currentStartYard: rawStart,
+    currentWhistleYard: rawWhistle,
+    currentGainLoss: rawGain,
+    nextStartYard: nextPlayStartYard,
+    currentOdk: raw.odk || currentOdk,
+    nextOdk: nextPlayOdk,
+  });
+
+  const penaltyDetected = Boolean(raw.penaltyDetected) || yardCheck.penaltySuspected;
+  const penaltyDetails = raw.penaltyDetails || yardCheck.penaltySuggestion || '';
+  const penaltyYards = raw.penaltyYards ? Number(raw.penaltyYards) : yardCheck.penaltyYards;
+  const penaltyOn = (raw.penaltyOn as 'Offense' | 'Defense' | 'None') || yardCheck.penaltyOn;
 
   return {
     odk: raw.odk === 'D' ? 'D' : raw.odk === 'K' ? 'K' : 'O',
     quarter: Number(raw.quarter) || 1,
     down: Number(raw.down) || 1,
     distance: Number(raw.distance) || 10,
-    yardLine: String(raw.yardLine || '-25'),
+    yardLine: rawStart,
     hash: raw.hash === 'L' || raw.hash === 'R' || raw.hash === 'M' ? raw.hash : 'M',
     formation: String(raw.formation || 'Pro I-Form'),
     backfield: String(raw.backfield || 'I-Form'),
     motion: String(raw.motion || 'None'),
     playType: raw.playType || 'Run',
-    playName: String(raw.playName || '26 Dive'),
+    playName: String(raw.playName || '24 Blast'),
     playDir: raw.playDir === 'L' || raw.playDir === 'R' || raw.playDir === 'M' ? raw.playDir : 'R',
     result: String(raw.result || 'Rush'),
-    gainLoss: Number(raw.gainLoss) || 0,
-    carrierNum: raw.carrierNum ? String(raw.carrierNum).replace(/[^0-9]/g, '') : carrier?.num,
-    carrierName: carrier ? `#${carrier.num} ${carrier.firstName} ${carrier.lastName}` : raw.carrierName || '',
-    passerNum: raw.passerNum ? String(raw.passerNum).replace(/[^0-9]/g, '') : passer?.num,
-    passerName: passer ? `#${passer.num} ${passer.firstName} ${passer.lastName}` : raw.passerName || '',
-    receiverNum: raw.receiverNum ? String(raw.receiverNum).replace(/[^0-9]/g, '') : receiver?.num,
-    receiverName: receiver ? `#${receiver.num} ${receiver.firstName} ${receiver.lastName}` : raw.receiverName || '',
+    gainLoss: yardCheck.measuredGain ?? rawGain,
+    whistleYardLine: yardCheck.whistleFormatted,
+    nextPlayYardLine: yardCheck.nextStartFormatted,
+    spotAligned: yardCheck.isAligned,
+    penaltyDetected,
+    penaltyDetails,
+    penaltyYards,
+    penaltyOn,
+    carrierNum,
+    carrierName,
+    passerNum,
+    passerName,
+    receiverNum,
+    receiverName,
     defensiveFront: String(raw.defensiveFront || '4-4 Stack'),
-    tacklerNums: Array.isArray(raw.tacklerNums) ? raw.tacklerNums.map((x) => String(x).replace(/[^0-9]/g, '')) : [],
+    tacklerNums,
     tacklerNames,
     coachingNotes: String(raw.coachingNotes || 'Downhill execution through intended gap.'),
-    isExplosive: Boolean(raw.isExplosive || (Number(raw.gainLoss) >= 12)),
-    isEfficient: Boolean(raw.isEfficient || (Number(raw.gainLoss) >= 4)),
+    isExplosive: Boolean(raw.isExplosive || Math.abs(yardCheck.measuredGain) >= 12),
+    isEfficient: Boolean(raw.isEfficient || yardCheck.measuredGain >= 4),
     confidenceScore: Math.min(100, Math.max(50, Number(raw.confidenceScore) || 85)),
   };
 }
@@ -412,27 +568,74 @@ export function simulateLocalAiBreakdown(
   play?: Play,
   roster: RosterPlayer[] = [],
   knownFormations: string[] = [],
-  knownPlays: string[] = []
+  knownPlays: string[] = [],
+  context: {
+    gameType?: 'our_game' | 'scout_game';
+    offenseTeam?: string;
+    defenseTeam?: string;
+    linkOurRoster?: boolean;
+    ourUnitRole?: 'offense' | 'defense' | 'none';
+    nextPlayStartYard?: string;
+    nextPlayOdk?: string;
+  } = {}
 ): AiFilmAnalysisResult {
+  const {
+    linkOurRoster = true,
+    ourUnitRole = 'offense',
+    nextPlayStartYard,
+    nextPlayOdk,
+  } = context;
+
   const pNum = play?.playNumber || 1;
   const rb = roster.find((p) => p.offensivePosition === 'RB' || p.primaryPosition === 'RB') || roster[0];
   const qb = roster.find((p) => p.offensivePosition === 'QB' || p.primaryPosition === 'QB') || roster[1] || roster[0];
   const de = roster.find((p) => p.defensivePosition === 'DE' || p.defensivePosition === 'MLB') || roster[2] || roster[0];
 
   const forms = knownFormations.length ? knownFormations : ['Wishbone', 'Pro-I Right', '21 Beast Left', 'Trips Right', 'Double Wing'];
-  const plays = knownPlays.length ? knownPlays : ['26 Dive', '31 Toss Sweep', '44 Power', 'Smash Hitch', 'Quick Screen'];
+  const plays = knownPlays.length ? knownPlays : ['24 Blast', '26 Dive', '31 Toss Sweep', '44 Power', 'Smash Hitch', 'Quick Screen'];
 
   const form = forms[(pNum - 1) % forms.length];
   const playName = plays[(pNum - 1) % plays.length];
   const isPass = playName.toLowerCase().includes('hitch') || playName.toLowerCase().includes('screen');
-  const gain = ((pNum * 3) % 9) + 2;
+  const rawGain = ((pNum * 3) % 9) + 2;
+
+  const startLOS = play?.rawYardLine || (pNum % 2 === 0 ? '-35' : '+42');
+
+  const yardCheck = crossCheckPlayYardage({
+    currentStartYard: startLOS,
+    currentGainLoss: rawGain,
+    nextStartYard: nextPlayStartYard,
+    currentOdk: play?.odk,
+    nextOdk: nextPlayOdk,
+  });
+
+  const linkOffense = linkOurRoster && ourUnitRole === 'offense';
+  const linkDefense = linkOurRoster && ourUnitRole === 'defense';
+
+  const carrierNum = isPass ? undefined : rb?.num || '24';
+  const carrierName = isPass
+    ? undefined
+    : linkOffense && rb
+    ? `#${rb.num} ${rb.firstName} ${rb.lastName}`
+    : carrierNum
+    ? `#${carrierNum}`
+    : '#24';
+
+  const tacklerNums = de ? [de.num] : ['52'];
+  const tacklerNames = tacklerNums.map((n) => {
+    if (linkDefense) {
+      const p = roster.find((x) => x.num === n);
+      return p ? `#${p.num} ${p.firstName} ${p.lastName}` : `#${n}`;
+    }
+    return `#${n}`;
+  });
 
   return {
     odk: play?.odk === 'D' ? 'D' : play?.odk === 'K' ? 'K' : 'O',
     quarter: play?.quarter || (pNum <= 10 ? 1 : pNum <= 20 ? 2 : 3),
     down: play?.down || ((pNum % 3) + 1),
     distance: play?.distance || 10,
-    yardLine: play?.rawYardLine || (pNum % 2 === 0 ? '-35' : '+42'),
+    yardLine: startLOS,
     hash: pNum % 3 === 0 ? 'L' : pNum % 3 === 1 ? 'R' : 'M',
     formation: form,
     backfield: form.includes('Wishbone') ? 'Wishbone' : form.includes('Beast') ? 'Beast' : 'I-Form',
@@ -441,19 +644,26 @@ export function simulateLocalAiBreakdown(
     playName,
     playDir: pNum % 2 === 0 ? 'R' : 'L',
     result: isPass ? 'Complete' : 'Rush',
-    gainLoss: gain,
-    carrierNum: isPass ? undefined : rb?.num || '21',
-    carrierName: isPass ? undefined : rb ? `#${rb.num} ${rb.firstName} ${rb.lastName}` : '#21 Nash Ward',
+    gainLoss: yardCheck.measuredGain,
+    whistleYardLine: yardCheck.whistleFormatted,
+    nextPlayYardLine: yardCheck.nextStartFormatted,
+    spotAligned: yardCheck.isAligned,
+    penaltyDetected: yardCheck.penaltySuspected,
+    penaltyDetails: yardCheck.penaltySuggestion || '',
+    penaltyYards: yardCheck.penaltyYards,
+    penaltyOn: yardCheck.penaltyOn,
+    carrierNum,
+    carrierName,
     passerNum: isPass ? qb?.num || '1' : undefined,
-    passerName: isPass ? (qb ? `#${qb.num} ${qb.firstName} ${qb.lastName}` : '#1 QB') : undefined,
+    passerName: isPass ? (linkOffense && qb ? `#${qb.num} ${qb.firstName} ${qb.lastName}` : '#1') : undefined,
     defensiveFront: pNum % 2 === 0 ? '4-4 Stack Cover 3' : '5-3 Over',
-    tacklerNums: de ? [de.num] : ['52'],
-    tacklerNames: de ? [`#${de.num} ${de.firstName} ${de.lastName}`] : ['#52 Jaxson Pestone'],
+    tacklerNums,
+    tacklerNames,
     coachingNotes: isPass
       ? `Clean pass release off 3-step drop. Quick completion in flats before perimeter safety broke downhill.`
-      : `Tailback pressed outside leverage, planted cleat, and exploded downhill for +${gain} yards. Solid seal block on the perimeter.`,
-    isExplosive: gain >= 12,
-    isEfficient: gain >= 4,
+      : `Tailback pressed outside leverage, planted cleat, and exploded downhill for +${yardCheck.measuredGain} yards. Solid seal block on the perimeter.`,
+    isExplosive: yardCheck.measuredGain >= 12,
+    isEfficient: yardCheck.measuredGain >= 4,
     confidenceScore: 92,
   };
 }
@@ -482,19 +692,31 @@ export function analysisResultToBreakdownRow(res: AiFilmAnalysisResult): Breakdo
  * Converts an AI breakdown analysis result into Play patch object (extended attributes).
  */
 export function analysisResultToPlayPatch(res: AiFilmAnalysisResult): Partial<Play> {
+  const primaryTackler = res.tacklerNames?.[0] || (res.tacklerNums?.[0] ? `#${res.tacklerNums[0]}` : undefined);
+  const assists = (res.tacklerNames && res.tacklerNames.length > 1)
+    ? res.tacklerNames.slice(1)
+    : res.tacklerNums && res.tacklerNums.length > 1
+    ? res.tacklerNums.slice(1).map((n) => `#${n}`)
+    : undefined;
+
   return {
     backfield: res.backfield,
     motion: res.motion,
     rusher: res.carrierName || (res.carrierNum ? `#${res.carrierNum}` : undefined),
     passer: res.passerName || (res.passerNum ? `#${res.passerNum}` : undefined),
     receiver: res.receiverName || (res.receiverNum ? `#${res.receiverNum}` : undefined),
-    carrierOrTarget: res.carrierName || res.receiverName || res.passerName || '',
+    carrierOrTarget: res.carrierName || (res.carrierNum ? `#${res.carrierNum}` : '') || res.receiverName || res.passerName || '',
     isExplosive: res.isExplosive,
     isEfficient: res.isEfficient,
-    defPlay: res.tacklerNames?.length
+    defPlay: primaryTackler
       ? {
-          maker: res.tacklerNames[0],
-          assists: res.tacklerNames.slice(1),
+          maker: primaryTackler,
+          assists: assists?.length ? assists : undefined,
+          events: res.result.toLowerCase().includes('sack')
+            ? ['sack']
+            : res.gainLoss < 0
+            ? ['tfl']
+            : undefined,
         }
       : undefined,
   };
