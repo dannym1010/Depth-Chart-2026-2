@@ -1657,6 +1657,11 @@ function nodes353(): PlayNode[] {
  * Automatically lines up defensive players based on their technique label (e.g. E9, T3, T1, E5, NT0, E7, T2).
  * Adjusts dynamically based on the offensive line and tight end positions.
  */
+/** Our defense on a hash: the whole look moves with the ball first, then the line sets its techniques on the offense. */
+export function defenseAtHash(defenseNodes: PlayNode[], offenseNodes: PlayNode[], hashDx: number): PlayNode[] {
+  return alignDefenseTechniques(hashDx ? defenseNodes.map((n) => ({ ...n, x: n.x + hashDx })) : defenseNodes, offenseNodes);
+}
+
 export function alignDefenseTechniques(defenseNodes: PlayNode[], offenseNodes: PlayNode[]): PlayNode[] {
   if (!defenseNodes.length || !offenseNodes.length) return defenseNodes;
 

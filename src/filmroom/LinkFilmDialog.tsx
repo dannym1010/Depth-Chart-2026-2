@@ -19,6 +19,7 @@ export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveL
   const [link, setLink] = useState(driveLink || '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const drive = driveReady();
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -42,57 +43,59 @@ export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveL
         <div className="flex items-start justify-between gap-2">
           <div>
             <h2 className="text-base font-black text-slate-900 dark:text-white">Link film</h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">{gameName}: one video file per play, in play order.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{gameName}</p>
           </div>
           <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white" aria-label="Close">
             <X size={18} />
           </button>
         </div>
 
-        <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 flex flex-col gap-2">
-          <div className="flex items-start gap-3">
-            <Cloud size={20} className="text-indigo-500 shrink-0 mt-0.5" />
-            <div>
-              <div className="text-sm font-bold text-slate-900 dark:text-white">Shared Google Drive folder</div>
-              <div className="text-xs text-slate-500 dark:text-slate-400">Paste the link to your team film folder (like "Mahopac Film", with 10U, 9U... inside) and every game finds its own folder, or to just this game's folder. Every coach gets it, on any device (they sign in with Google).</div>
+        {/* Google Drive (only when it's turned on for this site): every coach, any device. */}
+        {drive && (
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 flex flex-col gap-2">
+            <div className="flex items-start gap-3">
+              <Cloud size={20} className="text-indigo-500 shrink-0 mt-0.5" />
+              <div>
+                <div className="text-sm font-bold text-slate-900 dark:text-white">Google Drive folder</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">Paste the link to the team film folder once. Every game finds its own folder, for every coach.</div>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <input
+                value={link}
+                onChange={(e) => setLink(e.target.value)}
+                placeholder="https://drive.google.com/drive/folders/…"
+                disabled={busy}
+                className="flex-1 min-w-0 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 h-9 text-sm text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                onClick={() => run(() => onDrive(link))}
+                disabled={busy || !link.trim()}
+                className="px-3 h-9 rounded-lg bg-indigo-600 text-white text-xs font-bold disabled:opacity-40"
+              >
+                {busy ? 'Linking…' : 'Link'}
+              </button>
             </div>
           </div>
-          <div className="flex gap-2">
-            <input
-              value={link}
-              onChange={(e) => setLink(e.target.value)}
-              placeholder="https://drive.google.com/drive/folders/…"
-              disabled={!driveReady() || busy}
-              className="flex-1 min-w-0 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 h-9 text-sm text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-            />
-            <button
-              onClick={() => run(() => onDrive(link))}
-              disabled={!driveReady() || busy || !link.trim()}
-              className="px-3 h-9 rounded-lg bg-indigo-600 text-white text-xs font-bold disabled:opacity-40"
-            >
-              {busy ? 'Linking…' : 'Link'}
-            </button>
-          </div>
-          {!driveReady() && <p className="text-[11px] text-amber-600 dark:text-amber-400">Google sign-in isn't set up for this site yet. Use a folder on this computer for now.</p>}
-        </div>
+        )}
 
-        <button className={option} disabled={!canOpenFolders() || busy} onClick={() => run(onFolder)}>
-          <FolderOpen size={20} className="text-indigo-500 shrink-0 mt-0.5" />
-          <span>
-            <span className="block text-sm font-bold text-slate-900 dark:text-white">Folder on this computer</span>
-            <span className="block text-xs text-slate-500 dark:text-slate-400">
-              {canOpenFolders()
-                ? "Your team film folder (every game finds its own) or just this game's folder. Remembered on this computer; a Google Drive for desktop folder works too."
-                : 'Needs Chrome or Edge on a computer.'}
+        {canOpenFolders() && (
+          <button className={option} disabled={busy} onClick={() => run(onFolder)}>
+            <FolderOpen size={20} className="text-indigo-500 shrink-0 mt-0.5" />
+            <span>
+              <span className="block text-sm font-bold text-slate-900 dark:text-white">Folder on this computer</span>
+              <span className="block text-xs text-slate-500 dark:text-slate-400">
+                Pick the team film folder once and every game finds its own (or pick just this game's folder). A Google Drive for desktop folder works too.
+              </span>
             </span>
-          </span>
-        </button>
+          </button>
+        )}
 
         <button className={option} disabled={busy} onClick={() => fileInput.current?.click()}>
           <Smartphone size={20} className="text-indigo-500 shrink-0 mt-0.5" />
           <span>
-            <span className="block text-sm font-bold text-slate-900 dark:text-white">Pick clips from this device</span>
-            <span className="block text-xs text-slate-500 dark:text-slate-400">For phones and tablets. Select all the game's clips; used for this visit only.</span>
+            <span className="block text-sm font-bold text-slate-900 dark:text-white">Pick this game's clips</span>
+            <span className="block text-xs text-slate-500 dark:text-slate-400">Select all of them at once (phones and tablets too). For this visit only.</span>
           </span>
         </button>
         <input
@@ -112,12 +115,8 @@ export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveL
 
         {error && <p className="text-xs text-rose-600 dark:text-rose-400">{error}</p>}
         <p className="text-[11px] text-slate-500 dark:text-slate-400 rounded-lg bg-slate-50 dark:bg-slate-800/60 px-3 py-2">
-          <span className="font-bold">Use both:</span> link the Google Drive folder for everyone, then on your computer also pick the same
-          folder here (from Google Drive for desktop, or a copy). This computer plays from its own copy (faster) and uses Google Drive for any
-          game it doesn't have yet.
-        </p>
-        <p className="text-[11px] text-slate-400">
-          Clips go with the plays in order (first file = play 1). In the team film folder, a game's clips are in team / week ("10U / Week 3 - Shrub Oak"), or team / Scouting / week for an opponent.
+          Set up the team film folder like <b>10U / Week 3 - Shrub Oak</b> (opponents: <b>10U / Scouting / Week 3</b>), one clip per play, in play order.
+          {drive ? ' Link Google Drive for everyone, and on your computer also pick your copy of it: that plays faster.' : " Linking a shared Google Drive folder for every coach isn't turned on for this site yet."}
         </p>
       </div>
     </div>

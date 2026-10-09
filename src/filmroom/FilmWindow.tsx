@@ -126,7 +126,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
     [updateRoot]
   );
   const setPick = useCallback((name: string) => update((s) => ({ ...s, folderPick: { name, editedAt: Date.now() } })), [update]);
-  const { film, chooseFolder, reconnect, pickFiles, linkDrive, signInToDrive, localFiles, sources, setSourcePref, setView, choose } = useGameFilm({
+  const { film, chooseFolder, reconnect, pickFiles, linkDrive, signInToDrive, localFiles, sources, playFromComputer, playFromDrive, setView, choose } = useGameFilm({
     game,
     teamId,
     teamName,
@@ -215,7 +215,15 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
 
   const placeholder = (() => {
     if (film.status === 'loading') return <span>Opening {film.label}…</span>;
-    if (film.status === 'error') return <span className="text-rose-300">{film.message}</span>;
+    if (film.status === 'error')
+      return (
+        <div className="flex flex-col items-center gap-2 px-3 text-center">
+          <span className="text-xs text-rose-300">{film.message}</span>
+          <button onClick={() => setLinkOpen(true)} className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold">
+            Link film
+          </button>
+        </div>
+      );
     if (film.status === 'reconnect')
       return (
         <div className="flex flex-col items-center gap-2 px-3 text-center">
@@ -223,7 +231,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
             <RefreshCw size={14} /> Open the film folder “{film.label}”
           </button>
           {sources.drive && (
-            <button onClick={() => setSourcePref('drive')} className="text-[11px] font-bold underline">
+            <button onClick={() => void playFromDrive()} className="text-[11px] font-bold underline">
               Use Google Drive instead
             </button>
           )}
@@ -251,6 +259,11 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
           <button onClick={signInToDrive} className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold">
             Sign in with Google to watch
           </button>
+          {sources.local && (
+            <button onClick={() => void playFromComputer()} className="text-[11px] font-bold underline">
+              Use this computer's copy instead
+            </button>
+          )}
         </div>
       );
     if (film.status === 'none')

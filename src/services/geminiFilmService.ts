@@ -174,6 +174,7 @@ export async function analyzeFilmWithGemini({
   userPrompt = '',
   apiKey = getSavedGeminiKey(),
   modelName = getSavedGeminiModel(),
+  onStatusUpdate,
 }: {
   frames: ExtractedFrame[];
   play?: Play;
@@ -406,7 +407,7 @@ function sanitizeAiResult(raw: any, roster: RosterPlayer[]): AiFilmAnalysisResul
 /**
  * Intelligent simulation engine for preview/demo when no Gemini API key is configured.
  */
-function simulateLocalAiBreakdown(
+export function simulateLocalAiBreakdown(
   frames: ExtractedFrame[],
   play?: Play,
   roster: RosterPlayer[] = [],

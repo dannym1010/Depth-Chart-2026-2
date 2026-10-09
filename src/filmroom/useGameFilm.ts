@@ -302,12 +302,39 @@ export function useGameFilm(opts: {
       await rememberFolder(ROOT_KEY, handle);
       setHasLocalRoot(true);
       await forgetFolder(folderKey);
+      // Picked this computer's copy: play from it from now on (not Google Drive from an earlier choice).
+      setSourcePref('local');
       await loadFromRoot(localFolderNode(handle));
       return;
     }
     await rememberFolder(folderKey, handle);
     await loadFolder(handle);
-  }, [folderKey, loadFolder, loadFromRoot]);
+  }, [folderKey, loadFolder, loadFromRoot, setSourcePref]);
+
+  /**
+   * Play from this computer's copy of the team film folder (one tap): asks the browser once to read it
+   * again, or, with none on this computer yet, opens the folder picker.
+   */
+  const playFromComputer = useCallback(async () => {
+    const handle = await recallFolder(ROOT_KEY);
+    if (!handle) return chooseFolder();
+    if (!(await folderAccess(handle, true))) return;
+    pending.current = '';
+    setSourcePref('local');
+    setReloadTick((t) => t + 1);
+  }, [chooseFolder, setSourcePref]);
+
+  /** Play from the team's Google Drive folder (signs in to Google first when needed). */
+  const playFromDrive = useCallback(async () => {
+    try {
+      if (!isDriveSignedIn()) await driveSignIn();
+    } catch (err: any) {
+      setFilm({ status: 'error', label: rootLabel, message: err?.message || String(err) });
+      return;
+    }
+    setSourcePref('drive');
+    setReloadTick((t) => t + 1);
+  }, [rootLabel, setSourcePref]);
 
   /** After a reload the browser asks once before reading the remembered folder again. */
   const reconnect = useCallback(async () => {
@@ -385,6 +412,10 @@ export function useGameFilm(opts: {
     getRootNode,
     sourcePref,
     setSourcePref,
+    playFromComputer,
+    playFromDrive,
+    /** Which copy of the team film folder the game is playing from now. */
+    playingFrom: film.status === 'ready' && film.viaRoot ? (film.kind === 'drive' ? ('drive' as const) : ('local' as const)) : undefined,
   };
 }
 

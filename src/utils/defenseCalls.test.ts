@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { defenseCallName, defenseCallStrokes } from './defenseCalls.ts';
-import { OUR_DEFENSE_LOOKS, alignDefenseTechniques } from './footballEngine.ts';
+import { OUR_DEFENSE_LOOKS, alignDefenseTechniques, defenseAtHash } from './footballEngine.ts';
 
 // A pro set: tight end right, split ends both sides, I backs.
 const off = [
@@ -197,3 +197,37 @@ describe('strong and weak Blow Sting', () => {
     assert.equal(on('E9', weak), 'End D gap');
   });
 });
+
+describe('defense on a hash', () => {
+  it('moves with the ball: every defender keeps his spot on the offense, Left or Right', () => {
+    const middle = defenseAtHash(OUR_DEFENSE_LOOKS['44_C3_LIZ'].nodes, off, 0);
+    for (const dx of [-4.2, 4.2]) {
+      const offAtHash = off.map((n) => ({ ...n, x: n.x + dx }));
+      const d = defenseAtHash(OUR_DEFENSE_LOOKS['44_C3_LIZ'].nodes, offAtHash, dx);
+      for (const n of middle) {
+        const m = d.find((x) => x.role === n.role)!;
+        assert.ok(Math.abs(m.x - (n.x + dx)) < 0.01, `${n.role} at ${m.x}, expected ${n.x + dx}`);
+        assert.equal(m.y, n.y);
+      }
+    }
+  });
+
+  it('the call drawn on a hash (blitz paths and zones) moves with the ball, zones kept inside the sideline', () => {
+    for (const dx of [-4.2, 4.2]) {
+      const offAtHash = off.map((n) => ({ ...n, x: n.x + dx }));
+      const mid = defenseCallStrokes(defenseAtHash(OUR_DEFENSE_LOOKS['44_C3_LIZ'].nodes, off, 0), off, 'edge_l', 'cover3');
+      const hash = defenseCallStrokes(defenseAtHash(OUR_DEFENSE_LOOKS['44_C3_LIZ'].nodes, offAtHash, dx), offAtHash, 'edge_l', 'cover3');
+      assert.equal(hash.length, mid.length);
+      mid.forEach((st, i) => {
+        const a = st.points[st.points.length - 1];
+        const b = hash[i].points[hash[i].points.length - 1];
+        assert.ok(Math.abs(b.x - (a.x + dx)) < 0.01, `${st.label} ends at ${b.x}, expected ${a.x + dx}`);
+      });
+    }
+    // Far out on a hash, a flat stays on the field.
+    const far = off.map((n) => ({ ...n, x: n.x + 12 }));
+    const zones = defenseCallStrokes(defenseAtHash(OUR_DEFENSE_LOOKS['44_C3_LIZ'].nodes, far, 12), far, '', 'cover3').filter((x) => x.zone);
+    for (const z of zones) assert.ok(z.points[1].x + z.zone!.rx <= 22.01, `${z.label} off the field`);
+  });
+});
+

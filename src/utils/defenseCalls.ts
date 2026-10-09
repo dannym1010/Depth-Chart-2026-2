@@ -312,6 +312,10 @@ const drop = (n: PlayNode, x: number, y: number, rx: number, ry: number, label: 
   points: [pt(n.x, n.y), pt(x, y)],
 });
 
+/** A zone's spot (drawn for the ball in the middle) moved with the ball to its hash, kept inside the sideline. */
+const SIDELINE = 22;
+const zoneX = (x: number, ball: number, rx: number) => Math.max(-SIDELINE + rx, Math.min(SIDELINE - rx, x + ball));
+
 const DEEP = { y: 15, rx: 5.2, ry: 2.4 };
 const UNDER: Record<string, { x: number; y: number; label: string }> = {
   flatL: { x: -13, y: 5, label: 'Flat' },
@@ -340,7 +344,7 @@ function deepSpots(n: number): { x: number; label: string }[] {
 }
 
 /** The coverage's drops and zones (or man lines), for everyone who isn't rushing. */
-function coveragePaths(id: string, def: PlayNode[], off: PlayNode[], rushers: Set<string>): PlayStroke[] {
+function coveragePaths(id: string, def: PlayNode[], off: PlayNode[], rushers: Set<string>, ball = 0): PlayStroke[] {
   const out: PlayStroke[] = [];
   const free = def.filter((n) => !isLineman(n.role) && !rushers.has(n.role));
   const corners = free.filter((n) => isCorner(n.role)).sort((a, b) => a.x - b.x);
@@ -352,14 +356,14 @@ function coveragePaths(id: string, def: PlayNode[], off: PlayNode[], rushers: Se
     const set = UNDER_SETS[Math.min(6, sorted.length)] || [];
     sorted.forEach((n, i) => {
       const z = UNDER[set[i] || 'mid'];
-      out.push(drop(n, z.x, z.y, 3, 1.7, z.label));
+      out.push(drop(n, zoneX(z.x, ball, 3), z.y, 3, 1.7, z.label));
     });
   };
   const deep = (players: PlayNode[]) => {
     const sorted = [...players].sort((a, b) => a.x - b.x);
     const spots = deepSpots(sorted.length);
     const rx = sorted.length >= 4 ? 4.2 : sorted.length === 2 ? 7.5 : DEEP.rx;
-    sorted.forEach((n, i) => out.push(drop(n, spots[i].x, DEEP.y, rx, DEEP.ry, spots[i].label)));
+    sorted.forEach((n, i) => out.push(drop(n, zoneX(spots[i].x, ball, rx), DEEP.y, rx, DEEP.ry, spots[i].label)));
   };
 
   if (id === 'cover3') {
@@ -370,7 +374,7 @@ function coveragePaths(id: string, def: PlayNode[], off: PlayNode[], rushers: Se
     // Two safeties take the halves; with one, the corners do (and the safety helps in the middle).
     if (safeties.length >= 2) {
       deep(safeties.slice(0, 2));
-      corners.forEach((c) => out.push(drop(c, c.x < 0 ? UNDER.flatL.x : UNDER.flatR.x, 5, 3, 1.7, 'Flat (squat)')));
+      corners.forEach((c) => out.push(drop(c, zoneX(c.x < ball ? UNDER.flatL.x : UNDER.flatR.x, ball, 3), 5, 3, 1.7, 'Flat (squat)')));
       underneath([...others, ...safeties.slice(2)]);
     } else {
       deep(corners);
@@ -383,7 +387,7 @@ function coveragePaths(id: string, def: PlayNode[], off: PlayNode[], rushers: Se
   } else if (id === 'cover1' || id === 'cover0') {
     // Man: each defender to a receiver (corners to the widest ones on their side); the free safety deep in Cover 1.
     const deepOne = id === 'cover1' ? safeties[0] : undefined;
-    if (deepOne) out.push(drop(deepOne, 0, 15, 6, 2.6, 'Deep middle'));
+    if (deepOne) out.push(drop(deepOne, ball, 15, 6, 2.6, 'Deep middle'));
     const receivers = off.filter((n) => ELIGIBLE.test(n.role) && n.role !== '1');
     const taken = new Set<string>();
     const cover = (n: PlayNode, target?: PlayNode) => {
@@ -393,8 +397,8 @@ function coveragePaths(id: string, def: PlayNode[], off: PlayNode[], rushers: Se
       const ty = n.y + (target.y - n.y) * 0.72;
       out.push({ kind: 'pass', color: COVERAGE_COLOR, label: `Man on ${target.label || target.role}`, points: [pt(n.x, n.y), pt(tx, Math.max(ty, 0.6))] });
     };
-    const widest = (side: number) => receivers.filter((r) => !taken.has(r.role) && Math.sign(r.x || 0.01) === side).sort((a, b) => Math.abs(b.x) - Math.abs(a.x))[0];
-    for (const c of corners) cover(c, widest(c.x < 0 ? -1 : 1));
+    const widest = (side: number) => receivers.filter((r) => !taken.has(r.role) && Math.sign(r.x - ball || 0.01) === side).sort((a, b) => Math.abs(b.x - ball) - Math.abs(a.x - ball))[0];
+    for (const c of corners) cover(c, widest(c.x < ball ? -1 : 1));
     for (const n of [...others, ...safeties.filter((s) => s !== deepOne)].sort((a, b) => a.y - b.y)) {
       const near = receivers.filter((r) => !taken.has(r.role)).sort((a, b) => Math.hypot(a.x - n.x, a.y - n.y) - Math.hypot(b.x - n.x, b.y - n.y))[0];
       if (near) cover(n, near);
@@ -445,7 +449,7 @@ export function defenseCallStrokes(
       mine.push(rush(n, g[side][gap], `Blitz ${gap} gap`));
     } else if (job.startsWith('zone:')) {
       const z = ZONE_SPOTS[job.slice(5)];
-      if (z) mine.push(drop(n, z.x, z.y, z.rx, z.ry, z.label));
+      if (z) mine.push(drop(n, zoneX(z.x, g.C, z.rx), z.y, z.rx, z.ry, z.label));
     } else if (job.startsWith('stunt:') || job.startsWith('loop:')) {
       // A lineman's own move: one gap in or out, or a loop (around his neighbor) two gaps over.
       const loop = job.startsWith('loop:');
@@ -464,7 +468,7 @@ export function defenseCallStrokes(
       mine.push(drop(n, qb ? qb.x : g.C, 4.5, 2.4, 1.4, 'Spy the QB'));
     }
   }
-  return [...callStrokes, ...mine, ...(coverage ? coveragePaths(coverage, def, off, busy) : [])];
+  return [...callStrokes, ...mine, ...(coverage ? coveragePaths(coverage, def, off, busy, g.C) : [])];
 }
 
 /** "4-4 · Edge fire left · Cover 3" */

@@ -32,6 +32,7 @@ import { playTitle } from './playText';
 import { filmGameKey } from './sharedMerge';
 import type { FilmGame, FilmMark, FilmNote } from './types';
 import { useClipUrl, useGameFilm } from './useGameFilm';
+import { canOpenFolders } from './filmSources';
 import { useSharedGame } from './useSharedGame';
 import { readBreakdown, useFolderBreakdowns } from './folderImport';
 
@@ -179,7 +180,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const setRootDrive = useCallback((drive: typeof shared.drive) => updateRoot((s) => ({ ...s, drive: drive || { folderId: '', editedAt: Date.now() } })), [updateRoot]);
   // Which folder holds this game in a week with several (one pick, for the whole staff).
   const setPick = useCallback((name: string) => update((s) => ({ ...s, folderPick: { name, editedAt: Date.now() } })), [update]);
-  const { film, chooseFolder, reconnect, pickFiles, linkDrive, signInToDrive, unlink, localFiles, sources, sourcePref, setSourcePref, setView, choose, getRootNode } = useGameFilm({
+  const { film, chooseFolder, reconnect, pickFiles, linkDrive, signInToDrive, unlink, localFiles, sources, sourcePref, playFromComputer, playFromDrive, playingFrom, setView, choose, getRootNode } = useGameFilm({
     game,
     teamId,
     teamName,
@@ -422,7 +423,14 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const placeholder = (() => {
     if (!game) return null;
     if (film.status === 'loading') return <span>Opening {film.label}…</span>;
-    if (film.status === 'error') return <span className="text-rose-300 dark:text-rose-300">{film.message}</span>;
+    // Not found (or couldn't open): say why, with the way to fix it right there.
+    if (film.status === 'error')
+      return (
+        <div className="flex flex-col items-center gap-2 max-w-md text-center">
+          <span className="text-rose-300 dark:text-rose-300">{film.message}</span>
+          <button onClick={() => setLinkOpen(true)} className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-bold">Link film</button>
+        </div>
+      );
     if (film.status === 'reconnect')
       return (
         <div className="flex flex-col items-center gap-2">
@@ -430,7 +438,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             <RefreshCw size={16} /> Open the film folder “{film.label}” on this computer
           </button>
           {sources.drive && (
-            <button onClick={() => setSourcePref('drive')} className="text-xs font-bold underline">
+            <button onClick={() => void playFromDrive()} className="text-xs font-bold underline">
               Use Google Drive instead
             </button>
           )}
@@ -456,6 +464,11 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         <div className="flex flex-col items-center gap-2">
           <span>This game's film is in the team's Google Drive folder “{film.label}”.</span>
           <button onClick={signInToDrive} className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-bold">Sign in with Google to watch</button>
+          {sources.local && canOpenFolders() && (
+            <button onClick={() => void playFromComputer()} className="text-xs font-bold underline">
+              Use this computer's copy instead
+            </button>
+          )}
         </div>
       );
     if (film.status === 'none')
@@ -798,19 +811,30 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             ))}
           </select>
         )}
-        {/* Both copies of the film folder linked: which one this device plays from. */}
-        {sources.local && sources.drive && (
-          <select
-            value={sourcePref}
-            onChange={(e) => setSourcePref(e.target.value as 'auto' | 'local' | 'drive')}
-            aria-label="Play film from"
-            title="Auto: this computer's copy when it has the game (faster), otherwise Google Drive"
-            className="h-7 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200"
-          >
-            <option value="auto">Play from: Auto</option>
-            <option value="local">Play from: This computer</option>
-            <option value="drive">Play from: Google Drive</option>
-          </select>
+        {/* The team film folder on Google Drive: play from it or from this computer's copy (one tap). */}
+        {sources.drive && canOpenFolders() && (
+          <div role="group" aria-label="Play film from" className="inline-flex h-7 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-[11px] font-bold">
+            {(
+              [
+                ['local', 'This computer', sources.local ? "Play from this computer's copy of the film folder (faster)" : 'Pick your copy of the film folder on this computer (faster)', playFromComputer],
+                ['drive', 'Google Drive', "Play from the team's Google Drive folder", playFromDrive],
+              ] as const
+            ).map(([id, text, tip, go]) => {
+              const on = (playingFrom || (sourcePref === 'auto' ? undefined : sourcePref)) === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={on}
+                  title={tip}
+                  onClick={() => void go()}
+                  className={`px-2.5 ${on ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                >
+                  {text}
+                </button>
+              );
+            })}
+          </div>
         )}
         {/* Clips go with plays in order: a different count means some clip is missing or extra. */}
         {film.status === 'ready' && clips.length > 0 && clipMatchMode(clips, plays) === 'order' && clips.length !== plays.length && (

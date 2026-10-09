@@ -11,7 +11,7 @@ import {
   PLAY_CONCEPTS,
   RUN_SCHEMES,
   TE_LOCATIONS,
-  alignDefenseTechniques,
+  defenseAtHash,
   applyNodeOverrides,
   autoDrawPlay,
   isDefenseRole,
@@ -153,8 +153,9 @@ export function redrawWithBackfield(
   // and the lines drawn for defenders kept (the offense's lines are drawn again).
   const look = lookKey ? (OUR_DEFENSE_LOOKS[lookKey] || OUR_DEFENSE_LOOKS[baseLookKey(lookKey)])?.nodes || [] : [];
   const whoByRole = b?.defensePlayers || ourDefense?.players || {};
-  const defense = applyNodeOverrides(withMyAlignment(lookKey, alignDefenseTechniques(look, nodes)), overrides).map((n) => {
-    const moved = named(overrides[n.role] ? n : { ...n, x: n.x + hashDx });
+  // The whole defense moves with the ball to the hash, then the line sets on the offense (no second shift).
+  const defense = applyNodeOverrides(withMyAlignment(lookKey, defenseAtHash(look, nodes, hashDx)), overrides).map((n) => {
+    const moved = named(n);
     return whoByRole[n.role] ? { ...moved, player: whoByRole[n.role], ...(b?.defenseShow === 'number' ? { show: 'number' as const } : {}) } : moved;
   });
   // A different defense than the one the lines were drawn for: its lines don't belong to these defenders.
@@ -342,7 +343,8 @@ export function playWithDefense(entry: PlayDatabaseEntry, card: ScoutOppPlay, d:
   const lineUp = (key: string, ov: Record<string, { x: number; y: number }>) => {
     const look = OUR_DEFENSE_LOOKS[key] || OUR_DEFENSE_LOOKS[baseLookKey(key)];
     if (!look) return [];
-    return applyNodeOverrides(withMyAlignment(key, alignDefenseTechniques(look.nodes, offNodes)), ov).map((n) => place(n, ov));
+    // Moved with the ball to the hash, then lined up on the offense (no second shift).
+    return applyNodeOverrides(withMyAlignment(key, defenseAtHash(look.nodes, offNodes, hashDx)), ov).map((n) => (names[n.role] ? { ...n, label: names[n.role] } : n));
   };
   // The old defenders' lines go with them; the offense's lines stay as drawn.
   const oldDefense = lineUp(b0.defenseKey, b0.overrides || {});

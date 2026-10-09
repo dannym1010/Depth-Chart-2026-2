@@ -25,7 +25,7 @@ import {
   diagramSvg,
   autoDrawPlay,
   applyNodeOverrides,
-  alignDefenseTechniques,
+  defenseAtHash,
   conceptFamily,
   resolveTaggedCall,
   type AssembledPlay,
@@ -341,15 +341,22 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [defenseKey, tagging, defUnit, defFront, strongLeft, rosterSrc, defWho]
   );
+  // Our defense where it starts before any of its players are dragged: the whole look moves with the
+  // ball to the hash first, then the line sets its techniques on the offense's line (no second shift).
+  const lineUpDefense = (nodes: PlayNode[]) => defenseAtHash(nodes, offNodes, hashDx);
+  const standardDefense = useMemo(
+    () => (dLook ? withMyAlignment(defenseKey, lineUpDefense(dLook.nodes)) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dLook, defenseKey, offNodes, hashDx]
+  );
   const dNodes = useMemo(() => {
     if (!dLook) return [];
-    // Lined up on the offense, then the way the coach saved this defense as the default.
-    const aligned = withMyAlignment(defenseKey, alignDefenseTechniques(dLook.nodes, offNodes));
-    return applyNodeOverrides(aligned, overrides)
-      .map((n) => withLabel(overrides[n.role] ? n : { ...n, x: n.x + hashDx }))
+    // Moved with the ball to the hash, lined up on the offense, then the way the coach saved this defense.
+    return applyNodeOverrides(standardDefense, overrides)
+      .map((n) => withLabel(n))
       .map((n) => (taggedWho[n.role] ? { ...n, player: taggedWho[n.role], ...(defShow === 'number' ? { show: 'number' as const } : {}) } : n));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dLook, offNodes, overrides, hashDx, labels, taggedWho, defShow]);
+  }, [dLook, standardDefense, overrides, labels, taggedWho, defShow]);
   const play = basePlay ? { ...basePlay, nodes: offNodes } : null;
   const containFor = (front: string) => {
     const sys = defenseSystem();
@@ -366,10 +373,10 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [defaultNote, setDefaultNote] = useState('');
   const saveDefenseDefault = () => {
     if (!dLook || !saveAlignment) return;
-    const standard = alignDefenseTechniques(dLook.nodes, offNodes);
+    const standard = lineUpDefense(dLook.nodes);
     const moves: Record<string, { dx: number; dy: number }> = {};
     for (const n of standard) {
-      const now = overrides[n.role] ? { x: overrides[n.role].x - hashDx, y: overrides[n.role].y } : { x: n.x + (myDefault?.[n.role]?.dx || 0), y: n.y + (myDefault?.[n.role]?.dy || 0) };
+      const now = overrides[n.role] ? { x: overrides[n.role].x, y: overrides[n.role].y } : { x: n.x + (myDefault?.[n.role]?.dx || 0), y: n.y + (myDefault?.[n.role]?.dy || 0) };
       const dx = Math.round((now.x - n.x) * 100) / 100;
       const dy = Math.round((now.y - n.y) * 100) / 100;
       if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) moves[n.role] = { dx, dy };
@@ -393,10 +400,10 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     const name = window.prompt('Name this front (e.g. 6-2, Bear, Goal line):', '')?.trim();
     if (!name) return;
     const from = baseLookKey(defenseKey);
-    const standard = alignDefenseTechniques(dLook.nodes, offNodes);
+    const standard = lineUpDefense(dLook.nodes);
     const moves: Record<string, { dx: number; dy: number }> = {};
     for (const n of standard) {
-      const now = overrides[n.role] ? { x: overrides[n.role].x - hashDx, y: overrides[n.role].y } : { x: n.x + (myDefault?.[n.role]?.dx || 0), y: n.y + (myDefault?.[n.role]?.dy || 0) };
+      const now = overrides[n.role] ? { x: overrides[n.role].x, y: overrides[n.role].y } : { x: n.x + (myDefault?.[n.role]?.dx || 0), y: n.y + (myDefault?.[n.role]?.dy || 0) };
       const dx = Math.round((now.x - n.x) * 100) / 100;
       const dy = Math.round((now.y - n.y) * 100) / 100;
       if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) moves[n.role] = { dx, dy };
