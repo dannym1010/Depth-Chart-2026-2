@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, Star, Trash2, X } from 'lucide-react';
 import {
   fieldToSvg,
+  lineStartsOn,
   DEFENSE_COLOR,
   isDefenseRole,
   type NodePlayer,
@@ -35,13 +36,13 @@ export function arrowPts(x1: number, y1: number, x2: number, y2: number, l = 10)
 }
 
 /** The line that starts at this player, if there is one. */
-export function strokeFor(strokes: PlayStroke[], n: { x: number; y: number }) {
-  return strokes.find((s) => s.points.length > 0 && Math.hypot(s.points[0].x - n.x, s.points[0].y - n.y) < 1.4) || null;
+export function strokeFor(strokes: PlayStroke[], n: { x: number; y: number; role?: string }, everyone?: { x: number; y: number; role?: string }[]) {
+  return strokes.find((s) => s.points.length > 0 && lineStartsOn(s, n, everyone)) || null;
 }
 
 /** What the player is doing, in words: the picked assignment, or just the kind of line on the diagram. */
-export function assignmentText(strokes: PlayStroke[], n: { x: number; y: number }) {
-  const s = strokeFor(strokes, n);
+export function assignmentText(strokes: PlayStroke[], n: { x: number; y: number; role?: string }, everyone?: { x: number; y: number; role?: string }[]) {
+  const s = strokeFor(strokes, n, everyone);
   if (!s) return '';
   const job = s.label || (s.kind === 'block' ? 'Block' : s.kind === 'pass' ? 'Route' : 'Run');
   if (!s.motion) return job;
@@ -196,7 +197,7 @@ export const PlayerAssignmentPanel: React.FC<Props> = ({
   const shown = side === 'all' ? actions : actions.filter((a) => presetSide(a) !== (side === 'L' ? 'R' : 'L'));
 
   const chip = (n: PlayNode) => {
-    const text = assignmentText(strokes, n);
+    const text = assignmentText(strokes, n, nodes);
     const isBall = n.role === ballRole;
     const isDef = isDefenseRole(n.role);
     return (
@@ -240,7 +241,7 @@ export const PlayerAssignmentPanel: React.FC<Props> = ({
   }
 
   const meta = getPositionMeta(player.role, player.line);
-  const current = strokeFor(strokes, player);
+  const current = strokeFor(strokes, player, nodes);
   const step = (dir: 1 | -1) => {
     const i = nodes.findIndex((n) => n.role === player.role);
     const next = nodes[(i + dir + nodes.length) % nodes.length];
@@ -275,7 +276,7 @@ export const PlayerAssignmentPanel: React.FC<Props> = ({
         <div className="min-w-[150px] flex-1">
           <div className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">{meta.name}</div>
           <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-            Now: <span className="font-bold text-slate-700 dark:text-slate-200">{assignmentText(strokes, player) || 'nothing'}</span>
+            Now: <span className="font-bold text-slate-700 dark:text-slate-200">{assignmentText(strokes, player, nodes) || 'nothing'}</span>
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">

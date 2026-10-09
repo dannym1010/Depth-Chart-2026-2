@@ -1,6 +1,6 @@
 // Each defender's job on one of our defensive plays: what the coach typed, else the line drawn for him
 // (a blitz or a drop), else his standard job in the front and coverage (with contain where our system puts it).
-import type { PlayNode, PlayStroke } from './footballEngine';
+import { lineStartsOn, type PlayNode, type PlayStroke } from './footballEngine';
 
 const LINE: Record<string, string> = { E9: '9 technique', E5: '5 technique', T3: '3 technique', T1: '1 technique', NT: '0 technique, both A gaps' };
 /** A lineman's technique ("DT5" → 5 technique), any front. */
@@ -53,21 +53,29 @@ export function standardDefenseJob(role: string, look: { front: string; shell: s
 }
 
 /** The job a line drawn for a defender shows: the preset's name, else a blitz (he ends at the line) or a drop. */
-export function drawnDefenseJob(strokes: PlayStroke[], n: PlayNode): string {
-  // His line starts on him.
-  const s = strokes.find((st) => st.points.length > 0 && Math.hypot(st.points[0].x - n.x, st.points[0].y - n.y) < 1.4);
+export function drawnDefenseJob(strokes: PlayStroke[], n: PlayNode, everyone?: PlayNode[]): string {
+  // His line starts on him (not on the blocker across from him).
+  const s = strokes.find((st) => st.points.length > 0 && lineStartsOn(st, n, everyone));
   if (!s) return '';
   if (s.label) return s.label;
   const end = s.points[s.points.length - 1];
   return end && end.y <= 1 ? 'Blitz' : 'Drop';
 }
 
-/** The job written for each defender: typed, drawn, or standard. */
+/** The job written for each defender: typed, his picked rules, drawn, or standard. */
 export function defenseJob(
   n: PlayNode,
-  opts: { typed?: string; strokes: PlayStroke[]; look?: { front: string; shell: string; notes?: string } | null; contain?: string }
+  opts: {
+    typed?: string;
+    /** His rules picked from the library, in words. */
+    rules?: string;
+    strokes: PlayStroke[];
+    look?: { front: string; shell: string; notes?: string } | null;
+    contain?: string;
+    everyone?: PlayNode[];
+  }
 ): string {
-  return opts.typed?.trim() || drawnDefenseJob(opts.strokes, n) || (opts.look ? standardDefenseJob(n.role, opts.look, opts.contain) : '');
+  return opts.typed?.trim() || opts.rules?.trim() || drawnDefenseJob(opts.strokes, n, opts.everyone) || (opts.look ? standardDefenseJob(n.role, opts.look, opts.contain) : '');
 }
 
 /** Line first, then linebackers, then the secondary; left to right in each. */

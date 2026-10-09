@@ -144,6 +144,8 @@ export interface PlayBuilderState {
   defenseCoverage?: string;
   /** Jobs the coach gave single defenders over the call (by role): "zone:flatL", "blitz:B", "man"... */
   defenseAssign?: Record<string, string>;
+  /** Each defender's rules picked from the library (category -> term), by role: technique, gap, run fit, etc. */
+  defenseRules?: Record<string, Record<string, string>>;
   /** The coach picked this play's defense himself: it stays, even when their formation has another. */
   defenseOwn?: boolean;
   /** What our defenders' boxes say: their position (default) or the tagged player's jersey number. */

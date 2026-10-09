@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { MOTION_COLOR, fieldToSvg, shapeDrawnLeg, strokePaths } from './footballEngine.ts';
+import { FIELD_SVG, MOTION_COLOR, fieldToSvg, shapeDrawnLeg, strokePaths, svgToField } from './footballEngine.ts';
 import { assignmentText } from '../components/playbook/PlayerAssignmentPanel.tsx';
 
 describe('how lines are drawn', () => {
@@ -125,5 +125,25 @@ describe('play pictures stay small (the plays go to the cloud as one document, m
     assert.equal(out[1], plays[1]);
     assert.equal(compactPlayDiagrams(out), out);
     assert.equal(svgDataUrl('<a b="1">#%</a>'), "data:image/svg+xml;charset=utf-8,%3Ca b='1'%3E%23%25%3C/a%3E");
+  });
+});
+
+describe('field drawn around the ball', () => {
+  it('a line on a hash keeps the spacing it has in the middle, and the field still runs sideline to sideline', () => {
+    const line = [-6, -4, -2, 0, 2, 4, 6];
+    const px = (ball: number) => line.map((x) => fieldToSvg(x + ball, 0, ball).cx);
+    const mid = px(0);
+    for (const ball of [-4.2, 4.2]) {
+      const at = px(ball);
+      for (let i = 1; i < line.length; i++) assert.ok(Math.abs(at[i] - at[i - 1] - (mid[i] - mid[i - 1])) < 0.01);
+      assert.ok(Math.abs(fieldToSvg(-22, 0, ball).cx - 0) < 0.01);
+      assert.ok(Math.abs(fieldToSvg(22, 0, ball).cx - FIELD_SVG.w) < 0.01);
+      for (const x of [-20, -9, -3, 0, 5, 11, 19]) {
+        const p = fieldToSvg(x, 2, ball);
+        assert.ok(Math.abs(svgToField(p.cx, p.cy, ball).x - x) < 1e-9);
+      }
+    }
+    // The ball in the middle: drawn as it always was.
+    assert.equal(fieldToSvg(4, 0, 0).cx, FIELD_SVG.originX + 4 * FIELD_SVG.scaleX);
   });
 });

@@ -67,7 +67,7 @@ export interface Team {
     alignments?: Record<string, Record<string, { dx: number; dy: number }>>;
     /** The coach's own fronts, each made from a standard defense. */
     /** `call`: the blitz / stunt, coverage and players' jobs saved with the front. */
-    fronts?: { id: string; name: string; from: string; call?: { pressure?: string; coverage?: string; assign?: Record<string, string> } }[];
+    fronts?: { id: string; name: string; from: string; call?: { pressure?: string; coverage?: string; assign?: Record<string, string>; rules?: Record<string, Record<string, string>> } }[];
   };
 }
 

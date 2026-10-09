@@ -2690,18 +2690,73 @@ export const FIELD_SVG = { w: 760, h: 520, losY: 360, scaleX: 24, scaleY: 14, or
 const BOX_YARDS = 7;
 const OUTSIDE_SCALE = (FIELD_SVG.originX - BOX_YARDS * FIELD_SVG.scaleX) / 15;
 
-export function fieldToSvg(x: number, y: number) {
-  const ax = Math.abs(x);
-  const dx = ax <= BOX_YARDS ? ax * FIELD_SVG.scaleX : BOX_YARDS * FIELD_SVG.scaleX + (ax - BOX_YARDS) * OUTSIDE_SCALE;
-  return { cx: FIELD_SVG.originX + Math.sign(x) * dx, cy: FIELD_SVG.losY - y * FIELD_SVG.scaleY };
+/** Sideline to sideline, in yards from the middle of the field. */
+const FIELD_HALF_YARDS = BOX_YARDS + 15;
+
+/**
+ * Where the ball is (yards across, from the middle of the field) for the picture being drawn: the box
+ * stays full width around the ball, so a formation on a hash keeps its spacing. Set while one picture is
+ * drawn (see withFieldBall), from where its center lines up.
+ */
+let fieldBall = 0;
+export const ballXOf = (nodes: { role: string; x: number }[]) => {
+  const c = nodes.find((n) => n.role === 'C');
+  return c ? Math.max(-6, Math.min(6, c.x)) : 0;
+};
+export function setFieldBall(ball: number) {
+  fieldBall = Number.isFinite(ball) ? ball : 0;
+}
+export function withFieldBall<T>(ball: number, draw: () => T): T {
+  const before = fieldBall;
+  setFieldBall(ball);
+  try {
+    return draw();
+  } finally {
+    fieldBall = before;
+  }
 }
 
-export function svgToField(cx: number, cy: number) {
-  const d = cx - FIELD_SVG.originX;
-  const ad = Math.abs(d);
+/** The ball's spot in the picture (where it is on the field), and how wide a yard is outside the box on each side. */
+function ballFrame(ball: number) {
   const box = BOX_YARDS * FIELD_SVG.scaleX;
-  const ax = ad <= box ? ad / FIELD_SVG.scaleX : BOX_YARDS + (ad - box) / OUTSIDE_SCALE;
-  return { x: Math.sign(d) * ax, y: (FIELD_SVG.losY - cy) / FIELD_SVG.scaleY };
+  const ab = Math.abs(ball);
+  const p = FIELD_SVG.originX + Math.sign(ball) * (ab <= BOX_YARDS ? ab * FIELD_SVG.scaleX : box + (ab - BOX_YARDS) * OUTSIDE_SCALE);
+  const left = Math.max(4, (p - box) / Math.max(1, FIELD_HALF_YARDS + ball - BOX_YARDS));
+  const right = Math.max(4, (FIELD_SVG.w - p - box) / Math.max(1, FIELD_HALF_YARDS - ball - BOX_YARDS));
+  return { p, box, left, right };
+}
+
+export function fieldToSvg(x: number, y: number, ball = fieldBall) {
+  const f = ballFrame(ball);
+  const d = x - ball;
+  const ad = Math.abs(d);
+  const dx = ad <= BOX_YARDS ? ad * FIELD_SVG.scaleX : f.box + (ad - BOX_YARDS) * (d < 0 ? f.left : f.right);
+  return { cx: f.p + Math.sign(d) * dx, cy: FIELD_SVG.losY - y * FIELD_SVG.scaleY };
+}
+
+export function svgToField(cx: number, cy: number, ball = fieldBall) {
+  const f = ballFrame(ball);
+  const d = cx - f.p;
+  const ad = Math.abs(d);
+  const ax = ad <= f.box ? ad / FIELD_SVG.scaleX : BOX_YARDS + (ad - f.box) / (d < 0 ? f.left : f.right);
+  return { x: ball + Math.sign(d) * ax, y: (FIELD_SVG.losY - cy) / FIELD_SVG.scaleY };
+}
+
+/**
+ * Whether a line is this player's: it starts on him (within 1.4 yards) and, with everyone on the field
+ * given, no one else stands closer to its start. A lineman's block starting across from a defender
+ * a yard away is the lineman's, not the defender's.
+ */
+export function lineStartsOn(
+  st: { points?: { x: number; y: number }[] },
+  n: { x: number; y: number; role?: string },
+  everyone?: { x: number; y: number; role?: string }[]
+): boolean {
+  const s = st.points?.[0];
+  if (!s) return false;
+  const d = Math.hypot(s.x - n.x, s.y - n.y);
+  if (d >= 1.4) return false;
+  return !everyone || everyone.every((o) => o === n || (n.role !== undefined && o.role === n.role) || Math.hypot(s.x - o.x, s.y - o.y) >= d);
 }
 
 export function applyNodeOverrides(nodes: PlayNode[], overrides: Record<string, { x: number; y: number }>) {
@@ -2752,8 +2807,8 @@ export function fieldBgSvg() {
   // A light gray field: a line every 5 yards, a tick every yard on both sidelines and both hashes, big
   // outlined yard numbers turned toward each sideline, and the line of scrimmage in blue. Drawn with
   // repeating patterns: every saved play carries this, and they all go to the cloud in one document.
-  const hashL = Math.round(fieldToSvg(-3.4, 0).cx);
-  const hashR = Math.round(fieldToSvg(3.4, 0).cx);
+  const hashL = Math.round(fieldToSvg(-3.4, 0, 0).cx);
+  const hashR = Math.round(fieldToSvg(3.4, 0, 0).cx);
   const font = 'Oswald, Impact, Arial Narrow, system-ui, sans-serif';
   let numbers = '';
   for (let y = -30; y <= 40; y += 10) {
@@ -2862,7 +2917,10 @@ export function holeMarksSvg(_nodes: PlayNode[] = [], _targetHole?: number | nul
 
 export function diagramSvg(play: AssembledPlay, strokes: PlayStroke[] = [], extraNodes: PlayNode[] = [], ballRole?: string) {
   const { w, h } = FIELD_SVG;
-  const dots = [...play.nodes, ...extraNodes].map((n) => playerGlyphSvg(n, ballRole)).join('');
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">${fieldBgSvg()}${strokeSvg(strokes)}${dots}</svg>`;
-  return svgDataUrl(svg);
+  // Drawn around the ball (a formation on a hash keeps its spacing).
+  return withFieldBall(ballXOf(play.nodes), () => {
+    const dots = [...play.nodes, ...extraNodes].map((n) => playerGlyphSvg(n, ballRole)).join('');
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">${fieldBgSvg()}${strokeSvg(strokes)}${dots}</svg>`;
+    return svgDataUrl(svg);
+  });
 }

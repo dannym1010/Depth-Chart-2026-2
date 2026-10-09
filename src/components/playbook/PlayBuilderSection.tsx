@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, ChevronLeft, ChevronRight, ClipboardList, Film, LayoutGrid, ListChecks, Play as PlayIcon, Save, Search, Users, Wand2, Zap } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Film, LayoutGrid, ListChecks, Play as PlayIcon, Save, Search, Users, Wand2, Zap } from 'lucide-react';
 import type { PlayBuilderState, PlayDatabaseEntry, PlayType } from '../../types/callSheet';
 import { defenseSystem, type DefenseSystem } from '../../hudlScout/utils/ourDefense';
 import { inferPlayType, newPlayEntry } from '../../utils/playbookImport';
@@ -26,6 +26,8 @@ import {
   autoDrawPlay,
   applyNodeOverrides,
   defenseAtHash,
+  ballXOf,
+  lineStartsOn,
   conceptFamily,
   resolveTaggedCall,
   type AssembledPlay,
@@ -47,7 +49,9 @@ import { parsePlayCall } from '../../utils/playCallParse';
 import { openFilmWindow } from '../../filmroom/filmWindowStore';
 import { DiagramImage } from './DiagramImage';
 import { DefenseCallPicker } from './DefenseCallPicker';
-import { defenseJob, defenseOrder } from '../../utils/defenseJobs';
+import { defenseJob, defenseOrder, standardDefenseJob } from '../../utils/defenseJobs';
+import { rulesText, techniqueSpot } from '../../utils/defenseRules';
+import { DefenderRules } from './DefenderRules';
 import { defenseCallName, defenseCallStrokes } from '../../utils/defenseCalls';
 import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, withMyAlignment } from '../../hudlScout/utils/ourDefense';
 import { DEF_UNITS, defensePlayerAt, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
@@ -294,6 +298,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [defShow, setDefShow] = useState<'position' | 'number'>(saved?.defenseShow === 'number' ? 'number' : 'position');
   // Our defensive plays: each defender's job as the coach typed it.
   const [jobs, setJobs] = useState<Record<string, string>>(saved?.jobs || {});
+  const [defRules, setDefRules] = useState<Record<string, Record<string, string>>>(saved?.defenseRules || {});
   const withLabel = <T extends { role: string }>(n: T): T => (labels[n.role] ? { ...n, label: labels[n.role] } : n);
   const renamePlayer = (role: string, label: string) =>
     setLabels((prev) => {
@@ -365,7 +370,10 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   // The blitz / stunt and coverage drawn on the defenders where they stand against this offense.
   const callStrokes = useMemo(() => (dLook ? defenseCallStrokes(dNodes, offNodes, pressure, coverage, defAssign) : []), [dLook, dNodes, offNodes, pressure, coverage, defAssign]);
   const callName = dLook ? defenseCallName(pressure || coverage ? dLook.front : dLook.name, pressure, coverage) : '';
-  const jobOf = (n: PlayNode) => defenseJob(n, { typed: jobs[n.role], strokes: [...strokes, ...callStrokes], look: dLook, contain: dLook ? containFor(dLook.front) : '' });
+  const ballX = ballXOf(offNodes);
+  const rulesOf = (n: PlayNode) => rulesText(n.role, defRules[n.role], defAssign[n.role], n, ballX);
+  const jobOf = (n: PlayNode) =>
+    defenseJob(n, { typed: jobs[n.role], rules: rulesOf(n), strokes: [...strokes, ...callStrokes], look: dLook, contain: dLook ? containFor(dLook.front) : '', everyone: [...offNodes, ...dNodes] });
   // "Save as my default": this defense starts lined up like this everywhere (moves from its standard spots).
   const saveAlignment = defenseAlignmentSaver();
   const myDefault = defenseKey ? defenseSystem().alignments?.[defenseKey] : undefined;
@@ -408,7 +416,12 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       const dy = Math.round((now.y - n.y) * 100) / 100;
       if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) moves[n.role] = { dx, dy };
     }
-    const call = { ...(pressure ? { pressure } : {}), ...(coverage ? { coverage } : {}), ...(Object.keys(defAssign).length ? { assign: defAssign } : {}) };
+    const call = {
+      ...(pressure ? { pressure } : {}),
+      ...(coverage ? { coverage } : {}),
+      ...(Object.keys(defAssign).length ? { assign: defAssign } : {}),
+      ...(Object.keys(defRules).length ? { rules: defRules } : {}),
+    };
     const key = frontSaver.add({ name, from, moves, ...(Object.keys(call).length ? { call } : {}) });
     setOverrides((prev) => Object.fromEntries(Object.entries(prev).filter(([role]) => !dLook.nodes.some((n) => n.role === role))));
     setDefenseKey(key);
@@ -433,6 +446,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       setPressure(saved.call.pressure || '');
       setCoverage(saved.call.coverage || '');
       setDefAssign(saved.call.assign || {});
+      setDefRules(saved.call.rules || {});
     } else if (key && !coverage) setCoverage('cover3');
     if (own) setDefenseOwn(true);
   };
@@ -460,24 +474,6 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
           setCoverage(v);
           mark();
         }}
-        defenders={dNodes.map((n) => ({ node: n, label: shownText(n, diagramLabel(n.role)) }))}
-        assign={defAssign}
-        onAssign={(role, job) => {
-          setDefAssign((prev) => {
-            const next = { ...prev };
-            if (job) next[role] = job;
-            else delete next[role];
-            return next;
-          });
-          mark();
-        }}
-        onResetAssign={() => {
-          setDefAssign({});
-          mark();
-        }}
-        selected={pickedDef}
-        onSelect={setPickedDef}
-        callStrokes={callStrokes}
         callName={callName}
         hasLook={Boolean(dLook)}
       />
@@ -631,6 +627,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       ...(pressure ? { defensePressure: pressure } : {}),
       ...(coverage ? { defenseCoverage: coverage } : {}),
       ...(Object.keys(defAssign).length ? { defenseAssign: defAssign } : {}),
+      ...(Object.keys(defRules).length ? { defenseRules: defRules } : {}),
       defenseUnit: defUnit,
       ...(Object.keys(defWho).length ? { defenseWho: defWho } : {}),
       ...(Object.keys(taggedWho).length ? { defensePlayers: taggedWho } : {}),
@@ -765,7 +762,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       if (!play) return;
       commitName();
       const name = (nameIn.trim() || committedName || seed?.name || 'Defense').slice(0, 120);
-      const blitzing = strokes.some((st) => dNodes.some((n) => st.points[0] && Math.hypot(st.points[0].x - n.x, st.points[0].y - n.y) < 1.4) && st.points.some((p) => p.y > 0));
+      const blitzing = strokes.some((st) => dNodes.some((n) => lineStartsOn(st, n, [...offNodes, ...dNodes])) && st.points.some((p) => p.y > 0));
       add({
         builder: currentState(),
         ...newPlayEntry(name, 'defense'),
@@ -821,7 +818,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       assignments: [
         ...play.nodes.map((n) => ({
           pos: n.role,
-          text: assignmentText(strokes, n) || (n.role === '1' ? 'QB' : n.role === '2' ? 'FB' : n.role === '3' ? 'RB' : n.role === '4' ? 'Wing / extra back' : n.line ? 'On the line' : 'Off the line'),
+          text: assignmentText(strokes, n, [...play.nodes, ...extra]) || (n.role === '1' ? 'QB' : n.role === '2' ? 'FB' : n.role === '3' ? 'RB' : n.role === '4' ? 'Wing / extra back' : n.line ? 'On the line' : 'Off the line'),
         })),
         ...(dLook
           ? extra.map((n) => ({ pos: n.role, text: jobOf(n) || `${dLook.front} ${dLook.shell} · ${dLook.notes}` }))
@@ -1236,10 +1233,10 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               chrome="minimal"
               assignmentHost={host}
               onSelectPlayer={(n) => {
-                // A defender: his job card in the defense picker. Anyone else: the Players tab.
+                // A defender: his rules in the Jobs tab. Anyone else: the Players tab.
                 if (n && isDefenseRole(n.role) && dLook) {
                   setPickedDef(n.role);
-                  if (!formationMode && !defenseMode) setTab('notes');
+                  setTab('jobs');
                 } else if (n) setTab('players');
               }}
               onBallCarrierChange={(role) => setBallCarrier(role)}
@@ -1544,35 +1541,93 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 <div className="text-sm font-black text-slate-900 dark:text-white">{dLook ? dLook.name : 'Pick a front'}</div>
                 {dLook && <div className="text-xs text-slate-500 dark:text-slate-400">{dLook.notes}</div>}
                 <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                  Each defender's job. A line you draw for him fills it in (to the line = Blitz, back = Drop); type to say it your way.
+                  Tap a defender (here or on the field) to set his rules. A technique moves him; a drop, blitz or slant draws his line.
                 </p>
               </div>
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                 {defenseOrder(dNodes).map((n) => {
-                  const auto = defenseJob(n, { strokes, look: dLook, contain: dLook ? containFor(dLook.front) : '' });
+                  const open = pickedDef === n.role;
+                  const job = jobOf(n);
+                  const standard = dLook ? standardDefenseJob(n.role, dLook, containFor(dLook.front)) : '';
                   const who = n.player ? `#${n.player.num} ${n.player.name}`.trim() : '';
+                  const own = Boolean(jobs[n.role] || defAssign[n.role] || Object.keys(defRules[n.role] || {}).length);
                   return (
-                    <li key={n.role} className="py-1.5 flex items-center gap-2">
-                      <span className="shrink-0 min-w-9 h-6 px-1.5 rounded bg-green-700 text-white text-[11px] font-black inline-flex items-center justify-center">
-                        {shownText(n, diagramLabel(n.role))}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        {who && <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 truncate">{who}</div>}
-                        <input
-                          value={jobs[n.role] ?? ''}
-                          placeholder={auto || 'Type his job'}
-                          aria-label={`${n.role} job`}
-                          onChange={(e) =>
-                            setJobs((prev) => {
+                    <li key={n.role} className="py-1.5">
+                      <button
+                        type="button"
+                        aria-expanded={open}
+                        aria-label={`${n.role} rules`}
+                        onClick={() => setPickedDef(open ? null : n.role)}
+                        className="w-full flex items-center gap-2 text-left cursor-pointer rounded-md hover:bg-slate-50 dark:hover:bg-slate-800/60 px-1 py-0.5"
+                      >
+                        <span
+                          className={`shrink-0 min-w-9 h-6 px-1.5 rounded bg-green-700 text-white text-[11px] font-black inline-flex items-center justify-center ${
+                            open ? 'ring-2 ring-indigo-500 ring-offset-1 dark:ring-offset-slate-900' : ''
+                          }`}
+                        >
+                          {shownText(n, diagramLabel(n.role))}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          {who && <span className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 truncate">{who}</span>}
+                          <span className={`block text-sm truncate ${own ? 'font-semibold text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>
+                            {job || 'Tap to set his rules'}
+                          </span>
+                        </span>
+                        <ChevronDown className={`w-4 h-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+                      </button>
+                      {open && (
+                        <DefenderRules
+                          node={n}
+                          picks={defRules[n.role] || {}}
+                          assign={defAssign[n.role] || ''}
+                          ball={ballX}
+                          typed={jobs[n.role] || ''}
+                          standard={standard}
+                          onPick={(cat, opt) => {
+                            setDefRules((prev) => {
+                              const mine = { ...(prev[n.role] || {}) };
+                              if (opt) mine[cat] = opt;
+                              else delete mine[cat];
                               const next = { ...prev };
-                              if (e.target.value.trim()) next[n.role] = e.target.value.slice(0, 80);
+                              if (Object.keys(mine).length) next[n.role] = mine;
+                              else delete next[n.role];
+                              return next;
+                            });
+                            // A technique: he lines up there on their line (none: back to the front's spot).
+                            if (cat === 'tech') {
+                              setOverrides((prev) => {
+                                const next = { ...prev };
+                                if (opt) next[n.role] = techniqueSpot(n, opt, offNodes);
+                                else delete next[n.role];
+                                return next;
+                              });
+                            }
+                          }}
+                          onAssign={(jobId) =>
+                            setDefAssign((prev) => {
+                              const next = { ...prev };
+                              if (jobId) next[n.role] = jobId;
                               else delete next[n.role];
                               return next;
                             })
                           }
-                          className="w-full h-8 px-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm text-slate-900 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400"
+                          onTyped={(text) =>
+                            setJobs((prev) => {
+                              const next = { ...prev };
+                              if (text.trim()) next[n.role] = text;
+                              else delete next[n.role];
+                              return next;
+                            })
+                          }
+                          onReset={() => {
+                            const without = <T,>(m: Record<string, T>) => Object.fromEntries(Object.entries(m).filter(([r]) => r !== n.role));
+                            setDefRules(without);
+                            setDefAssign(without);
+                            setJobs(without);
+                            if (defRules[n.role]?.tech) setOverrides(without);
+                          }}
                         />
-                      </div>
+                      )}
                     </li>
                   );
                 })}

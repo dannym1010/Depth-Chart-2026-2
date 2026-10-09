@@ -12,6 +12,7 @@ import {
   RUN_SCHEMES,
   TE_LOCATIONS,
   defenseAtHash,
+  lineStartsOn,
   applyNodeOverrides,
   autoDrawPlay,
   isDefenseRole,
@@ -161,7 +162,7 @@ export function redrawWithBackfield(
   // A different defense than the one the lines were drawn for: its lines don't belong to these defenders.
   const savedStrokes = ourDefense && entry.builder?.defenseKey !== ourDefense.key ? [] : (b?.strokes as PlayStroke[] | undefined) || [];
   const defenseStrokes = savedStrokes.filter(
-    (st) => st.points?.length && defense.some((d) => isDefenseRole(d.role) && Math.hypot(st.points[0].x - d.x, st.points[0].y - d.y) < 1.4)
+    (st) => st.points?.length && defense.some((d) => isDefenseRole(d.role) && lineStartsOn(st, d, [...nodes, ...defense]))
   );
   const allStrokes = [...strokes, ...defenseStrokes];
   const builder: PlayBuilderState = {
@@ -250,6 +251,9 @@ export interface DefenseSetting {
   pressure?: string;
   coverage?: string;
   assign?: Record<string, string>;
+  /** Each defender's rules (technique, gap, fit...) and his job in the coach's words. */
+  rules?: Record<string, Record<string, string>>;
+  jobs?: Record<string, string>;
 }
 
 const lookRoles = (key?: string) => {
@@ -267,7 +271,7 @@ export function formationDefense(f: OppFormation | null | undefined, playDatabas
   if (b?.defenseKey) {
     const roles = lookRoles(b.defenseKey);
     const moves = Object.fromEntries(Object.entries(b.overrides || {}).filter(([role]) => roles.has(role) || isDefenseRole(role)));
-    return { key: b.defenseKey, moves, players: b.defensePlayers, unit: b.defenseUnit, who: b.defenseWho, strokes: b.strokes as PlayStroke[] | undefined, pressure: b.defensePressure, coverage: b.defenseCoverage, assign: b.defenseAssign };
+    return { key: b.defenseKey, moves, players: b.defensePlayers, unit: b.defenseUnit, who: b.defenseWho, strokes: b.strokes as PlayStroke[] | undefined, pressure: b.defensePressure, coverage: b.defenseCoverage, assign: b.defenseAssign, rules: b.defenseRules, jobs: b.jobs };
   }
   const base = f.plan?.base ? playDatabase.find((p) => p.id === f.plan!.base)?.builder?.defenseKey : '';
   return base ? { key: base, moves: {} } : null;
@@ -289,6 +293,8 @@ function defenseDiffers(b: PlayBuilderState, d: DefenseSetting): boolean {
   if (b.defenseKey !== d.key) return true;
   if ((b.defensePressure || '') !== (d.pressure || '') || (b.defenseCoverage || '') !== (d.coverage || '')) return true;
   if (JSON.stringify(b.defenseAssign || {}) !== JSON.stringify(d.assign || {})) return true;
+  if (JSON.stringify(b.defenseRules || {}) !== JSON.stringify(d.rules || {})) return true;
+  if (JSON.stringify(b.jobs || {}) !== JSON.stringify(d.jobs || {})) return true;
   // Defense lines drawn on the formation (a blitz, a drop) that the play doesn't have yet.
   const mine = ((b.strokes as PlayStroke[] | undefined) || []).map((st) => JSON.stringify(st.points));
   if ((d.strokes || []).some((st) => !mine.includes(JSON.stringify(st.points)))) return true;
@@ -302,13 +308,15 @@ export function builderWithDefense(b: PlayBuilderState, d: DefenseSetting): Play
   if (!defenseDiffers(b, d)) return b;
   const defRoles = new Set([...lookRoles(b.defenseKey), ...lookRoles(d.key)]);
   const offense = Object.fromEntries(Object.entries(b.overrides || {}).filter(([role]) => !defRoles.has(role) && !isDefenseRole(role)));
-  const { defensePlayers: _p, defenseWho: _w, defensePressure: _pr, defenseCoverage: _cv, defenseAssign: _as, ...rest } = b;
+  const { defensePlayers: _p, defenseWho: _w, defensePressure: _pr, defenseCoverage: _cv, defenseAssign: _as, defenseRules: _ru, jobs: _jb, ...rest } = b;
   return {
     ...rest,
     defenseKey: d.key,
     ...(d.pressure ? { defensePressure: d.pressure } : {}),
     ...(d.coverage ? { defenseCoverage: d.coverage } : {}),
     ...(d.assign && Object.keys(d.assign).length ? { defenseAssign: d.assign } : {}),
+    ...(d.rules && Object.keys(d.rules).length ? { defenseRules: d.rules } : {}),
+    ...(d.jobs && Object.keys(d.jobs).length ? { jobs: d.jobs } : {}),
     overrides: { ...offense, ...d.moves },
     ...(d.unit ? { defenseUnit: d.unit } : {}),
     ...(d.who ? { defenseWho: d.who } : {}),
@@ -348,7 +356,8 @@ export function playWithDefense(entry: PlayDatabaseEntry, card: ScoutOppPlay, d:
   };
   // The old defenders' lines go with them; the offense's lines stay as drawn.
   const oldDefense = lineUp(b0.defenseKey, b0.overrides || {});
-  const startsOnOld = (st: PlayStroke) => st.points?.[0] && oldDefense.some((n) => Math.hypot(st.points[0].x - n.x, st.points[0].y - n.y) < 1.4);
+  // A line is the old defense's when it starts on a defender, not on the blocker a yard across from him.
+  const startsOnOld = (st: PlayStroke) => oldDefense.some((n) => lineStartsOn(st, n, [...offNodes, ...oldDefense]));
   const offenseStrokes = (b0.strokes as PlayStroke[]).filter((st) => !startsOnOld(st));
   const defStrokes = d.strokes || [];
   const strokes = [...offenseStrokes, ...defStrokes];

@@ -33,7 +33,7 @@ export interface DefenseFront {
   /** The standard defense it was made from (its players and coverage). */
   from: string;
   /** The call saved with it: blitz / stunt, coverage, and players' own jobs. */
-  call?: { pressure?: string; coverage?: string; assign?: Record<string, string> };
+  call?: { pressure?: string; coverage?: string; assign?: Record<string, string>; rules?: Record<string, Record<string, string>> };
 }
 
 export type DefenseAlignments = Record<string, Record<string, { dx: number; dy: number }>>;
@@ -84,7 +84,7 @@ export function baseLookKey(key: string): string {
 }
 
 /** Who adds and removes the coach's own fronts (set by the app for a coach who may edit the team). */
-let frontSaver: { add: (f: { name: string; from: string; moves: Record<string, { dx: number; dy: number }>; call?: { pressure?: string; coverage?: string; assign?: Record<string, string> } }) => string; remove: (key: string) => void } | null = null;
+let frontSaver: { add: (f: { name: string; from: string; moves: Record<string, { dx: number; dy: number }>; call?: { pressure?: string; coverage?: string; assign?: Record<string, string>; rules?: Record<string, Record<string, string>> } }) => string; remove: (key: string) => void } | null = null;
 export function setDefenseFrontSaver(fn: typeof frontSaver) {
   frontSaver = fn;
 }

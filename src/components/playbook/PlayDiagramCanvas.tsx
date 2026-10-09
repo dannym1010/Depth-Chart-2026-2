@@ -11,6 +11,8 @@ import {
   strokePaths,
   MOTION_COLOR,
   svgToField,
+  ballXOf,
+  setFieldBall,
   DEFENSE_COLOR,
   shownText,
   tagColors,
@@ -229,6 +231,9 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     () => (dragPos ? nodesProp.map((n) => (n.role === dragPos.role ? { ...n, x: dragPos.x, y: dragPos.y } : n)) : nodesProp),
     [nodesProp, dragPos]
   );
+  // The field is drawn around the ball (a formation on a hash keeps its spacing). From the spots before a
+  // drag, so the field doesn't slide while the center is being moved.
+  setFieldBall(ballXOf(nodesProp));
   const frame = useRef<number | null>(null);
   const pending = useRef<{ strokes?: PlayStroke[]; pos?: { role: string; x: number; y: number }; ghost?: Pt | null }>({});
   const flushFrame = () => {
@@ -418,7 +423,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     const hXs = runningHoleXs(nodes);
     const qb = nodes.find((n) => n.role === '1' || n.role === 'QB');
     const newStroke = { ...preset.generateStroke(pNode, { holesXs: hXs, qbNode: qb }), label: preset.name };
-    const mine = strokeFor(strokes, pNode);
+    const mine = strokeFor(strokes, pNode, nodes);
     change([...strokes.filter((s) => s !== mine), newStroke]);
     // A run for the ball carrier calls the hole. Anyone else's path (a lead block, a fake) leaves it alone.
     if (preset.category === 'run' && preset.hole != null && pNode.role === ballRole && onHoleChange) {
@@ -443,7 +448,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       points: [{ x: blocker.x, y: blocker.y }, { x: Math.round(end.x * 100) / 100, y: Math.round(end.y * 100) / 100 }],
       label: `Block ${name}`,
     };
-    const mine = strokeFor(strokesRef.current, blocker);
+    const mine = strokeFor(strokesRef.current, blocker, nodes);
     remember();
     change([...strokesRef.current.filter((st) => st !== mine), line]);
   };
@@ -451,7 +456,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   const handleClearPlayerRoute = (role: string) => {
     const pNode = nodes.find((n) => n.role === role);
     if (!pNode) return;
-    const mine = strokeFor(strokes, pNode);
+    const mine = strokeFor(strokes, pNode, nodes);
     if (!mine) return;
     remember();
     change(strokes.filter((s) => s !== mine));

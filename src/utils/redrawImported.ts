@@ -5,7 +5,7 @@
 // wristband number and tags stay as imported.
 import type { PlayBuilderState, PlayDatabaseEntry } from '../types/callSheet';
 import { callDrawing } from './callDiagram';
-import { OUR_DEFENSE_LOOKS, alignDefenseTechniques, diagramSvg, runningHoleXs, type PlayStroke } from './footballEngine';
+import { OUR_DEFENSE_LOOKS, alignDefenseTechniques, diagramSvg, lineStartsOn, runningHoleXs, type PlayStroke } from './footballEngine';
 import { getActionsForPosition } from './playActionPresets';
 import { isScoutPlayEntry } from './scoutOppPlays';
 import { withMyAlignment } from '../hudlScout/utils/ourDefense';
@@ -74,7 +74,7 @@ export function redrawFromName(p: PlayDatabaseEntry): Redrawn | null {
     if (!preset) continue;
     const line = { ...preset.generateStroke(node, { holesXs, qbNode }), label: preset.name };
     // His line replaces the one drawn for him.
-    strokes = strokes.filter((st) => !(st.points[0] && Math.hypot(st.points[0].x - node.x, st.points[0].y - node.y) < 1.4));
+    strokes = strokes.filter((st) => !lineStartsOn(st, node, nodes));
     strokes.push(line);
     fromJobs.push({ role, job: a.text, line: preset.name });
   }
