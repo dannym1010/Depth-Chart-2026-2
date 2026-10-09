@@ -17,6 +17,7 @@ const SPEEDS = [0.25, 0.5, 1, 2];
 export interface PlayerApi {
   time: () => number;
   seek: (t: number) => void;
+  video?: () => HTMLVideoElement | null;
 }
 
 export const fmtTime = (t: number) => {
@@ -119,6 +120,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
       const v = videoRef.current;
       if (v) v.currentTime = Math.max(0, t);
     },
+    video: () => videoRef.current,
   };
 
   // New clip: start from the top at the chosen speed; keep zoom off and the stopwatch clear.

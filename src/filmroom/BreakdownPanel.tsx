@@ -1,12 +1,11 @@
-// Break a game down while watching it: the Hudl columns of the play on screen, filled in beside the video.
-// Buttons save right away; typed boxes save when you leave them or press Enter. "Next play" saves and moves on,
-// carrying the quarter and ODK to a blank next play.
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronRight, Eraser } from 'lucide-react';
+import { ChevronRight, Eraser, Sparkles } from 'lucide-react';
 import type { Play, TeamUnit } from '../hudlScout/types/football';
+import type { RosterPlayer } from '../types';
 import { playIsUnitTaggable } from '../hudlScout/utils/unitStats';
 import { isBalancedPlay, playStrength } from '../hudlScout/utils/strength';
 import { breakdownRowOf, type BreakdownColumn, type BreakdownRow } from './breakdownEntry';
+import { AiClipAnalyzerModal } from './AiClipAnalyzerModal';
 
 interface Props {
   play?: Play;
@@ -22,6 +21,14 @@ interface Props {
   onSetUnit?: (play: Play, unit: TeamUnit | undefined) => void;
   /** Fields that aren't Hudl breakdown columns: strength, personnel, backfield, motion, players, flags. */
   onPatch?: (play: Play, patch: Partial<Play>) => void;
+  /** Video element for frame capture */
+  videoElement?: HTMLVideoElement | null;
+  /** Active team roster */
+  roster?: RosterPlayer[];
+  /** Opponent team name */
+  opponentName?: string;
+  /** Add coaching note to play */
+  onAddNote?: (playId: string, text: string) => void;
 }
 
 const ODK = [
@@ -44,11 +51,25 @@ const UNITS: { id: TeamUnit; label: string; dot: string }[] = [
   { id: 'gold', label: 'Gold', dot: '#f59e0b' },
 ];
 
-export const BreakdownPanel: React.FC<Props> = ({ play, suggestFrom, onSave, next, onNext, readOnly, onSetUnit, onPatch }) => {
+export const BreakdownPanel: React.FC<Props> = ({
+  play,
+  suggestFrom,
+  onSave,
+  next,
+  onNext,
+  readOnly,
+  onSetUnit,
+  onPatch,
+  videoElement,
+  roster = [],
+  opponentName = 'Opponent',
+  onAddNote,
+}) => {
   const saved = useMemo(() => (play ? breakdownRowOf(play) : {}), [play]);
   // Typed boxes: kept here until they're saved.
   const [draft, setDraft] = useState<BreakdownRow>(saved);
   useEffect(() => setDraft(saved), [saved]);
+  const [showAiModal, setShowAiModal] = useState(false);
 
   const lists = useMemo(
     () => ({
@@ -125,8 +146,38 @@ export const BreakdownPanel: React.FC<Props> = ({ play, suggestFrom, onSave, nex
   const goNext = () => onNext(row);
   const listId = `bd-${play.id}`;
 
+  const handleAiApply = (newRow: BreakdownRow, patch: Partial<Play>, notes?: string) => {
+    save(newRow);
+    if (onPatch) onPatch(play, patch);
+    if (notes && onAddNote) onAddNote(play.id, notes);
+  };
+
+  const handleAiApplyAndNext = (newRow: BreakdownRow, patch: Partial<Play>, notes?: string) => {
+    handleAiApply(newRow, patch, notes);
+    onNext(newRow);
+  };
+
   return (
     <div className="flex flex-col gap-2 p-3">
+      {/* AI Breakdown Quick Action Header */}
+      {!readOnly && (
+        <div className="flex items-center justify-between p-2 rounded-xl bg-gradient-to-r from-indigo-50 to-violet-50 dark:from-indigo-950/40 dark:to-violet-950/40 border border-indigo-200/80 dark:border-indigo-800/50">
+          <div className="flex items-center gap-1.5">
+            <span className="p-1 rounded-md bg-indigo-600 text-white shadow-xs">
+              <Sparkles size={12} className="animate-pulse" />
+            </span>
+            <span className="text-xs font-black text-indigo-950 dark:text-indigo-200">AI Film Assistant</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowAiModal(true)}
+            className="h-7 px-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black inline-flex items-center gap-1.5 shadow-xs transition-all hover:scale-105 active:scale-95 cursor-pointer"
+          >
+            <Sparkles size={12} /> Auto-Breakdown
+          </button>
+        </div>
+      )}
+
       {onSetUnit && playIsUnitTaggable(play) && (
         <div className="flex items-center gap-2">
           <span className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">Unit</span>
@@ -205,6 +256,21 @@ export const BreakdownPanel: React.FC<Props> = ({ play, suggestFrom, onSave, nex
           </button>
         </div>
       )}
+
+      {/* AI Breakdown Modal */}
+      <AiClipAnalyzerModal
+        isOpen={showAiModal}
+        onClose={() => setShowAiModal(false)}
+        play={play}
+        videoElement={videoElement}
+        roster={roster}
+        knownFormations={lists.form}
+        knownPlays={lists.play}
+        opponentName={opponentName}
+        onApply={handleAiApply}
+        onApplyAndNext={next ? handleAiApplyAndNext : undefined}
+        hasNextPlay={Boolean(next)}
+      />
     </div>
   );
 };
