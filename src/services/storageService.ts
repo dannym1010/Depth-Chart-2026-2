@@ -24,6 +24,7 @@ import {
   MASTER_PLAY_LIBRARY,
 } from '../data/initialData';
 import { compactPlayDiagrams } from '../utils/footballEngine';
+import { accessFromStaff } from '../utils/staffAccess';
 
 declare global {
   interface Window {
@@ -1309,6 +1310,73 @@ export function subscribePffWeekCloud(
   };
 }
 
+// ---------------------------------------------------------------------------
+// The database lock (firestore.rules): who may read and write is the access list teamData/access, kept
+// in step with the staff list by an admin's app. New sign-ups ask in signups/<email>; an admin's app
+// adds them to the staff list as Pending.
+// ---------------------------------------------------------------------------
+
+let accessPublisher = false;
+let lastAccessKey = '';
+/** This app may keep the access list (a head coach / admin, signed in). */
+export function setAccessPublisher(on: boolean) {
+  accessPublisher = on;
+}
+
+/** Write teamData/access from the (merged) staff list, when this app may and it changed. */
+export async function syncAccessDoc(staffList: any[]): Promise<void> {
+  if (!accessPublisher || readOnlySession || !Array.isArray(staffList) || !staffList.length) return;
+  try {
+    if (isFirestoreQuotaPaused()) return;
+    const { db } = getFirebaseServices();
+    if (!db) return;
+    const access = accessFromStaff(staffList);
+    const key = JSON.stringify(access);
+    if (key === lastAccessKey) return;
+    await db.collection('teamData').doc('access').set({ ...access, updatedAt: Date.now() });
+    lastAccessKey = key;
+  } catch (err) {
+    console.warn('Access list update failed:', err);
+  }
+}
+
+/** A new sign-up asks to join (the only thing the database lets them write). */
+export async function requestSignup(email: string, displayName?: string): Promise<void> {
+  const clean = String(email || '').toLowerCase().trim();
+  if (!clean) return;
+  try {
+    const { db } = getFirebaseServices();
+    if (!db || isFirestoreQuotaPaused()) return;
+    await db.collection('signups').doc(clean).set({ email: clean, displayName: displayName || '', requestedAt: Date.now() });
+  } catch (err) {
+    console.warn('Sign-up request failed:', err);
+  }
+}
+
+/** Admins: sign-up requests as they come in (each handled, then cleared with clearSignup). */
+export function listenSignups(onRequest: (r: { email: string; displayName?: string; requestedAt?: number }[]) => void): () => void {
+  try {
+    const { db } = getFirebaseServices();
+    if (!db || isFirestoreQuotaPaused()) return () => undefined;
+    return db.collection('signups').onSnapshot(
+      (snap: any) => onRequest((snap?.docs || []).map((d: any) => d.data()).filter((r: any) => r?.email)),
+      (err: any) => console.warn('Sign-up requests listener:', err?.code || err)
+    );
+  } catch {
+    return () => undefined;
+  }
+}
+
+export async function clearSignup(email: string): Promise<void> {
+  try {
+    const { db } = getFirebaseServices();
+    if (!db) return;
+    await db.collection('signups').doc(String(email || '').toLowerCase().trim()).delete();
+  } catch (err) {
+    console.warn('Clearing a sign-up request failed:', err);
+  }
+}
+
 /** Save the staff list merged with the cloud's (ops_staff), in one step. Returns what was saved. */
 export async function mergeStaffIntoCloud(
   staffList: any[],
@@ -1327,6 +1395,9 @@ export async function mergeStaffIntoCloud(
       const staff = mergeStaffLists(Array.isArray(cur.staffList) ? cur.staffList : [], staffList, deleted);
       tx.set(ref, cleanFirestoreData(opsMeta({ staffList: staff, deletedStaff: deleted })));
       return { staff, deleted };
+    }).then(async (saved: { staff: any[]; deleted: Record<string, number> } | null) => {
+      if (saved) await syncAccessDoc(saved.staff);
+      return saved;
     });
   } catch (err) {
     noteFirestoreError(err);

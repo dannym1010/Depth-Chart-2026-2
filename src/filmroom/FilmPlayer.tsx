@@ -46,6 +46,8 @@ interface FilmPlayerProps {
   shortcuts?: boolean;
   /** Start with "Auto" (next play when a clip ends) on or off; off while breaking a game down. */
   autoNextDefault?: boolean;
+  /** Watching only (a player or family account): no drawing, no stopwatch. */
+  viewOnly?: boolean;
 }
 
 const btn = 'inline-flex items-center justify-center gap-1 h-9 min-w-9 px-2 rounded-lg text-xs font-bold transition-colors disabled:opacity-40';
@@ -60,6 +62,7 @@ const on = `${btn} bg-indigo-600 text-white`;
 export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   src, placeholder, title, marks, onMarksChange, hasPrev, hasNext, onPrev, onNext, onStopwatch, apiRef,
   maxVideoHeight = 'calc(100dvh - 20rem)',
+  viewOnly = false,
   startAt = 0,
   shortcuts = true,
   autoNextDefault = true,
@@ -227,8 +230,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
         arrowup: () => hasPrev && onPrev(),
         arrowdown: () => hasNext && onNext(),
         l: () => setLoop((x) => !x),
-        d: toggleDraw,
-        s: stopwatch,
+        ...(viewOnly ? {} : { d: toggleDraw, s: stopwatch }),
         f: fullscreen,
         m: toggleMute,
       };
@@ -442,11 +444,15 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
           <button className={`${idle} max-sm:!hidden`} onClick={() => zoomBy(0.5)} disabled={zoom === 4} title="Zoom in (or scroll on the video; drag to move around)"><ZoomIn size={16} /></button>
 
           <span className="w-px h-6 bg-white/15 mx-1 max-sm:hidden" />
-          <button className={drawing ? on : idle} onClick={toggleDraw} title="Draw on the video (D)"><Pencil size={15} /><span className="hidden sm:inline">Draw</span></button>
-          <button className={snapAt !== null ? btn : idle} style={snapAt !== null ? AMBER : undefined} onClick={stopwatch} disabled={!src} title="Stopwatch: tap at the snap, tap again at the release (S)">
-            <Timer size={15} />
-            <span className="hidden sm:inline">{snapAt !== null ? 'Release' : 'Snap'}</span>
-          </button>
+          {!viewOnly && (
+            <>
+              <button className={drawing ? on : idle} onClick={toggleDraw} title="Draw on the video (D)"><Pencil size={15} /><span className="hidden sm:inline">Draw</span></button>
+              <button className={snapAt !== null ? btn : idle} style={snapAt !== null ? AMBER : undefined} onClick={stopwatch} disabled={!src} title="Stopwatch: tap at the snap, tap again at the release (S)">
+                <Timer size={15} />
+                <span className="hidden sm:inline">{snapAt !== null ? 'Release' : 'Snap'}</span>
+              </button>
+            </>
+          )}
           {lastWatch && (
             <button className={`${btn} hover:opacity-85`} style={{ background: 'rgba(245,158,11,0.2)', color: '#fcd34d' }} onClick={() => { onStopwatch(lastWatch.seconds, lastWatch.at); setLastWatch(null); }}>
               Save {lastWatch.seconds.toFixed(2)}s as note

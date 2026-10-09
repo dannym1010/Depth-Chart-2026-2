@@ -185,8 +185,8 @@ import { FilmRoomView } from './filmroom/FilmRoomView';
 import { FilmWindowHost } from './filmroom/FilmWindow';
 import { filmWindowAutoOpen, openFilmWindow } from './filmroom/filmWindowStore';
 import { setDefenseRosterSource } from './utils/defenseRosterStore';
-import { setReadOnlySession } from './services/storageService';
-import { firstPlayerScreen, isPlayerRole, playerCanSee } from './utils/playerAccess';
+import { setReadOnlySession, setAccessPublisher, syncAccessDoc, requestSignup, listenSignups, clearSignup } from './services/storageService';
+import { firstPlayerScreen, isFamilyRole, isViewOnlyRole, playerCanSee, viewerTabs } from './utils/playerAccess';
 import { buildLibrary } from './filmroom/FilmLibrary';
 import { bundleFromSaved } from './hudlScout/scoutBundle';
 import { DEFAULT_BALANCED, setBalancedFormations } from './hudlScout/utils/strength';
@@ -417,6 +417,8 @@ export default function App() {
   const [teamSavedCoaches, setTeamSavedCoaches] = useState<Record<string, string[]>>(() =>
     safeJSONParse('footballTeamSavedCoaches', DEFAULT_SAVED_COACHES_BY_TEAM)
   );
+  // An email / password account that hasn't verified its email yet (the database won't trust it).
+  const [needsEmailVerify, setNeedsEmailVerify] = useState(false);
   const [staffList, setStaffList] = useState<StaffCoach[]>(() =>
     safeJSONParse('footballTeamCoaches', DEFAULT_TEAM_COACHES)
   );
@@ -3868,6 +3870,25 @@ export default function App() {
       const unsubscribeAuth = auth.onAuthStateChanged(async (user: any) => {
         if (user) {
           setCurrentUser(user);
+          // An email / password account must prove it owns the email (the database only trusts verified
+          // emails). Google accounts already are.
+          const providers: string[] = (user.providerData || []).map((p: any) => p?.providerId).filter(Boolean);
+          if (providers.length > 0 && providers.every((p) => p === 'password') && !user.emailVerified) {
+            setNeedsEmailVerify(true);
+            setIsPendingApproval(true);
+            setIsAuthModalOpen(true);
+            const sentKey = `footballVerifySent_${String(user.email || '').toLowerCase()}`;
+            try {
+              if (!sessionStorage.getItem(sentKey)) {
+                await user.sendEmailVerification();
+                sessionStorage.setItem(sentKey, '1');
+              }
+            } catch (verifyErr) {
+              console.warn('Sending the verification email failed:', verifyErr);
+            }
+            return;
+          }
+          setNeedsEmailVerify(false);
           applyUserPreferencesOnLogin(user.email);
 
           try {
@@ -3911,12 +3932,19 @@ export default function App() {
             setIsPendingApproval(false);
             setUserRole('admin');
             setIsAuthModalOpen(false);
+            // The database's access list follows the staff list.
+            setAccessPublisher(true);
+            void syncAccessDoc(latestStaff);
           } else if (existingIdx !== -1) {
             const coachEntry = latestStaff[existingIdx];
             if (coachEntry.status === 'Active') {
               setIsPendingApproval(false);
               setUserRole(appRoleFor(coachEntry));
               setIsAuthModalOpen(false);
+              if (appRoleFor(coachEntry) === 'admin') {
+                setAccessPublisher(true);
+                void syncAccessDoc(latestStaff);
+              }
             } else {
               setIsPendingApproval(true);
               setIsAuthModalOpen(true);
@@ -3934,14 +3962,9 @@ export default function App() {
             latestStateRef.current.staffList = updatedStaff;
             syncedStaffRef.current = updatedStaff;
             safeJSONSet('footballTeamCoaches', updatedStaff);
-            if (db) {
-              db.collection('teamData')
-                .doc('depthChartData')
-                .set({ staffList: updatedStaff }, { merge: true })
-                .catch((err: any) => console.warn('Staff update error:', err));
-            }
-            // So admins see the new sign-up waiting (merged with the live list, nobody dropped).
-            void mergeStaffIntoCloud(updatedStaff, deletedStaffRef.current);
+            // The database lets a new account only ask to join: an admin's app adds it to the staff list
+            // as Pending (see listenSignups).
+            void requestSignup(cleanEmail, user.displayName || '');
             setIsPendingApproval(true);
             setIsAuthModalOpen(true);
           }
@@ -4913,13 +4936,49 @@ export default function App() {
     return email ? staffList.find((c) => String(c.email || '').toLowerCase().trim() === email) : undefined;
   }, [staffList, currentUser?.email]);
   const isPlayer = userRole === 'player';
-  const myPlayerTabs = myStaffEntry?.playerTabs;
+  const myPlayerTabs = viewerTabs(myStaffEntry);
+  // A family account: our games in the Film Room, to watch.
+  const isFamily = isPlayer && isFamilyRole(myStaffEntry?.role);
   const canSeeUnit = useMemo(
     () => (isPlayer ? (unit: UnitType) => playerCanSee(myPlayerTabs, unit) : undefined),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [isPlayer, (myPlayerTabs || []).join('|'), myPlayerTabs === undefined]
   );
   const playerHome = isPlayer ? firstPlayerScreen(myPlayerTabs) : null;
+
+  // The database lock: a signed-in head coach / admin's app keeps the access list and takes in sign-ups.
+  const isAccessAdmin = Boolean(
+    currentUser?.email &&
+      !currentUser?.isOfflineLocal &&
+      !currentUser?.isAdminPasscodeAuth &&
+      !currentUser?.isLocalDeveloperAuth &&
+      !isPlayer &&
+      (isProgramAdmin || userRole === 'admin')
+  );
+  useEffect(() => {
+    setAccessPublisher(isAccessAdmin);
+  }, [isAccessAdmin]);
+  useEffect(() => {
+    if (!isAccessAdmin) return;
+    return listenSignups((requests) => {
+      const staff: StaffCoach[] = latestStateRef.current.staffList || [];
+      const known = (email: string) => staff.some((c) => String(c.email || '').toLowerCase().trim() === email);
+      for (const r of requests.filter((x) => known(x.email))) void clearSignup(r.email);
+      const fresh = requests.filter((x) => !known(x.email));
+      if (!fresh.length) return;
+      const now = Date.now();
+      const added: StaffCoach[] = [
+        ...staff,
+        ...fresh.map((r) => ({ email: r.email, role: 'Assistant Coach', status: 'Pending' as const, assignedTeamIds: [], editedAt: now })),
+      ];
+      void mergeStaffIntoCloud(added, deletedStaffRef.current).then((saved) => {
+        if (!saved) return;
+        adoptStaff(saved.staff, saved.deleted);
+        for (const r of fresh) void clearSignup(r.email);
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAccessAdmin]);
   userRoleRef.current = userRole;
   useEffect(() => {
     setReadOnlySession(isPlayer);
@@ -4927,7 +4986,7 @@ export default function App() {
   // Whatever path signed someone in, a Player entry in the staff list means a player (and back again when a coach changes it).
   useEffect(() => {
     if (!myStaffEntry || myStaffEntry.status !== 'Active' || isProgramAdminEmail(String(currentUser?.email || ''))) return;
-    if (isPlayerRole(myStaffEntry.role) !== isPlayer) setUserRole(appRoleFor(myStaffEntry));
+    if (isViewOnlyRole(myStaffEntry.role) !== isPlayer) setUserRole(appRoleFor(myStaffEntry));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myStaffEntry?.role, myStaffEntry?.status, isPlayer]);
   useEffect(() => {
@@ -6553,7 +6612,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
 
   const isLive = checkIsLiveEnvironment();
   const isApproved = isUserApproved(currentUser?.email, currentUser);
-  const shouldBlockAccess = !currentUser || isPendingApproval || (!isApproved && isLive);
+  const shouldBlockAccess = !currentUser || isPendingApproval || needsEmailVerify || (!isApproved && isLive);
 
   if (shouldBlockAccess) {
     return (
@@ -6561,7 +6620,30 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
         <AuthModal
           key="coach-portal-auth"
           isOpen={true}
-          isPendingApproval={Boolean(currentUser && !isApproved)}
+          isPendingApproval={Boolean(currentUser && (!isApproved || needsEmailVerify))}
+          needsEmailVerify={needsEmailVerify}
+          onResendVerify={async () => {
+            const { auth } = getFirebaseServices();
+            try {
+              await auth?.currentUser?.sendEmailVerification();
+              alert(`We sent the link again to ${auth?.currentUser?.email || 'your email'}.`);
+            } catch (err: any) {
+              alert(err?.code === 'auth/too-many-requests' ? 'Please wait a few minutes before asking for another link.' : 'Could not send the link. Try again in a minute.');
+            }
+          }}
+          onCheckVerified={async () => {
+            const { auth } = getFirebaseServices();
+            const u = auth?.currentUser;
+            if (!u) return;
+            await u.reload();
+            if (!auth.currentUser?.emailVerified) {
+              alert("That email isn't verified yet. Open the link we sent, then press the button again.");
+              return;
+            }
+            // A fresh sign-in token carries the verified email for the database.
+            await auth.currentUser.getIdToken(true);
+            window.location.reload();
+          }}
           pendingEmail={currentUser?.email || ''}
           currentUserEmail={currentUser?.email || ''}
           isLiveEnvironment={isLive}
@@ -6632,7 +6714,9 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 }
               }
             } catch (err: any) {
-              console.warn('Error checking approval status:', err);
+              if (String(err?.code || err?.message || '').includes('permission')) {
+                alert('Your account is still pending approval. The Head Coach or Admin will approve you in the Staff Portal.');
+              } else console.warn('Error checking approval status:', err);
             }
           }}
           onSignOut={() => {
@@ -7590,6 +7674,8 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onSaveFilmBackfield={saveFilmBackfield}
                 onDrawSnap={drawSnap}
                 isProgramAdmin={isProgramAdmin}
+                viewOnly={isPlayer}
+                family={isFamily}
               />
             )}
 

@@ -73,7 +73,31 @@ export function canSeeCoach(manager: StaffManager, target: StaffCoach, teams: Te
 /** The app role for an approved staff entry: Head Coach / admin roles edit, players only look, the rest are assistants. */
 export function appRoleFor(entry: { role?: string } | null | undefined): 'admin' | 'assistant' | 'player' {
   const role = String(entry?.role || '').toLowerCase();
-  if (/\bplayer\b/.test(role)) return 'player';
+  if (/\b(player|family)\b/.test(role)) return 'player';
   if (role.includes('head coach') || role.includes('admin')) return 'admin';
   return 'assistant';
+}
+
+/**
+ * Who the cloud database lets in (teamData/access, checked by firestore.rules): head coaches / admins,
+ * coaches (read and write), and viewers (players and families: read only). Only Active staff; the
+ * program owner is always an admin. Keys are lower-case emails.
+ */
+export interface CloudAccess {
+  admins: Record<string, true>;
+  coaches: Record<string, true>;
+  viewers: Record<string, true>;
+}
+export function accessFromStaff(staff: Pick<StaffCoach, 'email' | 'role' | 'status'>[] = []): CloudAccess {
+  const out: CloudAccess = { admins: {}, coaches: {}, viewers: {} };
+  for (const email of PROGRAM_ADMIN_EMAILS) out.admins[cleanEmail(email)] = true;
+  for (const c of staff || []) {
+    const email = cleanEmail(c?.email);
+    if (!email || !email.includes('@') || c.status !== 'Active') continue;
+    const role = appRoleFor(c);
+    if (role === 'admin') out.admins[email] = true;
+    else if (role === 'assistant') out.coaches[email] = true;
+    else out.viewers[email] = true;
+  }
+  return out;
 }

@@ -1,0 +1,33 @@
+rules_version = '2';
+
+// Uploaded files (playbook guides): the same people as the database lock (firestore.rules), read for
+// everyone on the access list, upload for coaches.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function verified() {
+      return request.auth != null
+        && request.auth.token.email is string
+        && request.auth.token.email_verified == true;
+    }
+    function me() {
+      return request.auth.token.email.lower();
+    }
+    function access() {
+      return firestore.get(/databases/(default)/documents/teamData/access).data;
+    }
+    function coach() {
+      return verified()
+        && (me() in ['dannym1010@gmail.com']
+          || me() in access().get('admins', {})
+          || me() in access().get('coaches', {}));
+    }
+    function viewer() {
+      return coach() || (verified() && me() in access().get('viewers', {}));
+    }
+
+    match /{allPaths=**} {
+      allow read: if viewer();
+      allow write: if coach();
+    }
+  }
+}

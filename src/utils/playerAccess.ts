@@ -29,6 +29,18 @@ export const DEFAULT_PLAYER_TABS = ['home', 'schedule', 'depth_chart', 'playbook
 export const PLAYER_ROLE = 'Player';
 export const isPlayerRole = (role?: string) => /\bplayer\b/i.test(String(role || ''));
 
+/**
+ * Family accounts: a player's family watches our games in the Film Room, and that's all. Nothing they do is
+ * saved, and they don't see coaches' notes, drawings, breakdowns or the scouting film.
+ */
+export const FAMILY_ROLE = 'Family';
+export const isFamilyRole = (role?: string) => /\bfamily\b/i.test(String(role || ''));
+export const FAMILY_TABS = ['filmroom'];
+/** A view-only account: a player or a family member. */
+export const isViewOnlyRole = (role?: string) => isPlayerRole(role) || isFamilyRole(role);
+/** The tabs a view-only account sees: a family account only the Film Room, a player what a coach picked. */
+export const viewerTabs = (entry?: { role?: string; playerTabs?: string[] }) => (isFamilyRole(entry?.role) ? FAMILY_TABS : entry?.playerTabs);
+
 /** The tabs a player account sees (the defaults when a coach hasn't picked yet). */
 export const playerTabsOf = (tabs?: string[]) => (Array.isArray(tabs) ? tabs : DEFAULT_PLAYER_TABS);
 

@@ -30,3 +30,40 @@ describe('player accounts', () => {
     assert.equal(playerCanSee([], 'home'), false);
   });
 });
+
+describe('family accounts', () => {
+  it('see the Film Room only, view-only, whatever tabs were picked', async () => {
+    const { FAMILY_ROLE, isFamilyRole, isViewOnlyRole, viewerTabs, playerCanSee, firstPlayerScreen } = await import('./playerAccess.ts');
+    const { appRoleFor } = await import('./staffAccess.ts');
+    const fam = { role: FAMILY_ROLE, playerTabs: ['home', 'playbook'] };
+    assert.ok(isFamilyRole(fam.role));
+    assert.ok(isViewOnlyRole(fam.role));
+    assert.ok(isViewOnlyRole('Player'));
+    assert.ok(!isViewOnlyRole('Assistant Coach'));
+    assert.equal(appRoleFor(fam), 'player');
+    assert.deepEqual(viewerTabs(fam), ['filmroom']);
+    assert.ok(playerCanSee(viewerTabs(fam), 'filmroom'));
+    assert.ok(!playerCanSee(viewerTabs(fam), 'playbook'));
+    assert.ok(!playerCanSee(viewerTabs(fam), 'hudl_scout'));
+    assert.equal(firstPlayerScreen(viewerTabs(fam)), 'filmroom');
+    // A player keeps the tabs a coach picked.
+    assert.deepEqual(viewerTabs({ role: 'Player', playerTabs: ['home'] }), ['home']);
+  });
+});
+
+describe('the database access list', () => {
+  it('puts active head coaches, coaches and viewers in their groups; pending and removed stay out', async () => {
+    const { accessFromStaff } = await import('./staffAccess.ts');
+    const a = accessFromStaff([
+      { email: 'Head@Coach.com ', role: 'Head Coach (Admin)', status: 'Active' },
+      { email: 'asst@coach.com', role: 'Assistant Coach', status: 'Active' },
+      { email: 'kid@team.com', role: 'Player', status: 'Active' },
+      { email: 'mom@home.com', role: 'Family', status: 'Active' },
+      { email: 'new@person.com', role: 'Assistant Coach', status: 'Pending' },
+      { email: 'Local Coach (Offline)', role: 'Assistant Coach', status: 'Active' },
+    ] as any);
+    assert.deepEqual(Object.keys(a.admins).sort(), ['dannym1010@gmail.com', 'head@coach.com']);
+    assert.deepEqual(Object.keys(a.coaches), ['asst@coach.com']);
+    assert.deepEqual(Object.keys(a.viewers).sort(), ['kid@team.com', 'mom@home.com']);
+  });
+});

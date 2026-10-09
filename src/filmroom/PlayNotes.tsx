@@ -19,9 +19,11 @@ interface PlayNotesProps {
   onSeek: (t: number) => void;
   onAdd: (text: string, grade: FilmNote['grade'], t: number) => void;
   onDelete: (id: string) => void;
+  /** Reading only: no box to add one, no delete. */
+  readOnly?: boolean;
 }
 
-export const PlayNotes: React.FC<PlayNotesProps> = ({ play, notes, currentTime, onSeek, onAdd, onDelete }) => {
+export const PlayNotes: React.FC<PlayNotesProps> = ({ play, notes, currentTime, onSeek, onAdd, onDelete, readOnly = false }) => {
   const [text, setText] = useState('');
   const [grade, setGrade] = useState<FilmNote['grade']>();
 
@@ -42,6 +44,7 @@ export const PlayNotes: React.FC<PlayNotesProps> = ({ play, notes, currentTime, 
         </div>
       )}
 
+      {!readOnly && (
       <div className="flex flex-col gap-2">
         <textarea
           value={text}
@@ -75,6 +78,7 @@ export const PlayNotes: React.FC<PlayNotesProps> = ({ play, notes, currentTime, 
           </button>
         </div>
       </div>
+      )}
 
       {notes.length === 0 ? (
         <p className="text-xs text-slate-400">No notes on this play yet.</p>
@@ -90,6 +94,7 @@ export const PlayNotes: React.FC<PlayNotesProps> = ({ play, notes, currentTime, 
                   </button>
                   {g && <span className={`px-1.5 rounded font-bold ${g.cls}`}>{g.label}</span>}
                   <span className="text-slate-400 truncate">{n.author}</span>
+                  {!readOnly && (
                   <button
                     onClick={() => onDelete(n.id)}
                     className="ml-auto text-slate-400 hover:text-rose-500 opacity-60 group-hover:opacity-100"
@@ -97,6 +102,7 @@ export const PlayNotes: React.FC<PlayNotesProps> = ({ play, notes, currentTime, 
                   >
                     <Trash2 size={13} />
                   </button>
+                  )}
                 </div>
                 {n.text && <p className="mt-1 text-sm text-slate-800 dark:text-slate-100 whitespace-pre-wrap">{n.text}</p>}
               </li>

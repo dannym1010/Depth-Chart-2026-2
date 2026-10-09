@@ -75,6 +75,10 @@ interface FilmRoomViewProps {
   onDrawSnap?: (play: Play) => void;
   /** True if currently logged in user is the program owner / master super admin */
   isProgramAdmin?: boolean;
+  /** A player or family account: watching only (no film linking, breakdown, tags, notes to add or drawing). */
+  viewOnly?: boolean;
+  /** A family account: our games only, just the video and a plain list of the plays. */
+  family?: boolean;
 }
 
 type OdkFilter = 'all' | 'O' | 'D' | 'K';
@@ -86,7 +90,11 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   onUpdateOwnTeamScout, onUpdateScouting, playDatabase, onUpdatePlayDatabase, roster, weekBoards, weekOptions,
   filmWeeks, onSelectWeek, onSaveWeekScouting, onBackToPlay, builderCanEdit, onSaveBuilderPlay, onRenameScoutPlay, onSaveFilmBackfield, onDrawSnap,
   isProgramAdmin = false,
+  viewOnly = false,
+  family = false,
 }) => {
+  // Watching only: a player or family account (or any session that can't save).
+  const locked = viewOnly || family || isReadOnlySession();
   const own = useMemo(() => bundleFromSaved(ownTeamScout, teamName), [ownTeamScout, teamName]);
   const opp = useMemo(() => bundleFromSaved(opponentScout, opponentName || 'Opponent'), [opponentScout, opponentName]);
 
@@ -106,7 +114,13 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const [clipPlays, setClipPlays] = useState<Play[]>([]);
 
   // The film library: every week of the season with our game and that week's scouting film.
-  const library = useMemo(() => buildLibrary(filmWeeks || [], own.games, currentWeek, opponentScout, filmFolders.games), [filmWeeks, own.games, opponentScout, currentWeek, filmFolders.games]);
+  const library = useMemo(() => {
+    const all = buildLibrary(filmWeeks || [], own.games, currentWeek, opponentScout, filmFolders.games);
+    if (!family) return all;
+    // A family account sees our games, not the scouting film.
+    const ours = <T extends { source: string }>(list: T[]) => list.filter((g) => g.source === 'own');
+    return { weeks: all.weeks.map((w) => ({ ...w, games: ours(w.games) })).filter((w) => w.games.length), others: ours(all.others) };
+  }, [filmWeeks, own.games, opponentScout, currentWeek, filmFolders.games, family]);
   const filmOnlyGames = useMemo(() => [...library.weeks.flatMap((w) => w.games), ...library.others].filter((g) => g.filmOnly), [library]);
 
   const games = useMemo(() => {
@@ -115,8 +129,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       ...opp.games.map((g) => ({ key: filmGameKey('opponent', g.id, currentWeek), source: 'opponent' as const, gameId: g.id, name: g.name, week: currentWeek, fromFilm: g.fromFilm })),
       ...filmOnlyGames.map((g) => ({ key: g.key, source: g.source, gameId: g.gameId, name: g.name, week: g.week, filmOnly: true })),
     ];
-    return list;
-  }, [own.games, opp.games, currentWeek, filmOnlyGames]);
+    return family ? list.filter((g) => g.source === 'own') : list;
+  }, [own.games, opp.games, currentWeek, filmOnlyGames, family]);
 
 
   // One play's snaps from the play builder ("Watch film"). Showing the whole game, or picking another, ends it.
@@ -126,7 +140,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     clearFilmCutup();
   };
   // Opened from the play builder: that play, in the builder beside the video, to change while watching.
-  const [builderSeed] = useState<PlayBuilderSeed | null>(() => (cutup ? peekPlayBuilderSeed() : null));
+  const [builderSeed] = useState<PlayBuilderSeed | null>(() => (cutup && !locked ? peekPlayBuilderSeed() : null));
   const seedRef = useRef(builderSeed);
   const [sideTab, setSideTab] = useState<'builder' | 'breakdown' | 'notes'>(builderSeed ? 'builder' : 'breakdown');
   const [hideBuilder, setHideBuilder] = useState(false);
@@ -427,8 +441,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     if (film.status === 'error')
       return (
         <div className="flex flex-col items-center gap-2 max-w-md text-center">
-          <span className="text-rose-300 dark:text-rose-300">{film.message}</span>
-          <button onClick={() => setLinkOpen(true)} className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-bold">Link film</button>
+          <span className="text-rose-300 dark:text-rose-300">{locked ? "This game's film isn't ready to watch yet." : film.message}</span>
+          {!locked && <button onClick={() => setLinkOpen(true)} className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-bold">Link film</button>}
         </div>
       );
     if (film.status === 'reconnect')
@@ -447,11 +461,15 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     if (film.status === 'choose')
       return (
         <div className="flex flex-col items-center gap-2 max-w-md">
+          {locked ? (
+            <span>The film for <b>{game.name}</b> isn't set up yet. A coach needs to pick its folder.</span>
+          ) : (
           <span>
             {film.label} has more than one game folder. Which one is <b>{game.name}</b>? (Saved for everyone.)
           </span>
+          )}
           <div className="flex flex-wrap justify-center gap-2">
-            {film.choices.map((c) => (
+            {!locked && film.choices.map((c) => (
               <button key={c} onClick={() => choose(c)} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-bold">
                 {c}
               </button>
@@ -475,8 +493,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       return (
         <div className="flex flex-col items-center gap-2">
           <Film size={28} className="text-slate-500 dark:text-slate-500" />
-          <span>No film linked to this game yet.</span>
-          <button onClick={() => setLinkOpen(true)} className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-bold">Link film</button>
+          <span>{locked ? 'No film for this game yet.' : 'No film linked to this game yet.'}</span>
+          {!locked && <button onClick={() => setLinkOpen(true)} className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-bold">Link film</button>}
         </div>
       );
     if (clipUrl.loading) return <span>Loading clip…</span>;
@@ -532,24 +550,58 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       writeInPlays={(game?.source === 'opponent' ? opp : own).plays}
       selectedId={play?.id}
       onSelectPlay={setPlayId}
-      onOrderChange={onOrderChange}
+      onOrderChange={locked ? undefined : onOrderChange}
       rowBadge={rowBadge}
       playDatabase={playDatabase}
-      onTagPlays={onUpdatePlayDatabase ? (ids, entry) => editPlays((all) => tagPlays(all, ids, entry)) : undefined}
-      onCreateCall={onUpdatePlayDatabase ? createCall : undefined}
-      onSetFormation={(ids, formation) => editPlays((all) => setPlaysFormation(all, ids, formation))}
-      onSetUnit={isOwn ? (id: string, unit: TeamUnit | undefined, scope) => editPlays((all) => tagPlayUnits(all, id, unit, scope)) : undefined}
+      onTagPlays={onUpdatePlayDatabase && !locked ? (ids, entry) => editPlays((all) => tagPlays(all, ids, entry)) : undefined}
+      onCreateCall={onUpdatePlayDatabase && !locked ? createCall : undefined}
+      onSetFormation={locked ? undefined : (ids, formation) => editPlays((all) => setPlaysFormation(all, ids, formation))}
+      onSetUnit={isOwn && !locked ? (id: string, unit: TeamUnit | undefined, scope) => editPlays((all) => tagPlayUnits(all, id, unit, scope)) : undefined}
       lineupFor={isOwn && roster ? lineupFor : undefined}
       roster={roster}
-      onSetSub={isOwn ? (id: string, slotId: string, ref: FilmPlayerRef | null | undefined) => editPlays((all) => setPlaySub(all, id, slotId, ref)) : undefined}
-      onSetBall={isOwn ? (id: string, role: BallRole, label: string) => editPlays((all) => setPlayBallPlayer(all, id, role, label)) : undefined}
-      onSetDefPlay={isOwn ? (id, patch) => editPlays((all) => setPlayDefPlay(all, id, patch)) : undefined}
+      onSetSub={isOwn && !locked ? (id: string, slotId: string, ref: FilmPlayerRef | null | undefined) => editPlays((all) => setPlaySub(all, id, slotId, ref)) : undefined}
+      onSetBall={isOwn && !locked ? (id: string, role: BallRole, label: string) => editPlays((all) => setPlayBallPlayer(all, id, role, label)) : undefined}
+      onSetDefPlay={isOwn && !locked ? (id, patch) => editPlays((all) => setPlayDefPlay(all, id, patch)) : undefined}
       compact
       toolbarStart={odkChips}
       onDrawCall={!isOwn && onDrawSnap && !isReadOnlySession() ? onDrawSnap : undefined}
-      drawUntagged={!isOwn && Boolean(onDrawSnap)}
+      drawUntagged={!isOwn && Boolean(onDrawSnap) && !locked}
       theirCalls={isOwn ? undefined : theirCalls}
     />
+  );
+  // A family account: each play by its number, when it happened and how it went.
+  const familyLine = (p: Play) => {
+    const parts: string[] = [];
+    if (p.quarter) parts.push(p.quarter >= 5 ? 'OT' : `Q${p.quarter}`);
+    if (p.down) parts.push(`${p.down}${['', 'st', 'nd', 'rd', 'th'][p.down] || 'th'} & ${p.distance || '?'}`);
+    if (p.odk === 'O' && Number.isFinite(p.gainLoss) && (p.gainLoss || p.result)) parts.push(`${p.gainLoss > 0 ? '+' : ''}${p.gainLoss} yds`);
+    return parts.join(' · ');
+  };
+  const familyLog = (
+    <div className={`${panel} flex-1 min-h-0 overflow-y-auto p-2`}>
+      <ol className="space-y-0.5">
+        {shownPlays.map((p) => {
+          const on = p.id === play?.id;
+          const has = clipFor.has(p.id);
+          return (
+            <li key={p.id}>
+              <button
+                type="button"
+                onClick={() => setPlayId(p.id)}
+                aria-current={on || undefined}
+                disabled={!has}
+                className={`w-full text-left flex items-center gap-2 px-2.5 h-9 rounded-lg text-sm font-bold disabled:opacity-40 ${
+                  on ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <span className={`w-14 shrink-0 tabular-nums text-xs ${on ? 'text-white/80' : 'text-slate-400'}`}>Play {p.playNumber}</span>
+                <span className="flex-1 min-w-0 truncate font-semibold">{familyLine(p)}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
   // Film with no breakdown that can't get one here (a player account, or the game was deleted in Hudl Scout): its clips.
   const clipLog = (
@@ -603,7 +655,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       onClose={onClose}
       added={breakdowns.added}
       checking={breakdowns.checking}
-      onCheckFolder={sources.local || sources.drive ? breakdowns.checkNow : undefined}
+      onCheckFolder={!locked && (sources.local || sources.drive) ? breakdowns.checkNow : undefined}
       unplaced={filmFolders.unplaced}
     />
   );
@@ -653,10 +705,10 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     />
   ) : null;
   // Beside the video: the play builder (when it sent us here) or the notes, with a switch between them.
-  const sideShown = builderSeed ? !hideBuilder : showNotes;
+  const sideShown = builderSeed ? !hideBuilder : showNotes && !family;
   const fromFilm = Boolean(game?.fromFilm);
   // Every game's breakdown can be changed beside the video (Hudl's or one broken down here).
-  const editable = Boolean(game && !game.filmOnly);
+  const editable = Boolean(game && !game.filmOnly) && !locked;
   const sideTabList = [...(builderSeed ? (['builder'] as const) : []), ...(editable ? (['breakdown'] as const) : []), 'notes' as const];
   const activeSide = sideTabList.includes(sideTab as never) ? sideTab : sideTabList[0];
   const sideIsBuilder = activeSide === 'builder';
@@ -715,6 +767,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       onSeek={(t) => apiRef.current?.seek(t)}
       onAdd={addNote}
       onDelete={deleteNote}
+      readOnly={locked}
     />
   );
 
@@ -769,7 +822,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           </div>
         )}
 
-        <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-full">
+        <span className={`text-xs text-slate-500 dark:text-slate-400 truncate max-w-full ${family ? 'hidden' : ''}`}>
           {film.status === 'ready'
             ? game?.filmOnly
               ? `${film.kind === 'drive' ? 'Drive' : 'Folder'}: ${film.label} · ${clips.length} clip${clips.length === 1 ? '' : 's'} · setting up a breakdown to fill in…`
@@ -798,7 +851,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           </div>
         )}
         {/* Several game folders in this week: which one is this game (saved for everyone). */}
-        {film.status === 'ready' && film.siblings && film.siblings.length > 1 && (
+        {!locked && film.status === 'ready' && film.siblings && film.siblings.length > 1 && (
           <select
             value={film.folder}
             onChange={(e) => choose(e.target.value)}
@@ -837,7 +890,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           </div>
         )}
         {/* Clips go with plays in order: a different count means some clip is missing or extra. */}
-        {film.status === 'ready' && clips.length > 0 && clipMatchMode(clips, plays) === 'order' && clips.length !== plays.length && (
+        {!locked && film.status === 'ready' && clips.length > 0 && clipMatchMode(clips, plays) === 'order' && clips.length !== plays.length && (
           <span
             className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
             title="Clips are matched to plays in order (first clip = first play). With a different number of clips, check that the plays line up, and that the folder has only this game's clips."
@@ -847,6 +900,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         )}
 
         <div className="flex items-center gap-1.5 ml-auto">
+          {!family && (
           <button
             onClick={builderSeed ? () => setHideBuilder((v) => !v) : toggleNotes}
             className={`hidden lg:inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold ${
@@ -867,10 +921,13 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                 ? 'Hide notes'
                 : `Show notes${play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}`}
           </button>
+          )}
+          {!locked && (
           <button onClick={() => setLinkOpen(true)} className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-indigo-600 text-white">
             <Link2 size={14} /> {film.status === 'ready' ? 'Change film' : 'Link film'}
           </button>
-          {(film.status === 'ready' || film.status === 'reconnect') && (
+          )}
+          {!locked && (film.status === 'ready' || film.status === 'reconnect') && (
             <button
               onClick={() => {
                 if (film.status === 'ready' && film.viaRoot && !window.confirm(`Stop using "${film.label.split(' › ')[0]}" for every game${film.kind === 'drive' ? ' (for all coaches)' : ' on this device'}?`)) return;
@@ -883,7 +940,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             </button>
           )}
           {importNote && <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">{importNote}</span>}
-          {game && !game.filmOnly && !isReadOnlySession() && (
+          {game && !game.filmOnly && !locked && (
             <>
               <input
                 ref={importInput}
@@ -906,7 +963,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
               </button>
             </>
           )}
-          {game && (
+          {game && !locked && (
             <button
               onClick={() => onOpenHudlGame({ target: game.source, gameId: game.gameId })}
               className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
@@ -932,9 +989,11 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           maxVideoHeight={isDesktop ? `${clampVideoH(videoH)}px` : 'calc(100dvh - 7rem)'}
           src={placeholder ? undefined : clipUrl.url}
           placeholder={placeholder}
-          title={play ? playTitle(play) : ''}
-          marks={marks}
-          onMarksChange={saveMarks}
+          // A family sees when the play happened and how it went, not our call.
+          title={play ? (family ? [`Play ${play.playNumber}`, familyLine(play)].filter(Boolean).join(' · ') : playTitle(play)) : ''}
+          marks={family ? [] : marks}
+          onMarksChange={locked ? () => undefined : saveMarks}
+          viewOnly={locked}
           hasPrev={Boolean(prev)}
           hasNext={Boolean(next)}
           onPrev={() => prev && setPlayId(prev.id)}
@@ -989,28 +1048,30 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       </div>
 
       <div className="flex items-center gap-2 lg:hidden">
-        <button className={chip(mobileTab === 'plays')} onClick={() => setMobileTab('plays')}>Plays &amp; tags</button>
+        <button className={chip(mobileTab === 'plays')} onClick={() => setMobileTab('plays')}>{locked ? 'Plays' : <>Plays &amp; tags</>}</button>
         {editable && (
           <button className={chip(mobileTab === 'breakdown')} onClick={() => setMobileTab('breakdown')}>
             Breakdown
           </button>
         )}
+        {!family && (
         <button className={chip(mobileTab === 'notes')} onClick={() => setMobileTab('notes')}>
           Notes{play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}
         </button>
+        )}
         {builderSeed && (
           <button className={chip(mobileTab === 'builder')} onClick={() => setMobileTab('builder')}>
             Play builder
           </button>
         )}
       </div>
-      {mobileTab === 'notes' && <div className={`${panel} lg:hidden`}>{notesEl}</div>}
+      {mobileTab === 'notes' && !family && <div className={`${panel} lg:hidden`}>{notesEl}</div>}
       {mobileTab === 'breakdown' && editable && <div className={`${panel} lg:hidden`}>{breakdownEl}</div>}
       {mobileTab === 'builder' && builderEl && <div className={`${panel} lg:hidden`}>{builderEl}</div>}
 
       {/* The game's play log: click a play to watch it, sort by any column, change tags */}
       <div className={`flex-col gap-2 lg:flex-1 lg:min-h-0 ${mobileTab === 'plays' ? 'flex' : 'hidden lg:flex'}`}>
-        {game?.filmOnly ? clipLog : playLog}
+        {family ? familyLog : game?.filmOnly ? clipLog : playLog}
       </div>
 
       </div>
@@ -1025,7 +1086,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         </div>
       )}
 
-      {linkOpen && game && (
+      {linkOpen && game && !locked && (
         <LinkFilmDialog
           gameName={game.name}
           driveLink={shared.drive?.link || root.shared.drive?.link}

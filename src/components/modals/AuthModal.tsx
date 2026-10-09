@@ -29,6 +29,10 @@ export interface AuthModalProps {
   onEmailAuth: (email: string, pass: string, isSignUp: boolean) => Promise<void>;
   onGoogleSignIn: () => Promise<void>;
   onRefreshApprovalStatus?: () => void | Promise<void>;
+  /** An email / password account that hasn't clicked its verification link yet. */
+  needsEmailVerify?: boolean;
+  onResendVerify?: () => void | Promise<void>;
+  onCheckVerified?: () => void | Promise<void>;
   onSignOut: () => void;
   staffList?: StaffCoach[];
   teams?: Team[];
@@ -47,6 +51,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onEmailAuth,
   onGoogleSignIn,
   onRefreshApprovalStatus,
+  needsEmailVerify = false,
+  onResendVerify,
+  onCheckVerified,
   onSignOut,
   staffList = [],
   teams = [],
@@ -114,6 +121,54 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   }, []);
 
   if (!isOpen && !isPendingApproval) return null;
+
+  if (isPendingApproval && needsEmailVerify) {
+    return (
+      <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="bg-slate-800/95 rounded-3xl max-w-md w-full p-8 shadow-2xl text-center space-y-5 border border-indigo-500/30">
+          <div>
+            <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+              One more step
+            </span>
+            <h2 className="text-xl font-black text-slate-100 tracking-tight mt-2">Verify your email</h2>
+            <p className="text-xs text-slate-300 font-medium mt-2 leading-relaxed">
+              We sent a link to <strong className="text-indigo-400">{pendingEmail}</strong>. Open it (check spam too), then come back and press the button
+              below. This keeps anyone else from using your email to get into the team's data.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 pt-1">
+            {onCheckVerified && (
+              <button
+                type="button"
+                onClick={onCheckVerified}
+                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>I clicked the link</span>
+              </button>
+            )}
+            {onResendVerify && (
+              <button
+                type="button"
+                onClick={onResendVerify}
+                className="w-full py-2 bg-slate-900 text-slate-300 hover:text-white font-bold text-xs rounded-xl border border-slate-750 cursor-pointer"
+              >
+                Send the link again
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="w-full py-2 bg-slate-900 text-slate-300 hover:text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 border border-slate-750 cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Sign Out / Switch Account</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isPendingApproval) {
     return (

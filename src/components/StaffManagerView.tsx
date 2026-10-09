@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { DEFAULT_PLAYER_TABS, PLAYER_ROLE, PLAYER_TAB_OPTIONS, isPlayerRole, playerTabsOf } from '../utils/playerAccess';
+import { DEFAULT_PLAYER_TABS, FAMILY_ROLE, PLAYER_ROLE, PLAYER_TAB_OPTIONS, isPlayerRole, playerTabsOf } from '../utils/playerAccess';
 import {
   Users,
   UserPlus,
@@ -719,6 +719,8 @@ Looking forward to a great season!`;
                               Assistant Coach
                             </option>
                             <option value={PLAYER_ROLE}>Player (view only)</option>
+                  <option value={FAMILY_ROLE}>Family (watch our games in the Film Room)</option>
+                            <option value={FAMILY_ROLE}>Family (watch our games in the Film Room)</option>
                           </select>
                         ) : (
                           <span className="font-semibold text-slate-300">
