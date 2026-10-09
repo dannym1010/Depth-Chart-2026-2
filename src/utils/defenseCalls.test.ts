@@ -260,3 +260,35 @@ describe('our defense flips to their strength', () => {
     assert.equal(mirrorJob('blitz:C'), 'blitz:C');
   });
 });
+
+describe('no defender hides under another', () => {
+  it('every front, on every formation, hash and strength, keeps its 11 apart', async () => {
+    const { lineUpOurDefense } = await import('../hudlScout/utils/ourDefense.ts');
+    const { BASE_FORMATIONS, PLAY_CONCEPTS, tryAssemblePlay } = await import('./footballEngine.ts');
+    const stacked: string[] = [];
+    for (const base of Object.keys(BASE_FORMATIONS))
+      for (const strength of ['Left', 'Right'] as const)
+        for (const dx of [0, -4.2, 4.2]) {
+          const p = tryAssemblePlay(base, 'I_FORM', Object.keys(PLAY_CONCEPTS)[0], strength, []) as any;
+          if (!p) continue;
+          const o = p.nodes.map((n: any) => ({ ...n, x: n.x + dx }));
+          for (const key of Object.keys(OUR_DEFENSE_LOOKS)) {
+            const d = lineUpOurDefense(key, OUR_DEFENSE_LOOKS[key].nodes, o, { hashDx: dx, flip: strength === 'Right' });
+            assert.equal(d.length, OUR_DEFENSE_LOOKS[key].nodes.length);
+            for (let i = 0; i < d.length; i++)
+              for (let j = i + 1; j < d.length; j++)
+                if (Math.hypot(d[i].x - d[j].x, d[i].y - d[j].y) < 1) stacked.push(`${key} ${base} ${strength} ${dx}: ${d[i].role}/${d[j].role}`);
+          }
+        }
+    assert.deepEqual([...new Set(stacked.map((s) => s.split(':')[0].split(' ')[0] + ':' + s.split(':')[1]))], []);
+  });
+
+  it('a play saved before keeps its picture; a flip turns the whole defense over', async () => {
+    const { defenseMirrored } = await import('../hudlScout/utils/ourDefense.ts');
+    assert.equal(defenseMirrored({ strength: 'Right' }), false);
+    assert.equal(defenseMirrored({ strength: 'Right', defenseFlip: true }), true);
+    assert.equal(defenseMirrored({ strength: 'Left', defenseFlip: true }), false);
+    assert.equal(defenseMirrored({ strength: 'Left', defenseMirror: true }), true);
+    assert.equal(defenseMirrored(undefined), false);
+  });
+});

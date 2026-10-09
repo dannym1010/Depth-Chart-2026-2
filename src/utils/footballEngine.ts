@@ -1584,7 +1584,7 @@ function nodes53(shift = 0): PlayNode[] {
     { role: 'E9', x: -7.4, y: 1.35 },
     { role: 'T3', x: -3.6, y: 1.35 },
     { role: 'NT', x: 0, y: 1.35 },
-    { role: 'T1', x: 3.6, y: 1.35 },
+    { role: 'DT3', x: 3.6, y: 1.35 },
     { role: 'E5', x: 7.4, y: 1.35 },
     { role: 'WILL', x: -5.2 + shift, y: 3.1 },
     { role: 'MIKE', x: shift, y: 3.1 },
@@ -1633,9 +1633,9 @@ function nodes43(): PlayNode[] {
 function nodes52(): PlayNode[] {
   return [
     { role: 'DE5', x: -5.2, y: 1.35 },
-    { role: 'T4', x: -3, y: 1.35 },
+    { role: 'T4i', x: -3, y: 1.35 },
     { role: 'NT', x: 0, y: 1.35 },
-    { role: 'DT4', x: 3, y: 1.35 },
+    { role: 'DT4i', x: 3, y: 1.35 },
     { role: 'E5', x: 5.2, y: 1.35 },
     { role: 'MIKE', x: -2.4, y: 4.2 },
     { role: 'WILL', x: 2.4, y: 4.2 },
@@ -1777,7 +1777,8 @@ export const OUR_DEFENSE_LOOKS: Record<string, OurDefenseLook> = {
     shell: 'Cover 0',
     strength: 'Even',
     notes: 'Both ILBs A-gap',
-    nodes: nodes44(0).map((n) => (n.role === 'WILL' || n.role === 'MIKE' ? { ...n, y: 1.2 } : n.role === 'FS' ? { ...n, y: 3.2 } : n)),
+    // Both inside backers creep up over their A gaps, a yard behind the line (not on top of a lineman).
+    nodes: nodes44(0).map((n) => (n.role === 'MIKE' ? { ...n, x: -1.6, y: 3 } : n.role === 'WILL' ? { ...n, x: 1.6, y: 3 } : n.role === 'FS' ? { ...n, y: 5.5 } : n)),
   },
   '44_PINCH': { name: '4-4 Pinch', front: '4-4', shell: 'Cover 3', strength: 'Even', notes: 'DL crash A/B',     nodes: nodes44(0).map((n) => (/^E|^T/.test(n.role) ? { ...n, x: n.x * 0.7 } : n)) },
   '44_FAN': { name: '4-4 Fan', front: '4-4', shell: 'Cover 3', strength: 'Even', notes: 'DL wide contain', nodes: nodes44(0).map((n) => (/^E|^T/.test(n.role) ? { ...n, x: n.x * 1.15 } : n)) },

@@ -146,8 +146,13 @@ export interface PlayBuilderState {
   defenseAssign?: Record<string, string>;
   /** Each defender's rules picked from the library (category -> term), by role: technique, gap, run fit, etc. */
   defenseRules?: Record<string, Record<string, string>>;
-  /** Our defense mirrors to their strength (drawn for strength left). Off on plays saved before this. */
+  /** Older flag (kept for plays saved with it): mirrored when also strength Right. See defenseMirror. */
   defenseFlip?: boolean;
+  /**
+   * Our defense is drawn mirrored (every look is drawn for their strength to the left). Each strength flip
+   * in the builder turns it over, with everything placed, so the picture always stays together.
+   */
+  defenseMirror?: boolean;
   /** The coach picked this play's defense himself: it stays, even when their formation has another. */
   defenseOwn?: boolean;
   /** What our defenders' boxes say: their position (default) or the tagged player's jersey number. */

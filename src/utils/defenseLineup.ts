@@ -41,7 +41,7 @@ export function defenseSpotName(role: string, front: DefenseFront, strongLeft: b
       ? strongLeft
         ? { E9: 'SDE', T3: 'DT2', T1: 'DT1', E5: 'WDE' }
         : { E9: 'WDE', T3: 'DT1', T1: 'DT2', E5: 'SDE' }
-      : { E9: 'DE1', T3: 'DT1', T1: 'DT2', E5: 'DE2' };
+      : { E9: 'DE1', T3: 'DT1', T1: 'DT2', DT3: 'DT2', E5: 'DE2' };
   return line[r] || '';
 }
 

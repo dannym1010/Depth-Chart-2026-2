@@ -25,7 +25,7 @@ import {
   type PlayStroke,
 } from './footballEngine';
 import { formationKey, type OppFormation, type ScoutOppPlay } from './scoutOppPlays';
-import { baseLookKey, lineUpOurDefense } from '../hudlScout/utils/ourDefense';
+import { baseLookKey, defenseMirrored, lineUpOurDefense } from '../hudlScout/utils/ourDefense';
 import { defenseCallStrokes } from './defenseCalls';
 import { pickedTechniques } from './defenseRules';
 
@@ -155,7 +155,7 @@ export function redrawWithBackfield(
   const look = lookKey ? (OUR_DEFENSE_LOOKS[lookKey] || OUR_DEFENSE_LOOKS[baseLookKey(lookKey)])?.nodes || [] : [];
   const whoByRole = b?.defensePlayers || ourDefense?.players || {};
   // The whole defense moves with the ball to the hash, then the line sets on the offense (no second shift).
-  const flip = Boolean(b?.defenseFlip) && strength === 'Right';
+  const flip = defenseMirrored(b);
   const defense = applyNodeOverrides(lineUpOurDefense(lookKey, look, nodes, { hashDx, flip, techs: pickedTechniques(b?.defenseRules) }), overrides).map((n) => {
     const moved = named(n);
     return whoByRole[n.role] ? { ...moved, player: whoByRole[n.role], ...(b?.defenseShow === 'number' ? { show: 'number' as const } : {}) } : moved;
@@ -353,7 +353,7 @@ export function playWithDefense(entry: PlayDatabaseEntry, card: ScoutOppPlay, d:
     const look = OUR_DEFENSE_LOOKS[key] || OUR_DEFENSE_LOOKS[baseLookKey(key)];
     if (!look) return [];
     // Moved with the ball to the hash, then lined up on the offense (no second shift).
-    const flip = Boolean(from.defenseFlip) && from.strength === 'Right';
+    const flip = defenseMirrored(from);
     return applyNodeOverrides(lineUpOurDefense(key, look.nodes, offNodes, { hashDx, flip, techs: pickedTechniques(from.defenseRules) }), ov).map((n) => (names[n.role] ? { ...n, label: names[n.role] } : n));
   };
   // The old defenders' lines go with them; the offense's lines stay as drawn.

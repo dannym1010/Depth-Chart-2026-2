@@ -53,7 +53,7 @@ import { defenseJob, defenseOrder, standardDefenseJob } from '../../utils/defens
 import { pickedTechniques, rulesText } from '../../utils/defenseRules';
 import { DefenderRules } from './DefenderRules';
 import { defenseCallName, defenseCallStrokes, mirrorJob, mirrorPressure } from '../../utils/defenseCalls';
-import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, lineUpOurDefense } from '../../hudlScout/utils/ourDefense';
+import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, defenseMirrored, lineUpOurDefense } from '../../hudlScout/utils/ourDefense';
 import { DEF_UNITS, defensePlayerAt, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
 import { rememberDefenseUnit, rememberedDefenseUnit, useDefenseRosterSource } from '../../utils/defenseRosterStore';
 
@@ -263,7 +263,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   // The 4-4 Cover 3 sets its strength (LIZ / RIP) to the offense's.
   // Our defense mirrors to their strength. New plays do; a play saved before does once its strength is flipped
   // here (its dragged defenders were placed for the unmirrored defense).
-  const [defenseFlip, setDefenseFlip] = useState<boolean>(saved ? Boolean(saved.defenseFlip) : true);
+  const [defenseMirror, setDefenseMirror] = useState<boolean>(() => (saved ? defenseMirrored(saved) : opened.strength === 'Right'));
   const ballOf = (h: string) => (h === 'Left' ? -4.2 : h === 'Right' ? 4.2 : 0);
   /** Everyone the coach placed and every line drawn, moved the same way (the rest follow on their own). */
   const moveAll = (f: (x: number) => number) => {
@@ -277,9 +277,9 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     moveAll((x) => 2 * ballX - x);
     setDefAssign((prev) => Object.fromEntries(Object.entries(prev).map(([role, job]) => [role, mirrorJob(job)])));
     setPressure((p) => mirrorPressure(p));
-    setDefenseFlip(true);
+    // Our defense turns over with them: everyone, dragged or not, stays where he was on their formation.
+    setDefenseMirror((m) => !m);
     setStrength(s);
-    setDefenseKey((k) => (k === '44_C3_LIZ' || k === '44_C3_RIP' ? (s === 'Left' ? '44_C3_LIZ' : '44_C3_RIP') : k));
   };
   /** Another hash: the formation moves with the ball, placed players and drawn lines too. */
   const pickHash = (h: 'Left' | 'Middle' | 'Right') => {
@@ -362,7 +362,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     : [];
   const dLook = defenseKey ? looks[defenseKey] || null : null;
   const defFront = frontOfLook(defenseKey);
-  const strongLeft = defenseFlip && strength === 'Right' ? true : dLook && (dLook.strength === 'Left' || dLook.strength === 'Right') ? dLook.strength === 'Left' : strength === 'Left';
+  const strongLeft = defenseMirror ? true : dLook && (dLook.strength === 'Left' || dLook.strength === 'Right') ? dLook.strength === 'Left' : strength === 'Left';
   const tagging = Boolean(dLook) && defUnit !== 'off' && hasDepth;
   const taggedWho = useMemo(
     () => (dLook && tagging ? lineupForDefense(dLook.nodes, { unit: defUnit as DefUnit, front: defFront, strongLeft, src: rosterSrc, overrides: defWho }) : {}),
@@ -371,7 +371,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   );
   // Our defense where it starts before any of its players are dragged: the whole look moves with the
   // ball to the hash first, then the line sets its techniques on the offense's line (no second shift).
-  const flipDefense = defenseFlip && strength === 'Right';
+  const flipDefense = defenseMirror;
   // Saved moves are kept for the defense drawn strength-left: measured the other way when it's mirrored.
   const flipSign = flipDefense ? -1 : 1;
   const lineUpDefense = (nodes: PlayNode[]) => defenseAtHash(flipDefense ? nodes.map((n) => ({ ...n, x: -n.x })) : nodes, offNodes, hashDx);
@@ -395,7 +395,9 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   };
   // The blitz / stunt and coverage drawn on the defenders where they stand against this offense.
   const callStrokes = useMemo(() => (dLook ? defenseCallStrokes(dNodes, offNodes, pressure, coverage, defAssign) : []), [dLook, dNodes, offNodes, pressure, coverage, defAssign]);
-  const callName = dLook ? defenseCallName(pressure || coverage ? dLook.front : dLook.name, pressure, coverage) : '';
+  // A mirrored 4-4 LIZ is the RIP.
+  const lookName = dLook ? (flipDefense ? dLook.name.replace(/\bLIZ\b/, 'RIP') : dLook.name) : '';
+  const callName = dLook ? defenseCallName(pressure || coverage ? dLook.front : lookName, pressure, coverage) : '';
   const ballX = ballXOf(offNodes);
   const rulesOf = (n: PlayNode) => rulesText(n.role, defRules[n.role], defAssign[n.role], n, ballX);
   const jobOf = (n: PlayNode) =>
@@ -460,7 +462,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     setDefenseKey(baseLookKey(defenseKey));
   };
   const pickFront = (chip: string, own: boolean) => {
-    const key = chip === '44' ? (strength === 'Right' ? '44_C3_RIP' : '44_C3_LIZ') : chip;
+    // A mirrored defense is already turned to their strength: the 4-4 drawn to the left is its RIP.
+    const key = chip === '44' ? (strength === 'Right' && !defenseMirror ? '44_C3_RIP' : '44_C3_LIZ') : chip;
     if (key !== defenseKey) {
       // The new front lines everyone up its way (spots dragged for the last one don't carry over).
       setOverrides((prev) => Object.fromEntries(Object.entries(prev).filter(([role]) => !isDefenseRole(role))));
@@ -655,7 +658,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       ...(coverage ? { defenseCoverage: coverage } : {}),
       ...(Object.keys(defAssign).length ? { defenseAssign: defAssign } : {}),
       ...(Object.keys(defRules).length ? { defenseRules: defRules } : {}),
-      ...(defenseFlip ? { defenseFlip: true } : {}),
+      defenseMirror,
       defenseUnit: defUnit,
       ...(Object.keys(defWho).length ? { defenseWho: defWho } : {}),
       ...(Object.keys(taggedWho).length ? { defensePlayers: taggedWho } : {}),
@@ -814,7 +817,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     if (!play) return;
     const calledHole = hole;
     const holeData = calledHole != null ? HOLE_SYSTEM[calledHole] : play.metadata.holeData;
-    const vs = dLook?.name;
+    const vs = lookName || undefined;
     commitName();
     const name = (nameIn.trim() || committedName || play.playName).slice(0, 120);
     const type: PlayType = inferPlayType(name, 'offense');
@@ -1570,7 +1573,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
           {tab === 'jobs' && (defenseMode || Boolean(dLook)) && (
             <div className="p-3.5 space-y-3">
               <div>
-                <div className="text-sm font-black text-slate-900 dark:text-white">{dLook ? dLook.name : 'Pick a front'}</div>
+                <div className="text-sm font-black text-slate-900 dark:text-white">{dLook ? lookName : 'Pick a front'}</div>
                 {dLook && <div className="text-xs text-slate-500 dark:text-slate-400">{dLook.notes}</div>}
                 <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
                   Tap a defender (here or on the field) to set his rules. A technique moves him; a drop, blitz or slant draws his line.

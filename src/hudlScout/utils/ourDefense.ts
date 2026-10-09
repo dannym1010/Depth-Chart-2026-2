@@ -74,6 +74,12 @@ export function withMyAlignment<T extends { role: string; x: number; y: number }
   return nodes.map((n) => (mine[n.role] ? { ...n, x: n.x + mine[n.role].dx, y: n.y + mine[n.role].dy } : n));
 }
 
+/** Whether a play's defense is drawn mirrored (older plays: the flag they were saved with). */
+export function defenseMirrored(b: { defenseMirror?: boolean; defenseFlip?: boolean; strength?: string } | undefined): boolean {
+  if (!b) return false;
+  return b.defenseMirror ?? (Boolean(b.defenseFlip) && b.strength === 'Right');
+}
+
 /**
  * Our defense lined up on their offense. Every look is drawn for their strength to the LEFT (9 technique,
  * Sam and Rover to that side); `flip` mirrors it for their strength to the right, the coach's saved
