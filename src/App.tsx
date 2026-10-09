@@ -186,7 +186,7 @@ import { FilmWindowHost } from './filmroom/FilmWindow';
 import { filmWindowAutoOpen, openFilmWindow } from './filmroom/filmWindowStore';
 import { setDefenseRosterSource } from './utils/defenseRosterStore';
 import { setReadOnlySession, setAccessPublisher, syncAccessDoc, requestSignup, listenSignups, clearSignup } from './services/storageService';
-import { firstPlayerScreen, isFamilyRole, isViewOnlyRole, playerCanSee, viewerTabs } from './utils/playerAccess';
+import { DEFAULT_PLAYER_TABS, accountTabs, defaultTabsFor, firstPlayerScreen, isFamilyRole, isViewOnlyRole, playerCanSee } from './utils/playerAccess';
 import { buildLibrary } from './filmroom/FilmLibrary';
 import { bundleFromSaved } from './hudlScout/scoutBundle';
 import { DEFAULT_BALANCED, setBalancedFormations } from './hudlScout/utils/strength';
@@ -4936,15 +4936,16 @@ export default function App() {
     return email ? staffList.find((c) => String(c.email || '').toLowerCase().trim() === email) : undefined;
   }, [staffList, currentUser?.email]);
   const isPlayer = userRole === 'player';
-  const myPlayerTabs = viewerTabs(myStaffEntry);
+  // The tabs this account sees (any account a head coach limited; the owner always sees everything).
+  const myPlayerTabs = isProgramAdmin && !isPlayer ? undefined : accountTabs(myStaffEntry) ?? (isPlayer ? DEFAULT_PLAYER_TABS : undefined);
   // A family account: our games in the Film Room, to watch.
   const isFamily = isPlayer && isFamilyRole(myStaffEntry?.role);
   const canSeeUnit = useMemo(
-    () => (isPlayer ? (unit: UnitType) => playerCanSee(myPlayerTabs, unit) : undefined),
+    () => (myPlayerTabs ? (unit: UnitType) => playerCanSee(myPlayerTabs, unit) : undefined),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isPlayer, (myPlayerTabs || []).join('|'), myPlayerTabs === undefined]
+    [(myPlayerTabs || []).join('|'), myPlayerTabs === undefined]
   );
-  const playerHome = isPlayer ? firstPlayerScreen(myPlayerTabs) : null;
+  const playerHome = myPlayerTabs ? firstPlayerScreen(myPlayerTabs) : null;
 
   // The database lock: a signed-in head coach / admin's app keeps the access list and takes in sign-ups.
   const isAccessAdmin = Boolean(
@@ -8174,7 +8175,10 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   if (!isProgramAdmin && /master|super|program/i.test(role)) return;
                   setStaffList((prev) => {
                     const updated = [...prev];
-                    updated[idx] = { ...updated[idx], role };
+                    // Another kind of account starts with its own tabs (a player made family: the Film Room).
+                    const { playerTabs: _old, ...rest } = updated[idx];
+                    const tabs = defaultTabsFor(role);
+                    updated[idx] = { ...rest, role, ...(tabs ? { playerTabs: tabs } : {}) };
                     safeJSONSet('footballTeamCoaches', updated);
                     latestStateRef.current.staffList = updated;
                     return updated;
@@ -8186,7 +8190,9 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   setStaffList((prev) => {
                     const updated = [...prev];
                     if (!updated[idx]) return prev;
-                    updated[idx] = { ...updated[idx], playerTabs: tabs };
+                    // undefined: every tab again.
+                    const { playerTabs: _old, ...rest } = updated[idx];
+                    updated[idx] = tabs ? { ...rest, playerTabs: tabs } : rest;
                     safeJSONSet('footballTeamCoaches', updated);
                     latestStateRef.current.staffList = updated;
                     return updated;
@@ -8486,11 +8492,11 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
         onOpenPreferencesModal={() => setIsPreferencesModalOpen(true)}
       />
 
-      {isPlayer && !playerHome && (
+      {myPlayerTabs && !playerHome && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/90 p-6">
           <div className="max-w-sm rounded-2xl bg-white dark:bg-slate-900 p-6 text-center shadow-2xl">
             <h2 className="text-lg font-black text-slate-900 dark:text-white">Nothing to show yet</h2>
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Your coach hasn&apos;t turned on any tabs for your account. Ask them to pick what you can see in the Staff screen.</p>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">No tabs are turned on for your account yet. Ask your head coach to pick what you can see on the Staff screen.</p>
           </div>
         </div>
       )}

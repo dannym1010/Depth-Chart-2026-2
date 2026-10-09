@@ -32,10 +32,10 @@ describe('player accounts', () => {
 });
 
 describe('family accounts', () => {
-  it('see the Film Room only, view-only, whatever tabs were picked', async () => {
+  it('start with the Film Room only, view-only (a head coach can add tabs)', async () => {
     const { FAMILY_ROLE, isFamilyRole, isViewOnlyRole, viewerTabs, playerCanSee, firstPlayerScreen } = await import('./playerAccess.ts');
     const { appRoleFor } = await import('./staffAccess.ts');
-    const fam = { role: FAMILY_ROLE, playerTabs: ['home', 'playbook'] };
+    const fam = { role: FAMILY_ROLE };
     assert.ok(isFamilyRole(fam.role));
     assert.ok(isViewOnlyRole(fam.role));
     assert.ok(isViewOnlyRole('Player'));
@@ -65,5 +65,22 @@ describe('the database access list', () => {
     assert.deepEqual(Object.keys(a.admins).sort(), ['dannym1010@gmail.com', 'head@coach.com']);
     assert.deepEqual(Object.keys(a.coaches), ['asst@coach.com']);
     assert.deepEqual(Object.keys(a.viewers).sort(), ['kid@team.com', 'mom@home.com']);
+  });
+});
+
+describe('tabs for every account', () => {
+  it('coaches see everything until limited; players and families get their defaults and never Staff', async () => {
+    const { accountTabs, defaultTabsFor, playerCanSee, tabOptionsFor } = await import('./playerAccess.ts');
+    assert.equal(accountTabs({ role: 'Assistant Coach' }), undefined);
+    assert.deepEqual(accountTabs({ role: 'Assistant Coach', playerTabs: ['playbook', 'users'] }), ['playbook', 'users']);
+    assert.ok(playerCanSee(['playbook', 'users'], 'users'));
+    assert.ok(!playerCanSee(['playbook'], 'users'));
+    assert.deepEqual(accountTabs({ role: 'Family' }), ['filmroom']);
+    assert.deepEqual(accountTabs({ role: 'Family', playerTabs: ['filmroom', 'schedule', 'users'] }), ['filmroom', 'schedule']);
+    assert.deepEqual(accountTabs({ role: 'Player' }), ['home', 'schedule', 'depth_chart', 'playbook']);
+    assert.ok(tabOptionsFor('Head Coach (Admin)').some((o) => o.id === 'users'));
+    assert.ok(!tabOptionsFor('Family').some((o) => o.id === 'users'));
+    assert.deepEqual(defaultTabsFor('Family'), ['filmroom']);
+    assert.equal(defaultTabsFor('Assistant Coach'), undefined);
   });
 });

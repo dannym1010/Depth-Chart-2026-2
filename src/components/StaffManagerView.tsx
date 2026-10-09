@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { DEFAULT_PLAYER_TABS, FAMILY_ROLE, PLAYER_ROLE, PLAYER_TAB_OPTIONS, isPlayerRole, playerTabsOf } from '../utils/playerAccess';
+import { FAMILY_ROLE, PLAYER_ROLE, accountTabs, defaultTabsFor, isFamilyRole, isPlayerRole, tabOptionsFor } from '../utils/playerAccess';
 import {
   Users,
   UserPlus,
@@ -54,7 +54,8 @@ interface StaffManagerViewProps {
   onAddStaffCoach: (email: string, role?: string, assignedTeamIds?: string[], favoriteTeamId?: string, startScreen?: UnitType, idleTimeoutMinutes?: number, playerTabs?: string[]) => void;
   onUpdateStaffRole: (idx: number, role: string) => void;
   /** Player accounts: which tabs this player sees. */
-  onUpdateStaffPlayerTabs?: (idx: number, tabs: string[]) => void;
+  /** The tabs an account sees; undefined = all of them. */
+  onUpdateStaffPlayerTabs?: (idx: number, tabs: string[] | undefined) => void;
   onToggleStaffApproval: (idx: number) => void;
   onRemoveStaffCoach: (idx: number) => void;
   onUpdateStaffAssignedTeams: (idx: number, teamIds: string[]) => void;
@@ -111,7 +112,8 @@ export const StaffManagerView: React.FC<StaffManagerViewProps> = ({
   const [showAddStaffModal, setShowAddStaffModal] = useState(false);
   const [newStaffEmail, setNewStaffEmail] = useState('');
   const [newStaffRole, setNewStaffRole] = useState('Head Coach (Admin)');
-  const [newPlayerTabs, setNewPlayerTabs] = useState<string[]>(DEFAULT_PLAYER_TABS);
+  // The new account's tabs (undefined = all of them), starting with its role's.
+  const [newPlayerTabs, setNewPlayerTabs] = useState<string[] | undefined>(undefined);
   const [newStaffAssignedTeams, setNewStaffAssignedTeams] = useState<string[]>([activeTeamId]);
   // Each team has its own coaches: the list shows one team at a time (the program owner can pick all).
   const [staffTeamFilter, setStaffTeamFilter] = useState<string>(activeTeamId);
@@ -236,7 +238,7 @@ Looking forward to a great season!`;
       activeTeamId,
       'schedule',
       newStaffIdleTimeout,
-      isPlayerRole(newStaffRole) ? newPlayerTabs : undefined
+      newPlayerTabs
     );
 
     const teamNames = teams
@@ -261,7 +263,7 @@ Looking forward to a great season!`;
 
     setNewStaffEmail('');
     setNewStaffRole('Head Coach (Admin)');
-    setNewPlayerTabs(DEFAULT_PLAYER_TABS);
+    setNewPlayerTabs(undefined);
     setNewStaffAssignedTeams([activeTeamId]);
   };
 
@@ -581,7 +583,7 @@ Looking forward to a great season!`;
                 className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-md shadow-indigo-600/30 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
               >
                 <UserPlus className="w-3.5 h-3.5" />
-                <span>Add Coach Account</span>
+                <span>Add Account</span>
               </button>
             )}
           </div>
@@ -719,7 +721,6 @@ Looking forward to a great season!`;
                               Assistant Coach
                             </option>
                             <option value={PLAYER_ROLE}>Player (view only)</option>
-                  <option value={FAMILY_ROLE}>Family (watch our games in the Film Room)</option>
                             <option value={FAMILY_ROLE}>Family (watch our games in the Film Room)</option>
                           </select>
                         ) : (
@@ -727,9 +728,10 @@ Looking forward to a great season!`;
                             {coach.role}
                           </span>
                         )}
-                        {!isMaster && isPlayerRole(coach.role) && (
-                          <PlayerTabPicker
-                            tabs={playerTabsOf(coach.playerTabs)}
+                        {!isMaster && (
+                          <AccountTabs
+                            role={coach.role}
+                            tabs={accountTabs(coach)}
                             disabled={!canEdit}
                             onChange={(tabs) => onUpdateStaffPlayerTabs?.(idx, tabs)}
                           />
@@ -956,7 +958,7 @@ Looking forward to a great season!`;
                   No coach accounts added yet.
                 </p>
                 <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
-                  Click <strong className="text-slate-300">+ Add Coach Account</strong> above to add staff and send them an email invitation to join.
+                  Click <strong className="text-slate-300">+ Add Account</strong> above to add someone and send them an email invitation to join.
                 </p>
               </div>
             )}
@@ -1325,7 +1327,7 @@ Looking forward to a great season!`;
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <UserPlus className="w-5 h-5 text-indigo-400" />
-                <h3 className="font-black text-base text-white">Add Coach Account</h3>
+                <h3 className="font-black text-base text-white">Add Account</h3>
               </div>
               <button
                 onClick={() => setShowAddStaffModal(false)}
@@ -1338,14 +1340,14 @@ Looking forward to a great season!`;
             <form onSubmit={handleCreateStaffCoach} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-300 mb-1">
-                  Coach Email Address *
+                  Email Address *
                 </label>
                 <input
                   type="email"
                   required
                   value={newStaffEmail}
                   onChange={(e) => setNewStaffEmail(e.target.value)}
-                  placeholder="coach.name@example.com"
+                  placeholder="name@example.com"
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-indigo-500"
                 />
               </div>
@@ -1356,25 +1358,25 @@ Looking forward to a great season!`;
                 </label>
                 <select
                   value={newStaffRole}
-                  onChange={(e) => setNewStaffRole(e.target.value)}
+                  onChange={(e) => {
+                    setNewStaffRole(e.target.value);
+                    setNewPlayerTabs(defaultTabsFor(e.target.value));
+                  }}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-indigo-500"
                 >
                   <option value="Head Coach (Admin)">Head Coach (Admin)</option>
                   <option value="Assistant Coach">Assistant Coach</option>
                   <option value={PLAYER_ROLE}>Player (view only)</option>
+                  <option value={FAMILY_ROLE}>Family (watch our games in the Film Room)</option>
                 </select>
-                {isPlayerRole(newStaffRole) ? (
-                  <>
-                    <p className="text-[10.5px] text-slate-400 mt-1">
-                      Players only look: nothing they do is saved. They see just the tabs you pick.
-                    </p>
-                    <PlayerTabPicker tabs={newPlayerTabs} onChange={setNewPlayerTabs} />
-                  </>
-                ) : (
-                  <p className="text-[10.5px] text-slate-400 mt-1">
-                    Head Coaches can build plays &amp; schedules for their allowed teams.
-                  </p>
-                )}
+                <p className="text-[10.5px] text-slate-400 mt-1">
+                  {isFamilyRole(newStaffRole)
+                    ? 'Family members watch our games in the Film Room. Nothing they do is saved.'
+                    : isPlayerRole(newStaffRole)
+                      ? 'Players only look: nothing they do is saved.'
+                      : 'Coaches build plays & schedules for their allowed teams.'}
+                </p>
+                <AccountTabs role={newStaffRole} tabs={newPlayerTabs} onChange={setNewPlayerTabs} startOpen />
               </div>
 
               <div>
@@ -1443,7 +1445,7 @@ Looking forward to a great season!`;
                   type="submit"
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/30 cursor-pointer"
                 >
-                  Add Coach
+                  Add Account
                 </button>
               </div>
             </form>
@@ -2006,12 +2008,58 @@ Looking forward to a great season!`;
   );
 };
 
-/** The tabs a player account sees: one chip per tab, on or off. */
-function PlayerTabPicker({ tabs, onChange, disabled }: { tabs: string[]; onChange: (tabs: string[]) => void; disabled?: boolean }) {
-  const on = new Set(tabs);
+/**
+ * The tabs an account sees: a short line ("All tabs", "Film Room", "4 tabs") that opens one chip per tab.
+ * `tabs` undefined = all of them (a coach nobody limited); players and families never get Staff & access.
+ */
+function AccountTabs({
+  role,
+  tabs,
+  onChange,
+  disabled,
+  startOpen = false,
+}: {
+  role?: string;
+  tabs: string[] | undefined;
+  onChange: (tabs: string[] | undefined) => void;
+  disabled?: boolean;
+  startOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(startOpen);
+  const options = tabOptionsFor(role);
+  const all = options.map((o) => o.id);
+  const shown = tabs ?? all;
+  const on = new Set(shown);
+  const allOn = all.every((id) => on.has(id));
+  const summary = allOn ? 'All tabs' : !shown.length ? 'No tabs' : shown.length <= 2 ? options.filter((o) => on.has(o.id)).map((o) => o.label).join(', ') : `${shown.length} tabs`;
+  const set = (next: string[]) => {
+    const ordered = all.filter((id) => next.includes(id));
+    // A coach with every tab is unlimited (new tabs added later show up too).
+    onChange(!isPlayerRole(role) && !isFamilyRole(role) && ordered.length === all.length ? undefined : ordered);
+  };
   return (
-    <div className="mt-1.5 flex flex-wrap gap-1 max-w-xs" aria-label="Tabs this player can see">
-      {PLAYER_TAB_OPTIONS.map((o) => {
+    <div className="mt-1.5 max-w-xs">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="inline-flex items-center gap-1 text-[10.5px] font-bold text-slate-400 hover:text-slate-200 cursor-pointer"
+        title="Which tabs this account sees"
+      >
+        <span className="text-slate-500">Tabs:</span> {summary} <span className="underline">{open ? 'Done' : disabled ? 'See' : 'Edit'}</span>
+      </button>
+      {open && (
+    <div className="mt-1 flex flex-wrap gap-1" aria-label="Tabs this account can see">
+      {!disabled && (
+        <button
+          type="button"
+          onClick={() => set(allOn ? [] : all)}
+          className="px-2 py-0.5 rounded-md text-[10px] font-bold border border-dashed border-slate-600 text-slate-300 hover:border-slate-400 cursor-pointer"
+        >
+          {allOn ? 'None' : 'All'}
+        </button>
+      )}
+      {options.map((o) => {
         const active = on.has(o.id);
         return (
           <button
@@ -2019,7 +2067,7 @@ function PlayerTabPicker({ tabs, onChange, disabled }: { tabs: string[]; onChang
             type="button"
             disabled={disabled}
             aria-pressed={active}
-            onClick={() => onChange(active ? tabs.filter((t) => t !== o.id) : PLAYER_TAB_OPTIONS.map((x) => x.id).filter((id) => id === o.id || on.has(id)))}
+            onClick={() => set(active ? shown.filter((t) => t !== o.id) : [...shown, o.id])}
             className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors ${
               active ? 'bg-sky-600 text-white border-sky-500' : 'bg-slate-900 text-slate-500 border-slate-800 hover:border-slate-600'
             } ${disabled ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}
@@ -2028,6 +2076,8 @@ function PlayerTabPicker({ tabs, onChange, disabled }: { tabs: string[]; onChang
           </button>
         );
       })}
+    </div>
+      )}
     </div>
   );
 }
