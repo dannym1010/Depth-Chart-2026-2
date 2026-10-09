@@ -11,7 +11,6 @@ import {
   PLAY_CONCEPTS,
   RUN_SCHEMES,
   TE_LOCATIONS,
-  defenseAtHash,
   lineStartsOn,
   applyNodeOverrides,
   autoDrawPlay,
@@ -26,8 +25,9 @@ import {
   type PlayStroke,
 } from './footballEngine';
 import { formationKey, type OppFormation, type ScoutOppPlay } from './scoutOppPlays';
-import { baseLookKey, withMyAlignment } from '../hudlScout/utils/ourDefense';
+import { baseLookKey, lineUpOurDefense } from '../hudlScout/utils/ourDefense';
 import { defenseCallStrokes } from './defenseCalls';
+import { pickedTechniques } from './defenseRules';
 
 export interface FilmBackfieldBase {
   spots: BackfieldSpots;
@@ -155,7 +155,8 @@ export function redrawWithBackfield(
   const look = lookKey ? (OUR_DEFENSE_LOOKS[lookKey] || OUR_DEFENSE_LOOKS[baseLookKey(lookKey)])?.nodes || [] : [];
   const whoByRole = b?.defensePlayers || ourDefense?.players || {};
   // The whole defense moves with the ball to the hash, then the line sets on the offense (no second shift).
-  const defense = applyNodeOverrides(withMyAlignment(lookKey, defenseAtHash(look, nodes, hashDx)), overrides).map((n) => {
+  const flip = Boolean(b?.defenseFlip) && strength === 'Right';
+  const defense = applyNodeOverrides(lineUpOurDefense(lookKey, look, nodes, { hashDx, flip, techs: pickedTechniques(b?.defenseRules) }), overrides).map((n) => {
     const moved = named(n);
     return whoByRole[n.role] ? { ...moved, player: whoByRole[n.role], ...(b?.defenseShow === 'number' ? { show: 'number' as const } : {}) } : moved;
   });
@@ -348,21 +349,22 @@ export function playWithDefense(entry: PlayDatabaseEntry, card: ScoutOppPlay, d:
     return names[n.role] ? { ...moved, label: names[n.role] } : moved;
   };
   const offNodes = applyNodeOverrides(basePlay.nodes, b.overrides).map((n) => place(n, b.overrides));
-  const lineUp = (key: string, ov: Record<string, { x: number; y: number }>) => {
+  const lineUp = (key: string, ov: Record<string, { x: number; y: number }>, from: PlayBuilderState) => {
     const look = OUR_DEFENSE_LOOKS[key] || OUR_DEFENSE_LOOKS[baseLookKey(key)];
     if (!look) return [];
     // Moved with the ball to the hash, then lined up on the offense (no second shift).
-    return applyNodeOverrides(withMyAlignment(key, defenseAtHash(look.nodes, offNodes, hashDx)), ov).map((n) => (names[n.role] ? { ...n, label: names[n.role] } : n));
+    const flip = Boolean(from.defenseFlip) && from.strength === 'Right';
+    return applyNodeOverrides(lineUpOurDefense(key, look.nodes, offNodes, { hashDx, flip, techs: pickedTechniques(from.defenseRules) }), ov).map((n) => (names[n.role] ? { ...n, label: names[n.role] } : n));
   };
   // The old defenders' lines go with them; the offense's lines stay as drawn.
-  const oldDefense = lineUp(b0.defenseKey, b0.overrides || {});
+  const oldDefense = lineUp(b0.defenseKey, b0.overrides || {}, b0);
   // A line is the old defense's when it starts on a defender, not on the blocker a yard across from him.
   const startsOnOld = (st: PlayStroke) => oldDefense.some((n) => lineStartsOn(st, n, [...offNodes, ...oldDefense]));
   const offenseStrokes = (b0.strokes as PlayStroke[]).filter((st) => !startsOnOld(st));
   const defStrokes = d.strokes || [];
   const strokes = [...offenseStrokes, ...defStrokes];
   const who = b.defensePlayers || {};
-  const defense = lineUp(d.key, b.overrides).map((n) => (who[n.role] ? { ...n, player: who[n.role], ...(b.defenseShow === 'number' ? { show: 'number' as const } : {}) } : n));
+  const defense = lineUp(d.key, b.overrides, b).map((n) => (who[n.role] ? { ...n, player: who[n.role], ...(b.defenseShow === 'number' ? { show: 'number' as const } : {}) } : n));
   return {
     ...entry,
     builder: { ...b, strokes },

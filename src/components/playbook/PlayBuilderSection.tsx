@@ -50,10 +50,10 @@ import { openFilmWindow } from '../../filmroom/filmWindowStore';
 import { DiagramImage } from './DiagramImage';
 import { DefenseCallPicker } from './DefenseCallPicker';
 import { defenseJob, defenseOrder, standardDefenseJob } from '../../utils/defenseJobs';
-import { rulesText, techniqueSpot } from '../../utils/defenseRules';
+import { pickedTechniques, rulesText } from '../../utils/defenseRules';
 import { DefenderRules } from './DefenderRules';
-import { defenseCallName, defenseCallStrokes } from '../../utils/defenseCalls';
-import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, withMyAlignment } from '../../hudlScout/utils/ourDefense';
+import { defenseCallName, defenseCallStrokes, mirrorJob, mirrorPressure } from '../../utils/defenseCalls';
+import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, lineUpOurDefense } from '../../hudlScout/utils/ourDefense';
 import { DEF_UNITS, defensePlayerAt, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
 import { rememberDefenseUnit, rememberedDefenseUnit, useDefenseRosterSource } from '../../utils/defenseRosterStore';
 
@@ -261,9 +261,32 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
         : '44_C3_LIZ'
   );
   // The 4-4 Cover 3 sets its strength (LIZ / RIP) to the offense's.
+  // Our defense mirrors to their strength. New plays do; a play saved before does once its strength is flipped
+  // here (its dragged defenders were placed for the unmirrored defense).
+  const [defenseFlip, setDefenseFlip] = useState<boolean>(saved ? Boolean(saved.defenseFlip) : true);
+  const ballOf = (h: string) => (h === 'Left' ? -4.2 : h === 'Right' ? 4.2 : 0);
+  /** Everyone the coach placed and every line drawn, moved the same way (the rest follow on their own). */
+  const moveAll = (f: (x: number) => number) => {
+    setOverrides((prev) => Object.fromEntries(Object.entries(prev).map(([role, p]) => [role, { ...p, x: Math.round(f(p.x) * 100) / 100 }])));
+    setStrokes((prev) => prev.map((st) => ({ ...st, points: st.points.map((p) => ({ ...p, x: Math.round(f(p.x) * 100) / 100 })) })));
+  };
   const pickStrength = (s: 'Left' | 'Right') => {
+    if (s === strength) return;
+    // The whole picture flips around the ball: placed players, lines, and our defense with its call.
+    const ballX = ballOf(hash);
+    moveAll((x) => 2 * ballX - x);
+    setDefAssign((prev) => Object.fromEntries(Object.entries(prev).map(([role, job]) => [role, mirrorJob(job)])));
+    setPressure((p) => mirrorPressure(p));
+    setDefenseFlip(true);
     setStrength(s);
     setDefenseKey((k) => (k === '44_C3_LIZ' || k === '44_C3_RIP' ? (s === 'Left' ? '44_C3_LIZ' : '44_C3_RIP') : k));
+  };
+  /** Another hash: the formation moves with the ball, placed players and drawn lines too. */
+  const pickHash = (h: 'Left' | 'Middle' | 'Right') => {
+    if (h === hash) return;
+    const delta = ballOf(h) - ballOf(hash);
+    moveAll((x) => x + delta);
+    setHash(h);
   };
   const [personnelPick, setPersonnelPick] = useState<number>(saved?.personnel || opened.personnel);
   const [nameIn, setNameIn] = useState(saved?.name || opened.name);
@@ -339,7 +362,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     : [];
   const dLook = defenseKey ? looks[defenseKey] || null : null;
   const defFront = frontOfLook(defenseKey);
-  const strongLeft = dLook && (dLook.strength === 'Left' || dLook.strength === 'Right') ? dLook.strength === 'Left' : strength === 'Left';
+  const strongLeft = defenseFlip && strength === 'Right' ? true : dLook && (dLook.strength === 'Left' || dLook.strength === 'Right') ? dLook.strength === 'Left' : strength === 'Left';
   const tagging = Boolean(dLook) && defUnit !== 'off' && hasDepth;
   const taggedWho = useMemo(
     () => (dLook && tagging ? lineupForDefense(dLook.nodes, { unit: defUnit as DefUnit, front: defFront, strongLeft, src: rosterSrc, overrides: defWho }) : {}),
@@ -348,11 +371,14 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   );
   // Our defense where it starts before any of its players are dragged: the whole look moves with the
   // ball to the hash first, then the line sets its techniques on the offense's line (no second shift).
-  const lineUpDefense = (nodes: PlayNode[]) => defenseAtHash(nodes, offNodes, hashDx);
+  const flipDefense = defenseFlip && strength === 'Right';
+  // Saved moves are kept for the defense drawn strength-left: measured the other way when it's mirrored.
+  const flipSign = flipDefense ? -1 : 1;
+  const lineUpDefense = (nodes: PlayNode[]) => defenseAtHash(flipDefense ? nodes.map((n) => ({ ...n, x: -n.x })) : nodes, offNodes, hashDx);
   const standardDefense = useMemo(
-    () => (dLook ? withMyAlignment(defenseKey, lineUpDefense(dLook.nodes)) : []),
+    () => (dLook ? lineUpOurDefense(defenseKey, dLook.nodes, offNodes, { hashDx, flip: flipDefense, techs: pickedTechniques(defRules) }) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dLook, defenseKey, offNodes, hashDx]
+    [dLook, defenseKey, offNodes, hashDx, defRules, flipDefense]
   );
   const dNodes = useMemo(() => {
     if (!dLook) return [];
@@ -384,8 +410,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     const standard = lineUpDefense(dLook.nodes);
     const moves: Record<string, { dx: number; dy: number }> = {};
     for (const n of standard) {
-      const now = overrides[n.role] ? { x: overrides[n.role].x, y: overrides[n.role].y } : { x: n.x + (myDefault?.[n.role]?.dx || 0), y: n.y + (myDefault?.[n.role]?.dy || 0) };
-      const dx = Math.round((now.x - n.x) * 100) / 100;
+      const now = overrides[n.role] ? { x: overrides[n.role].x, y: overrides[n.role].y } : { x: n.x + flipSign * (myDefault?.[n.role]?.dx || 0), y: n.y + (myDefault?.[n.role]?.dy || 0) };
+      const dx = Math.round(flipSign * (now.x - n.x) * 100) / 100;
       const dy = Math.round((now.y - n.y) * 100) / 100;
       if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) moves[n.role] = { dx, dy };
     }
@@ -411,8 +437,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     const standard = lineUpDefense(dLook.nodes);
     const moves: Record<string, { dx: number; dy: number }> = {};
     for (const n of standard) {
-      const now = overrides[n.role] ? { x: overrides[n.role].x, y: overrides[n.role].y } : { x: n.x + (myDefault?.[n.role]?.dx || 0), y: n.y + (myDefault?.[n.role]?.dy || 0) };
-      const dx = Math.round((now.x - n.x) * 100) / 100;
+      const now = overrides[n.role] ? { x: overrides[n.role].x, y: overrides[n.role].y } : { x: n.x + flipSign * (myDefault?.[n.role]?.dx || 0), y: n.y + (myDefault?.[n.role]?.dy || 0) };
+      const dx = Math.round(flipSign * (now.x - n.x) * 100) / 100;
       const dy = Math.round((now.y - n.y) * 100) / 100;
       if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) moves[n.role] = { dx, dy };
     }
@@ -530,8 +556,9 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     if (!concepts.some(([k]) => k === conceptKey) && concepts[0]) setConceptKey(concepts[0][0]);
   }, [concepts, conceptKey]);
 
-  // Changing the look or the play starts the drawing over. Only a change does: a saved play opens as it was left.
-  const lookKey = `${baseKey}|${activeBack}|${strength}|${hash}`;
+  // Another formation or backfield starts the spots over (a new hash or strength carries them along: pickHash /
+  // pickStrength). Only a change does: a saved play opens as it was left.
+  const lookKey = `${baseKey}|${activeBack}`;
   const lastLook = useRef(lookKey);
   useEffect(() => {
     if (lastLook.current === lookKey) return;
@@ -628,6 +655,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       ...(coverage ? { defenseCoverage: coverage } : {}),
       ...(Object.keys(defAssign).length ? { defenseAssign: defAssign } : {}),
       ...(Object.keys(defRules).length ? { defenseRules: defRules } : {}),
+      ...(defenseFlip ? { defenseFlip: true } : {}),
       defenseUnit: defUnit,
       ...(Object.keys(defWho).length ? { defenseWho: defWho } : {}),
       ...(Object.keys(taggedWho).length ? { defensePlayers: taggedWho } : {}),
@@ -1417,7 +1445,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 </div>
                 <div>
                   {label('Hash')}
-                  {segmented<'Left' | 'Middle' | 'Right'>(['Left', 'Middle', 'Right'], hash, setHash, (h) => (h === 'Middle' ? 'Mid' : h[0]))}
+                  {segmented<'Left' | 'Middle' | 'Right'>(['Left', 'Middle', 'Right'], hash, pickHash, (h) => (h === 'Middle' ? 'Mid' : h[0]))}
                 </div>
               </div>
 
@@ -1593,12 +1621,11 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                               else delete next[n.role];
                               return next;
                             });
-                            // A technique: he lines up there on their line (none: back to the front's spot).
+                            // A technique lines him up there on their line, wherever he was dragged.
                             if (cat === 'tech') {
                               setOverrides((prev) => {
                                 const next = { ...prev };
-                                if (opt) next[n.role] = techniqueSpot(n, opt, offNodes);
-                                else delete next[n.role];
+                                delete next[n.role];
                                 return next;
                               });
                             }

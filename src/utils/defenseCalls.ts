@@ -41,6 +41,29 @@ export const pressureParts = (pressure?: string) => {
 };
 export const joinPressure = (blitz: string, stunt: string) => [blitz, stunt].filter(Boolean).join('+');
 
+const MIRROR_PRESSURE: Record<string, string> = {
+  edge_l: 'edge_r',
+  edge_r: 'edge_l',
+  slant_l: 'slant_r',
+  slant_r: 'slant_l',
+  cross_tt: 'cross_tt_r',
+  cross_tt_r: 'cross_tt',
+  cross_et_l: 'cross_et_r',
+  cross_et_r: 'cross_et_l',
+  twist_l: 'twist_r',
+  twist_r: 'twist_l',
+};
+/** The call for the other side ("Edge L + Slant R" -> "Edge R + Slant L"), when the formation flips. */
+export const mirrorPressure = (pressure: string) =>
+  String(pressure || '')
+    .split('+')
+    .filter(Boolean)
+    .map((id) => MIRROR_PRESSURE[id] || id)
+    .join('+');
+/** One defender's job for the other side (a left flat becomes the right flat). */
+export const mirrorJob = (job: string) =>
+  job.startsWith('zone:') ? job.replace(/[LR]$/, (side) => (side === 'L' ? 'R' : 'L')) : job;
+
 /** A job a coach can give one defender, over what the call would have him do. */
 export const PLAYER_JOBS: { id: string; label: string; group: 'Blitz' | 'Zone' | 'Other' }[] = [
   { id: 'blitz:A', label: 'Blitz A gap', group: 'Blitz' },

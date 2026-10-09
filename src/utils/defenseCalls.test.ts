@@ -231,3 +231,32 @@ describe('defense on a hash', () => {
   });
 });
 
+
+describe('our defense flips to their strength', () => {
+  it('strength right: the 9 technique, Sam and Rover go to the tight end side, on any hash', async () => {
+    const { lineUpOurDefense } = await import('../hudlScout/utils/ourDefense.ts');
+    const look = OUR_DEFENSE_LOOKS['44_C3_LIZ'].nodes;
+    for (const dx of [0, -4.2, 4.2]) {
+      const o = off.map((n) => ({ ...n, x: n.x + dx }));
+      const d = lineUpOurDefense('44_C3_LIZ', look, o, { hashDx: dx, flip: true });
+      const at = (r: string) => d.find((n) => n.role === r)!;
+      assert.ok(Math.abs(at('E9').x - (6.9 + dx)) < 0.01, `E9 at ${at('E9').x}`);
+      assert.ok(at('SAM').x > dx && at('ROV').x > dx);
+      // Unflipped it stays drawn for strength left.
+      const left = lineUpOurDefense('44_C3_LIZ', look, o, { hashDx: dx });
+      assert.ok(left.find((n) => n.role === 'E9')!.x < dx);
+    }
+  });
+
+  it('calls and jobs named by side switch sides', async () => {
+    const { mirrorJob, mirrorPressure } = await import('./defenseCalls.ts');
+    assert.equal(mirrorPressure('edge_l+slant_r'), 'edge_r+slant_l');
+    assert.equal(mirrorPressure('cross_tt'), 'cross_tt_r');
+    assert.equal(mirrorPressure('blow_sting'), 'blow_sting');
+    assert.equal(mirrorJob('zone:flatL'), 'zone:flatR');
+    assert.equal(mirrorJob('zone:deep4OR'), 'zone:deep4OL');
+    assert.equal(mirrorJob('zone:mid'), 'zone:mid');
+    assert.equal(mirrorJob('zone:deep3M'), 'zone:deep3M');
+    assert.equal(mirrorJob('blitz:C'), 'blitz:C');
+  });
+});

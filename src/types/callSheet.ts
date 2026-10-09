@@ -146,6 +146,8 @@ export interface PlayBuilderState {
   defenseAssign?: Record<string, string>;
   /** Each defender's rules picked from the library (category -> term), by role: technique, gap, run fit, etc. */
   defenseRules?: Record<string, Record<string, string>>;
+  /** Our defense mirrors to their strength (drawn for strength left). Off on plays saved before this. */
+  defenseFlip?: boolean;
   /** The coach picked this play's defense himself: it stays, even when their formation has another. */
   defenseOwn?: boolean;
   /** What our defenders' boxes say: their position (default) or the tagged player's jersey number. */

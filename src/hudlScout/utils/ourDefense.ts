@@ -3,6 +3,7 @@
 // (defensive ends have contain); 5-3 Over slides the line one gap to the offense's strength.
 // Set per team; the defaults are Mahopac 10U's.
 import type { Play } from '../types/football';
+import { applyTechniques, defenseAtHash, type PlayNode } from '../../utils/footballEngine';
 import { isBalancedPlay, playFormationBase, sideSplit } from './strength';
 
 export interface DefenseSystem {
@@ -71,6 +72,25 @@ export function withMyAlignment<T extends { role: string; x: number; y: number }
   const mine = lookKey ? system.alignments?.[lookKey] : undefined;
   if (!mine) return nodes;
   return nodes.map((n) => (mine[n.role] ? { ...n, x: n.x + mine[n.role].dx, y: n.y + mine[n.role].dy } : n));
+}
+
+/**
+ * Our defense lined up on their offense. Every look is drawn for their strength to the LEFT (9 technique,
+ * Sam and Rover to that side); `flip` mirrors it for their strength to the right, the coach's saved
+ * moves with it. Then it moves with the ball to the hash, the line sets its techniques on their line, and
+ * any technique the coach picked for a lineman.
+ */
+export function lineUpOurDefense(
+  lookKey: string,
+  look: PlayNode[],
+  offense: PlayNode[],
+  o: { hashDx?: number; flip?: boolean; techs?: Record<string, string> } = {}
+): PlayNode[] {
+  const ball = o.hashDx || 0;
+  const mirror = (nodes: PlayNode[], about: number) => nodes.map((n) => ({ ...n, x: 2 * about - n.x }));
+  const aligned = defenseAtHash(o.flip ? mirror(look, 0) : look, offense, ball);
+  const moved = o.flip ? mirror(withMyAlignment(lookKey, mirror(aligned, ball)), ball) : withMyAlignment(lookKey, aligned);
+  return applyTechniques(moved, offense, o.techs);
 }
 
 /**

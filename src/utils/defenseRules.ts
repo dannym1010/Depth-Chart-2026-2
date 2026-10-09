@@ -2,7 +2,6 @@
 // and how he plays it; a backer's alignment, run fit and drop; a defensive back's alignment, coverage and
 // run support. Picks that move a player (a technique) or draw his line (a drop, a blitz, a slant) change
 // the field too; the rest are words on his job.
-import { alignDefenseTechniques, type PlayNode } from './footballEngine';
 import { PLAYER_JOBS, isLineman } from './defenseCalls';
 
 export type DefenseGroup = 'line' | 'backer' | 'back';
@@ -28,7 +27,7 @@ export function defenseGroup(role: string): DefenseGroup {
   return 'backer';
 }
 
-export const TECHNIQUES = ['0', '1', '2i', '2', '3', '4i', '4', '5', '6', '7', '9'];
+export const TECHNIQUES = ['0', '1', '2i', '2', '3', '4i', '4', '5', '6', '7', '8', '9'];
 const gaps = (prefix = '') => (['A', 'B', 'C', 'D'] as const).map((g) => ({ id: g, label: `${prefix}${g} gap` }));
 const blitz = (list: string[]) => list.map((g) => ({ id: g, label: `${g} gap`, job: `blitz:${g}` }));
 
@@ -178,10 +177,9 @@ export function techniqueOf(role: string, picks: Record<string, string> = {}): s
   return m ? m[1].toLowerCase() : role === 'NT' ? '0' : '';
 }
 
-/** Where a lineman lines up in this technique on their line (his side stays the same). */
-export function techniqueSpot(n: PlayNode, tech: string, offense: PlayNode[]): { x: number; y: number } {
-  const moved = alignDefenseTechniques([{ ...n, role: `DT${tech}` }], offense)[0];
-  return { x: moved.x, y: moved.y };
+/** The techniques picked for the linemen, by role (for applyTechniques). */
+export function pickedTechniques(rules: Record<string, Record<string, string>> = {}): Record<string, string> {
+  return Object.fromEntries(Object.entries(rules).filter(([, r]) => r?.tech).map(([role, r]) => [role, r.tech]));
 }
 
 /**

@@ -7,7 +7,17 @@
 /** The player tagged at a spot (from the depth chart): jersey number, name, the unit, and the spot's name. */
 export type NodePlayer = { num: string; name: string; unit?: 'black' | 'gold' | 'blue'; pos?: string };
 /** `show`: a tagged defender shows his jersey number instead of his position. */
-export type PlayNode = { role: string; x: number; y: number; line?: boolean; label?: string; player?: NodePlayer; show?: 'number' };
+export type PlayNode = {
+  role: string;
+  x: number;
+  y: number;
+  line?: boolean;
+  label?: string;
+  player?: NodePlayer;
+  show?: 'number';
+  /** The position shown when it isn't the role's own (a lineman in a picked technique: "T2i"). */
+  pos?: string;
+};
 
 /** Our defense on the play diagrams (the builder and the saved pictures). One place to change it. */
 export const DEFENSE_COLOR = '#15803d';
@@ -25,7 +35,7 @@ export const shortPlayerName = (name?: string) => {
 };
 /** What a defender's box says: the name a coach typed, else the tagged player's name, else `fallback` (the position letter). */
 /** What a player's mark says: the name the coach typed, else (when set) his jersey number, else his position. */
-export const shownText = (n: PlayNode, fallback: string) => n.label?.trim() || (n.show === 'number' && n.player?.num ? String(n.player.num) : '') || fallback;
+export const shownText = (n: PlayNode, fallback: string) => n.label?.trim() || (n.show === 'number' && n.player?.num ? String(n.player.num) : '') || n.pos || fallback;
 export const tagColors = (player?: NodePlayer) => UNIT_TAG[player?.unit || ''] || { bg: '#64748b', ink: '#ffffff' };
 export const tagWidth = (num: string) => Math.max(13, String(num).length * 5.4 + 7);
 
@@ -1662,6 +1672,23 @@ export function defenseAtHash(defenseNodes: PlayNode[], offenseNodes: PlayNode[]
   return alignDefenseTechniques(hashDx ? defenseNodes.map((n) => ({ ...n, x: n.x + hashDx })) : defenseNodes, offenseNodes);
 }
 
+/** A lineman's position letter: E (end), N (nose), T (tackle). */
+export const lineLetter = (role: string) => (/^D?E/i.test(role) ? 'E' : role === 'NT' ? 'N' : 'T');
+
+/**
+ * Linemen the coach put in another technique ("T3" in a 2i), lined up in it on the offense and shown with
+ * it ("T2i"). Done after the front's own line-up, so it follows the ball and their line like the rest.
+ */
+export function applyTechniques(defenseNodes: PlayNode[], offenseNodes: PlayNode[], techs: Record<string, string> = {}): PlayNode[] {
+  if (!Object.keys(techs).length) return defenseNodes;
+  return defenseNodes.map((n) => {
+    const t = techs[n.role];
+    if (!t) return n;
+    const at = alignDefenseTechniques([{ ...n, role: `DT${t}` }], offenseNodes)[0];
+    return { ...n, x: at.x, y: at.y, pos: `${lineLetter(n.role)}${t}` };
+  });
+}
+
 export function alignDefenseTechniques(defenseNodes: PlayNode[], offenseNodes: PlayNode[]): PlayNode[] {
   if (!defenseNodes.length || !offenseNodes.length) return defenseNodes;
 
@@ -1713,6 +1740,8 @@ export function alignDefenseTechniques(defenseNodes: PlayNode[], offenseNodes: P
       newX = side > 0 ? primaryRightTE : primaryLeftTE;
     } else if (tech === '7') {
       newX = side > 0 ? primaryRightTE - 0.85 : primaryLeftTE + 0.85;
+    } else if (tech === '8') {
+      newX = side > 0 ? outermostRightTE + 2 : outermostLeftTE - 2;
     } else if (tech === '9') {
       newX = side > 0 ? outermostRightTE + 0.9 : outermostLeftTE - 0.9;
     }
@@ -2254,7 +2283,7 @@ export function skillDiagramLabel(role: string): 'TE' | 'WR' | null {
 export function diagramLabel(role: string) {
   if (/^[1-4]$/.test(role)) return role;
   if (/^E\d/.test(role) || /^T\d/.test(role)) return role;
-  if (role === 'NT') return 'N';
+  if (role === 'NT') return 'N0';
   if (role === 'SAM') return 'S';
   if (role === 'MIKE') return 'M';
   if (role === 'WILL') return 'W';
