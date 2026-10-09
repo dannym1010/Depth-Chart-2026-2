@@ -1018,10 +1018,32 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
               {error && !analyzing && (
                 <div className="p-4 rounded-2xl border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 flex items-start gap-3">
                   <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-                  <div className="text-xs space-y-1">
-                    <span className="font-bold">Analysis Error:</span>
-                    <p>{error}</p>
-                    <div className="mt-3 flex items-center gap-3">
+                  <div className="text-xs space-y-1.5 flex-1">
+                    <span className="font-bold flex items-center gap-1.5">
+                      {error.includes('429') || error.toLowerCase().includes('quota')
+                        ? 'Gemini API Quota Limit Reached (429)'
+                        : 'Analysis Error:'}
+                    </span>
+                    <p className="text-[11px] leading-relaxed">{error}</p>
+
+                    {(error.includes('429') || error.toLowerCase().includes('quota')) && (
+                      <div className="p-3 my-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 text-[11px] space-y-1.5">
+                        <div className="font-black text-amber-800 dark:text-amber-300">How & When Your Quota Resets:</div>
+                        <ul className="list-disc list-inside space-y-1 text-[10px]">
+                          <li>
+                            <b>Per-Minute Limit (RPM/TPM):</b> Resets on a rolling window every <b>60 seconds</b>. If you analyzed several clips quickly, waiting 1 minute will usually clear it.
+                          </li>
+                          <li>
+                            <b>Daily Cap:</b> Resets daily at <b>Midnight Pacific Time (3:00 AM Eastern Time)</b>.
+                          </li>
+                          <li>
+                            <b>Check your live quota:</b> Visit <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" className="underline font-bold text-indigo-600 dark:text-indigo-400">Google AI Studio</a> (Plan &amp; Billing) to see your exact limits and live remaining requests.
+                          </li>
+                        </ul>
+                      </div>
+                    )}
+
+                    <div className="mt-3 flex flex-wrap items-center gap-3">
                       <button
                         type="button"
                         onClick={handleAutoScan}

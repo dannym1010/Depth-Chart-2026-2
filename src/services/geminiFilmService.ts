@@ -395,8 +395,10 @@ Respond with pure JSON strictly matching this structure:
           break;
         } else {
           lastErrorText = await res.text();
-          // If 503 (high demand) or 429 (rate limit), retry next attempt
+          // If 503 (high demand) or 429 (rate limit), retry next attempt with cooldown
           if ((res.status === 503 || res.status === 429) && attempt < 3) {
+            onStatusUpdate?.(`Gemini rate limit (429) - cooling down (${attempt}/3)...`);
+            await new Promise((r) => setTimeout(r, attempt * 2500));
             continue;
           }
           // If 404 (model not found), break attempt loop to try next candidate model
@@ -404,6 +406,9 @@ Respond with pure JSON strictly matching this structure:
             break;
           }
           if (attempt === 3) {
+            if (res.status === 429) {
+              throw new Error('Gemini API Quota Exceeded (429): You hit the free tier rate limit. Wait ~60 seconds for the per-minute limit to reset, or check daily cap at aistudio.google.com');
+            }
             throw new Error(`Gemini API error (${res.status}): ${lastErrorText.slice(0, 200)}`);
           }
         }
