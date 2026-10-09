@@ -184,6 +184,7 @@ export async function analyzeFilmWithGemini({
   userPrompt?: string;
   apiKey?: string;
   modelName?: string;
+  onStatusUpdate?: (status: string) => void;
 }): Promise<AiFilmAnalysisResult> {
   const cleanKey = apiKey.trim();
 
@@ -282,7 +283,7 @@ Respond with pure JSON strictly matching this structure:
   };
 
   const candidateModels = Array.from(
-    new Set(['gemini-flash-latest', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', modelName].filter(Boolean))
+    new Set(['gemini-flash-latest', 'gemini-3.8-flash', modelName].filter(Boolean))
   );
 
   let lastErrorText = '';
@@ -290,29 +291,44 @@ Respond with pure JSON strictly matching this structure:
 
   for (const m of candidateModels) {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${cleanKey}`;
-    try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      if (res.ok) {
-        json = await res.json();
-        break;
-      } else {
-        lastErrorText = await res.text();
-        // If 404 (model not found / deprecated for new users), continue to next model
-        if (res.status === 404) {
-          continue;
+    
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        if (attempt > 1) {
+          onStatusUpdate?.(`Google AI busy (${attempt}/3) - waiting ${attempt}s to retry...`);
+          await new Promise((r) => setTimeout(r, attempt * 1200));
         }
-        // If other error (e.g. invalid key 400/403), throw immediately
-        throw new Error(`Gemini API error (${res.status}): ${lastErrorText.slice(0, 200)}`);
+
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        if (res.ok) {
+          json = await res.json();
+          break;
+        } else {
+          lastErrorText = await res.text();
+          // If 503 (high demand) or 429 (rate limit), retry next attempt
+          if ((res.status === 503 || res.status === 429) && attempt < 3) {
+            continue;
+          }
+          // If 404 (model not found), break attempt loop to try next candidate model
+          if (res.status === 404) {
+            break;
+          }
+          if (attempt === 3) {
+            throw new Error(`Gemini API error (${res.status}): ${lastErrorText.slice(0, 200)}`);
+          }
+        }
+      } catch (err: any) {
+        if (err?.message?.includes('Gemini API error')) throw err;
+        lastErrorText = String(err?.message || err);
       }
-    } catch (err: any) {
-      if (err?.message?.includes('Gemini API error')) throw err;
-      lastErrorText = String(err?.message || err);
     }
+
+    if (json) break;
   }
 
   if (!json) {

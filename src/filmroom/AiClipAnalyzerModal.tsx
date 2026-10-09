@@ -33,6 +33,7 @@ import {
   getSavedGeminiModel,
   saveGeminiKey,
   saveGeminiModel,
+  simulateLocalAiBreakdown,
   type AiFilmAnalysisResult,
   type ExtractedFrame,
 } from '../services/geminiFilmService';
@@ -158,6 +159,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
         userPrompt: coachPrompt,
         apiKey,
         modelName: model,
+        onStatusUpdate: (msg) => setScanStep(msg),
       });
 
       setResult(res);
@@ -168,6 +170,12 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
     } finally {
       setAnalyzing(false);
     }
+  };
+
+  const handleLocalSimulate = () => {
+    setError('');
+    const res = simulateLocalAiBreakdown(frames, play, roster, knownFormations, knownPlays);
+    setResult(res);
   };
 
   const handleSaveKey = () => {
@@ -328,13 +336,22 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
               <div className="text-xs space-y-1">
                 <span className="font-bold">Analysis Error:</span>
                 <p>{error}</p>
-                <button
-                  type="button"
-                  onClick={handleAutoScan}
-                  className="mt-2 inline-flex items-center gap-1 font-black underline text-rose-700 dark:text-rose-200 cursor-pointer"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" /> Try Again
-                </button>
+                <div className="mt-3 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleAutoScan}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs cursor-pointer shadow-xs"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" /> Retry with Auto-Backoff
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleLocalSimulate}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 text-white font-bold text-xs cursor-pointer shadow-xs"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" /> Use Instant Local Breakdown
+                  </button>
+                </div>
               </div>
             </div>
           )}
