@@ -120,7 +120,7 @@ export const saveGeminiModel = (model: string) => {
 export async function captureVideoKeyframes(
   video: HTMLVideoElement,
   frameCount = 5,
-  maxDimension = 720
+  maxDimension = 960
 ): Promise<ExtractedFrame[]> {
   const duration = video.duration || 10;
   const originalTime = video.currentTime;
@@ -167,7 +167,7 @@ export async function captureVideoKeyframes(
       // Brief wait to ensure frame decodes
       await new Promise((r) => setTimeout(r, 60));
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
       frames.push({ timestamp: targetTime, label: item.label, dataUrl });
     }
   } finally {
@@ -283,22 +283,23 @@ ODK (Offense/Defense/Kicking) Rule:
 
 Core Analysis Focus:
 1. WHO RAN THE BALL (Ball Carrier / Rusher):
-   - Identify the primary ball carrier / rusher by visible jersey number ("carrierNum", e.g. "24").
-   - If a pass play, identify "passerNum" and "receiverNum".
-   - Identify run direction ('L', 'M', or 'R') and hole/path.
+   - Inspect keyframes closely for the visible jersey number on chest, shoulders, or back.
+   - Set "carrierNum" to the digits seen (e.g. "7", "21"). If jersey number is unclear or obstructed, set to "" (empty string). DO NOT GUESS OR USE PLACEHOLDER NUMBERS!
+   - If a pass play, identify "passerNum" and "receiverNum" only if digits are visible.
+   - Identify run direction ('L', 'M', or 'R').
 2. GAINS OR LOSSES & YARDAGE:
    - Line of scrimmage at snap: ${startLOS}
-   - Identify where the ball carrier went down / tackle was made ("whistleYardLine", e.g. "-31" or "OWN 31").
-   - Net Gain/Loss ("gainLoss", positive for gain, negative for loss, 0 for incomplete/no gain).
+   - Net Gain/Loss ("gainLoss"): Positive integer for forward progress/gain (e.g. 5, 8), negative integer for loss (e.g. -3), 0 for incomplete/no gain.
+   - Whistle spot ("whistleYardLine"): Format as Hudl yard line where runner was downed or whistled dead. (Remember: on own side, gaining 5 yds from -35 moves forward to -40; on opponent side, gaining 6 yds from +40 moves forward to +34).
    ${nextPlayStartYard ? `- CRITICAL YARDAGE & PENALTY CROSS-CHECK:
      * The next play in the game sequence starts at: ${nextPlayStartYard}.
-     * Compare the whistle/tackle spot with ${nextPlayStartYard}.
-     * If the whistle spot does NOT align with ${nextPlayStartYard} (e.g. 5, 10, or 15 yard difference), check if a PENALTY occurred on the play!
-     * Look for: yellow penalty flag on the field, referee signaling holding/offside/facemask, penalty yardage walk-off.
+     * If next play starts at ${nextPlayStartYard}, that is the official line of scrimmage for the next play.
+     * If the tackle spot does not match ${nextPlayStartYard}, check if a penalty was called.
      * Report penaltyDetected (true/false), penaltyDetails, penaltyYards, penaltyOn ('Offense' | 'Defense' | 'None').` : ''}
 3. WHO MADE THE TACKLE:
-   - Identify the primary defensive tackler jersey number ("tacklerNums", e.g. ["52"]).
-   - Identify any secondary assist tacklers (e.g. ["52", "44"]).
+   - Identify the primary defensive tackler jersey digits ("tacklerNums", e.g. ["34"]).
+   - Identify any secondary assist tackler jersey digits.
+   - If no tackler jersey number is legible, set "tacklerNums" to []. DO NOT GUESS OR USE PLACEHOLDER NUMBERS!
 
 Output MUST be strictly valid JSON matching the schema provided.`;
 
@@ -319,17 +320,17 @@ Respond with pure JSON strictly matching this structure:
   "backfield": "I-Form" | "Wishbone" | "Shotgun",
   "motion": "None",
   "playType": "Run" | "Pass" | "RPO" | "Screen" | "KO" | "Punt",
-  "playName": "24 Blast" | "26 Dive" | "31 Sweep",
+  "playName": "Blast" | "Dive" | "Sweep" | "Power",
   "playDir": "L" | "M" | "R",
   "result": "Rush" | "Complete" | "Incomplete" | "Sack" | "Rush, TD",
   "gainLoss": 6,
   "whistleYardLine": "-31",
-  "carrierNum": "24",
+  "carrierNum": "",
   "passerNum": "",
   "receiverNum": "",
   "defensiveFront": "4-4 Stack",
-  "tacklerNums": ["52", "44"],
-  "coachingNotes": "Off-tackle run behind FB lead. Linebacker made tackle after 6 yard gain.",
+  "tacklerNums": [],
+  "coachingNotes": "Detailed observation of blocking, carrier track, and defensive pursuit.",
   "penaltyDetected": false,
   "penaltyDetails": "",
   "penaltyYards": 0,
@@ -657,16 +658,18 @@ export function simulateLocalAiBreakdown(
   const linkOffense = linkOurRoster && ourUnitRole === 'offense';
   const linkDefense = linkOurRoster && ourUnitRole === 'defense';
 
-  const carrierNum = isPass ? undefined : rb?.num || '24';
+  const existingCarrierNum = play?.rusher?.match(/\d+/)?.[0] || play?.carrierOrTarget?.match(/#?(\d+)/)?.[1];
+  const carrierNum = isPass ? undefined : (existingCarrierNum || (rb ? rb.num : undefined));
   const carrierName = isPass
     ? undefined
     : linkOffense && rb
     ? `#${rb.num} ${rb.firstName} ${rb.lastName}`
     : carrierNum
     ? `#${carrierNum}`
-    : '#24';
+    : play?.rusher || play?.carrierOrTarget || undefined;
 
-  const tacklerNums = de ? [de.num] : ['52'];
+  const existingTacklerNum = play?.defPlay?.maker?.match(/\d+/)?.[0];
+  const tacklerNums = existingTacklerNum ? [existingTacklerNum] : (de ? [de.num] : []);
   const tacklerNames = tacklerNums.map((n) => {
     if (linkDefense) {
       const p = roster.find((x) => x.num === n);

@@ -21,6 +21,8 @@ interface Props {
   onSetUnit?: (play: Play, unit: TeamUnit | undefined) => void;
   /** Fields that aren't Hudl breakdown columns: strength, personnel, backfield, motion, players, flags. */
   onPatch?: (play: Play, patch: Partial<Play>) => void;
+  /** Saves both Hudl breakdown row and extended Play patch atomically in one state change */
+  onSaveBreakdownWithPatch?: (play: Play, row: BreakdownRow, patch: Partial<Play>, notes?: string) => void;
   /** Video element for frame capture */
   videoElement?: HTMLVideoElement | null;
   /** Active team roster */
@@ -68,6 +70,7 @@ export const BreakdownPanel: React.FC<Props> = ({
   readOnly,
   onSetUnit,
   onPatch,
+  onSaveBreakdownWithPatch,
   videoElement,
   roster = [],
   opponentName = 'Opponent',
@@ -159,9 +162,14 @@ export const BreakdownPanel: React.FC<Props> = ({
   const listId = `bd-${play.id}`;
 
   const handleAiApply = (newRow: BreakdownRow, patch: Partial<Play>, notes?: string) => {
-    save(newRow);
-    if (onPatch) onPatch(play, patch);
-    if (notes && onAddNote) onAddNote(play.id, notes);
+    setDraft(newRow);
+    if (onSaveBreakdownWithPatch) {
+      onSaveBreakdownWithPatch(play, newRow, patch, notes);
+    } else {
+      save(newRow);
+      if (onPatch) onPatch(play, patch);
+      if (notes && onAddNote) onAddNote(play.id, notes);
+    }
   };
 
   const handleAiApplyAndNext = (newRow: BreakdownRow, patch: Partial<Play>, notes?: string) => {

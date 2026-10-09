@@ -27,11 +27,27 @@ describe('yardageCalculator', () => {
     assert.equal(formatAbsoluteYard(65, 'full'), 'OPP 35');
   });
 
-  it('calculates net gain correctly across the 50 yard line', () => {
+  it('calculates net gain correctly across the 50 yard line and in opponent territory', () => {
     // OWN 45 (-45) to OPP 45 (+45): from 45 to 55 = +10
     assert.equal(calculateNetGain('-45', '+45'), 10);
     // Tackle for loss: OWN 35 to OWN 32 = -3
     assert.equal(calculateNetGain('-35', '-32'), -3);
+    // In opponent territory: from OPP 40 (+40) to OPP 34 (+34) is +6 gain forward, NOT backwards!
+    assert.equal(calculateNetGain('+40', '+34'), 6);
+    assert.equal(calculateNetGain('OPP 40', 'OPP 34'), 6);
+    // When next yard is unsigned '34', inherits opponent side from start:
+    assert.equal(calculateNetGain('+40', '34'), 6);
+  });
+
+  it('verifies opponent territory forward progress in crossCheckPlayYardage', () => {
+    const res = crossCheckPlayYardage({
+      currentStartYard: '+40',
+      currentWhistleYard: '+34',
+      nextStartYard: '+34',
+    });
+    assert.equal(res.measuredGain, 6);
+    assert.equal(res.isAligned, true);
+    assert.equal(res.discrepancyYards, 0);
   });
 
   it('verifies aligned plays with no discrepancy', () => {

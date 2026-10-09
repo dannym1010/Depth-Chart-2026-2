@@ -36,7 +36,7 @@ import {
   type AiFilmAnalysisResult,
   type ExtractedFrame,
 } from '../services/geminiFilmService';
-import { crossCheckPlayYardage } from '../services/yardageCalculator';
+import { crossCheckPlayYardage, parseAbsoluteYard, formatAbsoluteYard } from '../services/yardageCalculator';
 
 interface Props {
   isOpen: boolean;
@@ -457,6 +457,35 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
     setPenaltyDetails(check.penaltySuggestion || '');
     setPenaltyYards(check.penaltyYards || 0);
     setPenaltyOn(check.penaltyOn || 'None');
+  };
+
+  const handleDirectGainChange = (newGain: number) => {
+    setEditGain(newGain);
+    const startSpot = editYard || play?.rawYardLine || '-35';
+    const startAbs = parseAbsoluteYard(startSpot);
+    const whistleAbs = Math.min(100, Math.max(0, startAbs + newGain));
+    const newWhistle = formatAbsoluteYard(whistleAbs, 'full');
+    setWhistleSpot(newWhistle);
+
+    if (nextPlayStartYard) {
+      const check = crossCheckPlayYardage({
+        currentStartYard: startSpot,
+        currentWhistleYard: newWhistle,
+        currentGainLoss: newGain,
+        nextStartYard: nextPlayStartYard,
+        currentOdk: editOdk,
+        nextOdk: nextPlay?.odk,
+      });
+      setSpotAligned(check.isAligned);
+      setPenaltyDetected(check.penaltySuspected);
+      setPenaltyDetails(check.penaltySuggestion || '');
+      setPenaltyYards(check.penaltyYards || 0);
+      setPenaltyOn(check.penaltyOn || 'None');
+    }
+  };
+
+  const handleInvertGain = () => {
+    handleDirectGainChange(-editGain);
   };
 
   const handleApplyPenaltyPreset = (pen: typeof COMMON_PENALTIES[0]) => {
@@ -1109,7 +1138,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                                   Quick Match Mahopac Roster:
                                 </span>
                                 <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto">
-                                  {roster.slice(0, 8).map((p) => (
+                                  {roster.slice(0, 10).map((p) => (
                                     <button
                                       key={p.id}
                                       type="button"
@@ -1122,6 +1151,32 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                                 </div>
                               </div>
                             )}
+
+                            {/* Quick Pick Jersey # for scout games or fast override */}
+                            <div>
+                              <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mb-1">
+                                Quick Pick Jersey #:
+                              </span>
+                              <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto">
+                                {['1', '2', '3', '4', '5', '7', '8', '10', '11', '12', '21', '22', '24', '26', '28', '32', '34', '44', '52', '99'].map((num) => (
+                                  <button
+                                    key={num}
+                                    type="button"
+                                    onClick={() => {
+                                      setEditCarrier(`#${num}`);
+                                      setEditCarrierNum(num);
+                                    }}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold border cursor-pointer transition-colors ${
+                                      editCarrierNum === num
+                                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                        : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                                    }`}
+                                  >
+                                    #{num}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
 
                             {!isOurGame && (
                               <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
@@ -1161,16 +1216,29 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                               <Flag className="w-3.5 h-3.5" />
                               {isScoutOffense ? `${scoutedTeam} Net Gain` : `Yards Allowed by ${scoutedTeam}`}
                             </span>
-                            <div
-                              className={`px-3 py-1 rounded-xl text-base font-black shadow-xs ${
-                                editGain > 0
-                                  ? 'bg-emerald-600 text-white'
-                                  : editGain < 0
-                                  ? 'bg-rose-600 text-white'
-                                  : 'bg-slate-600 text-white'
-                              }`}
-                            >
-                              {editGain > 0 ? `+${editGain}` : editGain} YDS
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="number"
+                                value={editGain}
+                                onChange={(e) => handleDirectGainChange(Number(e.target.value))}
+                                aria-label="Yards gained or lost"
+                                className={`w-16 h-8 text-center rounded-xl text-sm font-black shadow-xs border outline-none ${
+                                  editGain > 0
+                                    ? 'bg-emerald-600 text-white border-emerald-500'
+                                    : editGain < 0
+                                    ? 'bg-rose-600 text-white border-rose-500'
+                                    : 'bg-slate-600 text-white border-slate-500'
+                                }`}
+                              />
+                              <button
+                                type="button"
+                                onClick={handleInvertGain}
+                                title="Flip direction between gain and loss (+ / -)"
+                                className="h-8 px-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-black inline-flex items-center gap-1 cursor-pointer transition-transform active:scale-95 border border-slate-300 dark:border-slate-700"
+                              >
+                                <RotateCcw className="w-3 h-3" />
+                                <span>⇄ Invert</span>
+                              </button>
                             </div>
                           </div>
 
@@ -1327,6 +1395,32 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                               </div>
                             )}
 
+                            {/* Quick Tackler Jersey # Chips */}
+                            <div>
+                              <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mb-1">
+                                Quick Pick Tackler #:
+                              </span>
+                              <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto">
+                                {['52', '44', '34', '99', '21', '12', '7', '10', '5', '3', '2', '1'].map((num) => (
+                                  <button
+                                    key={num}
+                                    type="button"
+                                    onClick={() => {
+                                      setEditTackler(`#${num}`);
+                                      setEditTacklerNum(num);
+                                    }}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold border cursor-pointer transition-colors ${
+                                      editTacklerNum === num
+                                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                                        : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                                    }`}
+                                  >
+                                    #{num}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
                             {!isOurGame && (
                               <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
                                 <UserX className="w-3 h-3" /> Scout Film: Unlinked jersey number
@@ -1354,7 +1448,32 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                       <span>Down &amp; Distance</span>
                     </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                      <div className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Yard Ln</span>
+                        <input
+                          value={editYard}
+                          onChange={(e) => {
+                            setEditYard(e.target.value);
+                            handleRecalculateYardage();
+                          }}
+                          placeholder="-35"
+                          className="w-full text-sm font-black text-slate-900 dark:text-white bg-transparent outline-none mt-0.5"
+                        />
+                      </div>
+
+                      <div className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Gn / Ls</span>
+                        <input
+                          type="number"
+                          value={editGain}
+                          onChange={(e) => handleDirectGainChange(Number(e.target.value))}
+                          className={`w-full text-sm font-black bg-transparent outline-none mt-0.5 ${
+                            editGain > 0 ? 'text-emerald-600 dark:text-emerald-400' : editGain < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'
+                          }`}
+                        />
+                      </div>
+
                       <div className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
                         <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Formation</span>
                         <input

@@ -24,12 +24,11 @@ export interface YardageAlignmentResult {
  * Converts any yard line string (e.g. "-25", "+40", "OWN 35", "OPP 20", "50")
  * into an absolute yard coordinate from 0 (Own Goal Line) to 100 (Opponent Goal Line).
  */
-export function parseAbsoluteYard(raw?: string | number | null): number {
+export function parseAbsoluteYard(raw?: string | number | null, defaultSide?: 'OWN' | 'OPP' | 'MID'): number {
   if (raw === undefined || raw === null || raw === '') return 25; // Default own 25
 
   if (typeof raw === 'number') {
-    // If raw is between 1 and 99 relative to opponent goal line (Hudl standard: 100 - own yard)
-    // or direct 0..100
+    // If raw is between 0 and 100
     if (raw >= 0 && raw <= 100) return raw;
     return 25;
   }
@@ -41,18 +40,22 @@ export function parseAbsoluteYard(raw?: string | number | null): number {
   const num = numMatch ? parseInt(numMatch[0], 10) : 25;
   const clampedNum = Math.min(49, Math.max(1, num));
 
-  // Prefix checks
-  if (clean.startsWith('+') || clean.includes('OPP') || clean.includes('PLUS')) {
+  // Explicit prefix checks
+  if (clean.startsWith('+') || clean.includes('OPP') || clean.includes('PLUS') || clean.includes('THEIRS')) {
     // Opponent side: 40 opp means 60 from own goal line
     return 100 - clampedNum;
   }
-  if (clean.startsWith('-') || clean.includes('OWN') || clean.includes('MINUS')) {
+  if (clean.startsWith('-') || clean.includes('OWN') || clean.includes('MINUS') || clean.includes('OURS')) {
     // Own side: 35 own means 35 from own goal line
     return clampedNum;
   }
 
-  // If unsigned: in youth football convention, default to own territory unless > 50
-  if (num > 50) return 100 - (100 - num);
+  // If default side is specified, use it
+  if (defaultSide === 'OPP') return 100 - clampedNum;
+  if (defaultSide === 'OWN') return clampedNum;
+
+  // If unsigned: coordinate > 50 (e.g. 60) represents distance from own goal line
+  if (num > 50) return num;
   return clampedNum;
 }
 
@@ -77,7 +80,8 @@ export function formatAbsoluteYard(abs: number, style: 'hudl' | 'full' = 'hudl')
  */
 export function calculateNetGain(fromRaw?: string | number | null, toRaw?: string | number | null): number {
   const fromAbs = parseAbsoluteYard(fromRaw);
-  const toAbs = parseAbsoluteYard(toRaw);
+  const defaultSide: 'OWN' | 'OPP' = fromAbs >= 50 ? 'OPP' : 'OWN';
+  const toAbs = parseAbsoluteYard(toRaw, defaultSide);
   return toAbs - fromAbs;
 }
 
@@ -102,13 +106,28 @@ export function crossCheckPlayYardage({
 }): YardageAlignmentResult {
   const startAbs = parseAbsoluteYard(currentStartYard);
   const startFormatted = formatAbsoluteYard(startAbs, 'full');
+  const inferredSide: 'OWN' | 'OPP' = startAbs >= 50 ? 'OPP' : 'OWN';
 
-  // Estimate whistle spot from currentGainLoss if not explicitly provided
-  const whistleAbs = currentWhistleYard !== undefined && currentWhistleYard !== null && currentWhistleYard !== ''
-    ? parseAbsoluteYard(currentWhistleYard)
-    : startAbs + (currentGainLoss ?? 0);
+  // Estimate whistle spot
+  let whistleAbs: number;
+  if (currentWhistleYard !== undefined && currentWhistleYard !== null && String(currentWhistleYard).trim() !== '') {
+    whistleAbs = parseAbsoluteYard(currentWhistleYard, inferredSide);
+  } else if (currentGainLoss !== undefined) {
+    whistleAbs = Math.min(100, Math.max(0, startAbs + currentGainLoss));
+  } else {
+    whistleAbs = startAbs;
+  }
+
+  // If currentGainLoss was explicitly provided and has an opposite sign from (whistleAbs - startAbs),
+  // trust currentGainLoss (e.g. runner gained positive yards, but whistle was mistakenly entered backwards)
+  if (currentGainLoss !== undefined && currentGainLoss !== 0) {
+    const rawDiff = whistleAbs - startAbs;
+    if (Math.sign(rawDiff) !== Math.sign(currentGainLoss) && Math.abs(rawDiff) > 0) {
+      whistleAbs = Math.min(100, Math.max(0, startAbs + currentGainLoss));
+    }
+  }
+
   const whistleFormatted = formatAbsoluteYard(whistleAbs, 'full');
-
   const measuredGain = whistleAbs - startAbs;
 
   if (nextStartYard === undefined || nextStartYard === null || nextStartYard === '') {
@@ -126,7 +145,7 @@ export function crossCheckPlayYardage({
     };
   }
 
-  const nextStartAbs = parseAbsoluteYard(nextStartYard);
+  const nextStartAbs = parseAbsoluteYard(nextStartYard, inferredSide);
   const nextStartFormatted = formatAbsoluteYard(nextStartAbs, 'full');
 
   const isPossessionChange = (currentOdk && nextOdk && currentOdk !== nextOdk);

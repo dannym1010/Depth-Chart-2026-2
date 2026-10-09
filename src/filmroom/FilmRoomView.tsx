@@ -760,6 +760,23 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           })
         )
       }
+      onSaveBreakdownWithPatch={(p, row, patch, notes) => {
+        editPlays((all) =>
+          all.map((x) => {
+            if (x.id !== p.id) return x;
+            let next = applyBreakdown(x, row);
+            if (patch && Object.keys(patch).length > 0) {
+              next = { ...next, ...patch, editedAt: Date.now() };
+              if ('strength' in patch && !patch.strength) delete next.strength;
+              if ('rusher' in patch || 'passer' in patch || 'receiver' in patch) {
+                next.carrierOrTarget = (next.playType === 'RUN' ? next.rusher || next.receiver || next.passer : next.receiver || next.rusher || next.passer) || '';
+              }
+            }
+            return next;
+          })
+        );
+        if (notes) addNote(notes, undefined, apiRef.current?.time() || 0);
+      }}
     />
   );
   const notesEl = (

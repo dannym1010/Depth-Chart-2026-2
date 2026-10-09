@@ -346,6 +346,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
               src={src}
               className="absolute inset-0 w-full h-full object-contain"
               playsInline
+              crossOrigin="anonymous"
               muted={muted}
               loop={loop}
               preload="auto"
