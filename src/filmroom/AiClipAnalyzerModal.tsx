@@ -95,6 +95,10 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
 
   // Run analysis when modal opens on a new play
   useEffect(() => {
+    if (isOpen) {
+      setApiKey(getSavedGeminiKey());
+      setModel(getSavedGeminiModel());
+    }
     if (isOpen && play) {
       handleAutoScan();
     } else if (!isOpen) {
@@ -275,7 +279,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
               <p className="text-xs text-slate-600 dark:text-slate-400">
                 Enter your free Google AI Studio Gemini API Key for live multimodal video inference. If blank, local simulated football intelligence is used.
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2">
                 <input
                   type="password"
                   placeholder="Paste Gemini API Key (AIzaSy...)"
@@ -283,6 +287,15 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                   onChange={(e) => setApiKey(e.target.value)}
                   className="h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-900 dark:text-white"
                 />
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="h-9 px-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-bold text-slate-900 dark:text-white cursor-pointer"
+                >
+                  <option value="gemini-1.5-flash">Gemini 1.5 Flash (Fast)</option>
+                  <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                  <option value="gemini-1.5-pro">Gemini 1.5 Pro (Deep)</option>
+                </select>
                 <button
                   type="button"
                   onClick={handleSaveKey}

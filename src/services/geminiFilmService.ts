@@ -66,9 +66,13 @@ export const saveGeminiKey = (key: string) => {
 
 export const getSavedGeminiModel = (): string => {
   try {
-    return localStorage.getItem(GEMINI_MODEL_KEY) || 'gemini-2.5-flash';
+    const saved = localStorage.getItem(GEMINI_MODEL_KEY);
+    if (saved && ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'].includes(saved)) {
+      return saved;
+    }
+    return 'gemini-1.5-flash';
   } catch {
-    return 'gemini-2.5-flash';
+    return 'gemini-1.5-flash';
   }
 };
 
@@ -276,20 +280,43 @@ Respond with pure JSON strictly matching this structure:
     },
   };
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName || 'gemini-2.5-flash'}:generateContent?key=${cleanKey}`;
+  const candidateModels = Array.from(
+    new Set([modelName, 'gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'].filter(Boolean))
+  );
 
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  let lastErrorText = '';
+  let json: any = null;
 
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Gemini API error (${res.status}): ${errText.slice(0, 200)}`);
+  for (const m of candidateModels) {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${cleanKey}`;
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (res.ok) {
+        json = await res.json();
+        break;
+      } else {
+        lastErrorText = await res.text();
+        // If 404 (model not found / deprecated for new users), continue to next model
+        if (res.status === 404) {
+          continue;
+        }
+        // If other error (e.g. invalid key 400/403), throw immediately
+        throw new Error(`Gemini API error (${res.status}): ${lastErrorText.slice(0, 200)}`);
+      }
+    } catch (err: any) {
+      if (err?.message?.includes('Gemini API error')) throw err;
+      lastErrorText = String(err?.message || err);
+    }
   }
 
-  const json = await res.json();
+  if (!json) {
+    throw new Error(`Gemini API error: ${lastErrorText.slice(0, 250) || 'All candidate models failed'}`);
+  }
   const textContent = json?.candidates?.[0]?.content?.parts?.[0]?.text || '';
   if (!textContent) throw new Error('Empty response from AI model');
 
