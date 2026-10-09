@@ -14,6 +14,7 @@ export interface FilmGameContext {
   gameType: 'our_game' | 'scout_game';
   ourTeamName: string;
   opponentTeamName: string;
+  scoutedTeam?: string;
   offenseTeam: string;
   defenseTeam: string;
   offenseJerseyColor?: string;
@@ -24,6 +25,7 @@ export interface FilmGameContext {
 
 export interface AiFilmAnalysisResult {
   odk: 'O' | 'D' | 'K';
+  scoutedTeam?: string;
   quarter: number;
   down: number;
   distance: number;
@@ -201,6 +203,7 @@ export interface AnalyzeFilmOptions {
   // Game Setup & Context
   gameType?: 'our_game' | 'scout_game';
   ourTeamName?: string;
+  scoutedTeam?: string;
   offenseTeam?: string;
   defenseTeam?: string;
   offenseJerseyColor?: string;
@@ -229,6 +232,7 @@ export async function analyzeFilmWithGemini(opts: AnalyzeFilmOptions): Promise<A
     onStatusUpdate,
     gameType = 'our_game',
     ourTeamName = 'Mahopac 10U',
+    scoutedTeam = gameType === 'our_game' ? ourTeamName : opts.offenseTeam || opponentName,
     offenseTeam = 'Our Team',
     defenseTeam = opponentName,
     offenseJerseyColor = 'Dark',
@@ -245,6 +249,7 @@ export async function analyzeFilmWithGemini(opts: AnalyzeFilmOptions): Promise<A
   if (!cleanKey) {
     return simulateLocalAiBreakdown(frames, play, roster, knownFormations, knownPlays, {
       gameType,
+      scoutedTeam,
       offenseTeam,
       defenseTeam,
       linkOurRoster,
@@ -266,9 +271,15 @@ Your job is to analyze sequential game footage frames of an American football pl
 
 Game Setup Context:
 - Game Type: ${isScout ? 'SCOUT GAME (Two opponent teams playing each other). DO NOT LINK OUR TEAM ROSTER. Only output visible jersey numbers.' : `OUR GAME: ${ourTeamName} vs ${opponentName}`}
+- Team Being Scouted: "${scoutedTeam}"
 - Offense (Team with Ball): ${offenseTeam} (Jerseys: ${offenseJerseyColor})
 - Defense: ${defenseTeam} (Jerseys: ${defenseJerseyColor})
 - Roster Linking: ${linkOurRoster ? `ENABLED: Active Roster: ${rosterList}. Only match players on ${ourUnitRole === 'defense' ? 'Defense (Tacklers)' : 'Offense (Ball Carrier/Passer)'}.` : 'DISABLED: Output jersey numbers only (e.g. #24). Do not assign team player names.'}
+
+ODK (Offense/Defense/Kicking) Rule:
+- When the team you are scouting ("${scoutedTeam}") is on OFFENSE -> Set "odk" to "O" (Offense).
+- When the team you are scouting ("${scoutedTeam}") is on DEFENSE -> Set "odk" to "D" (Defense).
+- When kicking / punt / PAT / kickoff -> Set "odk" to "K".
 
 Core Analysis Focus:
 1. WHO RAN THE BALL (Ball Carrier / Rusher):
@@ -415,6 +426,9 @@ Respond with pure JSON strictly matching this structure:
     return sanitizeAiResult(parsed, roster, {
       linkOurRoster,
       ourUnitRole,
+      scoutedTeam,
+      offenseTeam,
+      defenseTeam,
       currentStartYard: play?.rawYardLine,
       nextPlayStartYard,
       currentOdk: play?.odk,
@@ -428,6 +442,9 @@ Respond with pure JSON strictly matching this structure:
       return sanitizeAiResult(parsed, roster, {
         linkOurRoster,
         ourUnitRole,
+        scoutedTeam,
+        offenseTeam,
+        defenseTeam,
         currentStartYard: play?.rawYardLine,
         nextPlayStartYard,
         currentOdk: play?.odk,
@@ -447,13 +464,26 @@ function sanitizeAiResult(
   context: {
     linkOurRoster?: boolean;
     ourUnitRole?: 'offense' | 'defense' | 'none';
+    scoutedTeam?: string;
+    offenseTeam?: string;
+    defenseTeam?: string;
     currentStartYard?: string;
     nextPlayStartYard?: string;
     currentOdk?: string;
     nextPlayOdk?: string;
   } = {}
 ): AiFilmAnalysisResult {
-  const { linkOurRoster = true, ourUnitRole = 'offense', currentStartYard, nextPlayStartYard, currentOdk, nextPlayOdk } = context;
+  const {
+    linkOurRoster = true,
+    ourUnitRole = 'offense',
+    scoutedTeam,
+    offenseTeam,
+    defenseTeam,
+    currentStartYard,
+    nextPlayStartYard,
+    currentOdk,
+    nextPlayOdk,
+  } = context;
 
   const findPlayer = (num?: string) => {
     if (!num || !linkOurRoster) return undefined;
@@ -522,8 +552,19 @@ function sanitizeAiResult(
   const penaltyYards = raw.penaltyYards ? Number(raw.penaltyYards) : yardCheck.penaltyYards;
   const penaltyOn = (raw.penaltyOn as 'Offense' | 'Defense' | 'None') || yardCheck.penaltyOn;
 
+  let finalOdk: 'O' | 'D' | 'K' = raw.odk === 'D' ? 'D' : raw.odk === 'K' ? 'K' : 'O';
+  if (raw.odk !== 'K' && scoutedTeam && offenseTeam && defenseTeam) {
+    const isScoutOff = offenseTeam.toLowerCase().includes(scoutedTeam.toLowerCase()) ||
+      scoutedTeam.toLowerCase().includes(offenseTeam.toLowerCase());
+    const isScoutDef = defenseTeam.toLowerCase().includes(scoutedTeam.toLowerCase()) ||
+      scoutedTeam.toLowerCase().includes(defenseTeam.toLowerCase());
+    if (isScoutOff) finalOdk = 'O';
+    else if (isScoutDef) finalOdk = 'D';
+  }
+
   return {
-    odk: raw.odk === 'D' ? 'D' : raw.odk === 'K' ? 'K' : 'O',
+    odk: finalOdk,
+    scoutedTeam,
     quarter: Number(raw.quarter) || 1,
     down: Number(raw.down) || 1,
     distance: Number(raw.distance) || 10,
@@ -571,6 +612,7 @@ export function simulateLocalAiBreakdown(
   knownPlays: string[] = [],
   context: {
     gameType?: 'our_game' | 'scout_game';
+    scoutedTeam?: string;
     offenseTeam?: string;
     defenseTeam?: string;
     linkOurRoster?: boolean;
@@ -582,6 +624,9 @@ export function simulateLocalAiBreakdown(
   const {
     linkOurRoster = true,
     ourUnitRole = 'offense',
+    scoutedTeam,
+    offenseTeam,
+    defenseTeam,
     nextPlayStartYard,
     nextPlayOdk,
   } = context;
@@ -630,8 +675,19 @@ export function simulateLocalAiBreakdown(
     return `#${n}`;
   });
 
+  let finalOdk: 'O' | 'D' | 'K' = play?.odk === 'D' ? 'D' : play?.odk === 'K' ? 'K' : 'O';
+  if (scoutedTeam && offenseTeam && defenseTeam && play?.odk !== 'K') {
+    const isScoutOff = offenseTeam.toLowerCase().includes(scoutedTeam.toLowerCase()) ||
+      scoutedTeam.toLowerCase().includes(offenseTeam.toLowerCase());
+    const isScoutDef = defenseTeam.toLowerCase().includes(scoutedTeam.toLowerCase()) ||
+      scoutedTeam.toLowerCase().includes(defenseTeam.toLowerCase());
+    if (isScoutOff) finalOdk = 'O';
+    else if (isScoutDef) finalOdk = 'D';
+  }
+
   return {
-    odk: play?.odk === 'D' ? 'D' : play?.odk === 'K' ? 'K' : 'O',
+    odk: finalOdk,
+    scoutedTeam,
     quarter: play?.quarter || (pNum <= 10 ? 1 : pNum <= 20 ? 2 : 3),
     down: play?.down || ((pNum % 3) + 1),
     distance: play?.distance || 10,

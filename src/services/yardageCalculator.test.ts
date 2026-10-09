@@ -104,4 +104,40 @@ describe('yardageCalculator', () => {
       assert.ok(!result.tacklerNames[0].includes('Jaxson'), 'Must not link defensive player name');
     }
   });
+
+  it('tags ODK as O when scouted team is on offense and D when scouted team is on defense', () => {
+    // 1. Scouted team is Carmel. Carmel is on OFFENSE -> ODK must be 'O'
+    const offenseResult = simulateLocalAiBreakdown(
+      [],
+      { id: 'p1', playNumber: 1, rawYardLine: '-25' } as any,
+      [],
+      [],
+      [],
+      {
+        gameType: 'scout_game',
+        scoutedTeam: 'Carmel 10U',
+        offenseTeam: 'Carmel 10U',
+        defenseTeam: 'Somers 10U',
+        linkOurRoster: false,
+      }
+    );
+    assert.equal(offenseResult.odk, 'O', 'When scouted team is on offense, ODK must be O');
+
+    // 2. Scouted team is Carmel. Carmel is on DEFENSE (Somers is on offense) -> ODK must be 'D'
+    const defenseResult = simulateLocalAiBreakdown(
+      [],
+      { id: 'p2', playNumber: 2, rawYardLine: '-35' } as any,
+      [],
+      [],
+      [],
+      {
+        gameType: 'scout_game',
+        scoutedTeam: 'Carmel 10U',
+        offenseTeam: 'Somers 10U',
+        defenseTeam: 'Carmel 10U',
+        linkOurRoster: false,
+      }
+    );
+    assert.equal(defenseResult.odk, 'D', 'When scouted team is on defense, ODK must be D');
+  });
 });
