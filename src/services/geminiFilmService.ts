@@ -258,18 +258,9 @@ export async function analyzeFilmWithGemini(opts: AnalyzeFilmOptions): Promise<A
 
   const cleanKey = apiKey.trim();
 
-  // If no API key is set, return a smart simulated breakdown with real roster linking and instructions
+  // No key: no breakdown (never a made-up one passed off as real).
   if (!cleanKey) {
-    return simulateLocalAiBreakdown(frames, play, roster, knownFormations, knownPlays, {
-      gameType,
-      scoutedTeam,
-      offenseTeam,
-      defenseTeam,
-      linkOurRoster,
-      ourUnitRole,
-      nextPlayStartYard,
-      nextPlayOdk,
-    });
+    throw new Error('No Gemini API key on this device. Open the key settings (the gear at the top of this window), paste your key and save it, then run the breakdown again.');
   }
 
   const isScout = gameType === 'scout_game';

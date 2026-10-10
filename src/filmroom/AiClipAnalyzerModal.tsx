@@ -353,8 +353,14 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
 
   const handleAutoScan = async () => {
     setError('');
-    setAnalyzing(true);
     setResult(null);
+    // No key on this device: say so and open the key settings (never a made-up breakdown).
+    if (!String(apiKey || '').trim()) {
+      setError('No Gemini API key on this device yet. Paste your key in the settings below and press Save, then run the breakdown again.');
+      setShowSettings(true);
+      return;
+    }
+    setAnalyzing(true);
 
     try {
       let extracted: ExtractedFrame[] = [];
@@ -1064,7 +1070,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                         onClick={handleLocalSimulate}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 text-white font-bold text-xs cursor-pointer shadow-xs"
                       >
-                        <Sparkles className="w-3.5 h-3.5 text-amber-400" /> Use Instant Local Breakdown
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400" /> Show a demo (made-up numbers)
                       </button>
                     </div>
                   </div>
