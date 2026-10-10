@@ -855,6 +855,50 @@ export function buildWristbandColorColumnSections(
   });
 }
 
+export type WristbandRowsLayout = 1 | 2 | 3 | 4 | 'stacked';
+
+/**
+ * The wristband color tables on the top rows, nothing else beside them: `n` per row (a short last row
+ * fills its width), or 'stacked' — each card's colors one above the other (Blue over Gold, Green over Pink).
+ * Every other situation table moves below, keeping its own rows and order.
+ */
+export function arrangeWristbandRows(
+  sections: CallSheetSection[],
+  layout: WristbandRowsLayout,
+  wbData?: WristbandData
+): CallSheetSection[] {
+  const wb = sections.filter(isAutoWristbandRowTable);
+  if (!wb.length) return sections;
+  const cardOrder = new Map((wbData?.wristbands || []).map((w, i) => [w.id, i]));
+  const cardIdx = (s: CallSheetSection) => cardOrder.get(s.wristbandId || '') ?? 99;
+  const colIdx = (s: CallSheetSection) => s.wristbandColIdx ?? 0;
+  const sorted = [...wb].sort((a, b) => cardIdx(a) - cardIdx(b) || colIdx(a) - colIdx(b));
+  const place = new Map<string, { rowIndex: number; order: number }>();
+  if (layout === 'stacked') {
+    const cards = [...new Set(sorted.map(cardIdx))];
+    sorted.forEach((s) => place.set(s.id, { rowIndex: colIdx(s), order: cards.indexOf(cardIdx(s)) }));
+  } else {
+    sorted.forEach((s, i) => place.set(s.id, { rowIndex: Math.floor(i / layout), order: i % layout }));
+  }
+  const wbRows = Math.max(...[...place.values()].map((p) => p.rowIndex)) + 1;
+
+  // The rest of the situation tables, in the rows they had, start right under the wristband rows.
+  const isTop = (s: CallSheetSection) => !isAutoWristbandRowTable(s) && (s.group || 'top_situations') === 'top_situations';
+  const others = sections.filter(isTop);
+  const rowOf = (s: CallSheetSection, i: number) => (typeof s.rowIndex === 'number' ? s.rowIndex : 1000 + Math.floor(i / 4));
+  const oldRows = [...new Set(others.map(rowOf))].sort((a, b) => a - b);
+  const otherPlace = new Map<string, number>();
+  others.forEach((s, i) => otherPlace.set(s.id, wbRows + oldRows.indexOf(rowOf(s, i))));
+
+  return sections.map((s, i) => {
+    const p = place.get(s.id);
+    if (p) return { ...s, ...p, colSpan: 1 };
+    const r = otherPlace.get(s.id);
+    if (r === undefined) return s;
+    return { ...s, rowIndex: r, order: typeof s.order === 'number' ? s.order : i };
+  });
+}
+
 /** Copy current wristband plays onto the call sheet as one table per color column. */
 export function copyWristbandPlaysToFirstRow(
   callSheetData: CallSheetFullData,
@@ -867,15 +911,18 @@ export function copyWristbandPlaysToFirstRow(
   const leftover = (callSheetData[key] || []).filter(
     (s) => !isAutoWristbandRowTable(s) && !isLegacyWristbandTable(s)
   );
+  const placed = placeWristbandColorTables(
+    tables,
+    leftover,
+    callSheetData.desktopGridColumns || WRISTBAND_TABLES_PER_ROW,
+    callSheetData[key] || []
+  );
+  // A coach-picked wristband row layout stays in force when the wristband changes.
+  const layout = unit === 'offense' ? callSheetData.wristbandRowsLayout : undefined;
   return {
     ...callSheetData,
     lastEdited: Date.now(),
-    [key]: placeWristbandColorTables(
-      tables,
-      leftover,
-      callSheetData.desktopGridColumns || WRISTBAND_TABLES_PER_ROW,
-      callSheetData[key] || []
-    ),
+    [key]: layout ? arrangeWristbandRows(placed, layout, wbData) : placed,
   };
 }
 

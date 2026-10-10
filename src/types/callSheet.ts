@@ -96,6 +96,8 @@ export interface CallSheetFullData {
   opponent?: string;
   gameDate?: string;
   desktopGridColumns?: number; // 2, 3, 4, or 5 columns on desktop grid
+  /** Offense: the wristband color tables fill the top rows — N per row, or 'stacked' (each card's colors one above the other). */
+  wristbandRowsLayout?: 1 | 2 | 3 | 4 | 'stacked';
   highlightRedZone: boolean;
   offenseSections: CallSheetSection[];
   defenseSections: CallSheetSection[];

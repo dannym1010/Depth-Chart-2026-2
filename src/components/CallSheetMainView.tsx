@@ -39,7 +39,15 @@ import {
 import { WristbandData } from '../types';
 import { INITIAL_TWO_WRISTBANDS_DATA } from '../data/userGameDayPlays';
 import { safeJSONParse, safeJSONSet, safeJSONStringify, cleanFirestoreData } from '../services/storageService';
-import { syncWristbandToCallSheet, inferFormation, copyWristbandPlaysToFirstRow, wristbandRowFingerprint } from '../utils/wristbandLinking';
+import {
+  syncWristbandToCallSheet,
+  inferFormation,
+  copyWristbandPlaysToFirstRow,
+  wristbandRowFingerprint,
+  arrangeWristbandRows,
+  isAutoWristbandRowTable,
+  type WristbandRowsLayout,
+} from '../utils/wristbandLinking';
 import { mergeRichestWristbandData } from '../utils/wristbandNormalize';
 import {
   CallSheetSnapshot,
@@ -729,6 +737,17 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
           assignedRowIndex = 0;
           assignedOrder = inGroup.length;
         }
+        // With a wristband row layout, the top rows hold only the wristband tables.
+        if (group === 'top_situations' && unit === 'offense' && prev.wristbandRowsLayout) {
+          const wbRows = currentList.filter(isAutoWristbandRowTable).map((s) => s.rowIndex ?? 0);
+          const lastWbRow = wbRows.length ? Math.max(...wbRows) : -1;
+          if (assignedRowIndex <= lastWbRow) {
+            assignedRowIndex = lastWbRow + 1;
+            assignedOrder = currentList.filter(
+              (s) => (s.group || 'top_situations') === 'top_situations' && (s.rowIndex ?? 0) === assignedRowIndex
+            ).length;
+          }
+        }
 
         const totalSlots = rawSec.slotsCount || rawSec.plays?.length || 4;
         const rawPlays = Array.isArray(rawSec.plays)
@@ -766,6 +785,18 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
 
   const handleConfirmAddSection = (newSection: CallSheetSection) => {
     handleConfirmAddSections([newSection]);
+  };
+
+  // Wristband tables alone on the top rows (N per row or stacked by card); saved with the sheet.
+  const handleWristbandRowsLayout = (layout: WristbandRowsLayout) => {
+    applyCallSheetUpdate((prev) => {
+      const withLayout = { ...prev, wristbandRowsLayout: layout };
+      if ((prev.offenseSections || []).some(isAutoWristbandRowTable)) {
+        return { ...withLayout, offenseSections: arrangeWristbandRows(prev.offenseSections || [], layout, normalizedWristbandData) };
+      }
+      // No wristband tables on the sheet yet: put them on, in this layout.
+      return copyWristbandPlaysToFirstRow(withLayout, normalizedWristbandData, 'offense');
+    });
   };
 
   const handleCopyWristbandToFirstRow = () => {
@@ -1409,6 +1440,7 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
               onChangeTimeoutsCount={handleChangeTimeoutsCount}
               onUpdateGroupTitle={handleUpdateGroupTitle}
               onResetToDefault={handleReset}
+              onWristbandRowsLayout={handleWristbandRowsLayout}
             />
           ) : (
             <MobileCallSheetView

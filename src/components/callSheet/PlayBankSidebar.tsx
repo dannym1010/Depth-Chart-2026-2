@@ -66,6 +66,8 @@ export const PlayBankSidebar: React.FC<PlayBankSidebarProps> = ({
   onToggleOpen,
 }) => {
   const [sidebarMode, setSidebarMode] = useState<'wristband' | 'library'>('wristband');
+  // The wristband holds offense plays: the defense sheet shows the defensive Play Library only.
+  const mode = unit === 'defense' ? 'library' : sidebarMode;
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [isManageMode, setIsManageMode] = useState(false);
@@ -434,7 +436,7 @@ export const PlayBankSidebar: React.FC<PlayBankSidebarProps> = ({
         <div className="p-3 border-b border-slate-800 flex items-center justify-between bg-slate-850">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center">
-              {sidebarMode === 'wristband' ? (
+              {mode === 'wristband' ? (
                 <Watch className="w-4 h-4 text-amber-400" />
               ) : (
                 <BookOpen className="w-4 h-4 text-indigo-400" />
@@ -442,10 +444,10 @@ export const PlayBankSidebar: React.FC<PlayBankSidebarProps> = ({
             </div>
             <div>
               <h3 className="text-xs font-black uppercase tracking-wider text-white">
-                {sidebarMode === 'wristband' ? 'Wristband Table' : `${unit === 'offense' ? 'Offense' : 'Defense'} Play Bank`}
+                {mode === 'wristband' ? 'Wristband Table' : `${unit === 'offense' ? 'Offense' : 'Defense'} Play Bank`}
               </h3>
               <span className="text-[10px] text-slate-400">
-                {sidebarMode === 'wristband'
+                {mode === 'wristband'
                   ? 'Drag plays onto situation tables'
                   : isManageMode
                   ? 'Select plays to delete'
@@ -454,7 +456,7 @@ export const PlayBankSidebar: React.FC<PlayBankSidebarProps> = ({
             </div>
           </div>
           <div className="flex items-center gap-1">
-            {sidebarMode === 'library' && (
+            {mode === 'library' && (
               <>
                 <button
                   type="button"
@@ -525,13 +527,14 @@ export const PlayBankSidebar: React.FC<PlayBankSidebarProps> = ({
           </div>
         </div>
 
-        {/* Primary View Switcher: Wristband Table vs Full Play Bank */}
+        {/* Primary View Switcher: Wristband Table vs Full Play Bank (offense only) */}
+        {unit !== 'defense' && (
         <div className="flex items-center p-1.5 bg-slate-950 border-b border-slate-800 gap-1 shrink-0">
           <button
             type="button"
             onClick={() => setSidebarMode('wristband')}
             className={`flex-1 py-1.5 px-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-              sidebarMode === 'wristband'
+              mode === 'wristband'
                 ? 'bg-indigo-600 text-white shadow-xs'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850'
             }`}
@@ -543,7 +546,7 @@ export const PlayBankSidebar: React.FC<PlayBankSidebarProps> = ({
             type="button"
             onClick={() => setSidebarMode('library')}
             className={`flex-1 py-1.5 px-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-              sidebarMode === 'library'
+              mode === 'library'
                 ? 'bg-indigo-600 text-white shadow-xs'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850'
             }`}
@@ -552,16 +555,17 @@ export const PlayBankSidebar: React.FC<PlayBankSidebarProps> = ({
             <span>Play Library ({filteredPlays.length})</span>
           </button>
         </div>
+        )}
 
         {/* Informative Banner */}
-        {sidebarMode === 'wristband' && (
+        {mode === 'wristband' && (
           <DismissibleTip id="call-sheet-drag-plays" className="m-2 shrink-0">
             Drag plays onto situation tables. They stay on your wristband too.
           </DismissibleTip>
         )}
 
         {/* Multi-Card Switcher (if multiple wristband cards exist) */}
-        {sidebarMode === 'wristband' && wristbandCards.length > 1 && (
+        {mode === 'wristband' && wristbandCards.length > 1 && (
           <div className="px-3 py-1.5 bg-slate-900 border-b border-slate-800 flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0">Card:</span>
             {wristbandCards.map((wb, idx) => {
@@ -589,7 +593,7 @@ export const PlayBankSidebar: React.FC<PlayBankSidebarProps> = ({
         )}
 
         {/* Manage Mode Toolbar (for Play Bank) */}
-        {sidebarMode === 'library' && isManageMode && (
+        {mode === 'library' && isManageMode && (
           <div className="p-2.5 bg-rose-950/40 border-b border-rose-900/40 flex items-center justify-between gap-2 shrink-0">
             <button
               type="button"
@@ -624,13 +628,13 @@ export const PlayBankSidebar: React.FC<PlayBankSidebarProps> = ({
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder={sidebarMode === 'wristband' ? 'Search wristband plays or slot...' : 'Search plays or slot...'}
+              placeholder={mode === 'wristband' ? 'Search wristband plays or slot...' : 'Search plays or slot...'}
               className="w-full pl-8 pr-3 py-1.5 bg-slate-950 border border-slate-750 rounded-xl text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
           </div>
 
           {/* Type pills & Personnel for Library mode */}
-          {sidebarMode === 'library' && (
+          {mode === 'library' && (
             <>
               <div className="flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar text-[10px]">
                 <button
@@ -764,7 +768,7 @@ export const PlayBankSidebar: React.FC<PlayBankSidebarProps> = ({
         {/* Main Plays List Content */}
         <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5 min-h-0">
           {/* MODE 1: WRISTBAND TABLE PLAYS */}
-          {sidebarMode === 'wristband' && (
+          {mode === 'wristband' && (
             <>
               {filteredWristbandPlays.length === 0 ? (
                 <div className="p-6 text-center space-y-3">
@@ -872,7 +876,7 @@ export const PlayBankSidebar: React.FC<PlayBankSidebarProps> = ({
           )}
 
           {/* MODE 2: PLAY LIBRARY */}
-          {sidebarMode === 'library' && (
+          {mode === 'library' && (
             <>
               {filteredPlays.length === 0 ? (
                 <div className="p-6 text-center space-y-3">
@@ -1073,7 +1077,7 @@ export const PlayBankSidebar: React.FC<PlayBankSidebarProps> = ({
         </div>
 
         {/* Order Select Sticky Bottom Bar */}
-        {sidebarMode === 'library' && isOrderSelectMode && onAddMultiplePlaysToWristband && (
+        {mode === 'library' && isOrderSelectMode && onAddMultiplePlaysToWristband && (
           <div className="p-3 bg-slate-950 border-t border-slate-800 flex flex-col gap-2 shrink-0">
             <div className="flex items-center justify-between text-xs">
               <span className="font-bold text-slate-300 flex items-center gap-1.5">
@@ -1122,11 +1126,11 @@ export const PlayBankSidebar: React.FC<PlayBankSidebarProps> = ({
         {/* Footer Summary & Reset */}
         <div className="p-2.5 border-t border-slate-800/80 bg-slate-950/70 flex items-center justify-between text-[10px] text-slate-400 shrink-0">
           <span>
-            {sidebarMode === 'wristband'
+            {mode === 'wristband'
               ? `${filteredWristbandPlays.length} wristband plays`
               : `${filteredPlays.length} ${unit} library plays`}
           </span>
-          {sidebarMode === 'library' && onResetDefaults && !isManageMode && (
+          {mode === 'library' && onResetDefaults && !isManageMode && (
             <button
               type="button"
               onClick={() => setIsConfirmResetOpen(true)}

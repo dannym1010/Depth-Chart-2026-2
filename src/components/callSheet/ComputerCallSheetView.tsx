@@ -56,6 +56,8 @@ interface ComputerCallSheetViewProps {
     newTitle: string
   ) => void;
   onResetToDefault?: () => void;
+  /** Offense: wristband tables alone on the top rows, N per row or stacked by card. */
+  onWristbandRowsLayout?: (layout: 1 | 2 | 3 | 4 | 'stacked') => void;
 }
 
 export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
@@ -81,6 +83,7 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
   onChangeTimeoutsCount,
   onUpdateGroupTitle,
   onResetToDefault,
+  onWristbandRowsLayout,
 }) => {
   const sections =
     unit === 'offense' ? callSheetData.offenseSections : callSheetData.defenseSections;
@@ -861,6 +864,30 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap">
+            {/* Wristband tables alone on the top rows */}
+            {unit === 'offense' && onWristbandRowsLayout && (
+              <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 px-1.5 py-0.5 rounded text-[10px] text-amber-800 dark:text-amber-300">
+                <span className="font-semibold">Wristband rows:</span>
+                {([1, 2, 3, 4, 'stacked'] as const).map((opt) => {
+                  const on = callSheetData.wristbandRowsLayout === opt;
+                  return (
+                    <button
+                      key={String(opt)}
+                      type="button"
+                      onClick={() => onWristbandRowsLayout(opt)}
+                      className={`px-1.5 py-0.2 rounded font-bold cursor-pointer ${on ? 'bg-amber-500 text-white' : 'hover:bg-amber-100 dark:hover:bg-amber-900/50'}`}
+                      title={
+                        opt === 'stacked'
+                          ? 'Each wristband card stacked: Blue above Gold, Green above Pink'
+                          : `${opt} wristband table${opt === 1 ? '' : 's'} per row; other tables start below`
+                      }
+                    >
+                      {opt === 'stacked' ? 'Stacked' : opt}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             {/* Reset / Preset row balance */}
             <div className="hidden sm:flex items-center gap-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-1.5 py-0.5 rounded text-[10px] text-slate-500">
               <span className="font-semibold">Reset to:</span>
