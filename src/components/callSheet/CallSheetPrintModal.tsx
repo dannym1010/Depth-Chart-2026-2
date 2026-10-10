@@ -33,6 +33,11 @@ const CALL_SHEET_PRINT_DEFAULTS = {
   hideEmptySlots: true,
   inkFriendly: true,
   selectedColumns: 4,
+};
+
+// Which sections print is remembered separately for the offense and the defense sheet, so printing only
+// "vs their formations" on defense can't leave the offense sheet with nothing selected.
+const SECTION_DEFAULTS = {
   includeTopSituations: true,
   includeRedZone: true,
   includeTempo: true,
@@ -42,6 +47,7 @@ const CALL_SHEET_PRINT_DEFAULTS = {
   includeTimeouts: true,
   includeVsFormations: true,
 };
+const sectionsKind = (unit: 'offense' | 'defense') => `call_sheet_sections_${unit}`;
 
 interface CallSheetPrintModalProps {
   isOpen: boolean;
@@ -64,7 +70,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
   gridColumns = 4,
   formationPictures,
 }) => {
-  const savedPrint = loadPrintPrefs('call_sheet', CALL_SHEET_PRINT_DEFAULTS);
+  const savedPrint = { ...loadPrintPrefs('call_sheet', CALL_SHEET_PRINT_DEFAULTS), ...loadPrintPrefs(sectionsKind(activeUnit), SECTION_DEFAULTS) };
   const [orientation, setOrientation] = useState<'landscape' | 'portrait'>(savedPrint.orientation);
   const [fitMode, setFitMode] = useState<'auto' | '1page' | '2page'>(savedPrint.fitMode);
   const [density, setDensity] = useState<'standard' | 'compact' | 'ultra'>(savedPrint.density);
@@ -85,7 +91,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    const next = loadPrintPrefs('call_sheet', CALL_SHEET_PRINT_DEFAULTS);
+    const next = { ...loadPrintPrefs('call_sheet', CALL_SHEET_PRINT_DEFAULTS), ...loadPrintPrefs(sectionsKind(activeUnit), SECTION_DEFAULTS) };
     setOrientation(next.orientation);
     setFitMode(next.fitMode);
     setDensity(next.density);
@@ -100,7 +106,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
     setIncludeTwoPoint(next.includeTwoPoint);
     setIncludeTimeouts(next.includeTimeouts);
     setIncludeVsFormations(next.includeVsFormations !== false);
-  }, [isOpen, gridColumns, callSheetData.desktopGridColumns]);
+  }, [isOpen, activeUnit, gridColumns, callSheetData.desktopGridColumns]);
 
   if (!isOpen) return null;
 
@@ -194,6 +200,8 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
       hideEmptySlots,
       inkFriendly,
       selectedColumns,
+    });
+    savePrintPrefs(sectionsKind(activeUnit), {
       includeTopSituations,
       includeRedZone,
       includeTempo,
@@ -206,7 +214,10 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
   };
 
   // Direct print with exact sectionsFilter and clean print engine
+  const nothingSelected = selectedSectionsCount === 0;
+
   const handleDirectPrint = () => {
+    if (nothingSelected) return;
     persistPrintPrefs();
     const bodyClasses: string[] = ['is-printing-callsheet'];
     if (orientation === 'landscape') {
@@ -256,6 +267,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
 
   // Standalone tab print via openCleanPrintTab
   const handleOpenCleanTab = () => {
+    if (nothingSelected) return;
     persistPrintPrefs();
     const html = generateCallSheetPrintHTML(
       callSheetData,
@@ -740,10 +752,14 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
               Cancel
             </button>
 
+            {nothingSelected && (
+              <span className="text-[11px] font-bold text-amber-400">Pick at least one section to print.</span>
+            )}
             <button
               type="button"
               onClick={handleDirectPrint}
-              className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black shadow-lg shadow-indigo-600/30 flex items-center gap-2 transition-all cursor-pointer"
+              disabled={nothingSelected}
+              className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black shadow-lg shadow-indigo-600/30 flex items-center gap-2 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Printer className="w-4 h-4" />
               <span>Print Call Sheet</span>
