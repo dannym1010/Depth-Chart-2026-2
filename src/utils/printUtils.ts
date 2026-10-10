@@ -2854,24 +2854,7 @@ export function generateCallSheetPrintHTML(
           ? '#000000'
           : play.wristbandTextColor || match?.numberTextColor || getContrastColor(numBg);
 
-        // Formation check - suppress 21 formation and personnel tag to give play name maximum space
-        let formation = (play.formation || '').trim();
-        const upperForm = formation.toUpperCase();
-        const upperName = (play.name || '').toUpperCase();
-        if (
-          upperForm === '21' ||
-          upperForm === '21 L' ||
-          upperForm === '21 R' ||
-          upperForm.includes('21') ||
-          upperName.includes(upperForm) ||
-          upperName.startsWith('21') ||
-          upperName.includes('21 L') ||
-          upperName.includes('21 R') ||
-          /\b21\b/.test(upperName)
-        ) {
-          formation = '';
-        }
-
+        // No formation tag after the play name (same as on screen): the name gets all the space.
         return `
           <div class="callsheet-cell" style="padding: ${cellPadding};">
             <div class="cell-main">
@@ -2882,7 +2865,6 @@ export function generateCallSheetPrintHTML(
               }
               <span class="play-name">${play.name}</span>
             </div>
-            ${formation ? `<div class="cell-meta"><span class="formation-tag">(${formation})</span></div>` : ''}
           </div>
         `;
       })
