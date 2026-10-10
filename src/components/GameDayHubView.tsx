@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import type { FormationPlan, OppFormation } from '../utils/scoutOppPlays';
 import {
   Swords,
   FileSpreadsheet,
@@ -69,6 +70,8 @@ interface GameDayHubViewProps {
   onUpdateDeletedPlayIds: (ids: string[]) => void;
   wristbandData?: WristbandData;
   onUpdateWristbandData?: (data: WristbandData) => void;
+  /** Saving our plan vs one of their formations (from the defense call sheet). */
+  onSaveFormationPlan?: (f: OppFormation, plan: FormationPlan) => void;
   previousWeekLabel?: string;
   onCopyWristbandFromPreviousWeek?: () => void;
   onCopyCallSheetFromPreviousWeek?: () => void;
@@ -109,6 +112,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
   onUpdateDeletedPlayIds,
   wristbandData,
   onUpdateWristbandData,
+  onSaveFormationPlan,
   previousWeekLabel,
   onCopyWristbandFromPreviousWeek,
   onCopyCallSheetFromPreviousWeek,
@@ -1053,8 +1057,11 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
           deletedPlayIds={deletedPlayIds}
           onUpdateDeletedPlayIds={onUpdateDeletedPlayIds}
           wristbandData={wristbandData}
+          onUpdateWristbandData={onUpdateWristbandData}
           previousWeekLabel={previousWeekLabel}
           onCopyCallSheetFromPreviousWeek={onCopyCallSheetFromPreviousWeek}
+          oppFormations={(scouting as any)?.hudlScout?.oppFormations}
+          onSaveFormationPlan={onSaveFormationPlan}
           embedded
         />
       )}

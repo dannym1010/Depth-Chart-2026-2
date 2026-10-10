@@ -2688,7 +2688,11 @@ export interface CallSheetPrintOptions {
     scripts?: boolean;
     twoPoint?: boolean;
     timeouts?: boolean;
+    /** Defense: the "vs <their formation>" tables (printed on their own, with pictures). */
+    vsFormations?: boolean;
   };
+  /** Pictures of their formations vs our defense, by "vs" table id (vsform-<formation id>). */
+  formationPictures?: Record<string, string>;
 }
 
 /**
@@ -2751,7 +2755,10 @@ export function generateCallSheetPrintHTML(
     ? callSheetData.offenseSections || []
     : callSheetData.defenseSections || [];
 
-  const topSituations = sections.filter((s) => s.group === 'top_situations');
+  // "vs <their formation>" tables print in their own group (with the picture), so each can be left out.
+  const isVsFormation = (s: CallSheetSection) => s.id.startsWith('vsform-');
+  const topSituations = sections.filter((s) => s.group === 'top_situations' && !isVsFormation(s));
+  const vsFormations = sections.filter((s) => isVsFormation(s));
   const redZone = sections.filter((s) => s.group === 'red_zone');
   const tempo = sections.filter((s) => s.group === 'tempo_game_mgmt');
   const custom = sections.filter((s) => s.group === 'custom');
@@ -2971,6 +2978,31 @@ export function generateCallSheetPrintHTML(
       <div class="section-group">
         <div class="group-banner">${callSheetData.topSituationsTitle || 'SITUATIONAL CALLS &amp; DOWN-AND-DISTANCE'}</div>
         ${rowsHtml}
+      </div>
+    `;
+  }
+
+  let vsFormationsHtml = '';
+  if (filter.vsFormations !== false && vsFormations.length > 0) {
+    const pics = options?.formationPictures || {};
+    const perRow = Math.max(1, Math.min(printColumns, 4));
+    const cards = vsFormations
+      .map((sec) => {
+        const pic = pics[sec.id];
+        return `
+          <div class="vsform-card" style="page-break-inside: avoid; break-inside: avoid; display: flex; flex-direction: column; gap: 3px;">
+            ${pic ? `<img src="${pic.replace(/"/g, '%22')}" alt="" style="width: 100%; height: auto; border: 1px solid #94a3b8; border-radius: 4px; background: #ffffff;" />` : ''}
+            ${renderSectionCard(sec)}
+          </div>
+        `;
+      })
+      .join('');
+    vsFormationsHtml = `
+      <div class="section-group">
+        <div class="group-banner">OUR CALLS VS THEIR FORMATIONS</div>
+        <div class="cards-grid" style="grid-template-columns: repeat(${perRow}, minmax(0, 1fr)); gap: ${gridGap}; align-items: start;">
+          ${cards}
+        </div>
       </div>
     `;
   }
@@ -3536,6 +3568,7 @@ export function generateCallSheetPrintHTML(
       <div class="callsheet-snippet-wrapper" style="width: 100%; background: ${inkFriendly ? '#ffffff' : '#090d16'}; color: ${inkFriendly ? '#000000' : '#f8fafc'};">
         ${bannerHtml}
         ${topSituationsHtml}
+        ${vsFormationsHtml}
         ${redZoneHtml}
         ${tempoHtml}
         ${customHtml}
@@ -3554,6 +3587,7 @@ export function generateCallSheetPrintHTML(
 <body>
   ${bannerHtml}
   ${topSituationsHtml}
+  ${vsFormationsHtml}
   ${redZoneHtml}
   ${tempoHtml}
   ${customHtml}

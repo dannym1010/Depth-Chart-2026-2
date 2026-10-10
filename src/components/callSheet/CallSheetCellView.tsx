@@ -46,27 +46,6 @@ export const CallSheetCellView: React.FC<CallSheetCellViewProps> = ({
       .trim();
   }, [play?.name]);
 
-  // Suppress 21 L / 21 R and 21 formation & personnel text to give maximum space to the play name
-  const displayFormation = useMemo(() => {
-    const rawForm = (play?.formation || '').trim();
-    const nameToCheck = (play?.name || '').toUpperCase();
-    const upperForm = rawForm.toUpperCase();
-    if (
-      upperForm === '21' ||
-      upperForm === '21 L' ||
-      upperForm === '21 R' ||
-      upperForm.includes('21') ||
-      nameToCheck.includes(upperForm) ||
-      nameToCheck.startsWith('21') ||
-      nameToCheck.includes('21 L') ||
-      nameToCheck.includes('21 R') ||
-      /\b21\b/.test(nameToCheck)
-    ) {
-      return '';
-    }
-    return rawForm;
-  }, [play?.formation, play?.name]);
-
   useEffect(() => {
     return subscribeCopiedPlay((latest) => {
       setClipboardPlay(latest);
@@ -210,14 +189,13 @@ export const CallSheetCellView: React.FC<CallSheetCellViewProps> = ({
       return;
     }
     const wbNum = inlineWristband.trim() ? parseInt(inlineWristband.trim(), 10) : undefined;
+    // Keep everything else about the play (wristband colors, star, notes) — only the name/number change.
     const updated: CallSheetPlay = {
+      ...(play || {}),
       id: play?.id || `play_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       name: trimmed,
       formation: play?.formation || '',
-      type: play?.type,
       wristbandNum: !isNaN(wbNum as number) ? wbNum : play?.wristbandNum,
-      personnel: play?.personnel,
-      notes: play?.notes,
     };
     if (onDirectUpdatePlay) {
       onDirectUpdatePlay(updated);
@@ -457,7 +435,7 @@ export const CallSheetCellView: React.FC<CallSheetCellViewProps> = ({
           ? 'text-slate-900 border-slate-300'
           : baseBgClass
       } ${isDragOver ? 'ring-2 ring-indigo-500 bg-indigo-50/70 dark:bg-indigo-950/50' : ''}`}
-      title="Click to change play, drag to move/copy to another cell, or press Ctrl+C / Ctrl+V"
+      title="Click to edit or change the play, drag to move/copy to another cell, or press Ctrl+C / Ctrl+V"
     >
       <div className="flex items-center gap-1.5 min-w-0 flex-1 print:overflow-visible">
         {/* Exact Wristband Number Badge - cleanly displays slot number without hash sign */}
@@ -526,21 +504,6 @@ export const CallSheetCellView: React.FC<CallSheetCellViewProps> = ({
             <span className="print:hidden">(Open Slot)</span>
           )}
         </span>
-
-        {/* Formation or Type tag (non-21 formations only) */}
-        {displayFormation && (
-          <span
-            className={`text-[9px] font-mono shrink-0 hidden sm:inline-block print:text-[8px] print:inline-block ${
-              isDarkRowHighlight
-                ? 'text-white/90 print:!text-white'
-                : rowHighlightColor
-                ? 'text-slate-700'
-                : 'text-slate-500 dark:text-slate-400 print:!text-slate-800 print:group-hover:!text-slate-800'
-            }`}
-          >
-            ({displayFormation})
-          </span>
-        )}
 
         {/* Copied feedback badge */}
         {copyFeedback && (

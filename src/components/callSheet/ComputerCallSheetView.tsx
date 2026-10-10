@@ -706,15 +706,18 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
   // How many of the sheet's grid columns a table takes.
   const tableSpan = (s: CallSheetSection) => Math.max(1, Math.min(6, s.colSpan || (s.columnsCount && s.columnsCount > 1 ? s.columnsCount : 1)));
 
-  // Every situational row shares one set of columns, so Width 1 is the same size in every row:
-  // the Grid setting, or the widest row if that is more (four wristband tables make four).
-  const sheetCols = useMemo(() => {
-    const widest = Math.max(0, ...situationalRows.map((r) => r.sections.reduce((n, s) => n + tableSpan(s), 0)));
-    return Math.max(1, Math.min(6, Math.max(gridColumns || 4, widest)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [situationalRows, gridColumns]);
+  // Each situational row is laid out like the printout: its tables fill the row in proportion to their
+  // width. A row wider than the sheet's Grid setting wraps onto a second line.
+  const sheetCols = Math.max(1, Math.min(6, gridColumns || 4));
+  const rowLayout = (sections: CallSheetSection[]) => {
+    const spans = sections.map((s) => tableSpan(s));
+    if (spans.reduce((a, b) => a + b, 0) <= sheetCols) {
+      return { template: spans.map((s) => `minmax(0,${s}fr)`).join(' '), spanOf: (_s: CallSheetSection) => 1 };
+    }
+    return { template: `repeat(${sheetCols},minmax(0,1fr))`, spanOf: (s: CallSheetSection) => Math.min(tableSpan(s), sheetCols) };
+  };
   const SHEET_ROW =
-    'grid w-full gap-2.5 items-start grid-cols-1 sm:grid-cols-2 lg:[grid-template-columns:repeat(var(--cs-cols),minmax(0,1fr))] print:[grid-template-columns:repeat(var(--cs-cols),minmax(0,1fr))]';
+    'grid w-full gap-2.5 items-start grid-cols-1 sm:grid-cols-2 lg:[grid-template-columns:var(--cs-template)] print:[grid-template-columns:var(--cs-template)]';
   const SHEET_CELL = 'lg:[grid-column:span_var(--cs-span)/span_var(--cs-span)] print:[grid-column:span_var(--cs-span)/span_var(--cs-span)]';
 
   // Helper to determine responsive grid classes and template style based on table count and multi-column spans in a row
@@ -1058,7 +1061,7 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
                 ) : (
                   <div
                     className={SHEET_ROW}
-                    style={{ '--cs-cols': sheetCols } as React.CSSProperties}
+                    style={{ '--cs-template': rowLayout(row.sections).template } as React.CSSProperties}
                     onDragOver={(e) => {
                       if (e.dataTransfer.types.includes('application/callsheet-table-drag')) {
                         e.preventDefault();
@@ -1073,7 +1076,7 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
                         <div
                           key={sec.id}
                           className={`relative flex flex-col min-w-0 ${SHEET_CELL}`}
-                          style={{ '--cs-span': Math.min(tableSpan(sec), sheetCols) } as React.CSSProperties}
+                          style={{ '--cs-span': rowLayout(row.sections).spanOf(sec) } as React.CSSProperties}
                           onDragOver={(e) => handleDragOverTable(e, sec.id, row.rowIndex)}
                           onDrop={(e) => handleDropOnTable(e, sec.id, row.rowIndex)}
                         >

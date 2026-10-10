@@ -4,6 +4,7 @@ import type { ScoutGame } from '../../hudlScout/components/Header';
 import type { Play } from '../../hudlScout/types/football';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { DiagramImage } from '../playbook/DiagramImage';
+import { FormationPlanEditor } from './FormationPlanEditor';
 import { openFilmWindow } from '../../filmroom/filmWindowStore';
 import { inferPlayType, playNameKey } from '../../utils/playbookImport';
 import { resolveDiagram, unsavedDiagram } from '../../utils/playDiagrams';
@@ -428,7 +429,6 @@ export const ScoutOppPlayLibrary: React.FC<{
     [playDatabase]
   );
   const callName = (id?: string) => (id ? defenseCalls.find((p) => p.id === id)?.name : undefined);
-  const [planDraft, setPlanDraft] = useState<Record<string, { situation: string; callId: string }>>({});
   const savePlan = (f: OppFormation, plan: FormationPlan) => {
     if (!onSaveFormations) return;
     const now = Date.now();
@@ -718,100 +718,12 @@ export const ScoutOppPlayLibrary: React.FC<{
             <div>
               <div className="text-[11px] font-bold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">Our calls vs their formations</div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Pick the base call and the calls you make in certain situations against each formation (your defensive plays from the Play Library).
+                Pick the base call, the blitzes you like, and the calls for certain situations against each formation (your defensive plays from the Play Library).
                 They go on the defense side of the call sheet and on the sideline sheet.
                 {defenseCalls.length === 0 ? ' No defensive plays in the Play Library yet.' : ''}
               </p>
             </div>
-            <ul className="space-y-2">
-              {formationCards.map(({ f }) => {
-                const plan: FormationPlan = f.plan || { calls: [] };
-                const key = f.id || `film:${f.name}`;
-                const draft = planDraft[key] || { situation: '', callId: '' };
-                const setDraft = (d: Partial<typeof draft>) => setPlanDraft((all) => ({ ...all, [key]: { ...draft, ...d } }));
-                return (
-                  <li key={key} className="rounded-lg border border-slate-200 dark:border-slate-700 p-2 space-y-1.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-black text-slate-900 dark:text-white min-w-[7rem]">vs {f.name}</span>
-                      <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500">
-                        Base
-                        <select
-                          aria-label={`Base call vs ${f.name}`}
-                          value={plan.base || ''}
-                          onChange={(e) => savePlan(f, { ...plan, base: e.target.value || undefined })}
-                          className={`${INPUT} !h-8 !w-auto min-w-[12rem] text-xs font-bold`}
-                        >
-                          <option value="">Pick the base call</option>
-                          {defenseCalls.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
-                    {plan.calls.length > 0 && (
-                      <ul className="flex flex-wrap gap-1.5">
-                        {plan.calls.map((c) => (
-                          <li key={c.id} className="inline-flex items-center gap-1 h-7 pl-2 pr-1 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-[11px]">
-                            <b className="text-emerald-800 dark:text-emerald-300">{c.situation}:</b>
-                            <span className="font-bold text-slate-700 dark:text-slate-200">{callName(c.callId) || 'Call removed from the Play Library'}</span>
-                            <button
-                              type="button"
-                              aria-label={`Remove ${c.situation}`}
-                              onClick={() => savePlan(f, { ...plan, calls: plan.calls.filter((x) => x.id !== c.id) })}
-                              className="h-5 w-5 rounded text-slate-400 hover:text-rose-500 inline-flex items-center justify-center cursor-pointer"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <input
-                        list="plan-situations"
-                        aria-label={`Situation vs ${f.name}`}
-                        placeholder="Situation (3rd & long…)"
-                        value={draft.situation}
-                        onChange={(e) => setDraft({ situation: e.target.value })}
-                        className={`${INPUT} !h-8 !w-40 text-xs`}
-                      />
-                      <select
-                        aria-label={`Call for the situation vs ${f.name}`}
-                        value={draft.callId}
-                        onChange={(e) => setDraft({ callId: e.target.value })}
-                        className={`${INPUT} !h-8 !w-auto min-w-[12rem] text-xs`}
-                      >
-                        <option value="">Pick the call (blitz…)</option>
-                        {defenseCalls.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                            {c.type === 'blitz' ? ' (blitz)' : ''}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        disabled={!draft.situation.trim() || !draft.callId}
-                        onClick={() => {
-                          savePlan(f, { ...plan, calls: [...plan.calls, { id: `c${Date.now().toString(36)}`, situation: draft.situation.trim(), callId: draft.callId }] });
-                          setPlanDraft((all) => ({ ...all, [key]: { situation: '', callId: '' } }));
-                        }}
-                        className="h-8 px-3 rounded-lg bg-emerald-600 text-white text-xs font-black cursor-pointer disabled:opacity-40"
-                      >
-                        Add call
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-            <datalist id="plan-situations">
-              {PLAN_SITUATIONS.map((v) => (
-                <option key={v} value={v} />
-              ))}
-            </datalist>
+            <FormationPlanEditor formations={formationCards.map(({ f }) => f)} defenseCalls={defenseCalls} onSavePlan={savePlan} />
           </div>
         )}
         {gameId && (

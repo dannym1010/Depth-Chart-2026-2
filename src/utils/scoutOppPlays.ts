@@ -60,10 +60,18 @@ export interface FormationPlan {
 /** Situations offered for a call against a formation (a coach can type any other). */
 export const PLAN_SITUATIONS = ['1st & 10', '2nd & long', '2nd & short', '3rd & long', '3rd & short', '4th & short', 'Red zone', 'Goal line', '2-pt', 'Backed up', '2-minute'];
 
-/** A formation's plan as lines for a call sheet: "Base: 4-4 Stack LIZ", "3rd & long: Blow Sting". */
+/** A blitz we like against the formation (any down) is kept as a call with this situation. */
+export const BLITZ_SITUATION = 'Blitz';
+
+/** A formation's plan as lines for a call sheet: "Base: 4-4 Stack LIZ", "Blitz: Double Dog", "3rd & long: Blow Sting". */
 export function planLines(plan: FormationPlan | undefined, nameOf: (id: string) => string | undefined): { situation: string; call: string; id: string }[] {
   if (!plan) return [];
-  const rows = [...(plan.base ? [{ situation: 'Base', callId: plan.base, id: 'base' }] : []), ...(plan.calls || [])];
+  const calls = plan.calls || [];
+  const rows = [
+    ...(plan.base ? [{ situation: 'Base', callId: plan.base, id: 'base' }] : []),
+    ...calls.filter((c) => c.situation === BLITZ_SITUATION),
+    ...calls.filter((c) => c.situation !== BLITZ_SITUATION),
+  ];
   return rows.map((r) => ({ situation: r.situation, call: nameOf(r.callId) || '', id: r.id })).filter((r) => r.call);
 }
 

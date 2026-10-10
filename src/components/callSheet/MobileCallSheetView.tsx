@@ -241,14 +241,6 @@ export const MobileCallSheetView: React.FC<MobileCallSheetViewProps> = ({
                     <h4 className="text-xs font-black uppercase truncate text-slate-100">
                       {play ? (play.name || '').replace(/^#\s*\d*\s*[-.:]?\s*/i, '').replace(/^\d+[\.\)]\s+/, '').replace(/^#\s*/, '').trim() : '(Empty Slot - Tap to Pick)'}
                     </h4>
-                    {play?.formation &&
-                      !play.formation.includes('21') &&
-                      !play.name?.toUpperCase().includes('21') &&
-                      !play.name?.toUpperCase().includes(play.formation.toUpperCase()) && (
-                        <span className="text-[10px] text-slate-400 font-mono">
-                          {play.formation}
-                        </span>
-                      )}
                   </div>
                 </div>
               </div>
@@ -413,14 +405,6 @@ export const MobileCallSheetView: React.FC<MobileCallSheetViewProps> = ({
                                     {play.name}
                                   </span>
                                 </div>
-                                {play.formation &&
-                                  !play.formation.includes('21') &&
-                                  !play.name?.toUpperCase().includes('21') &&
-                                  !play.name?.toUpperCase().includes(play.formation.toUpperCase()) && (
-                                    <span className="text-[10px] text-slate-400 font-mono">
-                                      {play.formation}
-                                    </span>
-                                  )}
                               </div>
                             ) : (
                               <span className="text-xs text-slate-500 italic print:hidden">

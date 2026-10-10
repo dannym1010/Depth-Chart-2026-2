@@ -40,6 +40,7 @@ const CALL_SHEET_PRINT_DEFAULTS = {
   includeScripts: true,
   includeTwoPoint: true,
   includeTimeouts: true,
+  includeVsFormations: true,
 };
 
 interface CallSheetPrintModalProps {
@@ -50,6 +51,8 @@ interface CallSheetPrintModalProps {
   activeTeamName: string;
   wristbandData?: WristbandData;
   gridColumns?: number;
+  /** Pictures of their formations vs our defense, by "vs" table id, printed with those tables. */
+  formationPictures?: Record<string, string>;
 }
 
 export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
@@ -59,6 +62,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
   activeUnit,
   activeTeamName,
   gridColumns = 4,
+  formationPictures,
 }) => {
   const savedPrint = loadPrintPrefs('call_sheet', CALL_SHEET_PRINT_DEFAULTS);
   const [orientation, setOrientation] = useState<'landscape' | 'portrait'>(savedPrint.orientation);
@@ -77,6 +81,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
   const [includeScripts, setIncludeScripts] = useState(savedPrint.includeScripts);
   const [includeTwoPoint, setIncludeTwoPoint] = useState(savedPrint.includeTwoPoint);
   const [includeTimeouts, setIncludeTimeouts] = useState(savedPrint.includeTimeouts);
+  const [includeVsFormations, setIncludeVsFormations] = useState(savedPrint.includeVsFormations !== false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -94,6 +99,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
     setIncludeScripts(next.includeScripts);
     setIncludeTwoPoint(next.includeTwoPoint);
     setIncludeTimeouts(next.includeTimeouts);
+    setIncludeVsFormations(next.includeVsFormations !== false);
   }, [isOpen, gridColumns, callSheetData.desktopGridColumns]);
 
   if (!isOpen) return null;
@@ -103,7 +109,8 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
     ? callSheetData.offenseSections || []
     : callSheetData.defenseSections || [];
 
-  const topCount = sections.filter((s) => s.group === 'top_situations').length;
+  const vsCount = sections.filter((s) => s.id.startsWith('vsform-')).length;
+  const topCount = sections.filter((s) => s.group === 'top_situations' && !s.id.startsWith('vsform-')).length;
   const redZoneCount = sections.filter((s) => s.group === 'red_zone').length;
   const tempoCount = sections.filter((s) => s.group === 'tempo_game_mgmt').length;
   const customCount = sections.filter((s) => s.group === 'custom').length;
@@ -112,6 +119,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
     : (callSheetData.defenseScript || []).filter((p) => p && p.name).length;
 
   const totalSectionsCount =
+    (vsCount > 0 ? 1 : 0) +
     (topCount > 0 ? 1 : 0) +
     (redZoneCount > 0 ? 1 : 0) +
     (tempoCount > 0 ? 1 : 0) +
@@ -121,6 +129,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
     (customCount > 0 ? 1 : 0);
 
   const selectedSectionsCount =
+    (includeVsFormations && vsCount > 0 ? 1 : 0) +
     (includeTopSituations && topCount > 0 ? 1 : 0) +
     (includeRedZone && redZoneCount > 0 ? 1 : 0) +
     (includeTempo && tempoCount > 0 ? 1 : 0) +
@@ -130,6 +139,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
     (includeCustom && customCount > 0 ? 1 : 0);
 
   const handleSelectAllSections = () => {
+    setIncludeVsFormations(true);
     setIncludeTopSituations(true);
     setIncludeRedZone(true);
     setIncludeTempo(true);
@@ -139,7 +149,14 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
     setIncludeCustom(true);
   };
 
+  // Just our calls vs their formations (with pictures), nothing else.
+  const handleOnlyVsFormations = () => {
+    handleClearAllSections();
+    setIncludeVsFormations(true);
+  };
+
   const handleClearAllSections = () => {
+    setIncludeVsFormations(false);
     setIncludeTopSituations(false);
     setIncludeRedZone(false);
     setIncludeTempo(false);
@@ -164,7 +181,9 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
       scripts: includeScripts,
       twoPoint: includeTwoPoint,
       timeouts: includeTimeouts,
+      vsFormations: includeVsFormations,
     },
+    formationPictures,
   };
 
   const persistPrintPrefs = () => {
@@ -182,6 +201,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
       includeScripts,
       includeTwoPoint,
       includeTimeouts,
+      includeVsFormations,
     });
   };
 
@@ -514,9 +534,36 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
                 >
                   Clear All
                 </button>
+                {vsCount > 0 && (
+                  <>
+                    <span className="text-slate-600">&bull;</span>
+                    <button
+                      type="button"
+                      onClick={handleOnlyVsFormations}
+                      className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer"
+                    >
+                      Only vs Their Formations
+                    </button>
+                  </>
+                )}
               </div>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              {vsCount > 0 && (
+                <label className={`flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer ${
+                  includeVsFormations
+                    ? 'bg-emerald-600/15 border-emerald-500/80 text-white'
+                    : 'bg-slate-850/50 border-slate-750 text-slate-400 opacity-60 hover:opacity-90'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={includeVsFormations}
+                    onChange={(e) => setIncludeVsFormations(e.target.checked)}
+                    className="rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                  />
+                  <span className="font-bold">vs Their Formations ({vsCount})</span>
+                </label>
+              )}
               <label className={`flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer ${
                 includeTopSituations
                   ? 'bg-indigo-600/15 border-indigo-500/80 text-white'

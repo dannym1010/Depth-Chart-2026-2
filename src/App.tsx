@@ -165,7 +165,7 @@ import { mergeDeletedPlayIds, mergePlayBanks, stampPlayEdits } from './utils/pla
 import { blankCallSheetData, blankWristbandData } from './utils/blankSheets';
 import { missingPracticePlans } from './utils/autoPracticePlans';
 import { clearPlayBuilderSeed, consumeSeedHold, holdPlayBuilderSeed, mergeBuilderSave, savePlayBuilderSeed, type PlayBuilderSeed } from './utils/playBuilderSeed';
-import { builderFromFormation, cardForSnap, groupOppPlays, isScoutPlayEntry, planLines, realCall, renameOppCall, linkSnapsToCall, snapsForCall, type OppFormation, type ScoutOppPlay } from './utils/scoutOppPlays';
+import { builderFromFormation, cardForSnap, groupOppPlays, isScoutPlayEntry, planLines, realCall, renameOppCall, linkSnapsToCall, snapsForCall, type FormationPlan, type OppFormation, type ScoutOppPlay } from './utils/scoutOppPlays';
 import type { Play as FilmPlay } from './hudlScout/types/football';
 import { backfieldOf, baseKeysForGame, formationDefense, formationOfPlay, openFormation, oppPlayDiagram, playWithDefense, redrawWithBackfield, spotsForGame } from './utils/filmBackfields';
 import { BACKFIELD_STRUCTURES, compactPlayDiagrams } from './utils/footballEngine';
@@ -4428,6 +4428,16 @@ export default function App() {
     if (JSON.stringify(defenseSections) === JSON.stringify(old)) return;
     handleUpdateCallSheetData({ ...cs, defenseSections, lastEdited: Date.now() });
   };
+  /** Our plan vs one of their formations, edited on the defense call sheet (same plan as Scouting → Their plays). */
+  const saveFormationPlan = (f: OppFormation, plan: FormationPlan) => {
+    const { hudl, put } = weekHudl();
+    if (!hudl || !f?.id) return;
+    const now = Date.now();
+    const list: OppFormation[] = (hudl.oppFormations || []).filter((x: OppFormation) => x?.id);
+    const next = list.map((x) => (x.id === f.id ? { ...x, plan, editedAt: now } : x));
+    put({ ...hudl, oppFormations: next, updatedAt: now });
+    putFormationPlansOnCallSheet(next);
+  };
   /** Their formation drawn in the builder: its picture and alignment, for their plays to start from. */
   const saveOppFormation = (f: { id: string; name: string; builder: PlayBuilderState; diagramUrl: string; defenseUrl?: string; defenseName?: string }) => {
     const { hudl, put } = weekHudl();
@@ -7563,6 +7573,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 deletedPlayIds={deletedPlayIds}
                 onUpdateDeletedPlayIds={handleUpdateDeletedPlayIds}
                 wristbandData={effectiveWristbandData}
+                onSaveFormationPlan={saveFormationPlan}
                 onUpdateWristbandData={handleUpdateWristbandData}
                 previousWeekLabel={previousWeekCopyLabel}
                 onCopyWristbandFromPreviousWeek={handleCopyWristbandFromPreviousWeek}
@@ -7628,8 +7639,11 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 deletedPlayIds={deletedPlayIds}
                 onUpdateDeletedPlayIds={handleUpdateDeletedPlayIds}
                 wristbandData={effectiveWristbandData}
+                onUpdateWristbandData={handleUpdateWristbandData}
                 previousWeekLabel={previousWeekCopyLabel}
                 onCopyCallSheetFromPreviousWeek={handleCopyCallSheetFromPreviousWeek}
+                oppFormations={currentWeekState.scouting?.hudlScout?.oppFormations}
+                onSaveFormationPlan={saveFormationPlan}
               />
             )}
 

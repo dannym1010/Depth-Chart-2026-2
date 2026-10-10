@@ -104,6 +104,14 @@ describe('our calls vs their formations', () => {
     assert.deepEqual(lines.map((l) => l.situation + ': ' + l.call), ['Base: 4-4 BASE STACK LIZ', '3rd & long: BLOW STING']);
     assert.deepEqual(planLines(undefined, () => 'x'), []);
   });
+  it('lists the blitz options right after the base call, before situation calls', () => {
+    const names: Record<string, string> = { a: '4-4 BASE STACK LIZ', b: 'BLOW STING', d: 'DOUBLE DOG' };
+    const lines = planLines(
+      { base: 'a', calls: [{ id: 'x', situation: '3rd & long', callId: 'b' }, { id: 'z', situation: 'Blitz', callId: 'd' }] },
+      (id) => names[id]
+    );
+    assert.deepEqual(lines.map((l) => l.situation + ': ' + l.call), ['Base: 4-4 BASE STACK LIZ', 'Blitz: DOUBLE DOG', '3rd & long: BLOW STING']);
+  });
   it('a play drawn in the builder previews exactly as saved, even with a film backfield', () => {
     const card = { id: 'p1', gameId: 'g1', name: '21 BEAST 36 DIVE', formation: '', personnel: '21', kind: 'run' } as any;
     const db = [{ id: 'scout_p1', name: '21 BEAST 36 DIVE', diagramUrl: 'data:saved', builder: { backfield: 'BEAST' } } as any];

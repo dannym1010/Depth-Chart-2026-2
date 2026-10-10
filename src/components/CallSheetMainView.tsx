@@ -57,6 +57,8 @@ import { AddTableModal } from './callSheet/AddTableModal';
 import { CallSheetPrintModal } from './callSheet/CallSheetPrintModal';
 import { CallSheetHistoryModal } from './CallSheetHistoryModal';
 import { MoreMenu } from './common/MoreMenu';
+import { FormationPlanEditor } from './scouting/FormationPlanEditor';
+import { isScoutPlayEntry, type FormationPlan, type OppFormation } from '../utils/scoutOppPlays';
 
 interface CallSheetMainViewProps {
   activeTeamName?: string;
@@ -69,6 +71,11 @@ interface CallSheetMainViewProps {
   deletedPlayIds?: string[];
   onUpdateDeletedPlayIds?: (ids: string[]) => void;
   wristbandData?: WristbandData;
+  /** Saves a wristband change (editing a play in a wristband table edits its wristband slot). */
+  onUpdateWristbandData?: (data: WristbandData) => void;
+  /** This week's opponent formations (Scouting → Their plays) and saving our plan against one. */
+  oppFormations?: OppFormation[];
+  onSaveFormationPlan?: (f: OppFormation, plan: FormationPlan) => void;
   previousWeekLabel?: string;
   onCopyCallSheetFromPreviousWeek?: () => void;
   /** When true, height leaves room for Game Day hub tabs on phones. */
@@ -86,6 +93,9 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
   deletedPlayIds: propDeletedPlayIds,
   onUpdateDeletedPlayIds,
   wristbandData: propWristbandData,
+  onUpdateWristbandData,
+  oppFormations,
+  onSaveFormationPlan,
   previousWeekLabel,
   onCopyCallSheetFromPreviousWeek,
   embedded = false,
@@ -331,6 +341,30 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
   });
   const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+
+  // Defense: our plan vs their formations (panel open/closed is remembered on this device).
+  const [vsFormOpen, setVsFormOpenState] = useState<boolean>(() => safeJSONParse<boolean>('callSheetVsFormOpen', true));
+  const setVsFormOpen = (open: boolean) => {
+    setVsFormOpenState(open);
+    safeJSONSet('callSheetVsFormOpen', open);
+  };
+  const theirFormations = useMemo(() => (oppFormations || []).filter((f) => f?.id && !f.deleted), [oppFormations]);
+  const defenseCalls = useMemo(
+    () =>
+      playDatabase
+        .filter((p) => p.unit === 'defense' && !isScoutPlayEntry(p))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })),
+    [playDatabase]
+  );
+  // Pictures of their formations vs our defense, printed with each "vs" table.
+  const formationPictures = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const f of theirFormations) {
+      const pic = f.defenseUrl || f.diagramUrl;
+      if (pic && pic.startsWith('data:')) out[`vsform-${f.id}`] = pic;
+    }
+    return out;
+  }, [theirFormations]);
   const [addTableModalState, setAddTableModalState] = useState<{
     isOpen: boolean;
     group: 'top_situations' | 'red_zone' | 'tempo_game_mgmt' | 'custom';
@@ -1317,6 +1351,37 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
             </div>
           </div>
 
+          {/* Defense: our calls vs their formations (base, blitzes, situations) — same plan as Scouting */}
+          {activeUnit === 'defense' && onSaveFormationPlan && (
+            <section className="mb-3 rounded-xl border border-emerald-300/70 dark:border-emerald-800 bg-white dark:bg-slate-900 print:hidden">
+              <button
+                type="button"
+                onClick={() => setVsFormOpen(!vsFormOpen)}
+                className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left cursor-pointer"
+              >
+                <span className="text-[11px] font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                  vs Their Formations {theirFormations.length ? `(${theirFormations.length})` : ''}
+                </span>
+                <span className="text-[11px] font-bold text-slate-500">{vsFormOpen ? 'Hide' : 'Show'}</span>
+              </button>
+              {vsFormOpen && (
+                <div className="px-3 pb-3 space-y-2">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Your base call, the blitzes you like and situation calls against each of their formations. Each gets a "vs" table on this sheet;
+                    to print only these, open Print and pick "Only vs Their Formations".
+                  </p>
+                  {theirFormations.length ? (
+                    <FormationPlanEditor formations={theirFormations} defenseCalls={defenseCalls} onSavePlan={onSaveFormationPlan} showPictures />
+                  ) : (
+                    <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                      No formations for this week's opponent yet. Draw them in Scouting → Their plays ("Draw formation") and they show up here.
+                    </p>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
+
           {/* Render Computer vs Mobile View */}
           {viewDevice === 'computer' ? (
             <ComputerCallSheetView
@@ -1394,6 +1459,8 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
 
       {/* 3. Play Picker Modal */}
       <PlayPickerModal
+        // Fresh edit form each time a slot is opened (the form copies the slot's play when it starts).
+        key={`${pickerState.sectionId}-${pickerState.slotIndex}-${pickerState.isOpen}`}
         isOpen={pickerState.isOpen}
         onClose={() => setPickerState((prev) => ({ ...prev, isOpen: false }))}
         sectionTitle={pickerState.sectionTitle}
@@ -1417,6 +1484,40 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
         onAddCustomToDatabase={handleAddCustomToDatabase}
         onDeleteFromDatabase={handleDeletePlayFromDatabase}
         onOpenExcelImport={() => setIsExcelImportOpen(true)}
+        onEditCurrent={(changes) => {
+          // Edit the play in place: keep its wristband number, colors and star.
+          const current = pickerState.currentPlay;
+          if (!current) return;
+          // A play from a wristband table: change it on its wristband slot too, or the next wristband sync puts the old one back.
+          const link = current.wristbandSlotMatch;
+          const wbs = normalizedWristbandData?.wristbands || [];
+          const wb = link?.wristbandId ? wbs.find((w) => w.id === link.wristbandId) : undefined;
+          const colIdx = link?.colIdx ?? 0;
+          const rowIdx = link?.rowIdx ?? 0;
+          if (wb && onUpdateWristbandData && wb.columns[colIdx]?.plays?.[rowIdx]) {
+            const nextWristbands = wbs.map((w) => {
+              if (w.id !== wb.id) return w;
+              const cols = [...w.columns];
+              const plays = [...(cols[colIdx].plays || [])];
+              plays[rowIdx] = {
+                ...plays[rowIdx],
+                text: changes.name.toUpperCase(),
+                formation: changes.formation.toUpperCase() || undefined,
+                type: changes.type,
+              };
+              cols[colIdx] = { ...cols[colIdx], plays };
+              return { ...w, columns: cols };
+            });
+            onUpdateWristbandData({ ...normalizedWristbandData!, wristbands: nextWristbands, lastEdited: Date.now() });
+          }
+          handleAssignPlayToSlot(pickerState.sectionId, pickerState.slotIndex, {
+            ...current,
+            name: changes.name,
+            formation: changes.formation,
+            type: changes.type,
+          });
+          setPickerState((prev) => ({ ...prev, isOpen: false }));
+        }}
       />
 
       {/* 4. Excel Play Import Modal */}
@@ -1452,6 +1553,7 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
         activeTeamName={activeTeamName}
         wristbandData={normalizedWristbandData}
         gridColumns={gridColumns}
+        formationPictures={activeUnit === 'defense' ? formationPictures : undefined}
       />
 
       {/* 7. Call Sheet History, Backups & Recovery Modal */}
