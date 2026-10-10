@@ -33,6 +33,13 @@ import {
   saveGeminiKey,
   saveGeminiModel,
   simulateLocalAiBreakdown,
+  checkOllama,
+  getSavedAiEngine,
+  getSavedOllamaModel,
+  saveAiEngine,
+  saveOllamaModel,
+  DEFAULT_OLLAMA_MODEL,
+  type AiEngine,
   type AiFilmAnalysisResult,
   type ExtractedFrame,
 } from '../services/geminiFilmService';
@@ -126,6 +133,10 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
   // Settings
   const [showSettings, setShowSettings] = useState(false);
   const [apiKey, setApiKey] = useState(() => getSavedGeminiKey());
+  // Which AI reads the film: Google, or a model on this computer (Ollama).
+  const [engine, setEngine] = useState<AiEngine>(() => getSavedAiEngine());
+  const [ollamaModel, setOllamaModel] = useState(() => getSavedOllamaModel());
+  const [ollamaStatus, setOllamaStatus] = useState('');
   const [model, setModel] = useState(() => getSavedGeminiModel());
   const [keySavedToast, setKeySavedToast] = useState(false);
 
@@ -355,7 +366,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
     setError('');
     setResult(null);
     // No key on this device: say so and open the key settings (never a made-up breakdown).
-    if (!String(apiKey || '').trim()) {
+    if (engine === 'gemini' && !String(apiKey || '').trim()) {
       setError('No Gemini API key on this device yet. Paste your key in the settings below and press Save, then run the breakdown again.');
       setShowSettings(true);
       return;
@@ -367,7 +378,8 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
 
       if (videoElement && videoElement.readyState >= 2) {
         setScanStep('Capturing keyframes from video clip...');
-        extracted = await captureVideoKeyframes(videoElement, 8);
+        // A model on this computer reads slightly smaller frames (eight fit in its memory).
+        extracted = await captureVideoKeyframes(videoElement, 8, engine === 'ollama' ? 1024 : 1280);
         setFrames(extracted);
       } else {
         extracted = [
@@ -403,6 +415,8 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
         userPrompt: coachPrompt,
         apiKey,
         modelName: model,
+        engine,
+        ollamaModel,
         onStatusUpdate: (msg) => setScanStep(msg),
         gameType,
         ourTeamName: teamName || 'Mahopac 10U',
@@ -444,6 +458,8 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
   const handleSaveKey = () => {
     saveGeminiKey(apiKey);
     saveGeminiModel(model);
+    saveAiEngine(engine);
+    saveOllamaModel(ollamaModel);
     setKeySavedToast(true);
     setTimeout(() => setKeySavedToast(false), 3000);
   };
@@ -685,7 +701,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
             <div className="p-4 rounded-2xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/20 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase tracking-wider text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5">
-                  <Key className="w-3.5 h-3.5" /> Gemini API Configuration
+                  <Key className="w-3.5 h-3.5" /> AI settings
                 </span>
                 {keySavedToast && (
                   <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
@@ -693,6 +709,63 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                   </span>
                 )}
               </div>
+              {/* Which AI reads the film. */}
+              <div className="inline-flex rounded-xl border border-slate-300 dark:border-slate-700 overflow-hidden text-xs font-bold" role="group" aria-label="AI engine">
+                {([
+                  ['gemini', 'Google Gemini'],
+                  ['ollama', 'This computer (Ollama)'],
+                ] as const).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={engine === id}
+                    onClick={() => setEngine(id)}
+                    className={`px-3 h-8 cursor-pointer ${engine === id ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {engine === 'ollama' ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    Reads the film with a model running on this computer (free, private). Only this computer can use it.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2">
+                    <input
+                      value={ollamaModel}
+                      onChange={(e) => setOllamaModel(e.target.value)}
+                      placeholder={DEFAULT_OLLAMA_MODEL}
+                      aria-label="Ollama model"
+                      className="h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-900 dark:text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setOllamaStatus('Checking…');
+                        const r = await checkOllama();
+                        if (!r.ok) return setOllamaStatus(r.error || 'Not reachable.');
+                        const has = r.models.some((m) => m === ollamaModel || m === `${ollamaModel}:latest`);
+                        setOllamaStatus(
+                          has ? `Connected. ${ollamaModel} is ready.` : `Connected, but ${ollamaModel} isn't downloaded. On this computer: ollama pull ${ollamaModel}${r.models.length ? ` (has: ${r.models.join(', ')})` : ''}`
+                        );
+                      }}
+                      className="h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+                    >
+                      Test connection
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveKey}
+                      className="h-9 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black cursor-pointer shadow-xs"
+                    >
+                      Save
+                    </button>
+                  </div>
+                  {ollamaStatus && <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">{ollamaStatus}</p>}
+                </div>
+              ) : (
+              <>
               <p className="text-xs text-slate-600 dark:text-slate-400">
                 Enter your free Google AI Studio Gemini API Key for live multimodal video inference.
               </p>
@@ -721,6 +794,8 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                   Save Key
                 </button>
               </div>
+              </>
+              )}
             </div>
           )}
 

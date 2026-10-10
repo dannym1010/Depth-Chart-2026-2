@@ -109,6 +109,89 @@ export const getSavedGeminiModel = (): string => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// Which AI reads the film: Google's Gemini (a key), or a model running on this computer with Ollama
+// (free, private, only on the computer that has it; ollama.com).
+// ---------------------------------------------------------------------------
+export type AiEngine = 'gemini' | 'ollama';
+const AI_ENGINE_KEY = 'football_ai_engine';
+const OLLAMA_MODEL_KEY = 'football_ollama_model';
+export const OLLAMA_URL = 'http://localhost:11434';
+export const DEFAULT_OLLAMA_MODEL = 'qwen2.5vl:7b';
+
+export const getSavedAiEngine = (): AiEngine => {
+  try {
+    return localStorage.getItem(AI_ENGINE_KEY) === 'ollama' ? 'ollama' : 'gemini';
+  } catch {
+    return 'gemini';
+  }
+};
+export const saveAiEngine = (engine: AiEngine) => {
+  try {
+    localStorage.setItem(AI_ENGINE_KEY, engine);
+  } catch {
+    /* ignore */
+  }
+};
+export const getSavedOllamaModel = (): string => {
+  try {
+    return (localStorage.getItem(OLLAMA_MODEL_KEY) || '').trim() || DEFAULT_OLLAMA_MODEL;
+  } catch {
+    return DEFAULT_OLLAMA_MODEL;
+  }
+};
+export const saveOllamaModel = (model: string) => {
+  try {
+    if (model.trim()) localStorage.setItem(OLLAMA_MODEL_KEY, model.trim());
+    else localStorage.removeItem(OLLAMA_MODEL_KEY);
+  } catch {
+    /* ignore */
+  }
+};
+
+/** Whether Ollama answers on this computer, and the models it has downloaded. */
+export async function checkOllama(): Promise<{ ok: boolean; models: string[]; error?: string }> {
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/tags`);
+    if (!res.ok) return { ok: false, models: [], error: `Ollama answered ${res.status}.` };
+    const j = await res.json();
+    return { ok: true, models: (j?.models || []).map((m: any) => String(m?.name || '')).filter(Boolean) };
+  } catch {
+    return {
+      ok: false,
+      models: [],
+      error:
+        "Couldn't reach Ollama on this computer. Make sure it's running (the llama icon by the clock), that this site is allowed (OLLAMA_ORIGINS), and allow \"local network\" if the browser asks.",
+    };
+  }
+}
+
+/** One play's frames to the model running on this computer; its answer as text (JSON). */
+async function askOllama(model: string, prompt: string, frames: ExtractedFrame[], onStatusUpdate?: (s: string) => void): Promise<string> {
+  onStatusUpdate?.(`Reading the play on this computer (${model})… the first one takes longer while it loads.`);
+  let res: Response;
+  try {
+    res = await fetch(`${OLLAMA_URL}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        stream: false,
+        format: 'json',
+        // Room for eight frames and the instructions.
+        options: { temperature: 0.15, num_ctx: 16384 },
+        messages: [{ role: 'user', content: prompt, images: frames.map((f) => f.dataUrl.split(',')[1]).filter(Boolean) }],
+      }),
+    });
+  } catch {
+    throw new Error((await checkOllama()).error || "Couldn't reach Ollama on this computer.");
+  }
+  if (res.status === 404) throw new Error(`The model "${model}" isn't on this computer yet. In PowerShell run: ollama pull ${model}`);
+  if (!res.ok) throw new Error(`Ollama error (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  const j = await res.json();
+  return String(j?.message?.content || '');
+}
+
 export const saveGeminiModel = (model: string) => {
   try {
     localStorage.setItem(GEMINI_MODEL_KEY, model);
@@ -213,6 +296,10 @@ export interface AnalyzeFilmOptions {
   apiKey?: string;
   modelName?: string;
   onStatusUpdate?: (status: string) => void;
+  /** Which AI reads the film (default: the one saved on this device). */
+  engine?: AiEngine;
+  /** The Ollama model, for engine 'ollama'. */
+  ollamaModel?: string;
   // Game Setup & Context
   gameType?: 'our_game' | 'scout_game';
   ourTeamName?: string;
@@ -254,12 +341,14 @@ export async function analyzeFilmWithGemini(opts: AnalyzeFilmOptions): Promise<A
     ourUnitRole = 'offense',
     nextPlayStartYard,
     nextPlayOdk,
+    engine = getSavedAiEngine(),
+    ollamaModel = getSavedOllamaModel(),
   } = opts;
 
   const cleanKey = apiKey.trim();
 
-  // No key: no breakdown (never a made-up one passed off as real).
-  if (!cleanKey) {
+  // No key: no breakdown (never a made-up one passed off as real). A model on this computer needs none.
+  if (engine !== 'ollama' && !cleanKey) {
     throw new Error('No Gemini API key on this device. Open the key settings (the gear at the top of this window), paste your key and save it, then run the breakdown again.');
   }
 
@@ -352,6 +441,34 @@ Respond with pure JSON strictly matching this structure:
   "isEfficient": true,
   "confidenceScore": 90
 }`;
+
+  // The same answer, read the same way, whichever AI gives it.
+  const cleanUp = (textContent: string): AiFilmAnalysisResult => {
+    const ctx = {
+      linkOurRoster,
+      ourUnitRole,
+      scoutedTeam,
+      offenseTeam,
+      defenseTeam,
+      currentStartYard: play?.rawYardLine,
+      nextPlayStartYard,
+      currentOdk: play?.odk,
+      nextPlayOdk,
+      play,
+    };
+    try {
+      return sanitizeAiResult(JSON.parse(textContent), roster, ctx);
+    } catch {
+      const match = textContent.match(/\{[\s\S]*\}/);
+      if (match) return sanitizeAiResult(JSON.parse(match[0]), roster, ctx);
+      throw new Error('Failed to parse AI breakdown JSON response');
+    }
+  };
+  if (engine === 'ollama') {
+    const text = await askOllama(ollamaModel, systemInstruction + '\n\n' + promptText, frames, onStatusUpdate);
+    if (!text) throw new Error('Empty response from the model on this computer.');
+    return cleanUp(text);
+  }
 
   // Prepare Gemini API multimodal payload
   const imageParts = frames.map((f) => {
