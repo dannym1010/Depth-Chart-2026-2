@@ -2885,6 +2885,12 @@ export function generateCallSheetPrintHTML(
   };
 
   // Dynamically calculate grid columns template so rows with fewer tables (or multi-column tables) expand proportionally across the page
+  // A row of only wristband color tables prints exactly as laid out on the sheet (all of them across), never wrapped.
+  const isWristbandColorTable = (sec: CallSheetSection) =>
+    sec.wristbandPresetMode === 'wb_color_col' || String(sec.id || '').startsWith('wb_col_table_');
+  const rowCols = (rowSecs: CallSheetSection[]) =>
+    rowSecs.length > 0 && rowSecs.every(isWristbandColorTable) ? Math.max(printColumns, rowSecs.length) : printColumns;
+
   const getSectionListGridTemplate = (sectionList: CallSheetSection[], maxCols = printColumns) => {
     if (!sectionList || sectionList.length === 0) return `repeat(${maxCols}, 1fr)`;
     const totalSpan = sectionList.reduce(
@@ -2929,7 +2935,7 @@ export function generateCallSheetPrintHTML(
           const rowSecs = (rowMap.get(rIdx) || []).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
           if (rowSecs.length === 0) return '';
           const rowCards = rowSecs.map((sec) => renderSectionCard(sec)).join('');
-          const rowTemplate = getSectionListGridTemplate(rowSecs, printColumns);
+          const rowTemplate = getSectionListGridTemplate(rowSecs, rowCols(rowSecs));
           return `
             <div class="cards-grid situational-row" style="grid-template-columns: ${rowTemplate}; gap: ${gridGap}; margin-bottom: ${gridGap}; page-break-inside: avoid; break-inside: avoid;">
               ${rowCards}
@@ -2946,7 +2952,7 @@ export function generateCallSheetPrintHTML(
       rowsHtml = rows
         .map((rowSecs) => {
           const rowCards = rowSecs.map((sec) => renderSectionCard(sec)).join('');
-          const rowTemplate = getSectionListGridTemplate(rowSecs, printColumns);
+          const rowTemplate = getSectionListGridTemplate(rowSecs, rowCols(rowSecs));
           return `
             <div class="cards-grid situational-row" style="grid-template-columns: ${rowTemplate}; gap: ${gridGap}; margin-bottom: ${gridGap}; page-break-inside: avoid; break-inside: avoid;">
               ${rowCards}

@@ -791,9 +791,11 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
   const handleWristbandRowsLayout = (layout: WristbandRowsLayout) => {
     applyCallSheetUpdate((prev) => {
       const withLayout = { ...prev, wristbandRowsLayout: layout };
-      // Rebuild the wristband tables first, so every color on the wristband (a new Orange / White card too) is on the sheet.
+      // Rebuild the wristband tables first, so every color on the wristband (a new Orange / White card too) is on the
+      // sheet — but never drop a wristband table that's already there (this screen's wristband copy may be short a card).
+      const countWb = (secs?: CallSheetSection[]) => (secs || []).filter(isAutoWristbandRowTable).length;
       const rebuilt = copyWristbandPlaysToFirstRow(withLayout, normalizedWristbandData, 'offense');
-      if (rebuilt !== withLayout) return rebuilt;
+      if (rebuilt !== withLayout && countWb(rebuilt.offenseSections) >= countWb(prev.offenseSections)) return rebuilt;
       return { ...withLayout, offenseSections: arrangeWristbandRows(prev.offenseSections || [], layout, normalizedWristbandData) };
     });
   };

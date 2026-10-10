@@ -870,7 +870,9 @@ export function arrangeWristbandRows(
   const wb = sections.filter(isAutoWristbandRowTable);
   if (!wb.length) return sections;
   const cardOrder = new Map((wbData?.wristbands || []).map((w, i) => [w.id, i]));
-  const cardIdx = (s: CallSheetSection) => cardOrder.get(s.wristbandId || '') ?? 99;
+  // A card this wristband copy doesn't know keeps its place on the sheet (after the known cards), colors together.
+  const unknownCards = [...new Set(wb.map((s) => s.wristbandId || s.id).filter((id) => !cardOrder.has(id)))];
+  const cardIdx = (s: CallSheetSection) => cardOrder.get(s.wristbandId || '') ?? 100 + unknownCards.indexOf(s.wristbandId || s.id);
   const colIdx = (s: CallSheetSection) => s.wristbandColIdx ?? 0;
   const sorted = [...wb].sort((a, b) => cardIdx(a) - cardIdx(b) || colIdx(a) - colIdx(b));
   const place = new Map<string, { rowIndex: number; order: number }>();
