@@ -178,6 +178,8 @@ async function askOllama(model: string, prompt: string, frames: ExtractedFrame[]
         model,
         stream: false,
         format: 'json',
+        // Stay loaded between plays of a breakdown (loading takes a while).
+        keep_alive: '30m',
         // Room for eight frames and the instructions.
         options: { temperature: 0.15, num_ctx: 16384 },
         messages: [{ role: 'user', content: prompt, images: frames.map((f) => f.dataUrl.split(',')[1]).filter(Boolean) }],
@@ -187,7 +189,16 @@ async function askOllama(model: string, prompt: string, frames: ExtractedFrame[]
     throw new Error((await checkOllama()).error || "Couldn't reach Ollama on this computer.");
   }
   if (res.status === 404) throw new Error(`The model "${model}" isn't on this computer yet. In PowerShell run: ollama pull ${model}`);
-  if (!res.ok) throw new Error(`Ollama error (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) {
+    const text = (await res.text()).slice(0, 300);
+    // Loading the model needs about 6 GB of free memory (RAM); a game or other big program can crowd it out.
+    if (/llama-server to start|out of memory|insufficient memory|requires more system memory/i.test(text)) {
+      throw new Error(
+        "The model on this computer couldn't load: not enough free memory. Close games and other big programs, then try again (the first play takes about a minute to load)."
+      );
+    }
+    throw new Error(`Ollama error (${res.status}): ${text.slice(0, 200)}`);
+  }
   const j = await res.json();
   return String(j?.message?.content || '');
 }
@@ -209,9 +220,35 @@ export async function captureVideoKeyframes(
   frameCount = 8,
   maxDimension = 1280
 ): Promise<ExtractedFrame[]> {
-  const duration = video.duration || 10;
-  const originalTime = video.currentTime;
-  const originalPaused = video.paused;
+  // A hidden copy of the clip: the player on screen is never moved. (Moving it near the end of the clip made
+  // it go on to the next play by itself, and the capture then waited forever for a clip that had changed.)
+  const src = video.currentSrc || video.src;
+  if (!src) throw new Error("This play's clip isn't loaded yet. Let it start playing, then run the breakdown again.");
+  const copy = document.createElement('video');
+  copy.muted = true;
+  copy.playsInline = true;
+  copy.preload = 'auto';
+  if (video.crossOrigin) copy.crossOrigin = video.crossOrigin;
+  const within = <T,>(ms: number, what: string, run: (done: (v: T) => void, fail: (e: Error) => void) => void): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      const timer = window.setTimeout(() => reject(new Error(what)), ms);
+      run(
+        (v) => {
+          window.clearTimeout(timer);
+          resolve(v);
+        },
+        (e) => {
+          window.clearTimeout(timer);
+          reject(e);
+        }
+      );
+    });
+  await within<void>(20000, "Couldn't load this play's clip to read it (timed out).", (done, fail) => {
+    copy.addEventListener('loadeddata', () => done(), { once: true });
+    copy.addEventListener('error', () => fail(new Error("Couldn't load this play's clip to read it.")), { once: true });
+    copy.src = src;
+  });
+  const duration = copy.duration && Number.isFinite(copy.duration) ? copy.duration : video.duration || 10;
 
   // Through the play, more of them late: who has the ball, where he's brought down and by whom.
   const timestamps: { t: number; label: string }[] =
@@ -238,38 +275,33 @@ export async function captureVideoKeyframes(
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas 2D context not available');
 
-  const width = video.videoWidth || 1280;
-  const height = video.videoHeight || 720;
+  const width = copy.videoWidth || video.videoWidth || 1280;
+  const height = copy.videoHeight || video.videoHeight || 720;
   const scale = Math.min(1, maxDimension / Math.max(width, height));
   canvas.width = Math.round(width * scale);
   canvas.height = Math.round(height * scale);
 
   const frames: ExtractedFrame[] = [];
 
-  const seekTo = (t: number): Promise<void> =>
-    new Promise((resolve) => {
-      const onSeeked = () => {
-        video.removeEventListener('seeked', onSeeked);
-        resolve();
-      };
-      video.addEventListener('seeked', onSeeked);
-      video.currentTime = t;
+  const seekTo = (t: number) =>
+    within<void>(8000, "Couldn't step through this play's clip (timed out).", (done) => {
+      copy.addEventListener('seeked', () => done(), { once: true });
+      copy.currentTime = t;
     });
 
   try {
     for (const item of timestamps) {
-      const targetTime = Math.min(duration - 0.1, Math.max(0.1, item.t));
+      const targetTime = Math.min(Math.max(0.1, duration - 0.1), Math.max(0.1, item.t));
       await seekTo(targetTime);
       // Brief wait to ensure frame decodes
       await new Promise((r) => setTimeout(r, 60));
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(copy, 0, 0, canvas.width, canvas.height);
       const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
       frames.push({ timestamp: targetTime, label: item.label, dataUrl });
     }
   } finally {
-    // Restore video state
-    video.currentTime = originalTime;
-    if (!originalPaused) video.play().catch(() => {});
+    copy.removeAttribute('src');
+    copy.load();
   }
 
   return frames;
@@ -706,6 +738,18 @@ export function sanitizeAiResult(
   const penaltyYards = raw.penaltyYards ? Number(raw.penaltyYards) : yardCheck.penaltyYards;
   const penaltyOn = (raw.penaltyOn as 'Offense' | 'Defense' | 'None') || yardCheck.penaltyOn;
 
+  // What the play already has (Hudl / the breakdown) stays; the AI only fills what's blank, and nothing
+  // is made up when it has no answer either (a blank is better than a wrong tag in every report).
+  const known = (v: unknown) => {
+    const t = String(v ?? '').trim();
+    return t && !/^(unknown|-|none)$/i.test(t) ? t : '';
+  };
+  const pick = (have: unknown, ai: unknown) => known(have) || known(ai);
+  const side = (v: unknown) => {
+    const c = String(v ?? '').trim().charAt(0).toUpperCase();
+    return c === 'L' || c === 'M' || c === 'R' ? c : '';
+  };
+
   let finalOdk: 'O' | 'D' | 'K' = raw.odk === 'D' ? 'D' : raw.odk === 'K' ? 'K' : 'O';
   if (raw.odk !== 'K' && scoutedTeam && offenseTeam && defenseTeam) {
     const isScoutOff = offenseTeam.toLowerCase().includes(scoutedTeam.toLowerCase()) ||
@@ -716,21 +760,25 @@ export function sanitizeAiResult(
     else if (isScoutDef) finalOdk = 'D';
   }
 
+  // Hudl's own ODK for the play wins over the matchup guess.
+  if (play?.odk === 'O' || play?.odk === 'D' || play?.odk === 'K') finalOdk = play.odk;
+  const haveType = known(play?.playType) && !/^unknown$/i.test(String(play?.playType)) ? String(play?.playType) : '';
+
   return {
     odk: finalOdk,
     scoutedTeam,
-    quarter: Number(play?.quarter) || Number(raw.quarter) || 1,
-    down: Number(play?.down) || Number(raw.down) || 1,
-    distance: Number(play?.distance) || Number(raw.distance) || 10,
+    quarter: Number(play?.quarter) || Number(raw.quarter) || 0,
+    down: Number(play?.down) || Number(raw.down) || 0,
+    distance: Number(play?.distance) || Number(raw.distance) || 0,
     yardLine: rawStart,
-    hash: raw.hash === 'L' || raw.hash === 'R' || raw.hash === 'M' ? raw.hash : 'M',
-    formation: String(raw.formation || 'Pro I-Form'),
-    backfield: String(raw.backfield || 'I-Form'),
-    motion: String(raw.motion || 'None'),
-    playType: raw.playType || 'Run',
-    playName: String(raw.playName || '24 Blast'),
-    playDir: raw.playDir === 'L' || raw.playDir === 'R' || raw.playDir === 'M' ? raw.playDir : 'R',
-    result: String(raw.result || 'Rush'),
+    hash: (side(play?.hash) || side(raw.hash)) as AiFilmAnalysisResult['hash'],
+    formation: pick(play?.formation, raw.formation),
+    backfield: pick(play?.backfield, raw.backfield),
+    motion: pick(play?.motion, raw.motion),
+    playType: (haveType || known(raw.playType) || '') as AiFilmAnalysisResult['playType'],
+    playName: pick(play?.playName, raw.playName),
+    playDir: (side(play?.direction) || side(raw.playDir)) as AiFilmAnalysisResult['playDir'],
+    result: pick(play?.result, raw.result),
     gainLoss: yardCheck.measuredGain ?? rawGain,
     yardageSource: yardCheck.gainSource,
     ...(yardCheck.filmGain !== undefined ? { filmGain: yardCheck.filmGain } : {}),
@@ -747,10 +795,10 @@ export function sanitizeAiResult(
     passerName,
     receiverNum,
     receiverName,
-    defensiveFront: String(raw.defensiveFront || '4-4 Stack'),
+    defensiveFront: known(raw.defensiveFront),
     tacklerNums,
     tacklerNames,
-    coachingNotes: String(raw.coachingNotes || 'Downhill execution through intended gap.'),
+    coachingNotes: known(raw.coachingNotes),
     isExplosive: Boolean(raw.isExplosive || Math.abs(yardCheck.measuredGain) >= 12),
     isEfficient: Boolean(raw.isEfficient || yardCheck.measuredGain >= 4),
     confidenceScore: Math.min(100, Math.max(50, Number(raw.confidenceScore) || 85)),

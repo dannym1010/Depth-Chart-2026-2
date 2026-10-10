@@ -51,6 +51,8 @@ interface Props {
   play?: Play;
   nextPlay?: Play;
   videoElement?: HTMLVideoElement | null;
+  /** The player's video as it is now (preferred over videoElement, which can be stale). */
+  getVideo?: () => HTMLVideoElement | null;
   videoSrc?: string;
   roster?: RosterPlayer[];
   knownFormations?: string[];
@@ -94,6 +96,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
   play,
   nextPlay,
   videoElement,
+  getVideo,
   roster = [],
   knownFormations = [],
   knownPlays = [],
@@ -257,6 +260,13 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
     }
   };
 
+  // While this window is open the film stays put on its play: a clip that played to its end went on to the
+  // next play by itself ("Auto"), and this window followed it mid-breakdown.
+  useEffect(() => {
+    if (isOpen) (getVideo?.() || videoElement)?.pause();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, videoElement, play?.id]);
+
   // If already confirmed setup and play changes, auto-scan
   useEffect(() => {
     if (isOpen && play && hasConfirmedSetup && viewMode === 'breakdown') {
@@ -376,20 +386,18 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
     try {
       let extracted: ExtractedFrame[] = [];
 
-      if (videoElement && videoElement.readyState >= 2) {
+      const theVideo = getVideo?.() || videoElement;
+      theVideo?.pause();
+      if (theVideo && theVideo.readyState >= 2) {
         setScanStep('Capturing keyframes from video clip...');
         // A model on this computer reads slightly smaller frames (eight fit in its memory).
-        extracted = await captureVideoKeyframes(videoElement, 8, engine === 'ollama' ? 1024 : 1280);
+        extracted = await captureVideoKeyframes(theVideo, 8, engine === 'ollama' ? 1024 : 1280);
         setFrames(extracted);
       } else {
-        extracted = [
-          { timestamp: 0.5, label: 'Pre-Snap Alignment', dataUrl: '' },
-          { timestamp: 1.5, label: 'Snap & Mesh Point', dataUrl: '' },
-          { timestamp: 2.5, label: 'Point of Attack', dataUrl: '' },
-          { timestamp: 4.0, label: 'Tackle / Whistle', dataUrl: '' },
-        ];
-        setFrames(extracted);
+        // No film to look at: no breakdown (the AI was sent no pictures before and guessed).
+        throw new Error("This play's clip isn't loaded yet. Let it start playing, then run the breakdown again.");
       }
+      if (!extracted.some((f) => f.dataUrl)) throw new Error("Couldn't take any pictures from this play's clip.");
 
       setScanStep(`Analyzing clip for scout target: ${scoutedTeam}...`);
 
@@ -532,7 +540,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
     setPenaltyYards(0);
     setPenaltyOn('None');
     setSpotAligned(true);
-    const startSpot = editYard || play?.rawYardLine || '-35';
+    const startSpot = editYard || play?.rawYardLine || '';
     const check = crossCheckPlayYardage({
       currentStartYard: startSpot,
       currentWhistleYard: whistleSpot,

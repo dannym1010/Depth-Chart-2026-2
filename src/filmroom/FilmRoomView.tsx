@@ -742,6 +742,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       readOnly={isReadOnlySession()}
       onSetUnit={isOwn ? (p, unit) => editPlays((all) => tagPlayUnits(all, p.id, unit, 'play')) : undefined}
       videoElement={apiRef.current?.video?.() || null}
+      getVideo={() => apiRef.current?.video?.() || null}
       roster={roster}
       teamName={teamName}
       isOwnGame={isOwn}

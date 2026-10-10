@@ -237,5 +237,25 @@ describe('cleaning up the AI answer', () => {
     assert.equal(flag.gainLoss, 7);
     assert.equal(flag.penaltyDetected, true);
   });
+
+  it("keeps the play's Hudl tags and never invents a formation, play or result", () => {
+    const tagged = { ...play, odk: 'D', formation: 'Trips Rt', playName: '34 Power', hash: 'L', direction: 'Right', playType: 'Run', result: 'Rush', backfield: 'Pro' };
+    const r = sanitizeAiResult({ odk: 'O', formation: 'Spread', playName: 'Dive', hash: 'R', playDir: 'L', playType: 'Pass', result: 'Complete' }, roster, { currentStartYard: '35', play: tagged });
+    assert.equal(r.odk, 'D');
+    assert.equal(r.formation, 'Trips Rt');
+    assert.equal(r.playName, '34 Power');
+    assert.equal(r.hash, 'L');
+    assert.equal(r.playDir, 'R');
+    assert.equal(r.playType, 'Run');
+    assert.equal(r.result, 'Rush');
+    // A blank play and a blank answer stay blank (not "Pro I-Form" / "24 Blast" / "4-4 Stack").
+    const blank = sanitizeAiResult({}, roster, { currentStartYard: '35', play: { playNumber: 1, rawYardLine: '35' } as any });
+    assert.equal(blank.formation, '');
+    assert.equal(blank.playName, '');
+    assert.equal(blank.result, '');
+    assert.equal(blank.hash, '');
+    assert.equal(blank.defensiveFront, '');
+    assert.equal(blank.coachingNotes, '');
+  });
 });
 

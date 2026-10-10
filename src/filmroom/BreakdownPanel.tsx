@@ -27,6 +27,8 @@ interface Props {
   onSaveBreakdownWithPatch?: (play: Play, row: BreakdownRow, patch: Partial<Play>, notes?: string) => void;
   /** Video element for frame capture */
   videoElement?: HTMLVideoElement | null;
+  /** The player's video as it is now (for the AI window to pause it and read the clip). */
+  getVideo?: () => HTMLVideoElement | null;
   /** Active team roster */
   roster?: RosterPlayer[];
   /** Opponent team name */
@@ -75,6 +77,7 @@ export const BreakdownPanel: React.FC<Props> = ({
   onPatch,
   onSaveBreakdownWithPatch,
   videoElement,
+  getVideo,
   roster = [],
   opponentName = 'Opponent',
   teamName = 'Mahopac 10U',
@@ -193,7 +196,11 @@ export const BreakdownPanel: React.FC<Props> = ({
           </div>
           <button
             type="button"
-            onClick={() => setShowAiModal(true)}
+            onClick={() => {
+              // The film stays on this play while the AI reads it (a clip playing to its end went on to the next one).
+              (getVideo?.() || videoElement)?.pause();
+              setShowAiModal(true);
+            }}
             className="h-7 px-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black inline-flex items-center gap-1.5 shadow-xs transition-all hover:scale-105 active:scale-95 cursor-pointer"
           >
             <Sparkles size={12} /> Auto-Breakdown
@@ -288,6 +295,7 @@ export const BreakdownPanel: React.FC<Props> = ({
           play={play}
           nextPlay={nextSnap}
           videoElement={videoElement}
+          getVideo={getVideo}
           roster={roster}
           knownFormations={lists.form}
           knownPlays={lists.play}
