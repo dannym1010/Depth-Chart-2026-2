@@ -6,7 +6,7 @@ import {
   calculateNetGain,
   crossCheckPlayYardage,
 } from './yardageCalculator.ts';
-import { simulateLocalAiBreakdown } from './geminiFilmService.ts';
+import { sanitizeAiResult, simulateLocalAiBreakdown } from './geminiFilmService.ts';
 
 describe('yardageCalculator', () => {
   it('correctly parses absolute yard line values', () => {
@@ -156,4 +156,86 @@ describe('yardageCalculator', () => {
     );
     assert.equal(defenseResult.odk, 'D', 'When scouted team is on defense, ODK must be D');
   });
+
+  it("reads Hudl's plain yard lines as the far side (the team with the ball's opponent's)", () => {
+    assert.equal(parseAbsoluteYard('35'), 65);
+    assert.equal(parseAbsoluteYard('-35'), 35);
+    // From their 35 to their 30 is a 5-yard gain, not a loss.
+    assert.equal(calculateNetGain('35', '30'), 5);
+    assert.equal(crossCheckPlayYardage({ currentStartYard: '35', nextStartYard: '30', trust: 'spot' }).measuredGain, 5);
+    // Our 45 to their 45.
+    assert.equal(crossCheckPlayYardage({ currentStartYard: '-45', nextStartYard: '45', trust: 'spot' }).measuredGain, 10);
+  });
+
+  it('the next snap decides the gain over a film estimate, and says the film disagreed', () => {
+    const res = crossCheckPlayYardage({ currentStartYard: '-30', currentGainLoss: 3, nextStartYard: '-38', trust: 'spot' });
+    assert.equal(res.measuredGain, 8);
+    assert.equal(res.gainSource, 'next snap');
+    assert.equal(res.filmGain, 3);
+    assert.equal(res.whistleFormatted, 'OWN 38');
+    assert.equal(res.penaltySuspected, false);
+  });
+
+  it('a change of possession or no next play falls back to the film', () => {
+    const turnover = crossCheckPlayYardage({ currentStartYard: '-30', currentGainLoss: 4, nextStartYard: '-20', currentOdk: 'O', nextOdk: 'D', trust: 'spot' });
+    assert.equal(turnover.measuredGain, 4);
+    assert.equal(turnover.gainSource, 'film');
+    const last = crossCheckPlayYardage({ currentStartYard: '-30', currentGainLoss: 4, trust: 'spot' });
+    assert.equal(last.measuredGain, 4);
+    assert.equal(last.gainSource, 'film');
+  });
+
+  it('a touchdown gains the rest of the field', () => {
+    const res = crossCheckPlayYardage({ currentStartYard: '22', currentGainLoss: 15, touchdown: true, trust: 'spot' });
+    assert.equal(res.measuredGain, 22);
+    assert.equal(res.gainSource, 'touchdown');
+  });
+
+  it("doesn't invent a start spot", () => {
+    const res = crossCheckPlayYardage({ currentStartYard: '', currentGainLoss: 6, nextStartYard: '-40', trust: 'spot' });
+    assert.equal(res.measuredGain, 6);
+    assert.equal(res.gainSource, 'none');
+  });
 });
+
+describe('cleaning up the AI answer', () => {
+  const roster = [{ num: '21', firstName: 'Nash', lastName: 'Ward' }, { num: '52', firstName: 'Jax', lastName: 'P' }] as any;
+  const play = { playNumber: 7, odk: 'O', rawYardLine: '35', quarter: 3, down: 2, distance: 6, result: 'Rush', rusher: '#21 Ward' } as any;
+
+  it("keeps the play's Hudl facts, takes the end spot from the next snap, and names our carrier", () => {
+    const r = sanitizeAiResult(
+      { yardLine: '-40', quarter: 1, down: 1, distance: 10, gainLoss: 2, whistleYardLine: '33', carrierNum: '21', carrierConfidence: 90, tacklerNums: ['44'], tacklerConfidence: 80, result: 'Rush' },
+      roster,
+      { linkOurRoster: true, ourUnitRole: 'offense', currentStartYard: '35', nextPlayStartYard: '29', currentOdk: 'O', nextPlayOdk: 'O', play }
+    );
+    assert.equal(r.yardLine, '35');
+    assert.equal(r.quarter, 3);
+    assert.equal(r.down, 2);
+    assert.equal(r.gainLoss, 6); // their 35 to their 29
+    assert.equal(r.yardageSource, 'next snap');
+    assert.equal(r.filmGain, 2);
+    assert.equal(r.carrierName, '#21 Nash Ward');
+    assert.deepEqual(r.tacklerNums, ['44']);
+  });
+
+  it("leaves unsure numbers blank, but keeps a carrier Hudl already had", () => {
+    const r = sanitizeAiResult(
+      { gainLoss: 4, carrierNum: '12', carrierConfidence: 30, tacklerNums: ['9'], tacklerConfidence: 20, result: 'Rush' },
+      roster,
+      { linkOurRoster: true, ourUnitRole: 'offense', currentStartYard: '35', currentOdk: 'O', play }
+    );
+    assert.equal(r.carrierNum, '21');
+    assert.deepEqual(r.tacklerNums, []);
+    assert.equal(r.yardageSource, 'film');
+    assert.equal(r.gainLoss, 4);
+  });
+
+  it('a touchdown is the rest of the field; a flag means the film decides', () => {
+    const td = sanitizeAiResult({ gainLoss: 20, result: 'Rush, TD' }, roster, { currentStartYard: '18', currentOdk: 'O', play: { ...play, rawYardLine: '18' } });
+    assert.equal(td.gainLoss, 18);
+    const flag = sanitizeAiResult({ gainLoss: 7, whistleYardLine: '28', penaltyDetected: true, result: 'Rush' }, roster, { currentStartYard: '35', nextPlayStartYard: '45', currentOdk: 'O', nextPlayOdk: 'O', play });
+    assert.equal(flag.gainLoss, 7);
+    assert.equal(flag.penaltyDetected, true);
+  });
+});
+

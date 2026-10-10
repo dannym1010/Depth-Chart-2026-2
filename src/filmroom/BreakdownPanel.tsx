@@ -13,6 +13,8 @@ interface Props {
   suggestFrom: Play[];
   onSave: (play: Play, row: BreakdownRow) => void;
   next?: Play;
+  /** The next snap of this game (by play number), whatever order the list is in: where this play ended. */
+  nextSnap?: Play;
   /** Save this play (as entered) and move on, in one change. */
   onNext: (row: BreakdownRow) => void;
   /** View-only (a player account): show what's entered, no editing. */
@@ -66,6 +68,7 @@ export const BreakdownPanel: React.FC<Props> = ({
   suggestFrom,
   onSave,
   next,
+  nextSnap,
   onNext,
   readOnly,
   onSetUnit,
@@ -283,7 +286,7 @@ export const BreakdownPanel: React.FC<Props> = ({
           isOpen={showAiModal}
           onClose={() => setShowAiModal(false)}
           play={play}
-          nextPlay={next}
+          nextPlay={nextSnap}
           videoElement={videoElement}
           roster={roster}
           knownFormations={lists.form}

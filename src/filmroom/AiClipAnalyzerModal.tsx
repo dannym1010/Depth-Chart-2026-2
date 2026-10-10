@@ -142,6 +142,9 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
   const [editCarrierNum, setEditCarrierNum] = useState('');
   const [editPlayDir, setEditPlayDir] = useState<'L' | 'M' | 'R' | ''>('');
   const [editTackler, setEditTackler] = useState('');
+  // Where the gain came from (next snap / touchdown / film), and the film's own estimate.
+  const [yardSource, setYardSource] = useState<string>('');
+  const [filmGain, setFilmGain] = useState<number | undefined>(undefined);
   const [editTacklerNum, setEditTacklerNum] = useState('');
   const [editAssists, setEditAssists] = useState('');
   const [editNotes, setEditNotes] = useState('');
@@ -286,6 +289,8 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
       setPenaltyDetails(result.penaltyDetails || '');
       setPenaltyYards(result.penaltyYards ?? 0);
       setPenaltyOn(result.penaltyOn || 'None');
+      setYardSource(result.yardageSource || '');
+      setFilmGain(result.filmGain);
     }
   }, [result]);
 
@@ -356,7 +361,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
 
       if (videoElement && videoElement.readyState >= 2) {
         setScanStep('Capturing keyframes from video clip...');
-        extracted = await captureVideoKeyframes(videoElement, 5);
+        extracted = await captureVideoKeyframes(videoElement, 8);
         setFrames(extracted);
       } else {
         extracted = [
@@ -440,7 +445,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
   // Recalculate yardage if whistle spot or next play is edited
   const handleRecalculateYardage = (newWhistle?: string) => {
     const wSpot = newWhistle !== undefined ? newWhistle : whistleSpot;
-    const startSpot = editYard || play?.rawYardLine || '-35';
+    const startSpot = editYard || play?.rawYardLine || '';
     const check = crossCheckPlayYardage({
       currentStartYard: startSpot,
       currentWhistleYard: wSpot,
@@ -450,7 +455,8 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
     });
 
     setEditGain(check.measuredGain);
-    setWhistleSpot(check.whistleFormatted);
+    setYardSource(check.gainSource || '');
+    setWhistleSpot(check.whistleFormatted || '');
     setNextPlayLOS(check.nextStartFormatted || '');
     setSpotAligned(check.isAligned);
     setPenaltyDetected(check.penaltySuspected);
@@ -461,11 +467,13 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
 
   const handleDirectGainChange = (newGain: number) => {
     setEditGain(newGain);
-    const startSpot = editYard || play?.rawYardLine || '-35';
+    const startSpot = editYard || play?.rawYardLine || '';
+    if (!startSpot) return;
     const startAbs = parseAbsoluteYard(startSpot);
     const whistleAbs = Math.min(100, Math.max(0, startAbs + newGain));
     const newWhistle = formatAbsoluteYard(whistleAbs, 'full');
     setWhistleSpot(newWhistle);
+    setYardSource('film');
 
     if (nextPlayStartYard) {
       const check = crossCheckPlayYardage({
@@ -1266,7 +1274,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
 
                           <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
                             <div className="flex items-center justify-between">
-                              <span className="font-bold text-slate-500">Play Start LOS:</span>
+                              <span className="font-bold text-slate-500">Start yard line:</span>
                               <input
                                 value={editYard}
                                 onChange={(e) => {
@@ -1277,7 +1285,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                               />
                             </div>
                             <div className="flex items-center justify-between">
-                              <span className="font-bold text-slate-500">Whistle Spot:</span>
+                              <span className="font-bold text-slate-500">End yard line:</span>
                               <input
                                 value={whistleSpot}
                                 onChange={(e) => {
@@ -1287,6 +1295,17 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                                 className="w-16 h-6 px-1.5 text-center font-black rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
                               />
                             </div>
+                            {yardSource && (
+                              <p className="text-[10.5px] font-semibold text-slate-500 dark:text-slate-400">
+                                {yardSource === 'next snap'
+                                  ? `End spot from where the next play was snapped${filmGain !== undefined && Math.abs(filmGain - editGain) > 2 ? ` (the film looked like ${filmGain > 0 ? '+' : ''}${filmGain}: check for a penalty)` : ''}.`
+                                  : yardSource === 'touchdown'
+                                    ? 'Touchdown: the rest of the field.'
+                                    : yardSource === 'none'
+                                      ? 'No start yard line on this play: type it in to measure the gain.'
+                                      : 'End spot estimated from the film (no next play on this drive). Check it.'}
+                              </p>
+                            )}
                             <div className="flex items-center justify-between">
                               <span className="font-bold text-slate-500">Next Play LOS:</span>
                               <span className="font-black text-slate-800 dark:text-slate-200">

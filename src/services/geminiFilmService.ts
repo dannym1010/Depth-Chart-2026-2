@@ -60,6 +60,10 @@ export interface AiFilmAnalysisResult {
   penaltyDetails?: string; // Description e.g. "Offensive Holding (-10 yds)"
   penaltyYards?: number;
   penaltyOn?: 'Offense' | 'Defense' | 'None';
+  /** Where the gain came from: the next snap (same drive), the goal line (TD), or the film (an estimate). */
+  yardageSource?: 'next snap' | 'touchdown' | 'film' | 'none';
+  /** The film's own estimate, when the next snap decided the gain (shown when they differ). */
+  filmGain?: number;
 }
 
 export interface ExtractedFrame {
@@ -119,24 +123,33 @@ export const saveGeminiModel = (model: string) => {
  */
 export async function captureVideoKeyframes(
   video: HTMLVideoElement,
-  frameCount = 5,
-  maxDimension = 960
+  frameCount = 8,
+  maxDimension = 1280
 ): Promise<ExtractedFrame[]> {
   const duration = video.duration || 10;
   const originalTime = video.currentTime;
   const originalPaused = video.paused;
 
-  // Timestamps to sample across the snap (10% to 90% through duration)
-  const timestamps: { t: number; label: string }[] = [
-    { t: Math.max(0.2, duration * 0.12), label: 'Pre-Snap Alignment' },
-    { t: Math.max(0.8, duration * 0.35), label: 'Snap & Mesh' },
-    { t: Math.max(1.4, duration * 0.55), label: 'Point of Attack' },
-    { t: Math.max(2.0, duration * 0.75), label: 'Tackle / Whistle' },
-  ];
-
-  if (frameCount >= 5) {
-    timestamps.splice(2, 0, { t: Math.max(1.1, duration * 0.45), label: 'Run Fit / Pass Release' });
-  }
+  // Through the play, more of them late: who has the ball, where he's brought down and by whom.
+  const timestamps: { t: number; label: string }[] =
+    frameCount >= 8
+      ? [
+          { t: duration * 0.08, label: 'Pre-Snap Alignment' },
+          { t: duration * 0.22, label: 'Snap & Mesh' },
+          { t: duration * 0.36, label: 'Handoff / Pass Release' },
+          { t: duration * 0.5, label: 'Point of Attack' },
+          { t: duration * 0.62, label: 'Ball Carrier in Space' },
+          { t: duration * 0.74, label: 'Contact' },
+          { t: duration * 0.85, label: 'Tackle' },
+          { t: duration * 0.95, label: 'Whistle / Ball Spot' },
+        ]
+      : [
+          { t: Math.max(0.2, duration * 0.12), label: 'Pre-Snap Alignment' },
+          { t: Math.max(0.8, duration * 0.35), label: 'Snap & Mesh' },
+          ...(frameCount >= 5 ? [{ t: Math.max(1.1, duration * 0.45), label: 'Run Fit / Pass Release' }] : []),
+          { t: Math.max(1.4, duration * 0.55), label: 'Point of Attack' },
+          { t: Math.max(2.0, duration * 0.8), label: 'Tackle / Whistle' },
+        ];
 
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
@@ -264,7 +277,9 @@ export async function analyzeFilmWithGemini(opts: AnalyzeFilmOptions): Promise<A
   const knownFormsList = knownFormations.filter(Boolean).slice(0, 15).join(', ') || 'Wishbone, Pro-I, Double Wing, Trips Right, Spread, Beast, Pistol';
   const knownPlaysList = knownPlays.filter(Boolean).slice(0, 20).join(', ') || '24 Blast, 26 Dive, 31 Sweep, 44 Power, Counter, Quick Slant, Bubble Screen, QB Sneak';
 
-  const startLOS = play?.rawYardLine || '-25';
+  // What the play's own data already says (from Hudl or the breakdown): trusted over a guess from frames.
+  const startLOS = play?.rawYardLine || '';
+  const rosterNums = linkOurRoster ? roster.map((p) => String(p.num || '').trim()).filter(Boolean) : [];
 
   const systemInstruction = `You are an expert football film coordinator and scout analyst.
 Your job is to analyze sequential game footage frames of an American football play and produce an exact, structured breakdown matching Hudl/PFF scouting standards.
@@ -282,24 +297,29 @@ ODK (Offense/Defense/Kicking) Rule:
 - When kicking / punt / PAT / kickoff -> Set "odk" to "K".
 
 Core Analysis Focus:
-1. WHO RAN THE BALL (Ball Carrier / Rusher):
-   - Inspect keyframes closely for the visible jersey number on chest, shoulders, or back.
-   - Set "carrierNum" to the digits seen (e.g. "7", "21"). If jersey number is unclear or obstructed, set to "" (empty string). DO NOT GUESS OR USE PLACEHOLDER NUMBERS!
-   - If a pass play, identify "passerNum" and "receiverNum" only if digits are visible.
-   - Identify run direction ('L', 'M', or 'R').
-2. GAINS OR LOSSES & YARDAGE:
-   - Line of scrimmage at snap: ${startLOS}
-   - Net Gain/Loss ("gainLoss"): Positive integer for forward progress/gain (e.g. 5, 8), negative integer for loss (e.g. -3), 0 for incomplete/no gain.
-   - Whistle spot ("whistleYardLine"): Format as Hudl yard line where runner was downed or whistled dead. (Remember: on own side, gaining 5 yds from -35 moves forward to -40; on opponent side, gaining 6 yds from +40 moves forward to +34).
-   ${nextPlayStartYard ? `- CRITICAL YARDAGE & PENALTY CROSS-CHECK:
-     * The next play in the game sequence starts at: ${nextPlayStartYard}.
-     * If next play starts at ${nextPlayStartYard}, that is the official line of scrimmage for the next play.
-     * If the tackle spot does not match ${nextPlayStartYard}, check if a penalty was called.
-     * Report penaltyDetected (true/false), penaltyDetails, penaltyYards, penaltyOn ('Offense' | 'Defense' | 'None').` : ''}
+1. WHO CARRIED THE BALL:
+   - Follow the football from the snap through every frame. The ball carrier is the player holding the ball in the
+     later frames (after the handoff, pitch or catch), not the quarterback who handed it off.
+   - Read his jersey number from the back, chest or shoulders, whichever frame shows it clearest (end-zone views show
+     backs). Set "carrierNum" to those digits and "carrierConfidence" (0-100) to how sure you are of them.
+   - If the digits can't be read in any frame, set "carrierNum" to "" and "carrierConfidence" to 0. NEVER GUESS.
+   ${rosterNums.length && ourUnitRole === 'offense' ? `- Our team has the ball: the carrier wears one of these numbers: ${rosterNums.join(', ')}. If what you read isn't one of them, leave it blank.` : ''}
+   - On a pass, "passerNum" and "receiverNum" only when the digits are readable. Run direction "playDir": 'L', 'M' or 'R'.
+2. WHERE IT STARTED AND ENDED (yard lines):
+   - Yard lines are from the side of the team WITH THE BALL: "-35" is its own 35, "+35" is the other team's 35.
+     Moving forward from -35 goes to -40, then 50, then +45; from +40 forward goes to +34.
+   - Ball snapped at: ${startLOS || 'not known (read it from the field numbers in the first frame)'}. Put it in "yardLine".
+   - "whistleYardLine": where the carrier was downed (the ball's spot when the whistle blew), same format.
+   - "gainLoss": yards from the snap to that spot: positive forward, negative behind the line, 0 for an incomplete pass.
+   ${nextPlayStartYard ? `- The next play on this drive was snapped at ${nextPlayStartYard}. Unless a flag was thrown on this play, that IS where this
+     play ended: use it for "whistleYardLine" and make "gainLoss" agree with it.` : ''}
+   - "penaltyDetected": true only if you SEE a penalty flag on the field (yellow flag) in a frame; then fill penaltyDetails.
+   - If the carrier reached the end zone, say so in "result" (e.g. "Rush, TD").
 3. WHO MADE THE TACKLE:
-   - Identify the primary defensive tackler jersey digits ("tacklerNums", e.g. ["34"]).
-   - Identify any secondary assist tackler jersey digits.
-   - If no tackler jersey number is legible, set "tacklerNums" to []. DO NOT GUESS OR USE PLACEHOLDER NUMBERS!
+   - In the Contact / Tackle / Whistle frames, the tackler is the defender wrapping up or bringing the carrier down.
+     Put his jersey digits first in "tacklerNums"; any other defender in on the tackle after him (assists).
+   - Set "tacklerConfidence" (0-100) for the first tackler's number. Unreadable: "tacklerNums": [] and 0. NEVER GUESS.
+   ${rosterNums.length && ourUnitRole === 'defense' ? `- Our team is on defense: the tackler wears one of these numbers: ${rosterNums.join(', ')}. If what you read isn't one of them, leave it out.` : ''}
 
 Output MUST be strictly valid JSON matching the schema provided.`;
 
@@ -326,10 +346,12 @@ Respond with pure JSON strictly matching this structure:
   "gainLoss": 6,
   "whistleYardLine": "-31",
   "carrierNum": "",
+  "carrierConfidence": 0,
   "passerNum": "",
   "receiverNum": "",
   "defensiveFront": "4-4 Stack",
   "tacklerNums": [],
+  "tacklerConfidence": 0,
   "coachingNotes": "Detailed observation of blocking, carrier track, and defensive pursuit.",
   "penaltyDetected": false,
   "penaltyDetails": "",
@@ -439,6 +461,7 @@ Respond with pure JSON strictly matching this structure:
       nextPlayStartYard,
       currentOdk: play?.odk,
       nextPlayOdk,
+      play,
     });
   } catch (err) {
     // Attempt fallback clean
@@ -455,6 +478,7 @@ Respond with pure JSON strictly matching this structure:
         nextPlayStartYard,
         currentOdk: play?.odk,
         nextPlayOdk,
+        play,
       });
     }
     throw new Error('Failed to parse AI breakdown JSON response');
@@ -464,7 +488,7 @@ Respond with pure JSON strictly matching this structure:
 /**
  * Sanitizes and fills names from roster numbers, applying smart yardage cross-check.
  */
-function sanitizeAiResult(
+export function sanitizeAiResult(
   raw: any,
   roster: RosterPlayer[],
   context: {
@@ -477,6 +501,8 @@ function sanitizeAiResult(
     nextPlayStartYard?: string;
     currentOdk?: string;
     nextPlayOdk?: string;
+    /** The play as it stands (Hudl / breakdown): its known facts stay. */
+    play?: Play;
   } = {}
 ): AiFilmAnalysisResult {
   const {
@@ -489,7 +515,12 @@ function sanitizeAiResult(
     nextPlayStartYard,
     currentOdk,
     nextPlayOdk,
+    play,
   } = context;
+  // Numbers read with little confidence are left blank (a wrong name is worse than none).
+  const sure = (confidence: unknown) => confidence === undefined || confidence === null || Number(confidence) >= 55;
+  if (!sure(raw.carrierConfidence)) raw.carrierNum = '';
+  if (!sure(raw.tacklerConfidence)) raw.tacklerNums = [];
 
   const findPlayer = (num?: string) => {
     if (!num || !linkOurRoster) return undefined;
@@ -497,6 +528,10 @@ function sanitizeAiResult(
     return roster.find((p) => p.num === cleanNum);
   };
 
+  // Nothing readable: what the play already had (Hudl's carrier / tackler).
+  const knownNum = (v?: string) => String(v || '').match(/\d+/)?.[0] || '';
+  if (!String(raw.carrierNum || '').replace(/[^0-9]/g, '') && knownNum(play?.rusher || play?.carrierOrTarget)) raw.carrierNum = knownNum(play?.rusher || play?.carrierOrTarget);
+  if ((!Array.isArray(raw.tacklerNums) || !raw.tacklerNums.length) && knownNum(play?.defPlay?.maker)) raw.tacklerNums = [knownNum(play?.defPlay?.maker)];
   const carrierNum = raw.carrierNum ? String(raw.carrierNum).replace(/[^0-9]/g, '') : undefined;
   const passerNum = raw.passerNum ? String(raw.passerNum).replace(/[^0-9]/g, '') : undefined;
   const receiverNum = raw.receiverNum ? String(raw.receiverNum).replace(/[^0-9]/g, '') : undefined;
@@ -539,18 +574,23 @@ function sanitizeAiResult(
     ? `#${receiverNum}`
     : raw.receiverName || '';
 
-  // Smart Yardage & Penalty Cross-Check
-  const rawStart = String(raw.yardLine || currentStartYard || '-25');
+  // Yardage: the play's own start spot (Hudl) over one read off the frames; the next snap on the drive
+  // decides where it ended unless a flag was thrown on this play.
+  const rawStart = String(currentStartYard || raw.yardLine || '');
   const rawWhistle = raw.whistleYardLine ? String(raw.whistleYardLine) : undefined;
   const rawGain = Number(raw.gainLoss) || 0;
+  const flagged = Boolean(raw.penaltyDetected) || /penalt/i.test(String(play?.result || ''));
+  const scored = /\bTD\b|touchdown/i.test(`${raw.result || ''} ${play?.result || ''}`);
 
   const yardCheck = crossCheckPlayYardage({
     currentStartYard: rawStart,
     currentWhistleYard: rawWhistle,
     currentGainLoss: rawGain,
     nextStartYard: nextPlayStartYard,
-    currentOdk: raw.odk || currentOdk,
+    currentOdk: currentOdk || raw.odk,
     nextOdk: nextPlayOdk,
+    trust: flagged ? 'film' : 'spot',
+    touchdown: scored,
   });
 
   const penaltyDetected = Boolean(raw.penaltyDetected) || yardCheck.penaltySuspected;
@@ -571,9 +611,9 @@ function sanitizeAiResult(
   return {
     odk: finalOdk,
     scoutedTeam,
-    quarter: Number(raw.quarter) || 1,
-    down: Number(raw.down) || 1,
-    distance: Number(raw.distance) || 10,
+    quarter: Number(play?.quarter) || Number(raw.quarter) || 1,
+    down: Number(play?.down) || Number(raw.down) || 1,
+    distance: Number(play?.distance) || Number(raw.distance) || 10,
     yardLine: rawStart,
     hash: raw.hash === 'L' || raw.hash === 'R' || raw.hash === 'M' ? raw.hash : 'M',
     formation: String(raw.formation || 'Pro I-Form'),
@@ -584,6 +624,8 @@ function sanitizeAiResult(
     playDir: raw.playDir === 'L' || raw.playDir === 'R' || raw.playDir === 'M' ? raw.playDir : 'R',
     result: String(raw.result || 'Rush'),
     gainLoss: yardCheck.measuredGain ?? rawGain,
+    yardageSource: yardCheck.gainSource,
+    ...(yardCheck.filmGain !== undefined ? { filmGain: yardCheck.filmGain } : {}),
     whistleYardLine: yardCheck.whistleFormatted,
     nextPlayYardLine: yardCheck.nextStartFormatted,
     spotAligned: yardCheck.isAligned,
@@ -658,6 +700,7 @@ export function simulateLocalAiBreakdown(
     nextStartYard: nextPlayStartYard,
     currentOdk: play?.odk,
     nextOdk: nextPlayOdk,
+    trust: 'spot',
   });
 
   const linkOffense = linkOurRoster && ourUnitRole === 'offense';
@@ -709,6 +752,7 @@ export function simulateLocalAiBreakdown(
     playDir: pNum % 2 === 0 ? 'R' : 'L',
     result: isPass ? 'Complete' : 'Rush',
     gainLoss: yardCheck.measuredGain,
+    yardageSource: yardCheck.gainSource,
     whistleYardLine: yardCheck.whistleFormatted,
     nextPlayYardLine: yardCheck.nextStartFormatted,
     spotAligned: yardCheck.isAligned,

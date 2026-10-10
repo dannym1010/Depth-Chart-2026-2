@@ -303,6 +303,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const idx = play ? playOrder.indexOf(play) : -1;
   const next = idx >= 0 ? playOrder[idx + 1] : playOrder[0];
   const prev = idx > 0 ? playOrder[idx - 1] : undefined;
+  // The next snap in the game (not the next row in a filtered or sorted list): where this play ended.
+  const nextSnap = play ? plays.find((p) => p.gameId === play.gameId && p.playNumber === play.playNumber + 1) : undefined;
 
   // Tag changes are saved to the game's Hudl Scout breakdown (ours, or this week's opponent).
   const source = game?.source || 'own';
@@ -735,6 +737,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       suggestFrom={(isOwn ? own : opp).plays}
       onSave={(p, row) => saveBreakdown([{ play: p, row }])}
       next={next}
+      nextSnap={nextSnap}
       onNext={breakdownNext}
       readOnly={isReadOnlySession()}
       onSetUnit={isOwn ? (p, unit) => editPlays((all) => tagPlayUnits(all, p.id, unit, 'play')) : undefined}
