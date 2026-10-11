@@ -29,7 +29,7 @@ interface CallSheetModalProps {
   /** Their play types on this week's report, each drawn against our defense. Printed on its own page. */
   playTypes?: ReportPlayType[];
   /** Our calls against each of their formations (base + situations), with the picture of our defense vs it. */
-  formationPlans?: { name: string; lines: { situation: string; call: string }[]; diagram?: string }[];
+  formationPlans?: { name: string; lines: { situation: string; call: string }[]; theirPlays?: string[]; diagram?: string }[];
 }
 
 const SECTIONS: { key: CallSheetSectionKey; title: string; tag: string; wide?: boolean }[] = [

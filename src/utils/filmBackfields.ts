@@ -284,6 +284,26 @@ export function formationOfPlay(card: ScoutOppPlay, formations?: OppFormation[])
   return (card.formationId && live.find((f) => f.id === card.formationId)) || (card.formation ? live.find((f) => formationKey(f.name) === formationKey(card.formation)) : undefined);
 }
 
+/** The names of their plays from each of their formations (every film on the report; removed plays left out). */
+export function theirPlayNamesByFormation(
+  formations: OppFormation[] | undefined,
+  libraries: Record<string, ScoutOppPlay[]> | undefined,
+  deletedIds: string[] = []
+): Map<string, string[]> {
+  const gone = new Set(deletedIds);
+  const out = new Map<string, string[]>();
+  for (const card of Object.values(libraries || {}).flat()) {
+    if (!card?.id || gone.has(card.id) || !card.name?.trim()) continue;
+    const f = formationOfPlay(card, formations);
+    if (!f) continue;
+    const names = out.get(f.id) || [];
+    const name = card.name.trim().toUpperCase();
+    if (!names.includes(name)) names.push(name);
+    out.set(f.id, names);
+  }
+  return out;
+}
+
 /**
  * Whether a play has to change to show the formation's defense. Another defense: yes. The same one: only to
  * pick up the formation's moved defenders when the play hasn't moved any of its own.

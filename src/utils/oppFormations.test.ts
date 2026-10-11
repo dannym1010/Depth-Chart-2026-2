@@ -104,6 +104,24 @@ describe('our calls vs their formations', () => {
     assert.deepEqual(lines.map((l) => l.situation + ': ' + l.call), ['Base: 4-4 BASE STACK LIZ', '3rd & long: BLOW STING']);
     assert.deepEqual(planLines(undefined, () => 'x'), []);
   });
+  it('lists their plays under each of their formations (by link or by name), skipping removed plays', async () => {
+    const { theirPlayNamesByFormation } = await import('./filmBackfields.ts');
+    const forms = [
+      { id: 'f1', name: '32 T', editedAt: 1 },
+      { id: 'f2', name: '02', editedAt: 1 },
+    ] as OppFormation[];
+    const libs = {
+      g1: [
+        { id: 'a', gameId: 'g1', name: '32 T Toss', formation: '', formationId: 'f1' },
+        { id: 'b', gameId: 'g1', name: '02 Jet Sweep', formation: '02' },
+        { id: 'c', gameId: 'g1', name: '32 T Toss', formation: '32 T' },
+        { id: 'd', gameId: 'g1', name: '32 T QB Draw', formation: '32 T' },
+      ],
+    } as any;
+    const m = theirPlayNamesByFormation(forms, libs, ['d']);
+    assert.deepEqual(m.get('f1'), ['32 T TOSS']);
+    assert.deepEqual(m.get('f2'), ['02 JET SWEEP']);
+  });
   it('lists the blitz options right after the base call, before situation calls', () => {
     const names: Record<string, string> = { a: '4-4 BASE STACK LIZ', b: 'BLOW STING', d: 'DOUBLE DOG' };
     const lines = planLines(

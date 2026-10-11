@@ -73,7 +73,7 @@ export interface SheetData {
   note: string;
   playTypes: { label: string; detail: string; diagram?: string | null }[];
   /** Our calls against each of their formations. */
-  formationPlans?: { name: string; lines: { situation: string; call: string }[]; diagram?: string }[];
+  formationPlans?: { name: string; lines: { situation: string; call: string }[]; theirPlays?: string[]; diagram?: string }[];
 }
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] || c));
@@ -152,7 +152,7 @@ export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedO
           (f) =>
             `<article class="fplan">${f.diagram ? `<img src="${esc(f.diagram)}" alt="${esc(f.name)}"/>` : ''}<div><h3>vs ${esc(f.name)}</h3><ul>${f.lines
               .map((l) => `<li class="${l.situation === 'Base' ? 'base' : ''}"><b>${esc(l.situation)}</b><span>${esc(l.call)}</span></li>`)
-              .join('')}</ul></div></article>`
+              .join('')}</ul>${f.theirPlays?.length ? `<div class="their"><b>Their plays</b><ul>${f.theirPlays.map((n) => `<li><span>${esc(n)}</span></li>`).join('')}</ul></div>` : ''}</div></article>`
         )
         .join('')}</div></section>`
     : '';
@@ -205,6 +205,8 @@ export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedO
     .fplan li:last-child { border-bottom: 0; }
     .fplan li b { min-width: 6.5em; font-size: ${base * 0.85}px; text-transform: uppercase; color: #475569; }
     .fplan li.base span { font-weight: 900; }
+    .fplan .their { margin-top: 4px; }
+    .fplan .their > b { display: block; font-size: ${base * 0.85}px; text-transform: uppercase; letter-spacing: 0.06em; color: #475569; border-bottom: 1px solid #94a3b8; padding-bottom: 1px; }
     .empty { margin-top: 6px; border: 1px dashed #94a3b8; border-radius: 4px; padding: 18px 8px; text-align: center; color: #64748b; font-size: ${base * 0.9}px; }
   </style></head><body>${header}${alertHtml}${boxes ? `<div class="calls">${boxes}</div>` : ''}${plansHtml}${noteHtml}${hasFront ? `<div class="printed">Printed ${esc(printed)}</div>` : ''}${playTypesHtml}</body></html>`;
 }

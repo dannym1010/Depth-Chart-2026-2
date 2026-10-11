@@ -167,7 +167,7 @@ import { missingPracticePlans } from './utils/autoPracticePlans';
 import { clearPlayBuilderSeed, consumeSeedHold, holdPlayBuilderSeed, mergeBuilderSave, savePlayBuilderSeed, type PlayBuilderSeed } from './utils/playBuilderSeed';
 import { builderFromFormation, cardForSnap, groupOppPlays, isScoutPlayEntry, planLines, realCall, renameOppCall, linkSnapsToCall, snapsForCall, type FormationPlan, type OppFormation, type ScoutOppPlay } from './utils/scoutOppPlays';
 import type { Play as FilmPlay } from './hudlScout/types/football';
-import { backfieldOf, baseKeysForGame, formationDefense, formationOfPlay, openFormation, oppPlayDiagram, playWithDefense, redrawWithBackfield, spotsForGame } from './utils/filmBackfields';
+import { backfieldOf, baseKeysForGame, formationDefense, formationOfPlay, openFormation, oppPlayDiagram, playWithDefense, redrawWithBackfield, spotsForGame, theirPlayNamesByFormation } from './utils/filmBackfields';
 import { BACKFIELD_STRUCTURES, compactPlayDiagrams } from './utils/footballEngine';
 import { saveDrawnDiagram } from './utils/playDiagrams';
 import { newPlayEntry } from './utils/playbookImport';
@@ -4384,11 +4384,21 @@ export default function App() {
    * ("vs Trips Rt") with the base call first, then each situation's call. A coach's layout of the section
    * (where it sits, its color, its width) is kept; formations with no calls lose their section.
    */
-  const putFormationPlansOnCallSheet = (list: OppFormation[]) => {
+  const putFormationPlansOnCallSheet = (
+    list: OppFormation[],
+    their?: { libraries?: Record<string, ScoutOppPlay[]>; deletedIds?: string[] }
+  ) => {
     const cs = latestStateRef.current.callSheetData;
     if (!cs) return;
     const db = latestStateRef.current.playDatabase || [];
     const nameOf = (id: string) => db.find((p) => p.id === id)?.name;
+    // Their plays from each formation (names only), listed under our calls.
+    const hudlNow = their ? undefined : weekHudl().hudl;
+    const theirPlays = theirPlayNamesByFormation(
+      list,
+      their?.libraries ?? hudlNow?.playLibraries,
+      their?.deletedIds ?? hudlNow?.deletedOppPlayIds ?? []
+    );
     const old = cs.defenseSections || [];
     const built = new Map<string, CallSheetSection>();
     // New "vs" tables go on their own row at the bottom of the situation tables.
@@ -4401,8 +4411,15 @@ export default function App() {
     for (const f of list) {
       if (!f?.id || f.deleted) continue;
       const lines = planLines(f.plan, nameOf);
-      if (!lines.length) continue;
+      const theirs = theirPlays.get(f.id) || [];
+      if (!lines.length && !theirs.length) continue;
       const id = `vsform-${f.id}`;
+      const theirRows = theirs.length
+        ? [
+            { id: `${id}-their`, name: 'THEIR PLAYS', wristbandHighlightTarget: 'full_row' as const, wristbandRowColor: '#e2e8f0' },
+            ...theirs.map((n, i) => ({ id: `${id}-their-${i}`, name: n })),
+          ]
+        : [];
       const prev = old.find((x) => x.id === id);
       built.set(id, {
         headerBgColor: '#065f46',
@@ -4415,11 +4432,14 @@ export default function App() {
         id,
         title: `vs ${f.name}`,
         subtitle: 'Their formation',
-        slotsCount: lines.length,
-        plays: lines.map((l, i) => {
-          const entry = db.find((p) => p.name === l.call);
-          return { id: `${id}-${i}`, name: `${l.situation}: ${l.call}`, ...(entry?.type ? { type: entry.type } : {}), ...(l.situation === 'Base' ? { isStarred: true } : {}) };
-        }),
+        slotsCount: lines.length + theirRows.length,
+        plays: [
+          ...lines.map((l, i) => {
+            const entry = db.find((p) => p.name === l.call);
+            return { id: `${id}-${i}`, name: `${l.situation}: ${l.call}`, ...(entry?.type ? { type: entry.type } : {}), ...(l.situation === 'Base' ? { isStarred: true } : {}) };
+          }),
+          ...theirRows,
+        ],
       } as CallSheetSection);
     }
     const kept = old.filter((x) => !x.id.startsWith('vsform-') || built.has(x.id)).map((x) => built.get(x.id) || x);
@@ -4551,6 +4571,8 @@ export default function App() {
       const playLibraries =
         cardSaved || !play.gameId ? libs : { ...libs, [play.gameId]: [...(libs[play.gameId] || []), play] };
       persistWeekScouting('hudlScout', { ...hudl, plays: linked, playLibraries, updatedAt: Date.now() });
+      // A new play in one of their formations shows under it on the defense call sheet.
+      if (!cardSaved) putFormationPlansOnCallSheet(hudl.oppFormations || [], { libraries: playLibraries, deletedIds: hudl.deletedOppPlayIds });
     }
     // The snaps of this play, or of every call in the play type when several were combined.
     const snapsById = new Map<string, { id: string; playNumber: number; gain?: number; result?: string }>();
