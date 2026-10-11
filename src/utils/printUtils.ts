@@ -9,6 +9,7 @@ import { calculatePlayerHours, getPlayerHoursBreakdown } from './hoursCalculatio
 import { formatWeekLabel } from './seasonWeekUtils';
 import { getWristbandStartNumber } from './wristbandLinking';
 import { CallSheetFullData, CallSheetSection, CallSheetPlay } from '../types/callSheet';
+import type { FormationDownStats } from './scoutOppPlays';
 import { loadPrintPrefs, loadSharedPrintPrefs } from './printPrefs';
 import { formatClock, formatClockRange } from './timeFormat';
 
@@ -2693,6 +2694,8 @@ export interface CallSheetPrintOptions {
   };
   /** Pictures of their formations vs our defense, by "vs" table id (vsform-<formation id>). */
   formationPictures?: Record<string, string>;
+  /** What they run from each formation (from their tagged film), by "vs" table id: plays and % by down. */
+  formationStats?: Record<string, FormationDownStats>;
 }
 
 /**
@@ -2973,14 +2976,33 @@ export function generateCallSheetPrintHTML(
   let vsFormationsHtml = '';
   if (filter.vsFormations !== false && vsFormations.length > 0) {
     const pics = options?.formationPictures || {};
-    const perRow = Math.max(1, Math.min(printColumns, 4));
-    const cards = vsFormations
+    const stats = options?.formationStats || {};
+    const esc = (t: string) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const ord = (d: number) => ['1st', '2nd', '3rd', '4th'][d - 1] || `${d}th`;
+    const playList = (list: { name: string; pct: number }[]) =>
+      list.map((p) => `<span style="white-space: nowrap;"><b>${esc(p.name)}</b> ${p.pct}%</span>`).join(' &middot; ');
+    // One formation per row: picture | our calls | their plays from it (overall and by down).
+    const rows = vsFormations
       .map((sec) => {
         const pic = pics[sec.id];
+        const st = stats[sec.id];
+        // Their play names are in the "their plays" block with percentages, so the calls table keeps only our calls.
+        const ours = { ...sec, plays: (sec.plays || []).filter((p) => !p || !String(p.id || '').includes('-their')) };
+        ours.slotsCount = ours.plays.length || 1;
+        const theirs = st && st.total
+          ? `<div style="border: 1px solid #94a3b8; border-radius: 4px; padding: 4px 6px; font-size: ${baseFontSize}; line-height: 1.35;">
+              <div style="font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid #94a3b8; margin-bottom: 3px;">Their plays from it (${st.total} snap${st.total === 1 ? '' : 's'})</div>
+              <div style="margin-bottom: 3px;">${playList(st.plays)}</div>
+              ${st.downs
+                .map((d) => `<div style="display: flex; gap: 6px; align-items: baseline;"><span style="min-width: 4.2em; font-weight: 900;">${ord(d.down)} (${d.n})</span><span>${playList(d.plays)}</span></div>`)
+                .join('')}
+            </div>`
+          : `<div style="border: 1px dashed #94a3b8; border-radius: 4px; padding: 4px 6px; font-size: ${baseFontSize}; color: #64748b;">No snaps tagged in this formation on their film yet.</div>`;
         return `
-          <div class="vsform-card" style="page-break-inside: avoid; break-inside: avoid; display: flex; flex-direction: column; gap: 3px;">
+          <div class="vsform-row" style="page-break-inside: avoid; break-inside: avoid; display: grid; grid-template-columns: ${pic ? 'minmax(0, 26%) ' : ''}minmax(0, 30%) minmax(0, 1fr); gap: ${gridGap}; align-items: start; margin-bottom: ${gridGap};">
             ${pic ? `<img src="${pic.replace(/"/g, '%22')}" alt="" style="width: 100%; height: auto; border: 1px solid #94a3b8; border-radius: 4px; background: #ffffff;" />` : ''}
-            ${renderSectionCard(sec)}
+            <div class="vsform-card">${renderSectionCard(ours)}</div>
+            ${theirs}
           </div>
         `;
       })
@@ -2988,9 +3010,7 @@ export function generateCallSheetPrintHTML(
     vsFormationsHtml = `
       <div class="section-group">
         <div class="group-banner">OUR CALLS VS THEIR FORMATIONS</div>
-        <div class="cards-grid" style="grid-template-columns: repeat(${perRow}, minmax(0, 1fr)); gap: ${gridGap}; align-items: start;">
-          ${cards}
-        </div>
+        ${rows}
       </div>
     `;
   }

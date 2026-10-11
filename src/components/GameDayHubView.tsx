@@ -1061,6 +1061,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
           previousWeekLabel={previousWeekLabel}
           onCopyCallSheetFromPreviousWeek={onCopyCallSheetFromPreviousWeek}
           oppFormations={(scouting as any)?.hudlScout?.oppFormations}
+          oppFilmPlays={(scouting as any)?.hudlScout?.plays}
           onSaveFormationPlan={onSaveFormationPlan}
           embedded
         />

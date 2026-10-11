@@ -66,7 +66,8 @@ import { CallSheetPrintModal } from './callSheet/CallSheetPrintModal';
 import { CallSheetHistoryModal } from './CallSheetHistoryModal';
 import { MoreMenu } from './common/MoreMenu';
 import { FormationPlanEditor } from './scouting/FormationPlanEditor';
-import { isScoutPlayEntry, type FormationPlan, type OppFormation } from '../utils/scoutOppPlays';
+import { formationDownStats, isScoutPlayEntry, type FormationDownStats, type FormationPlan, type OppFormation } from '../utils/scoutOppPlays';
+import type { Play } from '../hudlScout/types/football';
 
 interface CallSheetMainViewProps {
   activeTeamName?: string;
@@ -84,6 +85,8 @@ interface CallSheetMainViewProps {
   /** This week's opponent formations (Scouting → Their plays) and saving our plan against one. */
   oppFormations?: OppFormation[];
   onSaveFormationPlan?: (f: OppFormation, plan: FormationPlan) => void;
+  /** Their tagged film (this week's opponent): what they run from each formation, for the printout. */
+  oppFilmPlays?: Play[];
   previousWeekLabel?: string;
   onCopyCallSheetFromPreviousWeek?: () => void;
   /** When true, height leaves room for Game Day hub tabs on phones. */
@@ -104,6 +107,7 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
   onUpdateWristbandData,
   oppFormations,
   onSaveFormationPlan,
+  oppFilmPlays,
   previousWeekLabel,
   onCopyCallSheetFromPreviousWeek,
   embedded = false,
@@ -373,6 +377,12 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
     }
     return out;
   }, [theirFormations]);
+  // What they run from each formation, by down (their tagged film), printed with each "vs" table.
+  const formationStats = useMemo(() => {
+    const out: Record<string, FormationDownStats> = {};
+    for (const f of theirFormations) out[`vsform-${f.id}`] = formationDownStats(f.name, oppFilmPlays);
+    return out;
+  }, [theirFormations, oppFilmPlays]);
   const [addTableModalState, setAddTableModalState] = useState<{
     isOpen: boolean;
     group: 'top_situations' | 'red_zone' | 'tempo_game_mgmt' | 'custom';
@@ -1587,6 +1597,7 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
         wristbandData={normalizedWristbandData}
         gridColumns={gridColumns}
         formationPictures={activeUnit === 'defense' ? formationPictures : undefined}
+        formationStats={activeUnit === 'defense' ? formationStats : undefined}
       />
 
       {/* 7. Call Sheet History, Backups & Recovery Modal */}

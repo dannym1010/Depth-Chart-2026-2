@@ -59,6 +59,8 @@ interface CallSheetPrintModalProps {
   gridColumns?: number;
   /** Pictures of their formations vs our defense, by "vs" table id, printed with those tables. */
   formationPictures?: Record<string, string>;
+  /** What they run from each formation (plays and % by down), printed with those tables. */
+  formationStats?: CallSheetPrintOptions['formationStats'];
 }
 
 export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
@@ -69,6 +71,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
   activeTeamName,
   gridColumns = 4,
   formationPictures,
+  formationStats,
 }) => {
   const savedPrint = { ...loadPrintPrefs('call_sheet', CALL_SHEET_PRINT_DEFAULTS), ...loadPrintPrefs(sectionsKind(activeUnit), SECTION_DEFAULTS) };
   const [orientation, setOrientation] = useState<'landscape' | 'portrait'>(savedPrint.orientation);
@@ -190,6 +193,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
       vsFormations: includeVsFormations,
     },
     formationPictures,
+    formationStats,
   };
 
   const persistPrintPrefs = () => {

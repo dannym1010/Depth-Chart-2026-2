@@ -7666,6 +7666,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onCopyCallSheetFromPreviousWeek={handleCopyCallSheetFromPreviousWeek}
                 oppFormations={currentWeekState.scouting?.hudlScout?.oppFormations}
                 onSaveFormationPlan={saveFormationPlan}
+                oppFilmPlays={currentWeekState.scouting?.hudlScout?.plays}
               />
             )}
 

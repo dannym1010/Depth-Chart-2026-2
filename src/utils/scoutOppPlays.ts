@@ -60,6 +60,39 @@ export interface FormationPlan {
 /** Situations offered for a call against a formation (a coach can type any other). */
 export const PLAN_SITUATIONS = ['1st & 10', '2nd & long', '2nd & short', '3rd & long', '3rd & short', '4th & short', 'Red zone', 'Goal line', '2-pt', 'Backed up', '2-minute'];
 
+export interface FormationDownStats {
+  /** Their offensive snaps in this formation on the film. */
+  total: number;
+  /** Every play they ran from it, most first, with its share of the formation's snaps. */
+  plays: { name: string; n: number; pct: number }[];
+  /** Per down (1-4): how many snaps, and each play's share of that down's snaps. */
+  downs: { down: number; n: number; plays: { name: string; n: number; pct: number }[] }[];
+}
+
+/** What they run from a formation, by down, from their tagged film (their offense's snaps in that formation). */
+export function formationDownStats(
+  formationName: string,
+  filmPlays: Pick<Play, 'odk' | 'down' | 'formation' | 'playCall' | 'hudlCall' | 'playName' | 'result'>[] | undefined
+): FormationDownStats {
+  const key = formationKey(formationName);
+  const snaps = (filmPlays || []).filter((p) => p && p.odk === 'O' && formationKey(p.formation) === key);
+  const nameOf = (p: (typeof snaps)[number]) => (String(p.playCall || '').trim() || realCall(p) || 'Untagged').toUpperCase();
+  const share = (list: typeof snaps) => {
+    const count = new Map<string, number>();
+    for (const p of list) count.set(nameOf(p), (count.get(nameOf(p)) || 0) + 1);
+    return [...count.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([name, n]) => ({ name, n, pct: Math.round((n / list.length) * 100) }));
+  };
+  const downs = [1, 2, 3, 4]
+    .map((down) => {
+      const list = snaps.filter((p) => Number(p.down) === down);
+      return { down, n: list.length, plays: list.length ? share(list) : [] };
+    })
+    .filter((d) => d.n > 0);
+  return { total: snaps.length, plays: snaps.length ? share(snaps) : [], downs };
+}
+
 /** A blitz we like against the formation (any down) is kept as a call with this situation. */
 export const BLITZ_SITUATION = 'Blitz';
 

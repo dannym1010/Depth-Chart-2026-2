@@ -122,6 +122,21 @@ describe('our calls vs their formations', () => {
     assert.deepEqual(m.get('f1'), ['32 T TOSS']);
     assert.deepEqual(m.get('f2'), ['02 JET SWEEP']);
   });
+  it('counts what they run from a formation, overall and by down, from their offense snaps', async () => {
+    const { formationDownStats } = await import('./scoutOppPlays.ts');
+    const snap = (down: number, call: string, formation = '32 T', odk = 'O') => ({ odk, down, formation, playCall: call, playName: call }) as any;
+    const s = formationDownStats('32 t', [
+      snap(1, '32 T Toss'),
+      snap(1, '32 T Toss'),
+      snap(1, '32 T QB Draw'),
+      snap(2, '32 T Toss'),
+      snap(3, '32 T Toss', '02'),
+      snap(1, '32 T Toss', '32 T', 'D'),
+    ]);
+    assert.equal(s.total, 4);
+    assert.deepEqual(s.plays.map((p) => `${p.name} ${p.pct}%`), ['32 T TOSS 75%', '32 T QB DRAW 25%']);
+    assert.deepEqual(s.downs.map((d) => `${d.down}: ${d.plays.map((p) => `${p.name} ${p.pct}%`).join(', ')}`), ['1: 32 T TOSS 67%, 32 T QB DRAW 33%', '2: 32 T TOSS 100%']);
+  });
   it('lists the blitz options right after the base call, before situation calls', () => {
     const names: Record<string, string> = { a: '4-4 BASE STACK LIZ', b: 'BLOW STING', d: 'DOUBLE DOG' };
     const lines = planLines(
