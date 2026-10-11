@@ -66,6 +66,7 @@ import { CallSheetPrintModal } from './callSheet/CallSheetPrintModal';
 import { CallSheetHistoryModal } from './CallSheetHistoryModal';
 import { MoreMenu } from './common/MoreMenu';
 import { FormationPlanEditor } from './scouting/FormationPlanEditor';
+import { zoomDiagram } from '../utils/diagramZoom';
 import { formationDownStats, isScoutPlayEntry, type FormationDownStats, type FormationPlan, type OppFormation } from '../utils/scoutOppPlays';
 import type { Play } from '../hudlScout/types/football';
 
@@ -376,7 +377,7 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
     const out: Record<string, string> = {};
     for (const f of theirFormations) {
       const pic = f.defenseUrl || f.diagramUrl;
-      if (pic && pic.startsWith('data:')) out[`vsform-${f.id}`] = pic;
+      if (pic && pic.startsWith('data:')) out[`vsform-${f.id}`] = zoomDiagram(pic) || pic;
     }
     return out;
   }, [theirFormations]);

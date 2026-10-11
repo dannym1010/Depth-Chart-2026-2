@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { DiagramImage } from '../playbook/DiagramImage';
+import { zoomDiagram } from '../../utils/diagramZoom';
 import { BLITZ_SITUATION, PLAN_SITUATIONS, type FormationDownStats, type FormationPlan, type OppFormation } from '../../utils/scoutOppPlays';
 
 const ORD = ['1st', '2nd', '3rd', '4th'];
@@ -37,7 +38,8 @@ export const FormationPlanEditor: React.FC<{
           const setDraft = (p: Partial<typeof d>) => setDraftAll((all) => ({ ...all, [key]: { ...d, ...p } }));
           const blitzes = plan.calls.filter((c) => c.situation === BLITZ_SITUATION);
           const situational = plan.calls.filter((c) => c.situation !== BLITZ_SITUATION);
-          const picture = f.defenseUrl || f.diagramUrl;
+          // Zoomed onto the players so the formation fills the picture.
+          const picture = zoomDiagram(f.defenseUrl || f.diagramUrl);
           const chip = (c: { id: string; situation: string; callId: string }, label: React.ReactNode) => (
             <li key={c.id} className="inline-flex items-center gap-1 h-7 pl-2 pr-1 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-[11px]">
               {label}
@@ -53,8 +55,35 @@ export const FormationPlanEditor: React.FC<{
             </li>
           );
           return (
-            <li key={key} className="rounded-lg border border-slate-200 dark:border-slate-700 p-2">
-              <div className={showPictures && picture ? 'grid gap-3 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]' : ''}>
+            <li key={key} className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-2">
+                <span className="text-lg font-black text-slate-900 dark:text-white">
+                  vs {f.name}
+                  {stats && (
+                    <span className="ml-2 text-sm font-bold text-slate-500">
+                      · ran it {stats[f.id]?.total || 0} time{stats[f.id]?.total === 1 ? '' : 's'}
+                    </span>
+                  )}
+                </span>
+                <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500">
+                  Base
+                  <select
+                    aria-label={`Base call vs ${f.name}`}
+                    value={plan.base || ''}
+                    onChange={(e) => onSavePlan(f, { ...plan, base: e.target.value || undefined })}
+                    className={`${INPUT} min-w-[12rem] font-bold`}
+                  >
+                    <option value="">Pick the base call</option>
+                    {defenseCalls.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              {/* Big picture on the left, everything to read on the right (stacked on small screens). */}
+              <div className={showPictures && picture ? 'grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]' : ''}>
                 {showPictures && picture && (
                   onOpenFormation && f.id ? (
                     <button
@@ -74,53 +103,47 @@ export const FormationPlanEditor: React.FC<{
                     />
                   )
                 )}
-                <div className="space-y-1.5 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-black text-slate-900 dark:text-white min-w-[7rem]">
-                      vs {f.name}
-                      {stats && (
-                        <span className="ml-1.5 text-[11px] font-bold text-slate-500">
-                          · ran it {stats[f.id]?.total || 0} time{stats[f.id]?.total === 1 ? '' : 's'}
-                        </span>
-                      )}
-                    </span>
-                    <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500">
-                      Base
-                      <select
-                        aria-label={`Base call vs ${f.name}`}
-                        value={plan.base || ''}
-                        onChange={(e) => onSavePlan(f, { ...plan, base: e.target.value || undefined })}
-                        className={`${INPUT} min-w-[12rem] font-bold`}
-                      >
-                        <option value="">Pick the base call</option>
-                        {defenseCalls.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
+                <div className="space-y-2 min-w-0">
 
                   {stats?.[f.id]?.plays?.length ? (
-                    <div className="rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 px-2 py-1.5">
-                      <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 mb-0.5">Their plays from it</div>
-                      <ul className="space-y-0.5">
-                        {stats[f.id].plays.map((p) => (
-                          <li key={p.name} className="flex flex-wrap items-baseline gap-x-2 text-[11px]">
-                            <b className="text-slate-800 dark:text-slate-100">{p.name}</b>
-                            <span className="text-slate-500">
-                              {p.n}× ({p.pct}%)
-                            </span>
-                            <span className="text-emerald-700 dark:text-emerald-300 font-bold">
-                              {p.prefers ? `mostly ${ORD[p.prefers - 1]} down` : ''}
-                            </span>
-                            <span className="text-slate-400">{(p.downs || []).map((d) => `${ORD[d.down - 1]} ×${d.n}`).join(' · ')}</span>
-                          </li>
-                        ))}
-                      </ul>
+                    <div className="rounded-md border border-slate-200 dark:border-slate-700 overflow-hidden">
+                      <div className="px-2 py-1 bg-slate-100 dark:bg-slate-800 text-[11px] font-black uppercase tracking-wide text-slate-600 dark:text-slate-300">
+                        Their plays from it
+                      </div>
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-[10px] uppercase text-slate-500 border-b border-slate-200 dark:border-slate-700">
+                            <th className="text-left font-bold px-2 py-1">Play</th>
+                            <th className="font-bold px-1 py-1 w-12">Times</th>
+                            {ORD.map((o) => (
+                              <th key={o} className="font-bold px-1 py-1 w-10">{o}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {stats[f.id].plays.map((p) => (
+                            <tr key={p.name} className="border-b last:border-b-0 border-slate-100 dark:border-slate-800">
+                              <td className="px-2 py-1 font-bold text-slate-900 dark:text-slate-100">{p.name}</td>
+                              <td className="px-1 py-1 text-center text-slate-700 dark:text-slate-300">
+                                {p.n} <span className="text-slate-400">({p.pct}%)</span>
+                              </td>
+                              {[1, 2, 3, 4].map((dn) => {
+                                const c = (p.downs || []).find((x) => x.down === dn)?.n || 0;
+                                const fav = p.prefers === dn;
+                                return (
+                                  <td key={dn} className={`px-1 py-1 text-center ${fav ? 'font-black text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40' : c ? 'text-slate-700 dark:text-slate-300' : 'text-slate-300 dark:text-slate-600'}`}>
+                                    {c || '–'}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-                  ) : null}
+                  ) : (
+                    stats && <p className="text-xs text-slate-500">No snaps tagged in this formation on their film yet.</p>
+                  )}
 
                   {/* Blitzes we like against this formation */}
                   <div className="flex flex-wrap items-center gap-1.5">

@@ -2991,20 +2991,44 @@ export function generateCallSheetPrintHTML(
         // Their play names are in the "their plays" block with percentages, so the calls table keeps only our calls.
         const ours = { ...sec, plays: (sec.plays || []).filter((p) => !p || !String(p.id || '').includes('-their')) };
         ours.slotsCount = ours.plays.length || 1;
+        // Their plays as a table: a column per down, the down they favor in bold on a tint.
+        const cell = 'padding: 2px 5px; border-bottom: 1px solid #e2e8f0; text-align: center;';
         const theirs = st && st.total
-          ? `<div style="border: 1px solid #94a3b8; border-radius: 4px; padding: 4px 6px; font-size: ${baseFontSize}; line-height: 1.35;">
-              <div style="font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid #94a3b8; margin-bottom: 3px;">Their plays from it (${st.total} snap${st.total === 1 ? '' : 's'})</div>
-              <div style="margin-bottom: 3px;">${playList(st.plays)}</div>
-              ${st.downs
-                .map((d) => `<div style="display: flex; gap: 6px; align-items: baseline;"><span style="min-width: 4.2em; font-weight: 900;">${ord(d.down)} (${d.n})</span><span>${playList(d.plays)}</span></div>`)
-                .join('')}
-            </div>`
-          : `<div style="border: 1px dashed #94a3b8; border-radius: 4px; padding: 4px 6px; font-size: ${baseFontSize}; color: #64748b;">No snaps tagged in this formation on their film yet.</div>`;
+          ? `<table style="width: 100%; border-collapse: collapse; border: 1.5px solid #334155; font-size: ${baseFontSize}; margin-top: 4px;">
+              <thead>
+                <tr style="background: #e2e8f0;">
+                  <th style="text-align: left; padding: 3px 5px; font-weight: 900; text-transform: uppercase;">Their plays (${st.total} snap${st.total === 1 ? '' : 's'})</th>
+                  <th style="padding: 3px 5px; font-weight: 900;">Times</th>
+                  ${[1, 2, 3, 4].map((d) => `<th style="padding: 3px 5px; font-weight: 900;">${ord(d)}</th>`).join('')}
+                </tr>
+              </thead>
+              <tbody>
+                ${st.plays
+                  .map(
+                    (p) => `<tr>
+                      <td style="padding: 2px 5px; border-bottom: 1px solid #e2e8f0; font-weight: 800;">${esc(p.name)}</td>
+                      <td style="${cell}">${p.n} <span style="color: #64748b;">(${p.pct}%)</span></td>
+                      ${[1, 2, 3, 4]
+                        .map((d) => {
+                          const c = (p.downs || []).find((x) => x.down === d)?.n || 0;
+                          const fav = p.prefers === d;
+                          return `<td style="${cell}${fav ? ' font-weight: 900; background: #d1fae5;' : c ? '' : ' color: #cbd5e1;'}">${c || '–'}</td>`;
+                        })
+                        .join('')}
+                    </tr>`
+                  )
+                  .join('')}
+              </tbody>
+            </table>`
+          : `<div style="border: 1px dashed #94a3b8; border-radius: 4px; padding: 4px 6px; font-size: ${baseFontSize}; color: #64748b; margin-top: 4px;">No snaps tagged in this formation on their film yet.</div>`;
+        // One formation per row: big picture on the left half, our calls and their plays on the right.
         return `
-          <div class="vsform-row" style="page-break-inside: avoid; break-inside: avoid; display: grid; grid-template-columns: ${pic ? 'minmax(0, 26%) ' : ''}minmax(0, 30%) minmax(0, 1fr); gap: ${gridGap}; align-items: start; margin-bottom: ${gridGap};">
+          <div class="vsform-row" style="page-break-inside: avoid; break-inside: avoid; display: grid; grid-template-columns: ${pic ? 'minmax(0, 1fr) minmax(0, 1fr)' : 'minmax(0, 1fr)'}; gap: 10px; align-items: start; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 2px solid #94a3b8;">
             ${pic ? `<img src="${pic.replace(/"/g, '%22')}" alt="" style="width: 100%; height: auto; border: 1px solid #94a3b8; border-radius: 4px; background: #ffffff;" />` : ''}
-            <div class="vsform-card">${renderSectionCard(ours)}</div>
-            ${theirs}
+            <div>
+              <div class="vsform-card">${renderSectionCard(ours)}</div>
+              ${theirs}
+            </div>
           </div>
         `;
       })
