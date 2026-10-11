@@ -3,6 +3,7 @@
 // (defensive ends have contain); 5-3 Over slides the line one gap to the offense's strength.
 // Set per team; the defaults are Mahopac 10U's.
 import type { Play } from '../types/football';
+import type { PlayBuilderState } from '../../types/callSheet';
 import { applyTechniques, defenseAtHash, type PlayNode } from '../../utils/footballEngine';
 import { isBalancedPlay, playFormationBase, sideSplit } from './strength';
 
@@ -110,7 +111,7 @@ export function baseLookKey(key: string): string {
 }
 
 /** Who adds and removes the coach's own fronts (set by the app for a coach who may edit the team). */
-let frontSaver: { add: (f: { name: string; from: string; moves: Record<string, { dx: number; dy: number }>; call?: { pressure?: string; coverage?: string; assign?: Record<string, string>; rules?: Record<string, Record<string, string>> } }) => string; remove: (key: string) => void } | null = null;
+let frontSaver: { add: (f: { name: string; from: string; moves: Record<string, { dx: number; dy: number }>; call?: { pressure?: string; coverage?: string; assign?: Record<string, string>; rules?: Record<string, Record<string, string>> }; diagramUrl?: string; builder?: PlayBuilderState }) => string; remove: (key: string) => void } | null = null;
 export function setDefenseFrontSaver(fn: typeof frontSaver) {
   frontSaver = fn;
 }

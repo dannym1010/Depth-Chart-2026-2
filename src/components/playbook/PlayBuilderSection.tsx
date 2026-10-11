@@ -450,7 +450,21 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       ...(Object.keys(defAssign).length ? { assign: defAssign } : {}),
       ...(Object.keys(defRules).length ? { rules: defRules } : {}),
     };
-    const key = frontSaver.add({ name, from, moves, ...(Object.keys(call).length ? { call } : {}) });
+    // The picture and the builder go with it: the front is also a defensive play in the Play Library.
+    const now = currentState();
+    const builderForLibrary: PlayBuilderState = {
+      ...now,
+      name,
+      overrides: Object.fromEntries(Object.entries(now.overrides || {}).filter(([role]) => !dLook.nodes.some((n) => n.role === role))),
+    };
+    const key = frontSaver.add({
+      name,
+      from,
+      moves,
+      ...(Object.keys(call).length ? { call } : {}),
+      diagramUrl: diagramSvg(play, [...callStrokes, ...strokes], dNodes, String(ball)),
+      builder: builderForLibrary,
+    });
     setOverrides((prev) => Object.fromEntries(Object.entries(prev).filter(([role]) => !dLook.nodes.some((n) => n.role === role))));
     setDefenseKey(key);
     setDefaultNote(`Saved the front ${name}. It's in every defense menu now.`);

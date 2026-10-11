@@ -4925,15 +4925,50 @@ export default function App() {
         }
       : null
   );
+  /** A coach's own front as a defensive play in the Play Library (it opens in the builder with that front). */
+  const frontLibraryEntry = (
+    f: { id: string; name: string; call?: { pressure?: string } },
+    diagramUrl?: string,
+    builder?: PlayBuilderState
+  ): PlayDatabaseEntry => ({
+    id: `frontcall_${f.id}`,
+    name: f.name,
+    unit: 'defense',
+    formation: f.name,
+    type: f.call?.pressure ? 'blitz' : 'coverage',
+    situations: [],
+    tags: ['Front'],
+    category: 'Our fronts',
+    source: 'front',
+    ...(diagramUrl ? { diagramUrl } : {}),
+    builder: { ...(builder || {}), defenseKey: `front_${f.id}` } as PlayBuilderState,
+  });
+  // Fronts saved before they went into the Play Library get their entry now (once; a deleted one stays deleted).
+  useEffect(() => {
+    if (!mayEditTeam(activeTeamId)) return;
+    const fronts = ((currentActiveTeam as Team | undefined)?.defenseSystem?.fronts || []) as { id: string; name: string; call?: { pressure?: string } }[];
+    if (!fronts.length) return;
+    const all = latestStateRef.current.playDatabase || [];
+    const deleted = new Set(latestStateRef.current.deletedPlayIds || []);
+    const missing = fronts.filter((f) => !all.some((p) => p?.id === `frontcall_${f.id}` || p?.id?.startsWith(`frontcall_${f.id}_`)) && !deleted.has(`frontcall_${f.id}`));
+    if (!missing.length) return;
+    const mine = all.filter((p) => p && sameTeamId(playTeamOf(p), activeTeamId));
+    handleUpdateTeamPlayDatabase([...mine, ...missing.map((f) => frontLibraryEntry(f))]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTeamId, (currentActiveTeam as Team | undefined)?.defenseSystem?.fronts]);
+
   setDefenseFrontSaver(
     mayEditTeam(activeTeamId)
       ? {
-          add: ({ name, from, moves, call }) => {
+          add: ({ name, from, moves, call, diagramUrl, builder }) => {
             const sys = (currentActiveTeam as Team).defenseSystem || {};
             const id = `f${Date.now().toString(36)}`;
             const alignments = { ...(sys.alignments || {}) };
             if (Object.keys(moves).length) alignments[`front_${id}`] = moves;
             handleUpdateTeam(activeTeamId, { defenseSystem: { ...sys, fronts: [...(sys.fronts || []), { id, name, from, ...(call ? { call } : {}) }], alignments } });
+            // It is a defensive call too: in the Play Library (and the call sheets) with its picture.
+            const mine = (latestStateRef.current.playDatabase || []).filter((p) => p && sameTeamId(playTeamOf(p), activeTeamIdRef.current));
+            handleUpdateTeamPlayDatabase([...mine, frontLibraryEntry({ id, name, call }, diagramUrl, builder)]);
             return `front_${id}`;
           },
           remove: (key) => {
@@ -4941,6 +4976,13 @@ export default function App() {
             const alignments = { ...(sys.alignments || {}) };
             delete alignments[key];
             handleUpdateTeam(activeTeamId, { defenseSystem: { ...sys, fronts: (sys.fronts || []).filter((f) => `front_${f.id}` !== key), alignments } });
+            // ...and its Play Library entry goes too (remembered as deleted so another coach's copy can't bring it back).
+            const entryId = `frontcall_${key.replace(/^front_/, '')}`;
+            const mine = (latestStateRef.current.playDatabase || []).filter((p) => p && sameTeamId(playTeamOf(p), activeTeamIdRef.current));
+            if (mine.some((p) => p.id === entryId)) {
+              handleUpdateTeamPlayDatabase(mine.filter((p) => p.id !== entryId));
+              handleUpdateDeletedPlayIds([...new Set([...(latestStateRef.current.deletedPlayIds || []), entryId])]);
+            }
           },
         }
       : null
