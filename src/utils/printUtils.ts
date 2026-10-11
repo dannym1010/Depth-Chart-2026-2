@@ -2982,7 +2982,9 @@ export function generateCallSheetPrintHTML(
     const playList = (list: { name: string; pct: number }[]) =>
       list.map((p) => `<span style="white-space: nowrap;"><b>${esc(p.name)}</b> ${p.pct}%</span>`).join(' &middot; ');
     // One formation per row: picture | our calls | their plays from it (overall and by down).
-    const rows = vsFormations
+    // Formations they ran most come first.
+    const rows = [...vsFormations]
+      .sort((a, b) => (stats[b.id]?.total || 0) - (stats[a.id]?.total || 0))
       .map((sec) => {
         const pic = pics[sec.id];
         const st = stats[sec.id];

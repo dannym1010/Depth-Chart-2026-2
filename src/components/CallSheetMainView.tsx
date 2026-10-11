@@ -87,6 +87,8 @@ interface CallSheetMainViewProps {
   onSaveFormationPlan?: (f: OppFormation, plan: FormationPlan) => void;
   /** Their tagged film (this week's opponent): what they run from each formation, for the printout. */
   oppFilmPlays?: Play[];
+  /** Open one of their formations in the play builder (click its picture). */
+  onOpenFormation?: (f: { id?: string; name: string }) => void;
   previousWeekLabel?: string;
   onCopyCallSheetFromPreviousWeek?: () => void;
   /** When true, height leaves room for Game Day hub tabs on phones. */
@@ -108,6 +110,7 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
   oppFormations,
   onSaveFormationPlan,
   oppFilmPlays,
+  onOpenFormation,
   previousWeekLabel,
   onCopyCallSheetFromPreviousWeek,
   embedded = false,
@@ -383,6 +386,16 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
     for (const f of theirFormations) out[`vsform-${f.id}`] = formationDownStats(f.name, oppFilmPlays);
     return out;
   }, [theirFormations, oppFilmPlays]);
+  // The panel: formations they ran most first, with their plays (keyed by formation id).
+  const statsById = useMemo(() => {
+    const out: Record<string, FormationDownStats> = {};
+    for (const f of theirFormations) out[f.id] = formationStats[`vsform-${f.id}`];
+    return out;
+  }, [theirFormations, formationStats]);
+  const formationsByUse = useMemo(
+    () => [...theirFormations].sort((a, b) => (statsById[b.id]?.total || 0) - (statsById[a.id]?.total || 0)),
+    [theirFormations, statsById]
+  );
   const [addTableModalState, setAddTableModalState] = useState<{
     isOpen: boolean;
     group: 'top_situations' | 'red_zone' | 'tempo_game_mgmt' | 'custom';
@@ -1413,7 +1426,7 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
                     to print only these, open Print and pick "Only vs Their Formations".
                   </p>
                   {theirFormations.length ? (
-                    <FormationPlanEditor formations={theirFormations} defenseCalls={defenseCalls} onSavePlan={onSaveFormationPlan} showPictures />
+                    <FormationPlanEditor formations={formationsByUse} defenseCalls={defenseCalls} onSavePlan={onSaveFormationPlan} showPictures stats={statsById} onOpenFormation={onOpenFormation} />
                   ) : (
                     <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
                       No formations for this week's opponent yet. Draw them in Scouting → Their plays ("Draw formation") and they show up here.

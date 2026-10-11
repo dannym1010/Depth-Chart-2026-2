@@ -64,7 +64,7 @@ export interface FormationDownStats {
   /** Their offensive snaps in this formation on the film. */
   total: number;
   /** Every play they ran from it, most first, with its share of the formation's snaps. */
-  plays: { name: string; n: number; pct: number }[];
+  plays: { name: string; n: number; pct: number; downs?: { down: number; n: number }[]; prefers?: number | null }[];
   /** Per down (1-4): how many snaps, and each play's share of that down's snaps. */
   downs: { down: number; n: number; plays: { name: string; n: number; pct: number }[] }[];
 }
@@ -90,7 +90,14 @@ export function formationDownStats(
       return { down, n: list.length, plays: list.length ? share(list) : [] };
     })
     .filter((d) => d.n > 0);
-  return { total: snaps.length, plays: snaps.length ? share(snaps) : [], downs };
+  // Each play: how often on each down, and the down it is run on most (null when tied or untagged).
+  const plays = (snaps.length ? share(snaps) : []).map((p) => {
+    const mine = snaps.filter((q) => nameOf(q) === p.name);
+    const byDown = [1, 2, 3, 4].map((down) => ({ down, n: mine.filter((q) => Number(q.down) === down).length })).filter((d) => d.n > 0);
+    const top = [...byDown].sort((a, b) => b.n - a.n);
+    return { ...p, downs: byDown, prefers: top.length && (top.length === 1 || top[0].n > top[1].n) ? top[0].down : null };
+  });
+  return { total: snaps.length, plays, downs };
 }
 
 /** A blitz we like against the formation (any down) is kept as a call with this situation. */

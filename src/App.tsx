@@ -7595,6 +7595,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 deletedPlayIds={deletedPlayIds}
                 onUpdateDeletedPlayIds={handleUpdateDeletedPlayIds}
                 wristbandData={effectiveWristbandData}
+                onOpenFormation={(f) => openOppFormation({ id: f.id, name: f.name })}
                 onSaveFormationPlan={saveFormationPlan}
                 onUpdateWristbandData={handleUpdateWristbandData}
                 previousWeekLabel={previousWeekCopyLabel}
@@ -7667,6 +7668,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 oppFormations={currentWeekState.scouting?.hudlScout?.oppFormations}
                 onSaveFormationPlan={saveFormationPlan}
                 oppFilmPlays={currentWeekState.scouting?.hudlScout?.plays}
+                onOpenFormation={(f) => openOppFormation({ id: f.id, name: f.name })}
               />
             )}
 

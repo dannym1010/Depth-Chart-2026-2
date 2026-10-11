@@ -72,6 +72,7 @@ interface GameDayHubViewProps {
   onUpdateWristbandData?: (data: WristbandData) => void;
   /** Saving our plan vs one of their formations (from the defense call sheet). */
   onSaveFormationPlan?: (f: OppFormation, plan: FormationPlan) => void;
+  onOpenFormation?: (f: { id?: string; name: string }) => void;
   previousWeekLabel?: string;
   onCopyWristbandFromPreviousWeek?: () => void;
   onCopyCallSheetFromPreviousWeek?: () => void;
@@ -113,6 +114,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
   wristbandData,
   onUpdateWristbandData,
   onSaveFormationPlan,
+  onOpenFormation,
   previousWeekLabel,
   onCopyWristbandFromPreviousWeek,
   onCopyCallSheetFromPreviousWeek,
@@ -1062,6 +1064,7 @@ export const GameDayHubView: React.FC<GameDayHubViewProps> = ({
           onCopyCallSheetFromPreviousWeek={onCopyCallSheetFromPreviousWeek}
           oppFormations={(scouting as any)?.hudlScout?.oppFormations}
           oppFilmPlays={(scouting as any)?.hudlScout?.plays}
+          onOpenFormation={onOpenFormation}
           onSaveFormationPlan={onSaveFormationPlan}
           embedded
         />

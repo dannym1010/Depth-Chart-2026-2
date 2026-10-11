@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { DiagramImage } from '../playbook/DiagramImage';
-import { BLITZ_SITUATION, PLAN_SITUATIONS, type FormationPlan, type OppFormation } from '../../utils/scoutOppPlays';
+import { BLITZ_SITUATION, PLAN_SITUATIONS, type FormationDownStats, type FormationPlan, type OppFormation } from '../../utils/scoutOppPlays';
+
+const ORD = ['1st', '2nd', '3rd', '4th'];
 
 const INPUT = 'h-8 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-xs';
 
@@ -16,7 +18,11 @@ export const FormationPlanEditor: React.FC<{
   onSavePlan: (f: OppFormation, plan: FormationPlan) => void;
   /** Show each formation's picture vs our defense. */
   showPictures?: boolean;
-}> = ({ formations, defenseCalls, onSavePlan, showPictures }) => {
+  /** What they run from each formation (by formation id), from their tagged film. */
+  stats?: Record<string, FormationDownStats>;
+  /** Clicking the picture opens the formation in the play builder. */
+  onOpenFormation?: (f: OppFormation) => void;
+}> = ({ formations, defenseCalls, onSavePlan, showPictures, stats, onOpenFormation }) => {
   const [draft, setDraftAll] = useState<Record<string, { situation: string; callId: string; blitzId: string }>>({});
   const callName = (id?: string) => (id ? defenseCalls.find((p) => p.id === id)?.name : undefined);
   const blitzCalls = defenseCalls.filter((c) => c.type === 'blitz');
@@ -50,15 +56,34 @@ export const FormationPlanEditor: React.FC<{
             <li key={key} className="rounded-lg border border-slate-200 dark:border-slate-700 p-2">
               <div className={showPictures && picture ? 'grid gap-3 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]' : ''}>
                 {showPictures && picture && (
-                  <DiagramImage
-                    url={picture}
-                    alt={`${f.name} vs ${f.defenseName || 'our defense'}`}
-                    className="w-full rounded-md border border-emerald-300 dark:border-emerald-700 bg-white self-start"
-                  />
+                  onOpenFormation && f.id ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenFormation(f)}
+                      title={`Edit ${f.name} in the play builder`}
+                      aria-label={`Edit ${f.name}`}
+                      className="self-start rounded-md cursor-pointer hover:ring-2 hover:ring-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    >
+                      <DiagramImage url={picture} alt={`${f.name} vs ${f.defenseName || 'our defense'}`} className="w-full rounded-md border border-emerald-300 dark:border-emerald-700 bg-white" />
+                    </button>
+                  ) : (
+                    <DiagramImage
+                      url={picture}
+                      alt={`${f.name} vs ${f.defenseName || 'our defense'}`}
+                      className="w-full rounded-md border border-emerald-300 dark:border-emerald-700 bg-white self-start"
+                    />
+                  )
                 )}
                 <div className="space-y-1.5 min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-black text-slate-900 dark:text-white min-w-[7rem]">vs {f.name}</span>
+                    <span className="text-sm font-black text-slate-900 dark:text-white min-w-[7rem]">
+                      vs {f.name}
+                      {stats && (
+                        <span className="ml-1.5 text-[11px] font-bold text-slate-500">
+                          · ran it {stats[f.id]?.total || 0} time{stats[f.id]?.total === 1 ? '' : 's'}
+                        </span>
+                      )}
+                    </span>
                     <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500">
                       Base
                       <select
@@ -76,6 +101,26 @@ export const FormationPlanEditor: React.FC<{
                       </select>
                     </label>
                   </div>
+
+                  {stats?.[f.id]?.plays?.length ? (
+                    <div className="rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 px-2 py-1.5">
+                      <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 mb-0.5">Their plays from it</div>
+                      <ul className="space-y-0.5">
+                        {stats[f.id].plays.map((p) => (
+                          <li key={p.name} className="flex flex-wrap items-baseline gap-x-2 text-[11px]">
+                            <b className="text-slate-800 dark:text-slate-100">{p.name}</b>
+                            <span className="text-slate-500">
+                              {p.n}× ({p.pct}%)
+                            </span>
+                            <span className="text-emerald-700 dark:text-emerald-300 font-bold">
+                              {p.prefers ? `mostly ${ORD[p.prefers - 1]} down` : ''}
+                            </span>
+                            <span className="text-slate-400">{(p.downs || []).map((d) => `${ORD[d.down - 1]} ×${d.n}`).join(' · ')}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
 
                   {/* Blitzes we like against this formation */}
                   <div className="flex flex-wrap items-center gap-1.5">
