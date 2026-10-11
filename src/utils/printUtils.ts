@@ -2979,40 +2979,51 @@ export function generateCallSheetPrintHTML(
     const stats = options?.formationStats || {};
     const esc = (t: string) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const ord = (d: number) => ['1st', '2nd', '3rd', '4th'][d - 1] || `${d}th`;
-    const playList = (list: { name: string; pct: number }[]) =>
-      list.map((p) => `<span style="white-space: nowrap;"><b>${esc(p.name)}</b> ${p.pct}%</span>`).join(' &middot; ');
-    // One formation per row: picture | our calls | their plays from it (overall and by down).
-    // Formations they ran most come first.
+    // Colors: navy headers, green for "what they like". Ink-saver: black outlines, no solid fills.
+    const C = inkFriendly
+      ? { band: '#ffffff', bandText: '#000000', bandBorder: '2px solid #000000', head: '#ffffff', headText: '#000000', stripe: '#ffffff', fav: '#ffffff', favText: '#000000', favBorder: '2px solid #000000', accent: '#000000', muted: '#475569', line: '#94a3b8' }
+      : { band: '#0f2a4a', bandText: '#ffffff', bandBorder: '2px solid #0f2a4a', head: '#dbe7f5', headText: '#0f2a4a', stripe: '#f4f7fb', fav: '#bbf7d0', favText: '#065f46', favBorder: '1px solid #86efac', accent: '#b91c1c', muted: '#64748b', line: '#cbd5e1' };
+    const fs1 = '11pt', fs2 = '10pt', fs3 = '9pt';
     const rows = [...vsFormations]
-      .sort((a, b) => (stats[b.id]?.total || 0) - (stats[a.id]?.total || 0))
+      .sort((x, y) => (stats[y.id]?.total || 0) - (stats[x.id]?.total || 0))
       .map((sec) => {
         const pic = pics[sec.id];
         const st = stats[sec.id];
-        // Their play names are in the "their plays" block with percentages, so the calls table keeps only our calls.
-        const ours = { ...sec, plays: (sec.plays || []).filter((p) => !p || !String(p.id || '').includes('-their')) };
-        ours.slotsCount = ours.plays.length || 1;
-        // Their plays as a table: a column per down, the down they favor in bold on a tint.
-        const cell = 'padding: 2px 5px; border-bottom: 1px solid #e2e8f0; text-align: center;';
-        const theirs = st && st.total
-          ? `<table style="width: 100%; border-collapse: collapse; border: 1.5px solid #334155; font-size: ${baseFontSize}; margin-top: 4px;">
-              <thead>
-                <tr style="background: #e2e8f0;">
-                  <th style="text-align: left; padding: 3px 5px; font-weight: 900; text-transform: uppercase;">Their plays (${st.total} snap${st.total === 1 ? '' : 's'})</th>
-                  <th style="padding: 3px 5px; font-weight: 900;">Times</th>
-                  ${[1, 2, 3, 4].map((d) => `<th style="padding: 3px 5px; font-weight: 900;">${ord(d)}</th>`).join('')}
-                </tr>
-              </thead>
+        const name = String(sec.title || '').replace(/^vs\s+/i, '');
+        // Our calls: "Base: 4-4 Stack LIZ" -> label + call (their play names are in the table, so left out here).
+        const ours = (sec.plays || [])
+          .filter((p) => p && p.name && !String(p.id || '').includes('-their'))
+          .map((p) => {
+            const i = p.name.indexOf(': ');
+            return i > 0 ? { label: p.name.slice(0, i), call: p.name.slice(i + 2) } : { label: '', call: p.name };
+          });
+        const callsHtml = ours.length
+          ? `<table style="width: 100%; border-collapse: collapse; font-size: ${fs1};">
+              ${ours
+                .map(
+                  (c) => `<tr>
+                    <td style="padding: 3px 6px; width: 32%; font-size: ${fs3}; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; color: ${c.label === 'Blitz' ? C.accent : C.muted}; border-bottom: 1px solid ${C.line}; vertical-align: top;">${esc(c.label)}</td>
+                    <td style="padding: 3px 6px; font-weight: ${c.label === 'Base' ? 900 : 700}; border-bottom: 1px solid ${C.line};">${esc(c.call)}</td>
+                  </tr>`
+                )
+                .join('')}
+            </table>`
+          : `<div style="font-size: ${fs2}; color: ${C.muted}; padding: 3px 6px;">No calls picked yet.</div>`;
+        const th = (t: string, left = false) => `<th style="padding: 4px 6px; font-size: ${fs3}; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; text-align: ${left ? 'left' : 'center'}; background: ${C.head}; color: ${C.headText}; border-bottom: 2px solid ${C.headText};">${t}</th>`;
+        const playsHtml = st && st.total
+          ? `<table style="width: 100%; border-collapse: collapse; font-size: ${fs2};">
+              <thead><tr>${th('Their play', true)}${th('Times')}${[1, 2, 3, 4].map((d) => th(ord(d))).join('')}</tr></thead>
               <tbody>
                 ${st.plays
                   .map(
-                    (p) => `<tr>
-                      <td style="padding: 2px 5px; border-bottom: 1px solid #e2e8f0; font-weight: 800;">${esc(p.name)}</td>
-                      <td style="${cell}">${p.n} <span style="color: #64748b;">(${p.pct}%)</span></td>
+                    (p, i) => `<tr style="background: ${i % 2 ? C.stripe : '#ffffff'};">
+                      <td style="padding: 4px 6px; font-weight: 800; font-size: ${fs1};">${esc(p.name)}</td>
+                      <td style="padding: 4px 6px; text-align: center; white-space: nowrap;"><b>${p.n}</b> <span style="color: ${C.muted}; font-size: ${fs3};">${p.pct}%</span></td>
                       ${[1, 2, 3, 4]
                         .map((d) => {
-                          const c = (p.downs || []).find((x) => x.down === d)?.n || 0;
+                          const n = (p.downs || []).find((x) => x.down === d)?.n || 0;
                           const fav = p.prefers === d;
-                          return `<td style="${cell}${fav ? ' font-weight: 900; background: #d1fae5;' : c ? '' : ' color: #cbd5e1;'}">${c || '–'}</td>`;
+                          return `<td style="padding: 4px 6px; text-align: center; width: 9%; ${fav ? `background: ${C.fav}; color: ${C.favText}; font-weight: 900; outline: ${C.favBorder}; outline-offset: -2px;` : n ? 'font-weight: 700;' : `color: ${C.line};`}">${n || '·'}</td>`;
                         })
                         .join('')}
                     </tr>`
@@ -3020,22 +3031,30 @@ export function generateCallSheetPrintHTML(
                   .join('')}
               </tbody>
             </table>`
-          : `<div style="border: 1px dashed #94a3b8; border-radius: 4px; padding: 4px 6px; font-size: ${baseFontSize}; color: #64748b; margin-top: 4px;">No snaps tagged in this formation on their film yet.</div>`;
-        // One formation per row: big picture on the left half, our calls and their plays on the right.
+          : `<div style="font-size: ${fs2}; color: ${C.muted}; padding: 4px 6px; border: 1px dashed ${C.line}; border-radius: 4px;">No snaps tagged in this formation on their film yet.</div>`;
         return `
-          <div class="vsform-row" style="page-break-inside: avoid; break-inside: avoid; display: grid; grid-template-columns: ${pic ? 'minmax(0, 1fr) minmax(0, 1fr)' : 'minmax(0, 1fr)'}; gap: 10px; align-items: start; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 2px solid #94a3b8;">
-            ${pic ? `<img src="${pic.replace(/"/g, '%22')}" alt="" style="width: 100%; height: auto; border: 1px solid #94a3b8; border-radius: 4px; background: #ffffff;" />` : ''}
-            <div>
-              <div class="vsform-card">${renderSectionCard(ours)}</div>
-              ${theirs}
+          <section style="page-break-inside: avoid; break-inside: avoid; margin: 0 0 12px; border: ${C.bandBorder}; border-radius: 6px; overflow: hidden; background: #ffffff;">
+            <div style="background: ${C.band}; color: ${C.bandText}; padding: 6px 10px; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; ${inkFriendly ? 'border-bottom: 2px solid #000;' : ''}">
+              <span style="font-size: 15pt; font-weight: 900; letter-spacing: 0.02em;">vs ${esc(name)}</span>
+              <span style="font-size: ${fs2}; font-weight: 700; opacity: 0.9;">${st ? `They ran it ${st.total} time${st.total === 1 ? '' : 's'}` : ''}</span>
             </div>
-          </div>
+            <div style="display: grid; grid-template-columns: ${pic ? 'minmax(0, 1.05fr) minmax(0, 1fr)' : 'minmax(0, 1fr)'}; gap: 12px; padding: 8px 10px; align-items: start;">
+              ${pic ? `<img src="${pic.replace(/"/g, '%22')}" alt="" style="width: 100%; height: auto; border: 1px solid ${C.line}; border-radius: 4px; background: #ffffff;" />` : ''}
+              <div style="display: flex; flex-direction: column; gap: 8px; min-width: 0;">
+                <div>
+                  <div style="font-size: ${fs3}; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; color: ${C.headText}; border-bottom: 2px solid ${C.headText}; padding: 0 6px 2px;">Our calls</div>
+                  ${callsHtml}
+                </div>
+                ${playsHtml}
+              </div>
+            </div>
+          </section>
         `;
       })
       .join('');
     vsFormationsHtml = `
       <div class="section-group">
-        <div class="group-banner">OUR CALLS VS THEIR FORMATIONS</div>
+        <div style="font-size: 13pt; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 0 6px; margin-bottom: 8px; border-bottom: 3px solid ${inkFriendly ? '#000' : '#0f2a4a'}; color: ${inkFriendly ? '#000' : '#0f2a4a'};">Our calls vs their formations</div>
         ${rows}
       </div>
     `;

@@ -2,7 +2,8 @@
  * Zoom a saved play / formation picture (SVG data URL) onto the players and their lines, so the formation fills
  * the picture instead of a strip of the whole field. Anything that isn't an SVG data URL comes back unchanged.
  */
-export function zoomDiagram(url: string | undefined, margin = 26): string | undefined {
+/** `background`: the field color behind the zoomed picture (it is resized to fill it). */
+export function zoomDiagram(url: string | undefined, margin = 26, background?: string): string | undefined {
   if (!url || !url.startsWith('data:image/svg+xml')) return url;
   const comma = url.indexOf(',');
   const head = url.slice(0, comma + 1);
@@ -60,7 +61,13 @@ export function zoomDiagram(url: string | undefined, margin = 26): string | unde
   if (x1 - x0 > W * 0.92 && y1 - y0 > H * 0.92) return url; // already fills it
   const box = `${x0.toFixed(1)} ${y0.toFixed(1)} ${(x1 - x0).toFixed(1)} ${(y1 - y0).toFixed(1)}`;
   // The picture takes the zoomed shape, so the players fill it.
+  // The field background is "100%" of the original picture: after zooming it would cover only part of it.
+  const bg = (attrs: string) => {
+    const fill = background || (attrs.match(/fill=['"]([^'"]+)['"]/) || [])[1] || '#f0f0f0';
+    return `<rect x='${x0.toFixed(1)}' y='${y0.toFixed(1)}' width='${(x1 - x0).toFixed(1)}' height='${(y1 - y0).toFixed(1)}' fill='${fill}'/>`;
+  };
   const out = svg
+    .replace(/<rect([^>]*\swidth=['"]100%['"][^>]*)\/>/, (_m, attrs: string) => bg(attrs))
     .replace(vb[0], vb[0].replace(vb[1], box))
     .replace(/(<svg[^>]*\swidth=)(['"])[\d.]+\2/, (_m, a: string, q: string) => `${a}${q}${(x1 - x0).toFixed(0)}${q}`)
     .replace(/(<svg[^>]*\sheight=)(['"])[\d.]+\2/, (_m, a: string, q: string) => `${a}${q}${(y1 - y0).toFixed(0)}${q}`);

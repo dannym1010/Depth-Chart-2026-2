@@ -377,7 +377,7 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
     const out: Record<string, string> = {};
     for (const f of theirFormations) {
       const pic = f.defenseUrl || f.diagramUrl;
-      if (pic && pic.startsWith('data:')) out[`vsform-${f.id}`] = zoomDiagram(pic) || pic;
+      if (pic && pic.startsWith('data:')) out[`vsform-${f.id}`] = zoomDiagram(pic, 26, '#ffffff') || pic; // white field on paper
     }
     return out;
   }, [theirFormations]);
