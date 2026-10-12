@@ -83,3 +83,50 @@ export function useSharedGame(teamId: string, gameKey: string | undefined) {
 
   return { shared, update };
 }
+
+/**
+ * The same game kept twice: one copy's notes and drawings onto the other copy's plays (old play id -> new
+ * play id). Read from this device and the cloud, written merged into the other game's shared data.
+ * Returns how many notes and drawings moved.
+ */
+export async function moveSharedNotes(teamId: string, fromKey: string, toKey: string, playIds: Map<string, string>): Promise<number> {
+  const fromId = sharedDocId(teamId, fromKey);
+  const toId = sharedDocId(teamId, toKey);
+  let from: FilmGameShared = safeJSONParse(cacheKey(fromId), emptyShared());
+  const { db } = getFirebaseServices();
+  const online = Boolean(db) && !isFirestoreQuotaPaused();
+  if (online) {
+    try {
+      const snap = await db.collection('teamData').doc(fromId).get();
+      if (snap?.exists) from = mergeShared(from, snap.data());
+    } catch (err) {
+      console.warn('Reading Film Room notes to move:', err);
+    }
+  }
+  const now = Date.now();
+  const notes = from.notes
+    .filter((n) => !from.deletedNotes?.[n.id] && playIds.has(n.playId))
+    .map((n) => ({ ...n, playId: playIds.get(n.playId)!, editedAt: now }));
+  const drawings = Object.fromEntries(
+    Object.entries(from.drawings || {})
+      .filter(([id]) => playIds.has(id))
+      .map(([id, d]) => [playIds.get(id)!, { ...d, editedAt: now }])
+  );
+  const moved = notes.length + Object.keys(drawings).length;
+  if (!moved) return 0;
+  const local = mergeShared(safeJSONParse(cacheKey(toId), emptyShared()), { ...emptyShared(), notes, drawings });
+  safeJSONSet(cacheKey(toId), local);
+  if (online && !isReadOnlySession()) {
+    const ref = db.collection('teamData').doc(toId);
+    try {
+      await db.runTransaction(async (tx: any) => {
+        const snap = await tx.get(ref);
+        const merged = mergeShared(snap?.exists ? snap.data() : undefined, local);
+        tx.set(ref, cleanFirestoreData({ ...merged, teamId, gameKey: toKey, updatedAt: Date.now() }));
+      });
+    } catch (err) {
+      console.warn('Could not move Film Room notes:', err);
+    }
+  }
+  return moved;
+}

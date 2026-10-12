@@ -364,7 +364,7 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
           autoTagged = res.tagged;
           return res.tagged ? { ...b, plays: res.plays } : b;
         };
-        const same = findSameGame(bundleRef.current, newPlays, { week: sharedFilm.week });
+        const same = findSameGame(bundleRef.current, newPlays, { week: sharedFilm.week, filmGames: true });
         if (same) {
           // Same game again: bring in the new file's details, keep tags, units, subs and grades.
           updateBundle((b) => {

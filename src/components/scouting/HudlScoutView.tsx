@@ -47,6 +47,7 @@ import {
   clearScoutUploads,
   guessGameWeek,
   assignDrives,
+  duplicateFilmGames,
   findSameGame,
   mergeGamePlays,
 } from '../../hudlScout/scoutBundle';
@@ -551,7 +552,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
 
   const applyPlays = (newPlays: Play[], name: string, append: boolean, scheme = '', week?: string) => {
     // The same game uploaded again: update it in place, keeping tags, formations, units, subs and credits.
-    const same = findSameGame(bundle, newPlays, { name, week: scoutTarget === 'own' ? week : undefined });
+    // A game the Film Room made from film (still blank) is this game too: its breakdown fills it in.
+    const same = findSameGame(bundle, newPlays, { name, week: scoutTarget === 'own' ? week : undefined, filmGames: true });
     if (same) {
       setBundle((prev) => {
         const merged = mergeGamePlays(prev, same.id, newPlays);
@@ -604,7 +606,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       const { headers, rows } = parseCsvRows(csvContent);
       const mapping = autoDetectColumnMapping(headers);
       const fresh = rows.map((r, i) => normalizeHudlRow(r, mapping, i));
-      return findSameGame(bundle, fresh, { name, week: scoutTarget === 'own' ? week : undefined })?.name || null;
+      return findSameGame(bundle, fresh, { name, week: scoutTarget === 'own' ? week : undefined, filmGames: true })?.name || null;
     } catch {
       return null;
     }
@@ -766,6 +768,12 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
             <button type="button" onClick={() => setUploadNote('')} className="font-bold opacity-70 hover:opacity-100 cursor-pointer">Dismiss</button>
           </div>
         )}
+        {duplicateFilmGames(bundle).map(({ blank, uploaded }) => (
+          <div key={blank.id} className="rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
+            <span className="font-bold">This game is here twice:</span> &quot;{blank.name}&quot; was made in the Film Room from the film before its breakdown came in, and &quot;{uploaded.name}&quot; was uploaded.
+            Open either one in the Film Room and choose <span className="font-bold">Merge into one</span> (its notes and drawings move with it).
+          </div>
+        ))}
         {newCalls && newCalls.names.length > 0 && onUpdatePlayDatabase && (
           <div className="rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2.5 text-xs text-amber-900 dark:text-amber-100 space-y-2">
             <div>

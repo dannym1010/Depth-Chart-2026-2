@@ -3234,6 +3234,67 @@ describe('matching a re-upload to its game', () => {
   });
 });
 
+describe('a game made from film, then its breakdown', () => {
+  // The Film Room's blank play for each clip (nothing broken down yet).
+  const blank = (gameId: string, n: number) =>
+    Array.from({ length: n }, (_, i) => ({ id: `clip-${i + 1}-${gameId}`, gameId, playNumber: i + 1, odk: 'UNKNOWN', quarter: 0, down: 0, distance: 0, yardLine: 0, rawYardLine: '', result: '', playName: '', formation: '' }));
+  const hudl = (gameId: string, n: number) =>
+    Array.from({ length: n }, (_, i) => ({ id: `h${i + 1}`, gameId, playNumber: i + 1, odk: i % 2 ? 'D' : 'O', quarter: 1, down: (i % 4) + 1, distance: 10, yardLine: 30, rawYardLine: '-30', result: 'Rush', playName: 'DIVE', formation: 'I' }));
+
+  it('the breakdown fills the blank film game when the counts are close, even though clips and plays differ', async () => {
+    const { findSameGame } = await import('../hudlScout/scoutBundle.ts');
+    const bundle = { games: [{ id: 'film', name: 'Week 1 - Suffern', playCount: 55, addedAt: 1, fromFilm: true }], plays: blank('film', 55) } as any;
+    const fresh = hudl('', 71);
+    assert.equal(findSameGame(bundle, fresh), undefined); // the old rule: not the same game
+    assert.equal(findSameGame(bundle, fresh, { filmGames: true })?.id, 'film');
+    // Far off counts (a different game) don't match, nor a film game already broken down.
+    assert.equal(findSameGame(bundle, hudl('', 200), { filmGames: true }), undefined);
+    const done = { ...bundle, plays: hudl('film', 55) };
+    assert.equal(findSameGame(done, hudl('', 71), { filmGames: true }), undefined);
+    // Our film: another week's film game isn't this one.
+    const ownB = { games: [{ id: 'film', name: 'Week 2', playCount: 55, addedAt: 1, fromFilm: true, week: '2' }], plays: blank('film', 55) } as any;
+    assert.equal(findSameGame(ownB, fresh, { week: '1', filmGames: true }), undefined);
+    assert.equal(findSameGame(ownB, fresh, { week: '2', filmGames: true })?.id, 'film');
+  });
+
+  it('filling it in keeps the play ids (notes stay) and it stops being a film game', async () => {
+    const { mergeGamePlays } = await import('../hudlScout/scoutBundle.ts');
+    const bundle = { games: [{ id: 'film', name: 'Week 1', playCount: 3, addedAt: 1, fromFilm: true }], plays: blank('film', 3), updatedAt: 1 } as any;
+    const next = mergeGamePlays(bundle, 'film', hudl('', 4) as any);
+    assert.deepEqual(next.plays.slice(0, 3).map((p: any) => p.id), ['clip-1-film', 'clip-2-film', 'clip-3-film']);
+    assert.equal(next.plays.length, 4);
+    assert.equal(next.games[0].fromFilm, false);
+    assert.equal(next.games[0].playCount, 4);
+  });
+
+  it('the same game twice is found and merged: the blank copy goes, tags carry over, plays line up in order', async () => {
+    const { duplicateFilmGames, mergeBlankFilmGame } = await import('../hudlScout/scoutBundle.ts');
+    const plays = [...blank('film', 3), ...hudl('up', 3)];
+    plays[1] = { ...plays[1], playCallId: 'p26', playCall: '26 Dive', playName: '26 Dive' } as any;
+    const bundle = {
+      games: [
+        { id: 'film', name: 'Week 1 - Suffern', playCount: 3, addedAt: 1, fromFilm: true },
+        { id: 'up', name: 'MSA vs Suffern', playCount: 3, addedAt: 2 },
+      ],
+      plays,
+      datasetName: 'MSA vs Suffern',
+      updatedAt: 1,
+    } as any;
+    const dupes = duplicateFilmGames(bundle);
+    assert.equal(dupes.length, 1);
+    assert.equal(dupes[0].blank.id, 'film');
+    assert.equal(dupes[0].uploaded.id, 'up');
+    const { bundle: merged, moved } = mergeBlankFilmGame(bundle, 'film', 'up');
+    assert.deepEqual(merged.games.map((g: any) => g.id), ['up']);
+    assert.ok(merged.deletedGameIds.includes('film'));
+    assert.equal(merged.plays.length, 3);
+    assert.equal(moved.get('clip-2-film'), 'h2');
+    assert.equal(merged.plays.find((p: any) => p.id === 'h2').playCallId, 'p26');
+    // A game with no copy made from film isn't flagged.
+    assert.equal(duplicateFilmGames({ ...bundle, games: [bundle.games[1]], plays: hudl('up', 3) }).length, 0);
+  });
+});
+
 describe('uploading the playbook again', () => {
   const bank = () =>
     [

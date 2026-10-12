@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft } from 'lucide-react';
 import { PlaysTable } from '../hudlScout/components/PlaysTable';
-import { assignDrives, bundleFromSaved, type ScoutBundle } from '../hudlScout/scoutBundle';
+import { assignDrives, bundleFromSaved, duplicateFilmGames, mergeBlankFilmGame, type ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play, TeamUnit } from '../hudlScout/types/football';
 import type { ScoutGame } from '../hudlScout/components/Header';
 import { autoTagFromHudl, setPlaysFormation, tagPlays } from '../hudlScout/utils/playTags';
@@ -33,7 +33,7 @@ import { filmGameKey } from './sharedMerge';
 import type { FilmGame, FilmMark, FilmNote } from './types';
 import { useClipUrl, useGameFilm } from './useGameFilm';
 import { canOpenFolders } from './filmSources';
-import { useSharedGame } from './useSharedGame';
+import { moveSharedNotes, useSharedGame } from './useSharedGame';
 import { readBreakdown, useFolderBreakdowns } from './folderImport';
 
 interface FilmRoomViewProps {
@@ -320,7 +320,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const importInput = useRef<HTMLInputElement>(null);
   const [importNote, setImportNote] = useState('');
   const importBreakdown = async (file: File) => {
-    if (!game || game.filmOnly) return;
+    if (!game) return;
     let fresh: Play[];
     try {
       fresh = await readBreakdown(file.name, file);
@@ -328,6 +328,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       return window.alert(`Couldn't read ${file.name}. Use the CSV or Excel export from Hudl.`);
     }
     if (!fresh.length) return window.alert(`No plays found in ${file.name}.`);
+    if (game.filmOnly) return importIntoFilmOnly(fresh, file.name);
     const entered = plays.filter((p) => !game.fromFilm || isBrokenDown(p)).length;
     if (entered && !window.confirm(`Replace the ${plays.length} plays of ${game.name} with the ${fresh.length} plays in ${file.name}? Notes, drawings and tags stay with the plays in order.`)) return;
     const b = isOwn ? own : opp;
@@ -347,6 +348,68 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     setImportNote(`Imported ${merged.length} plays from ${file.name}`);
     window.setTimeout(() => setImportNote(''), 4000);
   };
+  // Film with no breakdown yet: the file makes the game (the film's id, so the film and notes stay with it),
+  // play N on clip N.
+  const importIntoFilmOnly = (fresh: Play[], fileName: string) => {
+    if (!game) return;
+    const week = game.week || '';
+    const w = filmWeeks?.find((x) => x.key === week);
+    const saved = week === currentWeek ? opponentScout : w?.hudlScout;
+    const target = game.source === 'own' ? own : bundleFromSaved(saved, w?.opponent || 'Opponent');
+    if (target.games.some((g) => g.id === game.gameId)) return window.alert('This game is being set up from its film. Try again in a moment.');
+    madeBreakdown.current.add(game.key); // no blank plays for it as well
+    const clipsNow = film.status === 'ready' ? film.clips : [];
+    let merged = importIntoGame(clipsNow.length ? blankPlays(clipsNow, game.gameId) : [], fresh, game.gameId);
+    if (game.source === 'own' && playDatabase?.length) merged = autoTagFromHudl(merged, playDatabase, new Set(merged.map((p) => p.id))).plays;
+    merged = assignDrives(merged);
+    const now = Date.now();
+    // Notes and drawings already made on the clips move to their plays.
+    const moved = new Map(playsFromClips(clipsNow, game.gameId).slice(0, merged.length).map((p) => [p.id, breakdownPlayId(p.id, game.gameId)]));
+    if ([...moved.keys()].some((id) => shared.notes.some((n) => n.playId === id) || shared.drawings[id])) {
+      update((st) => ({
+        ...st,
+        notes: st.notes.map((n) => (moved.has(n.playId) ? { ...n, playId: moved.get(n.playId)!, editedAt: now } : n)),
+        drawings: Object.fromEntries(Object.entries(st.drawings).map(([id, d]) => [moved.get(id) || id, moved.has(id) ? { ...d, editedAt: now } : d])),
+      }));
+    }
+    const g: ScoutGame = { id: game.gameId, name: game.name, playCount: merged.length, addedAt: now, ...(week ? { week } : {}) };
+    const next = { plays: [...target.plays, ...merged], games: [...target.games, g], sourceCleared: false, updatedAt: now };
+    if (game.source === 'own') onUpdateOwnTeamScout({ ...own, ...next });
+    else {
+      onSaveWeekScouting?.(week, { ...((saved as object) || {}), ...next, datasetName: target.datasetName || w?.opponent || '', deletedGameIds: target.deletedGameIds });
+      if (week && week !== currentWeek) onSelectWeek?.(week);
+    }
+    setImportNote(`Imported ${merged.length} plays from ${fileName}`);
+    window.setTimeout(() => setImportNote(''), 4000);
+  };
+
+  // The same game twice (one copy made from the film, still blank, and one uploaded from Hudl): merge them.
+  const dupe = useMemo(() => {
+    if (!game || game.filmOnly || locked) return null;
+    const b = game.source === 'own' ? own : opp;
+    return duplicateFilmGames(b).find((d) => d.blank.id === game.gameId || d.uploaded.id === game.gameId) || null;
+  }, [game, own, opp, locked]);
+  const [merging, setMerging] = useState(false);
+  const mergeDupe = async () => {
+    if (!dupe || !game || merging) return;
+    const b = game.source === 'own' ? own : opp;
+    const count = (id: string) => b.plays.filter((p) => p.gameId === id).length;
+    if (!window.confirm(`Keep "${dupe.uploaded.name}" (${count(dupe.uploaded.id)} plays from Hudl) and remove the copy made from the film, "${dupe.blank.name}" (${count(dupe.blank.id)} clips)? Its notes and drawings move to the plays in order. This is for every coach.`)) return;
+    setMerging(true);
+    try {
+      const { bundle: merged, moved } = mergeBlankFilmGame(b, dupe.blank.id, dupe.uploaded.id);
+      const keyOf = (id: string) => filmGameKey(game.source, id, game.source === 'opponent' ? currentWeek : undefined);
+      const n = await moveSharedNotes(teamId, keyOf(dupe.blank.id), keyOf(dupe.uploaded.id), moved);
+      if (game.source === 'own') onUpdateOwnTeamScout(merged);
+      else onUpdateScouting('hudlScout', { ...((opponentScout as object) || {}), ...merged });
+      setGameKey(keyOf(dupe.uploaded.id));
+      setImportNote(`Merged into ${dupe.uploaded.name}${n ? ` (${n} note${n === 1 ? '' : 's'} and drawings moved)` : ''}`);
+      window.setTimeout(() => setImportNote(''), 5000);
+    } finally {
+      setMerging(false);
+    }
+  };
+
   const saveBreakdown = (changes: { play: Play; row: BreakdownRow }[]) =>
     editPlays((all) => all.map((p) => {
       const c = changes.find((x) => x.play.id === p.id);
@@ -609,8 +672,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const clipLog = (
     <div className={`${panel} flex-1 min-h-0 overflow-y-auto p-2`}>
       <p className="px-2 pb-2 text-xs text-slate-500 dark:text-slate-400">
-        {plays.length} clip{plays.length === 1 ? '' : 's'}, in the order of the file names. There&apos;s no Hudl breakdown for this game yet: put its CSV or Excel file in this game&apos;s folder
-        and check the film folder, and the plays fill in.
+        {plays.length} clip{plays.length === 1 ? '' : 's'}, in the order of the file names. There&apos;s no Hudl breakdown for this game yet: use <span className="font-bold">Import breakdown</span> above
+        (the CSV or Excel export from Hudl), or put the file in this game&apos;s folder and the plays fill in.
       </p>
       <ol className="space-y-0.5">
         {plays.map((p) => {
@@ -964,7 +1027,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             </button>
           )}
           {importNote && <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">{importNote}</span>}
-          {game && !game.filmOnly && !locked && (
+          {game && !locked && (
             <>
               <input
                 ref={importInput}
@@ -999,6 +1062,22 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         </div>
       </div>
 
+      {dupe && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 px-3 py-2 rounded-xl border border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200 text-xs">
+          <span className="font-bold">This game is here twice:</span>
+          <span>
+            &quot;{dupe.blank.name}&quot; was made from the film before its breakdown came in, and &quot;{dupe.uploaded.name}&quot; was uploaded from Hudl.
+          </span>
+          <button
+            type="button"
+            onClick={() => void mergeDupe()}
+            disabled={merging}
+            className="ml-auto h-7 px-3 rounded-lg font-black bg-amber-600 hover:bg-amber-500 text-white disabled:opacity-60"
+          >
+            {merging ? 'Merging…' : 'Merge into one'}
+          </button>
+        </div>
+      )}
       <div className="flex flex-col lg:flex-row gap-2 lg:flex-1 lg:min-h-0">
       {isDesktop && libraryDesk && <aside className={`${panel} w-64 xl:w-72 shrink-0 min-h-0`}>{libraryEl(() => {
         safeJSONSet('footballFilmroomLibrary', false);

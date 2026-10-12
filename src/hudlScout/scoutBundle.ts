@@ -179,11 +179,85 @@ function playsOfGame(bundle: Pick<ScoutBundle, 'games' | 'plays'>, gameId: strin
   return bundle.plays.filter((p) => (p.gameId ? p.gameId === gameId : bundle.games[0]?.id === gameId));
 }
 
+/** A play nobody has broken down yet: the blank play the Film Room makes for each clip. */
+export function isBlankPlay(p: Play): boolean {
+  const named = !p.playCallId && String(p.playName || '').trim();
+  return (!p.odk || p.odk === 'UNKNOWN') && !p.down && !String(p.rawYardLine || '').trim() && !String(p.result || '').trim() && !named && !String(p.formation || '').trim();
+}
+
+/** A game the Film Room made from film (one blank play per clip) that still waits for its breakdown. */
+export function isBlankFilmGame(bundle: Pick<ScoutBundle, 'games' | 'plays'>, g: ScoutGame): boolean {
+  if (!g.fromFilm) return false;
+  const plays = playsOfGame(bundle, g.id);
+  return plays.length > 0 && plays.filter((p) => !isBlankPlay(p)).length <= plays.length * 0.2;
+}
+
+/**
+ * The same game twice: one made from film (still blank) and one uploaded from Hudl, in the same week.
+ * Returns pairs { blank, uploaded } so a coach can merge them.
+ */
+export function duplicateFilmGames(bundle: Pick<ScoutBundle, 'games' | 'plays'>): { blank: ScoutGame; uploaded: ScoutGame }[] {
+  const out: { blank: ScoutGame; uploaded: ScoutGame }[] = [];
+  for (const blank of bundle.games.filter((g) => isBlankFilmGame(bundle, g))) {
+    const others = bundle.games.filter((g) => g.id !== blank.id && !isBlankFilmGame(bundle, g) && (!blank.week || !g.week || String(g.week) === String(blank.week)));
+    if (others.length === 1) out.push({ blank, uploaded: others[0] });
+  }
+  return out;
+}
+
+/**
+ * Merge the blank film copy of a game into the uploaded one: the blank copy goes (and stays gone on every
+ * coach's device). Returns the new bundle and which uploaded play each blank play became (by order), so the
+ * Film Room can move notes and drawings onto them.
+ */
+export function mergeBlankFilmGame(bundle: ScoutBundle, blankId: string, intoId: string): { bundle: ScoutBundle; moved: Map<string, string> } {
+  const byNum = (a: Play, b: Play) => (Number(a.playNumber) || 0) - (Number(b.playNumber) || 0);
+  const blank = playsOfGame(bundle, blankId).sort(byNum);
+  const into = playsOfGame(bundle, intoId).sort(byNum);
+  const moved = new Map<string, string>();
+  blank.forEach((p, i) => { if (into[i]) moved.set(p.id, into[i].id); });
+  // A Play Bank tag or unit a coach put on a blank play carries over when the uploaded play has none.
+  const now = Date.now();
+  const carried = new Map<string, Partial<Play>>();
+  blank.forEach((p, i) => {
+    const q = into[i];
+    if (!q) return;
+    const patch: Partial<Play> = {};
+    if (p.playCallId && !q.playCallId) Object.assign(patch, { playCallId: p.playCallId, playCall: p.playCall, untaggedName: q.playName, playName: p.playCall || q.playName });
+    if (p.unit && !q.unit) patch.unit = p.unit;
+    if (Object.keys(patch).length) carried.set(q.id, { ...patch, editedAt: now });
+  });
+  const removed = removeScoutGame(bundle, blankId, bundle.datasetName);
+  return {
+    bundle: { ...removed, plays: removed.plays.map((p) => (carried.has(p.id) ? { ...p, ...carried.get(p.id) } : p)), updatedAt: now },
+    moved,
+  };
+}
+
 /**
  * The game a new file belongs to: the same plays (same play numbers in the same order), else a game with
  * the same name or (our film) the same week whose play numbers mostly match.
  */
 export function findSameGame(
+  bundle: Pick<ScoutBundle, 'games' | 'plays'>,
+  fresh: Pick<Play, 'playNumber'>[],
+  /** filmGames: a game made from film that's still blank (same week) counts as this game when the counts are close. */
+  hint: { name?: string; week?: string; filmGames?: boolean } = {}
+): ScoutGame | undefined {
+  const found = findSameGameOnly(bundle, fresh, hint);
+  if (found || !hint.filmGames || !fresh.length) return found;
+  // The film came in first (one blank play per clip) and this is its breakdown: clips and plays rarely
+  // count the same (a clip missing, a timeout in the file), so a close count in the same week is enough.
+  const close = bundle.games.filter((g) => {
+    if (!isBlankFilmGame(bundle, g)) return false;
+    if (hint.week && g.week && String(g.week) !== String(hint.week)) return false;
+    const n = playsOfGame(bundle, g.id).length;
+    return Math.min(n, fresh.length) / Math.max(n, fresh.length) >= 0.6;
+  });
+  return close.length === 1 ? close[0] : undefined;
+}
+
+function findSameGameOnly(
   bundle: Pick<ScoutBundle, 'games' | 'plays'>,
   fresh: Pick<Play, 'playNumber'>[],
   hint: { name?: string; week?: string } = {}
@@ -282,7 +356,8 @@ export function mergeGamePlays(bundle: ScoutBundle, gameId: string, fresh: Play[
   return {
     ...bundle,
     plays: [...others, ...assignDrives(merged)],
-    games: bundle.games.map((g) => (g.id === gameId ? { ...g, playCount: merged.length } : g)),
+    // A game made from film has its breakdown now: it's a Hudl game like any other.
+    games: bundle.games.map((g) => (g.id === gameId ? { ...g, playCount: merged.length, ...(g.fromFilm ? { fromFilm: false, editedAt: now } : {}) } : g)),
     updatedAt: Date.now(),
   };
 }

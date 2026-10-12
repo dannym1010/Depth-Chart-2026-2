@@ -2,7 +2,7 @@
 // folder is added to Hudl Scout as that game's plays, so film and play log arrive together. Each folder
 // makes one game at most (a fixed id), on every coach's device; a game a coach removed stays removed.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { addFolderGame, bundleFromSaved, type ScoutBundle } from '../hudlScout/scoutBundle';
+import { addFolderGame, bundleFromSaved, isBlankFilmGame, mergeGamePlays, type ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play } from '../hudlScout/types/football';
 import { autoDetectColumnMapping, isSpreadsheetFilename, normalizeHudlRow, parseCsvRows, workbookBufferToCsv } from '../hudlScout/utils/csvParser';
 import { autoTagFromHudl } from '../hudlScout/utils/playTags';
@@ -90,14 +90,19 @@ export function useFolderBreakdowns(opts: {
           }
           target = weeks.get(f.week)!.bundle;
         }
-        if (target.games.some((g) => g.id === f.id) || (target.deletedGameIds || []).includes(f.id)) continue;
+        if ((target.deletedGameIds || []).includes(f.id)) continue;
+        // The film came in first: the Film Room made this game with a blank play per clip. Its breakdown fills it in.
+        const filmGame = target.games.find((g) => g.id === f.id);
+        if (filmGame && !isBlankFilmGame(target, filmGame)) continue;
         let plays: Play[];
         try {
           plays = await readBreakdown(f.sheet.name, await f.sheet.get());
         } catch {
           continue; // unreadable file: try again next time
         }
-        const r = addFolderGame(target, plays, { id: f.id, name: f.gameName, week: f.week });
+        const r = filmGame
+          ? plays.length ? { bundle: mergeGamePlays(target, f.id, plays), added: true } : { bundle: target, added: false }
+          : addFolderGame(target, plays, { id: f.id, name: f.gameName, week: f.week });
         if (!r.added) {
           seen[f.id] = f.sheet.name;
           continue;
