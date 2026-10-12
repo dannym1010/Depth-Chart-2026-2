@@ -310,3 +310,14 @@ describe('moving the backs on the film keeps every play\'s own formation', () =>
     assert.equal(e.builder!.baseKey, '21_PRO');
   });
 });
+
+describe('a film shape saved with a receiver past the sideline', () => {
+  it('11 Trips still shows all three receivers on the field', async () => {
+    const { tryAssemblePlay, PLAY_CONCEPTS } = await import('./footballEngine.ts');
+    const spots = { 1: { x: 0, y: -4.84 }, 3: { x: 1.97, y: -4.78 }, W: { x: 6.36, y: -3.31 }, Y: { x: -5.8, y: 0.13 }, Z: { x: 10.15, y: -2.48 }, X: { x: 32.71, y: -3.23 } };
+    const p = tryAssemblePlay('11_TRIPS', 'GUN_OFFSET', Object.keys(PLAY_CONCEPTS)[0], 'Right', [], spots, '11_TRIPS')!;
+    const wrs = p.nodes.filter((n) => ['X', 'W', 'Z'].includes(n.role));
+    assert.equal(wrs.length, 3);
+    for (const n of wrs) assert.ok(Math.abs(n.x) <= 19, `${n.role} at ${n.x}`);
+  });
+});

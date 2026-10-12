@@ -11,6 +11,7 @@ import {
   PERSONNEL_DEFINITIONS,
   TE_LOCATIONS,
   alignmentsFor,
+  FILM_SPOT_MAX_X,
   DEFENSIVE_FRONTS,
   STUNTS_AND_PRESSURES,
   OUR_DEFENSE_LOOKS,
@@ -701,7 +702,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     for (const n of offNodes) {
       if (!/^(?:[1-4]|X|Z|Y|W|H|Y1|Y2|W1|W2)$/.test(n.role)) continue;
       const xField = neutralSkillX(n.x - hashDx, n.role, tags);
-      spots[n.role] = { x: strength === 'Left' ? -xField : xField, y: n.y };
+      const x = Math.max(-FILM_SPOT_MAX_X, Math.min(FILM_SPOT_MAX_X, xField));
+      spots[n.role] = { x: strength === 'Left' ? -x : x, y: n.y };
     }
     return spots;
   };

@@ -1890,6 +1890,10 @@ export type BackfieldSpots = Record<string, { x: number; y: number }>;
 
 const FILM_SKILL_ROLES = new Set(['X', 'Z', 'Y', 'W', 'H', 'Y1', 'Y2', 'W1', 'W2']);
 
+/** A film spot stays on the field: no wider than the widest receiver in any formation (a spot saved past the sideline is pulled back in). */
+export const FILM_SPOT_MAX_X = 19;
+const onField = (x: number) => Math.max(-FILM_SPOT_MAX_X, Math.min(FILM_SPOT_MAX_X, x));
+
 function withBackfieldSpots(nodes: PlayNode[], spots?: BackfieldSpots | null): PlayNode[] {
   if (!spots) return nodes;
   return nodes.map((n) => {
@@ -1897,7 +1901,7 @@ function withBackfieldSpots(nodes: PlayNode[], spots?: BackfieldSpots | null): P
     if (!spot) return n;
     // A receiver or tight end off the ball is no longer an end man on the line.
     const line = FILM_SKILL_ROLES.has(n.role) ? Math.abs(spot.y) < 0.2 : n.line;
-    return { ...n, x: spot.x, y: spot.y, line };
+    return { ...n, x: onField(spot.x), y: spot.y, line };
   });
 }
 
