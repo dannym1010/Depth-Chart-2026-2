@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { createPortal } from 'react-dom';
 import { Play, TeamUnit } from '../types/football';
 import { TEAM_UNITS, playIsUnitTaggable } from '../utils/unitStats';
 import { isRecordedMotion } from '../utils/csvParser';
@@ -71,112 +70,26 @@ const DrawButton: React.FC<{ play: Play; onDraw: (play: Play) => void }> = ({ pl
   </button>
 );
 
-/**
- * Their film: draw the clip's formation. Pick one already drawn (tags the clip), adjust the one it's tagged
- * with, or draw a new one from this clip (the formation drawing opens with the clip playing).
- */
+/** Their film: draw the formation this clip is tagged with (or adjust it, once drawn), with the clip playing. */
 const FormationDrawButton: React.FC<{
   play: Play;
   formations: { id: string; name: string; drawn: boolean }[];
   onPick: (pick: { kind: 'use' | 'draw'; id?: string; name: string }) => void;
 }> = ({ play, formations, onPick }) => {
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
-  const ref = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  // The menu is drawn over the page (the play log scrolls and would clip it), under the button.
-  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    const place = () => {
-      const r = ref.current?.getBoundingClientRect();
-      if (!r) return;
-      const below = r.bottom + 4 + 330 < window.innerHeight;
-      setAt({ top: below ? r.bottom + 4 : Math.max(8, r.top - 334), left: Math.max(8, Math.min(r.left, window.innerWidth - 252)) });
-    };
-    place();
-    window.addEventListener('resize', place);
-    window.addEventListener('scroll', place, true);
-    return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
-  }, [open]);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => { const t = e.target as Node; if (ref.current?.contains(t) || menuRef.current?.contains(t)) return; setOpen(false); };
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, [open]);
-  const key = (s: string) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const key = (x: string) => String(x || '').trim().toLowerCase().replace(/\s+/g, ' ');
   const current = play.formation && play.formation !== '-' ? play.formation.trim() : '';
   const mine = current ? formations.find((f) => key(f.name) === key(current)) : undefined;
   return (
-    <div ref={ref} className="relative inline-block">
-      <button
-        type="button"
-        onClick={() => { setOpen((o) => !o); setName(mine ? '' : current); }}
-        aria-label={`Formation for clip ${play.playNumber}`}
-        title="Draw their formation from this clip, or pick one you drew"
-        className={`h-7 px-1.5 rounded-md border text-[10px] font-black whitespace-nowrap cursor-pointer ${mine?.drawn ? 'border-emerald-600 text-emerald-300 hover:bg-emerald-950/40' : 'border-slate-600 text-slate-200 hover:bg-slate-800'}`}
-      >
-        {mine?.drawn ? '▣ Form' : '▢ Form'} ▾
-      </button>
-      {open && at && createPortal(
-        <div ref={menuRef} role="dialog" aria-label="Their formation" style={{ position: 'fixed', top: at.top, left: at.left }} className="z-[60] w-60 rounded-xl border border-slate-700 bg-slate-900 shadow-xl p-2 text-left space-y-2">
-          {mine && (
-            <button
-              type="button"
-              onClick={() => { setOpen(false); onPick({ kind: 'draw', id: mine.id, name: mine.name }); }}
-              className="w-full h-8 px-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black text-left cursor-pointer"
-            >
-              {mine.drawn ? 'Adjust' : 'Draw'} {mine.name} with this clip
-            </button>
-          )}
-          {formations.length > 0 && (
-            <div>
-              <div className="text-[10px] font-black uppercase tracking-wide text-slate-400 px-1 pb-1">Formations you drew</div>
-              <div className="max-h-48 overflow-y-auto space-y-0.5">
-                {formations.map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => { setOpen(false); onPick({ kind: 'use', id: f.id, name: f.name }); }}
-                    className={`w-full h-8 px-2 rounded-lg text-xs font-bold text-left cursor-pointer flex items-center justify-between ${mine?.id === f.id ? 'bg-slate-700 text-white' : 'text-slate-200 hover:bg-slate-800'}`}
-                  >
-                    <span className="truncate">{f.name}</span>
-                    <span className="text-[10px] text-slate-400 shrink-0">{mine?.id === f.id ? 'this clip' : f.drawn ? 'drawn' : 'not drawn'}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const n = name.trim();
-              if (!n) return;
-              const same = formations.find((f) => key(f.name) === key(n));
-              setOpen(false);
-              onPick({ kind: 'draw', ...(same ? { id: same.id } : {}), name: same ? same.name : n });
-            }}
-            className="space-y-1"
-          >
-            <div className="text-[10px] font-black uppercase tracking-wide text-slate-400 px-1">Draw a new formation</div>
-            <div className="flex gap-1">
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Name, e.g. Trips Rt"
-                aria-label="New formation name"
-                className="flex-1 min-w-0 h-8 px-2 rounded-lg bg-slate-800 border border-slate-700 text-xs font-bold text-white placeholder:text-slate-500"
-              />
-              <button type="submit" disabled={!name.trim()} className="h-8 px-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black cursor-pointer disabled:opacity-40">
-                Draw
-              </button>
-            </div>
-          </form>
-        </div>,
-        document.body
-      )}
-    </div>
+    <button
+      type="button"
+      disabled={!current}
+      onClick={() => current && onPick({ kind: 'draw', ...(mine ? { id: mine.id } : {}), name: mine ? mine.name : current })}
+      aria-label={`Draw formation for clip ${play.playNumber}`}
+      title={!current ? 'Label the formation first (type it or pick one in the box)' : mine?.drawn ? `Adjust ${mine.name} with this clip playing` : `Draw ${current} with this clip playing`}
+      className={`h-7 px-1.5 rounded-md border text-[10px] font-black whitespace-nowrap cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${mine?.drawn ? 'border-emerald-600 text-emerald-300 hover:bg-emerald-950/40' : 'border-slate-600 text-slate-200 hover:bg-slate-800'}`}
+    >
+      {mine?.drawn ? '▣ Formation' : '✎ Formation'}
+    </button>
   );
 };
 
@@ -230,6 +143,14 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
   // How the coach left this log (search, sort, column filters, untagged only, page), for coming back to it.
   const remembered = useMemo(() => readLogView(viewKey), []); // eslint-disable-line react-hooks/exhaustive-deps
   const showDraw = (p: Play) => Boolean(onDrawCall && (p.playCallId || drawUntagged));
+  // Formation labels already used on this film (and the formations drawn), to pick in the formation box.
+  const formationLabels = useMemo(() => {
+    const seen = new Map<string, string>();
+    const add = (n?: string) => { const t = String(n || '').trim(); if (t && t !== '-' && !seen.has(t.toUpperCase())) seen.set(t.toUpperCase(), t.toUpperCase()); };
+    (theirFormations || []).forEach((x) => add(x.name));
+    (writeInPlays || plays).forEach((p) => add(p.formation));
+    return [...seen.values()].sort((a, b) => a.localeCompare(b));
+  }, [theirFormations, writeInPlays, plays]);
   const [openPlay, setOpenPlay] = useState<string | null>(null);
   const canLineup = Boolean(lineupFor && roster && onSetSub);
   // A play's panel: who was on the field (offense / defense), and tackles on kicks too.
@@ -760,8 +681,8 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   </td>
                   <td className="py-2.5 px-3 text-slate-200 font-semibold">
                     <span className="inline-flex items-center gap-1">
-                      {onSetFormation && play.odk === 'O' ? (
-                        <FormationCell play={play} plays={plays} onSetFormation={onSetFormation} />
+                      {onSetFormation && (play.odk === 'O' || (onFormationAction && play.odk === 'UNKNOWN')) ? (
+                        <FormationCell play={play} plays={plays} onSetFormation={onSetFormation} labels={onFormationAction ? formationLabels : undefined} />
                       ) : play.formation && play.formation !== '-' ? (
                         play.formation
                       ) : (
@@ -890,11 +811,13 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
 };
 
 /** Formation in a play-log row: type it (Enter saves), or copy it down the rest of the drive. */
-const FormationCell: React.FC<{ play: Play; plays: Play[]; onSetFormation: (ids: string[], formation: string) => void }> = ({
+const FormationCell: React.FC<{ play: Play; plays: Play[]; onSetFormation: (ids: string[], formation: string) => void; labels?: string[] }> = ({
   play,
   plays,
   onSetFormation,
+  labels,
 }) => {
+  const listId = `form-labels-${play.id}`;
   const current = isNumberFormation(play.formation) ? tidyFormation(play.formation) : play.formation === '-' ? '' : play.formation;
   const [draft, setDraft] = useState(current);
   React.useEffect(() => setDraft(current), [current]);
@@ -910,6 +833,7 @@ const FormationCell: React.FC<{ play: Play; plays: Play[]; onSetFormation: (ids:
         onBlur={commit}
         onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
         placeholder="21 R"
+        list={labels?.length ? listId : undefined}
         aria-label={`Formation for play ${play.playNumber}`}
         className="w-20 h-7 rounded-md border border-slate-700 bg-slate-950 px-1.5 text-xs font-bold text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
       />
@@ -924,6 +848,11 @@ const FormationCell: React.FC<{ play: Play; plays: Play[]; onSetFormation: (ids:
           ↓
         </button>
       )}
+      {labels?.length ? (
+        <datalist id={listId}>
+          {labels.map((l) => <option key={l} value={l} />)}
+        </datalist>
+      ) : null}
     </div>
   );
 };
