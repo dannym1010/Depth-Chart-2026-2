@@ -266,13 +266,23 @@ const lookRoles = (key?: string) => {
  * The defense set on their formation: the one drawn on it in the builder, else the base call from
  * "Our calls vs their formations" (that defensive play's front).
  */
+/**
+ * Our defense's lines on a drawn formation (a blitz, a drop): the ones that start across the line of scrimmage,
+ * where the defense lines up. The formation's own offense lines (drawn from its name) aren't the defense's, and
+ * mustn't be added to (or compared with) the plays started from it.
+ */
+export function defenseLinesOf(strokes: PlayStroke[] | undefined): PlayStroke[] | undefined {
+  if (!strokes) return undefined;
+  return strokes.filter((st) => (st.points?.[0]?.y ?? 0) > 0.5);
+}
+
 export function formationDefense(f: OppFormation | null | undefined, playDatabase: PlayDatabaseEntry[] = []): DefenseSetting | null {
   if (!f || f.deleted) return null;
   const b = f.builder;
   if (b?.defenseKey) {
     const roles = lookRoles(b.defenseKey);
     const moves = Object.fromEntries(Object.entries(b.overrides || {}).filter(([role]) => roles.has(role) || isDefenseRole(role)));
-    return { key: b.defenseKey, moves, players: b.defensePlayers, unit: b.defenseUnit, who: b.defenseWho, strokes: b.strokes as PlayStroke[] | undefined, pressure: b.defensePressure, coverage: b.defenseCoverage, assign: b.defenseAssign, rules: b.defenseRules, jobs: b.jobs };
+    return { key: b.defenseKey, moves, players: b.defensePlayers, unit: b.defenseUnit, who: b.defenseWho, strokes: defenseLinesOf(b.strokes as PlayStroke[] | undefined), pressure: b.defensePressure, coverage: b.defenseCoverage, assign: b.defenseAssign, rules: b.defenseRules, jobs: b.jobs };
   }
   const base = f.plan?.base ? playDatabase.find((p) => p.id === f.plan!.base)?.builder?.defenseKey : '';
   return base ? { key: base, moves: {} } : null;

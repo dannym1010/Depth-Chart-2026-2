@@ -2407,15 +2407,28 @@ export default function App() {
           }
         }
         delete cleanPayload.ownTeamHudlScout;
+        // Firestore documents max out at 1 MB. Everything big also has its own ops_* document (weeks, practice,
+        // schedule, guides, plays, drills, call sheet), so this backup copy leaves them out when it would be
+        // too big (what's already stored for them here stays as it was; the ops_* documents are newer).
+        const LIMIT = 950_000;
+        const sizeOf = (o: unknown) => new Blob([JSON.stringify(o) || '']).size;
+        if (sizeOf(cleanPayload) > LIMIT) {
+          for (const key of ['weeklyData', 'practiceData', 'guideTree', 'cascadingDrills', 'practiceTemplates', 'scheduleEvents', 'playDatabase', 'callSheetData', 'wristbandData']) {
+            delete cleanPayload[key];
+            if (sizeOf(cleanPayload) <= LIMIT) break;
+          }
+        }
         if (scope !== 'force') {
           delete cleanPayload.weeklyData;
           delete cleanPayload.practiceData;
           delete cleanPayload.scheduleEvents;
         }
-        await db
-          .collection('teamData')
-          .doc('depthChartData')
-          .set(cleanPayload, { merge: true });
+        if (sizeOf(cleanPayload) <= LIMIT) {
+          await db
+            .collection('teamData')
+            .doc('depthChartData')
+            .set(cleanPayload, { merge: true });
+        }
         firestoreOk = true;
       } catch (err: any) {
         noteFirestoreError(err);

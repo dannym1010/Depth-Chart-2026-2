@@ -284,3 +284,14 @@ describe('the printed scout script', async () => {
     assert.equal((html.match(/>PASS</g) || []).length, 2);
   });
 });
+
+describe('a play started from their formation, reopened', () => {
+  it("takes only our defense's lines from the formation (not the formation's own offense lines)", async () => {
+    const { formationDefense, defenseLinesOf } = await import('./filmBackfields.ts');
+    const offenseRoute = { kind: 'route', points: [{ x: -11, y: -1 }, { x: -11, y: 8 }] } as any;
+    const blitz = { kind: 'run', points: [{ x: 2, y: 4 }, { x: 0, y: -1 }], color: '#dc2626' } as any;
+    assert.deepEqual(defenseLinesOf([offenseRoute, blitz]), [blitz]);
+    const f = { id: 'f1', name: 'TRIPS RT', editedAt: 1, builder: { defenseKey: '44_liz', overrides: {}, strokes: [offenseRoute, blitz] } } as any;
+    assert.deepEqual(formationDefense(f)?.strokes, [blitz]);
+  });
+});
