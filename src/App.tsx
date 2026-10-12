@@ -4543,7 +4543,7 @@ export default function App() {
     setActiveUnit('playbook');
   };
   /** Their play in the play builder (from Their plays, the play log or a clip), with its film in the film window. */
-  const drawOppPlay = (play: ScoutOppPlay, group?: { label: string; plays: ScoutOppPlay[] }) => {
+  const drawOppPlay = (play: ScoutOppPlay, group?: { label: string; plays: ScoutOppPlay[] }, opts?: { fromFormation?: boolean }) => {
     const entryId = `scout_${play.id}`;
     const teamId = activeTeamIdRef.current;
     const week = currentWeekRef.current;
@@ -4598,6 +4598,7 @@ export default function App() {
       // from their formation starts lined up in it.
       builder:
         (() => {
+          if (opts?.fromFormation) return undefined; // started over from the formation
           const drawn = mine.find((p) => p.id === entryId);
           if (!drawn?.builder) return undefined;
           const d = formationDefense(formationOfPlay(play, hudl?.oppFormations), full);
@@ -4609,6 +4610,10 @@ export default function App() {
         })(),
       filmBases: spotsForGame(hudl?.backfieldBases, play.gameId),
       filmBaseKeys: baseKeysForGame(hudl?.backfieldBases, play.gameId),
+      // The formations drawn for this report, so the play can start from one of them.
+      theirFormations: ((hudl?.oppFormations || []) as OppFormation[]).filter((f) => f?.id && !f.deleted && f.builder).map((f) => ({ id: f.id, name: f.name })),
+      formationId: formationOfPlay(play, hudl?.oppFormations)?.id,
+      ...(opts?.fromFormation ? { restartAt: Date.now() } : {}),
     });
     holdPlayBuilderSeed();
     // Their film of this play opens in the film window while the coach works on it.
@@ -4616,6 +4621,28 @@ export default function App() {
       openFilmWindow({ gameId: play.gameId, playIds: snaps.map((x) => x.id), label: group?.label || play.name });
     }
     setActiveUnit('playbook');
+  };
+  /** Start one of their plays over from one of their drawn formations (picked in the builder). */
+  const restartOppPlay = (scoutId: string, gameId: string, formationId: string): boolean => {
+    const { hudl, put } = weekHudl();
+    if (!hudl) return false;
+    const libs = (hudl.playLibraries || {}) as Record<string, ScoutOppPlay[]>;
+    const card = (libs[gameId] || []).find((c) => c.id === scoutId);
+    const f = ((hudl.oppFormations || []) as OppFormation[]).find((x) => x.id === formationId && !x.deleted && x.builder);
+    if (!card || !f) return false;
+    const now = Date.now();
+    const next: ScoutOppPlay = {
+      ...card,
+      formationId: f.id,
+      formation: f.name,
+      ...(f.builder?.personnel != null ? { personnel: String(f.builder.personnel) } : {}),
+      editedAt: now,
+    };
+    const playLibraries = { ...libs, [gameId]: libs[gameId].map((c) => (c.id === scoutId ? next : c)) };
+    put({ ...hudl, playLibraries, updatedAt: now });
+    putFormationPlansOnCallSheet(hudl.oppFormations || [], { libraries: playLibraries, deletedIds: hudl.deletedOppPlayIds });
+    drawOppPlay(next, undefined, { fromFormation: true });
+    return true;
   };
   /** A clip of their film: its play (tagged before), or a new one from the clip's base formation. */
   const drawSnap = (snap: FilmPlay) => {
@@ -7422,6 +7449,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onRenameScoutPlay={renameScoutPlay}
                 onSaveFilmBackfield={saveFilmBackfield}
                 onSaveOppFormation={saveOppFormation}
+                onRestartScoutPlay={restartOppPlay}
                 scoutNeighbors={(scoutId, gameId) => {
                   // Their plays on that film, in the film's order.
                   const cards = ((weekHudl().hudl?.playLibraries || {})[gameId] || []) as ScoutOppPlay[];

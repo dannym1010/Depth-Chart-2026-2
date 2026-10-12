@@ -32,6 +32,12 @@ export interface PlayBuilderSeed {
   formationEdit?: { id: string };
   /** Drawing a formation: the plays on the film in it (clip, call, its picture), to look at while adjusting it. */
   formationPlays?: { snapId: string; playNumber: number; name: string; diagramUrl?: string }[];
+  /** Their play: the formations drawn for this report, to start the play from one of them. */
+  theirFormations?: { id: string; name: string }[];
+  /** The formation this play starts from (one of theirFormations). */
+  formationId?: string;
+  /** Set when the play was started over from a formation, so the builder opens fresh on it. */
+  restartAt?: number;
 }
 
 /**

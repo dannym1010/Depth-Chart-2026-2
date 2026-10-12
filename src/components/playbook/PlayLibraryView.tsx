@@ -38,6 +38,8 @@ interface Props {
   onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: Record<string, { x: number; y: number }>; baseKey: string }) => void;
   /** Their play before / after this one on its film (Previous / Next in the builder). */
   scoutNeighbors?: (scoutId: string, gameId: string) => { index: number; total: number; open: (dir: 1 | -1) => boolean } | null;
+  /** Start their play over from one of their drawn formations. */
+  onRestartScoutPlay?: (scoutId: string, gameId: string, formationId: string) => boolean;
   /** Their formation drawn in the builder (Hudl Scout → Their plays → Their formations). */
   onSaveOppFormation?: (formation: { id: string; name: string; builder: PlayBuilderState; diagramUrl: string; defenseUrl?: string; defenseName?: string }) => void;
 }
@@ -78,6 +80,7 @@ export const PlayLibraryView: React.FC<Props> = ({
   onWatchScoutFilm,
   onSaveFilmBackfield,
   onSaveOppFormation,
+  onRestartScoutPlay,
   scoutNeighbors,
 }) => {
   const canEdit = userRole === 'admin' || userRole === 'assistant';
@@ -426,12 +429,20 @@ export const PlayLibraryView: React.FC<Props> = ({
 
       {pane === 'builder' ? (
       <PlayBuilderSection
-        key={builderSeed?.playEntryId || builderSeed?.name || 'new'}
+        key={`${builderSeed?.playEntryId || builderSeed?.name || 'new'}|${builderSeed?.restartAt || ''}`}
         canEdit={canEdit}
         seed={builderSeed}
         nav={builderNav}
         onBack={(builderSeed?.scoutId || builderSeed?.backfieldEdit || builderSeed?.formationEdit) && onBackToPlayList ? onBackToPlayList : undefined}
         onSaveFormation={onSaveOppFormation}
+        onStartFromFormation={
+          builderSeed?.scoutId && builderSeed.gameId && onRestartScoutPlay
+            ? (formationId) => {
+                if (onRestartScoutPlay(builderSeed.scoutId!, builderSeed.gameId!, formationId)) setBuilderSeed(peekPlayBuilderSeed());
+                else window.alert("Couldn't find that formation or play. Open the play again from Their plays.");
+              }
+            : undefined
+        }
         onSaveFilmBackfield={
           onSaveFilmBackfield
             ? (change) => {

@@ -123,6 +123,8 @@ interface Props {
   onStateChange?: (state: PlayBuilderState) => void;
   /** This alignment becomes the backfield for every play on this scout film that uses it. */
   onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: BackfieldSpots; baseKey: string }) => void;
+  /** Their play: start it over from one of their drawn formations. */
+  onStartFromFormation?: (formationId: string) => void;
   /** Drawing one of their formations (seed.formationEdit): saved as the formation their plays start from. */
   onSaveFormation?: (formation: { id: string; name: string; builder: PlayBuilderState; diagramUrl: string; defenseUrl?: string; defenseName?: string }) => void;
 }
@@ -224,7 +226,7 @@ function startFromSeed(seed?: PlayBuilderSeed | null) {
   };
 }
 
-export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, onStateChange, onSaveFilmBackfield, onSaveFormation, nav }) => {
+export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, onStateChange, onSaveFilmBackfield, onSaveFormation, onStartFromFormation, nav }) => {
   // Drawing their formation: just the alignment (no play lines), saved as the formation.
   const formationMode = Boolean(seed?.formationEdit);
   // One of our defensive plays: the defense is what's drawn (front, alignment, blitz arrows).
@@ -1077,6 +1079,34 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
           >
             <Wand2 className="w-4 h-4" /> Draw it
           </button>
+          {seed?.scoutId && !formationMode && onStartFromFormation && canEdit && (
+            <label className="h-11 pl-3 pr-1 rounded-xl border border-slate-300 dark:border-slate-600 inline-flex items-center gap-2 text-xs font-black text-slate-600 dark:text-slate-300 shrink-0">
+              Starts from
+              <select
+                aria-label="Their formation this play starts from"
+                value={seed.formationId || ''}
+                disabled={!seed.theirFormations?.length}
+                title={seed.theirFormations?.length ? 'Line this play up in one of their formations, then draw it' : 'Draw their formations first (Their plays, step 1)'}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  if (!id || id === seed.formationId) return;
+                  const name = seed.theirFormations?.find((f) => f.id === id)?.name || 'that formation';
+                  if (userDrew && strokes.length && !window.confirm(`Start this play over from ${name}? The lines drawn on it are cleared.`)) return;
+                  // Started over: what's on screen now isn't saved on the way out.
+                  savedKey.current = stateKeyRef.current;
+                  onStartFromFormation(id);
+                }}
+                className="h-9 max-w-[180px] rounded-lg bg-slate-50 dark:bg-slate-800 text-sm font-black text-slate-900 dark:text-white px-2 cursor-pointer disabled:opacity-50"
+              >
+                <option value="">{seed.theirFormations?.length ? 'Pick their formation…' : 'No formations drawn yet'}</option>
+                {(seed.theirFormations || []).map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {!compact && !!seed?.snaps?.length && !!seed.gameId && (
             <button
               type="button"
