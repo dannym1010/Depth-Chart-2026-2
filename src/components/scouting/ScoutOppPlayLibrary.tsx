@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, GripVertical, Image as ImageIcon, Layers, Pencil, Play as PlayIcon, Plus, Printer, Shield, X } from 'lucide-react';
+import { ArrowDownWideNarrow, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, GripVertical, Image as ImageIcon, Layers, Pencil, Play as PlayIcon, Plus, Printer, Shield, X } from 'lucide-react';
 import type { ScoutGame } from '../../hudlScout/components/Header';
 import type { Play } from '../../hudlScout/types/football';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
@@ -141,6 +141,23 @@ export const ScoutOppPlayLibrary: React.FC<{
   // Dragging a script row (mouse or finger): the order as it would land, shown while dragging.
   const [scriptDrag, setScriptDrag] = useState<{ id: string; order: string[] } | null>(null);
   // Same play run either way (L / R, or another back to the other hole) shown as one play type.
+  // Their plays sorted by how often they ran each formation (default), or in the order the coach set.
+  const [byMostRun, setByMostRun] = useState(() => {
+    try {
+      return localStorage.getItem('scoutPlaysByRuns') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const toggleByMostRun = () =>
+    setByMostRun((v) => {
+      try {
+        localStorage.setItem('scoutPlaysByRuns', v ? '0' : '1');
+      } catch {
+        /* per device only */
+      }
+      return !v;
+    });
   const [combine, setCombine] = useState(() => {
     try {
       return localStorage.getItem('scoutCombinePlays') === '1';
@@ -396,9 +413,29 @@ export const ScoutOppPlayLibrary: React.FC<{
       .filter(([key]) => !have.has(key) && !removed.has(key))
       .sort((a, b) => b[1].clips.length - a[1].clips.length)
       .map(([, v]) => ({ f: { id: '', name: v.name, editedAt: 0 } as OppFormation, clips: v.clips }));
-    return [...saved, ...fromFilm];
+    const all = [...saved, ...fromFilm];
+    return byMostRun ? all.map((x, i) => ({ x, i })).sort((a, b) => b.x.clips.length - a.x.clips.length || a.i - b.i).map(({ x }) => x) : all;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shownFormations, taggedFormations, formations]);
+  }, [shownFormations, taggedFormations, formations, byMostRun]);
+  // How many snaps on this film are in a play's formation (their most-run formations first).
+  const formationRuns = (p: ScoutOppPlay) => {
+    const name = formationOfPlay(p, formations)?.name || p.formation || '';
+    return name ? taggedFormations.get(formKey(name))?.clips.length || 0 : 0;
+  };
+  const byRuns = <T,>(list: T[], playOf: (t: T) => ScoutOppPlay) =>
+    list
+      .map((t, i) => ({ t, i, p: playOf(t) }))
+      .sort((a, b) => {
+        const d = formationRuns(b.p) - formationRuns(a.p);
+        if (d) return d;
+        const fa = formKey(formationOfPlay(a.p, formations)?.name || a.p.formation || '');
+        const fb = formKey(formationOfPlay(b.p, formations)?.name || b.p.formation || '');
+        if (fa !== fb) return fa.localeCompare(fb);
+        return (a.p.clips?.[0] ?? 999) - (b.p.clips?.[0] ?? 999) || a.i - b.i;
+      })
+      .map(({ t }) => t);
+  const shownPlays = byMostRun ? byRuns(plays, (p) => p) : plays;
+  const shownGroups = byMostRun ? byRuns(groups, (g) => leadOppPlay(g.plays, playDatabase)) : groups;
   const drawFormation = (x: OppFormation, clips: { n: number }[]) =>
     onEditFormation?.({ id: x.id || undefined, name: x.name, gameId: x.gameId || gameId, clip: x.clip || clips[0]?.n });
   /** A clip of this formation: open its play (tagged before), or start one from the formation with the clip playing. */
@@ -511,6 +548,15 @@ export const ScoutOppPlayLibrary: React.FC<{
                 : "Each scouting video keeps the plays that team ran. Drag a play to reorder it. Check it to put it on this week's report."}
             </p>
           </div>
+          <button
+            type="button"
+            onClick={toggleByMostRun}
+            aria-pressed={byMostRun}
+            title={byMostRun ? 'Sorted by how often they ran each formation on this film. Click for your own order (drag to reorder).' : 'Your order. Click to sort by their most-run formations.'}
+            className={`h-9 px-3 rounded-lg text-xs font-black inline-flex items-center gap-1.5 cursor-pointer border ${byMostRun ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200'}`}
+          >
+            <ArrowDownWideNarrow className="w-4 h-4" /> {byMostRun ? 'Most-run formation first' : 'My order'}
+          </button>
           <button
             type="button"
             onClick={toggleCombine}
@@ -811,7 +857,7 @@ export const ScoutOppPlayLibrary: React.FC<{
         {combine && gameId && (
           <div className="space-y-2">
             <ul className="space-y-2">
-              {groups.map((g) => {
+              {shownGroups.map((g) => {
                 const lead = leadOppPlay(g.plays, playDatabase);
                 const picture = diagramFor(lead);
                 const drawn = drewDefense(lead);
@@ -913,7 +959,7 @@ export const ScoutOppPlayLibrary: React.FC<{
           </div>
         )}
         <ul className={combine ? 'hidden' : 'space-y-1.5'}>
-          {plays.map((p, index) => (
+          {shownPlays.map((p) => { const index = plays.indexOf(p); return (
             <li
               key={p.id}
               className={`flex items-start gap-1.5 rounded-lg border px-2 py-1.5 ${drag?.list === 'film' && drag.index === index ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30' : 'border-slate-200 dark:border-slate-700'}`}
@@ -925,6 +971,7 @@ export const ScoutOppPlayLibrary: React.FC<{
                 setDrag(null);
               }}
             >
+              {!byMostRun && (<>
               <button
                 type="button"
                 draggable
@@ -943,11 +990,12 @@ export const ScoutOppPlayLibrary: React.FC<{
                   <ChevronDown className="w-3.5 h-3.5" />
                 </button>
               </div>
+              </>)}
               <input type="checkbox" className="mt-1" checked={p.onReport} onChange={(e) => patch(p.id, { onReport: e.target.checked })} aria-label={`Put ${p.name} on the report`} />
               <button type="button" className="min-w-0 flex-1 text-left cursor-pointer" onClick={() => onDraw?.(p)}>
                 <span className="block text-sm font-black truncate">{p.name}</span>
                 <span className="block text-[11px] text-slate-500 truncate">
-                  {[p.down === 'red' ? 'Red zone' : p.down, p.formation, p.personnel, p.kind].filter(Boolean).join(' · ')}
+                  {[p.down === 'red' ? 'Red zone' : p.down, p.formation ? `${p.formation}${formationRuns(p) ? ` (ran ${formationRuns(p)}×)` : ''}` : '', p.personnel, p.kind].filter(Boolean).join(' · ')}
                   {p.notes ? ` · ${p.notes}` : ''}
                   {onDraw ? ' · Open in play builder' : ''}
                 </span>
@@ -985,7 +1033,7 @@ export const ScoutOppPlayLibrary: React.FC<{
                 Remove
               </button>
             </li>
-          ))}
+          ); })}
         </ul>
       </section>
       <section className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 space-y-3 lg:sticky lg:top-3 h-fit">

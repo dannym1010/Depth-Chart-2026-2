@@ -1,7 +1,7 @@
 // The season's library of games for a team, by week (our game and the scouting film for that week's
 // opponent), with a search. Used by the Film Room and by Hudl Scout's reports. Picking a game opens it.
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronRight, Film, RefreshCw, Search, Telescope, X } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, Film, RefreshCw, Search, Telescope, Trash2, X } from 'lucide-react';
 import { filmGameKey } from './sharedMerge';
 import type { FilmGame } from './types';
 import type { FilmFolderGame, UnplacedFolder } from './folderRoutes';
@@ -31,7 +31,9 @@ export function buildLibrary(
   currentWeek: string,
   currentOpponentScout?: unknown,
   /** Game folders with film found in the film folder (with or without a breakdown). */
-  filmFolders: FilmFolderGame[] = []
+  filmFolders: FilmFolderGame[] = [],
+  /** Our games a coach removed (film folders among them stay out of the library). */
+  ownDeletedIds: string[] = []
 ): { weeks: LibraryWeek[]; others: LibraryGame[] } {
   const weekKeys = new Set(weeks.map((w) => w.key));
   const ownByWeek = new Map<string, LibraryGame[]>();
@@ -68,7 +70,13 @@ export function buildLibrary(
   }));
   // Film in the film folder for a game Hudl Scout doesn't have yet: listed so it can still be watched.
   // A week that already has a game of that kind (uploaded by hand or from a breakdown) is left alone.
+  const removed = (f: FilmFolderGame) => {
+    if (f.source === 'own') return ownDeletedIds.includes(f.id);
+    const saved = (f.week === currentWeek && currentOpponentScout) || weeks.find((x) => x.key === f.week)?.hudlScout;
+    return Array.isArray((saved as any)?.deletedGameIds) && (saved as any).deletedGameIds.includes(f.id);
+  };
   for (const f of filmFolders) {
+    if (removed(f)) continue;
     const w = libWeeks.find((x) => x.key === f.week);
     const game: LibraryGame = {
       key: filmGameKey(f.source, f.id, f.week),
@@ -113,11 +121,13 @@ interface FilmLibraryProps {
   onCheckFolder?: () => void;
   /** Folders with film in them that couldn't be placed in the season, and why. */
   unplaced?: UnplacedFolder[];
+  /** Remove a game from the library (and Hudl Scout); the video files stay where they are. */
+  onRemove?: (g: LibraryGame) => void;
 }
 
 const norm = (s: string) => String(s || '').toLowerCase();
 
-export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library', weeks, otherGames, currentWeek, selectedKey, onOpen, onClose, added, checking, onCheckFolder, unplaced }) => {
+export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library', weeks, otherGames, currentWeek, selectedKey, onOpen, onClose, added, checking, onCheckFolder, unplaced, onRemove }) => {
   const [query, setQuery] = useState('');
   const selectedWeek = weeks.find((w) => w.games.some((g) => g.key === selectedKey))?.key;
   const [open, setOpen] = useState<Set<string>>(() => new Set([currentWeek, selectedWeek || ''].filter(Boolean)));
@@ -146,11 +156,11 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library'
     const on = g.key === selectedKey;
     const Icon = g.source === 'own' ? Film : Telescope;
     return (
+      <div key={g.key} className="group flex items-center gap-0.5">
       <button
-        key={g.key}
         onClick={() => onOpen(g)}
         aria-current={on || undefined}
-        className={`w-full text-left flex items-center gap-2 pl-7 pr-2 py-1.5 rounded-md text-xs transition-colors ${
+        className={`flex-1 min-w-0 text-left flex items-center gap-2 pl-7 pr-2 py-1.5 rounded-md text-xs transition-colors ${
           on ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
         }`}
         title={g.filmOnly ? 'Film is in the film folder; no Hudl breakdown yet, so each clip is a play' : g.source === 'own' ? 'Our game' : 'Scouting film'}
@@ -166,6 +176,18 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library'
         </span>
         <span className={`shrink-0 tabular-nums text-[10px] ${on ? 'text-white/80' : 'text-slate-400'}`}>{g.filmOnly ? 'film' : g.plays}</span>
       </button>
+      {onRemove && (
+        <button
+          type="button"
+          onClick={() => onRemove(g)}
+          aria-label={`Remove ${g.name}`}
+          title="Remove from the film library (the video files stay where they are)"
+          className="shrink-0 p-1 rounded-md text-slate-400 opacity-60 group-hover:opacity-100 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
+        >
+          <Trash2 size={13} />
+        </button>
+      )}
+      </div>
     );
   };
 

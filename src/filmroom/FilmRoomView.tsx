@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Copy, ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft } from 'lucide-react';
 import { PlaysTable } from '../hudlScout/components/PlaysTable';
-import { assignDrives, bundleFromSaved, copyScoutGame, duplicateFilmGames, mergeBlankFilmGame, type ScoutBundle } from '../hudlScout/scoutBundle';
+import { assignDrives, bundleFromSaved, copyScoutGame, duplicateFilmGames, mergeBlankFilmGame, removeScoutGame, type ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play, TeamUnit } from '../hudlScout/types/football';
 import type { ScoutGame } from '../hudlScout/components/Header';
 import { autoTagFromHudl, setPlaysFormation, tagPlays } from '../hudlScout/utils/playTags';
@@ -117,12 +117,12 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
 
   // The film library: every week of the season with our game and that week's scouting film.
   const library = useMemo(() => {
-    const all = buildLibrary(filmWeeks || [], own.games, currentWeek, opponentScout, filmFolders.games);
+    const all = buildLibrary(filmWeeks || [], own.games, currentWeek, opponentScout, filmFolders.games, own.deletedGameIds || []);
     if (!family) return all;
     // A family account sees our games, not the scouting film.
     const ours = <T extends { source: string }>(list: T[]) => list.filter((g) => g.source === 'own');
     return { weeks: all.weeks.map((w) => ({ ...w, games: ours(w.games) })).filter((w) => w.games.length), others: ours(all.others) };
-  }, [filmWeeks, own.games, opponentScout, currentWeek, filmFolders.games, family]);
+  }, [filmWeeks, own.games, own.deletedGameIds, opponentScout, currentWeek, filmFolders.games, family]);
   const filmOnlyGames = useMemo(() => [...library.weeks.flatMap((w) => w.games), ...library.others].filter((g) => g.filmOnly), [library]);
 
   const games = useMemo(() => {
@@ -390,6 +390,30 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     }
     setImportNote(`Imported ${merged.length} plays from ${fileName}`);
     window.setTimeout(() => setImportNote(''), 4000);
+  };
+
+  // Remove a game from the library: a Hudl game goes from Hudl Scout too; film found in the folder is only
+  // left out (both remembered as removed, so a rescan doesn't bring them back). Video files stay where they are.
+  const removeGame = (g: LibraryGame) => {
+    if (locked) return;
+    const plays = g.filmOnly ? 0 : g.plays;
+    const msg = g.filmOnly
+      ? `Remove "${g.name}" from the film library? The video files stay in the folder; checking the film folder won't add it back.`
+      : `Remove "${g.name}"${plays ? ` (${plays} plays)` : ''} for every coach? Its breakdown and tags go with it (the video files stay in the folder).`;
+    if (!window.confirm(msg)) return;
+    const tombstone = (b: ScoutBundle): ScoutBundle =>
+      g.filmOnly ? { ...b, deletedGameIds: [...new Set([...(b.deletedGameIds || []), g.gameId])], updatedAt: Date.now() } : removeScoutGame(b, g.gameId, b.datasetName);
+    if (g.source === 'own') onUpdateOwnTeamScout(tombstone(own));
+    else {
+      const week = g.week || currentWeek;
+      const w = filmWeeks?.find((x) => x.key === week);
+      const saved = week === currentWeek ? opponentScout : w?.hudlScout;
+      const next = tombstone(bundleFromSaved(saved, w?.opponent || opponentName || 'Opponent'));
+      const merged = { ...((saved as object) || {}), plays: next.plays, games: next.games, deletedGameIds: next.deletedGameIds, datasetName: next.datasetName, sourceCleared: next.sourceCleared, updatedAt: Date.now() };
+      if (week === currentWeek) onUpdateScouting('hudlScout', merged);
+      else onSaveWeekScouting?.(week, merged);
+    }
+    if (game?.key === g.key) setGameKey(undefined);
   };
 
   // Scouting film of another week used for this one: copied into that week's report, from either team's side.
@@ -782,6 +806,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       checking={breakdowns.checking}
       onCheckFolder={!locked && (sources.local || sources.drive) ? breakdowns.checkNow : undefined}
       unplaced={filmFolders.unplaced}
+      onRemove={locked || family ? undefined : removeGame}
     />
   );
   const builderEl = builderSeed ? (
