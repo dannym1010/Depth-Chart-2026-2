@@ -4329,7 +4329,13 @@ export default function App() {
       if (links.size) {
         const cur = latestStateRef.current.playDatabase || [];
         // Only where the picture is still the one that was saved (not changed again meanwhile).
-        handleUpdatePlayDatabase(cur.map((p) => (links.get(p.id)?.from === p.diagramUrl ? { ...p, diagramUrl: links.get(p.id)!.to } : p)));
+        // (A play with no picture isn't one of them: undefined === undefined must not count as a match.)
+        handleUpdatePlayDatabase(
+          cur.map((p) => {
+            const link = p ? links.get(p.id) : undefined;
+            return link && link.from === p.diagramUrl ? { ...p, diagramUrl: link.to } : p;
+          })
+        );
       }
       big.forEach((p) => movingPictures.current.delete(p.id));
     })();
