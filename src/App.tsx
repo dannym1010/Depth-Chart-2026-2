@@ -4710,6 +4710,8 @@ export default function App() {
       if (backfieldOf(card, entry) !== change.backfield) continue;
       // A play the coach drew by hand stays exactly as drawn (redrawing it would put the name's lines back).
       if (entry?.builder?.strokes) continue;
+      // A play whose players the coach moved on that play keeps its own spots.
+      if (Object.keys(entry?.builder?.overrides || {}).some((r) => /^(?:[1-4]|X|Z|Y|W|H|Y1|Y2|W1|W2)$/.test(r))) continue;
       const base = entry || { ...newPlayEntry(card.name, 'offense'), id, source: 'scout' as const, category: 'Opponent plays', teamId, notes: card.notes || '' };
       const drawn = redrawWithBackfield(base, card, change.backfield, change.spots, change.baseKey);
       next = entry ? next.map((p) => (p.id === id ? drawn : p)) : [...next, drawn];

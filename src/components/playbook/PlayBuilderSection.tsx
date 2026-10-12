@@ -721,15 +721,6 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     onSaveFilmBackfield({ gameId: seed.gameId, backfield: activeBack, spots, baseKey });
     if (announce) setBaseNote(`Saved. Every ${backfieldLabel} play on this scouting report uses this formation. Tight or wide stays on each play.`);
   };
-  const publishRef = useRef(publishBackfield);
-  publishRef.current = publishBackfield;
-  const rememberTimer = useRef<number | null>(null);
-  /** A moved player on this film becomes the backfield the other plays pick up. */
-  const rememberBackfield = () => {
-    if (!seed?.gameId || !onSaveFilmBackfield || formationMode) return;
-    if (rememberTimer.current) window.clearTimeout(rememberTimer.current);
-    rememberTimer.current = window.setTimeout(() => publishRef.current(false), 400);
-  };
   /**
    * Beast (or any backfield) edited for this film: another play that selects it
    * lines up the same way, including the formation it was saved on.
@@ -830,8 +821,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       publishBackfield();
       return;
     }
-    // Only when backfield players were moved on this play: saving it shouldn't change the film's other plays.
-    if (seed?.gameId && FILM_BACKFIELD_ROLES.some((r) => overrides[r])) publishBackfield(false);
+    // A player moved on this play stays on this play; "Use this backfield for every play" shares it with the film.
     if (!play) return;
     const calledHole = hole;
     const holeData = calledHole != null ? HOLE_SYSTEM[calledHole] : play.metadata.holeData;
@@ -1299,7 +1289,6 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               onCoachNote={setCoachNote}
               onMove={(role, x, y) => {
                 setOverrides((prev) => ({ ...prev, [role]: { x, y } }));
-                if (/^(?:[1-4]|X|Z|Y|W|H|Y1|Y2|W1|W2)$/.test(role)) rememberBackfield();
               }}
               onStrokes={(next) => {
                 setUserDrew(true);
