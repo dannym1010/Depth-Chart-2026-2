@@ -111,7 +111,9 @@ export function redrawWithBackfield(
   const b = ourDefense && entry.builder ? builderWithDefense(entry.builder, ourDefense) : entry.builder;
   const setup = callSetup(card);
   const formed = spotBaseKey && BASE_FORMATIONS[spotBaseKey] ? spotBaseKey : '';
-  const baseKey = (keepOffense && b?.baseKey) || formed || b?.baseKey || setup.baseKey;
+  // A play saved in the builder keeps its own formation and personnel (an 11 play stays 11 when the film shape was
+  // measured on a 21 play); the shape only places the backs. A new play starts from the formation the shape came from.
+  const baseKey = b?.baseKey || formed || setup.baseKey;
   const strength = b?.strength || setup.strength;
   const tags = b?.tags || [];
   const family = b?.family && b.family !== 'all' ? b.family : setup.family;

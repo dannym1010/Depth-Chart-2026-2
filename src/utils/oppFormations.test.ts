@@ -295,3 +295,18 @@ describe('a play started from their formation, reopened', () => {
     assert.deepEqual(formationDefense(f)?.strokes, [blitz]);
   });
 });
+
+describe('moving the backs on the film keeps every play\'s own formation', () => {
+  const card = { id: 'p2', gameId: 'g1', name: '11 MESH PASS', formation: 'Trips', personnel: '11', kind: 'pass' } as any;
+  it('an 11 play keeps its receivers when the backs\' shape was set on a 12 play', () => {
+    const e = redrawWithBackfield({ id: 'scout_p2', name: card.name, diagramUrl: '' } as any, card, 'GUN_OFFSET', undefined, '11_TRIPS');
+    assert.equal(e.builder!.baseKey, '11_TRIPS');
+    const out = redrawWithBackfield(e, card, 'GUN_OFFSET', { 1: { x: 0, y: -4 } } as any, '12_ACE');
+    assert.equal(out.builder!.baseKey, '11_TRIPS');
+    assert.equal(out.builder!.personnel, e.builder!.personnel);
+  });
+  it('a new play starts from the formation the shape came from', () => {
+    const e = redrawWithBackfield({ id: 'scout_p2', name: card.name, diagramUrl: '' } as any, card, 'I_FORM', undefined, '21_PRO');
+    assert.equal(e.builder!.baseKey, '21_PRO');
+  });
+});
