@@ -298,6 +298,10 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [overrides, setOverrides] = useState<Record<string, { x: number; y: number }>>(saved?.overrides || {});
   const [filmBases, setFilmBases] = useState<Record<string, BackfieldSpots>>(seed?.filmBases || {});
   const [filmBaseKeys, setFilmBaseKeys] = useState<Record<string, string>>(seed?.filmBaseKeys || {});
+  // This play's own spots (kept with it); another backfield picked on it starts from the film's shared one.
+  const [ownSpots, setOwnSpots] = useState(saved?.filmSpots);
+  const shapeFor = (k: string) =>
+    ownSpots && ownSpots.backfield === k ? ownSpots : { backfield: k, spots: filmBases[k], baseKey: filmBaseKeys[k] };
   const [baseNote, setBaseNote] = useState('');
   const [strokes, setStrokes] = useState<PlayStroke[]>((saved?.strokes as PlayStroke[]) || []);
   // Our defense tagged from the depth chart: which unit is in (Black 1s / Gold 2s / Blue 3s), and any
@@ -358,7 +362,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const runMode = family === 'all' || family === 'run';
   const run = RUN_SCHEMES.find((s) => s.id === runId) || RUN_SCHEMES[0];
   const activeConceptKey = runMode ? run.conceptKey : conceptKey;
-  const basePlay = tryAssemblePlay(baseKey, activeBack, activeConceptKey, strength, tags, filmBases[activeBack], filmBaseKeys[activeBack]);
+  const shape = shapeFor(activeBack);
+  const basePlay = tryAssemblePlay(baseKey, activeBack, activeConceptKey, strength, tags, shape.spots, shape.baseKey);
   const hashDx = hash === 'Left' ? -4.2 : hash === 'Right' ? 4.2 : 0;
   const offNodes = basePlay
     ? applyNodeOverrides(basePlay.nodes, overrides).map((n) => withLabel(overrides[n.role] ? n : { ...n, x: n.x + hashDx }))
@@ -680,6 +685,9 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       ...(Object.keys(defWho).length ? { defenseWho: defWho } : {}),
       ...(Object.keys(taggedWho).length ? { defensePlayers: taggedWho } : {}),
       ...(userDrew || strokes.length > 0 ? { strokes } : {}),
+      ...(seed?.gameId
+        ? { filmSpots: { backfield: activeBack, ...(shape.spots ? { spots: shape.spots } : {}), ...(shape.baseKey ? { baseKey: shape.baseKey } : {}) } }
+        : {}),
       name: nameIn,
   });
   const stateKey = JSON.stringify(currentState());
@@ -713,6 +721,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     const spots = currentBackfieldSpots();
     setFilmBases((prev) => ({ ...prev, [activeBack]: spots }));
     setFilmBaseKeys((prev) => ({ ...prev, [activeBack]: baseKey }));
+    setOwnSpots({ backfield: activeBack, spots, baseKey });
     setOverrides((prev) => {
       const next = { ...prev };
       for (const role of FILM_BACKFIELD_ROLES) delete next[role];
@@ -726,8 +735,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
    * lines up the same way, including the formation it was saved on.
    */
   const chooseBackfield = (key: string) => {
-    if (seed?.gameId && filmBases[key]) {
-      const aligned = openFormation(key, filmBaseKeys[key]);
+    if (seed?.gameId && shapeFor(key).spots) {
+      const aligned = openFormation(key, shapeFor(key).baseKey);
       setPersonnelPick(aligned.personnel);
       setBaseKey(aligned.baseKey);
       setOverrides({});
@@ -1498,7 +1507,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                   onClick={() => publishBackfield()}
                   className="w-full h-9 rounded-lg border border-dashed border-indigo-300 dark:border-indigo-700 text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 cursor-pointer disabled:opacity-40"
                 >
-                  Use this {backfieldLabel} for every play on this report
+                  Use this {backfieldLabel} for the plays on this report you haven't changed
                 </button>
               )}
               <p className="text-[11px] text-slate-400">Drag any player on the field to move the spot.</p>

@@ -133,6 +133,11 @@ export interface PlayBuilderState {
   defenseKey: string;
   putDefInName: boolean;
   overrides: Record<string, { x: number; y: number }>;
+  /**
+   * Their play (or formation) on a film: the backs' and receivers' spots it was drawn with, kept with it so a
+   * change to another play (or to the film's shared backfield) doesn't move this one. Strong side right, no hash.
+   */
+  filmSpots?: { backfield: string; spots?: Record<string, { x: number; y: number }>; baseKey?: string };
   /** The lines as the coach drew them (missing = the builder's own drawing). */
   strokes?: unknown[];
   /** Names the coach gave players on the diagram, by role (e.g. MIKE: "Sam"). */

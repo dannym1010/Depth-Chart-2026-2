@@ -190,6 +190,8 @@ export function redrawWithBackfield(
     ...(b?.defenseWho ? { defenseWho: b.defenseWho } : {}),
     ...(b?.defensePlayers ? { defensePlayers: b.defensePlayers } : {}),
     ...(b?.strokes ? { strokes: allStrokes } : {}),
+    // A play with its own spots keeps them (they are the ones it was just drawn with).
+    ...(b?.filmSpots ? { filmSpots: { backfield, ...(spots ? { spots } : {}), ...(spotBaseKey ? { baseKey: spotBaseKey } : {}) } } : {}),
     ...((b?.defensePressure ?? ourDefense?.pressure) ? { defensePressure: b?.defensePressure ?? ourDefense?.pressure } : {}),
     ...((b?.defenseCoverage ?? ourDefense?.coverage) ? { defenseCoverage: b?.defenseCoverage ?? ourDefense?.coverage } : {}),
     ...((b?.defenseAssign ?? ourDefense?.assign) ? { defenseAssign: b?.defenseAssign ?? ourDefense?.assign } : {}),
@@ -366,7 +368,8 @@ export function playWithDefense(entry: PlayDatabaseEntry, card: ScoutOppPlay, d:
   const b0 = entry.builder;
   if (b0 && !defenseDiffers(b0, d)) return entry;
   const backfield = b0?.backfield || backfieldOf(card, entry);
-  const film = bases?.[card.gameId]?.[backfield];
+  // The play's own spots when it has them; otherwise the film's shared backfield.
+  const film = b0?.filmSpots && b0.filmSpots.backfield === backfield ? b0.filmSpots : bases?.[card.gameId]?.[backfield];
   // Lines drawn by the play's own rules (never hand-drawn): drawn again, the way a film backfield change does.
   if (!b0?.strokes) return redrawWithBackfield(entry, card, backfield, film?.spots, film?.baseKey, d, Boolean(b0));
   const b = builderWithDefense(b0, d);

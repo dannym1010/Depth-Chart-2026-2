@@ -321,3 +321,14 @@ describe('a film shape saved with a receiver past the sideline', () => {
     for (const n of wrs) assert.ok(Math.abs(n.x) <= 19, `${n.role} at ${n.x}`);
   });
 });
+
+describe('each of their plays keeps its own spots', () => {
+  const card = { id: 'p3', gameId: 'g1', name: '21 I R 36 DIVE', formation: 'Pro Rt', personnel: '21', kind: 'run' } as any;
+  it('a play saved with its own spots ignores a later change to the film\'s backfield', () => {
+    const e = redrawWithBackfield({ id: 'scout_p3', name: card.name, diagramUrl: '' } as any, card, 'I_FORM', undefined, undefined, { key: '44_C3_LIZ', moves: {} });
+    const own = { ...e, builder: { ...e.builder!, filmSpots: { backfield: 'I_FORM', spots: { 3: { x: 0, y: -7 } }, baseKey: e.builder!.baseKey } } };
+    const shared = { g1: { I_FORM: { spots: { 3: { x: 3, y: -5 } }, editedAt: 1, baseKey: e.builder!.baseKey } } } as any;
+    const out = playWithDefense(own as any, card, { key: '53_C3', moves: {} }, shared);
+    assert.deepEqual(out.builder!.filmSpots?.spots, { 3: { x: 0, y: -7 } });
+  });
+});
