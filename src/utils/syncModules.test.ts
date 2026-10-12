@@ -3295,6 +3295,42 @@ describe('a game made from film, then its breakdown', () => {
   });
 });
 
+describe('scouting film used for another week', () => {
+  it('copies the game; switching sides swaps O and D and sees yard lines from the other team', async () => {
+    const { copyScoutGame, flipYardLine } = await import('../hudlScout/scoutBundle.ts');
+    assert.equal(flipYardLine('-35'), '35');
+    assert.equal(flipYardLine('20'), '-20');
+    assert.equal(flipYardLine('50'), '50');
+    const game = { id: 'g', name: 'Carmel_O vs Shrub Oak', playCount: 3, addedAt: 1 } as any;
+    const plays = [
+      { id: 'a', gameId: 'g', playNumber: 1, odk: 'O', rawYardLine: '-35', yardLine: 35, yardLineSide: 'OWN', fieldZone: 'own_territory', hash: 'L', down: 1, distance: 10, gainLoss: 4, formation: '21 R', playName: 'DIVE', hudlRow: { ODK: 'O', 'YARD LN': '-35' } },
+      { id: 'b', gameId: 'g', playNumber: 2, odk: 'D', rawYardLine: '20', yardLine: 20, yardLineSide: 'OPP', fieldZone: 'red_zone', hash: 'R', down: 2, distance: 6, gainLoss: -2, formation: 'TRIPS', playName: 'X', playCallId: 'scout_1', playCall: 'Their Sweep', untaggedName: 'SWEEP', untaggedFormation: 'TRIPS RT', unit: 'black' },
+      { id: 'c', gameId: 'g', playNumber: 3, odk: 'K', rawYardLine: '-40', yardLine: 40, yardLineSide: 'OWN', fieldZone: 'own_territory' },
+    ] as any[];
+    const same = copyScoutGame(plays, game, { switchSides: false, fromWeek: '4', fromOpponent: 'Carmel' }, 100);
+    assert.deepEqual(same.plays.map((p: any) => p.odk), ['O', 'D', 'K']);
+    assert.equal(same.game.filmFrom?.week, '4');
+    assert.equal(same.game.filmFrom?.opponent, 'Carmel');
+    assert.equal(same.plays[1].playCallId, undefined); // tags from scouting the first team stay behind
+    assert.equal(same.plays[1].playName, 'SWEEP');
+    assert.equal(same.plays[1].formation, 'TRIPS RT');
+    assert.equal(same.plays[1].unit, undefined);
+    assert.ok(same.plays.every((p: any) => p.gameId === same.game.id && p.id !== 'a'));
+    const other = copyScoutGame(plays, game, { switchSides: true, fromWeek: '4' }, 200);
+    assert.deepEqual(other.plays.map((p: any) => p.odk), ['D', 'O', 'K']);
+    assert.equal(other.plays[0].rawYardLine, '35');
+    assert.equal(other.plays[0].yardLineSide, 'OPP');
+    assert.equal(other.plays[0].hudlRow.ODK, 'D');
+    assert.equal(other.plays[0].hudlRow['YARD LN'], '35');
+    assert.equal(other.plays[1].rawYardLine, '-20');
+    assert.equal(other.plays[1].yardLineSide, 'OWN');
+    // the play itself doesn't change: down, distance, gain, hash
+    assert.equal(other.plays[0].hash, 'L');
+    assert.equal(other.plays[1].gainLoss, -2);
+    assert.equal(other.plays[0].down, 1);
+  });
+});
+
 describe('uploading the playbook again', () => {
   const bank = () =>
     [

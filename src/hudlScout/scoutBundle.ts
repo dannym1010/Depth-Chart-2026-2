@@ -2,6 +2,7 @@ import type { Play } from './types/football';
 import type { FilterState } from './components/report/FilterPanel';
 import type { ScoutGame } from './components/Header';
 import { splitTaggedCalls } from './utils/playTags';
+import { parseYardLine } from './utils/csvParser';
 import type { FilmBackfieldBases } from '../utils/filmBackfields';
 import type { OppFormation, ScoutOppPlay, ScoutPracticeScript } from '../utils/scoutOppPlays';
 
@@ -177,6 +178,70 @@ export function playsForWeek(bundle: Pick<ScoutBundle, 'games' | 'plays'>, week:
 
 function playsOfGame(bundle: Pick<ScoutBundle, 'games' | 'plays'>, gameId: string): Play[] {
   return bundle.plays.filter((p) => (p.gameId ? p.gameId === gameId : bundle.games[0]?.id === gameId));
+}
+
+/** A Hudl yard line seen from the other team's side: their 35 ("-35", own territory) is our +35. */
+export function flipYardLine(raw: string): string {
+  const t = String(raw || '').trim();
+  const n = parseInt(t.replace(/[^0-9]/g, ''), 10);
+  if (!t || !n || n >= 50) return t;
+  return t.startsWith('-') ? String(n) : `-${n}`;
+}
+
+/**
+ * One scouting game, copied into another week's report. With switchSides, the film is now about the other
+ * team: their offense was this film's D (O and D swap, kicks and non-plays stay), and yard lines are seen from
+ * their side. Down, distance, gain and hash belong to the play and stay. Tags from scouting the first team
+ * are left behind; the play's own call and formation from the file stay.
+ */
+export function copyScoutGame(
+  plays: Play[],
+  game: ScoutGame,
+  opts: { switchSides: boolean; fromWeek?: string; fromOpponent?: string },
+  now = Date.now()
+): { game: ScoutGame; plays: Play[] } {
+  const id = `game-${now}`;
+  const swap: Record<string, Play['odk']> = { O: 'D', D: 'O' };
+  const hudlKey = (row: Record<string, string> | undefined, want: string) =>
+    Object.keys(row || {}).find((k) => k.toUpperCase().replace(/[^A-Z]/g, '') === want);
+  const copied = playsOfGame({ games: [game], plays }, game.id)
+    .sort((a, b) => (Number(a.playNumber) || 0) - (Number(b.playNumber) || 0))
+    .map((p, i) => {
+      const {
+        playCallId: _tag, playCall: _call, untaggedName, untaggedFormation, unit: _unit, subs: _subs, defPlay: _def, series: _series, ...rest
+      } = p;
+      let next: Play = {
+        ...rest,
+        id: `${p.id}-${id}-${i}`,
+        gameId: id,
+        // What the file said, not what a coach tagged while scouting the first team.
+        ...(p.playCallId ? { playName: untaggedName ?? p.playName, formation: untaggedFormation ?? p.formation } : {}),
+        editedAt: now,
+      } as Play;
+      if (opts.switchSides) {
+        const raw = flipYardLine(p.rawYardLine);
+        const { normalizedYd, side, zone } = parseYardLine(raw);
+        const row = { ...(p.hudlRow || {}) };
+        const odkKey = hudlKey(row, 'ODK');
+        const ydKey = hudlKey(row, 'YARDLN');
+        const odk = swap[p.odk] || p.odk;
+        if (odkKey) row[odkKey] = swap[row[odkKey]?.trim().toUpperCase()] || row[odkKey];
+        if (ydKey) row[ydKey] = raw;
+        next = { ...next, odk, rawYardLine: raw, ...(raw ? { yardLine: normalizedYd, yardLineSide: side, fieldZone: zone } : {}), hudlRow: row };
+      }
+      return next;
+    });
+  return {
+    game: {
+      id,
+      name: game.name,
+      playCount: copied.length,
+      addedAt: now,
+      editedAt: now,
+      ...(opts.fromWeek ? { filmFrom: { week: opts.fromWeek, name: game.filmFrom?.name || game.name, ...(opts.fromOpponent ? { opponent: opts.fromOpponent } : {}) } } : {}),
+    },
+    plays: assignDrives(copied),
+  };
 }
 
 /** A play nobody has broken down yet: the blank play the Film Room makes for each clip. */

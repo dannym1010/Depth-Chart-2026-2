@@ -412,7 +412,7 @@ export function normalizeHudlRow(row: Record<string, string>, mapping: ColumnMap
   };
 }
 
-function parseYardLine(raw: string): { normalizedYd: number; side: 'OWN' | 'OPP' | 'MID'; zone: FieldZone } {
+export function parseYardLine(raw: string): { normalizedYd: number; side: 'OWN' | 'OPP' | 'MID'; zone: FieldZone } {
   const clean = raw.trim().toUpperCase();
   let ydNumber = 25;
   let side: 'OWN' | 'OPP' | 'MID' = 'OWN';

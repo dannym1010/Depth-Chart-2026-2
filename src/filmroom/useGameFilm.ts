@@ -133,7 +133,9 @@ export function useGameFilm(opts: {
       const id = ++loadId.current;
       setFilm({ status: 'loading', label: `${root.name}: finding ${g.name}` });
       try {
-        const found = await resolveGameFolder(root, g, teamName, opponentName, pick);
+        // A game copied from another week: its film is in that week's folder, under its name there.
+        const look = g.filmFrom ? { ...g, week: g.filmFrom.week, name: g.filmFrom.name } : g;
+        const found = await resolveGameFolder(root, look, teamName, g.filmFrom?.opponent || opponentName, pick);
         if (id !== loadId.current) return 'failed';
         if ('missing' in found) {
           if (!quiet) setFilm({ status: 'error', label: found.path.join(' › '), message: `No film folder for this game yet: looked for ${found.missing}.` });

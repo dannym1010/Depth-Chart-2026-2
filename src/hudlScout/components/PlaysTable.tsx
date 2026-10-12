@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { Play, TeamUnit } from '../types/football';
 import { TEAM_UNITS, playIsUnitTaggable } from '../utils/unitStats';
 import { isRecordedMotion } from '../utils/csvParser';
@@ -145,11 +146,19 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
   const showDraw = (p: Play) => Boolean(onDrawCall && (p.playCallId || drawUntagged));
   // Formation labels already used on this film (and the formations drawn), to pick in the formation box.
   const formationLabels = useMemo(() => {
-    const seen = new Map<string, string>();
-    const add = (n?: string) => { const t = String(n || '').trim(); if (t && t !== '-' && !seen.has(t.toUpperCase())) seen.set(t.toUpperCase(), t.toUpperCase()); };
-    (theirFormations || []).forEach((x) => add(x.name));
-    (writeInPlays || plays).forEach((p) => add(p.formation));
-    return [...seen.values()].sort((a, b) => a.localeCompare(b));
+    const seen = new Map<string, { name: string; drawn: boolean; id?: string; count: number }>();
+    const key = (n: string) => n.trim().toUpperCase().replace(/\s+/g, ' ');
+    for (const x of theirFormations || []) {
+      const t = String(x.name || '').trim();
+      if (t) seen.set(key(t), { name: t.toUpperCase(), drawn: x.drawn, id: x.id, count: 0 });
+    }
+    for (const p of writeInPlays || plays) {
+      const t = String(p.formation || '').trim();
+      if (!t || t === '-') continue;
+      const cur = seen.get(key(t)) || { name: t.toUpperCase(), drawn: false, count: 0 };
+      seen.set(key(t), { ...cur, count: cur.count + 1 });
+    }
+    return [...seen.values()].sort((a, b) => Number(b.drawn) - Number(a.drawn) || b.count - a.count || a.name.localeCompare(b.name));
   }, [theirFormations, writeInPlays, plays]);
   const [openPlay, setOpenPlay] = useState<string | null>(null);
   const canLineup = Boolean(lineupFor && roster && onSetSub);
@@ -682,7 +691,13 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   <td className="py-2.5 px-3 text-slate-200 font-semibold">
                     <span className="inline-flex items-center gap-1">
                       {onSetFormation && (play.odk === 'O' || (onFormationAction && play.odk === 'UNKNOWN')) ? (
-                        <FormationCell play={play} plays={plays} onSetFormation={onSetFormation} labels={onFormationAction ? formationLabels : undefined} />
+                        <FormationCell
+                          play={play}
+                          plays={plays}
+                          onSetFormation={onSetFormation}
+                          labels={onFormationAction ? formationLabels : undefined}
+                          onDraw={onFormationAction ? (pick) => onFormationAction(play, { kind: 'draw', ...pick }) : undefined}
+                        />
                       ) : play.formation && play.formation !== '-' ? (
                         play.formation
                       ) : (
@@ -811,29 +826,65 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
 };
 
 /** Formation in a play-log row: type it (Enter saves), or copy it down the rest of the drive. */
-const FormationCell: React.FC<{ play: Play; plays: Play[]; onSetFormation: (ids: string[], formation: string) => void; labels?: string[] }> = ({
-  play,
-  plays,
-  onSetFormation,
-  labels,
-}) => {
-  const listId = `form-labels-${play.id}`;
+const FormationCell: React.FC<{
+  play: Play;
+  plays: Play[];
+  onSetFormation: (ids: string[], formation: string) => void;
+  /** Their film: this opponent's formations (from any of their films on the report), to pick from. */
+  labels?: { name: string; drawn: boolean; id?: string; count: number }[];
+  /** Their film: draw (or adjust) a formation with this clip playing. */
+  onDraw?: (pick: { id?: string; name: string }) => void;
+}> = ({ play, plays, onSetFormation, labels, onDraw }) => {
   const current = isNumberFormation(play.formation) ? tidyFormation(play.formation) : play.formation === '-' ? '' : play.formation;
   const [draft, setDraft] = useState(current);
   React.useEffect(() => setDraft(current), [current]);
   const rest = restOfSeriesIds(plays, play.id);
-  const commit = () => {
-    if (tidyFormation(draft) !== tidyFormation(current)) onSetFormation([play.id], draft);
+  const commit = (value = draft) => {
+    if (tidyFormation(value) !== tidyFormation(current)) onSetFormation([play.id], value);
+  };
+  // The list opens under the box, over the page (the play log scrolls and would clip it).
+  const [open, setOpen] = useState(false);
+  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
+  const boxRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const hasList = Boolean(labels);
+  useEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const r = boxRef.current?.getBoundingClientRect();
+      if (!r) return;
+      const below = r.bottom + 4 + 300 < window.innerHeight;
+      setAt({ top: below ? r.bottom + 4 : Math.max(8, r.top - 304), left: Math.max(8, Math.min(r.left, window.innerWidth - 268)) });
+    };
+    place();
+    const close = (e: MouseEvent) => { const t = e.target as Node; if (boxRef.current?.contains(t) || menuRef.current?.contains(t)) return; setOpen(false); };
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    document.addEventListener('mousedown', close);
+    return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); document.removeEventListener('mousedown', close); };
+  }, [open]);
+  const typed = draft.trim().toUpperCase();
+  const shown = (labels || []).filter((l) => !typed || typed === tidyFormation(current).toUpperCase() || l.name.includes(typed));
+  const isKnown = (labels || []).some((l) => l.name === typed);
+  const pick = (name: string) => {
+    setDraft(name);
+    commit(name);
+    setOpen(false);
   };
   return (
     <div className="flex items-center gap-1">
       <input
+        ref={boxRef}
         value={draft}
-        onChange={(e) => setDraft(e.target.value.toUpperCase())}
-        onBlur={commit}
-        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+        onChange={(e) => { setDraft(e.target.value.toUpperCase()); if (hasList) setOpen(true); }}
+        onFocus={() => hasList && setOpen(true)}
+        onClick={() => hasList && setOpen(true)}
+        onBlur={() => { if (!hasList) commit(); }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); commit(); setOpen(false); (e.target as HTMLInputElement).blur(); }
+          if (e.key === 'Escape') { setDraft(current); setOpen(false); }
+        }}
         placeholder="21 R"
-        list={labels?.length ? listId : undefined}
         aria-label={`Formation for play ${play.playNumber}`}
         className="w-20 h-7 rounded-md border border-slate-700 bg-slate-950 px-1.5 text-xs font-bold text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
       />
@@ -848,11 +899,48 @@ const FormationCell: React.FC<{ play: Play; plays: Play[]; onSetFormation: (ids:
           ↓
         </button>
       )}
-      {labels?.length ? (
-        <datalist id={listId}>
-          {labels.map((l) => <option key={l} value={l} />)}
-        </datalist>
-      ) : null}
+      {open && at && hasList && createPortal(
+        <div ref={menuRef} role="listbox" aria-label="Their formations" style={{ position: 'fixed', top: at.top, left: at.left }} className="z-[60] w-64 max-h-[300px] overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 shadow-xl p-1.5 text-left">
+          <div className="px-1.5 pt-0.5 pb-1 text-[10px] font-black uppercase tracking-wide text-slate-400">Their formations</div>
+          {shown.length === 0 && <div className="px-2 py-1.5 text-xs text-slate-400">None yet. Type a name and press Enter.</div>}
+          {shown.map((l) => (
+            <div key={l.name} className={`flex items-center gap-1 rounded-lg ${tidyFormation(current).toUpperCase() === l.name ? 'bg-slate-700' : 'hover:bg-slate-800'}`}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={tidyFormation(current).toUpperCase() === l.name}
+                onClick={() => pick(l.name)}
+                className="flex-1 min-w-0 h-8 px-2 text-left text-xs font-bold text-slate-100 truncate cursor-pointer"
+                title={`Tag clip ${play.playNumber} ${l.name}`}
+              >
+                {l.name}
+                <span className="ml-1.5 text-[10px] font-semibold text-slate-400">{l.drawn ? '▣ drawn' : 'not drawn'}{l.count ? ` · ${l.count} clip${l.count === 1 ? '' : 's'}` : ''}</span>
+              </button>
+              {onDraw && (
+                <button
+                  type="button"
+                  onClick={() => { setOpen(false); setDraft(l.name); onDraw({ ...(l.id ? { id: l.id } : {}), name: l.name }); }}
+                  title={`${l.drawn ? 'Adjust' : 'Draw'} ${l.name} with clip ${play.playNumber} playing`}
+                  aria-label={`${l.drawn ? 'Adjust' : 'Draw'} ${l.name}`}
+                  className="h-7 px-1.5 mr-0.5 rounded-md border border-slate-600 text-[10px] font-black text-slate-200 hover:bg-slate-700 cursor-pointer shrink-0"
+                >
+                  ✎ {l.drawn ? 'Adjust' : 'Draw'}
+                </button>
+              )}
+            </div>
+          ))}
+          {typed && !isKnown && onDraw && (
+            <button
+              type="button"
+              onClick={() => { setOpen(false); onDraw({ name: typed }); }}
+              className="mt-1 w-full h-8 px-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black text-left cursor-pointer"
+            >
+              ✎ New formation: draw {typed}
+            </button>
+          )}
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

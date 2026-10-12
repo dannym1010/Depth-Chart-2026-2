@@ -3,9 +3,9 @@
 // whole staff sees. The play log under the video is Hudl Scout's own: sorting it sets the play order, and
 // tags changed here are the same tags Hudl Scout shows.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft } from 'lucide-react';
+import { Copy, ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft } from 'lucide-react';
 import { PlaysTable } from '../hudlScout/components/PlaysTable';
-import { assignDrives, bundleFromSaved, duplicateFilmGames, mergeBlankFilmGame, type ScoutBundle } from '../hudlScout/scoutBundle';
+import { assignDrives, bundleFromSaved, copyScoutGame, duplicateFilmGames, mergeBlankFilmGame, type ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play, TeamUnit } from '../hudlScout/types/football';
 import type { ScoutGame } from '../hudlScout/components/Header';
 import { autoTagFromHudl, setPlaysFormation, tagPlays } from '../hudlScout/utils/playTags';
@@ -128,7 +128,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const games = useMemo(() => {
     const list: FilmGame[] = [
       ...own.games.map((g) => ({ key: filmGameKey('own', g.id), source: 'own' as const, gameId: g.id, name: g.name, week: g.week, fromFilm: g.fromFilm })),
-      ...opp.games.map((g) => ({ key: filmGameKey('opponent', g.id, currentWeek), source: 'opponent' as const, gameId: g.id, name: g.name, week: currentWeek, fromFilm: g.fromFilm })),
+      ...opp.games.map((g) => ({ key: filmGameKey('opponent', g.id, currentWeek), source: 'opponent' as const, gameId: g.id, name: g.name, week: currentWeek, fromFilm: g.fromFilm, ...(g.filmFrom ? { filmFrom: g.filmFrom } : {}) })),
       ...filmOnlyGames.map((g) => ({ key: g.key, source: g.source, gameId: g.gameId, name: g.name, week: g.week, filmOnly: true })),
     ];
     return family ? list.filter((g) => g.source === 'own') : list;
@@ -390,6 +390,47 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     }
     setImportNote(`Imported ${merged.length} plays from ${fileName}`);
     window.setTimeout(() => setImportNote(''), 4000);
+  };
+
+  // Scouting film of another week used for this one: copied into that week's report, from either team's side.
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [copyWeek, setCopyWeek] = useState('');
+  const [copySwitch, setCopySwitch] = useState<boolean | null>(null);
+  const copyTargets = (filmWeeks || []).filter((w) => w.key !== game?.week);
+  const openCopy = () => {
+    if (!game) return;
+    // The week whose opponent is named in the game ("Carmel_O vs Shrub Oak" -> the Shrub Oak week).
+    const norm = (x: string) => ` ${String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `;
+    const guess = copyTargets.find((w) => w.opponent && norm(game.name).includes(norm(w.opponent).replace(/^ (at|vs) /, ' ')));
+    setCopyWeek(guess?.key || '');
+    setCopySwitch(null);
+    setCopyOpen(true);
+  };
+  const doCopy = () => {
+    if (!game || game.source !== 'opponent' || !copyWeek || copySwitch == null) return;
+    const w = filmWeeks?.find((x) => x.key === copyWeek);
+    const target = bundleFromSaved(w?.hudlScout, w?.opponent || 'Opponent');
+    const g = opp.games.find((x) => x.id === game.gameId);
+    if (!g) return;
+    const fromOpponent = filmWeeks?.find((x) => x.key === game.week)?.opponent || opponentName || '';
+    const copy = copyScoutGame(opp.plays, g, { switchSides: copySwitch, fromWeek: g.filmFrom?.week || game.week, fromOpponent: g.filmFrom?.opponent || fromOpponent });
+    onSaveWeekScouting?.(copyWeek, {
+      ...((w?.hudlScout as object) || {}),
+      plays: [...target.plays, ...copy.plays],
+      games: [...target.games, copy.game],
+      datasetName: target.datasetName || w?.opponent || '',
+      deletedGameIds: target.deletedGameIds,
+      sourceCleared: false,
+      updatedAt: Date.now(),
+    });
+    setCopyOpen(false);
+    const label = weekOptions?.find((x) => x.key === copyWeek)?.label || copyWeek;
+    setImportNote(`Copied to ${label}${copySwitch ? ' (O and D switched)' : ''}`);
+    window.setTimeout(() => setImportNote(''), 5000);
+    if (onSelectWeek && window.confirm(`Copied "${g.name}" to ${label}. Go to ${label} now?`)) {
+      onSelectWeek(copyWeek);
+      setGameKey(filmGameKey('opponent', copy.game.id, copyWeek));
+    }
   };
 
   // The same game twice (one copy made from the film, still blank, and one uploaded from Hudl): merge them.
@@ -1046,6 +1087,15 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             </button>
           )}
           {importNote && <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">{importNote}</span>}
+          {game && !locked && game.source === 'opponent' && !game.filmOnly && onSaveWeekScouting && copyTargets.length > 0 && (
+            <button
+              onClick={openCopy}
+              className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+              title="Use this scouting film for another week (its opponent may be the other team in it)"
+            >
+              <Copy size={14} /> <span className="hidden sm:inline">Copy to week</span>
+            </button>
+          )}
           {game && !locked && (
             <>
               <input
@@ -1081,6 +1131,53 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         </div>
       </div>
 
+      {copyOpen && game && (
+        <div role="dialog" aria-label="Copy to another week" className="mb-2 px-3 py-3 rounded-xl border border-indigo-300 bg-indigo-50 text-indigo-950 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-100 text-xs space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-black">Copy &quot;{game.name}&quot; to</span>
+            <select
+              aria-label="Week to copy to"
+              value={copyWeek}
+              onChange={(e) => setCopyWeek(e.target.value)}
+              className="h-8 rounded-lg border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900 px-2 font-bold"
+            >
+              <option value="">Pick a week…</option>
+              {copyTargets.map((w) => (
+                <option key={w.key} value={w.key}>
+                  {w.label}{w.opponent ? ` · ${w.opponent}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="font-black">Which team are you scouting in this film for that week?</div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="copy-side" checked={copySwitch === false} onChange={() => setCopySwitch(false)} />
+            <span>
+              The same team as here{filmWeeks?.find((w) => w.key === game.week)?.opponent ? ` (${filmWeeks.find((w) => w.key === game.week)!.opponent})` : ''}: keep O and D as they are
+            </span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="copy-side" checked={copySwitch === true} onChange={() => setCopySwitch(true)} />
+            <span>
+              The other team{filmWeeks?.find((w) => w.key === copyWeek)?.opponent ? ` (${filmWeeks.find((w) => w.key === copyWeek)!.opponent})` : ''}: switch O and D (their offense is this film&apos;s D), yard lines from their side
+            </span>
+          </label>
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={doCopy}
+              disabled={!copyWeek || copySwitch == null}
+              className="h-8 px-3 rounded-lg font-black bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-40"
+            >
+              Copy
+            </button>
+            <button type="button" onClick={() => setCopyOpen(false)} className="h-8 px-3 rounded-lg font-bold text-indigo-800 dark:text-indigo-200">
+              Cancel
+            </button>
+            <span className="text-[11px] opacity-80">The film stays where it is; tags from scouting this team aren&apos;t copied.</span>
+          </div>
+        </div>
+      )}
       {dupe && (
         <div className="mb-2 flex flex-wrap items-center gap-2 px-3 py-2 rounded-xl border border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200 text-xs">
           <span className="font-bold">This game is here twice:</span>

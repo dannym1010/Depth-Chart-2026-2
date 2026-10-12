@@ -14,6 +14,8 @@ export interface FilmGame {
   filmOnly?: boolean;
   /** A breakdown the coaches fill in while watching (made from a film-only game). */
   fromFilm?: boolean;
+  /** Copied from another week: look for its film in that week's folder, under that name. */
+  filmFrom?: { week: string; name: string; opponent?: string };
 }
 
 /** A film clip found for a game (one file = one play). */

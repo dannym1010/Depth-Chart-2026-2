@@ -16,6 +16,8 @@ export interface ScoutGame {
   editedAt?: number;
   /** Made in the Film Room from a film folder with no Hudl breakdown: coaches fill in its plays while watching. */
   fromFilm?: boolean;
+  /** Copied from another week's scouting: where its film is (that week's folder, that game). */
+  filmFrom?: { week: string; name: string; opponent?: string };
 }
 
 interface HeaderProps {
