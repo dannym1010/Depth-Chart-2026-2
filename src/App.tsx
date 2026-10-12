@@ -167,6 +167,7 @@ import { missingPracticePlans } from './utils/autoPracticePlans';
 import { clearPlayBuilderSeed, consumeSeedHold, holdPlayBuilderSeed, mergeBuilderSave, savePlayBuilderSeed, type PlayBuilderSeed } from './utils/playBuilderSeed';
 import { builderFromFormation, cardForSnap, groupOppPlays, isScoutPlayEntry, planLines, realCall, renameOppCall, linkSnapsToCall, snapsForCall, type FormationPlan, type OppFormation, type ScoutOppPlay } from './utils/scoutOppPlays';
 import type { Play as FilmPlay } from './hudlScout/types/football';
+import { setPlaysFormation } from './hudlScout/utils/playTags';
 import { backfieldOf, baseKeysForGame, formationDefense, formationOfPlay, openFormation, oppPlayDiagram, playWithDefense, redrawWithBackfield, spotsForGame, theirPlayNamesByFormation } from './utils/filmBackfields';
 import { BACKFIELD_STRUCTURES, compactPlayDiagrams } from './utils/footballEngine';
 import { saveDrawnDiagram } from './utils/playDiagrams';
@@ -4644,6 +4645,15 @@ export default function App() {
     drawOppPlay(next, undefined, { fromFormation: true });
     return true;
   };
+  /** Their film, one clip: tag it with a formation and draw (or adjust) that formation with the clip playing. */
+  const drawFormationFromClip = (req: { playId: string; gameId: string; clip: number; id?: string; name: string }) => {
+    const { hudl, put } = weekHudl();
+    const name = req.name.trim().slice(0, 80);
+    if (!hudl || !name) return;
+    const plays = setPlaysFormation((hudl.plays || []) as FilmPlay[], [req.playId], name);
+    put({ ...hudl, plays, updatedAt: Date.now() });
+    openOppFormation({ ...(req.id ? { id: req.id } : {}), name, gameId: req.gameId, clip: req.clip });
+  };
   /** A clip of their film: its play (tagged before), or a new one from the clip's base formation. */
   const drawSnap = (snap: FilmPlay) => {
     const { hudl } = weekHudl();
@@ -7783,6 +7793,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onRenameScoutPlay={renameScoutPlay}
                 onSaveFilmBackfield={saveFilmBackfield}
                 onDrawSnap={drawSnap}
+                onDrawFormation={drawFormationFromClip}
                 isProgramAdmin={isProgramAdmin}
                 viewOnly={isPlayer}
                 family={isFamily}

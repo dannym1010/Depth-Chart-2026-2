@@ -73,6 +73,8 @@ interface FilmRoomViewProps {
   onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: Record<string, { x: number; y: number }>; baseKey: string }) => void;
   /** Their film: draw a clip's play in the play builder, lined up in its base formation, with the clip playing. */
   onDrawSnap?: (play: Play) => void;
+  /** Their film: tag a clip with a formation and draw (or adjust) that formation with the clip playing. */
+  onDrawFormation?: (req: { playId: string; gameId: string; clip: number; id?: string; name: string }) => void;
   /** True if currently logged in user is the program owner / master super admin */
   isProgramAdmin?: boolean;
   /** A player or family account: watching only (no film linking, breakdown, tags, notes to add or drawing). */
@@ -88,7 +90,7 @@ const newId = () => `fn_${Date.now().toString(36)}${Math.random().toString(36).s
 export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   teamId, teamName, currentWeek, weekLabel, opponentName, opponentScout, ownTeamScout, authorName, onOpenHudlGame,
   onUpdateOwnTeamScout, onUpdateScouting, playDatabase, onUpdatePlayDatabase, roster, weekBoards, weekOptions,
-  filmWeeks, onSelectWeek, onSaveWeekScouting, onBackToPlay, builderCanEdit, onSaveBuilderPlay, onRenameScoutPlay, onSaveFilmBackfield, onDrawSnap,
+  filmWeeks, onSelectWeek, onSaveWeekScouting, onBackToPlay, builderCanEdit, onSaveBuilderPlay, onRenameScoutPlay, onSaveFilmBackfield, onDrawSnap, onDrawFormation,
   isProgramAdmin = false,
   viewOnly = false,
   family = false,
@@ -314,6 +316,13 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     else onUpdateScouting('hudlScout', { ...((opponentScout as object) || {}), plays: change(opp.plays), updatedAt: now });
   };
   const isOwn = source === 'own';
+  // Their film: the formations drawn for this report (Their plays, step 1), to pick per clip or draw a new one.
+  const drawnFormations = useMemo(
+    () => ((opp as { oppFormations?: { id: string; name: string; deleted?: boolean; builder?: unknown }[] }).oppFormations || [])
+      .filter((f) => f?.id && !f.deleted)
+      .map((f) => ({ id: f.id, name: f.name, drawn: Boolean(f.builder) })),
+    [opp]
+  );
   // Their film: the plays already in Their plays (each with its formation) can be picked when tagging.
   const theirCalls = useMemo(() => theirCallEntries(opp.playLibraries), [opp.playLibraries]);
   // Import breakdown: a Hudl file's plays go into the game that's open (not a new game), play N onto play N.
@@ -633,6 +642,15 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       onDrawCall={!isOwn && onDrawSnap && !isReadOnlySession() ? onDrawSnap : undefined}
       drawUntagged={!isOwn && Boolean(onDrawSnap) && !locked}
       theirCalls={isOwn ? undefined : theirCalls}
+      theirFormations={isOwn ? undefined : drawnFormations}
+      onFormationAction={
+        !isOwn && !locked && game && !game.filmOnly
+          ? (p, pick) => {
+              if (pick.kind === 'use') return editPlays((all) => setPlaysFormation(all, [p.id], pick.name));
+              onDrawFormation?.({ playId: p.id, gameId: p.gameId || game.gameId, clip: Number(p.playNumber) || 0, ...(pick.id ? { id: pick.id } : {}), name: pick.name });
+            }
+          : undefined
+      }
     />
   );
   // A family account: each play by its number, when it happened and how it went.

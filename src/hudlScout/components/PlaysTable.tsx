@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { Play, TeamUnit } from '../types/football';
 import { TEAM_UNITS, playIsUnitTaggable } from '../utils/unitStats';
 import { isRecordedMotion } from '../utils/csvParser';
@@ -42,6 +43,10 @@ interface PlaysTableProps {
   drawUntagged?: boolean;
   /** Their film: their plays (from Their plays) to tag with, next to the Play Bank. */
   theirCalls?: PlayDatabaseEntry[];
+  /** Their film: formations drawn for this report (to pick for a clip). */
+  theirFormations?: { id: string; name: string; drawn: boolean }[];
+  /** Their film: use a drawn formation for this clip, adjust it, or draw a new one from the clip. */
+  onFormationAction?: (play: Play, pick: { kind: 'use' | 'draw'; id?: string; name: string }) => void;
   /** Remember this log's search, sort, filters and page under this name (e.g. while a play is drawn and back). */
   viewKey?: string;
   /** Plays whose write-ins are offered when tagging (e.g. every game of the team); default: these plays. */
@@ -65,6 +70,115 @@ const DrawButton: React.FC<{ play: Play; onDraw: (play: Play) => void }> = ({ pl
     ✎ Draw
   </button>
 );
+
+/**
+ * Their film: draw the clip's formation. Pick one already drawn (tags the clip), adjust the one it's tagged
+ * with, or draw a new one from this clip (the formation drawing opens with the clip playing).
+ */
+const FormationDrawButton: React.FC<{
+  play: Play;
+  formations: { id: string; name: string; drawn: boolean }[];
+  onPick: (pick: { kind: 'use' | 'draw'; id?: string; name: string }) => void;
+}> = ({ play, formations, onPick }) => {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  // The menu is drawn over the page (the play log scrolls and would clip it), under the button.
+  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const r = ref.current?.getBoundingClientRect();
+      if (!r) return;
+      const below = r.bottom + 4 + 330 < window.innerHeight;
+      setAt({ top: below ? r.bottom + 4 : Math.max(8, r.top - 334), left: Math.max(8, Math.min(r.left, window.innerWidth - 252)) });
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => { const t = e.target as Node; if (ref.current?.contains(t) || menuRef.current?.contains(t)) return; setOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+  const key = (s: string) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const current = play.formation && play.formation !== '-' ? play.formation.trim() : '';
+  const mine = current ? formations.find((f) => key(f.name) === key(current)) : undefined;
+  return (
+    <div ref={ref} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => { setOpen((o) => !o); setName(mine ? '' : current); }}
+        aria-label={`Formation for clip ${play.playNumber}`}
+        title="Draw their formation from this clip, or pick one you drew"
+        className={`h-7 px-1.5 rounded-md border text-[10px] font-black whitespace-nowrap cursor-pointer ${mine?.drawn ? 'border-emerald-600 text-emerald-300 hover:bg-emerald-950/40' : 'border-slate-600 text-slate-200 hover:bg-slate-800'}`}
+      >
+        {mine?.drawn ? '▣ Form' : '▢ Form'} ▾
+      </button>
+      {open && at && createPortal(
+        <div ref={menuRef} role="dialog" aria-label="Their formation" style={{ position: 'fixed', top: at.top, left: at.left }} className="z-[60] w-60 rounded-xl border border-slate-700 bg-slate-900 shadow-xl p-2 text-left space-y-2">
+          {mine && (
+            <button
+              type="button"
+              onClick={() => { setOpen(false); onPick({ kind: 'draw', id: mine.id, name: mine.name }); }}
+              className="w-full h-8 px-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black text-left cursor-pointer"
+            >
+              {mine.drawn ? 'Adjust' : 'Draw'} {mine.name} with this clip
+            </button>
+          )}
+          {formations.length > 0 && (
+            <div>
+              <div className="text-[10px] font-black uppercase tracking-wide text-slate-400 px-1 pb-1">Formations you drew</div>
+              <div className="max-h-48 overflow-y-auto space-y-0.5">
+                {formations.map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => { setOpen(false); onPick({ kind: 'use', id: f.id, name: f.name }); }}
+                    className={`w-full h-8 px-2 rounded-lg text-xs font-bold text-left cursor-pointer flex items-center justify-between ${mine?.id === f.id ? 'bg-slate-700 text-white' : 'text-slate-200 hover:bg-slate-800'}`}
+                  >
+                    <span className="truncate">{f.name}</span>
+                    <span className="text-[10px] text-slate-400 shrink-0">{mine?.id === f.id ? 'this clip' : f.drawn ? 'drawn' : 'not drawn'}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const n = name.trim();
+              if (!n) return;
+              const same = formations.find((f) => key(f.name) === key(n));
+              setOpen(false);
+              onPick({ kind: 'draw', ...(same ? { id: same.id } : {}), name: same ? same.name : n });
+            }}
+            className="space-y-1"
+          >
+            <div className="text-[10px] font-black uppercase tracking-wide text-slate-400 px-1">Draw a new formation</div>
+            <div className="flex gap-1">
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Name, e.g. Trips Rt"
+                aria-label="New formation name"
+                className="flex-1 min-w-0 h-8 px-2 rounded-lg bg-slate-800 border border-slate-700 text-xs font-bold text-white placeholder:text-slate-500"
+              />
+              <button type="submit" disabled={!name.trim()} className="h-8 px-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black cursor-pointer disabled:opacity-40">
+                Draw
+              </button>
+            </div>
+          </form>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};
 
 /** A click on a row that wasn't on one of its buttons or fields. */
 const isRowClick = (e: React.MouseEvent) => !(e.target as HTMLElement).closest('button, input, select, textarea, a, label, [role=dialog]');
@@ -112,7 +226,7 @@ const UnitPicker: React.FC<{
   );
 };
 
-export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge, compact, toolbarStart, writeInPlays, onDrawCall, drawUntagged, theirCalls, viewKey }) => {
+export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge, compact, toolbarStart, writeInPlays, onDrawCall, drawUntagged, theirCalls, theirFormations, onFormationAction, viewKey }) => {
   // How the coach left this log (search, sort, column filters, untagged only, page), for coming back to it.
   const remembered = useMemo(() => readLogView(viewKey), []); // eslint-disable-line react-hooks/exhaustive-deps
   const showDraw = (p: Play) => Boolean(onDrawCall && (p.playCallId || drawUntagged));
@@ -472,6 +586,11 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               </div>
               <div className="text-[11px] text-slate-300">
                 {play.formation && play.formation !== '-' ? play.formation : 'No formation'}
+                {onFormationAction && (play.odk === 'O' || play.odk === 'UNKNOWN') && (
+                  <span className="ml-1 align-middle inline-block">
+                    <FormationDrawButton play={play} formations={theirFormations || []} onPick={(pick) => onFormationAction(play, pick)} />
+                  </span>
+                )}
                 {play.direction ? ` · ${play.direction}` : ''}
                 {strengthSideText(play) ? <> · <SideTag play={play} /></> : null}
                 {!hasPlayers(play) && play.carrierOrTarget ? ` · ${play.carrierOrTarget}` : ''}
@@ -640,13 +759,18 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     </span>
                   </td>
                   <td className="py-2.5 px-3 text-slate-200 font-semibold">
-                    {onSetFormation && play.odk === 'O' ? (
-                      <FormationCell play={play} plays={plays} onSetFormation={onSetFormation} />
-                    ) : play.formation && play.formation !== '-' ? (
-                      play.formation
-                    ) : (
-                      <span className="text-slate-500 font-mono font-normal">-</span>
-                    )}
+                    <span className="inline-flex items-center gap-1">
+                      {onSetFormation && play.odk === 'O' ? (
+                        <FormationCell play={play} plays={plays} onSetFormation={onSetFormation} />
+                      ) : play.formation && play.formation !== '-' ? (
+                        play.formation
+                      ) : (
+                        <span className="text-slate-500 font-mono font-normal">-</span>
+                      )}
+                      {onFormationAction && (play.odk === 'O' || play.odk === 'UNKNOWN') && (
+                        <FormationDrawButton play={play} formations={theirFormations || []} onPick={(pick) => onFormationAction(play, pick)} />
+                      )}
+                    </span>
                   </td>
                   <td className="py-2 px-3 font-medium text-slate-100">
                     {canTagCalls && isTaggablePlay(play) ? (
