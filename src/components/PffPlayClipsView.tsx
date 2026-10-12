@@ -179,7 +179,8 @@ export const PffPlayClipsView: React.FC<PffPlayClipsViewProps> = ({
   }, [ownBundle]);
   const canUseShared = Boolean(sharedFilm?.onUpdateOwnTeamScout);
   const weekGames = sharedFilm ? gamesForWeek(ownBundle, sharedFilm.week) : [];
-  const sharedScoutPlays = useMemo(() => (sharedFilm ? playsForWeek(ownBundle, sharedFilm.week) : []), [ownBundle, sharedFilm?.week]);
+  // Clips that aren't plays (S: a camera test, the scoreboard) aren't graded.
+  const sharedScoutPlays = useMemo(() => (sharedFilm ? playsForWeek(ownBundle, sharedFilm.week).filter((p) => p.odk !== 'S') : []), [ownBundle, sharedFilm?.week]);
   const usingShared = sharedScoutPlays.length > 0;
   const scoutById = useMemo(() => new Map(sharedScoutPlays.map((p) => [p.id, p])), [sharedScoutPlays]);
   const allPlays: HudlImportedPlay[] = useMemo(

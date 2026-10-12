@@ -599,7 +599,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                           : play.odk === 'K'
                           ? 'Kick / Special'
                           : play.odk === 'S'
-                          ? 'Stoppage'
+                          ? 'Not a play (camera test, scoreboard): not counted'
                           : 'Unknown'
                       }
                     >

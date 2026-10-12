@@ -407,8 +407,10 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     });
   }, [plays, filters]);
 
+  // Clips that aren't plays (S: a camera test, the scoreboard) stay in the play log but count nowhere.
+  const countedPlays = useMemo(() => filteredPlays.filter((p) => p.odk !== 'S'), [filteredPlays]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const analysis = useMemo(() => calculateTendencies(filteredPlays), [filteredPlays, defenseKey]);
+  const analysis = useMemo(() => calculateTendencies(countedPlays), [countedPlays, defenseKey]);
   // The game plan and call sheet are always built against the offense on film,
   // whatever unit or filters the coach is looking at.
   const planPlays = useMemo(() => {
@@ -424,7 +426,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   );
   const voice = makeVoice(scoutTarget, filters.odk);
   const filterLabels = activeFilterLabels(filters);
-  const unitPlayCount = filters.odk === 'ALL' ? plays.length : plays.filter((p) => p.odk === filters.odk).length;
+  const unitPlayCount = filters.odk === 'ALL' ? plays.filter((p) => p.odk !== 'S').length : plays.filter((p) => p.odk === filters.odk).length;
   const pickSituation = (g: DownDistGroup) => {
     setSelectedSituation(g.label);
     setActiveTab('situations');
@@ -906,7 +908,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                 {activeTab === 'summary' && (
                   <SummaryTab
                     analysis={analysis}
-                    plays={filteredPlays}
+                    plays={countedPlays}
                     voice={voice}
                     report={localReport}
                     onPickSituation={pickSituation}
@@ -917,7 +919,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                 {activeTab === 'situations' && (
                   <SituationsTab
                     analysis={analysis}
-                    plays={filteredPlays}
+                    plays={countedPlays}
                     voice={voice}
                     report={localReport}
                     selectedLabel={selectedSituation}
@@ -927,7 +929,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                 {activeTab === 'run' && (
                   <RunGameTab
                     analysis={analysis}
-                    plays={filteredPlays}
+                    plays={countedPlays}
                     voice={voice}
                     balancedFormations={balancedFormations}
                     onChangeBalancedFormations={onChangeBalancedFormations}
@@ -938,7 +940,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
             {activeTab === 'players' && scoutTarget === 'own' && weekBoards && (
               <OwnTeamReport plays={plays} lineupFor={lineupOnly} roster={roster || []} />
             )}
-            {activeTab === 'players' && <PlayersTab analysis={analysis} plays={filteredPlays} allPlays={plays} voice={voice} />}
+            {activeTab === 'players' && <PlayersTab analysis={analysis} plays={countedPlays} allPlays={plays.filter((p) => p.odk !== 'S')} voice={voice} />}
             {activeTab === 'stats' && <StatsTab plays={plays} games={bundle.games} selectedGameId={selectedGameId} own={scoutTarget === 'own'} playDatabase={playDatabase} />}
             {activeTab === 'gameplan' && (
               <GamePlanTab
@@ -956,7 +958,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
             )}
             {activeTab === 'plays' && (
               <>
-                <CallResultsCard plays={filteredPlays} own={scoutTarget === 'own'} onDraw={drawFromLog ? (id) => drawTagged(id) : undefined} />
+                <CallResultsCard plays={countedPlays} own={scoutTarget === 'own'} onDraw={drawFromLog ? (id) => drawTagged(id) : undefined} />
                 <PlaysTable
                   viewKey={`hudl-${scoutTarget}-${currentWeek}`}
                   plays={filteredPlays}

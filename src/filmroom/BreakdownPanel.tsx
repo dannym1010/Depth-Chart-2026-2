@@ -49,6 +49,7 @@ const ODK = [
   { v: 'O', label: 'O', title: 'Offense' },
   { v: 'D', label: 'D', title: 'Defense' },
   { v: 'K', label: 'K', title: 'Kicking' },
+  { v: 'S', label: 'S', title: 'Not a play (camera test, scoreboard): kept with the film, never counted' },
 ];
 const QTR = ['1', '2', '3', '4', 'OT'];
 const DN = ['1', '2', '3', '4'];
@@ -238,6 +239,11 @@ export const BreakdownPanel: React.FC<Props> = ({
         {field('ODK', chips('ODK', ODK))}
         {field('Quarter', chips('QTR', plain(QTR)))}
       </div>
+      {row.ODK === 'S' && (
+        <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+          S: not a play (a camera test, the scoreboard). It stays with the film but isn&apos;t counted in stats, reports or drives.
+        </p>
+      )}
       <div className="grid grid-cols-[auto_1fr] gap-x-3">
         {field('Down', chips('DN', plain(DN)))}
         {field('Distance', box('DIST', { placeholder: '10', inputMode: 'numeric', className: 'w-16' }))}

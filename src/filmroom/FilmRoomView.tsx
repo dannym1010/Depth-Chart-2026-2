@@ -421,7 +421,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     if (next && !isBrokenDown(next)) {
       const carry: BreakdownRow = {};
       if (row.QTR) carry.QTR = row.QTR;
-      if (row.ODK) carry.ODK = row.ODK;
+      // The next clip is usually a play: a non-play (S) isn't carried to it.
+      if (row.ODK && row.ODK !== 'S') carry.ODK = row.ODK;
       if (Object.keys(carry).length) changes.push({ play: next, row: carry });
     }
     saveBreakdown(changes);

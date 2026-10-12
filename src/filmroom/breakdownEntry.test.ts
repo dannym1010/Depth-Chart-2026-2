@@ -105,3 +105,19 @@ describe('editing a play from Hudl', () => {
     assert.equal(edited.hudlRow?.['OFF FORM'], 'Trips Rt');
   });
 });
+
+describe('a clip that is not a play (S)', () => {
+  it('is kept as S, counts as broken down, and is left out of tendencies', async () => {
+    const clips: FilmClip[] = [{ name: '01 scoreboard.mp4' } as FilmClip, { name: '02.mp4' } as FilmClip];
+    const [first] = blankPlays(clips, 'g1');
+    const s = applyBreakdown(first, { ODK: 'S' });
+    assert.equal(s.odk, 'S');
+    assert.equal(breakdownRowOf(s).ODK, 'S');
+    assert.ok(isBrokenDown(s));
+    const { calculateTendencies } = await import('../hudlScout/utils/tendencyEngine.ts');
+    const run = applyBreakdown({ ...first, id: 'p2', playNumber: 2 }, { ODK: 'O', DN: '1', DIST: '10', 'PLAY TYPE': 'Run', RESULT: 'Rush', 'GN/LS': '4' });
+    const withS = calculateTendencies([s, run]);
+    const without = calculateTendencies([run]);
+    assert.equal(JSON.stringify(withS.totalPlays ?? withS), JSON.stringify(without.totalPlays ?? without));
+  });
+});
