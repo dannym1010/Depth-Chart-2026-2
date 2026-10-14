@@ -32,6 +32,7 @@ import {
   SCRIPT_ORDERS,
   type ScriptOrder,
   KIND_LOOK,
+  planLines,
   scriptByFormation,
   SCRIPT_PRINT_SIZES,
   type ScriptPrintSize,
@@ -121,6 +122,23 @@ export const ScoutOppPlayLibrary: React.FC<{
       }
       return !on;
     });
+  // How many formations to a printed page (2 by default), remembered on this device.
+  const [formPrintSize, setFormPrintSize] = useState<ScriptPrintSize>(() => {
+    try {
+      const v = localStorage.getItem('formationPrintSize');
+      return v === 'big' || v === 'four' ? v : 'two';
+    } catch {
+      return 'two';
+    }
+  });
+  const pickFormPrintSize = (v: ScriptPrintSize) => {
+    setFormPrintSize(v);
+    try {
+      localStorage.setItem('formationPrintSize', v);
+    } catch {
+      // per-device preference only
+    }
+  };
   // How big the script prints: one play per page by default (to read on the field).
   const [printSize, setPrintSize] = useState<ScriptPrintSize>(() => {
     try {
@@ -497,6 +515,41 @@ export const ScoutOppPlayLibrary: React.FC<{
     write({ ...libraries, [gameId]: plays.map((p) => (ids.has(p.id) ? { ...p, onReport: on, editedAt: now } : p)) });
   };
 
+  /** Their formations, each with our defense lined up against it, our calls vs it, and their plays from it. */
+  const printFormations = async () => {
+    setPrintNote('');
+    const list = formationCards.filter(({ f }) => f.defenseUrl || f.diagramUrl);
+    if (!list.length) {
+      setPrintNote('Draw a formation first: there is nothing to print yet.');
+      return;
+    }
+    const cards = await Promise.all(
+      list.map(async ({ f, clips }) => {
+        const calls = planLines(f.plan, callName).map((l) => `${l.situation}: ${l.call}`);
+        const theirs = plays.filter((p) => f.id && formationOfPlay(p, formations)?.id === f.id).map((p) => p.name);
+        const detail = [
+          f.defenseUrl ? `vs ${f.defenseName || 'our defense'}` : 'Our defense not drawn on it yet',
+          clips.length ? `ran it ${clips.length}×` : '',
+          calls.length ? calls.join(' · ') : '',
+          theirs.length ? `Their plays: ${theirs.join(', ')}` : '',
+        ]
+          .filter(Boolean)
+          .join(' — ');
+        return { name: f.name, detail, diagram: await resolveDiagram(f.defenseUrl || f.diagramUrl) };
+      })
+    );
+    const title = `${opponent.trim() || 'Opponent'}: their formations vs. our defense`;
+    const win = window.open('', '_blank');
+    if (!win) {
+      setPrintNote('Allow pop-ups to print.');
+      return;
+    }
+    win.document.write(scoutScriptPrintHtml(title, [{ label: formPrintSize === 'four' ? 'Their formations vs. our defense' : '', plays: cards }], { size: formPrintSize }));
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 250);
+  };
+
   const printPlayTypes = async () => {
     setPrintNote('');
     const shown = groups.filter((g) => g.plays.some((p) => p.onReport));
@@ -722,6 +775,28 @@ export const ScoutOppPlayLibrary: React.FC<{
                   );
                 })}
               </ul>
+            )}
+            {formationCards.some(({ f }) => f.defenseUrl || f.diagramUrl) && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void printFormations()}
+                  className="h-9 px-3 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-black inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Printer className="w-4 h-4" /> Print formations vs. our defense
+                </button>
+                <select
+                  aria-label="Formations per page"
+                  value={formPrintSize}
+                  onChange={(e) => pickFormPrintSize(e.target.value as ScriptPrintSize)}
+                  className="h-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-xs font-bold"
+                >
+                  <option value="big">1 per page</option>
+                  <option value="two">2 per page</option>
+                  <option value="four">4 per page</option>
+                </select>
+                {printNote && <span className="text-xs font-bold text-amber-700 dark:text-amber-300">{printNote}</span>}
+              </div>
             )}
             <div className="flex flex-wrap items-end gap-2">
               <label className="text-[11px] font-bold text-slate-500 flex-1 min-w-[160px]">
