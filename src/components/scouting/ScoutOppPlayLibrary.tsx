@@ -309,8 +309,14 @@ export const ScoutOppPlayLibrary: React.FC<{
 
   const printScript = async () => {
     setPrintNote('');
-    // Each formation on its own page, the plays in script order, run / pass marked.
-    const lines = script.lines.map((line, i) => {
+    // The plays checked to print, in the script's order (numbered as on the script), run / pass marked.
+    const toPrint = script.lines.filter((line) => !onTheReport.find((p) => p.id === line.playId)?.printSkip);
+    if (!toPrint.length) {
+      setPrintNote('Every play is unchecked: check the ones to print.');
+      return;
+    }
+    const lines = toPrint.map((line) => {
+      const i = script.lines.indexOf(line);
       const play = onTheReport.find((p) => p.id === line.playId);
       // How many times they ran it (its clips on the film).
       const ran = play ? scriptFilm(play).snaps.length : 0;
@@ -320,14 +326,20 @@ export const ScoutOppPlayLibrary: React.FC<{
       const formation = tagged || (play ? formationOfPlay(play, formations)?.name : '') || '';
       return { name: line.name, detail, diagram: play ? diagramFor(play) : undefined, kind: play ? kindOf(play) : undefined, formation, n: i + 1 };
     });
-    const groups = scriptByFormation(lines);
+    // In the script's order: a run of plays from one formation shares a heading; the formation shows on each play.
+    const groups: { label: string; plays: typeof lines }[] = [];
+    for (const l of lines) {
+      const last = groups[groups.length - 1];
+      if (last && formKey(last.label) === formKey(l.formation)) last.plays.push(l);
+      else groups.push({ label: l.formation || '', plays: [l] });
+    }
     const withPictures = await Promise.all(
       groups.map(async (g) => ({
         ...g,
         plays: await Promise.all(g.plays.map(async (p) => ({ ...p, diagram: await resolveDiagram(p.diagram) }))),
       }))
     );
-    const html = scoutScriptPrintHtml(script.title, withPictures, { pagePerGroup: true, size: printSize });
+    const html = scoutScriptPrintHtml(script.title, withPictures, { size: printSize });
     const win = window.open('', '_blank');
     if (!win) {
       setPrintNote('Allow pop-ups to print the script.');
@@ -503,6 +515,13 @@ export const ScoutOppPlayLibrary: React.FC<{
     if (fromFormation === f.id) setFromFormation('');
   };
 
+  /** Change a card on any film of this report (the script mixes films). */
+  const patchAnyFilm = (id: string, partial: Partial<ScoutOppPlay>) => {
+    const gid = Object.keys(libraries).find((g) => (libraries[g] || []).some((p) => p.id === id));
+    if (!gid) return;
+    const now = Date.now();
+    write({ ...libraries, [gid]: (libraries[gid] || []).map((p) => (p.id === id ? { ...p, ...partial, editedAt: now } : p)) });
+  };
   const patch = (id: string, partial: Partial<ScoutOppPlay>) => {
     write({
       ...libraries,
@@ -1206,7 +1225,11 @@ export const ScoutOppPlayLibrary: React.FC<{
       <section className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 space-y-3 lg:sticky lg:top-3 h-fit">
         <div>
           <h2 className="text-sm font-black">{script.title}</h2>
-          <p className="text-xs text-slate-500 mt-0.5">{onTheReport.length} play{onTheReport.length === 1 ? '' : 's'} on the report. Drag the handle, type a number, or put them in order at once. Print follows this order.</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {onTheReport.length} play{onTheReport.length === 1 ? '' : 's'} on the report
+            {onTheReport.some((p) => p.printSkip) ? ` (${onTheReport.filter((p) => !p.printSkip).length} print)` : ''}. Drag the handle, type a number, or put them in order at once. Print follows this order; uncheck
+            a play to leave it off the printout.
+          </p>
         </div>
         {script.lines.length > 1 && (
           <div className="flex flex-wrap items-center gap-2">
@@ -1281,6 +1304,15 @@ export const ScoutOppPlayLibrary: React.FC<{
                     >
                       <GripVertical className="w-4 h-4" />
                     </button>
+                    <input
+                      type="checkbox"
+                      checked={!play?.printSkip}
+                      disabled={!play}
+                      onChange={(e) => play && patchAnyFilm(play.id, { printSkip: e.target.checked ? undefined : true })}
+                      aria-label={`Print ${line.name}`}
+                      title={play?.printSkip ? 'Left off the printout (still on the script)' : 'Prints (uncheck to leave it off the printout)'}
+                      className="h-4 w-4 shrink-0 cursor-pointer"
+                    />
                     <input
                       key={`${line.playId}-${index}`}
                       aria-label={`Spot for ${line.name}`}

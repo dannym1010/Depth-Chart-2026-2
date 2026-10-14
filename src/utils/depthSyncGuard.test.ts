@@ -49,22 +49,22 @@ describe('each depth chart spot keeps its newest edit between coaches', () => {
     const mine = { qb: [p('smith')], rb: [p('lee')], te: [p('ray')] };
     const theirs = { qb: [p('jones')], rb: [p('cole')], te: [] };
     const out = preferNewerSpots({ ...mine, ...theirs }, mine, theirs, { 'd:qb': 200, 'd:rb': 100 }, { 'd:qb': 100, 'd:rb': 300, 'd:te': 400 }, 'd');
-    assert.equal(out.qb[0].id, 'smith');
-    assert.equal(out.rb[0].id, 'cole');
+    assert.equal(out.qb[0].name, 'smith');
+    assert.equal(out.rb[0].name, 'cole');
     assert.deepEqual(out.te, []);
   });
   it('an older copy without edit times (an old app) does not undo a timed edit here', async () => {
     const { preferNewerSpots } = await import('./depthStamps.ts');
     const mine = { qb: [p('smith')] };
     const theirs = { qb: [p('jones')] };
-    assert.equal(preferNewerSpots({ ...theirs }, mine, theirs, { 'd:qb': 200 }, undefined, 'd').qb[0].id, 'smith');
+    assert.equal(preferNewerSpots({ ...theirs }, mine, theirs, { 'd:qb': 200 }, undefined, 'd').qb[0].name, 'smith');
   });
   it('the full-state merge keeps the newer spot too', async () => {
     const { mergeRemoteWeeklyData } = await import('./remoteStateMerge.ts');
     const local = { team_10u__week_7: { depthChart: { qb: [p('smith')] }, depthEditedAt: { 'd:qb': 200 } } } as any;
     const remote = { team_10u__week_7: { depthChart: { qb: [p('jones')] }, depthEditedAt: { 'd:qb': 100 } } } as any;
     const merged = mergeRemoteWeeklyData(local, remote, 'team_10u', '7', 'offense', 0);
-    assert.equal(merged.team_10u__week_7.depthChart!.qb[0].id, 'smith');
+    assert.equal(merged.team_10u__week_7.depthChart!.qb[0].name, 'smith');
     assert.equal(merged.team_10u__week_7.depthEditedAt!['d:qb'], 200);
   });
 });

@@ -26,6 +26,8 @@ export interface ScoutOppPlay {
   clips?: number[];
   /** Their formation it was drawn from (OppFormation id). */
   formationId?: string;
+  /** Kept on the script but left off the printed script. */
+  printSkip?: boolean;
 }
 
 /**
@@ -617,7 +619,7 @@ export const SCRIPT_PRINT_SIZES: { id: ScriptPrintSize; label: string }[] = [
 
 export function scoutScriptPrintHtml(
   title: string,
-  groups: { label: string; plays: { name: string; detail: string; diagram?: string | null; kind?: string; n?: number }[] }[],
+  groups: { label: string; plays: { name: string; detail: string; diagram?: string | null; kind?: string; n?: number; formation?: string }[] }[],
   /** Each group (a formation) starts its own page; how many plays to a page. */
   opts: { pagePerGroup?: boolean; size?: ScriptPrintSize } = {}
 ): string {
@@ -636,7 +638,8 @@ export function scoutScriptPrintHtml(
           const edge = k ? ` style="border-left:${large ? 14 : 6}px solid ${k.color}"` : '';
           const num = large && p.n ? `<span class="num">${p.n}</span>` : '';
           // Big pages carry the formation on each play (there's no room for a heading).
-          const form = large && g.label ? `<span class="form">${esc(g.label)}</span>` : '';
+          const formName = p.formation || g.label;
+          const form = large && formName ? `<span class="form">${esc(formName)}</span>` : '';
           return `<article class="card"${edge}><div class="head"><div class="name">${num}${badge}${esc(p.name)}</div>${form}</div>${p.detail ? `<div class="detail">${esc(p.detail)}</div>` : ''}<div class="pic">${picture}</div></article>`;
         })
         .join('');
