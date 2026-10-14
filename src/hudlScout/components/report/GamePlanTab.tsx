@@ -4,6 +4,7 @@ import { AIScoutingReport, Play, TendencyAnalysis } from '../../types/football';
 import { answerCoachQuestion } from '../../utils/buildLocalGameplan';
 import { Card, EmptyNote, RunPassBar, SectionHeader } from './ui';
 import { OurDefenseCard } from './OurDefenseCard';
+import { FormationPlanCard, KeyReadsCard, SituationPlanCard } from './SituationPlanCards';
 import type { DefenseSystem } from '../../utils/ourDefense';
 
 interface GamePlanTabProps {
@@ -99,8 +100,14 @@ export const GamePlanTab: React.FC<GamePlanTabProps> = ({
         </div>
       </Card>
 
+      {!own && <KeyReadsCard plays={plays} />}
+
       {!own && defense && <OurDefenseCard defense={defense} onChange={onChangeDefense} />}
 
+      {!own && <SituationPlanCard plays={plays} opponentName={opponentName} />}
+      {!own && <FormationPlanCard plays={plays} opponentName={opponentName} />}
+
+      {own && (
       <Card>
         <SectionHeader title="Calls by situation" subtitle={`What ${own ? 'we' : 'they'} do, and the front and coverage to start in.`} />
         <div className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -127,6 +134,7 @@ export const GamePlanTab: React.FC<GamePlanTabProps> = ({
           ))}
         </div>
       </Card>
+      )}
 
       <Card>
         <SectionHeader title="Pressure packages" subtitle="When to bring extra rushers, and why it works against them." />

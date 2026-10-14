@@ -161,7 +161,8 @@ export function ourDefenseCall(runPct: number, shortYardage: boolean, plays: Pla
   const known = plays.filter((p) => tightEnds(p) !== undefined);
   const twoTe = known.filter((p) => (tightEnds(p) || 0) >= 2);
   const twoTePct = known.length ? Math.round((twoTe.length / known.length) * 100) : 0;
-  const inCheck = twoTe.length >= 2 && twoTePct >= 50;
+  // Mostly two tight ends, or every snap here was (one snap of a two-tight-end set is still the check).
+  const inCheck = (twoTe.length >= 2 && twoTePct >= 50) || (twoTe.length > 0 && twoTe.length === known.length);
   // Runs to the strong side out of two tight ends (balanced sets have no strength).
   const checkRuns = sideSplit((inCheck ? twoTe : plays).filter((p) => isRun(p) && !isBalancedPlay(p)));
   const toStrength = checkRuns.total >= 3 && checkRuns.pct.strong >= 60;
