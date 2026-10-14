@@ -115,3 +115,11 @@ describe('hand signals', () => {
     assert.equal(defenseSystem().signals, undefined);
   });
 });
+
+describe('arranging the formations printout', () => {
+  it('prints the coach\'s order first, then the rest as listed', async () => {
+    const { printOrder } = await import('../../utils/scoutOppPlays.ts');
+    const f = (name: string, printRank?: number) => ({ f: { id: name, name, editedAt: 0, ...(printRank !== undefined ? { printRank } : {}) } });
+    assert.deepEqual(printOrder([f('A'), f('B', 1), f('C'), f('D', 0)]).map((x) => x.f.name), ['D', 'B', 'A', 'C']);
+  });
+});

@@ -33,6 +33,7 @@ import {
   type ScriptOrder,
   KIND_LOOK,
   planLines,
+  printOrder,
   scriptByFormation,
   SCRIPT_PRINT_SIZES,
   type ScriptPrintSize,
@@ -515,12 +516,43 @@ export const ScoutOppPlayLibrary: React.FC<{
     write({ ...libraries, [gameId]: plays.map((p) => (ids.has(p.id) ? { ...p, onReport: on, editedAt: now } : p)) });
   };
 
+  // The printout: drawn formations in the coach's order (the rest after, as listed); unchecked ones left off.
+  const printable = printOrder(formationCards.filter(({ f }) => f.id && (f.defenseUrl || f.diagramUrl)));
+  const [arranging, setArranging] = useState(false);
+  /** Save the printout's order (and which print) on the formations, so every coach prints it the same way. */
+  const savePrintOrder = (next: { f: OppFormation }[], skip?: { id: string; value: boolean }) => {
+    if (!onSaveFormations) return;
+    const now = Date.now();
+    const rank = new Map(next.map(({ f }, i) => [f.id, i]));
+    onSaveFormations(
+      (formations || []).map((x) => {
+        if (!rank.has(x.id)) return x;
+        const printSkip = skip && skip.id === x.id ? skip.value : x.printSkip;
+        if (x.printRank === rank.get(x.id) && Boolean(x.printSkip) === Boolean(printSkip)) return x;
+        return { ...x, printRank: rank.get(x.id), printSkip: printSkip || undefined, editedAt: now };
+      })
+    );
+  };
+  const movePrint = (from: number, to: number) => {
+    if (to < 0 || to >= printable.length) return;
+    const next = [...printable];
+    const [one] = next.splice(from, 1);
+    next.splice(to, 0, one);
+    savePrintOrder(next);
+  };
+  const resetPrintOrder = () => {
+    if (!onSaveFormations) return;
+    const now = Date.now();
+    const ids = new Set(printable.map(({ f }) => f.id));
+    onSaveFormations((formations || []).map((x) => (ids.has(x.id) && (x.printRank !== undefined || x.printSkip) ? { ...x, printRank: undefined, printSkip: undefined, editedAt: now } : x)));
+  };
+
   /** Their formations, each with our defense lined up against it, our calls vs it, and their plays from it. */
   const printFormations = async () => {
     setPrintNote('');
-    const list = formationCards.filter(({ f }) => f.defenseUrl || f.diagramUrl);
+    const list = printable.filter(({ f }) => !f.printSkip);
     if (!list.length) {
-      setPrintNote('Draw a formation first: there is nothing to print yet.');
+      setPrintNote(printable.length ? 'Every formation is unchecked: check the ones to print.' : 'Draw a formation first: there is nothing to print yet.');
       return;
     }
     const cards = await Promise.all(
@@ -795,7 +827,67 @@ export const ScoutOppPlayLibrary: React.FC<{
                   <option value="two">2 per page</option>
                   <option value="four">4 per page</option>
                 </select>
+                {onSaveFormations && (
+                  <button
+                    type="button"
+                    aria-expanded={arranging}
+                    onClick={() => setArranging((v) => !v)}
+                    className="h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-black text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <GripVertical className="w-4 h-4" /> {arranging ? 'Done arranging' : 'Arrange printout'}
+                  </button>
+                )}
                 {printNote && <span className="text-xs font-bold text-amber-700 dark:text-amber-300">{printNote}</span>}
+              </div>
+            )}
+            {arranging && onSaveFormations && printable.length > 0 && (
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-2 space-y-1">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">The printout prints in this order. Uncheck a formation to leave it off. Saved for every coach.</p>
+                  <button type="button" onClick={resetPrintOrder} className="text-[11px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer">
+                    Reset order
+                  </button>
+                </div>
+                <ol className="space-y-1">
+                  {printable.map(({ f, clips }, i) => (
+                    <li
+                      key={f.id}
+                      draggable
+                      onDragStart={(e) => e.dataTransfer.setData('text/print-index', String(i))}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const from = Number(e.dataTransfer.getData('text/print-index'));
+                        if (Number.isFinite(from) && from !== i) movePrint(from, i);
+                      }}
+                      className={`flex items-center gap-2 rounded-md border border-slate-200 dark:border-slate-700 px-2 py-1 bg-white dark:bg-slate-900 ${f.printSkip ? 'opacity-50' : ''}`}
+                    >
+                      <GripVertical className="w-3.5 h-3.5 text-slate-400 cursor-grab shrink-0" aria-hidden="true" />
+                      <span className="w-5 text-[11px] font-black text-slate-400 tabular-nums">{i + 1}</span>
+                      <input
+                        id={`print-${f.id}`}
+                        type="checkbox"
+                        checked={!f.printSkip}
+                        onChange={(e) => savePrintOrder(printable, { id: f.id, value: !e.target.checked })}
+                        aria-label={`Print ${f.name}`}
+                        className="h-4 w-4 cursor-pointer"
+                      />
+                      <label htmlFor={`print-${f.id}`} className="flex-1 min-w-0 truncate text-xs font-black text-slate-900 dark:text-white cursor-pointer">
+                        {f.name}
+                        <span className="ml-1.5 font-semibold text-slate-400">
+                          {f.defenseName ? `vs ${f.defenseName}` : 'no defense drawn'}
+                          {clips.length ? ` · ${clips.length} clip${clips.length === 1 ? '' : 's'}` : ''}
+                        </span>
+                      </label>
+                      <button type="button" aria-label={`Move ${f.name} up`} disabled={i === 0} onClick={() => movePrint(i, i - 1)} className="text-slate-400 hover:text-slate-800 dark:hover:text-white disabled:opacity-20 cursor-pointer">
+                        <ChevronUp className="w-4 h-4" />
+                      </button>
+                      <button type="button" aria-label={`Move ${f.name} down`} disabled={i === printable.length - 1} onClick={() => movePrint(i, i + 1)} className="text-slate-400 hover:text-slate-800 dark:hover:text-white disabled:opacity-20 cursor-pointer">
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                    </li>
+                  ))}
+                </ol>
               </div>
             )}
             <div className="flex flex-wrap items-end gap-2">

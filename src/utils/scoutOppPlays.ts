@@ -50,6 +50,17 @@ export interface OppFormation {
   editedAt: number;
   /** Removed (kept so an older copy can't bring it back). */
   deleted?: boolean;
+  /** Its place on the "formations vs our defense" printout (lower first), and left off it. */
+  printRank?: number;
+  printSkip?: boolean;
+}
+
+/** The printout's order: the coach's arrangement first, the rest after in the order given. */
+export function printOrder<T extends { f: OppFormation }>(list: T[]): T[] {
+  return list
+    .map((x, i) => ({ x, i }))
+    .sort((a, b) => (a.x.f.printRank ?? 1e9) - (b.x.f.printRank ?? 1e9) || a.i - b.i)
+    .map(({ x }) => x);
 }
 
 export interface FormationPlan {
