@@ -2110,6 +2110,8 @@ export interface PlayStroke {
   color?: string;
   /** A coverage zone at the end of the line, in yards across (rx) and deep (ry). */
   zone?: { rx: number; ry: number };
+  /** Man coverage: the receiver he's on (a dotted line to him and a ring around him, no arrow). */
+  man?: { x: number; y: number };
 }
 
 /** Pre-snap motion is drawn as a zigzag in its own color. */
@@ -2266,8 +2268,11 @@ export function strokePaths(s: PlayStroke) {
           return { cx: c.cx, cy: c.cy, rx, ry: s.zone!.ry * FIELD_SVG.scaleY };
         })()
       : null;
+  const man = s.man ? fieldToSvg(s.man.x, s.man.y) : null;
   return {
     zone,
+    /** Man coverage: the ring around his receiver (and the line is dotted, without an arrow). */
+    man,
     motionD: motionPts.length >= 2 ? zigzagPath(motionPts) : '',
     mainD: hasMain ? linePath(mainPts, (k) => Boolean(s.curve || s.points[m + k]?.smooth)) : '',
     color,
@@ -2798,6 +2803,8 @@ export function applyNodeOverrides(nodes: PlayNode[], overrides: Record<string, 
 }
 
 const STROKE_COLOR: Record<DrawKind, string> = { run: '#e11d2a', pass: '#2563eb', block: '#111827' };
+/** The ring around a receiver in man coverage (picture units, just outside his circle). */
+export const MAN_RING = 17;
 
 function strokeSvg(strokes: PlayStroke[]) {
   return strokes
@@ -2807,6 +2814,11 @@ function strokeSvg(strokes: PlayStroke[]) {
       const { a, b } = sp.cap;
       const zone = sp.zone ? `<ellipse cx="${sp.zone.cx.toFixed(1)}" cy="${sp.zone.cy.toFixed(1)}" rx="${sp.zone.rx.toFixed(1)}" ry="${sp.zone.ry.toFixed(1)}" fill="${sp.color}" fill-opacity="0.12" stroke="${sp.color}" stroke-opacity="0.55" stroke-width="1.2"/>` : '';
       const motion = sp.motionD ? `<path d="${sp.motionD}" fill="none" stroke="${MOTION_COLOR}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>` : '';
+      if (sp.man) {
+        // Man: dots to the receiver and a ring around him.
+        const ring = `<circle cx="${sp.man.cx.toFixed(1)}" cy="${sp.man.cy.toFixed(1)}" r="${MAN_RING}" fill="none" stroke="${sp.color}" stroke-width="2.2"/>`;
+        return `${ring}<path d="${sp.mainD}" fill="none" stroke="${sp.color}" stroke-width="2.6" stroke-linecap="round" stroke-dasharray="0.1 6"/>`;
+      }
       const main = sp.mainD
         ? `<path d="${sp.mainD}" fill="none" stroke="${sp.color}" stroke-width="${sp.width}" stroke-linecap="round" stroke-linejoin="round"${sp.dashed ? ' stroke-dasharray="5 4"' : ''}/>`
         : '';

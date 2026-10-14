@@ -437,12 +437,20 @@ export function manMatchups(defenders: PlayNode[], off: PlayNode[], ball = 0, fi
   return out;
 }
 
-const manLine = (n: PlayNode, target: PlayNode): PlayStroke => ({
-  kind: 'pass',
-  color: COVERAGE_COLOR,
-  label: `Man on ${target.label || target.role}`,
-  points: [pt(n.x, n.y), pt(n.x + (target.x - n.x) * 0.72, Math.max(n.y + (target.y - n.y) * 0.72, 0.6))],
-});
+/** Man coverage: dots from the defender up to the ring around his receiver. */
+const manLine = (n: PlayNode, target: PlayNode): PlayStroke => {
+  const dx = target.x - n.x;
+  const dy = target.y - n.y;
+  const d = Math.hypot(dx, dy) || 1;
+  const stop = Math.min(1.25, d * 0.5);
+  return {
+    kind: 'pass',
+    color: COVERAGE_COLOR,
+    label: `Man on ${target.label || target.role}`,
+    points: [pt(n.x, n.y), pt(target.x - (dx / d) * stop, target.y - (dy / d) * stop)],
+    man: pt(target.x, target.y),
+  };
+};
 
 /** The coverage's drops and zones (or man lines), for everyone who isn't rushing. */
 function coveragePaths(id: string, def: PlayNode[], off: PlayNode[], rushers: Set<string>, ball = 0, taken: Set<string> = new Set()): PlayStroke[] {

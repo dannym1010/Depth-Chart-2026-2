@@ -13,6 +13,7 @@ import {
   svgToField,
   ballXOf,
   setFieldBall,
+  MAN_RING,
   DEFENSE_COLOR,
   shownText,
   tagColors,
@@ -984,8 +985,18 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             return (
               <g key={`call-${i}`} pointerEvents="none">
                 {sp.zone && <ellipse cx={sp.zone.cx} cy={sp.zone.cy} rx={sp.zone.rx} ry={sp.zone.ry} fill={sp.color} fillOpacity={0.12} stroke={sp.color} strokeOpacity={0.55} strokeWidth={1.2} />}
-                {sp.mainD && <path d={sp.mainD} fill="none" stroke={sp.color} strokeWidth={sp.width} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={sp.dashed ? '6 4' : undefined} />}
-                <polygon points={arrowPts(a.cx, a.cy, b.cx, b.cy)} fill={sp.cap.color} />
+                {sp.man ? (
+                  <>
+                    {/* Man: dots to his receiver and a ring around the receiver. */}
+                    <circle cx={sp.man.cx} cy={sp.man.cy} r={MAN_RING} fill="none" stroke={sp.color} strokeWidth={2.2} />
+                    {sp.mainD && <path d={sp.mainD} fill="none" stroke={sp.color} strokeWidth={2.6} strokeLinecap="round" strokeDasharray="0.1 6" />}
+                  </>
+                ) : (
+                  <>
+                    {sp.mainD && <path d={sp.mainD} fill="none" stroke={sp.color} strokeWidth={sp.width} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={sp.dashed ? '6 4' : undefined} />}
+                    <polygon points={arrowPts(a.cx, a.cy, b.cx, b.cy)} fill={sp.cap.color} />
+                  </>
+                )}
               </g>
             );
           })}
