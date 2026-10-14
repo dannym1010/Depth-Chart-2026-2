@@ -1,6 +1,7 @@
 // The sideline defensive call sheet, printed from its own clean page (not by printing the app): the coach
 // chooses what shows, how big the text is, color or black and white, and the paper direction. The choices
 // are remembered on this device.
+import { printableDiagram } from '../../utils/printDiagram';
 import type { CallSheetSectionKey } from '../scoutBundle';
 
 export interface SheetPrintOptions {
@@ -135,7 +136,7 @@ export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedO
   const cards = o.playTypes
     ? data.playTypes
         .map((t) => {
-          const picture = t.diagram ? `<img src="${esc(t.diagram)}" alt="${esc(t.label)}"/>` : '<div class="empty">Not drawn yet.</div>';
+          const picture = t.diagram ? `<img src="${esc(printableDiagram(t.diagram) || '')}" alt="${esc(t.label)}"/>` : '<div class="empty">Not drawn yet.</div>';
           return `<article class="card"><div class="nm">${esc(t.label)}</div>${o.playTypeDetail && t.detail ? `<div class="detail">${esc(t.detail)}</div>` : ''}${picture}</article>`;
         })
         .join('')
@@ -150,7 +151,7 @@ export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedO
     ? `<section class="fplans"><div class="fplans-h">Our calls vs their formations</div><div class="fgrid">${plans
         .map(
           (f) =>
-            `<article class="fplan">${f.diagram ? `<img src="${esc(f.diagram)}" alt="${esc(f.name)}"/>` : ''}<div><h3>vs ${esc(f.name)}</h3><ul>${f.lines
+            `<article class="fplan">${f.diagram ? `<img src="${esc(printableDiagram(f.diagram) || '')}" alt="${esc(f.name)}"/>` : ''}<div><h3>vs ${esc(f.name)}</h3><ul>${f.lines
               .map((l) => `<li class="${l.situation === 'Base' ? 'base' : ''}"><b>${esc(l.situation)}</b><span>${esc(l.call)}</span></li>`)
               .join('')}</ul>${f.theirPlays?.length ? `<div class="their"><b>Their plays</b><ul>${f.theirPlays.map((n) => `<li><span>${esc(n)}</span></li>`).join('')}</ul></div>` : ''}</div></article>`
         )

@@ -4,6 +4,7 @@
  * Supports direct window printing, clean standalone iframe printing, and new tab printable view.
  */
 
+import { printableDiagram } from './printDiagram';
 import { PracticePlan, PracticePeriod, RosterPlayer, AttendanceRecord, SeasonConfig, calculatePlayerCompliance, SingleWristband, WristbandPlay, FormationBoard, PlacedPlayer } from '../types';
 import { calculatePlayerHours, getPlayerHoursBreakdown } from './hoursCalculation';
 import { formatWeekLabel } from './seasonWeekUtils';
@@ -3039,7 +3040,7 @@ export function generateCallSheetPrintHTML(
               <span style="font-size: ${fs2}; font-weight: 700; opacity: 0.9;">${st ? `They ran it ${st.total} time${st.total === 1 ? '' : 's'}` : ''}</span>
             </div>
             <div style="display: grid; grid-template-columns: ${pic ? 'minmax(0, 1.05fr) minmax(0, 1fr)' : 'minmax(0, 1fr)'}; gap: 12px; padding: 8px 10px; align-items: start;">
-              ${pic ? `<img src="${pic.replace(/"/g, '%22')}" alt="" style="width: 100%; height: auto; border: 1px solid ${C.line}; border-radius: 4px; background: #ffffff;" />` : ''}
+              ${pic ? `<img src="${(printableDiagram(pic) || pic).replace(/"/g, '%22')}" alt="" style="width: 100%; height: auto; border: 1px solid ${C.line}; border-radius: 4px; background: #ffffff;" />` : ''}
               <div style="display: flex; flex-direction: column; gap: 8px; min-width: 0;">
                 <div>
                   <div style="font-size: ${fs3}; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; color: ${C.headText}; border-bottom: 2px solid ${C.headText}; padding: 0 6px 2px;">Our calls</div>

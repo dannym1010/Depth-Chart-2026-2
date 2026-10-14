@@ -1,3 +1,4 @@
+import { printableDiagram } from './printDiagram';
 import type { PracticePeriod } from '../types';
 import type { PlayBuilderState } from '../types/callSheet';
 import type { Play } from '../hudlScout/types/football';
@@ -631,7 +632,7 @@ export function scoutScriptPrintHtml(
       const cards = g.plays
         .map((p) => {
           const picture = p.diagram
-            ? `<img src="${esc(p.diagram)}" alt="${esc(p.name)}"/>`
+            ? `<img src="${esc(printableDiagram(p.diagram) || '')}" alt="${esc(p.name)}"/>`
             : `<div class="empty">No diagram yet. Open this play and draw it.</div>`;
           const k = p.kind ? KIND_LOOK[p.kind] : undefined;
           const badge = k ? `<span class="kind" style="background:${k.color}">${k.label}</span>` : '';
