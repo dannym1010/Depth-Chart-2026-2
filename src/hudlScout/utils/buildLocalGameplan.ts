@@ -101,13 +101,9 @@ export function buildLocalGameplan(analysis: TendencyAnalysis, plays: Play[], op
   }
   if (!vulnerabilities.length) vulnerabilities.push(`No strong tells yet. Play sound ${def.base} gaps and make them beat you on 3rd down.`);
 
-  const checkHeavy = twoTePct >= 50;
-  const baseFront = checkHeavy
-    ? `${def.check} (they're in two tight ends ${twoTePct}% of the time; ${def.over} when they run to the strength)`
-    : twoTePct > 0
-      ? `${def.base}, check ${def.check} vs two tight ends (${twoTePct}% of snaps)`
-      : def.base;
-  const secondary = checkHeavy ? def.checkCoverage : def.baseCoverage;
+  // The base is the call; the 5-3 check is set per formation by the coach (Their plays).
+  const baseFront = twoTePct >= 50 ? `${def.base} (${def.check} on the formations you set it for)` : def.base;
+  const secondary = def.baseCoverage;
 
   const wristband = {
     firstDownCalls: [
@@ -116,8 +112,7 @@ export function buildLocalGameplan(analysis: TendencyAnalysis, plays: Play[], op
       'Check hash — extra defender to the run strength',
     ],
     runStopCalls: [
-      `Two TEs: check ${def.check} (${def.checkContain} contain)`,
-      `Runs to the strength: ${def.over}`,
+      `Your formation calls: ${def.check} where you set it (${def.checkContain} contain)`,
       `${def.base}: ${def.baseContain} keep contain`,
     ],
     passBlitzCalls: [
@@ -170,7 +165,7 @@ export function buildLocalGameplan(analysis: TendencyAnalysis, plays: Play[], op
   return {
     executiveSummary: `${opponentName} is a ${identity} team in this ${analysis.totalPlays}-play sample (${analysis.runPct}% run / ${analysis.passPct}% pass, ${analysis.avgGainOverall} yards per snap). They work the ${hashBias}. ${
       topTell ? `Biggest tell: ${topTell.title.replace(/\s*Tell$/i, '')}: ${topTell.statEvidence.replace(/\.\s*$/, '')}.` : 'No single tell jumps off the sheet yet.'
-    } Start in our ${def.base} ${def.baseCoverage}${twoTePct ? `, check ${def.check} when they go to two tight ends` : ''}; do not get the edges cracked, and make them execute on 3rd & long.`,
+    } Start in our ${def.base} ${def.baseCoverage}; do not get the edges cracked, and make them execute on 3rd & long.`,
     opponentIdentity: {
       offensiveSystem: identity + (topForm ? ` out of ${topForm.formation}` : ''),
       tempoPace: analysis.totalPlays >= 80 ? 'Higher snap volume — stay in huddle tempo and sub cleanly' : 'Standard youth pace',
@@ -194,18 +189,18 @@ export function buildLocalGameplan(analysis: TendencyAnalysis, plays: Play[], op
       {
         name: 'Edge Set',
         situation: 'Early downs / run hash',
-        description: `${def.baseContain} keep contain in the ${def.base} (${def.checkContain} in the ${def.check}). Spill it inside, no bounce.`,
+        description: `${def.baseContain} keep contain in the ${def.base}. Spill it inside, no bounce.`,
         targetWeakness: hashBias + ' run lean',
       },
       {
         name: `${def.check} check`,
-        situation: 'Two tight ends',
-        description: `Check out of the ${def.base} into the ${def.check}. ${def.checkContain} have contain. Straight ${def.check} against a balanced set.`,
+        situation: 'Formations you set it for',
+        description: `Set it per formation in Their plays (our calls vs their formations). ${def.checkContain} have contain.`,
         targetWeakness: twoTePct ? `Two tight ends on ${twoTePct}% of their snaps` : 'Not on film yet: check it when you see it',
       },
       {
         name: def.over,
-        situation: 'Two tight ends, runs to the strength',
+        situation: 'Formations you set it for, runs to the strength',
         description: `Slide the line one gap toward the strength. ${def.checkContain} still have contain.`,
         targetWeakness: `${strongRuns.total ? `${strongRuns.pct.strong}% of their runs go to the strength` : 'Their runs to the strength'}`,
       },
@@ -218,7 +213,7 @@ export function buildLocalGameplan(analysis: TendencyAnalysis, plays: Play[], op
       ...(def.blitzes.length ? def.blitzes : ['Blitz']).map((name) => ({
         name,
         situation: '3rd & long / passing downs',
-        description: `${def.baseCoverage} behind it. Whoever has contain keeps the QB in the pocket.${def.blitzes.length ? '' : ' Name your blitz packages under Our defense.'}`,
+        description: `Out of the ${def.base}, ${def.baseCoverage} behind it. Whoever has contain keeps the QB in the pocket.${def.blitzes.length ? '' : ' Name your blitz packages under Our defense.'}`,
         targetWeakness: `${analysis.thirdDownConversions.long.passPct}% pass on 3rd & long`,
       })),
       {

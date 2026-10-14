@@ -94,7 +94,7 @@ export function callDrawing(
     tags,
     family: runMode ? 'run' : tagged.family,
   });
-  const lookKey = (PERSONNEL_DEFINITIONS[s.personnel]?.te || 0) >= 2 ? '53_C3' : s.strength === 'Right' ? '44_C3_RIP' : '44_C3_LIZ';
+  const lookKey = s.strength === 'Right' ? '44_C3_RIP' : '44_C3_LIZ';
   return { setup: s, play, strokes, ball, conceptKey, runId: run.id, hole, tags, lookKey };
 }
 

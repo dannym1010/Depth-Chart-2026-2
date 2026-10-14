@@ -41,9 +41,10 @@ describe('game plan by down and distance', () => {
     assert.equal(playCallName({ playName: 'Complete' } as Play), '');
     assert.equal(playCallName({ playCall: '', hudlCall: '32 B dive', playName: 'Rush' } as Play), '32 B dive');
   });
-  it('calls our two-tight-end check even on one snap of a two-tight-end set', () => {
+  it('calls the 4-4 even against two tight ends, and blitzes out of the 4-4', () => {
     const fourth = situationPlan(film()).find((r) => r.label === '4th & 7–10')!;
-    assert.match(fourth.call.front, /^5-3/);
+    assert.match(fourth.call.front, /^4-4/);
+    assert.match(fourth.call.emphasis, /out of the 4-4/);
   });
 });
 
@@ -74,5 +75,43 @@ describe('things to coach', () => {
   });
   it('says nothing from a handful of snaps', () => {
     assert.deepEqual(keyReads(film().slice(0, 3)), []);
+  });
+});
+
+describe('the coaches\' own calls on the game plan', () => {
+  it('a formation\'s call for a row comes from its own situation, else a matching one ("3rd & long")', async () => {
+    const { planCallFor } = await import('./situationPlan.ts');
+    const plan = { calls: [{ situation: '3rd & long', callId: 'blow' }, { situation: '1st & 10', callId: 'stack' }] };
+    assert.equal(planCallFor(plan, 'long'), 'blow');
+    assert.equal(planCallFor(plan, 'first'), 'stack');
+    assert.equal(planCallFor(plan, 'short'), undefined);
+    assert.equal(planCallFor({ calls: [...plan.calls, { situation: '2nd–4th & 7+', callId: 'dog' }] }, 'long'), 'dog');
+  });
+  it('two coaches editing different rows both keep theirs; the same row keeps the newer edit', async () => {
+    const { pickScoutBundle } = await import('../../utils/scoutMerge.ts');
+    const plays = [{ id: 'p1', gameId: 'g1' }];
+    const games = [{ id: 'g1', name: 'G', addedAt: 1 }];
+    const a = { plays, games, updatedAt: 10, gamePlanCalls: { 'dd:1': { callId: 'stack', editedAt: 10 }, 'dd:3-long': { text: 'Blow Sting', editedAt: 5 } } };
+    const b = { plays, games, updatedAt: 20, gamePlanCalls: { 'dd:2-long': { callId: 'dog', editedAt: 20 }, 'dd:3-long': { editedAt: 8 } } };
+    const m = pickScoutBundle(a, b);
+    assert.equal(m.gamePlanCalls['dd:1'].callId, 'stack');
+    assert.equal(m.gamePlanCalls['dd:2-long'].callId, 'dog');
+    assert.equal(m.gamePlanCalls['dd:3-long'].text, undefined);
+  });
+});
+
+describe('hand signals', () => {
+  it('stay with the team\'s defense; a row without a name is dropped', async () => {
+    const { setDefenseSystem, defenseSystem } = await import('./ourDefense.ts');
+    setDefenseSystem({
+      blitzes: ['Double Dog'],
+      signals: [
+        { id: 's1', name: 'Double Dog', kind: 'Blitz', signal: 'Both fists on the helmet' },
+        { id: 's2', name: '', kind: 'Stunt', signal: 'x' },
+      ],
+    });
+    assert.deepEqual(defenseSystem().signals?.map((s) => s.name), ['Double Dog']);
+    setDefenseSystem(undefined);
+    assert.equal(defenseSystem().signals, undefined);
   });
 });

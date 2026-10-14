@@ -128,6 +128,11 @@ export function pickScoutBundle(a?: any, b?: any) {
   const script = (Number(newer.practiceScript?.builtAt) || 0) >= (Number(older.practiceScript?.builtAt) || 0) ? newer.practiceScript : older.practiceScript;
   const backfieldBases = mergeBackfieldBases(older.backfieldBases, newer.backfieldBases);
   const oppFormations = mergeOppFormations(older.oppFormations, newer.oppFormations);
+  // The game plan's own calls: per row, the newer edit wins (a cleared row is an edit too).
+  const gamePlanCalls: Record<string, any> = { ...(older.gamePlanCalls || {}) };
+  for (const [k, v] of Object.entries((newer.gamePlanCalls || {}) as Record<string, any>)) {
+    if (!gamePlanCalls[k] || (Number(v?.editedAt) || 0) >= (Number(gamePlanCalls[k]?.editedAt) || 0)) gamePlanCalls[k] = v;
+  }
   return {
     ...older,
     ...newer,
@@ -136,6 +141,7 @@ export function pickScoutBundle(a?: any, b?: any) {
     playLibraries: mergeOppLibraries(older.playLibraries, newer.playLibraries, deletedOpp),
     ...(backfieldBases ? { backfieldBases } : {}),
     ...(oppFormations ? { oppFormations } : {}),
+    ...(Object.keys(gamePlanCalls).length ? { gamePlanCalls } : {}),
     ...(deletedOpp.length ? { deletedOppPlayIds: deletedOpp } : {}),
     ...(script ? { practiceScript: script } : {}),
     ...(deleted.size ? { deletedGameIds: [...deleted] } : {}),

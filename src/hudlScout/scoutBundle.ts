@@ -54,6 +54,17 @@ export interface ScoutBundle {
   backfieldBases?: FilmBackfieldBases;
   /** Their formations, drawn once; their plays start from them. */
   oppFormations?: OppFormation[];
+  /**
+   * The coaches' own calls on the game plan, by row ("dd:3-long", "form:32 DW:base"). A call from the Play
+   * Library (callId) or typed (text); both empty = back to the suggested call. Newest edit wins per row.
+   */
+  gamePlanCalls?: Record<string, GamePlanCall>;
+}
+
+export interface GamePlanCall {
+  callId?: string;
+  text?: string;
+  editedAt: number;
 }
 
 export function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
@@ -83,6 +94,7 @@ export function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
     practiceScript: saved?.practiceScript && typeof saved.practiceScript === 'object' ? saved.practiceScript : undefined,
     backfieldBases: saved?.backfieldBases && typeof saved.backfieldBases === 'object' ? saved.backfieldBases : undefined,
     oppFormations: Array.isArray(saved?.oppFormations) ? saved.oppFormations : undefined,
+    gamePlanCalls: saved?.gamePlanCalls && typeof saved.gamePlanCalls === 'object' ? saved.gamePlanCalls : undefined,
   };
 }
 

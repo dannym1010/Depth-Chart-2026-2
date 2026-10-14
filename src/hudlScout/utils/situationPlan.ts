@@ -29,6 +29,26 @@ export interface PlanRow {
   /** The plays they ran here, most-run first: "4 sweep ×3 (+3, +12, +5)". */
   ran: string[];
   call: DefenseCall;
+  /** In a formation's plan: which part (first / short / medium / long). */
+  part?: FormationPart;
+}
+
+export type FormationPart = 'first' | 'short' | 'medium' | 'long';
+
+/** The situation a formation row is saved under in the formation's plan (also printed on the call sheet). */
+export const PART_SITUATION: Record<FormationPart, string> = { first: '1st & 10', short: '2nd–4th & 1–3', medium: '2nd–4th & 4–6', long: '2nd–4th & 7+' };
+
+const PART_ALIASES: Record<FormationPart, RegExp> = {
+  first: /^1st\b/i,
+  short: /\b(2nd|3rd|4th)\s*&\s*short\b|short yardage|goal line/i,
+  medium: /\bmedium\b/i,
+  long: /\b(2nd|3rd|4th)\s*&\s*long\b|passing down/i,
+};
+
+/** A formation plan's call for one part: its own row first, then a call saved under a matching situation ("3rd & long"). */
+export function planCallFor(plan: { calls?: { situation: string; callId: string }[] } | undefined, part: FormationPart): string | undefined {
+  const calls = plan?.calls || [];
+  return calls.find((c) => c.situation === PART_SITUATION[part])?.callId || calls.find((c) => PART_ALIASES[part].test(c.situation))?.callId;
 }
 
 export interface FormationPlan {
@@ -162,7 +182,7 @@ export function formationPlan(plays: Play[], minSnaps = 1): FormationPlan[] {
       avgGain: whole.avgGain,
       twoTightEnds: (tightEnds({ personnel: '', formation } as Play) || 0) >= 2,
       menu: [...menu.entries()].sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count })),
-      rows: parts.filter((x) => x.list.length).map((x) => rowOf(`${formation}-${x.key}`, x.label, x.list, x.short, x.passDown)),
+      rows: parts.filter((x) => x.list.length).map((x) => ({ ...rowOf(`${formation}-${x.key}`, x.label, x.list, x.short, x.passDown), part: x.key as FormationPart })),
       call: whole.call,
     });
   }

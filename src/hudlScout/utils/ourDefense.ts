@@ -27,6 +27,17 @@ export interface DefenseSystem {
   alignments?: DefenseAlignments;
   /** The coach's own fronts ("6-2", "Bear"): each starts from one of the standard defenses, lined up their way. */
   fronts?: DefenseFront[];
+  /** Hand signals from the sideline for our blitzes and stunts. */
+  signals?: HandSignal[];
+}
+
+export interface HandSignal {
+  id: string;
+  /** The blitz or stunt ("Double Dog", "Cross LIZ"). */
+  name: string;
+  kind: 'Blitz' | 'Stunt';
+  /** How it's signaled ("Both fists on the helmet"). */
+  signal: string;
 }
 
 export interface DefenseFront {
@@ -63,6 +74,7 @@ export function setDefenseSystem(s?: Partial<DefenseSystem>) {
     });
     if (s.alignments && typeof s.alignments === 'object') next.alignments = s.alignments;
     if (Array.isArray(s.fronts)) next.fronts = s.fronts.filter((f) => f && f.id && f.name && f.from);
+    if (Array.isArray(s.signals)) next.signals = s.signals.filter((x) => x && x.id && String(x.name || '').trim());
   }
   system = next;
 }
@@ -153,58 +165,33 @@ export interface DefenseCall {
 const isRun = (p: Play) => p.playType === 'RUN';
 
 /**
- * Our call for a situation, from its plays: base 4-4 Cover 3; the 5-3 check when they're in two
- * tight ends; 5-3 Over when those runs go to the strength; a blitz on passing downs.
+ * Our call for a situation, from its plays: the base (4-4 Cover 3), with a blitz on passing downs. Blitzes
+ * come out of the base. The 5-3 check is the coach's call per formation (Their plays: our calls vs their
+ * formations), never picked from the numbers.
  */
 export function ourDefenseCall(runPct: number, shortYardage: boolean, plays: Play[] = [], passDown = false): DefenseCall {
   const s = system;
   const known = plays.filter((p) => tightEnds(p) !== undefined);
   const twoTe = known.filter((p) => (tightEnds(p) || 0) >= 2);
   const twoTePct = known.length ? Math.round((twoTe.length / known.length) * 100) : 0;
-  // Mostly two tight ends, or every snap here was (one snap of a two-tight-end set is still the check).
-  const inCheck = (twoTe.length >= 2 && twoTePct >= 50) || (twoTe.length > 0 && twoTe.length === known.length);
-  // Runs to the strong side out of two tight ends (balanced sets have no strength).
-  const checkRuns = sideSplit((inCheck ? twoTe : plays).filter((p) => isRun(p) && !isBalancedPlay(p)));
-  const toStrength = checkRuns.total >= 3 && checkRuns.pct.strong >= 60;
-  const allBalanced = twoTe.length > 0 && twoTe.every((p) => isBalancedPlay(p));
-
   const blitz = s.blitzes.length ? s.blitzes[0] : 'a blitz package';
   // Blitz when they throw here; a "passing down" they still run on stays in the front.
   const bringIt = (passDown && runPct < 60) || runPct <= 35;
-  const notes: string[] = [];
-  let front: string;
-  let coverage: string;
-  if (inCheck) {
-    front = toStrength && !allBalanced ? s.over : s.check;
-    coverage = s.checkCoverage;
-    notes.push(`Two tight ends on ${twoTePct}% of these snaps: check ${s.check}. ${s.checkContain} have contain.`);
-    if (front === s.over) notes.push(`Their runs go to the strength ${checkRuns.pct.strong}% of the time: slide the line one gap to the strength.`);
-    else if (allBalanced) notes.push('Balanced set, no strength: stay in the straight 5-3.');
-  } else {
-    front = s.base;
-    coverage = s.baseCoverage;
-    notes.push(`${s.baseContain} have contain.`);
-    if (twoTe.length) notes.push(`Check ${s.check} when they show two tight ends (${twoTe.length} of ${known.length} snaps here); ${s.checkContain} have contain there.`);
-    else if (toStrength) notes.push(`Runs go to the strength ${checkRuns.pct.strong}% of the time: set the extra hat to the strength.`);
-  }
+  const notes: string[] = [`${s.baseContain} have contain.`];
+  if (twoTe.length && twoTePct >= 50) notes.push(`Two tight ends on ${twoTePct}% of these snaps: the ${s.check} only on the formations you set it for.`);
   if (shortYardage && runPct >= 60) notes.push(`They run it ${runPct}% here: fill the A and B gaps, nobody runs past the ball.`);
-  else if (bringIt) notes.push(`Passing down (${100 - runPct}% pass): ${blitz === 'a blitz package' ? 'bring a blitz package' : `bring ${blitz}`} with ${coverage} behind it, and whoever has contain keeps the QB in the pocket.`);
+  else if (bringIt) notes.push(`Passing down (${100 - runPct}% pass): ${blitz === 'a blitz package' ? 'bring a blitz package' : `bring ${blitz}`} out of the ${s.base} with ${s.baseCoverage} behind it, and whoever has contain keeps the QB in the pocket.`);
   else if (passDown && runPct >= 60) notes.push(`They still run it ${runPct}% on this down: stay in the front, no blitz needed.`);
   else if (runPct >= 60) notes.push(`Run-first (${runPct}% run): play the run, keep the cutback.`);
   else notes.push(`Balanced (${runPct}% run).`);
-  return { front: bringIt && !shortYardage ? `${front} + ${s.blitzes[0] || 'blitz'}` : front, coverage, emphasis: notes.join(' ') };
+  return { front: bringIt && !shortYardage ? `${s.base} + ${s.blitzes[0] || 'blitz'}` : s.base, coverage: s.baseCoverage, emphasis: notes.join(' ') };
 }
 
-/** Our answer to a formation that's mostly run (or mostly pass). */
+/** Our answer to a formation that's mostly run (or mostly pass): the base; the 5-3 only where the coach sets it. */
 export function formationCounter(formation: string, run: boolean): string {
   const s = system;
   const twoTe = (tightEnds({ personnel: '', formation } as Play) || 0) >= 2;
-  const balanced = isBalancedPlay({ formation } as Play);
-  if (run && twoTe) {
-    return balanced
-      ? `Two tight ends, balanced: check ${s.check}. ${s.checkContain} have contain.`
-      : `Two tight ends: check ${s.check}, ${s.over} (line one gap to the strength) when they run to it. ${s.checkContain} have contain.`;
-  }
-  if (run) return `${s.base}, extra hat to the strength and fill the gaps. ${s.baseContain} have contain.`;
-  return `${s.base} ${s.baseCoverage}. ${s.baseContain} keep contain and carry the flats; ${s.blitzes[0] || 'a blitz package'} on passing downs.`;
+  const check = twoTe ? ` ${s.check} only if you set it for this formation.` : '';
+  if (run) return `${s.base}, extra hat to the strength and fill the gaps. ${s.baseContain} have contain.${check}`;
+  return `${s.base} ${s.baseCoverage}. ${s.baseContain} keep contain and carry the flats; ${s.blitzes[0] || 'a blitz package'} on passing downs.${check}`;
 }

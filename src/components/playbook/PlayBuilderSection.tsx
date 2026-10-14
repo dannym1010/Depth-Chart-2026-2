@@ -253,14 +253,12 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [situations, setSituations] = useState<string[]>(saved?.situations || []);
   const looks = teamDefenseLooks(defenseSystem());
-  // An opponent's play opens against our call for it: the 5-3 against two tight ends, else the base 4-4.
+  // An opponent's play opens against our base 4-4 (the 5-3 is the coach's pick per formation).
   const [defenseKey, setDefenseKey] = useState(() =>
     saved && (saved.defenseKey === '' || looks[saved.defenseKey])
       ? saved.defenseKey
       : defenseMode
         ? guessDefense(seed?.name || '', looks)
-        : seed?.name && (PERSONNEL_DEFINITIONS[opened.personnel]?.te || 0) >= 2
-        ? '53_C3'
         : '44_C3_LIZ'
   );
   // The 4-4 Cover 3 sets its strength (LIZ / RIP) to the offense's.

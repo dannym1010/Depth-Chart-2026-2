@@ -150,7 +150,7 @@ export function redrawWithBackfield(
     tags: drawTags,
     family: runMode ? 'run' : tagged.family,
   });
-  const lookKey = ourDefense?.key || (b ? b.defenseKey : setup.personnel >= 30 ? '53_C3' : strength === 'Right' ? '44_C3_RIP' : '44_C3_LIZ');
+  const lookKey = ourDefense?.key || (b ? b.defenseKey : strength === 'Right' ? '44_C3_RIP' : '44_C3_LIZ');
   if (ourDefense && !b) Object.assign(overrides, ourDefense.moves);
   // Our defense as the coach set it in the builder: lined up on this formation, moved defenders kept,
   // and the lines drawn for defenders kept (the offense's lines are drawn again).

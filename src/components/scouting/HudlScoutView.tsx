@@ -484,6 +484,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       practiceScript: oppBundle.practiceScript,
       backfieldBases: oppBundle.backfieldBases,
       oppFormations: oppBundle.oppFormations,
+      gamePlanCalls: oppBundle.gamePlanCalls,
       updatedAt: oppBundle.updatedAt,
     });
     if (oppBundle.datasetName && oppBundle.datasetName !== opponentFallback) {
@@ -524,6 +525,15 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
 
   // The Play Bank for tagging film: our plays (opponent plays drawn from Their plays aren't ours).
   const playBank = useMemo(() => (playDatabase || []).filter((p) => !isScoutPlayEntry(p)), [playDatabase]);
+  // Our defensive calls (Play Library) a coach can pick on the game plan.
+  const defenseCalls = useMemo(
+    () =>
+      playBank
+        .filter((p) => p.unit === 'defense')
+        .map((p) => ({ id: p.id, name: p.name }))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })),
+    [playBank]
+  );
   // Called plays Hudl listed that aren't in the Play Bank yet (offer to add them).
   const [newCalls, setNewCalls] = useState<{ names: string[]; gameId: string } | null>(null);
   const [uploadNote, setUploadNote] = useState('');
@@ -954,6 +964,16 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                 onPrintCallSheet={() => setIsCallSheetOpen(true)}
                 defense={defense}
                 onChangeDefense={onChangeDefenseSystem}
+                defenseCalls={defenseCalls}
+                gamePlanCalls={bundle.gamePlanCalls}
+                onSetGamePlanCall={(key, call) =>
+                  setBundle((prev) => ({ ...prev, gamePlanCalls: { ...(prev.gamePlanCalls || {}), [key]: { ...(call || {}), editedAt: Date.now() } }, updatedAt: Date.now() }))
+                }
+                formations={bundle.oppFormations}
+                onSaveFormations={(oppFormations) => {
+                  setBundle((prev) => ({ ...prev, oppFormations, updatedAt: Date.now() }));
+                  onFormationPlans?.(oppFormations, { libraries: bundle.playLibraries, deletedIds: bundle.deletedOppPlayIds });
+                }}
               />
             )}
             {activeTab === 'plays' && (

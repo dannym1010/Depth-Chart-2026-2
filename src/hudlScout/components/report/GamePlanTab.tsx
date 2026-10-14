@@ -4,7 +4,10 @@ import { AIScoutingReport, Play, TendencyAnalysis } from '../../types/football';
 import { answerCoachQuestion } from '../../utils/buildLocalGameplan';
 import { Card, EmptyNote, RunPassBar, SectionHeader } from './ui';
 import { OurDefenseCard } from './OurDefenseCard';
-import { FormationPlanCard, KeyReadsCard, SituationPlanCard } from './SituationPlanCards';
+import { HandSignalsCard } from './HandSignalsCard';
+import { FormationPlanCard, KeyReadsCard, SituationPlanCard, type CallOption, type CallPick } from './SituationPlanCards';
+import type { GamePlanCall } from '../../scoutBundle';
+import type { OppFormation } from '../../../utils/scoutOppPlays';
 import type { DefenseSystem } from '../../utils/ourDefense';
 
 interface GamePlanTabProps {
@@ -20,6 +23,13 @@ interface GamePlanTabProps {
   /** Our defense the calls are made from, and changing it (unset = this coach can't). */
   defense?: DefenseSystem;
   onChangeDefense?: (next: DefenseSystem) => void;
+  /** Our defensive calls a coach can pick on the plan, the calls picked (saved with the week), and setting one. */
+  defenseCalls?: CallOption[];
+  gamePlanCalls?: Record<string, GamePlanCall>;
+  onSetGamePlanCall?: (key: string, pick: CallPick) => void;
+  /** Their formations, and saving them (a formation's call goes into its plan). */
+  formations?: OppFormation[];
+  onSaveFormations?: (next: OppFormation[]) => void;
 }
 
 export const GamePlanTab: React.FC<GamePlanTabProps> = ({
@@ -33,6 +43,11 @@ export const GamePlanTab: React.FC<GamePlanTabProps> = ({
   onPrintCallSheet,
   defense,
   onChangeDefense,
+  defenseCalls,
+  gamePlanCalls,
+  onSetGamePlanCall,
+  formations,
+  onSaveFormations,
 }) => {
   const [question, setQuestion] = useState('');
   const [answers, setAnswers] = useState<{ q: string; a: string }[]>([]);
@@ -103,9 +118,22 @@ export const GamePlanTab: React.FC<GamePlanTabProps> = ({
       {!own && <KeyReadsCard plays={plays} />}
 
       {!own && defense && <OurDefenseCard defense={defense} onChange={onChangeDefense} />}
+      {!own && defense && <HandSignalsCard defense={defense} onChange={onChangeDefense} />}
 
-      {!own && <SituationPlanCard plays={plays} opponentName={opponentName} />}
-      {!own && <FormationPlanCard plays={plays} opponentName={opponentName} />}
+      {!own && (
+        <SituationPlanCard plays={plays} opponentName={opponentName} defenseCalls={defenseCalls} gamePlanCalls={gamePlanCalls} onSetGamePlanCall={onSetGamePlanCall} />
+      )}
+      {!own && (
+        <FormationPlanCard
+          plays={plays}
+          opponentName={opponentName}
+          formations={formations}
+          onSaveFormations={onSaveFormations}
+          defenseCalls={defenseCalls}
+          gamePlanCalls={gamePlanCalls}
+          onSetGamePlanCall={onSetGamePlanCall}
+        />
+      )}
 
       {own && (
       <Card>
