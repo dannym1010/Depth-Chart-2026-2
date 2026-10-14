@@ -2,7 +2,7 @@
 // and how he plays it; a backer's alignment, run fit and drop; a defensive back's alignment, coverage and
 // run support. Picks that move a player (a technique) or draw his line (a drop, a blitz, a slant) change
 // the field too; the rest are words on his job.
-import { PLAYER_JOBS, isLineman } from './defenseCalls';
+import { isLineman, jobLabel } from './defenseCalls';
 
 export type DefenseGroup = 'line' | 'backer' | 'back';
 
@@ -205,7 +205,7 @@ export function rulesText(role: string, picks: Record<string, string> = {}, assi
     parts.push(cat.id === 'tech' ? `${opt.id} technique` : cat.id === 'fit' ? `${opt.label} fit` : opt.label);
   }
   // A drawn job that isn't in his library (given before, from the call menu): its name.
-  if (!drawn && assign) parts.push(PLAYER_JOBS.find((j) => j.id === assign)?.label || '');
+  if (!drawn && assign) parts.push(jobLabel(assign));
   const any = parts.filter(Boolean);
   // A lineman's technique leads, even when only his gap or move was picked.
   if (any.length && group === 'line' && !picks.tech) {

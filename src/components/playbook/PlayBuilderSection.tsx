@@ -53,7 +53,7 @@ import { DefenseCallPicker } from './DefenseCallPicker';
 import { defenseJob, defenseOrder, standardDefenseJob } from '../../utils/defenseJobs';
 import { pickedTechniques, rulesText } from '../../utils/defenseRules';
 import { DefenderRules } from './DefenderRules';
-import { defenseCallName, defenseCallStrokes, mirrorJob, mirrorPressure } from '../../utils/defenseCalls';
+import { defenseCallName, defenseCallStrokes, mirrorJob, mirrorPressure, pressureGaps } from '../../utils/defenseCalls';
 import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, defenseMirrored, lineUpOurDefense } from '../../hudlScout/utils/ourDefense';
 import { DEF_UNITS, defensePlayerAt, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
 import { rememberDefenseUnit, rememberedDefenseUnit, useDefenseRosterSource } from '../../utils/defenseRosterStore';
@@ -401,6 +401,18 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   };
   // The blitz / stunt and coverage drawn on the defenders where they stand against this offense.
   const callStrokes = useMemo(() => (dLook ? defenseCallStrokes(dNodes, offNodes, pressure, coverage, defAssign) : []), [dLook, dNodes, offNodes, pressure, coverage, defAssign]);
+  // For the picker: the gap the blitz / stunt sends each defender through, and who each one has in man.
+  const rushGaps = useMemo(() => (dLook ? pressureGaps(pressure, dNodes, offNodes) : {}), [dLook, pressure, dNodes, offNodes]);
+  const manShown = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const st of callStrokes) {
+      const m = /^Man on (.+)$/.exec(st.label || '');
+      const s = st.points?.[0];
+      const who = m && s ? dNodes.find((n) => Math.abs(n.x - s.x) < 0.05 && Math.abs(n.y - s.y) < 0.05) : undefined;
+      if (m && who) out[who.role] = m[1];
+    }
+    return out;
+  }, [callStrokes, dNodes]);
   // A mirrored 4-4 LIZ is the RIP.
   const lookName = dLook ? (flipDefense ? dLook.name.replace(/\bLIZ\b/, 'RIP') : dLook.name) : '';
   const callName = dLook ? defenseCallName(pressure || coverage ? dLook.front : lookName, pressure, coverage) : '';
@@ -525,6 +537,20 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
         }}
         callName={callName}
         hasLook={Boolean(dLook)}
+        defenders={dNodes.map((n) => ({ role: n.role, label: (n as { pos?: string }).pos || n.label || n.role }))}
+        receivers={offNodes.filter((n) => /^(X|Z|H|Y\d?|W\d?|[2-4])$/.test(n.role)).map((n) => ({ role: n.role, label: n.label && n.label !== n.role ? `${n.role} (${n.label})` : n.role }))}
+        assign={defAssign}
+        onAssign={(role, job) => {
+          setDefAssign((prev) => {
+            const next = { ...prev };
+            if (job) next[role] = job;
+            else delete next[role];
+            return next;
+          });
+          mark();
+        }}
+        rushGaps={rushGaps}
+        manShown={manShown}
       />
     );
   };

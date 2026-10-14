@@ -92,7 +92,21 @@ export const PLAYER_JOBS: { id: string; label: string; group: 'Blitz' | 'Zone' |
   { id: 'loop:out', label: 'Loop outside', group: 'Other' },
   { id: 'man', label: 'Man (nearest receiver)', group: 'Other' },
   { id: 'spy', label: 'Spy the quarterback', group: 'Other' },
+  { id: 'off', label: 'No blitz (plays the coverage)', group: 'Other' },
 ];
+
+/** A job's name: "Blitz B gap", "Man on X" (man:<their role>), "No blitz (plays the coverage)". */
+export function jobLabel(job?: string, receiverName?: (role: string) => string | undefined): string {
+  if (!job) return '';
+  if (job.startsWith('man:')) {
+    const role = job.slice(4);
+    return `Man on ${receiverName?.(role) || role}`;
+  }
+  return PLAYER_JOBS.find((j) => j.id === job)?.label || '';
+}
+
+/** Man coverages: every defender who isn't rushing or deep takes a receiver. */
+export const MAN_COVERAGES = new Set(['cover0', 'cover1', 'cover1_robber', '2man']);
 const ZONE_SPOTS: Record<string, { x: number; y: number; rx: number; ry: number; label: string }> = {
   flatL: { x: -13, y: 5, rx: 3, ry: 1.7, label: 'Flat' },
   flatR: { x: 13, y: 5, rx: 3, ry: 1.7, label: 'Flat' },
@@ -115,6 +129,8 @@ const ZONE_SPOTS: Record<string, { x: number; y: number; rx: number; ry: number;
 export const COVERAGES: { id: string; label: string; short: string }[] = [
   { id: 'cover0', label: 'Cover 0 (all man)', short: 'Cover 0' },
   { id: 'cover1', label: 'Cover 1 (man, free safety deep)', short: 'Cover 1' },
+  { id: 'cover1_robber', label: 'Cover 1 Robber (man, free safety deep, a robber in the middle hook)', short: 'Cover 1 Robber' },
+  { id: '2man', label: '2-Man (two safeties deep halves, man underneath)', short: '2-Man' },
   { id: 'cover2', label: 'Cover 2 (two deep halves)', short: 'Cover 2' },
   { id: 'cover3', label: 'Cover 3 (three deep thirds)', short: 'Cover 3' },
   { id: 'cover4', label: 'Cover 4 (quarters)', short: 'Cover 4' },
@@ -366,8 +382,70 @@ function deepSpots(n: number): { x: number; label: string }[] {
   return [{ x: -13, label: 'Deep 1/4' }, { x: -4.5, label: 'Deep 1/4' }, { x: 4.5, label: 'Deep 1/4' }, { x: 13, label: 'Deep 1/4' }];
 }
 
+/** Who the blitz / stunt has moving, and the gap he ends in ("B"), by role. */
+export function pressureGaps(pressure: string | undefined, def: PlayNode[], off: PlayNode[]): Record<string, string> {
+  const g = gaps(off);
+  const out: Record<string, string> = {};
+  for (const id of String(pressure || '').split('+').filter(Boolean)) {
+    const one = pressurePaths(id, def, off);
+    for (const st of one.strokes) {
+      const start = st.points[0];
+      const end = st.points[st.points.length - 1];
+      const who = def.find((n) => start && Math.abs(n.x - start.x) < 0.05 && Math.abs(n.y - start.y) < 0.05);
+      if (!who || !end) continue;
+      const side = end.x < g.C ? 'left' : 'right';
+      let best: GapName = 'A';
+      for (const name of GAP_ORDER) if (Math.abs(g[side][name] - end.x) < Math.abs(g[side][best] - end.x)) best = name;
+      out[who.role] = best;
+    }
+  }
+  return out;
+}
+
+/**
+ * Man coverage matchups: corners on the widest receivers on their side, everyone else on the nearest one
+ * left. `fixed` = matchups the coach set (defender role -> receiver role), kept first.
+ */
+export function manMatchups(defenders: PlayNode[], off: PlayNode[], ball = 0, fixed: Record<string, string> = {}): Record<string, string> {
+  const receivers = off.filter((n) => ELIGIBLE.test(n.role) && n.role !== '1');
+  const out: Record<string, string> = {};
+  const taken = new Set<string>();
+  for (const n of defenders) {
+    const t = fixed[n.role];
+    if (t && receivers.some((r) => r.role === t)) {
+      out[n.role] = t;
+      taken.add(t);
+    }
+  }
+  const open = defenders.filter((n) => !out[n.role]);
+  const widest = (side: number) =>
+    receivers.filter((r) => !taken.has(r.role) && Math.sign(r.x - ball || 0.01) === side).sort((a, b) => Math.abs(b.x - ball) - Math.abs(a.x - ball))[0];
+  for (const c of open.filter((n) => isCorner(n.role))) {
+    const r = widest(c.x < ball ? -1 : 1);
+    if (r) {
+      out[c.role] = r.role;
+      taken.add(r.role);
+    }
+  }
+  for (const n of open.filter((x) => !isCorner(x.role)).sort((a, b) => a.y - b.y)) {
+    const near = receivers.filter((r) => !taken.has(r.role)).sort((a, b) => Math.hypot(a.x - n.x, a.y - n.y) - Math.hypot(b.x - n.x, b.y - n.y))[0];
+    if (near) {
+      out[n.role] = near.role;
+      taken.add(near.role);
+    }
+  }
+  return out;
+}
+
+const manLine = (n: PlayNode, target: PlayNode): PlayStroke => ({
+  kind: 'pass',
+  color: COVERAGE_COLOR,
+  label: `Man on ${target.label || target.role}`,
+  points: [pt(n.x, n.y), pt(n.x + (target.x - n.x) * 0.72, Math.max(n.y + (target.y - n.y) * 0.72, 0.6))],
+});
+
 /** The coverage's drops and zones (or man lines), for everyone who isn't rushing. */
-function coveragePaths(id: string, def: PlayNode[], off: PlayNode[], rushers: Set<string>, ball = 0): PlayStroke[] {
+function coveragePaths(id: string, def: PlayNode[], off: PlayNode[], rushers: Set<string>, ball = 0, taken: Set<string> = new Set()): PlayStroke[] {
   const out: PlayStroke[] = [];
   const free = def.filter((n) => !isLineman(n.role) && !rushers.has(n.role));
   const corners = free.filter((n) => isCorner(n.role)).sort((a, b) => a.x - b.x);
@@ -407,24 +485,22 @@ function coveragePaths(id: string, def: PlayNode[], off: PlayNode[], rushers: Se
     const deepers = [...corners, ...safeties.slice(0, 2)];
     deep(deepers);
     underneath([...others, ...safeties.slice(2)]);
-  } else if (id === 'cover1' || id === 'cover0') {
-    // Man: each defender to a receiver (corners to the widest ones on their side); the free safety deep in Cover 1.
-    const deepOne = id === 'cover1' ? safeties[0] : undefined;
-    if (deepOne) out.push(drop(deepOne, ball, 15, 6, 2.6, 'Deep middle'));
-    const receivers = off.filter((n) => ELIGIBLE.test(n.role) && n.role !== '1');
-    const taken = new Set<string>();
-    const cover = (n: PlayNode, target?: PlayNode) => {
-      if (!target) return;
-      taken.add(target.role);
-      const tx = n.x + (target.x - n.x) * 0.72;
-      const ty = n.y + (target.y - n.y) * 0.72;
-      out.push({ kind: 'pass', color: COVERAGE_COLOR, label: `Man on ${target.label || target.role}`, points: [pt(n.x, n.y), pt(tx, Math.max(ty, 0.6))] });
-    };
-    const widest = (side: number) => receivers.filter((r) => !taken.has(r.role) && Math.sign(r.x - ball || 0.01) === side).sort((a, b) => Math.abs(b.x - ball) - Math.abs(a.x - ball))[0];
-    for (const c of corners) cover(c, widest(c.x < ball ? -1 : 1));
-    for (const n of [...others, ...safeties.filter((s) => s !== deepOne)].sort((a, b) => a.y - b.y)) {
-      const near = receivers.filter((r) => !taken.has(r.role)).sort((a, b) => Math.hypot(a.x - n.x, a.y - n.y) - Math.hypot(b.x - n.x, b.y - n.y))[0];
-      if (near) cover(n, near);
+  } else if (MAN_COVERAGES.has(id)) {
+    // Man: Cover 0 all man; Cover 1 the free safety deep; Cover 1 Robber also a robber in the middle hook;
+    // 2-Man two safeties on the deep halves. Everyone else takes a receiver (see manMatchups).
+    const deepers = id === '2man' ? safeties.slice(0, 2) : id === 'cover1' || id === 'cover1_robber' ? safeties.slice(0, 1) : [];
+    if (deepers.length === 1) out.push(drop(deepers[0], ball, 15, 6, 2.6, 'Deep middle'));
+    else if (deepers.length) deep(deepers);
+    const rest = [...corners, ...others, ...safeties.filter((s) => !deepers.includes(s))];
+    // The robber: the deepest of the backers / extra safeties left.
+    const robber = id === 'cover1_robber' ? [...rest].filter((n) => !isCorner(n.role)).sort((a, b) => b.y - a.y)[0] : undefined;
+    if (robber) out.push(drop(robber, ball, 8, 3, 1.7, 'Robber (middle hook)'));
+    const covering = rest.filter((n) => n !== robber);
+    // Receivers a coach already put someone on are taken.
+    const pairs = manMatchups(covering, off.filter((r) => !taken.has(r.role)), ball);
+    for (const n of covering) {
+      const t = off.find((r) => r.role === pairs[n.role]);
+      if (t) out.push(manLine(n, t));
       else out.push(drop(n, n.x, Math.max(n.y, 4), 2.4, 1.4, 'Spy / help'));
     }
   }
@@ -460,7 +536,9 @@ export function defenseCallStrokes(
   };
   const own = Object.keys(set);
   const callStrokes = p.strokes.filter((st) => !own.some((r) => startsOn(st, r)));
-  const busy = new Set([...p.rushers, ...own]);
+  // "No blitz": out of the call's rush, back into the coverage like anyone else.
+  const backInCoverage = own.filter((r) => set[r] === 'off');
+  const busy = new Set([...p.rushers, ...own].filter((r) => !backInCoverage.includes(r)));
   const g = gaps(off);
   const receivers = off.filter((n) => ELIGIBLE.test(n.role) && n.role !== '1');
   const mine: PlayStroke[] = [];
@@ -485,13 +563,16 @@ export function defenseCallStrokes(
       mine.push({ kind: 'run', color: BLITZ_COLOR, label, points });
     } else if (job === 'man') {
       const near = [...receivers].sort((a, b) => Math.hypot(a.x - n.x, a.y - n.y) - Math.hypot(b.x - n.x, b.y - n.y))[0];
-      if (near) mine.push({ kind: 'pass', color: COVERAGE_COLOR, label: `Man on ${near.label || near.role}`, points: [pt(n.x, n.y), pt(n.x + (near.x - n.x) * 0.72, Math.max(n.y + (near.y - n.y) * 0.72, 0.6))] });
+      if (near) mine.push(manLine(n, near));
+    } else if (job.startsWith('man:')) {
+      const target = receivers.find((r) => r.role === job.slice(4));
+      if (target) mine.push(manLine(n, target));
     } else if (job === 'spy') {
       const qb = off.find((x) => x.role === '1');
       mine.push(drop(n, qb ? qb.x : g.C, 4.5, 2.4, 1.4, 'Spy the QB'));
     }
   }
-  return [...callStrokes, ...mine, ...(coverage ? coveragePaths(coverage, def, off, busy, g.C) : [])];
+  return [...callStrokes, ...mine, ...(coverage ? coveragePaths(coverage, def, off, busy, g.C, new Set(Object.values(set).filter((j) => j.startsWith('man:')).map((j) => j.slice(4)))) : [])];
 }
 
 /** "4-4 · Edge fire left · Cover 3" */
