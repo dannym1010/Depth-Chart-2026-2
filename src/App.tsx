@@ -240,6 +240,10 @@ import {
   shouldKeepLocalCallSheet,
   savedForTeamWeek,
   shouldRejectStaleRemote,
+  changedSpots,
+  mergeSpotStamps,
+  preferNewerSpots,
+  stampSpots,
 } from './utils/remoteStateMerge';
 import { applyCopiedFormationsToDeletedIds, copyWeekCharts, countPlacedPlayers } from './utils/copyWeek';
 import { findFolderByPath } from './utils/drillPlanLinking';
@@ -2458,7 +2462,7 @@ export default function App() {
           : !modules
             ? // "Save & sync now": never clears a spot or replaces a formation for everyone.
               weekLoadedHere(activeTeamIdRef.current, weekKey)
-              ? { weekWriteKind: 'patch', depthSpots: filledSpots(weekState.depthChart), scrimmageSpots: filledSpots(weekState.scrimmageChart) }
+              ? { weekWriteKind: 'patch', depthSpots: filledSpots(weekState.depthChart), scrimmageSpots: filledSpots(weekState.scrimmageChart), depthEditedAt: weekState.depthEditedAt || {} }
               : undefined
           : {
               depthChart: weekState.depthChart || {},
@@ -2471,6 +2475,7 @@ export default function App() {
               practiceDrillGroups: weekState.practiceDrillGroups,
               depthSpots: weekState.depthChart || {},
               scrimmageSpots: weekState.scrimmageChart || {},
+              depthEditedAt: weekState.depthEditedAt || {},
               formationBoards: Object.fromEntries(weekForms.map((f: any) => [f.id, f])),
               formationOrder: weekForms.map((f: any) => f.id),
             },
@@ -3025,18 +3030,27 @@ export default function App() {
                 slice.formationOrder,
                 liveProtectMs
               );
+          // Spots with edit times: whichever side changed the spot last (another coach's older copy never wins).
+          const theirDepth = { ...(slice.depthChart || {}), ...(slice.depthSpots || {}) };
+          const theirScrim = { ...(slice.scrimmageChart || {}), ...(slice.scrimmageSpots || {}) };
+          const depthNow = preferNewerSpots(nextDepth, cur.depthChart, theirDepth, cur.depthEditedAt, slice.depthEditedAt, 'd');
+          const scrimNow = preferNewerSpots(nextScrim, cur.scrimmageChart, theirScrim, cur.depthEditedAt, slice.depthEditedAt, 's');
+          const stamps = mergeSpotStamps(cur.depthEditedAt, slice.depthEditedAt);
+          const withStamps = Object.keys(stamps).length ? { depthEditedAt: stamps } : {};
           if (isPatch) {
             return {
               ...cur,
-              depthChart: nextDepth,
-              scrimmageChart: nextScrim,
+              depthChart: depthNow,
+              scrimmageChart: scrimNow,
               formations: nextForms,
+              ...withStamps,
             };
           }
           return {
             ...cur,
-            depthChart: nextDepth,
-            scrimmageChart: nextScrim,
+            depthChart: depthNow,
+            scrimmageChart: scrimNow,
+            ...withStamps,
             formations: nextForms,
             opponent: slice.opponent || cur.opponent || '',
             wristbandData: slice.wristbandData || cur.wristbandData,
@@ -4221,6 +4235,9 @@ export default function App() {
       const scoped = getScopedWeekKey(teamId, week);
       const cur = storedWeekForWrite(prev, teamId, week);
       const back = { ...cur, depthChart: before.depthChart || {}, scrimmageChart: before.scrimmageChart || cur.scrimmageChart, formations: before.formations?.length ? before.formations : cur.formations };
+      // Put back as a new edit of every spot, so it wins over the copy that emptied them.
+      const at = Date.now();
+      back.depthEditedAt = stampSpots(stampSpots(cur.depthEditedAt, changedSpots(cur.depthChart, back.depthChart), 'd', at), changedSpots(cur.scrimmageChart, back.scrimmageChart), 's', at);
       const next = { ...prev, [scoped]: back, [week]: back };
       latestStateRef.current.weeklyData = next;
       safeJSONSet('footballWeeklyData', next);
@@ -5765,6 +5782,7 @@ export default function App() {
     const updatedWeekState: WeekState = {
       ...existing,
       depthChart: newDepthChart,
+      depthEditedAt: stampSpots(existing.depthEditedAt, changedSpots(existing.depthChart, newDepthChart), 'd', now),
     };
     const updatedAll: Record<string, WeekState> = {
       ...prev,
@@ -5794,6 +5812,7 @@ export default function App() {
     const updatedWeekState: WeekState = {
       ...existing,
       scrimmageChart: newScrimChart,
+      depthEditedAt: stampSpots(existing.depthEditedAt, changedSpots(existing.scrimmageChart, newScrimChart), 's', now),
     };
     const updatedAll: Record<string, WeekState> = {
       ...prev,
@@ -6521,11 +6540,21 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
       ? { ...deepClone(srcCs), lastEdited: copiedAt, teamId: activeTeamId, week: targetWeek }
       : undefined;
 
+    const copiedSpots = [
+      ...new Set([...Object.keys(targetExisting.depthChart || {}), ...Object.keys(updatedDepthChart || {})]),
+    ];
+    const copiedScrim = [
+      ...new Set([...Object.keys(targetExisting.scrimmageChart || {}), ...Object.keys(updatedScrimmageChart || {})]),
+    ];
+    const copyStamps = stampSpots(stampSpots(targetExisting.depthEditedAt, copiedSpots, 'd', copiedAt), copiedScrim, 's', copiedAt);
+    const fullDepth = Object.fromEntries(copiedSpots.map((k) => [k, (updatedDepthChart || {})[k] || []]));
+    const fullScrim = Object.fromEntries(copiedScrim.map((k) => [k, (updatedScrimmageChart || {})[k] || []]));
     const updatedState: WeekState = {
       ...targetExisting,
       formations: updatedFormations,
-      depthChart: updatedDepthChart,
-      scrimmageChart: updatedScrimmageChart,
+      depthChart: fullDepth,
+      scrimmageChart: fullScrim,
+      depthEditedAt: copyStamps,
       pprPlayCounts:
         mode === 'both' ? src.pprPlayCounts || {} : targetExisting.pprPlayCounts,
       pffReviews: mode === 'both' ? src.pffReviews || {} : targetExisting.pffReviews,

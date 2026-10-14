@@ -12,6 +12,8 @@ import { INITIAL_DEFAULT_FORMATIONS } from '../data/initialData';
 import { pickScoutBundle, scoutFingerprint } from './scoutMerge';
 export { pickScoutBundle, scoutFingerprint } from './scoutMerge';
 import { deepClone } from '../services/storageService';
+import { mergeSpotStamps, preferNewerSpots } from './depthStamps';
+export { changedSpots, mergeSpotStamps, outgoingSpots, preferNewerSpots, spotStampKey, stampSpots } from './depthStamps';
 import { isDroppedFormation, isPrimaryTeamId } from './seasonWeekUtils';
 import { mergePracticeDrillGroups, scorePracticeDrillGroups } from '../components/practiceDrillsUtils';
 import {
@@ -1135,6 +1137,12 @@ export function mergeRemoteWeeklyData(
         mergedSC[posId] = players;
       }
     }
+    // A spot either side has an edit time for: the later edit wins (an older copy never puts back an old spot).
+    const stampedDC = preferNewerSpots(mergedDC, localDC, remoteDC, localState.depthEditedAt, remoteState.depthEditedAt, 'd');
+    const stampedSC = preferNewerSpots(mergedSC, localSC, remoteSC, localState.depthEditedAt, remoteState.depthEditedAt, 's');
+    Object.assign(mergedDC, stampedDC);
+    Object.assign(mergedSC, stampedSC);
+    const mergedStamps = mergeSpotStamps(localState.depthEditedAt, remoteState.depthEditedAt);
 
     const localHasWristbandPlays = localState.wristbandData?.wristbands?.some((wb: any) =>
       wb?.columns?.some((c: any) => c?.plays?.some((p: any) => p && p.text && p.text.trim()))
@@ -1177,6 +1185,7 @@ export function mergeRemoteWeeklyData(
       formations: dedupeForms(mergedFormations),
       depthChart: mergedDC,
       scrimmageChart: mergedSC,
+      ...(Object.keys(mergedStamps).length ? { depthEditedAt: mergedStamps } : {}),
       opponent: remoteState.opponent || localState.opponent || '',
       wristbandData: safeWristbandData,
       scouting: mergeScoutingReports(localState.scouting, remoteState.scouting),

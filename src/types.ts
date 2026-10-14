@@ -552,6 +552,11 @@ export interface WeekState {
   formations?: FormationBoard[];
   depthChart?: Record<string, PlacedPlayer[]>;
   scrimmageChart?: Record<string, PlacedPlayer[]>;
+  /**
+   * When each spot was last changed, by key "d:<position>" (depth chart) or "s:<position>" (scrimmage).
+   * Between coaches, the newer edit of a spot wins; an older copy of the week never puts back an old spot.
+   */
+  depthEditedAt?: Record<string, number>;
   practiceDrillGroups?: LiveDrillGroup[];
   pprPlayCounts?: Record<string, { offense: number; defense: number }>;
   pffReviews?: Record<

@@ -1,3 +1,4 @@
+import { mergeSpotStamps, outgoingSpots } from '../utils/depthStamps';
 import {
   WeekState,
   FormationBoard,
@@ -1094,16 +1095,34 @@ export async function saveSharedBoardCloud(payload: {
       );
     }
     if (want('week') && payload.weekSlice && payload.teamId && payload.week) {
+      const ref = col.doc(opsWeekDocId(payload.teamId, payload.week));
+      const slice = payload.weekSlice;
       writes.push(
-        col.doc(opsWeekDocId(payload.teamId, payload.week)).set(
-          opsMeta({
-            ...payload.weekSlice,
-            weekWriteKind: payload.weekSlice.weekWriteKind || 'full',
-            teamId: payload.teamId,
-            week: String(payload.week).replace(/[^a-zA-Z0-9_-]/g, '') || '1',
-          }),
-          { merge: true }
-        )
+        db.runTransaction(async (tx: any) => {
+          // Another coach's newer edit of a spot stays: only spots this device changed last (or that nobody
+          // timed) go up. The edit times go up merged.
+          const snap = await tx.get(ref);
+          const cloud = snap?.exists ? snap.data() || {} : {};
+          const cloudStamps = cloud.depthEditedAt || {};
+          const myStamps = slice.depthEditedAt || {};
+          const chart = (field: string, kind: 'd' | 's') =>
+            slice[field] && typeof slice[field] === 'object' ? { [field]: outgoingSpots(slice[field], myStamps, cloudStamps, kind) } : {};
+          tx.set(
+            ref,
+            opsMeta({
+              ...slice,
+              ...chart('depthChart', 'd'),
+              ...chart('depthSpots', 'd'),
+              ...chart('scrimmageChart', 's'),
+              ...chart('scrimmageSpots', 's'),
+              ...(slice.depthEditedAt || cloud.depthEditedAt ? { depthEditedAt: mergeSpotStamps(cloudStamps, myStamps) } : {}),
+              weekWriteKind: slice.weekWriteKind || 'full',
+              teamId: payload.teamId,
+              week: String(payload.week).replace(/[^a-zA-Z0-9_-]/g, '') || '1',
+            }),
+            { merge: true }
+          );
+        })
       );
     }
     if (want('roster') && payload.roster) {
