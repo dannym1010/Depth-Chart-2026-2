@@ -67,4 +67,17 @@ describe('each depth chart spot keeps its newest edit between coaches', () => {
     assert.equal(merged.team_10u__week_7.depthChart!.qb[0].name, 'smith');
     assert.equal(merged.team_10u__week_7.depthEditedAt!['d:qb'], 200);
   });
+  it('an edit beats a stamp from a device whose clock runs ahead', async () => {
+    const { stampSpots, outgoingSpots } = await import('./depthStamps.ts');
+    const seen = { 'd:qb': 5_000 }; // another coach's device stamped this spot "in the future"
+    const mine = stampSpots(seen, ['qb'], 'd', 1_000);
+    assert.ok(mine['d:qb'] > 5_000);
+    assert.deepEqual(Object.keys(outgoingSpots({ qb: [p('smith')] }, mine, seen, 'd')), ['qb']);
+  });
+  it('a cleared spot goes up empty and comes back empty', async () => {
+    const { outgoingSpots, preferNewerSpots } = await import('./depthStamps.ts');
+    assert.deepEqual(outgoingSpots({ rb: [p('lee')] }, { 'd:qb': 300 }, { 'd:qb': 100 }, 'd').qb, []);
+    const out = preferNewerSpots({ qb: [p('jones')] }, {}, { qb: [p('jones')] }, { 'd:qb': 300 }, { 'd:qb': 100 }, 'd');
+    assert.deepEqual(out.qb, []);
+  });
 });

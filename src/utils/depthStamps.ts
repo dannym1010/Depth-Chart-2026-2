@@ -39,7 +39,8 @@ export function preferNewerSpots(
     const rs = Number(remoteStamps?.[spotStampKey(kind, k)]) || 0;
     if (!ls && !rs) continue;
     const pick = ls >= rs ? local?.[k] : remote?.[k];
-    if (Array.isArray(pick)) out[k] = pick;
+    // the newer side had cleared the spot (no list at all): it's empty, not the other side's old players
+    out[k] = Array.isArray(pick) ? pick : [];
   }
   return out;
 }
@@ -61,12 +62,28 @@ export function outgoingSpots(
     if (cs > ms) continue;
     out[k] = v;
   }
+  // a spot this device cleared (its list removed) goes up empty, or the cloud keeps the old players in it
+  const prefix = `${kind}:`;
+  for (const [key, t] of Object.entries(myStamps || {})) {
+    if (!key.startsWith(prefix)) continue;
+    const k = key.slice(prefix.length);
+    if (k in out || (mine && k in mine)) continue;
+    if ((Number(cloudStamps?.[key]) || 0) > (Number(t) || 0)) continue;
+    out[k] = [];
+  }
   return out;
 }
 
-/** Mark spots as changed now. */
+/**
+ * Mark spots as changed now. A new edit always counts as later than any edit of that spot this device has seen,
+ * whatever the clocks say: another coach's device with its clock running ahead can't make this edit look older
+ * (it would never be sent and would revert on the next load).
+ */
 export function stampSpots(stamps: Record<string, number> | undefined, spots: string[], kind: 'd' | 's', at: number): Record<string, number> {
   const out: Record<string, number> = { ...(stamps || {}) };
-  for (const k of spots) out[spotStampKey(kind, k)] = at;
+  for (const k of spots) {
+    const key = spotStampKey(kind, k);
+    out[key] = Math.max(at, (Number(out[key]) || 0) + 1);
+  }
   return out;
 }
