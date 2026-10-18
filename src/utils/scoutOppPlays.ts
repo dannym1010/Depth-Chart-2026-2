@@ -31,6 +31,18 @@ export interface ScoutOppPlay {
   printSkip?: boolean;
   /** Left off the defense call sheet's "their plays vs. our defense" page. */
   sheetSkip?: boolean;
+  /** On that page though it isn't on the report (a coach checked it there). */
+  sheetShow?: boolean;
+}
+
+/** Whether one of their plays prints on the call sheet's play page: on the report, or checked there; never when left off. */
+export function onCallSheet(p: Pick<ScoutOppPlay, 'onReport' | 'sheetSkip' | 'sheetShow'>): boolean {
+  return !p.sheetSkip && Boolean(p.onReport || p.sheetShow);
+}
+
+/** Run or pass, for sorting their plays (screens and RPOs go with the passes). */
+export function runOrPass(kind?: string): 'run' | 'pass' {
+  return kind === 'run' ? 'run' : 'pass';
 }
 
 /**
@@ -60,6 +72,23 @@ export interface OppFormation {
   printSkip?: boolean;
   /** Their plays from it left off the printout (play ids). */
   printHidePlays?: string[];
+}
+
+/**
+ * A formation's game plan notes: the coaching point written on it in the play builder (formation editor), and any
+ * notes typed on the call sheet before that was the place for them.
+ */
+export function formationNotes(f?: OppFormation): string {
+  const parts = [f?.builder?.coachNote, f?.plan?.notes].map((s) => String(s || '').trim()).filter(Boolean);
+  return [...new Set(parts)].join('\n');
+}
+
+/** Saves a formation's game plan notes where the play builder shows them (its coaching point). */
+export function withFormationNotes(f: OppFormation, notes: string, now = Date.now()): OppFormation {
+  const text = notes.trim();
+  const plan = f.plan ? { ...f.plan, notes: undefined } : undefined;
+  if (f.builder) return { ...f, builder: { ...f.builder, coachNote: text }, ...(plan ? { plan } : {}), editedAt: now };
+  return { ...f, plan: { ...(f.plan || { calls: [] }), notes: text || undefined }, editedAt: now };
 }
 
 /** The printout's order: the coach's arrangement first, the rest after in the order given. */

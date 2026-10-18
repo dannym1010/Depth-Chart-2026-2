@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { DiagramImage } from '../playbook/DiagramImage';
 import { zoomDiagram } from '../../utils/diagramZoom';
-import { BLITZ_SITUATION, PLAN_SITUATIONS, type FormationDownStats, type FormationPlan, type OppFormation } from '../../utils/scoutOppPlays';
+import { BLITZ_SITUATION, PLAN_SITUATIONS, formationNotes, withFormationNotes, type FormationDownStats, type FormationPlan, type OppFormation } from '../../utils/scoutOppPlays';
 
 const ORD = ['1st', '2nd', '3rd', '4th'];
 
@@ -42,7 +42,9 @@ export const FormationPlanEditor: React.FC<{
   stats?: Record<string, FormationDownStats>;
   /** Clicking the picture opens the formation in the play builder. */
   onOpenFormation?: (f: OppFormation) => void;
-}> = ({ formations, defenseCalls, onSavePlan, showPictures, stats, onOpenFormation }) => {
+  /** Saves a whole formation (its game plan notes live on it, as its coaching point in the play builder). */
+  onSaveFormation?: (f: OppFormation) => void;
+}> = ({ formations, defenseCalls, onSavePlan, showPictures, stats, onOpenFormation, onSaveFormation }) => {
   const [draft, setDraftAll] = useState<Record<string, { situation: string; callId: string; blitzId: string }>>({});
   const callName = (id?: string) => (id ? defenseCalls.find((p) => p.id === id)?.name : undefined);
   const blitzCalls = defenseCalls.filter((c) => c.type === 'blitz');
@@ -230,12 +232,14 @@ export const FormationPlanEditor: React.FC<{
                       Add call
                     </button>
                   </div>
-                  <PlanNotes
-                    key={`${key}:${plan.notes || ''}`}
-                    label={`Game plan notes vs ${f.name}`}
-                    value={plan.notes || ''}
-                    onSave={(notes) => onSavePlan(f, { ...plan, notes: notes || undefined })}
-                  />
+                  {onSaveFormation && f.id && (
+                    <PlanNotes
+                      key={`${key}:${formationNotes(f)}`}
+                      label={`Game plan notes vs ${f.name}`}
+                      value={formationNotes(f)}
+                      onSave={(notes) => onSaveFormation(withFormationNotes(f, notes))}
+                    />
+                  )}
                 </div>
               </div>
             </li>

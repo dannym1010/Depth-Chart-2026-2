@@ -27,7 +27,7 @@ import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { ScoutOppPlayLibrary } from './ScoutOppPlayLibrary';
 import { StatsTab } from '../../hudlScout/components/report/StatsTab';
-import { buildScoutScript, cardsFromTags, coachingPoint, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, printOrder, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
+import { buildScoutScript, cardsFromTags, coachingPoint, onCallSheet, runOrPass, formationNotes, withFormationNotes, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, printOrder, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
 import { leadOppPlay, oppPlayDiagram, playPoint, theirPlaysByFormation } from '../../utils/filmBackfields';
 import { theirCallEntries } from '../../utils/theirCalls';
 import type { ReportPlayType } from '../../hudlScout/components/CallSheetModal';
@@ -272,18 +272,26 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   // The printed report: each of their play types on this week's report, drawn against our defense.
   const reportPlayTypes = useMemo<ReportPlayType[]>(() => {
     if (!isCallSheetOpen || scoutTarget !== 'opponent') return [];
-    return groupOppPlays(reportPlays(bundle.playLibraries)).map((g) => {
-      // Each play once (by name), printed unless every card of it is left off; the card shows only the printed ones.
-      const byName = new Map<string, { name: string; ids: string[]; hidden: boolean; point?: string }>();
+    // Every play of theirs (not only the ones on the report): the ones on the report print unless left off, any
+    // other prints when a coach checks it.
+    const gone = new Set(bundle.deletedOppPlayIds || []);
+    const all = Object.values(bundle.playLibraries || {})
+      .flat()
+      .filter((p) => p?.id && !gone.has(p.id) && p.name?.trim());
+    return groupOppPlays(all).map((g) => {
+      // Each play once (by name), printed when any card of it prints; the card shows only the printed ones.
+      const byName = new Map<string, { name: string; ids: string[]; hidden: boolean; point?: string; onReport?: boolean }>();
       for (const p of g.plays) {
         const name = p.name.trim();
-        const row = byName.get(name.toUpperCase()) || { name, ids: [], hidden: true, point: '' };
+        const row = byName.get(name.toUpperCase()) || { name, ids: [], hidden: true, point: '', onReport: false };
         row.ids.push(p.id);
-        if (!p.sheetSkip) row.hidden = false;
+        if (onCallSheet(p)) row.hidden = false;
+        if (p.onReport) row.onReport = true;
         if (!row.point) row.point = playPoint(p, playDatabase);
         byName.set(name.toUpperCase(), row);
       }
-      const shown = g.plays.filter((p) => !p.sheetSkip);
+      const runs = g.plays.filter((p) => runOrPass(p.kind) === 'run').length;
+      const shown = g.plays.filter(onCallSheet);
       const use = shown.length ? shown : g.plays;
       const lead = leadOppPlay(use, playDatabase);
       const snaps = use.reduce((n, p) => n + snapsForCall(bundle.plays, p.gameId, p.name, `scout_${p.id}`, p.fromPlayId).length, 0);
@@ -293,9 +301,10 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         detail: [[...new Set(use.map((p) => p.name))].join(' · '), snaps ? `ran it ${snaps} time${snaps === 1 ? '' : 's'}` : ''].filter(Boolean).join(' — '),
         diagram: oppPlayDiagram(lead, playDatabase, bundle.backfieldBases, bundle.oppFormations),
         plays: [...byName.values()],
+        kind: runs * 2 >= g.plays.length ? ('run' as const) : ('pass' as const),
       };
     });
-  }, [isCallSheetOpen, scoutTarget, bundle.playLibraries, bundle.plays, bundle.backfieldBases, bundle.oppFormations, playDatabase]);
+  }, [isCallSheetOpen, scoutTarget, bundle.playLibraries, bundle.deletedOppPlayIds, bundle.plays, bundle.backfieldBases, bundle.oppFormations, playDatabase]);
 
   /**
    * Their play cards changed from the call sheet: a play's coaching point (saved as the notes on every card of that
@@ -307,7 +316,9 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     const edit = (p: ScoutOppPlay): ScoutOppPlay => {
       if (!ids.has(p.id)) return p;
       if ('point' in change) return coachingPoint(p.notes) === change.point ? p : { ...p, notes: change.point, editedAt: now };
-      return Boolean(p.sheetSkip) === !change.sheetShow ? p : { ...p, sheetSkip: change.sheetShow ? undefined : true, editedAt: now };
+      if (onCallSheet(p) === change.sheetShow) return p;
+      // Checked: prints (on the report or not). Unchecked: left off.
+      return { ...p, sheetSkip: change.sheetShow ? undefined : true, sheetShow: change.sheetShow && !p.onReport ? true : undefined, editedAt: now };
     };
     const playLibraries = Object.fromEntries(Object.entries(prev.playLibraries || {}).map(([g, list]) => [g, list.map(edit)]));
     return {
@@ -355,7 +366,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
           name: f.name,
           printSkip: Boolean(f.printSkip),
           lines: planLines(f.plan, nameOf),
-          notes: f.plan?.notes || '',
+          notes: formationNotes(f),
           plays,
           theirPlays: plays.filter((p) => !p.hidden).map((p) => ({ name: p.name, point: p.point })),
           diagram: f.defenseUrl || f.diagramUrl || undefined,
@@ -396,9 +407,9 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     return added;
   };
   useEffect(() => {
-    if (theirPlaysOpen) addTagCards();
+    if (theirPlaysOpen || (isCallSheetOpen && scoutTarget === 'opponent')) addTagCards();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theirPlaysOpen, oppBundle.plays, oppBundle.games]);
+  }, [theirPlaysOpen, isCallSheetOpen, oppBundle.plays, oppBundle.games]);
   /** Draw a play tagged on the scouting film: its Their-plays card in the play builder, drawn from its name. */
   const drawTagged = (playCallId: string, gameId?: string) => {
     if (!onDrawPlay) return;
@@ -1122,7 +1133,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
               oppFormations: list.map((f) => {
                 if (f.id !== id) return f;
                 if ('print' in change) return { ...f, printSkip: change.print ? undefined : true, editedAt: now };
-                if ('notes' in change) return { ...f, plan: { ...(f.plan || { calls: [] }), notes: change.notes.trim() || undefined }, editedAt: now };
+                if ('notes' in change) return withFormationNotes(f, change.notes, now);
                 const hidden = new Set(f.printHidePlays || []);
                 for (const pid of change.playIds) change.show ? hidden.delete(pid) : hidden.add(pid);
                 return { ...f, printHidePlays: hidden.size ? [...hidden] : undefined, editedAt: now };

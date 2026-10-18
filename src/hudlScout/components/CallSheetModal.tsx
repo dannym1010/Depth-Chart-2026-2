@@ -4,7 +4,7 @@ import { Printer, X, Shield, AlertTriangle, Pencil, Plus, RotateCcw, SlidersHori
 import type { CallSheetEdits, CallSheetSectionKey } from '../scoutBundle';
 import { resolveDiagram } from '../../utils/playDiagrams';
 import { SheetPrintPanel, type FormationPrintChange, type TheirPlayChange } from './SheetPrintPanel';
-import { defenseSheetHtml, loadSheetOptions, saveSheetOptions, type SheetPrintOptions } from '../utils/defenseSheetPrint';
+import { defenseSheetHtml, loadSheetOptions, saveSheetOptions, sortPlayTypes, type SheetPrintOptions } from '../utils/defenseSheetPrint';
 
 /** One of their play types, with our defense drawn against it, for the printed report. */
 export interface ReportPlayType {
@@ -13,7 +13,9 @@ export interface ReportPlayType {
   detail: string;
   diagram?: string;
   /** Its plays (each name once, with every card's id), whether each prints, and each one's coaching point. */
-  plays: { name: string; ids: string[]; hidden: boolean; point?: string }[];
+  plays: { name: string; ids: string[]; hidden: boolean; point?: string; onReport?: boolean }[];
+  /** Run or pass (most of its plays). */
+  kind: 'run' | 'pass';
 }
 
 interface CallSheetModalProps {
@@ -217,9 +219,9 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
     };
     const types = printOpts.playTypes && playTypes?.length
       ? await Promise.all(
-          playTypes
-            .filter((t) => t.plays.some((p) => !p.hidden))
+          sortPlayTypes(playTypes.filter((t) => t.plays.some((p) => !p.hidden)), printOpts.playTypeSort)
             .map(async (t) => ({
+              kind: t.kind,
               label: t.label,
               detail: t.detail,
               diagram: printOpts.playTypePicture ? await picture(t.diagram) : undefined,
@@ -457,7 +459,7 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
                   formationPlanCount={formationPlans?.length || 0}
                   formations={formationPlans}
                   onFormationPrint={onFormationPrint}
-                  playTypes={playTypes}
+                  playTypes={playTypes ? sortPlayTypes(playTypes, printOpts.playTypeSort) : undefined}
                   onTheirPlay={onTheirPlay}
                 />
               </aside>

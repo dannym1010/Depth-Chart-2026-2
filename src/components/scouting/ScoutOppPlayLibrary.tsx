@@ -13,6 +13,7 @@ import { BACKFIELD_STRUCTURES } from '../../utils/footballEngine';
 import { backfieldOf, formationDefense, formationOfPlay, playPoint, leadOppPlay, playWithDefense, redrawWithBackfield, type FilmBackfieldBases } from '../../utils/filmBackfields';
 import {
   buildScoutScript,
+  formationNotes,
   groupOppPlays,
   moveItem,
   parseClips,
@@ -602,7 +603,7 @@ export const ScoutOppPlayLibrary: React.FC<{
           detail,
           diagram: await resolveDiagram(f.defenseUrl || f.diagramUrl),
           notes: [
-            { title: 'Game plan', lines: [...calls, ...(f.plan?.notes || '').split('\n').map((l) => l.trim()).filter(Boolean)] },
+            { title: 'Game plan', lines: [...calls, ...formationNotes(f).split('\n').map((l) => l.trim()).filter(Boolean)] },
             { title: 'Their plays', lines: theirs },
           ],
         };
@@ -1000,7 +1001,12 @@ export const ScoutOppPlayLibrary: React.FC<{
                 {defenseCalls.length === 0 ? ' No defensive plays in the Play Library yet.' : ''}
               </p>
             </div>
-            <FormationPlanEditor formations={formationCards.map(({ f }) => f)} defenseCalls={defenseCalls} onSavePlan={savePlan} />
+            <FormationPlanEditor
+              formations={formationCards.map(({ f }) => f)}
+              defenseCalls={defenseCalls}
+              onSavePlan={savePlan}
+              onSaveFormation={onSaveFormations ? (rec) => onSaveFormations((formations || []).map((x) => (x.id === rec.id ? rec : x))) : undefined}
+            />
           </div>
         )}
         {gameId && (

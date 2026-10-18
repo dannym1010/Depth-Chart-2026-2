@@ -39,6 +39,8 @@ export interface SheetPrintOptions {
   playTypePicture: boolean;
   /** Our zone drops on those pictures (off: the play is easier to see). */
   playTypeZones: boolean;
+  /** Runs first, passes first (each under its own heading), or as listed. */
+  playTypeSort: 'run' | 'pass' | 'list';
   /** Number each call (1. 2. 3.). */
   numbers: boolean;
   size: 'normal' | 'large';
@@ -64,6 +66,7 @@ export const DEFAULT_SHEET_OPTIONS: SheetPrintOptions = {
   playTypePoints: true,
   playTypePicture: true,
   playTypeZones: false,
+  playTypeSort: 'run',
   numbers: true,
   size: 'normal',
   ink: 'color',
@@ -96,7 +99,7 @@ export interface SheetData {
   alerts: string[];
   sections: { key: string; title: string; tag: string; wide?: boolean; lines: string[] }[];
   note: string;
-  playTypes: { label: string; detail: string; diagram?: string | null; points?: { name: string; point: string }[] }[];
+  playTypes: { label: string; detail: string; diagram?: string | null; points?: { name: string; point: string }[]; kind?: 'run' | 'pass' }[];
   /** Our calls against each of their formations. */
   formationPlans?: SheetFormationPlan[];
 }
@@ -121,6 +124,13 @@ const ACCENT: Record<string, string> = {
   passBlitzCalls: '#b91c1c',
   redZoneLocks: '#9f1239',
 };
+
+/** Their plays runs first or passes first (keeping their order within each), or as listed. */
+export function sortPlayTypes<T extends { kind?: 'run' | 'pass' }>(list: T[], sort: SheetPrintOptions['playTypeSort']): T[] {
+  if (sort === 'list') return list;
+  const first = list.filter((t) => (t.kind || 'pass') === sort);
+  return [...first, ...list.filter((t) => (t.kind || 'pass') !== sort)];
+}
 
 export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedOn = new Date()): string {
   const landscape = o.orientation === 'landscape';
@@ -167,9 +177,17 @@ export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedO
   const noteHtml = o.note && data.note.trim() ? `<footer><span>${esc(data.note.trim())}</span></footer>` : '';
   const printed = printedOn.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
 
+  // Sorted by run / pass: a heading over each group.
+  const sorted = sortPlayTypes(data.playTypes, o.playTypeSort);
   const cards = o.playTypes
-    ? data.playTypes
-        .map((t) => {
+    ? sorted
+        .map((t, i) => {
+          const kind = t.kind || 'pass';
+          const count = sorted.filter((x) => (x.kind || 'pass') === kind).length;
+          const heading =
+            o.playTypeSort !== 'list' && (i === 0 || (sorted[i - 1].kind || 'pass') !== kind)
+              ? `<div class="kind-h">${kind === 'run' ? 'Run plays' : 'Pass plays'} <span>(${count})</span></div>`
+              : '';
           const picture = !o.playTypePicture
             ? ''
             : t.diagram
@@ -179,7 +197,7 @@ export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedO
           const pointsHtml = points.length
             ? `<ul class="points">${points.map((p) => `<li><b>${esc(p.name)}</b> ${esc(p.point.trim())}</li>`).join('')}</ul>`
             : '';
-          return `<article class="card"><div class="nm">${esc(t.label)}</div>${o.playTypeDetail && t.detail ? `<div class="detail">${esc(t.detail)}</div>` : ''}${picture}${pointsHtml}</article>`;
+          return `${heading}<article class="card"><div class="nm">${esc(t.label)}</div>${o.playTypeDetail && t.detail ? `<div class="detail">${esc(t.detail)}</div>` : ''}${picture}${pointsHtml}</article>`;
         })
         .join('')
     : '';
@@ -244,6 +262,8 @@ export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedO
     .card .nm { font-weight: 900; font-size: ${base * (o.playTypeCols === 3 ? 1 : 1.2)}px; text-transform: uppercase; letter-spacing: 0.02em; }
     .card .detail { color: #475569; font-size: ${base * (o.playTypeCols === 3 ? 0.78 : 0.9)}px; margin-top: 1px; }
     .card img { display: block; width: 100%; height: auto; margin-top: 5px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; ${bw ? 'filter: grayscale(1) contrast(1.15);' : ''} }
+    .kind-h { grid-column: 1 / -1; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; font-size: ${base * 1.05}px; border-bottom: 2px solid #0f172a; padding: 4px 0 2px; break-after: avoid; }
+    .kind-h span { font-weight: 600; color: #64748b; }
     .card .points { list-style: none; margin: 5px 0 0; padding: 4px 0 0; border-top: 1px solid #94a3b8; }
     .card .points li { font-size: ${base * (o.playTypeCols === 3 ? 0.8 : 0.92)}px; padding: 1px 0; }
     .card .points b { text-transform: uppercase; }

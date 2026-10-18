@@ -22,7 +22,7 @@ const PointInput: React.FC<{ value: string; play: string; onSave: (point: string
   );
 };
 
-type PlayRow = { name: string; ids: string[]; hidden: boolean; point?: string };
+type PlayRow = { name: string; ids: string[]; hidden: boolean; point?: string; onReport?: boolean };
 
 /** Their plays, one row each: a checkbox to print it and its coaching point. */
 const PlayRows: React.FC<{ plays: PlayRow[]; onShow: (ids: string[], show: boolean) => void; onPoint: (ids: string[], point: string) => void }> = ({ plays, onShow, onPoint }) => (
@@ -31,9 +31,10 @@ const PlayRows: React.FC<{ plays: PlayRow[]; onShow: (ids: string[], show: boole
       <li key={p.name} className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-1.5">
         <label className={`inline-flex items-center gap-1 text-[11px] font-bold cursor-pointer max-w-[9rem] ${p.hidden ? 'text-slate-400 line-through' : 'text-slate-800 dark:text-slate-100'}`}>
           <input type="checkbox" className="h-3.5 w-3.5 shrink-0 cursor-pointer" checked={!p.hidden} onChange={() => onShow(p.ids, p.hidden)} aria-label={`Print ${p.name}`} />
-          <span className="truncate" title={p.name}>
+          <span className="truncate" title={p.onReport === false ? `${p.name} (not on the report)` : p.name}>
             {p.name}
           </span>
+          {p.onReport === false && <span className="shrink-0 text-[9px] font-bold text-slate-400" title="Not on the scouting report">·new</span>}
         </label>
         {p.hidden ? <span /> : <PointInput key={`${p.name}:${p.point || ''}`} value={p.point || ''} play={p.name} onSave={(point) => onPoint(p.ids, point)} />}
       </li>
@@ -56,7 +57,7 @@ interface Props {
   formations?: { id?: string; name: string; printSkip?: boolean; notes?: string; plays?: { name: string; ids: string[]; hidden: boolean; point?: string }[] }[];
   onFormationPrint?: (id: string, change: FormationPrintChange) => void;
   /** The play page's cards (one per play type), with which of their plays print. */
-  playTypes?: { key: string; label: string; plays: PlayRow[] }[];
+  playTypes?: { key: string; label: string; plays: PlayRow[]; kind: 'run' | 'pass' }[];
   onTheirPlay?: (change: TheirPlayChange) => void;
 }
 
@@ -254,6 +255,10 @@ export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, section
               {seg([{ value: true, label: 'Calls & film' }, { value: false, label: 'Name only' }] as const, o.playTypeDetail, (playTypeDetail) => set({ playTypeDetail }))}
             </div>
             <div>
+              {label('Order')}
+              {seg([{ value: 'run', label: 'Runs first' }, { value: 'pass', label: 'Passes first' }, { value: 'list', label: 'As listed' }] as const, o.playTypeSort, (playTypeSort) => set({ playTypeSort }))}
+            </div>
+            <div>
               {label('Coaching points')}
               {seg(SHOW_HIDE, o.playTypePoints, (playTypePoints) => set({ playTypePoints }))}
             </div>
@@ -275,13 +280,20 @@ export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, section
                 {label('Plays')}
                 <div className="flex gap-1 -mt-1">
                   {[
-                    { text: 'All', show: true },
-                    { text: 'None', show: false },
+                    { text: 'All', on: () => true },
+                    { text: 'Runs', on: (k: string) => k === 'run' },
+                    { text: 'Passes', on: (k: string) => k === 'pass' },
+                    { text: 'None', on: () => false },
                   ].map((b) => (
                     <button
                       key={b.text}
                       type="button"
-                      onClick={() => onTheirPlay({ playIds: playTypes.flatMap((t) => t.plays.flatMap((p) => p.ids)), sheetShow: b.show })}
+                      title={b.text === 'All' || b.text === 'None' ? `${b.text} of their plays` : `Only the ${b.text.toLowerCase()}`}
+                      onClick={() => {
+                        const ids = (show: boolean) => playTypes.filter((t) => b.on(t.kind) === show).flatMap((t) => t.plays.flatMap((p) => p.ids));
+                        if (ids(true).length) onTheirPlay({ playIds: ids(true), sheetShow: true });
+                        if (ids(false).length) onTheirPlay({ playIds: ids(false), sheetShow: false });
+                      }}
                       className="h-6 px-2 rounded text-[10px] font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 cursor-pointer"
                     >
                       {b.text}
@@ -289,6 +301,11 @@ export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, section
                   ))}
                 </div>
               </div>
+              <p className="mb-1 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                Printing {playTypes.reduce((n, t) => n + t.plays.filter((p) => !p.hidden).length, 0)} of{' '}
+                {playTypes.reduce((n, t) => n + t.plays.length, 0)} of their plays ({playTypes.filter((t) => t.kind === 'run').length} run,{' '}
+                {playTypes.filter((t) => t.kind === 'pass').length} pass cards)
+              </p>
               <ul className="rounded-md border border-slate-200 dark:border-slate-700 divide-y divide-slate-200 dark:divide-slate-700">
                 {playTypes.map((t) => {
                   const shown = t.plays.filter((p) => !p.hidden).length;
@@ -308,6 +325,12 @@ export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, section
                             }}
                             onChange={() => onTheirPlay({ playIds: ids, sheetShow: off })}
                           />
+                          <span
+                            className={`shrink-0 h-4 px-1 rounded text-[9px] font-black leading-4 ${t.kind === 'run' ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200' : 'bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-200'}`}
+                            title={t.kind === 'run' ? 'Run' : 'Pass'}
+                          >
+                            {t.kind === 'run' ? 'RUN' : 'PASS'}
+                          </span>
                           <span className="truncate">{t.label}</span>
                         </label>
                         <button
@@ -332,7 +355,9 @@ export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, section
                   );
                 })}
               </ul>
-              <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">Saved for every coach. A coaching point is the one on the play in the play builder.</p>
+              <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                Every play of theirs is here; the ones on the scouting report start checked (·new = not on the report). Saved for every coach. A coaching point is the one on the play in the play builder.
+              </p>
             </div>
           )}
         </div>
