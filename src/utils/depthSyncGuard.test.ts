@@ -74,5 +74,15 @@ describe('each depth chart spot keeps its newest edit between coaches', () => {
     assert.ok(mine['d:qb'] > 5_000);
     assert.deepEqual(Object.keys(outgoingSpots({ qb: [p('smith')] }, mine, seen, 'd')), ['qb']);
   });
+  it("a live edit from another coach comes in after a week copy stamped every spot (the patch carries the spot's time)", async () => {
+    const { stampSpots, preferNewerSpots, mergeSpotStamps } = await import('./depthStamps.ts');
+    const copied = stampSpots({}, ['qb', 'rb'], 'd', 1_000); // both coaches have the copied week
+    const theirs = stampSpots(copied, ['qb'], 'd', 2_000); // the other coach moves the QB
+    const docStamps = mergeSpotStamps(copied, { 'd:qb': theirs['d:qb'] }); // the patch's time merged into the week
+    const here = { qb: [p('10')], rb: [p('22')] };
+    const next = preferNewerSpots({ ...here, qb: [p('7')] }, here, { qb: [p('7')] }, copied, docStamps, 'd');
+    assert.equal((next.qb[0] as any).id, '7');
+    assert.equal((next.rb[0] as any).id, '22');
+  });
 
 });

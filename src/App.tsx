@@ -243,6 +243,7 @@ import {
   changedSpots,
   mergeSpotStamps,
   preferNewerSpots,
+  spotStampKey,
   stampSpots,
 } from './utils/remoteStateMerge';
 import { applyCopiedFormationsToDeletedIds, copyWeekCharts, countPlacedPlayers } from './utils/copyWeek';
@@ -2183,11 +2184,19 @@ export default function App() {
           const board = (weekState?.formations || []).find((f: any) => f && f.id === id);
           if (board) formationBoards[id] = board;
         });
+        // each patched spot's edit time goes with it (the other coach's screen compares it with its own)
+        const kindKey = chartKind === 'scrimmage' ? 's' : 'd';
+        const patchStamps: Record<string, number> = {};
+        posIds.forEach((id: string) => {
+          const t = Number(weekState?.depthEditedAt?.[spotStampKey(kindKey, id)]) || 0;
+          if (t) patchStamps[spotStampKey(kindKey, id)] = t;
+        });
         const sharedOk = await patchSharedWeekCloud({
           teamId: activeTeamIdRef.current,
           week: weekKey,
           depthSpots,
           scrimmageSpots,
+          depthEditedAt: patchStamps,
           formationBoards,
           formationOrder: wantsOrder
             ? (weekState?.formations || []).map((f: any) => f.id).filter(Boolean)
@@ -2894,13 +2903,16 @@ export default function App() {
       }
     }, 800);
 
+    // A writer's save times come from that device's clock: compare them only with the same writer's earlier saves
+    // (another coach's device with a slower clock would otherwise look "older" and be ignored until its clock caught up).
+    const writerKey = (key: string) => `${key}|${remote.writerClientId || ''}`;
     const take = (key: string, at?: number) => {
       const n = Number(at) || 0;
       if (remote.writerClientId && remote.writerClientId === CLIENT_ID) {
         return false;
       }
-      if (n && n <= (lastAppliedOpsAtRef.current[key] || 0)) return false;
-      if (n) lastAppliedOpsAtRef.current[key] = n;
+      if (n && n <= (lastAppliedOpsAtRef.current[writerKey(key)] || 0)) return false;
+      if (n) lastAppliedOpsAtRef.current[writerKey(key)] = n;
       return true;
     };
 
@@ -2974,8 +2986,8 @@ export default function App() {
     }
     if (takeWeek) {
       if (patchSig) lastWeekPatchSigRef.current = patchSig;
-      if (weekAt > (lastAppliedOpsAtRef.current[weekTakeKey] || 0)) {
-        lastAppliedOpsAtRef.current[weekTakeKey] = weekAt;
+      if (weekAt > (lastAppliedOpsAtRef.current[writerKey(weekTakeKey)] || 0)) {
+        lastAppliedOpsAtRef.current[writerKey(weekTakeKey)] = weekAt;
       }
       const teamId = activeTeamIdRef.current;
       const week = normalizeScoutWeekKey(currentWeekRef.current);

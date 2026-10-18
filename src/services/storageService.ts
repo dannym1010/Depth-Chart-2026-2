@@ -1446,6 +1446,8 @@ export async function patchSharedWeekCloud(payload: {
   formationBoards?: Record<string, any | null>;
   formationOrder?: string[];
   deletedFormationIds?: string[];
+  /** The edit times of the spots in this patch ("d:<pos>" / "s:<pos>"), merged into the week's edit times. */
+  depthEditedAt?: Record<string, number>;
 }): Promise<boolean> {
   if (readOnlySession) return false;
   try {
@@ -1481,6 +1483,9 @@ export async function patchSharedWeekCloud(payload: {
     if (Array.isArray(payload.formationOrder)) {
       body.formationOrder = payload.formationOrder.filter(Boolean);
     }
+    // Without these the other coach's screen keeps its own copy of the spot (it looks newer) and drops the edit.
+    const stamps = Object.entries(payload.depthEditedAt || {}).filter(([, t]) => Number(t) > 0);
+    if (stamps.length && (body.depthSpots || body.scrimmageSpots)) body.depthEditedAt = Object.fromEntries(stamps.map(([k, t]) => [k, Number(t)]));
     if (Array.isArray(payload.deletedFormationIds) && payload.deletedFormationIds.length) {
       body.deletedFormationIds = payload.deletedFormationIds;
     }
