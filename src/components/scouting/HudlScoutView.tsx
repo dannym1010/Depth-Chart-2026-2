@@ -28,7 +28,7 @@ import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { ScoutOppPlayLibrary } from './ScoutOppPlayLibrary';
 import { StatsTab } from '../../hudlScout/components/report/StatsTab';
 import { buildScoutScript, cardsFromTags, coachingPoint, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, printOrder, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
-import { leadOppPlay, oppPlayDiagram, theirPlaysByFormation } from '../../utils/filmBackfields';
+import { leadOppPlay, oppPlayDiagram, playPoint, theirPlaysByFormation } from '../../utils/filmBackfields';
 import { theirCallEntries } from '../../utils/theirCalls';
 import type { ReportPlayType } from '../../hudlScout/components/CallSheetModal';
 import { autoTagFromHudl, setPlaysFormation, tagPlays } from '../../hudlScout/utils/playTags';
@@ -280,7 +280,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         const row = byName.get(name.toUpperCase()) || { name, ids: [], hidden: true, point: '' };
         row.ids.push(p.id);
         if (!p.sheetSkip) row.hidden = false;
-        if (!row.point) row.point = coachingPoint(p.notes);
+        if (!row.point) row.point = playPoint(p, playDatabase);
         byName.set(name.toUpperCase(), row);
       }
       const shown = g.plays.filter((p) => !p.sheetSkip);
@@ -320,11 +320,30 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     };
   };
 
+  /** A coaching point typed on the call sheet goes on the drawn plays too (the play builder's Coaching point). */
+  const pointOnDrawnPlays = (playIds: string[], point: string) => {
+    if (!onUpdatePlayDatabase) return;
+    const ids = new Set(playIds.map((id) => `scout_${id}`));
+    const now = Date.now();
+    let changed = false;
+    const next = (playDatabase || []).map((e) => {
+      if (!ids.has(e.id) || !e.builder) return e;
+      const old = e.builder.coachNote || '';
+      if (old.trim() === point) return e;
+      changed = true;
+      // The play's notes start with the coaching point: swap it, keep the rest.
+      const notes = e.notes || '';
+      const rest = old && notes.startsWith(old) ? notes.slice(old.length).replace(/^\s*·\s*/, '') : notes;
+      return { ...e, builder: { ...e.builder, coachNote: point }, notes: [point, rest].filter(Boolean).join(' · '), editedAt: now };
+    });
+    if (changed) onUpdatePlayDatabase(next);
+  };
+
   // The sideline sheet: our calls against each of their formations (with our defense lined up against it).
   const formationPlans = useMemo(() => {
     if (!isCallSheetOpen || scoutTarget !== 'opponent') return [];
     const nameOf = (id: string) => (playDatabase || []).find((p) => p.id === id)?.name;
-    const theirs = theirPlaysByFormation(bundle.oppFormations, bundle.playLibraries, bundle.deletedOppPlayIds || []);
+    const theirs = theirPlaysByFormation(bundle.oppFormations, bundle.playLibraries, bundle.deletedOppPlayIds || [], playDatabase);
     // The same print choices as the formations printout (Their plays): its order, the formations left off, and the
     // plays of theirs left off under each one.
     return printOrder((bundle.oppFormations || []).filter((f) => f?.id && !f.deleted).map((f) => ({ f })))
@@ -1088,8 +1107,12 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         editorName={currentUser?.displayName || (currentUser?.email ? String(currentUser.email).split('@')[0] : '')}
         playTypes={reportPlayTypes}
         formationPlans={formationPlans}
-        onTheirPlay={(change) => setBundle((prev) => editTheirPlays(prev, change))}
-        onFormationPrint={(id, change) =>
+        onTheirPlay={(change) => {
+          if ('point' in change) pointOnDrawnPlays(change.playIds, change.point);
+          setBundle((prev) => editTheirPlays(prev, change));
+        }}
+        onFormationPrint={(id, change) => {
+          if ('point' in change) pointOnDrawnPlays(change.playIds, change.point);
           setBundle((prev) => {
             const now = Date.now();
             if ('point' in change) return editTheirPlays(prev, change);
@@ -1106,8 +1129,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
               }),
               updatedAt: now,
             };
-          })
-        }
+          });
+        }}
       />
     </div>
   );

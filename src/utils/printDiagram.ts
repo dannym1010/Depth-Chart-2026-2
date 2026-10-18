@@ -66,10 +66,15 @@ function contentBox(content: string) {
   return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : null;
 }
 
+/** A zone drop: the shaded zone, then the dashed drop into it (a motion line can come first) and its arrow. */
+const ZONE_DROP = /<ellipse\b[^>]*fill-opacity=(['"])0\.12\1[^>]*\/>(?:<path\b[^>]*\/>){0,2}(?:<polygon\b[^>]*\/>)?/g;
+
 /** The picture for print. Anything that isn't one of our SVG play pictures comes back as it was. */
-export function printableDiagram(url?: string | null): string | null | undefined {
-  const svg = svgOfDataUrl(url);
-  if (!svg || !svg.includes('<svg')) return url;
+export function printableDiagram(url?: string | null, opts: { zones?: boolean } = {}): string | null | undefined {
+  const raw = svgOfDataUrl(url);
+  if (!raw || !raw.includes('<svg')) return url;
+  // Without our zone drops the play itself is easier to see.
+  const svg = opts.zones === false ? raw.replace(ZONE_DROP, '') : raw;
   // The field is drawn first; the line of scrimmage (full width) comes right before the players and lines.
   const los = svg.search(/<line x1=['"]0['"][^>]*x2=['"]760['"][^>]*>/);
   const field = los > 0 ? svg.slice(0, los) : '';

@@ -10,10 +10,9 @@ import { inferPlayType, playNameKey } from '../../utils/playbookImport';
 import { resolveDiagram, unsavedDiagram } from '../../utils/playDiagrams';
 import { drawCall } from '../../utils/callDiagram';
 import { BACKFIELD_STRUCTURES } from '../../utils/footballEngine';
-import { backfieldOf, formationDefense, formationOfPlay, leadOppPlay, playWithDefense, redrawWithBackfield, type FilmBackfieldBases } from '../../utils/filmBackfields';
+import { backfieldOf, formationDefense, formationOfPlay, playPoint, leadOppPlay, playWithDefense, redrawWithBackfield, type FilmBackfieldBases } from '../../utils/filmBackfields';
 import {
   buildScoutScript,
-  coachingPoint,
   groupOppPlays,
   moveItem,
   parseClips,
@@ -594,7 +593,7 @@ export const ScoutOppPlayLibrary: React.FC<{
         const hidden = new Set(f.printHidePlays || []);
         const theirs = playsOfFormation(f)
           .filter((p) => !hidden.has(p.id))
-          .map((p) => (coachingPoint(p.notes) ? `${p.name}: ${coachingPoint(p.notes)}` : p.name));
+          .map((p) => (playPoint(p, playDatabase) ? `${p.name}: ${playPoint(p, playDatabase)}` : p.name));
         const detail = [f.defenseUrl ? `vs ${f.defenseName || 'our defense'}` : 'Our defense not drawn on it yet', clips.length ? `ran it ${clips.length}×` : '']
           .filter(Boolean)
           .join(' — ');

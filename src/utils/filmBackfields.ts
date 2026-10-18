@@ -319,11 +319,18 @@ export function theirPlayNamesByFormation(
   return out;
 }
 
+/** One of their plays' coaching point: the one written on it in the play builder, else the notes on its card. */
+export function playPoint(card: ScoutOppPlay, playDatabase: PlayDatabaseEntry[] = []): string {
+  const drawn = playDatabase.find((e) => e.id === `scout_${card.id}`)?.builder?.coachNote?.trim();
+  return drawn || coachingPoint(card.notes);
+}
+
 /** Their plays from each formation: each name once, with the ids of every card by that name. */
 export function theirPlaysByFormation(
   formations: OppFormation[] | undefined,
   libraries: Record<string, ScoutOppPlay[]> | undefined,
-  deletedIds: string[] = []
+  deletedIds: string[] = [],
+  playDatabase: PlayDatabaseEntry[] = []
 ): Map<string, { name: string; ids: string[]; point: string }[]> {
   const gone = new Set(deletedIds);
   const out = new Map<string, { name: string; ids: string[]; point: string }[]>();
@@ -334,7 +341,7 @@ export function theirPlaysByFormation(
     const list = out.get(f.id) || [];
     const name = card.name.trim().toUpperCase();
     const hit = list.find((x) => x.name === name);
-    const point = coachingPoint(card.notes);
+    const point = playPoint(card, playDatabase);
     if (hit) {
       hit.ids.push(card.id);
       if (!hit.point) hit.point = point;

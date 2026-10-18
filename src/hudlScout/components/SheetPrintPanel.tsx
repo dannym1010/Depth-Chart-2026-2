@@ -10,14 +10,14 @@ export type FormationPrintChange = { print: boolean } | { playIds: string[]; sho
 const PointInput: React.FC<{ value: string; play: string; onSave: (point: string) => void }> = ({ value, play, onSave }) => {
   const [text, setText] = useState(value);
   return (
-    <input
+    <textarea
       value={text}
+      rows={text.length > 60 ? 3 : 1}
       aria-label={`Coaching point for ${play}`}
       placeholder="Add a coaching point…"
       onChange={(e) => setText(e.target.value)}
       onBlur={() => text.trim() !== value.trim() && onSave(text.trim())}
-      onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-      className="w-full h-7 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-1.5 text-[11px]"
+      className="w-full min-h-[28px] rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-1.5 py-1 text-[11px] leading-snug resize-y"
     />
   );
 };
@@ -261,6 +261,12 @@ export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, section
               {label('Picture')}
               {seg(SHOW_HIDE, o.playTypePicture, (playTypePicture) => set({ playTypePicture }))}
             </div>
+            {o.playTypePicture && (
+              <div>
+                {label('Zone drops')}
+                {seg(SHOW_HIDE, o.playTypeZones, (playTypeZones) => set({ playTypeZones }))}
+              </div>
+            )}
           </div>
 
           {onTheirPlay && playTypes.length > 0 && (
@@ -326,7 +332,7 @@ export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, section
                   );
                 })}
               </ul>
-              <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">Saved for every coach. Coaching points are the notes on the play in Their plays.</p>
+              <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">Saved for every coach. A coaching point is the one on the play in the play builder.</p>
             </div>
           )}
         </div>

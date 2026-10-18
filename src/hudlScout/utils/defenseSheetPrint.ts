@@ -37,6 +37,8 @@ export interface SheetPrintOptions {
   playTypePoints: boolean;
   /** The picture on each card. */
   playTypePicture: boolean;
+  /** Our zone drops on those pictures (off: the play is easier to see). */
+  playTypeZones: boolean;
   /** Number each call (1. 2. 3.). */
   numbers: boolean;
   size: 'normal' | 'large';
@@ -61,6 +63,7 @@ export const DEFAULT_SHEET_OPTIONS: SheetPrintOptions = {
   playTypeDetail: true,
   playTypePoints: true,
   playTypePicture: true,
+  playTypeZones: false,
   numbers: true,
   size: 'normal',
   ink: 'color',
@@ -170,7 +173,7 @@ export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedO
           const picture = !o.playTypePicture
             ? ''
             : t.diagram
-              ? `<img src="${esc(printableDiagram(t.diagram) || '')}" alt="${esc(t.label)}"/>`
+              ? `<img src="${esc(printableDiagram(t.diagram, { zones: o.playTypeZones }) || '')}" alt="${esc(t.label)}"/>`
               : '<div class="empty">Not drawn yet.</div>';
           const points = o.playTypePoints ? (t.points || []).filter((p) => p.point.trim()) : [];
           const pointsHtml = points.length

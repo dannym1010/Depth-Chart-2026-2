@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { printableDiagram, svgOfDataUrl } from './printDiagram.ts';
+import { assemblePlay, diagramSvg } from './footballEngine.ts';
 
 const svg =
   "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 760 520' width='760' height='520'><rect width='100%' height='100%' fill='#f0f0f0'/>" +
@@ -18,6 +19,21 @@ describe('play pictures for print', () => {
     const vb = out.match(/viewBox='([^']+)'/)![1].split(' ').map(Number);
     assert.ok(vb[1] > 200 && vb[3] < 200, `cropped: ${vb.join(' ')}`);
     assert.ok(vb[2] >= 420);
+  });
+  it('can leave our zone drops off (the zone, its dashed drop and arrow); blitzes and man stay', () => {
+    const play = assemblePlay('21_PRO', 'I_FORM', '31_TOSS', 'Right');
+    const drawn = diagramSvg(play, [
+      { kind: 'pass', color: '#0f766e', points: [{ x: 20, y: -6 }, { x: 22, y: -14 }], zone: { rx: 6, ry: 3 } },
+      { kind: 'run', color: '#ea580c', points: [{ x: 26, y: -4 }, { x: 25, y: 1 }] },
+      { kind: 'pass', color: '#0f766e', points: [{ x: 30, y: -5 }, { x: 31, y: -1 }], man: { x: 31, y: -1 } },
+    ]);
+    const before = svgOfDataUrl(printableDiagram(drawn))!;
+    const after = svgOfDataUrl(printableDiagram(drawn, { zones: false }))!;
+    assert.ok(before.includes('<ellipse') && !after.includes('<ellipse'));
+    assert.ok(/stroke-dasharray=.5 4./.test(before) && !/stroke-dasharray=.5 4./.test(after));
+    assert.ok(after.includes('#c2410c'), 'the blitz stays');
+    assert.ok(/stroke-dasharray=.0.1 6./.test(after), 'man coverage stays');
+    assert.equal((before.match(/<polygon/g) || []).length - 1, (after.match(/<polygon/g) || []).length);
   });
   it('leaves anything else alone', () => {
     assert.equal(printableDiagram('data:image/png;base64,AAAA'), 'data:image/png;base64,AAAA');
