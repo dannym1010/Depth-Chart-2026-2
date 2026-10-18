@@ -27,8 +27,8 @@ import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { ScoutOppPlayLibrary } from './ScoutOppPlayLibrary';
 import { StatsTab } from '../../hudlScout/components/report/StatsTab';
-import { buildScoutScript, cardsFromTags, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
-import { leadOppPlay, oppPlayDiagram, theirPlayNamesByFormation } from '../../utils/filmBackfields';
+import { buildScoutScript, cardsFromTags, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, printOrder, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
+import { leadOppPlay, oppPlayDiagram, theirPlaysByFormation } from '../../utils/filmBackfields';
 import { theirCallEntries } from '../../utils/theirCalls';
 import type { ReportPlayType } from '../../hudlScout/components/CallSheetModal';
 import { autoTagFromHudl, setPlaysFormation, tagPlays } from '../../hudlScout/utils/playTags';
@@ -288,11 +288,24 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   const formationPlans = useMemo(() => {
     if (!isCallSheetOpen || scoutTarget !== 'opponent') return [];
     const nameOf = (id: string) => (playDatabase || []).find((p) => p.id === id)?.name;
-    const theirs = theirPlayNamesByFormation(bundle.oppFormations, bundle.playLibraries, bundle.deletedOppPlayIds || []);
-    return (bundle.oppFormations || [])
-      .filter((f) => f?.id && !f.deleted)
-      .map((f) => ({ name: f.name, lines: planLines(f.plan, nameOf), theirPlays: theirs.get(f.id) || [], diagram: f.defenseUrl || f.diagramUrl || undefined }))
-      .filter((f) => f.lines.length || f.theirPlays.length);
+    const theirs = theirPlaysByFormation(bundle.oppFormations, bundle.playLibraries, bundle.deletedOppPlayIds || []);
+    // The same print choices as the formations printout (Their plays): its order, the formations left off, and the
+    // plays of theirs left off under each one.
+    return printOrder((bundle.oppFormations || []).filter((f) => f?.id && !f.deleted).map((f) => ({ f })))
+      .map(({ f }) => {
+        const hidden = new Set(f.printHidePlays || []);
+        const plays = (theirs.get(f.id) || []).map((p) => ({ ...p, hidden: p.ids.every((id) => hidden.has(id)) }));
+        return {
+          id: f.id,
+          name: f.name,
+          printSkip: Boolean(f.printSkip),
+          lines: planLines(f.plan, nameOf),
+          plays,
+          theirPlays: plays.filter((p) => !p.hidden).map((p) => p.name),
+          diagram: f.defenseUrl || f.diagramUrl || undefined,
+        };
+      })
+      .filter((f) => f.lines.length || f.plays.length);
   }, [isCallSheetOpen, scoutTarget, bundle.oppFormations, bundle.playLibraries, bundle.deletedOppPlayIds, playDatabase]);
 
   // Their plays shows every play the coaches tagged on the film: a card for each tagged play that
@@ -1038,6 +1051,23 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         editorName={currentUser?.displayName || (currentUser?.email ? String(currentUser.email).split('@')[0] : '')}
         playTypes={reportPlayTypes}
         formationPlans={formationPlans}
+        onFormationPrint={(id, change) =>
+          setBundle((prev) => {
+            const now = Date.now();
+            const list = prev.oppFormations || [];
+            return {
+              ...prev,
+              oppFormations: list.map((f) => {
+                if (f.id !== id) return f;
+                if ('print' in change) return { ...f, printSkip: change.print ? undefined : true, editedAt: now };
+                const hidden = new Set(f.printHidePlays || []);
+                for (const pid of change.playIds) change.show ? hidden.delete(pid) : hidden.add(pid);
+                return { ...f, printHidePlays: hidden.size ? [...hidden] : undefined, editedAt: now };
+              }),
+              updatedAt: now,
+            };
+          })
+        }
       />
     </div>
   );

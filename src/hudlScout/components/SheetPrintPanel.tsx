@@ -10,6 +10,9 @@ interface Props {
   playTypeCount: number;
   /** How many of their formations have our calls set (Their plays → Our calls vs their formations). */
   formationPlanCount?: number;
+  /** Their formations on the sheet, with what prints of each. */
+  formations?: { id?: string; name: string; printSkip?: boolean; plays?: { name: string; ids: string[]; hidden: boolean }[] }[];
+  onFormationPrint?: (id: string, change: { print: boolean } | { playIds: string[]; show: boolean }) => void;
 }
 
 const chip = (on: boolean) =>
@@ -44,7 +47,7 @@ const label = (text: string) => (
 );
 
 /** What prints, and how: one quiet panel under the sheet's buttons. */
-export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, sections, playTypeCount, formationPlanCount = 0 }) => {
+export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, sections, playTypeCount, formationPlanCount = 0, formations = [], onFormationPrint }) => {
   const set = (patch: Partial<SheetPrintOptions>) => onChange({ ...o, ...patch });
   const toggleSection = (key: CallSheetSectionKey) => set({ sections: { ...o.sections, [key]: !o.sections[key] } });
   const isDefault = JSON.stringify(o) === JSON.stringify(DEFAULT_SHEET_OPTIONS);
@@ -89,6 +92,34 @@ export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, section
             Our calls vs their formations{formationPlanCount ? ` (${formationPlanCount})` : ''}
           </button>
         </div>
+        {o.formationPlans && onFormationPrint && formations.some((f) => f.id) && (
+          <div className="mt-2 rounded-lg border border-slate-200 dark:border-slate-700 p-2 space-y-1.5">
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Uncheck a formation to leave it off; click one of their plays to leave it off. Same choices as the formations printout, saved for every coach.
+            </p>
+            {formations.filter((f) => f.id).map((f) => (
+              <div key={f.id} className={`flex flex-wrap items-center gap-1.5 ${f.printSkip ? 'opacity-50' : ''}`}>
+                <label className="inline-flex items-center gap-1.5 text-xs font-black text-slate-900 dark:text-white cursor-pointer min-w-[8rem]">
+                  <input type="checkbox" className="h-4 w-4 cursor-pointer" checked={!f.printSkip} onChange={(e) => onFormationPrint(f.id!, { print: e.target.checked })} />
+                  {f.name}
+                </label>
+                {!f.printSkip &&
+                  (f.plays || []).map((p) => (
+                    <button
+                      key={p.name}
+                      type="button"
+                      aria-pressed={!p.hidden}
+                      onClick={() => onFormationPrint(f.id!, { playIds: p.ids, show: p.hidden })}
+                      title={p.hidden ? 'Left off the sheet (click to print it)' : 'Prints under this formation (click to leave it off)'}
+                      className={`h-6 px-2 rounded text-[10px] font-bold cursor-pointer ${p.hidden ? 'bg-slate-100 text-slate-400 line-through dark:bg-slate-800' : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-200'}`}
+                    >
+                      {p.name}
+                    </button>
+                  ))}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap items-end gap-x-5 gap-y-2.5">

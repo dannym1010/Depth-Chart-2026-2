@@ -29,7 +29,18 @@ interface CallSheetModalProps {
   /** Their play types on this week's report, each drawn against our defense. Printed on its own page. */
   playTypes?: ReportPlayType[];
   /** Our calls against each of their formations (base + situations), with the picture of our defense vs it. */
-  formationPlans?: { name: string; lines: { situation: string; call: string }[]; theirPlays?: string[]; diagram?: string }[];
+  formationPlans?: {
+    id?: string;
+    name: string;
+    printSkip?: boolean;
+    lines: { situation: string; call: string }[];
+    /** Their plays from it (every card id by that name), and whether each prints. */
+    plays?: { name: string; ids: string[]; hidden: boolean }[];
+    theirPlays?: string[];
+    diagram?: string;
+  }[];
+  /** Print a formation or leave it off; print one of its plays or leave it off (saved on the formation). */
+  onFormationPrint?: (id: string, change: { print: boolean } | { playIds: string[]; show: boolean }) => void;
 }
 
 const SECTIONS: { key: CallSheetSectionKey; title: string; tag: string; wide?: boolean }[] = [
@@ -116,6 +127,7 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
   editorName,
   playTypes,
   formationPlans,
+  onFormationPrint,
 }) => {
   const [editing, setEditing] = useState(false);
   // What prints and how (kept on this device).
@@ -206,7 +218,11 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
         note,
         playTypes: types,
         formationPlans: printOpts.formationPlans && formationPlans?.length
-          ? await Promise.all(formationPlans.map(async (f) => ({ ...f, diagram: f.diagram ? (await resolveDiagram(f.diagram)) || undefined : undefined })))
+          ? await Promise.all(
+              formationPlans
+                .filter((f) => !f.printSkip)
+                .map(async (f) => ({ name: f.name, lines: f.lines, theirPlays: f.theirPlays, diagram: f.diagram ? (await resolveDiagram(f.diagram)) || undefined : undefined }))
+            )
           : [],
       },
       printOpts
@@ -331,6 +347,8 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
             sections={SECTIONS.map(({ key, title }) => ({ key, title }))}
             playTypeCount={playTypes?.length || 0}
             formationPlanCount={formationPlans?.length || 0}
+            formations={formationPlans}
+            onFormationPrint={onFormationPrint}
           />
         )}
         {printNote && <p className="px-4 py-2 text-xs font-bold text-amber-700 dark:text-amber-300 print:hidden">{printNote}</p>}
