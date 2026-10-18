@@ -26,6 +26,10 @@ export type CallSheetSectionKey = 'firstDownCalls' | 'runStopCalls' | 'passBlitz
  */
 export interface CallSheetEdits {
   sections: Partial<Record<CallSheetSectionKey, string[]>>;
+  /** A box's own name (when the coach renamed it). */
+  titles?: Partial<Record<CallSheetSectionKey, string>>;
+  /** Boxes the coach added: a title and its calls, after the others. */
+  custom?: { id: string; title: string; lines: string[] }[];
   alerts?: string[];
   note?: string;
   updatedAt: number;

@@ -11,8 +11,8 @@ export interface SheetPrintOptions {
   stats: boolean;
   /** The high-alert tells. */
   alerts: boolean;
-  /** Which call boxes print. */
-  sections: Record<CallSheetSectionKey, boolean>;
+  /** Which call boxes print (a box not listed prints, e.g. one the coach added). */
+  sections: Record<string, boolean>;
   /** The reminder line at the bottom. */
   note: boolean;
   /** Their plays against our defense, on its own page(s). */
@@ -27,10 +27,16 @@ export interface SheetPrintOptions {
   formationNotes: boolean;
   /** Their plays under each formation, in one or two columns. */
   theirPlayCols: 1 | 2;
+  /** Each of their plays with its coaching point. */
+  theirPlayPoints: boolean;
   /** Plays across the page on that page. */
   playTypeCols: 1 | 2 | 3;
   /** The calls and film counts under each play's name. */
   playTypeDetail: boolean;
+  /** Each play's coaching point on its card. */
+  playTypePoints: boolean;
+  /** The picture on each card. */
+  playTypePicture: boolean;
   /** Number each call (1. 2. 3.). */
   numbers: boolean;
   size: 'normal' | 'large';
@@ -50,8 +56,11 @@ export const DEFAULT_SHEET_OPTIONS: SheetPrintOptions = {
   formationPicture: true,
   formationNotes: true,
   theirPlayCols: 2,
+  theirPlayPoints: true,
   playTypeCols: 2,
   playTypeDetail: true,
+  playTypePoints: true,
+  playTypePicture: true,
   numbers: true,
   size: 'normal',
   ink: 'color',
@@ -82,9 +91,9 @@ export interface SheetData {
   opponentName: string;
   stats: { totalPlays: number; runPct: number; passPct: number; avgGain: number | string };
   alerts: string[];
-  sections: { key: CallSheetSectionKey; title: string; tag: string; wide?: boolean; lines: string[] }[];
+  sections: { key: string; title: string; tag: string; wide?: boolean; lines: string[] }[];
   note: string;
-  playTypes: { label: string; detail: string; diagram?: string | null }[];
+  playTypes: { label: string; detail: string; diagram?: string | null; points?: { name: string; point: string }[] }[];
   /** Our calls against each of their formations. */
   formationPlans?: SheetFormationPlan[];
 }
@@ -92,7 +101,8 @@ export interface SheetData {
 export interface SheetFormationPlan {
   name: string;
   lines: { situation: string; call: string }[];
-  theirPlays?: string[];
+  /** Their plays from it, each with its coaching point. */
+  theirPlays?: { name: string; point?: string }[];
   /** The coach's game plan notes for it. */
   notes?: string;
   diagram?: string;
@@ -101,7 +111,7 @@ export interface SheetFormationPlan {
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] || c));
 
 /** Each call box gets its own color strip (black and white prints use a plain rule instead). */
-const ACCENT: Record<CallSheetSectionKey, string> = {
+const ACCENT: Record<string, string> = {
   firstDownCalls: '#166534',
   runStopCalls: '#b45309',
   thirdDownMustStops: '#1d4ed8',
@@ -114,7 +124,7 @@ export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedO
   const bw = o.ink === 'bw';
   const base = o.size === 'large' ? 16.5 : 13;
   // Landscape puts the (non-wide) boxes across, up to four; portrait is two across.
-  const shown = data.sections.filter((x) => o.sections[x.key]);
+  const shown = data.sections.filter((x) => o.sections[x.key] !== false);
   const callCols = landscape ? Math.min(4, Math.max(2, shown.filter((x) => !x.wide).length)) : 2;
 
   const alerts = data.alerts.filter(Boolean);
@@ -129,12 +139,12 @@ export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedO
       : '';
 
   const boxes = data.sections
-    .filter((s) => o.sections[s.key])
+    .filter((s) => o.sections[s.key] !== false)
     .map((s) => {
       const items = s.lines.length
         ? `<ol class="${s.wide ? 'wide-list' : ''}">${s.lines.map((l, i) => `<li><b>${i + 1}</b><span>${esc(l)}</span></li>`).join('')}</ol>`
         : '<p class="none">No calls.</p>';
-      return `<article class="box${s.wide ? ' wide' : ''}" style="--accent:${bw ? '#111' : ACCENT[s.key]}"><h3><span>${esc(s.title)}</span><em>${esc(s.tag)}</em></h3>${items}</article>`;
+      return `<article class="box${s.wide ? ' wide' : ''}" style="--accent:${bw ? '#111' : ACCENT[s.key] || '#0f766e'}"><h3><span>${esc(s.title)}</span><em>${esc(s.tag)}</em></h3>${items}</article>`;
     })
     .join('');
 
@@ -157,8 +167,16 @@ export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedO
   const cards = o.playTypes
     ? data.playTypes
         .map((t) => {
-          const picture = t.diagram ? `<img src="${esc(printableDiagram(t.diagram) || '')}" alt="${esc(t.label)}"/>` : '<div class="empty">Not drawn yet.</div>';
-          return `<article class="card"><div class="nm">${esc(t.label)}</div>${o.playTypeDetail && t.detail ? `<div class="detail">${esc(t.detail)}</div>` : ''}${picture}</article>`;
+          const picture = !o.playTypePicture
+            ? ''
+            : t.diagram
+              ? `<img src="${esc(printableDiagram(t.diagram) || '')}" alt="${esc(t.label)}"/>`
+              : '<div class="empty">Not drawn yet.</div>';
+          const points = o.playTypePoints ? (t.points || []).filter((p) => p.point.trim()) : [];
+          const pointsHtml = points.length
+            ? `<ul class="points">${points.map((p) => `<li><b>${esc(p.name)}</b> ${esc(p.point.trim())}</li>`).join('')}</ul>`
+            : '';
+          return `<article class="card"><div class="nm">${esc(t.label)}</div>${o.playTypeDetail && t.detail ? `<div class="detail">${esc(t.detail)}</div>` : ''}${picture}${pointsHtml}</article>`;
         })
         .join('')
     : '';
@@ -177,7 +195,9 @@ export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedO
             : '';
           const notes = o.formationNotes && f.notes?.trim() ? `<div class="fnotes"><b>Game plan notes</b><p>${esc(f.notes.trim())}</p></div>` : '';
           const theirs = f.theirPlays?.length
-            ? `<div class="their"><b>Their plays</b><ul>${f.theirPlays.map((n) => `<li><span>${esc(n)}</span></li>`).join('')}</ul></div>`
+            ? `<div class="their"><b>Their plays</b><ul>${f.theirPlays
+                .map((p) => `<li><span class="tp">${esc(p.name)}</span>${o.theirPlayPoints && p.point?.trim() ? `<span class="pt">${esc(p.point.trim())}</span>` : ''}</li>`)
+                .join('')}</ul></div>`
             : '';
           return `<article class="fplan">${picture}<div><h3>vs ${esc(f.name)}</h3>${calls}${notes}${theirs}</div></article>`;
         })
@@ -221,6 +241,9 @@ export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedO
     .card .nm { font-weight: 900; font-size: ${base * (o.playTypeCols === 3 ? 1 : 1.2)}px; text-transform: uppercase; letter-spacing: 0.02em; }
     .card .detail { color: #475569; font-size: ${base * (o.playTypeCols === 3 ? 0.78 : 0.9)}px; margin-top: 1px; }
     .card img { display: block; width: 100%; height: auto; margin-top: 5px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; ${bw ? 'filter: grayscale(1) contrast(1.15);' : ''} }
+    .card .points { list-style: none; margin: 5px 0 0; padding: 4px 0 0; border-top: 1px solid #94a3b8; }
+    .card .points li { font-size: ${base * (o.playTypeCols === 3 ? 0.8 : 0.92)}px; padding: 1px 0; }
+    .card .points b { text-transform: uppercase; }
     .fplans { margin-top: 10px; break-inside: auto; }
     .fplans-h { font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; font-size: ${base * 0.95}px; border-bottom: 2px solid #0f172a; padding-bottom: 3px; margin-bottom: 6px; }
     .fgrid { display: grid; grid-template-columns: repeat(${o.formationCols || 2}, minmax(0, 1fr)); gap: 8px; }
@@ -234,7 +257,9 @@ export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedO
     .fplan li.base span { font-weight: 900; }
     .fplan .their { margin-top: 4px; }
     .fplan .their ul { columns: ${o.theirPlayCols === 1 ? 1 : 2}; column-gap: 12px; }
-    .fplan .their li { break-inside: avoid; padding: 1px 0; font-size: ${base * 0.95}px; }
+    .fplan .their li { display: block; break-inside: avoid; padding: 1px 0; font-size: ${base * 0.95}px; }
+    .fplan .their .tp { font-weight: 700; }
+    .fplan .their .pt { display: block; font-size: ${base * 0.85}px; color: #334155; line-height: 1.25; padding-left: 8px; }
     .fplan .their, .fnotes { margin-top: 6px; }
     .fnotes { margin-top: 4px; }
     .fnotes > b { display: block; font-size: ${base * 0.85}px; text-transform: uppercase; letter-spacing: 0.06em; color: #475569; border-bottom: 1px solid #94a3b8; padding-bottom: 1px; }

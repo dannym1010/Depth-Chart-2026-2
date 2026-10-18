@@ -3,7 +3,7 @@ import { AIScoutingReport, TendencyAnalysis } from '../types/football';
 import { Printer, X, Shield, AlertTriangle, Pencil, Plus, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import type { CallSheetEdits, CallSheetSectionKey } from '../scoutBundle';
 import { resolveDiagram } from '../../utils/playDiagrams';
-import { SheetPrintPanel, type FormationPrintChange } from './SheetPrintPanel';
+import { SheetPrintPanel, type FormationPrintChange, type TheirPlayChange } from './SheetPrintPanel';
 import { defenseSheetHtml, loadSheetOptions, saveSheetOptions, type SheetPrintOptions } from '../utils/defenseSheetPrint';
 
 /** One of their play types, with our defense drawn against it, for the printed report. */
@@ -12,6 +12,8 @@ export interface ReportPlayType {
   label: string;
   detail: string;
   diagram?: string;
+  /** Its plays (each name once, with every card's id), whether each prints, and each one's coaching point. */
+  plays: { name: string; ids: string[]; hidden: boolean; point?: string }[];
 }
 
 interface CallSheetModalProps {
@@ -36,12 +38,14 @@ interface CallSheetModalProps {
     /** The coach's game plan notes for it. */
     notes?: string;
     /** Their plays from it (every card id by that name), and whether each prints. */
-    plays?: { name: string; ids: string[]; hidden: boolean }[];
-    theirPlays?: string[];
+    plays?: { name: string; ids: string[]; hidden: boolean; point?: string }[];
+    theirPlays?: { name: string; point?: string }[];
     diagram?: string;
   }[];
   /** Print a formation or leave it off; print one of its plays or leave it off (saved on the formation). */
   onFormationPrint?: (id: string, change: FormationPrintChange) => void;
+  /** Print one of their plays on the play page or leave it off; its coaching point. */
+  onTheirPlay?: (change: TheirPlayChange) => void;
 }
 
 const SECTIONS: { key: CallSheetSectionKey; title: string; tag: string; wide?: boolean }[] = [
@@ -77,6 +81,9 @@ function shortSummary(text?: string): string {
 
 const sameLines = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 const cleanLines = (lines: string[]) => lines.map((l) => l.trim()).filter(Boolean);
+/** The boxes a coach added, without blank lines; a box with no name and no calls is dropped. */
+const cleanCustom = (list: { id: string; title: string; lines: string[] }[]) =>
+  list.map((c) => ({ id: c.id, title: c.title.trim(), lines: cleanLines(c.lines) })).filter((c) => c.title || c.lines.length);
 
 const inputClass =
   'flex-1 min-w-0 rounded px-2 py-1.5 text-xs font-semibold bg-white text-slate-900 border border-slate-300 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-600 focus:outline-none focus:border-indigo-500';
@@ -163,6 +170,7 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
   playTypes,
   formationPlans,
   onFormationPrint,
+  onTheirPlay,
 }) => {
   const [editing, setEditing] = useState(false);
   // What prints and how (kept on this device).
@@ -173,7 +181,13 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
     setPrintOpts(next);
     saveSheetOptions(next);
   };
-  const [draft, setDraft] = useState<{ sections: Record<CallSheetSectionKey, string[]>; alerts: string[]; note: string } | null>(null);
+  const [draft, setDraft] = useState<{
+    sections: Record<CallSheetSectionKey, string[]>;
+    titles: Record<CallSheetSectionKey, string>;
+    custom: { id: string; title: string; lines: string[] }[];
+    alerts: string[];
+    note: string;
+  } | null>(null);
   const [previewHtml, setPreviewHtml] = useState('');
   const diagrams = useRef(new Map<string, Promise<string | null>>());
 
@@ -184,7 +198,15 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
   const linesFor = (key: CallSheetSectionKey) => edits?.sections?.[key] ?? suggested[key];
   const alerts = edits?.alerts ?? suggestedAlerts;
   const note = edits?.note ?? suggestedNote;
-  const hasEdits = Boolean(edits && (Object.keys(edits.sections || {}).length || edits.alerts || edits.note !== undefined));
+  const hasEdits = Boolean(
+    edits && (Object.keys(edits.sections || {}).length || Object.keys(edits.titles || {}).length || edits.custom?.length || edits.alerts || edits.note !== undefined)
+  );
+  const titleFor = (key: CallSheetSectionKey) => edits?.titles?.[key]?.trim() || SECTIONS.find((x) => x.key === key)?.title || '';
+  // Every box that prints: ours (with the coach's names), then the ones the coach added.
+  const allSections = [
+    ...SECTIONS.map(({ key, tag, wide }) => ({ key: key as string, title: titleFor(key), tag, wide, lines: linesFor(key) })),
+    ...(edits?.custom || []).map((c) => ({ key: c.id, title: c.title, tag: '', wide: false, lines: c.lines })),
+  ];
 
   // The page that prints (the preview shows this same page).
   const sheetHtml = async () => {
@@ -194,14 +216,23 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
       return (await diagrams.current.get(url)) || undefined;
     };
     const types = printOpts.playTypes && playTypes?.length
-      ? await Promise.all(playTypes.map(async (t) => ({ label: t.label, detail: t.detail, diagram: await picture(t.diagram) })))
+      ? await Promise.all(
+          playTypes
+            .filter((t) => t.plays.some((p) => !p.hidden))
+            .map(async (t) => ({
+              label: t.label,
+              detail: t.detail,
+              diagram: printOpts.playTypePicture ? await picture(t.diagram) : undefined,
+              points: t.plays.filter((p) => !p.hidden && p.point).map((p) => ({ name: p.name, point: p.point || '' })),
+            }))
+        )
       : [];
     return defenseSheetHtml(
       {
         opponentName,
         stats: { totalPlays: analysis.totalPlays, runPct: analysis.runPct, passPct: analysis.passPct, avgGain: analysis.avgGainOverall },
         alerts,
-        sections: SECTIONS.map(({ key, title, tag, wide }) => ({ key, title, tag, wide, lines: linesFor(key) })),
+        sections: allSections,
         note,
         playTypes: types,
         formationPlans: printOpts.formationPlans && formationPlans?.length
@@ -231,15 +262,20 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
 
   const startEditing = () => {
     const sections = {} as Record<CallSheetSectionKey, string[]>;
-    SECTIONS.forEach(({ key }) => (sections[key] = [...linesFor(key)]));
-    setDraft({ sections, alerts: [...alerts], note });
+    const titles = {} as Record<CallSheetSectionKey, string>;
+    SECTIONS.forEach(({ key }) => {
+      sections[key] = [...linesFor(key)];
+      titles[key] = titleFor(key);
+    });
+    setDraft({ sections, titles, custom: (edits?.custom || []).map((c) => ({ ...c, lines: [...c.lines] })), alerts: [...alerts], note });
     setEditing(true);
   };
 
   const isDirty = () => {
     if (!draft) return false;
     return (
-      SECTIONS.some(({ key }) => !sameLines(cleanLines(draft.sections[key]), linesFor(key))) ||
+      SECTIONS.some(({ key }) => !sameLines(cleanLines(draft.sections[key]), linesFor(key)) || draft.titles[key].trim() !== titleFor(key)) ||
+      JSON.stringify(cleanCustom(draft.custom)) !== JSON.stringify(edits?.custom || []) ||
       !sameLines(cleanLines(draft.alerts), alerts) ||
       draft.note.trim() !== note
     );
@@ -263,10 +299,18 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
       const lines = cleanLines(draft.sections[key]);
       if (!sameLines(lines, suggested[key])) sections[key] = lines;
     });
+    const titles: Partial<Record<CallSheetSectionKey, string>> = {};
+    SECTIONS.forEach(({ key, title }) => {
+      const t = draft.titles[key].trim();
+      if (t && t !== title) titles[key] = t;
+    });
+    const custom = cleanCustom(draft.custom);
     const nextAlerts = cleanLines(draft.alerts);
     const nextNote = draft.note.trim();
     onSaveEdits({
       sections,
+      ...(Object.keys(titles).length ? { titles } : {}),
+      ...(custom.length ? { custom } : {}),
       alerts: sameLines(nextAlerts, suggestedAlerts) ? undefined : nextAlerts,
       note: nextNote === suggestedNote ? undefined : nextNote,
       updatedAt: Date.now(),
@@ -278,7 +322,8 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
   const resetToSuggested = () => {
     if (!onSaveEdits) return;
     if (!window.confirm('Replace the edited calls with the suggestions from the film?')) return;
-    onSaveEdits({ sections: {}, updatedAt: Date.now(), editedBy: editorName || undefined });
+    // Your own boxes and box names stay.
+    onSaveEdits({ sections: {}, titles: edits?.titles, custom: edits?.custom, updatedAt: Date.now(), editedBy: editorName || undefined });
     stopEditing();
   };
 
@@ -407,11 +452,13 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
                 <SheetPrintPanel
                   options={printOpts}
                   onChange={changeOpts}
-                  sections={SECTIONS.map(({ key, title }) => ({ key, title }))}
+                  sections={allSections.map(({ key, title }) => ({ key, title }))}
                   playTypeCount={playTypes?.length || 0}
                   formationPlanCount={formationPlans?.length || 0}
                   formations={formationPlans}
                   onFormationPrint={onFormationPrint}
+                  playTypes={playTypes}
+                  onTheirPlay={onTheirPlay}
                 />
               </aside>
             )}
@@ -480,48 +527,63 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
             </div>
           )}
 
-          {/* Call boxes */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {SECTIONS.map(({ key, title, tag, wide }) => {
-              const lines = linesFor(key);
-              const edited = Boolean(edits?.sections?.[key]);
-              return (
-                <div
-                  key={key}
-                  className={`border border-slate-200 dark:border-slate-800 rounded p-3 bg-slate-50 dark:bg-slate-900/60 print:bg-white print:border-black ${wide ? 'md:col-span-2' : ''} ${!printOpts.sections[key] && !editing ? 'opacity-35' : ''}`}
-                >
-                  <div className="font-bold text-slate-900 dark:text-slate-100 print:text-black uppercase tracking-wider text-[11px] border-b border-slate-200 dark:border-slate-800 pb-1 mb-2 flex justify-between gap-2">
-                    <span>
-                      {title}
-                      {!editing && edited && <span className="ml-1.5 normal-case tracking-normal font-semibold text-indigo-700 dark:text-indigo-300 print:hidden">· edited</span>}
-                    </span>
-                    <span className="text-slate-500 dark:text-slate-400 print:text-slate-600">{tag}</span>
-                  </div>
-                  {editing && draft ? (
-                    <LineEditor
-                      lines={draft.sections[key]}
-                      onChange={(next) => setDraft({ ...draft, sections: { ...draft.sections, [key]: next } })}
-                      placeholder="Front · coverage, or a coaching point"
+          {/* Call boxes: rename any box; add your own (they print after these) */}
+          {draft && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {SECTIONS.map(({ key, title, tag, wide }) => (
+                <div key={key} className={`border border-slate-200 dark:border-slate-800 rounded p-3 bg-slate-50 dark:bg-slate-900/60 ${wide ? 'md:col-span-2' : ''}`}>
+                  <div className="border-b border-slate-200 dark:border-slate-800 pb-1.5 mb-2 flex items-center justify-between gap-2">
+                    <input
+                      value={draft.titles[key]}
+                      onChange={(e) => setDraft({ ...draft, titles: { ...draft.titles, [key]: e.target.value } })}
+                      placeholder={title}
+                      aria-label={`Name of the ${title} box`}
+                      className={`${inputClass} font-black uppercase tracking-wider`}
                     />
-                  ) : lines.length === 0 ? (
-                    <p className="text-slate-500 dark:text-slate-400 italic">No calls.</p>
-                  ) : (
-                    <ul className={`${wide ? 'grid grid-cols-1 sm:grid-cols-3 gap-2' : 'space-y-1.5'} text-xs`}>
-                      {lines.map((call, idx) => (
-                        <li
-                          key={idx}
-                          className={`flex items-center gap-2 ${wide ? 'p-1.5' : 'p-1'} rounded bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800/80 print:bg-slate-50 print:border-slate-300`}
-                        >
-                          <span className="w-5 text-center text-slate-500 dark:text-slate-400 font-bold">{idx + 1}.</span>
-                          <span className="font-semibold text-slate-900 dark:text-slate-100 print:text-black">{call}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 shrink-0">{tag}</span>
+                  </div>
+                  <LineEditor
+                    lines={draft.sections[key]}
+                    onChange={(next) => setDraft({ ...draft, sections: { ...draft.sections, [key]: next } })}
+                    placeholder="Front · coverage, or a coaching point"
+                  />
                 </div>
-              );
-            })}
-          </div>
+              ))}
+              {draft.custom.map((c, i) => {
+                const setCustom = (patch: Partial<typeof c>) => setDraft({ ...draft, custom: draft.custom.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+                return (
+                  <div key={c.id} className="border-2 border-dashed border-teal-300 dark:border-teal-700 rounded p-3 bg-white dark:bg-slate-900/60">
+                    <div className="border-b border-slate-200 dark:border-slate-800 pb-1.5 mb-2 flex items-center gap-2">
+                      <input
+                        value={c.title}
+                        onChange={(e) => setCustom({ title: e.target.value })}
+                        placeholder="Name this box (e.g. Sudden change, Trick plays)"
+                        aria-label={`Name of your box ${i + 1}`}
+                        className={`${inputClass} font-black uppercase tracking-wider`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setDraft({ ...draft, custom: draft.custom.filter((_, j) => j !== i) })}
+                        className="p-2 rounded text-slate-500 hover:text-rose-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-rose-300 dark:hover:bg-slate-800 cursor-pointer shrink-0"
+                        title="Remove this box"
+                        aria-label={`Remove the box ${c.title || i + 1}`}
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <LineEditor lines={c.lines} onChange={(lines) => setCustom({ lines })} placeholder="A call, or a coaching point" />
+                  </div>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => setDraft({ ...draft, custom: [...draft.custom, { id: `custom-${Date.now().toString(36)}`, title: '', lines: [''] }] })}
+                className="min-h-[96px] rounded border-2 border-dashed border-slate-300 dark:border-slate-700 text-sm font-bold text-teal-700 dark:text-teal-300 hover:bg-teal-50 dark:hover:bg-teal-950/30 flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" /> Add your own box
+              </button>
+            </div>
+          )}
 
           {/* Reminder line */}
           <div className={`pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400 print:text-slate-700 flex flex-col sm:flex-row sm:justify-between gap-2 ${!printOpts.note && !editing ? 'opacity-35' : ''}`}>

@@ -27,7 +27,7 @@ import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { ScoutOppPlayLibrary } from './ScoutOppPlayLibrary';
 import { StatsTab } from '../../hudlScout/components/report/StatsTab';
-import { buildScoutScript, cardsFromTags, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, printOrder, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
+import { buildScoutScript, cardsFromTags, coachingPoint, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, printOrder, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
 import { leadOppPlay, oppPlayDiagram, theirPlaysByFormation } from '../../utils/filmBackfields';
 import { theirCallEntries } from '../../utils/theirCalls';
 import type { ReportPlayType } from '../../hudlScout/components/CallSheetModal';
@@ -273,16 +273,52 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   const reportPlayTypes = useMemo<ReportPlayType[]>(() => {
     if (!isCallSheetOpen || scoutTarget !== 'opponent') return [];
     return groupOppPlays(reportPlays(bundle.playLibraries)).map((g) => {
-      const lead = leadOppPlay(g.plays, playDatabase);
-      const snaps = g.plays.reduce((n, p) => n + snapsForCall(bundle.plays, p.gameId, p.name, `scout_${p.id}`, p.fromPlayId).length, 0);
+      // Each play once (by name), printed unless every card of it is left off; the card shows only the printed ones.
+      const byName = new Map<string, { name: string; ids: string[]; hidden: boolean; point?: string }>();
+      for (const p of g.plays) {
+        const name = p.name.trim();
+        const row = byName.get(name.toUpperCase()) || { name, ids: [], hidden: true, point: '' };
+        row.ids.push(p.id);
+        if (!p.sheetSkip) row.hidden = false;
+        if (!row.point) row.point = coachingPoint(p.notes);
+        byName.set(name.toUpperCase(), row);
+      }
+      const shown = g.plays.filter((p) => !p.sheetSkip);
+      const use = shown.length ? shown : g.plays;
+      const lead = leadOppPlay(use, playDatabase);
+      const snaps = use.reduce((n, p) => n + snapsForCall(bundle.plays, p.gameId, p.name, `scout_${p.id}`, p.fromPlayId).length, 0);
       return {
         key: g.key,
         label: g.label,
-        detail: [g.plays.map((p) => p.name).join(' · '), snaps ? `ran it ${snaps} time${snaps === 1 ? '' : 's'}` : ''].filter(Boolean).join(' — '),
+        detail: [[...new Set(use.map((p) => p.name))].join(' · '), snaps ? `ran it ${snaps} time${snaps === 1 ? '' : 's'}` : ''].filter(Boolean).join(' — '),
         diagram: oppPlayDiagram(lead, playDatabase, bundle.backfieldBases, bundle.oppFormations),
+        plays: [...byName.values()],
       };
     });
   }, [isCallSheetOpen, scoutTarget, bundle.playLibraries, bundle.plays, bundle.backfieldBases, bundle.oppFormations, playDatabase]);
+
+  /**
+   * Their play cards changed from the call sheet: a play's coaching point (saved as the notes on every card of that
+   * play), or whether it prints on the sheet's play page.
+   */
+  const editTheirPlays = (prev: typeof bundle, change: { playIds: string[]; point: string } | { playIds: string[]; sheetShow: boolean }): typeof bundle => {
+    const now = Date.now();
+    const ids = new Set(change.playIds);
+    const edit = (p: ScoutOppPlay): ScoutOppPlay => {
+      if (!ids.has(p.id)) return p;
+      if ('point' in change) return coachingPoint(p.notes) === change.point ? p : { ...p, notes: change.point, editedAt: now };
+      return Boolean(p.sheetSkip) === !change.sheetShow ? p : { ...p, sheetSkip: change.sheetShow ? undefined : true, editedAt: now };
+    };
+    const playLibraries = Object.fromEntries(Object.entries(prev.playLibraries || {}).map(([g, list]) => [g, list.map(edit)]));
+    return {
+      ...prev,
+      playLibraries,
+      ...('point' in change
+        ? { practiceScript: buildScoutScript(orderByIds(reportPlays(playLibraries), (prev.practiceScript?.lines || []).map((l) => l.playId)), reportName) }
+        : {}),
+      updatedAt: now,
+    };
+  };
 
   // The sideline sheet: our calls against each of their formations (with our defense lined up against it).
   const formationPlans = useMemo(() => {
@@ -302,7 +338,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
           lines: planLines(f.plan, nameOf),
           notes: f.plan?.notes || '',
           plays,
-          theirPlays: plays.filter((p) => !p.hidden).map((p) => p.name),
+          theirPlays: plays.filter((p) => !p.hidden).map((p) => ({ name: p.name, point: p.point })),
           diagram: f.defenseUrl || f.diagramUrl || undefined,
         };
       })
@@ -1052,9 +1088,11 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         editorName={currentUser?.displayName || (currentUser?.email ? String(currentUser.email).split('@')[0] : '')}
         playTypes={reportPlayTypes}
         formationPlans={formationPlans}
+        onTheirPlay={(change) => setBundle((prev) => editTheirPlays(prev, change))}
         onFormationPrint={(id, change) =>
           setBundle((prev) => {
             const now = Date.now();
+            if ('point' in change) return editTheirPlays(prev, change);
             const list = prev.oppFormations || [];
             return {
               ...prev,

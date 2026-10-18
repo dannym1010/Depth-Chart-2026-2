@@ -1,23 +1,63 @@
 import React, { useState } from 'react';
 import { ChevronDown, StickyNote } from 'lucide-react';
-import type { CallSheetSectionKey } from '../scoutBundle';
 import { DEFAULT_SHEET_OPTIONS, type SheetPrintOptions } from '../utils/defenseSheetPrint';
 import { PlanNotes } from '../../components/scouting/FormationPlanEditor';
 
 /** Print a formation or leave it off; print one of its plays or leave it off; its game plan notes (saved on the formation). */
-export type FormationPrintChange = { print: boolean } | { playIds: string[]; show: boolean } | { notes: string };
+export type FormationPrintChange = { print: boolean } | { playIds: string[]; show: boolean } | { playIds: string[]; point: string } | { notes: string };
+
+/** One of their plays' coaching point: typed here, saved (for every coach) when the box is left. */
+const PointInput: React.FC<{ value: string; play: string; onSave: (point: string) => void }> = ({ value, play, onSave }) => {
+  const [text, setText] = useState(value);
+  return (
+    <input
+      value={text}
+      aria-label={`Coaching point for ${play}`}
+      placeholder="Add a coaching point…"
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => text.trim() !== value.trim() && onSave(text.trim())}
+      onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+      className="w-full h-7 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-1.5 text-[11px]"
+    />
+  );
+};
+
+type PlayRow = { name: string; ids: string[]; hidden: boolean; point?: string };
+
+/** Their plays, one row each: a checkbox to print it and its coaching point. */
+const PlayRows: React.FC<{ plays: PlayRow[]; onShow: (ids: string[], show: boolean) => void; onPoint: (ids: string[], point: string) => void }> = ({ plays, onShow, onPoint }) => (
+  <ul className="mt-1.5 space-y-1">
+    {plays.map((p) => (
+      <li key={p.name} className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-1.5">
+        <label className={`inline-flex items-center gap-1 text-[11px] font-bold cursor-pointer max-w-[9rem] ${p.hidden ? 'text-slate-400 line-through' : 'text-slate-800 dark:text-slate-100'}`}>
+          <input type="checkbox" className="h-3.5 w-3.5 shrink-0 cursor-pointer" checked={!p.hidden} onChange={() => onShow(p.ids, p.hidden)} aria-label={`Print ${p.name}`} />
+          <span className="truncate" title={p.name}>
+            {p.name}
+          </span>
+        </label>
+        {p.hidden ? <span /> : <PointInput key={`${p.name}:${p.point || ''}`} value={p.point || ''} play={p.name} onSave={(point) => onPoint(p.ids, point)} />}
+      </li>
+    ))}
+  </ul>
+);
+
+/** Print one of their plays or leave it off the call sheet's play page; or its coaching point. */
+export type TheirPlayChange = { playIds: string[]; sheetShow: boolean } | { playIds: string[]; point: string };
 
 interface Props {
   options: SheetPrintOptions;
   onChange: (next: SheetPrintOptions) => void;
-  sections: { key: CallSheetSectionKey; title: string }[];
+  sections: { key: string; title: string }[];
   /** How many of their play types are on the report (the play page is hidden when there are none). */
   playTypeCount: number;
   /** How many of their formations have our calls set (Their plays → Our calls vs their formations). */
   formationPlanCount?: number;
   /** Their formations on the sheet, with what prints of each. */
-  formations?: { id?: string; name: string; printSkip?: boolean; notes?: string; plays?: { name: string; ids: string[]; hidden: boolean }[] }[];
+  formations?: { id?: string; name: string; printSkip?: boolean; notes?: string; plays?: { name: string; ids: string[]; hidden: boolean; point?: string }[] }[];
   onFormationPrint?: (id: string, change: FormationPrintChange) => void;
+  /** The play page's cards (one per play type), with which of their plays print. */
+  playTypes?: { key: string; label: string; plays: PlayRow[] }[];
+  onTheirPlay?: (change: TheirPlayChange) => void;
 }
 
 const chip = (on: boolean) =>
@@ -54,9 +94,9 @@ const label = (text: string) => (
 const SHOW_HIDE = [{ value: true, label: 'Show' }, { value: false, label: 'Hide' }] as const;
 
 /** What prints, and how: a column beside the preview (the preview is the printout). */
-export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, sections, playTypeCount, formationPlanCount = 0, formations = [], onFormationPrint }) => {
+export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, sections, playTypeCount, formationPlanCount = 0, formations = [], onFormationPrint, playTypes = [], onTheirPlay }) => {
   const set = (patch: Partial<SheetPrintOptions>) => onChange({ ...o, ...patch });
-  const toggleSection = (key: CallSheetSectionKey) => set({ sections: { ...o.sections, [key]: !o.sections[key] } });
+  const toggleSection = (key: string) => set({ sections: { ...o.sections, [key]: o.sections[key] === false } });
   const isDefault = JSON.stringify(o) === JSON.stringify(DEFAULT_SHEET_OPTIONS);
   // One formation's plays or notes open at a time, so the list stays short.
   const [open, setOpen] = useState<{ id: string; what: 'plays' | 'notes' } | null>(null);
@@ -78,7 +118,7 @@ export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, section
             Sideline tells
           </button>
           {sections.map((s) => (
-            <button key={s.key} type="button" className={chip(o.sections[s.key])} onClick={() => toggleSection(s.key)}>
+            <button key={s.key} type="button" className={chip(o.sections[s.key] !== false)} onClick={() => toggleSection(s.key)}>
               {s.title}
             </button>
           ))}
@@ -119,6 +159,10 @@ export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, section
               {seg([{ value: 1, label: '1 column' }, { value: 2, label: '2 columns' }] as const, o.theirPlayCols, (theirPlayCols) => set({ theirPlayCols }))}
             </div>
             <div>
+              {label('Coaching points')}
+              {seg(SHOW_HIDE, o.theirPlayPoints, (theirPlayPoints) => set({ theirPlayPoints }))}
+            </div>
+            <div>
               {label('Picture')}
               {seg(SHOW_HIDE, o.formationPicture, (formationPicture) => set({ formationPicture }))}
             </div>
@@ -149,7 +193,7 @@ export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, section
                             type="button"
                             aria-expanded={playsOpen}
                             onClick={() => toggleOpen(f.id!, 'plays')}
-                            title="Pick which of their plays print under it"
+                            title="Their plays under it: which print, and their coaching points"
                             className={`h-7 px-2 rounded text-[11px] font-bold inline-flex items-center gap-0.5 cursor-pointer ${playsOpen ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200'}`}
                           >
                             Plays {shown}/{plays.length}
@@ -170,20 +214,11 @@ export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, section
                         )}
                       </div>
                       {playsOpen && (
-                        <div className="mt-1.5 flex flex-wrap gap-1">
-                          {plays.map((p) => (
-                            <button
-                              key={p.name}
-                              type="button"
-                              aria-pressed={!p.hidden}
-                              onClick={() => onFormationPrint(f.id!, { playIds: p.ids, show: p.hidden })}
-                              title={p.hidden ? 'Left off the sheet (click to print it)' : 'Prints under this formation (click to leave it off)'}
-                              className={`h-6 px-2 rounded text-[10px] font-bold cursor-pointer ${p.hidden ? 'bg-slate-100 text-slate-400 line-through dark:bg-slate-800' : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-200'}`}
-                            >
-                              {p.name}
-                            </button>
-                          ))}
-                        </div>
+                        <PlayRows
+                          plays={plays}
+                          onShow={(playIds, show) => onFormationPrint(f.id!, { playIds, show })}
+                          onPoint={(playIds, point) => onFormationPrint(f.id!, { playIds, point })}
+                        />
                       )}
                       {notesOpen && (
                         <div className="mt-1.5">
@@ -206,6 +241,97 @@ export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, section
         </div>
       )}
 
+      {o.playTypes && playTypeCount > 0 && (
+        <div className="rounded-lg border border-indigo-200 dark:border-indigo-900 p-2.5 space-y-2.5">
+          <div className="text-xs font-black text-indigo-800 dark:text-indigo-300">Their plays vs. our defense (own page)</div>
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
+            <div>
+              {label('Across')}
+              {seg([{ value: 1, label: '1' }, { value: 2, label: '2' }, { value: 3, label: '3' }] as const, o.playTypeCols, (playTypeCols) => set({ playTypeCols }))}
+            </div>
+            <div>
+              {label('Under each play')}
+              {seg([{ value: true, label: 'Calls & film' }, { value: false, label: 'Name only' }] as const, o.playTypeDetail, (playTypeDetail) => set({ playTypeDetail }))}
+            </div>
+            <div>
+              {label('Coaching points')}
+              {seg(SHOW_HIDE, o.playTypePoints, (playTypePoints) => set({ playTypePoints }))}
+            </div>
+            <div>
+              {label('Picture')}
+              {seg(SHOW_HIDE, o.playTypePicture, (playTypePicture) => set({ playTypePicture }))}
+            </div>
+          </div>
+
+          {onTheirPlay && playTypes.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                {label('Plays')}
+                <div className="flex gap-1 -mt-1">
+                  {[
+                    { text: 'All', show: true },
+                    { text: 'None', show: false },
+                  ].map((b) => (
+                    <button
+                      key={b.text}
+                      type="button"
+                      onClick={() => onTheirPlay({ playIds: playTypes.flatMap((t) => t.plays.flatMap((p) => p.ids)), sheetShow: b.show })}
+                      className="h-6 px-2 rounded text-[10px] font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 cursor-pointer"
+                    >
+                      {b.text}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <ul className="rounded-md border border-slate-200 dark:border-slate-700 divide-y divide-slate-200 dark:divide-slate-700">
+                {playTypes.map((t) => {
+                  const shown = t.plays.filter((p) => !p.hidden).length;
+                  const off = shown === 0;
+                  const isOpen = open?.id === `type:${t.key}`;
+                  const ids = t.plays.flatMap((p) => p.ids);
+                  return (
+                    <li key={t.key} className="px-2 py-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <label className={`flex-1 min-w-0 inline-flex items-center gap-1.5 text-xs font-black cursor-pointer ${off ? 'text-slate-400 line-through' : 'text-slate-900 dark:text-white'}`}>
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 shrink-0 cursor-pointer"
+                            checked={!off}
+                            ref={(el) => {
+                              if (el) el.indeterminate = !off && shown < t.plays.length;
+                            }}
+                            onChange={() => onTheirPlay({ playIds: ids, sheetShow: off })}
+                          />
+                          <span className="truncate">{t.label}</span>
+                        </label>
+                        <button
+                          type="button"
+                          aria-expanded={isOpen}
+                          onClick={() => toggleOpen(`type:${t.key}`, 'plays')}
+                          title="Which of these plays print, and their coaching points"
+                          className={`h-7 px-2 rounded text-[11px] font-bold inline-flex items-center gap-0.5 cursor-pointer ${isOpen ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200'}`}
+                        >
+                          Plays {shown}/{t.plays.length}
+                          <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                      </div>
+                      {isOpen && (
+                        <PlayRows
+                          plays={t.plays}
+                          onShow={(playIds, show) => onTheirPlay({ playIds, sheetShow: show })}
+                          onPoint={(playIds, point) => onTheirPlay({ playIds, point })}
+                        />
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">Saved for every coach. Coaching points are the notes on the play in Their plays.</p>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-end gap-x-4 gap-y-2.5">
         <div>
           {label('Text')}
@@ -223,18 +349,6 @@ export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, section
           {label('Numbers')}
           {seg([{ value: true, label: '1. 2. 3.' }, { value: false, label: 'None' }] as const, o.numbers, (numbers) => set({ numbers }))}
         </div>
-        {o.playTypes && playTypeCount > 0 && (
-          <>
-            <div>
-              {label('Their plays page: across')}
-              {seg([{ value: 1, label: '1' }, { value: 2, label: '2' }, { value: 3, label: '3' }] as const, o.playTypeCols, (playTypeCols) => set({ playTypeCols }))}
-            </div>
-            <div>
-              {label('Under each play')}
-              {seg([{ value: true, label: 'Calls & film' }, { value: false, label: 'Name only' }] as const, o.playTypeDetail, (playTypeDetail) => set({ playTypeDetail }))}
-            </div>
-          </>
-        )}
       </div>
       <div className="flex items-center justify-between gap-2">
         <p className="text-[11px] text-slate-400 dark:text-slate-500">Crossed-out items won&apos;t print. The look is kept on this device.</p>

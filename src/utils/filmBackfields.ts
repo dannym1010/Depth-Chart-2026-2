@@ -1,6 +1,7 @@
 // Each scouting film keeps its own backfield shapes. Adjusting Beast on that film
 // redraws every play on that film that lines up in Beast.
 import type { PlayBuilderState, PlayDatabaseEntry } from '../types/callSheet';
+import { coachingPoint } from './scoutOppPlays';
 import { callSetup, drawCall } from './callDiagram';
 import { unsavedDiagram } from './playDiagrams';
 import { playNameKey } from './playbookImport';
@@ -323,9 +324,9 @@ export function theirPlaysByFormation(
   formations: OppFormation[] | undefined,
   libraries: Record<string, ScoutOppPlay[]> | undefined,
   deletedIds: string[] = []
-): Map<string, { name: string; ids: string[] }[]> {
+): Map<string, { name: string; ids: string[]; point: string }[]> {
   const gone = new Set(deletedIds);
-  const out = new Map<string, { name: string; ids: string[] }[]>();
+  const out = new Map<string, { name: string; ids: string[]; point: string }[]>();
   for (const card of Object.values(libraries || {}).flat()) {
     if (!card?.id || gone.has(card.id) || !card.name?.trim()) continue;
     const f = formationOfPlay(card, formations);
@@ -333,8 +334,11 @@ export function theirPlaysByFormation(
     const list = out.get(f.id) || [];
     const name = card.name.trim().toUpperCase();
     const hit = list.find((x) => x.name === name);
-    if (hit) hit.ids.push(card.id);
-    else list.push({ name, ids: [card.id] });
+    const point = coachingPoint(card.notes);
+    if (hit) {
+      hit.ids.push(card.id);
+      if (!hit.point) hit.point = point;
+    } else list.push({ name, ids: [card.id], point });
     out.set(f.id, list);
   }
   return out;

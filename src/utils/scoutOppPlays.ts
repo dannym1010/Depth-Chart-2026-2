@@ -29,6 +29,8 @@ export interface ScoutOppPlay {
   formationId?: string;
   /** Kept on the script but left off the printed script. */
   printSkip?: boolean;
+  /** Left off the defense call sheet's "their plays vs. our defense" page. */
+  sheetSkip?: boolean;
 }
 
 /**
@@ -580,6 +582,14 @@ export function moveItem<T>(list: T[], from: number, to: number): T[] {
 
 /** "Ran 4 times on this film." as written on a card made from the film's tags. */
 const STALE_RUN_COUNT = /\s*Ran \d+ times? on this film\.?/i;
+
+/** A play's coaching point: its notes without the counts written when the card was made from the film. */
+export function coachingPoint(notes?: string): string {
+  return String(notes || '')
+    .replace(STALE_RUN_COUNT, '')
+    .replace(/\s*Tagged on \d+ snaps?\.?/i, '')
+    .trim();
+}
 
 const periodLabel = (down: string) => PERIODS.find((p) => p.id === (down || 'other'))?.label || 'Other';
 
