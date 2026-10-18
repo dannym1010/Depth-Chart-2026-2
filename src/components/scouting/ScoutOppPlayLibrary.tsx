@@ -559,6 +559,18 @@ export const ScoutOppPlayLibrary: React.FC<{
     next.splice(to, 0, one);
     savePrintOrder(next);
   };
+  /** Their plays drawn from a formation (on this film). */
+  const playsOfFormation = (f: OppFormation) => plays.filter((p) => f.id && formationOfPlay(p, formations)?.id === f.id);
+  /** Print or leave off one formation; or one of its plays. Saved on the formation for every coach. */
+  const setFormationPrint = (f: OppFormation, on: boolean) => savePrintOrder(printable, { id: f.id, value: !on });
+  const togglePlayPrint = (f: OppFormation, playId: string) => {
+    if (!onSaveFormations) return;
+    const hidden = new Set(f.printHidePlays || []);
+    if (hidden.has(playId)) hidden.delete(playId);
+    else hidden.add(playId);
+    const now = Date.now();
+    onSaveFormations((formations || []).map((x) => (x.id === f.id ? { ...x, printHidePlays: hidden.size ? [...hidden] : undefined, editedAt: now } : x)));
+  };
   const resetPrintOrder = () => {
     if (!onSaveFormations) return;
     const now = Date.now();
@@ -576,17 +588,22 @@ export const ScoutOppPlayLibrary: React.FC<{
     }
     const cards = await Promise.all(
       list.map(async ({ f, clips }) => {
+        // Under the picture: our game plan against it (base, then each situation) and the plays of theirs left on.
         const calls = planLines(f.plan, callName).map((l) => `${l.situation}: ${l.call}`);
-        const theirs = plays.filter((p) => f.id && formationOfPlay(p, formations)?.id === f.id).map((p) => p.name);
-        const detail = [
-          f.defenseUrl ? `vs ${f.defenseName || 'our defense'}` : 'Our defense not drawn on it yet',
-          clips.length ? `ran it ${clips.length}×` : '',
-          calls.length ? calls.join(' · ') : '',
-          theirs.length ? `Their plays: ${theirs.join(', ')}` : '',
-        ]
+        const hidden = new Set(f.printHidePlays || []);
+        const theirs = playsOfFormation(f).filter((p) => !hidden.has(p.id)).map((p) => p.name);
+        const detail = [f.defenseUrl ? `vs ${f.defenseName || 'our defense'}` : 'Our defense not drawn on it yet', clips.length ? `ran it ${clips.length}×` : '']
           .filter(Boolean)
           .join(' — ');
-        return { name: f.name, detail, diagram: await resolveDiagram(f.defenseUrl || f.diagramUrl) };
+        return {
+          name: f.name,
+          detail,
+          diagram: await resolveDiagram(f.defenseUrl || f.diagramUrl),
+          notes: [
+            { title: 'Game plan', lines: calls },
+            { title: 'Their plays', lines: theirs },
+          ],
+        };
       })
     );
     const title = `${opponent.trim() || 'Opponent'}: their formations vs. our defense`;
@@ -765,6 +782,12 @@ export const ScoutOppPlayLibrary: React.FC<{
                           {f.name}
                           {formView === 'defense' && f.defenseName ? <span className="font-bold text-emerald-700 dark:text-emerald-400"> vs {f.defenseName}</span> : null}
                         </span>
+                        {onSaveFormations && f.id && (f.defenseUrl || f.diagramUrl) && (
+                          <label className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 cursor-pointer" title={f.printSkip ? 'Left off the formations printout' : 'On the formations printout (uncheck to leave it off)'}>
+                            <input type="checkbox" className="h-3.5 w-3.5 cursor-pointer" checked={!f.printSkip} onChange={(e) => setFormationPrint(f, e.target.checked)} aria-label={`Print ${f.name}`} />
+                            Print
+                          </label>
+                        )}
                         {clips.length > 0 && (
                           <span className="text-[10px] text-slate-400 shrink-0" title={`${clips.length} clips tagged in this formation, ${open} without a play yet`}>
                             {clips.length} clip{clips.length === 1 ? '' : 's'}
@@ -862,7 +885,7 @@ export const ScoutOppPlayLibrary: React.FC<{
             {arranging && onSaveFormations && printable.length > 0 && (
               <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-2 space-y-1">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">The printout prints in this order. Uncheck a formation to leave it off. Saved for every coach.</p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">The printout prints in this order. Uncheck a formation to leave it off; click one of their plays to leave it off. Saved for every coach.</p>
                   <button type="button" onClick={resetPrintOrder} className="text-[11px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer">
                     Reset order
                   </button>
@@ -879,7 +902,7 @@ export const ScoutOppPlayLibrary: React.FC<{
                         const from = Number(e.dataTransfer.getData('text/print-index'));
                         if (Number.isFinite(from) && from !== i) movePrint(from, i);
                       }}
-                      className={`flex items-center gap-2 rounded-md border border-slate-200 dark:border-slate-700 px-2 py-1 bg-white dark:bg-slate-900 ${f.printSkip ? 'opacity-50' : ''}`}
+                      className={`flex flex-wrap items-center gap-2 rounded-md border border-slate-200 dark:border-slate-700 px-2 py-1 bg-white dark:bg-slate-900 ${f.printSkip ? 'opacity-50' : ''}`}
                     >
                       <GripVertical className="w-3.5 h-3.5 text-slate-400 cursor-grab shrink-0" aria-hidden="true" />
                       <span className="w-5 text-[11px] font-black text-slate-400 tabular-nums">{i + 1}</span>
@@ -898,6 +921,26 @@ export const ScoutOppPlayLibrary: React.FC<{
                           {clips.length ? ` · ${clips.length} clip${clips.length === 1 ? '' : 's'}` : ''}
                         </span>
                       </label>
+                      {!f.printSkip && playsOfFormation(f).length > 0 && (
+                        <div className="basis-full order-last flex flex-wrap items-center gap-1 pl-12" aria-label={`Their plays from ${f.name} on the printout`}>
+                          <span className="text-[10px] font-bold text-slate-400">Their plays:</span>
+                          {playsOfFormation(f).map((p) => {
+                            const off = (f.printHidePlays || []).includes(p.id);
+                            return (
+                              <button
+                                key={p.id}
+                                type="button"
+                                aria-pressed={!off}
+                                onClick={() => togglePlayPrint(f, p.id)}
+                                title={off ? 'Left off the printout (click to print it)' : 'Prints under this formation (click to leave it off)'}
+                                className={`h-6 px-2 rounded text-[10px] font-bold cursor-pointer ${off ? 'bg-slate-100 text-slate-400 line-through dark:bg-slate-800' : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-200'}`}
+                              >
+                                {p.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                       <button type="button" aria-label={`Move ${f.name} up`} disabled={i === 0} onClick={() => movePrint(i, i - 1)} className="text-slate-400 hover:text-slate-800 dark:hover:text-white disabled:opacity-20 cursor-pointer">
                         <ChevronUp className="w-4 h-4" />
                       </button>

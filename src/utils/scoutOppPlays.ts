@@ -56,6 +56,8 @@ export interface OppFormation {
   /** Its place on the "formations vs our defense" printout (lower first), and left off it. */
   printRank?: number;
   printSkip?: boolean;
+  /** Their plays from it left off the printout (play ids). */
+  printHidePlays?: string[];
 }
 
 /** The printout's order: the coach's arrangement first, the rest after in the order given. */
@@ -620,7 +622,10 @@ export const SCRIPT_PRINT_SIZES: { id: ScriptPrintSize; label: string }[] = [
 
 export function scoutScriptPrintHtml(
   title: string,
-  groups: { label: string; plays: { name: string; detail: string; diagram?: string | null; kind?: string; n?: number; formation?: string }[] }[],
+  groups: {
+    label: string;
+    plays: { name: string; detail: string; diagram?: string | null; kind?: string; n?: number; formation?: string; notes?: { title: string; lines: string[] }[] }[];
+  }[],
   /** Each group (a formation) starts its own page; how many plays to a page. */
   opts: { pagePerGroup?: boolean; size?: ScriptPrintSize } = {}
 ): string {
@@ -641,7 +646,12 @@ export function scoutScriptPrintHtml(
           // Big pages carry the formation on each play (there's no room for a heading).
           const formName = p.formation || g.label;
           const form = large && formName ? `<span class="form">${esc(formName)}</span>` : '';
-          return `<article class="card"${edge}><div class="head"><div class="name">${num}${badge}${esc(p.name)}</div>${form}</div>${p.detail ? `<div class="detail">${esc(p.detail)}</div>` : ''}<div class="pic">${picture}</div></article>`;
+          // Blocks under the picture (a formation's game plan, its plays), one line each.
+          const notes = (p.notes || []).filter((nb) => nb.lines.length);
+          const under = notes.length
+            ? `<div class="notes">${notes.map((nb) => `<div class="note"><div class="note-title">${esc(nb.title)}</div>${nb.lines.map((l) => `<div class="note-line">${esc(l)}</div>`).join('')}</div>`).join('')}</div>`
+            : '';
+          return `<article class="card"${edge}><div class="head"><div class="name">${num}${badge}${esc(p.name)}</div>${form}</div>${p.detail ? `<div class="detail">${esc(p.detail)}</div>` : ''}<div class="pic">${picture}</div>${under}</article>`;
         })
         .join('');
       const counts = g.plays.some((p) => p.kind)
@@ -670,7 +680,9 @@ export function scoutScriptPrintHtml(
     .form { font-size: 20px; }
     .detail { font-size: 18px; color: #222; margin-top: 4px; }
     .pic { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; margin-top: 6px; }
-    .pic img { width: 100%; height: 100%; object-fit: contain; margin: 0; }`
+    .pic img { width: 100%; height: 100%; object-fit: contain; margin: 0; }
+    .note-title { font-size: 14px; }
+    .note-line { font-size: 20px; }`
       : size === 'two'
         ? `
     @page { size: letter; margin: 0.35in; }
@@ -683,7 +695,9 @@ export function scoutScriptPrintHtml(
     .form { font-size: 15px; }
     .detail { font-size: 14px; color: #222; margin-top: 3px; }
     .pic { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; margin-top: 4px; }
-    .pic img { width: 100%; height: 100%; object-fit: contain; margin: 0; }`
+    .pic img { width: 100%; height: 100%; object-fit: contain; margin: 0; }
+    .note-title { font-size: 11px; }
+    .note-line { font-size: 15px; }`
         : `
     @page { size: letter; margin: 0.45in; }`;
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${esc(title)}</title><style>
@@ -702,6 +716,10 @@ export function scoutScriptPrintHtml(
     .page { break-before: page; }
     .kind { display: inline-block; color: #fff; font-size: 10px; font-weight: 900; letter-spacing: 0.05em; border-radius: 4px; padding: 1px 6px; margin-right: 6px; vertical-align: 2px; }
     .count { font-weight: 600; text-transform: none; letter-spacing: 0; color: #555; margin-left: 8px; }
+    .notes { display: flex; gap: 0.2in; flex: none; margin-top: 6px; border-top: 1px solid #bbb; padding-top: 4px; }
+    .note { flex: 1; min-width: 0; }
+    .note-title { font-size: 10px; font-weight: 900; letter-spacing: 0.05em; text-transform: uppercase; color: #555; }
+    .note-line { font-size: 12px; font-weight: 700; line-height: 1.3; }
     * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }${sizeCss}
   </style></head><body><h1>${esc(title)}</h1>${sections}</body></html>`;
 }
