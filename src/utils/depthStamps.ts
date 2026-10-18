@@ -39,8 +39,7 @@ export function preferNewerSpots(
     const rs = Number(remoteStamps?.[spotStampKey(kind, k)]) || 0;
     if (!ls && !rs) continue;
     const pick = ls >= rs ? local?.[k] : remote?.[k];
-    // the newer side had cleared the spot (no list at all): it's empty, not the other side's old players
-    out[k] = Array.isArray(pick) ? pick : [];
+    if (Array.isArray(pick)) out[k] = pick;
   }
   return out;
 }
@@ -61,15 +60,6 @@ export function outgoingSpots(
     const cs = Number(cloudStamps?.[spotStampKey(kind, k)]) || 0;
     if (cs > ms) continue;
     out[k] = v;
-  }
-  // a spot this device cleared (its list removed) goes up empty, or the cloud keeps the old players in it
-  const prefix = `${kind}:`;
-  for (const [key, t] of Object.entries(myStamps || {})) {
-    if (!key.startsWith(prefix)) continue;
-    const k = key.slice(prefix.length);
-    if (k in out || (mine && k in mine)) continue;
-    if ((Number(cloudStamps?.[key]) || 0) > (Number(t) || 0)) continue;
-    out[k] = [];
   }
   return out;
 }

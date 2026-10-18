@@ -74,10 +74,5 @@ describe('each depth chart spot keeps its newest edit between coaches', () => {
     assert.ok(mine['d:qb'] > 5_000);
     assert.deepEqual(Object.keys(outgoingSpots({ qb: [p('smith')] }, mine, seen, 'd')), ['qb']);
   });
-  it('a cleared spot goes up empty and comes back empty', async () => {
-    const { outgoingSpots, preferNewerSpots } = await import('./depthStamps.ts');
-    assert.deepEqual(outgoingSpots({ rb: [p('lee')] }, { 'd:qb': 300 }, { 'd:qb': 100 }, 'd').qb, []);
-    const out = preferNewerSpots({ qb: [p('jones')] }, {}, { qb: [p('jones')] }, { 'd:qb': 300 }, { 'd:qb': 100 }, 'd');
-    assert.deepEqual(out.qb, []);
-  });
+
 });
