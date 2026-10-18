@@ -1,10 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AIScoutingReport, TendencyAnalysis } from '../types/football';
 import { Printer, X, Shield, AlertTriangle, Pencil, Plus, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import type { CallSheetEdits, CallSheetSectionKey } from '../scoutBundle';
-import { DiagramImage } from '../../components/playbook/DiagramImage';
 import { resolveDiagram } from '../../utils/playDiagrams';
-import { SheetPrintPanel } from './SheetPrintPanel';
+import { SheetPrintPanel, type FormationPrintChange } from './SheetPrintPanel';
 import { defenseSheetHtml, loadSheetOptions, saveSheetOptions, type SheetPrintOptions } from '../utils/defenseSheetPrint';
 
 /** One of their play types, with our defense drawn against it, for the printed report. */
@@ -34,13 +33,15 @@ interface CallSheetModalProps {
     name: string;
     printSkip?: boolean;
     lines: { situation: string; call: string }[];
+    /** The coach's game plan notes for it. */
+    notes?: string;
     /** Their plays from it (every card id by that name), and whether each prints. */
     plays?: { name: string; ids: string[]; hidden: boolean }[];
     theirPlays?: string[];
     diagram?: string;
   }[];
   /** Print a formation or leave it off; print one of its plays or leave it off (saved on the formation). */
-  onFormationPrint?: (id: string, change: { print: boolean } | { playIds: string[]; show: boolean }) => void;
+  onFormationPrint?: (id: string, change: FormationPrintChange) => void;
 }
 
 const SECTIONS: { key: CallSheetSectionKey; title: string; tag: string; wide?: boolean }[] = [
@@ -116,6 +117,40 @@ const LineEditor: React.FC<{ lines: string[]; onChange: (lines: string[]) => voi
   </div>
 );
 
+/** The printed page, shown as it prints: paper width, scaled down to fit the window. */
+const PagePreview: React.FC<{ html: string; landscape: boolean }> = ({ html, landscape }) => {
+  const wrap = useRef<HTMLDivElement>(null);
+  const frame = useRef<HTMLIFrameElement>(null);
+  const [width, setWidth] = useState(0);
+  const [height, setHeight] = useState(1056);
+  const pageWidth = (landscape ? 11 : 8.5) * 96;
+  useEffect(() => {
+    const el = wrap.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setWidth(el.clientWidth));
+    ro.observe(el);
+    setWidth(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+  const scale = width ? Math.min(1, width / pageWidth) : 1;
+  return (
+    <div ref={wrap} className="w-full">
+      <div style={{ height: height * scale, width: pageWidth * scale }} className="mx-auto shadow-lg">
+        <iframe
+          ref={frame}
+          title="Print preview"
+          srcDoc={html}
+          onLoad={() => {
+            const doc = frame.current?.contentDocument;
+            if (doc) setHeight(doc.documentElement.scrollHeight);
+          }}
+          style={{ width: pageWidth, height, transform: `scale(${scale})`, transformOrigin: 'top left', border: 0, display: 'block' }}
+        />
+      </div>
+    </div>
+  );
+};
+
 export const CallSheetModal: React.FC<CallSheetModalProps> = ({
   isOpen,
   onClose,
@@ -139,17 +174,60 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
     saveSheetOptions(next);
   };
   const [draft, setDraft] = useState<{ sections: Record<CallSheetSectionKey, string[]>; alerts: string[]; note: string } | null>(null);
-
-  if (!isOpen) return null;
+  const [previewHtml, setPreviewHtml] = useState('');
+  const diagrams = useRef(new Map<string, Promise<string | null>>());
 
   // What the film suggests, and what prints (the coach's edits win where they exist).
   const suggested: Record<CallSheetSectionKey, string[]> = report?.wristbandCallSheet || DEFAULT_CALLS;
-  const suggestedAlerts = analysis.tells.slice(0, 4).map((t) => `${t.title.replace(/\s*Tell$/i, '')}: ${t.statEvidence}`);
+  const suggestedAlerts = (analysis?.tells || []).slice(0, 4).map((t) => `${t.title.replace(/\s*Tell$/i, '')}: ${t.statEvidence}`);
   const suggestedNote = shortSummary(report?.executiveSummary);
   const linesFor = (key: CallSheetSectionKey) => edits?.sections?.[key] ?? suggested[key];
   const alerts = edits?.alerts ?? suggestedAlerts;
   const note = edits?.note ?? suggestedNote;
   const hasEdits = Boolean(edits && (Object.keys(edits.sections || {}).length || edits.alerts || edits.note !== undefined));
+
+  // The page that prints (the preview shows this same page).
+  const sheetHtml = async () => {
+    const picture = async (url?: string | null) => {
+      if (!url) return undefined;
+      if (!diagrams.current.has(url)) diagrams.current.set(url, resolveDiagram(url));
+      return (await diagrams.current.get(url)) || undefined;
+    };
+    const types = printOpts.playTypes && playTypes?.length
+      ? await Promise.all(playTypes.map(async (t) => ({ label: t.label, detail: t.detail, diagram: await picture(t.diagram) })))
+      : [];
+    return defenseSheetHtml(
+      {
+        opponentName,
+        stats: { totalPlays: analysis.totalPlays, runPct: analysis.runPct, passPct: analysis.passPct, avgGain: analysis.avgGainOverall },
+        alerts,
+        sections: SECTIONS.map(({ key, title, tag, wide }) => ({ key, title, tag, wide, lines: linesFor(key) })),
+        note,
+        playTypes: types,
+        formationPlans: printOpts.formationPlans && formationPlans?.length
+          ? await Promise.all(
+              formationPlans
+                .filter((f) => !f.printSkip)
+                .map(async (f) => ({ name: f.name, lines: f.lines, theirPlays: f.theirPlays, notes: f.notes, diagram: printOpts.formationPicture ? await picture(f.diagram) : undefined }))
+            )
+          : [],
+      },
+      printOpts
+    );
+  };
+
+  useEffect(() => {
+    if (!isOpen || editing) return;
+    let live = true;
+    const t = setTimeout(() => void sheetHtml().then((html) => live && setPreviewHtml(html)), 120);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, editing, printOpts, edits, report, analysis, opponentName, playTypes, formationPlans]);
+
+  if (!isOpen) return null;
 
   const startEditing = () => {
     const sections = {} as Record<CallSheetSectionKey, string[]>;
@@ -206,27 +284,7 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
 
   const printSheet = async () => {
     setPrintNote('');
-    const types = printOpts.playTypes && playTypes?.length
-      ? await Promise.all(playTypes.map(async (t) => ({ label: t.label, detail: t.detail, diagram: await resolveDiagram(t.diagram) })))
-      : [];
-    const html = defenseSheetHtml(
-      {
-        opponentName,
-        stats: { totalPlays: analysis.totalPlays, runPct: analysis.runPct, passPct: analysis.passPct, avgGain: analysis.avgGainOverall },
-        alerts,
-        sections: SECTIONS.map(({ key, title, tag, wide }) => ({ key, title, tag, wide, lines: linesFor(key) })),
-        note,
-        playTypes: types,
-        formationPlans: printOpts.formationPlans && formationPlans?.length
-          ? await Promise.all(
-              formationPlans
-                .filter((f) => !f.printSkip)
-                .map(async (f) => ({ name: f.name, lines: f.lines, theirPlays: f.theirPlays, diagram: f.diagram ? (await resolveDiagram(f.diagram)) || undefined : undefined }))
-            )
-          : [],
-      },
-      printOpts
-    );
+    const html = await sheetHtml();
     const win = window.open('', '_blank');
     if (!win) {
       setPrintNote('Allow pop-ups to print the call sheet.');
@@ -255,7 +313,7 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-      <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl w-full max-w-4xl max-h-[96vh] flex flex-col shadow-2xl overflow-hidden print:m-0 print:border-none print:shadow-none print:max-w-none print:w-full print:bg-white print:text-black">
+      <div className={`bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl w-full ${editing ? 'max-w-4xl max-h-[96vh]' : 'max-w-7xl h-[96vh]'} flex flex-col shadow-2xl overflow-hidden print:m-0 print:border-none print:shadow-none print:max-w-none print:w-full print:bg-white print:text-black`}>
         {/* Action header (hidden when printing) */}
         <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex flex-wrap items-center justify-between gap-2 print:hidden">
           <div className="flex items-center gap-2 min-w-0">
@@ -340,20 +398,34 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
           </div>
         </div>
 
-        {!editing && optsOpen && (
-          <SheetPrintPanel
-            options={printOpts}
-            onChange={changeOpts}
-            sections={SECTIONS.map(({ key, title }) => ({ key, title }))}
-            playTypeCount={playTypes?.length || 0}
-            formationPlanCount={formationPlans?.length || 0}
-            formations={formationPlans}
-            onFormationPrint={onFormationPrint}
-          />
-        )}
         {printNote && <p className="px-4 py-2 text-xs font-bold text-amber-700 dark:text-amber-300 print:hidden">{printNote}</p>}
 
-        {/* Printable sheet */}
+        {!editing ? (
+          <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
+            {optsOpen && (
+              <aside className="shrink-0 lg:w-[380px] max-h-[45%] lg:max-h-none overflow-y-auto border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                <SheetPrintPanel
+                  options={printOpts}
+                  onChange={changeOpts}
+                  sections={SECTIONS.map(({ key, title }) => ({ key, title }))}
+                  playTypeCount={playTypes?.length || 0}
+                  formationPlanCount={formationPlans?.length || 0}
+                  formations={formationPlans}
+                  onFormationPrint={onFormationPrint}
+                />
+              </aside>
+            )}
+            {/* The preview is the printout: what you see here is what prints. */}
+            <div className="flex-1 min-w-0 min-h-0 overflow-y-auto p-3 sm:p-4 bg-slate-300 dark:bg-slate-800">
+              {previewHtml ? (
+                <PagePreview html={previewHtml} landscape={printOpts.orientation === 'landscape'} />
+              ) : (
+                <p className="p-6 text-center text-xs font-bold text-slate-600 dark:text-slate-300">Building the preview…</p>
+              )}
+            </div>
+          </div>
+        ) : (
+        /* Editing the calls */
         <div className="p-4 sm:p-6 overflow-y-auto space-y-4 text-xs bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 print:p-0 print:bg-white print:text-black">
           <div className="border-b-2 border-slate-900 dark:border-slate-300 print:border-black pb-3 flex flex-col sm:flex-row sm:items-end justify-between gap-2">
             <div className={!printOpts.title ? 'opacity-35' : ''}>
@@ -469,37 +541,8 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
             <span className="shrink-0 sm:self-end">DEFENSIVE CALL SHEET</span>
           </div>
 
-          {/* Their plays and how we line up against each one */}
-          {!editing && playTypes && playTypes.length > 0 && (
-            <div className={`pt-3 space-y-3 ${!printOpts.playTypes ? 'opacity-35' : ''}`} style={{ breakBefore: 'page' }}>
-              <div className="border-b-2 border-slate-900 dark:border-slate-300 print:border-black pb-2">
-                <div className="text-[10px] uppercase tracking-widest text-slate-500 dark:text-slate-400 print:text-slate-700 font-bold">
-                  Their plays vs. our defense
-                </div>
-                <h2 className="text-lg font-black tracking-tight text-slate-900 dark:text-white print:text-black">
-                  {opponentName.toUpperCase()}: HOW WE LINE UP
-                </h2>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-3">
-                {playTypes.map((t) => (
-                  <div
-                    key={t.key}
-                    className="border border-slate-200 dark:border-slate-800 rounded p-2 bg-white dark:bg-slate-900/60 print:border-black"
-                    style={{ breakInside: 'avoid' }}
-                  >
-                    <div className="font-black text-sm text-slate-900 dark:text-slate-100 print:text-black">{t.label}</div>
-                    {t.detail && <div className="text-[11px] text-slate-500 dark:text-slate-400 print:text-slate-700">{t.detail}</div>}
-                    {t.diagram ? (
-                      <DiagramImage url={t.diagram} alt={t.label} loading="eager" className="mt-1.5 w-full rounded border border-slate-200 print:border-slate-400 bg-white" />
-                    ) : (
-                      <div className="mt-1.5 text-[11px] text-slate-500 border border-dashed border-slate-300 rounded p-4 text-center">Not drawn yet.</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
+        )}
       </div>
     </div>
   );

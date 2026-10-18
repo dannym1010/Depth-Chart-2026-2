@@ -600,7 +600,7 @@ export const ScoutOppPlayLibrary: React.FC<{
           detail,
           diagram: await resolveDiagram(f.defenseUrl || f.diagramUrl),
           notes: [
-            { title: 'Game plan', lines: calls },
+            { title: 'Game plan', lines: [...calls, ...(f.plan?.notes || '').split('\n').map((l) => l.trim()).filter(Boolean)] },
             { title: 'Their plays', lines: theirs },
           ],
         };

@@ -9,6 +9,25 @@ const ORD = ['1st', '2nd', '3rd', '4th'];
 
 const INPUT = 'h-8 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-xs';
 
+/** A formation's game plan notes: typed here, saved (for every coach) when the box is left. */
+export const PlanNotes: React.FC<{ value: string; onSave: (notes: string) => void; label: string; rows?: number }> = ({ value, onSave, label, rows = 2 }) => {
+  const [text, setText] = useState(value);
+  return (
+    <label className="block">
+      <span className="text-[11px] font-bold text-slate-500">Game plan notes</span>
+      <textarea
+        aria-label={label}
+        value={text}
+        rows={rows}
+        placeholder="What to watch for, adjustments, who to key… (prints under the formation)"
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => text.trim() !== value.trim() && onSave(text.trim())}
+        className="mt-0.5 w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 py-1.5 text-xs"
+      />
+    </label>
+  );
+};
+
 /**
  * Our calls against each of their formations: the base call, the blitzes we like against it, and calls for
  * situations. Used on the Scouting "Their plays" page and on the defense call sheet (same saved plan).
@@ -211,6 +230,12 @@ export const FormationPlanEditor: React.FC<{
                       Add call
                     </button>
                   </div>
+                  <PlanNotes
+                    key={`${key}:${plan.notes || ''}`}
+                    label={`Game plan notes vs ${f.name}`}
+                    value={plan.notes || ''}
+                    onSave={(notes) => onSavePlan(f, { ...plan, notes: notes || undefined })}
+                  />
                 </div>
               </div>
             </li>

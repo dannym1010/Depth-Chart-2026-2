@@ -19,6 +19,14 @@ export interface SheetPrintOptions {
   playTypes: boolean;
   /** Our calls against each of their formations (base + situations). */
   formationPlans: boolean;
+  /** Formations across on that part of the sheet. */
+  formationCols: 1 | 2 | 3;
+  /** The picture of our defense against each formation. */
+  formationPicture: boolean;
+  /** The game plan notes under each formation. */
+  formationNotes: boolean;
+  /** Their plays under each formation, in one or two columns. */
+  theirPlayCols: 1 | 2;
   /** Plays across the page on that page. */
   playTypeCols: 1 | 2 | 3;
   /** The calls and film counts under each play's name. */
@@ -38,6 +46,10 @@ export const DEFAULT_SHEET_OPTIONS: SheetPrintOptions = {
   note: true,
   playTypes: true,
   formationPlans: true,
+  formationCols: 2,
+  formationPicture: true,
+  formationNotes: true,
+  theirPlayCols: 2,
   playTypeCols: 2,
   playTypeDetail: true,
   numbers: true,
@@ -74,7 +86,16 @@ export interface SheetData {
   note: string;
   playTypes: { label: string; detail: string; diagram?: string | null }[];
   /** Our calls against each of their formations. */
-  formationPlans?: { name: string; lines: { situation: string; call: string }[]; theirPlays?: string[]; diagram?: string }[];
+  formationPlans?: SheetFormationPlan[];
+}
+
+export interface SheetFormationPlan {
+  name: string;
+  lines: { situation: string; call: string }[];
+  theirPlays?: string[];
+  /** The coach's game plan notes for it. */
+  notes?: string;
+  diagram?: string;
 }
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] || c));
@@ -149,12 +170,17 @@ export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedO
   const plans = o.formationPlans ? data.formationPlans || [] : [];
   const plansHtml = plans.length
     ? `<section class="fplans"><div class="fplans-h">Our calls vs their formations</div><div class="fgrid">${plans
-        .map(
-          (f) =>
-            `<article class="fplan">${f.diagram ? `<img src="${esc(printableDiagram(f.diagram) || '')}" alt="${esc(f.name)}"/>` : ''}<div><h3>vs ${esc(f.name)}</h3><ul>${f.lines
-              .map((l) => `<li class="${l.situation === 'Base' ? 'base' : ''}"><b>${esc(l.situation)}</b><span>${esc(l.call)}</span></li>`)
-              .join('')}</ul>${f.theirPlays?.length ? `<div class="their"><b>Their plays</b><ul>${f.theirPlays.map((n) => `<li><span>${esc(n)}</span></li>`).join('')}</ul></div>` : ''}</div></article>`
-        )
+        .map((f) => {
+          const picture = o.formationPicture && f.diagram ? `<img src="${esc(printableDiagram(f.diagram) || '')}" alt="${esc(f.name)}"/>` : '';
+          const calls = f.lines.length
+            ? `<ul>${f.lines.map((l) => `<li class="${l.situation === 'Base' ? 'base' : ''}"><b>${esc(l.situation)}</b><span>${esc(l.call)}</span></li>`).join('')}</ul>`
+            : '';
+          const notes = o.formationNotes && f.notes?.trim() ? `<div class="fnotes"><b>Game plan notes</b><p>${esc(f.notes.trim())}</p></div>` : '';
+          const theirs = f.theirPlays?.length
+            ? `<div class="their"><b>Their plays</b><ul>${f.theirPlays.map((n) => `<li><span>${esc(n)}</span></li>`).join('')}</ul></div>`
+            : '';
+          return `<article class="fplan">${picture}<div><h3>vs ${esc(f.name)}</h3>${calls}${notes}${theirs}</div></article>`;
+        })
         .join('')}</div></section>`
     : '';
   const hasFront = Boolean(header || alertHtml || boxes || noteHtml || plansHtml);
@@ -197,7 +223,7 @@ export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedO
     .card img { display: block; width: 100%; height: auto; margin-top: 5px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; ${bw ? 'filter: grayscale(1) contrast(1.15);' : ''} }
     .fplans { margin-top: 10px; break-inside: auto; }
     .fplans-h { font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; font-size: ${base * 0.95}px; border-bottom: 2px solid #0f172a; padding-bottom: 3px; margin-bottom: 6px; }
-    .fgrid { display: grid; grid-template-columns: repeat(${landscape ? 3 : 2}, 1fr); gap: 8px; }
+    .fgrid { display: grid; grid-template-columns: repeat(${o.formationCols || 2}, minmax(0, 1fr)); gap: 8px; }
     .fplan { border: 1.5px solid ${bw ? '#111' : '#065f46'}; border-radius: 6px; padding: 5px 7px; break-inside: avoid; display: flex; flex-direction: column; gap: 4px; }
     .fplan img { width: 100%; height: auto; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; ${bw ? 'filter: grayscale(1) contrast(1.15);' : ''} }
     .fplan h3 { margin: 0; font-size: ${base * 1.05}px; font-weight: 900; text-transform: uppercase; color: ${bw ? '#111' : '#065f46'}; }
@@ -207,7 +233,18 @@ export function defenseSheetHtml(data: SheetData, o: SheetPrintOptions, printedO
     .fplan li b { min-width: 6.5em; font-size: ${base * 0.85}px; text-transform: uppercase; color: #475569; }
     .fplan li.base span { font-weight: 900; }
     .fplan .their { margin-top: 4px; }
+    .fplan .their ul { columns: ${o.theirPlayCols === 1 ? 1 : 2}; column-gap: 12px; }
+    .fplan .their li { break-inside: avoid; padding: 1px 0; font-size: ${base * 0.95}px; }
+    .fplan .their, .fnotes { margin-top: 6px; }
+    .fnotes { margin-top: 4px; }
+    .fnotes > b { display: block; font-size: ${base * 0.85}px; text-transform: uppercase; letter-spacing: 0.06em; color: #475569; border-bottom: 1px solid #94a3b8; padding-bottom: 1px; }
+    .fnotes p { margin: 2px 0 0; white-space: pre-line; font-size: ${base * 0.98}px; font-weight: 600; }
     .fplan .their > b { display: block; font-size: ${base * 0.85}px; text-transform: uppercase; letter-spacing: 0.06em; color: #475569; border-bottom: 1px solid #94a3b8; padding-bottom: 1px; }
+    @media screen {
+      html { background: #cbd5e1; }
+      body { background: #fff; width: ${landscape ? 11 : 8.5}in; min-height: ${landscape ? 8.5 : 11}in; margin: 0 auto; padding: 0.4in; }
+      ${hasFront ? `.plays { margin-top: 0.4in; padding-top: 0.3in; border-top: 3px dashed #94a3b8; position: relative; } .plays::before { content: 'New page'; position: absolute; top: -0.75em; right: 0; background: #fff; padding: 0 6px; font-size: 11px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.08em; }` : ''}
+    }
     .empty { margin-top: 6px; border: 1px dashed #94a3b8; border-radius: 4px; padding: 18px 8px; text-align: center; color: #64748b; font-size: ${base * 0.9}px; }
   </style></head><body>${header}${alertHtml}${boxes ? `<div class="calls">${boxes}</div>` : ''}${plansHtml}${noteHtml}${hasFront ? `<div class="printed">Printed ${esc(printed)}</div>` : ''}${playTypesHtml}</body></html>`;
 }

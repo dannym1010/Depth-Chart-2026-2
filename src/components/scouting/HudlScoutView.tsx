@@ -300,12 +300,13 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
           name: f.name,
           printSkip: Boolean(f.printSkip),
           lines: planLines(f.plan, nameOf),
+          notes: f.plan?.notes || '',
           plays,
           theirPlays: plays.filter((p) => !p.hidden).map((p) => p.name),
           diagram: f.defenseUrl || f.diagramUrl || undefined,
         };
       })
-      .filter((f) => f.lines.length || f.plays.length);
+      .filter((f) => f.lines.length || f.plays.length || f.notes);
   }, [isCallSheetOpen, scoutTarget, bundle.oppFormations, bundle.playLibraries, bundle.deletedOppPlayIds, playDatabase]);
 
   // Their plays shows every play the coaches tagged on the film: a card for each tagged play that
@@ -1060,6 +1061,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
               oppFormations: list.map((f) => {
                 if (f.id !== id) return f;
                 if ('print' in change) return { ...f, printSkip: change.print ? undefined : true, editedAt: now };
+                if ('notes' in change) return { ...f, plan: { ...(f.plan || { calls: [] }), notes: change.notes.trim() || undefined }, editedAt: now };
                 const hidden = new Set(f.printHidePlays || []);
                 for (const pid of change.playIds) change.show ? hidden.delete(pid) : hidden.add(pid);
                 return { ...f, printHidePlays: hidden.size ? [...hidden] : undefined, editedAt: now };

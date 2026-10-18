@@ -71,6 +71,8 @@ export function printOrder<T extends { f: OppFormation }>(list: T[]): T[] {
 export interface FormationPlan {
   base?: string;
   calls: { id: string; situation: string; callId: string }[];
+  /** The coach's game plan notes against it (printed under the formation). */
+  notes?: string;
 }
 
 /** Situations offered for a call against a formation (a coach can type any other). */

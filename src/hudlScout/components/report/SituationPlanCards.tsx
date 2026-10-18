@@ -274,7 +274,7 @@ export const FormationPlanCard: React.FC<
     if (typedBefore) onSetGamePlanCall?.(key, null);
     const now = Date.now();
     const old = recordOf(formation);
-    const plan = { base: old?.plan?.base, calls: [...(old?.plan?.calls || [])] };
+    const plan = { ...(old?.plan || {}), base: old?.plan?.base, calls: [...(old?.plan?.calls || [])] };
     if (part === 'base') plan.base = pick?.callId || undefined;
     else {
       plan.calls = plan.calls.filter((c) => c.situation !== PART_SITUATION[part]);
