@@ -31,6 +31,8 @@ interface CallSheetModalProps {
   editorName?: string;
   /** Their play types on this week's report, each drawn against our defense. Printed on its own page. */
   playTypes?: ReportPlayType[];
+  /** The same plays, one card each (the play page shows these unless the coach combines same plays). */
+  playSingles?: ReportPlayType[];
   /** Our calls against each of their formations (base + situations), with the picture of our defense vs it. */
   formationPlans?: {
     id?: string;
@@ -169,7 +171,8 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
   edits,
   onSaveEdits,
   editorName,
-  playTypes,
+  playTypes: combinedTypes,
+  playSingles,
   formationPlans,
   onFormationPrint,
   onTheirPlay,
@@ -191,6 +194,8 @@ export const CallSheetModal: React.FC<CallSheetModalProps> = ({
     note: string;
   } | null>(null);
   const [previewHtml, setPreviewHtml] = useState('');
+  // Their plays page: each play on its own card, or plays of the same type combined.
+  const playTypes = printOpts.playTypeCombine || !playSingles ? combinedTypes : playSingles;
   const diagrams = useRef(new Map<string, Promise<string | null>>());
 
   // What the film suggests, and what prints (the coach's edits win where they exist).

@@ -270,15 +270,39 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   }, [ownBundle.games, scheduleEvents]);
   const allPlays = bundle.plays;
   // The printed report: each of their play types on this week's report, drawn against our defense.
-  const reportPlayTypes = useMemo<ReportPlayType[]>(() => {
-    if (!isCallSheetOpen || scoutTarget !== 'opponent') return [];
+  const reportCards = useMemo<{ combined: ReportPlayType[]; single: ReportPlayType[] }>(() => {
+    if (!isCallSheetOpen || scoutTarget !== 'opponent') return { combined: [], single: [] };
     // Every play of theirs (not only the ones on the report): the ones on the report print unless left off, any
     // other prints when a coach checks it.
     const gone = new Set(bundle.deletedOppPlayIds || []);
     const all = Object.values(bundle.playLibraries || {})
       .flat()
       .filter((p) => p?.id && !gone.has(p.id) && p.name?.trim());
-    return groupOppPlays(all).map((g) => {
+    // One card per play (each name once, across films), as Their plays lists them.
+    const byPlay = new Map<string, ScoutOppPlay[]>();
+    for (const p of all) byPlay.set(p.name.trim().toUpperCase(), [...(byPlay.get(p.name.trim().toUpperCase()) || []), p]);
+    const single = [...byPlay.entries()].map(([key, plays]) => {
+      const lead = leadOppPlay(plays, playDatabase);
+      const snaps = plays.reduce((n, p) => n + snapsForCall(bundle.plays, p.gameId, p.name, `scout_${p.id}`, p.fromPlayId).length, 0);
+      const forms = [...new Set(plays.map((p) => p.formation?.trim()).filter((f) => f && f !== '-'))];
+      return {
+        key: `play:${key}`,
+        label: lead.name.trim(),
+        detail: [forms.join(' / '), snaps ? `ran it ${snaps} time${snaps === 1 ? '' : 's'}` : ''].filter(Boolean).join(' — '),
+        diagram: oppPlayDiagram(lead, playDatabase, bundle.backfieldBases, bundle.oppFormations),
+        plays: [
+          {
+            name: lead.name.trim(),
+            ids: plays.map((p) => p.id),
+            hidden: !plays.some(onCallSheet),
+            point: plays.map((p) => playPoint(p, playDatabase)).find(Boolean) || '',
+            onReport: plays.some((p) => p.onReport),
+          },
+        ],
+        kind: plays.filter((p) => runOrPass(p.kind) === 'run').length * 2 >= plays.length ? ('run' as const) : ('pass' as const),
+      };
+    });
+    const combined = groupOppPlays(all).map((g) => {
       // Each play once (by name), printed when any card of it prints; the card shows only the printed ones.
       const byName = new Map<string, { name: string; ids: string[]; hidden: boolean; point?: string; onReport?: boolean }>();
       for (const p of g.plays) {
@@ -304,6 +328,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         kind: runs * 2 >= g.plays.length ? ('run' as const) : ('pass' as const),
       };
     });
+    return { combined, single };
   }, [isCallSheetOpen, scoutTarget, bundle.playLibraries, bundle.deletedOppPlayIds, bundle.plays, bundle.backfieldBases, bundle.oppFormations, playDatabase]);
 
   /**
@@ -1116,7 +1141,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         edits={bundle.callSheet}
         onSaveEdits={(callSheet) => setBundle((prev) => ({ ...prev, callSheet, updatedAt: Date.now() }))}
         editorName={currentUser?.displayName || (currentUser?.email ? String(currentUser.email).split('@')[0] : '')}
-        playTypes={reportPlayTypes}
+        playTypes={reportCards.combined}
+        playSingles={reportCards.single}
         formationPlans={formationPlans}
         onTheirPlay={(change) => {
           if ('point' in change) pointOnDrawnPlays(change.playIds, change.point);

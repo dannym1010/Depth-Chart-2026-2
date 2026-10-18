@@ -41,6 +41,8 @@ export interface SheetPrintOptions {
   playTypeZones: boolean;
   /** Runs first, passes first (each under its own heading), or as listed. */
   playTypeSort: 'run' | 'pass' | 'list';
+  /** Plays of the same type on one card (off: each play on its own card, like Their plays). */
+  playTypeCombine: boolean;
   /** Number each call (1. 2. 3.). */
   numbers: boolean;
   size: 'normal' | 'large';
@@ -67,6 +69,7 @@ export const DEFAULT_SHEET_OPTIONS: SheetPrintOptions = {
   playTypePicture: true,
   playTypeZones: false,
   playTypeSort: 'run',
+  playTypeCombine: false,
   numbers: true,
   size: 'normal',
   ink: 'color',

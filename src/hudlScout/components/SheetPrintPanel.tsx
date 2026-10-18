@@ -255,6 +255,10 @@ export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, section
               {seg([{ value: true, label: 'Calls & film' }, { value: false, label: 'Name only' }] as const, o.playTypeDetail, (playTypeDetail) => set({ playTypeDetail }))}
             </div>
             <div>
+              {label('Cards')}
+              {seg([{ value: false, label: 'Each play' }, { value: true, label: 'Combine same plays' }] as const, o.playTypeCombine, (playTypeCombine) => set({ playTypeCombine }))}
+            </div>
+            <div>
               {label('Order')}
               {seg([{ value: 'run', label: 'Runs first' }, { value: 'pass', label: 'Passes first' }, { value: 'list', label: 'As listed' }] as const, o.playTypeSort, (playTypeSort) => set({ playTypeSort }))}
             </div>
@@ -304,7 +308,7 @@ export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, section
               <p className="mb-1 text-[11px] font-bold text-slate-600 dark:text-slate-300">
                 Printing {playTypes.reduce((n, t) => n + t.plays.filter((p) => !p.hidden).length, 0)} of{' '}
                 {playTypes.reduce((n, t) => n + t.plays.length, 0)} of their plays ({playTypes.filter((t) => t.kind === 'run').length} run,{' '}
-                {playTypes.filter((t) => t.kind === 'pass').length} pass cards)
+                {playTypes.filter((t) => t.kind === 'pass').length} pass {o.playTypeCombine ? 'cards' : 'plays'})
               </p>
               <ul className="rounded-md border border-slate-200 dark:border-slate-700 divide-y divide-slate-200 dark:divide-slate-700">
                 {playTypes.map((t) => {
@@ -340,7 +344,7 @@ export const SheetPrintPanel: React.FC<Props> = ({ options: o, onChange, section
                           title="Which of these plays print, and their coaching points"
                           className={`h-7 px-2 rounded text-[11px] font-bold inline-flex items-center gap-0.5 cursor-pointer ${isOpen ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200'}`}
                         >
-                          Plays {shown}/{t.plays.length}
+                          {t.plays.length === 1 ? (t.plays[0].point ? 'Point ✓' : 'Point') : `Plays ${shown}/${t.plays.length}`}
                           <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                         </button>
                       </div>
