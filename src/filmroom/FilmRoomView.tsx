@@ -37,7 +37,7 @@ import { moveSharedNotes, useSharedGame } from './useSharedGame';
 import { readBreakdown, useFolderBreakdowns } from './folderImport';
 import { PlayListActions, PlaylistsPanel, type Person } from './PlaylistsPanel';
 import { useFilmLists } from './useFilmLists';
-import { isFavorite, toggleFavorite, type ClipRef } from './playlists';
+import { isFavorite, playInfo, toggleFavorite, type ClipRef, type PlayInfo } from './playlists';
 
 interface FilmRoomViewProps {
   teamId: string;
@@ -660,8 +660,16 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           ...(game.week ? { week: game.week } : {}),
           playId: p.id,
           label: `${game.name} · ${playTitle(p) || `#${p.playNumber}`}`,
+          info: playInfo(p, game.name),
         }
       : undefined;
+  /** A playlist clip's breakdown: from the game when it's loaded here (it may have been filled in since), else the copy saved with it. */
+  const infoOf = (item: ClipRef): PlayInfo | undefined => {
+    // Our games are all loaded; a scouting game only when it's this week's.
+    const b = item.source === 'own' ? own : games.some((g) => g.key === item.gameKey) ? opp : undefined;
+    const live = b?.plays.find((p) => p.id === item.playId);
+    return live ? playInfo(live, item.info?.game || games.find((g) => g.key === item.gameKey)?.name) : item.info;
+  };
   const [listPlay, setListPlay] = useState<{ id: string; name: string; items: ClipRef[]; index: number } | null>(null);
   const [libTab, setLibTab] = useState<'games' | 'lists'>(() => (safeJSONParse<string>('footballFilmroomLibTab', 'games') === 'lists' ? 'lists' : 'games'));
   const pickLibTab = (t: 'games' | 'lists') => {
@@ -898,26 +906,60 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           Back to the game
         </button>
       </div>
-      <ol className="flex-1 min-h-0 overflow-y-auto p-1.5 space-y-0.5">
-        {listPlay.items.map((it, i) => (
-          <li key={`${it.gameKey}|${it.playId}|${i}`}>
-            <button
-              type="button"
-              onClick={() => {
-                setListPlay({ ...listPlay, index: i });
-                watchItem(it);
-              }}
-              aria-current={i === listPlay.index || undefined}
-              className={`w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md text-xs ${
-                i === listPlay.index ? 'bg-indigo-600 text-white font-bold' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
-            >
-              <span className={`w-6 text-right tabular-nums ${i === listPlay.index ? 'text-white/80' : 'text-slate-400'}`}>{i + 1}.</span>
-              <span className="truncate">{it.label}</span>
-            </button>
-          </li>
-        ))}
-      </ol>
+      <div className="flex-1 min-h-0 overflow-auto">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 bg-white dark:bg-slate-900">
+            <tr className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
+              {['', 'Game', 'PL#', 'ODK', 'QTR', 'DN & DIST', 'YARD LN', 'HASH', 'Formation', 'Play', 'Type', 'Result', 'GN/LS'].map((h, k) => (
+                <th key={k} className="text-left font-black px-2 py-1.5 whitespace-nowrap">
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {listPlay.items.map((it, i) => {
+              const d = infoOf(it) || {};
+              const on = i === listPlay.index;
+              return (
+                <tr
+                  key={`${it.gameKey}|${it.playId}|${i}`}
+                  onClick={() => {
+                    setListPlay({ ...listPlay, index: i });
+                    watchItem(it);
+                  }}
+                  aria-current={on || undefined}
+                  className={`cursor-pointer border-b border-slate-100 dark:border-slate-800/60 ${
+                    on ? 'bg-indigo-600 text-white font-bold' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <td className={`px-2 py-1.5 text-right tabular-nums ${on ? 'text-white/80' : 'text-slate-400'}`}>{i + 1}.</td>
+                  <td className="px-2 py-1.5 max-w-[10rem] truncate" title={d.game || it.label}>
+                    {d.game || it.label.split(' · ')[0]}
+                  </td>
+                  <td className="px-2 py-1.5 tabular-nums">{d.playNumber ?? ''}</td>
+                  <td className="px-2 py-1.5">{d.odk || ''}</td>
+                  <td className="px-2 py-1.5">{d.quarter ? `Q${d.quarter}` : ''}</td>
+                  <td className="px-2 py-1.5 whitespace-nowrap">{d.down ? `${d.down} & ${d.distance ?? ''}` : ''}</td>
+                  <td className="px-2 py-1.5">{d.yardLine || ''}</td>
+                  <td className="px-2 py-1.5">{d.hash || ''}</td>
+                  <td className="px-2 py-1.5 max-w-[9rem] truncate" title={d.formation}>
+                    {d.formation || ''}
+                  </td>
+                  <td className="px-2 py-1.5 max-w-[10rem] truncate font-semibold" title={d.play}>
+                    {d.play || ''}
+                  </td>
+                  <td className="px-2 py-1.5">{d.playType || ''}</td>
+                  <td className="px-2 py-1.5 max-w-[8rem] truncate" title={d.result}>
+                    {d.result || ''}
+                  </td>
+                  <td className="px-2 py-1.5 tabular-nums">{d.gain !== undefined ? (d.gain > 0 ? `+${d.gain}` : d.gain) : ''}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   ) : null;
   const familyLog = (

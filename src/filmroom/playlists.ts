@@ -14,6 +14,61 @@ export interface ClipRef {
   playId: string;
   /** How it reads in a list ("Carmel · #12 2nd & 7 · 32 Power"). */
   label: string;
+  /** The play's breakdown when it was added (shown when the game isn't loaded on this screen). */
+  info?: PlayInfo;
+}
+
+/** A play's breakdown, as a playlist shows it. */
+export interface PlayInfo {
+  game?: string;
+  playNumber?: number;
+  odk?: string;
+  quarter?: number;
+  down?: number;
+  distance?: number;
+  yardLine?: string;
+  hash?: string;
+  formation?: string;
+  play?: string;
+  playType?: string;
+  result?: string;
+  gain?: number;
+}
+
+/** The breakdown fields of a play (blank ones left out, so the copy stays small). */
+export function playInfo(p: {
+  playNumber?: number;
+  odk?: string;
+  quarter?: number;
+  down?: number;
+  distance?: number;
+  rawYardLine?: string;
+  yardLine?: number;
+  hash?: string;
+  formation?: string;
+  backfield?: string;
+  playCall?: string;
+  playName?: string;
+  playType?: string;
+  result?: string;
+  gainLoss?: number;
+}, game?: string): PlayInfo {
+  const info: PlayInfo = {
+    game,
+    playNumber: Number(p.playNumber) || undefined,
+    odk: p.odk && p.odk !== 'UNKNOWN' ? p.odk : undefined,
+    quarter: Number(p.quarter) || undefined,
+    down: Number(p.down) || undefined,
+    distance: Number(p.distance) || undefined,
+    yardLine: p.rawYardLine || (Number(p.yardLine) ? String(p.yardLine) : undefined),
+    hash: p.hash || undefined,
+    formation: [p.formation, p.backfield].filter((x) => x && x !== '-').join(' ') || undefined,
+    play: (p.playCall && p.playCall !== '-' ? p.playCall : p.playName) || undefined,
+    playType: p.playType || undefined,
+    result: p.result || undefined,
+    gain: Number.isFinite(Number(p.gainLoss)) && (Number(p.gainLoss) || p.result) ? Number(p.gainLoss) : undefined,
+  };
+  return Object.fromEntries(Object.entries(info).filter(([, v]) => v !== undefined && v !== '')) as PlayInfo;
 }
 
 /** A play a coach starred. */
