@@ -242,14 +242,21 @@ export function applyFormationBoardPatches(
   }
 
   const byId = new Map(local.map((f) => [f.id, f]));
+  const editTime = (f?: { lastEdited?: unknown } | null) => Number(f?.lastEdited) || 0;
   Object.entries(patches).forEach(([id, rem]) => {
     if (!id) return;
-    if (rem == null) {
+    // Not a board: an empty entry left by an old delete (it kept removing formations that came back). Ignored.
+    if (!rem || typeof rem !== 'object' || !(rem as FormationBoard).id) return;
+    const editedAt = recentlyModifiedFormations?.get(id);
+    if (editedAt !== undefined && now - editedAt < protectMs) return;
+    const loc = byId.get(id);
+    // A board (or its removal) older than the one here: the cloud doc keeps every board ever sent, so an old copy
+    // must not replace a newer edit.
+    if (loc && editTime(loc) > editTime(rem)) return;
+    if ((rem as FormationBoard & { deleted?: boolean }).deleted) {
       byId.delete(id);
       return;
     }
-    const editedAt = recentlyModifiedFormations?.get(id);
-    if (editedAt !== undefined && now - editedAt < protectMs) return;
     byId.set(id, rem);
   });
 

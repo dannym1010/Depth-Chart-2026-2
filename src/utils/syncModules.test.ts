@@ -877,6 +877,44 @@ describe('remoteStateMerge', () => {
     assert.equal(spots['b-rb'][0].name, 'Pat');
   });
 
+  it('a formation stays when the week doc holds an empty entry left by an old delete', () => {
+    const now = 1_700_000_000_000;
+    const localA = { ...form('form_a', '21', 'offense', 'a-qb'), lastEdited: now };
+    const localB = form('form_b', '22', 'offense', 'b-qb');
+    const merged = applyFormationBoardPatches([localA, localB], { form_a: {} as any, form_b: null }, new Map(), now + 60_000, undefined, 0);
+    assert.deepEqual(merged.map((f) => f.id), ['form_a', 'form_b']);
+  });
+
+  it('a removed formation goes from screens with an older copy, and stays where it came back later', () => {
+    const now = 1_700_000_000_000;
+    const tomb = { id: 'form_a', deleted: true, lastEdited: now } as any;
+    const older = { ...form('form_a', '21', 'offense', 'a-qb'), lastEdited: now - 1000 };
+    const newer = { ...form('form_a', '21', 'offense', 'a-qb'), lastEdited: now + 1000 };
+    assert.deepEqual(applyFormationBoardPatches([older], { form_a: tomb }, new Map(), now + 5000, undefined, 0).map((f) => f.id), []);
+    assert.deepEqual(applyFormationBoardPatches([newer], { form_a: tomb }, new Map(), now + 5000, undefined, 0).map((f) => f.id), ['form_a']);
+  });
+
+  it('an older copy of a board in the week doc does not replace a newer edit here', () => {
+    const now = 1_700_000_000_000;
+    const mine = { ...form('form_a', '21', 'offense', 'a-qb'), name: 'Mine', lastEdited: now };
+    const stale = { ...form('form_a', '21', 'offense', 'a-qb'), name: 'Old', lastEdited: now - 60_000 };
+    const fresh = { ...form('form_a', '21', 'offense', 'a-qb'), name: 'Fresh', lastEdited: now + 60_000 };
+    assert.equal(applyFormationBoardPatches([mine], { form_a: stale }, new Map(), now + 90_000, undefined, 0)[0].name, 'Mine');
+    assert.equal(applyFormationBoardPatches([mine], { form_a: fresh }, new Map(), now + 90_000, undefined, 0)[0].name, 'Fresh');
+  });
+
+  it("Firebase's delete and timestamp values go out as they are (the compat build wraps them)", async () => {
+    const { cleanFirestoreData } = await import('../services/storageService.ts');
+    class Qg {
+      constructor(public _delegate: any) {}
+    }
+    const inner = { _methodName: 'FieldValue.delete' };
+    const del = new Qg(inner);
+    const out = cleanFirestoreData({ formationBoards: { x: del }, at: new Qg({ _methodName: 'FieldValue.serverTimestamp' }) });
+    assert.equal(out.formationBoards.x, del);
+    assert.ok(out.at instanceof Qg);
+  });
+
   it('takes another coach live patch even if this screen still has a 25s protect stamp', () => {
     const now = 1_700_000_000_000;
     const recent = new Map<string, number>([['a-qb', now - 5000]]);

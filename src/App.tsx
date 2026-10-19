@@ -6561,9 +6561,13 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
     const copyStamps = stampSpots(stampSpots(targetExisting.depthEditedAt, copiedSpots, 'd', copiedAt), copiedScrim, 's', copiedAt);
     const fullDepth = Object.fromEntries(copiedSpots.map((k) => [k, (updatedDepthChart || {})[k] || []]));
     const fullScrim = Object.fromEntries(copiedScrim.map((k) => [k, (updatedScrimmageChart || {})[k] || []]));
+    const copiedForms =
+      mode === 'both' || mode === 'formations_only'
+        ? (updatedFormations || []).map((f) => (f && f.id ? { ...f, lastEdited: copiedAt } : f))
+        : updatedFormations;
     const updatedState: WeekState = {
       ...targetExisting,
-      formations: updatedFormations,
+      formations: copiedForms,
       depthChart: fullDepth,
       scrimmageChart: fullScrim,
       depthEditedAt: copyStamps,

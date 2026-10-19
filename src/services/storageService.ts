@@ -1471,8 +1471,7 @@ export async function patchSharedWeekCloud(payload: {
     Object.entries(payload.formationBoards || {}).forEach(([id, board]) => {
       const key = cloudFieldKey(id);
       if (board == null) {
-        const del = typeof window !== 'undefined' ? window.firebase?.firestore?.FieldValue?.delete?.() : undefined;
-        formationBoards[key] = del === undefined ? null : del;
+        formationBoards[key] = { id, deleted: true, lastEdited: Date.now() };
       } else {
         formationBoards[key] = cloneCloudValue(board);
       }
@@ -1826,7 +1825,11 @@ export function cleanFirestoreData(data: any, seen: WeakSet<object> = new WeakSe
   seen.add(data);
 
   // Preserve Firestore FieldValues (serverTimestamp, delete, increment, etc.)
-  if (data.constructor && data.constructor.name && (data.constructor.name === 'FieldValue' || data._methodName)) {
+  if (
+    (data.constructor && data.constructor.name === 'FieldValue') ||
+    data._methodName ||
+    (data._delegate && typeof data._delegate === 'object' && data._delegate._methodName)
+  ) {
     return data;
   }
 
