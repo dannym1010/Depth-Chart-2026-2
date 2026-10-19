@@ -3,7 +3,7 @@
 // whole staff sees. The play log under the video is Hudl Scout's own: sorting it sets the play order, and
 // tags changed here are the same tags Hudl Scout shows.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Copy, ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft, Star, ListVideo } from 'lucide-react';
+import { Copy, ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft, Star, ListVideo, X } from 'lucide-react';
 import { PlaysTable } from '../hudlScout/components/PlaysTable';
 import { assignDrives, bundleFromSaved, copyScoutGame, duplicateFilmGames, mergeBlankFilmGame, removeScoutGame, type ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play, TeamUnit } from '../hudlScout/types/football';
@@ -35,7 +35,7 @@ import { useClipUrl, useGameFilm } from './useGameFilm';
 import { canOpenFolders } from './filmSources';
 import { moveSharedNotes, useSharedGame } from './useSharedGame';
 import { readBreakdown, useFolderBreakdowns } from './folderImport';
-import { PlaylistsPanel, type Person } from './PlaylistsPanel';
+import { PlayListActions, PlaylistsPanel, type Person } from './PlaylistsPanel';
 import { useFilmLists } from './useFilmLists';
 import { isFavorite, toggleFavorite, type ClipRef } from './playlists';
 
@@ -274,12 +274,38 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
 
   const clips = film.status === 'ready' ? film.clips : [];
   const clipFor = useMemo(() => matchClipsToPlays(clips, plays, shared.clipPicks), [clips, plays, shared.clipPicks]);
+  // Empty plays added to a scouting game's breakdown for film that was really our game's (Oct 2026): taken
+  // back out, as long as nobody has filled them in. Their ids end in "-x<play number>".
+  const unpadded = useRef(false);
+  useEffect(() => {
+    if (unpadded.current || locked || !opp.plays.length) return;
+    const isBlankExtra = (p: Play) =>
+      /-x\d+$/.test(p.id) && p.odk === 'UNKNOWN' && !p.playName && !p.formation && !p.result && !p.playType && !Number(p.down) && !p.playCall;
+    const extra = opp.plays.filter(isBlankExtra);
+    unpadded.current = true;
+    if (!extra.length) return;
+    const gone = new Set(extra.map((p) => p.id));
+    const plays = opp.plays.filter((p) => !gone.has(p.id));
+    const now = Date.now();
+    onUpdateScouting('hudlScout', {
+      ...((opponentScout as object) || {}),
+      plays,
+      games: opp.games.map((g) => {
+        const n = plays.filter((p) => p.gameId === g.id).length;
+        return n && n !== g.playCount ? { ...g, playCount: n } : g;
+      }),
+      updatedAt: now,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opp.plays.length]);
   // More clips than plays (film in order): the breakdown gets an empty play for each clip it's missing, so
   // every clip has a spot (98 clips -> 98 plays). Added once per game, numbered after its last play;
   // Line up film puts them where they belong.
   const paddedFor = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!game || game.filmOnly || locked || film.status !== 'ready') return;
+    // Our games only, with film the app found for this game in the film folder (a folder linked by hand can be
+    // another game's; a scouting game once got empty plays for our game's film).
+    if (!game || game.source !== 'own' || game.filmOnly || locked || film.status !== 'ready' || !film.viaRoot) return;
     if (!clips.length || clips.length <= plays.length || clipMatchMode(clips, plays) !== 'order') return;
     const key = `${game.key}|${clips.length}`;
     if (paddedFor.current.has(key)) return;
@@ -637,6 +663,11 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         }
       : undefined;
   const [listPlay, setListPlay] = useState<{ id: string; name: string; items: ClipRef[]; index: number } | null>(null);
+  const [libTab, setLibTab] = useState<'games' | 'lists'>(() => (safeJSONParse<string>('footballFilmroomLibTab', 'games') === 'lists' ? 'lists' : 'games'));
+  const pickLibTab = (t: 'games' | 'lists') => {
+    setLibTab(t);
+    safeJSONSet('footballFilmroomLibTab', t);
+  };
   const [listNote, setListNote] = useState('');
   /** Watch a play from a playlist (its game opened first, from another week too). */
   const watchItem = (item: ClipRef) => {
@@ -653,6 +684,17 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     }
     setListNote(`"${item.label}" isn't available here (its game was removed or isn't shared with you).`);
   };
+  // A playlist play with no film (or film that can't be opened here): on to the next one by itself.
+  useEffect(() => {
+    if (!listPlay || listPlay.index >= listPlay.items.length - 1) return;
+    const item = listPlay.items[listPlay.index];
+    if (!item || game?.key !== item.gameKey) return;
+    const noClip = film.status === 'ready' ? Boolean(play && play.id === item.playId && !clipFor.has(play.id)) : film.status === 'error' || film.status === 'none';
+    if (!noClip) return;
+    const t = window.setTimeout(() => stepList(1), 1500);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listPlay?.id, listPlay?.index, game?.key, film.status, play?.id]);
   const playNotes = play ? [...notesFor(play.id)].sort((a, b) => a.t - b.t) : [];
   const marks: FilmMark[] = (play && shared.drawings[play.id]?.marks) || [];
 
@@ -789,8 +831,13 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       </span>
     );
   };
+  const playActions =
+    canList && play && clipRefOf(play) ? (
+      <PlayListActions current={clipRefOf(play)!} lists={filmLists.lists} update={filmLists.update} me={me} myName={authorName} />
+    ) : null;
   const odkChips = (
-    <div className="flex items-center gap-1">
+    <div className="flex flex-wrap items-center gap-1">
+      {playActions && <span className="inline-flex items-center gap-1 pr-1.5 mr-0.5 border-r border-slate-200 dark:border-slate-700">{playActions}</span>}
       {(['all', 'O', 'D', 'K'] as OdkFilter[]).map((k) => (
         <button key={k} className={chip(odk === k)} onClick={() => setOdk(k)}>{k === 'all' ? 'All' : k === 'O' ? 'Offense' : k === 'D' ? 'Defense' : 'Kicking'}</button>
       ))}
@@ -839,6 +886,40 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     if (p.odk === 'O' && Number.isFinite(p.gainLoss) && (p.gainLoss || p.result)) parts.push(`${p.gainLoss > 0 ? '+' : ''}${p.gainLoss} yds`);
     return parts.join(' · ');
   };
+  const playlistQueue = listPlay ? (
+    <div className={`${panel} flex flex-col min-h-0`}>
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-800">
+        <ListVideo size={15} className="text-indigo-500" />
+        <span className="text-sm font-black text-slate-900 dark:text-white truncate">{listPlay.name}</span>
+        <span className="text-xs text-slate-500">
+          {listPlay.index + 1} of {listPlay.items.length} · plays straight through
+        </span>
+        <button type="button" onClick={() => setListPlay(null)} className="ml-auto h-7 px-2.5 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
+          Back to the game
+        </button>
+      </div>
+      <ol className="flex-1 min-h-0 overflow-y-auto p-1.5 space-y-0.5">
+        {listPlay.items.map((it, i) => (
+          <li key={`${it.gameKey}|${it.playId}|${i}`}>
+            <button
+              type="button"
+              onClick={() => {
+                setListPlay({ ...listPlay, index: i });
+                watchItem(it);
+              }}
+              aria-current={i === listPlay.index || undefined}
+              className={`w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md text-xs ${
+                i === listPlay.index ? 'bg-indigo-600 text-white font-bold' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+            >
+              <span className={`w-6 text-right tabular-nums ${i === listPlay.index ? 'text-white/80' : 'text-slate-400'}`}>{i + 1}.</span>
+              <span className="truncate">{it.label}</span>
+            </button>
+          </li>
+        ))}
+      </ol>
+    </div>
+  ) : null;
   const familyLog = (
     <div className={`${panel} flex-1 min-h-0 overflow-y-auto p-2`}>
       <ol className="space-y-0.5">
@@ -908,6 +989,34 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     setLibraryPhone(false);
   };
   const libraryEl = (onClose: () => void) => (
+    <div className="flex flex-col h-full min-h-0">
+      {listsEl && (
+        <div className="flex items-center gap-1 px-2.5 pt-2.5 shrink-0" role="tablist" aria-label="Library">
+          {(['games', 'lists'] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={libTab === t}
+              onClick={() => pickLibTab(t)}
+              className={`h-7 px-2.5 rounded-lg text-xs font-black ${libTab === t ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+            >
+              {t === 'games' ? 'Games' : 'Playlists'}
+            </button>
+          ))}
+          <button type="button" onClick={onClose} className="ml-auto p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white" aria-label="Close the library">
+            <X size={16} />
+          </button>
+        </div>
+      )}
+      {listsEl && libTab === 'lists' ? (
+        <div className="flex-1 min-h-0 overflow-y-auto">{listsEl}</div>
+      ) : (
+        <div className="flex-1 min-h-0">{libraryList(listsEl ? undefined : onClose)}</div>
+      )}
+    </div>
+  );
+  const libraryList = (onClose?: () => void) => (
     <FilmLibrary
       weeks={library.weeks}
       otherGames={library.others}
@@ -972,7 +1081,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const fromFilm = Boolean(game?.fromFilm);
   // Every game's breakdown can be changed beside the video (Hudl's or one broken down here).
   const editable = Boolean(game && !game.filmOnly) && !locked;
-  const sideTabList = [...(builderSeed ? (['builder'] as const) : []), ...(editable ? (['breakdown'] as const) : []), 'notes' as const, ...(me ? (['lists'] as const) : [])];
+  const sideTabList = [...(builderSeed ? (['builder'] as const) : []), ...(editable ? (['breakdown'] as const) : []), 'notes' as const];
   const activeSide = sideTabList.includes(sideTab as never) ? sideTab : sideTabList[0];
   const sideIsBuilder = activeSide === 'builder';
   const sideTabs = sideTabList.length > 1 ? (
@@ -986,7 +1095,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             activeSide === t ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          {t === 'builder' ? 'Play builder' : t === 'breakdown' ? `Breakdown${play ? ` · #${play.playNumber}` : ''}` : t === 'lists' ? 'Playlists' : `Notes${play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}`}
+          {t === 'builder' ? 'Play builder' : t === 'breakdown' ? `Breakdown${play ? ` · #${play.playNumber}` : ''}` : `Notes${play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}`}
         </button>
       ))}
       {builderSaved && <span className="ml-auto text-[11px] font-bold text-emerald-700 dark:text-emerald-400">{builderSaved}</span>}
@@ -1051,11 +1160,11 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       me={me}
       myName={authorName}
       people={people}
-      current={play ? clipRefOf(play) : undefined}
       readOnly={!canList}
       playing={listPlay ? { id: listPlay.id, index: listPlay.index } : null}
       onWatch={(item, list) => {
         setListPlay(list || null);
+        if (!isDesktop) setLibraryPhone(false);
         watchItem(item);
       }}
     />
@@ -1106,12 +1215,12 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             } else setLibraryPhone(true);
           }}
           aria-expanded={isDesktop ? libraryDesk : libraryPhone}
-          title="Film library: every game of the season, by week"
+          title="Film library: every game of the season by week, and your favorites and playlists"
           className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-bold shrink-0 ${
             isDesktop && libraryDesk ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200'
           }`}
         >
-          <LibraryIcon size={15} /> Games
+          <LibraryIcon size={15} /> {listsEl ? 'Library' : 'Games'}
         </button>
         {game && (
           <div className="min-w-0 flex flex-col leading-tight mr-1">
@@ -1127,7 +1236,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           {film.status === 'ready'
             ? game?.filmOnly
               ? `${film.kind === 'drive' ? 'Drive' : 'Folder'}: ${film.label} · ${clips.length} clip${clips.length === 1 ? '' : 's'} · setting up a breakdown to fill in…`
-              : `${film.kind === 'drive' ? 'Drive' : film.kind === 'folder' ? 'Folder' : 'Clips'}: ${film.label} · ${clipFor.size}/${plays.length} plays have film${
+              : `${film.kind === 'drive' ? 'Drive' : film.kind === 'folder' ? 'Folder' : 'Clips'}: ${film.label}${film.viaRoot ? '' : ' (linked to this game by hand: Unlink if it is another game\'s film)'} · ${clipFor.size}/${plays.length} plays have film${
                   fromFilm ? ` · ${plays.filter(isBrokenDown).length}/${plays.length} broken down` : ''
                 }`
             : film.status === 'none'
@@ -1425,7 +1534,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           }}
           apiRef={apiRef}
           startAt={resumeAt.current}
-          autoNextDefault={!game?.fromFilm}
+          autoNextDefault={listPlay ? true : !game?.fromFilm}
         />
 
         {/* Notes: beside the video on a computer (as tall as the video, scrolling), a tab on phones and tablets */}
@@ -1437,8 +1546,6 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                 builderEl
               ) : activeSide === 'breakdown' ? (
                 breakdownEl
-              ) : activeSide === 'lists' ? (
-                listsEl
               ) : (
                 <>
                   <div className="px-3 pt-3 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -1488,20 +1595,14 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             Play builder
           </button>
         )}
-        {listsEl && (
-          <button className={chip(mobileTab === 'lists')} onClick={() => setMobileTab('lists')}>
-            Playlists
-          </button>
-        )}
       </div>
-      {mobileTab === 'lists' && listsEl && <div className={`${panel} lg:hidden`}>{listsEl}</div>}
       {mobileTab === 'notes' && !family && <div className={`${panel} lg:hidden`}>{notesEl}</div>}
       {mobileTab === 'breakdown' && editable && <div className={`${panel} lg:hidden`}>{breakdownEl}</div>}
       {mobileTab === 'builder' && builderEl && <div className={`${panel} lg:hidden`}>{builderEl}</div>}
 
       {/* The game's play log: click a play to watch it, sort by any column, change tags */}
       <div className={`flex-col gap-2 lg:flex-1 lg:min-h-0 ${mobileTab === 'plays' ? 'flex' : 'hidden lg:flex'}`}>
-        {family ? familyLog : game?.filmOnly ? clipLog : playLog}
+        {listPlay ? playlistQueue : family ? familyLog : game?.filmOnly ? clipLog : playLog}
       </div>
 
       </div>
