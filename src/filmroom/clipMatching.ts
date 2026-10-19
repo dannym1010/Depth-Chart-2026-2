@@ -46,11 +46,22 @@ export function clipMatchMode(clips: { name: string }[], plays: { playNumber: nu
   return known >= Math.ceil(numbered.length * 0.9) ? 'number' : 'order';
 }
 
-/** Which clip goes with which play. Returns play id -> clip index. */
+/**
+ * Which clip goes with which play. Returns play id -> clip index. `picks` (play id -> clip file name) are the
+ * clips coaches lined plays up with: with film in order, the plays after a pick take the clips after it (so one
+ * pick past an extra clip lines up the rest of the game).
+ */
 export function matchClipsToPlays(
   clips: { name: string }[],
-  plays: { id: string; playNumber: number }[]
+  plays: { id: string; playNumber: number }[],
+  picks?: Record<string, { clip: string }>
 ): Map<string, number> {
+  const picked = (id: string) => {
+    const name = picks?.[id]?.clip;
+    if (!name) return undefined;
+    const i = clips.findIndex((c) => c.name === name);
+    return i >= 0 ? i : undefined;
+  };
   const out = new Map<string, number>();
   const orderedPlays = [...plays].sort((a, b) => (Number(a.playNumber) || 0) - (Number(b.playNumber) || 0));
   if (clipMatchMode(clips, plays) === 'number') {
@@ -60,14 +71,19 @@ export function matchClipsToPlays(
       if (n !== undefined) byNumber.set(n, i);
     });
     for (const p of orderedPlays) {
-      const i = byNumber.get(Number(p.playNumber));
+      const i = picked(p.id) ?? byNumber.get(Number(p.playNumber));
       if (i !== undefined) out.set(p.id, i);
     }
     return out;
   }
   const order = clips.map((c, i) => ({ c, i })).sort((a, b) => naturalCompare(a.c.name, b.c.name));
-  orderedPlays.forEach((p, k) => {
-    if (k < order.length) out.set(p.id, order[k].i);
-  });
+  const posOf = new Map(order.map((o, k) => [o.i, k]));
+  let next = 0;
+  for (const p of orderedPlays) {
+    const pick = picked(p.id);
+    if (pick !== undefined) next = posOf.get(pick)!;
+    if (next < order.length) out.set(p.id, order[next].i);
+    next += 1;
+  }
   return out;
 }

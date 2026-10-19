@@ -140,7 +140,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
   });
 
   const clips = film.status === 'ready' ? film.clips : [];
-  const clipFor = useMemo(() => matchClipsToPlays(clips, gamePlays), [clips, gamePlays]);
+  const clipFor = useMemo(() => matchClipsToPlays(clips, gamePlays, shared.clipPicks), [clips, gamePlays, shared.clipPicks]);
   const clipOf = (p?: Play) => (p && clipFor.has(p.id) ? clips[clipFor.get(p.id)!] : undefined);
   const clip = clipOf(play);
   const clipUrl = useClipUrl(clip, localFiles, clipOf(next));

@@ -4452,6 +4452,21 @@ describe('film room', () => {
     // Numbers that aren't this game's plays (e.g. "Clip 101"...) fall back to order too.
     assert.equal(clipMatchMode([{ name: 'Clip 101.mp4' }, { name: 'Clip 102.mp4' }], plays), 'order');
   });
+  it('an extra clip: lining one play up with the right clip lines up every play after it', async () => {
+    const { matchClipsToPlays } = await import('../filmroom/clipMatching.ts');
+    const plays = Array.from({ length: 5 }, (_, i) => ({ id: `p${i + 1}`, playNumber: i + 1 }));
+    // Clip 3 is extra (a timeout): from play 3 on, the film is one clip ahead.
+    const clips = Array.from({ length: 6 }, (_, i) => ({ name: `IMG_${String(i + 1).padStart(4, '0')}.MOV` }));
+    const fixed = matchClipsToPlays(clips, plays, { p3: { clip: 'IMG_0004.MOV' } });
+    assert.deepEqual(plays.map((p) => fixed.get(p.id)), [0, 1, 3, 4, 5]);
+    // Taken back (empty pick): in order again.
+    const undone = matchClipsToPlays(clips, plays, { p3: { clip: '' } });
+    assert.deepEqual(plays.map((p) => undone.get(p.id)), [0, 1, 2, 3, 4]);
+    // A coach's pick is shared and the later one wins.
+    const { mergeShared } = await import('../filmroom/sharedMerge.ts');
+    const a = mergeShared({ clipPicks: { p3: { clip: 'IMG_0004.MOV', editedAt: 10 } } }, { clipPicks: { p3: { clip: 'IMG_0005.MOV', editedAt: 20 } } });
+    assert.equal(a.clipPicks?.p3.clip, 'IMG_0005.MOV');
+  });
   it('coaches keep each other\'s notes; a deleted note stays deleted; later drawing wins', async () => {
     const { mergeShared, filmGameKey, sharedDocId } = await import('../filmroom/sharedMerge.ts');
     const n = (id: string, at: number) => ({ id, playId: 'p1', t: 1, text: id, author: 'x', createdAt: at, editedAt: at });

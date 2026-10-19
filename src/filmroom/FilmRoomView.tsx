@@ -16,7 +16,7 @@ import type { PlayDatabaseEntry } from '../types/callSheet';
 import { filmLineup, setPlayBallPlayer, setPlayDefPlay, setPlaySub, type BallRole, type WeekBoards } from '../utils/filmLineup';
 import { newPlayEntry } from '../utils/playbookImport';
 import { theirCallEntries } from '../utils/theirCalls';
-import { clipMatchMode, matchClipsToPlays } from './clipMatching';
+import { clipMatchMode, matchClipsToPlays, naturalCompare } from './clipMatching';
 import { playsFromClips } from './clipPlays';
 import { applyBreakdown, blankPlays, breakdownPlayId, importIntoGame, isBrokenDown, type BreakdownRow } from './breakdownEntry';
 import { BreakdownPanel } from './BreakdownPanel';
@@ -273,7 +273,12 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   });
 
   const clips = film.status === 'ready' ? film.clips : [];
-  const clipFor = useMemo(() => matchClipsToPlays(clips, plays), [clips, plays]);
+  const clipFor = useMemo(() => matchClipsToPlays(clips, plays, shared.clipPicks), [clips, plays, shared.clipPicks]);
+  // Clips in the order they're matched (by name): stepping a play's clip moves through this list.
+  const clipsInOrder = useMemo(() => clips.map((c, i) => ({ c, i })).sort((a, b) => naturalCompare(a.c.name, b.c.name)), [clips]);
+  /** Line the play up with another clip (the plays after it follow); null takes the coach's pick back. */
+  const pickClip = (playId: string, clipName: string | null) =>
+    update((s) => ({ ...s, clipPicks: { ...(s.clipPicks || {}), [playId]: { clip: clipName || '', editedAt: Date.now() } } }));
 
   // Previous / next follow the play log below as it's sorted and searched.
   const [order, setOrder] = useState<string[]>([]);
@@ -1165,9 +1170,41 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
             title="Clips are matched to plays in order (first clip = first play). With a different number of clips, check that the plays line up, and that the folder has only this game's clips."
           >
-            ⚠ {clips.length} clips for {plays.length} plays: check the plays line up
+            ⚠ {clips.length} clips for {plays.length} plays: if a play shows the wrong video, use Line up film
           </span>
         )}
+        {/* Line up film: the clip the play on screen shows, and a step to the clip before or after it. The plays
+            after it follow, so one fix past an extra (or missing) clip lines up the rest of the game. */}
+        {!locked && film.status === 'ready' && clips.length > 0 && play && !game?.filmOnly && (() => {
+          const at = clipFor.has(play.id) ? clipsInOrder.findIndex((o) => o.i === clipFor.get(play.id)) : -1;
+          const step = (d: number) => {
+            const to = clipsInOrder[Math.max(0, Math.min(clipsInOrder.length - 1, (at < 0 ? 0 : at) + d))];
+            if (to) pickClip(play.id, to.c.name);
+          };
+          const mine = Boolean(shared.clipPicks?.[play.id]?.clip);
+          return (
+            <span
+              role="group"
+              aria-label="Line up film"
+              className="inline-flex items-center gap-1 h-7 pl-2 pr-1 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-200"
+              title="If this play shows the wrong video, step to the right clip. The plays after it follow (saved for every coach)."
+            >
+              Line up film · play #{play.playNumber}:
+              <button type="button" onClick={() => step(-1)} disabled={at <= 0} className="h-5 px-1.5 rounded bg-slate-100 dark:bg-slate-800 disabled:opacity-40" aria-label="Earlier clip">
+                ◀
+              </button>
+              <span className="tabular-nums">{at >= 0 ? `clip ${at + 1} of ${clipsInOrder.length}` : 'no clip'}</span>
+              <button type="button" onClick={() => step(1)} disabled={at >= clipsInOrder.length - 1} className="h-5 px-1.5 rounded bg-slate-100 dark:bg-slate-800 disabled:opacity-40" aria-label="Later clip">
+                ▶
+              </button>
+              {mine && (
+                <button type="button" onClick={() => pickClip(play.id, null)} className="h-5 px-1.5 rounded text-slate-500 hover:text-slate-800 dark:hover:text-white" title="Take back the clip picked for this play">
+                  Undo
+                </button>
+              )}
+            </span>
+          );
+        })()}
 
         <div className="flex items-center gap-1.5 ml-auto">
           {!family && (

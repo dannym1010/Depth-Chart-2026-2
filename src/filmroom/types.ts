@@ -63,6 +63,11 @@ export interface FilmGameShared {
    * opponent game). Picked once by a coach; everyone gets it.
    */
   folderPick?: { name: string; editedAt: number };
+  /**
+   * Play id -> the clip a coach lined it up with (by file name). In-order film follows from there: the plays
+   * after it take the clips after it. An empty clip name is a pick taken back.
+   */
+  clipPicks?: Record<string, { clip: string; editedAt: number }>;
 }
 
 export const emptyShared = (): FilmGameShared => ({ notes: [], deletedNotes: {}, drawings: {} });
