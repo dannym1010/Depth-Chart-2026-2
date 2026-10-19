@@ -7864,6 +7864,11 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 isProgramAdmin={isProgramAdmin}
                 viewOnly={isPlayer}
                 family={isFamily}
+                userEmail={currentUserEmail}
+                // A playlist can be shared with anyone on this team's staff list (coaches, players, families).
+                people={staffList
+                  .filter((c) => c?.email && c.status !== 'Pending' && coachTeamIds(c, teams).some((id) => sameTeamId(id, activeTeamId)))
+                  .map((c) => ({ email: c.email.toLowerCase().trim(), name: c.name || c.email.split('@')[0], role: c.role }))}
               />
             )}
 

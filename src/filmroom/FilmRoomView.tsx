@@ -3,7 +3,7 @@
 // whole staff sees. The play log under the video is Hudl Scout's own: sorting it sets the play order, and
 // tags changed here are the same tags Hudl Scout shows.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Copy, ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft } from 'lucide-react';
+import { Copy, ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft, Star, ListVideo } from 'lucide-react';
 import { PlaysTable } from '../hudlScout/components/PlaysTable';
 import { assignDrives, bundleFromSaved, copyScoutGame, duplicateFilmGames, mergeBlankFilmGame, removeScoutGame, type ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play, TeamUnit } from '../hudlScout/types/football';
@@ -35,6 +35,9 @@ import { useClipUrl, useGameFilm } from './useGameFilm';
 import { canOpenFolders } from './filmSources';
 import { moveSharedNotes, useSharedGame } from './useSharedGame';
 import { readBreakdown, useFolderBreakdowns } from './folderImport';
+import { PlaylistsPanel, type Person } from './PlaylistsPanel';
+import { useFilmLists } from './useFilmLists';
+import { isFavorite, toggleFavorite, type ClipRef } from './playlists';
 
 interface FilmRoomViewProps {
   teamId: string;
@@ -81,6 +84,10 @@ interface FilmRoomViewProps {
   viewOnly?: boolean;
   /** A family account: our games only, just the video and a plain list of the plays. */
   family?: boolean;
+  /** Who's signed in (email): their favorites and playlists. */
+  userEmail?: string;
+  /** People a playlist can be shared with. */
+  people?: Person[];
 }
 
 type OdkFilter = 'all' | 'O' | 'D' | 'K';
@@ -94,6 +101,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   isProgramAdmin = false,
   viewOnly = false,
   family = false,
+  userEmail = '',
+  people = [],
 }) => {
   // Watching only: a player or family account (or any session that can't save).
   const locked = viewOnly || family || isReadOnlySession();
@@ -144,7 +153,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   // Opened from the play builder: that play, in the builder beside the video, to change while watching.
   const [builderSeed] = useState<PlayBuilderSeed | null>(() => (cutup && !locked ? peekPlayBuilderSeed() : null));
   const seedRef = useRef(builderSeed);
-  const [sideTab, setSideTab] = useState<'builder' | 'breakdown' | 'notes'>(builderSeed ? 'builder' : 'breakdown');
+  const [sideTab, setSideTab] = useState<'builder' | 'breakdown' | 'notes' | 'lists'>(builderSeed ? 'builder' : 'breakdown');
   const [hideBuilder, setHideBuilder] = useState(false);
   const [builderSaved, setBuilderSaved] = useState('');
   const pickKey = `footballFilmroomGame_${teamId}`;
@@ -296,7 +305,22 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       setGameKey(g.key);
     }
   }, [cutup, games, own, opp]);
-  useEffect(() => setPlayId(cutup?.playIds[0]), [game?.key, setPlayId, cutup]);
+  // A play picked from a playlist in another game: watched once that game is open.
+  const pendingPlay = useRef<string | undefined>(undefined);
+  const pendingGame = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const wanted = pendingPlay.current;
+    pendingPlay.current = undefined;
+    setPlayId(wanted || cutup?.playIds[0]);
+  }, [game?.key, setPlayId, cutup]);
+  // Another week's scouting film: open once the app has switched to that week.
+  useEffect(() => {
+    const key = pendingGame.current;
+    if (key && games.some((g) => g.key === key)) {
+      pendingGame.current = undefined;
+      setGameKey(key);
+    }
+  }, [games]);
   const switchView = (i: number) => {
     resumeAt.current = apiRef.current?.time() || 0;
     setView(i);
@@ -307,6 +331,14 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const prev = idx > 0 ? playOrder[idx - 1] : undefined;
   // The next snap in the game (not the next row in a filtered or sorted list): where this play ended.
   const nextSnap = play ? plays.find((p) => p.gameId === play.gameId && p.playNumber === play.playNumber + 1) : undefined;
+  const stepList = (d: number) => {
+    if (!listPlay) return;
+    const index = listPlay.index + d;
+    const item = listPlay.items[index];
+    if (!item) return;
+    setListPlay({ ...listPlay, index });
+    watchItem(item);
+  };
 
   // Tag changes are saved to the game's Hudl Scout breakdown (ours, or this week's opponent).
   const source = game?.source || 'own';
@@ -526,7 +558,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   // Opened from the play builder, the library starts closed so the builder has room beside the video.
   const [libraryDesk, setLibraryDesk] = useState(() => !builderSeed && safeJSONParse<boolean>('footballFilmroomLibrary', true));
   const [libraryPhone, setLibraryPhone] = useState(false);
-  const [mobileTab, setMobileTab] = useState<'plays' | 'notes' | 'builder' | 'breakdown'>('plays');
+  const [mobileTab, setMobileTab] = useState<'plays' | 'notes' | 'builder' | 'breakdown' | 'lists'>('plays');
 
   // Computer layout: the video, then a bar to drag, then the play log in its own scroll area.
   // The video's height and whether notes show are remembered on this device.
@@ -557,6 +589,39 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   };
 
   const notesFor = useCallback((id: string) => shared.notes.filter((n) => n.playId === id), [shared.notes]);
+
+  // Favorites and playlists (each coach's own favorites; playlists shared with chosen people).
+  const filmLists = useFilmLists(teamId);
+  const me = userEmail.toLowerCase().trim();
+  const canList = Boolean(me) && !locked;
+  const clipRefOf = (p: Play): ClipRef | undefined =>
+    game
+      ? {
+          gameKey: game.key,
+          source: game.source,
+          gameId: game.gameId,
+          ...(game.week ? { week: game.week } : {}),
+          playId: p.id,
+          label: `${game.name} · ${playTitle(p) || `#${p.playNumber}`}`,
+        }
+      : undefined;
+  const [listPlay, setListPlay] = useState<{ id: string; name: string; items: ClipRef[]; index: number } | null>(null);
+  const [listNote, setListNote] = useState('');
+  /** Watch a play from a playlist (its game opened first, from another week too). */
+  const watchItem = (item: ClipRef) => {
+    setListNote('');
+    if (game?.key === item.gameKey) return setPlayId(item.playId);
+    if (games.some((g) => g.key === item.gameKey)) {
+      pendingPlay.current = item.playId;
+      return setGameKey(item.gameKey);
+    }
+    if (item.source === 'opponent' && item.week && item.week !== currentWeek && onSelectWeek) {
+      pendingPlay.current = item.playId;
+      pendingGame.current = item.gameKey;
+      return onSelectWeek(item.week);
+    }
+    setListNote(`"${item.label}" isn't available here (its game was removed or isn't shared with you).`);
+  };
   const playNotes = play ? [...notesFor(play.id)].sort((a, b) => a.t - b.t) : [];
   const marks: FilmMark[] = (play && shared.drawings[play.id]?.marks) || [];
 
@@ -664,8 +729,25 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
 
   const rowBadge = (p: Play) => {
     const n = notesFor(p.id).length;
+    const ref = canList ? clipRefOf(p) : undefined;
+    const starred = Boolean(ref && isFavorite(filmLists.lists, me, ref));
     return (
       <span className="inline-flex items-center gap-1.5 align-middle">
+        {ref && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              filmLists.update((l) => toggleFavorite(l, me, ref));
+            }}
+            aria-pressed={starred}
+            aria-label={starred ? `Take play ${p.playNumber} out of favorites` : `Add play ${p.playNumber} to favorites`}
+            title={starred ? 'In your favorites (click to take it out)' : 'Add to your favorites'}
+            className="p-0.5 -m-0.5 rounded cursor-pointer"
+          >
+            <Star size={12} className={starred ? 'text-amber-400 fill-current' : 'text-slate-500 hover:text-amber-400'} />
+          </button>
+        )}
         <Film size={12} className={clipFor.has(p.id) ? 'text-indigo-400' : 'text-slate-600'} aria-label={clipFor.has(p.id) ? 'Has film' : 'No film'} />
         {n > 0 && (
           <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-amber-400">
@@ -859,7 +941,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const fromFilm = Boolean(game?.fromFilm);
   // Every game's breakdown can be changed beside the video (Hudl's or one broken down here).
   const editable = Boolean(game && !game.filmOnly) && !locked;
-  const sideTabList = [...(builderSeed ? (['builder'] as const) : []), ...(editable ? (['breakdown'] as const) : []), 'notes' as const];
+  const sideTabList = [...(builderSeed ? (['builder'] as const) : []), ...(editable ? (['breakdown'] as const) : []), 'notes' as const, ...(me ? (['lists'] as const) : [])];
   const activeSide = sideTabList.includes(sideTab as never) ? sideTab : sideTabList[0];
   const sideIsBuilder = activeSide === 'builder';
   const sideTabs = sideTabList.length > 1 ? (
@@ -873,7 +955,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             activeSide === t ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          {t === 'builder' ? 'Play builder' : t === 'breakdown' ? `Breakdown${play ? ` · #${play.playNumber}` : ''}` : `Notes${play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}`}
+          {t === 'builder' ? 'Play builder' : t === 'breakdown' ? `Breakdown${play ? ` · #${play.playNumber}` : ''}` : t === 'lists' ? 'Playlists' : `Notes${play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}`}
         </button>
       ))}
       {builderSaved && <span className="ml-auto text-[11px] font-bold text-emerald-700 dark:text-emerald-400">{builderSaved}</span>}
@@ -931,6 +1013,22 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       }}
     />
   );
+  const listsEl = me ? (
+    <PlaylistsPanel
+      lists={filmLists.lists}
+      update={filmLists.update}
+      me={me}
+      myName={authorName}
+      people={people}
+      current={play ? clipRefOf(play) : undefined}
+      readOnly={!canList}
+      playing={listPlay ? { id: listPlay.id, index: listPlay.index } : null}
+      onWatch={(item, list) => {
+        setListPlay(list || null);
+        watchItem(item);
+      }}
+    />
+  ) : null;
   const notesEl = (
     <PlayNotes
       play={play}
@@ -1219,6 +1317,23 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           </button>
         </div>
       )}
+      {(listPlay || listNote) && (
+        <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-900 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-200 text-xs shrink-0">
+          {listPlay && (
+            <>
+              <ListVideo size={14} />
+              <span className="font-black">{listPlay.name}</span>
+              <span>
+                play {listPlay.index + 1} of {listPlay.items.length}
+              </span>
+              <button type="button" onClick={() => setListPlay(null)} className="ml-auto h-6 px-2 rounded-md bg-white/70 dark:bg-slate-900/60 font-bold">
+                Stop playlist
+              </button>
+            </>
+          )}
+          {listNote && <span className="font-bold text-amber-700 dark:text-amber-300">{listNote}</span>}
+        </div>
+      )}
       <div className="flex flex-col lg:flex-row gap-2 lg:flex-1 lg:min-h-0">
       {isDesktop && libraryDesk && <aside className={`${panel} w-64 xl:w-72 shrink-0 min-h-0`}>{libraryEl(() => {
         safeJSONSet('footballFilmroomLibrary', false);
@@ -1238,10 +1353,10 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           marks={family ? [] : marks}
           onMarksChange={locked ? () => undefined : saveMarks}
           viewOnly={locked}
-          hasPrev={Boolean(prev)}
-          hasNext={Boolean(next)}
-          onPrev={() => prev && setPlayId(prev.id)}
-          onNext={() => next && setPlayId(next.id)}
+          hasPrev={listPlay ? listPlay.index > 0 : Boolean(prev)}
+          hasNext={listPlay ? listPlay.index < listPlay.items.length - 1 : Boolean(next)}
+          onPrev={() => (listPlay ? stepList(-1) : prev && setPlayId(prev.id))}
+          onNext={() => (listPlay ? stepList(1) : next && setPlayId(next.id))}
           onStopwatch={(s, at) => {
             addNote(`Pocket time ${s.toFixed(2)}s`, undefined, at);
           }}
@@ -1259,6 +1374,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                 builderEl
               ) : activeSide === 'breakdown' ? (
                 breakdownEl
+              ) : activeSide === 'lists' ? (
+                listsEl
               ) : (
                 <>
                   <div className="px-3 pt-3 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -1308,7 +1425,13 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             Play builder
           </button>
         )}
+        {listsEl && (
+          <button className={chip(mobileTab === 'lists')} onClick={() => setMobileTab('lists')}>
+            Playlists
+          </button>
+        )}
       </div>
+      {mobileTab === 'lists' && listsEl && <div className={`${panel} lg:hidden`}>{listsEl}</div>}
       {mobileTab === 'notes' && !family && <div className={`${panel} lg:hidden`}>{notesEl}</div>}
       {mobileTab === 'breakdown' && editable && <div className={`${panel} lg:hidden`}>{breakdownEl}</div>}
       {mobileTab === 'builder' && builderEl && <div className={`${panel} lg:hidden`}>{builderEl}</div>}
