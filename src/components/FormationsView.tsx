@@ -2106,7 +2106,7 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
                                     onDragStart={(e) => {
                                       onPositionCardDragStart(e, form.id, rIdx, pIdx);
                                     }}
-                                    className={`position-card-title px-2.5 py-1.5 bg-slate-900 border-b border-slate-700 rounded-t-2xl print:rounded-none flex items-center justify-between text-xs font-black select-none ${
+                                    className={`position-card-title h-7 px-2.5 bg-slate-900 border-b border-slate-700 rounded-t-2xl print:rounded-none flex items-center justify-between text-xs font-black select-none ${
                                       userRole === 'admin' ? 'cursor-grab active:cursor-grabbing' : ''
                                     }`}
                                   >
@@ -2124,7 +2124,7 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
                                           });
                                         }
                                       }}
-                                      className={`flex items-center gap-1 truncate ${
+                                      className={`flex items-center gap-1 truncate min-w-0 ${
                                         userRole === 'admin'
                                           ? 'hover:text-indigo-400 cursor-pointer'
                                           : ''
@@ -2138,10 +2138,11 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
                                       )}
                                     </div>
 
-                                    {/* Position Header Actions */}
+                                    {/* Position Header Actions: the header keeps one height whether they show or not (they made the card grow,
+                                        and the whole chart jump); with a mouse they show on hover, on touch screens always. */}
                                     {userRole === 'admin' && (
                                       <div
-                                        className="flex items-center gap-0.5 shrink-0 print:hidden [@media(hover:hover)]:hidden [@media(hover:hover)]:group-hover/pos:flex [@media(hover:hover)]:group-focus-within/pos:flex"
+                                        className="flex items-center gap-0 shrink-0 print:hidden [@media(hover:hover)]:hidden [@media(hover:hover)]:group-hover/pos:flex [@media(hover:hover)]:group-focus-within/pos:flex"
                                         onClick={(e) => e.stopPropagation()}
                                       >
                                         <button
@@ -2153,7 +2154,7 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
                                             }
                                           }}
                                           title="Insert empty slot to the left (←)"
-                                          className="p-1 text-slate-400 hover:text-indigo-300 rounded hover:bg-slate-800 cursor-pointer"
+                                          className="p-0.5 text-slate-400 hover:text-indigo-300 rounded hover:bg-slate-800 cursor-pointer"
                                         >
                                           <ArrowLeft className="w-2.5 h-2.5" />
                                         </button>
@@ -2166,7 +2167,7 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
                                             }
                                           }}
                                           title="Insert empty slot to the right (→)"
-                                          className="p-1 text-slate-400 hover:text-indigo-300 rounded hover:bg-slate-800 cursor-pointer"
+                                          className="p-0.5 text-slate-400 hover:text-indigo-300 rounded hover:bg-slate-800 cursor-pointer"
                                         >
                                           <ArrowRight className="w-2.5 h-2.5" />
                                         </button>
@@ -2179,7 +2180,7 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
                                             }
                                           }}
                                           title="Clear position name (make this slot empty for spacing)"
-                                          className="p-1 text-slate-400 hover:text-slate-100 rounded hover:bg-slate-800 cursor-pointer"
+                                          className="p-0.5 text-slate-400 hover:text-slate-100 rounded hover:bg-slate-800 cursor-pointer"
                                         >
                                           <Eraser className="w-2.5 h-2.5" />
                                         </button>
@@ -2196,7 +2197,7 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
                                             });
                                           }}
                                           title="Move position to another row"
-                                          className="p-1 text-slate-400 hover:text-indigo-400 rounded hover:bg-slate-800 cursor-pointer"
+                                          className="p-0.5 text-slate-400 hover:text-indigo-400 rounded hover:bg-slate-800 cursor-pointer"
                                         >
                                           <Move className="w-2.5 h-2.5" />
                                         </button>
@@ -2212,7 +2213,7 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
                                             });
                                           }}
                                           title="Copy position to another formation"
-                                          className="p-1 text-slate-400 hover:text-indigo-400 rounded hover:bg-slate-800 cursor-pointer"
+                                          className="p-0.5 text-slate-400 hover:text-indigo-400 rounded hover:bg-slate-800 cursor-pointer"
                                         >
                                           <Copy className="w-2.5 h-2.5" />
                                         </button>
@@ -2225,7 +2226,7 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
                                             }
                                           }}
                                           title="Delete slot completely from row"
-                                          className="p-1 text-slate-400 hover:text-rose-300 rounded hover:bg-rose-950/40 cursor-pointer"
+                                          className="p-0.5 text-slate-400 hover:text-rose-300 rounded hover:bg-rose-950/40 cursor-pointer"
                                         >
                                           <X className="w-3 h-3" />
                                         </button>

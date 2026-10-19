@@ -327,16 +327,25 @@ export const RosterSidebar: React.FC<RosterSidebarProps> = ({
               </div>
 
               {/* Badges for active positions */}
+              {/* One line, never wrapping (a second line made the roster jump when the formation changed). */}
               {placements.length > 0 && (
-                <div className="flex items-center gap-1 flex-wrap justify-end shrink-0">
-                  {placements.map((pl, pIdx) => (
+                <div
+                  className="flex items-center gap-1 flex-nowrap justify-end shrink-0 max-w-[50%] overflow-hidden"
+                  title={placements.map((pl) => cleanTruncatedPosition(pl.posName)).join(', ')}
+                >
+                  {placements.slice(0, 2).map((pl, pIdx) => (
                     <span
                       key={pIdx}
-                      className={`text-[9px] px-1.5 py-0.5 rounded-md uppercase tracking-wider ${pl.badgeClass}`}
+                      className={`text-[9px] px-1.5 py-0.5 rounded-md uppercase tracking-wider whitespace-nowrap ${pl.badgeClass}`}
                     >
                       {cleanTruncatedPosition(pl.posName)}
                     </span>
                   ))}
+                  {placements.length > 2 && (
+                    <span className="text-[9px] px-1 py-0.5 rounded-md font-black text-slate-300 bg-slate-700 whitespace-nowrap">
+                      +{placements.length - 2}
+                    </span>
+                  )}
                 </div>
               )}
             </li>
