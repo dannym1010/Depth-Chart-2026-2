@@ -224,15 +224,23 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library'
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto px-1.5 pb-3 space-y-0.5">
         {shown.map((w) => {
-          const isOpen = Boolean(q) || open.has(w.key);
+          // A week with more than one film shows them all, always (no arrow to open).
+          const several = w.games.length > 1;
+          const isOpen = several || Boolean(q) || open.has(w.key);
           return (
             <div key={w.key}>
               <button
-                onClick={() => toggle(w.key)}
-                aria-expanded={isOpen}
-                className="w-full flex items-center gap-1.5 px-1.5 py-1.5 rounded-md text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                onClick={several ? undefined : () => toggle(w.key)}
+                aria-expanded={several ? undefined : isOpen}
+                className={`w-full flex items-center gap-1.5 px-1.5 py-1.5 rounded-md text-left ${several ? 'cursor-default' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
               >
-                {isOpen ? <ChevronDown size={14} className="text-slate-400 shrink-0" /> : <ChevronRight size={14} className="text-slate-400 shrink-0" />}
+                {several ? (
+                  <span className="w-[14px] shrink-0" />
+                ) : isOpen ? (
+                  <ChevronDown size={14} className="text-slate-400 shrink-0" />
+                ) : (
+                  <ChevronRight size={14} className="text-slate-400 shrink-0" />
+                )}
                 <span className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">
                   {w.label}
                   {w.opponent ? <span className="font-semibold text-slate-500 dark:text-slate-400"> · {w.opponent}</span> : null}
