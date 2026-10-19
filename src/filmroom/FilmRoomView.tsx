@@ -274,6 +274,32 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
 
   const clips = film.status === 'ready' ? film.clips : [];
   const clipFor = useMemo(() => matchClipsToPlays(clips, plays, shared.clipPicks), [clips, plays, shared.clipPicks]);
+  // More clips than plays (film in order): the breakdown gets an empty play for each clip it's missing, so
+  // every clip has a spot (98 clips -> 98 plays). Added once per game, numbered after its last play;
+  // Line up film puts them where they belong.
+  const paddedFor = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!game || game.filmOnly || locked || film.status !== 'ready') return;
+    if (!clips.length || clips.length <= plays.length || clipMatchMode(clips, plays) !== 'order') return;
+    const key = `${game.key}|${clips.length}`;
+    if (paddedFor.current.has(key)) return;
+    paddedFor.current.add(key);
+    const last = plays.reduce((m, p) => Math.max(m, Number(p.playNumber) || 0), 0);
+    const extra = blankPlays(clips, game.gameId)
+      .slice(plays.length)
+      .map((p, k) => ({ ...p, id: `${p.id}-x${last + k + 1}`, playNumber: last + k + 1, gameId: game.gameId }));
+    if (!extra.length) return;
+    const now = Date.now();
+    const b = game.source === 'own' ? own : opp;
+    const next = {
+      plays: [...b.plays, ...extra],
+      games: b.games.map((g) => (g.id === game.gameId ? { ...g, playCount: plays.length + extra.length } : g)),
+      updatedAt: now,
+    };
+    if (game.source === 'own') onUpdateOwnTeamScout({ ...own, ...next });
+    else onUpdateScouting('hudlScout', { ...((opponentScout as object) || {}), ...next });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game?.key, film.status, clips.length, plays.length]);
   // Clips in the order they're matched (by name): stepping a play's clip moves through this list.
   const clipsInOrder = useMemo(() => clips.map((c, i) => ({ c, i })).sort((a, b) => naturalCompare(a.c.name, b.c.name)), [clips]);
   /** Line the play up with another clip (the plays after it follow); null takes the coach's pick back. */
