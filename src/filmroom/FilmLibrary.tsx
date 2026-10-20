@@ -1,7 +1,7 @@
 // The season's library of games for a team, by week (our game and the scouting film for that week's
 // opponent), with a search. Used by the Film Room and by Hudl Scout's reports. Picking a game opens it.
-import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronRight, Film, RefreshCw, Search, Telescope, Trash2, X } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, Film, RefreshCw, Search, Telescope, Trash2, X } from 'lucide-react';
 import { filmGameKey } from './sharedMerge';
 import type { FilmGame } from './types';
 import { bestGameFolder, sameFolderGame, type FilmFolderGame, type UnplacedFolder } from './folderRoutes';
@@ -145,82 +145,133 @@ const norm = (s: string) => String(s || '').toLowerCase();
 
 export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library', weeks, otherGames, currentWeek, selectedKey, onOpen, onClose, added, checking, onCheckFolder, unplaced, onRemove }) => {
   const [query, setQuery] = useState('');
-  const selectedWeek = weeks.find((w) => w.games.some((g) => g.key === selectedKey))?.key;
-  const [open, setOpen] = useState<Set<string>>(() => new Set([currentWeek, selectedWeek || ''].filter(Boolean)));
-  // Keep the open game's week unfolded (e.g. after picking from the search).
+  // Our games, scouting, or both (shown only when there are both kinds).
+  const [kind, setKind] = useState<'all' | 'own' | 'opponent'>('all');
+  const selectedRef = useRef<HTMLDivElement | null>(null);
+  // The open game in view when the library opens.
   useEffect(() => {
-    if (selectedWeek) setOpen((s) => (s.has(selectedWeek) ? s : new Set([...s, selectedWeek])));
-  }, [selectedWeek]);
+    selectedRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [selectedKey]);
 
   const q = norm(query.trim());
-  const shown = useMemo(() => {
-    const matches = (w: LibraryWeek, g: LibraryGame) => !q || norm(`${g.name} ${w.label} ${w.opponent}`).includes(q);
-    return weeks
-      .map((w) => ({ ...w, games: w.games.filter((g) => matches(w, g)) }))
-      .filter((w) => w.games.length || (!q && (w.opponent || w.key === currentWeek)));
-  }, [weeks, q, currentWeek]);
-  const others = otherGames.filter((g) => !q || norm(g.name).includes(q));
-  const toggle = (k: string) => setOpen((s) => {
-    const n = new Set(s);
-    if (n.has(k)) n.delete(k);
-    else n.add(k);
-    return n;
-  });
-  const total = weeks.reduce((n, w) => n + w.games.length, 0) + otherGames.length;
+  const all = [...weeks.flatMap((w) => w.games), ...otherGames];
+  const kinds = new Set(all.map((g) => g.source));
+  const keep = (g: LibraryGame, w?: LibraryWeek) => (kind === 'all' || g.source === kind) && (!q || norm(`${g.name} ${w?.label || ''} ${w?.opponent || ''}`).includes(q));
+  const shown = useMemo(
+    () => weeks.map((w) => ({ ...w, games: w.games.filter((g) => keep(g, w)) })).filter((w) => w.games.length || (!q && kind === 'all' && (w.opponent || w.key === currentWeek))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [weeks, q, kind, currentWeek]
+  );
+  const others = otherGames.filter((g) => keep(g));
+  const total = all.length;
 
   const row = (g: LibraryGame) => {
     const on = g.key === selectedKey;
-    const Icon = g.source === 'own' ? Film : Telescope;
+    const own = g.source === 'own';
+    const Icon = own ? Film : Telescope;
     return (
-      <div key={g.key} className="group flex items-center gap-0.5">
-      <button
-        onClick={() => onOpen(g)}
-        aria-current={on || undefined}
-        className={`flex-1 min-w-0 text-left flex items-center gap-2 pl-7 pr-2 py-1.5 rounded-md text-xs transition-colors ${
-          on ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
-        }`}
-        title={g.filmOnly ? 'Film is in the film folder; no Hudl breakdown yet, so each clip is a play' : g.source === 'own' ? 'Our game' : 'Scouting film'}
-      >
-        <Icon size={13} className={on ? 'text-white shrink-0' : g.source === 'own' ? 'text-indigo-500 shrink-0' : 'text-amber-500 shrink-0'} />
-        <span className="flex-1 min-w-0">
-          <span className="block truncate font-semibold">{g.name}</span>
-          {g.note && (
-            <span className={`flex items-center gap-1 text-[10px] font-bold ${on ? 'text-amber-200' : 'text-amber-700 dark:text-amber-400'}`}>
-              <AlertTriangle size={10} /> {g.note}
-            </span>
-          )}
-        </span>
-        <span className={`shrink-0 tabular-nums text-[10px] ${on ? 'text-white/80' : 'text-slate-400'}`}>{g.filmOnly ? 'film' : g.plays}</span>
-      </button>
-      {onRemove && (
+      <div key={g.key} ref={on ? selectedRef : undefined} className="group relative">
         <button
-          type="button"
-          onClick={() => onRemove(g)}
-          aria-label={`Remove ${g.name}`}
-          title="Remove from the film library (the video files stay where they are)"
-          className="shrink-0 p-1 rounded-md text-slate-400 opacity-60 group-hover:opacity-100 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
+          onClick={() => onOpen(g)}
+          aria-current={on || undefined}
+          className={`w-full text-left flex items-center gap-2.5 pl-2 pr-8 py-2 rounded-xl transition-colors ${
+            on ? 'bg-indigo-50 dark:bg-indigo-500/15 ring-1 ring-indigo-200 dark:ring-indigo-500/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800/70'
+          }`}
+          title={g.filmOnly ? 'Film in the film folder with no breakdown yet: each clip is a play' : own ? 'Our game' : 'Scouting film'}
         >
-          <Trash2 size={13} />
+          {on && <span className="absolute left-0 top-2 bottom-2 w-1 rounded-full bg-indigo-500" aria-hidden />}
+          <span
+            className={`shrink-0 grid place-items-center w-8 h-8 rounded-lg ${
+              own ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300' : 'bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300'
+            }`}
+          >
+            <Icon size={15} />
+          </span>
+          <span className="flex-1 min-w-0">
+            <span className={`block truncate text-[13px] font-bold ${on ? 'text-indigo-900 dark:text-white' : 'text-slate-800 dark:text-slate-100'}`}>{g.name}</span>
+            <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+              <span className="truncate">
+                {own ? 'Our game' : 'Scouting'} · {g.filmOnly ? 'film, no breakdown yet' : `${g.plays} play${g.plays === 1 ? '' : 's'}`}
+              </span>
+              {g.note && (
+                <span className="shrink-0 inline-flex items-center gap-0.5 px-1.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300 text-[10px] font-bold" title={g.note}>
+                  <AlertTriangle size={9} /> {g.note.replace(/^Also in /, 'Also ')}
+                </span>
+              )}
+            </span>
+          </span>
         </button>
-      )}
+        {onRemove && (
+          <button
+            type="button"
+            onClick={() => onRemove(g)}
+            aria-label={`Remove ${g.name}`}
+            title="Remove from the library (the video files stay where they are)"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-slate-400 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-opacity"
+          >
+            <Trash2 size={13} />
+          </button>
+        )}
       </div>
     );
   };
 
+  const chip = (id: typeof kind, text: string) => (
+    <button
+      key={id}
+      type="button"
+      onClick={() => setKind(id)}
+      aria-pressed={kind === id}
+      className={`h-7 px-2.5 rounded-full text-[11px] font-bold transition-colors ${
+        kind === id ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+      }`}
+    >
+      {text}
+    </button>
+  );
+
   return (
     <div className="flex flex-col min-h-0 h-full">
-      <div className="flex items-center gap-2 px-3 pt-3 pb-2">
-        <span className="text-xs font-black uppercase tracking-wide text-slate-600 dark:text-slate-300 flex-1">{title}</span>
-        <span className="text-[10px] text-slate-400">{total} games</span>
-        {onClose && (
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white" aria-label="Close the film library">
-            <X size={16} />
-          </button>
+      <div className="px-3 pt-3 pb-2 space-y-2 shrink-0">
+        {/* No title where the panel already names it (the Film Room's Games tab). */}
+        {(title || onClose) && (
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-black text-slate-900 dark:text-white flex-1">{title}</span>
+          <span className="text-[11px] font-semibold text-slate-400">{total} games</span>
+          {onClose && (
+            <button onClick={onClose} className="p-1 -mr-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:text-white dark:hover:bg-slate-800" aria-label="Close the film library">
+              <X size={16} />
+            </button>
+          )}
+        </div>
+        )}
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search games, opponents, weeks"
+            aria-label="Search the film library"
+            className="w-full h-9 pl-8 pr-8 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-transparent focus:border-indigo-400 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden"
+          />
+          {query && (
+            <button onClick={() => setQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-white" aria-label="Clear the search">
+              <X size={12} />
+            </button>
+          )}
+        </div>
+        {kinds.size > 1 && (
+          <div className="flex items-center gap-1" role="group" aria-label="Show">
+            {chip('all', 'All')}
+            {chip('own', 'Our games')}
+            {chip('opponent', 'Scouting')}
+          </div>
         )}
       </div>
+
       {added && added.length > 0 && (
-        <div className="mx-3 mb-2 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 px-2.5 py-1.5 text-[11px] text-emerald-800 dark:text-emerald-300">
-          <span className="font-bold">Added from the film folder's breakdown files:</span>
+        <div className="mx-3 mb-2 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 px-2.5 py-1.5 text-[11px] text-emerald-800 dark:text-emerald-300">
+          <span className="font-bold">Added from breakdown files in the film folder:</span>
           <ul className="mt-0.5 list-disc pl-4">
             {added.map((a) => (
               <li key={a}>{a}</li>
@@ -228,64 +279,37 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library'
           </ul>
         </div>
       )}
-      <div className="relative px-3 pb-2">
-        <Search size={13} className="absolute left-5 top-1/2 -translate-y-[60%] text-slate-400" />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search games, opponents, weeks…"
-          aria-label="Search the film library"
-          className="w-full h-8 pl-7 pr-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-        />
-      </div>
-      <div className="flex-1 min-h-0 overflow-y-auto px-1.5 pb-3 space-y-0.5">
+
+      <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-3">
         {shown.map((w) => {
-          // A week with more than one film shows them all, always (no arrow to open).
-          const several = w.games.length > 1;
-          const isOpen = several || Boolean(q) || open.has(w.key);
+          const now = w.key === currentWeek;
           return (
-            <div key={w.key}>
-              <button
-                onClick={several ? undefined : () => toggle(w.key)}
-                aria-expanded={several ? undefined : isOpen}
-                className={`w-full flex items-center gap-1.5 px-1.5 py-1.5 rounded-md text-left ${several ? 'cursor-default' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-              >
-                {several ? (
-                  <span className="w-[14px] shrink-0" />
-                ) : isOpen ? (
-                  <ChevronDown size={14} className="text-slate-400 shrink-0" />
-                ) : (
-                  <ChevronRight size={14} className="text-slate-400 shrink-0" />
-                )}
-                <span className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">
-                  {w.label}
-                  {w.opponent ? <span className="font-semibold text-slate-500 dark:text-slate-400"> · {w.opponent}</span> : null}
-                </span>
-                {w.key === currentWeek && (
-                  <span className="ml-auto shrink-0 px-1.5 rounded text-[9px] font-black uppercase bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300">
-                    This week
-                  </span>
-                )}
-                {w.key !== currentWeek && <span className="ml-auto shrink-0 text-[10px] text-slate-400">{w.games.length || ''}</span>}
-              </button>
-              {isOpen &&
-                (w.games.length ? (
-                  <div className="space-y-0.5 pb-1">{w.games.map(row)}</div>
-                ) : (
-                  <p className="pl-7 pb-1.5 text-[11px] text-slate-400">No Hudl games uploaded for this week.</p>
-                ))}
-            </div>
+            <section key={w.key} className="mt-1 first:mt-0">
+              <div className={`sticky top-0 z-10 flex items-center gap-2 px-2 pt-2.5 pb-1 bg-white/95 dark:bg-slate-900/95 backdrop-blur`}>
+                <span className={`text-[11px] font-black uppercase tracking-wider ${now ? 'text-indigo-600 dark:text-indigo-300' : 'text-slate-400 dark:text-slate-500'}`}>{w.label}</span>
+                {w.opponent && <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 truncate">· {w.opponent}</span>}
+                {now && <span className="ml-auto shrink-0 px-1.5 py-0.5 rounded-full bg-indigo-600 text-white text-[9px] font-black uppercase tracking-wide">This week</span>}
+              </div>
+              {w.games.length ? (
+                <div className="space-y-0.5">{w.games.map(row)}</div>
+              ) : (
+                <p className="px-2 pb-1 text-[11px] text-slate-400 dark:text-slate-500">No film yet</p>
+              )}
+            </section>
           );
         })}
         {others.length > 0 && (
-          <div>
-            <div className="px-1.5 pt-2 pb-1 text-xs font-black text-slate-800 dark:text-slate-100">Other games (no week set)</div>
+          <section className="mt-1">
+            <div className="sticky top-0 z-10 px-2 pt-2.5 pb-1 bg-white/95 dark:bg-slate-900/95 backdrop-blur text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              Other games · no week set
+            </div>
             <div className="space-y-0.5">{others.map(row)}</div>
-          </div>
+          </section>
         )}
-        {!shown.length && !others.length && <p className="px-3 py-4 text-xs text-slate-400">No games match “{query}”.</p>}
+        {!shown.length && !others.length && <p className="px-3 py-6 text-center text-xs text-slate-400">{q ? `No games match “${query}”.` : 'No games here yet.'}</p>}
+
         {unplaced && unplaced.length > 0 && (
-          <div className="mx-1.5 mt-2 rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-900 dark:text-amber-200">
+          <div className="mx-1 mt-3 rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-900 dark:text-amber-200">
             <div className="flex items-center gap-1 font-black">
               <AlertTriangle size={12} /> Film folders I couldn&apos;t place ({unplaced.length})
             </div>
@@ -304,7 +328,7 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library'
           <button
             onClick={onCheckFolder}
             disabled={checking}
-            className="mt-2 mx-1.5 inline-flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 dark:text-indigo-300 hover:underline disabled:opacity-60"
+            className="mt-3 mx-2 inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300 disabled:opacity-60"
             title="Look in the film folder for games with film (and breakdown files) not in the library yet"
           >
             <RefreshCw size={12} className={checking ? 'animate-spin' : ''} /> {checking ? 'Checking the film folder…' : 'Check the film folder for new games'}

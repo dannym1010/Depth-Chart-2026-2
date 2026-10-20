@@ -1067,6 +1067,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   );
   const libraryList = (onClose?: () => void) => (
     <FilmLibrary
+      title={listsEl ? '' : undefined}
       weeks={library.weeks}
       otherGames={library.others}
       currentWeek={currentWeek}
