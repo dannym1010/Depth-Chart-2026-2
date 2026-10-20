@@ -94,10 +94,37 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
     setPickedTeam(name);
     setTab('ours');
   };
-  const weeks = useMemo(() => [...new Set((view?.schedule || []).map((g) => g.week))].sort((a, b) => Number(a) - Number(b)), [view]);
+  // Every week in the schedule or the posted scores (either can be missing).
+  const weeks = useMemo(
+    () => [...new Set([...(view?.schedule || []), ...(view?.results || [])].map((g) => g.week).filter(Boolean))].sort((a, b) => Number(a) - Number(b)),
+    [view]
+  );
   const lastScoredWeek = useMemo(() => [...new Set((view?.results || []).map((g) => g.week))].sort((a, b) => Number(b) - Number(a))[0], [view]);
+  // This week: the first week with a game still to play, else the last one.
+  const thisWeek = useMemo(() => weeks.find((w) => (view?.schedule || []).some((g) => g.week === w && !isPast(g.date))) || weeks[weeks.length - 1] || '', [weeks, view]);
   const [week, setWeek] = useState<string>('');
-  const scoreWeek = week || lastScoredWeek || '';
+  const scoreWeek = week || lastScoredWeek || weeks[0] || '';
+  const [schedWeek, setSchedWeek] = useState<string>('');
+  const scheduleWeek = schedWeek || thisWeek || 'all';
+  const nextGame = useMemo(() => (view?.ourGames || []).find((g) => g.homeScore == null && !isPast(g.date)), [view]);
+  /** A week picker with arrows to the week before and after. */
+  const weekPicker = (value: string, onPick: (w: string) => void, label: (w: string) => string, withAll = false) => {
+    const at = weeks.indexOf(value);
+    const arrow = 'h-7 w-7 rounded-lg bg-slate-900 border border-slate-600 text-slate-200 disabled:opacity-40 hover:bg-slate-700';
+    return (
+      <div className="flex items-center gap-1.5 text-xs">
+        <span className="font-bold text-slate-300">Week</span>
+        <button type="button" className={arrow} disabled={at <= 0} onClick={() => onPick(weeks[at - 1])} aria-label="Week before">◀</button>
+        <select value={value} onChange={(e) => onPick(e.target.value)} className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-slate-100">
+          {withAll && <option value="all">All weeks</option>}
+          {weeks.map((w) => (
+            <option key={w} value={w}>{label(w)}</option>
+          ))}
+        </select>
+        <button type="button" className={arrow} disabled={at < 0 || at >= weeks.length - 1} onClick={() => onPick(weeks[at + 1])} aria-label="Week after">▶</button>
+      </div>
+    );
+  };
 
   const hl = (name: string) => (sameTeam(name, ourName) ? 'text-amber-300 font-black' : 'text-slate-100');
   const score = (g: LeagueGame, side: 'home' | 'away') => {
@@ -236,6 +263,13 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
                   <button onClick={() => setPickedTeam('')} className="text-indigo-300 hover:underline">Back to {ourName}</button>
                 )}
               </div>
+              {sameTeam(shownTeam, ourName) && nextGame && (
+                <div className="mb-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                  <b className="text-amber-300">Next game:</b> Week {nextGame.week} ·{' '}
+                  {sameTeam(nextGame.home, ourName) ? `vs ${nextGame.away}` : `@ ${nextGame.home}`} · {nextGame.date} {nextGame.time}
+                  {nextGame.location ? ` · ${nextGame.location}` : ''}
+                </div>
+              )}
               {shown.games.length ? (
                 shown.games.map((g, i) => <GameRow key={i} g={g} showWeek />)
               ) : (
@@ -249,13 +283,8 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
 
           {tab === 'scores' && (
             <div className={card}>
-              <div className="flex items-center gap-2 mb-2 text-xs">
-                <span className="font-bold text-slate-300">Week</span>
-                <select value={scoreWeek} onChange={(e) => setWeek(e.target.value)} className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-slate-100">
-                  {weeks.map((w) => (
-                    <option key={w} value={w}>Week {w}{view.results.some((r) => r.week === w) ? '' : ' (no results posted)'}</option>
-                  ))}
-                </select>
+              <div className="mb-2">
+                {weekPicker(scoreWeek, setWeek, (w) => `Week ${w}${view.results.some((r) => r.week === w) ? '' : ' (no results posted)'}`)}
               </div>
               {(() => {
                 const games = view.schedule.filter((g) => g.week === scoreWeek);
@@ -377,7 +406,9 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
 
           {tab === 'schedule' && (
             <div className={card}>
-              {weeks.map((w) => (
+              <div className="mb-3">{weekPicker(scheduleWeek, setSchedWeek, (w) => `Week ${w}${w === thisWeek ? ' (this week)' : ''}`, true)}</div>
+              {!weeks.length && <p className="text-sm text-slate-400">No {level} schedule in the league files yet.</p>}
+              {weeks.filter((w) => scheduleWeek === 'all' || w === scheduleWeek).map((w) => (
                 <div key={w} className="mb-3 last:mb-0">
                   <div className="text-xs font-black uppercase tracking-wide text-slate-400 mb-1">
                     Week {w}

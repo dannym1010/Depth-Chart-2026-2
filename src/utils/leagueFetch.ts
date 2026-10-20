@@ -1,13 +1,14 @@
 // Loads the league's schedule, results and standings through /api/league (which only talks to the league
 // site) and reads them with leagueParse.ts. Kept in this browser for a few hours; Refresh gets the latest.
-import { parseByeRows, parseResultsText, parseScheduleRows, parseStandings, type LeagueData, type LeagueGame, type PositionedText } from './leagueParse';
+import { byesFromSchedule, parseByeRows, parseResultsText, parseSchedulePdf, parseScheduleRows, parseStandings, type LeagueData, type LeagueGame, type PositionedText } from './leagueParse';
 
 interface LeagueLink {
   text: string;
   url: string;
 }
 
-const CACHE_KEY = 'league_data_v1';
+// v2: the schedule is read from the PDF too (the v1 copies have none).
+const CACHE_KEY = 'league_data_v2';
 const MAX_AGE = 3 * 60 * 60 * 1000;
 
 const fileBytes = async (url: string) => {
@@ -45,7 +46,7 @@ export function readCachedLeague(): LeagueData | null {
   }
 }
 
-export const leagueIsStale = (d: LeagueData | null) => !d || Date.now() - d.fetchedAt > MAX_AGE;
+export const leagueIsStale = (d: LeagueData | null) => !d || !d.schedule?.length || Date.now() - d.fetchedAt > MAX_AGE;
 
 export async function fetchLeague(): Promise<LeagueData> {
   const res = await fetch('/api/league?what=index');
@@ -69,6 +70,17 @@ export async function fetchLeague(): Promise<LeagueData> {
     const byeSheet = wb.SheetNames.find((n) => /bye/i.test(n));
     if (byeSheet) byes = parseByeRows(rows(byeSheet));
   }
+  // The schedule posted as a PDF only (2026).
+  const schedulePdf = !schedule.length ? index.schedule.find((l) => /\.pdf$/i.test(l.url)) : undefined;
+  if (schedulePdf) {
+    try {
+      schedule = parseSchedulePdf((await pdfItems(await fileBytes(schedulePdf.url))).items);
+    } catch {
+      schedule = [];
+    }
+  }
+  // No byes list: a team with no game in a week its level plays has a bye.
+  if (!byes.length && schedule.length) byes = byesFromSchedule(schedule);
 
   // Every week's results.
   const resultLinks = index.results.filter((l) => /\.pdf$/i.test(l.url) && /result|score/i.test(`${l.text} ${l.url}`));

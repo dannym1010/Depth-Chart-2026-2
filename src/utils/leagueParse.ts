@@ -70,6 +70,63 @@ export function parseScheduleRows(rows: unknown[][]): LeagueGame[] {
   return out;
 }
 
+/**
+ * The schedule as a PDF table (Week | Location | Day | Date | Level | Home | Away | Game Time, the header on every
+ * page): each line's text goes under the header column it sits under.
+ */
+export function parseSchedulePdf(items: { str: string; x: number; y: number; page: number }[]): LeagueGame[] {
+  const lines = new Map<string, { str: string; x: number }[]>();
+  for (const it of items) {
+    if (!clean(it.str)) continue;
+    const key = `${it.page}:${Math.round(it.y / 2)}`;
+    lines.set(key, [...(lines.get(key) || []), { str: it.str, x: it.x }]);
+  }
+  const rows = [...lines.entries()].map(([key, cells]) => ({ page: Number(key.split(':')[0]), cells: cells.sort((a, b) => a.x - b.x) }));
+  const isHeader = (cells: { str: string }[]) => cells.some((c) => /^level$/i.test(clean(c.str))) && cells.some((c) => /^home$/i.test(clean(c.str)));
+  const header = rows.find((r) => isHeader(r.cells));
+  if (!header) return [];
+  const cols = header.cells.map((c) => ({ name: clean(c.str).toLowerCase(), x: c.x }));
+  // A value belongs to the column whose header it's closest to on its left side: the line between two columns is
+  // halfway between their headers (centered values like "10/11/26" start a little left of their header).
+  const colOf = (x: number) => {
+    let name = cols[0].name;
+    for (let i = 1; i < cols.length; i++) if (x >= (cols[i - 1].x + cols[i].x) / 2) name = cols[i].name;
+    return name;
+  };
+  const out: LeagueGame[] = [];
+  for (const r of rows) {
+    if (isHeader(r.cells)) continue;
+    const cell: Record<string, string> = {};
+    for (const c of r.cells) {
+      const name = colOf(c.x);
+      cell[name] = clean(`${cell[name] || ''} ${c.str}`);
+    }
+    const get = (re: RegExp) => Object.entries(cell).find(([k]) => re.test(k))?.[1] || '';
+    const level = get(/^level/);
+    const home = get(/^home/);
+    const away = get(/^away|visitor/);
+    if (!LEVEL.test(level) || !home || !away) continue;
+    out.push({ week: get(/^week/).replace(/\D+/g, ''), date: get(/^date/), level: level.toUpperCase(), home, away, location: get(/location|field|site/), time: get(/time/) });
+  }
+  return out;
+}
+
+/** Byes worked out from the schedule (a team at a level with no game in a week that level plays). */
+export function byesFromSchedule(games: LeagueGame[]): LeagueData['byes'] {
+  const out: LeagueData['byes'] = [];
+  const levels = [...new Set(games.map((g) => g.level.toUpperCase()))];
+  for (const level of levels) {
+    const atLevel = games.filter((g) => g.level.toUpperCase() === level);
+    const teams = [...new Set(atLevel.flatMap((g) => [g.home, g.away]))];
+    for (const week of [...new Set(atLevel.map((g) => g.week).filter(Boolean))]) {
+      const that = atLevel.filter((g) => g.week === week);
+      const playing = new Set(that.flatMap((g) => [g.home, g.away]));
+      for (const team of teams) if (!playing.has(team)) out.push({ date: that[0]?.date || '', week, team, level });
+    }
+  }
+  return out;
+}
+
 /** The byes sheet (Date, Week, Team, Level). */
 export function parseByeRows(rows: unknown[][]): LeagueData['byes'] {
   const headerAt = rows.findIndex((r) => r.some((c) => /^team$/i.test(clean(c))) && r.some((c) => /^level$/i.test(clean(c))));
