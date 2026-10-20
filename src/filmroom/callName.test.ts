@@ -36,6 +36,21 @@ describe('play names from their parts', () => {
     assert.deepEqual(list[0].parts, { personnel: '32', concept: 'Counter' });
   });
 
+  it("a coach's own play types, tags and personnel become options on every play", async () => {
+    const { customOptions } = await import('./callName.ts');
+    const p = (callParts: any, playType = 'RUN') => ({ callParts, playType }) as any;
+    const own = customOptions([
+      p({ personnel: '13', tags: ['Tight', 'Nasty'], concept: 'Belly' }),
+      p({ concept: 'Belly' }),
+      p({ concept: 'Trap', tags: ['nasty'] }),
+      p({ concept: 'Smash' }, 'PASS'),
+    ]);
+    assert.deepEqual(own.personnel, ['13']);
+    assert.deepEqual(own.tags, ['Nasty'], 'built-in ones (Tight) left out, each once');
+    assert.deepEqual(own.runConcepts, ['Belly']);
+    assert.deepEqual(own.passConcepts, ['Smash']);
+  });
+
   it('a re-import of the breakdown keeps the play names', async () => {
     const { mergeGamePlays } = await import('../hudlScout/scoutBundle.ts');
     const bundle: any = {

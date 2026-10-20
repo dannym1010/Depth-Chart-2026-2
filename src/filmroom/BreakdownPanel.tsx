@@ -6,7 +6,7 @@ import { playIsUnitTaggable } from '../hudlScout/utils/unitStats';
 import { isBalancedPlay, playStrength } from '../hudlScout/utils/strength';
 import { breakdownRowOf, type BreakdownColumn, type BreakdownRow } from './breakdownEntry';
 import { AiClipAnalyzerModal } from './AiClipAnalyzerModal';
-import { BACKS, HOLES, PASS_CONCEPTS, PERSONNEL, QB_SPOTS, RUN_CONCEPTS, TAGS, savedNames, startingParts, withParts } from './callName';
+import { BACKS, HOLES, PASS_CONCEPTS, PERSONNEL, QB_SPOTS, RUN_CONCEPTS, TAGS, customOptions, savedNames, startingParts, withParts } from './callName';
 import type { CallParts } from '../hudlScout/types/football';
 
 interface Props {
@@ -263,6 +263,7 @@ export const BreakdownPanel: React.FC<Props> = ({
           onUseName={(name) => save({ 'OFF PLAY': name })}
           playBox={String(row['OFF PLAY'] || '')}
           saved={savedNames(suggestFrom)}
+          custom={customOptions(suggestFrom)}
         />
       )}
       <div className="grid grid-cols-2 gap-x-2">
@@ -346,7 +347,9 @@ const PlayNameFields: React.FC<{
   playBox: string;
   /** Names already made in this team's games (most used first), to pick in one click. */
   saved: { name: string; parts: CallParts; count: number }[];
-}> = ({ play, readOnly, run, onChange, onUseName, playBox, saved }) => {
+  /** Options a coach added before (on any play): offered on every play. */
+  custom: ReturnType<typeof customOptions>;
+}> = ({ play, readOnly, run, onChange, onUseName, playBox, saved, custom }) => {
   const parts = startingParts(play);
   const set = (patch: Partial<CallParts>) => onChange({ ...parts, ...patch });
   const pick = <K extends keyof CallParts>(key: K, v: CallParts[K]) => set({ [key]: parts[key] === v ? undefined : v } as Partial<CallParts>);
@@ -354,7 +357,14 @@ const PlayNameFields: React.FC<{
   const hasTag = (t: string) => tags.some((x) => x.toLowerCase() === t.toLowerCase());
   const toggleTag = (t: string) => set({ tags: hasTag(t) ? tags.filter((x) => x.toLowerCase() !== t.toLowerCase()) : [...tags, t] });
   const name = play.callName || '';
-  const concepts = run ? RUN_CONCEPTS : PASS_CONCEPTS;
+  const withOwn = (base: string[], own: string[], mine?: string[]) => {
+    const out = [...base];
+    for (const v of [...own, ...(mine || [])]) if (v && !out.some((x) => x.toLowerCase() === v.toLowerCase())) out.push(v);
+    return out;
+  };
+  const concepts = withOwn(run ? RUN_CONCEPTS : PASS_CONCEPTS, run ? custom.runConcepts : custom.passConcepts, parts.concept ? [parts.concept] : []);
+  const personnelList = withOwn(PERSONNEL, custom.personnel, parts.personnel ? [parts.personnel] : []);
+  const tagList = withOwn(TAGS, custom.tags, tags);
 
   // A segmented control: the picked one is a raised white tab.
   const seg = <T extends string>(options: { v: T; label: string; title?: string }[], value: T | undefined, onPick: (v: T) => void, cls = '', tight = false) => (
@@ -427,11 +437,10 @@ const PlayNameFields: React.FC<{
         'Pers',
         <>
           {seg(
-            PERSONNEL.map((v) => ({ v, label: v })),
+            personnelList.map((v) => ({ v, label: v })),
             parts.personnel,
             (v) => pick('personnel', v)
           )}
-          {parts.personnel && !PERSONNEL.includes(parts.personnel) && pill(parts.personnel, true, () => set({ personnel: undefined }))}
           {!readOnly && <AddOther label="Other personnel" onAdd={(v) => set({ personnel: v })} />}
         </>
       )}
@@ -463,7 +472,7 @@ const PlayNameFields: React.FC<{
       {row(
         'Tags',
         <>
-          {[...TAGS, ...tags.filter((t) => !TAGS.some((x) => x.toLowerCase() === t.toLowerCase()))].map((t) => pill(t, hasTag(t), () => toggleTag(t)))}
+          {tagList.map((t) => pill(t, hasTag(t), () => toggleTag(t)))}
           {!readOnly && <AddOther label="Add a tag" onAdd={(v) => !hasTag(v) && set({ tags: [...tags, v] })} />}
         </>
       )}
@@ -494,7 +503,7 @@ const PlayNameFields: React.FC<{
       {row(
         'Play',
         <>
-          {[...concepts, ...(parts.concept && !concepts.includes(parts.concept) ? [parts.concept] : [])].map((c) => pill(c, parts.concept === c, () => pick('concept', c)))}
+          {concepts.map((c) => pill(c, parts.concept === c, () => pick('concept', c)))}
           {!readOnly && <AddOther label="Other concept" onAdd={(v) => set({ concept: v })} />}
         </>
       )}

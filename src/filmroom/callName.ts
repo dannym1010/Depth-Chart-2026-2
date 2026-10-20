@@ -86,6 +86,35 @@ export function savedNames(plays: Play[]): { name: string; parts: CallParts; cou
   return [...by.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 
+/**
+ * The options a coach added (not in the built-in lists), from the plays named so far, most used first: they're
+ * offered on every play from then on. Run and pass concepts are kept apart.
+ */
+export function customOptions(plays: Play[]): { personnel: string[]; tags: string[]; runConcepts: string[]; passConcepts: string[] } {
+  const count = (m: Map<string, { v: string; n: number }>, v?: string) => {
+    const t = String(v || '').trim();
+    if (!t) return;
+    const k = t.toLowerCase();
+    const cur = m.get(k);
+    if (cur) cur.n++;
+    else m.set(k, { v: t, n: 1 });
+  };
+  const pers = new Map<string, { v: string; n: number }>();
+  const tags = new Map<string, { v: string; n: number }>();
+  const runC = new Map<string, { v: string; n: number }>();
+  const passC = new Map<string, { v: string; n: number }>();
+  const known = (list: string[], v: string) => list.some((x) => x.toLowerCase() === v.toLowerCase());
+  for (const p of plays) {
+    const c = p.callParts;
+    if (!c) continue;
+    if (c.personnel && !known(PERSONNEL, c.personnel)) count(pers, c.personnel);
+    for (const t of c.tags || []) if (!known(TAGS, t)) count(tags, t);
+    if (c.concept && !known([...RUN_CONCEPTS, ...PASS_CONCEPTS], c.concept)) count(/pass|screen/i.test(String(p.playType || '')) ? passC : runC, c.concept);
+  }
+  const list = (m: Map<string, { v: string; n: number }>) => [...m.values()].sort((a, b) => b.n - a.n || a.v.localeCompare(b.v)).map((x) => x.v);
+  return { personnel: list(pers), tags: list(tags), runConcepts: list(runC), passConcepts: list(passC) };
+}
+
 /** The parts to start from: the coach's, else what the breakdown already says (personnel, strength). */
 export function startingParts(p: Play): CallParts {
   if (p.callParts) return p.callParts;
