@@ -6,7 +6,7 @@ import { playIsUnitTaggable } from '../hudlScout/utils/unitStats';
 import { isBalancedPlay, playStrength } from '../hudlScout/utils/strength';
 import { breakdownRowOf, type BreakdownColumn, type BreakdownRow } from './breakdownEntry';
 import { AiClipAnalyzerModal } from './AiClipAnalyzerModal';
-import { BACKS, HOLES, PASS_CONCEPTS, PERSONNEL, QB_SPOTS, RUN_CONCEPTS, TAGS, savedNames, startingParts, withParts } from './callName';
+import { BACKS, HOLES, PASS_CONCEPTS, PERSONNEL, QB_SPOTS, RUN_CONCEPTS, TAGS, buildCallName, parseCall, savedNames, startingParts, withParts } from './callName';
 import type { CallParts } from '../hudlScout/types/football';
 
 interface Props {
@@ -347,8 +347,11 @@ const PlayNameFields: React.FC<{
   /** Names already made in this team's games (most used first), to pick in one click. */
   saved: { name: string; parts: CallParts; count: number }[];
 }> = ({ play, readOnly, run, onChange, onUseName, playBox, saved }) => {
-  const [find, setFind] = useState('');
   const parts = startingParts(play);
+  // The call as typed (read into its parts as it's typed), and the buttons for each part (tucked away).
+  const [typed, setTyped] = useState<string | null>(null);
+  const [showParts, setShowParts] = useState(false);
+  useEffect(() => setTyped(null), [play.id]);
   const [tagText, setTagText] = useState('');
   const set = (patch: Partial<CallParts>) => onChange({ ...parts, ...patch });
   const pick = <K extends keyof CallParts>(key: K, v: CallParts[K]) => set({ [key]: parts[key] === v ? undefined : v } as Partial<CallParts>);
@@ -375,49 +378,74 @@ const PlayNameFields: React.FC<{
           </button>
         )}
       </div>
-      {/* The name, whole (it can be long). */}
-      <div className={`-mt-1 text-sm font-black break-words ${name ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-400 font-semibold text-xs'}`} title={name}>
-        {name || 'Pick the parts below'}
-      </div>
+      {/* Type the call the way it's said; Enter (or leaving the box) saves it. */}
+      {!readOnly ? (
+        <>
+          <input
+            key={`${play.id}-${name}`}
+            defaultValue={name}
+            list={`names-${play.id}`}
+            placeholder="Type the call: 32 gun rt tight 44 counter"
+            aria-label="Play name"
+            onChange={(e) => setTyped(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              if (e.key === 'Escape') {
+                (e.target as HTMLInputElement).value = name;
+                setTyped(null);
+              }
+            }}
+            onBlur={(e) => {
+              const text = e.target.value.trim();
+              setTyped(null);
+              if (text === name) return;
+              const same = saved.find((x) => x.name.toLowerCase() === text.toLowerCase());
+              onChange(same ? same.parts : parseCall(text));
+            }}
+            className="h-9 w-full rounded-lg border border-indigo-200 dark:border-indigo-500/40 bg-white dark:bg-slate-900 px-2.5 text-sm font-bold text-slate-900 dark:text-slate-100 placeholder:font-normal placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+          />
+          <datalist id={`names-${play.id}`}>
+            {saved.map((x) => (
+              <option key={x.name} value={x.name} />
+            ))}
+          </datalist>
+          {typed !== null && typed.trim() && typed.trim() !== name && (
+            <div className="-mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+              Reads as <b className="text-indigo-700 dark:text-indigo-300">{saved.find((x) => x.name.toLowerCase() === typed.trim().toLowerCase())?.name || buildCallName(parseCall(typed), run) || '…'}</b>
+              <span className="ml-1">· Enter to save</span>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className={`text-sm font-black break-words ${name ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-400 font-semibold text-xs'}`}>{name || 'Not named yet'}</div>
+      )}
+      {/* The names used most: one click. */}
       {!readOnly && saved.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            {label('Quick pick')}
-            {saved.length > 8 && (
-              <input
-                value={find}
-                onChange={(e) => setFind(e.target.value)}
-                placeholder="Find a play"
-                aria-label="Find a saved play name"
-                className="ml-auto h-6 w-28 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1.5 text-[11px]"
-              />
-            )}
-          </div>
-          <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
-            {saved
-              .filter((x) => !find.trim() || x.name.toLowerCase().includes(find.trim().toLowerCase()))
-              .slice(0, find.trim() ? 40 : 8)
-              .map((x) => {
-                const on = x.name === name;
-                return (
-                  <button
-                    key={x.name}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => {
-                      onChange(x.parts);
-                      setFind('');
-                    }}
-                    title={`Name this play ${x.name} (used ${x.count} time${x.count === 1 ? '' : 's'})`}
-                    className={`h-7 px-2 rounded-full text-[11px] font-bold border ${on ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-indigo-400'}`}
-                  >
-                    {x.name}
-                  </button>
-                );
-              })}
-          </div>
+        <div className="flex flex-wrap gap-1">
+          {saved.slice(0, 6).map((x) => {
+            const on = x.name === name;
+            return (
+              <button
+                key={x.name}
+                type="button"
+                aria-pressed={on}
+                onClick={() => onChange(x.parts)}
+                title={`Name this play ${x.name} (used ${x.count} time${x.count === 1 ? '' : 's'})`}
+                className={`h-7 px-2 rounded-full text-[11px] font-bold border ${on ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-indigo-400'}`}
+              >
+                {x.name}
+              </button>
+            );
+          })}
         </div>
       )}
+      {!readOnly && (
+        <button type="button" onClick={() => setShowParts((v) => !v)} aria-expanded={showParts} className="self-start text-[11px] font-bold text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300">
+          {showParts ? 'Hide parts ▴' : 'Edit parts ▾'}
+        </button>
+      )}
+      {showParts && !readOnly && (
+        <>
       <div className="flex flex-col gap-1">
         {label('Personnel')}
         <div className="flex flex-wrap gap-1 items-center">
@@ -535,6 +563,8 @@ const PlayNameFields: React.FC<{
           )}
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 };

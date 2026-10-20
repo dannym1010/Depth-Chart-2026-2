@@ -28,6 +28,50 @@ export function buildCallName(parts: CallParts | undefined, run = true): string 
   return [parts.personnel, qb, side, ...(parts.tags || []), ball, parts.concept].map((s) => String(s || '').trim()).filter(Boolean).join(' ');
 }
 
+/**
+ * A call typed the way it's said ("32 gun rt tight 44 counter") read into its parts: a two-digit number first is
+ * the personnel, a later one the back and the hole; gun / pistol / under center; rt / lt; known tags and
+ * concepts (any other word is kept as a tag).
+ */
+export function parseCall(text: string): CallParts {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+  const parts: CallParts = {};
+  const tags: string[] = [];
+  const concepts = [...RUN_CONCEPTS, ...PASS_CONCEPTS];
+  const canon = (list: string[], w: string) => list.find((x) => x.toLowerCase() === w.toLowerCase());
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const lw = w.toLowerCase();
+    // Two-word concepts ("play action", "sprint out", "drop back", "jet pass").
+    const two = i + 1 < words.length ? canon(concepts, `${w} ${words[i + 1]}`) : undefined;
+    if (two) {
+      parts.concept = two;
+      i++;
+      continue;
+    }
+    if (/^\d{2}$/.test(w)) {
+      if (i === 0 && !parts.personnel) parts.personnel = w;
+      else if (!parts.back) {
+        parts.back = w[0];
+        parts.hole = w[1];
+      }
+      continue;
+    }
+    if (/^(gun|shotgun|sg)$/.test(lw)) parts.qb = 'Gun';
+    else if (/^(pistol|pis)$/.test(lw)) parts.qb = 'Pistol';
+    else if (/^(uc|under|center)$/.test(lw)) parts.qb = 'UC';
+    else if (/^(rt|right|r)$/.test(lw)) parts.strength = 'R';
+    else if (/^(lt|left|l)$/.test(lw)) parts.strength = 'L';
+    else if (canon(concepts, w)) parts.concept = canon(concepts, w);
+    else {
+      const t = canon(TAGS, w) || w.charAt(0).toUpperCase() + w.slice(1);
+      if (!tags.some((x) => x.toLowerCase() === t.toLowerCase())) tags.push(t);
+    }
+  }
+  if (tags.length) parts.tags = tags;
+  return parts;
+}
+
 /** The play names already made in these plays (each once, with its parts), most used first. */
 export function savedNames(plays: Play[]): { name: string; parts: CallParts; count: number }[] {
   const by = new Map<string, { name: string; parts: CallParts; count: number }>();

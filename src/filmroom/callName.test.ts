@@ -19,6 +19,15 @@ describe('play names from their parts', () => {
     assert.ok(!('qb' in patch.callParts!), 'empty parts are left out');
   });
 
+  it('reads a call typed the way it is said', async () => {
+    const { parseCall } = await import('./callName.ts');
+    assert.deepEqual(parseCall('32 gun rt tight 44 counter'), { personnel: '32', qb: 'Gun', strength: 'R', tags: ['Tight'], back: '4', hole: '4', concept: 'Counter' });
+    assert.equal(buildCallName(parseCall('21 lt heavy motion 34 power')), '21 Lt Heavy Motion 34 Power');
+    assert.equal(buildCallName(parseCall('22 r play action'), false), '22 Rt Play action');
+    // a word it doesn't know is kept as a tag
+    assert.equal(buildCallName(parseCall('32 rt spread 26 sweep')), '32 Rt Spread 26 Sweep');
+  });
+
   it('quick pick: the names already made, each once with its parts, most used first', async () => {
     const { savedNames } = await import('./callName.ts');
     const p = (callName: string, concept: string) => ({ callName, callParts: { personnel: '32', concept } }) as any;
