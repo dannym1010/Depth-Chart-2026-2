@@ -8,7 +8,8 @@ interface LeagueLink {
 }
 
 // v2: the schedule is read from the PDF too (the v1 copies have none).
-const CACHE_KEY = 'league_data_v2';
+// v3: 12U / 13U standings are read too (one table with the overall record).
+const CACHE_KEY = 'league_data_v3';
 const MAX_AGE = 3 * 60 * 60 * 1000;
 
 const fileBytes = async (url: string) => {

@@ -218,11 +218,20 @@ export function parseStandings(items: PositionedText[], pageWidth: number): Leve
     }
     const level = current[sideKey];
     if (!level) continue;
-    // A team row: the name (one or more pieces), then 8 numbers.
+    // A team row: the name (one or more pieces), then 8 numbers (division, then overall); 12U / 13U are one table
+    // with just the overall record (4 numbers).
     const nums = line.tokens.filter((tk) => /^\.?\d+(\.\d+)?$/.test(tk));
-    if (nums.length < 8) continue;
     const name = clean(line.tokens.filter((tk) => !/^\.?\d+(\.\d+)?$/.test(tk)).join(' '));
     if (!name) continue;
+    if (nums.length === 4) {
+      const [w, l, t, p] = nums;
+      if (!levels.has(level)) levels.set(level, { level, divisions: [{ name: 'All teams', rows: [] }] });
+      const lv = levels.get(level)!;
+      const all = lv.divisions.find((d) => d.name === 'All teams') || (lv.divisions.push({ name: 'All teams', rows: [] }), lv.divisions[lv.divisions.length - 1]);
+      all.rows.push({ team: name, w: Number(w), l: Number(l), t: Number(t), pct: p, ow: Number(w), ol: Number(l), ot: Number(t), opct: p });
+      continue;
+    }
+    if (nums.length < 8) continue;
     const n = nums.slice(-8);
     if (!levels.has(level)) levels.set(level, { level, divisions: [{ name: names[0], rows: [] }, { name: names[1], rows: [] }] });
     levels.get(level)!.divisions[side].rows.push({

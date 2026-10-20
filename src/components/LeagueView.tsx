@@ -1,10 +1,12 @@
 // The league's schedule, scores and standings for this team's level only (10U sees 10U), read from the files
 // the league posts each week. Our games are picked out and our row is highlighted.
 import React, { useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Trophy, CalendarDays, ListOrdered, ExternalLink } from 'lucide-react';
+import { RefreshCw, Trophy, CalendarDays, ListOrdered, ExternalLink, Medal, ScrollText } from 'lucide-react';
 import type { Team } from '../types';
 import { clubSummary, forLevel, leagueClubs, sameLevel, sameTeam, type LeagueData, type LeagueGame } from '../utils/leagueParse';
 import { fetchLeague, leagueIsStale, readCachedLeague } from '../utils/leagueFetch';
+import { playoffPicture } from '../utils/playoffs';
+import { LeaguePlayoffs, LeagueRules } from './LeaguePlayoffs';
 
 const LEAGUE_SITE = 'https://www.taconicyfc.com/Default.aspx?tabid=2251499';
 
@@ -25,7 +27,7 @@ const isPast = (date: string) => {
   return new Date(y, Number(m[1]) - 1, Number(m[2]) + 1) <= new Date();
 };
 
-type Tab = 'ours' | 'scores' | 'standings' | 'schedule' | 'club';
+type Tab = 'ours' | 'scores' | 'standings' | 'playoffs' | 'schedule' | 'club' | 'rules';
 
 const card = 'bg-slate-800/90 rounded-2xl border border-slate-700/80 p-4';
 const th = 'py-2 px-2 text-[10px] font-black uppercase tracking-wide text-slate-400 text-right first:text-left whitespace-nowrap';
@@ -106,6 +108,11 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
   const scoreWeek = week || lastScoredWeek || weeks[0] || '';
   const [schedWeek, setSchedWeek] = useState<string>('');
   const scheduleWeek = schedWeek || thisWeek || 'all';
+  // The playoff picture: seeds today, chances from the games left, and our team with a win or a loss.
+  const picture = useMemo(
+    () => (view && level ? playoffPicture({ level, standings: view.standings, schedule: view.schedule, results: view.results, standingsWeek: data?.standingsWeek, ourTeam: ourName }) : null),
+    [view, level, data?.standingsWeek, ourName]
+  );
   const nextGame = useMemo(() => (view?.ourGames || []).find((g) => g.homeScore == null && !isPast(g.date)), [view]);
   /** A week picker with arrows to the week before and after. */
   const weekPicker = (value: string, onPick: (w: string) => void, label: (w: string) => string, withAll = false) => {
@@ -160,8 +167,10 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
     { id: 'ours', label: 'Team games', icon: <Trophy className="w-3.5 h-3.5" /> },
     { id: 'scores', label: 'Scores', icon: <ListOrdered className="w-3.5 h-3.5" /> },
     { id: 'standings', label: 'Standings', icon: <Trophy className="w-3.5 h-3.5" /> },
+    { id: 'playoffs', label: 'Playoffs', icon: <Medal className="w-3.5 h-3.5" /> },
     { id: 'schedule', label: 'League schedule', icon: <CalendarDays className="w-3.5 h-3.5" /> },
     { id: 'club', label: 'All levels', icon: <ListOrdered className="w-3.5 h-3.5" /> },
+    { id: 'rules', label: 'Rules', icon: <ScrollText className="w-3.5 h-3.5" /> },
   ];
 
   return (
@@ -296,6 +305,9 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
               })()}
             </div>
           )}
+
+          {tab === 'playoffs' && <LeaguePlayoffs picture={picture} level={level} ourTeam={ourName} standingsWeek={data?.standingsWeek} />}
+          {tab === 'rules' && <LeagueRules level={level} />}
 
           {tab === 'standings' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
