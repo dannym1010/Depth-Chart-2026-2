@@ -1233,7 +1233,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   return (
     <div className="flex flex-col gap-2 lg:h-[calc(100dvh-6.5rem)]">
       {/* Game and film */}
-      <div className={`${panel} px-2.5 py-1.5 flex flex-wrap items-center gap-2 shrink-0`}>
+      {/* Not clipped (unlike the other panels): the More menu opens below it. */}
+      <div className={`${panel.replace(' overflow-hidden', '')} relative z-30 px-2.5 py-1.5 flex flex-wrap items-center gap-2 shrink-0`}>
         {cutup && onBackToPlay && (
           <button
             type="button"
