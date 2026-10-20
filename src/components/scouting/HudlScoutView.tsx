@@ -669,8 +669,9 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
 
   const applyPlays = (newPlays: Play[], name: string, append: boolean, scheme = '', week?: string) => {
     // The same game uploaded again: update it in place, keeping tags, formations, units, subs and credits.
-    // A game the Film Room made from film (still blank) is this game too: its breakdown fills it in.
-    const same = findSameGame(bundle, newPlays, { name, week: scoutTarget === 'own' ? week : undefined, filmGames: true });
+    // A game the Film Room made from film (still blank) is this game too: its breakdown fills it in. Our games only:
+    // a scouting week often has several films, and a close play count isn't enough to tell which one it is.
+    const same = findSameGame(bundle, newPlays, { name, week: scoutTarget === 'own' ? week : undefined, filmGames: scoutTarget === 'own' });
     if (same) {
       setBundle((prev) => {
         const merged = mergeGamePlays(prev, same.id, newPlays);
@@ -723,7 +724,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       const { headers, rows } = parseCsvRows(csvContent);
       const mapping = autoDetectColumnMapping(headers);
       const fresh = rows.map((r, i) => normalizeHudlRow(r, mapping, i));
-      return findSameGame(bundle, fresh, { name, week: scoutTarget === 'own' ? week : undefined, filmGames: true })?.name || null;
+      return findSameGame(bundle, fresh, { name, week: scoutTarget === 'own' ? week : undefined, filmGames: scoutTarget === 'own' })?.name || null;
     } catch {
       return null;
     }
