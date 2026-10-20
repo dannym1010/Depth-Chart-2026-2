@@ -6,7 +6,7 @@ import { playIsUnitTaggable } from '../hudlScout/utils/unitStats';
 import { isBalancedPlay, playStrength } from '../hudlScout/utils/strength';
 import { breakdownRowOf, type BreakdownColumn, type BreakdownRow } from './breakdownEntry';
 import { AiClipAnalyzerModal } from './AiClipAnalyzerModal';
-import { BACKS, HOLES, PASS_CONCEPTS, PERSONNEL, QB_SPOTS, RUN_CONCEPTS, TAGS, buildCallName, parseCall, savedNames, startingParts, withParts } from './callName';
+import { BACKS, HOLES, PASS_CONCEPTS, PERSONNEL, QB_SPOTS, RUN_CONCEPTS, TAGS, savedNames, startingParts, withParts } from './callName';
 import type { CallParts } from '../hudlScout/types/football';
 
 interface Props {
@@ -348,224 +348,186 @@ const PlayNameFields: React.FC<{
   saved: { name: string; parts: CallParts; count: number }[];
 }> = ({ play, readOnly, run, onChange, onUseName, playBox, saved }) => {
   const parts = startingParts(play);
-  // The call as typed (read into its parts as it's typed), and the buttons for each part (tucked away).
-  const [typed, setTyped] = useState<string | null>(null);
-  const [showParts, setShowParts] = useState(false);
-  useEffect(() => setTyped(null), [play.id]);
-  const [tagText, setTagText] = useState('');
   const set = (patch: Partial<CallParts>) => onChange({ ...parts, ...patch });
   const pick = <K extends keyof CallParts>(key: K, v: CallParts[K]) => set({ [key]: parts[key] === v ? undefined : v } as Partial<CallParts>);
   const tags = parts.tags || [];
-  const toggleTag = (t: string) => set({ tags: tags.some((x) => x.toLowerCase() === t.toLowerCase()) ? tags.filter((x) => x.toLowerCase() !== t.toLowerCase()) : [...tags, t] });
-  const addTyped = () => {
-    const t = tagText.trim();
-    if (t && !tags.some((x) => x.toLowerCase() === t.toLowerCase())) set({ tags: [...tags, t] });
-    setTagText('');
-  };
+  const hasTag = (t: string) => tags.some((x) => x.toLowerCase() === t.toLowerCase());
+  const toggleTag = (t: string) => set({ tags: hasTag(t) ? tags.filter((x) => x.toLowerCase() !== t.toLowerCase()) : [...tags, t] });
   const name = play.callName || '';
-  const chip = (on: boolean) =>
-    `h-7 px-2 rounded-md text-xs font-bold ${on ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'} disabled:cursor-default`;
-  const label = (t: string) => <span className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">{t}</span>;
   const concepts = run ? RUN_CONCEPTS : PASS_CONCEPTS;
+
+  // A segmented control: the picked one is a raised white tab.
+  const seg = <T extends string>(options: { v: T; label: string; title?: string }[], value: T | undefined, onPick: (v: T) => void, cls = '', tight = false) => (
+    <div className={`inline-flex flex-wrap rounded-lg bg-slate-200/70 dark:bg-slate-800 p-0.5 gap-0.5 ${cls}`}>
+      {options.map((o) => {
+        const on = value === o.v;
+        return (
+          <button
+            key={o.v}
+            type="button"
+            disabled={readOnly}
+            aria-pressed={on}
+            title={o.title}
+            onClick={() => onPick(o.v)}
+            className={`h-6 ${tight ? 'min-w-[1.3rem] px-1' : 'min-w-[1.6rem] px-1.5'} rounded-md text-[11px] font-bold transition-colors disabled:cursor-default ${
+              on ? 'bg-white dark:bg-slate-600 text-indigo-700 dark:text-white shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+  // Pills (several or one): filled when on.
+  const pill = (text: string, on: boolean, onClick: () => void) => (
+    <button
+      key={text}
+      type="button"
+      disabled={readOnly}
+      aria-pressed={on}
+      onClick={onClick}
+      className={`h-6 px-2 rounded-full text-[11px] font-bold border transition-colors disabled:cursor-default ${
+        on ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-400'
+      }`}
+    >
+      {text}
+    </button>
+  );
+  const row = (labelText: string, body: React.ReactNode) => (
+    <div className="flex flex-col gap-1 min-w-0">
+      <span className="text-[10px] font-black uppercase tracking-wide text-slate-400 dark:text-slate-500">{labelText}</span>
+      <div className="min-w-0 flex flex-wrap items-center gap-1">{body}</div>
+    </div>
+  );
+
   return (
-    <div className="rounded-xl border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50/40 dark:bg-indigo-500/5 p-2.5 flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <span className="text-xs font-black text-slate-800 dark:text-slate-100">Play name</span>
-        <span className="flex-1" />
+    <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/60 p-2.5 flex flex-col gap-2">
+      {/* The name the parts make */}
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-black uppercase tracking-wide text-slate-400 dark:text-slate-500">Play name</div>
+          <div className={`break-words leading-tight ${name ? 'text-base font-black text-slate-900 dark:text-white' : 'text-xs font-semibold text-slate-400'}`}>
+            {name || 'Pick the parts below'}
+          </div>
+        </div>
         {name && !readOnly && name !== playBox && (
-          <button type="button" onClick={() => onUseName(name)} className="shrink-0 h-6 px-2 rounded-md text-[11px] font-bold bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-500/40 text-indigo-700 dark:text-indigo-300" title="Put this name in the Play box too">
+          <button type="button" onClick={() => onUseName(name)} className="shrink-0 h-6 px-2 rounded-md text-[11px] font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10" title="Put this name in the Play box too">
             Use as Play
           </button>
         )}
       </div>
-      {/* Type the call the way it's said; Enter (or leaving the box) saves it. */}
-      {!readOnly ? (
+
+      {/* The names used most: one click */}
+      {!readOnly && saved.length > 0 && row('Recent', saved.slice(0, 6).map((x) => pill(x.name, x.name === name, () => onChange(x.parts))))}
+
+      <div className="h-px bg-slate-200 dark:bg-slate-700/70" />
+
+      {row(
+        'Pers',
         <>
-          <input
-            key={`${play.id}-${name}`}
-            defaultValue={name}
-            list={`names-${play.id}`}
-            placeholder="Type the call: 32 gun rt tight 44 counter"
-            aria-label="Play name"
-            onChange={(e) => setTyped(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-              if (e.key === 'Escape') {
-                (e.target as HTMLInputElement).value = name;
-                setTyped(null);
-              }
-            }}
-            onBlur={(e) => {
-              const text = e.target.value.trim();
-              setTyped(null);
-              if (text === name) return;
-              const same = saved.find((x) => x.name.toLowerCase() === text.toLowerCase());
-              onChange(same ? same.parts : parseCall(text));
-            }}
-            className="h-9 w-full rounded-lg border border-indigo-200 dark:border-indigo-500/40 bg-white dark:bg-slate-900 px-2.5 text-sm font-bold text-slate-900 dark:text-slate-100 placeholder:font-normal placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-          />
-          <datalist id={`names-${play.id}`}>
-            {saved.map((x) => (
-              <option key={x.name} value={x.name} />
-            ))}
-          </datalist>
-          {typed !== null && typed.trim() && typed.trim() !== name && (
-            <div className="-mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-              Reads as <b className="text-indigo-700 dark:text-indigo-300">{saved.find((x) => x.name.toLowerCase() === typed.trim().toLowerCase())?.name || buildCallName(parseCall(typed), run) || '…'}</b>
-              <span className="ml-1">· Enter to save</span>
-            </div>
+          {seg(
+            PERSONNEL.map((v) => ({ v, label: v })),
+            parts.personnel,
+            (v) => pick('personnel', v)
+          )}
+          {parts.personnel && !PERSONNEL.includes(parts.personnel) && pill(parts.personnel, true, () => set({ personnel: undefined }))}
+          {!readOnly && <AddOther label="Other personnel" onAdd={(v) => set({ personnel: v })} />}
+        </>
+      )}
+      <div className="flex flex-wrap gap-x-4 gap-y-2">
+      {row(
+        'QB',
+        <>
+          {seg(
+            QB_SPOTS.map((q) => ({ v: q.v, label: q.v === 'UC' ? 'Under' : q.label === 'Shotgun' ? 'Gun' : q.label, title: q.label })),
+            parts.qb,
+            (v) => pick('qb', v)
           )}
         </>
-      ) : (
-        <div className={`text-sm font-black break-words ${name ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-400 font-semibold text-xs'}`}>{name || 'Not named yet'}</div>
       )}
-      {/* The names used most: one click. */}
-      {!readOnly && saved.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {saved.slice(0, 6).map((x) => {
-            const on = x.name === name;
-            return (
-              <button
-                key={x.name}
-                type="button"
-                aria-pressed={on}
-                onClick={() => onChange(x.parts)}
-                title={`Name this play ${x.name} (used ${x.count} time${x.count === 1 ? '' : 's'})`}
-                className={`h-7 px-2 rounded-full text-[11px] font-bold border ${on ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-indigo-400'}`}
-              >
-                {x.name}
-              </button>
-            );
-          })}
-        </div>
-      )}
-      {!readOnly && (
-        <button type="button" onClick={() => setShowParts((v) => !v)} aria-expanded={showParts} className="self-start text-[11px] font-bold text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300">
-          {showParts ? 'Hide parts ▴' : 'Edit parts ▾'}
-        </button>
-      )}
-      {showParts && !readOnly && (
+      {row(
+        'Side',
         <>
-      <div className="flex flex-col gap-1">
-        {label('Personnel')}
-        <div className="flex flex-wrap gap-1 items-center">
-          {PERSONNEL.map((v) => (
-            <button key={v} type="button" disabled={readOnly} aria-pressed={parts.personnel === v} onClick={() => pick('personnel', v)} className={chip(parts.personnel === v)}>
-              {v}
-            </button>
-          ))}
-          <input
-            key={`${play.id}-pers-${parts.personnel || ''}`}
-            defaultValue={parts.personnel && !PERSONNEL.includes(parts.personnel) ? parts.personnel : ''}
-            readOnly={readOnly}
-            placeholder="Other"
-            aria-label="Other personnel"
-            onBlur={(e) => {
-              const v = e.target.value.trim();
-              if (v && v !== parts.personnel) set({ personnel: v });
-            }}
-            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-            className="h-7 w-16 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1.5 text-xs"
-          />
-        </div>
-      </div>
-      <div className="grid grid-cols-[auto_auto] justify-start gap-x-4 gap-y-2">
-        <div className="flex flex-col gap-1">
-          {label('QB')}
-          <div className="flex flex-wrap gap-1">
-            {QB_SPOTS.map((q) => (
-              <button key={q.v} type="button" disabled={readOnly} aria-pressed={parts.qb === q.v} onClick={() => pick('qb', q.v)} className={chip(parts.qb === q.v)}>
-                {q.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex flex-col gap-1">
-          {label('Strength')}
-          <div className="flex gap-1">
-            {(['L', 'R'] as const).map((v) => (
-              <button key={v} type="button" disabled={readOnly} aria-pressed={parts.strength === v} onClick={() => pick('strength', v)} className={chip(parts.strength === v)}>
-                {v === 'L' ? 'Left' : 'Right'}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-      <div className="flex flex-col gap-1">
-        {label('Tags')}
-        <div className="flex flex-wrap gap-1 items-center">
-          {[...TAGS, ...tags.filter((t) => !TAGS.some((x) => x.toLowerCase() === t.toLowerCase()))].map((t) => {
-            const on = tags.some((x) => x.toLowerCase() === t.toLowerCase());
-            return (
-              <button key={t} type="button" disabled={readOnly} aria-pressed={on} onClick={() => toggleTag(t)} className={chip(on)}>
-                {t}
-              </button>
-            );
-          })}
-          {!readOnly && (
-            <input
-              value={tagText}
-              onChange={(e) => setTagText(e.target.value)}
-              onBlur={addTyped}
-              onKeyDown={(e) => e.key === 'Enter' && addTyped()}
-              placeholder="+ Tag"
-              aria-label="Add a tag"
-              className="h-7 w-20 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1.5 text-xs"
-            />
+          {seg(
+            [
+              { v: 'L' as const, label: 'Lt', title: 'Strength left' },
+              { v: 'R' as const, label: 'Rt', title: 'Strength right' },
+            ],
+            parts.strength,
+            (v) => pick('strength', v)
           )}
-        </div>
-      </div>
-      {run && (
-        <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
-          <div className="flex flex-col gap-1">
-            {label('Ball to')}
-            <div className="flex flex-wrap gap-1">
-              {BACKS.map((b) => (
-                <button key={b.v} type="button" disabled={readOnly} aria-pressed={parts.back === b.v} onClick={() => pick('back', b.v)} className={chip(parts.back === b.v)}>
-                  {b.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="flex flex-col gap-1 min-w-0">
-            {label('Hole')}
-            <div className="flex flex-wrap gap-1">
-              {HOLES.map((h) => (
-                <button key={h} type="button" disabled={readOnly} aria-pressed={parts.hole === h} onClick={() => pick('hole', h)} className={`${chip(parts.hole === h)} min-w-[1.75rem]`}>
-                  {h}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
+        </>
       )}
-      <div className="flex flex-col gap-1">
-        {label('Concept')}
-        <div className="flex flex-wrap gap-1 items-center">
-          {[...concepts, ...(parts.concept && !concepts.includes(parts.concept) ? [parts.concept] : [])].map((c) => (
-            <button key={c} type="button" disabled={readOnly} aria-pressed={parts.concept === c} onClick={() => pick('concept', c)} className={chip(parts.concept === c)}>
-              {c}
-            </button>
-          ))}
-          {!readOnly && (
-            <input
-              key={`${play.id}-concept-${parts.concept || ''}`}
-              placeholder="Other"
-              aria-label="Other concept"
-              onBlur={(e) => {
-                const v = e.target.value.trim();
-                if (v && v !== parts.concept) set({ concept: v });
-                e.target.value = '';
-              }}
-              onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-              className="h-7 w-20 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1.5 text-xs"
-            />
-          )}
-        </div>
       </div>
+      {row(
+        'Tags',
+        <>
+          {[...TAGS, ...tags.filter((t) => !TAGS.some((x) => x.toLowerCase() === t.toLowerCase()))].map((t) => pill(t, hasTag(t), () => toggleTag(t)))}
+          {!readOnly && <AddOther label="Add a tag" onAdd={(v) => !hasTag(v) && set({ tags: [...tags, v] })} />}
+        </>
+      )}
+      {run &&
+        row(
+          'Ball',
+          <>
+            {seg(
+              BACKS.map((b) => ({ v: b.v, label: b.v, title: b.label })),
+              parts.back,
+              (v) => pick('back', v)
+            )}
+          </>
+        )}
+      {run &&
+        row(
+          'Hole',
+          <>
+            {seg(
+              HOLES.map((h) => ({ v: h, label: h })),
+              parts.hole,
+              (v) => pick('hole', v),
+              'flex-nowrap',
+              true
+            )}
+          </>
+        )}
+      {row(
+        'Play',
+        <>
+          {[...concepts, ...(parts.concept && !concepts.includes(parts.concept) ? [parts.concept] : [])].map((c) => pill(c, parts.concept === c, () => pick('concept', c)))}
+          {!readOnly && <AddOther label="Other concept" onAdd={(v) => set({ concept: v })} />}
         </>
       )}
     </div>
+  );
+};
+
+/** A small + that opens a box to type your own (Enter or leaving it adds it). */
+const AddOther: React.FC<{ label: string; onAdd: (v: string) => void }> = ({ label, onAdd }) => {
+  const [open, setOpen] = useState(false);
+  if (!open)
+    return (
+      <button type="button" onClick={() => setOpen(true)} title={label} aria-label={label} className="h-6 w-6 rounded-full border border-dashed border-slate-300 dark:border-slate-600 text-slate-400 hover:text-indigo-600 hover:border-indigo-400 text-xs font-black leading-none">
+        +
+      </button>
+    );
+  const done = (el: HTMLInputElement) => {
+    const v = el.value.trim();
+    if (v) onAdd(v);
+    setOpen(false);
+  };
+  return (
+    <input
+      autoFocus
+      aria-label={label}
+      placeholder={label}
+      onBlur={(e) => done(e.target)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') done(e.target as HTMLInputElement);
+        if (e.key === 'Escape') setOpen(false);
+      }}
+      className="h-6 w-24 rounded-full border border-indigo-300 dark:border-indigo-500/50 bg-white dark:bg-slate-900 px-2 text-[11px] focus:outline-hidden"
+    />
   );
 };
 
