@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, Film, RefreshCw, Search, Telescope, Trash2, X } from 'lucide-react';
 import { filmGameKey } from './sharedMerge';
 import type { FilmGame } from './types';
-import type { FilmFolderGame, UnplacedFolder } from './folderRoutes';
+import { bestGameFolder, sameFolderGame, type FilmFolderGame, type UnplacedFolder } from './folderRoutes';
 
 export interface LibraryGame extends FilmGame {
   plays: number;
@@ -75,6 +75,22 @@ export function buildLibrary(
     const saved = (f.week === currentWeek && currentOpponentScout) || weeks.find((x) => x.key === f.week)?.hudlScout;
     return Array.isArray((saved as any)?.deletedGameIds) && (saved as any).deletedGameIds.includes(f.id);
   };
+  // Which film folders the week's games already stand for: a game made from that folder, else the folder its
+  // name matches, else the week's only folder of that kind.
+  const claimed = new Set<string>();
+  for (const w of libWeeks) {
+    for (const source of ['own', 'opponent'] as const) {
+      const folders = filmFolders.filter((f) => f.week === w.key && f.source === source && !removed(f));
+      const games = w.games.filter((g) => g.source === source && !g.filmOnly);
+      if (!folders.length || !games.length) continue;
+      for (const g of games) {
+        const mine = folders.find((f) => sameFolderGame(f.id, g.gameId)) || bestGameFolder(folders, g.name);
+        if (mine) claimed.add(mine.id);
+      }
+      // As many games as folders (or one folder): every folder already has its game.
+      if (games.length >= folders.length) folders.forEach((f) => claimed.add(f.id));
+    }
+  }
   for (const f of filmFolders) {
     if (removed(f)) continue;
     const w = libWeeks.find((x) => x.key === f.week);
@@ -91,7 +107,7 @@ export function buildLibrary(
       if (!others.some((g) => g.key === game.key)) others.push(game);
       continue;
     }
-    if (w.games.some((g) => g.source === f.source && !g.filmOnly)) continue;
+    if (claimed.has(f.id)) continue;
     if (!w.games.some((g) => g.key === game.key)) w.games.push(game);
   }
   return { weeks: libWeeks, others };

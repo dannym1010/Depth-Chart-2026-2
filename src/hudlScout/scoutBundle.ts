@@ -274,6 +274,40 @@ export function isBlankFilmGame(bundle: Pick<ScoutBundle, 'games' | 'plays'>, g:
 }
 
 /**
+ * One film folder's game twice: made from its film ("film-<key>") and from its breakdown file ("folder-<key>").
+ * The breakdown's plays go into the film's game (its id, notes and drawings stay; a coach's work is kept), and
+ * the other copy goes for good. Returns which play of the removed copy each kept play is (for its notes).
+ */
+export function mergeFolderCopies(bundle: ScoutBundle, keepId: string, dropId: string): { bundle: ScoutBundle; moved: Map<string, string> } {
+  const fresh = playsOfGame(bundle, dropId);
+  const merged = fresh.length ? mergeGamePlays(bundle, keepId, fresh.map((p) => ({ ...p, gameId: keepId }))) : bundle;
+  const kept = playsOfGame(merged, keepId);
+  const moved = new Map<string, string>();
+  for (const p of fresh) {
+    const q = kept.find((k) => String(k.playNumber) === String(p.playNumber));
+    if (q) moved.set(p.id, q.id);
+  }
+  const keep = merged.games.find((g) => g.id === keepId);
+  const drop = bundle.games.find((g) => g.id === dropId);
+  const removed = removeScoutGame(merged, dropId, bundle.datasetName);
+  return {
+    // The breakdown file's game name reads better than the film folder's ("Shrub Oak vs Carmel 9-13").
+    bundle: { ...removed, games: removed.games.map((g) => (g.id === keepId && drop?.name && keep ? { ...g, name: drop.name } : g)) },
+    moved,
+  };
+}
+
+/** Pairs of one film folder's game made twice (from its film and from its breakdown file). */
+export function folderCopies(bundle: Pick<ScoutBundle, 'games'>): { keep: ScoutGame; drop: ScoutGame }[] {
+  const out: { keep: ScoutGame; drop: ScoutGame }[] = [];
+  for (const film of bundle.games.filter((g) => /^film-/.test(g.id))) {
+    const twin = bundle.games.find((g) => g.id === film.id.replace(/^film-/, 'folder-'));
+    if (twin) out.push({ keep: film, drop: twin });
+  }
+  return out;
+}
+
+/**
  * The same game twice: one made from film (still blank) and one uploaded from Hudl, in the same week.
  * Returns pairs { blank, uploaded } so a coach can merge them.
  */

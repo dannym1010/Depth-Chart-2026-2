@@ -147,6 +147,13 @@ export function bestGameFolder<T extends FolderLike>(dirs: T[], gameText: string
   return top > 0 && best.length === 1 ? best[0].d : undefined;
 }
 
+/** A game folder's key: the game made from its film ("film-<key>") and from its breakdown file ("folder-<key>") share it. */
+export const folderGameKey = (gameId?: string) => (/^(film|folder)-/.test(String(gameId || '')) ? String(gameId).replace(/^(film|folder)-/, '') : '');
+/** The same game folder (one game made from its film, the other from its breakdown file). */
+export const sameFolderGame = (a?: string, b?: string) => Boolean(folderGameKey(a)) && folderGameKey(a) === folderGameKey(b);
+/** The key a folder at this path (team folder first) gives its game. */
+const keyOfPath = (source: 'own' | 'opponent', path: string[]) => `${source}-${slug(path.join(' '))}`;
+
 export type Resolved =
   /** The game's folder (its clips, or its camera-view folders). `siblings`: the other game folders that week. */
   | { node: FolderNode; path: string[]; siblings?: string[] }
@@ -160,7 +167,7 @@ export type Resolved =
  */
 export async function resolveGameFolder(
   root: FolderNode,
-  game: { source: 'own' | 'opponent'; week?: string; name: string },
+  game: { source: 'own' | 'opponent'; week?: string; name: string; gameId?: string },
   teamName: string,
   opponentName?: string,
   pick?: string
@@ -179,6 +186,12 @@ export async function resolveGameFolder(
     here = await scouting.open();
   }
   const hints = hintWords(game.name, game.source === 'opponent' ? opponentName : undefined);
+  const key = folderGameKey(game.gameId);
+  const exactWeek = key ? here.dirs.find((d) => keyOfPath(game.source, [...path.slice(1), d.name]) === key) : undefined;
+  if (exactWeek) {
+    path.push(exactWeek.name);
+    return { node: exactWeek, path };
+  }
   // The game's week first; if that week has no folder (or the game has no week), the one folder named for
   // the opponent ("MSA vs Yorktown" -> "Week 2 - Yorktown Huskers").
   const weekDir =
@@ -198,6 +211,7 @@ export async function resolveGameFolder(
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
   if (inside.videos || !gameDirs.length) return { node: weekDir, path };
   const chosen =
+    (key ? gameDirs.find((d) => keyOfPath(game.source, [...path.slice(1), d.name]) === key) : undefined) ||
     (pick && gameDirs.find((d) => d.name === pick)) ||
     bestGameFolder(gameDirs, game.name) ||
     (gameDirs.length === 1 ? gameDirs[0] : undefined);

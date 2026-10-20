@@ -3,9 +3,9 @@
 // whole staff sees. The play log under the video is Hudl Scout's own: sorting it sets the play order, and
 // tags changed here are the same tags Hudl Scout shows.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Copy, ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft, Star, ListVideo, X } from 'lucide-react';
+import { Copy, ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft, Star, ListVideo, X, MoreHorizontal } from 'lucide-react';
 import { PlaysTable } from '../hudlScout/components/PlaysTable';
-import { assignDrives, bundleFromSaved, copyScoutGame, duplicateFilmGames, mergeBlankFilmGame, removeScoutGame, type ScoutBundle } from '../hudlScout/scoutBundle';
+import { assignDrives, bundleFromSaved, copyScoutGame, duplicateFilmGames, folderCopies, mergeBlankFilmGame, mergeFolderCopies, removeScoutGame, type ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play, TeamUnit } from '../hudlScout/types/football';
 import type { ScoutGame } from '../hudlScout/components/Header';
 import { autoTagFromHudl, setPlaysFormation, tagPlays } from '../hudlScout/utils/playTags';
@@ -30,6 +30,7 @@ import { FilmLibrary, buildLibrary, type LibraryGame } from './FilmLibrary';
 import { PlayNotes } from './PlayNotes';
 import { playTitle } from './playText';
 import { filmGameKey } from './sharedMerge';
+import { sameFolderGame } from './folderRoutes';
 import type { FilmGame, FilmMark, FilmNote } from './types';
 import { useClipUrl, useGameFilm } from './useGameFilm';
 import { canOpenFolders } from './filmSources';
@@ -234,7 +235,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     const w = filmWeeks?.find((x) => x.key === week);
     const target = game.source === 'own' ? own : bundleFromSaved(week === currentWeek ? opponentScout : w?.hudlScout, w?.opponent || 'Opponent');
     // Deleted in Hudl Scout: leave it as plain film.
-    if (target.games.some((g) => g.id === game.gameId) || (target.deletedGameIds || []).includes(game.gameId)) return;
+    if (target.games.some((g) => g.id === game.gameId || sameFolderGame(g.id, game.gameId)) || (target.deletedGameIds || []).includes(game.gameId)) return;
     madeBreakdown.current.add(game.key);
     const fresh = blankPlays(film.clips, game.gameId);
     const now = Date.now();
@@ -553,6 +554,38 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     return duplicateFilmGames(b).find((d) => d.blank.id === game.gameId || d.uploaded.id === game.gameId) || null;
   }, [game, own, opp, locked]);
   const [merging, setMerging] = useState(false);
+  // The top bar's More menu (closes on a click outside it).
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!moreOpen) return;
+    const close = (e: MouseEvent) => !moreRef.current?.contains(e.target as Node) && setMoreOpen(false);
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [moreOpen]);
+  // One film folder's game made twice (from its film and from its breakdown file): merged into one by itself,
+  // the notes and drawings of the removed copy moved onto the same plays.
+  const mergedCopies = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (locked) return;
+    for (const source of ['own', 'opponent'] as const) {
+      const b = source === 'own' ? own : opp;
+      const pairs = folderCopies(b).filter((p) => !mergedCopies.current.has(p.drop.id));
+      if (!pairs.length) continue;
+      let next = b;
+      for (const { keep, drop } of pairs) {
+        mergedCopies.current.add(drop.id);
+        const r = mergeFolderCopies(next, keep.id, drop.id);
+        next = r.bundle;
+        const keyOf = (id: string) => filmGameKey(source, id, source === 'opponent' ? currentWeek : undefined);
+        void moveSharedNotes(teamId, keyOf(drop.id), keyOf(keep.id), r.moved);
+        if (gameKey === keyOf(drop.id)) setGameKey(keyOf(keep.id));
+      }
+      if (source === 'own') onUpdateOwnTeamScout(next);
+      else onUpdateScouting('hudlScout', { ...((opponentScout as object) || {}), ...next });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [own.games.length, opp.games.length, locked]);
   const mergeDupe = async () => {
     if (!dupe || !game || merging) return;
     const b = game.source === 'own' ? own : opp;
@@ -1274,13 +1307,14 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           </div>
         )}
 
-        <span className={`text-xs text-slate-500 dark:text-slate-400 truncate max-w-full ${family ? 'hidden' : ''}`}>
+        <span
+          className={`text-xs text-slate-500 dark:text-slate-400 truncate max-w-full ${family ? 'hidden' : ''}`}
+          title={film.status === 'ready' ? `${film.kind === 'drive' ? 'Google Drive' : film.kind === 'folder' ? 'Folder' : 'Clips'}: ${film.label}${film.viaRoot ? '' : ' (linked to this game by hand)'}` : undefined}
+        >
           {film.status === 'ready'
             ? game?.filmOnly
-              ? `${film.kind === 'drive' ? 'Drive' : 'Folder'}: ${film.label} · ${clips.length} clip${clips.length === 1 ? '' : 's'} · setting up a breakdown to fill in…`
-              : `${film.kind === 'drive' ? 'Drive' : film.kind === 'folder' ? 'Folder' : 'Clips'}: ${film.label}${film.viaRoot ? '' : ' (linked to this game by hand: Unlink if it is another game\'s film)'} · ${clipFor.size}/${plays.length} plays have film${
-                  fromFilm ? ` · ${plays.filter(isBrokenDown).length}/${plays.length} broken down` : ''
-                }`
+              ? `${clips.length} clip${clips.length === 1 ? '' : 's'} · setting up a breakdown…`
+              : `${clipFor.size}/${plays.length} plays have film${fromFilm ? ` · ${plays.filter(isBrokenDown).length} broken down` : ''}${film.viaRoot ? '' : ' · linked by hand'}`
             : film.status === 'none'
               ? 'No film linked'
               : 'label' in film && film.label
@@ -1302,57 +1336,11 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             ))}
           </div>
         )}
-        {/* Several game folders in this week: which one is this game (saved for everyone). */}
-        {!locked && film.status === 'ready' && film.siblings && film.siblings.length > 1 && (
-          <select
-            value={film.folder}
-            onChange={(e) => choose(e.target.value)}
-            aria-label="Game folder"
-            title="This week has several game folders: which one is this game (saved for everyone)"
-            className="h-7 max-w-[12rem] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200"
-          >
-            {film.siblings.map((n) => (
-              <option key={n} value={n}>Folder: {n}</option>
-            ))}
-          </select>
-        )}
-        {/* The team film folder on Google Drive: play from it or from this computer's copy (one tap). */}
-        {sources.drive && canOpenFolders() && (
-          <div role="group" aria-label="Play film from" className="inline-flex h-7 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-[11px] font-bold">
-            {(
-              [
-                ['local', 'This computer', sources.local ? "Play from this computer's copy of the film folder (faster)" : 'Pick your copy of the film folder on this computer (faster)', playFromComputer],
-                ['drive', 'Google Drive', "Play from the team's Google Drive folder", playFromDrive],
-              ] as const
-            ).map(([id, text, tip, go]) => {
-              const on = (playingFrom || (sourcePref === 'auto' ? undefined : sourcePref)) === id;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  aria-pressed={on}
-                  title={tip}
-                  onClick={() => void go()}
-                  className={`px-2.5 ${on ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-                >
-                  {text}
-                </button>
-              );
-            })}
-          </div>
-        )}
-        {/* Clips go with plays in order: a different count means some clip is missing or extra. */}
-        {!locked && film.status === 'ready' && clips.length > 0 && clipMatchMode(clips, plays) === 'order' && clips.length !== plays.length && (
-          <span
-            className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
-            title="Clips are matched to plays in order (first clip = first play). With a different number of clips, check that the plays line up, and that the folder has only this game's clips."
-          >
-            ⚠ {clips.length} clips for {plays.length} plays: if a play shows the wrong video, use Line up film
-          </span>
-        )}
-        {/* Line up film: the clip the play on screen shows, and a step to the clip before or after it. The plays
-            after it follow, so one fix past an extra (or missing) clip lines up the rest of the game. */}
-        {!locked && film.status === 'ready' && clips.length > 0 && play && !game?.filmOnly && (() => {
+
+        {/* Line up film: when this game's clips and plays don't match (or a play was lined up), the clip the play on
+            screen shows and a step to the one before or after. The plays after it follow, so one fix past an extra
+            (or missing) clip lines up the rest of the game. */}
+        {!locked && film.status === 'ready' && clips.length > 0 && play && !game?.filmOnly && (clipMatchMode(clips, plays) === 'order' && clips.length !== plays.length || Object.values(shared.clipPicks || {}).some((p) => p?.clip)) && (() => {
           const at = clipFor.has(play.id) ? clipsInOrder.findIndex((o) => o.i === clipFor.get(play.id)) : -1;
           const step = (d: number) => {
             const to = clipsInOrder[Math.max(0, Math.min(clipsInOrder.length - 1, (at < 0 ? 0 : at) + d))];
@@ -1363,19 +1351,20 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             <span
               role="group"
               aria-label="Line up film"
-              className="inline-flex items-center gap-1 h-7 pl-2 pr-1 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-200"
-              title="If this play shows the wrong video, step to the right clip. The plays after it follow (saved for every coach)."
+              className="inline-flex items-center gap-1 h-7 pl-2 pr-1 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/30 text-[11px] font-bold text-amber-900 dark:text-amber-200"
+              title={`${clips.length} clips for ${plays.length} plays (clips go with plays in order). If this play shows the wrong video, step to the right clip; the plays after it follow. Saved for every coach.`}
             >
-              Line up film · play #{play.playNumber}:
-              <button type="button" onClick={() => step(-1)} disabled={at <= 0} className="h-5 px-1.5 rounded bg-slate-100 dark:bg-slate-800 disabled:opacity-40" aria-label="Earlier clip">
+              {clips.length !== plays.length && <span className="hidden xl:inline">{clips.length} clips · {plays.length} plays ·</span>}
+              Play #{play.playNumber}:
+              <button type="button" onClick={() => step(-1)} disabled={at <= 0} className="h-5 px-1.5 rounded bg-white/70 dark:bg-slate-900/60 disabled:opacity-40" aria-label="Earlier clip">
                 ◀
               </button>
-              <span className="tabular-nums">{at >= 0 ? `clip ${at + 1} of ${clipsInOrder.length}` : 'no clip'}</span>
-              <button type="button" onClick={() => step(1)} disabled={at >= clipsInOrder.length - 1} className="h-5 px-1.5 rounded bg-slate-100 dark:bg-slate-800 disabled:opacity-40" aria-label="Later clip">
+              <span className="tabular-nums">{at >= 0 ? `clip ${at + 1}` : 'no clip'}</span>
+              <button type="button" onClick={() => step(1)} disabled={at >= clipsInOrder.length - 1} className="h-5 px-1.5 rounded bg-white/70 dark:bg-slate-900/60 disabled:opacity-40" aria-label="Later clip">
                 ▶
               </button>
               {mine && (
-                <button type="button" onClick={() => pickClip(play.id, null)} className="h-5 px-1.5 rounded text-slate-500 hover:text-slate-800 dark:hover:text-white" title="Take back the clip picked for this play">
+                <button type="button" onClick={() => pickClip(play.id, null)} className="h-5 px-1.5 rounded opacity-70 hover:opacity-100" title="Take back the clip picked for this play">
                   Undo
                 </button>
               )}
@@ -1393,77 +1382,104 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             title={sideShown ? 'Hide the side panel to make the video bigger' : 'Show it beside the video'}
           >
             <MessageSquare size={14} />{' '}
-            {builderSeed
-              ? sideShown
-                ? 'Hide play builder'
-                : 'Show play builder'
-              : editable
-                ? showNotes
-                  ? 'Hide breakdown & notes'
-                  : 'Show breakdown & notes'
-                : showNotes
-                ? 'Hide notes'
-                : `Show notes${play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}`}
+            {sideShown ? 'Hide panel' : `Show panel${play && notesFor(play.id).length ? ` (${notesFor(play.id).length} notes)` : ''}`}
           </button>
-          )}
-          {!locked && (
-          <button onClick={() => setLinkOpen(true)} className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-indigo-600 text-white">
-            <Link2 size={14} /> {film.status === 'ready' ? 'Change film' : 'Link film'}
-          </button>
-          )}
-          {!locked && (film.status === 'ready' || film.status === 'reconnect') && (
-            <button
-              onClick={() => {
-                if (film.status === 'ready' && film.viaRoot && !window.confirm(`Stop using "${film.label.split(' › ')[0]}" for every game${film.kind === 'drive' ? ' (for all coaches)' : ' on this device'}?`)) return;
-                void unlink();
-              }}
-              className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
-              title={film.status === 'ready' && film.viaRoot ? 'Stop using the team film folder for every game' : film.status === 'ready' && film.kind === 'drive' ? 'Unlink the Drive folder for the whole team' : 'Stop using this folder on this device'}
-            >
-              <Unlink size={14} /> Unlink
-            </button>
           )}
           {importNote && <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">{importNote}</span>}
-          {game && !locked && game.source === 'opponent' && !game.filmOnly && onSaveWeekScouting && copyTargets.length > 0 && (
-            <button
-              onClick={openCopy}
-              className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
-              title="Use this scouting film for another week (its opponent may be the other team in it)"
-            >
-              <Copy size={14} /> <span className="hidden sm:inline">Copy to week</span>
-            </button>
-          )}
           {game && !locked && (
-            <>
-              <input
-                ref={importInput}
-                type="file"
-                accept=".csv,.xlsx,.xls,text/csv"
-                aria-label="Hudl breakdown file to import"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  e.target.value = '';
-                  if (file) void importBreakdown(file);
-                }}
-              />
+            <input
+              ref={importInput}
+              type="file"
+              accept=".csv,.xlsx,.xls,text/csv"
+              aria-label="Hudl breakdown file to import"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (file) void importBreakdown(file);
+              }}
+            />
+          )}
+          {!locked && (
+            <div ref={moreRef} className="relative">
               <button
-                onClick={() => importInput.current?.click()}
-                className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
-                title="Load this game's Hudl breakdown (CSV or Excel) into the plays here, matched to the film in order"
+                type="button"
+                onClick={() => setMoreOpen((v) => !v)}
+                aria-expanded={moreOpen}
+                aria-haspopup="menu"
+                className={`inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold ${film.status === 'ready' ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200' : 'bg-indigo-600 text-white'}`}
               >
-                <FileUp size={14} /> <span className="hidden sm:inline">Import breakdown</span>
+                {film.status === 'ready' ? <MoreHorizontal size={15} /> : <Link2 size={14} />} {film.status === 'ready' ? 'More' : 'Link film'}
               </button>
-            </>
-          )}
-          {game && !locked && (
-            <button
-              onClick={() => onOpenHudlGame({ target: game.source, gameId: game.gameId })}
-              className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
-              title="Open this game in Hudl Scout"
-            >
-              <ExternalLink size={14} /> <span className="hidden sm:inline">Hudl Scout</span>
-            </button>
+              {moreOpen && (
+                <div role="menu" className="absolute right-0 top-full mt-1 z-50 w-60 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl p-1 text-xs font-bold text-slate-700 dark:text-slate-200">
+                  {(() => {
+                    const item = (label: React.ReactNode, onClick: () => void, title?: string) => (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        title={title}
+                        onClick={() => {
+                          setMoreOpen(false);
+                          onClick();
+                        }}
+                        className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                      >
+                        {label}
+                      </button>
+                    );
+                    return (
+                      <>
+                        {item(<><Link2 size={14} /> {film.status === 'ready' ? 'Change film' : 'Link film'}</>, () => setLinkOpen(true))}
+                        {(film.status === 'ready' || film.status === 'reconnect') &&
+                          item(
+                            <><Unlink size={14} /> Unlink film</>,
+                            () => {
+                              if (film.status === 'ready' && film.viaRoot && !window.confirm(`Stop using "${film.label.split(' › ')[0]}" for every game${film.kind === 'drive' ? ' (for all coaches)' : ' on this device'}?`)) return;
+                              void unlink();
+                            },
+                            film.status === 'ready' && film.viaRoot ? 'Stop using the team film folder for every game' : 'Stop using the film linked to this game'
+                          )}
+                        {sources.drive && canOpenFolders() && (
+                          <div className="px-2.5 py-1.5">
+                            <div className="mb-1 text-[10px] font-black uppercase tracking-wider text-slate-400">Play film from</div>
+                            <div role="group" aria-label="Play film from" className="flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+                              {(
+                                [
+                                  ['local', 'This computer', playFromComputer],
+                                  ['drive', 'Google Drive', playFromDrive],
+                                ] as const
+                              ).map(([id, text, go]) => {
+                                const on = (playingFrom || (sourcePref === 'auto' ? undefined : sourcePref)) === id;
+                                return (
+                                  <button
+                                    key={id}
+                                    type="button"
+                                    aria-pressed={on}
+                                    onClick={() => {
+                                      setMoreOpen(false);
+                                      void go();
+                                    }}
+                                    className={`flex-1 h-7 ${on ? 'bg-indigo-600 text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                                  >
+                                    {text}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        {game && <div className="my-1 border-t border-slate-200 dark:border-slate-700" />}
+                        {game && item(<><FileUp size={14} /> Import breakdown</>, () => importInput.current?.click(), "Load this game's Hudl breakdown (CSV or Excel) into its plays, matched to the film in order")}
+                        {game && game.source === 'opponent' && !game.filmOnly && onSaveWeekScouting && copyTargets.length > 0 &&
+                          item(<><Copy size={14} /> Copy to another week</>, openCopy, 'Use this scouting film for another week')}
+                        {game && item(<><ExternalLink size={14} /> Open in Hudl Scout</>, () => onOpenHudlGame({ target: game.source, gameId: game.gameId }))}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

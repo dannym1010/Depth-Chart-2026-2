@@ -2138,9 +2138,55 @@ describe('games with film but no Hudl breakdown', () => {
     assert.deepEqual(byWeek['1'], ['Week 1 - Suffern (film)']);
     assert.deepEqual(byWeek['2'], ['MSA vs Yorktown'], 'week 2 already has our game from Hudl');
     assert.deepEqual(byWeek['5'], ['Wappingers vs Carmel 9-6 (film)', 'Wappingers vs Somers 9-13 (film)']);
-    // Hudl's own scouting game for the week wins over the film-only ones.
+    // A scouting game from Hudl that matches no folder: both scouting films are still there (two games that week).
     const withScout = buildLibrary(weeks, [], '5', { games: [{ id: 'a', name: 'Somers vs Carmel O', playCount: 80 }], plays: [{}] }, games);
-    assert.deepEqual(withScout.weeks.find((w) => w.key === '5')!.games.map((g) => g.name), ['Somers vs Carmel O']);
+    assert.deepEqual(withScout.weeks.find((w) => w.key === '5')!.games.map((g) => g.name), ['Somers vs Carmel O', 'Wappingers vs Carmel 9-6', 'Wappingers vs Somers 9-13']);
+    // One named for a folder stands for it: that folder isn't listed twice, the other one is.
+    const named = buildLibrary(weeks, [], '5', { games: [{ id: 'a', name: 'Wappingers vs Carmel 9/6', playCount: 80 }], plays: [{}] }, games);
+    assert.deepEqual(named.weeks.find((w) => w.key === '5')!.games.map((g) => `${g.name}${g.filmOnly ? ' (film)' : ''}`), ['Wappingers vs Carmel 9/6', 'Wappingers vs Somers 9-13 (film)']);
+    // Made from a folder (its breakdown file): stands for that folder.
+    const fromFolder = buildLibrary(weeks, [], '5', { games: [{ id: games.find((f) => /Somers/.test(f.name))!.id.replace(/^film-/, 'folder-'), name: 'Their game', playCount: 80 }], plays: [{}] }, games);
+    assert.deepEqual(fromFolder.weeks.find((w) => w.key === '5')!.games.map((g) => `${g.name}${g.filmOnly ? ' (film)' : ''}`), ['Their game', 'Wappingers vs Carmel 9-6 (film)']);
+  });
+
+  it('a game made from a folder opens that folder (no picking between two scouting games)', async () => {
+    const { findFilmFolders, resolveGameFolder } = await import('../filmroom/folderRoutes.ts');
+    const { games } = await findFilmFolders(tree(), 'Mahopac 10U Youth Tackle');
+    for (const f of games.filter((g) => g.source === 'opponent' && g.week === '5')) {
+      for (const id of [f.id, f.id.replace(/^film-/, 'folder-')]) {
+        const r = await resolveGameFolder(tree(), { source: 'opponent', week: '5', name: 'Their game', gameId: id }, 'Mahopac 10U Youth Tackle');
+        assert.ok('node' in r, `${f.name}: ${JSON.stringify(r)}`);
+        assert.equal((r as any).path[(r as any).path.length - 1], f.path[f.path.length - 1]);
+      }
+    }
+  });
+
+  it("one folder's game made twice (film and breakdown file) merges into one", async () => {
+    const { folderCopies, mergeFolderCopies } = await import('../hudlScout/scoutBundle.ts');
+    const play = (id: string, gameId: string, n: number, extra: any = {}) => ({ id, gameId, playNumber: n, odk: 'UNKNOWN', playName: '', ...extra }) as any;
+    const bundle: any = {
+      games: [
+        { id: 'film-opponent-x', name: 'Week 5 film', playCount: 2, fromFilm: true },
+        { id: 'folder-opponent-x', name: 'Wappingers vs Carmel', playCount: 2 },
+      ],
+      plays: [
+        play('c1', 'film-opponent-x', 1, { unit: 'gold' }),
+        play('c2', 'film-opponent-x', 2),
+        play('h1', 'folder-opponent-x', 1, { odk: 'O', playName: '22 DOWN' }),
+        play('h2', 'folder-opponent-x', 2, { odk: 'O', playName: '28 DOWN' }),
+      ],
+      deletedGameIds: [],
+      datasetName: 'Wappingers',
+    };
+    const pairs = folderCopies(bundle);
+    assert.equal(pairs.length, 1);
+    const { bundle: out, moved } = mergeFolderCopies(bundle, pairs[0].keep.id, pairs[0].drop.id);
+    assert.deepEqual(out.games.map((g: any) => g.id), ['film-opponent-x']);
+    assert.equal(out.games[0].name, 'Wappingers vs Carmel');
+    assert.ok(out.deletedGameIds.includes('folder-opponent-x'));
+    assert.deepEqual(out.plays.map((p: any) => `${p.id}:${p.playName}`), ['c1:22 DOWN', 'c2:28 DOWN']);
+    assert.equal(out.plays[0].unit, 'gold', "a coach's work stays");
+    assert.deepEqual([...moved.entries()], [['h1', 'c1'], ['h2', 'c2']]);
   });
 
   it('makes each clip a play, in order, with notes that stay with the clip', async () => {

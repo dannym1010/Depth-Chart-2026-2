@@ -7,7 +7,7 @@ import type { Play } from '../hudlScout/types/football';
 import { autoDetectColumnMapping, isSpreadsheetFilename, normalizeHudlRow, parseCsvRows, workbookBufferToCsv } from '../hudlScout/utils/csvParser';
 import { autoTagFromHudl } from '../hudlScout/utils/playTags';
 import type { PlayDatabaseEntry } from '../types/callSheet';
-import { findBreakdowns, findFilmFolders, type FilmFolderGame, type FolderNode, type UnplacedFolder } from './folderRoutes';
+import { findBreakdowns, findFilmFolders, sameFolderGame, type FilmFolderGame, type FolderNode, type UnplacedFolder } from './folderRoutes';
 
 /** A breakdown file's plays, read the same way as a Hudl Scout upload. */
 export async function readBreakdown(name: string, blob: Blob): Promise<Play[]> {
@@ -92,7 +92,7 @@ export function useFolderBreakdowns(opts: {
         }
         if ((target.deletedGameIds || []).includes(f.id)) continue;
         // The film came in first: the Film Room made this game with a blank play per clip. Its breakdown fills it in.
-        const filmGame = target.games.find((g) => g.id === f.id);
+        const filmGame = target.games.find((g) => g.id === f.id || sameFolderGame(g.id, f.id));
         if (filmGame && !isBlankFilmGame(target, filmGame)) continue;
         let plays: Play[];
         try {
