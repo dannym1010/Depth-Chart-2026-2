@@ -14,6 +14,7 @@ export type PlayColumnKey =
   | 'hash'
   | 'formation'
   | 'playCall'
+  | 'callName'
   | 'players'
   | 'playType'
   | 'direction'
@@ -70,6 +71,8 @@ export const PLAY_COLUMNS: PlayColumn[] = [
   { key: 'hash', label: 'HASH', sortValue: (p) => HASH_LABEL[p.hash] || '', filterValues: (p) => [HASH_LABEL[p.hash] || BLANK] },
   { key: 'formation', label: 'FORMATION', sortValue: (p) => clean(p.formation), filterValues: (p) => one(p.formation) },
   { key: 'playCall', label: 'PLAY CALL', sortValue: callText, filterValues: (p) => [callText(p) || BLANK] },
+  // The name a coach built in the Film Room breakdown ("32 Gun Rt Tight 44 Counter").
+  { key: 'callName', label: 'PLAY NAME', sortValue: (p) => clean(p.callName), filterValues: (p) => one(p.callName) },
   { key: 'players', label: 'PLAYERS', sortValue: playerText, filterValues: (p) => [playerText(p) || BLANK] },
   { key: 'playType', label: 'TYPE', sortValue: (p) => clean(p.playType), filterValues: (p) => one(p.playType) },
   { key: 'direction', label: 'DIR', sortValue: (p) => clean(p.direction), filterValues: (p) => one(p.direction) },

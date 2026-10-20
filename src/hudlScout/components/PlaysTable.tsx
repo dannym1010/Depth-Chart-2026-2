@@ -268,6 +268,8 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
   // A column's filter lists the values left after the other columns' filters (like Excel).
   const optionsFor = (key: PlayColumnKey) => filterOptions(filterPlays(basePlays, filters, key), key);
 
+  // The PLAY NAME column, once a coach has named a play (Film Room breakdown).
+  const hasNames = plays.some((p) => p.callName);
   const headerCell = (key: PlayColumnKey, extra = '') => {
     const col = columnByKey(key);
     const filtered = Boolean(filters[key]);
@@ -521,6 +523,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     <FormationDrawButton play={play} formations={theirFormations || []} onPick={(pick) => onFormationAction(play, pick)} />
                   </span>
                 )}
+                {play.callName ? <> · <b className="text-indigo-300">{play.callName}</b></> : null}
                 {play.direction ? ` · ${play.direction}` : ''}
                 {strengthSideText(play) ? <> · <SideTag play={play} /></> : null}
                 {!hasPlayers(play) && play.carrierOrTarget ? ` · ${play.carrierOrTarget}` : ''}
@@ -583,6 +586,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               {headerCell('hash', 'text-center')}
               {headerCell('formation')}
               {headerCell('playCall')}
+              {hasNames && headerCell('callName')}
               {headerCell('players')}
               {headerCell('playType')}
               {headerCell('direction')}
@@ -728,6 +732,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                       play.playName
                     )}
                   </td>
+                  {hasNames && <td className="py-2.5 px-3 text-xs font-bold text-indigo-300 whitespace-nowrap">{play.callName || ''}</td>}
                   <td className="py-2.5 px-3 text-slate-300 text-xs">
                     {hasPlayers(play) ? <BallPlayers play={play} inline={compact} /> : play.carrierOrTarget || <span className="text-slate-400">-</span>}
                   </td>

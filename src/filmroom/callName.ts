@@ -28,6 +28,20 @@ export function buildCallName(parts: CallParts | undefined, run = true): string 
   return [parts.personnel, qb, side, ...(parts.tags || []), ball, parts.concept].map((s) => String(s || '').trim()).filter(Boolean).join(' ');
 }
 
+/** The play names already made in these plays (each once, with its parts), most used first. */
+export function savedNames(plays: Play[]): { name: string; parts: CallParts; count: number }[] {
+  const by = new Map<string, { name: string; parts: CallParts; count: number }>();
+  for (const p of plays) {
+    const name = String(p.callName || '').trim();
+    if (!name || !p.callParts) continue;
+    const key = name.toLowerCase();
+    const cur = by.get(key);
+    if (cur) cur.count += 1;
+    else by.set(key, { name, parts: p.callParts, count: 1 });
+  }
+  return [...by.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+
 /** The parts to start from: the coach's, else what the breakdown already says (personnel, strength). */
 export function startingParts(p: Play): CallParts {
   if (p.callParts) return p.callParts;

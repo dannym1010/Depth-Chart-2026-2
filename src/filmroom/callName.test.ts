@@ -19,6 +19,14 @@ describe('play names from their parts', () => {
     assert.ok(!('qb' in patch.callParts!), 'empty parts are left out');
   });
 
+  it('quick pick: the names already made, each once with its parts, most used first', async () => {
+    const { savedNames } = await import('./callName.ts');
+    const p = (callName: string, concept: string) => ({ callName, callParts: { personnel: '32', concept } }) as any;
+    const list = savedNames([p('32 Trap', 'Trap'), p('32 Counter', 'Counter'), p('32 counter', 'Counter'), { playName: 'x' } as any]);
+    assert.deepEqual(list.map((x) => `${x.name}:${x.count}`), ['32 Counter:2', '32 Trap:1']);
+    assert.deepEqual(list[0].parts, { personnel: '32', concept: 'Counter' });
+  });
+
   it('a re-import of the breakdown keeps the play names', async () => {
     const { mergeGamePlays } = await import('../hudlScout/scoutBundle.ts');
     const bundle: any = {

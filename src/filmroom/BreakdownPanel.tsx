@@ -6,7 +6,7 @@ import { playIsUnitTaggable } from '../hudlScout/utils/unitStats';
 import { isBalancedPlay, playStrength } from '../hudlScout/utils/strength';
 import { breakdownRowOf, type BreakdownColumn, type BreakdownRow } from './breakdownEntry';
 import { AiClipAnalyzerModal } from './AiClipAnalyzerModal';
-import { BACKS, HOLES, PASS_CONCEPTS, PERSONNEL, QB_SPOTS, RUN_CONCEPTS, TAGS, startingParts, withParts } from './callName';
+import { BACKS, HOLES, PASS_CONCEPTS, PERSONNEL, QB_SPOTS, RUN_CONCEPTS, TAGS, savedNames, startingParts, withParts } from './callName';
 import type { CallParts } from '../hudlScout/types/football';
 
 interface Props {
@@ -262,6 +262,7 @@ export const BreakdownPanel: React.FC<Props> = ({
           onChange={(parts) => onPatch(play, withParts({ ...play, playType: (row['PLAY TYPE'] as Play['playType']) || play.playType }, parts))}
           onUseName={(name) => save({ 'OFF PLAY': name })}
           playBox={String(row['OFF PLAY'] || '')}
+          saved={savedNames(suggestFrom)}
         />
       )}
       <div className="grid grid-cols-2 gap-x-2">
@@ -343,7 +344,10 @@ const PlayNameFields: React.FC<{
   /** Put the name in the Play box. */
   onUseName: (name: string) => void;
   playBox: string;
-}> = ({ play, readOnly, run, onChange, onUseName, playBox }) => {
+  /** Names already made in this team's games (most used first), to pick in one click. */
+  saved: { name: string; parts: CallParts; count: number }[];
+}> = ({ play, readOnly, run, onChange, onUseName, playBox, saved }) => {
+  const [find, setFind] = useState('');
   const parts = startingParts(play);
   const [tagText, setTagText] = useState('');
   const set = (patch: Partial<CallParts>) => onChange({ ...parts, ...patch });
@@ -375,6 +379,45 @@ const PlayNameFields: React.FC<{
       <div className={`-mt-1 text-sm font-black break-words ${name ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-400 font-semibold text-xs'}`} title={name}>
         {name || 'Pick the parts below'}
       </div>
+      {!readOnly && saved.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            {label('Quick pick')}
+            {saved.length > 8 && (
+              <input
+                value={find}
+                onChange={(e) => setFind(e.target.value)}
+                placeholder="Find a play"
+                aria-label="Find a saved play name"
+                className="ml-auto h-6 w-28 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1.5 text-[11px]"
+              />
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+            {saved
+              .filter((x) => !find.trim() || x.name.toLowerCase().includes(find.trim().toLowerCase()))
+              .slice(0, find.trim() ? 40 : 8)
+              .map((x) => {
+                const on = x.name === name;
+                return (
+                  <button
+                    key={x.name}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => {
+                      onChange(x.parts);
+                      setFind('');
+                    }}
+                    title={`Name this play ${x.name} (used ${x.count} time${x.count === 1 ? '' : 's'})`}
+                    className={`h-7 px-2 rounded-full text-[11px] font-bold border ${on ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-indigo-400'}`}
+                  >
+                    {x.name}
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+      )}
       <div className="flex flex-col gap-1">
         {label('Personnel')}
         <div className="flex flex-wrap gap-1 items-center">
