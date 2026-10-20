@@ -13,8 +13,11 @@ export interface LeagueLink {
   url: string;
 }
 
-const decode = (s: string) =>
-  s.replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&nbsp;/g, ' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+const entities = (s: string) => s.replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&nbsp;/g, ' ');
+/** Link text, tidied (tags out, runs of spaces made one). */
+const decode = (s: string) => entities(s).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+/** A file address exactly as written: the league's file names can have two spaces in a row ("wk 7  standings"). */
+const decodeUrl = (s: string) => entities(s).trim().replace(/ /g, '%20');
 
 export const allowedFile = (raw: string) => {
   try {
@@ -33,7 +36,7 @@ async function pageLinks(tabid: string): Promise<LeagueLink[]> {
   const out: LeagueLink[] = [];
   const re = /<a\b[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
   for (let m = re.exec(html); m; m = re.exec(html)) {
-    const url = decode(m[1]).replace(/ /g, '%20');
+    const url = decodeUrl(m[1]);
     if (!allowedFile(url) || !/\.(pdf|xlsx?)$/i.test(url.split('?')[0])) continue;
     if (!out.some((l) => l.url === url)) out.push({ text: decode(m[2]) || decodeURIComponent(url.split('/').pop() || ''), url });
   }
