@@ -17,6 +17,11 @@ export function mergeShared(a?: Partial<FilmGameShared> | null, b?: Partial<Film
   const newest = <T extends { editedAt: number }>(a?: T, b?: T) =>
     !a ? b : !b ? a : (Number(b.editedAt) || 0) > (Number(a.editedAt) || 0) ? b : a;
   const drive = newest(x.drive, y.drive);
+  const removedClips: NonNullable<FilmGameShared['removedClips']> = { ...(x.removedClips || {}) };
+  for (const [name, r] of Object.entries(y.removedClips || {})) {
+    const cur = removedClips[name];
+    if (!cur || (Number(r?.editedAt) || 0) > (Number(cur.editedAt) || 0)) removedClips[name] = r;
+  }
   const clipPicks: NonNullable<FilmGameShared['clipPicks']> = { ...(x.clipPicks || {}) };
   for (const [playId, pick] of Object.entries(y.clipPicks || {})) {
     const cur = clipPicks[playId];
@@ -30,6 +35,7 @@ export function mergeShared(a?: Partial<FilmGameShared> | null, b?: Partial<Film
     ...(drive ? { drive } : {}),
     ...(folderPick ? { folderPick } : {}),
     ...(Object.keys(clipPicks).length ? { clipPicks } : {}),
+    ...(Object.keys(removedClips).length ? { removedClips } : {}),
   };
 }
 

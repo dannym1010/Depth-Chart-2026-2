@@ -139,7 +139,10 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
     setPick,
   });
 
-  const clips = film.status === 'ready' ? film.clips : [];
+  const clips = useMemo(() => {
+    const gone = new Set(Object.entries(shared.removedClips || {}).filter(([, r]) => r?.removed).map(([n]) => n));
+    return film.status === 'ready' ? film.clips.filter((c) => !gone.has(c.name)) : [];
+  }, [film, shared.removedClips]);
   const clipFor = useMemo(() => matchClipsToPlays(clips, gamePlays, shared.clipPicks), [clips, gamePlays, shared.clipPicks]);
   const clipOf = (p?: Play) => (p && clipFor.has(p.id) ? clips[clipFor.get(p.id)!] : undefined);
   const clip = clipOf(play);

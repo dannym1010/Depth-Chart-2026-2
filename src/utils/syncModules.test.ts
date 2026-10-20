@@ -4512,6 +4512,11 @@ describe('film room', () => {
     const { mergeShared } = await import('../filmroom/sharedMerge.ts');
     const a = mergeShared({ clipPicks: { p3: { clip: 'IMG_0004.MOV', editedAt: 10 } } }, { clipPicks: { p3: { clip: 'IMG_0005.MOV', editedAt: 20 } } });
     assert.equal(a.clipPicks?.p3.clip, 'IMG_0005.MOV');
+    // A video taken out of the game: shared, and the newest change (removed / brought back) wins.
+    const out = mergeShared({ removedClips: { 'IMG_0003.MOV': { removed: true, editedAt: 10 } } }, { removedClips: { 'IMG_0003.MOV': { removed: false, editedAt: 5 } } });
+    assert.equal(out.removedClips?.['IMG_0003.MOV'].removed, true);
+    const back = mergeShared(out, { removedClips: { 'IMG_0003.MOV': { removed: false, editedAt: 20 } } });
+    assert.equal(back.removedClips?.['IMG_0003.MOV'].removed, false);
   });
   it('coaches keep each other\'s notes; a deleted note stays deleted; later drawing wins', async () => {
     const { mergeShared, filmGameKey, sharedDocId } = await import('../filmroom/sharedMerge.ts');

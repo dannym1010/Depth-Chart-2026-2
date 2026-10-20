@@ -3,7 +3,7 @@
 // whole staff sees. The play log under the video is Hudl Scout's own: sorting it sets the play order, and
 // tags changed here are the same tags Hudl Scout shows.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Copy, ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft, Star, ListVideo, X, MoreHorizontal } from 'lucide-react';
+import { Copy, ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft, Star, ListVideo, X, MoreHorizontal, Trash2, RotateCcw } from 'lucide-react';
 import { PlaysTable } from '../hudlScout/components/PlaysTable';
 import { assignDrives, bundleFromSaved, copyScoutGame, folderCopies, mergeFolderCopies, removeScoutGame, type ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play, TeamUnit } from '../hudlScout/types/football';
@@ -218,18 +218,21 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     pick: shared.folderPick?.name,
     setPick,
   });
+  // The game's clips without the ones a coach took out (the plays after one move up a clip).
+  const removedSet = useMemo(() => new Set(Object.entries(shared.removedClips || {}).filter(([, r]) => r?.removed).map(([n]) => n)), [shared.removedClips]);
+  const liveClips = useMemo(() => (film.status === 'ready' ? film.clips.filter((c) => !removedSet.has(c.name)) : []), [film, removedSet]);
   // A film-only game's plays are its clips.
   useEffect(() => {
     if (!game?.filmOnly) return setClipPlays((c) => (c.length ? [] : c));
-    const next = film.status === 'ready' ? playsFromClips(film.clips, game.gameId) : [];
+    const next = film.status === 'ready' ? playsFromClips(liveClips, game.gameId) : [];
     setClipPlays((c) => (c.length === 0 && next.length === 0 ? c : next));
-  }, [game?.key, game?.filmOnly, game?.gameId, film]);
+  }, [game?.key, game?.filmOnly, game?.gameId, film, liveClips]);
 
   // Film with no Hudl breakdown: once its clips are in, it becomes a Hudl Scout game with one blank play per
   // clip (same game id, so the film link and notes stay), and the coach fills the plays in while watching.
   const madeBreakdown = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!game?.filmOnly || film.status !== 'ready' || !film.clips.length || isReadOnlySession()) return;
+    if (!game?.filmOnly || film.status !== 'ready' || !liveClips.length || isReadOnlySession()) return;
     if (madeBreakdown.current.has(game.key)) return;
     const week = game.week || '';
     const w = filmWeeks?.find((x) => x.key === week);
@@ -237,11 +240,11 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     // Deleted in Hudl Scout: leave it as plain film.
     if (target.games.some((g) => g.id === game.gameId || sameFolderGame(g.id, game.gameId)) || (target.deletedGameIds || []).includes(game.gameId)) return;
     madeBreakdown.current.add(game.key);
-    const fresh = blankPlays(film.clips, game.gameId);
+    const fresh = blankPlays(liveClips, game.gameId);
     const now = Date.now();
     const g: ScoutGame = { id: game.gameId, name: game.name, playCount: fresh.length, addedAt: now, fromFilm: true, ...(week ? { week } : {}) };
     // Notes and drawings already made on the clips move to their plays.
-    const moved = new Map(playsFromClips(film.clips, game.gameId).map((p) => [p.id, breakdownPlayId(p.id, game.gameId)]));
+    const moved = new Map(playsFromClips(liveClips, game.gameId).map((p) => [p.id, breakdownPlayId(p.id, game.gameId)]));
     if ([...moved.keys()].some((id) => shared.notes.some((n) => n.playId === id) || shared.drawings[id])) {
       update((st) => ({
         ...st,
@@ -273,7 +276,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     onFilmFolders,
   });
 
-  const clips = film.status === 'ready' ? film.clips : [];
+  const clips = liveClips;
   const clipFor = useMemo(() => matchClipsToPlays(clips, plays, shared.clipPicks), [clips, plays, shared.clipPicks]);
   // Empty plays added to a scouting game's breakdown for film that was really our game's (Oct 2026): taken
   // back out, as long as nobody has filled them in. Their ids end in "-x<play number>".
@@ -329,6 +332,19 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   }, [game?.key, film.status, clips.length, plays.length]);
   // Clips in the order they're matched (by name): stepping a play's clip moves through this list.
   const clipsInOrder = useMemo(() => clips.map((c, i) => ({ c, i })).sort((a, b) => naturalCompare(a.c.name, b.c.name)), [clips]);
+  /** Take this play's video out of the game: every play after it moves up one clip. The file stays (bring it back from More). */
+  const removeClipOf = (p: Play) => {
+    const i = clipFor.get(p.id);
+    const c = i !== undefined ? clips[i] : undefined;
+    if (!c) return;
+    if (!window.confirm(`Remove "${c.name}" from this game? Play #${p.playNumber} and every play after it move up one video. The file isn't deleted, and you can bring it back from More.`)) return;
+    update((st) => ({ ...st, removedClips: { ...(st.removedClips || {}), [c.name]: { removed: true, editedAt: Date.now() } } }));
+  };
+  const restoreClips = () =>
+    update((st) => ({
+      ...st,
+      removedClips: Object.fromEntries(Object.entries(st.removedClips || {}).map(([n, r]) => [n, r?.removed ? { removed: false, editedAt: Date.now() } : r])),
+    }));
   /** Line the play up with another clip (the plays after it follow); null takes the coach's pick back. */
   const pickClip = (playId: string, clipName: string | null) =>
     update((s) => ({ ...s, clipPicks: { ...(s.clipPicks || {}), [playId]: { clip: clipName || '', editedAt: Date.now() } } }));
@@ -457,7 +473,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     const target = game.source === 'own' ? own : bundleFromSaved(saved, w?.opponent || 'Opponent');
     if (target.games.some((g) => g.id === game.gameId)) return window.alert('This game is being set up from its film. Try again in a moment.');
     madeBreakdown.current.add(game.key); // no blank plays for it as well
-    const clipsNow = film.status === 'ready' ? film.clips : [];
+    const clipsNow = liveClips;
     let merged = importIntoGame(clipsNow.length ? blankPlays(clipsNow, game.gameId) : [], fresh, game.gameId);
     if (game.source === 'own' && playDatabase?.length) merged = autoTagFromHudl(merged, playDatabase, new Set(merged.map((p) => p.id))).plays;
     merged = assignDrives(merged);
@@ -1344,6 +1360,11 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                   Undo
                 </button>
               )}
+              {at >= 0 && (
+                <button type="button" onClick={() => removeClipOf(play)} className="h-5 px-1 rounded opacity-70 hover:opacity-100 hover:text-rose-600" title="Remove this video from the game: the plays after it move up one" aria-label="Remove this video">
+                  <Trash2 size={12} />
+                </button>
+              )}
             </span>
           );
         })()}
@@ -1416,6 +1437,9 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                             },
                             film.status === 'ready' && film.viaRoot ? 'Stop using the team film folder for every game' : 'Stop using the film linked to this game'
                           )}
+                        {film.status === 'ready' && play && clipFor.has(play.id) &&
+                          item(<><Trash2 size={14} /> Remove this play&apos;s video</>, () => removeClipOf(play), "Leave this video out of the game: the plays after it move up one (the file isn't deleted)")}
+                        {removedSet.size > 0 && item(<><RotateCcw size={14} /> Bring back removed videos ({removedSet.size})</>, restoreClips)}
                         {sources.drive && canOpenFolders() && (
                           <div className="px-2.5 py-1.5">
                             <div className="mb-1 text-[10px] font-black uppercase tracking-wider text-slate-400">Play film from</div>
