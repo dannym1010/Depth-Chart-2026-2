@@ -423,6 +423,9 @@ function keepCoachWork(old: Play, fresh: Play): Play {
   const next: Play = { ...fresh, id: old.id, gameId: old.gameId };
   if (old.unit) next.unit = old.unit;
   if (old.subs && Object.keys(old.subs).length) next.subs = old.subs;
+  // The play named in the Film Room (its parts and name) stays.
+  if (old.callParts) next.callParts = old.callParts;
+  if (old.callName) next.callName = old.callName;
   // A formation a coach typed ("21 R") beats a blank or Hudl word from the file.
   const oldForm = old.untaggedFormation ?? old.formation;
   const freshIsNumber = /^\d/.test(String(fresh.formation || '').trim());

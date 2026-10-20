@@ -6,6 +6,8 @@ import { playIsUnitTaggable } from '../hudlScout/utils/unitStats';
 import { isBalancedPlay, playStrength } from '../hudlScout/utils/strength';
 import { breakdownRowOf, type BreakdownColumn, type BreakdownRow } from './breakdownEntry';
 import { AiClipAnalyzerModal } from './AiClipAnalyzerModal';
+import { BACKS, HOLES, PASS_CONCEPTS, PERSONNEL, QB_SPOTS, RUN_CONCEPTS, TAGS, startingParts, withParts } from './callName';
+import type { CallParts } from '../hudlScout/types/football';
 
 interface Props {
   play?: Play;
@@ -252,6 +254,16 @@ export const BreakdownPanel: React.FC<Props> = ({
         {field('Yard line', box('YARD LN', { placeholder: '-25 ours · +30 theirs' }))}
         {field('Hash', chips('HASH', plain(LMR)))}
       </div>
+      {onPatch && (
+        <PlayNameFields
+          play={play}
+          readOnly={readOnly}
+          run={!/^(pass|screen)$/i.test(String(row['PLAY TYPE'] || ''))}
+          onChange={(parts) => onPatch(play, withParts({ ...play, playType: (row['PLAY TYPE'] as Play['playType']) || play.playType }, parts))}
+          onUseName={(name) => save({ 'OFF PLAY': name })}
+          playBox={String(row['OFF PLAY'] || '')}
+        />
+      )}
       <div className="grid grid-cols-2 gap-x-2">
         {field('Formation', box('OFF FORM', { list: `${listId}-form`, placeholder: 'Trips Rt' }))}
         {field('Play', box('OFF PLAY', { list: `${listId}-play`, placeholder: '34 Power' }))}
@@ -314,6 +326,172 @@ export const BreakdownPanel: React.FC<Props> = ({
           hasNextPlay={Boolean(next)}
         />
       )}
+    </div>
+  );
+};
+
+/**
+ * The play's name, built from its parts: personnel, QB under center or in the gun, strength, tags, who gets the
+ * ball to which hole (runs) and the concept. Saved with the play; what Hudl brought in stays as it was.
+ */
+const PlayNameFields: React.FC<{
+  play: Play;
+  readOnly?: boolean;
+  /** A run (back and hole shown) or a pass. */
+  run: boolean;
+  onChange: (parts: CallParts) => void;
+  /** Put the name in the Play box. */
+  onUseName: (name: string) => void;
+  playBox: string;
+}> = ({ play, readOnly, run, onChange, onUseName, playBox }) => {
+  const parts = startingParts(play);
+  const [tagText, setTagText] = useState('');
+  const set = (patch: Partial<CallParts>) => onChange({ ...parts, ...patch });
+  const pick = <K extends keyof CallParts>(key: K, v: CallParts[K]) => set({ [key]: parts[key] === v ? undefined : v } as Partial<CallParts>);
+  const tags = parts.tags || [];
+  const toggleTag = (t: string) => set({ tags: tags.some((x) => x.toLowerCase() === t.toLowerCase()) ? tags.filter((x) => x.toLowerCase() !== t.toLowerCase()) : [...tags, t] });
+  const addTyped = () => {
+    const t = tagText.trim();
+    if (t && !tags.some((x) => x.toLowerCase() === t.toLowerCase())) set({ tags: [...tags, t] });
+    setTagText('');
+  };
+  const name = play.callName || '';
+  const chip = (on: boolean) =>
+    `h-7 px-2 rounded-md text-xs font-bold ${on ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'} disabled:cursor-default`;
+  const label = (t: string) => <span className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">{t}</span>;
+  const concepts = run ? RUN_CONCEPTS : PASS_CONCEPTS;
+  return (
+    <div className="rounded-xl border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50/40 dark:bg-indigo-500/5 p-2.5 flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-black text-slate-800 dark:text-slate-100">Play name</span>
+        <span className="flex-1" />
+        {name && !readOnly && name !== playBox && (
+          <button type="button" onClick={() => onUseName(name)} className="shrink-0 h-6 px-2 rounded-md text-[11px] font-bold bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-500/40 text-indigo-700 dark:text-indigo-300" title="Put this name in the Play box too">
+            Use as Play
+          </button>
+        )}
+      </div>
+      {/* The name, whole (it can be long). */}
+      <div className={`-mt-1 text-sm font-black break-words ${name ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-400 font-semibold text-xs'}`} title={name}>
+        {name || 'Pick the parts below'}
+      </div>
+      <div className="flex flex-col gap-1">
+        {label('Personnel')}
+        <div className="flex flex-wrap gap-1 items-center">
+          {PERSONNEL.map((v) => (
+            <button key={v} type="button" disabled={readOnly} aria-pressed={parts.personnel === v} onClick={() => pick('personnel', v)} className={chip(parts.personnel === v)}>
+              {v}
+            </button>
+          ))}
+          <input
+            key={`${play.id}-pers-${parts.personnel || ''}`}
+            defaultValue={parts.personnel && !PERSONNEL.includes(parts.personnel) ? parts.personnel : ''}
+            readOnly={readOnly}
+            placeholder="Other"
+            aria-label="Other personnel"
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              if (v && v !== parts.personnel) set({ personnel: v });
+            }}
+            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+            className="h-7 w-16 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1.5 text-xs"
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-[auto_auto] justify-start gap-x-4 gap-y-2">
+        <div className="flex flex-col gap-1">
+          {label('QB')}
+          <div className="flex flex-wrap gap-1">
+            {QB_SPOTS.map((q) => (
+              <button key={q.v} type="button" disabled={readOnly} aria-pressed={parts.qb === q.v} onClick={() => pick('qb', q.v)} className={chip(parts.qb === q.v)}>
+                {q.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-col gap-1">
+          {label('Strength')}
+          <div className="flex gap-1">
+            {(['L', 'R'] as const).map((v) => (
+              <button key={v} type="button" disabled={readOnly} aria-pressed={parts.strength === v} onClick={() => pick('strength', v)} className={chip(parts.strength === v)}>
+                {v === 'L' ? 'Left' : 'Right'}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-col gap-1">
+        {label('Tags')}
+        <div className="flex flex-wrap gap-1 items-center">
+          {[...TAGS, ...tags.filter((t) => !TAGS.some((x) => x.toLowerCase() === t.toLowerCase()))].map((t) => {
+            const on = tags.some((x) => x.toLowerCase() === t.toLowerCase());
+            return (
+              <button key={t} type="button" disabled={readOnly} aria-pressed={on} onClick={() => toggleTag(t)} className={chip(on)}>
+                {t}
+              </button>
+            );
+          })}
+          {!readOnly && (
+            <input
+              value={tagText}
+              onChange={(e) => setTagText(e.target.value)}
+              onBlur={addTyped}
+              onKeyDown={(e) => e.key === 'Enter' && addTyped()}
+              placeholder="+ Tag"
+              aria-label="Add a tag"
+              className="h-7 w-20 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1.5 text-xs"
+            />
+          )}
+        </div>
+      </div>
+      {run && (
+        <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
+          <div className="flex flex-col gap-1">
+            {label('Ball to')}
+            <div className="flex flex-wrap gap-1">
+              {BACKS.map((b) => (
+                <button key={b.v} type="button" disabled={readOnly} aria-pressed={parts.back === b.v} onClick={() => pick('back', b.v)} className={chip(parts.back === b.v)}>
+                  {b.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-col gap-1 min-w-0">
+            {label('Hole')}
+            <div className="flex flex-wrap gap-1">
+              {HOLES.map((h) => (
+                <button key={h} type="button" disabled={readOnly} aria-pressed={parts.hole === h} onClick={() => pick('hole', h)} className={`${chip(parts.hole === h)} min-w-[1.75rem]`}>
+                  {h}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      <div className="flex flex-col gap-1">
+        {label('Concept')}
+        <div className="flex flex-wrap gap-1 items-center">
+          {[...concepts, ...(parts.concept && !concepts.includes(parts.concept) ? [parts.concept] : [])].map((c) => (
+            <button key={c} type="button" disabled={readOnly} aria-pressed={parts.concept === c} onClick={() => pick('concept', c)} className={chip(parts.concept === c)}>
+              {c}
+            </button>
+          ))}
+          {!readOnly && (
+            <input
+              key={`${play.id}-concept-${parts.concept || ''}`}
+              placeholder="Other"
+              aria-label="Other concept"
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (v && v !== parts.concept) set({ concept: v });
+                e.target.value = '';
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+              className="h-7 w-20 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1.5 text-xs"
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 };

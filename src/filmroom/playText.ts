@@ -5,7 +5,7 @@ import type { Play } from '../hudlScout/types/football';
 const clean = (v?: string) => (v && v.trim() !== '-' ? v : '');
 
 const downDist = (p: Play) => (p.down ? `${p.down}&${p.distance ?? ''}` : '');
-const playCallText = (p: Play) => clean(p.playCall) || clean(p.playName) || clean(p.hudlCall);
+const playCallText = (p: Play) => clean(p.callName) || clean(p.playCall) || clean(p.playName) || clean(p.hudlCall);
 
 /** "#12 · Q2 · 2&6 · Trips Rt · Jet Sweep" */
 export const playTitle = (p: Play) =>

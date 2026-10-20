@@ -25,6 +25,22 @@ export interface DefPlay {
 /** Which of our units was on the field (our-team play log only). */
 export type TeamUnit = 'black' | 'blue' | 'gold';
 
+/** The parts of a play's name a coach picks in the Film Room breakdown. */
+export interface CallParts {
+  personnel?: string;
+  /** Under center, shotgun or pistol. */
+  qb?: 'UC' | 'Gun' | 'Pistol';
+  strength?: 'L' | 'R';
+  /** Weak, Tight, Heavy, Motion, ... (any the coach types too). */
+  tags?: string[];
+  /** Who gets the ball (back number: 1 QB, 2 FB, 3 TB, 4 wing). */
+  back?: string;
+  /** The hole it goes to (0-9). */
+  hole?: string;
+  /** Trap, Counter, Dive, Boot, ... */
+  concept?: string;
+}
+
 export interface Play {
   id: string;
   playNumber: number;
@@ -85,6 +101,13 @@ export interface Play {
   hudlRow?: Record<string, string>;
   /** A coach set the formation's strength for this play (else it's read from the formation / call). */
   strength?: 'L' | 'R' | 'balanced';
+  /**
+   * The play named by a coach in the Film Room (added to what Hudl brought in, which stays as it was): personnel,
+   * QB under center or in the gun, strength, tags, who gets the ball to which hole, and the concept.
+   */
+  callParts?: CallParts;
+  /** The name those parts make ("32 Gun Rt Tight 44 Counter"). */
+  callName?: string;
 }
 
 export interface DownDistGroup {

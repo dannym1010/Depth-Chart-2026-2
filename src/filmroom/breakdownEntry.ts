@@ -152,6 +152,7 @@ export function importIntoGame(existing: Play[], imported: Play[], gameId: strin
       gameId,
       ...(was?.unit ? { unit: was.unit } : {}),
       ...(was?.subs ? { subs: was.subs } : {}),
+      ...(was?.callParts ? { callParts: was.callParts, ...(was.callName ? { callName: was.callName } : {}) } : {}),
       ...(was?.defPlay && !p.defPlay ? { defPlay: was.defPlay } : {}),
       ...tagged,
       editedAt: now,
