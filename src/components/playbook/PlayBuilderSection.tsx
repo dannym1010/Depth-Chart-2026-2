@@ -126,6 +126,8 @@ interface Props {
   onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: BackfieldSpots; baseKey: string }) => void;
   /** Their play: start it over from one of their drawn formations. */
   onStartFromFormation?: (formationId: string) => void;
+  /** Open another play drawn under this play call. */
+  onOpenSameCall?: (scoutId: string, gameId: string) => void;
   /** Drawing one of their formations (seed.formationEdit): saved as the formation their plays start from. */
   onSaveFormation?: (formation: { id: string; name: string; builder: PlayBuilderState; diagramUrl: string; defenseUrl?: string; defenseName?: string }) => void;
 }
@@ -227,7 +229,7 @@ function startFromSeed(seed?: PlayBuilderSeed | null) {
   };
 }
 
-export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, onStateChange, onSaveFilmBackfield, onSaveFormation, onStartFromFormation, nav }) => {
+export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, onStateChange, onSaveFilmBackfield, onSaveFormation, onStartFromFormation, onOpenSameCall, nav }) => {
   // Drawing their formation: just the alignment (no play lines), saved as the formation.
   const formationMode = Boolean(seed?.formationEdit);
   // One of our defensive plays: the defense is what's drawn (front, alignment, blitz arrows).
@@ -1383,6 +1385,35 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
             </div>
           )}
           {baseNote && <p className="px-1 text-xs font-bold text-emerald-600 dark:text-emerald-400">{baseNote}</p>}
+          {!formationMode && !!seed?.scoutId && !!seed.sameCall?.length && (
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Also drawn as {seed.name} ({seed.sameCall.length})
+                </span>
+                {onOpenSameCall && <span className="text-[11px] text-slate-400">Click one to open it</span>}
+              </div>
+              <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                {seed.sameCall.map((s) => (
+                  <li key={s.scoutId}>
+                    <button
+                      type="button"
+                      disabled={!onOpenSameCall}
+                      onClick={() => onOpenSameCall?.(s.scoutId, s.gameId)}
+                      title={`Open this drawing of ${s.name}`}
+                      className="w-full text-left rounded-lg border border-slate-200 dark:border-slate-700 p-1 hover:border-indigo-400 cursor-pointer disabled:cursor-default"
+                    >
+                      {s.diagramUrl ? (
+                        <DiagramImage url={s.diagramUrl} alt={s.name} className="w-full rounded-md bg-white" />
+                      ) : (
+                        <div className="h-12 rounded-md bg-slate-50 dark:bg-slate-800/60 text-[10px] text-slate-400 flex items-center justify-center">No picture</div>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {formationMode && !!seed?.formationPlays?.length && !!seed.gameId && (
             <div className="rounded-2xl border border-slate-200 dark:border-slate-800 p-3 space-y-2">
               <div className="flex items-center justify-between gap-2">

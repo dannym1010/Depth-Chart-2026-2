@@ -96,4 +96,22 @@ describe('play names from their parts', () => {
     const again = placeholdersFromNames('g', film, out.cards.slice(0, 2), [out.cards[2].id], [...out.formations.slice(0, 2), { ...out.formations[2], deleted: true }]);
     assert.deepEqual([again.cards.length, again.formations.length], [0, 0]);
   });
+
+  it('a drawn play whose clip is tagged with another play call joins that call (both kept)', async () => {
+    const { mergeDrawnIntoTags } = await import('../utils/scoutOppPlays.ts');
+    const card = (id: string, name: string, clips?: number[]) => ({ id, gameId: 'g', name, formation: '21 GUN', personnel: '21', kind: 'run', down: '1st', notes: '', onReport: true, editedAt: 1, ...(clips ? { clips } : {}) }) as any;
+    const a = card('opp-1', '21 GUN Dive', [5]);
+    const b = card('name-g-21-gun-rt-dive', '21 Gun Rt Dive');
+    const c = card('opp-2', 'Jet Sweep', [9]);
+    const film = [
+      { id: 's5', gameId: 'g', playNumber: 5, odk: 'O', playCallId: 'scout_name-g-21-gun-rt-dive', playCall: '21 Gun Rt Dive' },
+      { id: 's9', gameId: 'g', playNumber: 9, odk: 'O', playCallId: 'scout_name-g-21-gun-rt-dive', playCall: '21 Gun Rt Dive' },
+    ] as any[];
+    const drawn = (id: string) => id !== 'name-g-21-gun-rt-dive';
+    const out = mergeDrawnIntoTags(film, [a, b, c], drawn);
+    assert.deepEqual(out.map((x) => [x.id, x.name, x.clips]), [['opp-1', '21 Gun Rt Dive', undefined], ['opp-2', '21 Gun Rt Dive', undefined]]);
+    // Still on one of its clips, or not drawn: stays as it is.
+    assert.equal(mergeDrawnIntoTags([{ ...film[0], playCallId: 'scout_opp-1' }], [a, b], drawn).length, 0);
+    assert.equal(mergeDrawnIntoTags(film, [a, b], () => false).length, 0);
+  });
 });

@@ -40,6 +40,8 @@ interface Props {
   scoutNeighbors?: (scoutId: string, gameId: string) => { index: number; total: number; open: (dir: 1 | -1) => boolean } | null;
   /** Start their play over from one of their drawn formations. */
   onRestartScoutPlay?: (scoutId: string, gameId: string, formationId: string) => boolean;
+  /** Open another of their plays in the builder (one drawn under the same play call). */
+  onOpenScoutPlay?: (scoutId: string, gameId: string) => boolean;
   /** Their formation drawn in the builder (Hudl Scout → Their plays → Their formations). */
   onSaveOppFormation?: (formation: { id: string; name: string; builder: PlayBuilderState; diagramUrl: string; defenseUrl?: string; defenseName?: string }) => void;
 }
@@ -81,6 +83,7 @@ export const PlayLibraryView: React.FC<Props> = ({
   onSaveFilmBackfield,
   onSaveOppFormation,
   onRestartScoutPlay,
+  onOpenScoutPlay,
   scoutNeighbors,
 }) => {
   const canEdit = userRole === 'admin' || userRole === 'assistant';
@@ -435,6 +438,7 @@ export const PlayLibraryView: React.FC<Props> = ({
         nav={builderNav}
         onBack={(builderSeed?.scoutId || builderSeed?.backfieldEdit || builderSeed?.formationEdit) && onBackToPlayList ? onBackToPlayList : undefined}
         onSaveFormation={onSaveOppFormation}
+        onOpenSameCall={onOpenScoutPlay ? (scoutId, gameId) => onOpenScoutPlay(scoutId, gameId) && setBuilderSeed(peekPlayBuilderSeed()) : undefined}
         onStartFromFormation={
           builderSeed?.scoutId && builderSeed.gameId && onRestartScoutPlay
             ? (formationId) => {

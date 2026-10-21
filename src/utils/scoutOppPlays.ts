@@ -553,6 +553,7 @@ export function placeholdersFromNames(
       notes: `Ran ${rows.length} time${rows.length === 1 ? '' : 's'} on this film.`,
       onReport: true,
       editedAt: now,
+      clips: rows.map((r) => Number(r.playNumber) || 0).filter(Boolean),
     });
   }
   const byName = new Map<string, ScoutOppPlay>();
@@ -569,6 +570,33 @@ export function placeholdersFromNames(
     }
   }
   return { cards, formations: outForms, links };
+}
+
+/**
+ * A play already drawn whose clips were all tagged with another play call (from the play log, or a new play
+ * name): it's kept, under that play call, so both drawings show when the call is opened. Returns the cards
+ * that move (renamed to the call they joined); a drawn play with a clip still on it stays as it is.
+ */
+export function mergeDrawnIntoTags(film: Play[], cards: ScoutOppPlay[], drawn: (scoutId: string) => boolean): ScoutOppPlay[] {
+  const byTag = new Map(cards.map((c) => [`scout_${c.id}`, c]));
+  const out: ScoutOppPlay[] = [];
+  const now = Date.now();
+  for (const a of cards) {
+    if (!a.clips?.length || !drawn(a.id)) continue;
+    const mine = `scout_${a.id}`;
+    const onFilm = film.filter((p) => !p.gameId || !a.gameId || p.gameId === a.gameId);
+    if (onFilm.some((p) => p.playCallId === mine)) continue;
+    const clips = new Set(a.clips);
+    const joined = onFilm
+      .filter((p) => clips.has(Number(p.playNumber)) && p.playCallId && p.playCallId !== mine)
+      .map((p) => byTag.get(String(p.playCallId)))
+      .find((b): b is ScoutOppPlay => Boolean(b && b.id !== a.id));
+    if (!joined || joined.name.trim().toLowerCase() === a.name.trim().toLowerCase()) continue;
+    // Its clips are the call's now (found by the call's name), so opening it doesn't take them back.
+    const { clips: _clips, ...rest } = a;
+    out.push({ ...rest, name: joined.name, editedAt: now });
+  }
+  return out;
 }
 
 /** One card per call on this film. The down is the one they used it on most. */

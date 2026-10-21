@@ -165,7 +165,7 @@ import { mergeDeletedPlayIds, mergePlayBanks, stampPlayEdits } from './utils/pla
 import { blankCallSheetData, blankWristbandData } from './utils/blankSheets';
 import { missingPracticePlans } from './utils/autoPracticePlans';
 import { clearPlayBuilderSeed, consumeSeedHold, holdPlayBuilderSeed, mergeBuilderSave, savePlayBuilderSeed, type PlayBuilderSeed } from './utils/playBuilderSeed';
-import { builderFromFormation, cardForSnap, groupOppPlays, isScoutPlayEntry, planLines, realCall, renameOppCall, linkSnapsToCall, snapsForCall, type FormationPlan, type OppFormation, type ScoutOppPlay } from './utils/scoutOppPlays';
+import { builderFromFormation, cardForSnap, groupOppPlays, isScoutPlayEntry, mergeDrawnIntoTags, planLines, realCall, renameOppCall, linkSnapsToCall, snapsForCall, type FormationPlan, type OppFormation, type ScoutOppPlay } from './utils/scoutOppPlays';
 import { formationFromParts } from './filmroom/callName';
 import type { Play as FilmPlay } from './hudlScout/types/football';
 import { setPlaysFormation } from './hudlScout/utils/playTags';
@@ -4663,6 +4663,13 @@ export default function App() {
       // The formations drawn for this report, so the play can start from one of them.
       theirFormations: ((hudl?.oppFormations || []) as OppFormation[]).filter((f) => f?.id && !f.deleted && f.builder).map((f) => ({ id: f.id, name: f.name })),
       formationId: formationOfPlay(play, hudl?.oppFormations)?.id,
+      // The other drawings under this play call, to look at and open from here.
+      sameCall: Object.values((hudl?.playLibraries || {}) as Record<string, ScoutOppPlay[]>)
+        .flat()
+        .filter((c) => c.id !== play.id && c.gameId && c.name.trim().toLowerCase() === play.name.trim().toLowerCase())
+        .map((c) => ({ c, e: mine.find((p) => p.id === `scout_${c.id}`) }))
+        .filter(({ e }) => e?.builder)
+        .map(({ c, e }) => ({ scoutId: c.id, gameId: c.gameId!, name: c.name, ...(e?.diagramUrl ? { diagramUrl: e.diagramUrl } : {}) })),
       ...(opts?.fromFormation ? { restartAt: Date.now() } : {}),
     });
     holdPlayBuilderSeed();
@@ -4705,8 +4712,20 @@ export default function App() {
   };
   /** A clip of their film: its play (tagged before), or a new one from the clip's base formation. */
   const drawSnap = (snap: FilmPlay) => {
-    const { hudl } = weekHudl();
-    const cards = Object.values((hudl?.playLibraries || {}) as Record<string, ScoutOppPlay[]>).flat();
+    const { hudl, put } = weekHudl();
+    // A drawn play whose clip was tagged with another play call joins that call first, so it shows with it.
+    const teamId = activeTeamIdRef.current;
+    const mine = (latestStateRef.current.playDatabase || []).filter((p) => p && sameTeamId(playTeamOf(p), teamId));
+    const drawnIds = new Set(mine.filter((p) => p.builder).map((p) => p.id));
+    const libs = { ...((hudl?.playLibraries || {}) as Record<string, ScoutOppPlay[]>) };
+    const moved = Object.values(libs).flatMap((list) => mergeDrawnIntoTags(hudl?.plays || [], list, (id) => drawnIds.has(`scout_${id}`)));
+    if (hudl && moved.length) {
+      for (const m of moved) libs[m.gameId] = (libs[m.gameId] || []).map((c) => (c.id === m.id ? m : c));
+      put({ ...hudl, playLibraries: libs, updatedAt: Date.now() });
+      const names = new Map(moved.map((m) => [`scout_${m.id}`, m.name]));
+      handleUpdateTeamPlayDatabase(mine.map((p) => (names.has(p.id) ? { ...p, name: names.get(p.id)!, editedAt: Date.now() } : p)));
+    }
+    const cards = Object.values(libs).flat();
     drawOppPlay(cardForSnap(snap, hudl?.oppFormations, cards));
   };
   /** This report's backfield shape, then every play in the week's scout that lines up in it. */
@@ -7528,6 +7547,12 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onSaveFilmBackfield={saveFilmBackfield}
                 onSaveOppFormation={saveOppFormation}
                 onRestartScoutPlay={restartOppPlay}
+                onOpenScoutPlay={(scoutId, gameId) => {
+                  const card = (((weekHudl().hudl?.playLibraries || {})[gameId] || []) as ScoutOppPlay[]).find((c) => c.id === scoutId);
+                  if (!card) return false;
+                  drawOppPlay(card);
+                  return true;
+                }}
                 scoutNeighbors={(scoutId, gameId) => {
                   // Their plays on that film, in the film's order.
                   const cards = ((weekHudl().hudl?.playLibraries || {})[gameId] || []) as ScoutOppPlay[];
@@ -7928,6 +7953,9 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   const mine = (latestStateRef.current.playDatabase || []).filter((p) => p && sameTeamId(playTeamOf(p), teamId));
                   const have = new Set(mine.map((p) => p.id));
                   const now = Date.now();
+                  // A drawn play moved under another play call: its play row takes that name.
+                  const names = new Map(cards.filter((c) => have.has(`scout_${c.id}`)).map((c) => [`scout_${c.id}`, c.name]));
+                  const kept = mine.map((p) => (names.has(p.id) && names.get(p.id) !== p.name ? { ...p, name: names.get(p.id)!, editedAt: now } : p));
                   const made = cards
                     .filter((c) => !have.has(`scout_${c.id}`))
                     .map((c) => {
@@ -7946,7 +7974,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                         importedAt: now,
                       } as PlayDatabaseEntry;
                     });
-                  if (made.length) handleUpdateTeamPlayDatabase([...mine, ...made]);
+                  if (made.length || kept.some((p, i) => p !== mine[i])) handleUpdateTeamPlayDatabase([...kept, ...made]);
                 }}
                 onRemoveDrawnPlays={(ids) => {
                   const teamId = activeTeamIdRef.current;

@@ -27,7 +27,7 @@ import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { ScoutOppPlayLibrary } from './ScoutOppPlayLibrary';
 import { StatsTab } from '../../hudlScout/components/report/StatsTab';
-import { buildScoutScript, cardsFromTags, placeholdersFromNames, coachingPoint, onCallSheet, runOrPass, formationNotes, withFormationNotes, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, printOrder, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
+import { buildScoutScript, cardsFromTags, mergeDrawnIntoTags, placeholdersFromNames, coachingPoint, onCallSheet, runOrPass, formationNotes, withFormationNotes, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, printOrder, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
 import { leadOppPlay, oppPlayDiagram, playPoint, theirPlaysByFormation } from '../../utils/filmBackfields';
 import { theirCallEntries } from '../../utils/theirCalls';
 import type { ReportPlayType } from '../../hudlScout/components/CallSheetModal';
@@ -411,6 +411,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     const added: ScoutOppPlay[] = [];
     const newForms: OppFormation[] = [];
     const links: Record<string, { playCallId: string; playCall: string }> = {};
+    const moved: ScoutOppPlay[] = [];
+    const drawn = (scoutId: string) => (playDatabase || []).some((e) => e.id === `scout_${scoutId}` && e.builder);
     for (const g of oppBundle.games) {
       const film = oppBundle.plays.filter((pl) => (pl.gameId ? pl.gameId === g.id : g.id === firstGame));
       const cards = cardsFromTags(g.id, film, libs[g.id] || [], oppBundle.deletedOppPlayIds || [], libraryNameOf);
@@ -419,15 +421,28 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       const named = placeholdersFromNames(g.id, film, [...(libs[g.id] || []), ...cards], oppBundle.deletedOppPlayIds || [], [...(oppBundle.oppFormations || []), ...newForms]);
       added.push(...named.cards);
       newForms.push(...named.formations);
+      // A play already drawn whose clip was tagged with another play call stays, under that call.
+      const linked = film.map((p) => (named.links[p.id] ? { ...p, ...named.links[p.id] } : p));
+      const before = [...(libs[g.id] || []), ...cards];
+      for (const m of mergeDrawnIntoTags(linked, [...before, ...named.cards], drawn)) {
+        // Joined a play name's card made just now: the drawn play is that call (no empty copy of it).
+        const fresh = named.cards.find((c) => c.name === m.name && !drawn(c.id));
+        if (fresh) {
+          added.splice(added.indexOf(fresh), 1);
+          for (const [snapId, l] of Object.entries(named.links)) if (l.playCallId === `scout_${fresh.id}`) named.links[snapId] = { playCallId: `scout_${m.id}`, playCall: m.name };
+          moved.push({ ...m, clips: before.find((c) => c.id === m.id)?.clips });
+        } else moved.push(m);
+      }
       Object.assign(links, named.links);
     }
-    if (!added.length && !newForms.length && !Object.keys(links).length) return [];
+    if (!added.length && !newForms.length && !Object.keys(links).length && !moved.length) return [];
     setOppBundle((prev) => {
       const playLibraries = { ...(prev.playLibraries || {}) };
       for (const c of added) {
         const list = playLibraries[c.gameId] || [];
         if (!list.some((x) => x.id === c.id)) playLibraries[c.gameId] = [...list, c];
       }
+      for (const m of moved) playLibraries[m.gameId] = (playLibraries[m.gameId] || []).map((c) => (c.id === m.id ? m : c));
       const forms = prev.oppFormations || [];
       const oppFormations = [...forms, ...newForms.filter((f) => !forms.some((x) => x?.id === f.id))];
       return {
@@ -442,7 +457,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         updatedAt: Date.now(),
       };
     });
-    if (added.length) onAddTaggedPlays?.(added);
+    if (added.length || moved.length) onAddTaggedPlays?.([...added, ...moved]);
     return added;
   };
   useEffect(() => {
