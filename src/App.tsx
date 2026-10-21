@@ -4726,7 +4726,14 @@ export default function App() {
       handleUpdateTeamPlayDatabase(mine.map((p) => (names.has(p.id) ? { ...p, name: names.get(p.id)!, editedAt: Date.now() } : p)));
     }
     const cards = Object.values(libs).flat();
-    drawOppPlay(cardForSnap(snap, hudl?.oppFormations, cards));
+    const card = cardForSnap(snap, hudl?.oppFormations, cards, Date.now(), (id) => drawnIds.has(`scout_${id}`));
+    // The clip goes with the play its name says (the play log then shows that play call).
+    const saved = weekHudl();
+    if (saved.hudl && snap.callName && snap.playCallId !== `scout_${card.id}` && cards.some((c) => c.id === card.id)) {
+      const plays = ((saved.hudl.plays || []) as FilmPlay[]).map((p) => (p.id === snap.id ? { ...p, playCallId: `scout_${card.id}`, playCall: card.name, editedAt: Date.now() } : p));
+      saved.put({ ...saved.hudl, plays, updatedAt: Date.now() });
+    }
+    drawOppPlay(card);
   };
   /** This report's backfield shape, then every play in the week's scout that lines up in it. */
   const saveFilmBackfield = (change: { gameId: string; backfield: string; spots: Record<string, { x: number; y: number }>; baseKey: string }) => {

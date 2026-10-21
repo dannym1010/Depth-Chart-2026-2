@@ -278,12 +278,24 @@ export const formationKey = (name?: string) => String(name || '').trim().toLower
  * Their play for one clip on the film, to open in the play builder: the play it's already tagged with, or a
  * new one lined up in its drawn base formation, named by the call (or "Trips Rt #12"), with the clip on it.
  */
-export function cardForSnap(snap: Play, formations: OppFormation[] | undefined, cards: ScoutOppPlay[], now = Date.now()): ScoutOppPlay {
+export function cardForSnap(
+  snap: Play,
+  formations: OppFormation[] | undefined,
+  cards: ScoutOppPlay[],
+  now = Date.now(),
+  drawn: (scoutId: string) => boolean = () => false
+): ScoutOppPlay {
   const gameId = snap.gameId || '';
   const tag = String(snap.playCallId || '');
   const n = Number(snap.playNumber) || 0;
   const linked = tag ? cards.find((c) => c.gameId === gameId && (`scout_${c.id}` === tag || c.fromPlayId === tag)) : undefined;
-  if (linked) return linked;
+  // A clip with a play name is that play: its card (the drawn one first), even after the name was changed.
+  const named = String(snap.callName || '').trim().toLowerCase();
+  if (named && linked?.name.trim().toLowerCase() !== named) {
+    const same = cards.filter((c) => c.gameId === gameId && c.name.trim().toLowerCase() === named);
+    const pick = same.find((c) => drawn(c.id)) || same[0];
+    if (pick) return pick;
+  } else if (linked) return linked;
   // The play's name says the formation and the play ("21 GUN Trips", "21 GUN Trips Bubble"); else its labels.
   const form = formationFromParts(snap.callParts) || (snap.formation && snap.formation !== '-' ? snap.formation.trim() : '');
   const f = (formations || []).find((x) => x?.id && !x.deleted && x.builder && formationKey(x.name) === formationKey(form));
@@ -505,7 +517,7 @@ export function cardsFromTags(
  * ("21 GUN Trips", not drawn yet) and a card for each play name ("21 Gun Rt Trips Bubble") that starts from it.
  * Ids come from the names, so every coach's copy is the same; anything already there (or removed) stays as it is.
  * links: the clips to tag with their play name's card (so the play call is the play name): untagged ones, and
- * ones on another play name's card after the name was changed.
+ * ones on another of their plays (a name changed, or tagged before it had a name). A tag from our library stays.
  */
 export function placeholdersFromNames(
   gameId: string,
@@ -565,7 +577,7 @@ export function placeholdersFromNames(
     const tag = 'scout_' + card.id;
     for (const p of rows) {
       const id = String(p.playCallId || '');
-      if (id === tag || (id && !id.startsWith('scout_name-'))) continue;
+      if (id === tag || (id && !id.startsWith('scout_'))) continue;
       links[p.id] = { playCallId: tag, playCall: card.name };
     }
   }
@@ -575,14 +587,15 @@ export function placeholdersFromNames(
 /**
  * A play already drawn whose clips were all tagged with another play call (from the play log, or a new play
  * name): it's kept, under that play call, so both drawings show when the call is opened. Returns the cards
- * that move (renamed to the call they joined); a drawn play with a clip still on it stays as it is.
+ * that move (renamed to the call they joined); a drawn play with a clip still on it stays as it is. A play
+ * name's own card is that play, so it stays when its clip is renamed to another play.
  */
 export function mergeDrawnIntoTags(film: Play[], cards: ScoutOppPlay[], drawn: (scoutId: string) => boolean): ScoutOppPlay[] {
   const byTag = new Map(cards.map((c) => [`scout_${c.id}`, c]));
   const out: ScoutOppPlay[] = [];
   const now = Date.now();
   for (const a of cards) {
-    if (!a.clips?.length || !drawn(a.id)) continue;
+    if (!a.clips?.length || !drawn(a.id) || a.id.startsWith('name-')) continue;
     const mine = `scout_${a.id}`;
     const onFilm = film.filter((p) => !p.gameId || !a.gameId || p.gameId === a.gameId);
     if (onFilm.some((p) => p.playCallId === mine)) continue;

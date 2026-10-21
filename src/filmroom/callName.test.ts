@@ -113,5 +113,14 @@ describe('play names from their parts', () => {
     // Still on one of its clips, or not drawn: stays as it is.
     assert.equal(mergeDrawnIntoTags([{ ...film[0], playCallId: 'scout_opp-1' }], [a, b], drawn).length, 0);
     assert.equal(mergeDrawnIntoTags(film, [a, b], () => false).length, 0);
+    // Drawing a renamed clip opens the card of its new name (the drawn one), not the card it was on.
+    const { cardForSnap } = await import('../utils/scoutOppPlays.ts');
+    const trap1 = card('name-g-21-gun-trap', '21 Gun Trap');
+    const trap2 = card('opp-7', '21 Gun Trap');
+    const renamed = { ...film[0], playCallId: 'scout_opp-1', callName: '21 Gun Trap' } as any;
+    assert.equal(cardForSnap(renamed, [], [a, trap1, trap2], 1, (id) => id === 'opp-7').id, 'opp-7');
+    assert.equal(cardForSnap({ ...renamed, callName: '21 GUN Dive' }, [], [a, trap1], 1).id, 'opp-1');
+    // A play name's own card is that play: renaming its clip to another play leaves it.
+    assert.equal(mergeDrawnIntoTags(film, [card('name-g-21-gun-trap', '21 Gun Trap', [5]), b], drawn).length, 0);
   });
 });
