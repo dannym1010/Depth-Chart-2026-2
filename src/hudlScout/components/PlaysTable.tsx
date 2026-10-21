@@ -13,6 +13,7 @@ import type { FilmPlayerRef, RosterPlayer } from '../../types';
 import { defAssists, type FilmLineup } from '../../utils/filmLineup';
 import { LineupEditor } from '../../components/playbook/LineupEditor';
 import { realCall } from '../../utils/scoutOppPlays';
+import { formationFromParts } from '../../filmroom/callName';
 
 interface PlaysTableProps {
   plays: Play[];
@@ -78,7 +79,8 @@ const FormationDrawButton: React.FC<{
   onPick: (pick: { kind: 'use' | 'draw'; id?: string; name: string }) => void;
 }> = ({ play, formations, onPick }) => {
   const key = (x: string) => String(x || '').trim().toLowerCase().replace(/\s+/g, ' ');
-  const current = play.formation && play.formation !== '-' ? play.formation.trim() : '';
+  // The play's name says the formation (personnel, GUN, Twins / Trips); else the formation it's labeled with.
+  const current = formationFromParts(play.callParts) || (play.formation && play.formation !== '-' ? play.formation.trim() : '');
   const mine = current ? formations.find((f) => key(f.name) === key(current)) : undefined;
   return (
     <button

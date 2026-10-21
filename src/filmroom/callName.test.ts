@@ -62,4 +62,14 @@ describe('play names from their parts', () => {
     assert.equal(out.plays[0].callName, '32 Trap');
     assert.deepEqual(out.plays[0].callParts, { personnel: '32', concept: 'Trap' });
   });
+
+  it('their formation comes from the play name: personnel, GUN, Twins / Trips (not strength)', async () => {
+    const { formationFromParts, theirPlayName } = await import('./callName.ts');
+    assert.equal(formationFromParts({ personnel: '21', qb: 'UC', strength: 'R', tags: ['Tight'], concept: 'Dive' }), '21');
+    assert.equal(formationFromParts({ personnel: '21', qb: 'Gun', strength: 'L' }), '21 GUN');
+    assert.equal(formationFromParts({ personnel: '10', qb: 'Gun', tags: ['Motion', 'trips'] }), '10 GUN Trips');
+    assert.equal(formationFromParts({ qb: 'Gun' }), '');
+    assert.equal(theirPlayName({ personnel: '21', qb: 'Gun', tags: ['Twins'], concept: 'Bubble' }), '21 GUN Twins Bubble');
+    assert.equal(theirPlayName({ personnel: '21' }), '');
+  });
 });

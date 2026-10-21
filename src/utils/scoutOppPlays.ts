@@ -4,6 +4,7 @@ import type { PlayBuilderState } from '../types/callSheet';
 import type { Play } from '../hudlScout/types/football';
 import { isWholeCall, parsePlayCall } from './playCallParse';
 import { BACKFIELD_STRUCTURES, RUN_SCHEMES } from './footballEngine';
+import { formationFromParts, theirPlayName } from '../filmroom/callName';
 
 /** A play the opponent ran, kept with one scouting film. */
 export interface ScoutOppPlay {
@@ -283,9 +284,10 @@ export function cardForSnap(snap: Play, formations: OppFormation[] | undefined, 
   const n = Number(snap.playNumber) || 0;
   const linked = tag ? cards.find((c) => c.gameId === gameId && (`scout_${c.id}` === tag || c.fromPlayId === tag)) : undefined;
   if (linked) return linked;
-  const form = snap.formation && snap.formation !== '-' ? snap.formation.trim() : '';
+  // The play's name says the formation and the play ("21 GUN Trips", "21 GUN Trips Bubble"); else its labels.
+  const form = formationFromParts(snap.callParts) || (snap.formation && snap.formation !== '-' ? snap.formation.trim() : '');
   const f = (formations || []).find((x) => x?.id && !x.deleted && x.builder && formationKey(x.name) === formationKey(form));
-  const call = String(snap.playCall || '').trim() || realCall(snap);
+  const call = theirPlayName(snap.callParts) || String(snap.playCall || '').trim() || realCall(snap);
   return {
     id: `opp-${now}`,
     gameId,

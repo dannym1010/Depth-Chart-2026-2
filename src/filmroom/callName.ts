@@ -8,7 +8,7 @@ export const QB_SPOTS: { v: NonNullable<CallParts['qb']>; label: string }[] = [
   { v: 'Gun', label: 'Shotgun' },
   { v: 'Pistol', label: 'Pistol' },
 ];
-export const TAGS = ['Weak', 'Strong', 'Tight', 'Wide', 'Heavy', 'Motion', 'Jet', 'Wing', 'Flex', 'Trips', 'Bunch', 'Over', 'Unbalanced', 'Empty'];
+export const TAGS = ['Weak', 'Strong', 'Tight', 'Wide', 'Heavy', 'Motion', 'Jet', 'Wing', 'Flex', 'Twins', 'Trips', 'Bunch', 'Over', 'Unbalanced', 'Empty'];
 export const BACKS: { v: string; label: string }[] = [
   { v: '1', label: '1 QB' },
   { v: '2', label: '2 FB' },
@@ -16,8 +16,8 @@ export const BACKS: { v: string; label: string }[] = [
   { v: '4', label: '4 Wing' },
 ];
 export const HOLES = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
-export const RUN_CONCEPTS = ['Dive', 'Trap', 'Counter', 'Power', 'ISO', 'Sweep', 'Toss', 'Zone', 'Wedge', 'Buck', 'Reverse', 'Option', 'Sneak', 'Draw'];
-export const PASS_CONCEPTS = ['Boot', 'Play action', 'Screen', 'Sprint out', 'Quick', 'Drop back', 'Jet pass'];
+export const RUN_CONCEPTS = ['Dive', 'Trap', 'Counter', 'Power', 'ISO', 'Sweep', 'Toss', 'Zone', 'Wedge', 'Buck', 'Reverse', 'Option', 'Sneak', 'Draw', 'Keep'];
+export const PASS_CONCEPTS = ['Boot', 'Play action', 'Screen', 'Sprint out', 'Quick', 'Drop back', 'Jet pass', 'Slant', 'Bubble'];
 
 /** The name the parts make ("32 Gun Rt Tight 44 Counter"); back and hole only on runs. */
 export function buildCallName(parts: CallParts | undefined, run = true): string {
@@ -130,4 +130,21 @@ export function withParts(p: Play, parts: CallParts): Pick<Play, 'callParts' | '
   ) as CallParts;
   const run = !/pass|screen/i.test(String(p.playType || '')) || /rpo/i.test(String(p.playType || ''));
   return { callParts: clean, callName: buildCallName(clean, run) };
+}
+
+/**
+ * Their formation from a play's name: personnel, GUN / PISTOL (under center adds nothing), then Twins or Trips.
+ * Strength and the other tags don't change the formation ("21", "21 GUN", "10 GUN Trips").
+ */
+export function formationFromParts(parts: CallParts | undefined): string {
+  if (!parts?.personnel) return '';
+  const qb = parts.qb === 'Gun' ? 'GUN' : parts.qb === 'Pistol' ? 'PISTOL' : '';
+  const set = (parts.tags || []).find((t) => /^(twins|trips)$/i.test(t));
+  return [parts.personnel, qb, set ? set.charAt(0).toUpperCase() + set.slice(1).toLowerCase() : ''].filter(Boolean).join(' ');
+}
+
+/** Their play drawn from that formation: the formation, then the concept ("21 GUN Trips Bubble"). */
+export function theirPlayName(parts: CallParts | undefined): string {
+  const form = formationFromParts(parts);
+  return form && parts?.concept ? `${form} ${parts.concept}` : '';
 }
