@@ -124,6 +124,10 @@ describe('play names from their parts', () => {
     const { foldBlankTwins } = await import('../utils/scoutOppPlays.ts');
     const folded = foldBlankTwins([{ id: 's3', gameId: 'g', playNumber: 3, playCallId: 'scout_name-g-21-gun-trap' }] as any, [trap1, trap2, card('opp-9', 'Jet Sweep')], (id) => id === 'opp-7');
     assert.deepEqual(folded, { remove: ['name-g-21-gun-trap'], links: { s3: { playCallId: 'scout_opp-7', playCall: '21 Gun Trap' } } });
+    // The scout script: the same play left or right is one line (the drawn one leads), under the name without the side.
+    const { buildScoutScript } = await import('../utils/scoutOppPlays.ts');
+    const s = buildScoutScript([card('r', '21 Gun Rt Dive'), card('j', 'Jet Sweep'), card('l', '21 Gun Lt Dive'), card('x', '32 L WB 44 Zone')], 'Carmel', (id) => id === 'l');
+    assert.deepEqual(s.lines.map((l) => [l.playId, l.name, l.also]), [['l', '21 Gun Dive', ['r']], ['j', 'Jet Sweep', undefined], ['x', '32 L WB 44 Zone', undefined]]);
     // A play name's own card is that play: renaming its clip to another play leaves it.
     assert.equal(mergeDrawnIntoTags(film, [card('name-g-21-gun-trap', '21 Gun Trap', [5]), b], drawn).length, 0);
   });

@@ -193,6 +193,8 @@ export interface ScoutScriptLine {
   name: string;
   detail: string;
   period: string;
+  /** The same play run the other way (or on another film), combined into this line. */
+  also?: string[];
 }
 
 export interface ScoutPracticeScript {
@@ -759,14 +761,41 @@ export function coachingPoint(notes?: string): string {
 
 const periodLabel = (down: string) => PERIODS.find((p) => p.id === (down || 'other'))?.label || 'Other';
 
-export function buildScoutScript(plays: ScoutOppPlay[], opponent: string): ScoutPracticeScript {
+/** A play call without its side: "21 Gun Rt Dive" and "21 Gun Lt Dive" are one play ("21 Gun Dive"). */
+export function sidelessName(name: string): string {
+  return String(name || '')
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w && !SIDE.test(w.toUpperCase().replace(/[^A-Z]/g, '')))
+    .join(' ');
+}
+
+/**
+ * The script's plays: the same play run left or right (on any film) is one, under the name without the side.
+ * Its lead is the one drawn (else the first in the order); groups keep the order of their first play.
+ */
+export function scriptGroups(plays: ScoutOppPlay[], drawn: (scoutId: string) => boolean = () => false): { lead: ScoutOppPlay; members: ScoutOppPlay[]; name: string }[] {
+  const by = new Map<string, ScoutOppPlay[]>();
+  for (const p of plays) {
+    const key = sidelessName(p.name).toLowerCase() || p.id;
+    by.set(key, [...(by.get(key) || []), p]);
+  }
+  return [...by.values()].map((members) => {
+    const lead = members.find((m) => drawn(m.id)) || members[0];
+    const sides = new Set(members.map((m) => m.name.trim().toLowerCase()));
+    return { lead, members, name: sides.size > 1 ? sidelessName(lead.name) : lead.name };
+  });
+}
+
+export function buildScoutScript(plays: ScoutOppPlay[], opponent: string, drawn?: (scoutId: string) => boolean): ScoutPracticeScript {
   const who = opponent.trim() || 'Opponent';
-  const lines: ScoutScriptLine[] = plays.map((p) => {
+  const lines: ScoutScriptLine[] = scriptGroups(plays, drawn).map(({ lead: p, members, name }) => {
     const bits = [periodLabel(p.down), p.formation, p.personnel, p.kind].filter((s) => s && s !== '-').join(' · ');
     // The count written when the card was made from the film goes stale; the script shows the live one.
     const notes = (p.notes || '').replace(STALE_RUN_COUNT, '').trim();
     const detail = [bits, notes].filter(Boolean).join('. ');
-    return { playId: p.id, name: p.name, detail, period: periodLabel(p.down) };
+    const also = members.filter((m) => m.id !== p.id).map((m) => m.id);
+    return { playId: p.id, name, detail, period: periodLabel(p.down), ...(also.length ? { also } : {}) };
   });
   const text = lines.map((l, i) => `${i + 1}. ${l.name}${l.detail ? ` — ${l.detail}` : ''}`).join('\n');
   const periods: PracticePeriod[] = lines.length

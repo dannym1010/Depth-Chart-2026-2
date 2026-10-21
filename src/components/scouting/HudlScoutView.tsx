@@ -350,7 +350,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       ...prev,
       playLibraries,
       ...('point' in change
-        ? { practiceScript: buildScoutScript(orderByIds(reportPlays(playLibraries), (prev.practiceScript?.lines || []).map((l) => l.playId)), reportName) }
+        ? { practiceScript: buildScoutScript(orderByIds(reportPlays(playLibraries), (prev.practiceScript?.lines || []).map((l) => l.playId)), reportName, drawnScout) }
         : {}),
       updatedAt: now,
     };
@@ -403,6 +403,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   // Their plays shows every play the coaches tagged on the film: a card for each tagged play that
   // isn't there yet (a copy of our play, or a write-in to finish in the play builder).
   const theirPlaysOpen = scoutTarget === 'opponent' && activeTab === 'theirplays';
+  /** A Their-plays card drawn in the play builder (it leads its play on the script). */
+  const drawnScout = (scoutId: string) => (playDatabase || []).some((e) => e.id === `scout_${scoutId}` && e.builder);
   const libraryNameOf = (id: string) => (playDatabase || []).find((e) => e.id === id && !isScoutPlayEntry(e))?.name;
   /** Cards for tagged plays that don't have one yet: added to Their plays (and made opponent plays). */
   const addTagCards = (): ScoutOppPlay[] => {
@@ -462,7 +464,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         ...(Object.keys(links).length
           ? { plays: prev.plays.map((pl) => (links[pl.id] ? { ...pl, ...links[pl.id], editedAt: Date.now() } : pl)) }
           : {}),
-        practiceScript: buildScoutScript(orderByIds(reportPlays(playLibraries), (prev.practiceScript?.lines || []).map((l) => l.playId)), reportName),
+        practiceScript: buildScoutScript(orderByIds(reportPlays(playLibraries), (prev.practiceScript?.lines || []).map((l) => l.playId)), reportName, drawnScout),
         updatedAt: Date.now(),
       };
     });

@@ -79,8 +79,13 @@ export const ScoutOppPlayLibrary: React.FC<{
   const films = games.length ? games : [];
   const gameId = films.some((g) => g.id === selectedGameId) ? selectedGameId : films[0]?.id || '';
   const plays = libraries[gameId] || [];
-  const onTheReport = orderByIds(reportPlays(libraries), scriptOrder);
-  const script = buildScoutScript(onTheReport, opponent);
+  // The script: the same play left or right is one line (the drawn one leads); its other plays come along.
+  const isDrawnPlay = (id: string) => (playDatabase || []).some((e) => e.id === `scout_${id}` && e.builder);
+  const allOnReport = reportPlays(libraries);
+  const scriptFor = (report: ScoutOppPlay[], ids?: string[]) => buildScoutScript(orderByIds(report, ids), opponent, isDrawnPlay);
+  const script = scriptFor(allOnReport, scriptOrder);
+  const onTheReport = script.lines.map((l) => allOnReport.find((p) => p.id === l.playId)).filter((p): p is ScoutOppPlay => Boolean(p));
+  const alsoOf = (id: string) => (script.lines.find((l) => l.playId === id)?.also || []).map((x) => allOnReport.find((p) => p.id === x)).filter((p): p is ScoutOppPlay => Boolean(p));
   const [draft, setDraft] = useState(emptyDraft);
   const shownFormations = (formations || []).filter((f) => f?.id && !f.deleted);
   const [formName, setFormName] = useState('');
@@ -222,6 +227,14 @@ export const ScoutOppPlayLibrary: React.FC<{
   const scriptFilm = (p: ScoutOppPlay) => {
     const filmOf = (gid: string) => filmPlays.filter((fp) => (fp.gameId ? fp.gameId === gid : films[0]?.id === gid));
     const own = snapsForCall(filmOf(p.gameId), p.gameId, p.name, `scout_${p.id}`, p.fromPlayId, p.clips);
+    // Combined on the script (the other side): its film too, on the same film.
+    const also = alsoOf(p.id).filter((m) => m.gameId === p.gameId);
+    if (also.length) {
+      const byId = new Map(own.map((s) => [s.id, s]));
+      for (const m of also) for (const snap of snapsForCall(filmOf(m.gameId), m.gameId, m.name, `scout_${m.id}`, m.fromPlayId, m.clips)) byId.set(snap.id, snap);
+      const snaps = [...byId.values()].sort((a, b) => a.playNumber - b.playNumber);
+      return { snaps, group: { label: script.lines.find((l) => l.playId === p.id)?.name || p.name, plays: [p, ...also] } };
+    }
     if (own.length) return { snaps: own, group: undefined };
     const g = allTypes.find((t) => t.plays.some((x) => x.id === p.id));
     if (!g || g.plays.length < 2) return { snaps: own, group: undefined };
@@ -353,8 +366,7 @@ export const ScoutOppPlayLibrary: React.FC<{
   };
 
   const write = (next: Record<string, ScoutOppPlay[]>, extraDeleted: string[] = [], reportIds?: string[]) => {
-    const report = orderByIds(reportPlays(next), reportIds || script.lines.map((l) => l.playId));
-    onSave(next, [...deletedIds, ...extraDeleted], buildScoutScript(report, opponent));
+    onSave(next, [...deletedIds, ...extraDeleted], scriptFor(reportPlays(next), reportIds || script.lines.map((l) => l.playId)));
   };
 
   const reorderFilm = (from: number, to: number) => {
@@ -367,13 +379,13 @@ export const ScoutOppPlayLibrary: React.FC<{
   const reorderScript = (from: number, to: number) => {
     const next = moveItem(onTheReport, from, to);
     if (next === onTheReport) return;
-    onSave(libraries, deletedIds, buildScoutScript(next, opponent));
+    onSave(libraries, deletedIds, scriptFor(allOnReport, next.map((p) => p.id)));
   };
   /** The script in this order (play ids). */
   const setScriptOrder = (ids: string[]) => {
     const next = orderByIds(onTheReport, ids);
     if (next.every((p, i) => p.id === onTheReport[i]?.id)) return;
-    onSave(libraries, deletedIds, buildScoutScript(next, opponent));
+    onSave(libraries, deletedIds, scriptFor(allOnReport, next.map((p) => p.id)));
   };
   /** Move a play straight to a spot (0 = first). */
   const moveScriptTo = (id: string, to: number) => {
