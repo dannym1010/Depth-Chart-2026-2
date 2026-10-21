@@ -27,7 +27,7 @@ import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { ScoutOppPlayLibrary } from './ScoutOppPlayLibrary';
 import { StatsTab } from '../../hudlScout/components/report/StatsTab';
-import { buildScoutScript, cardsFromTags, coachingPoint, onCallSheet, runOrPass, formationNotes, withFormationNotes, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, printOrder, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
+import { buildScoutScript, cardsFromTags, placeholdersFromNames, coachingPoint, onCallSheet, runOrPass, formationNotes, withFormationNotes, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, printOrder, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
 import { leadOppPlay, oppPlayDiagram, playPoint, theirPlaysByFormation } from '../../utils/filmBackfields';
 import { theirCallEntries } from '../../utils/theirCalls';
 import type { ReportPlayType } from '../../hudlScout/components/CallSheetModal';
@@ -409,32 +409,40 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     const libs = oppBundle.playLibraries || {};
     const firstGame = oppBundle.games[0]?.id;
     const added: ScoutOppPlay[] = [];
+    const newForms: OppFormation[] = [];
     for (const g of oppBundle.games) {
       const film = oppBundle.plays.filter((pl) => (pl.gameId ? pl.gameId === g.id : g.id === firstGame));
       const cards = cardsFromTags(g.id, film, libs[g.id] || [], oppBundle.deletedOppPlayIds || [], libraryNameOf);
       added.push(...cards);
+      // The play names made on the film: their formations (to draw) and their plays (starting from them).
+      const named = placeholdersFromNames(g.id, film, [...(libs[g.id] || []), ...cards], oppBundle.deletedOppPlayIds || [], [...(oppBundle.oppFormations || []), ...newForms]);
+      added.push(...named.cards);
+      newForms.push(...named.formations);
     }
-    if (!added.length) return [];
+    if (!added.length && !newForms.length) return [];
     setOppBundle((prev) => {
       const playLibraries = { ...(prev.playLibraries || {}) };
       for (const c of added) {
         const list = playLibraries[c.gameId] || [];
         if (!list.some((x) => x.id === c.id)) playLibraries[c.gameId] = [...list, c];
       }
+      const forms = prev.oppFormations || [];
+      const oppFormations = [...forms, ...newForms.filter((f) => !forms.some((x) => x?.id === f.id))];
       return {
         ...prev,
         playLibraries,
+        ...(newForms.length ? { oppFormations } : {}),
         practiceScript: buildScoutScript(orderByIds(reportPlays(playLibraries), (prev.practiceScript?.lines || []).map((l) => l.playId)), reportName),
         updatedAt: Date.now(),
       };
     });
-    onAddTaggedPlays?.(added);
+    if (added.length) onAddTaggedPlays?.(added);
     return added;
   };
   useEffect(() => {
     if (theirPlaysOpen || (isCallSheetOpen && scoutTarget === 'opponent')) addTagCards();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theirPlaysOpen, isCallSheetOpen, oppBundle.plays, oppBundle.games]);
+  }, [theirPlaysOpen, isCallSheetOpen, oppBundle.plays, oppBundle.games, oppBundle.oppFormations]);
   /** Draw a play tagged on the scouting film: its Their-plays card in the play builder, drawn from its name. */
   const drawTagged = (playCallId: string, gameId?: string) => {
     if (!onDrawPlay) return;

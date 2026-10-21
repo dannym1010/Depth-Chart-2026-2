@@ -72,4 +72,20 @@ describe('play names from their parts', () => {
     assert.equal(theirPlayName({ personnel: '21', qb: 'Gun', tags: ['Twins'], concept: 'Bubble' }), '21 GUN Twins Bubble');
     assert.equal(theirPlayName({ personnel: '21' }), '');
   });
+
+  it('play names make placeholder formations and plays in Their plays (once, removed ones stay gone)', async () => {
+    const { placeholdersFromNames } = await import('../utils/scoutOppPlays.ts');
+    const snap = (n: number, callParts: any) => ({ id: `p${n}`, gameId: 'g', playNumber: n, odk: 'O', playType: 'Run', callParts }) as any;
+    const film = [
+      snap(1, { personnel: '21', qb: 'Gun', strength: 'R', concept: 'Dive' }),
+      snap(2, { personnel: '21', qb: 'Gun', strength: 'L', concept: 'Dive' }),
+      snap(3, { personnel: '21', qb: 'Gun', tags: ['Trips'], concept: 'Bubble' }),
+      snap(4, { personnel: '10' }),
+    ];
+    const out = placeholdersFromNames('g', film, [], [], []);
+    assert.deepEqual(out.formations.map((f) => [f.name, f.clip, Boolean(f.builder)]), [['21 GUN', 1, false], ['21 GUN Trips', 3, false], ['10', 4, false]]);
+    assert.deepEqual(out.cards.map((c) => [c.name, c.formation, c.clips]), [['21 GUN Dive', '21 GUN', [1, 2]], ['21 GUN Trips Bubble', '21 GUN Trips', [3]]]);
+    const again = placeholdersFromNames('g', film, out.cards.slice(0, 1), [out.cards[1].id], [...out.formations.slice(0, 2), { ...out.formations[2], deleted: true }]);
+    assert.deepEqual([again.cards.length, again.formations.length], [0, 0]);
+  });
 });

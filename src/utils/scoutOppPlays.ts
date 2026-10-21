@@ -500,6 +500,60 @@ export function cardsFromTags(
   return out;
 }
 
+/**
+ * Placeholders from the play names made on this film: one of their formations for each name's formation
+ * ("21 GUN Trips", not drawn yet) and a card for each play ("21 GUN Trips Bubble") that starts from it.
+ * Ids come from the names, so every coach's copy is the same; anything already there (or removed) stays as it is.
+ */
+export function placeholdersFromNames(
+  gameId: string,
+  film: Play[],
+  existing: ScoutOppPlay[],
+  deleted: string[],
+  formations: OppFormation[] | undefined
+): { cards: ScoutOppPlay[]; formations: OppFormation[] } {
+  const gone = new Set(deleted);
+  const haveIds = new Set(existing.map((c) => c.id));
+  const haveNames = new Set(existing.map((c) => c.name.trim().toLowerCase()));
+  const haveForms = new Set((formations || []).filter((f) => f?.id).map((f) => formationKey(f.name)));
+  const plays = new Map<string, Play[]>();
+  const forms = new Map<string, Play>();
+  for (const p of [...film].sort((a, b) => (Number(a.playNumber) || 0) - (Number(b.playNumber) || 0))) {
+    if (p.odk === 'K' || p.odk === 'S' || p.odk === 'D') continue;
+    const form = formationFromParts(p.callParts);
+    if (!form) continue;
+    if (!forms.has(formationKey(form))) forms.set(formationKey(form), p);
+    const name = theirPlayName(p.callParts);
+    if (name) plays.set(name, [...(plays.get(name) || []), p]);
+  }
+  const now = Date.now();
+  const outForms: OppFormation[] = [];
+  for (const [key, p] of forms) {
+    if (haveForms.has(key)) continue;
+    outForms.push({ id: `form-${slug(key)}`, name: formationFromParts(p.callParts), gameId, clip: Number(p.playNumber) || 0, editedAt: now });
+  }
+  const cards: ScoutOppPlay[] = [];
+  for (const [name, rows] of plays) {
+    const id = `name-${gameId}-${slug(name)}`;
+    if (gone.has(id) || haveIds.has(id) || haveNames.has(name.toLowerCase())) continue;
+    const sample = rows[0];
+    cards.push({
+      id,
+      gameId,
+      name,
+      formation: formationFromParts(sample.callParts),
+      personnel: String(sample.callParts?.personnel || ''),
+      kind: kindFrom(sample),
+      down: mostCommonDown(rows),
+      notes: `Ran ${rows.length} time${rows.length === 1 ? '' : 's'} on this film.`,
+      onReport: true,
+      editedAt: now,
+      clips: rows.map((r) => Number(r.playNumber) || 0).filter(Boolean),
+    });
+  }
+  return { cards, formations: outForms };
+}
+
 /** One card per call on this film. The down is the one they used it on most. */
 export function playsFromFilm(gameId: string, film: Play[], existing: ScoutOppPlay[]): ScoutOppPlay[] {
   const have = new Set(existing.map((p) => p.name.trim().toLowerCase()));
