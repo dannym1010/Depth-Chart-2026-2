@@ -4593,8 +4593,7 @@ export default function App() {
     setActiveUnit('playbook');
   };
   /** Their play in the play builder (from Their plays, the play log or a clip), with its film in the film window. */
-  const drawOppPlay = (play: ScoutOppPlay, group?: { label: string; plays: ScoutOppPlay[] }, opts?: { fromFormation?: boolean }) => {
-    const entryId = `scout_${play.id}`;
+  const drawOppPlay = (asked: ScoutOppPlay, group?: { label: string; plays: ScoutOppPlay[] }, opts?: { fromFormation?: boolean }) => {
     const teamId = activeTeamIdRef.current;
     const week = currentWeekRef.current;
     const scopedKey = getScopedWeekKey(teamId, week);
@@ -4602,6 +4601,19 @@ export default function App() {
     const hudl = weekState?.scouting?.hudlScout;
     const full = latestStateRef.current.playDatabase || [];
     const mine = full.filter((p) => p && sameTeamId(p.teamId || 'team_10u', teamId));
+    // A play is drawn once: when this play call is already drawn (on this film first, else another on the
+    // report), that drawing opens instead of a blank copy.
+    const isDrawn = (c: ScoutOppPlay) => Boolean(mine.find((p) => p.id === `scout_${c.id}`)?.builder);
+    const key = asked.name.trim().toLowerCase();
+    const twin =
+      opts?.fromFormation || !key || isDrawn(asked)
+        ? undefined
+        : Object.values((hudl?.playLibraries || {}) as Record<string, ScoutOppPlay[]>)
+            .flat()
+            .filter((c) => c.id !== asked.id && c.name.trim().toLowerCase() === key && !(hudl?.deletedOppPlayIds || []).includes(c.id) && isDrawn(c))
+            .sort((a, b) => Number(b.gameId === asked.gameId) - Number(a.gameId === asked.gameId))[0];
+    const play = twin || asked;
+    const entryId = `scout_${play.id}`;
     if (!mine.some((p) => p.id === entryId)) {
       handleUpdateTeamPlayDatabase([
         ...mine,

@@ -612,6 +612,29 @@ export function mergeDrawnIntoTags(film: Play[], cards: ScoutOppPlay[], drawn: (
   return out;
 }
 
+/**
+ * A play is drawn once: a card not drawn that has the same play call as a drawn one on the same film goes,
+ * and its clips are tagged with the drawn one.
+ */
+export function foldBlankTwins(
+  film: Play[],
+  cards: ScoutOppPlay[],
+  drawn: (scoutId: string) => boolean
+): { remove: string[]; links: Record<string, { playCallId: string; playCall: string }> } {
+  const remove: string[] = [];
+  const links: Record<string, { playCallId: string; playCall: string }> = {};
+  const key = (c: ScoutOppPlay) => `${c.gameId}|${c.name.trim().toLowerCase()}`;
+  const drawnBy = new Map<string, ScoutOppPlay>();
+  for (const c of cards) if (drawn(c.id) && !drawnBy.has(key(c))) drawnBy.set(key(c), c);
+  for (const b of cards) {
+    const a = drawnBy.get(key(b));
+    if (!a || a.id === b.id || drawn(b.id)) continue;
+    remove.push(b.id);
+    for (const p of film) if (p.playCallId === `scout_${b.id}`) links[p.id] = { playCallId: `scout_${a.id}`, playCall: a.name };
+  }
+  return { remove, links };
+}
+
 /** One card per call on this film. The down is the one they used it on most. */
 export function playsFromFilm(gameId: string, film: Play[], existing: ScoutOppPlay[]): ScoutOppPlay[] {
   const have = new Set(existing.map((p) => p.name.trim().toLowerCase()));

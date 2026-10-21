@@ -120,6 +120,10 @@ describe('play names from their parts', () => {
     const renamed = { ...film[0], playCallId: 'scout_opp-1', callName: '21 Gun Trap' } as any;
     assert.equal(cardForSnap(renamed, [], [a, trap1, trap2], 1, (id) => id === 'opp-7').id, 'opp-7');
     assert.equal(cardForSnap({ ...renamed, callName: '21 GUN Dive' }, [], [a, trap1], 1).id, 'opp-1');
+    // A play is drawn once: an undrawn copy of a drawn play call goes, its clips to the drawn one.
+    const { foldBlankTwins } = await import('../utils/scoutOppPlays.ts');
+    const folded = foldBlankTwins([{ id: 's3', gameId: 'g', playNumber: 3, playCallId: 'scout_name-g-21-gun-trap' }] as any, [trap1, trap2, card('opp-9', 'Jet Sweep')], (id) => id === 'opp-7');
+    assert.deepEqual(folded, { remove: ['name-g-21-gun-trap'], links: { s3: { playCallId: 'scout_opp-7', playCall: '21 Gun Trap' } } });
     // A play name's own card is that play: renaming its clip to another play leaves it.
     assert.equal(mergeDrawnIntoTags(film, [card('name-g-21-gun-trap', '21 Gun Trap', [5]), b], drawn).length, 0);
   });
