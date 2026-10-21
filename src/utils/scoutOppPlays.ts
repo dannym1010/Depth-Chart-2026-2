@@ -4,7 +4,7 @@ import type { PlayBuilderState } from '../types/callSheet';
 import type { Play } from '../hudlScout/types/football';
 import { isWholeCall, parsePlayCall } from './playCallParse';
 import { BACKFIELD_STRUCTURES, RUN_SCHEMES } from './footballEngine';
-import { formationFromParts, theirPlayName } from '../filmroom/callName';
+import { formationFromParts } from '../filmroom/callName';
 
 /** A play the opponent ran, kept with one scouting film. */
 export interface ScoutOppPlay {
@@ -287,7 +287,7 @@ export function cardForSnap(snap: Play, formations: OppFormation[] | undefined, 
   // The play's name says the formation and the play ("21 GUN Trips", "21 GUN Trips Bubble"); else its labels.
   const form = formationFromParts(snap.callParts) || (snap.formation && snap.formation !== '-' ? snap.formation.trim() : '');
   const f = (formations || []).find((x) => x?.id && !x.deleted && x.builder && formationKey(x.name) === formationKey(form));
-  const call = theirPlayName(snap.callParts) || String(snap.playCall || '').trim() || realCall(snap);
+  const call = String(snap.callName || '').trim() || String(snap.playCall || '').trim() || realCall(snap);
   return {
     id: `opp-${now}`,
     gameId,
@@ -502,8 +502,10 @@ export function cardsFromTags(
 
 /**
  * Placeholders from the play names made on this film: one of their formations for each name's formation
- * ("21 GUN Trips", not drawn yet) and a card for each play ("21 GUN Trips Bubble") that starts from it.
+ * ("21 GUN Trips", not drawn yet) and a card for each play name ("21 Gun Rt Trips Bubble") that starts from it.
  * Ids come from the names, so every coach's copy is the same; anything already there (or removed) stays as it is.
+ * links: the clips to tag with their play name's card (so the play call is the play name): untagged ones, and
+ * ones on another play name's card after the name was changed.
  */
 export function placeholdersFromNames(
   gameId: string,
@@ -511,7 +513,7 @@ export function placeholdersFromNames(
   existing: ScoutOppPlay[],
   deleted: string[],
   formations: OppFormation[] | undefined
-): { cards: ScoutOppPlay[]; formations: OppFormation[] } {
+): { cards: ScoutOppPlay[]; formations: OppFormation[]; links: Record<string, { playCallId: string; playCall: string }> } {
   const gone = new Set(deleted);
   const haveIds = new Set(existing.map((c) => c.id));
   const haveNames = new Set(existing.map((c) => c.name.trim().toLowerCase()));
@@ -523,7 +525,10 @@ export function placeholdersFromNames(
     const form = formationFromParts(p.callParts);
     if (!form) continue;
     if (!forms.has(formationKey(form))) forms.set(formationKey(form), p);
-    const name = theirPlayName(p.callParts);
+  }
+  for (const p of film) {
+    if (p.odk === 'K' || p.odk === 'S' || p.odk === 'D') continue;
+    const name = String(p.callName || '').trim();
     if (name) plays.set(name, [...(plays.get(name) || []), p]);
   }
   const now = Date.now();
@@ -548,10 +553,22 @@ export function placeholdersFromNames(
       notes: `Ran ${rows.length} time${rows.length === 1 ? '' : 's'} on this film.`,
       onReport: true,
       editedAt: now,
-      clips: rows.map((r) => Number(r.playNumber) || 0).filter(Boolean),
     });
   }
-  return { cards, formations: outForms };
+  const byName = new Map<string, ScoutOppPlay>();
+  for (const c of [...existing, ...cards]) if (!gone.has(c.id) && !byName.has(c.name.trim().toLowerCase())) byName.set(c.name.trim().toLowerCase(), c);
+  const links: Record<string, { playCallId: string; playCall: string }> = {};
+  for (const [name, rows] of plays) {
+    const card = byName.get(name.toLowerCase());
+    if (!card) continue;
+    const tag = 'scout_' + card.id;
+    for (const p of rows) {
+      const id = String(p.playCallId || '');
+      if (id === tag || (id && !id.startsWith('scout_name-'))) continue;
+      links[p.id] = { playCallId: tag, playCall: card.name };
+    }
+  }
+  return { cards, formations: outForms, links };
 }
 
 /** One card per call on this film. The down is the one they used it on most. */

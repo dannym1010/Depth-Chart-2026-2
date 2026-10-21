@@ -410,6 +410,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     const firstGame = oppBundle.games[0]?.id;
     const added: ScoutOppPlay[] = [];
     const newForms: OppFormation[] = [];
+    const links: Record<string, { playCallId: string; playCall: string }> = {};
     for (const g of oppBundle.games) {
       const film = oppBundle.plays.filter((pl) => (pl.gameId ? pl.gameId === g.id : g.id === firstGame));
       const cards = cardsFromTags(g.id, film, libs[g.id] || [], oppBundle.deletedOppPlayIds || [], libraryNameOf);
@@ -418,8 +419,9 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       const named = placeholdersFromNames(g.id, film, [...(libs[g.id] || []), ...cards], oppBundle.deletedOppPlayIds || [], [...(oppBundle.oppFormations || []), ...newForms]);
       added.push(...named.cards);
       newForms.push(...named.formations);
+      Object.assign(links, named.links);
     }
-    if (!added.length && !newForms.length) return [];
+    if (!added.length && !newForms.length && !Object.keys(links).length) return [];
     setOppBundle((prev) => {
       const playLibraries = { ...(prev.playLibraries || {}) };
       for (const c of added) {
@@ -432,6 +434,10 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         ...prev,
         playLibraries,
         ...(newForms.length ? { oppFormations } : {}),
+        // A clip with a play name is tagged with that name's card: its play call is the play name.
+        ...(Object.keys(links).length
+          ? { plays: prev.plays.map((pl) => (links[pl.id] ? { ...pl, ...links[pl.id], editedAt: Date.now() } : pl)) }
+          : {}),
         practiceScript: buildScoutScript(orderByIds(reportPlays(playLibraries), (prev.practiceScript?.lines || []).map((l) => l.playId)), reportName),
         updatedAt: Date.now(),
       };

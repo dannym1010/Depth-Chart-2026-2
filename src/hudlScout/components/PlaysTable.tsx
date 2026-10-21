@@ -543,7 +543,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               {((onSetUnit && playIsUnitTaggable(play)) || (canTagCalls && isTaggablePlay(play))) && (
                 <div className="pt-1 flex flex-wrap items-center gap-2">
                   {canTagCalls && isTaggablePlay(play) && (
-                    <CallButton play={play} db={callDb!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
+                    <CallButton play={play.callName && play.playCallId ? { ...play, playCall: play.callName } : play} db={callDb!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
                   )}
                   {showDraw(play) && <DrawButton play={play} onDraw={onDrawCall!} />}
                   {onSetUnit && playIsUnitTaggable(play) && <UnitPicker play={play} onSetUnit={onSetUnit} />}
@@ -718,7 +718,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     {canTagCalls && isTaggablePlay(play) ? (
                       <div className={`flex items-start gap-0.5 ${compact ? 'flex-row items-center gap-1.5' : 'flex-col'}`}>
                         <span className="inline-flex items-center gap-1">
-                          <CallButton play={play} db={callDb!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
+                          <CallButton play={play.callName && play.playCallId ? { ...play, playCall: play.callName } : play} db={callDb!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
                           {showDraw(play) && <DrawButton play={play} onDraw={onDrawCall!} />}
                         </span>
                         {play.playCallId && play.untaggedName && play.untaggedName !== play.playCall && realCall({ playName: play.untaggedName, result: play.result }) && (

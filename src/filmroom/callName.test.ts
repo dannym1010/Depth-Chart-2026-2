@@ -75,17 +75,25 @@ describe('play names from their parts', () => {
 
   it('play names make placeholder formations and plays in Their plays (once, removed ones stay gone)', async () => {
     const { placeholdersFromNames } = await import('../utils/scoutOppPlays.ts');
-    const snap = (n: number, callParts: any) => ({ id: `p${n}`, gameId: 'g', playNumber: n, odk: 'O', playType: 'Run', callParts }) as any;
+    const { buildCallName } = await import('./callName.ts');
+    const snap = (n: number, callParts: any, tag?: string) => ({ id: `p${n}`, gameId: 'g', playNumber: n, odk: 'O', playType: 'Run', callParts, callName: buildCallName(callParts), ...(tag ? { playCallId: tag } : {}) }) as any;
     const film = [
       snap(1, { personnel: '21', qb: 'Gun', strength: 'R', concept: 'Dive' }),
-      snap(2, { personnel: '21', qb: 'Gun', strength: 'L', concept: 'Dive' }),
+      snap(2, { personnel: '21', qb: 'Gun', strength: 'R', concept: 'Dive' }, 'scout_name-g-old-name'),
       snap(3, { personnel: '21', qb: 'Gun', tags: ['Trips'], concept: 'Bubble' }),
-      snap(4, { personnel: '10' }),
+      snap(4, { personnel: '10' }, 'lib-play-7'),
     ];
     const out = placeholdersFromNames('g', film, [], [], []);
     assert.deepEqual(out.formations.map((f) => [f.name, f.clip, Boolean(f.builder)]), [['21 GUN', 1, false], ['21 GUN Trips', 3, false], ['10', 4, false]]);
-    assert.deepEqual(out.cards.map((c) => [c.name, c.formation, c.clips]), [['21 GUN Dive', '21 GUN', [1, 2]], ['21 GUN Trips Bubble', '21 GUN Trips', [3]]]);
-    const again = placeholdersFromNames('g', film, out.cards.slice(0, 1), [out.cards[1].id], [...out.formations.slice(0, 2), { ...out.formations[2], deleted: true }]);
+    // Each card is the play name itself, so the play call matches it.
+    assert.deepEqual(out.cards.map((c) => [c.name, c.formation]), [['21 Gun Rt Dive', '21 GUN'], ['21 Gun Trips Bubble', '21 GUN Trips'], ['10', '10']]);
+    // Untagged clips and a clip on an old play-name card are tagged with it; a tag from our library stays.
+    assert.deepEqual(out.links, {
+      p1: { playCallId: 'scout_name-g-21-gun-rt-dive', playCall: '21 Gun Rt Dive' },
+      p2: { playCallId: 'scout_name-g-21-gun-rt-dive', playCall: '21 Gun Rt Dive' },
+      p3: { playCallId: 'scout_name-g-21-gun-trips-bubble', playCall: '21 Gun Trips Bubble' },
+    });
+    const again = placeholdersFromNames('g', film, out.cards.slice(0, 2), [out.cards[2].id], [...out.formations.slice(0, 2), { ...out.formations[2], deleted: true }]);
     assert.deepEqual([again.cards.length, again.formations.length], [0, 0]);
   });
 });
