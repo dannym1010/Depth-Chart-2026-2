@@ -455,7 +455,26 @@ async function disableFirestoreNetwork(): Promise<void> {
   }
 }
 
+/** Why the last cloud save didn't go through, in plain words (empty after one that did). */
+let lastCloudError = '';
+export function lastCloudSaveError(): string {
+  if (isFirestoreQuotaPaused()) return "the cloud's free daily limit is used up (it resets overnight)";
+  return lastCloudError;
+}
+export function clearCloudSaveError() {
+  lastCloudError = '';
+}
+export function describeCloudError(err?: any): string {
+  const text = `${err?.code || ''} ${err?.message || ''}`.toLowerCase();
+  if (text.includes('resource-exhausted') || text.includes('quota')) return "the cloud's free daily limit is used up (it resets overnight)";
+  if (text.includes('maximum allowed size') || text.includes('exceeds') || text.includes('too large')) return 'this week is too big for one cloud save';
+  if (text.includes('permission') || text.includes('unauthenticated')) return 'the cloud refused it (sign out and back in)';
+  if (text.includes('unavailable') || text.includes('offline') || text.includes('network') || text.includes('failed to fetch')) return 'no internet connection';
+  return String(err?.message || err?.code || 'unknown error').slice(0, 120);
+}
+
 export function noteFirestoreError(err?: any) {
+  lastCloudError = describeCloudError(err);
   const text = `${err?.code || ''} ${err?.message || ''}`.toLowerCase();
   if (text.includes('resource-exhausted') || text.includes('quota exceeded')) {
     firestoreQuotaPausedUntil = nextQuotaResetMs();
@@ -1241,8 +1260,10 @@ export async function saveSharedBoardCloud(payload: {
         )
       );
     }
-    if (!writes.length) return false;
+    // Nothing of these kinds to send: nothing is waiting.
+    if (!writes.length) return true;
     await Promise.all(writes);
+    lastCloudError = '';
     return true;
   } catch (err) {
     noteFirestoreError(err);
@@ -1488,8 +1509,9 @@ export async function patchSharedWeekCloud(payload: {
     if (Array.isArray(payload.deletedFormationIds) && payload.deletedFormationIds.length) {
       body.deletedFormationIds = payload.deletedFormationIds;
     }
-    if (Object.keys(body).length === 3) return false;
+    if (Object.keys(body).length === 3) return true;
     await db.collection('teamData').doc(opsWeekDocId(payload.teamId, payload.week)).set(opsMeta(body), { merge: true });
+    lastCloudError = '';
     return true;
   } catch (err) {
     noteFirestoreError(err);
@@ -1600,7 +1622,9 @@ export async function fetchSharedBoardCloud(
 export function subscribeSharedBoardCloud(
   teamId: string,
   week: string,
-  onUpdate: (data: SharedBoardCloudUpdate) => void
+  onUpdate: (data: SharedBoardCloudUpdate) => void,
+  /** The cloud stopped sending changes (why, in plain words). */
+  onError?: (reason: string) => void
 ): () => void {
   if (isFirestoreQuotaPaused()) {
     void disableFirestoreNetwork();
@@ -1625,6 +1649,7 @@ export function subscribeSharedBoardCloud(
       (err: any) => {
         noteFirestoreError(err);
         console.warn(`subscribeSharedBoardCloud ${docId} error:`, err);
+        onError?.(describeCloudError(err));
       }
     );
 

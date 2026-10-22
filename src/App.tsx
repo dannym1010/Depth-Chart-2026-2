@@ -88,6 +88,8 @@ import {
   subscribeSharedBoardCloud,
   isFirestoreQuotaPaused,
   noteFirestoreError,
+  lastCloudSaveError,
+  isReadOnlySession as isCloudReadOnly,
   cloudModulesForScope,
   subscribeServerEvents,
   fetchServerLocks,
@@ -2209,11 +2211,7 @@ export default function App() {
         } catch {
           /* local cache is best-effort after the live patch */
         }
-        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        setSyncStatus({
-          text: sharedOk ? `✅ Saved & Synced (${timeStr})` : '⚠️ Saved on this device only',
-          color: sharedOk ? '#22c55e' : '#ef4444',
-        });
+        noteCloudResult(sharedOk, scope, extraMeta);
         return;
       }
     }
@@ -2522,9 +2520,11 @@ export default function App() {
       modules,
     });
 
-    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     if (sharedOk || firestoreOk) {
-      setSyncStatus({ text: `✅ Saved & Synced (${timeStr})`, color: '#22c55e' });
+      noteCloudResult(true, scope, extraMeta);
+    } else if (!skipShared) {
+      // Meant for the cloud and it didn't get there: it stays waiting and goes again.
+      noteCloudResult(false, scope, extraMeta);
     } else if (serverOk) {
       setSyncStatus({ text: '⚠️ Saved on this computer only', color: '#f59e0b' });
     } else {
@@ -2536,6 +2536,57 @@ export default function App() {
   // Changes waiting to be saved, by kind. Saving one kind never drops another that is waiting
   // (taking attendance also changes the roster's hours; both must reach the cloud).
   const pendingScopesRef = useRef<Map<string, Record<string, any> | undefined>>(new Map());
+  // A cloud save that didn't go through (no signal, the cloud busy or at its limit) waits, here and on this
+  // device's storage, and is sent again until the cloud takes it. Until then the sync pill says why, in red.
+  const cloudRetryRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; tries: number }>({ timer: null, tries: 0 });
+  const UNSYNCED_KEY = 'footballUnsyncedSaves';
+  const readUnsynced = (): [string, Record<string, any> | undefined][] => {
+    try {
+      const list = JSON.parse(localStorage.getItem(UNSYNCED_KEY) || '[]');
+      return Array.isArray(list) ? list.filter((x) => Array.isArray(x) && typeof x[0] === 'string') : [];
+    } catch {
+      return [];
+    }
+  };
+  const noteCloudResult = (ok: boolean, scope: string, extraMeta?: Record<string, any>) => {
+    const r = cloudRetryRef.current;
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (ok) {
+      r.tries = 0;
+      if (r.timer) clearTimeout(r.timer);
+      r.timer = null;
+      // This save carried the device's current copy of its kind: that kind is no longer waiting.
+      try {
+        const left = readUnsynced().filter(([s]) => s !== scope && !scope.split('+').includes(s));
+        if (left.length) localStorage.setItem(UNSYNCED_KEY, JSON.stringify(left));
+        else localStorage.removeItem(UNSYNCED_KEY);
+      } catch {
+        /* storage full or blocked: the retry in memory still runs */
+      }
+      setSyncStatus({ text: `✅ Saved & Synced (${timeStr})`, color: '#22c55e' });
+      return;
+    }
+    if (isCloudReadOnly() || !getFirebaseServices().db) {
+      setSyncStatus({ text: '⚠️ Saved on this device only', color: '#ef4444' });
+      return;
+    }
+    queueSaveScope(scope, extraMeta);
+    try {
+      const list = readUnsynced().filter(([s]) => s !== scope);
+      localStorage.setItem(UNSYNCED_KEY, JSON.stringify([...list, [scope, extraMeta]].slice(-40)));
+    } catch {
+      /* storage full or blocked: the retry in memory still runs */
+    }
+    r.tries += 1;
+    const wait = Math.min(60_000, 3_000 * 2 ** Math.min(r.tries - 1, 5));
+    const reason = lastCloudSaveError() || 'the cloud did not answer';
+    setSyncStatus({ text: `⚠️ Not in the cloud yet (${reason}). Trying again…`, color: '#ef4444' });
+    if (r.timer) clearTimeout(r.timer);
+    r.timer = setTimeout(() => {
+      r.timer = null;
+      scheduleSaves(0);
+    }, wait);
+  };
   const queueSaveScope = (scope: string, extraMeta?: Record<string, any>) => {
     const m = pendingScopesRef.current;
     const prev = m.get(scope);
@@ -3433,16 +3484,62 @@ export default function App() {
     };
   }, [activeTeamId, currentWeek]);
 
+  // Back on the app after a while (a phone asleep, another app): the live connection may have dropped
+  // without saying so. Listen again, and fetch the cloud's copy now, so the other coaches' changes show.
+  const [cloudWake, setCloudWake] = useState(0);
+  const relistenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (isFirestoreQuotaPaused()) return;
+    let hiddenAt = 0;
+    let lastFetch = 0;
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+        return;
+      }
+      if (!initialCloudLoadDoneRef.current) return;
+      if (hiddenAt && Date.now() - hiddenAt > 30_000) setCloudWake((n) => n + 1);
+      if (Date.now() - lastFetch > 15_000) {
+        lastFetch = Date.now();
+        void hydrateSharedBoardFromCloud();
+      }
+    };
+    const onOnline = () => {
+      if (initialCloudLoadDoneRef.current) setCloudWake((n) => n + 1);
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('online', onOnline);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('online', onOnline);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (isFirestoreQuotaPaused()) {
+      setSyncStatus({ text: `⚠️ Not getting other coaches' changes (${lastCloudSaveError()})`, color: '#ef4444' });
+      return;
+    }
     const { db } = getFirebaseServices();
     if (!db) return;
-    const unsub = subscribeSharedBoardCloud(activeTeamId, currentWeek, (remote) => {
-      applySharedBoardFromRemote(remote);
-      if (remote?.weekSlice || remote?.weekMissing) markWeekSeen(activeTeamId, currentWeek);
-    });
+    const unsub = subscribeSharedBoardCloud(
+      activeTeamId,
+      currentWeek,
+      (remote) => {
+        applySharedBoardFromRemote(remote);
+        if (remote?.weekSlice || remote?.weekMissing) markWeekSeen(activeTeamId, currentWeek);
+      },
+      (reason) => {
+        setSyncStatus({ text: `⚠️ Not getting other coaches' changes (${reason}). Trying again…`, color: '#ef4444' });
+        // A listener that errored has stopped for good: start them again in a bit (once for all of them).
+        if (relistenTimerRef.current || isFirestoreQuotaPaused()) return;
+        relistenTimerRef.current = setTimeout(() => {
+          relistenTimerRef.current = null;
+          setCloudWake((n) => n + 1);
+        }, 20_000);
+      }
+    );
     return () => unsub();
-  }, [activeTeamId, currentWeek]);
+  }, [activeTeamId, currentWeek, cloudWake]);
 
   // Global blur / focusout sync listener: whenever a coach clicks out of any input/box/dropdown,
   // immediately flush changes to Firestore & Server so other coaches see them instantly
@@ -3477,6 +3574,33 @@ export default function App() {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       document.removeEventListener('visibilitychange', handleHidden);
     };
+  }, []);
+
+  // Cloud saves still waiting: sent as soon as the device is back online, and after the app opens again
+  // (once this device has the cloud's copy, so what goes up is merged with the other coaches' edits).
+  useEffect(() => {
+    const onOnline = () => {
+      if (pendingScopesRef.current.size) scheduleSaves(0);
+    };
+    window.addEventListener('online', onOnline);
+    let tries = 0;
+    const waiting = readUnsynced();
+    const timer = waiting.length
+      ? window.setInterval(() => {
+          tries += 1;
+          const ready = initialCloudLoadDoneRef.current && weekLoadedHere(activeTeamIdRef.current, normalizeScoutWeekKey(currentWeekRef.current));
+          if (!ready && tries < 30) return;
+          window.clearInterval(timer);
+          if (!ready) return;
+          for (const [s, meta] of waiting) queueSaveScope(s, meta);
+          scheduleSaves(0);
+        }, 2000)
+      : 0;
+    return () => {
+      window.removeEventListener('online', onOnline);
+      if (timer) window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Initial Server Persistence & Live Real-Time Multi-Coach Subscription
