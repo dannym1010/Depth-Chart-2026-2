@@ -262,6 +262,8 @@ export function copyScoutGame(
 
 /** A play nobody has broken down yet: the blank play the Film Room makes for each clip. */
 export function isBlankPlay(p: Play): boolean {
+  // A play a coach named in the Film Room isn't blank, even with nothing else filled in.
+  if (String(p.callName || '').trim()) return false;
   const named = !p.playCallId && String(p.playName || '').trim();
   return (!p.odk || p.odk === 'UNKNOWN') && !p.down && !String(p.rawYardLine || '').trim() && !String(p.result || '').trim() && !named && !String(p.formation || '').trim();
 }
@@ -340,6 +342,7 @@ export function mergeBlankFilmGame(bundle: ScoutBundle, blankId: string, intoId:
     const patch: Partial<Play> = {};
     if (p.playCallId && !q.playCallId) Object.assign(patch, { playCallId: p.playCallId, playCall: p.playCall, untaggedName: q.playName, playName: p.playCall || q.playName });
     if (p.unit && !q.unit) patch.unit = p.unit;
+    if ((p.callName || p.callParts) && !q.callName) Object.assign(patch, { callParts: p.callParts, callName: p.callName, ...(p.callEditedAt ? { callEditedAt: p.callEditedAt } : {}) });
     if (Object.keys(patch).length) carried.set(q.id, { ...patch, editedAt: now });
   });
   const removed = removeScoutGame(bundle, blankId, bundle.datasetName);
@@ -426,6 +429,7 @@ function keepCoachWork(old: Play, fresh: Play): Play {
   // The play named in the Film Room (its parts and name) stays.
   if (old.callParts) next.callParts = old.callParts;
   if (old.callName) next.callName = old.callName;
+  if (old.callEditedAt) next.callEditedAt = old.callEditedAt;
   // A formation a coach typed ("21 R") beats a blank or Hudl word from the file.
   const oldForm = old.untaggedFormation ?? old.formation;
   const freshIsNumber = /^\d/.test(String(fresh.formation || '').trim());

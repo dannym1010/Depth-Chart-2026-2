@@ -108,6 +108,8 @@ export interface Play {
   callParts?: CallParts;
   /** The name those parts make ("32 Gun Rt Tight 44 Counter"). */
   callName?: string;
+  /** When the play name (callParts / callName) was last changed: it merges on its own, so another edit can't erase it. */
+  callEditedAt?: number;
 }
 
 export interface DownDistGroup {

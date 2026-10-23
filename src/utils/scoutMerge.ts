@@ -19,6 +19,19 @@ function mergeBackfieldBases(a?: any, b?: any) {
   return Object.keys(out).length ? out : undefined;
 }
 
+/**
+ * A play's name (the coach's parts and the name they make) merges on its own: the newer name stamp wins, and a
+ * copy that never had a name can't erase one (another edit of the play saved from an older copy kept wiping it).
+ */
+export function withNewestName(winner: any, other: any) {
+  const has = (p: any) => Boolean(p?.callName || (p?.callParts && Object.keys(p.callParts).length));
+  if (!other || !has(other)) return winner;
+  const wT = Number(winner?.callEditedAt) || 0, oT = Number(other?.callEditedAt) || 0;
+  const take = oT > wT || (!has(winner) && !wT);
+  if (!take) return winner;
+  return { ...winner, callParts: other.callParts, callName: other.callName, ...(oT ? { callEditedAt: oT } : {}) };
+}
+
 export function scoutFingerprint(scout: any): string {
   if (!scout || typeof scout !== 'object') return '';
   const plays = Array.isArray(scout.plays) ? scout.plays : [];
@@ -116,8 +129,9 @@ export function pickScoutBundle(a?: any, b?: any) {
       if (!p.gameId || !olderOnlyKept.has(p.gameId)) continue;
       byId.set(p.id, p);
       order.push(p.id);
-    } else if ((Number(p.editedAt) || 0) > (Number(cur.editedAt) || 0)) {
-      byId.set(p.id, p);
+    } else {
+      const winner = (Number(p.editedAt) || 0) > (Number(cur.editedAt) || 0) ? p : cur;
+      byId.set(p.id, withNewestName(winner, winner === p ? cur : p));
     }
   }
   const plays = order.map((id) => byId.get(id));

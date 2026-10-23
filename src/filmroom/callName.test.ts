@@ -132,3 +132,29 @@ describe('play names from their parts', () => {
     assert.equal(mergeDrawnIntoTags(film, [card('name-g-21-gun-trap', '21 Gun Trap', [5]), b], drawn).length, 0);
   });
 });
+
+describe('play names survive copies merging', () => {
+  it('an older copy edited later (no name) keeps the name; a newer name wins; a never-named copy cannot erase one', async () => {
+    const { pickScoutBundle } = await import('../utils/scoutMerge.ts');
+    const game = [{ id: 'g', name: 'Week 2', addedAt: 1 }];
+    const named = { id: 'p1', gameId: 'g', playNumber: 1, callParts: { personnel: '21', concept: 'Dive' }, callName: '21 Dive', callEditedAt: 100, editedAt: 100 };
+    // another device's copy, from before the name synced, with a later edit of something else
+    const stale = { id: 'p1', gameId: 'g', playNumber: 1, unit: 'gold', editedAt: 200 };
+    const a = { updatedAt: 100, games: game, plays: [named] };
+    const b = { updatedAt: 200, games: game, plays: [stale] };
+    const m = pickScoutBundle(a, b);
+    assert.equal(m.plays[0].callName, '21 Dive');
+    assert.equal(m.plays[0].unit, 'gold');
+    // renamed later on the other device: the newer name wins
+    const renamed = { ...stale, callParts: { personnel: '21', concept: 'Trap' }, callName: '21 Trap', callEditedAt: 300, editedAt: 300 };
+    assert.equal(pickScoutBundle(a, { updatedAt: 300, games: game, plays: [renamed] }).plays[0].callName, '21 Trap');
+    // names from before the name stamp (no callEditedAt) are kept too
+    const oldNamed = { id: 'p1', gameId: 'g', playNumber: 1, callName: '22 Power', editedAt: 50 };
+    assert.equal(pickScoutBundle({ updatedAt: 50, games: game, plays: [oldNamed] }, b).plays[0].callName, '22 Power');
+  });
+  it('a named play is not a blank play', async () => {
+    const { isBlankPlay } = await import('../hudlScout/scoutBundle.ts');
+    assert.equal(isBlankPlay({ id: 'x', odk: 'UNKNOWN', playNumber: 1 } as any), true);
+    assert.equal(isBlankPlay({ id: 'x', odk: 'UNKNOWN', playNumber: 1, callName: '21 Dive' } as any), false);
+  });
+});

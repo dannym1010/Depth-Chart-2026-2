@@ -285,7 +285,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   useEffect(() => {
     if (unpadded.current || locked || !opp.plays.length) return;
     const isBlankExtra = (p: Play) =>
-      /-x\d+$/.test(p.id) && p.odk === 'UNKNOWN' && !p.playName && !p.formation && !p.result && !p.playType && !Number(p.down) && !p.playCall;
+      /-x\d+$/.test(p.id) && p.odk === 'UNKNOWN' && !p.playName && !p.callName && !p.formation && !p.result && !p.playType && !Number(p.down) && !p.playCall;
     const extra = opp.plays.filter(isBlankExtra);
     unpadded.current = true;
     if (!extra.length) return;
@@ -1212,7 +1212,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         editPlays((all) =>
           all.map((x) => {
             if (x.id !== p.id) return x;
-            const next = { ...x, ...patch, editedAt: Date.now() };
+            const next = { ...x, ...patch, editedAt: Date.now(), ...('callParts' in patch ? { callEditedAt: Date.now() } : {}) };
             if ('strength' in patch && !patch.strength) delete next.strength;
             // Who had the ball also reads in the play log's players column.
             if ('rusher' in patch || 'passer' in patch || 'receiver' in patch) {
