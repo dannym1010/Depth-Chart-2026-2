@@ -34,7 +34,7 @@ import { sameFolderGame } from './folderRoutes';
 import type { FilmGame, FilmMark, FilmNote } from './types';
 import { useClipUrl, useGameFilm } from './useGameFilm';
 import { canOpenFolders } from './filmSources';
-import { openVideoScreen, screenSupported, useVideoScreenSender } from './screenLink';
+import { openVideoScreen, screenSupported, screenUrl, useVideoScreenSender } from './screenLink';
 import { moveSharedNotes, useSharedGame } from './useSharedGame';
 import { readBreakdown, useFolderBreakdowns } from './folderImport';
 import { PlayListActions, PlaylistsPanel, type Person } from './PlaylistsPanel';
@@ -644,9 +644,17 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     getVideo: () => apiRef.current?.video?.() || null,
     getBlob: async () => (clipUrl.url ? (await fetch(clipUrl.url)).blob() : null),
   });
+  // How to get the video window onto the TV (iPads won't always pull a tab out of the browser into its own window).
+  const [tvHelp, setTvHelp] = useState(false);
+  const [tvCopied, setTvCopied] = useState(false);
+  const copyTvLink = () => {
+    navigator.clipboard?.writeText(screenUrl()).then(() => setTvCopied(true), () => setTvCopied(false));
+  };
   const startTv = () => {
+    copyTvLink();
     openVideoScreen();
     setTvOn(true);
+    setTvHelp(true);
   };
   const [linkOpen, setLinkOpen] = useState(false);
   // Opened from the play builder, the library starts closed so the builder has room beside the video.
@@ -1412,14 +1420,31 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             />
           )}
           {tvOn && (
-            <button
-              type="button"
-              onClick={() => setTvOn(false)}
-              title="The video is playing on the other screen. Tap to stop sending it."
-              className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-emerald-600 text-white"
-            >
-              <Tv size={14} /> On TV · Stop
-            </button>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setTvOn(false)}
+                title="The video is playing on the other screen. Tap to stop sending it."
+                className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-emerald-600 text-white"
+              >
+                <Tv size={14} /> On TV · Stop
+              </button>
+              {tvHelp && (
+                <div role="note" className="absolute right-0 top-full mt-1 z-40 w-72 max-w-[calc(100vw-2rem)] flex flex-col gap-2 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950 px-3 py-2 text-xs text-emerald-900 dark:text-emerald-100 shadow-lg">
+                  <span>
+                    <b>Video for the TV:</b> if it opened as a tab, tap Chrome&apos;s <b>⋯</b> menu → <b>New Window</b>, paste the TV link in the address bar, and drag that window onto the TV.
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={copyTvLink} className="h-7 px-2.5 rounded-md bg-emerald-600 text-white font-bold">
+                      {tvCopied ? 'TV link copied' : 'Copy TV link'}
+                    </button>
+                    <button type="button" onClick={() => setTvHelp(false)} className="h-7 px-2 rounded-md font-bold">
+                      Got it
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
           {!locked && (
             <div ref={moreRef} className="relative">

@@ -16,9 +16,11 @@ export type ScreenMessage =
 export const screenSupported = () => typeof window !== 'undefined' && 'BroadcastChannel' in window;
 
 /** Open the video screen window (the browser decides where; on an iPad drag it to the TV). */
+/** The video screen's address (to open in another window by hand). */
+export const screenUrl = () => `${window.location.origin}${window.location.pathname}${SCREEN_HASH}`;
+
 export function openVideoScreen(): Window | null {
-  const url = `${window.location.origin}${window.location.pathname}${SCREEN_HASH}`;
-  return window.open(url, 'mahopac-filmscreen');
+  return window.open(screenUrl(), 'mahopac-filmscreen');
 }
 
 /**
