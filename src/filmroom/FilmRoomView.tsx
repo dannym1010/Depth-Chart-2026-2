@@ -3,7 +3,7 @@
 // whole staff sees. The play log under the video is Hudl Scout's own: sorting it sets the play order, and
 // tags changed here are the same tags Hudl Scout shows.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Copy, ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft, Star, ListVideo, X, MoreHorizontal, Trash2, RotateCcw } from 'lucide-react';
+import { Copy, ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft, Star, ListVideo, X, MoreHorizontal, Trash2, RotateCcw, Tv } from 'lucide-react';
 import { PlaysTable } from '../hudlScout/components/PlaysTable';
 import { assignDrives, bundleFromSaved, copyScoutGame, folderCopies, mergeFolderCopies, removeScoutGame, type ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play, TeamUnit } from '../hudlScout/types/football';
@@ -34,6 +34,7 @@ import { sameFolderGame } from './folderRoutes';
 import type { FilmGame, FilmMark, FilmNote } from './types';
 import { useClipUrl, useGameFilm } from './useGameFilm';
 import { canOpenFolders } from './filmSources';
+import { openVideoScreen, screenSupported, useVideoScreenSender } from './screenLink';
 import { moveSharedNotes, useSharedGame } from './useSharedGame';
 import { readBreakdown, useFolderBreakdowns } from './folderImport';
 import { PlayListActions, PlaylistsPanel, type Person } from './PlaylistsPanel';
@@ -634,6 +635,19 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const clipUrl = useClipUrl(clip, localFiles, nextClip);
 
   const apiRef = useRef<PlayerApi | null>(null);
+  // The video on a second screen (a TV or monitor): that window plays the clip, this one keeps the play log.
+  const [tvOn, setTvOn] = useState(false);
+  useVideoScreenSender({
+    on: tvOn,
+    key: `${clip?.id || ''}|${clipUrl.url || ''}`,
+    title: play ? playTitle(play) : '',
+    getVideo: () => apiRef.current?.video?.() || null,
+    getBlob: async () => (clipUrl.url ? (await fetch(clipUrl.url)).blob() : null),
+  });
+  const startTv = () => {
+    openVideoScreen();
+    setTvOn(true);
+  };
   const [linkOpen, setLinkOpen] = useState(false);
   // Opened from the play builder, the library starts closed so the builder has room beside the video.
   const [libraryDesk, setLibraryDesk] = useState(() => !builderSeed && safeJSONParse<boolean>('footballFilmroomLibrary', true));
@@ -1397,6 +1411,16 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
               }}
             />
           )}
+          {tvOn && (
+            <button
+              type="button"
+              onClick={() => setTvOn(false)}
+              title="The video is playing on the other screen. Tap to stop sending it."
+              className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-emerald-600 text-white"
+            >
+              <Tv size={14} /> On TV · Stop
+            </button>
+          )}
           {!locked && (
             <div ref={moreRef} className="relative">
               <button
@@ -1440,6 +1464,12 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                         {film.status === 'ready' && play && clipFor.has(play.id) &&
                           item(<><Trash2 size={14} /> Remove this play&apos;s video</>, () => removeClipOf(play), "Leave this video out of the game: the plays after it move up one (the file isn't deleted)")}
                         {removedSet.size > 0 && item(<><RotateCcw size={14} /> Bring back removed videos ({removedSet.size})</>, restoreClips)}
+                        {film.status === 'ready' && screenSupported() &&
+                          item(
+                            <><Tv size={14} /> {tvOn ? 'Open the TV screen again' : 'TV screen (video on a second screen)'}</>,
+                            startTv,
+                            'Open the video in its own window for a TV or monitor; this window keeps the play log'
+                          )}
                         {sources.drive && canOpenFolders() && (
                           <div className="px-2.5 py-1.5">
                             <div className="mb-1 text-[10px] font-black uppercase tracking-wider text-slate-400">Play film from</div>
