@@ -12,6 +12,11 @@ interface LinkFilmDialogProps {
   onDrive: (link: string) => Promise<void>;
 }
 
+/** An iPad or iPhone (an iPad's browser says "Macintosh" but has a touch screen). */
+const appleTouch =
+  typeof navigator !== 'undefined' &&
+  (/iPad|iPhone|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && (navigator.maxTouchPoints || 0) > 1));
+
 const option = 'w-full flex items-start gap-3 text-left rounded-xl border border-slate-200 dark:border-slate-700 p-3 hover:border-indigo-400 hover:bg-indigo-50/50 dark:hover:bg-indigo-500/10 transition-colors disabled:opacity-50 disabled:pointer-events-none';
 
 export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveLink, onClose, onFolder, onFiles, onDrive }) => {
@@ -94,14 +99,27 @@ export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveL
         <button className={option} disabled={busy} onClick={() => fileInput.current?.click()}>
           <Smartphone size={20} className="text-indigo-500 shrink-0 mt-0.5" />
           <span>
-            <span className="block text-sm font-bold text-slate-900 dark:text-white">Pick this game's clips</span>
+            <span className="block text-sm font-bold text-slate-900 dark:text-white">
+              {appleTouch ? 'Pick this game’s clips (a drive or Files)' : "Pick this game's clips"}
+            </span>
             <span className="block text-xs text-slate-500 dark:text-slate-400">Select all of them at once (phones and tablets too). For this visit only.</span>
           </span>
         </button>
+        {/* iPad / iPhone: the browser can't open a folder, and its picker offers the photo library first. */}
+        {appleTouch && (
+          <ol className="text-xs text-slate-600 dark:text-slate-300 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 list-decimal list-inside space-y-0.5">
+            <li>Plug in the drive, then tap <b>Pick this game’s clips</b>.</li>
+            <li>Tap <b>Choose Files</b> (not Photo Library).</li>
+            <li>Tap <b>Browse</b>, then your drive under <b>Locations</b>, then the game’s folder (like <b>10U / Week 2 - Yorktown Huskers</b>).</li>
+            <li>Tap <b>Select</b> (top right), tap every clip, then <b>Open</b>.</li>
+            <li>The iPad copies the clips first; big 4K clips take a while for a whole game.</li>
+          </ol>
+        )}
         <input
           ref={fileInput}
           type="file"
-          accept="video/*"
+          // The file types too, so clips the photo library doesn't know (HEVC .MP4 / .MOV from a camera) aren't greyed out.
+          accept="video/*,.mp4,.MP4,.mov,.MOV,.m4v,.M4V"
           multiple
           className="hidden"
           onChange={(e) => {
