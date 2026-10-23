@@ -587,6 +587,33 @@ export function placeholdersFromNames(
 }
 
 /**
+ * Play names lost from the plays, found again on Their plays' cards: a card made from a play name keeps that
+ * name and the clip numbers it was made from. Each unnamed play at one of those clips gets the card's name
+ * back (its parts read from the name). Cards made from play names come first.
+ */
+export function namesFromCards(
+  plays: Play[],
+  libraries: Record<string, ScoutOppPlay[]> | undefined,
+  parse: (name: string) => NonNullable<Play['callParts']>
+): { id: string; callName: string; callParts: NonNullable<Play['callParts']> }[] {
+  const cards = Object.values(libraries || {})
+    .flat()
+    .filter((c) => c?.name?.trim() && c.clips?.length)
+    .sort((a, b) => Number(b.id.startsWith('name-')) - Number(a.id.startsWith('name-')));
+  const out = new Map<string, { id: string; callName: string; callParts: NonNullable<Play['callParts']> }>();
+  for (const c of cards) {
+    const parts = parse(c.name);
+    if (!parts.personnel) continue; // not a play name ("Jet Sweep" typed as a card)
+    for (const n of c.clips || []) {
+      const p = plays.find((x) => x.gameId === c.gameId && Number(x.playNumber) === Number(n));
+      if (!p || String(p.callName || '').trim() || out.has(p.id)) continue;
+      out.set(p.id, { id: p.id, callName: c.name.trim(), callParts: parts });
+    }
+  }
+  return [...out.values()];
+}
+
+/**
  * A play already drawn whose clips were all tagged with another play call (from the play log, or a new play
  * name): it's kept, under that play call, so both drawings show when the call is opened. Returns the cards
  * that move (renamed to the call they joined); a drawn play with a clip still on it stays as it is. A play

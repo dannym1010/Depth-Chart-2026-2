@@ -158,3 +158,22 @@ describe('play names survive copies merging', () => {
     assert.equal(isBlankPlay({ id: 'x', odk: 'UNKNOWN', playNumber: 1, callName: '21 Dive' } as any), false);
   });
 });
+
+describe('bring back play names from Their plays cards', () => {
+  it('names the plays at each card\'s clips (name cards first, named plays left alone)', async () => {
+    const { namesFromCards } = await import('../utils/scoutOppPlays.ts');
+    const { parseCall } = await import('./callName.ts');
+    const plays = [1, 2, 3, 4].map((n) => ({ id: `p${n}`, gameId: 'g', playNumber: n })) as any[];
+    plays[3].callName = '22 Power';
+    const libs = {
+      g: [
+        { id: 'opp-1', gameId: 'g', name: 'Jet Sweep', clips: [3] },
+        { id: 'name-g-21-gun-rt-twins-31-toss', gameId: 'g', name: '21 Gun Rt TWINS 31 Toss', clips: [1, 2, 4] },
+        { id: 'opp-2', gameId: 'g', name: '21 GUN Dive', clips: [2, 3] },
+      ],
+    } as any;
+    const out = namesFromCards(plays, libs, parseCall);
+    assert.deepEqual(out.map((x) => [x.id, x.callName]), [['p1', '21 Gun Rt TWINS 31 Toss'], ['p2', '21 Gun Rt TWINS 31 Toss'], ['p3', '21 GUN Dive']]);
+    assert.deepEqual(out[0].callParts, { personnel: '21', qb: 'Gun', strength: 'R', tags: ['Twins'], back: '3', hole: '1', concept: 'Toss' });
+  });
+});

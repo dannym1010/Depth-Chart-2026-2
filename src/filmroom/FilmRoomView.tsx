@@ -35,6 +35,8 @@ import type { FilmGame, FilmMark, FilmNote } from './types';
 import { useClipUrl, useGameFilm } from './useGameFilm';
 import { canOpenFolders } from './filmSources';
 import { openVideoScreen, screenSupported, screenUrl, useVideoScreenSender } from './screenLink';
+import { namesFromCards } from '../utils/scoutOppPlays';
+import { parseCall } from './callName';
 import { moveSharedNotes, useSharedGame } from './useSharedGame';
 import { readBreakdown, useFolderBreakdowns } from './folderImport';
 import { PlayListActions, PlaylistsPanel, type Person } from './PlaylistsPanel';
@@ -423,6 +425,16 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     else onUpdateScouting('hudlScout', { ...((opponentScout as object) || {}), plays: change(opp.plays), updatedAt: now });
   };
   const isOwn = source === 'own';
+  // Play names lost from their plays but still on Their plays' cards (each card keeps its name and clips).
+  const lostNames = useMemo(
+    () => (isOwn ? [] : namesFromCards(opp.plays, (opp as { playLibraries?: Record<string, any[]> }).playLibraries as any, parseCall)),
+    [isOwn, opp]
+  );
+  const bringBackNames = () => {
+    const by = new Map(lostNames.map((x) => [x.id, x]));
+    const now = Date.now();
+    editPlays((all) => all.map((p) => { const x = by.get(p.id); return x && !p.callName ? { ...p, callName: x.callName, callParts: x.callParts, callEditedAt: now, editedAt: now } : p; }));
+  };
   // Their film: the formations drawn for this report (Their plays, step 1), to pick per clip or draw a new one.
   const drawnFormations = useMemo(
     () => ((opp as { oppFormations?: { id: string; name: string; deleted?: boolean; builder?: unknown }[] }).oppFormations || [])
@@ -1489,6 +1501,12 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                         {film.status === 'ready' && play && clipFor.has(play.id) &&
                           item(<><Trash2 size={14} /> Remove this play&apos;s video</>, () => removeClipOf(play), "Leave this video out of the game: the plays after it move up one (the file isn't deleted)")}
                         {removedSet.size > 0 && item(<><RotateCcw size={14} /> Bring back removed videos ({removedSet.size})</>, restoreClips)}
+                        {lostNames.length > 0 &&
+                          item(
+                            <><RotateCcw size={14} /> Bring back play names ({lostNames.length})</>,
+                            bringBackNames,
+                            'Play names missing from these plays, put back from the play cards in Their plays (the clips each card was made from)'
+                          )}
                         {film.status === 'ready' && screenSupported() &&
                           item(
                             <><Tv size={14} /> {tvOn ? 'Open the TV screen again' : 'TV screen (video on a second screen)'}</>,
