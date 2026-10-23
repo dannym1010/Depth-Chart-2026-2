@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import {
   clipsFromFiles, driveClipUrl, driveFolderName, driveFolderNode, driveSignIn, folderAccess, forgetFolder, isDriveSignedIn,
-  listNodeClips, localFolderNode, parseDriveFolderId, pickFolder, recallFolder, rememberFolder,
+  listNodeClips, localFolderNode, parseDriveFolderId, pickedFolderNode, pickFolder, recallFolder, rememberFolder,
 } from './filmSources';
 import { gameViews, isFilmRoot, resolveGameFolder, type FolderNode } from './folderRoutes';
 import type { FilmClip, FilmGame, FilmGameShared } from './types';
@@ -53,6 +53,9 @@ const rememberedView = () => {
     return '';
   }
 };
+
+/** The team film folder picked on a tablet this visit (a browser that can't keep a folder; gone on reload). */
+let pickedRoot: FolderNode | null = null;
 
 export function useGameFilm(opts: {
   game: FilmGame | undefined;
@@ -252,6 +255,11 @@ export function useGameFilm(opts: {
         else setFilm({ status: 'signin', label: driveLabel });
         return;
       }
+      // A film folder picked on this tablet this visit (its files were handed over): every game finds its own there.
+      if (pickedRoot) {
+        const r = await loadFromRoot(pickedRoot, Boolean(rootId));
+        if (cancelled || r === 'ok' || !rootId) return;
+      }
       // The shared film folder: this computer's copy and / or the Google Drive one. The preferred copy
       // first ("auto" = this computer's, it's faster); a game it doesn't have yet comes from the other.
       const localRoot = await recallFolder(ROOT_KEY);
@@ -288,7 +296,7 @@ export function useGameFilm(opts: {
         setFilm({ status: 'reconnect', label: localRoot.name });
       } else if (needsSignin) setFilm({ status: 'signin', label: rootLabel });
       else if (available.length) void loadFromRoot(nodeOf(available[0])); // show why the game wasn't found
-      else setFilm({ status: 'none' });
+      else if (!pickedRoot) setFilm({ status: 'none' });
     })();
     return () => {
       cancelled = true;
@@ -347,6 +355,24 @@ export function useGameFilm(opts: {
     else await loadFolder(handle);
   }, [folderKey, loadFolder, loadFromRoot]);
 
+  /**
+   * A folder picked on a tablet (its files handed over, for this visit): the team film folder (every game finds
+   * its own in it until the page is reloaded) or one game's folder.
+   */
+  const pickFolderFiles = useCallback(
+    async (list: FileList | File[]) => {
+      const node = pickedFolderNode(list);
+      if (!node) return setFilm({ status: 'error', message: 'That folder has no files in it.' });
+      if (isFilmRoot((await node.open()).dirs)) {
+        pickedRoot = node;
+        await loadFromRoot(node);
+        return;
+      }
+      await openGameFolder(++loadId.current, node, node.name, {});
+    },
+    [loadFromRoot, openGameFolder]
+  );
+
   /** Clip files picked from the device (phones, Safari): for this visit only. */
   const pickFiles = useCallback((list: FileList | File[]) => {
     const { clips, files } = clipsFromFiles(list);
@@ -404,7 +430,7 @@ export function useGameFilm(opts: {
   }, [film, folderKey, setDrive, setRootDrive]);
 
   return {
-    film, chooseFolder, reconnect, pickFiles, linkDrive, signInToDrive, unlink, localFiles,
+    film, chooseFolder, reconnect, pickFiles, pickFolderFiles, linkDrive, signInToDrive, unlink, localFiles,
     /** Copies of the shared film folder this device can use, and which one it prefers. */
     sources: { local: hasLocalRoot, drive: Boolean(rootId) },
     /** Camera view to watch, and which folder holds this game when its week has several. */

@@ -112,6 +112,8 @@ export interface FolderNode extends FolderLike {
   /** Google Drive folder id, or the folder on this computer. */
   driveId?: string;
   handle?: any;
+  /** A folder picked on a tablet (its files handed over for this visit): the video files right in it. */
+  picked?: File[];
 }
 
 /** Camera-view folder names ("Sideline", "End Zone", "Wide", "Tight", "All-22", ...). */

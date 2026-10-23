@@ -97,6 +97,43 @@ export async function listFolderClips(handle: DirHandle): Promise<{ clips: FilmC
   return { clips, files };
 }
 
+/**
+ * This browser can hand over a whole folder's files (an iPad on iPadOS 18.4 or later, through the file picker),
+ * though it can't open a folder the way a computer does (that's canOpenFolders).
+ */
+export const canPickFolderFiles = () =>
+  typeof document !== 'undefined' && !canOpenFolders() && 'webkitdirectory' in document.createElement('input');
+
+/**
+ * A folder picked that way, as a folder the film-folder finder can look inside: the files' paths
+ * ("Mahopac Film/10U/Week 2 - Yorktown/A002.MP4") rebuilt into folders. For this visit only.
+ */
+export function pickedFolderNode(list: FileList | File[]): FolderNode | null {
+  type Dir = { name: string; dirs: Map<string, Dir>; files: File[] };
+  const top: Dir = { name: '', dirs: new Map(), files: [] };
+  for (const f of Array.from(list)) {
+    const parts = String((f as any).webkitRelativePath || f.name).split('/').filter(Boolean);
+    let d = top;
+    for (const p of parts.slice(0, -1)) {
+      if (!d.dirs.has(p)) d.dirs.set(p, { name: p, dirs: new Map(), files: [] });
+      d = d.dirs.get(p)!;
+    }
+    d.files.push(f);
+  }
+  // The folder picked is the one level everything sits in.
+  const root = top.dirs.size === 1 && !top.files.length ? [...top.dirs.values()][0] : { ...top, name: 'Picked folder' };
+  const node = (d: Dir): FolderNode => ({
+    name: d.name,
+    picked: d.files,
+    open: async () => ({
+      dirs: [...d.dirs.values()].map(node),
+      videos: d.files.filter((f) => isVideoName(f.name, f.type)).length,
+      sheets: d.files.filter((f) => isBreakdownName(f.name)).map((f) => ({ name: f.name, get: async () => f })),
+    }),
+  });
+  return root.files.length || root.dirs.size ? node(root) : null;
+}
+
 /** Clip files picked from the device (this visit only). */
 export function clipsFromFiles(list: FileList | File[]): { clips: FilmClip[]; files: Map<string, () => Promise<File>> } {
   const files = new Map<string, () => Promise<File>>();
@@ -242,6 +279,13 @@ export async function listNodeClips(node: FolderNode, viewKey: string): Promise<
       const id = `${viewKey}/${name}`;
       files.set(id, () => entry.getFile());
       clips.push({ kind: 'local', id, name });
+    }
+  } else if (node.picked) {
+    for (const f of node.picked) {
+      if (!isVideoName(f.name, f.type)) continue;
+      const id = `${viewKey}/${f.name}`;
+      files.set(id, async () => f);
+      clips.push({ kind: 'local', id, name: f.name, sizeBytes: f.size });
     }
   }
   clips.sort((a, b) => naturalCompare(a.name, b.name));
