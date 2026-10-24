@@ -120,4 +120,15 @@ describe('a clip that is not a play (S)', () => {
     const without = calculateTendencies([run]);
     assert.equal(JSON.stringify(withS.totalPlays ?? withS), JSON.stringify(without.totalPlays ?? without));
   });
+
+  it("saving a breakdown keeps the play's Hudl personnel, backfield, motion and ball carrier; clearing it clears them", () => {
+    const hudl = { id: 'h1', gameId: 'g', playNumber: 4, odk: 'O', personnel: '21', backfield: 'I', motion: 'Jet', carrierOrTarget: '#22 Jaxson', formation: 'Pro Rt', playName: '34 Power', hudlRow: {} } as any;
+    const saved = applyBreakdown(hudl, { ODK: 'O', 'OFF FORM': 'Pro Rt', 'OFF PLAY': '34 Power', 'GN/LS': '5' });
+    assert.equal(saved.personnel, '21');
+    assert.equal(saved.backfield, 'I');
+    assert.equal(saved.motion, 'Jet');
+    assert.equal(saved.carrierOrTarget, '#22 Jaxson');
+    const cleared = applyBreakdown(hudl, {});
+    assert.equal(cleared.personnel, '');
+  });
 });

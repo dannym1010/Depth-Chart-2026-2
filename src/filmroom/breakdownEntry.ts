@@ -103,8 +103,17 @@ export function applyBreakdown(base: Play, entered: BreakdownRow): Play {
   const typed = has('PLAY TYPE') || has('OFF PLAY') || has('RESULT');
   // A play tagged from the Play Bank keeps its tag; what the coach typed is kept as the film's name for it.
   const tagged = Boolean(base.playCallId);
+  // Not breakdown columns: what the play already had stays (Hudl's personnel, backfield and motion, who had the
+  // ball). Clearing the breakdown (no columns) still clears everything.
+  const kept: Partial<Play> = {
+    personnel: base.personnel || '',
+    backfield: base.backfield || '',
+    motion: base.motion || '',
+    carrierOrTarget: base.carrierOrTarget || '',
+  };
   return {
     ...blank,
+    ...kept,
     odk: p.odk,
     quarter: has('QTR') ? (/^OT$/i.test(row.QTR || '') ? 5 : p.quarter) : 0,
     down: has('DN') ? p.down : 0,

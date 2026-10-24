@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowRight,
@@ -32,7 +32,7 @@ import {
   getSavedGeminiModel,
   saveGeminiKey,
   saveGeminiModel,
-  simulateLocalAiBreakdown,
+  GEMINI_MODELS,
   checkOllama,
   getSavedAiEngine,
   getSavedOllamaModel,
@@ -44,6 +44,7 @@ import {
   type ExtractedFrame,
 } from '../services/geminiFilmService';
 import { crossCheckPlayYardage, parseAbsoluteYard, formatAbsoluteYard } from '../services/yardageCalculator';
+import { parseCall, withParts } from './callName';
 
 interface Props {
   isOpen: boolean;
@@ -57,6 +58,8 @@ interface Props {
   roster?: RosterPlayer[];
   knownFormations?: string[];
   knownPlays?: string[];
+  /** The play names this team's coaches made: the AI uses their words, and the window suggests one. */
+  knownNames?: string[];
   teamName?: string;
   opponentName?: string;
   isOwnGame?: boolean;
@@ -100,6 +103,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
   roster = [],
   knownFormations = [],
   knownPlays = [],
+  knownNames = [],
   teamName = 'Mahopac 10U',
   opponentName = 'Opponent',
   isOwnGame = true,
@@ -162,6 +166,23 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
   const [editTacklerNum, setEditTacklerNum] = useState('');
   const [editAssists, setEditAssists] = useState('');
   const [editNotes, setEditNotes] = useState('');
+  // The play name the AI suggests ("21 Gun Rt Twins Toss"), editable, and whether to put it on the play.
+  const [editCallName, setEditCallName] = useState('');
+  const [useCallName, setUseCallName] = useState(false);
+
+  // One breakdown at a time per play: which play was last read (so opening the window or a play doesn't read
+  // it twice), and which reading is the latest (an older answer that comes back late is dropped).
+  const scannedFor = useRef('');
+  const runId = useRef(0);
+
+  // Who has the ball on THIS play: the play's own ODK says it (O = the scouted team has it), the coach can flip
+  // one play; only a play without an ODK (a kick, not broken down yet) uses the matchup's setting.
+  const [flipFor, setFlipFor] = useState('');
+  const otherTeam = (t: string) => (t === team1 ? team2 : team1);
+  const playOdk = play?.odk === 'O' || play?.odk === 'D' ? play.odk : undefined;
+  const baseOffense = playOdk === 'O' ? scoutedTeam : playOdk === 'D' ? otherTeam(scoutedTeam) : offenseTeam;
+  const playOffense = play && flipFor === play.id ? otherTeam(baseOffense) : baseOffense;
+  const playDefense = otherTeam(playOffense);
 
   // Yardage and Penalty cross-check details
   const [whistleSpot, setWhistleSpot] = useState('');
@@ -176,9 +197,9 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
   // If the scouted team is on Offense -> ODK = 'O'
   // If the scouted team is on Defense -> ODK = 'D'
   const isScoutedOnOffense = Boolean(
-    scoutedTeam && offenseTeam && (
-      offenseTeam.trim().toLowerCase() === scoutedTeam.trim().toLowerCase() ||
-      offenseTeam.toLowerCase().includes(scoutedTeam.toLowerCase())
+    scoutedTeam && playOffense && (
+      playOffense.trim().toLowerCase() === scoutedTeam.trim().toLowerCase() ||
+      playOffense.toLowerCase().includes(scoutedTeam.toLowerCase())
     )
   );
   const computedOdk: 'O' | 'D' = isScoutedOnOffense ? 'O' : 'D';
@@ -190,6 +211,11 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
       setResult(null);
       setFrames([]);
       setError('');
+      // Closed: a reading still on its way is dropped, and the next open reads the play again.
+      scannedFor.current = '';
+      runId.current++;
+      setAnalyzing(false);
+      setScanStep('');
       return;
     }
 
@@ -267,12 +293,26 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, videoElement, play?.id]);
 
-  // If already confirmed setup and play changes, auto-scan
+  // The matchup set: each play is read once when it comes up (Apply & Next moves on to the next one).
   useEffect(() => {
-    if (isOpen && play && hasConfirmedSetup && viewMode === 'breakdown') {
-      handleAutoScan();
+    if (isOpen && play && hasConfirmedSetup && viewMode === 'breakdown' && scannedFor.current !== play.id) {
+      void handleAutoScan();
     }
-  }, [isOpen, play?.id, hasConfirmedSetup]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, play?.id, hasConfirmedSetup, viewMode]);
+
+  // A new play: the possession flip was for the last one.
+  useEffect(() => setFlipFor(''), [play?.id]);
+
+  // Escape closes the window.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
 
   // Sync result to local editable state
   useEffect(() => {
@@ -285,7 +325,13 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
       setEditDown(result.down);
       setEditDist(result.distance);
       setEditYard(result.yardLine);
-      setEditPlayDir((result.playDir as 'L' | 'M' | 'R') || 'M');
+      // No direction read: none (not "Middle").
+      setEditPlayDir((result.playDir as 'L' | 'M' | 'R' | '') || '');
+      // A play already named keeps its name; otherwise the AI's suggestion, ready to put on it.
+      setEditCallName(play?.callName ? '' : result.callName || '');
+      setUseCallName(!play?.callName && Boolean(result.callName));
+      // Show the last picture before the snap (the formation), when the AI found the snap.
+      if (result.snapFrame) setSelectedFrame(Math.max(0, result.snapFrame - 2));
 
       setEditCarrier(result.carrierName || (result.carrierNum ? `#${result.carrierNum}` : ''));
       setEditCarrierNum(result.carrierNum || '');
@@ -336,8 +382,14 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
     });
   };
 
+  // Flip who has the ball for this play only (the matchup's setting stays for the plays without an ODK).
   const handleSwapPossession = () => {
-    handleToggleOffenseTeam(defenseTeam);
+    if (!play) return;
+    const flipped = flipFor === play.id ? '' : play.id;
+    setFlipFor(flipped);
+    const offenseNow = flipped ? otherTeam(baseOffense) : baseOffense;
+    const scoutHasBall = offenseNow.trim().toLowerCase() === scoutedTeam.trim().toLowerCase();
+    setEditOdk(scoutHasBall ? 'O' : 'D');
   };
 
   const handleToggleGameType = (newType: 'our_game' | 'scout_game') => {
@@ -373,8 +425,15 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
   };
 
   const handleAutoScan = async () => {
+    // This play is being read now (the play-change effect won't start a second reading of it), and this reading
+    // is the latest (an earlier one that answers late is dropped).
+    scannedFor.current = play?.id || '';
+    const id = ++runId.current;
+    const current = () => id === runId.current;
     setError('');
     setResult(null);
+    setFrames([]);
+    setSelectedFrame(0);
     // No key on this device: say so and open the key settings (never a made-up breakdown).
     if (engine === 'gemini' && !String(apiKey || '').trim()) {
       setError('No Gemini API key on this device yet. Paste your key in the settings below and press Save, then run the breakdown again.');
@@ -389,9 +448,14 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
       const theVideo = getVideo?.() || videoElement;
       theVideo?.pause();
       if (theVideo && theVideo.readyState >= 2) {
-        setScanStep('Capturing keyframes from video clip...');
-        // A model on this computer reads slightly smaller frames (eight fit in its memory).
-        extracted = await captureVideoKeyframes(theVideo, 8, engine === 'ollama' ? 1024 : 1280);
+        // Google: about one picture a second over the whole clip (the play is always in them, wherever it is in
+        // the clip). The model on this computer fits eight: aimed at the play once the snap is found.
+        const gemini = engine !== 'ollama';
+        setScanStep(gemini ? 'Taking pictures through the clip…' : 'Taking pictures of the play…');
+        extracted = gemini
+          ? await captureVideoKeyframes(theVideo, 16, 1536, { mode: 'even' })
+          : await captureVideoKeyframes(theVideo, 8, 1024, { mode: 'snap', onStatus: (s) => current() && setScanStep(s) });
+        if (!current()) return;
         setFrames(extracted);
       } else {
         // No film to look at: no breakdown (the AI was sent no pictures before and guessed).
@@ -399,19 +463,20 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
       }
       if (!extracted.some((f) => f.dataUrl)) throw new Error("Couldn't take any pictures from this play's clip.");
 
-      setScanStep(`Analyzing clip for scout target: ${scoutedTeam}...`);
+      setScanStep(`Reading the play (${playOffense} has the ball)…`);
 
+      const ours = (teamName || 'mahopac').toLowerCase();
       const ourUnitRole: 'offense' | 'defense' | 'none' =
         gameType === 'scout_game'
           ? 'none'
-          : offenseTeam.toLowerCase().includes((teamName || 'mahopac').toLowerCase())
+          : playOffense.toLowerCase().includes(ours)
           ? 'offense'
-          : defenseTeam.toLowerCase().includes((teamName || 'mahopac').toLowerCase())
+          : playDefense.toLowerCase().includes(ours)
           ? 'defense'
           : 'none';
 
-      const offCol = offenseTeam === team1 ? team1Color : team2Color;
-      const defCol = defenseTeam === team1 ? team1Color : team2Color;
+      const offCol = playOffense === team1 ? team1Color : team2Color;
+      const defCol = playDefense === team1 ? team1Color : team2Color;
 
       const res = await analyzeFilmWithGemini({
         frames: extracted.filter((f) => f.dataUrl),
@@ -419,18 +484,20 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
         roster,
         knownFormations,
         knownPlays,
-        opponentName: defenseTeam || opponentName,
+        knownNames,
+        framesCoverClip: engine !== 'ollama',
+        opponentName: playDefense || opponentName,
         userPrompt: coachPrompt,
         apiKey,
         modelName: model,
         engine,
         ollamaModel,
-        onStatusUpdate: (msg) => setScanStep(msg),
+        onStatusUpdate: (msg) => current() && setScanStep(msg),
         gameType,
         ourTeamName: teamName || 'Mahopac 10U',
         scoutedTeam,
-        offenseTeam,
-        defenseTeam,
+        offenseTeam: playOffense,
+        defenseTeam: playDefense,
         offenseJerseyColor: offCol,
         defenseJerseyColor: defCol,
         linkOurRoster: gameType === 'our_game' ? linkOurRoster : false,
@@ -439,28 +506,16 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
         nextPlayOdk: nextPlay?.odk,
       });
 
+      if (!current()) return;
       setResult(res);
       setScanStep('');
     } catch (err: any) {
+      if (!current()) return;
       console.error('AI Film Analysis error:', err);
       setError(err?.message || 'Failed to analyze video clip.');
     } finally {
-      setAnalyzing(false);
+      if (current()) setAnalyzing(false);
     }
-  };
-
-  const handleLocalSimulate = () => {
-    setError('');
-    const res = simulateLocalAiBreakdown(frames, play, roster, knownFormations, knownPlays, {
-      gameType,
-      scoutedTeam,
-      offenseTeam,
-      defenseTeam,
-      linkOurRoster: gameType === 'our_game' ? linkOurRoster : false,
-      nextPlayStartYard,
-      nextPlayOdk: nextPlay?.odk,
-    });
-    setResult(res);
   };
 
   const handleSaveKey = () => {
@@ -597,6 +652,13 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
 
     const row = analysisResultToBreakdownRow(finalResult);
     const patch = analysisResultToPlayPatch(finalResult);
+    // The play name, when the coach kept it checked and the play doesn't have one yet (a name a coach made is
+    // never replaced from here).
+    const name = editCallName.trim();
+    if (play && useCallName && name && !play.callName) {
+      const parts = parseCall(name);
+      if (parts.personnel) Object.assign(patch, withParts({ ...play, playType: (row['PLAY TYPE'] as Play['playType']) || play.playType }, parts));
+    }
     return { row, patch, notes: finalResult.coachingNotes };
   };
 
@@ -632,8 +694,8 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
   if (!isOpen) return null;
 
   const isOurGame = gameType === 'our_game';
-  const isOurOffense = isOurGame && offenseTeam.toLowerCase().includes((teamName || 'mahopac').toLowerCase());
-  const isOurDefense = isOurGame && defenseTeam.toLowerCase().includes((teamName || 'mahopac').toLowerCase());
+  const isOurOffense = isOurGame && playOffense.toLowerCase().includes((teamName || 'mahopac').toLowerCase());
+  const isOurDefense = isOurGame && playDefense.toLowerCase().includes((teamName || 'mahopac').toLowerCase());
   const isScoutOffense = editOdk === 'O';
 
   return (
@@ -790,9 +852,11 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                   onChange={(e) => setModel(e.target.value)}
                   className="h-9 px-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-bold text-slate-900 dark:text-white cursor-pointer"
                 >
-                  <option value="gemini-flash-latest">Gemini 3.8 Flash (Recommended)</option>
-                  <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
-                  <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                  {GEMINI_MODELS.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
                 </select>
                 <button
                   type="button"
@@ -983,6 +1047,11 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                     Play #{play?.playNumber || 1}
                   </span>
                 </div>
+                <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                  {playOdk
+                    ? `This play's breakdown says ${playOffense} has the ball (ODK ${playOdk}), and every play goes by its own ODK. Your pick here is only for plays without one (kicks, plays not broken down yet).`
+                    : 'This play has no ODK yet: pick who has the ball. Plays with an ODK go by their own.'}
+                </p>
 
                 <div className="grid grid-cols-2 gap-3">
                   <button
@@ -1072,14 +1141,14 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
 
                 <div className="flex items-center gap-2 text-xs">
                   <span className="font-bold text-slate-500">Offense:</span>
-                  <span className="font-black text-indigo-600 dark:text-indigo-400">{offenseTeam}</span>
+                  <span className="font-black text-indigo-600 dark:text-indigo-400">{playOffense}</span>
                   <ArrowRight className="w-3 h-3 text-slate-400" />
                   <span className="font-bold text-slate-500">Defense:</span>
-                  <span className="font-black text-emerald-600 dark:text-emerald-400">{defenseTeam}</span>
+                  <span className="font-black text-emerald-600 dark:text-emerald-400">{playDefense}</span>
                   <button
                     type="button"
                     onClick={handleSwapPossession}
-                    title="Swap possession between teams and re-tag ODK"
+                    title={playOdk ? 'Wrong team with the ball on this play? Flip it (this play only; its ODK says otherwise)' : 'Flip which team has the ball on this play'}
                     className="px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 cursor-pointer ml-1"
                   >
                     ⇄ Flip
@@ -1148,13 +1217,6 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                       >
                         <RotateCcw className="w-3.5 h-3.5" /> Retry Analysis
                       </button>
-                      <button
-                        type="button"
-                        onClick={handleLocalSimulate}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 text-white font-bold text-xs cursor-pointer shadow-xs"
-                      >
-                        <Sparkles className="w-3.5 h-3.5 text-amber-400" /> Show a demo (made-up numbers)
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -1165,11 +1227,11 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
                     <span className="flex items-center gap-1.5 uppercase tracking-wide text-[10px] font-black">
-                      <Film className="w-3.5 h-3.5" /> Captured Snap Keyframes ({frames.length})
+                      <Film className="w-3.5 h-3.5" /> What the AI looked at ({frames.length} pictures)
                     </span>
-                    <span>Click frame to inspect</span>
+                    <span>Click a picture to see it bigger</span>
                   </div>
-                  <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                  <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
                     {frames.map((frame, idx) => (
                       <button
                         key={idx}
@@ -1189,11 +1251,25 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                           </div>
                         )}
                         <div className="p-1 bg-slate-900/90 text-white text-[9px] font-bold truncate">
+                          {result?.snapFrame === idx + 1 ? 'Snap · ' : result?.endFrame === idx + 1 ? 'End · ' : ''}
                           {frame.label}
                         </div>
+                        {(result?.snapFrame === idx + 1 || result?.endFrame === idx + 1) && (
+                          <span className={`absolute top-1 left-1 px-1 rounded text-[9px] font-black text-white ${result?.snapFrame === idx + 1 ? 'bg-emerald-600' : 'bg-rose-600'}`}>
+                            {result?.snapFrame === idx + 1 ? 'SNAP' : 'END'}
+                          </span>
+                        )}
                       </button>
                     ))}
                   </div>
+                  {frames[selectedFrame]?.dataUrl && (
+                    <figure className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-black">
+                      <img src={frames[selectedFrame].dataUrl} alt={`Picture ${selectedFrame + 1}: ${frames[selectedFrame].label}`} className="w-full max-h-[22rem] object-contain" />
+                      <figcaption className="px-2 py-1 text-[11px] font-bold text-white bg-slate-900">
+                        Picture {selectedFrame + 1} · {frames[selectedFrame].label}
+                      </figcaption>
+                    </figure>
+                  )}
                 </div>
               )}
 
@@ -1212,9 +1288,11 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                           {isScoutOffense ? 'Who Ran The Ball · Net Gain · Tackler' : 'Opponent Rusher · Yards Allowed · Scout Tackler'}
                         </span>
                       </div>
-                      <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                        {result.confidenceScore}% Confidence
-                      </span>
+                      {result.confidenceScore > 0 && (
+                        <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400" title="How sure the AI said it is">
+                          AI: {result.confidenceScore}% sure
+                        </span>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1224,7 +1302,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                           <div className="flex items-center justify-between mb-1.5">
                             <span className="text-[11px] font-black uppercase tracking-wider text-indigo-950 dark:text-indigo-300 flex items-center gap-1">
                               <User className="w-3.5 h-3.5" />
-                              {isScoutOffense ? `${scoutedTeam} Ball Carrier` : `Opponent Rusher (${offenseTeam})`}
+                              {isScoutOffense ? `${scoutedTeam} Ball Carrier` : `Opponent Rusher (${playOffense})`}
                             </span>
                             {editCarrierNum && (
                               <span className="w-7 h-7 rounded-full bg-indigo-600 text-white text-xs font-black flex items-center justify-center shadow-xs">
@@ -1257,7 +1335,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                                   Quick Match Mahopac Roster:
                                 </span>
                                 <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto">
-                                  {roster.slice(0, 10).map((p) => (
+                                  {[...roster].sort((a, b) => Number(a.num) - Number(b.num)).map((p) => (
                                     <button
                                       key={p.id}
                                       type="button"
@@ -1466,7 +1544,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                           <div className="flex items-center justify-between mb-1.5">
                             <span className="text-[11px] font-black uppercase tracking-wider text-emerald-950 dark:text-emerald-300 flex items-center gap-1">
                               <Shield className="w-3.5 h-3.5" />
-                              {isScoutOffense ? `Tackled by ${defenseTeam}` : `${scoutedTeam} Tackler (Who Made Tackle)`}
+                              {isScoutOffense ? `Tackled by ${playDefense}` : `${scoutedTeam} Tackler (Who Made Tackle)`}
                             </span>
                             {editTacklerNum && (
                               <span className="w-7 h-7 rounded-full bg-emerald-600 text-white text-xs font-black flex items-center justify-center shadow-xs">
@@ -1511,7 +1589,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                                   Quick Match Defense Roster:
                                 </span>
                                 <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto">
-                                  {roster.slice(0, 8).map((p) => (
+                                  {[...roster].sort((a, b) => Number(a.num) - Number(b.num)).map((p) => (
                                     <button
                                       key={p.id}
                                       type="button"
@@ -1563,7 +1641,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                           <div className="flex items-center justify-between">
                             <span className="font-bold text-slate-400 text-[11px]">Defensive Front:</span>
                             <span className="font-black text-slate-800 dark:text-slate-200">
-                              {result.defensiveFront || '4-4 Stack'}
+                              {result.defensiveFront || '—'}
                             </span>
                           </div>
                         </div>
@@ -1576,6 +1654,40 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                     <div className="flex items-center justify-between text-xs font-black uppercase tracking-wider text-slate-400">
                       <span>Formation, Play Call &amp; Situation</span>
                       <span>Down &amp; Distance</span>
+                    </div>
+
+                    {/* The play name (personnel, QB, strength, tags, concept), the way the Play name boxes build it. */}
+                    <div className="p-2.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-white dark:bg-slate-900 space-y-1.5">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">Play name</span>
+                      {play?.callName ? (
+                        <p className="text-xs text-slate-600 dark:text-slate-300">
+                          Already named <b className="text-slate-900 dark:text-white">{play.callName}</b>: kept as it is.
+                        </p>
+                      ) : (
+                        <>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              value={editCallName}
+                              onChange={(e) => {
+                                setEditCallName(e.target.value);
+                                if (e.target.value.trim()) setUseCallName(true);
+                              }}
+                              placeholder="21 Gun Rt Twins Toss"
+                              aria-label="Play name"
+                              className="flex-1 min-w-[12rem] h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-black text-slate-900 dark:text-white"
+                            />
+                            <label className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer">
+                              <input type="checkbox" checked={useCallName} onChange={(e) => setUseCallName(e.target.checked)} />
+                              Put it on the play
+                            </label>
+                          </div>
+                          <p className="text-[10.5px] text-slate-500 dark:text-slate-400">
+                            {result.callName
+                              ? 'What the AI saw before the snap (personnel, gun / under center, strength, Twins / Trips, the play). Check it: you can change it here or later in the Play name boxes.'
+                              : "The AI couldn't count the personnel. Type the name the way you call it (21 Gun Rt Twins Toss) to put it on the play."}
+                          </p>
+                        </>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">

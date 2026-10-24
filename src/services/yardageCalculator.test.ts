@@ -6,7 +6,17 @@ import {
   calculateNetGain,
   crossCheckPlayYardage,
 } from './yardageCalculator.ts';
-import { sanitizeAiResult, simulateLocalAiBreakdown } from './geminiFilmService.ts';
+import {
+  aiCallParts,
+  analysisResultToBreakdownRow,
+  analysisResultToPlayPatch,
+  geminiAnswerText,
+  geminiCandidates,
+  geminiRetryDelay,
+  pickOllamaModel,
+  sanitizeAiResult,
+} from './geminiFilmService.ts';
+import { evenTimes, findSnapWithCamera, pictureTimes } from '../filmroom/snapFinder.ts';
 
 describe('yardageCalculator', () => {
   it('correctly parses absolute yard line values', () => {
@@ -97,66 +107,21 @@ describe('yardageCalculator', () => {
       { id: 'p1', num: '21', firstName: 'Nash', lastName: 'Ward', positions: ['RB'] },
       { id: 'p2', num: '52', firstName: 'Jaxson', lastName: 'Pestone', positions: ['MLB'] },
     ];
-
-    const result = simulateLocalAiBreakdown(
-      [],
-      { id: 'p1', playNumber: 1, rawYardLine: '-30' } as any,
+    const result = sanitizeAiResult(
+      { carrierNum: '21', carrierConfidence: 95, tacklerNums: ['52'], tacklerConfidence: 95, result: 'Rush' },
       mockRoster as any,
-      ['21 Pro I'],
-      ['Power'],
-      {
-        gameType: 'scout_game',
-        offenseTeam: 'Opponent Offense',
-        defenseTeam: 'Opponent Defense',
-        linkOurRoster: false,
-      }
+      { linkOurRoster: false, ourUnitRole: 'none', offenseTeam: 'Opponent Offense', defenseTeam: 'Opponent Defense', currentStartYard: '-30', play: { id: 'p1', playNumber: 1, rawYardLine: '-30' } as any }
     );
-
     // Scout game MUST NOT link Nash Ward or Jaxson Pestone to the play!
-    assert.ok(result.carrierName?.startsWith('#'), `Carrier name must be jersey number only: ${result.carrierName}`);
-    assert.ok(!result.carrierName?.includes('Nash'), 'Must not contain Mahopac roster player name');
-    assert.ok(!result.carrierName?.includes('Ward'), 'Must not contain Mahopac roster player name');
-    if (result.tacklerNames && result.tacklerNames.length > 0) {
-      assert.ok(!result.tacklerNames[0].includes('Jaxson'), 'Must not link defensive player name');
-    }
+    assert.equal(result.carrierName, '#21');
+    assert.deepEqual(result.tacklerNames, ['#52']);
   });
 
   it('tags ODK as O when scouted team is on offense and D when scouted team is on defense', () => {
-    // 1. Scouted team is Carmel. Carmel is on OFFENSE -> ODK must be 'O'
-    const offenseResult = simulateLocalAiBreakdown(
-      [],
-      { id: 'p1', playNumber: 1, rawYardLine: '-25' } as any,
-      [],
-      [],
-      [],
-      {
-        gameType: 'scout_game',
-        scoutedTeam: 'Carmel 10U',
-        offenseTeam: 'Carmel 10U',
-        defenseTeam: 'Somers 10U',
-        linkOurRoster: false,
-      }
-    );
-    assert.equal(offenseResult.odk, 'O', 'When scouted team is on offense, ODK must be O');
-
-    // 2. Scouted team is Carmel. Carmel is on DEFENSE (Somers is on offense) -> ODK must be 'D'
-    const defenseResult = simulateLocalAiBreakdown(
-      [],
-      { id: 'p2', playNumber: 2, rawYardLine: '-35' } as any,
-      [],
-      [],
-      [],
-      {
-        gameType: 'scout_game',
-        scoutedTeam: 'Carmel 10U',
-        offenseTeam: 'Somers 10U',
-        defenseTeam: 'Carmel 10U',
-        linkOurRoster: false,
-      }
-    );
-    assert.equal(defenseResult.odk, 'D', 'When scouted team is on defense, ODK must be D');
+    const base = { linkOurRoster: false, scoutedTeam: 'Carmel 10U', currentStartYard: '-25', play: { id: 'p1', playNumber: 1, rawYardLine: '-25' } as any };
+    assert.equal(sanitizeAiResult({}, [], { ...base, offenseTeam: 'Carmel 10U', defenseTeam: 'Somers 10U' }).odk, 'O');
+    assert.equal(sanitizeAiResult({}, [], { ...base, offenseTeam: 'Somers 10U', defenseTeam: 'Carmel 10U' }).odk, 'D');
   });
-
   it("reads Hudl's plain yard lines as the far side (the team with the ball's opponent's)", () => {
     assert.equal(parseAbsoluteYard('35'), 65);
     assert.equal(parseAbsoluteYard('-35'), 35);
@@ -259,3 +224,67 @@ describe('cleaning up the AI answer', () => {
   });
 });
 
+describe('the AI clip analyzer, before testing again', () => {
+  it("reads the play name's parts the AI saw, only from the builder's lists, and names them", () => {
+    const r = aiCallParts({ personnel: '21', qb: 'shotgun', strength: 'right', tags: ['TWINS', 'Stack'], concept: 'toss' }, 'Run');
+    assert.deepEqual(r.callParts, { personnel: '21', qb: 'Gun', strength: 'R', tags: ['Twins'], concept: 'Toss' });
+    assert.equal(r.callName, '21 Gun Rt Twins Toss');
+    // No personnel: no name (the formations go by it).
+    assert.deepEqual(aiCallParts({ qb: 'Gun', concept: 'Dive' }, 'Run'), {});
+  });
+
+  it("applying never blanks what a play already has, and leaves explosive / efficient to the gain", () => {
+    const patch = analysisResultToPlayPatch({ carrierNum: '21', carrierName: '#21', passerName: '', tacklerNums: [], tacklerNames: [], result: 'Rush', gainLoss: 3, backfield: '', motion: '' } as any);
+    assert.deepEqual(Object.keys(patch), ['rusher']);
+    const tackle = analysisResultToPlayPatch({ tacklerNums: ['52', '44'], tacklerNames: ['#52', '#44'], result: 'Rush', gainLoss: -2 } as any);
+    assert.deepEqual(tackle.defPlay, { maker: '#52', assists: ['#44'], events: ['tfl'] });
+  });
+
+  it('the breakdown row leaves an unknown quarter, down and distance blank (not 0)', () => {
+    const row = analysisResultToBreakdownRow({ odk: 'O', quarter: 0, down: 0, distance: 0, yardLine: '-30', hash: '', formation: '', playName: '', playType: 'Run', playDir: '', result: 'Rush', gainLoss: 4 } as any);
+    assert.equal(row.QTR, '');
+    assert.equal(row.DN, '');
+    assert.equal(row.DIST, '');
+    assert.equal(row['GN/LS'], '4');
+  });
+
+  it("keeps the AI's own confidence and picture numbers, and makes none up", () => {
+    const r = sanitizeAiResult({ confidenceScore: 40, snapFrame: 6, endFrame: 99, personnel: '10', qb: 'Gun' }, [], { currentStartYard: '-30', frameCount: 14, play: { playNumber: 1, rawYardLine: '-30', playType: 'PASS' } as any });
+    assert.equal(r.confidenceScore, 40);
+    assert.equal(r.snapFrame, 6);
+    assert.equal(r.endFrame, undefined);
+    assert.equal(r.callName, '10 Gun');
+    assert.equal(sanitizeAiResult({}, [], { play: { playNumber: 1 } as any }).confidenceScore, 0);
+  });
+
+  it("Google's answer: its text parts (not its thinking), the wait it asks for, and the models to try", () => {
+    assert.equal(geminiAnswerText({ candidates: [{ content: { parts: [{ text: 'thinking…', thought: true }, { text: '{"a":' }, { text: '1}' }] } }] }), '{"a":1}');
+    assert.equal(geminiRetryDelay('{"error":{"details":[{"retryDelay":"17s"}]}}'), 17);
+    assert.equal(geminiRetryDelay('quota exceeded'), null);
+    assert.deepEqual(geminiCandidates('gemini-2.5-flash'), ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-flash-lite-latest']);
+  });
+
+  it('uses a picture-reading model this computer has when the saved one is missing', () => {
+    assert.equal(pickOllamaModel('qwen2.5vl:7b', ['llama3:8b', 'qwen3-vl:8b-instruct']), 'qwen3-vl:8b-instruct');
+    assert.equal(pickOllamaModel('qwen3-vl:8b-instruct', ['qwen3-vl:8b-instruct']), 'qwen3-vl:8b-instruct');
+  });
+
+  it("aims the pictures: about one a second over the clip, or at the play when the snap is clear", () => {
+    const even = evenTimes(16);
+    assert.equal(even.length, 16);
+    assert.ok(even[0].t < 1 && even[15].t > 15);
+    assert.equal(evenTimes(40).length, 16);
+    const aimed = pictureTimes({ snap: 8, end: 13, sure: true }, 16);
+    assert.ok(aimed[0].t < 8 && aimed[0].t > 7, 'one just before the snap');
+    assert.ok(aimed.slice(1).every((p) => p.t > 8 && p.t <= 13.1), 'the rest in the play');
+    // Not sure: the old spread over the clip.
+    assert.equal(pictureTimes({ snap: 8, sure: false }, 16)[0].t, 16 * 0.08);
+  });
+
+  it('finds the snap: the camera holds still on the set, then follows the play; the players burst just before', () => {
+    const s = Array.from({ length: 45 }, (_, i) => ({ camera: i >= 27 && i < 39 ? 3 : 0, players: i >= 24 ? 6 : 1.5 }));
+    const g = findSnapWithCamera(s, 3)!;
+    assert.ok(Math.abs(g.snap - 7.8) <= 0.4, `snap ${g.snap}`);
+    assert.equal(g.sure, true);
+  });
+});

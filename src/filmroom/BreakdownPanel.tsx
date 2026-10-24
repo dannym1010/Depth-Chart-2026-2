@@ -17,8 +17,10 @@ interface Props {
   next?: Play;
   /** The next snap of this game (by play number), whatever order the list is in: where this play ended. */
   nextSnap?: Play;
-  /** Save this play (as entered) and move on, in one change. */
-  onNext: (row: BreakdownRow) => void;
+  /** Save this play (as entered, with the AI window's extras and note) and move on, in one change. */
+  onNext: (row: BreakdownRow, patch?: Partial<Play>, notes?: string) => void;
+  /** The play this one's down and distance were filled in from by the rules (while nothing else is entered on it). */
+  filledFrom?: number;
   /** View-only (a player account): show what's entered, no editing. */
   readOnly?: boolean;
   /** Our film: which unit was on the field (Black / Blue / Gold). */
@@ -75,6 +77,7 @@ export const BreakdownPanel: React.FC<Props> = ({
   next,
   nextSnap,
   onNext,
+  filledFrom,
   readOnly,
   onSetUnit,
   onPatch,
@@ -181,9 +184,10 @@ export const BreakdownPanel: React.FC<Props> = ({
     }
   };
 
+  // One save for both: a save and then a Next would make the second from the plays as they were and lose the first.
   const handleAiApplyAndNext = (newRow: BreakdownRow, patch: Partial<Play>, notes?: string) => {
-    handleAiApply(newRow, patch, notes);
-    onNext(newRow);
+    setDraft(newRow);
+    onNext(newRow, patch, notes);
   };
 
   return (
@@ -254,6 +258,11 @@ export const BreakdownPanel: React.FC<Props> = ({
         {field('Yard line', box('YARD LN', { placeholder: '-25 ours · +30 theirs' }))}
         {field('Hash', chips('HASH', plain(LMR)))}
       </div>
+      {filledFrom !== undefined && (
+        <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+          {row['YARD LN'] ? 'Down, distance and yard line' : 'Down and distance'} from play #{filledFrom}, by the rules. A flag or turnover on #{filledFrom} changes them: fix them here.
+        </p>
+      )}
       {onPatch && (
         <PlayNameFields
           play={play}
@@ -319,6 +328,7 @@ export const BreakdownPanel: React.FC<Props> = ({
           roster={roster}
           knownFormations={lists.form}
           knownPlays={lists.play}
+          knownNames={savedNames(suggestFrom).map((n) => n.name)}
           teamName={teamName}
           opponentName={opponentName}
           isOwnGame={isOwnGame}

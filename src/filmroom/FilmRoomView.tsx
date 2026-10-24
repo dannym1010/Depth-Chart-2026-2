@@ -19,6 +19,7 @@ import { theirCallEntries } from '../utils/theirCalls';
 import { clipMatchMode, matchClipsToPlays, naturalCompare } from './clipMatching';
 import { playsFromClips } from './clipPlays';
 import { applyBreakdown, blankPlays, breakdownPlayId, importIntoGame, isBrokenDown, type BreakdownRow } from './breakdownEntry';
+import { filledFrom, followOn } from './nextPlay';
 import { BreakdownPanel } from './BreakdownPanel';
 import type { FilmFolderGame, UnplacedFolder } from './folderRoutes';
 import { clearFilmCutup, peekFilmCutup, type FilmCutup } from '../utils/filmCutup';
@@ -609,22 +610,40 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [own.games.length, opp.games.length, locked]);
-  const saveBreakdown = (changes: { play: Play; row: BreakdownRow }[]) =>
-    editPlays((all) => all.map((p) => {
-      const c = changes.find((x) => x.play.id === p.id);
-      return c ? applyBreakdown(p, c.row) : p;
-    }));
-  const breakdownNext = (row: BreakdownRow) => {
-    if (!play) return;
-    const changes = [{ play, row }];
-    if (next && !isBrokenDown(next)) {
-      const carry: BreakdownRow = {};
-      if (row.QTR) carry.QTR = row.QTR;
-      // The next clip is usually a play: a non-play (S) isn't carried to it.
-      if (row.ODK && row.ODK !== 'S') carry.ODK = row.ODK;
-      if (Object.keys(carry).length) changes.push({ play: next, row: carry });
+  // A patch from the play-name boxes, the players or the AI window, with its own stamps.
+  const patched = (x: Play, patch: Partial<Play>): Play => {
+    const out = { ...x, ...patch, editedAt: Date.now(), ...('callParts' in patch ? { callEditedAt: Date.now() } : {}) };
+    if ('strength' in patch && !patch.strength) delete out.strength;
+    // Who had the ball also reads in the play log's players column.
+    if ('rusher' in patch || 'passer' in patch || 'receiver' in patch) {
+      out.carrierOrTarget = (out.playType === 'RUN' ? out.rusher || out.receiver || out.passer : out.receiver || out.rusher || out.passer) || '';
     }
-    saveBreakdown(changes);
+    return out;
+  };
+  // Saving a play's breakdown (with the AI window's extras) also starts the next snap where the rules say this
+  // play left it (nextPlay.ts). One change for all of it: a second save in the same click would be made from the
+  // plays as they were before the first and undo it.
+  const saveBreakdown = (p: Play, row: BreakdownRow, patch?: Partial<Play>) =>
+    editPlays((all) => {
+      const base = all.find((x) => x.id === p.id);
+      const follow = base ? followOn(all, base, row) : undefined;
+      return all.map((x) => {
+        if (x.id === p.id) {
+          const done = applyBreakdown(x, row);
+          return patch && Object.keys(patch).length ? patched(done, patch) : done;
+        }
+        return follow && x.id === follow.play.id ? applyBreakdown(x, follow.row) : x;
+      });
+    });
+  // The AI window's note, once (applying the same play again doesn't add it twice).
+  const addAiNote = (p: Play, notes?: string) => {
+    const text = String(notes || '').trim();
+    if (text && !notesFor(p.id).some((n) => n.text.trim() === text)) addNote(text, undefined, apiRef.current?.time() || 0);
+  };
+  const breakdownNext = (row: BreakdownRow, patch?: Partial<Play>, notes?: string) => {
+    if (!play) return;
+    saveBreakdown(play, row, patch);
+    addAiNote(play, notes);
     if (next) setPlayId(next.id);
   };
   const lineupFor = (p: Play) => {
@@ -1205,10 +1224,11 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     <BreakdownPanel
       play={play}
       suggestFrom={(isOwn ? own : opp).plays}
-      onSave={(p, row) => saveBreakdown([{ play: p, row }])}
+      onSave={(p, row) => saveBreakdown(p, row)}
       next={next}
       nextSnap={nextSnap}
       onNext={breakdownNext}
+      filledFrom={play ? filledFrom(plays, play) : undefined}
       readOnly={isReadOnlySession()}
       onSetUnit={isOwn ? (p, unit) => editPlays((all) => tagPlayUnits(all, p.id, unit, 'play')) : undefined}
       videoElement={apiRef.current?.video?.() || null}
@@ -1220,36 +1240,11 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       opponentName={opponentName}
       isProgramAdmin={isProgramAdmin}
       onAddNote={(id, text) => addNote(text, undefined, apiRef.current?.time() || 0)}
-      onPatch={(p, patch) =>
-        editPlays((all) =>
-          all.map((x) => {
-            if (x.id !== p.id) return x;
-            const next = { ...x, ...patch, editedAt: Date.now(), ...('callParts' in patch ? { callEditedAt: Date.now() } : {}) };
-            if ('strength' in patch && !patch.strength) delete next.strength;
-            // Who had the ball also reads in the play log's players column.
-            if ('rusher' in patch || 'passer' in patch || 'receiver' in patch) {
-              next.carrierOrTarget = (next.playType === 'RUN' ? next.rusher || next.receiver || next.passer : next.receiver || next.rusher || next.passer) || '';
-            }
-            return next;
-          })
-        )
-      }
+      onPatch={(p, patch) => editPlays((all) => all.map((x) => (x.id === p.id ? patched(x, patch) : x)))}
       onSaveBreakdownWithPatch={(p, row, patch, notes) => {
-        editPlays((all) =>
-          all.map((x) => {
-            if (x.id !== p.id) return x;
-            let next = applyBreakdown(x, row);
-            if (patch && Object.keys(patch).length > 0) {
-              next = { ...next, ...patch, editedAt: Date.now() };
-              if ('strength' in patch && !patch.strength) delete next.strength;
-              if ('rusher' in patch || 'passer' in patch || 'receiver' in patch) {
-                next.carrierOrTarget = (next.playType === 'RUN' ? next.rusher || next.receiver || next.passer : next.receiver || next.rusher || next.passer) || '';
-              }
-            }
-            return next;
-          })
-        );
-        if (notes) addNote(notes, undefined, apiRef.current?.time() || 0);
+        // A play name from the AI window merges like one typed in the Play name boxes (its own stamp).
+        saveBreakdown(p, row, patch);
+        addAiNote(p, notes);
       }}
     />
   );
