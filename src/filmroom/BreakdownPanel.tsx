@@ -98,14 +98,17 @@ export const BreakdownPanel: React.FC<Props> = ({
   useEffect(() => setDraft(saved), [saved]);
   const [showAiModal, setShowAiModal] = useState(false);
 
-  const lists = useMemo(
-    () => ({
+  const lists = useMemo(() => {
+    const names = savedNames(suggestFrom);
+    return {
       form: uniq(suggestFrom.map((p) => p.formation)),
       play: uniq(suggestFrom.map((p) => p.untaggedName || p.playName)),
       result: uniq([...RESULTS, ...suggestFrom.map((p) => p.result)]),
-    }),
-    [suggestFrom]
-  );
+      // The play names coaches have made, once for both the Play name boxes and the AI window.
+      names,
+      nameText: names.map((n) => n.name),
+    };
+  }, [suggestFrom]);
 
   if (!play) return <p className="p-4 text-sm text-slate-500 dark:text-slate-400">Pick a play to break it down.</p>;
 
@@ -153,7 +156,9 @@ export const BreakdownPanel: React.FC<Props> = ({
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
-          commitTyped();
+          // Shift+Enter: this play as typed, and on to the next one (the Next play button).
+          if (e.shiftKey && next) goNext();
+          else commitTyped();
         }
       }}
       placeholder={opts.placeholder}
@@ -271,7 +276,7 @@ export const BreakdownPanel: React.FC<Props> = ({
           onChange={(parts) => onPatch(play, withParts({ ...play, playType: (row['PLAY TYPE'] as Play['playType']) || play.playType }, parts))}
           onUseName={(name) => save({ 'OFF PLAY': name })}
           playBox={String(row['OFF PLAY'] || '')}
-          saved={savedNames(suggestFrom)}
+          saved={lists.names}
           custom={customOptions(suggestFrom)}
         />
       )}
@@ -309,6 +314,7 @@ export const BreakdownPanel: React.FC<Props> = ({
             type="button"
             onClick={goNext}
             disabled={!next}
+            title="Save this play and go to the next one (Shift+Enter in any box)"
             className="ml-auto inline-flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-bold bg-indigo-600 text-white disabled:opacity-40"
           >
             Next play <ChevronRight size={14} />
@@ -328,7 +334,7 @@ export const BreakdownPanel: React.FC<Props> = ({
           roster={roster}
           knownFormations={lists.form}
           knownPlays={lists.play}
-          knownNames={savedNames(suggestFrom).map((n) => n.name)}
+          knownNames={lists.nameText}
           teamName={teamName}
           opponentName={opponentName}
           isOwnGame={isOwnGame}

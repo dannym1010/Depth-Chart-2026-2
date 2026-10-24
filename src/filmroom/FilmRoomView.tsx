@@ -19,7 +19,8 @@ import { theirCallEntries } from '../utils/theirCalls';
 import { clipMatchMode, matchClipsToPlays, naturalCompare } from './clipMatching';
 import { playsFromClips } from './clipPlays';
 import { applyBreakdown, blankPlays, breakdownPlayId, importIntoGame, isBrokenDown, type BreakdownRow } from './breakdownEntry';
-import { filledFrom, followOn } from './nextPlay';
+import { endProof, filledFrom, followOn } from './nextPlay';
+import { DriveChart } from './DriveChart';
 import { BreakdownPanel } from './BreakdownPanel';
 import type { FilmFolderGame, UnplacedFolder } from './folderRoutes';
 import { clearFilmCutup, peekFilmCutup, type FilmCutup } from '../utils/filmCutup';
@@ -189,6 +190,22 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     setOdkState(next);
     try {
       sessionStorage.setItem('filmroomOdk', next);
+    } catch {
+      /* only a convenience */
+    }
+  };
+  // Under the film: the play log, or the drive chart (remembered on this device).
+  const [logView, setLogViewState] = useState<'log' | 'drives'>(() => {
+    try {
+      return localStorage.getItem('footballFilmroomLogView') === 'drives' ? 'drives' : 'log';
+    } catch {
+      return 'log';
+    }
+  });
+  const setLogView = (next: 'log' | 'drives') => {
+    setLogViewState(next);
+    try {
+      localStorage.setItem('footballFilmroomLogView', next);
     } catch {
       /* only a convenience */
     }
@@ -407,8 +424,9 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const idx = play ? playOrder.indexOf(play) : -1;
   const next = idx >= 0 ? playOrder[idx + 1] : playOrder[0];
   const prev = idx > 0 ? playOrder[idx - 1] : undefined;
-  // The next snap in the game (not the next row in a filtered or sorted list): where this play ended.
-  const nextSnap = play ? plays.find((p) => p.gameId === play.gameId && p.playNumber === play.playNumber + 1) : undefined;
+  // The next snap in the game (not the next row in a filtered or sorted list, and past clips that aren't plays), as
+  // the AI window's proof of where this play ended (endProof: not when it only repeats this play's own gain).
+  const nextSnap = play ? endProof(plays, play) : undefined;
   const stepList = (d: number) => {
     if (!listPlay) return;
     const index = listPlay.index + d;
@@ -632,7 +650,9 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           const done = applyBreakdown(x, row);
           return patch && Object.keys(patch).length ? patched(done, patch) : done;
         }
-        return follow && x.id === follow.play.id ? applyBreakdown(x, follow.row) : x;
+        // The rules' fill is stamped one tick after the copy it filled, not now: plays merge between coaches'
+        // devices by newest edit, so a fill never wins over a coach's own breakdown of that play made elsewhere.
+        return follow && x.id === follow.play.id ? { ...applyBreakdown(x, follow.row), editedAt: (Number(x.editedAt) || 0) + 1 } : x;
       });
     });
   // The AI window's note, once (applying the same play again doesn't add it twice).
@@ -927,6 +947,29 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       ))}
     </div>
   );
+  // The play log or the drive chart: one click apart, the same play picked in both.
+  const logSwitch = (
+    <div className="flex items-center gap-1" role="group" aria-label="Show the plays as">
+      <button className={chip(logView === 'log')} onClick={() => setLogView('log')}>Play log</button>
+      <button className={chip(logView === 'drives')} onClick={() => setLogView('drives')}>Drive chart</button>
+    </div>
+  );
+  const driveChart = (
+    <div className={`${panel} flex flex-col min-h-0 lg:flex-1`}>
+      <div className="flex flex-wrap items-center gap-2 px-2 pt-2">
+        {logSwitch}
+        {odkChips}
+      </div>
+      <DriveChart
+        plays={plays}
+        selectedId={play?.id}
+        onSelectPlay={setPlayId}
+        side={odk === 'O' || odk === 'D' ? odk : undefined}
+        offenseLabel={isOwn ? teamName || 'Us' : opponentName || 'Them'}
+        defenseLabel={isOwn ? opponentName || 'Them' : 'Their opponent'}
+      />
+    </div>
+  );
   const playLog = (
     <PlaysTable
       viewKey={game ? `film-${game.key}` : undefined}
@@ -947,7 +990,12 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       onSetBall={isOwn && !locked ? (id: string, role: BallRole, label: string) => editPlays((all) => setPlayBallPlayer(all, id, role, label)) : undefined}
       onSetDefPlay={isOwn && !locked ? (id, patch) => editPlays((all) => setPlayDefPlay(all, id, patch)) : undefined}
       compact
-      toolbarStart={odkChips}
+      toolbarStart={
+        <div className="flex flex-wrap items-center gap-2">
+          {logSwitch}
+          {odkChips}
+        </div>
+      }
       onDrawCall={!isOwn && onDrawSnap && !isReadOnlySession() ? onDrawSnap : undefined}
       drawUntagged={!isOwn && Boolean(onDrawSnap) && !locked}
       theirCalls={isOwn ? undefined : theirCalls}
@@ -1712,7 +1760,20 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
 
       {/* The game's play log: click a play to watch it, sort by any column, change tags */}
       <div className={`flex-col gap-2 lg:flex-1 lg:min-h-0 ${mobileTab === 'plays' ? 'flex' : 'hidden lg:flex'}`}>
-        {listPlay ? playlistQueue : family ? familyLog : game?.filmOnly ? clipLog : playLog}
+        {listPlay ? (
+          playlistQueue
+        ) : logView === 'drives' && !game?.filmOnly ? (
+          driveChart
+        ) : family ? (
+          <>
+            {!game?.filmOnly && logSwitch}
+            {familyLog}
+          </>
+        ) : game?.filmOnly ? (
+          clipLog
+        ) : (
+          playLog
+        )}
       </div>
 
       </div>

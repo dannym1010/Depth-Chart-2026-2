@@ -93,6 +93,12 @@ const COMMON_PENALTIES = [
   { label: 'Unsportsmanlike Conduct', yards: 15, on: 'Defense' as const },
 ];
 
+/** Two names for the same team, compared loosely ("Mahopac" is "Mahopac 10U"), the same way everywhere here. */
+const sameTeam = (a?: string, b?: string) => {
+  const x = String(a || '').trim().toLowerCase(), y = String(b || '').trim().toLowerCase();
+  return Boolean(x && y) && (x === y || x.includes(y) || y.includes(x));
+};
+
 export const AiClipAnalyzerModal: React.FC<Props> = ({
   isOpen,
   onClose,
@@ -151,6 +157,8 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
   const [editForm, setEditForm] = useState('');
   const [editPlay, setEditPlay] = useState('');
   const [editGain, setEditGain] = useState<number>(0);
+  // Nothing told the gain yet: it shows "?" and is saved blank until the coach types it (or an end spot).
+  const [gainUnknown, setGainUnknown] = useState(false);
   const [editResult, setEditResult] = useState('');
   const [editOdk, setEditOdk] = useState<'O' | 'D' | 'K'>('O');
   const [editDown, setEditDown] = useState<number>(1);
@@ -178,7 +186,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
   // Who has the ball on THIS play: the play's own ODK says it (O = the scouted team has it), the coach can flip
   // one play; only a play without an ODK (a kick, not broken down yet) uses the matchup's setting.
   const [flipFor, setFlipFor] = useState('');
-  const otherTeam = (t: string) => (t === team1 ? team2 : team1);
+  const otherTeam = (t: string) => (sameTeam(t, team1) ? team2 : team1);
   const playOdk = play?.odk === 'O' || play?.odk === 'D' ? play.odk : undefined;
   const baseOffense = playOdk === 'O' ? scoutedTeam : playOdk === 'D' ? otherTeam(scoutedTeam) : offenseTeam;
   const playOffense = play && flipFor === play.id ? otherTeam(baseOffense) : baseOffense;
@@ -196,12 +204,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
   // Compute ODK dynamically based on who we are scouting:
   // If the scouted team is on Offense -> ODK = 'O'
   // If the scouted team is on Defense -> ODK = 'D'
-  const isScoutedOnOffense = Boolean(
-    scoutedTeam && playOffense && (
-      playOffense.trim().toLowerCase() === scoutedTeam.trim().toLowerCase() ||
-      playOffense.toLowerCase().includes(scoutedTeam.toLowerCase())
-    )
-  );
+  const isScoutedOnOffense = sameTeam(playOffense, scoutedTeam);
   const computedOdk: 'O' | 'D' = isScoutedOnOffense ? 'O' : 'D';
 
   // Load saved context on open
@@ -304,11 +307,18 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
   // A new play: the possession flip was for the last one.
   useEffect(() => setFlipFor(''), [play?.id]);
 
-  // Escape closes the window.
+  // Escape closes the window. In a box it only leaves the box (Escape there often just closes a suggestion list,
+  // and closing the window would lose the reading and the edits); a second Escape closes it.
   useEffect(() => {
     if (!isOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) {
+        t.blur();
+        return;
+      }
+      onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -320,6 +330,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
       setEditForm(result.formation);
       setEditPlay(result.playName);
       setEditGain(result.gainLoss);
+      setGainUnknown(Boolean(result.gainUnknown));
       setEditResult(result.result);
       setEditOdk(result.odk);
       setEditDown(result.down);
@@ -362,18 +373,12 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
   }, [result]);
 
   const handleToggleOffenseTeam = (newOffense: string) => {
-    const newDefense = newOffense === team1 ? team2 : team1;
+    const newDefense = otherTeam(newOffense);
     setOffenseTeam(newOffense);
     setDefenseTeam(newDefense);
 
     // Recompute ODK
-    const isScoutedOff = Boolean(
-      scoutedTeam && newOffense && (
-        newOffense.trim().toLowerCase() === scoutedTeam.trim().toLowerCase() ||
-        newOffense.toLowerCase().includes(scoutedTeam.toLowerCase())
-      )
-    );
-    const newOdk: 'O' | 'D' = isScoutedOff ? 'O' : 'D';
+    const newOdk: 'O' | 'D' = sameTeam(newOffense, scoutedTeam) ? 'O' : 'D';
     setEditOdk(newOdk);
 
     saveContextToStorage({
@@ -388,8 +393,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
     const flipped = flipFor === play.id ? '' : play.id;
     setFlipFor(flipped);
     const offenseNow = flipped ? otherTeam(baseOffense) : baseOffense;
-    const scoutHasBall = offenseNow.trim().toLowerCase() === scoutedTeam.trim().toLowerCase();
-    setEditOdk(scoutHasBall ? 'O' : 'D');
+    setEditOdk(sameTeam(offenseNow, scoutedTeam) ? 'O' : 'D');
   };
 
   const handleToggleGameType = (newType: 'our_game' | 'scout_game') => {
@@ -438,6 +442,8 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
     if (engine === 'gemini' && !String(apiKey || '').trim()) {
       setError('No Gemini API key on this device yet. Paste your key in the settings below and press Save, then run the breakdown again.');
       setShowSettings(true);
+      // A reading still going was replaced by this one (it won't clear the spinner): nothing is reading now.
+      setAnalyzing(false);
       return;
     }
     setAnalyzing(true);
@@ -540,6 +546,8 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
     });
 
     setEditGain(check.measuredGain);
+    // An end spot typed in tells the gain.
+    if (/\d/.test(String(wSpot || ''))) setGainUnknown(false);
     setYardSource(check.gainSource || '');
     setWhistleSpot(check.whistleFormatted || '');
     setNextPlayLOS(check.nextStartFormatted || '');
@@ -552,6 +560,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
 
   const handleDirectGainChange = (newGain: number) => {
     setEditGain(newGain);
+    setGainUnknown(false);
     const startSpot = editYard || play?.rawYardLine || '';
     if (!startSpot) return;
     const startAbs = parseAbsoluteYard(startSpot);
@@ -587,6 +596,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
     setPenaltyYards(pen.yards);
     setPenaltyOn(pen.on);
     setEditGain((prev) => prev + pen.yards);
+    setGainUnknown(false);
   };
 
   const handleClearPenalty = () => {
@@ -629,6 +639,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
       formation: editForm || result.formation,
       playName: editPlay || result.playName,
       gainLoss: editGain ?? result.gainLoss,
+      gainUnknown,
       result: editResult || result.result,
       odk: editOdk || result.odk,
       down: editDown || result.down,
@@ -1416,7 +1427,8 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                             <div className="flex items-center gap-1.5">
                               <input
                                 type="number"
-                                value={editGain}
+                                value={gainUnknown ? '' : editGain}
+                                placeholder="?"
                                 onChange={(e) => handleDirectGainChange(Number(e.target.value))}
                                 aria-label="Yards gained or lost"
                                 className={`w-16 h-8 text-center rounded-xl text-sm font-black shadow-xs border outline-none ${
@@ -1462,12 +1474,16 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                                 className="w-16 h-6 px-1.5 text-center font-black rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
                               />
                             </div>
-                            {yardSource && (
+                            {(yardSource || gainUnknown) && (
                               <p className="text-[10.5px] font-semibold text-slate-500 dark:text-slate-400">
-                                {yardSource === 'next snap'
+                                {gainUnknown
+                                  ? "The film didn't show the gain: type it in (or the end yard line). Until then it's saved blank."
+                                  : yardSource === 'next snap'
                                   ? `End spot from where the next play was snapped${filmGain !== undefined && Math.abs(filmGain - editGain) > 2 ? ` (the film looked like ${filmGain > 0 ? '+' : ''}${filmGain}: check for a penalty)` : ''}.`
                                   : yardSource === 'touchdown'
                                     ? 'Touchdown: the rest of the field.'
+                                    : yardSource === 'play'
+                                      ? `Gain kept from the play log${filmGain !== undefined && Math.abs(filmGain - editGain) > 2 ? ` (the film looked like ${filmGain > 0 ? '+' : ''}${filmGain}; change it above if the film is right)` : ''}.`
                                     : yardSource === 'none'
                                       ? 'No start yard line on this play: type it in to measure the gain.'
                                       : 'End spot estimated from the film (no next play on this drive). Check it.'}
@@ -1476,7 +1492,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                             <div className="flex items-center justify-between">
                               <span className="font-bold text-slate-500">Next Play LOS:</span>
                               <span className="font-black text-slate-800 dark:text-slate-200">
-                                {nextPlayStartYard || 'N/A (End of series)'}
+                                {nextPlayStartYard || '—'}
                               </span>
                             </div>
                           </div>
@@ -1681,11 +1697,18 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                               Put it on the play
                             </label>
                           </div>
-                          <p className="text-[10.5px] text-slate-500 dark:text-slate-400">
-                            {result.callName
-                              ? 'What the AI saw before the snap (personnel, gun / under center, strength, Twins / Trips, the play). Check it: you can change it here or later in the Play name boxes.'
-                              : "The AI couldn't count the personnel. Type the name the way you call it (21 Gun Rt Twins Toss) to put it on the play."}
-                          </p>
+                          {useCallName && editCallName.trim() && !parseCall(editCallName.trim()).personnel ? (
+                            // Names go by the personnel: one without it can't go on the play (it would be dropped).
+                            <p className="text-[10.5px] font-bold text-amber-700 dark:text-amber-400">
+                              Start the name with the personnel (21, 11, 10…), like 21 Gun Rt Twins Toss. Without it the name can&apos;t go on the play.
+                            </p>
+                          ) : (
+                            <p className="text-[10.5px] text-slate-500 dark:text-slate-400">
+                              {result.callName
+                                ? 'What the AI saw before the snap (personnel, gun / under center, strength, Twins / Trips, the play). Check it: you can change it here or later in the Play name boxes.'
+                                : "The AI couldn't count the personnel. Type the name the way you call it (21 Gun Rt Twins Toss) to put it on the play."}
+                            </p>
+                          )}
                         </>
                       )}
                     </div>
@@ -1708,7 +1731,8 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
                         <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Gn / Ls</span>
                         <input
                           type="number"
-                          value={editGain}
+                          value={gainUnknown ? '' : editGain}
+                          placeholder="?"
                           onChange={(e) => handleDirectGainChange(Number(e.target.value))}
                           className={`w-full text-sm font-black bg-transparent outline-none mt-0.5 ${
                             editGain > 0 ? 'text-emerald-600 dark:text-emerald-400' : editGain < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'

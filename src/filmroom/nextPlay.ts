@@ -34,19 +34,28 @@ export function nextPlayFrom(row: BreakdownRow): BreakdownRow {
   const odk = String(row.ODK || '').trim().toUpperCase();
   const type = String(row['PLAY TYPE'] || '').trim().toLowerCase();
   const result = String(row.RESULT || '').trim().toLowerCase();
+  // A timeout (a row in the play log that isn't a play): the next snap has the same down, distance and spot.
+  if (/\btime ?out\b/.test(result)) {
+    const same: BreakdownRow = { ...out };
+    for (const c of ['ODK', 'DN', 'DIST', 'YARD LN'] as const) if (row[c]) same[c] = String(row[c]);
+    return same;
+  }
   // A score or a try: a try or a kickoff comes next.
   if (/\btd\b|touchdown|safety|\bpat\b|2 ?pt|two.?point|extra p(oin)?t|\bxp\b/.test(`${type} ${result}`)) return out;
   const flagged = PENALTY.test(result);
   if (odk === 'K') {
     // A kickoff or a punt: the kicking team is on defense next and the receiving team on offense, first and ten
-    // wherever the return ended. Anything unusual on it (a flag, a muff, a fumble, a block, an onside kick) is left.
-    if (flagged || /muff|fumble|block|onside/.test(result)) return out;
+    // wherever the return ended. Anything unusual on it (a flag, a muff, a fumble, a block, an onside kick, a fake
+    // that ran or threw) is left.
+    if (flagged || /muff|fumble|block|onside|rush|complete|pass|sack|scramble/.test(result)) return out;
     if (/^(ko|kick ?off|punt)$/.test(type)) return { ...out, ODK: 'D', DN: '1', DIST: '10' };
     if (/^(ko|kick ?off|punt) ?(rec|ret)/.test(type)) return { ...out, ODK: 'O', DN: '1', DIST: '10' };
     return out;
   }
   // Not a play (S): who has the ball next isn't known from it.
   if (odk && odk !== 'O' && odk !== 'D') return out;
+  // A kick tagged as an offense or defense play (a punt on 4th down): the kick decides what's next, so it's left.
+  if (/^(ko|kick ?off|punt|fg|field goal|onside)/.test(type)) return out;
   const flip: BreakdownRow = odk ? { ODK: odk === 'O' ? 'D' : 'O' } : {};
   if (/intercept|\bint\b|fumble|punt|block|turnover(?! on downs)/.test(result)) {
     // Intercepted: the other team's ball, first and ten, wherever the return ended. A fumble (lost or not), a
@@ -60,6 +69,8 @@ export function nextPlayFrom(row: BreakdownRow): BreakdownRow {
   const down = num(row.DN), dist = num(row.DIST), gain = num(row['GN/LS']);
   const yard = String(row['YARD LN'] || '').trim();
   if (!(down >= 1 && down <= 4) || !(dist >= 1) || ![down, dist, gain].every(Number.isInteger) || !/\d/.test(yard)) return out;
+  // A 0 with no result: how the play went isn't entered yet (the breakdown shows a 0 gain once a down is in).
+  if (gain === 0 && !result) return out;
   const spot = parseAbsoluteYard(yard) + gain;
   // Past a goal line without the result saying so: a score or a safety the coach hasn't written in yet.
   if (spot >= 100 || spot <= 0) return out;
@@ -92,6 +103,27 @@ function gameOf(plays: Play[], play: Play) {
   return (n: number) => game.find((p) => p.playNumber === n);
 }
 
+/** The next snap of `play`'s game, by play number, past the clips marked S (not a play): where `play` ended. */
+export function snapAfter(plays: Play[], play: Play): Play | undefined {
+  const at = gameOf(plays, play);
+  let n = play.playNumber + 1;
+  let next = at(n);
+  while (next && isS(next.odk)) next = at(++n);
+  return next;
+}
+
+/**
+ * The next snap as proof of where `play` ended, for the AI window. Not when its spot is just what the play's own
+ * gain already says (the rules filled it in from it, or it agrees anyway): taken as proof, it would only confirm a
+ * gain typed wrong. When it says something new (a flag, a spot typed in), it's the best proof there is.
+ */
+export function endProof(plays: Play[], play: Play): Play | undefined {
+  const next = snapAfter(plays, play);
+  if (!next?.rawYardLine) return next;
+  const said = nextPlayFrom(breakdownRowOf(play))['YARD LN'];
+  return said && parseAbsoluteYard(said) === parseAbsoluteYard(next.rawYardLine) ? undefined : next;
+}
+
 /** The last play before `n` that isn't a clip marked S (not a play). */
 function playBefore(at: (n: number) => Play | undefined, n: number) {
   let before = at(--n);
@@ -118,9 +150,7 @@ function leaves(at: (n: number) => Play | undefined, play: Play, row: BreakdownR
  */
 export function followOn(plays: Play[], play: Play, row: BreakdownRow): { play: Play; row: BreakdownRow } | undefined {
   const at = gameOf(plays, play);
-  let n = play.playNumber + 1;
-  let target = at(n);
-  while (target && isS(target.odk)) target = at(++n);
+  const target = snapAfter(plays, play);
   if (!target) return undefined;
   const fill = leaves(at, play, row);
   // Nothing to fill in: the next snap is left as it is (an empty row would clear it).

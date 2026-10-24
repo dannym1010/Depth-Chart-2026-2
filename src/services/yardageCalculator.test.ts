@@ -203,6 +203,40 @@ describe('cleaning up the AI answer', () => {
     assert.equal(flag.penaltyDetected, true);
   });
 
+  it("keeps a gain the play already has (Hudl's or a coach's), with the film's guess beside it", () => {
+    const hudl = { ...play, gainLoss: 9 };
+    // No next snap on this drive: Hudl's 9 stays, not the film's 4.
+    const r = sanitizeAiResult({ gainLoss: 4, result: 'Rush' }, roster, { currentStartYard: '35', currentOdk: 'O', play: hudl });
+    assert.equal(r.gainLoss, 9);
+    assert.equal(r.yardageSource, 'play');
+    assert.equal(r.filmGain, 4);
+    // The next snap agrees with it (their 35 to their 26).
+    const s = sanitizeAiResult({ gainLoss: 4, result: 'Rush' }, roster, { currentStartYard: '35', nextPlayStartYard: '26', currentOdk: 'O', nextPlayOdk: 'O', play: hudl });
+    assert.equal(s.gainLoss, 9);
+    assert.equal(s.yardageSource, 'next snap');
+    // A 0 with a result (an incomplete pass) is a gain too; a blank play's 0 is not.
+    const inc = sanitizeAiResult({ gainLoss: 6, result: 'Complete' }, roster, { currentStartYard: '35', currentOdk: 'O', play: { ...play, gainLoss: 0, result: 'Incomplete' } });
+    assert.equal(inc.gainLoss, 0);
+    const blank = sanitizeAiResult({ gainLoss: 6, result: 'Complete' }, roster, { currentStartYard: '35', currentOdk: 'O', play: { ...play, gainLoss: 0, result: '' } });
+    assert.equal(blank.gainLoss, 6);
+    assert.equal(blank.yardageSource, 'film');
+  });
+
+  it("an AI that can't tell the gain says null: it's saved blank, not as a 0-yard play", () => {
+    const fresh = { playNumber: 3, rawYardLine: '35' } as any;
+    const r = sanitizeAiResult({ gainLoss: null, result: 'Rush' }, roster, { currentStartYard: '35', currentOdk: 'O', play: fresh });
+    assert.equal(r.gainUnknown, true);
+    assert.equal(analysisResultToBreakdownRow(r)['GN/LS'], '');
+    // A real 0 (an incomplete pass) is kept.
+    const inc = sanitizeAiResult({ gainLoss: 0, result: 'Incomplete' }, roster, { currentStartYard: '35', currentOdk: 'O', play: fresh });
+    assert.equal(inc.gainUnknown, undefined);
+    assert.equal(analysisResultToBreakdownRow(inc)['GN/LS'], '0');
+    // The next snap tells the gain even when the AI can't (their 35 to their 31).
+    const next = sanitizeAiResult({ gainLoss: null, result: 'Rush' }, roster, { currentStartYard: '35', nextPlayStartYard: '31', currentOdk: 'O', nextPlayOdk: 'O', play: fresh });
+    assert.equal(next.gainLoss, 4);
+    assert.equal(next.gainUnknown, undefined);
+  });
+
   it("keeps the play's Hudl tags and never invents a formation, play or result", () => {
     const tagged = { ...play, odk: 'D', formation: 'Trips Rt', playName: '34 Power', hash: 'L', direction: 'Right', playType: 'Run', result: 'Rush', backfield: 'Pro' };
     const r = sanitizeAiResult({ odk: 'O', formation: 'Spread', playName: 'Dive', hash: 'R', playDir: 'L', playType: 'Pass', result: 'Complete' }, roster, { currentStartYard: '35', play: tagged });

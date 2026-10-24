@@ -1,6 +1,6 @@
 // AI-powered video clip analyzer for youth football film breakdown using Gemini multimodal vision.
 // Extracts keyframes from HTML5 video, analyzes schemes/players/down-and-distance, and populates Hudl breakdown rows.
-import type { Play, TeamUnit } from '../hudlScout/types/football';
+import type { Play } from '../hudlScout/types/football';
 import type { RosterPlayer } from '../types';
 import type { BreakdownRow } from '../filmroom/breakdownEntry';
 import { crossCheckPlayYardage } from './yardageCalculator';
@@ -58,10 +58,15 @@ export interface AiFilmAnalysisResult {
   penaltyDetails?: string; // Description e.g. "Offensive Holding (-10 yds)"
   penaltyYards?: number;
   penaltyOn?: 'Offense' | 'Defense' | 'None';
-  /** Where the gain came from: the next snap (same drive), the goal line (TD), or the film (an estimate). */
-  yardageSource?: 'next snap' | 'touchdown' | 'film' | 'none';
-  /** The film's own estimate, when the next snap decided the gain (shown when they differ). */
+  /**
+   * Where the gain came from: the next snap (same drive), the goal line (TD), the play's own gain (Hudl's or a
+   * coach's, kept), or the film (an estimate).
+   */
+  yardageSource?: 'next snap' | 'touchdown' | 'play' | 'film' | 'none';
+  /** The film's own estimate, when the next snap or the play's own gain decided it (shown when they differ). */
   filmGain?: number;
+  /** Nothing told the gain (the AI couldn't, and there's no gain on the play, end spot or next snap): saved blank. */
+  gainUnknown?: boolean;
   /** The play name's parts as the AI saw them (personnel, QB, strength, tags, concept), checked against the lists. */
   callParts?: CallParts;
   /** The name those parts make ("21 Gun Rt Twins Toss"). */
@@ -372,16 +377,6 @@ async function snapOfClip(copy: HTMLVideoElement, duration: number, seekTo: (t: 
   return findSnapWithCamera(samples, FPS);
 }
 
-/**
- * Format active roster into prompt context for jersey number and position resolution.
- */
-function formatRosterContext(roster: RosterPlayer[]): string {
-  if (!roster.length) return 'No active roster loaded.';
-  return roster
-    .map((p) => `#${p.num} ${p.firstName} ${p.lastName} (${[p.primaryPosition, p.offensivePosition, p.defensivePosition].filter(Boolean).join('/') || 'Player'})`)
-    .join(', ');
-}
-
 export interface AnalyzeFilmOptions {
   frames: ExtractedFrame[];
   play?: Play;
@@ -451,7 +446,7 @@ export async function analyzeFilmWithGemini(opts: AnalyzeFilmOptions): Promise<A
   const cleanKey = apiKey.trim();
 
   // No key: no breakdown (never a made-up one passed off as real). A model on this computer needs none.
-  if (engine !== 'ollama' && !cleanKey) {
+  if (engine === 'gemini' && !cleanKey) {
     throw new Error('No Gemini API key on this device. Open the key settings (the gear at the top of this window), paste your key and save it, then run the breakdown again.');
   }
 
@@ -510,7 +505,7 @@ WHAT TO FILL IN
    - On a pass: "passerNum" and "receiverNum", only when the digits are readable.
 3. Where it started and ended (yard lines from the side of the team WITH the ball: "-35" is its own 35, "+35" the other team's 35; forward from -35 goes -40, then 50, then +45):
    - Snapped at: ${startLOS || 'not known; read it from the field numbers in the last picture before the snap, or leave it ""'}. Put it in "yardLine".
-   - "whistleYardLine": where the ball was when the play ended. "gainLoss": yards from the snap to there (positive forward, negative behind the line, 0 for an incomplete pass).
+   - "whistleYardLine": where the ball was when the play ended. "gainLoss": yards from the snap to there (positive forward, negative behind the line, 0 for an incomplete pass, null if you can't tell).
    ${nextPlayStartYard ? `- The next play on this drive was snapped at ${nextPlayStartYard}. Unless a flag was thrown on this play, that IS where this play ended: use it for "whistleYardLine" and make "gainLoss" agree.` : ''}
    - "penaltyDetected": true only if you SEE a yellow flag on the field; then fill "penaltyDetails".
    - If the carrier reached the end zone, say so in "result" (e.g. "Rush, TD").
@@ -548,7 +543,7 @@ ${userPrompt ? `Coach's note for this play: ${userPrompt}` : ''}
   "playName": "",
   "playDir": "",
   "result": "",
-  "gainLoss": 0,
+  "gainLoss": null,
   "whistleYardLine": "",
   "carrierNum": "",
   "carrierConfidence": 0,
@@ -808,18 +803,29 @@ export function sanitizeAiResult(
   // decides where it ended unless a flag was thrown on this play.
   const rawStart = String(currentStartYard || raw.yardLine || '');
   const rawWhistle = raw.whistleYardLine ? String(raw.whistleYardLine) : undefined;
-  const rawGain = Number(raw.gainLoss) || 0;
+  // The AI's gain: null (or nothing) is its "can't tell"; a 0 is a real 0 (an incomplete pass).
+  const aiGain =
+    raw.gainLoss === null || raw.gainLoss === undefined || String(raw.gainLoss).trim() === '' || !Number.isFinite(Number(raw.gainLoss))
+      ? undefined
+      : Number(raw.gainLoss);
+  const rawGain = aiGain ?? 0;
   const flagged = Boolean(raw.penaltyDetected) || /penalt/i.test(String(play?.result || ''));
   const scored = /\bTD\b|touchdown/i.test(`${raw.result || ''} ${play?.result || ''}`);
+  // A gain the play already has (Hudl's, or one a coach entered) stays like its other facts: the next snap is only
+  // checked against it (a mismatch suggests a flag), and the film's own guess is kept to show beside it. A 0 with
+  // no result is a blank play's, not a gain.
+  const playGain = Number(play?.gainLoss);
+  const knownGain =
+    typeof play?.gainLoss === 'number' && Number.isFinite(playGain) && (playGain !== 0 || /\S/.test(String(play?.result || ''))) ? playGain : undefined;
 
   const yardCheck = crossCheckPlayYardage({
     currentStartYard: rawStart,
-    currentWhistleYard: rawWhistle,
-    currentGainLoss: rawGain,
+    currentWhistleYard: knownGain === undefined ? rawWhistle : undefined,
+    currentGainLoss: knownGain ?? aiGain,
     nextStartYard: nextPlayStartYard,
     currentOdk: currentOdk || raw.odk,
     nextOdk: nextPlayOdk,
-    trust: flagged ? 'film' : 'spot',
+    trust: flagged || knownGain !== undefined ? 'film' : 'spot',
     touchdown: scored,
   });
 
@@ -870,8 +876,18 @@ export function sanitizeAiResult(
     playDir: (side(play?.direction) || side(raw.playDir)) as AiFilmAnalysisResult['playDir'],
     result: pick(play?.result, raw.result),
     gainLoss: yardCheck.measuredGain ?? rawGain,
-    yardageSource: yardCheck.gainSource,
-    ...(yardCheck.filmGain !== undefined ? { filmGain: yardCheck.filmGain } : {}),
+    yardageSource: knownGain !== undefined && yardCheck.gainSource === 'film' ? 'play' : yardCheck.gainSource,
+    ...(knownGain !== undefined
+      ? aiGain !== undefined && aiGain !== knownGain
+        ? { filmGain: aiGain }
+        : {}
+      : yardCheck.filmGain !== undefined
+        ? { filmGain: yardCheck.filmGain }
+        : {}),
+    // Nothing told the gain (no gain on the play, none from the AI, no end spot, no next snap): left blank.
+    ...(knownGain === undefined && aiGain === undefined && !rawWhistle && yardCheck.gainSource !== 'next snap' && yardCheck.gainSource !== 'touchdown'
+      ? { gainUnknown: true }
+      : {}),
     whistleYardLine: yardCheck.whistleFormatted,
     nextPlayYardLine: yardCheck.nextStartFormatted,
     spotAligned: yardCheck.isAligned,
@@ -914,7 +930,8 @@ export function analysisResultToBreakdownRow(res: AiFilmAnalysisResult): Breakdo
     'PLAY TYPE': res.playType,
     'PLAY DIR': res.playDir,
     RESULT: res.result,
-    'GN/LS': String(res.gainLoss),
+    // An unknown gain stays blank (a 0 would read as a 0-yard play and start the next snap from it).
+    'GN/LS': res.gainUnknown ? '' : String(res.gainLoss),
   };
 }
 

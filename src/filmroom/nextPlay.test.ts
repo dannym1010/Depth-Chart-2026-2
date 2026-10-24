@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { filledFrom, followOn, nextPlayFrom } from './nextPlay.ts';
+import { endProof, filledFrom, followOn, nextPlayFrom } from './nextPlay.ts';
 import { applyBreakdown, blankPlays, breakdownRowOf, type BreakdownRow } from './breakdownEntry.ts';
 import type { FilmClip } from './types.ts';
 import type { Play } from '../hudlScout/types/football.ts';
@@ -51,6 +51,10 @@ describe('the next play from this one, by the rules', () => {
     assert.deepEqual(nextPlayFrom({ QTR: '2', ODK: 'K', 'PLAY TYPE': 'KO', RESULT: 'Onside' }), { QTR: '2' });
     assert.deepEqual(nextPlayFrom({ ODK: 'K', 'PLAY TYPE': 'Punt', RESULT: 'Muffed' }), {});
     assert.deepEqual(nextPlayFrom({ ODK: 'K', 'PLAY TYPE': 'FG', RESULT: 'No Good' }), {});
+    // A fake punt that ran: whoever has it depends on the run.
+    assert.deepEqual(nextPlayFrom({ ODK: 'K', 'PLAY TYPE': 'Punt', RESULT: 'Rush' }), {});
+    // A punt tagged O on 4th down is not the other team's ball at the spot of the punt.
+    assert.deepEqual(nextPlayFrom({ QTR: '4', ODK: 'O', DN: '4', DIST: '8', 'YARD LN': '-30', 'GN/LS': '0', 'PLAY TYPE': 'Punt' }), { QTR: '4' });
     assert.deepEqual(nextPlayFrom({ QTR: '2', ODK: 'K', RESULT: 'Punt' }), { QTR: '2' });
   });
 
@@ -69,10 +73,16 @@ describe('the next play from this one, by the rules', () => {
     assert.deepEqual(nextPlayFrom({ ODK: 'O', DN: '2', DIST: '5', 'YARD LN': '-30', 'GN/LS': '3', RESULT: 'Rush, Fumble' }), {});
     // Not a play.
     assert.deepEqual(nextPlayFrom({ QTR: '2', ODK: 'S' }), { QTR: '2' });
+    // A timeout row isn't a play either: the next snap is the same down, distance and spot (found in our games).
+    assert.deepEqual(nextPlayFrom({ QTR: '3', ODK: 'O', DN: '1', DIST: '10', 'YARD LN': '39', 'GN/LS': '0', RESULT: 'Timeout' }), {
+      QTR: '3', ODK: 'O', DN: '1', DIST: '10', 'YARD LN': '39',
+    });
     // Missing or odd numbers.
     assert.deepEqual(nextPlayFrom({ ODK: 'O', DN: '2', DIST: '5', 'GN/LS': '3', RESULT: 'Rush' }), { ODK: 'O' });
     assert.deepEqual(nextPlayFrom({ ODK: 'O', DN: '2', DIST: '5', 'YARD LN': '-30', RESULT: 'Rush' }), { ODK: 'O' });
     assert.deepEqual(nextPlayFrom({ ODK: 'O', DN: '2', DIST: '5', 'YARD LN': '-30', 'GN/LS': '2.5', RESULT: 'Rush' }), { ODK: 'O' });
+    // A 0 with no result is the breakdown's own blank (it shows 0 once a down is in), not a 0-yard play.
+    assert.deepEqual(nextPlayFrom({ ODK: 'O', DN: '2', DIST: '5', 'YARD LN': '-30', 'GN/LS': '0' }), { ODK: 'O' });
     // Past the goal line without the result saying so: left for the coach.
     assert.deepEqual(nextPlayFrom({ ODK: 'O', DN: '1', DIST: '10', 'YARD LN': '+5', 'GN/LS': '7', RESULT: 'Rush' }), { ODK: 'O' });
   });
@@ -123,6 +133,18 @@ describe('saving a play starts the next snap', () => {
     assert.equal(filledFrom(plays, plays[1]), undefined);
     plays = save(plays, 1, { QTR: '2', ODK: 'O', DN: '2', DIST: '6', 'YARD LN': '-35', 'GN/LS': '7', RESULT: 'Rush' });
     assert.deepEqual(rowAt(plays, 3), { ODK: 'O', QTR: '2', DN: '1', DIST: '10', 'YARD LN': '-42', 'GN/LS': '0' });
+  });
+
+  it('the next snap is proof of where a play ended only when it says something new', () => {
+    let plays = save(game(), 1, first);
+    // Play 2's spot was filled in from play 1's gain: no proof of it (it would confirm a gain typed wrong).
+    assert.equal(endProof(plays, plays[0]), undefined);
+    // A spot typed on play 2 that disagrees (a flag, a wrong gain): proof.
+    plays = save(plays, 2, { ...rowAt(plays, 2), 'YARD LN': '-29', 'GN/LS': '3', RESULT: 'Rush' });
+    assert.equal(endProof(plays, plays[0])?.playNumber, 2);
+    // No gain on play 1 yet: play 2's spot is how its gain gets measured.
+    const fresh = save(game(), 2, { QTR: '1', ODK: 'O', DN: '2', DIST: '6', 'YARD LN': '-34' });
+    assert.equal(endProof(fresh, fresh[0])?.playNumber, 2);
   });
 
   it('stays in its own game, and the last snap has nothing after it', () => {
