@@ -1,6 +1,7 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import { Printer } from 'lucide-react';
-import { printElementAsShown } from '../../../utils/printUtils';
+import { printCleanHTML } from '../../../utils/printUtils';
+import { summaryPrintHtml } from './summaryPrint';
 import { AIScoutingReport, DownDistGroup, Play, TendencyAnalysis } from '../../types/football';
 import { DownDistanceHeatmap, RunPassRing } from '../ScoutCharts';
 import { ReportVoice, buildTakeaways, identity, runSides, sampleSize, shareGreen } from './reportText';
@@ -49,20 +50,22 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({ analysis: a, plays, voic
   const third = a.thirdDownConversions;
   const bigEvery = a.explosivePlayRate > 0 ? Math.max(1, Math.round(100 / a.explosivePlayRate)) : 0;
   const showPlan = report && (voice.showCounters || voice.showSelfScout);
-  const page = useRef<HTMLDivElement>(null);
-
   return (
     <div className="space-y-4 md:space-y-5">
       <div className="flex justify-end">
         <button
           type="button"
-          onClick={() => page.current && printElementAsShown(page.current, `${id.label} - Scouting summary`)}
+          onClick={() => {
+            // A page made for paper (big type, one page), not the screen shrunk down.
+            const title = `${id.label} - Scouting summary`;
+            printCleanHTML(summaryPrintHtml(a, plays, voice, report, title), title);
+          }}
           className="inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg bg-slate-900 hover:bg-slate-700 text-white dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200 text-xs font-bold cursor-pointer"
         >
           <Printer className="w-4 h-4" /> Print summary
         </button>
       </div>
-      <div ref={page} className="space-y-4 md:space-y-5">
+      <div className="space-y-4 md:space-y-5">
       {/* 1. Who they are, in one line */}
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-3">
