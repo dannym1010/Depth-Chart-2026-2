@@ -1,11 +1,11 @@
 // The drives in the side panel, beside the video: made for a narrow, tall column, read top to bottom.
 // - One compact toolbar: whose drives, which quarter, open all / close all, "follow the film", and a few view options.
 // - Each side's numbers fold into one line (open them for the full numbers).
-// - Each drive is a slim header (who, drive #, quarter, how it ended, plays, yards, start → end) that opens into its
-//   plays, written large: the gain, down & distance and spot, the play, who had the ball or made the tackle, and
-//   1st down / TD / turnover marks. A drive can be hidden to make room; hidden ones come back from the bottom.
+// - A closed drive is one line: drive #, quarter, how many plays, how it ended. An open drive is drawn like the drive
+//   chart under the video: its plays on a field, one under the other, each a bar from the snap to where it ended
+//   (green tick: 1st down, red: turnover), with the gain, down & distance, spot and play name above its bar.
 // - A click on a play watches it and opens it in the breakdown. With "Follow film" on, the drive being watched is the
-//   one open and its play stays in view as the film goes on.
+//   one open and its play stays in view as the film goes on. A drive can be hidden; hidden ones come back from the bottom.
 // Same field, colors and coloring choices as the drive chart under the video.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
@@ -39,12 +39,10 @@ const PREFS_KEY = 'footballDriveSidebarPrefs';
 interface Prefs {
   /** The full numbers for each side, not just the one-line summary. */
   stats: boolean;
-  /** The small field under each drive's header. */
-  fields: boolean;
   /** Only the drive being watched stays open, following the film. */
   follow: boolean;
 }
-const DEFAULT_PREFS: Prefs = { stats: false, fields: true, follow: true };
+const DEFAULT_PREFS: Prefs = { stats: false, follow: true };
 
 const load = <T,>(key: string, fallback: T): T => {
   try {
@@ -70,36 +68,6 @@ const loadColorBy = (): ColorBy => {
   }
 };
 
-/** The drive on a small field: an arrow from start to finish, a tick where each play ended. */
-function MiniField({ drive, painter, selectedId }: { drive: Drive; painter: Painter; selectedId?: string }) {
-  const color = RESULT_COLOR[drive.result] || '#64748b';
-  const has = drive.start !== undefined && drive.end !== undefined;
-  const a = has ? xPct(drive.start!) : 0;
-  const b = has ? xPct(drive.end!) : 0;
-  return (
-    <div className="relative h-4 rounded overflow-hidden" style={{ background: 'rgba(148,163,184,0.10)' }}>
-      <FieldBack />
-      {has && (
-        <div className="absolute top-1/2 -translate-y-1/2 h-1 rounded-full" style={{ left: `${Math.min(a, b)}%`, width: `${Math.max(Math.abs(b - a), 0.8)}%`, background: color, opacity: 0.6 }} />
-      )}
-      {drive.plays.map((d) =>
-        d.to === undefined ? null : (
-          <span
-            key={d.play.id}
-            className="absolute top-1/2 -translate-y-1/2 rounded-sm"
-            style={{
-              left: `calc(${xPct(d.to)}% - 1.5px)`,
-              width: d.play.id === selectedId ? 4 : 3,
-              height: d.play.id === selectedId ? 14 : 10,
-              background: d.play.id === selectedId ? PICKED : painter.colorOf(d),
-            }}
-          />
-        )
-      )}
-    </div>
-  );
-}
-
 /** Who had the ball on it, or made the tackle, as the breakdown names them. */
 function whoOf(p: Play): string {
   const parts: string[] = [];
@@ -113,55 +81,74 @@ function whoOf(p: Play): string {
   return parts.join(' · ');
 }
 
-const Tag: React.FC<{ color: string; children: React.ReactNode }> = ({ color, children }) => (
-  <span className="px-1 rounded text-[9px] font-black uppercase text-white leading-[14px]" style={{ background: color }}>
-    {children}
-  </span>
-);
+const gainColor = (d: DrivePlay) => (d.turnover || d.gain < 0 ? '#dc2626' : d.firstDown ? '#16a34a' : d.gain >= 4 ? '#ca8a04' : '#64748b');
+const isTD = (p: Play) => /\btd\b|touchdown/i.test(String(p.result || ''));
 
-/** One play in an open drive, big enough to read beside the video. */
-function PlayRow({ d, paint, picked, onPick }: { d: DrivePlay; paint: string; picked: boolean; onPick: () => void }) {
+/** The yard lines across the top of an open drive's field. */
+function YardScale() {
+  return (
+    <div className="relative h-3.5 text-[9px] font-bold text-slate-400">
+      {[10, 20, 30, 40, 50, 60, 70, 80, 90].map((y) => (
+        <span key={y} className="absolute -translate-x-1/2" style={{ left: `${xPct(y)}%` }}>
+          {y === 50 ? '50' : spot(y).replace(/^\+/, '')}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** One play on the open drive's field: what it was above, a bar from the snap to where it ended below. */
+function PlayOnField({ d, paint, picked, onPick }: { d: DrivePlay; paint: string; picked: boolean; onPick: () => void }) {
   const p = d.play;
-  const name = p.callName || p.playName || '';
-  const result = p.result && p.result !== name ? p.result : '';
-  const gainBg = d.turnover || d.gain < 0 ? '#dc2626' : d.firstDown ? '#16a34a' : d.gain >= 4 ? '#ca8a04' : '#64748b';
-  const td = /\btd\b|touchdown/i.test(String(p.result || ''));
-  const who = whoOf(p);
+  const name = p.callName || p.playName || p.result || '';
+  const drawn = d.from !== undefined && d.to !== undefined;
+  const a = drawn ? xPct(d.from!) : 0;
+  const b = drawn ? xPct(d.to!) : 0;
+  const color = picked ? PICKED : paint;
+  const end = d.turnover ? '#dc2626' : d.firstDown ? '#16a34a' : color;
+  const td = isTD(p);
+  const extra = picked ? [p.result && p.result !== name ? p.result : '', whoOf(p)].filter(Boolean).join(' · ') : '';
   return (
     <button
       type="button"
       data-play={p.id}
       onClick={onPick}
       aria-pressed={picked}
-      className={`w-full flex items-stretch gap-2 text-left rounded-lg pl-1 pr-2 py-1.5 cursor-pointer border ${
-        picked ? 'border-transparent' : 'border-transparent hover:bg-slate-100 dark:hover:bg-slate-800/70'
-      }`}
-      style={picked ? { background: `${PICKED}1f`, boxShadow: `inset 0 0 0 2px ${PICKED}` } : undefined}
+      title={[`#${p.playNumber}`, p.down ? `${ordinal(p.down)} & ${p.distance || '?'}` : '', p.rawYardLine ? `at ${p.rawYardLine}` : '', name, `${signed(d.gain)} yds`, whoOf(p)].filter(Boolean).join(' · ')}
+      className={`relative block w-full text-left rounded-md cursor-pointer pt-0.5 ${picked ? '' : 'hover:bg-slate-500/10'}`}
+      style={picked ? { background: `${PICKED}24`, boxShadow: `inset 0 0 0 2px ${PICKED}` } : undefined}
     >
-      <span className="w-1 shrink-0 rounded-full" style={{ background: paint }} title="Color: see the key at the top" />
-      <span
-        className="w-11 shrink-0 self-start rounded-md text-center text-white font-black text-[15px] leading-7"
-        style={{ background: gainBg }}
-        title={`${signed(d.gain)} yards`}
-      >
-        {signed(d.gain)}
-      </span>
-      <span className="flex-1 min-w-0 flex flex-col gap-0.5">
-        <span className="flex items-baseline gap-1.5 flex-wrap">
-          <span className="text-[14px] font-black text-slate-900 dark:text-white">{p.down ? `${ordinal(p.down)} & ${p.distance || '?'}` : `#${p.playNumber}`}</span>
-          {p.rawYardLine ? <span className="text-[12px] font-bold text-slate-500 dark:text-slate-400">at {p.rawYardLine}</span> : null}
-          {p.down ? <span className="ml-auto text-[10px] font-bold text-slate-400">#{p.playNumber}</span> : null}
+      <span className="flex items-baseline gap-1.5 px-1 min-w-0">
+        <span className="shrink-0 w-8 text-right text-[13px] font-black" style={{ color: gainColor(d) }}>
+          {signed(d.gain)}
         </span>
-        <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100 leading-snug break-words">{name || <span className="text-slate-400">No play name</span>}</span>
-        {(result || who) && (
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug break-words">{[result, who].filter(Boolean).join(' · ')}</span>
-        )}
-        {(d.firstDown || d.turnover || td || d.kind === 'penalty') && (
-          <span className="flex gap-1 flex-wrap">
-            {td ? <Tag color="#16a34a">TD</Tag> : d.firstDown ? <Tag color="#16a34a">1st down</Tag> : null}
-            {d.turnover && <Tag color="#dc2626">Turnover</Tag>}
-            {d.kind === 'penalty' && <Tag color="#ca8a04">Penalty</Tag>}
+        <span className="shrink-0 text-[12px] font-black text-slate-900 dark:text-white">{p.down ? `${ordinal(p.down)}&${p.distance || '?'}` : `#${p.playNumber}`}</span>
+        {p.rawYardLine ? <span className="shrink-0 text-[11px] font-bold text-slate-500 dark:text-slate-400">{p.rawYardLine}</span> : null}
+        <span className="min-w-0 truncate text-[12px] font-semibold text-slate-700 dark:text-slate-200">{name}</span>
+        {(td || d.turnover) && (
+          <span className="ml-auto shrink-0 px-1 rounded text-[9px] font-black text-white" style={{ background: td ? '#16a34a' : '#dc2626' }}>
+            {td ? 'TD' : 'TO'}
           </span>
+        )}
+      </span>
+      {extra && <span className="block px-1 pl-[2.6rem] text-[11px] text-slate-600 dark:text-slate-300 break-words">{extra}</span>}
+      <span className="relative block h-3.5">
+        {drawn ? (
+          <>
+            <span
+              className="absolute top-1/2 -translate-y-1/2 rounded-full"
+              style={{
+                left: `${Math.min(a, b)}%`,
+                width: `${Math.max(Math.abs(b - a), 0.8)}%`,
+                height: picked ? 8 : 6,
+                background: d.kind === 'penalty' ? `repeating-linear-gradient(90deg, ${color} 0 6px, transparent 6px 10px)` : color,
+              }}
+            />
+            {/* Where it ended: green for a first down, red for a turnover. */}
+            <span className="absolute top-1/2 -translate-y-1/2 rounded-sm" style={{ left: `calc(${b}% - 2px)`, width: 4, height: 12, background: end }} />
+          </>
+        ) : (
+          <span className="absolute inset-0 flex items-center justify-center text-[9px] text-slate-400">no yard line yet</span>
         )}
       </span>
     </button>
@@ -175,7 +162,6 @@ function DriveBlock({
   onToggle,
   onHide,
   painter,
-  fields,
   selectedId,
   onSelectPlay,
 }: {
@@ -185,48 +171,33 @@ function DriveBlock({
   onToggle: () => void;
   onHide: () => void;
   painter: Painter;
-  fields: boolean;
   selectedId?: string;
   onSelectPlay: (id: string) => void;
 }) {
   const team = TEAM_COLOR[drive.side];
   const watching = drive.plays.some((d) => d.play.id === selectedId);
   const result = drive.result || '';
+  const n = drive.plays.length;
   return (
     <div
-      className={`rounded-lg border-l-4 bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 ${watching ? 'ring-2 ring-rose-400/70' : ''}`}
+      data-drive={drive.n}
+      className={`scroll-mt-32 rounded-lg border-l-4 border border-slate-200 dark:border-slate-700 ${open ? 'bg-white dark:bg-slate-900/60' : ''} ${watching ? 'ring-2 ring-rose-400/70' : ''}`}
       style={{ borderLeftColor: team }}
     >
-      <div className="flex items-start">
-        <button type="button" onClick={onToggle} aria-expanded={open} className="flex-1 min-w-0 text-left pl-2 pr-1 py-1.5 flex flex-col gap-1 cursor-pointer">
-          <span className="flex items-center gap-1.5 min-w-0">
-            <ChevronRight size={14} className={`shrink-0 text-slate-400 transition-transform ${open ? 'rotate-90' : ''}`} />
-            <span className="text-[12px] font-black whitespace-nowrap" style={{ color: team }}>
-              Drive {drive.n}
-            </span>
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 truncate">
-              {label}
-              {drive.quarter ? ` · ${quarterText(drive.quarter)}` : ''}
-            </span>
-            {result && (
-              <span className="ml-auto shrink-0 px-1.5 rounded text-[10px] font-black text-white" style={{ background: RESULT_COLOR[result] || '#64748b' }}>
-                {result}
-              </span>
-            )}
+      <div className="flex items-center">
+        <button type="button" onClick={onToggle} aria-expanded={open} className="flex-1 min-w-0 text-left pl-1.5 pr-1 py-1 flex items-center gap-1.5 cursor-pointer">
+          <ChevronRight size={14} className={`shrink-0 text-slate-400 transition-transform ${open ? 'rotate-90' : ''}`} />
+          <span className="text-[12px] font-black whitespace-nowrap" style={{ color: team }}>
+            Drive {drive.n}
           </span>
-          <span className="text-[11px] text-slate-600 dark:text-slate-300 pl-4">
-            <b className="text-slate-900 dark:text-white">{drive.plays.length}</b> pl ·{' '}
-            <b className="text-slate-900 dark:text-white">{signed(drive.yards)}</b> yds
-            {drive.start !== undefined && (
-              <span className="text-slate-500 dark:text-slate-400">
-                {' '}
-                · {spot(drive.start)} → {result === 'TD' ? 'end zone' : spot(drive.end)}
-              </span>
-            )}
+          <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 truncate">
+            {open ? `${label} · ` : ''}
+            {drive.quarter ? `${quarterText(drive.quarter)} · ` : ''}
+            {n} play{n === 1 ? '' : 's'}
           </span>
-          {fields && (
-            <span className="block pl-4">
-              <MiniField drive={drive} painter={painter} selectedId={selectedId} />
+          {result && (
+            <span className="ml-auto shrink-0 px-1.5 rounded text-[10px] font-black text-white" style={{ background: RESULT_COLOR[result] || '#64748b' }}>
+              {result}
             </span>
           )}
         </button>
@@ -235,16 +206,32 @@ function DriveBlock({
           onClick={onHide}
           title="Hide this drive (bring it back from the bottom of the list)"
           aria-label={`Hide drive ${drive.n}`}
-          className="shrink-0 m-1 w-6 h-6 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:text-white dark:hover:bg-slate-800 text-[13px] leading-6 cursor-pointer"
+          className="shrink-0 mr-1 w-5 h-5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:text-white dark:hover:bg-slate-800 text-[11px] leading-5 cursor-pointer"
         >
           ✕
         </button>
       </div>
       {open && (
-        <div className="px-1 pb-1 flex flex-col gap-0.5 border-t border-slate-200 dark:border-slate-700 pt-1">
-          {drive.plays.map((d) => (
-            <PlayRow key={d.play.id} d={d} paint={painter.colorOf(d)} picked={d.play.id === selectedId} onPick={() => onSelectPlay(d.play.id)} />
-          ))}
+        <div className="px-1 pb-1.5">
+          <div className="px-1 pb-1 text-[11px] text-slate-600 dark:text-slate-300">
+            <b className="text-slate-900 dark:text-white">{signed(drive.yards)}</b> yds
+            {drive.start !== undefined && (
+              <>
+                {' '}
+                · {spot(drive.start)} → {result === 'TD' ? 'end zone' : spot(drive.end)}
+              </>
+            )}
+          </div>
+          {/* The plays on a field, like the drive chart: the drive moves left to right */}
+          <div className="relative rounded-md overflow-hidden pb-0.5" style={{ background: 'rgba(148,163,184,0.10)' }}>
+            <FieldBack />
+            <YardScale />
+            <div className="relative flex flex-col gap-0.5">
+              {drive.plays.map((d) => (
+                <PlayOnField key={d.play.id} d={d} paint={painter.colorOf(d)} picked={d.play.id === selectedId} onPick={() => onSelectPlay(d.play.id)} />
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -300,12 +287,20 @@ export const DriveSidebar: React.FC<Props> = ({ plays, selectedId, onSelectPlay,
     });
 
   const box = useRef<HTMLDivElement>(null);
-  // The play being watched stays in view (the film goes on to the next play by itself).
+  // The film reaching a new drive brings that drive to the top, all its plays in view; within a drive, the play
+  // being watched stays in view (the film goes on to the next play by itself).
+  const lastDrive = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (!selectedId || !box.current) return;
-    const t = window.setTimeout(() => box.current?.querySelector(`[data-play="${CSS.escape(selectedId)}"]`)?.scrollIntoView({ block: 'nearest' }), 50);
+    const newDrive = watchedDrive !== lastDrive.current;
+    lastDrive.current = watchedDrive;
+    const t = window.setTimeout(() => {
+      const el = newDrive && watchedDrive ? box.current?.querySelector(`[data-drive="${watchedDrive}"]`) : null;
+      if (el) el.scrollIntoView({ block: 'start' });
+      box.current?.querySelector(`[data-play="${CSS.escape(selectedId)}"]`)?.scrollIntoView({ block: 'nearest' });
+    }, 50);
     return () => window.clearTimeout(t);
-  }, [selectedId, open]);
+  }, [selectedId, open, watchedDrive]);
 
   if (!all.length) {
     return (
@@ -325,7 +320,7 @@ export const DriveSidebar: React.FC<Props> = ({ plays, selectedId, onSelectPlay,
   const allOpen = drives.length > 0 && drives.every((d) => open.has(d.n));
 
   return (
-    <div ref={box} className="flex flex-col gap-1.5 px-2 pb-2">
+    <div ref={box} className="flex flex-col gap-1 px-2 pb-2">
       {/* Toolbar: stays on top while the drives scroll */}
       <div className="sticky top-0 z-10 -mx-2 px-2 pt-2 pb-1.5 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-b border-slate-200 dark:border-slate-700 flex flex-col gap-1.5">
         <div className="flex items-center gap-1.5">
@@ -375,10 +370,6 @@ export const DriveSidebar: React.FC<Props> = ({ plays, selectedId, onSelectPlay,
               </select>
             </label>
             <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer">
-              <input type="checkbox" checked={prefs.fields} onChange={(e) => setPrefs({ fields: e.target.checked })} />
-              Small field under each drive
-            </label>
-            <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer">
               <input type="checkbox" checked={prefs.stats} onChange={(e) => setPrefs({ stats: e.target.checked })} />
               Full numbers for each team
             </label>
@@ -391,6 +382,14 @@ export const DriveSidebar: React.FC<Props> = ({ plays, selectedId, onSelectPlay,
               {l.label}
             </span>
           ))}
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block w-1 h-2.5 rounded-sm" style={{ background: '#16a34a' }} />
+            1st down
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block w-1 h-2.5 rounded-sm" style={{ background: '#dc2626' }} />
+            Turnover
+          </span>
         </div>
       </div>
 
@@ -461,7 +460,6 @@ export const DriveSidebar: React.FC<Props> = ({ plays, selectedId, onSelectPlay,
             onToggle={() => toggle(d.n)}
             onHide={() => setHidden((h) => new Set(h).add(d.n))}
             painter={painter}
-            fields={prefs.fields}
             selectedId={selectedId}
             onSelectPlay={onSelectPlay}
           />
@@ -471,9 +469,7 @@ export const DriveSidebar: React.FC<Props> = ({ plays, selectedId, onSelectPlay,
       )}
       {hiddenHere > 0 && (
         <div className="flex flex-wrap items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
-          <span className="font-bold">
-            {hiddenHere} hidden:
-          </span>
+          <span className="font-bold">{hiddenHere} hidden:</span>
           {shown
             .filter((d) => hidden.has(d.n))
             .map((d) => (
@@ -493,7 +489,7 @@ export const DriveSidebar: React.FC<Props> = ({ plays, selectedId, onSelectPlay,
           </button>
         </div>
       )}
-      <p className="text-[10px] text-slate-500 dark:text-slate-400">Every drive runs left to right, toward the other team&apos;s end zone. Tap a drive for its plays; tap a play to watch it; ✕ hides a drive.</p>
+      <p className="text-[10px] text-slate-500 dark:text-slate-400">Every drive runs left to right, toward the other team&apos;s end zone. Tap a drive to open it; tap a play to watch it; ✕ hides a drive.</p>
     </div>
   );
 };

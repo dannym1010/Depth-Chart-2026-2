@@ -43,7 +43,7 @@ import { namesFromCards } from '../utils/scoutOppPlays';
 import { parseCall } from './callName';
 import { moveSharedNotes, useSharedGame } from './useSharedGame';
 import { readBreakdown, useFolderBreakdowns } from './folderImport';
-import { PlayListActions, PlaylistsPanel, type Person } from './PlaylistsPanel';
+import { AddToPlaylistMenu, PlayListActions, PlaylistsPanel, type Person } from './PlaylistsPanel';
 import { useFilmLists } from './useFilmLists';
 import { isFavorite, playInfo, toggleFavorite, type ClipRef, type PlayInfo } from './playlists';
 
@@ -781,6 +781,19 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           info: playInfo(p, game.name),
         }
       : undefined;
+  /** One of our games' plays as a playlist clip (for the player finder's playlists). */
+  const ownClipRef = (p: Play): ClipRef | undefined => {
+    const g = own.games.find((x) => x.id === p.gameId);
+    if (!g) return undefined;
+    return {
+      gameKey: filmGameKey('own', g.id),
+      source: 'own',
+      gameId: g.id,
+      playId: p.id,
+      label: `${g.name} · ${playTitle(p) || `#${p.playNumber}`}`,
+      info: playInfo(p, g.name),
+    };
+  };
   /** A playlist clip's breakdown: from the game when it's loaded here (it may have been filled in since), else the copy saved with it. */
   const infoOf = (item: ClipRef): PlayInfo | undefined => {
     // Our games are all loaded; a scouting game only when it's this week's.
@@ -1866,6 +1879,29 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           setPlayersOpen(false);
           watchItem({ gameKey: filmGameKey('own', gameId), source: 'own', gameId, playId, label: '' });
         }}
+        onPlayAll={(name, list) => {
+          const items = list.map(ownClipRef).filter((r): r is ClipRef => Boolean(r));
+          if (!items.length) return;
+          setPlayersOpen(false);
+          setListPlay({ id: `player_${Date.now().toString(36)}`, name, items, index: 0 });
+          if (!isDesktop) setLibraryPhone(false);
+          watchItem(items[0]);
+        }}
+        saveMenu={
+          canList
+            ? (list, name, done) => (
+                <AddToPlaylistMenu
+                  refs={list.map(ownClipRef).filter((r): r is ClipRef => Boolean(r))}
+                  lists={filmLists.lists}
+                  update={filmLists.update}
+                  me={me}
+                  myName={authorName}
+                  defaultName={name}
+                  onDone={(listName, n) => done(n ? `Added ${n} to ${listName}` : `Already in ${listName}`)}
+                />
+              )
+            : undefined
+        }
       />
 
       {linkOpen && game && !locked && (

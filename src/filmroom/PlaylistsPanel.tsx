@@ -43,8 +43,10 @@ export const AddToPlaylistMenu: React.FC<{
   me: string;
   myName: string;
   onDone: (listName: string, added: number) => void;
-}> = ({ refs, lists, update, me, myName, onDone }) => {
-  const [name, setName] = useState('');
+  /** What a new playlist is called unless the coach types a name. */
+  defaultName?: string;
+}> = ({ refs, lists, update, me, myName, onDone, defaultName }) => {
+  const [name, setName] = useState(defaultName || '');
   const owned = playlistsFor(lists, me).filter((l) => isOwner(l, me));
   const missing = (items: { gameKey: string; playId: string }[]) => refs.filter((r) => !items.some((i) => i.gameKey === r.gameKey && i.playId === r.playId));
   const create = () => {

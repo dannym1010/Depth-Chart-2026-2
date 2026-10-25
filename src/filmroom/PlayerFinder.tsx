@@ -2,7 +2,7 @@
 // and targets, tackles and assists, with his numbers on top and a table that sorts by any column. A click on a play
 // watches it (its game opens first).
 import React, { useMemo, useState } from 'react';
-import { Search, X } from 'lucide-react';
+import { ListPlus, Play as PlayIcon, Search, X } from 'lucide-react';
 import type { Play } from '../hudlScout/types/football';
 import type { RosterPlayer } from '../types';
 import { jerseyOf, playerTotals, playsForPlayer, type PlayerPlay, type PlayerRole } from './playerPlays';
@@ -23,6 +23,10 @@ interface Props {
   /** "Week 3" for a week key. */
   weekLabel?: (week?: string) => string;
   onWatch: (gameId: string, playId: string) => void;
+  /** Watch the plays shown, in the order shown, straight through as a playlist. */
+  onPlayAll?: (name: string, plays: Play[]) => void;
+  /** Save the plays shown in a playlist (a menu of the coach's playlists, or a new one); none when they can't. */
+  saveMenu?: (plays: Play[], name: string, onDone: (message: string) => void) => React.ReactNode;
 }
 
 type SortKey = 'game' | 'play' | 'qtr' | 'down' | 'yard' | 'role' | 'name' | 'result' | 'gain';
@@ -34,7 +38,9 @@ const EVENT_LABEL: Record<string, string> = { sack: 'Sack', tfl: 'TFL', int: 'IN
 const ordinal = (n: number) => `${n}${['', 'st', 'nd', 'rd'][n] || 'th'}`;
 const signed = (n: number) => `${n > 0 ? '+' : ''}${n}`;
 
-export const PlayerFinder: React.FC<Props> = ({ open, onClose, games, plays, roster, weekLabel, onWatch }) => {
+export const PlayerFinder: React.FC<Props> = ({ open, onClose, games, plays, roster, weekLabel, onWatch, onPlayAll, saveMenu }) => {
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveNote, setSaveNote] = useState('');
   const [num, setNum] = useState('');
   const [query, setQuery] = useState('');
   const [gameId, setGameId] = useState('all');
@@ -125,6 +131,15 @@ export const PlayerFinder: React.FC<Props> = ({ open, onClose, games, plays, ros
   }, [inGame, role, sort, gameOrder]);
 
   if (!open) return null;
+  // The playlist's name: the player, and what's picked ("#21 Nash Ward · Runs · Week 3 - Shrub Oak").
+  const roleName: Record<RoleFilter, string> = { all: '', run: 'Runs', pass: 'Passes', catch: 'Catches & targets', defense: 'Tackles & assists' };
+  const listName = [
+    person ? `#${person.num}${person.name ? ` ${person.name}` : ''}` : '',
+    roleName[role],
+    gameId === 'all' ? '' : games.find((g) => g.id === gameId)?.name || '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
   const head = (key: SortKey, label: string, cls = '') => (
     <th className={`px-2 py-1.5 text-left font-black text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400 whitespace-nowrap ${cls}`}>
       <button type="button" className="cursor-pointer hover:text-slate-900 dark:hover:text-white" onClick={() => setSort((s) => ({ key, desc: s.key === key ? !s.desc : key === 'gain' }))}>
@@ -183,7 +198,11 @@ export const PlayerFinder: React.FC<Props> = ({ open, onClose, games, plays, ros
                 <button
                   key={x.num}
                   type="button"
-                  onClick={() => setNum(x.num)}
+                  onClick={() => {
+                    setNum(x.num);
+                    setSaveOpen(false);
+                    setSaveNote('');
+                  }}
                   className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left cursor-pointer ${
                     num === x.num ? 'bg-indigo-600 text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-100'
                   } ${num !== x.num && !x.count ? 'opacity-50' : ''}`}
@@ -254,6 +273,50 @@ export const PlayerFinder: React.FC<Props> = ({ open, onClose, games, plays, ros
                         {label}
                       </button>
                     ))}
+                    {/* The plays shown, as a playlist: watch them straight through, or keep them */}
+                    {sorted.length > 0 && (onPlayAll || saveMenu) && (
+                      <span className="ml-auto flex items-center gap-1 relative">
+                        {saveNote && <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">{saveNote}</span>}
+                        {onPlayAll && (
+                          <button
+                            type="button"
+                            onClick={() => onPlayAll(listName, sorted.map((r) => r.play))}
+                            title="Watch these plays one after another, in the order shown"
+                            className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                          >
+                            <PlayIcon size={13} /> Play all {sorted.length}
+                          </button>
+                        )}
+                        {saveMenu && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSaveNote('');
+                              setSaveOpen((o) => !o);
+                            }}
+                            aria-expanded={saveOpen}
+                            className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer"
+                          >
+                            <ListPlus size={13} /> Save as playlist
+                          </button>
+                        )}
+                        {saveMenu && saveOpen && (
+                          <div className="absolute right-0 top-8 z-20 w-72 p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl">
+                            <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
+                              Put these {sorted.length} play{sorted.length === 1 ? '' : 's'} in:
+                            </div>
+                            {saveMenu(
+                              sorted.map((r) => r.play),
+                              listName,
+                              (m) => {
+                                setSaveOpen(false);
+                                setSaveNote(m);
+                              }
+                            )}
+                          </div>
+                        )}
+                      </span>
+                    )}
                   </div>
                 </div>
 
