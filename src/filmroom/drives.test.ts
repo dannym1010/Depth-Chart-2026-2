@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { drivesOf, playKind } from './drives.ts';
+import { driveStats, drivesOf, playKind } from './drives.ts';
 import type { Play } from '../hudlScout/types/football.ts';
 
 /** A play of one game: number, ODK, yard line, gain, result, anything else. */
@@ -52,6 +52,21 @@ describe('the drive chart', () => {
     const [d] = drivesOf([P(1, 'O', '+20', -5, 'Penalty'), P(2, 'O', '+25', 3), P(3, 'K', '', 0, 'No Good', { rawPlayType: 'FG' })]);
     assert.deepEqual(d.plays.map((x) => x.kind), ['penalty', 'run']);
     assert.equal(d.result, 'Missed FG');
+  });
+
+  it('marks first downs and turnovers, and sums each side up', () => {
+    const d = drivesOf([
+      P(1, 'O', '-30', 4), P(2, 'O', '-34', 7, 'Rush', { down: 2, distance: 6 }), P(3, 'O', '-41', 59, 'Rush, TD'),
+      P(4, 'K', '', 0, 'Return', { rawPlayType: 'KO' }),
+      P(5, 'D', '-20', 2), P(6, 'D', '-22', 1, 'Rush', { down: 2 }), P(7, 'D', '-23', 2, 'Rush', { down: 3, distance: 7 }),
+      P(8, 'K', '', 0, 'Fair catch', { rawPlayType: 'Punt' }),
+      P(9, 'O', '-45', 0, 'Interception', { playType: 'PASS' }),
+    ]);
+    assert.deepEqual(d[0].plays.map((x) => x.firstDown), [false, true, true]);
+    assert.equal(d[2].plays[0].turnover, true);
+    const ours = driveStats(d.filter((x) => x.side === 'O'));
+    assert.deepEqual(ours, { drives: 2, touchdowns: 1, avgStart: 38, yardsPerDrive: 35, threeAndOuts: 0, turnovers: 1 });
+    assert.equal(driveStats(d.filter((x) => x.side === 'D')).threeAndOuts, 1);
   });
 
   it('run or pass: the result first, then the play type', () => {

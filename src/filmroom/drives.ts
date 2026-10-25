@@ -16,6 +16,10 @@ export interface DrivePlay {
   to?: number;
   gain: number;
   kind: DrivePlayKind;
+  /** Gained the yards to go for a first down (or scored). */
+  firstDown: boolean;
+  /** Lost the ball on it (an interception or a fumble). */
+  turnover: boolean;
 }
 
 export interface Drive {
@@ -71,6 +75,31 @@ function resultOf(last: DrivePlay, after: Play | undefined, side: DriveSide): st
   return '';
 }
 
+export interface DriveStats {
+  drives: number;
+  touchdowns: number;
+  /** Average start, in yards from the drive team's own goal line (none known: undefined). */
+  avgStart?: number;
+  yardsPerDrive: number;
+  /** Three plays or fewer, then a punt or on downs. */
+  threeAndOuts: number;
+  turnovers: number;
+}
+
+/** One side's drives in a few numbers, for the top of the chart. */
+export function driveStats(drives: Drive[]): DriveStats {
+  const starts = drives.map((d) => d.start).filter((s): s is number => s !== undefined);
+  const yards = drives.reduce((s, d) => s + d.yards, 0);
+  return {
+    drives: drives.length,
+    touchdowns: drives.filter((d) => d.result === 'TD').length,
+    avgStart: starts.length ? Math.round(starts.reduce((s, x) => s + x, 0) / starts.length) : undefined,
+    yardsPerDrive: drives.length ? Math.round((yards / drives.length) * 10) / 10 : 0,
+    threeAndOuts: drives.filter((d) => d.plays.length <= 3 && (d.result === 'Punt' || d.result === 'Downs')).length,
+    turnovers: drives.filter((d) => d.result === 'INT' || d.result === 'Fumble').length,
+  };
+}
+
 /** The game's drives, in order (give it one game's plays). */
 export function drivesOf(plays: Play[]): Drive[] {
   const ordered = [...plays].sort((a, b) => (Number(a.playNumber) || 0) - (Number(b.playNumber) || 0));
@@ -95,7 +124,9 @@ export function drivesOf(plays: Play[]): Drive[] {
     const from = hasSpot(p) ? parseAbsoluteYard(p.rawYardLine) : prev?.to;
     const gain = Number(p.gainLoss) || 0;
     const to = from === undefined ? undefined : scored(p) ? 100 : Math.max(0, Math.min(100, from + gain));
-    cur.plays.push({ play: p, from, to, gain, kind: playKind(p) });
+    const kind = playKind(p);
+    const firstDown = scored(p) || (kind !== 'penalty' && Number(p.down) > 0 && Number(p.distance) > 0 && gain >= Number(p.distance));
+    cur.plays.push({ play: p, from, to, gain, kind, firstDown, turnover: /intercept|\bint\b|fumble/.test(words(p)) });
     lastAt[drives.length - 1] = i;
   });
   drives.forEach((d, k) => {
