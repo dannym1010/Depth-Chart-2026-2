@@ -1277,6 +1277,43 @@ export default function App() {
     });
   };
 
+  // Another coach's wristband goes on this device as both the current copy and this week's, as their call sheet
+  // does. With only the current copy updated, an older week copy with a later time kept showing on screen. While
+  // this coach is editing the wristband it waits and tries again (it isn't sent a second time).
+  const pendingRemoteWbRef = useRef<{ wb: WristbandData; timer: number } | null>(null);
+  const adoptRemoteWristband = (incoming: WristbandData) => {
+    const teamId = activeTeamIdRef.current;
+    const wk = currentWeekRef.current;
+    if (!savedForTeamWeek(incoming, teamId, wk)) return;
+    const sinceEdit = Date.now() - lastLocalWristbandEditTimeRef.current;
+    if (sinceEdit < 25000) {
+      if (pendingRemoteWbRef.current) window.clearTimeout(pendingRemoteWbRef.current.timer);
+      const timer = window.setTimeout(() => {
+        const pending = pendingRemoteWbRef.current;
+        pendingRemoteWbRef.current = null;
+        if (pending) adoptRemoteWristband(pending.wb);
+      }, 25000 - sinceEdit + 500);
+      pendingRemoteWbRef.current = { wb: incoming, timer };
+      return;
+    }
+    // This coach's own newer edit wins (newest whole wristband, as everywhere).
+    if ((Number(incoming.lastEdited) || 0) <= (Number(latestStateRef.current.wristbandData?.lastEdited) || 0)) return;
+    const normWb = normalizeWristbandContinuousNumbering(incoming, 'Mahopac 10U');
+    setWristbandData(normWb);
+    latestStateRef.current.wristbandData = normWb;
+    safeJSONSet('footballWristbandData', normWb);
+    setWeeklyData((prev) => {
+      const scoped = getScopedWeekKey(teamId, wk);
+      const cur = prev[scoped] || prev[wk];
+      if (!cur || cur.wristbandData === normWb) return prev;
+      const updatedWeek = { ...cur, wristbandData: normWb };
+      const next = { ...prev, [scoped]: updatedWeek, [wk]: updatedWeek };
+      latestStateRef.current.weeklyData = next;
+      safeJSONSet('footballWeeklyData', next);
+      return next;
+    });
+  };
+
   // Fold schedule deletions from another device into ours and return the full list,
   // so merges below can drop those events instead of re-adding them.
   const absorbDeletedScheduleEventIds = (incoming: unknown): string[] => {
@@ -3242,16 +3279,7 @@ export default function App() {
       }
     }
     if (remote.wristbandData && take('wristband', remote.wristbandUpdatedAt)) {
-      const editingNow = Date.now() - lastLocalWristbandEditTimeRef.current < 25000;
-      const remoteEdited = Number(remote.wristbandData.lastEdited) || 0;
-      const localEdited = Number(latestStateRef.current.wristbandData?.lastEdited) || 0;
-      const forThisWeek = savedForTeamWeek(remote.wristbandData, activeTeamIdRef.current, currentWeekRef.current);
-      if (forThisWeek && !editingNow && remoteEdited > localEdited) {
-        const normWb = normalizeWristbandContinuousNumbering(remote.wristbandData, 'Mahopac 10U');
-        setWristbandData(normWb);
-        latestStateRef.current.wristbandData = normWb;
-        safeJSONSet('footballWristbandData', normWb);
-      }
+      adoptRemoteWristband(remote.wristbandData);
     }
     if (take('plays', remote.playsUpdatedAt)) {
       if (remote.masterPlayLibrary) {
