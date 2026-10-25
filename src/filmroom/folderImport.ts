@@ -38,7 +38,8 @@ const saveSeen = (s: Record<string, string>) => {
 const lastRun = new Map<string, number>();
 
 export function useFolderBreakdowns(opts: {
-  getRootNode: () => Promise<FolderNode | undefined>;
+  /** The film folders that can be read now (this computer's first); `ask` prompts for this computer's (a click). */
+  getRootNodes: (ask: boolean) => Promise<{ nodes: FolderNode[]; localBlocked: boolean }>;
   /** Changes when a film folder becomes available (so the check runs then). */
   rootKey: string;
   teamName: string;
@@ -50,10 +51,13 @@ export function useFolderBreakdowns(opts: {
   onUpdateOwnTeamScout: (bundle: ScoutBundle) => void;
   onSaveWeekScouting?: (week: string, hudlScout: any) => void;
   /** Every game folder with film in it, and the folders that couldn't be placed (film with no breakdown yet). */
-  onFilmFolders?: (found: { games: FilmFolderGame[]; unplaced: UnplacedFolder[] }) => void;
+  /** `partial`: this computer's film folder couldn't be read, so what it had before is kept. */
+  onFilmFolders?: (found: { games: FilmFolderGame[]; unplaced: UnplacedFolder[] }, partial: boolean) => void;
 }) {
   const [added, setAdded] = useState<string[]>([]);
   const [checking, setChecking] = useState(false);
+  // This computer's film folder is linked but the browser wants a click before it can be read again.
+  const [localBlocked, setLocalBlocked] = useState(false);
   const latest = useRef(opts);
   latest.current = opts;
 
@@ -61,17 +65,28 @@ export function useFolderBreakdowns(opts: {
     const o = latest.current;
     const key = o.teamName;
     if (!force && Date.now() - (lastRun.get(key) || 0) < 120_000) return;
-    const root = await o.getRootNode();
+    const { nodes, localBlocked: blocked } = await o.getRootNodes(force);
+    setLocalBlocked(blocked);
+    const root = nodes[0];
     if (!root) return; // no film folder reachable yet (not linked, or needs a tap / Google sign-in)
     lastRun.set(key, Date.now());
     setChecking(true);
     try {
-      // Film folders first (cheap to show), then the breakdown files that add games with plays.
-      try {
-        o.onFilmFolders?.(await findFilmFolders(root, o.teamName));
-      } catch (err) {
-        console.warn('Looking for game folders with film:', err);
+      // Film folders first (cheap to show), then the breakdown files that add games with plays. Games from every
+      // folder that can be read (a game only on this computer's drive, or only on Google Drive, still shows).
+      const folders: { games: FilmFolderGame[]; unplaced: UnplacedFolder[] } = { games: [], unplaced: [] };
+      let read = 0;
+      for (const node of nodes) {
+        try {
+          const r = await findFilmFolders(node, o.teamName);
+          read += 1;
+          for (const g of r.games) if (!folders.games.some((x) => x.id === g.id)) folders.games.push(g);
+          for (const u of r.unplaced) if (!folders.unplaced.some((x) => x.path.join('/') === u.path.join('/'))) folders.unplaced.push(u);
+        } catch (err) {
+          console.warn('Looking for game folders with film:', err);
+        }
       }
+      if (read) o.onFilmFolders?.(folders, blocked || read < nodes.length);
       const found = await findBreakdowns(root, o.teamName);
       const seen = loadSeen();
       const notes: string[] = [];
@@ -148,5 +163,5 @@ export function useFolderBreakdowns(opts: {
     if (opts.rootKey) void check();
   }, [opts.rootKey, opts.teamName, check]);
 
-  return { added, checking, checkNow: () => check(true) };
+  return { added, checking, localBlocked, checkNow: () => check(true) };
 }

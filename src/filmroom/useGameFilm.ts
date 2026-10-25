@@ -236,6 +236,24 @@ export function useGameFilm(opts: {
     if (rootId && isDriveSignedIn()) return driveFolderNode(rootId, rootLabel);
     return undefined;
   }, [rootId, rootLabel]);
+  /**
+   * Every shared film folder that can be read now: this computer's first, then Google Drive's. `ask` (on a click)
+   * shows the browser's prompt for this computer's folder; `localBlocked`: it's linked but can't be read until then.
+   */
+  const getRootNodes = useCallback(
+    async (ask = false): Promise<{ nodes: FolderNode[]; localBlocked: boolean }> => {
+      const nodes: FolderNode[] = [];
+      let localBlocked = false;
+      const local = await recallFolder(ROOT_KEY);
+      if (local) {
+        if (await folderAccess(local, ask)) nodes.push(localFolderNode(local));
+        else localBlocked = true;
+      }
+      if (rootId && isDriveSignedIn()) nodes.push(driveFolderNode(rootId, rootLabel));
+      return { nodes, localBlocked };
+    },
+    [rootId, rootLabel]
+  );
   const [reloadTick, setReloadTick] = useState(0);
   useEffect(() => {
     if (!folderKey) return setFilm({ status: 'none' });
@@ -438,6 +456,8 @@ export function useGameFilm(opts: {
     choose: setPick,
     /** The shared film folder when it can be read now (this computer's, else Google Drive's). */
     getRootNode,
+    /** Every shared film folder that can be read now (this computer's and Google Drive's), for finding games. */
+    getRootNodes,
     sourcePref,
     setSourcePref,
     playFromComputer,

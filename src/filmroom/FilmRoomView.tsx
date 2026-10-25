@@ -123,9 +123,18 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     () => safeJSONParse<{ games: FilmFolderGame[]; unplaced: UnplacedFolder[] }>(foldersKey, { games: [], unplaced: [] }) || { games: [], unplaced: [] }
   );
   const onFilmFolders = useCallback(
-    (found: { games: FilmFolderGame[]; unplaced: UnplacedFolder[] }) => {
-      setFilmFolders(found);
-      safeJSONSet(foldersKey, found);
+    (found: { games: FilmFolderGame[]; unplaced: UnplacedFolder[] }, partial: boolean) => {
+      setFilmFolders((prev) => {
+        // A folder that couldn't be read this time (this computer's, before its click): keep what it had.
+        const next = partial
+          ? {
+              games: [...found.games, ...prev.games.filter((g) => !found.games.some((x) => x.id === g.id))],
+              unplaced: [...found.unplaced, ...prev.unplaced.filter((u) => !found.unplaced.some((x) => x.path.join('/') === u.path.join('/')))],
+            }
+          : found;
+        safeJSONSet(foldersKey, next);
+        return next;
+      });
     },
     [foldersKey]
   );
@@ -229,7 +238,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const setRootDrive = useCallback((drive: typeof shared.drive) => updateRoot((s) => ({ ...s, drive: drive || { folderId: '', editedAt: Date.now() } })), [updateRoot]);
   // Which folder holds this game in a week with several (one pick, for the whole staff).
   const setPick = useCallback((name: string) => update((s) => ({ ...s, folderPick: { name, editedAt: Date.now() } })), [update]);
-  const { film, chooseFolder, reconnect, pickFiles, pickFolderFiles, linkDrive, signInToDrive, unlink, localFiles, sources, sourcePref, playFromComputer, playFromDrive, playingFrom, setView, choose, getRootNode } = useGameFilm({
+  const { film, chooseFolder, reconnect, pickFiles, pickFolderFiles, linkDrive, signInToDrive, unlink, localFiles, sources, sourcePref, playFromComputer, playFromDrive, playingFrom, setView, choose, getRootNodes } = useGameFilm({
     game,
     teamId,
     teamName,
@@ -286,7 +295,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
 
   // Breakdown files in the film folder become Hudl Scout games (checked when the film folder can be read).
   const breakdowns = useFolderBreakdowns({
-    getRootNode,
+    getRootNodes,
     rootKey: `${sources.local ? 'L' : ''}${sources.drive ? 'D' : ''}${film.status === 'ready' && film.viaRoot ? 'R' : ''}`,
     teamName,
     own,
@@ -1229,6 +1238,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       added={breakdowns.added}
       checking={breakdowns.checking}
       onCheckFolder={!locked && (sources.local || sources.drive) ? breakdowns.checkNow : undefined}
+      folderNeedsTap={breakdowns.localBlocked}
       unplaced={filmFolders.unplaced}
       onRemove={locked || family ? undefined : removeGame}
     />

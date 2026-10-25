@@ -135,6 +135,8 @@ interface FilmLibraryProps {
   checking?: boolean;
   /** Look in the film folder for new breakdown files now. */
   onCheckFolder?: () => void;
+  /** This computer's film folder is linked, but the browser wants a click before it can be read again. */
+  folderNeedsTap?: boolean;
   /** Folders with film in them that couldn't be placed in the season, and why. */
   unplaced?: UnplacedFolder[];
   /** Remove a game from the library (and Hudl Scout); the video files stay where they are. */
@@ -143,7 +145,7 @@ interface FilmLibraryProps {
 
 const norm = (s: string) => String(s || '').toLowerCase();
 
-export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library', weeks, otherGames, currentWeek, selectedKey, onOpen, onClose, added, checking, onCheckFolder, unplaced, onRemove }) => {
+export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library', weeks, otherGames, currentWeek, selectedKey, onOpen, onClose, added, checking, onCheckFolder, folderNeedsTap, unplaced, onRemove }) => {
   const [query, setQuery] = useState('');
   // Our games, scouting, or both (shown only when there are both kinds).
   const [kind, setKind] = useState<'all' | 'own' | 'opponent'>('all');
@@ -322,6 +324,14 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library'
               ))}
             </ul>
             <p className="mt-1.5 opacity-80">Rename a folder to start with its week (for example &quot;Week 3 - Shrub Oak&quot;) and check the film folder again.</p>
+          </div>
+        )}
+        {onCheckFolder && folderNeedsTap && !checking && (
+          <div className="mt-3 mx-2 p-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200 text-[11px]">
+            <p className="font-bold">The film folder on this computer needs a click before new games on it show up.</p>
+            <button onClick={onCheckFolder} className="mt-1.5 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-amber-600 hover:bg-amber-500 text-white font-bold">
+              <RefreshCw size={12} /> Open the film folder and look for new games
+            </button>
           </div>
         )}
         {onCheckFolder && (
