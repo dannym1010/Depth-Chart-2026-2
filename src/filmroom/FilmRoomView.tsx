@@ -3,7 +3,7 @@
 // whole staff sees. The play log under the video is Hudl Scout's own: sorting it sets the play order, and
 // tags changed here are the same tags Hudl Scout shows.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Copy, ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft, Star, ListVideo, X, MoreHorizontal, Trash2, RotateCcw, Tv } from 'lucide-react';
+import { Copy, ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft, Star, ListVideo, X, MoreHorizontal, Trash2, RotateCcw, Tv, Users } from 'lucide-react';
 import { PlaysTable } from '../hudlScout/components/PlaysTable';
 import { assignDrives, bundleFromSaved, copyScoutGame, folderCopies, mergeFolderCopies, removeScoutGame, type ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play, TeamUnit } from '../hudlScout/types/football';
@@ -22,6 +22,7 @@ import { applyBreakdown, blankPlays, breakdownPlayId, importIntoGame, isBrokenDo
 import { endProof, filledFrom, followOn } from './nextPlay';
 import { DriveChart } from './DriveChart';
 import { DriveSidebar } from './DriveSidebar';
+import { PlayerFinder } from './PlayerFinder';
 import { BreakdownPanel } from './BreakdownPanel';
 import type { FilmFolderGame, UnplacedFolder } from './folderRoutes';
 import { clearFilmCutup, peekFilmCutup, type FilmCutup } from '../utils/filmCutup';
@@ -709,6 +710,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     setTvHelp(true);
   };
   const [linkOpen, setLinkOpen] = useState(false);
+  // Player finder: every play one of our players was part of, all season.
+  const [playersOpen, setPlayersOpen] = useState(false);
   // Opened from the play builder, the library starts closed so the builder has room beside the video.
   const [libraryDesk, setLibraryDesk] = useState(() => !builderSeed && safeJSONParse<boolean>('footballFilmroomLibrary', true));
   const [libraryPhone, setLibraryPhone] = useState(false);
@@ -740,6 +743,24 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     if (!drag.current) return;
     drag.current = null;
     safeJSONSet('footballFilmroomVideoH3', videoH);
+  };
+  // The side panel's width: dragged by its left edge (wider for the drives or notes, narrower for more video),
+  // remembered on this computer; a double-click puts it back.
+  const SIDE_W = 320;
+  const clampSideW = (w: number) => Math.round(Math.max(260, Math.min(w, typeof window !== 'undefined' ? window.innerWidth * 0.6 : 900)));
+  const [sideW, setSideW] = useState<number>(() => safeJSONParse<number | null>('footballFilmroomSideW', null) || SIDE_W);
+  const sideDrag = useRef<{ x: number; w: number } | null>(null);
+  const onSideDown = (e: React.PointerEvent) => {
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    sideDrag.current = { x: e.clientX, w: sideW };
+  };
+  const onSideMove = (e: React.PointerEvent) => {
+    if (sideDrag.current) setSideW(clampSideW(sideDrag.current.w + sideDrag.current.x - e.clientX));
+  };
+  const onSideUp = () => {
+    if (!sideDrag.current) return;
+    sideDrag.current = null;
+    safeJSONSet('footballFilmroomSideW', sideW);
   };
 
   const notesFor = useCallback((id: string) => shared.notes.filter((n) => n.playId === id), [shared.notes]);
@@ -1454,6 +1475,16 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         })()}
 
         <div className="flex items-center gap-1.5 ml-auto">
+          {own.plays.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setPlayersOpen(true)}
+              className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+              title="Pick a player: every play he was part of this season (runs, passes, catches, tackles), sortable"
+            >
+              <Users size={14} /> Players
+            </button>
+          )}
           {!family && (
           <button
             onClick={builderSeed ? () => setHideBuilder((v) => !v) : toggleNotes}
@@ -1680,7 +1711,9 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       {/* Phones held upright: the video stays pinned under the app header while the plays scroll under it. */}
       <div className={`grid gap-3 shrink-0 max-lg:portrait:sticky max-lg:portrait:top-[62px] max-lg:portrait:z-20 max-lg:portrait:rounded-xl max-lg:portrait:bg-black ${
         sideShown ? (sideIsBuilder ? 'lg:grid-cols-[minmax(0,1fr)_minmax(24rem,42%)]' : 'lg:grid-cols-[minmax(0,1fr)_20rem]') : ''
-      }`}>
+      }`}
+      style={isDesktop && sideShown && !sideIsBuilder ? { gridTemplateColumns: `minmax(0,1fr) ${clampSideW(sideW)}px` } : undefined}
+      >
         <FilmPlayer
           maxVideoHeight={isDesktop ? `${clampVideoH(videoH)}px` : 'calc(100dvh - 7rem)'}
           src={placeholder ? undefined : clipUrl.url}
@@ -1705,6 +1738,25 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         {/* Notes: beside the video on a computer (as tall as the video, scrolling), a tab on phones and tablets */}
         {sideShown && (
           <div className="hidden lg:block relative">
+            {!sideIsBuilder && (
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Drag to make the side panel wider or narrower"
+                title="Drag to make the side panel wider or narrower (double-click: back to the standard width)"
+                onPointerDown={onSideDown}
+                onPointerMove={onSideMove}
+                onPointerUp={onSideUp}
+                onPointerCancel={onSideUp}
+                onDoubleClick={() => {
+                  setSideW(SIDE_W);
+                  safeJSONSet('footballFilmroomSideW', null);
+                }}
+                className="absolute -left-3 top-0 bottom-0 w-3 z-10 flex items-center justify-center cursor-col-resize touch-none text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <span className="w-1 h-10 rounded-full bg-current opacity-60" />
+              </div>
+            )}
             <div className={`${panel} absolute inset-0 overflow-y-auto`}>
               {sideTabs}
               {sideIsBuilder ? (
@@ -1802,6 +1854,19 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           </div>
         </div>
       )}
+
+      <PlayerFinder
+        open={playersOpen}
+        onClose={() => setPlayersOpen(false)}
+        games={own.games.map((g) => ({ id: g.id, name: g.name, week: g.week }))}
+        plays={own.plays}
+        roster={roster || []}
+        weekLabel={(w) => weekOptions?.find((o) => o.key === w)?.label || w || ''}
+        onWatch={(gameId, playId) => {
+          setPlayersOpen(false);
+          watchItem({ gameKey: filmGameKey('own', gameId), source: 'own', gameId, playId, label: '' });
+        }}
+      />
 
       {linkOpen && game && !locked && (
         <LinkFilmDialog
