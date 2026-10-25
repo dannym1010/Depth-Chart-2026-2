@@ -58,6 +58,8 @@ export function useFolderBreakdowns(opts: {
   const [checking, setChecking] = useState(false);
   // This computer's film folder is linked but the browser wants a click before it can be read again.
   const [localBlocked, setLocalBlocked] = useState(false);
+  // What the last check found, and where it looked (shown in the library).
+  const [lastCheck, setLastCheck] = useState<{ at: number; from: string[]; games: string[] } | null>(null);
   const latest = useRef(opts);
   latest.current = opts;
 
@@ -68,7 +70,11 @@ export function useFolderBreakdowns(opts: {
     const { nodes, localBlocked: blocked } = await o.getRootNodes(force);
     setLocalBlocked(blocked);
     const root = nodes[0];
-    if (!root) return; // no film folder reachable yet (not linked, or needs a tap / Google sign-in)
+    if (!root) {
+      // No film folder reachable yet (not linked, or needs a tap / Google sign-in): a click says so.
+      if (force) setLastCheck({ at: Date.now(), from: [], games: [] });
+      return;
+    }
     lastRun.set(key, Date.now());
     setChecking(true);
     try {
@@ -76,10 +82,12 @@ export function useFolderBreakdowns(opts: {
       // folder that can be read (a game only on this computer's drive, or only on Google Drive, still shows).
       const folders: { games: FilmFolderGame[]; unplaced: UnplacedFolder[] } = { games: [], unplaced: [] };
       let read = 0;
+      const readFrom: string[] = [];
       for (const node of nodes) {
         try {
           const r = await findFilmFolders(node, o.teamName);
           read += 1;
+          readFrom.push(node.driveId ? 'Google Drive' : 'this computer');
           for (const g of r.games) if (!folders.games.some((x) => x.id === g.id)) folders.games.push(g);
           for (const u of r.unplaced) if (!folders.unplaced.some((x) => x.path.join('/') === u.path.join('/'))) folders.unplaced.push(u);
         } catch (err) {
@@ -87,6 +95,7 @@ export function useFolderBreakdowns(opts: {
         }
       }
       if (read) o.onFilmFolders?.(folders, blocked || read < nodes.length);
+      if (read) setLastCheck({ at: Date.now(), from: readFrom, games: folders.games.map((g) => `${g.source === 'own' ? 'Ours' : 'Scouting'} · ${g.name}`) });
       const found = await findBreakdowns(root, o.teamName);
       const seen = loadSeen();
       const notes: string[] = [];
@@ -163,5 +172,5 @@ export function useFolderBreakdowns(opts: {
     if (opts.rootKey) void check();
   }, [opts.rootKey, opts.teamName, check]);
 
-  return { added, checking, localBlocked, checkNow: () => check(true) };
+  return { added, checking, localBlocked, lastCheck, checkNow: () => check(true) };
 }

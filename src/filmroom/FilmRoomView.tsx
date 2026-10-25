@@ -147,7 +147,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     if (!family) return all;
     // A family account sees our games, not the scouting film.
     const ours = <T extends { source: string }>(list: T[]) => list.filter((g) => g.source === 'own');
-    return { weeks: all.weeks.map((w) => ({ ...w, games: ours(w.games) })).filter((w) => w.games.length), others: ours(all.others) };
+    return { weeks: all.weeks.map((w) => ({ ...w, games: ours(w.games) })).filter((w) => w.games.length), others: ours(all.others), hidden: [] };
   }, [filmWeeks, own.games, own.deletedGameIds, opponentScout, currentWeek, filmFolders.games, family]);
   const filmOnlyGames = useMemo(() => [...library.weeks.flatMap((w) => w.games), ...library.others].filter((g) => g.filmOnly), [library]);
 
@@ -563,6 +563,17 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       else onSaveWeekScouting?.(week, merged);
     }
     if (game?.key === g.key) setGameKey(undefined);
+  };
+  /** A film folder a coach removed from the library: listed again (the tombstone taken off, for every coach). */
+  const restoreFolder = (f: FilmFolderGame) => {
+    if (locked) return;
+    const untomb = (ids?: string[]) => (ids || []).filter((id) => id !== f.id);
+    if (f.source === 'own') return onUpdateOwnTeamScout({ ...own, deletedGameIds: untomb(own.deletedGameIds), updatedAt: Date.now() });
+    const w = filmWeeks?.find((x) => x.key === f.week);
+    const saved = (f.week === currentWeek ? opponentScout : w?.hudlScout) as { deletedGameIds?: string[] } | undefined;
+    const merged = { ...((saved as object) || {}), deletedGameIds: untomb(saved?.deletedGameIds), updatedAt: Date.now() };
+    if (f.week === currentWeek) onUpdateScouting('hudlScout', merged);
+    else onSaveWeekScouting?.(f.week, merged);
   };
 
   // Scouting film of another week used for this one: copied into that week's report, from either team's side.
@@ -1239,7 +1250,10 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       checking={breakdowns.checking}
       onCheckFolder={!locked && (sources.local || sources.drive) ? breakdowns.checkNow : undefined}
       folderNeedsTap={breakdowns.localBlocked}
+      lastCheck={breakdowns.lastCheck}
       unplaced={filmFolders.unplaced}
+      hidden={library.hidden}
+      onRestoreFolder={locked || family ? undefined : restoreFolder}
       onRemove={locked || family ? undefined : removeGame}
     />
   );

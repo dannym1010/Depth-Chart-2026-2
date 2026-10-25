@@ -34,7 +34,7 @@ export function buildLibrary(
   filmFolders: FilmFolderGame[] = [],
   /** Our games a coach removed (film folders among them stay out of the library). */
   ownDeletedIds: string[] = []
-): { weeks: LibraryWeek[]; others: LibraryGame[] } {
+): { weeks: LibraryWeek[]; others: LibraryGame[]; hidden: HiddenFolder[] } {
   const weekKeys = new Set(weeks.map((w) => w.key));
   const ownByWeek = new Map<string, LibraryGame[]>();
   const others: LibraryGame[] = [];
@@ -77,7 +77,8 @@ export function buildLibrary(
   };
   // Which film folders the week's games already stand for: a game made from that folder, else the folder its
   // name matches, else the week's only folder of that kind.
-  const claimed = new Set<string>();
+  // Folder id -> the game that stands for it (its name).
+  const claimed = new Map<string, string>();
   for (const w of libWeeks) {
     for (const source of ['own', 'opponent'] as const) {
       const folders = filmFolders.filter((f) => f.week === w.key && f.source === source && !removed(f));
@@ -85,14 +86,18 @@ export function buildLibrary(
       if (!folders.length || !games.length) continue;
       for (const g of games) {
         const mine = folders.find((f) => sameFolderGame(f.id, g.gameId)) || bestGameFolder(folders, g.name);
-        if (mine) claimed.add(mine.id);
+        if (mine && !claimed.has(mine.id)) claimed.set(mine.id, g.name);
       }
       // As many games as folders (or one folder): every folder already has its game.
-      if (games.length >= folders.length) folders.forEach((f) => claimed.add(f.id));
+      if (games.length >= folders.length) folders.forEach((f) => claimed.has(f.id) || claimed.set(f.id, games.map((g) => g.name).join(' / ')));
     }
   }
+  const hidden: HiddenFolder[] = [];
   for (const f of filmFolders) {
-    if (removed(f)) continue;
+    if (removed(f)) {
+      hidden.push({ folder: f, reason: 'removed' });
+      continue;
+    }
     const w = libWeeks.find((x) => x.key === f.week);
     const game: LibraryGame = {
       key: filmGameKey(f.source, f.id, f.week),
@@ -107,10 +112,24 @@ export function buildLibrary(
       if (!others.some((g) => g.key === game.key)) others.push(game);
       continue;
     }
-    if (claimed.has(f.id)) continue;
+    const by = claimed.get(f.id);
+    if (by !== undefined) {
+      // A game made from this very folder is listed under its own key; only a different game is worth saying.
+      if (!w.games.some((g) => g.key === game.key || sameFolderGame(f.id, g.gameId))) hidden.push({ folder: f, reason: 'claimed', by });
+      continue;
+    }
     if (!w.games.some((g) => g.key === game.key)) w.games.push(game);
   }
-  return { weeks: libWeeks, others };
+  return { weeks: libWeeks, others, hidden };
+}
+
+/** A game folder with film that the library doesn't list on its own, and why. */
+export interface HiddenFolder {
+  folder: FilmFolderGame;
+  /** removed: a coach removed it from the library; claimed: a game of that week already stands for it. */
+  reason: 'removed' | 'claimed';
+  /** The game (or games) that stands for it. */
+  by?: string;
 }
 
 export interface LibraryWeek {
@@ -137,6 +156,12 @@ interface FilmLibraryProps {
   onCheckFolder?: () => void;
   /** This computer's film folder is linked, but the browser wants a click before it can be read again. */
   folderNeedsTap?: boolean;
+  /** What the last check of the film folder found, and where it looked. */
+  lastCheck?: { at: number; from: string[]; games: string[] } | null;
+  /** Game folders with film the library doesn't list, and why. */
+  hidden?: HiddenFolder[];
+  /** List a removed film folder again. */
+  onRestoreFolder?: (f: FilmFolderGame) => void;
   /** Folders with film in them that couldn't be placed in the season, and why. */
   unplaced?: UnplacedFolder[];
   /** Remove a game from the library (and Hudl Scout); the video files stay where they are. */
@@ -145,7 +170,7 @@ interface FilmLibraryProps {
 
 const norm = (s: string) => String(s || '').toLowerCase();
 
-export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library', weeks, otherGames, currentWeek, selectedKey, onOpen, onClose, added, checking, onCheckFolder, folderNeedsTap, unplaced, onRemove }) => {
+export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library', weeks, otherGames, currentWeek, selectedKey, onOpen, onClose, added, checking, onCheckFolder, folderNeedsTap, lastCheck, hidden, onRestoreFolder, unplaced, onRemove }) => {
   const [query, setQuery] = useState('');
   // Our games, scouting, or both (shown only when there are both kinds).
   const [kind, setKind] = useState<'all' | 'own' | 'opponent'>('all');
@@ -326,6 +351,35 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library'
             <p className="mt-1.5 opacity-80">Rename a folder to start with its week (for example &quot;Week 3 - Shrub Oak&quot;) and check the film folder again.</p>
           </div>
         )}
+        {hidden && hidden.length > 0 && (
+          <div className="mx-1 mt-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-2.5 py-2 text-[11px] text-slate-700 dark:text-slate-300">
+            <div className="flex items-center gap-1 font-black">
+              <AlertTriangle size={12} /> Film folders not listed ({hidden.length})
+            </div>
+            <ul className="mt-1 space-y-1.5">
+              {hidden.map((h) => (
+                <li key={h.folder.id} className="flex items-start gap-2">
+                  <span className="flex-1 min-w-0">
+                    <span className="font-bold">{h.folder.path.slice(1).join(' › ')}</span>
+                    <span className="block opacity-80">
+                      {h.reason === 'removed'
+                        ? 'Removed from the library by a coach.'
+                        : `Week ${h.folder.week}'s game "${h.by}" already stands for it; open that game to watch this film.`}
+                    </span>
+                  </span>
+                  {h.reason === 'removed' && onRestoreFolder && (
+                    <button
+                      onClick={() => onRestoreFolder(h.folder)}
+                      className="shrink-0 h-6 px-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-bold"
+                    >
+                      Show it again
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {onCheckFolder && folderNeedsTap && !checking && (
           <div className="mt-3 mx-2 p-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200 text-[11px]">
             <p className="font-bold">The film folder on this computer needs a click before new games on it show up.</p>
@@ -343,6 +397,22 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library'
           >
             <RefreshCw size={12} className={checking ? 'animate-spin' : ''} /> {checking ? 'Checking the film folder…' : 'Check the film folder for new games'}
           </button>
+        )}
+        {onCheckFolder && lastCheck && !checking && (
+          <details className="mx-2 mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+            <summary className="cursor-pointer">
+              {lastCheck.from.length
+                ? `Last check (${new Date(lastCheck.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}, ${lastCheck.from.join(' + ')}): ${lastCheck.games.length} game folder${lastCheck.games.length === 1 ? '' : 's'} with film`
+                : "Couldn't open a film folder: link it with Link film (this computer's folder, or Google Drive and sign in)."}
+            </summary>
+            {lastCheck.games.length > 0 && (
+              <ul className="mt-1 pl-3 list-disc">
+                {lastCheck.games.map((g) => (
+                  <li key={g}>{g}</li>
+                ))}
+              </ul>
+            )}
+          </details>
         )}
       </div>
     </div>
