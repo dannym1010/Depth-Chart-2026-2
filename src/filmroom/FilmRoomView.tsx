@@ -21,6 +21,7 @@ import { playsFromClips } from './clipPlays';
 import { applyBreakdown, blankPlays, breakdownPlayId, importIntoGame, isBrokenDown, type BreakdownRow } from './breakdownEntry';
 import { endProof, filledFrom, followOn } from './nextPlay';
 import { DriveChart } from './DriveChart';
+import { DriveSidebar } from './DriveSidebar';
 import { BreakdownPanel } from './BreakdownPanel';
 import type { FilmFolderGame, UnplacedFolder } from './folderRoutes';
 import { clearFilmCutup, peekFilmCutup, type FilmCutup } from '../utils/filmCutup';
@@ -159,7 +160,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   // Opened from the play builder: that play, in the builder beside the video, to change while watching.
   const [builderSeed] = useState<PlayBuilderSeed | null>(() => (cutup && !locked ? peekPlayBuilderSeed() : null));
   const seedRef = useRef(builderSeed);
-  const [sideTab, setSideTab] = useState<'builder' | 'breakdown' | 'notes' | 'lists'>(builderSeed ? 'builder' : 'breakdown');
+  const [sideTab, setSideTab] = useState<'builder' | 'breakdown' | 'notes' | 'lists' | 'drives'>(builderSeed ? 'builder' : 'breakdown');
   const [hideBuilder, setHideBuilder] = useState(false);
   const [builderSaved, setBuilderSaved] = useState('');
   const pickKey = `footballFilmroomGame_${teamId}`;
@@ -1248,11 +1249,17 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const fromFilm = Boolean(game?.fromFilm);
   // Every game's breakdown can be changed beside the video (Hudl's or one broken down here).
   const editable = Boolean(game && !game.filmOnly) && !locked;
-  const sideTabList = [...(builderSeed ? (['builder'] as const) : []), ...(editable ? (['breakdown'] as const) : []), 'notes' as const];
+  // Drives: the drive chart as a column beside the video (any game with a breakdown).
+  const sideTabList = [
+    ...(builderSeed ? (['builder'] as const) : []),
+    ...(editable ? (['breakdown'] as const) : []),
+    'notes' as const,
+    ...(game && !game.filmOnly ? (['drives'] as const) : []),
+  ];
   const activeSide = sideTabList.includes(sideTab as never) ? sideTab : sideTabList[0];
   const sideIsBuilder = activeSide === 'builder';
   const sideTabs = sideTabList.length > 1 ? (
-    <div className="flex items-center gap-1 px-2 pt-2">
+    <div className="flex flex-wrap items-center gap-1 px-2 pt-2">
       {sideTabList.map((t) => (
         <button
           key={t}
@@ -1262,7 +1269,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             activeSide === t ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          {t === 'builder' ? 'Play builder' : t === 'breakdown' ? `Breakdown${play ? ` · #${play.playNumber}` : ''}` : `Notes${play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}`}
+          {t === 'drives' ? 'Drives' : t === 'builder' ? 'Play builder' : t === 'breakdown' ? `Breakdown${play ? ` · #${play.playNumber}` : ''}` : `Notes${play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}`}
         </button>
       ))}
       {builderSaved && <span className="ml-auto text-[11px] font-bold text-emerald-700 dark:text-emerald-400">{builderSaved}</span>}
@@ -1704,6 +1711,14 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                 builderEl
               ) : activeSide === 'breakdown' ? (
                 breakdownEl
+              ) : activeSide === 'drives' ? (
+                <DriveSidebar
+                  plays={plays}
+                  selectedId={play?.id}
+                  onSelectPlay={setPlayId}
+                  offenseLabel={isOwn ? teamName || 'Us' : opponentName || 'Them'}
+                  defenseLabel={isOwn ? opponentName || 'Them' : 'Their opponent'}
+                />
               ) : (
                 <>
                   <div className="px-3 pt-3 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">

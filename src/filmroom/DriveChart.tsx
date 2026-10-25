@@ -26,19 +26,19 @@ interface Props {
 // recolor the slate text classes).
 const GOAL0 = 4;
 const GOAL1 = 96;
-const xPct = (yards: number) => GOAL0 + ((GOAL1 - GOAL0) * Math.max(0, Math.min(100, yards))) / 100;
-const PICKED = '#f43f5e';
+export const xPct = (yards: number) => GOAL0 + ((GOAL1 - GOAL0) * Math.max(0, Math.min(100, yards))) / 100;
+export const PICKED = '#f43f5e';
 const LINE = 'rgba(148,163,184,0.35)';
-const RESULT_COLOR: Record<string, string> = {
+export const RESULT_COLOR: Record<string, string> = {
   TD: '#16a34a', FG: '#16a34a', INT: '#dc2626', Fumble: '#dc2626', Downs: '#dc2626', Safety: '#dc2626', 'Missed FG': '#d97706', Punt: '#64748b',
 };
 const LABEL_W = 'w-36';
 /** Each side's own color: a stripe down its drives, a dot by its name. */
-const TEAM_COLOR: Record<DriveSide, string> = { O: '#4f46e5', D: '#ea580c' };
+export const TEAM_COLOR: Record<DriveSide, string> = { O: '#4f46e5', D: '#ea580c' };
 
 /** What the plays' colors show, and the key for it. */
 export type ColorBy = 'type' | 'gain' | 'down' | 'formation';
-interface Painter {
+export interface Painter {
   colorOf: (d: DrivePlay) => string;
   legend: { label: string; color: string }[];
 }
@@ -49,7 +49,7 @@ const formationOf = (p: Play) => {
   return f && f !== '-' ? f.toUpperCase() : '';
 };
 
-function painterFor(by: ColorBy, plays: DrivePlay[]): Painter {
+export function painterFor(by: ColorBy, plays: DrivePlay[]): Painter {
   if (by === 'gain') {
     const bands = [
       { label: 'Loss', color: '#dc2626', test: (g: number) => g < 0 },
@@ -95,13 +95,13 @@ function painterFor(by: ColorBy, plays: DrivePlay[]): Painter {
   };
 }
 
-const ordinal = (n: number) => `${n}${['', 'st', 'nd', 'rd'][n] || 'th'}`;
-const signed = (n: number) => `${n > 0 ? '+' : ''}${n}`;
-const quarterText = (q: number) => (q >= 5 ? 'OT' : `Q${q}`);
-const spot = (y?: number) => (y === undefined ? '' : formatAbsoluteYard(y, 'hudl'));
+export const ordinal = (n: number) => `${n}${['', 'st', 'nd', 'rd'][n] || 'th'}`;
+export const signed = (n: number) => `${n > 0 ? '+' : ''}${n}`;
+export const quarterText = (q: number) => (q >= 5 ? 'OT' : `Q${q}`);
+export const spot = (y?: number) => (y === undefined ? '' : formatAbsoluteYard(y, 'hudl'));
 
 /** What a play says: number, quarter, down & distance, spot, name, result and yards. */
-function playText(d: DrivePlay): string {
+export function playText(d: DrivePlay): string {
   const p = d.play;
   return [
     `#${p.playNumber}`,
@@ -118,7 +118,7 @@ function playText(d: DrivePlay): string {
 }
 
 /** The field behind a row: end zones, a line every 10 yards (the 50 stronger), the red zone shaded. */
-const FieldBack: React.FC = () => (
+export const FieldBack: React.FC = () => (
   <>
     <div className="absolute inset-y-0 left-0" style={{ width: `${GOAL0}%`, background: 'rgba(148,163,184,0.22)' }} />
     <div className="absolute inset-y-0 right-0" style={{ width: `${100 - GOAL1}%`, background: 'rgba(22,163,74,0.18)' }} />
