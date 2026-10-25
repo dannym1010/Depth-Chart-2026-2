@@ -2452,9 +2452,11 @@ export function generateWristbandPrintHTML(
 
   const stylesBlock = `
   <style>
+    /* As many cards on a page as fit, with room to cut between them: 6 sideways (2 across, 3 down) or 4 upright.
+       A card with its cut guide is about 2.42" tall. */
     @page {
       size: letter ${isLandscape ? 'landscape' : 'portrait'};
-      margin: 0.35in;
+      margin: 0.3in;
     }
     * {
       box-sizing: border-box;
@@ -2490,8 +2492,8 @@ export function generateWristbandPrintHTML(
     .cards-container {
       ${
         isLandscape
-          ? `display: flex; flex-wrap: wrap; justify-content: center; gap: 14px 20px; max-width: 10.3in; margin: 0 auto;`
-          : `display: flex; flex-direction: column; align-items: center; gap: 20px; margin: 0 auto;`
+          ? `display: flex; flex-wrap: wrap; justify-content: center; align-content: flex-start; gap: 0.25in 0.5in; max-width: 10.4in; margin: 0 auto;`
+          : `display: flex; flex-direction: column; align-items: center; gap: 0.18in; margin: 0 auto;`
       }
     }
     .card-wrapper {
@@ -2648,10 +2650,7 @@ export function generateWristbandPrintHTML(
   ${stylesBlock}
 </head>
 <body>
-  <div class="print-header">
-    <h1>${activeTeamName} &bull; Game Day Wristband Cutouts</h1>
-    <p>Standard 4.5&quot; &times; 2.25&quot; Inserts &bull; Ready for Sleeve Lamination &bull; High Contrast Font</p>
-  </div>
+  <!-- No title banner: its height would push the last row of cards onto a second page (each card has the team name). -->
   <div class="cards-container">
     ${cardsHtml}
   </div>

@@ -516,7 +516,7 @@ export const WristbandPrintModal: React.FC<WristbandPrintModalProps> = ({
                       }`}
                     >
                       <div className="font-black text-white">Single Column</div>
-                      <div className="text-[10px] text-slate-400">3 / page (Portrait)</div>
+                      <div className="text-[10px] text-slate-400">Up to 4 / page (Portrait)</div>
                     </button>
                   </div>
                 </div>

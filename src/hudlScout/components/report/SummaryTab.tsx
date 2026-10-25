@@ -3,6 +3,7 @@ import { AIScoutingReport, DownDistGroup, Play, TendencyAnalysis } from '../../t
 import { DownDistanceHeatmap, RunPassRing } from '../ScoutCharts';
 import { ReportVoice, buildTakeaways, identity, runSides, sampleSize, shareGreen } from './reportText';
 import { Card, PlanCallout, SectionHeader } from './ui';
+import { HashAndMotionCard } from './FieldTendenciesCard';
 
 interface SummaryTabProps {
   analysis: TendencyAnalysis;
@@ -197,6 +198,9 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({ analysis: a, plays, voic
           </Card>
         )}
       </div>
+
+      {/* 5. Which way plays go from each hash, and the motion (also on the Run game tab) */}
+      <HashAndMotionCard plays={plays} voice={voice} />
     </div>
   );
 };

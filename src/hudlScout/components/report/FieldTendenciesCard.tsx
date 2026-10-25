@@ -33,7 +33,8 @@ const BarRow: React.FC<{ title: string; segments: Segment[]; total: number; unit
         </span>
       </div>
       {total ? (
-        <div className="flex h-8 rounded-lg overflow-hidden text-[12px] font-black text-white">
+        // The bars are colors: kept when printed (browsers drop background colors otherwise).
+        <div className="flex h-8 rounded-lg overflow-hidden text-[12px] font-black text-white" style={{ printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}>
           {shown.map((s) => (
             <div
               key={s.label}
@@ -75,23 +76,125 @@ const Block: React.FC<{ title: string; legend?: { label: string; color: string }
   </section>
 );
 
-export const FieldTendenciesCard: React.FC<{ plays: Play[]; voice: ReportVoice }> = ({ plays, voice }) => {
-  // Both sides of the ball in view (Every play): an offense's tendencies are read from the offense's snaps.
+const fieldParts = [
+  { k: 'field' as const, label: 'Wide side', color: FIELD },
+  { k: 'middle' as const, label: 'Middle', color: MIDDLE },
+  { k: 'boundary' as const, label: 'Boundary', color: BOUNDARY },
+];
+
+/** The tendencies, read from the offense's snaps when both sides of the ball are in view (Every play). */
+function useFieldTendencies(plays: Play[], voice: ReportVoice) {
   const both = plays.some((p) => p.odk === 'O') && plays.some((p) => p.odk === 'D');
   const r = useMemo(() => fieldTendencies(both ? plays.filter((p) => p.odk === 'O') : plays, voice.subject), [plays, both, voice.subject]);
+  return { r, both };
+}
+
+type Tendencies = ReturnType<typeof fieldTendencies>;
+
+/** Wide side or boundary from each hash (left / right of the ball in the middle). */
+const HashBlock: React.FC<{ r: Tendencies }> = ({ r }) => (
+  <Block title="Wide side or boundary, by where the ball is" legend={fieldParts.map((t) => ({ label: t.label, color: t.color }))}>
+    {r.byHash.map((h) =>
+      h.hash === 'M' ? (
+        <BarRow
+          key={h.hash}
+          title="Ball in the middle"
+          segments={seg(h.byLR, [
+            { k: 'L', label: 'Left', color: '#6366f1' },
+            { k: 'M', label: 'Middle', color: MIDDLE },
+            { k: 'R', label: 'Right', color: '#a855f7' },
+          ])}
+          total={h.byLR.total}
+          unit="play"
+          note={`${h.runPct}% run`}
+        />
+      ) : (
+        <BarRow key={h.hash} title={`Ball on the ${h.label.toLowerCase()}`} segments={seg(h.byField, fieldParts)} total={h.byField.total} unit="play" note={`${h.runPct}% run`} />
+      )
+    )}
+  </Block>
+);
+
+/** What the motion tells you: how often, which way, and where the play goes after it. */
+const MotionBlock: React.FC<{ r: Tendencies }> = ({ r }) => {
+  const m = r.motion;
+  return (
+    <Block title="Motion">
+      {m.plays ? (
+        <>
+          <p className="text-sm text-slate-800 dark:text-slate-100">
+            <b>{m.plays}</b> play{m.plays === 1 ? '' : 's'} with motion <span className="text-slate-500 dark:text-slate-400">({m.ofSnaps}% of snaps) · {m.runPct}% run · {m.avg} yds a play</span>
+          </p>
+          {m.toStrength.total > 0 && (
+            <BarRow
+              title="Motion goes"
+              segments={seg(m.toStrength, [
+                { k: 'toward', label: 'Toward the strength', color: STRONG },
+                { k: 'away', label: 'Away from it', color: AWAY },
+              ])}
+              total={m.toStrength.total}
+              unit="play"
+            />
+          )}
+          {m.toField.total > 0 && (
+            <BarRow
+              title="Motion goes to the"
+              segments={seg(m.toField, [
+                { k: 'field', label: 'Wide side', color: FIELD },
+                { k: 'boundary', label: 'Boundary', color: BOUNDARY },
+              ])}
+              total={m.toField.total}
+              unit="play"
+            />
+          )}
+          <BarRow
+            title="Then the play goes"
+            segments={seg(m.playVsMotion, [
+              { k: 'with', label: 'With the motion', color: STRONG },
+              { k: 'middle', label: 'Middle', color: MIDDLE },
+              { k: 'away', label: 'Away from it', color: AWAY },
+            ])}
+            total={m.playVsMotion.total}
+            unit="play"
+            note={[
+              m.runsVsMotion.total ? `Runs: ${m.runsVsMotion.pct.with}% with the motion, ${m.runsVsMotion.pct.away}% away` : '',
+              m.passesVsMotion.total ? `Passes: ${m.passesVsMotion.pct.with}% with, ${m.passesVsMotion.pct.away}% away` : '',
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          />
+        </>
+      ) : (
+        <EmptyNote>No motion direction on these plays (Hudl's MOTION DIR column, or Motion in the Film Room breakdown).</EmptyNote>
+      )}
+    </Block>
+  );
+};
+
+/** For the Summary tab (and its printout): the hash and motion blocks on their own. */
+export const HashAndMotionCard: React.FC<{ plays: Play[]; voice: ReportVoice }> = ({ plays, voice }) => {
+  const { r, both } = useFieldTendencies(plays, voice);
+  if (!r.total) return null;
+  return (
+    <Card>
+      <SectionHeader title="Field & motion" subtitle={`Which way plays go from each hash, and what the motion tells you.${both ? ' Offense snaps only.' : ''}`} />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 print:grid-cols-2">
+        <HashBlock r={r} />
+        <MotionBlock r={r} />
+      </div>
+    </Card>
+  );
+};
+
+export const FieldTendenciesCard: React.FC<{ plays: Play[]; voice: ReportVoice }> = ({ plays, voice }) => {
+  const { r, both } = useFieldTendencies(plays, voice);
   if (!r.total) return null;
   const sided = r.byStrength.filter((g) => g.label !== 'Balanced');
   const balanced = r.byStrength.find((g) => g.label === 'Balanced');
-  const m = r.motion;
   const toStrength = [
     { k: 'strong' as const, label: 'To the strength', color: STRONG },
     { k: 'middle' as const, label: 'Middle', color: MIDDLE },
     { k: 'weak' as const, label: 'Away', color: AWAY },
-  ];
-  const fieldParts = [
-    { k: 'field' as const, label: 'Wide side', color: FIELD },
-    { k: 'middle' as const, label: 'Middle', color: MIDDLE },
-    { k: 'boundary' as const, label: 'Boundary', color: BOUNDARY },
   ];
   const yds = (a: { strong: number; weak: number }, s: Split3<'strong' | 'middle' | 'weak'>) =>
     [s.count.strong ? `${a.strong} yds to the strength` : '', s.count.weak ? `${a.weak} yds away` : ''].filter(Boolean).join(' · ');
@@ -175,83 +278,8 @@ export const FieldTendenciesCard: React.FC<{ plays: Play[]; voice: ReportVoice }
         </Block>
 
         <div className="space-y-3">
-          <Block title="Wide side or boundary, by where the ball is" legend={fieldParts.map((t) => ({ label: t.label, color: t.color }))}>
-            {r.byHash.map((h) =>
-              h.hash === 'M' ? (
-                <BarRow
-                  key={h.hash}
-                  title="Ball in the middle"
-                  segments={seg(h.byLR, [
-                    { k: 'L', label: 'Left', color: '#6366f1' },
-                    { k: 'M', label: 'Middle', color: MIDDLE },
-                    { k: 'R', label: 'Right', color: '#a855f7' },
-                  ])}
-                  total={h.byLR.total}
-                  unit="play"
-                  note={`${h.runPct}% run`}
-                />
-              ) : (
-                <BarRow
-                  key={h.hash}
-                  title={`Ball on the ${h.label.toLowerCase()}`}
-                  segments={seg(h.byField, fieldParts)}
-                  total={h.byField.total}
-                  unit="play"
-                  note={`${h.runPct}% run`}
-                />
-              )
-            )}
-          </Block>
-
-          <Block title="Motion">
-            {m.plays ? (
-              <>
-                <p className="text-sm text-slate-800 dark:text-slate-100">
-                  <b>{m.plays}</b> play{m.plays === 1 ? '' : 's'} with motion <span className="text-slate-500 dark:text-slate-400">({m.ofSnaps}% of snaps) · {m.runPct}% run · {m.avg} yds a play</span>
-                </p>
-                {m.toStrength.total > 0 && (
-                  <BarRow
-                    title="Motion goes"
-                    segments={seg(m.toStrength, [
-                      { k: 'toward', label: 'Toward the strength', color: STRONG },
-                      { k: 'away', label: 'Away from it', color: AWAY },
-                    ])}
-                    total={m.toStrength.total}
-                    unit="play"
-                  />
-                )}
-                {m.toField.total > 0 && (
-                <BarRow
-                  title="Motion goes to the"
-                  segments={seg(m.toField, [
-                    { k: 'field', label: 'Wide side', color: FIELD },
-                    { k: 'boundary', label: 'Boundary', color: BOUNDARY },
-                  ])}
-                  total={m.toField.total}
-                  unit="play"
-                />
-                )}
-                <BarRow
-                  title="Then the play goes"
-                  segments={seg(m.playVsMotion, [
-                    { k: 'with', label: 'With the motion', color: STRONG },
-                    { k: 'middle', label: 'Middle', color: MIDDLE },
-                    { k: 'away', label: 'Away from it', color: AWAY },
-                  ])}
-                  total={m.playVsMotion.total}
-                  unit="play"
-                  note={[
-                    m.runsVsMotion.total ? `Runs: ${m.runsVsMotion.pct.with}% with the motion, ${m.runsVsMotion.pct.away}% away` : '',
-                    m.passesVsMotion.total ? `Passes: ${m.passesVsMotion.pct.with}% with, ${m.passesVsMotion.pct.away}% away` : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                />
-              </>
-            ) : (
-              <EmptyNote>No motion direction on these plays (Hudl's MOTION DIR column, or Motion in the Film Room breakdown).</EmptyNote>
-            )}
-          </Block>
+          <HashBlock r={r} />
+          <MotionBlock r={r} />
         </div>
       </div>
     </Card>
