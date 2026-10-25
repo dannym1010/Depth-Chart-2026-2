@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useRef } from 'react';
+import { Printer } from 'lucide-react';
+import { printElementAsShown } from '../../../utils/printUtils';
 import { AIScoutingReport, DownDistGroup, Play, TendencyAnalysis } from '../../types/football';
 import { DownDistanceHeatmap, RunPassRing } from '../ScoutCharts';
 import { ReportVoice, buildTakeaways, identity, runSides, sampleSize, shareGreen } from './reportText';
@@ -47,9 +49,20 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({ analysis: a, plays, voic
   const third = a.thirdDownConversions;
   const bigEvery = a.explosivePlayRate > 0 ? Math.max(1, Math.round(100 / a.explosivePlayRate)) : 0;
   const showPlan = report && (voice.showCounters || voice.showSelfScout);
+  const page = useRef<HTMLDivElement>(null);
 
   return (
     <div className="space-y-4 md:space-y-5">
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => page.current && printElementAsShown(page.current, `${id.label} - Scouting summary`)}
+          className="inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg bg-slate-900 hover:bg-slate-700 text-white dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200 text-xs font-bold cursor-pointer"
+        >
+          <Printer className="w-4 h-4" /> Print summary
+        </button>
+      </div>
+      <div ref={page} className="space-y-4 md:space-y-5">
       {/* 1. Who they are, in one line */}
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -190,6 +203,7 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({ analysis: a, plays, voic
             </p>
             <button
               type="button"
+              data-print-skip
               onClick={onOpenGamePlan}
               className="mt-4 w-full sm:w-auto min-h-[40px] px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:text-white text-xs font-bold cursor-pointer"
             >
@@ -201,6 +215,7 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({ analysis: a, plays, voic
 
       {/* 5. Which way plays go from each hash, and the motion (also on the Run game tab) */}
       <HashAndMotionCard plays={plays} voice={voice} />
+      </div>
     </div>
   );
 };

@@ -425,6 +425,35 @@ export function printCleanHTML(htmlString: string, documentTitle?: string) {
 }
 
 /**
+ * Prints one part of the page as it looks on screen, on its own: a copy of the element with the app's styles, in
+ * light colors (dark mode is a class on the page, which the copy doesn't have), colors kept on paper.
+ */
+export function printElementAsShown(el: HTMLElement, documentTitle: string) {
+  const styles = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
+    .map((n) => (n instanceof HTMLLinkElement ? `<link rel="stylesheet" href="${n.href}">` : n.outerHTML))
+    .join('');
+  // Paper can't be clicked: buttons become plain boxes (the app's print rules leave buttons off the page, and with
+  // them the clickable cards), and what's marked data-print-skip ("Open the full game plan") is left off.
+  const copy = el.cloneNode(true) as HTMLElement;
+  copy.querySelectorAll('[data-print-skip]').forEach((n) => n.remove());
+  copy.querySelectorAll('button').forEach((b) => {
+    const box = document.createElement('div');
+    for (const a of Array.from(b.attributes)) if (a.name !== 'type' && a.name !== 'aria-pressed') box.setAttribute(a.name, a.value);
+    box.innerHTML = b.innerHTML;
+    b.replaceWith(box);
+  });
+  const html = `<!DOCTYPE html><html class="theme-light"><head><meta charset="utf-8" /><title>${documentTitle}</title>${styles}
+  <style>
+    @page { size: letter portrait; margin: 0.4in; }
+    html.theme-light, html body.theme-light { background: #ffffff !important; margin: 0; }
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    /* Each card whole on one page (the printed part's cards, and the cards in its rows). */
+    section, body > * > *, body > * > * > * { break-inside: avoid; }
+  </style></head><body class="theme-light">${copy.outerHTML}</body></html>`;
+  printCleanHTML(html, documentTitle);
+}
+
+/**
  * Opens a clean printable sheet in a new tab/window and triggers print.
  * Uses a Blob URL to guarantee compatibility and prevent popup/sandbox blocking.
  */
