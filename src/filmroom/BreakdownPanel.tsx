@@ -107,8 +107,10 @@ export const BreakdownPanel: React.FC<Props> = ({
       // The play names coaches have made, once for both the Play name boxes and the AI window.
       names,
       nameText: names.map((n) => n.name),
+      // The names tagged on this film (the game being watched).
+      filmNames: savedNames(suggestFrom.filter((p) => !play?.gameId || p.gameId === play.gameId)),
     };
-  }, [suggestFrom]);
+  }, [suggestFrom, play?.gameId]);
 
   if (!play) return <p className="p-4 text-sm text-slate-500 dark:text-slate-400">Pick a play to break it down.</p>;
 
@@ -277,6 +279,7 @@ export const BreakdownPanel: React.FC<Props> = ({
           onUseName={(name) => save({ 'OFF PLAY': name })}
           playBox={String(row['OFF PLAY'] || '')}
           saved={lists.names}
+          filmNames={lists.filmNames}
           custom={customOptions(suggestFrom)}
         />
       )}
@@ -363,9 +366,11 @@ const PlayNameFields: React.FC<{
   playBox: string;
   /** Names already made in this team's games (most used first), to pick in one click. */
   saved: { name: string; parts: CallParts; count: number }[];
+  /** Every name tagged on this film (most used first). */
+  filmNames: { name: string; parts: CallParts; count: number }[];
   /** Options a coach added before (on any play): offered on every play. */
   custom: ReturnType<typeof customOptions>;
-}> = ({ play, readOnly, run, onChange, onUseName, playBox, saved, custom }) => {
+}> = ({ play, readOnly, run, onChange, onUseName, playBox, saved, filmNames, custom }) => {
   const parts = startingParts(play);
   const set = (patch: Partial<CallParts>) => onChange({ ...parts, ...patch });
   const pick = <K extends keyof CallParts>(key: K, v: CallParts[K]) => set({ [key]: parts[key] === v ? undefined : v } as Partial<CallParts>);
@@ -444,8 +449,48 @@ const PlayNameFields: React.FC<{
         )}
       </div>
 
-      {/* The names used most: one click */}
-      {!readOnly && saved.length > 0 && row('Recent', saved.slice(0, 6).map((x) => pill(x.name, x.name === name, () => onChange(x.parts))))}
+      {/* This film's names: the most used in one click, every one in the list (other games' names under them) */}
+      {!readOnly && (filmNames.length > 0 || saved.length > 0) && (() => {
+        const onFilm = new Set(filmNames.map((x) => x.name.toLowerCase()));
+        const others = saved.filter((x) => !onFilm.has(x.name.toLowerCase()));
+        const quick = (filmNames.length ? filmNames : saved).slice(0, 4);
+        const byName = new Map([...filmNames, ...others].map((x) => [x.name, x]));
+        return row(
+          filmNames.length ? 'On this film' : 'Recent',
+          <>
+            {quick.map((x) => pill(x.name, x.name === name, () => onChange(x.parts)))}
+            <select
+              value=""
+              aria-label="Every play name on this film"
+              onChange={(e) => {
+                const x = byName.get(e.target.value);
+                if (x) onChange(x.parts);
+              }}
+              className="h-6 max-w-full rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-[11px] font-bold text-indigo-700 dark:text-indigo-300 cursor-pointer"
+            >
+              <option value="">{filmNames.length ? `All ${filmNames.length} on this film ▾` : `All ${saved.length} ▾`}</option>
+              {filmNames.length > 0 && (
+                <optgroup label="This film">
+                  {filmNames.map((x) => (
+                    <option key={x.name} value={x.name}>
+                      {x.name} ({x.count})
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {others.length > 0 && (
+                <optgroup label="Other games">
+                  {others.map((x) => (
+                    <option key={x.name} value={x.name}>
+                      {x.name} ({x.count})
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+          </>
+        );
+      })()}
 
       <div className="h-px bg-slate-200 dark:bg-slate-700/70" />
 
