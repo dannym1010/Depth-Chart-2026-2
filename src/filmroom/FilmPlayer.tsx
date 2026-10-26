@@ -50,7 +50,8 @@ interface FilmPlayerProps {
   viewOnly?: boolean;
 }
 
-const btn = 'inline-flex items-center justify-center gap-1 h-9 min-w-9 px-2 rounded-lg text-xs font-bold transition-colors disabled:opacity-40';
+// Bigger on a touch screen (a finger needs about 40px).
+const btn = 'inline-flex items-center justify-center gap-1 h-9 min-w-9 pointer-coarse:h-10 pointer-coarse:min-w-10 px-2 rounded-lg text-xs font-bold transition-colors disabled:opacity-40';
 // The player is always dark, so its colors are fixed here: the app's light and dark themes recolor
 // the gray text shades (which made controls vanish on the black bar in dark mode).
 const INK = '#e2e8f0';
@@ -114,7 +115,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   const [snapAt, setSnapAt] = useState<number | null>(null);
   const [lastWatch, setLastWatch] = useState<{ seconds: number; at: number } | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
-  const press = useRef<{ x: number; y: number; px: number; py: number; moved: boolean } | null>(null);
+  const press = useRef<{ x: number; y: number; px: number; py: number; moved: boolean; touch?: boolean } | null>(null);
   const view = useRef({ zoom: 1, pan: { x: 0, y: 0 } });
 
   apiRef.current = {
@@ -264,7 +265,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
       return;
     }
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
-    press.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y, moved: false };
+    press.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y, moved: false, touch: e.pointerType !== 'mouse' };
   };
   const releasePointer = (e: React.PointerEvent) => {
     pointers.current.delete(e.pointerId);
@@ -291,7 +292,16 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     releasePointer(e);
     const s = press.current;
     press.current = null;
-    if (s && !s.moved) togglePlay();
+    if (s && !s.moved) return togglePlay();
+    // A finger swiped across the video (not zoomed in): the next play to the left, the one before to the right.
+    if (s?.touch && zoom === 1) {
+      const dx = e.clientX - s.x;
+      const dy = e.clientY - s.y;
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        if (dx < 0 && hasNext) onNext();
+        else if (dx > 0 && hasPrev) onPrev();
+      }
+    }
   };
   // On a phone the controls go under the video; everywhere else (and in full screen) they sit on it, like Hudl.
   const overlay = isFullscreen ? 'absolute inset-x-0 bottom-0' : 'sm:absolute sm:inset-x-0 sm:bottom-0';
@@ -329,7 +339,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
         ref={stageRef}
         style={{ width: `min(100%, max(18rem, calc(${videoHeight} * 16 / 9)))` }}
         className={`relative mx-auto aspect-video overflow-hidden bg-black ${drawing || zoom > 1 ? 'touch-none' : 'touch-pan-y'} ${drawing ? '' : zoom > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
-        title={drawing ? undefined : 'Click: play / pause · Scroll: zoom · Drag: move around · Double-click: full screen'}
+        title={drawing ? undefined : 'Click: play / pause · Scroll: zoom · Drag: move around · Double-click: full screen · On a touch screen: swipe for the next play'}
         onPointerDown={onStageDown}
         onPointerMove={onStageMove}
         onPointerUp={onStageUp}
@@ -365,7 +375,8 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
             onAdd={(m) => onMarksChange([...marks, m])}
           />
         </div>
-        {!src && <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm">{placeholder}</div>}
+        {/* Above the controls that sit over the bottom of the video, so its buttons (Link film...) can be tapped. */}
+        {!src && <div className={`absolute inset-0 flex items-center justify-center p-4 text-center text-sm z-20 pointer-events-none [&>*]:pointer-events-auto ${isFullscreen ? 'pb-28' : 'sm:pb-28'}`}>{placeholder}</div>}
         <div className="absolute top-2 left-2 right-2 flex items-start justify-between gap-2 pointer-events-none">
           <span className="px-2 py-1 rounded-md text-xs font-bold truncate" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>{title}</span>
           <span className="flex items-center gap-1.5 shrink-0">

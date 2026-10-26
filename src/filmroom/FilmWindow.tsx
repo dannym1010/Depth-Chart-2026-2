@@ -4,7 +4,7 @@
 // Room does (the folder or Google Drive link for that scouting film), the same player, and the same
 // shared drawings and notes.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Film, Maximize2, Minimize2, Minus, Plus, RefreshCw, X } from 'lucide-react';
+import { Expand, Film, Maximize2, Minimize2, Minus, Plus, RefreshCw, Shrink, X } from 'lucide-react';
 import { bundleFromSaved } from '../hudlScout/scoutBundle';
 import type { Play } from '../hudlScout/types/football';
 import { FilmPlayer, type PlayerApi } from './FilmPlayer';
@@ -61,15 +61,15 @@ const write = (key: string, value: unknown) => {
   }
 };
 
-function useIsPhone() {
-  const query = '(max-width: 639px)';
+function useMedia(query: string) {
   const [match, setMatch] = useState(() => typeof window !== 'undefined' && window.matchMedia(query).matches);
   useEffect(() => {
     const m = window.matchMedia(query);
     const on = () => setMatch(m.matches);
+    on();
     m.addEventListener('change', on);
     return () => m.removeEventListener('change', on);
-  }, []);
+  }, [query]);
   return match;
 }
 
@@ -165,10 +165,30 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
     update((s) => ({ ...s, notes: [...s.notes, note] }));
   };
 
-  // The window: where it is, how big, tucked away or not.
-  const isPhone = useIsPhone();
-  const [size, setSize] = useState<'s' | 'l'>(() => (read<string>(SIZE_KEY, 's') === 'l' ? 'l' : 's'));
+  // The window: where it is, how big, tucked away or not. On a phone it sits along the bottom; a phone on its
+  // side (a short screen) always fills the screen; any screen can fill it with the expand button.
+  const isPhone = useMedia('(max-width: 639px)');
+  const isShort = useMedia('(max-height: 520px)');
+  // An iPad (touch, room to spare) starts at the bigger size.
+  const [size, setSize] = useState<'s' | 'l'>(() => {
+    const saved = read<string | null>(SIZE_KEY, null);
+    return saved === 'l' || (!saved && typeof window !== 'undefined' && window.matchMedia('(pointer: coarse) and (min-width: 768px)').matches) ? 'l' : 's';
+  });
   const [mini, setMini] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const fill = (expanded || isShort) && !mini;
+  // The page behind doesn't scroll while the window fills the screen; Escape shrinks it back.
+  useEffect(() => {
+    if (!fill) return;
+    const before = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setExpanded(false);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = before;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [fill]);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(() => read<{ x: number; y: number } | null>(POS_KEY, null));
   const [auto, setAuto] = useState(filmWindowAutoOpen);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -179,7 +199,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
     y: Math.max(64, Math.min(p.y, window.innerHeight - 48)),
   });
   const onTitleDown = (e: React.PointerEvent) => {
-    if (isPhone || (e.target as HTMLElement).closest('button')) return;
+    if (isPhone || fill || (e.target as HTMLElement).closest('button')) return;
     const r = boxRef.current?.getBoundingClientRect();
     if (!r) return;
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
@@ -214,7 +234,13 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
     return () => document.removeEventListener('pointerdown', on, true);
   }, []);
 
-  const videoMax = isPhone ? 'min(42dvh, 56vw)' : `${Math.round((width * 9) / 16)}px`;
+  const videoMax = fill
+    ? isShort
+      ? 'calc(100dvh - 6rem)'
+      : 'min(calc(100dvh - 15rem), calc((100vw - 1rem) * 9 / 16))'
+    : isPhone
+      ? 'min(42dvh, 56vw)'
+      : `${Math.round((width * 9) / 16)}px`;
 
   const placeholder = (() => {
     if (film.status === 'loading') return <span>Opening {film.label}…</span>;
@@ -287,11 +313,17 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
     return null;
   })();
 
-  const style: React.CSSProperties = isPhone
-    ? { left: 8, right: 8, bottom: 8 }
-    : pos
-      ? { left: pos.x, top: pos.y, width }
-      : { right: 16, bottom: 16, width };
+  // Clear of the iPhone's notch and home bar.
+  const safe = (side: 'top' | 'right' | 'bottom' | 'left', px = 0) => `calc(${px}px + env(safe-area-inset-${side}, 0px))`;
+  const style: React.CSSProperties = fill
+    ? { inset: 0, paddingTop: safe('top'), paddingRight: safe('right'), paddingBottom: safe('bottom'), paddingLeft: safe('left') }
+    : isPhone
+      ? { left: safe('left', 8), right: safe('right', 8), bottom: safe('bottom', 8) }
+      : pos
+        ? { left: pos.x, top: pos.y, width }
+        : { right: 16, bottom: 16, width };
+  const headBtn =
+    'w-7 h-7 pointer-coarse:w-10 pointer-coarse:h-10 rounded-md inline-flex items-center justify-center text-slate-200 hover:bg-white/10 cursor-pointer shrink-0';
 
   const gain = (p: Play) => (Number.isFinite(Number(p.gainLoss)) && p.gainLoss !== undefined ? `${p.gainLoss > 0 ? '+' : ''}${p.gainLoss}` : '');
   const views = film.status === 'ready' ? film.views : [];
@@ -302,14 +334,16 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
         ref={boxRef}
         role="dialog"
         aria-label="Film window"
-        className="fixed z-[45] rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 shadow-2xl overflow-hidden flex flex-col"
+        className={`fixed z-[45] overflow-hidden flex flex-col ${
+          fill ? 'bg-slate-950' : 'bg-white dark:bg-slate-900 rounded-xl border border-slate-300 dark:border-slate-600 shadow-2xl'
+        }`}
         style={style}
       >
         <div
           onPointerDown={onTitleDown}
           onPointerMove={onTitleMove}
           onPointerUp={onTitleUp}
-          className={`flex items-center gap-1.5 px-2.5 h-9 bg-slate-900 text-white shrink-0 select-none touch-none ${isPhone ? '' : 'cursor-move'}`}
+          className={`flex items-center gap-1.5 px-2.5 h-9 pointer-coarse:h-11 bg-slate-900 text-white shrink-0 select-none touch-none ${isPhone || fill ? '' : 'cursor-move'}`}
         >
           <Film size={14} className="text-indigo-300 shrink-0" />
           <span className="text-xs font-black truncate min-w-0 flex-1" title={request.label}>
@@ -320,15 +354,26 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
               {Math.min(index, watch.length - 1) + 1} / {watch.length}
             </span>
           )}
-          {!isPhone && (
+          {!isPhone && !fill && (
             <button
               type="button"
               aria-label={size === 's' ? 'Make the window bigger' : 'Make the window smaller'}
               title={size === 's' ? 'Bigger' : 'Smaller'}
               onClick={() => changeSize(size === 's' ? 'l' : 's')}
-              className="w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-200 hover:bg-white/10 cursor-pointer"
+              className={headBtn}
             >
               {size === 's' ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+            </button>
+          )}
+          {!isShort && !mini && (
+            <button
+              type="button"
+              aria-label={expanded ? 'Back to the small window' : 'Fill the screen'}
+              title={expanded ? 'Back to the small window (Esc)' : 'Fill the screen'}
+              onClick={() => setExpanded((x) => !x)}
+              className={headBtn}
+            >
+              {expanded ? <Shrink size={15} /> : <Expand size={15} />}
             </button>
           )}
           <button
@@ -336,17 +381,11 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
             aria-label={mini ? 'Show the video' : 'Tuck the window away'}
             title={mini ? 'Show' : 'Tuck away'}
             onClick={() => setMini((m) => !m)}
-            className="w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-200 hover:bg-white/10 cursor-pointer"
+            className={headBtn}
           >
             {mini ? <Plus size={14} /> : <Minus size={14} />}
           </button>
-          <button
-            type="button"
-            aria-label="Close the film window"
-            title="Close"
-            onClick={closeFilmWindow}
-            className="w-7 h-7 rounded-md inline-flex items-center justify-center text-slate-200 hover:bg-white/10 cursor-pointer"
-          >
+          <button type="button" aria-label="Close the film window" title="Close" onClick={closeFilmWindow} className={headBtn}>
             <X size={15} />
           </button>
         </div>
@@ -369,7 +408,61 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
               startAt={resumeAt.current}
               shortcuts={focused}
             />
-            {(watch.length > 1 || views.length > 1) && (
+            {/* Filling a tall screen: each snap as a line to read and tap (the chips are for the small window). */}
+            {fill && !isShort && watch.length > 0 && (
+              <div className="flex-1 min-h-0 overflow-y-auto border-t border-slate-800 bg-slate-950">
+                {views.length > 1 && (
+                  <div className="px-3 pt-2">
+                    <select
+                      aria-label="Camera view"
+                      value={film.status === 'ready' ? film.view : 0}
+                      onChange={(e) => {
+                        resumeAt.current = apiRef.current?.time() || 0;
+                        setView(Number(e.target.value));
+                      }}
+                      className="h-10 rounded-lg border border-slate-600 bg-slate-900 text-sm font-bold text-slate-100 px-2"
+                    >
+                      {views.map((v, i) => (
+                        <option key={v} value={i}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <ul className="p-2 space-y-1">
+                  {watch.map((p, i) => {
+                    const here = p === play;
+                    const has = clipFor.has(p.id);
+                    const g = gain(p);
+                    return (
+                      <li key={p.id}>
+                        <button
+                          type="button"
+                          onClick={() => setIndex(i)}
+                          aria-current={here || undefined}
+                          className={`w-full min-h-12 flex items-center gap-3 px-3 py-2 rounded-xl text-left cursor-pointer ${
+                            here ? 'bg-indigo-600 text-white' : has ? 'bg-slate-900 text-slate-100 active:bg-slate-800' : 'bg-slate-900/50 text-slate-500'
+                          }`}
+                        >
+                          <span className="w-10 shrink-0 text-sm font-black">#{p.playNumber}</span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-sm font-bold truncate">{p.callName || p.playName || p.result || 'Play'}</span>
+                            <span className={`block text-xs truncate ${here ? 'text-white/80' : 'text-slate-400'}`}>
+                              {[p.quarter ? (p.quarter >= 5 ? 'OT' : `Q${p.quarter}`) : '', p.down ? `${p.down}${['', 'st', 'nd', 'rd'][p.down] || 'th'} & ${p.distance ?? '?'}` : '', p.rawYardLine ? `at ${p.rawYardLine}` : '', p.result && p.result !== p.callName ? p.result : '', has ? '' : 'no clip']
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </span>
+                          </span>
+                          {g && <span className={`shrink-0 text-base font-black ${here ? '' : Number(g) < 0 ? 'text-rose-400' : Number(g) >= 4 ? 'text-emerald-400' : 'text-slate-300'}`}>{g}</span>}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+            {!(fill && !isShort) && (watch.length > 1 || views.length > 1) && (
               <div className="flex items-center gap-1.5 px-2 py-1.5 border-t border-slate-200 dark:border-slate-700 overflow-x-auto">
                 {views.length > 1 && (
                   <select
@@ -394,7 +487,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
                     type="button"
                     onClick={() => setIndex(i)}
                     title={playTitle(p)}
-                    className={`h-7 px-2 rounded-md text-[11px] font-bold shrink-0 cursor-pointer border ${
+                    className={`h-7 pointer-coarse:h-9 px-2 rounded-md text-[11px] pointer-coarse:text-xs font-bold shrink-0 cursor-pointer border ${
                       p === play
                         ? 'bg-indigo-600 text-white border-indigo-600'
                         : clipFor.has(p.id)
@@ -408,7 +501,8 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
                 ))}
               </div>
             )}
-            <label className="flex items-center gap-1.5 px-2.5 py-1.5 border-t border-slate-200 dark:border-slate-700 text-[11px] text-slate-500 dark:text-slate-400 cursor-pointer">
+            {/* A setting, not something to do while watching: left off a phone's small window and a filled short screen. */}
+            {!(isPhone && !fill) && !isShort && <label className={`flex items-center gap-1.5 px-2.5 py-1.5 border-t text-[11px] cursor-pointer ${fill ? 'border-slate-800 text-slate-400 bg-slate-950' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'}`}>
               <input
                 type="checkbox"
                 checked={auto}
@@ -418,7 +512,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
                 }}
               />
               Open this window by itself when I open a play with film
-            </label>
+            </label>}
           </>
         )}
       </div>
