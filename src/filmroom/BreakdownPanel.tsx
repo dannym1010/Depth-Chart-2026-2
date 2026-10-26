@@ -6,7 +6,7 @@ import { playIsUnitTaggable } from '../hudlScout/utils/unitStats';
 import { isBalancedPlay, playStrength } from '../hudlScout/utils/strength';
 import { breakdownRowOf, type BreakdownColumn, type BreakdownRow } from './breakdownEntry';
 import { AiClipAnalyzerModal } from './AiClipAnalyzerModal';
-import { BACKS, HOLES, PASS_CONCEPTS, PERSONNEL, QB_SPOTS, RUN_CONCEPTS, TAGS, customOptions, savedNames, startingParts, withParts } from './callName';
+import { BACKS, HOLES, PASS_CONCEPTS, PERSONNEL, QB_SPOTS, RUN_CONCEPTS, TAGS, customOptions, partsMatch, savedNames, startingParts, withParts } from './callName';
 import type { CallParts } from '../hudlScout/types/football';
 
 interface Props {
@@ -108,9 +108,10 @@ export const BreakdownPanel: React.FC<Props> = ({
       names,
       nameText: names.map((n) => n.name),
       // The names tagged on this film (the game being watched).
-      filmNames: savedNames(suggestFrom.filter((p) => !play?.gameId || p.gameId === play.gameId)),
+      // (not the play being named: picking a part names it, and it would match itself)
+      filmNames: savedNames(suggestFrom.filter((p) => p.id !== play?.id && (!play?.gameId || p.gameId === play.gameId))),
     };
-  }, [suggestFrom, play?.gameId]);
+  }, [suggestFrom, play?.gameId, play?.id]);
 
   if (!play) return <p className="p-4 text-sm text-slate-500 dark:text-slate-400">Pick a play to break it down.</p>;
 
@@ -453,12 +454,20 @@ const PlayNameFields: React.FC<{
       {!readOnly && (filmNames.length > 0 || saved.length > 0) && (() => {
         const onFilm = new Set(filmNames.map((x) => x.name.toLowerCase()));
         const others = saved.filter((x) => !onFilm.has(x.name.toLowerCase()));
-        const quick = (filmNames.length ? filmNames : saved).slice(0, 4);
+        // As parts are picked, the names already made narrow to the ones that have every part picked so far.
+        const picking = Object.values(parts).some((v) => (Array.isArray(v) ? v.length : v));
+        const matching = picking ? filmNames.filter((x) => partsMatch(x.parts, parts)) : filmNames;
+        const rest = filmNames.filter((x) => !matching.includes(x));
+        const quick = (filmNames.length ? matching : saved).slice(0, 4);
         const byName = new Map([...filmNames, ...others].map((x) => [x.name, x]));
+        const label = !filmNames.length ? 'Recent' : picking ? `On this film · ${matching.length} match${matching.length === 1 ? '' : 'es'}` : 'On this film';
         return row(
-          filmNames.length ? 'On this film' : 'Recent',
+          label,
           <>
             {quick.map((x) => pill(x.name, x.name === name, () => onChange(x.parts)))}
+            {picking && filmNames.length > 0 && !matching.length && (
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">No named play on this film has these yet: keep picking to make a new one.</span>
+            )}
             <select
               value=""
               aria-label="Every play name on this film"
@@ -468,10 +477,21 @@ const PlayNameFields: React.FC<{
               }}
               className="h-6 max-w-full rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-[11px] font-bold text-indigo-700 dark:text-indigo-300 cursor-pointer"
             >
-              <option value="">{filmNames.length ? `All ${filmNames.length} on this film ▾` : `All ${saved.length} ▾`}</option>
-              {filmNames.length > 0 && (
-                <optgroup label="This film">
-                  {filmNames.map((x) => (
+              <option value="">
+                {!filmNames.length ? `All ${saved.length} ▾` : picking && matching.length ? `${matching.length} matching · all ${filmNames.length} ▾` : `All ${filmNames.length} on this film ▾`}
+              </option>
+              {matching.length > 0 && (
+                <optgroup label={picking ? 'Matches what you picked' : 'This film'}>
+                  {matching.map((x) => (
+                    <option key={x.name} value={x.name}>
+                      {x.name} ({x.count})
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {rest.length > 0 && (
+                <optgroup label="Rest of this film">
+                  {rest.map((x) => (
                     <option key={x.name} value={x.name}>
                       {x.name} ({x.count})
                     </option>

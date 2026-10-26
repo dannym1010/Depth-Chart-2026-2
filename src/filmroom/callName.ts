@@ -72,6 +72,20 @@ export function parseCall(text: string): CallParts {
   return parts;
 }
 
+/**
+ * Whether a name already made has every part picked so far (the same personnel, QB, side, back, hole and concept,
+ * and every tag picked among its tags). Parts not picked yet don't count.
+ */
+export function partsMatch(made: CallParts | undefined, picked: CallParts): boolean {
+  const same = (a?: string, b?: string) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+  const m = made || {};
+  for (const key of ['personnel', 'qb', 'strength', 'back', 'hole', 'concept'] as const) {
+    if (picked[key] && !same(m[key], picked[key])) return false;
+  }
+  const tags = (m.tags || []).map((t) => t.toLowerCase());
+  return (picked.tags || []).every((t) => tags.includes(t.toLowerCase()));
+}
+
 /** The play names already made in these plays (each once, with its parts), most used first. */
 export function savedNames(plays: Play[]): { name: string; parts: CallParts; count: number }[] {
   const by = new Map<string, { name: string; parts: CallParts; count: number }>();

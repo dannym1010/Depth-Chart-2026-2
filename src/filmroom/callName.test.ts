@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildCallName, startingParts, withParts } from './callName.ts';
+import { buildCallName, partsMatch, startingParts, withParts } from './callName.ts';
 
 describe('play names from their parts', () => {
   it('builds the call the way coaches say it', () => {
@@ -175,5 +175,20 @@ describe('bring back play names from Their plays cards', () => {
     const out = namesFromCards(plays, libs, parseCall);
     assert.deepEqual(out.map((x) => [x.id, x.callName]), [['p1', '21 Gun Rt TWINS 31 Toss'], ['p2', '21 Gun Rt TWINS 31 Toss'], ['p3', '21 GUN Dive']]);
     assert.deepEqual(out[0].callParts, { personnel: '21', qb: 'Gun', strength: 'R', tags: ['Twins'], back: '3', hole: '1', concept: 'Toss' });
+  });
+});
+
+describe('names already made, narrowed by the parts picked', () => {
+  const toss = { personnel: '21', qb: 'Gun' as const, strength: 'R' as const, tags: ['Twins', 'Motion'], back: '3', hole: '1', concept: 'Toss' };
+  it('keeps a name that has every part picked so far', () => {
+    assert.equal(partsMatch(toss, {}), true);
+    assert.equal(partsMatch(toss, { personnel: '21' }), true);
+    assert.equal(partsMatch(toss, { personnel: '21', qb: 'Gun', strength: 'R', tags: ['twins'] }), true);
+  });
+  it('drops a name that differs on a part picked, or lacks a tag picked', () => {
+    assert.equal(partsMatch(toss, { personnel: '22' }), false);
+    assert.equal(partsMatch(toss, { personnel: '21', strength: 'L' }), false);
+    assert.equal(partsMatch(toss, { tags: ['Twins', 'Wing'] }), false);
+    assert.equal(partsMatch(undefined, { personnel: '21' }), false);
   });
 });
