@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Film, LayoutGrid, ListChecks, Play as PlayIcon, Save, Search, Users, Wand2, Zap } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Film, LayoutGrid, ListChecks, Play as PlayIcon, RotateCcw, Save, Search, Users, Wand2, Zap } from 'lucide-react';
 import type { PlayBuilderState, PlayDatabaseEntry, PlayType } from '../../types/callSheet';
 import { defenseSystem, type DefenseSystem } from '../../hudlScout/utils/ourDefense';
 import { inferPlayType, newPlayEntry } from '../../utils/playbookImport';
@@ -338,7 +338,10 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       else delete next[role];
       return next;
     });
-  const [userDrew, setUserDrew] = useState(Boolean(saved?.strokes) || defenseMode);
+  // Their plays (from Hudl Scout) start from the base formation with nothing drawn: the coach draws what they ran
+  // (Draw it still draws from the call when asked). Our own plays draw themselves from the call until a line is drawn.
+  const theirPlay = Boolean(seed?.scoutId) && !defenseMode;
+  const [userDrew, setUserDrew] = useState(Boolean(saved?.strokes) || defenseMode || theirPlay);
 
   const locations = TE_LOCATIONS[personnelPick] || [];
   const wrCount = PERSONNEL_DEFINITIONS[personnelPick]?.wr || 0;
@@ -615,7 +618,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     if (lastLook.current === lookKey) return;
     lastLook.current = lookKey;
     setOverrides({});
-    setUserDrew(false);
+    if (!theirPlay) setUserDrew(false);
   }, [lookKey]);
 
   const playKey = `${tags.join('|')}|${activeConceptKey}`;
@@ -623,7 +626,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   useEffect(() => {
     if (lastPlay.current === playKey) return;
     lastPlay.current = playKey;
-    setUserDrew(false);
+    if (!theirPlay) setUserDrew(false);
   }, [playKey]);
 
   const concept = PLAY_CONCEPTS[activeConceptKey];
@@ -977,6 +980,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       return;
     }
     const p = parsePlayCall(nameIn);
+    // Asked for: draw the play from the call (their plays too).
+    setUserDrew(false);
     let bk = baseKey;
     const locs = p.personnel != null ? TE_LOCATIONS[p.personnel] || [] : [];
     // Only another personnel (or "over" asked for) picks a new formation spot: the same personnel keeps the
@@ -1133,6 +1138,30 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 ))}
               </select>
             </label>
+          )}
+          {/* Back to their base formation as it was drawn: players where the base has them, no lines. */}
+          {seed?.scoutId && !formationMode && onStartFromFormation && canEdit && (
+            <button
+              type="button"
+              disabled={!seed.formationId || !seed.theirFormations?.some((f) => f.id === seed.formationId)}
+              title={
+                seed.formationId && seed.theirFormations?.some((f) => f.id === seed.formationId)
+                  ? 'Put this play back to its base formation (players where you drew the base, lines cleared)'
+                  : 'Draw this play’s formation first (Their plays, step 1), or pick one in Starts from'
+              }
+              onClick={() => {
+                const id = seed.formationId;
+                if (!id) return;
+                const name = seed.theirFormations?.find((f) => f.id === id)?.name || 'its base formation';
+                if ((strokes.length || Object.keys(overrides).length) && !window.confirm(`Reset this play to ${name}? The lines and player moves on it are cleared.`)) return;
+                // Started over: what's on screen now isn't saved on the way out.
+                savedKey.current = stateKeyRef.current;
+                onStartFromFormation(id);
+              }}
+              className="h-11 px-3 rounded-xl border border-slate-300 dark:border-slate-600 text-sm font-black text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-40 disabled:cursor-default shrink-0"
+            >
+              <RotateCcw className="w-4 h-4" /> Reset to base
+            </button>
           )}
           {!compact && !!seed?.snaps?.length && !!seed.gameId && (
             <button
@@ -1331,7 +1360,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               }}
               onReset={() => {
                 setOverrides({});
-                setUserDrew(false);
+                if (!theirPlay) setUserDrew(false);
               }}
               linesFollow={userDrew}
               dense={compact}
