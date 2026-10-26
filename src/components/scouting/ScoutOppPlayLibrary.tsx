@@ -6,6 +6,7 @@ import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { DiagramImage } from '../playbook/DiagramImage';
 import { FormationPlanEditor } from './FormationPlanEditor';
 import { openFilmWindow } from '../../filmroom/filmWindowStore';
+import { formationFromParts } from '../../filmroom/callName';
 import { inferPlayType, playNameKey } from '../../utils/playbookImport';
 import { resolveDiagram, unsavedDiagram } from '../../utils/playDiagrams';
 import { drawCall } from '../../utils/callDiagram';
@@ -433,11 +434,14 @@ export const ScoutOppPlayLibrary: React.FC<{
     const byKey = new Map<string, { name: string; clips: { n: number; call: string; cardId?: string }[] }>();
     for (const p of film) {
       if (p.odk && p.odk !== 'O' && p.odk !== 'UNKNOWN') continue;
-      const name = String(p.formation || '').trim();
+      // The formation the play's name says ("11 Gun Rt Dive" → 11 GUN) comes first, like the rest of Their plays;
+      // else the formation tagged in Hudl.
+      const named = formationFromParts(p.callParts);
+      const name = named || String(p.formation || '').trim();
       if (!name || name === '-') continue;
       const key = formKey(name);
       if (!byKey.has(key)) byKey.set(key, { name, clips: [] });
-      const call = String(p.playCall || '').trim() || realCall(p);
+      const call = String(p.callName || '').trim() || String(p.playCall || '').trim() || realCall(p);
       byKey.get(key)!.clips.push({
         n: Number(p.playNumber) || 0,
         call: call === '-' ? '' : call,
