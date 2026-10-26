@@ -349,6 +349,55 @@ async function listChildren(folderId: string): Promise<{ id: string; name: strin
   return out;
 }
 
+// Browsing Drive to pick the film folder (instead of pasting its link).
+export interface DriveFolderEntry {
+  id: string;
+  name: string;
+  /** Who shared it (Shared with me), or "Shared drive". */
+  note?: string;
+}
+/** Where a coach can start looking: their own Drive, what's shared with them, the team's shared drives. */
+export type DrivePlace = 'root' | 'shared' | 'drives';
+
+async function folderQuery(q: string, extra = ''): Promise<DriveFolderEntry[]> {
+  const out: DriveFolderEntry[] = [];
+  let pageToken = '';
+  do {
+    const res = await driveFetch(
+      `${API}?q=${encodeURIComponent(`${q} and mimeType = '${DRIVE_FOLDER}' and trashed = false`)}&fields=nextPageToken,files(id,name,sharingUser(displayName))&orderBy=name&pageSize=200&${ALL_DRIVES}${extra}${pageToken ? `&pageToken=${pageToken}` : ''}`
+    );
+    const data = await res.json();
+    for (const f of data.files || []) out.push({ id: f.id, name: f.name, ...(f.sharingUser?.displayName ? { note: `Shared by ${f.sharingUser.displayName}` } : {}) });
+    pageToken = data.nextPageToken || '';
+  } while (pageToken && out.length < 1000);
+  return out;
+}
+
+/** The folders in a folder, or at one of the starting places. */
+export async function listDriveFolders(at: string | DrivePlace): Promise<DriveFolderEntry[]> {
+  if (at === 'shared') return folderQuery('sharedWithMe');
+  if (at === 'drives') {
+    const res = await driveFetch('https://www.googleapis.com/drive/v3/drives?pageSize=100&fields=drives(id,name)');
+    return ((await res.json()).drives || []).map((d: any) => ({ id: d.id, name: d.name, note: 'Shared drive' }));
+  }
+  return folderQuery(`'${at === 'root' ? 'root' : at}' in parents`);
+}
+
+/** Folders anywhere the coach can see whose name has these words ("Mahopac Film"). */
+export function searchDriveFolders(text: string): Promise<DriveFolderEntry[]> {
+  const words = text.trim().replace(/['\\]/g, ' ').split(/\s+/).filter(Boolean).slice(0, 4);
+  if (!words.length) return Promise.resolve([]);
+  return folderQuery(words.map((w) => `name contains '${w}'`).join(' and '), '&corpora=allDrives');
+}
+
+/** How many videos are right in a folder (to show a coach they're in the right place). */
+export async function countDriveVideos(folderId: string): Promise<number> {
+  const res = await driveFetch(
+    `${API}?q=${encodeURIComponent(`'${folderId}' in parents and mimeType contains 'video/' and trashed = false`)}&fields=files(id)&pageSize=1000&${ALL_DRIVES}`
+  );
+  return ((await res.json()).files || []).length;
+}
+
 /** The video clips in a Drive folder (or, when it has none, in the folders right inside it). */
 export async function listDriveClips(folderId: string): Promise<FilmClip[]> {
   const children = await listChildren(folderId);

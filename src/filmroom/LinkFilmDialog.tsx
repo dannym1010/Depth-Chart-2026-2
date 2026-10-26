@@ -1,7 +1,8 @@
 // "Link film": where this game's clips are. Nothing is uploaded; the app reads the clips where they are.
 import React, { useRef, useState } from 'react';
 import { Cloud, FolderOpen, Smartphone, X } from 'lucide-react';
-import { canOpenFolders, canPickFolderFiles, driveReady } from './filmSources';
+import { canOpenFolders, canPickFolderFiles, driveReady, driveSignIn } from './filmSources';
+import { DriveFolderPicker } from './DriveFolderPicker';
 
 interface LinkFilmDialogProps {
   gameName: string;
@@ -29,6 +30,9 @@ export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveL
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const drive = driveReady();
+  // Looking through Google Drive for the folder; the link box is the old way (a link already copied).
+  const [browsing, setBrowsing] = useState(false);
+  const [pasting, setPasting] = useState(Boolean(driveLink));
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -66,10 +70,35 @@ export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveL
               <Cloud size={20} className="text-indigo-500 shrink-0 mt-0.5" />
               <div>
                 <div className="text-sm font-bold text-slate-900 dark:text-white">Google Drive folder</div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">Paste the link to the team film folder once. Every game finds its own folder, for every coach.</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  Pick the team film folder once (the one with <b>10U</b> in it). Every game finds its own folder, for every coach.
+                </div>
               </div>
             </div>
-            <div className="flex gap-2">
+            {browsing ? (
+              <DriveFolderPicker busy={busy} onPick={(id) => void run(() => onDrive(`https://drive.google.com/drive/folders/${id}`))} />
+            ) : (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  setError('');
+                  try {
+                    await driveSignIn(); // Google's sign-in window (needs this tap)
+                    setBrowsing(true);
+                  } catch (err: any) {
+                    setError(err?.message || String(err));
+                  }
+                }}
+                className="h-10 rounded-lg bg-indigo-600 text-white text-sm font-bold disabled:opacity-40 cursor-pointer"
+              >
+                Choose from Google Drive
+              </button>
+            )}
+            <button type="button" onClick={() => setPasting((x) => !x)} className="self-start text-[11px] font-bold text-slate-500 dark:text-slate-400 underline cursor-pointer">
+              {pasting ? 'Hide the link box' : 'Or paste a folder link'}
+            </button>
+            {pasting && <div className="flex gap-2">
               <input
                 value={link}
                 onChange={(e) => setLink(e.target.value)}
@@ -84,7 +113,7 @@ export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveL
               >
                 {busy ? 'Linking…' : 'Link'}
               </button>
-            </div>
+            </div>}
           </div>
         )}
 
