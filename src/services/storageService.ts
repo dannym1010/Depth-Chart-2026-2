@@ -11,6 +11,7 @@ import {
   PracticePeriod,
 } from '../types';
 import { pickScoutBundle } from '../utils/scoutMerge';
+import { recordScoutSaves } from '../utils/scoutHistory';
 import { OWN_HUDL_KEY, WEEKLY_HUDL_KEY, bigSet, bigStoreReady, packWeeklyData, unpackWeeklyData } from '../utils/bigLocalStore';
 import { mergeAttendanceLogs, mergeRosters, mergeStaffLists, mergeTombstones } from '../utils/recordMerge';
 import { mergeTeamCoaches } from '../utils/coachNamesMerge';
@@ -156,6 +157,24 @@ export function safeJSONSet(key: string, data: any): boolean {
       return false;
     }
     let value = data;
+    // The safety net: recent versions of every Hudl Scout report, and an alarm when a save loses work.
+    try {
+      if (key === 'footballWeeklyData' && data && typeof data === 'object') {
+        const reports: Record<string, any> = {};
+        for (const [k, week] of Object.entries(data as Record<string, any>)) {
+          const scout = week?.scouting?.hudlScout;
+          if (!scout) continue;
+          // A plain week key ("9") repeats 10U's own ("team_10u__week_9"): watched once.
+          if (!k.includes('__week_') && Object.keys(data).some((s) => s.endsWith(`__week_${k}`))) continue;
+          reports[k] = scout;
+        }
+        recordScoutSaves(reports);
+      } else if (key === 'footballOwnTeamHudlScout' && data && typeof data === 'object') {
+        recordScoutSaves(Object.fromEntries(Object.entries(data as Record<string, any>).map(([team, b]) => [`own:${team}`, b])));
+      }
+    } catch (err) {
+      console.warn('Scout safety net:', err);
+    }
     // Hudl film is kept in the device's larger database (IndexedDB), not in localStorage.
     if (key === 'footballWeeklyData' && data && typeof data === 'object') {
       const { local, film } = packWeeklyData(data, bigStoreReady());
@@ -864,21 +883,24 @@ export async function saveHudlScoutCloud(payload: {
   try {
     const { db } = getFirebaseServices();
     if (db) {
+      // The cloud copy is merged in before saving (play by play, names kept), so one device's stale or empty
+      // copy can't replace the report other coaches (or this coach on another device) saved (Oct 26).
+      const withCloud = async (docId: string, mine: any) => {
+        try {
+          const cloud = await readScoutBundleDocs(db, docId);
+          return cloud ? pickScoutBundle(mine, cloud) : mine;
+        } catch {
+          return mine;
+        }
+      };
       const writes: Promise<any>[] = [];
       if (payload.ownTeamScout) {
-        writes.push(
-          writeScoutBundleDocs(db, hudlOwnDocId(teamId), { teamId, kind: 'own' }, payload.ownTeamScout)
-        );
+        const docId = hudlOwnDocId(teamId);
+        writes.push(withCloud(docId, payload.ownTeamScout).then((b) => writeScoutBundleDocs(db, docId, { teamId, kind: 'own' }, b)));
       }
       if (payload.opponentScout) {
-        writes.push(
-          writeScoutBundleDocs(
-            db,
-            hudlOppDocId(teamId, week),
-            { teamId, week, kind: 'opponent' },
-            payload.opponentScout
-          )
-        );
+        const docId = hudlOppDocId(teamId, week);
+        writes.push(withCloud(docId, payload.opponentScout).then((b) => writeScoutBundleDocs(db, docId, { teamId, week, kind: 'opponent' }, b)));
       }
       if (writes.length) {
         await Promise.all(writes);

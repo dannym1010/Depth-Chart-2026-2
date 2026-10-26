@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Upload, Printer, Plus, X, SlidersHorizontal } from 'lucide-react';
 import { MoreMenu } from '../../components/common/MoreMenu';
+import { openScoutVersions } from '../../components/ScoutSafetyNet';
 
 export type ScoutTarget = 'opponent' | 'own';
 export type ScoutUnit = 'O' | 'D' | 'K' | 'ALL';
@@ -168,6 +169,7 @@ export const Header: React.FC<HeaderProps> = ({
           <MoreMenu
             items={[
               { label: 'Export play log for Hudl', onClick: () => onExportForHudl?.(), hidden: games.length === 0 || !onExportForHudl },
+              { label: 'Saved versions of the reports', onClick: openScoutVersions },
               { label: 'Remove all uploads', onClick: onClearUploads, danger: true, hidden: games.length === 0 },
             ]}
           />

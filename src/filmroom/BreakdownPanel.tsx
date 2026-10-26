@@ -6,7 +6,7 @@ import { playIsUnitTaggable } from '../hudlScout/utils/unitStats';
 import { isBalancedPlay, playStrength } from '../hudlScout/utils/strength';
 import { breakdownRowOf, type BreakdownColumn, type BreakdownRow } from './breakdownEntry';
 import { AiClipAnalyzerModal } from './AiClipAnalyzerModal';
-import { BACKS, HOLES, PASS_CONCEPTS, PERSONNEL, QB_SPOTS, RUN_CONCEPTS, TAGS, customOptions, partsMatch, savedNames, startingParts, withParts } from './callName';
+import { BACKS, HOLES, PASS_CONCEPTS, PERSONNEL, QB_SPOTS, RUN_CONCEPTS, TAGS, customOptions, parseCall, partsMatch, savedNames, startingParts, withParts } from './callName';
 import type { CallParts } from '../hudlScout/types/football';
 
 interface Props {
@@ -450,65 +450,25 @@ const PlayNameFields: React.FC<{
         )}
       </div>
 
-      {/* This film's names: the most used in one click, every one in the list (other games' names under them) */}
+      {/* This film's names, narrowing to the ones with every part picked so far (all games' names until this film has some) */}
       {!readOnly && (filmNames.length > 0 || saved.length > 0) && (() => {
-        const onFilm = new Set(filmNames.map((x) => x.name.toLowerCase()));
-        const others = saved.filter((x) => !onFilm.has(x.name.toLowerCase()));
-        // As parts are picked, the names already made narrow to the ones that have every part picked so far.
+        const pool = filmNames.length ? filmNames : saved;
         const picking = Object.values(parts).some((v) => (Array.isArray(v) ? v.length : v));
-        const matching = picking ? filmNames.filter((x) => partsMatch(x.parts, parts)) : filmNames;
-        const rest = filmNames.filter((x) => !matching.includes(x));
-        const quick = (filmNames.length ? matching : saved).slice(0, 4);
-        const byName = new Map([...filmNames, ...others].map((x) => [x.name, x]));
-        const label = !filmNames.length ? 'Recent' : picking ? `On this film · ${matching.length} match${matching.length === 1 ? '' : 'es'}` : 'On this film';
+        // A name's parts, with any it didn't save (a name typed, or from the AI window) read from the name itself.
+        const partsOf = (x: { name: string; parts: CallParts }): CallParts => {
+          const full: CallParts = { ...parseCall(x.name) };
+          for (const [k, v] of Object.entries(x.parts || {})) if (Array.isArray(v) ? v.length : v) (full as Record<string, unknown>)[k] = v;
+          return full;
+        };
+        const matching = picking ? pool.filter((x) => partsMatch(partsOf(x), parts)) : pool;
+        const where = filmNames.length ? 'On this film' : 'Recent';
         return row(
-          label,
-          <>
-            {quick.map((x) => pill(x.name, x.name === name, () => onChange(x.parts)))}
-            {picking && filmNames.length > 0 && !matching.length && (
-              <span className="text-[11px] text-slate-500 dark:text-slate-400">No named play on this film has these yet: keep picking to make a new one.</span>
-            )}
-            <select
-              value=""
-              aria-label="Every play name on this film"
-              onChange={(e) => {
-                const x = byName.get(e.target.value);
-                if (x) onChange(x.parts);
-              }}
-              className="h-6 max-w-full rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-[11px] font-bold text-indigo-700 dark:text-indigo-300 cursor-pointer"
-            >
-              <option value="">
-                {!filmNames.length ? `All ${saved.length} ▾` : picking && matching.length ? `${matching.length} matching · all ${filmNames.length} ▾` : `All ${filmNames.length} on this film ▾`}
-              </option>
-              {matching.length > 0 && (
-                <optgroup label={picking ? 'Matches what you picked' : 'This film'}>
-                  {matching.map((x) => (
-                    <option key={x.name} value={x.name}>
-                      {x.name} ({x.count})
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              {rest.length > 0 && (
-                <optgroup label="Rest of this film">
-                  {rest.map((x) => (
-                    <option key={x.name} value={x.name}>
-                      {x.name} ({x.count})
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              {others.length > 0 && (
-                <optgroup label="Other games">
-                  {others.map((x) => (
-                    <option key={x.name} value={x.name}>
-                      {x.name} ({x.count})
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
-          </>
+          picking ? `${where} · ${matching.length} match${matching.length === 1 ? '' : 'es'}` : where,
+          matching.length ? (
+            <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">{matching.map((x) => pill(x.name, x.name === name, () => onChange(x.parts)))}</div>
+          ) : (
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">No named play has these yet: keep picking to make a new one.</span>
+          )
         );
       })()}
 

@@ -187,6 +187,7 @@ import { saveCallSheetSnapshot, countCallSheetPlays } from './utils/callSheetSto
 import { ScoutingView } from './components/ScoutingView';
 import { FilmRoomView } from './filmroom/FilmRoomView';
 import { FilmWindowHost } from './filmroom/FilmWindow';
+import { ScoutSafetyNet } from './components/ScoutSafetyNet';
 import { filmWindowAutoOpen, openFilmWindow } from './filmroom/filmWindowStore';
 import { setDefenseRosterSource } from './utils/defenseRosterStore';
 import { setReadOnlySession, setAccessPublisher, syncAccessDoc, requestSignup, listenSignups, clearSignup } from './services/storageService';
@@ -4451,7 +4452,20 @@ export default function App() {
       const sameTeam = (id?: string) =>
         id ? id === activeTeamId || (id.replace('-', '_') === 'team_10u' && activeTeamId.replace('-', '_') === 'team_10u') : isPrimaryTeamId(activeTeamId);
       const games = scheduleEvents.filter((e) => e && (e.type === 'game' || e.type === 'scrimmage') && !e.isCancelled && sameTeam(e.teamId));
-      return seasonWeekOptions.map((w) => {
+      // Scouting reports saved under a week the season doesn't have (a "Week 9" film folder when the season goes
+      // Week 8 then Playoffs): listed too, so their breakdown can be opened (and their week loaded) at all.
+      const seasonKeys = new Set(seasonWeekOptions.map((w) => normalizeWeek(w.key)));
+      const extraWeeks = new Set<string>();
+      for (const key of Object.keys(weeklyData || {})) {
+        const [teamPart, weekPart] = key.includes('__week_') ? key.split('__week_') : [undefined, key];
+        if (!sameTeam(teamPart)) continue;
+        const wk = normalizeWeek(weekPart);
+        if (!wk || seasonKeys.has(wk)) continue;
+        const scout = resolveWeekState(weeklyData, activeTeamId, wk)?.scouting?.hudlScout;
+        if (Array.isArray(scout?.plays) && scout.plays.length) extraWeeks.add(wk);
+      }
+      const extras = [...extraWeeks].map((wk) => ({ key: wk, label: `${/^\d+$/.test(wk) ? `Week ${wk}` : wk} (not on the schedule)` }));
+      return [...seasonWeekOptions, ...extras].map((w) => {
         const st = resolveWeekState(weeklyData, activeTeamId, w.key);
         // The week's game: one with a real opponent over a "TBD" placeholder, the latest edited of those.
         const ev = games
@@ -8907,6 +8921,24 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
             <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">No tabs are turned on for your account yet. Ask your head coach to pick what you can see on the Staff screen.</p>
           </div>
         </div>
+      )}
+
+      {/* Hudl Scout safety net: an alarm with Undo when a save loses play names or plays, and saved versions */}
+      {!isCloudReadOnly() && (
+        <ScoutSafetyNet
+          onRestore={(key, bundle) => {
+            const sameTeam = (t: string) => t === activeTeamId || (t.replace('-', '_') === 'team_10u' && activeTeamId.replace('-', '_') === 'team_10u');
+            if (key.startsWith('own:')) {
+              if (!sameTeam(key.slice(4))) return 'Switch to that team first, then put it back.';
+              persistOwnTeamHudlScout(bundle);
+              return true;
+            }
+            const [team, week] = key.includes('__week_') ? key.split('__week_') : ['team_10u', key];
+            if (!sameTeam(team)) return 'Switch to that team first, then put it back.';
+            persistScoutingForWeek(week, bundle);
+            return true;
+          }}
+        />
       )}
 
       {/* The film window: their film of a play, floating over Their plays and the play builder */}

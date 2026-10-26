@@ -39,6 +39,7 @@ import { OwnTeamReport } from '../playbook/OwnTeamReport';
 import type { FilmPlayerRef, RosterPlayer } from '../../types';
 import { BallRole, WeekBoards, filmLineup, setPlayBallPlayer, setPlayDefPlay, setPlaySub } from '../../utils/filmLineup';
 import { pickScoutBundle, scoutFingerprint } from '../../utils/remoteStateMerge';
+import { markGamesDeleted } from '../../utils/gameTombstones';
 import {
   ScoutBundle,
   DEFAULT_SCOUT_FILTERS as DEFAULT_FILTERS,
@@ -625,6 +626,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       sourceCleared: oppBundle.sourceCleared,
       callSheet: oppBundle.callSheet,
       deletedGameIds: oppBundle.deletedGameIds,
+      deletedGameAt: oppBundle.deletedGameAt,
+      restoredGameAt: oppBundle.restoredGameAt,
       playLibraries: oppBundle.playLibraries,
       deletedOppPlayIds: oppBundle.deletedOppPlayIds,
       practiceScript: oppBundle.practiceScript,
@@ -748,7 +751,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         ...prev,
         plays: tagged,
         // The games this upload replaces stay gone on every coach's device.
-        deletedGameIds: [...new Set([...(prev.deletedGameIds || []), ...prev.games.map((g) => g.id)])],
+        ...markGamesDeleted(prev, prev.games.map((g) => g.id)),
         datasetName: name,
         offensiveScheme: scheme,
         games: [game],

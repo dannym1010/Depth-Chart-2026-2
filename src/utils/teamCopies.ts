@@ -2,6 +2,7 @@
 // Hudl film into it. Those copies are recognised here (exact matches with 10U's), so another team
 // shows as brand new instead of showing 10U's plays.
 import { findSameGame } from '../hudlScout/scoutBundle';
+import { markGamesDeleted } from './gameTombstones';
 
 const clean = (s: unknown) => String(s || '').trim().toUpperCase();
 
@@ -113,7 +114,7 @@ export function withoutCopiedGames(bundle: any, primary: any): any {
     ...bundle,
     games: bundle.games.filter((g: any) => !gone.has(g.id)),
     plays: (bundle.plays || []).filter((p: any) => !gone.has(p?.gameId)),
-    deletedGameIds: [...new Set([...(bundle.deletedGameIds || []), ...gone])],
+    ...markGamesDeleted(bundle, [...gone].map(String)),
   };
 }
 

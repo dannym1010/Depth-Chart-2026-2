@@ -3,7 +3,9 @@
 // whole staff sees. The play log under the video is Hudl Scout's own: sorting it sets the play order, and
 // tags changed here are the same tags Hudl Scout shows.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Copy, ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft, Star, ListVideo, X, MoreHorizontal, Trash2, RotateCcw, Tv, Users } from 'lucide-react';
+import { Copy, ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft, Star, ListVideo, X, MoreHorizontal, Trash2, RotateCcw, Tv, Users, History } from 'lucide-react';
+import { openScoutVersions } from '../components/ScoutSafetyNet';
+import { markGamesDeleted } from '../utils/gameTombstones';
 import { PlaysTable } from '../hudlScout/components/PlaysTable';
 import { assignDrives, bundleFromSaved, copyScoutGame, folderCopies, mergeFolderCopies, removeScoutGame, type ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play, TeamUnit } from '../hudlScout/types/football';
@@ -268,6 +270,9 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     if (madeBreakdown.current.has(game.key)) return;
     const week = game.week || '';
     const w = filmWeeks?.find((x) => x.key === week);
+    // A scouting week this screen hasn't loaded (not this week, not in the season list): its report is unknown
+    // here, so nothing is written (an empty copy would replace its breakdown and play names; Oct 26).
+    if (game.source !== 'own' && week !== currentWeek && !w) return;
     const target = game.source === 'own' ? own : bundleFromSaved(week === currentWeek ? opponentScout : w?.hudlScout, w?.opponent || 'Opponent');
     // Deleted in Hudl Scout: leave it as plain film.
     if (target.games.some((g) => g.id === game.gameId || sameFolderGame(g.id, game.gameId)) || (target.deletedGameIds || []).includes(game.gameId)) return;
@@ -551,14 +556,14 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       : `Remove "${g.name}"${plays ? ` (${plays} plays)` : ''} for every coach? Its breakdown and tags go with it (the video files stay in the folder).`;
     if (!window.confirm(msg)) return;
     const tombstone = (b: ScoutBundle): ScoutBundle =>
-      g.filmOnly ? { ...b, deletedGameIds: [...new Set([...(b.deletedGameIds || []), g.gameId])], updatedAt: Date.now() } : removeScoutGame(b, g.gameId, b.datasetName);
+      g.filmOnly ? { ...b, ...markGamesDeleted(b, [g.gameId]), updatedAt: Date.now() } : removeScoutGame(b, g.gameId, b.datasetName);
     if (g.source === 'own') onUpdateOwnTeamScout(tombstone(own));
     else {
       const week = g.week || currentWeek;
       const w = filmWeeks?.find((x) => x.key === week);
       const saved = week === currentWeek ? opponentScout : w?.hudlScout;
       const next = tombstone(bundleFromSaved(saved, w?.opponent || opponentName || 'Opponent'));
-      const merged = { ...((saved as object) || {}), plays: next.plays, games: next.games, deletedGameIds: next.deletedGameIds, datasetName: next.datasetName, sourceCleared: next.sourceCleared, updatedAt: Date.now() };
+      const merged = { ...((saved as object) || {}), plays: next.plays, games: next.games, deletedGameIds: next.deletedGameIds, deletedGameAt: next.deletedGameAt, datasetName: next.datasetName, sourceCleared: next.sourceCleared, updatedAt: Date.now() };
       if (week === currentWeek) onUpdateScouting('hudlScout', merged);
       else onSaveWeekScouting?.(week, merged);
     }
@@ -1611,6 +1616,12 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                             <><RotateCcw size={14} /> Bring back play names ({lostNames.length})</>,
                             bringBackNames,
                             'Play names missing from these plays, put back from the play cards in Their plays (the clips each card was made from)'
+                          )}
+                        {!locked &&
+                          item(
+                            <><History size={14} /> Saved versions of the reports</>,
+                            openScoutVersions,
+                            'Earlier versions of each Hudl Scout report kept on this device (and the one from just before any play names or plays disappeared), to put one back'
                           )}
                         {film.status === 'ready' && screenSupported() &&
                           item(

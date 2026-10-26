@@ -1,5 +1,6 @@
 // Putting two copies of a Hudl Scout report together (no imports, so the storage layer can use it too).
 import { mergeOppFormations, mergeOppLibraries } from './scoutOppPlays';
+import { mergeGameTombstones } from './gameTombstones';
 
 /** A film's backfield shape: the newer edit wins, per film and per backfield. */
 function mergeBackfieldBases(a?: any, b?: any) {
@@ -81,10 +82,12 @@ export function pickScoutBundle(a?: any, b?: any) {
   const newerT = Math.max(aT, bT);
   const newerPlays = Array.isArray(newer.plays) ? newer.plays : [];
   const olderPlays = Array.isArray(older.plays) ? older.plays : [];
-  const deleted = new Set<string>([
-    ...(Array.isArray(a.deletedGameIds) ? a.deletedGameIds : []),
-    ...(Array.isArray(b.deletedGameIds) ? b.deletedGameIds : []),
-  ]);
+  // Removed games (a game put back from a saved version after its removal counts as not removed).
+  const tomb = mergeGameTombstones(
+    { deletedGameIds: Array.isArray(a.deletedGameIds) ? a.deletedGameIds : [], deletedGameAt: a.deletedGameAt, restoredGameAt: a.restoredGameAt },
+    { deletedGameIds: Array.isArray(b.deletedGameIds) ? b.deletedGameIds : [], deletedGameAt: b.deletedGameAt, restoredGameAt: b.restoredGameAt }
+  );
+  const deleted = tomb.deleted;
   // A newer copy with nothing in it (a device that had not loaded the film yet) never wipes a filled one.
   const newerEmpty = newerPlays.length === 0 && !newer.sourceCleared && !(Array.isArray(newer.games) && newer.games.length);
   if (newerEmpty && olderPlays.length) return older;
@@ -158,7 +161,10 @@ export function pickScoutBundle(a?: any, b?: any) {
     ...(Object.keys(gamePlanCalls).length ? { gamePlanCalls } : {}),
     ...(deletedOpp.length ? { deletedOppPlayIds: deletedOpp } : {}),
     ...(script ? { practiceScript: script } : {}),
-    ...(deleted.size ? { deletedGameIds: [...deleted] } : {}),
+    // (the merged list replaces both copies' lists: a game put back isn't removed again by an older list)
+    deletedGameIds: [...deleted],
+    ...(Object.keys(tomb.deletedGameAt).length ? { deletedGameAt: tomb.deletedGameAt } : {}),
+    ...(Object.keys(tomb.restoredGameAt).length ? { restoredGameAt: tomb.restoredGameAt } : {}),
     sourceCleared: plays.length === 0 && Boolean(newer.sourceCleared || older.sourceCleared),
     updatedAt: Math.max(aT, bT),
   };

@@ -4,6 +4,7 @@ import type { ScoutGame } from './components/Header';
 import { splitTaggedCalls } from './utils/playTags';
 import { parseYardLine } from './utils/csvParser';
 import type { FilmBackfieldBases } from '../utils/filmBackfields';
+import { markGamesDeleted } from '../utils/gameTombstones';
 import type { OppFormation, ScoutOppPlay, ScoutPracticeScript } from '../utils/scoutOppPlays';
 
 export const DEFAULT_SCOUT_FILTERS: FilterState = {
@@ -48,6 +49,9 @@ export interface ScoutBundle {
   callSheet?: CallSheetEdits;
   /** Games a coach removed or replaced, so an older copy can't bring them back. */
   deletedGameIds?: string[];
+  /** When each was removed, and when a removed one was put back from a saved version (the later wins). */
+  deletedGameAt?: Record<string, number>;
+  restoredGameAt?: Record<string, number>;
   /** Opponent plays for each scouting film. Keyed by game id. */
   playLibraries?: Record<string, ScoutOppPlay[]>;
   /** Plays removed from a film's library, so an older copy can't bring them back. */
@@ -93,6 +97,8 @@ export function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
         ? { ...saved.callSheet, sections: saved.callSheet.sections && typeof saved.callSheet.sections === 'object' ? saved.callSheet.sections : {} }
         : undefined,
     deletedGameIds: Array.isArray(saved?.deletedGameIds) ? saved.deletedGameIds : undefined,
+    deletedGameAt: saved?.deletedGameAt && typeof saved.deletedGameAt === 'object' ? saved.deletedGameAt : undefined,
+    restoredGameAt: saved?.restoredGameAt && typeof saved.restoredGameAt === 'object' ? saved.restoredGameAt : undefined,
     playLibraries: saved?.playLibraries && typeof saved.playLibraries === 'object' ? saved.playLibraries : {},
     deletedOppPlayIds: Array.isArray(saved?.deletedOppPlayIds) ? saved.deletedOppPlayIds : [],
     practiceScript: saved?.practiceScript && typeof saved.practiceScript === 'object' ? saved.practiceScript : undefined,
@@ -103,7 +109,7 @@ export function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
 }
 
 export function removeScoutGame(bundle: ScoutBundle, gameId: string, fallbackName: string): ScoutBundle {
-  const deletedGameIds = [...new Set([...(bundle.deletedGameIds || []), gameId])];
+  const { deletedGameIds, deletedGameAt } = markGamesDeleted(bundle, [gameId]);
   const remainingGames = bundle.games.filter((g) => g.id !== gameId);
   const remainingPlays = bundle.plays.filter((p) => {
     if (p.gameId) return p.gameId !== gameId;
@@ -118,12 +124,14 @@ export function removeScoutGame(bundle: ScoutBundle, gameId: string, fallbackNam
       filters: DEFAULT_SCOUT_FILTERS,
       sourceCleared: true,
       deletedGameIds,
+      deletedGameAt,
       updatedAt: Date.now(),
     };
   }
   return {
     ...bundle,
     deletedGameIds,
+    deletedGameAt,
     plays: remainingPlays,
     games: remainingGames.map((g) => ({
       ...g,
@@ -145,7 +153,7 @@ export function removeScoutGame(bundle: ScoutBundle, gameId: string, fallbackNam
 export function clearScoutUploads(bundle: ScoutBundle, fallbackName: string): ScoutBundle {
   return {
     ...bundle,
-    deletedGameIds: [...new Set([...(bundle.deletedGameIds || []), ...bundle.games.map((g) => g.id)])],
+    ...markGamesDeleted(bundle, bundle.games.map((g) => g.id)),
     plays: [],
     games: [],
     datasetName: fallbackName,
