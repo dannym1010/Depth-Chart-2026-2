@@ -30,7 +30,7 @@ import { peekPlayBuilderSeed, savePlayBuilderSeed, type PlayBuilderSeed } from '
 import { PlayBuilderSection } from '../components/playbook/PlayBuilderSection';
 import { FilmPlayer, type PlayerApi } from './FilmPlayer';
 import { LinkFilmDialog } from './LinkFilmDialog';
-import { FilmLibrary, buildLibrary, type LibraryGame } from './FilmLibrary';
+import { FilmLibrary, buildLibrary, type LibraryGame, type ScheduledGame } from './FilmLibrary';
 import { PlayNotes } from './PlayNotes';
 import { playTitle } from './playText';
 import { filmGameKey } from './sharedMerge';
@@ -70,7 +70,7 @@ interface FilmRoomViewProps {
   weekBoards?: (week: string) => WeekBoards;
   weekOptions?: { key: string; label: string }[];
   /** Every week of the season: its opponent and scouting film (for the film library). */
-  filmWeeks?: { key: string; label: string; opponent: string; hudlScout?: any }[];
+  filmWeeks?: { key: string; label: string; opponent: string; hudlScout?: any; scheduled?: ScheduledGame }[];
   /** Switch the app to a week (opening another week's scouting film). */
   onSelectWeek?: (week: string) => void;
   /** Save a week's scouting film (a breakdown file found in that week's folder). */
@@ -147,7 +147,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     if (!family) return all;
     // A family account sees our games, not the scouting film.
     const ours = <T extends { source: string }>(list: T[]) => list.filter((g) => g.source === 'own');
-    return { weeks: all.weeks.map((w) => ({ ...w, games: ours(w.games) })).filter((w) => w.games.length), others: ours(all.others), hidden: [] };
+    return { weeks: all.weeks.map((w) => ({ ...w, games: ours(w.games) })).filter((w) => w.games.length), others: ours(all.others) };
   }, [filmWeeks, own.games, own.deletedGameIds, opponentScout, currentWeek, filmFolders.games, family]);
   const filmOnlyGames = useMemo(() => [...library.weeks.flatMap((w) => w.games), ...library.others].filter((g) => g.filmOnly), [library]);
 
@@ -563,17 +563,6 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       else onSaveWeekScouting?.(week, merged);
     }
     if (game?.key === g.key) setGameKey(undefined);
-  };
-  /** A film folder a coach removed from the library: listed again (the tombstone taken off, for every coach). */
-  const restoreFolder = (f: FilmFolderGame) => {
-    if (locked) return;
-    const untomb = (ids?: string[]) => (ids || []).filter((id) => id !== f.id);
-    if (f.source === 'own') return onUpdateOwnTeamScout({ ...own, deletedGameIds: untomb(own.deletedGameIds), updatedAt: Date.now() });
-    const w = filmWeeks?.find((x) => x.key === f.week);
-    const saved = (f.week === currentWeek ? opponentScout : w?.hudlScout) as { deletedGameIds?: string[] } | undefined;
-    const merged = { ...((saved as object) || {}), deletedGameIds: untomb(saved?.deletedGameIds), updatedAt: Date.now() };
-    if (f.week === currentWeek) onUpdateScouting('hudlScout', merged);
-    else onSaveWeekScouting?.(f.week, merged);
   };
 
   // Scouting film of another week used for this one: copied into that week's report, from either team's side.
@@ -1252,8 +1241,6 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       folderNeedsTap={breakdowns.localBlocked}
       lastCheck={breakdowns.lastCheck}
       unplaced={filmFolders.unplaced}
-      hidden={library.hidden}
-      onRestoreFolder={locked || family ? undefined : restoreFolder}
       onRemove={locked || family ? undefined : removeGame}
     />
   );

@@ -12,6 +12,16 @@ export interface LibraryGame extends FilmGame {
   note?: string;
   /** Film in the film folder with no Hudl breakdown yet. */
   filmOnly?: boolean;
+  /** Our game on the schedule that week, with no film or breakdown yet (open it to link its film). */
+  scheduled?: boolean;
+}
+
+/** A week's game on the team schedule. */
+export interface ScheduledGame {
+  id: string;
+  title: string;
+  opponent: string;
+  date?: string;
 }
 
 /** Scouting games of a week as Hudl Scout lists them (one unnamed game when the file had no list). */
@@ -26,7 +36,7 @@ function scoutGamesOf(saved: any, opponent: string): { id: string; name: string;
  * games with no week. A scouting game filed in more than one week is flagged in each.
  */
 export function buildLibrary(
-  weeks: { key: string; label: string; opponent: string; hudlScout?: any }[],
+  weeks: { key: string; label: string; opponent: string; hudlScout?: any; scheduled?: ScheduledGame }[],
   ownGames: { id: string; name: string; week?: string; playCount?: number }[],
   currentWeek: string,
   currentOpponentScout?: unknown,
@@ -34,7 +44,7 @@ export function buildLibrary(
   filmFolders: FilmFolderGame[] = [],
   /** Our games a coach removed (film folders among them stay out of the library). */
   ownDeletedIds: string[] = []
-): { weeks: LibraryWeek[]; others: LibraryGame[]; hidden: HiddenFolder[] } {
+): { weeks: LibraryWeek[]; others: LibraryGame[] } {
   const weekKeys = new Set(weeks.map((w) => w.key));
   const ownByWeek = new Map<string, LibraryGame[]>();
   const others: LibraryGame[] = [];
@@ -92,12 +102,8 @@ export function buildLibrary(
       if (games.length >= folders.length) folders.forEach((f) => claimed.has(f.id) || claimed.set(f.id, games.map((g) => g.name).join(' / ')));
     }
   }
-  const hidden: HiddenFolder[] = [];
   for (const f of filmFolders) {
-    if (removed(f)) {
-      hidden.push({ folder: f, reason: 'removed' });
-      continue;
-    }
+    if (removed(f)) continue;
     const w = libWeeks.find((x) => x.key === f.week);
     const game: LibraryGame = {
       key: filmGameKey(f.source, f.id, f.week),
@@ -112,24 +118,29 @@ export function buildLibrary(
       if (!others.some((g) => g.key === game.key)) others.push(game);
       continue;
     }
-    const by = claimed.get(f.id);
-    if (by !== undefined) {
-      // A game made from this very folder is listed under its own key; only a different game is worth saying.
-      if (!w.games.some((g) => g.key === game.key || sameFolderGame(f.id, g.gameId))) hidden.push({ folder: f, reason: 'claimed', by });
-      continue;
-    }
+    if (claimed.has(f.id)) continue;
     if (!w.games.some((g) => g.key === game.key)) w.games.push(game);
   }
-  return { weeks: libWeeks, others, hidden };
-}
-
-/** A game folder with film that the library doesn't list on its own, and why. */
-export interface HiddenFolder {
-  folder: FilmFolderGame;
-  /** removed: a coach removed it from the library; claimed: a game of that week already stands for it. */
-  reason: 'removed' | 'claimed';
-  /** The game (or games) that stands for it. */
-  by?: string;
+  // A week with a game on the schedule and none of ours yet: that game, so its film can be linked. It works like
+  // film with no breakdown (each clip a play), under a fixed id from the schedule.
+  weeks.forEach((wk, i) => {
+    const s = wk.scheduled;
+    const w = libWeeks[i];
+    if (!s || !w || w.games.some((g) => g.source === 'own')) return;
+    const id = `sched-${s.id}`;
+    if (ownDeletedIds.includes(id)) return;
+    w.games.unshift({
+      key: filmGameKey('own', id),
+      source: 'own',
+      gameId: id,
+      name: s.opponent ? `${w.label} - ${s.opponent}` : s.title || w.label,
+      week: w.key,
+      plays: 0,
+      filmOnly: true,
+      scheduled: true,
+    });
+  });
+  return { weeks: libWeeks, others };
 }
 
 export interface LibraryWeek {
@@ -158,10 +169,6 @@ interface FilmLibraryProps {
   folderNeedsTap?: boolean;
   /** What the last check of the film folder found, and where it looked. */
   lastCheck?: { at: number; from: string[]; games: string[] } | null;
-  /** Game folders with film the library doesn't list, and why. */
-  hidden?: HiddenFolder[];
-  /** List a removed film folder again. */
-  onRestoreFolder?: (f: FilmFolderGame) => void;
   /** Folders with film in them that couldn't be placed in the season, and why. */
   unplaced?: UnplacedFolder[];
   /** Remove a game from the library (and Hudl Scout); the video files stay where they are. */
@@ -170,7 +177,7 @@ interface FilmLibraryProps {
 
 const norm = (s: string) => String(s || '').toLowerCase();
 
-export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library', weeks, otherGames, currentWeek, selectedKey, onOpen, onClose, added, checking, onCheckFolder, folderNeedsTap, lastCheck, hidden, onRestoreFolder, unplaced, onRemove }) => {
+export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library', weeks, otherGames, currentWeek, selectedKey, onOpen, onClose, added, checking, onCheckFolder, folderNeedsTap, lastCheck, unplaced, onRemove }) => {
   const [query, setQuery] = useState('');
   // Our games, scouting, or both (shown only when there are both kinds).
   const [kind, setKind] = useState<'all' | 'own' | 'opponent'>('all');
@@ -204,7 +211,7 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library'
           className={`w-full text-left flex items-center gap-2.5 pl-2 pr-8 py-2 rounded-xl transition-colors ${
             on ? 'bg-indigo-50 dark:bg-indigo-500/15 ring-1 ring-indigo-200 dark:ring-indigo-500/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800/70'
           }`}
-          title={g.filmOnly ? 'Film in the film folder with no breakdown yet: each clip is a play' : own ? 'Our game' : 'Scouting film'}
+          title={g.scheduled ? 'Our scheduled game: open it and link its film' : g.filmOnly ? 'Film in the film folder with no breakdown yet: each clip is a play' : own ? 'Our game' : 'Scouting film'}
         >
           {on && <span className="absolute left-0 top-2 bottom-2 w-1 rounded-full bg-indigo-500" aria-hidden />}
           <span
@@ -218,7 +225,7 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library'
             <span className={`block truncate text-[13px] font-bold ${on ? 'text-indigo-900 dark:text-white' : 'text-slate-800 dark:text-slate-100'}`}>{g.name}</span>
             <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
               <span className="truncate">
-                {own ? 'Our game' : 'Scouting'} · {g.filmOnly ? 'film, no breakdown yet' : `${g.plays} play${g.plays === 1 ? '' : 's'}`}
+                {own ? 'Our game' : 'Scouting'} · {g.scheduled ? 'on the schedule, no film yet' : g.filmOnly ? 'film, no breakdown yet' : `${g.plays} play${g.plays === 1 ? '' : 's'}`}
               </span>
               {g.note && (
                 <span className="shrink-0 inline-flex items-center gap-0.5 px-1.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300 text-[10px] font-bold" title={g.note}>
@@ -349,35 +356,6 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library'
               ))}
             </ul>
             <p className="mt-1.5 opacity-80">Rename a folder to start with its week (for example &quot;Week 3 - Shrub Oak&quot;) and check the film folder again.</p>
-          </div>
-        )}
-        {hidden && hidden.length > 0 && (
-          <div className="mx-1 mt-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-2.5 py-2 text-[11px] text-slate-700 dark:text-slate-300">
-            <div className="flex items-center gap-1 font-black">
-              <AlertTriangle size={12} /> Film folders not listed ({hidden.length})
-            </div>
-            <ul className="mt-1 space-y-1.5">
-              {hidden.map((h) => (
-                <li key={h.folder.id} className="flex items-start gap-2">
-                  <span className="flex-1 min-w-0">
-                    <span className="font-bold">{h.folder.path.slice(1).join(' › ')}</span>
-                    <span className="block opacity-80">
-                      {h.reason === 'removed'
-                        ? 'Removed from the library by a coach.'
-                        : `Week ${h.folder.week}'s game "${h.by}" already stands for it; open that game to watch this film.`}
-                    </span>
-                  </span>
-                  {h.reason === 'removed' && onRestoreFolder && (
-                    <button
-                      onClick={() => onRestoreFolder(h.folder)}
-                      className="shrink-0 h-6 px-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-bold"
-                    >
-                      Show it again
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
           </div>
         )}
         {onCheckFolder && folderNeedsTap && !checking && (

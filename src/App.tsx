@@ -192,6 +192,7 @@ import { setDefenseRosterSource } from './utils/defenseRosterStore';
 import { setReadOnlySession, setAccessPublisher, syncAccessDoc, requestSignup, listenSignups, clearSignup } from './services/storageService';
 import { DEFAULT_PLAYER_TABS, accountTabs, defaultTabsFor, firstPlayerScreen, isFamilyRole, isViewOnlyRole, playerCanSee } from './utils/playerAccess';
 import { buildLibrary } from './filmroom/FilmLibrary';
+import { normalizeWeek } from './filmroom/folderRoutes';
 import { bundleFromSaved } from './hudlScout/scoutBundle';
 import { DEFAULT_BALANCED, setBalancedFormations } from './hudlScout/utils/strength';
 import { setDefenseAlignmentSaver, setDefenseFrontSaver, setDefenseSystem } from './hudlScout/utils/ourDefense';
@@ -4443,15 +4444,30 @@ export default function App() {
     () => getSeasonWeekList(seasonConfig).map((w) => ({ key: w.key, label: w.label || formatWeekLabel(w.key, seasonConfig) })),
     [seasonConfig]
   );
-  // Film Room library: every week's opponent and scouting film for the team on screen.
+  // Film Room library: every week's opponent and scouting film for the team on screen, and the game on the
+  // schedule that week (listed even before it has film, so its film can be linked).
   const filmWeeks = useMemo(
-    () =>
-      seasonWeekOptions.map((w) => {
+    () => {
+      const sameTeam = (id?: string) =>
+        id ? id === activeTeamId || (id.replace('-', '_') === 'team_10u' && activeTeamId.replace('-', '_') === 'team_10u') : isPrimaryTeamId(activeTeamId);
+      const games = scheduleEvents.filter((e) => e && (e.type === 'game' || e.type === 'scrimmage') && !e.isCancelled && sameTeam(e.teamId));
+      return seasonWeekOptions.map((w) => {
         const st = resolveWeekState(weeklyData, activeTeamId, w.key);
-        return { key: w.key, label: w.label, opponent: st?.opponent || st?.scouting?.opponent || '', hudlScout: st?.scouting?.hudlScout };
-      }),
+        // The week's game: one with a real opponent over a "TBD" placeholder, the latest edited of those.
+        const ev = games
+          .filter((e) => normalizeWeek(e.week) === normalizeWeek(w.key))
+          .sort((a, b) => Number(/^\s*(tbd|tba)?\s*$/i.test(a.opponent || '')) - Number(/^\s*(tbd|tba)?\s*$/i.test(b.opponent || '')) || (b.lastEdited || 0) - (a.lastEdited || 0))[0];
+        return {
+          key: w.key,
+          label: w.label,
+          opponent: st?.opponent || st?.scouting?.opponent || ev?.opponent || '',
+          hudlScout: st?.scouting?.hudlScout,
+          ...(ev ? { scheduled: { id: ev.id, title: ev.title, opponent: ev.opponent || '', date: ev.date } } : {}),
+        };
+      });
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [seasonWeekOptions, weeklyData, activeTeamId]
+    [seasonWeekOptions, weeklyData, activeTeamId, scheduleEvents]
   );
   const gradeWeekKey = getPreviousWeekKey(currentWeek, seasonWeekOptions.map((w) => w.key));
   // Other coaches' PFF grades for the graded week arrive live.
