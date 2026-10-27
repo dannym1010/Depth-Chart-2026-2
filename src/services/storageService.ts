@@ -916,6 +916,31 @@ export async function saveHudlScoutCloud(payload: {
 }
 
 
+/**
+ * Every week this team has an opponent scouting report saved in the cloud, with when it was last saved.
+ * A device only fetches the week on screen, so a week it never opened (one off the schedule, like a "Week 9"
+ * folder in a season that goes Week 8 then Playoffs) would otherwise never reach it.
+ */
+export async function listHudlScoutCloudWeeks(teamId: string): Promise<Array<{ week: string; updatedAt: number }>> {
+  if (isFirestoreQuotaPaused()) return [];
+  try {
+    const { db } = getFirebaseServices();
+    if (!db || typeof db.collection !== 'function') return [];
+    const snap = await db.collection('teamData').where('kind', '==', 'opponent').get();
+    const out: Array<{ week: string; updatedAt: number }> = [];
+    snap.forEach((doc: any) => {
+      const d = doc.data() || {};
+      if (!d.week || doc.id !== hudlOppDocId(teamId, String(d.week))) return;
+      out.push({ week: String(d.week), updatedAt: Number(d.updatedAt) || 0 });
+    });
+    return out;
+  } catch (err) {
+    noteFirestoreError(err);
+    console.warn('listHudlScoutCloudWeeks error:', err);
+    return [];
+  }
+}
+
 export async function fetchHudlScoutCloud(
   teamId: string,
   week: string

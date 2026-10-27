@@ -3,7 +3,7 @@ import { mergeOppFormations, mergeOppLibraries } from './scoutOppPlays';
 import { mergeGameTombstones } from './gameTombstones';
 
 /** A film's backfield shape: the newer edit wins, per film and per backfield. */
-function mergeBackfieldBases(a?: any, b?: any) {
+export function mergeBackfieldBases(a?: any, b?: any) {
   const games = new Set([...Object.keys(a || {}), ...Object.keys(b || {})]);
   const out: Record<string, Record<string, any>> = {};
   for (const gameId of games) {

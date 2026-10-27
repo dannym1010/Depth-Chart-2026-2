@@ -130,3 +130,41 @@ export async function moveSharedNotes(teamId: string, fromKey: string, toKey: st
   }
   return moved;
 }
+
+/**
+ * A game moved to another week (an opponent's film is kept by week): everything coaches added to it (notes,
+ * drawings, clip picks, its folder) copied onto its key in that week, merged with anything already there.
+ * Returns whether there was anything to copy.
+ */
+export async function copySharedGame(teamId: string, fromKey: string, toKey: string): Promise<boolean> {
+  const fromId = sharedDocId(teamId, fromKey);
+  const toId = sharedDocId(teamId, toKey);
+  let from: FilmGameShared = safeJSONParse(cacheKey(fromId), emptyShared());
+  const { db } = getFirebaseServices();
+  const online = Boolean(db) && !isFirestoreQuotaPaused();
+  if (online) {
+    try {
+      const snap = await db.collection('teamData').doc(fromId).get();
+      if (snap?.exists) from = mergeShared(from, snap.data());
+    } catch (err) {
+      console.warn('Reading Film Room notes to move:', err);
+    }
+  }
+  const empty = !from.notes.length && !Object.keys(from.drawings || {}).length && !from.drive && !from.folderPick && !from.clipPicks && !from.removedClips;
+  if (empty) return false;
+  const local = mergeShared(safeJSONParse(cacheKey(toId), emptyShared()), from);
+  safeJSONSet(cacheKey(toId), local);
+  if (online && !isReadOnlySession()) {
+    const ref = db.collection('teamData').doc(toId);
+    try {
+      await db.runTransaction(async (tx: any) => {
+        const snap = await tx.get(ref);
+        const merged = mergeShared(snap?.exists ? snap.data() : undefined, local);
+        tx.set(ref, cleanFirestoreData({ ...merged, teamId, gameKey: toKey, updatedAt: Date.now() }));
+      });
+    } catch (err) {
+      console.warn('Could not move Film Room notes:', err);
+    }
+  }
+  return true;
+}

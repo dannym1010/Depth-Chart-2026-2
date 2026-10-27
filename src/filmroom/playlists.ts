@@ -184,3 +184,23 @@ export function moveItem(list: FilmPlaylist, from: number, to: number): FilmPlay
   items.splice(to, 0, it);
   return { ...list, items };
 }
+
+/**
+ * Plays of games moved to another week (their keys name the week): pointed at the week they're in now.
+ * `keys` maps each old game key to its new one. A favorite's id holds the game key, so it's starred again
+ * under the new key and the old one is taken off.
+ */
+export function moveListsGames(lists: FilmLists, keys: Map<string, string>, toWeek: string, now = Date.now()): FilmLists {
+  const moved = <T extends ClipRef>(r: T): T => (keys.has(r.gameKey) ? { ...r, gameKey: keys.get(r.gameKey)!, week: toWeek } : r);
+  const playlists = lists.playlists.map((pl) =>
+    pl.items.some((i) => keys.has(i.gameKey)) ? { ...pl, items: pl.items.map(moved), editedAt: now } : pl
+  );
+  const deletedFavorites = { ...lists.deletedFavorites };
+  const favorites = lists.favorites.map((f) => {
+    if (!keys.has(f.gameKey)) return f;
+    deletedFavorites[f.id] = now;
+    const next = moved(f);
+    return { ...next, id: favoriteId(f.user, next), editedAt: now };
+  });
+  return { ...lists, playlists, favorites, deletedFavorites };
+}

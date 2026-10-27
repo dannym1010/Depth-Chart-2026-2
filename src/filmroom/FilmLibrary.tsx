@@ -36,7 +36,7 @@ function scoutGamesOf(saved: any, opponent: string): { id: string; name: string;
  * games with no week. A scouting game filed in more than one week is flagged in each.
  */
 export function buildLibrary(
-  weeks: { key: string; label: string; opponent: string; hudlScout?: any; scheduled?: ScheduledGame }[],
+  weeks: { key: string; label: string; opponent: string; hudlScout?: any; scheduled?: ScheduledGame; offSchedule?: boolean }[],
   ownGames: { id: string; name: string; week?: string; playCount?: number }[],
   currentWeek: string,
   currentOpponentScout?: unknown,
@@ -57,6 +57,7 @@ export function buildLibrary(
     key: w.key,
     label: w.label,
     opponent: w.opponent,
+    ...(w.offSchedule ? { offSchedule: true } : {}),
     games: [
       ...(ownByWeek.get(w.key) || []),
       ...scoutGamesOf((w.key === currentWeek && currentOpponentScout) || w.hudlScout, w.opponent).map((g) => ({
@@ -147,6 +148,8 @@ export interface LibraryWeek {
   key: string;
   label: string;
   opponent: string;
+  /** A week with scouting saved under it that the season doesn't have (a "Week 9" folder). */
+  offSchedule?: boolean;
   games: LibraryGame[];
 }
 
@@ -173,11 +176,84 @@ interface FilmLibraryProps {
   unplaced?: UnplacedFolder[];
   /** Remove a game from the library (and Hudl Scout); the video files stay where they are. */
   onRemove?: (g: LibraryGame) => void;
+  /** Move a week off the schedule to one of these season weeks (its report, notes, playlists and folders). */
+  onMoveWeek?: (fromWeek: string, toWeek: string) => Promise<void>;
+  moveTargets?: { key: string; label: string }[];
 }
 
 const norm = (s: string) => String(s || '').toLowerCase();
 
-export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library', weeks, otherGames, currentWeek, selectedKey, onOpen, onClose, added, checking, onCheckFolder, folderNeedsTap, lastCheck, unplaced, onRemove }) => {
+/** A week the season doesn't have: move everything in it to a season week (Playoffs, most often). */
+const MoveWeek: React.FC<{ week: LibraryWeek; targets: { key: string; label: string }[]; onMove: (from: string, to: string) => Promise<void> }> = ({ week, targets, onMove }) => {
+  const [open, setOpen] = useState(false);
+  const [to, setTo] = useState(() => targets.find((t) => t.key === 'playoffs')?.key || '');
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const short = week.label.replace(/\s*\(not on the schedule\)$/, '');
+  const toLabel = targets.find((t) => t.key === to)?.label || '';
+  if (!open) {
+    return (
+      <div className="mx-2 mb-1 flex items-center gap-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 px-2 py-1.5 text-[11px] text-amber-900 dark:text-amber-200">
+        <span className="min-w-0 flex-1">This week isn't on the season schedule.</span>
+        <button onClick={() => setOpen(true)} className="shrink-0 px-2 py-1 pointer-coarse:py-2 rounded-md bg-amber-600 hover:bg-amber-700 text-white font-bold">
+          Move to a week…
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div role="dialog" aria-label={`Move ${short}`} className="mx-2 mb-1 space-y-1.5 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/40 px-2.5 py-2 text-[11px] text-amber-950 dark:text-amber-100">
+      <label className="flex flex-wrap items-center gap-2">
+        <span className="font-black">Move everything in {short} to</span>
+        <select
+          aria-label="Week to move to"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          className="h-8 rounded-md border border-amber-300 dark:border-amber-500/40 bg-white dark:bg-slate-900 px-2 font-bold"
+        >
+          <option value="">Pick a week…</option>
+          {targets.map((t) => (
+            <option key={t.key} value={t.key}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {to && (
+        <p className="leading-snug">
+          The breakdown, play names, their plays and formations, notes, drawings and playlists go to {toLabel}, for every coach. Film
+          folders named &ldquo;{short}&rdquo; count as {toLabel} from now on (no need to rename them). {short} is emptied.
+        </p>
+      )}
+      {failed && <p className="font-bold text-rose-700 dark:text-rose-300">That didn't finish. Nothing was lost; try again.</p>}
+      <div className="flex items-center gap-2">
+        <button
+          disabled={!to || busy}
+          onClick={async () => {
+            setBusy(true);
+            setFailed(false);
+            try {
+              await onMove(week.key, to);
+            } catch (err) {
+              console.warn('Moving a week:', err);
+              setFailed(true);
+            } finally {
+              setBusy(false);
+            }
+          }}
+          className="px-2.5 py-1 pointer-coarse:py-2 rounded-md bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold"
+        >
+          {busy ? 'Moving…' : toLabel ? `Move to ${toLabel}` : 'Move'}
+        </button>
+        <button onClick={() => setOpen(false)} disabled={busy} className="px-2 py-1 pointer-coarse:py-2 rounded-md font-bold text-amber-900 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-500/20">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library', weeks, otherGames, currentWeek, selectedKey, onOpen, onClose, added, checking, onCheckFolder, folderNeedsTap, lastCheck, unplaced, onRemove, onMoveWeek, moveTargets = [] }) => {
   const [query, setQuery] = useState('');
   // Our games, scouting, or both (shown only when there are both kinds).
   const [kind, setKind] = useState<'all' | 'own' | 'opponent'>('all');
@@ -324,6 +400,7 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library'
                 {w.opponent && <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 truncate">· {w.opponent}</span>}
                 {now && <span className="ml-auto shrink-0 px-1.5 py-0.5 rounded-full bg-indigo-600 text-white text-[9px] font-black uppercase tracking-wide">This week</span>}
               </div>
+              {w.offSchedule && onMoveWeek && moveTargets.length > 0 && <MoveWeek week={w} targets={moveTargets} onMove={onMoveWeek} />}
               {w.games.length ? (
                 <div className="space-y-0.5">{w.games.map(row)}</div>
               ) : (

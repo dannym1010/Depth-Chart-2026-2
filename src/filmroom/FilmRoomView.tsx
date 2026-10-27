@@ -43,11 +43,11 @@ import { canOpenFolders } from './filmSources';
 import { openVideoScreen, screenSupported, screenUrl, useVideoScreenSender } from './screenLink';
 import { namesFromCards } from '../utils/scoutOppPlays';
 import { parseCall } from './callName';
-import { moveSharedNotes, useSharedGame } from './useSharedGame';
+import { copySharedGame, moveSharedNotes, useSharedGame } from './useSharedGame';
 import { readBreakdown, useFolderBreakdowns } from './folderImport';
 import { AddToPlaylistMenu, PlayListActions, PlaylistsPanel, type Person } from './PlaylistsPanel';
 import { useFilmLists } from './useFilmLists';
-import { isFavorite, playInfo, toggleFavorite, type ClipRef, type PlayInfo } from './playlists';
+import { isFavorite, moveListsGames, playInfo, toggleFavorite, type ClipRef, type PlayInfo } from './playlists';
 
 interface FilmRoomViewProps {
   teamId: string;
@@ -72,11 +72,13 @@ interface FilmRoomViewProps {
   weekBoards?: (week: string) => WeekBoards;
   weekOptions?: { key: string; label: string }[];
   /** Every week of the season: its opponent and scouting film (for the film library). */
-  filmWeeks?: { key: string; label: string; opponent: string; hudlScout?: any; scheduled?: ScheduledGame }[];
+  filmWeeks?: { key: string; label: string; opponent: string; hudlScout?: any; scheduled?: ScheduledGame; offSchedule?: boolean }[];
   /** Switch the app to a week (opening another week's scouting film). */
   onSelectWeek?: (week: string) => void;
   /** Save a week's scouting film (a breakdown file found in that week's folder). */
   onSaveWeekScouting?: (week: string, hudlScout: any) => void;
+  /** Move a whole week's scouting to another week (and its film folders with it). Returns the games moved. */
+  onMoveWeek?: (fromWeek: string, toWeek: string) => Promise<{ gameIds: string[]; plays: number }>;
   /** Leave a cutup of one play and return to the play builder. */
   onBackToPlay?: () => void;
   /** The play builder beside the video ("Watch film" from the builder): who may save, saving, renaming. */
@@ -107,7 +109,7 @@ const newId = () => `fn_${Date.now().toString(36)}${Math.random().toString(36).s
 export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   teamId, teamName, currentWeek, weekLabel, opponentName, opponentScout, ownTeamScout, authorName, onOpenHudlGame,
   onUpdateOwnTeamScout, onUpdateScouting, playDatabase, onUpdatePlayDatabase, roster, weekBoards, weekOptions,
-  filmWeeks, onSelectWeek, onSaveWeekScouting, onBackToPlay, builderCanEdit, onSaveBuilderPlay, onRenameScoutPlay, onSaveFilmBackfield, onDrawSnap, onDrawFormation,
+  filmWeeks, onSelectWeek, onSaveWeekScouting, onMoveWeek, onBackToPlay, builderCanEdit, onSaveBuilderPlay, onRenameScoutPlay, onSaveFilmBackfield, onDrawSnap, onDrawFormation,
   isProgramAdmin = false,
   viewOnly = false,
   family = false,
@@ -783,6 +785,23 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const filmLists = useFilmLists(teamId);
   const me = userEmail.toLowerCase().trim();
   const canList = Boolean(me) && !locked;
+
+  // A week off the schedule moved to a season week: its report (App), then each game's notes and drawings and
+  // the playlists' plays, which are kept by the week an opponent's film is in.
+  const moveWeek = async (fromWeek: string, toWeek: string) => {
+    if (!onMoveWeek) return;
+    const { gameIds, plays } = await onMoveWeek(fromWeek, toWeek);
+    if (!gameIds.length) return;
+    const keys = new Map(gameIds.map((id) => [filmGameKey('opponent', id, fromWeek), filmGameKey('opponent', id, toWeek)]));
+    for (const [from, to] of keys) await copySharedGame(teamId, from, to);
+    filmLists.update((l) => moveListsGames(l, keys, toWeek));
+    const open = game && keys.get(game.key);
+    if (open) setGameKey(open);
+    const label = weekOptions?.find((x) => x.key === toWeek)?.label || toWeek;
+    setImportNote(`Moved ${gameIds.length} game${gameIds.length === 1 ? '' : 's'} (${plays} plays) to ${label}`);
+    window.setTimeout(() => setImportNote(''), 6000);
+    void breakdowns.checkNow();
+  };
   const clipRefOf = (p: Play): ClipRef | undefined =>
     game
       ? {
@@ -1247,6 +1266,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       lastCheck={breakdowns.lastCheck}
       unplaced={filmFolders.unplaced}
       onRemove={locked || family ? undefined : removeGame}
+      onMoveWeek={locked || family || !onMoveWeek ? undefined : moveWeek}
+      moveTargets={weekOptions}
     />
   );
   const builderEl = builderSeed ? (

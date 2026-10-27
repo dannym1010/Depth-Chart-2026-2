@@ -8,6 +8,7 @@ import { autoDetectColumnMapping, isSpreadsheetFilename, normalizeHudlRow, parse
 import { autoTagFromHudl } from '../hudlScout/utils/playTags';
 import type { PlayDatabaseEntry } from '../types/callSheet';
 import { findBreakdowns, findFilmFolders, sameFolderGame, type FilmFolderGame, type FolderNode, type UnplacedFolder } from './folderRoutes';
+import { sameGamePlays } from '../utils/weekMove';
 
 /** A breakdown file's plays, read the same way as a Hudl Scout upload. */
 export async function readBreakdown(name: string, blob: Blob): Promise<Play[]> {
@@ -123,6 +124,12 @@ export function useFolderBreakdowns(opts: {
           plays = await readBreakdown(f.sheet.name, await f.sheet.get());
         } catch {
           continue; // unreadable file: try again next time
+        }
+        // The same breakdown as a game the week already has (its folder renamed, "Week 9 - Carmel" -> "Playoffs -
+        // Carmel"): that game, with the coaches' tags, is the one; this file isn't added again.
+        if (!filmGame && target.games.some((g) => sameGamePlays(target.plays.filter((p) => p.gameId === g.id), plays))) {
+          seen[f.id] = f.sheet.name;
+          continue;
         }
         const r = filmGame
           ? plays.length ? { bundle: mergeGamePlays(target, f.id, plays), added: true } : { bundle: target, added: false }

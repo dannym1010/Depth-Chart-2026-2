@@ -76,6 +76,7 @@ import {
   saveServerState,
   saveHudlScoutCloud,
   fetchHudlScoutCloud,
+  listHudlScoutCloudWeeks,
   subscribeHudlScoutCloud,
   saveSharedBoardCloud,
   mergeStaffIntoCloud,
@@ -193,7 +194,8 @@ import { setDefenseRosterSource } from './utils/defenseRosterStore';
 import { setReadOnlySession, setAccessPublisher, syncAccessDoc, requestSignup, listenSignups, clearSignup } from './services/storageService';
 import { DEFAULT_PLAYER_TABS, accountTabs, defaultTabsFor, firstPlayerScreen, isFamilyRole, isViewOnlyRole, playerCanSee } from './utils/playerAccess';
 import { buildLibrary } from './filmroom/FilmLibrary';
-import { normalizeWeek } from './filmroom/folderRoutes';
+import { normalizeWeek, setFolderWeekMoves } from './filmroom/folderRoutes';
+import { moveScoutReport } from './utils/weekMove';
 import { bundleFromSaved } from './hudlScout/scoutBundle';
 import { DEFAULT_BALANCED, setBalancedFormations } from './hudlScout/utils/strength';
 import { setDefenseAlignmentSaver, setDefenseFrontSaver, setDefenseSystem } from './hudlScout/utils/ourDefense';
@@ -2817,6 +2819,27 @@ export default function App() {
     void publishHudlScoutToCloud(wk);
   };
 
+  // A whole week's scouting report moved to another week (a "Week 9" folder that was the Playoffs game). The emptied
+  // week remembers where it went (movedTo), so film folders named for it count as that week. Both weeks are fetched
+  // from the cloud first, so nothing another device saved is left behind. Returns the games that moved.
+  const moveScoutWeek = async (fromWeek: string, toWeek: string): Promise<{ gameIds: string[]; plays: number }> => {
+    const teamId = activeTeamIdRef.current;
+    const from = normalizeScoutWeekKey(fromWeek);
+    const to = normalizeScoutWeekKey(toWeek);
+    const saved = (wk: string) => {
+      const wd = latestStateRef.current.weeklyData || {};
+      return wd[getScopedWeekKey(teamId, wk)]?.scouting?.hudlScout || (isPrimaryTeamId(teamId) ? wd[wk]?.scouting?.hudlScout : undefined);
+    };
+    const [cloudFrom, cloudTo] = await Promise.all([fetchHudlScoutCloud(teamId, from), fetchHudlScoutCloud(teamId, to)]);
+    const report = pickScoutBundle(saved(from), cloudFrom.opponentScout);
+    const games = Array.isArray(report?.games) ? report.games : [];
+    if (!games.length) return { gameIds: [], plays: 0 };
+    const moved = moveScoutReport(report, pickScoutBundle(saved(to), cloudTo.opponentScout), from, to);
+    persistScoutingForWeek(to, moved.to);
+    persistScoutingForWeek(from, moved.from);
+    return { gameIds: games.map((g: any) => g.id), plays: Array.isArray(report.plays) ? report.plays.length : 0 };
+  };
+
   // PFF grades live on the week being graded (usually last week) and have their own merged save.
   const adoptPffWeek = (teamId: string, week: string, remote: { pffReviews?: any; filmSession?: any; pprPlayCounts?: any }) => {
     setWeeklyData((prev) => {
@@ -3498,6 +3521,48 @@ export default function App() {
     if (!initialCloudLoadDoneRef.current) return;
     void hydrateHudlScoutFromCloud(activeTeamId, currentWeek);
   }, [activeTeamId, currentWeek]);
+
+  // Every other week's scouting report too (only the week on screen is fetched above): a week this device never
+  // opened, or one changed elsewhere since it last fetched it. A week off the schedule (a "Week 9" folder in a
+  // season that goes Week 8 then Playoffs) can't be opened as the week on screen, so this is how it gets here.
+  useEffect(() => {
+    let stopped = false;
+    let tries = 0;
+    const SEEN_KEY = 'footballScoutWeeksFetched';
+    const run = async () => {
+      if (stopped) return;
+      if (!initialCloudLoadDoneRef.current) {
+        if (++tries < 40) window.setTimeout(run, 1500);
+        return;
+      }
+      const teamId = activeTeamId;
+      const weeks = await listHudlScoutCloudWeeks(teamId);
+      let seen: Record<string, number> = {};
+      try {
+        seen = JSON.parse(localStorage.getItem(SEEN_KEY) || '{}') || {};
+      } catch {}
+      const onScreen = normalizeScoutWeekKey(currentWeekRef.current);
+      for (const { week, updatedAt } of weeks) {
+        if (stopped || activeTeamIdRef.current !== teamId) return;
+        // Weeks the scouting code files under another key ("pre-4" reads as "4") are left to the week on screen.
+        if (normalizeScoutWeekKey(week) !== week || week === onScreen) continue;
+        const stamp = `${teamId}|${week}`;
+        const wd = latestStateRef.current.weeklyData || {};
+        const local = wd[getScopedWeekKey(teamId, week)]?.scouting?.hudlScout || (isPrimaryTeamId(teamId) ? wd[week]?.scouting?.hudlScout : undefined);
+        const hasLocal = Array.isArray(local?.plays) && local.plays.length > 0;
+        if (hasLocal && updatedAt <= (seen[stamp] || 0)) continue;
+        await hydrateHudlScoutFromCloud(teamId, week);
+        seen[stamp] = updatedAt;
+        try {
+          localStorage.setItem(SEEN_KEY, JSON.stringify(seen));
+        } catch {}
+      }
+    };
+    void run();
+    return () => {
+      stopped = true;
+    };
+  }, [activeTeamId]);
 
   // Film tags from other coaches: pick them up live, and whenever this device comes back to the app.
   useEffect(() => {
@@ -4445,6 +4510,19 @@ export default function App() {
     () => getSeasonWeekList(seasonConfig).map((w) => ({ key: w.key, label: w.label || formatWeekLabel(w.key, seasonConfig) })),
     [seasonConfig]
   );
+  // Weeks moved to another week (an emptied report that says where it went): film folders named for one count as
+  // the week it went to ("Week 9 - Carmel" is the Playoffs game). Set before the Film Room looks in any folder.
+  const movedWeeks = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const [key, week] of Object.entries(weeklyData || {})) {
+      const [teamPart, weekPart] = key.includes('__week_') ? key.split('__week_') : [undefined, key];
+      if (teamPart ? teamPart.replace('-', '_') !== activeTeamId.replace('-', '_') : !isPrimaryTeamId(activeTeamId)) continue;
+      const scout = (week as any)?.scouting?.hudlScout;
+      if (scout?.movedTo && !(Array.isArray(scout.plays) && scout.plays.length)) out[normalizeWeek(weekPart)] = String(scout.movedTo);
+    }
+    return out;
+  }, [weeklyData, activeTeamId]);
+  setFolderWeekMoves(movedWeeks);
   // Film Room library: every week's opponent and scouting film for the team on screen, and the game on the
   // schedule that week (listed even before it has film, so its film can be linked).
   const filmWeeks = useMemo(
@@ -4464,8 +4542,8 @@ export default function App() {
         const scout = resolveWeekState(weeklyData, activeTeamId, wk)?.scouting?.hudlScout;
         if (Array.isArray(scout?.plays) && scout.plays.length) extraWeeks.add(wk);
       }
-      const extras = [...extraWeeks].map((wk) => ({ key: wk, label: `${/^\d+$/.test(wk) ? `Week ${wk}` : wk} (not on the schedule)` }));
-      return [...seasonWeekOptions, ...extras].map((w) => {
+      const extras = [...extraWeeks].map((wk) => ({ key: wk, label: `${/^\d+$/.test(wk) ? `Week ${wk}` : wk} (not on the schedule)`, offSchedule: true }));
+      return [...seasonWeekOptions, ...extras].map((w: { key: string; label: string; offSchedule?: boolean }) => {
         const st = resolveWeekState(weeklyData, activeTeamId, w.key);
         // The week's game: one with a real opponent over a "TBD" placeholder, the latest edited of those.
         const ev = games
@@ -4476,6 +4554,7 @@ export default function App() {
           label: w.label,
           opponent: st?.opponent || st?.scouting?.opponent || ev?.opponent || '',
           hudlScout: st?.scouting?.hudlScout,
+          ...(w.offSchedule ? { offSchedule: true } : {}),
           ...(ev ? { scheduled: { id: ev.id, title: ev.title, opponent: ev.opponent || '', date: ev.date } } : {}),
         };
       });
@@ -8067,6 +8146,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 weekOptions={seasonWeekOptions}
                 filmWeeks={filmWeeks}
                 onSaveWeekScouting={persistScoutingForWeek}
+                onMoveWeek={moveScoutWeek}
                 onSelectWeek={(wk) => {
                   changeCurrentWeek(wk);
                   ensureWeekExists(wk);

@@ -9,8 +9,20 @@ export interface FolderLike {
   name: string;
 }
 
+// Weeks a coach moved to another week ("9" -> "playoffs": a "Week 9" folder in a season that goes Week 8 then
+// Playoffs). The season settings hold them; the app sets them here so every folder lookup reads them.
+let movedWeeks: Record<string, string> = {};
+export function setFolderWeekMoves(moves?: Record<string, string>) {
+  movedWeeks = moves || {};
+}
+
 /** "Week 3 - Shrub Oak" -> "3", "Pre-Season Week 4 - Brewster" -> "pre-4", "Playoffs - Carmel" -> "playoffs". */
 export function weekKeyFromFolder(name: string): string | undefined {
+  const week = weekNamedInFolder(name);
+  return (week && movedWeeks[week]) || week;
+}
+
+function weekNamedInFolder(name: string): string | undefined {
   const s = String(name || '').toLowerCase();
   let m = s.match(/pre[\s-]*season\s*(?:week|wk)?\s*(\d+)/);
   if (m) return `pre-${Number(m[1])}`;
