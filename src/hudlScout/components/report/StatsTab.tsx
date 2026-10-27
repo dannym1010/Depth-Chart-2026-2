@@ -5,6 +5,7 @@ import type { Play } from '../../types/football';
 import { boxScore, defenseStats, gameRows, unsidedPlays, type CallTypeOf, type TeamLine } from '../../utils/gameStats';
 import type { PlayDatabaseEntry } from '../../../types/callSheet';
 import { Card, EmptyNote, SectionHeader } from './ui';
+import { PlayerAnalytics } from './PlayerAnalytics';
 
 interface Props {
   /** Every play of the picked game, or of every game. */
@@ -145,6 +146,8 @@ export const StatsTab: React.FC<Props> = ({ plays, games, selectedGameId, own, p
           />
         </Card>
       )}
+
+      {season && <PlayerAnalytics plays={plays} games={games} callTypeOf={callTypeOf} />}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <Card>
