@@ -87,20 +87,25 @@ export function buildLibrary(
     return Array.isArray((saved as any)?.deletedGameIds) && (saved as any).deletedGameIds.includes(f.id);
   };
   // Which film folders the week's games already stand for: a game made from that folder, else the folder its
-  // name matches, else the week's only folder of that kind.
+  // name matches, else (one game and one folder left over) each other. Any other folder is listed, so a game
+  // in the film folder is never hidden because the counts happen to line up.
   // Folder id -> the game that stands for it (its name).
   const claimed = new Map<string, string>();
   for (const w of libWeeks) {
     for (const source of ['own', 'opponent'] as const) {
-      const folders = filmFolders.filter((f) => f.week === w.key && f.source === source && !removed(f));
+      // Removed folders too: a game that took one's place (merged into it) is matched to it, not to another folder.
+      const folders = filmFolders.filter((f) => f.week === w.key && f.source === source);
       const games = w.games.filter((g) => g.source === source && !g.filmOnly);
       if (!folders.length || !games.length) continue;
+      const left: LibraryGame[] = [];
       for (const g of games) {
-        const mine = folders.find((f) => sameFolderGame(f.id, g.gameId)) || bestGameFolder(folders, g.name);
-        if (mine && !claimed.has(mine.id)) claimed.set(mine.id, g.name);
+        const free = folders.filter((f) => !claimed.has(f.id));
+        const mine = free.find((f) => sameFolderGame(f.id, g.gameId)) || bestGameFolder(free, g.name);
+        if (mine) claimed.set(mine.id, g.name);
+        else left.push(g);
       }
-      // As many games as folders (or one folder): every folder already has its game.
-      if (games.length >= folders.length) folders.forEach((f) => claimed.has(f.id) || claimed.set(f.id, games.map((g) => g.name).join(' / ')));
+      const unclaimed = folders.filter((f) => !claimed.has(f.id));
+      if (left.length === 1 && unclaimed.length === 1) claimed.set(unclaimed[0].id, left[0].name);
     }
   }
   for (const f of filmFolders) {

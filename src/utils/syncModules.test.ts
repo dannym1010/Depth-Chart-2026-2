@@ -2149,6 +2149,35 @@ describe('games with film but no Hudl breakdown', () => {
     assert.deepEqual(fromFolder.weeks.find((w) => w.key === '5')!.games.map((g) => `${g.name}${g.filmOnly ? ' (film)' : ''}`), ['Their game', 'Wappingers vs Carmel 9-6 (film)']);
   });
 
+  it('three scouting folders in one week: a game whose own folder is gone never hides another folder', async () => {
+    const { buildLibrary } = await import('../filmroom/FilmLibrary.tsx');
+    const path = (name: string) => ['10U', 'Scouting', 'Playoffs', name];
+    const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const folder = (name: string) => ({ source: 'opponent' as const, week: 'playoffs', name: `Playoffs ${name}`, path: path(name), id: `film-opponent-10u-scouting-playoffs-${slug(name)}` });
+    const folders = [folder('Carmel vs MHV'), folder('North Rockland vs MHV 10-25-26'), folder('Clarkstown vs Nanuet')];
+    const weeks = [
+      {
+        key: 'playoffs',
+        label: 'Playoffs',
+        opponent: '',
+        hudlScout: {
+          plays: [{}],
+          games: [
+            // Moved from a "Week 9" folder (renamed since), and the Playoffs copy of it removed in the move.
+            { id: 'film-opponent-10u-scouting-week-9', name: 'MHV vs NR', playCount: 82 },
+            { id: 'folder-opponent-10u-scouting-playoffs-carmel-vs-mhv', name: 'Carmel vs MHV', playCount: 87 },
+          ],
+          deletedGameIds: [folders[1].id],
+        },
+      },
+    ];
+    const lib = buildLibrary(weeks, [], '8', undefined, folders);
+    assert.deepEqual(
+      lib.weeks[0].games.map((g) => `${g.name}${g.filmOnly ? ' (film)' : ''}`),
+      ['MHV vs NR', 'Carmel vs MHV', 'Playoffs Clarkstown vs Nanuet (film)']
+    );
+  });
+
   it('a game made from a folder opens that folder (no picking between two scouting games)', async () => {
     const { findFilmFolders, resolveGameFolder } = await import('../filmroom/folderRoutes.ts');
     const { games } = await findFilmFolders(tree(), 'Mahopac 10U Youth Tackle');
