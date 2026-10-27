@@ -1,7 +1,7 @@
 // The season's library of games for a team, by week (our game and the scouting film for that week's
 // opponent), with a search. Used by the Film Room and by Hudl Scout's reports. Picking a game opens it.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Film, RefreshCw, Search, Telescope, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Film, Pencil, RefreshCw, Search, Telescope, Trash2, X } from 'lucide-react';
 import { filmGameKey } from './sharedMerge';
 import type { FilmGame } from './types';
 import { bestGameFolder, sameFolderGame, type FilmFolderGame, type UnplacedFolder } from './folderRoutes';
@@ -176,6 +176,8 @@ interface FilmLibraryProps {
   unplaced?: UnplacedFolder[];
   /** Remove a game from the library (and Hudl Scout); the video files stay where they are. */
   onRemove?: (g: LibraryGame) => void;
+  /** Give a game another name (for every coach). */
+  onRename?: (g: LibraryGame, name: string) => void;
   /** Move a week off the schedule to one of these season weeks (its report, notes, playlists and folders). */
   onMoveWeek?: (fromWeek: string, toWeek: string) => Promise<void>;
   moveTargets?: { key: string; label: string }[];
@@ -253,7 +255,10 @@ const MoveWeek: React.FC<{ week: LibraryWeek; targets: { key: string; label: str
   );
 };
 
-export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library', weeks, otherGames, currentWeek, selectedKey, onOpen, onClose, added, checking, onCheckFolder, folderNeedsTap, lastCheck, unplaced, onRemove, onMoveWeek, moveTargets = [] }) => {
+export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library', weeks, otherGames, currentWeek, selectedKey, onOpen, onClose, added, checking, onCheckFolder, folderNeedsTap, lastCheck, unplaced, onRemove, onRename, onMoveWeek, moveTargets = [] }) => {
+  // The game whose name is being changed, and the name typed so far.
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
   const [query, setQuery] = useState('');
   // Our games, scouting, or both (shown only when there are both kinds).
   const [kind, setKind] = useState<'all' | 'own' | 'opponent'>('all');
@@ -284,7 +289,7 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library'
         <button
           onClick={() => onOpen(g)}
           aria-current={on || undefined}
-          className={`w-full text-left flex items-center gap-2.5 pl-2 pr-8 py-2 rounded-xl transition-colors ${
+          className={`w-full text-left flex items-center gap-2.5 pl-2 ${onRename && !g.filmOnly ? 'pr-16' : 'pr-8'} py-2 rounded-xl transition-colors ${
             on ? 'bg-indigo-50 dark:bg-indigo-500/15 ring-1 ring-indigo-200 dark:ring-indigo-500/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800/70'
           }`}
           title={g.scheduled ? 'Our scheduled game: open it and link its film' : g.filmOnly ? 'Film in the film folder with no breakdown yet: each clip is a play' : own ? 'Our game' : 'Scouting film'}
@@ -311,13 +316,53 @@ export const FilmLibrary: React.FC<FilmLibraryProps> = ({ title = 'Film library'
             </span>
           </span>
         </button>
-        {onRemove && (
+        {editing === g.key && (
+          <form
+            className="absolute inset-0 flex items-center gap-1.5 pl-12 pr-1.5 rounded-xl bg-white dark:bg-slate-900 ring-2 ring-indigo-400"
+            onSubmit={(e) => {
+              e.preventDefault();
+              onRename?.(g, draft);
+              setEditing(null);
+            }}
+          >
+            <input
+              autoFocus
+              aria-label={`New name for ${g.name}`}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => e.key === 'Escape' && setEditing(null)}
+              onFocus={(e) => e.target.select()}
+              className="flex-1 min-w-0 h-8 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 text-[13px] font-bold text-slate-900 dark:text-white"
+            />
+            <button type="submit" disabled={!draft.trim()} className="shrink-0 px-2 h-8 rounded-md bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-[11px] font-bold">
+              Save
+            </button>
+            <button type="button" onClick={() => setEditing(null)} aria-label="Cancel" className="shrink-0 p-1.5 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-white">
+              <X size={13} />
+            </button>
+          </form>
+        )}
+        {onRename && !g.filmOnly && editing !== g.key && (
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(g.name);
+              setEditing(g.key);
+            }}
+            aria-label={`Rename ${g.name}`}
+            title="Rename this game (for every coach)"
+            className={`absolute ${onRemove ? 'right-8' : 'right-1.5'} top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-slate-400 opacity-0 group-hover:opacity-100 focus:opacity-100 pointer-coarse:opacity-100 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-opacity`}
+          >
+            <Pencil size={13} />
+          </button>
+        )}
+        {onRemove && editing !== g.key && (
           <button
             type="button"
             onClick={() => onRemove(g)}
             aria-label={`Remove ${g.name}`}
             title="Remove from the library (the video files stay where they are)"
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-slate-400 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-opacity"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-slate-400 opacity-0 group-hover:opacity-100 focus:opacity-100 pointer-coarse:opacity-100 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-opacity"
           >
             <Trash2 size={13} />
           </button>
