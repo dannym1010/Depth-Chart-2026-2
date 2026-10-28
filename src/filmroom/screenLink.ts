@@ -20,7 +20,12 @@ export const screenSupported = () => typeof window !== 'undefined' && 'Broadcast
 export const screenUrl = () => `${window.location.origin}${window.location.pathname}${SCREEN_HASH}`;
 
 export function openVideoScreen(): Window | null {
-  return window.open(screenUrl(), 'mahopac-filmscreen');
+  // Its own window (not a tab), so it can be dragged onto another screen; asked again, the same one comes forward.
+  const w = Math.round(Math.min(1280, (window.screen?.availWidth || 1280) * 0.7));
+  const h = Math.round(w * 0.6);
+  const win = window.open(screenUrl(), 'mahopac-filmscreen', `popup,width=${w},height=${h}`);
+  try { win?.focus(); } catch { /* blocked */ }
+  return win;
 }
 
 /**

@@ -84,7 +84,7 @@ interface FilmRoomViewProps {
   /** The play builder beside the video ("Watch film" from the builder): who may save, saving, renaming. */
   builderCanEdit?: boolean;
   onSaveBuilderPlay?: (entry: PlayDatabaseEntry, seed: PlayBuilderSeed | null) => PlayDatabaseEntry;
-  onRenameScoutPlay?: (change: { from: string; to: string; scoutId?: string; gameId?: string; playEntryId?: string }) => void;
+  onRenameScoutPlay?: (change: { from: string; to: string; scoutId?: string; gameId?: string; playEntryId?: string; parts?: import('../hudlScout/types/football').CallParts }) => void;
   onSaveFilmBackfield?: (change: { gameId: string; backfield: string; spots: Record<string, { x: number; y: number }>; baseKey: string }) => void;
   /** Their film: draw a clip's play in the play builder, lined up in its base formation, with the clip playing. */
   onDrawSnap?: (play: Play) => void;
@@ -1304,8 +1304,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       }}
       onRename={
         builderSeed.scoutId && onRenameScoutPlay
-          ? (from, to) =>
-              onRenameScoutPlay({ from, to, scoutId: builderSeed.scoutId, gameId: builderSeed.gameId, playEntryId: builderSeed.playEntryId })
+          ? (from, to, parts) =>
+              onRenameScoutPlay({ from, to, scoutId: builderSeed.scoutId, gameId: builderSeed.gameId, playEntryId: builderSeed.playEntryId, parts })
           : undefined
       }
       onSaveFilmBackfield={

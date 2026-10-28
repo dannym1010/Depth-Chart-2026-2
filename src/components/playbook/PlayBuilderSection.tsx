@@ -48,6 +48,21 @@ import { callSetup } from '../../utils/callDiagram';
 import { openFormation } from '../../utils/filmBackfields';
 import { parsePlayCall } from '../../utils/playCallParse';
 import { openFilmWindow } from '../../filmroom/filmWindowStore';
+import type { CallParts } from '../../hudlScout/types/football';
+import { buildCallName, parseCall, PASS_CONCEPTS } from '../../filmroom/callName';
+import { PlayNameFields } from '../../filmroom/PlayNameFields';
+import { captureConcept, conceptDrawing, conceptDrawingSaver, conceptKeyOf, drawConcept, playSide } from '../../utils/conceptDrawings';
+
+/** A play name's concept, drawn the standard way: the run fit it is, or the pass concept. */
+const RUN_FOR_CONCEPT: Record<string, string> = {
+  dive: 'dive', trap: 'trap', counter: 'counter', power: 'power', iso: 'iso', sweep: 'toss', toss: 'toss', zone: 'inside_zone',
+  wedge: 'wedge', buck: 'buck', reverse: 'reverse', option: 'keep', sneak: 'qb_sneak', draw: 'draw', keep: 'keep',
+};
+const PASS_FOR_CONCEPT: Record<string, string> = {
+  boot: '19_BOOT', 'play action': '32_POWER_PASS', screen: 'TUNNEL', 'sprint out': 'SPRINT_OUT', quick: 'STICK',
+  'drop back': 'FOUR_VERTS', 'jet pass': 'BUBBLE_SCREEN', slant: 'RPO_SLANT', bubble: 'BUBBLE_SCREEN',
+};
+const NO_OPTIONS = { personnel: [], tags: [], runConcepts: [], passConcepts: [] };
 import { DiagramImage } from './DiagramImage';
 import { DefenseCallPicker } from './DefenseCallPicker';
 import { defenseJob, defenseOrder, standardDefenseJob } from '../../utils/defenseJobs';
@@ -115,7 +130,7 @@ interface Props {
   /** Return to the scout play list this diagram was opened from. */
   onBack?: () => void;
   /** The play name changed. Their plays and the play log should use the new name. */
-  onRename?: (from: string, to: string) => void;
+  onRename?: (from: string, to: string, parts?: CallParts) => void;
   /** Open the film clips tagged to this play. */
   onWatchFilm?: (label: string, state: PlayBuilderState) => void;
   /** Narrow layout (beside the video in the Film Room): the diagram first, the settings under it. */
@@ -250,7 +265,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [tags, setTags] = useState<string[]>(saved?.tags || []);
   const [coachNote, setCoachNote] = useState(saved ? saved.coachNote : opened.note);
   const [holdName, setHoldName] = useState(opened.holdName);
-  const [tab, setTab] = useState<BuilderTab>(seed?.defenseCall ? 'jobs' : 'formation');
+  // Their plays open on the Play tab: the play name and its concept.
+  const [tab, setTab] = useState<BuilderTab>(seed?.defenseCall ? 'jobs' : seed?.scoutId && !seed.formationEdit ? 'play' : 'formation');
   // The side panel's Players tab: the field draws its "who does what" panel into it.
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [situations, setSituations] = useState<string[]>(saved?.situations || []);
@@ -675,12 +691,95 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const tagged = (t: string) => tags.includes(t);
   const toggleTag = (t: string) => setTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
 
-  const commitName = (raw?: string) => {
+  const commitName = (raw?: string, parts?: CallParts) => {
     const next = (raw ?? nameIn).trim().slice(0, 120);
     if (!next || next === committedName) return;
-    if (seed?.scoutId) onRename?.(committedName, next);
+    if (seed?.scoutId) onRename?.(committedName, next, parts);
     setCommittedName(next);
     if (next !== nameIn) setNameIn(next);
+    if (!parts) setNameParts(parseCall(next));
+  };
+
+  // Their plays: the play name picked from its parts, as in the Film Room. A new concept draws only the play's
+  // lines (the formation stays): the coach's own drawing of it when one is saved, else the standard one.
+  const theirNaming = theirPlay && !formationMode;
+  const [nameParts, setNameParts] = useState<CallParts>(() => parseCall(saved?.name || opened.name));
+  const [nameRun, setNameRun] = useState(() => {
+    const c = parseCall(saved?.name || opened.name).concept;
+    return c ? !PASS_CONCEPTS.some((x) => x.toLowerCase() === c.toLowerCase()) : !/pass|screen/i.test(seed?.kind || '');
+  });
+  const [pendingConcept, setPendingConcept] = useState<{ key: string; side: 'L' | 'R' | '' } | null>(null);
+  const [conceptNote, setConceptNote] = useState('');
+  const sideOf = (parts: CallParts) => playSide(parts.hole ?? hole, parts.strength || strength);
+  /** Draw a concept's lines on the players where they stand. */
+  const drawConceptLines = (key: string, parts: CallParts) => {
+    // The play is that concept (the run fit or pass concept it is), whoever drew it.
+    const c = String(parts.concept || '').toLowerCase();
+    const runId = RUN_FOR_CONCEPT[c];
+    const passKey = PASS_FOR_CONCEPT[c];
+    if (runId) {
+      setFamily('run');
+      setRunId(runId);
+    } else if (passKey && PLAY_CONCEPTS[passKey]) {
+      setFamily(conceptFamily(PLAY_CONCEPTS[passKey]));
+      setConceptKey(passKey);
+    }
+    if (conceptDrawing(key)) setPendingConcept({ key, side: sideOf(parts) });
+    // Not drawn the coach's way yet: the standard drawing of it, from the call.
+    else if (runId || passKey) setUserDrew(false);
+  };
+  const pickNameParts = (parts: CallParts) => {
+    const before = conceptKeyOf(nameIn);
+    const name = buildCallName(parts, nameRun);
+    if (parts.strength && parts.strength !== nameParts.strength) pickStrength(parts.strength === 'L' ? 'Left' : 'Right');
+    if (parts.back && parts.back !== nameParts.back) setBallCarrier(parts.back);
+    if (parts.hole !== nameParts.hole) setHoleOverride(parts.hole ? Number(parts.hole) : '');
+    setNameParts(parts);
+    if (!name) return;
+    setNameIn(name);
+    setHoldName(true);
+    commitName(name, parts);
+    const after = conceptKeyOf(name);
+    if (after && after.key !== before?.key) drawConceptLines(after.key, parts);
+  };
+  // Lines drawn once the players stand where this play has them (a side picked turns the formation first).
+  useEffect(() => {
+    if (!pendingConcept || !offNodes.length) return;
+    const d = conceptDrawing(pendingConcept.key);
+    setPendingConcept(null);
+    if (!d) return;
+    setStrokes(drawConcept(d, offNodes, ballX, pendingConcept.side));
+    setUserDrew(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingConcept, nodeKey]);
+  // A play of theirs opened with nothing drawn starts with the coach's drawing of its concept.
+  const openedConcept = useRef(false);
+  useEffect(() => {
+    if (openedConcept.current || !theirNaming || !offNodes.length) return;
+    openedConcept.current = true;
+    if ((saved?.strokes as PlayStroke[] | undefined)?.length) return;
+    const k = conceptKeyOf(nameIn);
+    if (k && conceptDrawing(k.key)) setPendingConcept({ key: k.key, side: sideOf(nameParts) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodeKey]);
+  const conceptSaver = conceptDrawingSaver();
+  const nowConcept = theirNaming ? conceptKeyOf(nameIn) : null;
+  const saveConcept = () => {
+    if (!nowConcept || !conceptSaver) return;
+    const lines = captureConcept(offNodes, strokes, ballX);
+    if (!lines.length) {
+      setConceptNote('Draw the lines first, then save them.');
+      return;
+    }
+    conceptSaver(nowConcept.key, { key: nowConcept.key, label: nowConcept.label, side: sideOf(nameParts), lines, savedAt: Date.now() });
+    setConceptNote(`Saved. ${nowConcept.label} is drawn like this whenever you pick it (turned over the other way).`);
+    window.setTimeout(() => setConceptNote(''), 5000);
+  };
+  const forgetConcept = () => {
+    if (!nowConcept || !conceptSaver || !window.confirm(`Forget your drawing of ${nowConcept.label}? Plays already drawn keep their lines.`)) return;
+    conceptSaver(nowConcept.key, null);
+    setConceptNote(`${nowConcept.label} draws the standard way again.`);
+    window.setTimeout(() => setConceptNote(''), 5000);
   };
 
   /** Everything about the play as it stands, to save with it or carry to another screen. */
@@ -1600,6 +1699,67 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
 
           {tab === 'play' && (
             <div className="p-3.5 space-y-4">
+              {theirNaming && (
+                <div className="space-y-2">
+                  {label(
+                    'Play name',
+                    <span className="inline-flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden text-[11px] font-black">
+                      {(['run', 'pass'] as const).map((v) => (
+                        <button
+                          key={v}
+                          type="button"
+                          aria-pressed={nameRun === (v === 'run')}
+                          onClick={() => setNameRun(v === 'run')}
+                          title={v === 'run' ? 'A run: ball carrier and hole, run concepts' : 'A pass: pass concepts'}
+                          className={`h-7 px-2.5 capitalize cursor-pointer ${nameRun === (v === 'run') ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300'}`}
+                        >
+                          {v}
+                        </button>
+                      ))}
+                    </span>
+                  )}
+                  <PlayNameFields parts={nameParts} name={nameIn} readOnly={!canEdit} run={nameRun} onChange={pickNameParts} custom={seed?.nameOptions || NO_OPTIONS} />
+                  {nowConcept && canEdit && (
+                    <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/20 p-2.5 space-y-1.5">
+                      <div className="text-[11px] text-slate-600 dark:text-slate-300">
+                        {conceptDrawing(nowConcept.key)
+                          ? `${nowConcept.label} is drawn your way when you pick it. Adjust the lines and save again to change it.`
+                          : `Adjust the lines for ${nowConcept.label}, then save: the next play you pick it on is drawn the same.`}
+                      </div>
+                      {conceptSaver ? (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={saveConcept}
+                            title="Every play you pick this concept on (for this ball carrier) starts with these lines, turned over to the side it goes"
+                            className="h-8 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black cursor-pointer"
+                          >
+                            Save as my {nowConcept.label}
+                          </button>
+                          {conceptDrawing(nowConcept.key) && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setPendingConcept({ key: nowConcept.key, side: sideOf(nameParts) })}
+                                title="Put my saved lines for this concept back on this play"
+                                className="h-8 px-2 rounded-lg border border-emerald-600 text-emerald-700 dark:text-emerald-300 text-[11px] font-black cursor-pointer"
+                              >
+                                Draw my {nowConcept.label}
+                              </button>
+                              <button type="button" onClick={forgetConcept} className="h-8 px-2 rounded-lg text-[11px] font-bold text-rose-600 cursor-pointer" title="Forget my drawing of this concept">
+                                Forget
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-[11px] text-slate-500">A head coach of this team can save concept drawings.</div>
+                      )}
+                      {conceptNote && <div className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">{conceptNote}</div>}
+                    </div>
+                  )}
+                </div>
+              )}
               <div>
                 {label('Kind of play')}
                 {segmented<'run' | 'option' | 'pass' | 'screen'>(['run', 'option', 'pass', 'screen'], family === 'all' ? 'run' : family, setFamily)}

@@ -391,7 +391,7 @@ export function linkSnapsToCall(
 export function renameOppCall(
   plays: Play[],
   libraries: Record<string, ScoutOppPlay[]> | undefined,
-  change: { scoutId: string; gameId?: string; from: string; to: string; playEntryId?: string }
+  change: { scoutId: string; gameId?: string; from: string; to: string; playEntryId?: string; parts?: Play['callParts'] }
 ): { plays: Play[]; playLibraries: Record<string, ScoutOppPlay[]> } {
   const fromKey = change.from.trim().toLowerCase();
   const to = change.to.trim().slice(0, 120);
@@ -402,13 +402,16 @@ export function renameOppCall(
       : plays.map((p) => {
           if (change.gameId && p.gameId && p.gameId !== change.gameId) return p;
           const tagged = Boolean(change.playEntryId) && p.playCallId === change.playEntryId;
-          if (!tagged && filmCall(p).toLowerCase() !== fromKey) return p;
+          // A clip named in the Film Room with the old play name takes the new one (its parts read from it).
+          const named = String(p.callName || '').trim().toLowerCase() === fromKey;
+          if (!tagged && !named && filmCall(p).toLowerCase() !== fromKey) return p;
           return {
             ...p,
             hudlCall: to,
             playName: to,
             playCall: to,
             playCallId: change.playEntryId || p.playCallId,
+            ...(named || (tagged && String(p.callName || '').trim()) ? { callName: to, callParts: change.parts || parseCall(to) } : {}),
             editedAt: now,
           };
         });

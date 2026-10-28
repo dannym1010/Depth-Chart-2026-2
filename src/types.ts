@@ -53,6 +53,8 @@ export interface Team {
   notes?: string;
   /** Formations with no strong side (the same both ways), e.g. "32"; unset = ["32"]. */
   balancedFormations?: string[];
+  /** Play concepts drawn the coach's way in the play builder ("counter|4"): plays picked with one start drawn like it. */
+  conceptDrawings?: import('./utils/conceptDrawings').ConceptDrawings;
   /** Our defense for the scouting report's calls (base front, two-tight-end check, contain, blitzes); unset = 4-4 Cover 3 / 5-3. */
   defenseSystem?: {
     base?: string;

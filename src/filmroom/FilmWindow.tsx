@@ -4,7 +4,7 @@
 // Room does (the folder or Google Drive link for that scouting film), the same player, and the same
 // shared drawings and notes.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Expand, Film, Maximize2, Minimize2, Minus, Plus, RefreshCw, Shrink, X } from 'lucide-react';
+import { Expand, ExternalLink, Film, Maximize2, Minimize2, Minus, Plus, RefreshCw, Shrink, X } from 'lucide-react';
 import { bundleFromSaved } from '../hudlScout/scoutBundle';
 import type { Play } from '../hudlScout/types/football';
 import { FilmPlayer, type PlayerApi } from './FilmPlayer';
@@ -15,6 +15,7 @@ import { filmGameKey } from './sharedMerge';
 import type { FilmGame, FilmGameShared, FilmMark, FilmNote } from './types';
 import { useClipUrl, useGameFilm } from './useGameFilm';
 import { useSharedGame } from './useSharedGame';
+import { openVideoScreen, screenSupported, useVideoScreenSender } from './screenLink';
 import {
   closeFilmWindow,
   filmWindowAutoOpen,
@@ -150,6 +151,34 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
 
   const apiRef = useRef<PlayerApi | null>(null);
   const resumeAt = useRef(0);
+  // Popped out: the clip plays in its own browser window (to drag onto another screen); this one keeps the
+  // controls and the plays, tucked away.
+  const [popped, setPopped] = useState(false);
+  useVideoScreenSender({
+    on: popped,
+    key: `${clip?.id || ''}|${clipUrl.url || ''}`,
+    title: play ? playTitle(play) : '',
+    getVideo: () => apiRef.current?.video?.() || null,
+    getBlob: async () => (clipUrl.url ? (await fetch(clipUrl.url)).blob() : null),
+  });
+  const popWin = useRef<Window | null>(null);
+  const popOut = () => {
+    popWin.current = openVideoScreen();
+    setPopped(true);
+  };
+  // The video window closed: the video plays here again.
+  useEffect(() => {
+    if (!popped) return;
+    const t = window.setInterval(() => {
+      if (popWin.current?.closed) setPopped(false);
+    }, 1000);
+    return () => window.clearInterval(t);
+  }, [popped]);
+  // Heard once: in the popped-out window, not here too.
+  useEffect(() => {
+    const v = apiRef.current?.video?.();
+    if (v) v.muted = popped;
+  });
   const [linkOpen, setLinkOpen] = useState(false);
 
   // Drawings and notes are the Film Room's own (shared with the staff).
@@ -353,6 +382,17 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
             <span className="text-[11px] font-bold text-slate-300 shrink-0">
               {Math.min(index, watch.length - 1) + 1} / {watch.length}
             </span>
+          )}
+          {!isPhone && screenSupported() && (
+            <button
+              type="button"
+              aria-label={popped ? 'Open the video window again' : 'Pop the video out into its own window'}
+              title={popped ? 'Video window is open: click to bring it back (drag it to another screen)' : 'Pop out: its own window you can drag to another screen'}
+              onClick={popOut}
+              className={`${headBtn} ${popped ? 'text-emerald-400' : ''}`}
+            >
+              <ExternalLink size={14} />
+            </button>
           )}
           {!isPhone && !fill && (
             <button

@@ -169,8 +169,8 @@ import { blankCallSheetData, blankWristbandData } from './utils/blankSheets';
 import { missingPracticePlans } from './utils/autoPracticePlans';
 import { clearPlayBuilderSeed, consumeSeedHold, holdPlayBuilderSeed, mergeBuilderSave, savePlayBuilderSeed, type PlayBuilderSeed } from './utils/playBuilderSeed';
 import { builderFromFormation, cardForSnap, groupOppPlays, isScoutPlayEntry, mergeDrawnIntoTags, planLines, realCall, renameOppCall, linkSnapsToCall, snapsForCall, type FormationPlan, type OppFormation, type ScoutOppPlay } from './utils/scoutOppPlays';
-import { formationFromParts } from './filmroom/callName';
-import type { Play as FilmPlay } from './hudlScout/types/football';
+import { customOptions, formationFromParts } from './filmroom/callName';
+import type { CallParts, Play as FilmPlay } from './hudlScout/types/football';
 import { setPlaysFormation } from './hudlScout/utils/playTags';
 import { backfieldOf, baseKeysForGame, formationDefense, formationOfPlay, openFormation, oppPlayDiagram, playWithDefense, redrawWithBackfield, spotsForGame, theirPlayNamesByFormation } from './utils/filmBackfields';
 import { BACKFIELD_STRUCTURES, compactPlayDiagrams } from './utils/footballEngine';
@@ -199,6 +199,7 @@ import { moveScoutReport } from './utils/weekMove';
 import { bundleFromSaved } from './hudlScout/scoutBundle';
 import { DEFAULT_BALANCED, setBalancedFormations } from './hudlScout/utils/strength';
 import { setDefenseAlignmentSaver, setDefenseFrontSaver, setDefenseSystem } from './hudlScout/utils/ourDefense';
+import { setConceptDrawingSaver, setConceptDrawings } from './utils/conceptDrawings';
 import { HudlScoutSections, type HudlSection } from './components/scouting/HudlScoutSections';
 import { TendenciesView } from './components/scouting/TendenciesView';
 import { PlaybookGuidesView } from './components/PlaybookGuidesView';
@@ -4650,8 +4651,8 @@ export default function App() {
     handleUpdateTeamPlayDatabase([...ours.filter((p) => !isScoutPlayEntry(p)), ...scout]);
   };
   /** A scout play renamed in the play builder: its Their-plays card, the film snaps and its play row. */
-  const renameScoutPlay = (change: { from: string; to: string; scoutId?: string; gameId?: string; playEntryId?: string }) => {
-    const { from, to, scoutId, gameId, playEntryId } = change;
+  const renameScoutPlay = (change: { from: string; to: string; scoutId?: string; gameId?: string; playEntryId?: string; parts?: CallParts }) => {
+    const { from, to, scoutId, gameId, playEntryId, parts } = change;
     if (!scoutId) return;
     const teamId = activeTeamIdRef.current;
     const week = currentWeekRef.current;
@@ -4659,7 +4660,7 @@ export default function App() {
     const weekState = latestStateRef.current.weeklyData?.[scopedKey] || latestStateRef.current.weeklyData?.[week];
     const hudl = weekState?.scouting?.hudlScout;
     if (hudl) {
-      const renamed = renameOppCall(hudl.plays || [], hudl.playLibraries, { scoutId, gameId, from, to, playEntryId });
+      const renamed = renameOppCall(hudl.plays || [], hudl.playLibraries, { scoutId, gameId, from, to, playEntryId, parts });
       persistWeekScouting('hudlScout', { ...hudl, ...renamed, updatedAt: Date.now() });
     }
     if (playEntryId) {
@@ -4917,6 +4918,8 @@ export default function App() {
       playEntryId: entryId,
       snaps,
       watchLabel: group?.label,
+      // The play name picker offers what the coaches added in the Film Room too.
+      nameOptions: customOptions(hudl?.plays || []),
       // A play drawn before re-opens as it was left, against the defense set on its formation; a new one
       // from their formation starts lined up in it.
       builder:
@@ -5302,6 +5305,18 @@ export default function App() {
   setBalancedFormations((currentActiveTeam as Team).balancedFormations);
   // Our defense (Our defense card): the scouting calls and the play builder's defenses use it.
   setDefenseSystem((currentActiveTeam as Team).defenseSystem);
+  // Concepts drawn the coach's way in the play builder.
+  setConceptDrawings((currentActiveTeam as Team).conceptDrawings);
+  setConceptDrawingSaver(
+    mayEditTeam(activeTeamId)
+      ? (key, drawing) => {
+          const next = { ...((currentActiveTeam as Team).conceptDrawings || {}) };
+          if (drawing) next[key] = drawing;
+          else delete next[key];
+          handleUpdateTeam(activeTeamId, { conceptDrawings: next });
+        }
+      : null
+  );
   setDefenseAlignmentSaver(
     mayEditTeam(activeTeamId)
       ? (lookKey, moves) => {

@@ -9,6 +9,8 @@ export interface PlayBuilderSeed {
   kind?: string;
   down?: string;
   notes?: string;
+  /** The play name picker's added options (personnel, tags, concepts the coaches made on the film). */
+  nameOptions?: { personnel: string[]; tags: string[]; runConcepts: string[]; passConcepts: string[] };
   /** Their-plays card this diagram belongs to. */
   scoutId?: string;
   gameId?: string;

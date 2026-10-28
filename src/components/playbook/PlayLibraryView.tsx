@@ -31,7 +31,7 @@ interface Props {
   /** Leave a scout play's diagram and return to Their plays. */
   onBackToPlayList?: () => void;
   /** A renamed scout play: update Their plays and the film snaps. */
-  onRenameScoutPlay?: (change: { from: string; to: string; scoutId?: string; gameId?: string; playEntryId?: string }) => void;
+  onRenameScoutPlay?: (change: { from: string; to: string; scoutId?: string; gameId?: string; playEntryId?: string; parts?: import('../../hudlScout/types/football').CallParts }) => void;
   /** Watch the film snaps linked to the play open in the builder. */
   onWatchScoutFilm?: (cutup: { gameId: string; playIds: string[]; label: string }, seed: PlayBuilderSeed) => void;
   /** This backfield alignment becomes the one for every play on that scout film that uses it. */
@@ -466,13 +466,14 @@ export const PlayLibraryView: React.FC<Props> = ({
         }
         onRename={
           builderSeed?.scoutId && onRenameScoutPlay
-            ? (from, to) =>
+            ? (from, to, parts) =>
                 onRenameScoutPlay({
                   from,
                   to,
                   scoutId: builderSeed.scoutId,
                   gameId: builderSeed.gameId,
                   playEntryId: builderSeed.playEntryId,
+                  parts,
                 })
             : undefined
         }
