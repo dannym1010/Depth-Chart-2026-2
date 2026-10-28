@@ -4,7 +4,7 @@ import type { PlayBuilderState } from '../types/callSheet';
 import type { Play } from '../hudlScout/types/football';
 import { isWholeCall, parsePlayCall } from './playCallParse';
 import { BACKFIELD_STRUCTURES, RUN_SCHEMES } from './footballEngine';
-import { formationFromParts } from '../filmroom/callName';
+import { formationFromParts, parseCall, TAGS } from '../filmroom/callName';
 
 /** A play the opponent ran, kept with one scouting film. */
 export interface ScoutOppPlay {
@@ -870,26 +870,50 @@ export function sidelessName(name: string): string {
 }
 
 /**
- * The script's plays: the same play run left or right (on any film) is one, under the name without the side.
- * Its lead is the one drawn (else the first in the order); groups keep the order of their first play.
+ * The play concept a call names ("21 Gun Rt 44 Counter" and "32 Lt Tight 34 Counter" are Counter): a known
+ * concept, else the last word of a play name made from its parts (a concept the coach added), unless that's a
+ * tag, a number, the QB spot or a side. "" when it doesn't name one.
+ */
+export function playConcept(card: Pick<ScoutOppPlay, 'id' | 'name'>): string {
+  const concept = parseCall(card.name).concept;
+  if (concept) return concept;
+  if (!card.id.startsWith('name-')) return '';
+  const last = card.name.trim().split(/\s+/).pop() || '';
+  const plain = (w: string) => w.toLowerCase();
+  if (!/[a-z]/i.test(last) || TAGS.some((t) => plain(t) === plain(last)) || /^(gun|shotgun|sg|pistol|pis|uc|under|center)$/i.test(last) || SIDE.test(last.toUpperCase())) return '';
+  return last;
+}
+
+/**
+ * The script's plays: the same play concept (in any formation or personnel, left or right, on any film) is one,
+ * under the concept's name; a call that names no concept goes with the same call run the other way, under the
+ * name without the side. Its lead is the one drawn (else the first in the order); groups keep the order of
+ * their first play. A play alone keeps its whole name.
  */
 export function scriptGroups(plays: ScoutOppPlay[], drawn: (scoutId: string) => boolean = () => false): { lead: ScoutOppPlay; members: ScoutOppPlay[]; name: string }[] {
-  const by = new Map<string, ScoutOppPlay[]>();
+  const by = new Map<string, { members: ScoutOppPlay[]; concept: string }>();
   for (const p of plays) {
-    const key = sidelessName(p.name).toLowerCase() || p.id;
-    by.set(key, [...(by.get(key) || []), p]);
+    const concept = playConcept(p);
+    const key = concept ? `concept:${concept.toLowerCase()}` : sidelessName(p.name).toLowerCase() || p.id;
+    const cur = by.get(key);
+    if (cur) cur.members.push(p);
+    else by.set(key, { members: [p], concept });
   }
-  return [...by.values()].map((members) => {
+  return [...by.values()].map(({ members, concept }) => {
     const lead = members.find((m) => drawn(m.id)) || members[0];
-    const sides = new Set(members.map((m) => m.name.trim().toLowerCase()));
-    return { lead, members, name: sides.size > 1 ? sidelessName(lead.name) : lead.name };
+    const names = new Set(members.map((m) => m.name.trim().toLowerCase()));
+    const sideless = new Set(members.map((m) => sidelessName(m.name).toLowerCase()));
+    const name = names.size === 1 ? lead.name : sideless.size === 1 ? sidelessName(lead.name) : concept || sidelessName(lead.name);
+    return { lead, members, name };
   });
 }
 
 export function buildScoutScript(plays: ScoutOppPlay[], opponent: string, drawn?: (scoutId: string) => boolean): ScoutPracticeScript {
   const who = opponent.trim() || 'Opponent';
   const lines: ScoutScriptLine[] = scriptGroups(plays, drawn).map(({ lead: p, members, name }) => {
-    const bits = [periodLabel(p.down), p.formation, p.personnel, p.kind].filter((s) => s && s !== '-').join(' · ');
+    // One concept from several formations: each formation (and personnel) it came out of, the lead's first.
+    const list = (pick: (m: ScoutOppPlay) => string) => [...new Set([p, ...members].map(pick).map((s) => String(s || '').trim()).filter((s) => s && s !== '-'))].join(' / ');
+    const bits = [periodLabel(p.down), list((m) => m.formation), list((m) => m.personnel), p.kind].filter((s) => s && s !== '-').join(' · ');
     // The count written when the card was made from the film goes stale; the script shows the live one.
     const notes = (p.notes || '').replace(STALE_RUN_COUNT, '').trim();
     const detail = [bits, notes].filter(Boolean).join('. ');

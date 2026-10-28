@@ -247,3 +247,28 @@ describe('run or pass on their play follows the film', () => {
     assert.equal(kindFollowsClips([snap(3, '', 20)], [card('a', 'pass', [3])]).length, 0);
   });
 });
+
+describe('the scout script groups a play concept as one play', () => {
+  const card = (id: string, name: string, formation = '', personnel = '') => ({ id, gameId: 'g', name, formation, personnel, kind: 'run', down: '1st', notes: '', onReport: true, editedAt: 1 }) as any;
+
+  it('the same concept from other formations and personnel is one line, named for the concept', async () => {
+    const { buildScoutScript } = await import('../utils/scoutOppPlays.ts');
+    const s = buildScoutScript(
+      [card('a', '21 Gun Rt 44 Counter', '21 GUN', '21'), card('b', 'Jet Sweep'), card('c', '32 Lt Tight 33 Counter', '32 Tight', '32'), card('d', '21 Gun Rt 44 Counter', '21 GUN', '21')],
+      'Carmel',
+      (id) => id === 'c'
+    );
+    assert.deepEqual(s.lines.map((l) => [l.playId, l.name, l.also]), [['c', 'Counter', ['a', 'd']], ['b', 'Jet Sweep', undefined]]);
+    assert.match(s.lines[0].detail, /32 Tight \/ 21 GUN · 32 \/ 21/);
+  });
+
+  it("a concept the coach added counts (last word of a play name); a name with no concept groups as before", async () => {
+    const { buildScoutScript, playConcept } = await import('../utils/scoutOppPlays.ts');
+    assert.equal(playConcept(card('name-g-1', '21 Gun Rt Rocket')), 'Rocket');
+    assert.equal(playConcept(card('name-g-2', '21 Gun Trips')), '');
+    assert.equal(playConcept(card('name-g-3', '21 Gun Rt 44')), '');
+    assert.equal(playConcept(card('opp-1', 'Rocket')), '');
+    const s = buildScoutScript([card('name-g-1', '21 Gun Rt Rocket'), card('name-g-4', '10 Lt Rocket'), card('t1', '21 Gun Trips'), card('t2', '20 Gun Trips')], 'Carmel');
+    assert.deepEqual(s.lines.map((l) => l.name), ['Rocket', '21 Gun Trips', '20 Gun Trips']);
+  });
+});
