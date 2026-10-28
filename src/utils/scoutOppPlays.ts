@@ -579,11 +579,57 @@ export function placeholdersFromNames(
     const tag = 'scout_' + card.id;
     for (const p of rows) {
       const id = String(p.playCallId || '');
-      if (id === tag || (id && !id.startsWith('scout_'))) continue;
+      // On its card already, under the card's name (it follows a clip renamed).
+      if ((id === tag && p.playCall === card.name) || (id && !id.startsWith('scout_'))) continue;
       links[p.id] = { playCallId: tag, playCall: card.name };
     }
   }
   return { cards, formations: outForms, links };
+}
+
+/**
+ * A play name's card follows its clips when the coach picks a different name for them: once none of its clips
+ * has its name any more (each has another one), it takes the name most of them have now, keeping its place on
+ * the script, its notes and its drawing. Picking the old name again brings it back. A clip renamed while others
+ * keep the name just leaves the card. Clips with no name don't count (a lost name is found again from the card).
+ * Returns the cards that changed.
+ */
+export function followRenamedClips(film: Play[], cards: ScoutOppPlay[], drawn: (scoutId: string) => boolean = () => false): ScoutOppPlay[] {
+  const out: ScoutOppPlay[] = [];
+  const now = Date.now();
+  for (const c of cards) {
+    if (!c.id.startsWith('name-') || !c.clips?.length) continue;
+    const key = c.name.trim().toLowerCase();
+    const named = c.clips
+      .map((n) => film.find((p) => (!p.gameId || p.gameId === c.gameId) && Number(p.playNumber) === Number(n) && p.odk !== 'K' && p.odk !== 'S' && p.odk !== 'D'))
+      .map((p) => ({ n: Number(p?.playNumber) || 0, name: String(p?.callName || '').trim(), parts: p?.callParts }));
+    const moved = named.filter((x) => x.name && x.name.toLowerCase() !== key);
+    if (!moved.length) continue;
+    if (named.some((x) => x.name.toLowerCase() === key) || moved.length < named.length) {
+      // Some clips still have its name: the renamed ones just leave it.
+      const gone = new Set(moved.map((x) => x.n));
+      out.push({ ...c, clips: c.clips.filter((n) => !gone.has(Number(n))), editedAt: now });
+      continue;
+    }
+    const count = new Map<string, { name: string; parts?: Play['callParts']; n: number }>();
+    for (const x of moved) {
+      const cur = count.get(x.name.toLowerCase());
+      if (cur) cur.n++;
+      else count.set(x.name.toLowerCase(), { name: x.name, parts: x.parts, n: 1 });
+    }
+    const top = [...count.values()].sort((a, b) => b.n - a.n)[0];
+    const keep = new Set(moved.filter((x) => x.name.toLowerCase() === top.name.toLowerCase()).map((x) => x.n));
+    const form = formationFromParts(top.parts);
+    out.push({
+      ...c,
+      name: top.name,
+      clips: c.clips.filter((n) => keep.has(Number(n))),
+      // A drawn play keeps the formation it was drawn in.
+      ...(!drawn(c.id) && form ? { formation: form, personnel: String(top.parts?.personnel || c.personnel || '') } : {}),
+      editedAt: now,
+    });
+  }
+  return out;
 }
 
 /**

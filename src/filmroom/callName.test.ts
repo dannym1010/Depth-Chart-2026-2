@@ -192,3 +192,35 @@ describe('names already made, narrowed by the parts picked', () => {
     assert.equal(partsMatch(undefined, { personnel: '21' }), false);
   });
 });
+
+describe("a play name's card follows its clips when they're renamed", () => {
+  const card = (id: string, name: string, clips?: number[]) => ({ id, gameId: 'g', name, formation: '21 GUN', personnel: '21', kind: 'run', down: '1st', notes: '', onReport: true, editedAt: 1, ...(clips ? { clips } : {}) }) as any;
+  const snap = (n: number, callName: string, tag?: string) => ({ id: `s${n}`, gameId: 'g', playNumber: n, odk: 'O', callName, callParts: { personnel: callName.split(' ')[0], qb: 'Gun' }, ...(tag ? { playCallId: tag, playCall: '21 Gun Rt 44 Counter' } : {}) }) as any;
+
+  it('takes the new name (same id, so its place on the script stays) and its clips stay on it', async () => {
+    const { followRenamedClips, placeholdersFromNames, buildScoutScript } = await import('../utils/scoutOppPlays.ts');
+    const old = card('name-g-21-gun-rt-44-counter', '21 Gun Rt 44 Counter', [3, 7]);
+    const film = [snap(3, '21 Gun Rt 44 Power', 'scout_' + old.id), snap(7, '21 Gun Rt 44 Power', 'scout_' + old.id)];
+    const out = followRenamedClips(film, [old, card('opp-1', 'Jet Sweep', [9])]);
+    assert.deepEqual(out.map((c) => [c.id, c.name, c.clips]), [[old.id, '21 Gun Rt 44 Power', [3, 7]]]);
+    // No second card for the new name; the clips' play call is the new name.
+    const named = placeholdersFromNames('g', film, out, [], []);
+    assert.equal(named.cards.length, 0);
+    assert.deepEqual(named.links.s3, { playCallId: 'scout_' + old.id, playCall: '21 Gun Rt 44 Power' });
+    assert.deepEqual(buildScoutScript(out, 'Carmel').lines.map((l) => l.name), ['21 Gun Rt 44 Power']);
+    // Picking the old name again brings it back.
+    const back = followRenamedClips(film.map((s) => ({ ...s, callName: '21 Gun Rt 44 Counter' })), out);
+    assert.equal(back[0].name, '21 Gun Rt 44 Counter');
+  });
+
+  it('a clip renamed while others keep the name just leaves it; clips with no name change nothing', async () => {
+    const { followRenamedClips } = await import('../utils/scoutOppPlays.ts');
+    const c = card('name-g-21-gun-dive', '21 Gun Dive', [1, 2]);
+    const out = followRenamedClips([snap(1, '21 Gun Dive'), snap(2, '21 Gun Trap')], [c]);
+    assert.deepEqual(out.map((x) => [x.name, x.clips]), [['21 Gun Dive', [1]]]);
+    // Names lost (blank): the card is how they come back, so it stays as it is.
+    assert.equal(followRenamedClips([snap(1, ''), snap(2, '')], [c]).length, 0);
+    // A card a coach made (not from a play name) isn't touched.
+    assert.equal(followRenamedClips([snap(1, '21 Gun Trap')], [card('opp-4', '21 Gun Dive', [1])]).length, 0);
+  });
+});
