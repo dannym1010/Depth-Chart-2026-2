@@ -8235,8 +8235,16 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   const have = new Set(mine.map((p) => p.id));
                   const now = Date.now();
                   // A drawn play moved under another play call: its play row takes that name.
-                  const names = new Map(cards.filter((c) => have.has(`scout_${c.id}`)).map((c) => [`scout_${c.id}`, c.name]));
-                  const kept = mine.map((p) => (names.has(p.id) && names.get(p.id) !== p.name ? { ...p, name: names.get(p.id)!, editedAt: now } : p));
+                  const names = new Map(cards.filter((c) => have.has(`scout_${c.id}`)).map((c) => [`scout_${c.id}`, c]));
+                  // Its run or pass too, when the film switched it (a play action stays one while it's a pass).
+                  const isPass = (t?: string) => t === 'pass' || t === 'play_action' || t === 'screen' || t === 'rpo';
+                  const kept = mine.map((p) => {
+                    const c = names.get(p.id);
+                    if (!c) return p;
+                    const switched = (p.type === 'run' || isPass(p.type)) && isPass(p.type) !== (c.kind !== 'run');
+                    if (c.name === p.name && !switched) return p;
+                    return { ...p, name: c.name, ...(switched ? { type: c.kind } : {}), editedAt: now };
+                  });
                   const made = cards
                     .filter((c) => !have.has(`scout_${c.id}`))
                     .map((c) => {

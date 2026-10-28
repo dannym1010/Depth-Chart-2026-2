@@ -588,6 +588,32 @@ export function placeholdersFromNames(
 }
 
 /**
+ * Run or pass follows the film: a card's clips (the clip numbers on it, and snaps tagged with it) whose play type
+ * was changed after the card was made say run or pass, and the card goes with what most of them say. Only a
+ * switch between run and pass (a screen or RPO set on the card stays one while its clips say pass).
+ * Returns the cards that changed.
+ */
+export function kindFollowsClips(film: Play[], cards: ScoutOppPlay[]): ScoutOppPlay[] {
+  const typed = (p: Play) => p.playType === 'RUN' || p.playType === 'PASS' || p.playType === 'RPO' || p.playType === 'SCREEN';
+  const out: ScoutOppPlay[] = [];
+  for (const c of cards) {
+    const clips = new Set((c.clips || []).map(Number));
+    const rows = film.filter(
+      (p) => (!p.gameId || p.gameId === c.gameId) && p.odk !== 'K' && p.odk !== 'S' && p.odk !== 'D' && (clips.has(Number(p.playNumber)) || p.playCallId === `scout_${c.id}`) && typed(p)
+    );
+    if (!rows.some((p) => (Number(p.editedAt) || 0) > (Number(c.editedAt) || 0))) continue;
+    const runs = rows.filter((p) => runOrPass(kindFrom(p)) === 'run').length;
+    const side = runs * 2 > rows.length ? 'run' : runs * 2 < rows.length ? 'pass' : runOrPass(c.kind);
+    if (side === runOrPass(c.kind)) continue;
+    const kinds = rows.map(kindFrom).filter((k) => runOrPass(k) === side);
+    // A pass side all one kind (all screens) is that kind.
+    const kind = side === 'run' ? 'run' : kinds.every((k) => k === kinds[0]) ? kinds[0] : 'pass';
+    out.push({ ...c, kind, editedAt: Date.now() });
+  }
+  return out;
+}
+
+/**
  * A play name's card follows its clips when the coach picks a different name for them: once none of its clips
  * has its name any more (each has another one), it takes the name most of them have now, keeping its place on
  * the script, its notes and its drawing. Picking the old name again brings it back. A clip renamed while others

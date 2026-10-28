@@ -27,7 +27,7 @@ import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { ScoutOppPlayLibrary } from './ScoutOppPlayLibrary';
 import { StatsTab } from '../../hudlScout/components/report/StatsTab';
-import { buildScoutScript, cardsFromTags, followRenamedClips, foldBlankTwins, mergeDrawnIntoTags, placeholdersFromNames, coachingPoint, onCallSheet, runOrPass, formationNotes, withFormationNotes, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, printOrder, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
+import { buildScoutScript, cardsFromTags, followRenamedClips, kindFollowsClips, foldBlankTwins, mergeDrawnIntoTags, placeholdersFromNames, coachingPoint, onCallSheet, runOrPass, formationNotes, withFormationNotes, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, printOrder, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
 import { leadOppPlay, oppPlayDiagram, playPoint, theirPlaysByFormation } from '../../utils/filmBackfields';
 import { theirCallEntries } from '../../utils/theirCalls';
 import type { ReportPlayType } from '../../hudlScout/components/CallSheetModal';
@@ -419,10 +419,13 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     const drawn = (scoutId: string) => (playDatabase || []).some((e) => e.id === `scout_${scoutId}` && e.builder);
     for (const g of oppBundle.games) {
       const film = oppBundle.plays.filter((pl) => (pl.gameId ? pl.gameId === g.id : g.id === firstGame));
-      // A play name's card follows its clips to the name picked for them now.
-      const renamed = followRenamedClips(film, libs[g.id] || [], drawn);
-      moved.push(...renamed);
-      const mine = (libs[g.id] || []).map((c) => renamed.find((r) => r.id === c.id) || c);
+      // Run or pass changed on the film moves the card too; a play name's card follows its clips to the name
+      // picked for them now.
+      const retyped = kindFollowsClips(film, libs[g.id] || []);
+      const typedLib = (libs[g.id] || []).map((c) => retyped.find((r) => r.id === c.id) || c);
+      const renamed = followRenamedClips(film, typedLib, drawn);
+      moved.push(...renamed, ...retyped.filter((r) => !renamed.some((x) => x.id === r.id)));
+      const mine = typedLib.map((c) => renamed.find((r) => r.id === c.id) || c);
       const cards = cardsFromTags(g.id, film, mine, oppBundle.deletedOppPlayIds || [], libraryNameOf);
       added.push(...cards);
       // The play names made on the film: their formations (to draw) and their plays (starting from them).

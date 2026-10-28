@@ -224,3 +224,26 @@ describe("a play name's card follows its clips when they're renamed", () => {
     assert.equal(followRenamedClips([snap(1, '21 Gun Trap')], [card('opp-4', '21 Gun Dive', [1])]).length, 0);
   });
 });
+
+describe('run or pass on their play follows the film', () => {
+  const card = (id: string, kind: string, clips?: number[]) => ({ id, gameId: 'g', name: '21 Gun Rt 44 Counter', formation: '', personnel: '21', kind, down: '1st', notes: '', onReport: true, editedAt: 10, ...(clips ? { clips } : {}) }) as any;
+  const snap = (n: number, playType: string, editedAt: number, tag?: string) => ({ id: `s${n}`, gameId: 'g', playNumber: n, odk: 'O', playType, editedAt, ...(tag ? { playCallId: tag } : {}) }) as any;
+
+  it('a clip changed from pass to run after the card was made moves the card to run (and back)', async () => {
+    const { kindFollowsClips, buildScoutScript } = await import('../utils/scoutOppPlays.ts');
+    const c = card('name-g-x', 'pass', [3]);
+    const out = kindFollowsClips([snap(3, 'RUN', 20)], [c]);
+    assert.deepEqual(out.map((x) => x.kind), ['run']);
+    assert.match(buildScoutScript(out, 'Carmel').lines[0].detail, /run/);
+    assert.deepEqual(kindFollowsClips([snap(3, 'PASS', Date.now() + 1000)], out).map((x) => x.kind), ['pass']);
+    // Snaps tagged with the card count too; all screens make a screen.
+    assert.deepEqual(kindFollowsClips([snap(5, 'SCREEN', 20, 'scout_opp-1')], [card('opp-1', 'run')]).map((x) => x.kind), ['screen']);
+  });
+
+  it('nothing changed since the card, a screen card on a pass clip, or a clip with no type: left as it is', async () => {
+    const { kindFollowsClips } = await import('../utils/scoutOppPlays.ts');
+    assert.equal(kindFollowsClips([snap(3, 'RUN', 5)], [card('a', 'pass', [3])]).length, 0);
+    assert.equal(kindFollowsClips([snap(3, 'PASS', 20)], [card('a', 'screen', [3])]).length, 0);
+    assert.equal(kindFollowsClips([snap(3, '', 20)], [card('a', 'pass', [3])]).length, 0);
+  });
+});
