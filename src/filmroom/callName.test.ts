@@ -259,7 +259,9 @@ describe('the scout script groups a play concept as one play', () => {
       (id) => id === 'c'
     );
     assert.deepEqual(s.lines.map((l) => [l.playId, l.name, l.also]), [['c', 'Counter', ['a', 'd']], ['b', 'Jet Sweep', undefined]]);
-    assert.match(s.lines[0].detail, /32 Tight \/ 21 GUN · 32 \/ 21/);
+    assert.equal(s.lines[0].detail, '1st down · 32 Tight / 21 GUN · run');
+    assert.deepEqual(s.lines[0].personnel, ['32', '21']);
+    assert.match(s.periods[0].stations[0].desc, /Counter — .*\(Personnel 32, 21\)/);
   });
 
   it("a concept the coach added counts (last word of a play name); a name with no concept groups as before", async () => {
@@ -270,5 +272,15 @@ describe('the scout script groups a play concept as one play', () => {
     assert.equal(playConcept(card('opp-1', 'Rocket')), '');
     const s = buildScoutScript([card('name-g-1', '21 Gun Rt Rocket'), card('name-g-4', '10 Lt Rocket'), card('t1', '21 Gun Trips'), card('t2', '20 Gun Trips')], 'Carmel');
     assert.deepEqual(s.lines.map((l) => l.name), ['Rocket', '21 Gun Trips', '20 Gun Trips']);
+  });
+});
+
+describe('personnel they ran a play out of', () => {
+  it('counted from its clips (the play name first, else Hudl), most first; cards when there is no film', async () => {
+    const { personnelRan, personnelText } = await import('../utils/scoutOppPlays.ts');
+    const out = personnelRan([{ callParts: { personnel: '21' } }, { personnel: '32' }, { personnel: '21' }, { personnel: '-' }, { callParts: { personnel: '32' }, personnel: '11' }, { personnel: '21' }] as any);
+    assert.equal(personnelText(out), '21 ×3 · 32 ×2');
+    assert.equal(personnelText(personnelRan([], ['21', '32'])), '21 · 32');
+    assert.equal(personnelText(personnelRan([])), '');
   });
 });

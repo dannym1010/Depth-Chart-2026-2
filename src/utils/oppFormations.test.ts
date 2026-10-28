@@ -262,7 +262,8 @@ describe('the scout script line', () => {
   it('leaves out the run count written when the card was made (the live count is shown instead)', async () => {
     const { buildScoutScript } = await import('./scoutOppPlays.ts');
     const s = buildScoutScript([{ id: 'a', gameId: 'g1', name: 'TOSS', formation: '', personnel: '21', kind: 'run', down: '1st', notes: 'Ran 4 times on this film. Watch the pulling guard', onReport: true, editedAt: 1 }], 'Carmel');
-    assert.equal(s.lines[0].detail, '1st down · 21 · run. Watch the pulling guard');
+    assert.equal(s.lines[0].detail, '1st down · run. Watch the pulling guard');
+    assert.deepEqual(s.lines[0].personnel, ['21']);
   });
 });
 

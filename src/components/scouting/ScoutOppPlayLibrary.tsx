@@ -14,6 +14,8 @@ import { BACKFIELD_STRUCTURES } from '../../utils/footballEngine';
 import { backfieldOf, formationDefense, formationOfPlay, playPoint, leadOppPlay, playWithDefense, redrawWithBackfield, type FilmBackfieldBases } from '../../utils/filmBackfields';
 import {
   buildScoutScript,
+  personnelRan,
+  personnelText,
   formationNotes,
   groupOppPlays,
   moveItem,
@@ -221,6 +223,19 @@ export const ScoutOppPlayLibrary: React.FC<{
   }, [plays, snapsOf]);
   /** Every play of theirs in the same play type (across films), for a script play with no film of its own. */
   const allTypes = useMemo(() => groupOppPlays(Object.values(libraries).flat()), [libraries]);
+  /** The personnel they ran a script line out of: its plays' clips on every film ("21 ×3 · 32 ×1"). */
+  const linePersonnel = (line: { playId: string; personnel?: string[] }) => {
+    const members = [allOnReport.find((p) => p.id === line.playId), ...alsoOf(line.playId)].filter((p): p is ScoutOppPlay => Boolean(p));
+    const byId = new Map<string, Play>();
+    for (const m of members) {
+      const film = filmPlays.filter((fp) => (fp.gameId ? fp.gameId === m.gameId : films[0]?.id === m.gameId));
+      for (const s of snapsForCall(film, m.gameId, m.name, `scout_${m.id}`, m.fromPlayId, m.clips)) {
+        const snap = film.find((fp) => fp.id === s.id);
+        if (snap) byId.set(snap.id, snap);
+      }
+    }
+    return personnelText(personnelRan([...byId.values()], line.personnel));
+  };
   /**
    * The film for a play on the script (any film, not just the one picked above): its own snaps, else every
    * snap of its play type. Clicking it opens the builder with the same film, so Watch film is there too.
@@ -335,7 +350,8 @@ export const ScoutOppPlayLibrary: React.FC<{
       const play = onTheReport.find((p) => p.id === line.playId);
       // How many times they ran it (its clips on the film).
       const ran = play ? scriptFilm(play).snaps.length : 0;
-      const detail = [line.detail, ran ? `Ran it ${ran} time${ran === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+      const pers = linePersonnel(line);
+      const detail = [line.detail, pers ? `Personnel ${pers}` : '', ran ? `Ran it ${ran} time${ran === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
       // Its formation as tagged, else the one of theirs it was drawn from.
       const tagged = play?.formation && play.formation.trim() !== '-' ? play.formation : '';
       const formation = tagged || (play ? formationOfPlay(play, formations)?.name : '') || '';
@@ -1413,6 +1429,14 @@ export const ScoutOppPlayLibrary: React.FC<{
                         {line.name}
                       </div>
                       {line.detail && <div className={`text-[11px] text-slate-500 ${scriptPics ? '' : 'truncate'}`}>{line.detail}</div>}
+                      {(() => {
+                        const pers = linePersonnel(line);
+                        return pers ? (
+                          <div className="text-[11px] text-slate-600 dark:text-slate-300">
+                            <span className="font-bold">Personnel:</span> {pers}
+                          </div>
+                        ) : null;
+                      })()}
                     </button>
                     {(() => {
                       const film = play ? scriptFilm(play) : null;

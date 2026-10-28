@@ -193,6 +193,8 @@ export interface ScoutScriptLine {
   name: string;
   detail: string;
   period: string;
+  /** The personnel groups on its cards (the script shows the ones on its film, counted, when it has film). */
+  personnel?: string[];
   /** The same play run the other way (or on another film), combined into this line. */
   also?: string[];
 }
@@ -908,19 +910,37 @@ export function scriptGroups(plays: ScoutOppPlay[], drawn: (scoutId: string) => 
   });
 }
 
+/**
+ * The personnel they ran a play out of, from its clips (the play name's personnel, else Hudl's), most first;
+ * without film, the personnel on its cards (no count).
+ */
+export function personnelRan(snaps: Pick<Play, 'personnel' | 'callParts'>[], cards: string[] = []): { personnel: string; times: number }[] {
+  const by = new Map<string, number>();
+  for (const s of snaps) {
+    const v = String(s.callParts?.personnel || (s.personnel && s.personnel !== '-' ? s.personnel : '')).trim();
+    if (v) by.set(v, (by.get(v) || 0) + 1);
+  }
+  if (!by.size) return cards.filter(Boolean).map((personnel) => ({ personnel, times: 0 }));
+  return [...by.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([personnel, times]) => ({ personnel, times }));
+}
+
+/** "21 ×3 · 32 ×1" (no count when it isn't known). */
+export const personnelText = (list: { personnel: string; times: number }[]) => list.map((x) => (x.times ? `${x.personnel} ×${x.times}` : x.personnel)).join(' · ');
+
 export function buildScoutScript(plays: ScoutOppPlay[], opponent: string, drawn?: (scoutId: string) => boolean): ScoutPracticeScript {
   const who = opponent.trim() || 'Opponent';
   const lines: ScoutScriptLine[] = scriptGroups(plays, drawn).map(({ lead: p, members, name }) => {
     // One concept from several formations: each formation (and personnel) it came out of, the lead's first.
     const list = (pick: (m: ScoutOppPlay) => string) => [...new Set([p, ...members].map(pick).map((s) => String(s || '').trim()).filter((s) => s && s !== '-'))].join(' / ');
-    const bits = [periodLabel(p.down), list((m) => m.formation), list((m) => m.personnel), p.kind].filter((s) => s && s !== '-').join(' · ');
+    const bits = [periodLabel(p.down), list((m) => m.formation), p.kind].filter((s) => s && s !== '-').join(' · ');
     // The count written when the card was made from the film goes stale; the script shows the live one.
     const notes = (p.notes || '').replace(STALE_RUN_COUNT, '').trim();
     const detail = [bits, notes].filter(Boolean).join('. ');
     const also = members.filter((m) => m.id !== p.id).map((m) => m.id);
-    return { playId: p.id, name, detail, period: periodLabel(p.down), ...(also.length ? { also } : {}) };
+    const personnel = list((m) => m.personnel);
+    return { playId: p.id, name, detail, period: periodLabel(p.down), ...(personnel ? { personnel: personnel.split(' / ') } : {}), ...(also.length ? { also } : {}) };
   });
-  const text = lines.map((l, i) => `${i + 1}. ${l.name}${l.detail ? ` — ${l.detail}` : ''}`).join('\n');
+  const text = lines.map((l, i) => `${i + 1}. ${l.name}${l.detail ? ` — ${l.detail}` : ''}${l.personnel?.length ? ` (Personnel ${l.personnel.join(', ')})` : ''}`).join('\n');
   const periods: PracticePeriod[] = lines.length
     ? [
         {
