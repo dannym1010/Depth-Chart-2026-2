@@ -6,15 +6,19 @@ import type { GamePlanCall } from '../../scoutBundle';
 import {
   PART_SITUATION,
   formationPlan,
+  isLiveSnap,
   keyReads,
   planCallFor,
+  playCallName,
   situationPlan,
   type Expect,
   type FormationPart,
   type PlanRow,
 } from '../../utils/situationPlan';
+import { playFormationBase } from '../../utils/strength';
 import { formationKey, type OppFormation } from '../../../utils/scoutOppPlays';
-import { Card, EmptyNote, RunPassBar, RunPassLegend, SectionHeader } from './ui';
+import { isPassPlay, isRunPlay } from './reportText';
+import { Card, EmptyNote, RunPassBar, RunPassLegend, SectionHeader, WatchCutupFn, WatchPill } from './ui';
 
 // The game plan from their film: the few things to coach, run or pass on each down and distance,
 // and what they run from each formation. Every call starts as a suggestion from our defense; a coach
@@ -36,6 +40,29 @@ const EXPECT_CLASS: Record<Expect, string> = {
 
 const nameOfPick = (pick: { callId?: string; text?: string } | undefined, options: CallOption[]) =>
   pick?.text?.trim() || (pick?.callId ? options.find((o) => o.id === pick.callId)?.name : '') || '';
+
+function matchSituationKey(p: Play, key: string): boolean {
+  if (!isLiveSnap(p)) return false;
+  if (key === '1') return p.down === 1;
+  const m = key.match(/^([234])-(short|medium|long|xlong)$/);
+  if (!m) return false;
+  const down = Number(m[1]);
+  const band = m[2];
+  if (p.down !== down) return false;
+  if (band === 'short') return p.distance >= 1 && p.distance <= 3;
+  if (band === 'medium') return p.distance >= 4 && p.distance <= 6;
+  if (band === 'long') return p.distance >= 7 && p.distance <= 10;
+  return p.distance >= 11;
+}
+
+function matchFormationPart(p: Play, formation: string, part?: FormationPart): boolean {
+  if (!isLiveSnap(p) || playFormationBase(p) !== formation) return false;
+  if (!part) return true;
+  if (part === 'first') return p.down === 1;
+  if (part === 'short') return p.down > 1 && p.distance <= 3;
+  if (part === 'medium') return p.down > 1 && p.distance >= 4 && p.distance <= 6;
+  return p.down > 1 && p.distance >= 7;
+}
 
 /** Our call on one row: the coach's own call when set, else the suggested one; Change opens a picker. */
 const CallEditor: React.FC<{
@@ -154,9 +181,24 @@ const CallEditor: React.FC<{
   );
 };
 
-const RowStats: React.FC<{ row: PlanRow }> = ({ row }) => (
+const RowStats: React.FC<{ row: PlanRow; subset?: Play[]; onWatchCutup?: WatchCutupFn }> = ({ row, subset = [], onWatchCutup }) => (
   <div>
-    <RunPassBar runPct={row.runPct} passPct={100 - row.runPct} height="h-2" showLabels={false} />
+    <RunPassBar
+      runPct={row.runPct}
+      passPct={100 - row.runPct}
+      height="h-2"
+      showLabels={false}
+      onClickRun={
+        onWatchCutup && subset.filter(isRunPlay).length > 0
+          ? () => onWatchCutup(`${row.label} · Runs`, subset.filter(isRunPlay))
+          : undefined
+      }
+      onClickPass={
+        onWatchCutup && subset.filter(isPassPlay).length > 0
+          ? () => onWatchCutup(`${row.label} · Passes`, subset.filter(isPassPlay))
+          : undefined
+      }
+    />
     <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 tabular-nums">
       {row.run} run · {row.pass} pass · {row.avgGain} avg
     </div>
@@ -185,6 +227,7 @@ interface EditProps {
   gamePlanCalls?: Record<string, GamePlanCall>;
   /** Set or clear a row's call (unset = this coach can't edit). */
   onSetGamePlanCall?: (key: string, pick: CallPick) => void;
+  onWatchCutup?: WatchCutupFn;
 }
 
 export const SituationPlanCard: React.FC<{ plays: Play[]; opponentName: string } & EditProps> = ({
@@ -193,6 +236,7 @@ export const SituationPlanCard: React.FC<{ plays: Play[]; opponentName: string }
   defenseCalls = [],
   gamePlanCalls = {},
   onSetGamePlanCall,
+  onWatchCutup,
 }) => {
   const rows = useMemo(() => situationPlan(plays), [plays]);
   const total = rows.reduce((a, r) => a + r.count, 0);
@@ -200,7 +244,7 @@ export const SituationPlanCard: React.FC<{ plays: Play[]; opponentName: string }
     <Card>
       <SectionHeader
         title="Run or pass by down & distance"
-        subtitle={`What ${opponentName} ran on each down and distance (${total} live snaps; penalties left out), and our call. Change any call to make it yours.`}
+        subtitle={`What ${opponentName} ran on each down and distance (${total} live snaps; penalties left out), and our call. Click any row or bar to watch those snaps.`}
         right={<RunPassLegend />}
       />
       {rows.length === 0 ? (
@@ -211,14 +255,24 @@ export const SituationPlanCard: React.FC<{ plays: Play[]; opponentName: string }
             const key = `dd:${r.key}`;
             const pick = gamePlanCalls[key];
             const name = nameOfPick(pick, defenseCalls);
+            const rowPlays = plays.filter((p) => matchSituationKey(p, r.key));
+            const canClick = Boolean(onWatchCutup && rowPlays.length > 0);
             return (
-              <div key={r.key} className="py-3 grid grid-cols-1 md:grid-cols-[120px_150px_minmax(0,1fr)_minmax(0,1fr)] gap-2 md:gap-4">
-                <div>
-                  <div className="text-sm font-bold text-slate-900 dark:text-slate-100">{r.label}</div>
+              <div key={r.key} className="py-3 grid grid-cols-1 md:grid-cols-[140px_150px_minmax(0,1fr)_minmax(0,1fr)] gap-2 md:gap-4">
+                <div
+                  onClick={canClick ? () => onWatchCutup?.(r.label, rowPlays) : undefined}
+                  className={canClick ? 'cursor-pointer group' : undefined}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm font-bold text-slate-900 dark:text-slate-100 group-hover:text-amber-600 dark:group-hover:text-amber-400">
+                      {r.label}
+                    </span>
+                    {canClick && <WatchPill count={rowPlays.length} />}
+                  </div>
                   <div className={`text-xs font-bold ${EXPECT_CLASS[r.expect]}`}>{r.expectText}</div>
                   <div className="text-[11px] text-slate-500 dark:text-slate-400">{r.count === 1 ? '1 snap' : `${r.count} snaps`}</div>
                 </div>
-                <RowStats row={r} />
+                <RowStats row={r} subset={rowPlays} onWatchCutup={onWatchCutup} />
                 <div className="text-xs text-slate-700 dark:text-slate-200 min-w-0">
                   <div className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-0.5">They ran</div>
                   {r.ran.join(' · ')}
@@ -251,7 +305,7 @@ export const FormationPlanCard: React.FC<
     /** Save the formations (a call picked here goes into the formation's plan, so it prints on the call sheet). */
     onSaveFormations?: (next: OppFormation[]) => void;
   } & EditProps
-> = ({ plays, opponentName, formations, onSaveFormations, defenseCalls = [], gamePlanCalls = {}, onSetGamePlanCall }) => {
+> = ({ plays, opponentName, formations, onSaveFormations, defenseCalls = [], gamePlanCalls = {}, onSetGamePlanCall, onWatchCutup }) => {
   const forms = useMemo(() => formationPlan(plays), [plays]);
   const [showAll, setShowAll] = useState(false);
   const main = forms.filter((f) => f.count >= 2);
@@ -290,7 +344,7 @@ export const FormationPlanCard: React.FC<
     <Card>
       <SectionHeader
         title="What they run from each formation"
-        subtitle={`${opponentName}'s formations, most-used first: their plays on 1st down and on 2nd–4th by yards to go, and our call. A call you pick here is saved with the formation in Their plays and prints on the call sheet.`}
+        subtitle={`${opponentName}'s formations, most-used first: their plays on 1st down and on 2nd–4th by yards to go, and our call. Click any formation, play name, or down row to watch those snaps.`}
         right={<RunPassLegend />}
       />
       {forms.length === 0 ? (
@@ -303,20 +357,45 @@ export const FormationPlanCard: React.FC<
             const baseTyped = gamePlanCalls[baseKey]?.text?.trim();
             const baseName = baseTyped || callName(rec?.plan?.base);
             const base = baseName ? { name: baseName, callId: baseTyped ? undefined : rec?.plan?.base, text: baseTyped } : undefined;
+            const formPlays = plays.filter((p) => matchFormationPart(p, f.formation));
             return (
               <div key={f.formation} className="rounded-lg border border-slate-200 dark:border-slate-800 p-3">
-                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                  <div className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                    {f.formation}
-                    {f.twoTightEnds && <span className="ml-2 text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">two tight ends</span>}
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                  <div
+                    onClick={onWatchCutup && formPlays.length > 0 ? () => onWatchCutup(`Formation · ${f.formation}`, formPlays) : undefined}
+                    className={`flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100 ${
+                      onWatchCutup && formPlays.length > 0 ? 'cursor-pointer hover:text-amber-600 dark:hover:text-amber-400' : ''
+                    }`}
+                  >
+                    <span>{f.formation}</span>
+                    {f.twoTightEnds && <span className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">two tight ends</span>}
+                    {onWatchCutup && formPlays.length > 0 && <WatchPill count={formPlays.length} label={`Watch ${f.formation}`} />}
                   </div>
                   <div className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
                     {f.count} snaps · {f.run} run · {f.pass} pass · {f.avgGain} avg
                   </div>
                 </div>
                 {f.menu.length > 0 && (
-                  <div className="text-xs text-slate-600 dark:text-slate-300 mt-1">
-                    Plays: {f.menu.map((m) => (m.count > 1 ? `${m.name} ×${m.count}` : m.name)).join(', ')}
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 mt-1.5">
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Plays:</span>
+                    {f.menu.map((m) => {
+                      const mPlays = formPlays.filter((p) => playCallName(p).toLowerCase() === m.name.toLowerCase());
+                      const canClickM = Boolean(onWatchCutup && mPlays.length > 0);
+                      return (
+                        <button
+                          key={m.name}
+                          type="button"
+                          onClick={canClickM ? () => onWatchCutup?.(`${f.formation} · ${m.name}`, mPlays) : undefined}
+                          className={`px-2 py-0.5 rounded-md border text-[11px] font-semibold ${
+                            canClickM
+                              ? 'border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/80 hover:border-amber-500/60 hover:text-amber-600 dark:hover:text-amber-400 cursor-pointer'
+                              : 'border-slate-200 dark:border-slate-800'
+                          }`}
+                        >
+                          {m.count > 1 ? `${m.name} ×${m.count}` : m.name}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
                 <div className="mt-2 grid grid-cols-1 md:grid-cols-[130px_minmax(0,1fr)] gap-1 md:gap-4 rounded-md bg-slate-50 dark:bg-slate-950/50 px-2 py-2">
@@ -341,10 +420,18 @@ export const FormationPlanCard: React.FC<
                       : base
                         ? { ...base, from: 'Base' }
                         : undefined;
+                    const partPlays = plays.filter((p) => matchFormationPart(p, f.formation, part));
+                    const canClickPart = Boolean(onWatchCutup && partPlays.length > 0);
                     return (
-                      <div key={r.key} className="py-2 grid grid-cols-1 md:grid-cols-[130px_minmax(0,1fr)_minmax(0,1fr)] gap-1 md:gap-4">
-                        <div>
-                          <div className="text-xs font-bold text-slate-900 dark:text-slate-100">{r.label}</div>
+                      <div key={r.key} className="py-2 grid grid-cols-1 md:grid-cols-[150px_minmax(0,1fr)_minmax(0,1fr)] gap-1 md:gap-4">
+                        <div
+                          onClick={canClickPart ? () => onWatchCutup?.(`${f.formation} · ${r.label}`, partPlays) : undefined}
+                          className={canClickPart ? 'cursor-pointer group' : undefined}
+                        >
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900 dark:text-slate-100 group-hover:text-amber-600 dark:group-hover:text-amber-400">
+                            <span>{r.label}</span>
+                            {canClickPart && <WatchPill count={partPlays.length} />}
+                          </div>
                           <div className={`text-xs font-bold ${EXPECT_CLASS[r.expect]}`}>
                             {r.count === 1 ? (r.run ? 'Run' : 'Pass') : r.expectText}
                             <span className="font-medium text-slate-500 dark:text-slate-400"> · {r.count === 1 ? '1 snap' : `${r.run} of ${r.count} run`}</span>

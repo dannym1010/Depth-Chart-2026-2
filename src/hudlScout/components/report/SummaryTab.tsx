@@ -3,9 +3,10 @@ import { Printer } from 'lucide-react';
 import { printCleanHTML } from '../../../utils/printUtils';
 import { summaryPrintHtml } from './summaryPrint';
 import { AIScoutingReport, DownDistGroup, Play, TendencyAnalysis } from '../../types/football';
-import { DownDistanceHeatmap, RunPassRing } from '../ScoutCharts';
-import { ReportVoice, buildTakeaways, identity, runSides, sampleSize, shareGreen } from './reportText';
-import { Card, PlanCallout, SectionHeader } from './ui';
+import { classifyRunSide, isBoundaryRun, isWideSideRun } from '../../utils/csvParser';
+import { DownDistanceHeatmap, RunPassRing, playsForRunGap } from '../ScoutCharts';
+import { ReportVoice, buildTakeaways, identity, isPassPlay, isRunPlay, playerName, runSides, sampleSize, shareGreen, topNames } from './reportText';
+import { Card, PlanCallout, SectionHeader, WatchPill, type WatchCutupFn } from './ui';
 import { HashAndMotionCard } from './FieldTendenciesCard';
 
 interface SummaryTabProps {
@@ -17,32 +18,66 @@ interface SummaryTabProps {
   onPickSituation: (group: DownDistGroup) => void;
   onOpenGamePlan: () => void;
   onOpenTab: (tab: string) => void;
+  onWatchCutup?: WatchCutupFn;
 }
 
-const Fact: React.FC<{ label: string; big: React.ReactNode; line: React.ReactNode; children?: React.ReactNode; onClick?: () => void }> = ({
+const Fact: React.FC<{
+  label: string;
+  big: React.ReactNode;
+  line: React.ReactNode;
+  children?: React.ReactNode;
+  onClick?: () => void;
+  watchCount?: number;
+}> = ({
   label,
   big,
   line,
   children,
   onClick,
+  watchCount,
 }) => {
-  const Tag = onClick ? 'button' : 'div';
   return (
-    <Tag
-      {...(onClick ? { type: 'button' as const, onClick } : {})}
-      className={`text-left bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col gap-2 ${
-        onClick ? 'hover:border-slate-400 dark:hover:border-slate-600 cursor-pointer transition-colors' : ''
+    <div
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
+      className={`group text-left bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col gap-2 ${
+        onClick ? 'hover:border-indigo-400 dark:hover:border-indigo-500 cursor-pointer transition-colors' : ''
       }`}
     >
-      <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
+        {onClick && (
+          <WatchPill count={watchCount} label="Watch" />
+        )}
+      </div>
       <div className="text-2xl font-black text-slate-900 dark:text-white leading-none">{big}</div>
       <div className="text-xs text-slate-600 dark:text-slate-300">{line}</div>
       {children}
-    </Tag>
+    </div>
   );
 };
 
-export const SummaryTab: React.FC<SummaryTabProps> = ({ analysis: a, plays, voice, report, onPickSituation, onOpenGamePlan, onOpenTab }) => {
+export const SummaryTab: React.FC<SummaryTabProps> = ({
+  analysis: a,
+  plays,
+  voice,
+  report,
+  onPickSituation,
+  onOpenGamePlan,
+  onOpenTab,
+  onWatchCutup,
+}) => {
   const id = identity(a, voice);
   const sample = sampleSize(a.totalPlays);
   const sides = runSides(a);
@@ -50,6 +85,33 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({ analysis: a, plays, voic
   const third = a.thirdDownConversions;
   const bigEvery = a.explosivePlayRate > 0 ? Math.max(1, Math.round(100 / a.explosivePlayRate)) : 0;
   const showPlan = report && (voice.showCounters || voice.showSelfScout);
+
+  const runs = plays.filter(isRunPlay);
+  const passes = plays.filter(isPassPlay);
+  const thirdPlays = plays.filter((p) => p.down === 3);
+  const explosivePlays = plays.filter((p) => p.isExplosive);
+  const playRunSide = (p: Play) =>
+    p.runSide === 'L' || p.runSide === 'R' || p.runSide === 'M' ? p.runSide : classifyRunSide(p.direction || '', p.hash);
+
+  const takeawayPlays = (tid: string): Play[] => {
+    if (tid === 'run-heavy') return runs;
+    if (tid === 'pass-heavy') return passes;
+    if (tid === 'fav-gap' && sides.favorite) return playsForRunGap(plays, sides.favorite.key);
+    if (tid === 'wide-side') {
+      const wide = a.wideSide.widePct >= 65;
+      return runs.filter((p) => (p.hash === 'L' || p.hash === 'R') && (wide ? isWideSideRun(p.hash, playRunSide(p)) : isBoundaryRun(p.hash, playRunSide(p))));
+    }
+    if (tid === 'third-long') return thirdPlays.filter((p) => p.distance >= 7);
+    if (tid === 'third-good') return thirdPlays.filter((p) => p.gainLoss >= p.distance);
+    if (tid === 'big-plays') return explosivePlays;
+    if (tid === 'workhorse') {
+      const top = topNames(runs, (p) => p.oppRusher || p.carrierOrTarget, 1)[0];
+      if (!top) return [];
+      return runs.filter((p) => playerName((p.oppRusher || p.carrierOrTarget || '').trim()) === top.name);
+    }
+    return plays;
+  };
+
   return (
     <div className="space-y-4 md:space-y-5">
       <div className="flex justify-end">
@@ -74,16 +136,21 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({ analysis: a, plays, voic
             <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-1">{id.label}</h2>
             <p className="text-sm text-slate-700 dark:text-slate-200 mt-1.5 max-w-3xl">{id.sentence}</p>
           </div>
-          <span
-            className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-bold border ${
-              sample.level === 'low'
-                ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-500/40'
-                : 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
-            }`}
-            title={sample.text}
-          >
-            {sample.level === 'low' ? `Small sample: ${a.totalPlays} plays` : `${a.totalPlays} plays scouted`}
-          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            {onWatchCutup && plays.length > 0 && (
+              <WatchPill count={plays.length} label="Watch all" onClick={() => onWatchCutup(id.label, plays)} />
+            )}
+            <span
+              className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-bold border ${
+                sample.level === 'low'
+                  ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-500/40'
+                  : 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+              }`}
+              title={sample.text}
+            >
+              {sample.level === 'low' ? `Small sample: ${a.totalPlays} plays` : `${a.totalPlays} plays scouted`}
+            </span>
+          </div>
         </div>
         {sample.level === 'low' && <p className="text-xs text-amber-700 dark:text-amber-300 mt-2">{sample.text}</p>}
       </Card>
@@ -101,28 +168,90 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({ analysis: a, plays, voic
             </span>
           }
           line={`${a.avgGainRun} yards a run · ${a.avgGainPass} yards a pass`}
-        />
+          watchCount={a.runPct >= a.passPct ? runs.length : passes.length}
+          onClick={
+            onWatchCutup && (runs.length || passes.length)
+              ? () => onWatchCutup(a.runPct >= a.passPct ? 'All runs' : 'All passes', a.runPct >= a.passPct ? runs : passes)
+              : undefined
+          }
+        >
+          {onWatchCutup && (runs.length > 0 || passes.length > 0) && (
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {runs.length > 0 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onWatchCutup('All runs', runs);
+                  }}
+                  className="px-2 py-0.5 rounded bg-emerald-600/15 hover:bg-emerald-600 text-emerald-700 hover:text-white dark:text-emerald-300 dark:hover:text-white text-[10px] font-black transition cursor-pointer"
+                >
+                  ▶ {runs.length} runs
+                </button>
+              )}
+              {passes.length > 0 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onWatchCutup('All passes', passes);
+                  }}
+                  className="px-2 py-0.5 rounded bg-blue-600/15 hover:bg-blue-600 text-blue-700 hover:text-white dark:text-blue-300 dark:hover:text-white text-[10px] font-black transition cursor-pointer"
+                >
+                  ▶ {passes.length} passes
+                </button>
+              )}
+            </div>
+          )}
+        </Fact>
         <Fact
           label="Favorite run"
           big={sides.total ? <span className="capitalize">{sides.favorite.label}</span> : 'No runs tagged'}
           line={sides.total ? `${sides.favorite.pct}% of ${sides.total} runs` : 'The file has no run direction.'}
-          onClick={() => onOpenTab('run')}
+          watchCount={sides.total ? sides.favorite.count : undefined}
+          onClick={() => {
+            if (onWatchCutup && sides.total && sides.favorite) {
+              const sub = playsForRunGap(plays, sides.favorite.key);
+              if (sub.length) {
+                onWatchCutup(`Favorite run · ${sides.favorite.label}`, sub);
+                return;
+              }
+            }
+            onOpenTab('run');
+          }}
         >
           {sides.total > 0 && (
             <div className="flex text-[10px] font-bold rounded overflow-hidden mt-1">
-              {[
-                ['Left', sides.leftPct],
-                ['Middle', sides.middlePct],
-                ['Right', sides.rightPct],
-              ].map(([label, pct]) => (
-                <div
-                  key={label as string}
-                  className="py-1 text-center text-white dark:text-white border-r border-white/40 last:border-r-0 min-w-[56px]"
-                  style={{ flexGrow: Math.max(Number(pct), 8), background: shareGreen(Number(pct)) }}
-                >
-                  {label} {pct}%
-                </div>
-              ))}
+              {(
+                [
+                  ['Left', sides.leftPct, 'L'],
+                  ['Middle', sides.middlePct, 'M'],
+                  ['Right', sides.rightPct, 'R'],
+                ] as const
+              ).map(([label, pct, sideKey]) => {
+                const sideRuns = runs.filter((p) => playRunSide(p) === sideKey);
+                const clickable = Boolean(onWatchCutup && sideRuns.length > 0);
+                return (
+                  <div
+                    key={label}
+                    onClick={
+                      clickable
+                        ? (e) => {
+                            e.stopPropagation();
+                            onWatchCutup!(`Runs · ${label}`, sideRuns);
+                          }
+                        : undefined
+                    }
+                    title={clickable ? `Watch ${sideRuns.length} runs ${label.toLowerCase()}` : undefined}
+                    className={`py-1 text-center text-white dark:text-white border-r border-white/40 last:border-r-0 min-w-[56px] ${
+                      clickable ? 'hover:brightness-110 cursor-pointer' : ''
+                    }`}
+                    style={{ flexGrow: Math.max(Number(pct), 8), background: shareGreen(Number(pct)) }}
+                  >
+                    {label} {pct}%
+                  </div>
+                );
+              })}
             </div>
           )}
         </Fact>
@@ -130,7 +259,14 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({ analysis: a, plays, voic
           label="3rd down"
           big={third.total ? `${third.rate}% converted` : 'No 3rd downs'}
           line={third.total ? `${third.converted} of ${third.total}. Short ${third.short.rate}% · Medium ${third.medium.rate}% · Long ${third.long.rate}%` : 'None in this file.'}
-          onClick={() => onOpenTab('situations')}
+          watchCount={thirdPlays.length || undefined}
+          onClick={() => {
+            if (onWatchCutup && thirdPlays.length) {
+              onWatchCutup('3rd down plays', thirdPlays);
+              return;
+            }
+            onOpenTab('situations');
+          }}
         />
         <Fact
           label="Big plays"
@@ -139,6 +275,12 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({ analysis: a, plays, voic
             a.explosivePlayCount
               ? `${a.explosivePlayCount} big plays (runs of 12+ yards, passes of 16+).`
               : 'No runs of 12+ yards or passes of 16+.'
+          }
+          watchCount={explosivePlays.length || undefined}
+          onClick={
+            onWatchCutup && explosivePlays.length > 0
+              ? () => onWatchCutup('Big plays (12+ run / 16+ pass)', explosivePlays)
+              : undefined
           }
         />
       </div>
@@ -159,19 +301,27 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({ analysis: a, plays, voic
           <p className="text-xs text-slate-500 dark:text-slate-400">No strong habits yet. More film will sharpen this.</p>
         ) : (
           <ol className="space-y-3">
-            {takeaways.map((t, i) => (
-              <li key={t.id} className="flex gap-3">
-                <span className="shrink-0 w-7 h-7 rounded-full bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-white text-sm font-black flex items-center justify-center">
-                  {i + 1}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-bold text-slate-900 dark:text-slate-100">{t.title}</div>
-                  <div className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">{t.detail}</div>
-                  {voice.showCounters && t.counter && <PlanCallout label="Our answer">{t.counter}</PlanCallout>}
-                  {voice.showSelfScout && t.selfScout && <PlanCallout label="Self-scout">{t.selfScout}</PlanCallout>}
-                </div>
-              </li>
-            ))}
+            {takeaways.map((t, i) => {
+              const tPlays = takeawayPlays(t.id);
+              return (
+                <li key={t.id} className="flex gap-3">
+                  <span className="shrink-0 w-7 h-7 rounded-full bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-white text-sm font-black flex items-center justify-center">
+                    {i + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-sm font-bold text-slate-900 dark:text-slate-100">{t.title}</div>
+                      {onWatchCutup && tPlays.length > 0 && (
+                        <WatchPill count={tPlays.length} onClick={() => onWatchCutup(t.title, tPlays)} />
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">{t.detail}</div>
+                    {voice.showCounters && t.counter && <PlanCallout label="Our answer">{t.counter}</PlanCallout>}
+                    {voice.showSelfScout && t.selfScout && <PlanCallout label="Self-scout">{t.selfScout}</PlanCallout>}
+                  </div>
+                </li>
+              );
+            })}
           </ol>
         )}
       </Card>
@@ -181,8 +331,10 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({ analysis: a, plays, voic
         <DownDistanceHeatmap
           groups={a.situationalGroups}
           onSelect={onPickSituation}
+          plays={plays}
+          onWatchCutup={onWatchCutup}
           heading="By down & distance"
-          subheading={`Green = run, blue = pass. Bolder color = stronger lean. Tap a box to see what ${voice.subject === 'We' ? 'we' : 'they'} call.`}
+          subheading={`Green = run, blue = pass. Bolder color = stronger lean. Tap a box to watch what ${voice.subject === 'We' ? 'we' : 'they'} call.`}
         />
         {showPlan && report && (
           <Card tone="plan">
@@ -217,7 +369,7 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({ analysis: a, plays, voic
       </div>
 
       {/* 5. Which way plays go from each hash, and the motion (also on the Run game tab) */}
-      <HashAndMotionCard plays={plays} voice={voice} />
+      <HashAndMotionCard plays={plays} voice={voice} onWatchCutup={onWatchCutup} />
       </div>
     </div>
   );

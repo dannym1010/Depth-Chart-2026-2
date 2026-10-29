@@ -1,8 +1,9 @@
-/** The film snaps to watch for one play, handed to the Film Room. */
+/** The film snaps to watch for one play or stat cutup, handed to the Film Room. */
 export interface FilmCutup {
   gameId: string;
   playIds: string[];
   label: string;
+  source?: 'opponent' | 'own';
 }
 
 const KEY = 'filmCutup';

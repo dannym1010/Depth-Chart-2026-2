@@ -189,7 +189,7 @@ import { ScoutingView } from './components/ScoutingView';
 import { FilmRoomView } from './filmroom/FilmRoomView';
 import { FilmWindowHost } from './filmroom/FilmWindow';
 import { ScoutSafetyNet } from './components/ScoutSafetyNet';
-import { filmWindowAutoOpen, openFilmWindow } from './filmroom/filmWindowStore';
+import { closeFilmWindow, filmWindowAutoOpen, openFilmWindow } from './filmroom/filmWindowStore';
 import { setDefenseRosterSource } from './utils/defenseRosterStore';
 import { setReadOnlySession, setAccessPublisher, syncAccessDoc, requestSignup, listenSignups, clearSignup } from './services/storageService';
 import { DEFAULT_PLAYER_TABS, accountTabs, defaultTabsFor, firstPlayerScreen, isFamilyRole, isViewOnlyRole, playerCanSee } from './utils/playerAccess';
@@ -9044,14 +9044,26 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
         />
       )}
 
-      {/* The film window: their film of a play, floating over Their plays and the play builder */}
+      {/* The film window: their film of a play, floating over Their plays, scouting reports, and the play builder */}
       <FilmWindowHost
         teamId={activeTeamId}
         teamName={currentActiveTeam?.name || 'Mahopac 10U'}
         currentWeek={currentWeek}
         opponentName={currentWeekState.opponent || currentWeekState.scouting?.opponent || ''}
         opponentScout={currentWeekState.scouting?.hudlScout}
+        ownTeamScout={teamOwnScout}
         authorName={currentUser?.displayName || (currentUser?.email || 'Coach').split('@')[0]}
+        onOpenInFilmRoom={(req) => {
+          saveFilmCutup({
+            gameId: req.gameId,
+            playIds: req.playIds,
+            label: req.label,
+            source: req.source,
+          });
+          holdFilmCutup();
+          closeFilmWindow();
+          setActiveUnit('filmroom');
+        }}
       />
 
       {/* Global Dialog Modals */}

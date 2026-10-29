@@ -1,5 +1,9 @@
 import React, { useMemo } from 'react';
+import { Film } from 'lucide-react';
 import { DownDistGroup, FieldZone, Play, TendencyAnalysis } from '../types/football';
+import { classifyRunSide } from '../utils/csvParser';
+import { playsInGroup } from '../utils/buildLocalGameplan';
+import type { WatchCutupFn } from './report/ui';
 
 // Small SVG / CSS charts for the scouting report. Run is always green and pass always blue.
 // Both are fixed colors: the theme re-colors indigo/violet/sky/cyan, never emerald or blue,
@@ -13,6 +17,19 @@ const sub = 'text-[11px] text-slate-500 dark:text-slate-400';
 
 const isRun = (p: Play) => p.playType === 'RUN' || p.playType === 'RPO';
 const isPass = (p: Play) => p.playType === 'PASS' || p.playType === 'SCREEN';
+const isPenaltySnap = (p: Play) => /penal|no play|false start/i.test(`${p.playType} ${p.result || ''} ${p.playName || ''}`);
+
+export function playsForRunGap(plays: Play[], gapKey: string): Play[] {
+  const allRuns = plays.filter((p) => p.playType === 'RUN' && !isPenaltySnap(p));
+  return allRuns.filter((p) => {
+    const text = `${p.direction || ''} ${p.playName || ''}`.toLowerCase();
+    const side = p.runSide === 'L' || p.runSide === 'R' || p.runSide === 'M' ? p.runSide : classifyRunSide(p.direction || '', p.hash);
+    const perimeter = /sweep|toss|jet|pitch|perim|outside|edge|end around/.test(text);
+    if (side === 'M') return gapKey === 'middle';
+    if (perimeter) return side === 'L' ? gapKey === 'leftPerimeter' : gapKey === 'rightPerimeter';
+    return side === 'L' ? gapKey === 'offTackleLeft' || gapKey === 'aGapLeft' : gapKey === 'offTackleRight' || gapKey === 'aGapRight';
+  });
+}
 
 const RUN_STEPS = [
   { bg: 'bg-emerald-100 dark:bg-emerald-950', text: 'text-emerald-950 dark:text-emerald-100' },
@@ -79,7 +96,9 @@ export const DownDistanceHeatmap: React.FC<{
   selectedLabel?: string;
   heading?: string;
   subheading?: string;
-}> = ({ groups, onSelect, selectedLabel, heading = 'Down & distance heat map', subheading }) => {
+  plays?: Play[];
+  onWatchCutup?: WatchCutupFn;
+}> = ({ groups, onSelect, selectedLabel, heading = 'Down & distance heat map', subheading, plays, onWatchCutup }) => {
   const cell = (down: number, bucket?: 'short' | 'medium' | 'long') =>
     groups.find((g) => {
       if (g.down !== down) return false;
@@ -89,22 +108,60 @@ export const DownDistanceHeatmap: React.FC<{
     });
 
   const Cell: React.FC<{ g?: DownDistGroup; span?: boolean; label: string }> = ({ g, span, label }) => {
-    const has = g && g.count > 0;
-    const clickable = Boolean(onSelect && has);
+    const has = Boolean(g && g.count > 0);
+    const clickable = Boolean((onSelect || onWatchCutup) && has);
     const selected = Boolean(has && selectedLabel && g!.label === selectedLabel);
-    const Tag = clickable ? 'button' : 'div';
     const lean = has ? leanStyle(g!.runPct, g!.passPct) : null;
+    const watchGroup = (e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      if (!has || !g || !plays || !onWatchCutup) return;
+      onWatchCutup(g.label, playsInGroup(plays, g));
+    };
     return (
-      <Tag
-        {...(clickable ? { type: 'button' as const, onClick: () => onSelect!(g!), 'aria-pressed': selected } : {})}
-        className={`rounded-md p-2 min-h-[64px] flex flex-col justify-between text-left ${span ? 'col-span-3' : ''} ${
+      <div
+        role={clickable ? 'button' : undefined}
+        tabIndex={clickable ? 0 : undefined}
+        aria-pressed={clickable ? selected : undefined}
+        onClick={
+          clickable
+            ? () => {
+                if (onSelect && g) onSelect(g);
+                if (onWatchCutup && plays && g) onWatchCutup(g.label, playsInGroup(plays, g));
+              }
+            : undefined
+        }
+        onKeyDown={
+          clickable
+            ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  if (onSelect && g) onSelect(g);
+                  if (onWatchCutup && plays && g) onWatchCutup(g.label, playsInGroup(plays, g));
+                }
+              }
+            : undefined
+        }
+        className={`group relative rounded-md p-2 min-h-[64px] flex flex-col justify-between text-left ${span ? 'col-span-3' : ''} ${
           lean ? `${lean.bg} ${lean.text}` : 'bg-slate-50 dark:bg-slate-900 border border-dashed border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500'
         } ${clickable ? 'cursor-pointer hover:brightness-95 dark:hover:brightness-125 transition' : ''} ${
           selected ? 'outline outline-[3px] outline-offset-2 outline-slate-900 dark:outline-white' : ''
         }`}
-        title={has ? `${label}: ${g!.count} plays, ${g!.runPct}% run, ${g!.avgGain} yds avg, ${g!.successRate}% success` : `${label}: no plays`}
+        title={has ? `${label}: ${g!.count} plays, ${g!.runPct}% run, ${g!.avgGain} yds avg, ${g!.successRate}% success — click to watch cutup` : `${label}: no plays`}
       >
-        <div className={`text-[10px] font-bold uppercase tracking-wide leading-tight ${lean ? lean.text : ''}`}>{label}</div>
+        <div className="flex items-center justify-between gap-1">
+          <div className={`text-[10px] font-bold uppercase tracking-wide leading-tight ${lean ? lean.text : ''}`}>{label}</div>
+          {has && onWatchCutup && plays && (
+            <button
+              type="button"
+              onClick={watchGroup}
+              title={`Watch ${g!.count} snaps on ${g!.label}`}
+              className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-black bg-black/20 hover:bg-black/40 text-white transition cursor-pointer shrink-0`}
+            >
+              <Film className="w-2.5 h-2.5" />
+              <span>Watch</span>
+            </button>
+          )}
+        </div>
         {has ? (
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-0.5 sm:gap-1">
             <span className={`text-sm sm:text-base font-black leading-none ${lean!.text}`}>
@@ -115,7 +172,7 @@ export const DownDistanceHeatmap: React.FC<{
         ) : (
           <span className="text-[11px] font-semibold">No plays</span>
         )}
-      </Tag>
+      </div>
     );
   };
 
@@ -125,7 +182,7 @@ export const DownDistanceHeatmap: React.FC<{
         <div>
           <h3 className={title}>{heading}</h3>
           <p className={sub}>
-            {subheading ?? (onSelect ? 'Green = run, blue = pass. Bolder color = stronger lean. Tap a box for details.' : 'Green = run, blue = pass. Bolder color = stronger lean.')}
+            {subheading ?? (onSelect ? 'Green = run, blue = pass. Bolder color = stronger lean. Tap a box to watch its snaps.' : 'Green = run, blue = pass. Bolder color = stronger lean.')}
           </p>
         </div>
         <Legend />
@@ -155,19 +212,29 @@ export const DownDistanceHeatmap: React.FC<{
 };
 
 /** 2. Yards gained per play, stacked run vs pass. */
-export const GainDistributionChart: React.FC<{ plays: Play[] }> = ({ plays }) => {
+export const GainDistributionChart: React.FC<{ plays: Play[]; onWatchCutup?: WatchCutupFn }> = ({ plays, onWatchCutup }) => {
   const buckets = useMemo(() => {
     const defs = [
-      { label: 'Loss', test: (g: number) => g < 0 },
-      { label: '0-2', test: (g: number) => g >= 0 && g <= 2 },
-      { label: '3-5', test: (g: number) => g >= 3 && g <= 5 },
-      { label: '6-9', test: (g: number) => g >= 6 && g <= 9 },
-      { label: '10-19', test: (g: number) => g >= 10 && g <= 19 },
-      { label: '20+', test: (g: number) => g >= 20 },
+      { label: 'Loss', desc: 'Plays for a loss (< 0 yds)', test: (g: number) => g < 0 },
+      { label: '0-2', desc: 'Short gain (0–2 yds)', test: (g: number) => g >= 0 && g <= 2 },
+      { label: '3-5', desc: '3–5 yd gain', test: (g: number) => g >= 3 && g <= 5 },
+      { label: '6-9', desc: '6–9 yd gain', test: (g: number) => g >= 6 && g <= 9 },
+      { label: '10-19', desc: '10–19 yd chunk play', test: (g: number) => g >= 10 && g <= 19 },
+      { label: '20+', desc: '20+ yd explosive play', test: (g: number) => g >= 20 },
     ];
     return defs.map((d) => {
       const inB = plays.filter((p) => d.test(p.gainLoss));
-      return { label: d.label, run: inB.filter(isRun).length, pass: inB.filter(isPass).length };
+      const runPlays = inB.filter(isRun);
+      const passPlays = inB.filter(isPass);
+      return {
+        label: d.label,
+        desc: d.desc,
+        all: [...runPlays, ...passPlays],
+        runPlays,
+        passPlays,
+        run: runPlays.length,
+        pass: passPlays.length,
+      };
     });
   }, [plays]);
   const max = Math.max(1, ...buckets.map((b) => b.run + b.pass));
@@ -178,7 +245,9 @@ export const GainDistributionChart: React.FC<{ plays: Play[] }> = ({ plays }) =>
       <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
         <div>
           <h3 className={title}>Yards gained per play</h3>
-          <p className={sub}>How often each call goes for a loss, a short gain, or a chunk play.</p>
+          <p className={sub}>
+            How often each call goes for a loss, a short gain, or a chunk play.{onWatchCutup ? ' Click any bar (or its green/blue stack) to watch those plays.' : ''}
+          </p>
         </div>
         <Legend />
       </div>
@@ -188,12 +257,48 @@ export const GainDistributionChart: React.FC<{ plays: Play[] }> = ({ plays }) =>
         <div className="flex items-end gap-2 sm:gap-3 h-56">
           {buckets.map((b) => {
             const n = b.run + b.pass;
+            const clickable = Boolean(onWatchCutup && n > 0);
             return (
-              <div key={b.label} className="flex-1 flex flex-col items-center justify-end h-full min-w-0">
-                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 mb-1">{n || ''}</span>
-                <div className="w-full max-w-[56px] flex flex-col-reverse rounded-t overflow-hidden" style={{ height: `${(n / max) * 100}%` }}>
-                  <div style={{ height: `${n ? (b.run / n) * 100 : 0}%`, background: RUN_COLOR }} title={`${b.run} runs`} />
-                  <div style={{ height: `${n ? (b.pass / n) * 100 : 0}%`, background: PASS_COLOR }} title={`${b.pass} passes`} />
+              <div
+                key={b.label}
+                onClick={clickable ? () => onWatchCutup!(b.desc, b.all) : undefined}
+                title={clickable ? `Watch all ${n} plays (${b.desc})` : undefined}
+                className={`flex-1 flex flex-col items-center justify-end h-full min-w-0 group ${clickable ? 'cursor-pointer' : ''}`}
+              >
+                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 mb-1 flex items-center gap-0.5">
+                  <span>{n || ''}</span>
+                  {clickable && <span className="opacity-0 group-hover:opacity-100 text-[9px] text-indigo-500">▶</span>}
+                </span>
+                <div
+                  className="w-full max-w-[56px] flex flex-col-reverse rounded-t overflow-hidden group-hover:ring-2 group-hover:ring-indigo-500 transition"
+                  style={{ height: `${(n / max) * 100}%` }}
+                >
+                  <div
+                    onClick={
+                      onWatchCutup && b.run > 0
+                        ? (e) => {
+                            e.stopPropagation();
+                            onWatchCutup(`${b.desc} · Runs`, b.runPlays);
+                          }
+                        : undefined
+                    }
+                    className={onWatchCutup && b.run > 0 ? 'hover:brightness-110' : ''}
+                    style={{ height: `${n ? (b.run / n) * 100 : 0}%`, background: RUN_COLOR }}
+                    title={onWatchCutup && b.run > 0 ? `Watch ${b.run} runs (${b.label} yds)` : `${b.run} runs`}
+                  />
+                  <div
+                    onClick={
+                      onWatchCutup && b.pass > 0
+                        ? (e) => {
+                            e.stopPropagation();
+                            onWatchCutup(`${b.desc} · Passes`, b.passPlays);
+                          }
+                        : undefined
+                    }
+                    className={onWatchCutup && b.pass > 0 ? 'hover:brightness-110' : ''}
+                    style={{ height: `${n ? (b.pass / n) * 100 : 0}%`, background: PASS_COLOR }}
+                    title={onWatchCutup && b.pass > 0 ? `Watch ${b.pass} passes (${b.label} yds)` : `${b.pass} passes`}
+                  />
                 </div>
                 <span className={`text-[10px] font-bold mt-1.5 ${b.label === 'Loss' ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500 dark:text-slate-400'}`}>
                   {b.label}
@@ -208,9 +313,10 @@ export const GainDistributionChart: React.FC<{ plays: Play[] }> = ({ plays }) =>
 };
 
 /** 3. Field zone strip: what they call from their own goal line to ours. */
-export const FieldZoneStrip: React.FC<{ plays: Play[]; subheading?: string }> = ({
+export const FieldZoneStrip: React.FC<{ plays: Play[]; subheading?: string; onWatchCutup?: WatchCutupFn }> = ({
   plays,
   subheading = 'Their offense driving left to right, from their goal line to ours.',
+  onWatchCutup,
 }) => {
   const zones: { id: FieldZone; label: string; yards: string; width: number }[] = [
     { id: 'backed_up', label: 'Backed up', yards: 'Own 1-10', width: 12 },
@@ -221,9 +327,10 @@ export const FieldZoneStrip: React.FC<{ plays: Play[]; subheading?: string }> = 
   ];
   const stats = zones.map((z) => {
     const inZ = plays.filter((p) => p.fieldZone === z.id && (isRun(p) || isPass(p)));
-    const runs = inZ.filter(isRun).length;
+    const runs = inZ.filter(isRun);
+    const passes = inZ.filter(isPass);
     const avg = inZ.length ? Math.round((inZ.reduce((a, p) => a + p.gainLoss, 0) / inZ.length) * 10) / 10 : 0;
-    return { ...z, count: inZ.length, runPct: inZ.length ? Math.round((runs / inZ.length) * 100) : 0, avg };
+    return { ...z, inZ, runs, passes, count: inZ.length, runPct: inZ.length ? Math.round((runs.length / inZ.length) * 100) : 0, avg };
   });
 
   return (
@@ -231,31 +338,64 @@ export const FieldZoneStrip: React.FC<{ plays: Play[]; subheading?: string }> = 
       <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
         <div>
           <h3 className={title}>Calls by field position</h3>
-          <p className={sub}>{subheading}</p>
+          <p className={sub}>{subheading}{onWatchCutup ? ' Click any zone to watch those snaps.' : ''}</p>
         </div>
         <Legend />
       </div>
       <div className="flex flex-col sm:flex-row gap-1.5">
         {stats.map((z) => {
           const scoring = z.id === 'red_zone' || z.id === 'goal_line';
+          const clickable = Boolean(onWatchCutup && z.count > 0);
           return (
             <div
               key={z.id}
-              className={`w-full sm:w-[var(--zone-w)] min-w-0 rounded-lg p-2.5 flex flex-col gap-1.5 border border-t-4 ${
+              role={clickable ? 'button' : undefined}
+              tabIndex={clickable ? 0 : undefined}
+              onClick={clickable ? () => onWatchCutup!(`${z.label} (${z.yards})`, z.inZ) : undefined}
+              onKeyDown={
+                clickable
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onWatchCutup!(`${z.label} (${z.yards})`, z.inZ);
+                      }
+                    }
+                  : undefined
+              }
+              title={clickable ? `Watch ${z.count} snaps in ${z.label} (${z.yards})` : undefined}
+              className={`group w-full sm:w-[var(--zone-w)] min-w-0 rounded-lg p-2.5 flex flex-col gap-1.5 border border-t-4 transition ${
                 scoring
                   ? 'bg-rose-50 border-rose-200 border-t-rose-500 dark:bg-rose-950/40 dark:border-rose-500/30 dark:border-t-rose-500'
                   : 'bg-slate-50 border-slate-200 border-t-slate-300 dark:bg-slate-950/40 dark:border-slate-800 dark:border-t-slate-600'
-              }`}
+              } ${clickable ? 'cursor-pointer hover:border-indigo-400 dark:hover:border-indigo-500' : ''}`}
               style={{ '--zone-w': `${z.width}%` } as React.CSSProperties}
             >
-              <div className={`text-[10px] font-black uppercase tracking-wide leading-tight ${scoring ? 'text-rose-700 dark:text-rose-300' : 'text-slate-700 dark:text-slate-200'}`}>
-                {z.label}
+              <div className="flex items-center justify-between gap-1">
+                <div className={`text-[10px] font-black uppercase tracking-wide leading-tight ${scoring ? 'text-rose-700 dark:text-rose-300' : 'text-slate-700 dark:text-slate-200'}`}>
+                  {z.label}
+                </div>
+                {clickable && (
+                  <span className="opacity-0 group-hover:opacity-100 text-[9px] font-black text-indigo-600 dark:text-indigo-400 transition-opacity">
+                    ▶ Watch
+                  </span>
+                )}
               </div>
               <div className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold leading-tight">{z.yards}</div>
               {z.count > 0 ? (
                 <>
                   <div className="h-2 w-full rounded-full overflow-hidden flex" style={{ background: PASS_COLOR }} title={`${z.runPct}% run`}>
-                    <div style={{ width: `${z.runPct}%`, background: RUN_COLOR }} />
+                    <div
+                      onClick={
+                        onWatchCutup && z.runs.length > 0
+                          ? (e) => {
+                              e.stopPropagation();
+                              onWatchCutup(`${z.label} · Runs`, z.runs);
+                            }
+                          : undefined
+                      }
+                      style={{ width: `${z.runPct}%`, background: RUN_COLOR }}
+                      title={onWatchCutup && z.runs.length > 0 ? `Watch ${z.runs.length} runs in ${z.label}` : undefined}
+                    />
                   </div>
                   <div className="text-sm font-black leading-tight text-slate-900 dark:text-white">{z.runPct}% run</div>
                   <div className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold leading-tight">
@@ -274,7 +414,12 @@ export const FieldZoneStrip: React.FC<{ plays: Play[]; subheading?: string }> = 
 };
 
 /** 4. Run gaps: an offensive line with an arrow into each gap, thicker = more runs. */
-export const RunGapDiagram: React.FC<{ analysis: TendencyAnalysis; heading?: string }> = ({ analysis, heading = 'Where they run' }) => {
+export const RunGapDiagram: React.FC<{
+  analysis: TendencyAnalysis;
+  heading?: string;
+  plays?: Play[];
+  onWatchCutup?: WatchCutupFn;
+}> = ({ analysis, heading = 'Where they run', plays, onWatchCutup }) => {
   const d = analysis.runDirections;
   const gaps = [
     { key: 'leftPerimeter', label: 'Left edge', x: 40, y: 34, n: d.leftPerimeter },
@@ -290,16 +435,48 @@ export const RunGapDiagram: React.FC<{ analysis: TendencyAnalysis; heading?: str
   const linemen = [112, 146, 180, 214, 248]; // LT LG C RG RT
   const top = gaps.reduce((a, g) => (g.n > a.n ? g : a), gaps[0]);
 
+  const watchGap = (key: string, label: string) => {
+    if (!plays || !onWatchCutup) return;
+    const match = playsForRunGap(plays, key);
+    if (match.length) onWatchCutup(`Runs · ${label}`, match);
+  };
+
   return (
     <div className={card}>
       <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
         <div>
           <h3 className={title}>{heading} ({total} runs)</h3>
           <p className={sub}>
-            Thicker, brighter arrows = more runs at that gap.
-            {total > 0 && <> Favorite: <strong className="text-slate-800 dark:text-slate-100">{top.label} ({Math.round((top.n / total) * 100)}%)</strong>.</>}
+            Thicker, brighter arrows = more runs at that gap.{onWatchCutup && plays ? ' Click any arrow or gap label to watch those runs.' : ''}
+            {total > 0 && (
+              <>
+                {' '}Favorite:{' '}
+                {onWatchCutup && plays ? (
+                  <button
+                    type="button"
+                    onClick={() => watchGap(top.key, top.label)}
+                    className="font-bold text-slate-800 dark:text-slate-100 hover:text-indigo-600 dark:hover:text-indigo-400 underline cursor-pointer"
+                  >
+                    {top.label} ({Math.round((top.n / total) * 100)}%) ▶
+                  </button>
+                ) : (
+                  <strong className="text-slate-800 dark:text-slate-100">{top.label} ({Math.round((top.n / total) * 100)}%)</strong>
+                )}
+                .
+              </>
+            )}
           </p>
         </div>
+        {onWatchCutup && plays && total > 0 && (
+          <button
+            type="button"
+            onClick={() => onWatchCutup('All runs', plays.filter((p) => p.playType === 'RUN' && !isPenaltySnap(p)))}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-indigo-600/10 hover:bg-indigo-600 text-indigo-700 hover:text-white dark:bg-indigo-500/20 dark:text-indigo-300 dark:hover:bg-indigo-500 dark:hover:text-white border border-indigo-500/30 text-xs font-black transition cursor-pointer"
+          >
+            <Film className="w-3.5 h-3.5" />
+            <span>Watch all {total} runs</span>
+          </button>
+        )}
       </div>
       {total === 0 ? (
         <p className={sub}>No run direction tagged in this filter.</p>
@@ -320,8 +497,15 @@ export const RunGapDiagram: React.FC<{ analysis: TendencyAnalysis; heading?: str
             const bx = g.x - ux * head, by = g.y + 4 - uy * head;
             const px = -uy, py = ux;
             const op = 0.4 + 0.6 * (g.n / max);
+            const clickable = Boolean(onWatchCutup && plays && g.n > 0);
             return (
-              <g key={g.key} opacity={op}>
+              <g
+                key={g.key}
+                opacity={op}
+                onClick={clickable ? () => watchGap(g.key, g.label) : undefined}
+                className={clickable ? 'cursor-pointer hover:opacity-100' : ''}
+              >
+                <title>{`Watch ${g.n} runs at ${g.label}`}</title>
                 <line x1={x1} y1={y1} x2={bx} y2={by} stroke={RUN_COLOR} strokeWidth={w} strokeLinecap="round" />
                 <polygon
                   points={`${g.x},${g.y + 4} ${bx + px * (w / 2 + 4)},${by + py * (w / 2 + 4)} ${bx - px * (w / 2 + 4)},${by - py * (w / 2 + 4)}`}
@@ -333,15 +517,21 @@ export const RunGapDiagram: React.FC<{ analysis: TendencyAnalysis; heading?: str
           {gaps.map((g) => {
             const pct = total ? Math.round((g.n / total) * 100) : 0;
             const ty = g.y === 34 ? 14 : 40;
-                        const lx = g.key === 'aGapLeft' ? g.x + 12 : g.key === 'aGapRight' ? g.x - 12 : g.x;
+            const lx = g.key === 'aGapLeft' ? g.x + 12 : g.key === 'aGapRight' ? g.x - 12 : g.x;
             const anchor = g.key === 'aGapLeft' ? 'end' : g.key === 'aGapRight' ? 'start' : 'middle';
+            const clickable = Boolean(onWatchCutup && plays && g.n > 0);
             return (
-              <g key={g.key + '-label'}>
+              <g
+                key={g.key + '-label'}
+                onClick={clickable ? () => watchGap(g.key, g.label) : undefined}
+                className={clickable ? 'cursor-pointer hover:opacity-80' : ''}
+              >
+                {clickable && <title>{`Watch ${g.n} runs at ${g.label} (${pct}%)`}</title>}
                 <text x={lx} y={ty} textAnchor={anchor} className={g.n ? 'fill-slate-900 dark:fill-white' : 'fill-slate-400 dark:fill-slate-500'} style={{ fontSize: 13, fontWeight: 800 }}>
                   {pct}%
                 </text>
                 <text x={lx} y={ty + 10} textAnchor={anchor} className="fill-slate-500 dark:fill-slate-400" style={{ fontSize: 8, fontWeight: 700 }}>
-                  {g.label}
+                  {g.label}{clickable ? ' ▶' : ''}
                 </text>
               </g>
             );

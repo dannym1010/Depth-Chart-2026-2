@@ -1,6 +1,7 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import { FieldZone, HashPosition, PlayType } from '../../types/football';
+import { WatchPill } from './ui';
 
 export interface FilterState {
   odk: 'O' | 'D' | 'K' | 'ALL';
@@ -139,20 +140,31 @@ export const FilterPanel: React.FC<{
 );
 
 /** Shown above the tab content whenever filters hide plays, so no one mistakes a slice for the whole picture. */
-export const ActiveFiltersBanner: React.FC<{ labels: string[]; shown: number; total: number; onClear: () => void }> = ({ labels, shown, total, onClear }) => {
+export const ActiveFiltersBanner: React.FC<{
+  labels: string[];
+  shown: number;
+  total: number;
+  onClear: () => void;
+  onWatchFiltered?: () => void;
+}> = ({ labels, shown, total, onClear, onWatchFiltered }) => {
   if (labels.length === 0) return null;
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-950/40 px-3 py-2">
       <p className="text-xs text-amber-900 dark:text-amber-200">
         <strong>Filtered:</strong> {labels.join(' · ')}. Showing {shown} of {total} plays.
       </p>
-      <button
-        type="button"
-        onClick={onClear}
-        className="min-h-[32px] px-2.5 rounded-lg text-xs font-bold text-amber-900 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-500/20 flex items-center gap-1 cursor-pointer"
-      >
-        <X className="w-3.5 h-3.5" /> Clear
-      </button>
+      <div className="flex items-center gap-2">
+        {onWatchFiltered && shown > 0 && (
+          <WatchPill count={shown} label={`Watch ${shown} filtered`} onClick={onWatchFiltered} />
+        )}
+        <button
+          type="button"
+          onClick={onClear}
+          className="min-h-[32px] px-2.5 rounded-lg text-xs font-bold text-amber-900 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-500/20 flex items-center gap-1 cursor-pointer"
+        >
+          <X className="w-3.5 h-3.5" /> Clear
+        </button>
+      </div>
     </div>
   );
 };

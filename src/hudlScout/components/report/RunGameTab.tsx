@@ -1,8 +1,8 @@
 import React from 'react';
 import { Play, TendencyAnalysis } from '../../types/football';
-import { RUN_COLOR, RunGapDiagram, RunPassRing } from '../ScoutCharts';
+import { RUN_COLOR, RunGapDiagram, RunPassRing, playsForRunGap } from '../ScoutCharts';
 import { ReportVoice, isRunPlay, runSides, shareGreen, topNames } from './reportText';
-import { Card, EmptyNote, SectionHeader } from './ui';
+import { Card, EmptyNote, SectionHeader, WatchCutupFn, WatchPill } from './ui';
 import { StrengthCard } from './StrengthCard';
 import { FieldTendenciesCard } from './FieldTendenciesCard';
 
@@ -12,14 +12,29 @@ interface RunGameTabProps {
   voice: ReportVoice;
   balancedFormations?: string[];
   onChangeBalancedFormations?: (list: string[]) => void;
+  onWatchCutup?: WatchCutupFn;
 }
 
 type HashKey = 'left' | 'middle' | 'right';
 
 /** Top-down look at the field from behind the offense: ball on the hash, arrows to each side. */
-const HashField: React.FC<{ hash: HashKey; leftPct: number; insidePct: number; rightPct: number }> = ({ hash, leftPct, insidePct, rightPct }) => {
+const HashField: React.FC<{
+  hash: HashKey;
+  leftPct: number;
+  insidePct: number;
+  rightPct: number;
+  onClickDir?: (dir: 'left' | 'inside' | 'right') => void;
+}> = ({ hash, leftPct, insidePct, rightPct, onClickDir }) => {
   const ballX = hash === 'left' ? 46 : hash === 'right' ? 94 : 70;
-  const arrow = (x2: number, y2: number, pct: number, labelX: number, labelY: number, anchor: 'start' | 'middle' | 'end') => {
+  const arrow = (
+    dir: 'left' | 'inside' | 'right',
+    x2: number,
+    y2: number,
+    pct: number,
+    labelX: number,
+    labelY: number,
+    anchor: 'start' | 'middle' | 'end'
+  ) => {
     if (pct <= 0) {
       return (
         <text x={labelX} y={labelY} textAnchor={anchor} fill="#ffffff" fillOpacity={0.55} style={{ fontSize: 9, fontWeight: 800 }}>
@@ -36,8 +51,13 @@ const HashField: React.FC<{ hash: HashKey; leftPct: number; insidePct: number; r
     const by = y2 - uy * head;
     const px = -uy;
     const py = ux;
+    const interactive = Boolean(onClickDir);
     return (
-      <g>
+      <g
+        onClick={interactive ? (e) => { e.stopPropagation(); onClickDir?.(dir); } : undefined}
+        className={interactive ? 'cursor-pointer hover:opacity-90' : undefined}
+      >
+        <title>{interactive ? `Click to watch ${hash} hash runs ${dir} (${pct}%)` : undefined}</title>
         <line x1={ballX} y1={74} x2={bx} y2={by} stroke="#fde047" strokeWidth={w} strokeLinecap="round" strokeOpacity={0.5 + pct / 200} />
         <polygon
           points={`${x2},${y2} ${bx + px * (w / 2 + 3)},${by + py * (w / 2 + 3)} ${bx - px * (w / 2 + 3)},${by - py * (w / 2 + 3)}`}
@@ -70,80 +90,153 @@ const HashField: React.FC<{ hash: HashKey; leftPct: number; insidePct: number; r
           {rightSide}
         </text>
       )}
-      {arrow(14, 26, leftPct, 12, 16, 'start')}
+      {arrow('left', 14, 26, leftPct, 12, 16, 'start')}
       {hash === 'right'
-        ? arrow(ballX, 20, insidePct, ballX - 6, 30, 'end')
-        : arrow(ballX, 20, insidePct, ballX + 6, 30, 'start')}
-      {arrow(126, 26, rightPct, 128, 16, 'end')}
+        ? arrow('inside', ballX, 20, insidePct, ballX - 6, 30, 'end')
+        : arrow('inside', ballX, 20, insidePct, ballX + 6, 30, 'start')}
+      {arrow('right', 126, 26, rightPct, 128, 16, 'end')}
       <ellipse cx={ballX} cy={78} rx={5} ry={3.4} fill="#92400e" stroke="#ffffff" strokeWidth="0.8" />
     </svg>
   );
 };
 
-export const RunGameTab: React.FC<RunGameTabProps> = ({ analysis: a, plays, voice, balancedFormations, onChangeBalancedFormations }) => {
+function runsInDirection(runs: Play[], dir: 'Left' | 'Middle' | 'Right'): Play[] {
+  if (dir === 'Left') {
+    const set = new Set<string>([
+      ...playsForRunGap(runs, 'left_outside').map((p) => p.id),
+      ...playsForRunGap(runs, 'left_off_tackle').map((p) => p.id),
+      ...playsForRunGap(runs, 'left_inside').map((p) => p.id),
+    ]);
+    return runs.filter((p) => set.has(p.id) || (p.direction || '').toLowerCase().startsWith('l'));
+  }
+  if (dir === 'Right') {
+    const set = new Set<string>([
+      ...playsForRunGap(runs, 'right_inside').map((p) => p.id),
+      ...playsForRunGap(runs, 'right_off_tackle').map((p) => p.id),
+      ...playsForRunGap(runs, 'right_outside').map((p) => p.id),
+    ]);
+    return runs.filter((p) => set.has(p.id) || (p.direction || '').toLowerCase().startsWith('r'));
+  }
+  const set = new Set<string>(playsForRunGap(runs, 'middle').map((p) => p.id));
+  return runs.filter((p) => set.has(p.id) || (p.direction || '').toLowerCase().startsWith('m'));
+}
+
+export const RunGameTab: React.FC<RunGameTabProps> = ({
+  analysis: a,
+  plays,
+  voice,
+  balancedFormations,
+  onChangeBalancedFormations,
+  onWatchCutup,
+}) => {
   const sides = runSides(a);
   const runs = plays.filter(isRunPlay);
   const runCalls = topNames(runs, (p) => p.playName, 6);
   const carriers = topNames(runs, (p) => p.oppRusher || p.carrierOrTarget, 6);
   const we = voice.subject === 'We';
   const h = a.hashTendencies;
-  const hashes: { key: HashKey; label: string; total: number; runPct: number; left: number; inside: number; right: number }[] = [
-    { key: 'left', label: 'Ball on the left hash', total: h.left.total, runPct: h.left.runPct, left: h.left.runLeftPct, inside: h.left.runInsidePct, right: h.left.runRightPct },
-    { key: 'middle', label: 'Ball in the middle', total: h.middle.total, runPct: h.middle.runPct, left: h.middle.runLeftPct, inside: h.middle.runInsidePct, right: h.middle.runRightPct },
-    { key: 'right', label: 'Ball on the right hash', total: h.right.total, runPct: h.right.runPct, left: h.right.runLeftPct, inside: h.right.runInsidePct, right: h.right.runRightPct },
+  const hashes: { key: HashKey; hashCode: 'L' | 'M' | 'R'; label: string; total: number; runPct: number; left: number; inside: number; right: number }[] = [
+    { key: 'left', hashCode: 'L', label: 'Ball on the left hash', total: h.left.total, runPct: h.left.runPct, left: h.left.runLeftPct, inside: h.left.runInsidePct, right: h.left.runRightPct },
+    { key: 'middle', hashCode: 'M', label: 'Ball in the middle', total: h.middle.total, runPct: h.middle.runPct, left: h.middle.runLeftPct, inside: h.middle.runInsidePct, right: h.middle.runRightPct },
+    { key: 'right', hashCode: 'R', label: 'Ball on the right hash', total: h.right.total, runPct: h.right.runPct, left: h.right.runLeftPct, inside: h.right.runInsidePct, right: h.right.runRightPct },
   ];
 
   return (
     <div className="space-y-4 md:space-y-5">
-      <RunGapDiagram analysis={a} heading={we ? 'Where we run' : voice.unit === 'D' ? 'Where teams run on them' : 'Where they run'} />
+      <RunGapDiagram
+        analysis={a}
+        plays={plays}
+        onWatchCutup={onWatchCutup}
+        heading={we ? 'Where we run' : voice.unit === 'D' ? 'Where teams run on them' : 'Where they run'}
+      />
 
       {sides.total > 0 && (
         <Card>
-          <SectionHeader title="Which side" subtitle="Share of all runs going left, straight ahead, or right (from behind the offense)." />
+          <SectionHeader title="Which side" subtitle="Share of all runs going left, straight ahead, or right (from behind the offense). Click any segment to watch." />
           <div className="flex h-9 rounded-lg overflow-hidden text-xs font-black">
-            {[
+            {([
               ['Left', sides.leftPct],
               ['Middle', sides.middlePct],
               ['Right', sides.rightPct],
-            ].map(([label, pct]) => (
-              <div
-                key={label as string}
-                className="flex items-center justify-center text-white dark:text-white border-r-2 border-white dark:border-slate-900 last:border-r-0 min-w-[64px]"
-                style={{ flexGrow: Math.max(Number(pct), 6), background: shareGreen(Number(pct)) }}
-              >
-                {label} {pct}%
-              </div>
-            ))}
+            ] as const).map(([label, pct]) => {
+              const dirSubset = runsInDirection(runs, label);
+              const canClick = Boolean(onWatchCutup && dirSubset.length > 0);
+              return (
+                <div
+                  key={label}
+                  onClick={canClick ? () => onWatchCutup?.(`Runs · ${label}`, dirSubset) : undefined}
+                  title={canClick ? `Click to watch ${dirSubset.length} ${label.toLowerCase()} run${dirSubset.length === 1 ? '' : 's'}` : undefined}
+                  className={`flex items-center justify-center text-white dark:text-white border-r-2 border-white dark:border-slate-900 last:border-r-0 min-w-[64px] ${
+                    canClick ? 'cursor-pointer hover:brightness-110 transition-all' : ''
+                  }`}
+                  style={{ flexGrow: Math.max(Number(pct), 6), background: shareGreen(Number(pct)) }}
+                >
+                  {label} {pct}%
+                </div>
+              );
+            })}
           </div>
         </Card>
       )}
 
-      <StrengthCard plays={plays} voice={voice} balanced={balancedFormations} onChangeBalanced={onChangeBalancedFormations} />
+      <StrengthCard
+        plays={plays}
+        voice={voice}
+        balanced={balancedFormations}
+        onChangeBalanced={onChangeBalancedFormations}
+        onWatchCutup={onWatchCutup}
+      />
 
-      <FieldTendenciesCard plays={plays} voice={voice} />
+      <FieldTendenciesCard plays={plays} voice={voice} onWatchCutup={onWatchCutup} />
 
       <Card>
         <SectionHeader
           title="By ball spot"
-          subtitle="Where the ball is placed changes where they go. The wide side has more room; the short side is nearest the sideline."
+          subtitle="Where the ball is placed changes where they go. Click a hash card or any yellow arrow to watch those runs."
         />
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {hashes.map((hs) => (
-            <div key={hs.key} className="rounded-lg border border-slate-200 dark:border-slate-800 p-3 bg-slate-50 dark:bg-slate-950/40">
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <div>
-                  <div className="text-sm font-bold text-slate-900 dark:text-slate-100">{hs.label}</div>
-                  <div className="text-[11px] text-slate-500 dark:text-slate-400">{hs.total} plays</div>
+          {hashes.map((hs) => {
+            const hashPlays = plays.filter((p) => p.hash === hs.hashCode);
+            const hashRuns = hashPlays.filter(isRunPlay);
+            const canClickHash = Boolean(onWatchCutup && hashPlays.length > 0);
+            return (
+              <div
+                key={hs.key}
+                onClick={canClickHash ? () => onWatchCutup?.(hs.label, hashPlays) : undefined}
+                title={canClickHash ? `Click to watch ${hashPlays.length} plays from ${hs.label.toLowerCase()}` : undefined}
+                className={`rounded-lg border border-slate-200 dark:border-slate-800 p-3 bg-slate-50 dark:bg-slate-950/40 ${
+                  canClickHash ? 'cursor-pointer hover:border-amber-500/60 transition-colors' : ''
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div>
+                    <div className="text-sm font-bold text-slate-900 dark:text-slate-100">{hs.label}</div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400">{hs.total} plays</div>
+                  </div>
+                  {hs.total > 0 && <RunPassRing runPct={hs.runPct} size={48} label="RUN" />}
                 </div>
-                {hs.total > 0 && <RunPassRing runPct={hs.runPct} size={48} label="RUN" />}
+                {hs.total > 0 ? (
+                  <HashField
+                    hash={hs.key}
+                    leftPct={hs.left}
+                    insidePct={hs.inside}
+                    rightPct={hs.right}
+                    onClickDir={
+                      onWatchCutup
+                        ? (dir) => {
+                            const dirLabel = dir === 'left' ? 'Left' : dir === 'right' ? 'Right' : 'Middle';
+                            const subset = runsInDirection(hashRuns, dirLabel);
+                            onWatchCutup(`${hs.label} · Runs ${dir}`, subset.length ? subset : hashRuns);
+                          }
+                        : undefined
+                    }
+                  />
+                ) : (
+                  <EmptyNote>No plays from this spot.</EmptyNote>
+                )}
               </div>
-              {hs.total > 0 ? (
-                <HashField hash={hs.key} leftPct={hs.left} insidePct={hs.inside} rightPct={hs.right} />
-              ) : (
-                <EmptyNote>No plays from this spot.</EmptyNote>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
         <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-3">Yellow arrows show where runs went: left, inside, or right. Thicker = more often.</p>
       </Card>
@@ -155,14 +248,27 @@ export const RunGameTab: React.FC<RunGameTabProps> = ({ analysis: a, plays, voic
             <EmptyNote>No play names in the file.</EmptyNote>
           ) : (
             <ul className="space-y-2">
-              {runCalls.map((r) => (
-                <li key={r.name} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">{r.name}</span>
-                  <span className="text-xs text-slate-500 dark:text-slate-400 shrink-0">
-                    {r.count}x · {r.avg} yds
-                  </span>
-                </li>
-              ))}
+              {runCalls.map((r) => {
+                const callRuns = runs.filter((p) => (p.playName || '').trim().toLowerCase() === r.name.trim().toLowerCase());
+                const canClick = Boolean(onWatchCutup && callRuns.length > 0);
+                return (
+                  <li
+                    key={r.name}
+                    onClick={canClick ? () => onWatchCutup?.(`Run Play · ${r.name}`, callRuns) : undefined}
+                    className={`flex items-center justify-between gap-2 text-sm rounded px-1.5 py-1 -mx-1.5 ${
+                      canClick ? 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/70 group transition-colors' : ''
+                    }`}
+                  >
+                    <span className="font-semibold text-slate-800 dark:text-slate-100 truncate group-hover:text-amber-600 dark:group-hover:text-amber-400">
+                      {r.name}
+                    </span>
+                    <span className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 shrink-0">
+                      <span>{r.count}x · {r.avg} yds</span>
+                      {canClick && <WatchPill count={callRuns.length} label={`Watch ${r.name}`} />}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Card>
@@ -172,19 +278,34 @@ export const RunGameTab: React.FC<RunGameTabProps> = ({ analysis: a, plays, voic
             <EmptyNote>No ball-carrier names on these plays. The Players tab explains why.</EmptyNote>
           ) : (
             <ul className="space-y-2">
-              {carriers.map((c) => (
-                <li key={c.name} className="text-sm">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-slate-800 dark:text-slate-100">{c.name}</span>
-                    <span className="text-xs text-slate-500 dark:text-slate-400">
-                      {c.count} carries · {c.avg} yds
-                    </span>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 mt-1 overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: `${runs.length ? (c.count / runs.length) * 100 : 0}%`, background: RUN_COLOR }} />
-                  </div>
-                </li>
-              ))}
+              {carriers.map((c) => {
+                const carrierRuns = runs.filter(
+                  (p) => (p.oppRusher || p.carrierOrTarget || '').trim().toLowerCase() === c.name.trim().toLowerCase()
+                );
+                const canClick = Boolean(onWatchCutup && carrierRuns.length > 0);
+                return (
+                  <li
+                    key={c.name}
+                    onClick={canClick ? () => onWatchCutup?.(`Carries · ${c.name}`, carrierRuns) : undefined}
+                    className={`text-sm rounded px-1.5 py-1 -mx-1.5 ${
+                      canClick ? 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/70 group transition-colors' : ''
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-amber-600 dark:group-hover:text-amber-400">
+                        {c.name}
+                      </span>
+                      <span className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                        <span>{c.count} carries · {c.avg} yds</span>
+                        {canClick && <WatchPill count={carrierRuns.length} label={`Watch ${c.name} carries`} />}
+                      </span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 mt-1 overflow-hidden">
+                      <div className="h-full rounded-full" style={{ width: `${runs.length ? (c.count / runs.length) * 100 : 0}%`, background: RUN_COLOR }} />
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Card>

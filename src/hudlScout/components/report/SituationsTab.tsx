@@ -2,8 +2,8 @@ import React from 'react';
 import { AIScoutingReport, DownDistGroup, Play, TendencyAnalysis } from '../../types/football';
 import { DownDistanceHeatmap, FieldZoneStrip, GainDistributionChart, PASS_COLOR, RUN_COLOR } from '../ScoutCharts';
 import { callForRunPass, playsInGroup } from '../../utils/buildLocalGameplan';
-import { ReportVoice, isRealCall, plural } from './reportText';
-import { Card, EmptyNote, MeterRow, PlanCallout, RunPassBar, SectionHeader } from './ui';
+import { ReportVoice, isPassPlay, isRealCall, isRunPlay, plural } from './reportText';
+import { Card, EmptyNote, MeterRow, PlanCallout, RunPassBar, SectionHeader, WatchPill, type WatchCutupFn } from './ui';
 
 interface SituationsTabProps {
   analysis: TendencyAnalysis;
@@ -12,11 +12,17 @@ interface SituationsTabProps {
   report: AIScoutingReport | null;
   selectedLabel: string | null;
   onSelect: (group: DownDistGroup) => void;
+  onWatchCutup?: WatchCutupFn;
 }
 
 const cleanName = (s: string) => (s && s !== '-' && !/^unspecified$/i.test(s) ? s : '');
 
-const SituationDetail: React.FC<{ group?: DownDistGroup; voice: ReportVoice; plays: Play[] }> = ({ group: g, voice, plays }) => {
+const SituationDetail: React.FC<{ group?: DownDistGroup; voice: ReportVoice; plays: Play[]; onWatchCutup?: WatchCutupFn }> = ({
+  group: g,
+  voice,
+  plays,
+  onWatchCutup,
+}) => {
   if (!g || g.count === 0) {
     return (
       <Card>
@@ -24,8 +30,11 @@ const SituationDetail: React.FC<{ group?: DownDistGroup; voice: ReportVoice; pla
       </Card>
     );
   }
+  const groupPlays = playsInGroup(plays, g);
+  const groupRuns = groupPlays.filter(isRunPlay);
+  const groupPasses = groupPlays.filter(isPassPlay);
   // Our defense for this down and distance: base, two-tight-end check, Over, or a blitz on passing downs.
-  const call = callForRunPass(g.runPct, g.distMax <= 3, playsInGroup(plays, g), g.down >= 3 && g.distMin >= 7);
+  const call = callForRunPass(g.runPct, g.distMax <= 3, groupPlays, g.down >= 3 && g.distMin >= 7);
   const formations = g.topFormations.filter((f) => cleanName(f.name));
   const calls = g.topPlays.filter((p) => isRealCall(p.name));
   const we = voice.subject === 'We';
@@ -34,8 +43,18 @@ const SituationDetail: React.FC<{ group?: DownDistGroup; voice: ReportVoice; pla
       <SectionHeader
         title={g.label}
         subtitle={`${plural(g.count, 'play')} · ${g.avgGain} yards a play · ${g.successRate}% stayed on schedule`}
+        right={
+          onWatchCutup && groupPlays.length > 0 ? (
+            <WatchPill count={groupPlays.length} label="Watch all" onClick={() => onWatchCutup(g.label, groupPlays)} />
+          ) : undefined
+        }
       />
-      <RunPassBar runPct={g.runPct} passPct={g.passPct} />
+      <RunPassBar
+        runPct={g.runPct}
+        passPct={g.passPct}
+        onClickRun={onWatchCutup && groupRuns.length > 0 ? () => onWatchCutup(`${g.label} · Runs`, groupRuns) : undefined}
+        onClickPass={onWatchCutup && groupPasses.length > 0 ? () => onWatchCutup(`${g.label} · Passes`, groupPasses) : undefined}
+      />
       <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
         "On schedule" means enough yards to stay ahead of the chains: 4+ on 1st down, half the distance on 2nd, a first down on 3rd or 4th.
       </p>
@@ -47,17 +66,28 @@ const SituationDetail: React.FC<{ group?: DownDistGroup; voice: ReportVoice; pla
             <EmptyNote>No play names in the file.</EmptyNote>
           ) : (
             <ul className="space-y-1.5">
-              {calls.slice(0, 4).map((p) => (
-                <li key={p.name} className="flex items-center justify-between gap-2 text-xs">
-                  <span className="flex items-center gap-1.5 min-w-0">
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.type === 'PASS' || p.type === 'SCREEN' ? PASS_COLOR : RUN_COLOR }} />
-                    <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">{p.name}</span>
-                  </span>
-                  <span className="text-slate-500 dark:text-slate-400 shrink-0">
-                    {p.count}x · {p.avgGain} yds
-                  </span>
-                </li>
-              ))}
+              {calls.slice(0, 4).map((p) => {
+                const callPlays = groupPlays.filter((pl) => pl.playName === p.name || pl.callName === p.name);
+                const clickable = Boolean(onWatchCutup && callPlays.length > 0);
+                return (
+                  <li
+                    key={p.name}
+                    onClick={clickable ? () => onWatchCutup!(`${g.label} · ${p.name}`, callPlays) : undefined}
+                    title={clickable ? `Watch ${callPlays.length} snaps of ${p.name} on ${g.label}` : undefined}
+                    className={`flex items-center justify-between gap-2 text-xs ${
+                      clickable ? 'rounded px-1.5 py-1 -mx-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors' : ''
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.type === 'PASS' || p.type === 'SCREEN' ? PASS_COLOR : RUN_COLOR }} />
+                      <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">{p.name}</span>
+                    </span>
+                    <span className="text-slate-500 dark:text-slate-400 shrink-0">
+                      {p.count}x · {p.avgGain} yds{clickable ? ' ▶' : ''}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
@@ -66,19 +96,37 @@ const SituationDetail: React.FC<{ group?: DownDistGroup; voice: ReportVoice; pla
             <div>
               <div className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-1.5">Formations</div>
               <ul className="space-y-1 text-xs">
-                {formations.slice(0, 3).map((f) => (
-                  <li key={f.name} className="flex justify-between gap-2">
-                    <span className="font-semibold text-slate-800 dark:text-slate-100">{f.name}</span>
-                    <span className="text-slate-500 dark:text-slate-400">{f.pct}%</span>
-                  </li>
-                ))}
+                {formations.slice(0, 3).map((f) => {
+                  const formPlays = groupPlays.filter((pl) => (pl.formation || '').trim() === f.name);
+                  const clickable = Boolean(onWatchCutup && formPlays.length > 0);
+                  return (
+                    <li
+                      key={f.name}
+                      onClick={clickable ? () => onWatchCutup!(`${g.label} · ${f.name}`, formPlays) : undefined}
+                      title={clickable ? `Watch ${formPlays.length} snaps from ${f.name} on ${g.label}` : undefined}
+                      className={`flex justify-between gap-2 ${
+                        clickable ? 'rounded px-1.5 py-0.5 -mx-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors' : ''
+                      }`}
+                    >
+                      <span className="font-semibold text-slate-800 dark:text-slate-100">{f.name}</span>
+                      <span className="text-slate-500 dark:text-slate-400">{f.pct}%{clickable ? ' ▶' : ''}</span>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}
           {cleanName(g.primaryDirection) && (
             <div>
               <div className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">Runs usually go</div>
-              <div className="text-xs font-semibold text-slate-800 dark:text-slate-100">{g.primaryDirection}</div>
+              <button
+                type="button"
+                disabled={!onWatchCutup || !groupRuns.length}
+                onClick={onWatchCutup && groupRuns.length ? () => onWatchCutup(`${g.label} · Runs (${g.primaryDirection})`, groupRuns) : undefined}
+                className={`text-xs font-semibold text-slate-800 dark:text-slate-100 ${onWatchCutup && groupRuns.length ? 'hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer' : ''}`}
+              >
+                {g.primaryDirection}{onWatchCutup && groupRuns.length ? ' ▶' : ''}
+              </button>
             </div>
           )}
         </div>
@@ -93,14 +141,18 @@ const SituationDetail: React.FC<{ group?: DownDistGroup; voice: ReportVoice; pla
   );
 };
 
-export const SituationsTab: React.FC<SituationsTabProps> = ({ analysis: a, plays, voice, report, selectedLabel, onSelect }) => {
+export const SituationsTab: React.FC<SituationsTabProps> = ({ analysis: a, plays, voice, report, selectedLabel, onSelect, onWatchCutup }) => {
   const withPlays = a.situationalGroups.filter((g) => g.count > 0);
   const selected =
     a.situationalGroups.find((g) => g.label === selectedLabel && g.count > 0) ||
     withPlays.reduce<DownDistGroup | undefined>((best, g) => (!best || g.count > best.count ? g : best), undefined);
   const third = a.thirdDownConversions;
   const rz = a.redZonePlays;
-  const rzCall = callForRunPass(rz.runPct, rz.runPct >= 55, plays.filter((p) => p.fieldZone === 'red_zone' || p.fieldZone === 'goal_line'));
+  const rzPlays = plays.filter((p) => p.fieldZone === 'red_zone' || p.fieldZone === 'goal_line');
+  const rzRuns = rzPlays.filter(isRunPlay);
+  const rzPasses = rzPlays.filter(isPassPlay);
+  const rzCall = callForRunPass(rz.runPct, rz.runPct >= 55, rzPlays);
+  const thirdPlays = plays.filter((p) => p.down === 3);
   const we = voice.subject === 'We';
 
   return (
@@ -110,10 +162,12 @@ export const SituationsTab: React.FC<SituationsTabProps> = ({ analysis: a, plays
           groups={a.situationalGroups}
           onSelect={onSelect}
           selectedLabel={selected?.label}
+          plays={plays}
+          onWatchCutup={onWatchCutup}
           heading="By down & distance"
-          subheading={`Green = run, blue = pass. Bolder color = stronger lean. Tap a box to see what ${we ? 'we' : 'they'} call.`}
+          subheading={`Green = run, blue = pass. Bolder color = stronger lean. Tap a box to watch what ${we ? 'we' : 'they'} call.`}
         />
-        <SituationDetail group={selected} voice={voice} plays={plays} />
+        <SituationDetail group={selected} voice={voice} plays={plays} onWatchCutup={onWatchCutup} />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
@@ -121,12 +175,44 @@ export const SituationsTab: React.FC<SituationsTabProps> = ({ analysis: a, plays
           <SectionHeader
             title={`3rd down: ${third.total ? `${third.rate}% converted` : 'no plays'}`}
             subtitle={third.total ? `${third.converted} of ${third.total} third downs moved the chains.` : 'No 3rd downs in these plays.'}
+            right={
+              onWatchCutup && thirdPlays.length > 0 ? (
+                <WatchPill count={thirdPlays.length} label="Watch 3rd downs" onClick={() => onWatchCutup('3rd down plays', thirdPlays)} />
+              ) : undefined
+            }
           />
           {third.total > 0 && (
             <div className="space-y-3">
-              <MeterRow label="3rd & short (1-2)" pct={third.short.rate} note={`${third.short.converted}/${third.short.total} · ${third.short.runPct}% run`} />
-              <MeterRow label="3rd & medium (3-6)" pct={third.medium.rate} note={`${third.medium.converted}/${third.medium.total} · ${third.medium.runPct}% run`} />
-              <MeterRow label="3rd & long (7+)" pct={third.long.rate} note={`${third.long.converted}/${third.long.total} · ${third.long.runPct}% run`} />
+              <MeterRow
+                label="3rd & short (1-2)"
+                pct={third.short.rate}
+                note={`${third.short.converted}/${third.short.total} · ${third.short.runPct}% run`}
+                onClick={
+                  onWatchCutup && third.short.total > 0
+                    ? () => onWatchCutup('3rd & short (1-2)', thirdPlays.filter((p) => p.distance <= 2))
+                    : undefined
+                }
+              />
+              <MeterRow
+                label="3rd & medium (3-6)"
+                pct={third.medium.rate}
+                note={`${third.medium.converted}/${third.medium.total} · ${third.medium.runPct}% run`}
+                onClick={
+                  onWatchCutup && third.medium.total > 0
+                    ? () => onWatchCutup('3rd & medium (3-6)', thirdPlays.filter((p) => p.distance >= 3 && p.distance <= 6))
+                    : undefined
+                }
+              />
+              <MeterRow
+                label="3rd & long (7+)"
+                pct={third.long.rate}
+                note={`${third.long.converted}/${third.long.total} · ${third.long.runPct}% run`}
+                onClick={
+                  onWatchCutup && third.long.total > 0
+                    ? () => onWatchCutup('3rd & long (7+)', thirdPlays.filter((p) => p.distance >= 7))
+                    : undefined
+                }
+              />
             </div>
           )}
         </Card>
@@ -135,22 +221,42 @@ export const SituationsTab: React.FC<SituationsTabProps> = ({ analysis: a, plays
           <SectionHeader
             title={`Red zone: ${plural(rz.total, 'play')}`}
             subtitle={rz.total ? `Inside the 20. ${rz.avgGain} yards a play.` : 'No plays inside the 20 yet.'}
+            right={
+              onWatchCutup && rzPlays.length > 0 ? (
+                <WatchPill count={rzPlays.length} label="Watch red zone" onClick={() => onWatchCutup('Red zone plays', rzPlays)} />
+              ) : undefined
+            }
           />
           {rz.total > 0 && (
             <>
-              <RunPassBar runPct={rz.runPct} passPct={rz.passPct} />
+              <RunPassBar
+                runPct={rz.runPct}
+                passPct={rz.passPct}
+                onClickRun={onWatchCutup && rzRuns.length > 0 ? () => onWatchCutup('Red zone · Runs', rzRuns) : undefined}
+                onClickPass={onWatchCutup && rzPasses.length > 0 ? () => onWatchCutup('Red zone · Passes', rzPasses) : undefined}
+              />
               {rz.topPlays.some((p) => isRealCall(p.name)) && (
                 <div className="mt-3">
                   <div className="text-[11px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-1.5">{we ? 'Our top calls' : 'Their top calls'}</div>
                   <div className="flex flex-wrap gap-1.5">
-                    {rz.topPlays.filter((p) => isRealCall(p.name)).map((p) => (
-                      <span
-                        key={p.name}
-                        className="px-2 py-1 rounded-md text-xs font-semibold bg-slate-100 text-slate-800 border border-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700"
-                      >
-                        {p.name} <span className="text-slate-500 dark:text-slate-400">×{p.count}</span>
-                      </span>
-                    ))}
+                    {rz.topPlays.filter((p) => isRealCall(p.name)).map((p) => {
+                      const callPlays = rzPlays.filter((pl) => pl.playName === p.name || pl.callName === p.name);
+                      const clickable = Boolean(onWatchCutup && callPlays.length > 0);
+                      return (
+                        <button
+                          key={p.name}
+                          type="button"
+                          disabled={!clickable}
+                          onClick={clickable ? () => onWatchCutup!(`Red zone · ${p.name}`, callPlays) : undefined}
+                          title={clickable ? `Watch ${callPlays.length} snaps of ${p.name} in the red zone` : undefined}
+                          className={`px-2 py-1 rounded-md text-xs font-semibold bg-slate-100 text-slate-800 border border-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700 ${
+                            clickable ? 'hover:border-indigo-400 dark:hover:border-indigo-500 cursor-pointer transition' : ''
+                          }`}
+                        >
+                          {p.name} <span className="text-slate-500 dark:text-slate-400">×{p.count}{clickable ? ' ▶' : ''}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -166,6 +272,7 @@ export const SituationsTab: React.FC<SituationsTabProps> = ({ analysis: a, plays
 
       <FieldZoneStrip
         plays={plays}
+        onWatchCutup={onWatchCutup}
         subheading={
           we
             ? 'Our offense driving left to right, from our goal line to theirs.'
@@ -174,7 +281,7 @@ export const SituationsTab: React.FC<SituationsTabProps> = ({ analysis: a, plays
               : 'Their offense driving left to right, from their goal line to ours.'
         }
       />
-      <GainDistributionChart plays={plays} />
+      <GainDistributionChart plays={plays} onWatchCutup={onWatchCutup} />
     </div>
   );
 };

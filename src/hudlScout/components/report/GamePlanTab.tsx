@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Printer, Send } from 'lucide-react';
 import { AIScoutingReport, Play, TendencyAnalysis } from '../../types/football';
-import { answerCoachQuestion } from '../../utils/buildLocalGameplan';
-import { Card, EmptyNote, RunPassBar, SectionHeader } from './ui';
+import { answerCoachQuestion, playsInGroup } from '../../utils/buildLocalGameplan';
+import { isPassPlay, isRunPlay } from './reportText';
+import { Card, EmptyNote, RunPassBar, SectionHeader, WatchCutupFn, WatchPill } from './ui';
 import { OurDefenseCard } from './OurDefenseCard';
 import { HandSignalsCard } from './HandSignalsCard';
 import { FormationPlanCard, KeyReadsCard, SituationPlanCard, type CallOption, type CallPick } from './SituationPlanCards';
@@ -30,6 +31,7 @@ interface GamePlanTabProps {
   /** Their formations, and saving them (a formation's call goes into its plan). */
   formations?: OppFormation[];
   onSaveFormations?: (next: OppFormation[]) => void;
+  onWatchCutup?: WatchCutupFn;
 }
 
 export const GamePlanTab: React.FC<GamePlanTabProps> = ({
@@ -48,6 +50,7 @@ export const GamePlanTab: React.FC<GamePlanTabProps> = ({
   onSetGamePlanCall,
   formations,
   onSaveFormations,
+  onWatchCutup,
 }) => {
   const [question, setQuestion] = useState('');
   const [answers, setAnswers] = useState<{ q: string; a: string }[]>([]);
@@ -68,17 +71,22 @@ export const GamePlanTab: React.FC<GamePlanTabProps> = ({
   };
 
   const sit = (part: string) => a.situationalGroups.find((g) => g.label.toLowerCase().includes(part));
+  const sitPlays = (part: string) => {
+    const g = sit(part);
+    return g ? playsInGroup(plays, g) : [];
+  };
   const dd = report.downAndDistanceGameplan;
   const rows = [
-    { label: '1st & 10', group: sit('1st'), call: dd.firstAndTen },
-    { label: '2nd & short', group: sit('2nd & short'), call: dd.secondAndShort },
-    { label: '2nd & long', group: sit('2nd & long'), call: dd.secondAndLong },
-    { label: '3rd & short', group: sit('3rd & short'), call: dd.thirdAndShort },
-    { label: '3rd & long', group: sit('3rd & long'), call: dd.thirdAndLong },
+    { label: '1st & 10', group: sit('1st'), call: dd.firstAndTen, subset: sitPlays('1st') },
+    { label: '2nd & short', group: sit('2nd & short'), call: dd.secondAndShort, subset: sitPlays('2nd & short') },
+    { label: '2nd & long', group: sit('2nd & long'), call: dd.secondAndLong, subset: sitPlays('2nd & long') },
+    { label: '3rd & short', group: sit('3rd & short'), call: dd.thirdAndShort, subset: sitPlays('3rd & short') },
+    { label: '3rd & long', group: sit('3rd & long'), call: dd.thirdAndLong, subset: sitPlays('3rd & long') },
     {
       label: 'Red zone',
       group: a.redZonePlays.total ? { count: a.redZonePlays.total, runPct: a.redZonePlays.runPct, passPct: a.redZonePlays.passPct } : undefined,
       call: dd.redZone,
+      subset: plays.filter((p) => p.fieldZone === 'red_zone' || p.fieldZone === 'goal_line'),
     },
   ];
   const own = mode === 'own';
@@ -121,7 +129,14 @@ export const GamePlanTab: React.FC<GamePlanTabProps> = ({
       {!own && defense && <HandSignalsCard defense={defense} onChange={onChangeDefense} />}
 
       {!own && (
-        <SituationPlanCard plays={plays} opponentName={opponentName} defenseCalls={defenseCalls} gamePlanCalls={gamePlanCalls} onSetGamePlanCall={onSetGamePlanCall} />
+        <SituationPlanCard
+          plays={plays}
+          opponentName={opponentName}
+          defenseCalls={defenseCalls}
+          gamePlanCalls={gamePlanCalls}
+          onSetGamePlanCall={onSetGamePlanCall}
+          onWatchCutup={onWatchCutup}
+        />
       )}
       {!own && (
         <FormationPlanCard
@@ -132,36 +147,62 @@ export const GamePlanTab: React.FC<GamePlanTabProps> = ({
           defenseCalls={defenseCalls}
           gamePlanCalls={gamePlanCalls}
           onSetGamePlanCall={onSetGamePlanCall}
+          onWatchCutup={onWatchCutup}
         />
       )}
 
       {own && (
-      <Card>
-        <SectionHeader title="Calls by situation" subtitle={`What ${own ? 'we' : 'they'} do, and the front and coverage to start in.`} />
-        <div className="divide-y divide-slate-200 dark:divide-slate-800">
-          {rows.map((r) => (
-            <div key={r.label} className="py-3 grid grid-cols-1 md:grid-cols-[140px_180px_1fr] gap-2 md:gap-4 md:items-center">
-              <div className="text-sm font-bold text-slate-900 dark:text-slate-100">{r.label}</div>
-              <div>
-                {r.group && r.group.count > 0 ? (
-                  <>
-                    <RunPassBar runPct={r.group.runPct} passPct={r.group.passPct} height="h-2" />
-                    <div className="text-[10px] text-slate-500 dark:text-slate-400 -mt-0.5">{r.group.count === 1 ? '1 play' : `${r.group.count} plays`}</div>
-                  </>
-                ) : (
-                  <span className="text-xs text-slate-500 dark:text-slate-400">No plays yet</span>
-                )}
-              </div>
-              <div className="text-xs">
-                <div className="font-bold text-slate-900 dark:text-slate-100">
-                  {r.call.front} · {r.call.coverage}
+        <Card>
+          <SectionHeader title="Calls by situation" subtitle={`What ${own ? 'we' : 'they'} do, and the front and coverage to start in. Click any situation to watch those plays.`} />
+          <div className="divide-y divide-slate-200 dark:divide-slate-800">
+            {rows.map((r) => {
+              const canClick = Boolean(onWatchCutup && r.subset.length > 0);
+              return (
+                <div key={r.label} className="py-3 grid grid-cols-1 md:grid-cols-[160px_180px_1fr] gap-2 md:gap-4 md:items-center">
+                  <div
+                    onClick={canClick ? () => onWatchCutup?.(r.label, r.subset) : undefined}
+                    className={`flex items-center gap-1.5 text-sm font-bold text-slate-900 dark:text-slate-100 ${
+                      canClick ? 'cursor-pointer hover:text-amber-600 dark:hover:text-amber-400' : ''
+                    }`}
+                  >
+                    <span>{r.label}</span>
+                    {canClick && <WatchPill count={r.subset.length} />}
+                  </div>
+                  <div>
+                    {r.group && r.group.count > 0 ? (
+                      <>
+                        <RunPassBar
+                          runPct={r.group.runPct}
+                          passPct={r.group.passPct}
+                          height="h-2"
+                          onClickRun={
+                            onWatchCutup && r.subset.filter(isRunPlay).length > 0
+                              ? () => onWatchCutup(`${r.label} · Runs`, r.subset.filter(isRunPlay))
+                              : undefined
+                          }
+                          onClickPass={
+                            onWatchCutup && r.subset.filter(isPassPlay).length > 0
+                              ? () => onWatchCutup(`${r.label} · Passes`, r.subset.filter(isPassPlay))
+                              : undefined
+                          }
+                        />
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400 -mt-0.5">{r.group.count === 1 ? '1 play' : `${r.group.count} plays`}</div>
+                      </>
+                    ) : (
+                      <span className="text-xs text-slate-500 dark:text-slate-400">No plays yet</span>
+                    )}
+                  </div>
+                  <div className="text-xs">
+                    <div className="font-bold text-slate-900 dark:text-slate-100">
+                      {r.call.front} · {r.call.coverage}
+                    </div>
+                    <div className="text-slate-600 dark:text-slate-300 mt-0.5">{r.call.emphasis}</div>
+                  </div>
                 </div>
-                <div className="text-slate-600 dark:text-slate-300 mt-0.5">{r.call.emphasis}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Card>
+              );
+            })}
+          </div>
+        </Card>
       )}
 
       <Card>

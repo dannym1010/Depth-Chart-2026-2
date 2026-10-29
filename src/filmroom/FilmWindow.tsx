@@ -31,14 +31,18 @@ interface HostProps {
   opponentName?: string;
   /** This week's opponent film breakdown (Hudl Scout). */
   opponentScout?: unknown;
+  /** Our own games (Hudl Scout). */
+  ownTeamScout?: unknown;
   authorName: string;
+  /** Open this cutup in the full Film Room. */
+  onOpenInFilmRoom?: (request: FilmWindowRequest) => void;
 }
 
 /** Draws the film window when something asked for it. One of these lives in App. */
 export const FilmWindowHost: React.FC<HostProps> = (props) => {
   const request = useFilmWindowRequest();
   if (!request) return null;
-  return <FilmWindow key={`${props.teamId}:${request.gameId}`} {...props} request={request} />;
+  return <FilmWindow key={`${props.teamId}:${request.source || 'opponent'}:${request.gameId}`} {...props} request={request} />;
 };
 
 const SIZES = { s: 470, l: 700 } as const;
@@ -75,34 +79,24 @@ function useMedia(query: string) {
 }
 
 const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
-  teamId, teamName, currentWeek, opponentName, opponentScout, authorName, request,
+  teamId, teamName, currentWeek, opponentName, opponentScout, ownTeamScout, authorName, onOpenInFilmRoom, request,
 }) => {
-  const bundle = useMemo(() => bundleFromSaved(opponentScout, opponentName || 'Opponent'), [opponentScout, opponentName]);
-  const gameInfo = bundle.games.find((g) => g.id === request.gameId);
-  const game: FilmGame = useMemo(
-    () => ({
-      key: filmGameKey('opponent', request.gameId, currentWeek),
-      source: 'opponent',
-      gameId: request.gameId,
-      name: gameInfo?.name || 'Scouting film',
-      week: currentWeek,
-    }),
-    [request.gameId, currentWeek, gameInfo?.name]
-  );
+  const oppBundle = useMemo(() => bundleFromSaved(opponentScout, opponentName || 'Opponent'), [opponentScout, opponentName]);
+  const ownBundle = useMemo(() => bundleFromSaved(ownTeamScout, teamName), [ownTeamScout, teamName]);
+  const source: 'opponent' | 'own' = useMemo(() => {
+    if (request.source) return request.source;
+    const inOwn = ownBundle.games.some((g) => g.id === request.gameId) || ownBundle.plays.some((p) => p.id === request.playIds[0]);
+    const inOpp = oppBundle.games.some((g) => g.id === request.gameId) || oppBundle.plays.some((p) => p.id === request.playIds[0]);
+    return inOwn && !inOpp ? 'own' : 'opponent';
+  }, [request.source, request.gameId, request.playIds, ownBundle, oppBundle]);
+  const bundle = source === 'own' ? ownBundle : oppBundle;
 
-  // Every play of this film (the clips go with them in order), and the ones being watched.
-  const gamePlays = useMemo(() => {
-    const onlyGame = bundle.games.length === 1;
-    return bundle.plays
-      .filter((p) => p.gameId === request.gameId || (onlyGame && !p.gameId))
-      .sort((a, b) => (Number(a.playNumber) || 0) - (Number(b.playNumber) || 0));
-  }, [bundle, request.gameId]);
   const idsKey = request.playIds.join('|');
   const watch = useMemo(() => {
-    const byId = new Map(gamePlays.map((p) => [p.id, p]));
+    const byId = new Map(bundle.plays.map((p) => [p.id, p]));
     return request.playIds.map((id) => byId.get(id)).filter(Boolean) as Play[];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gamePlays, idsKey]);
+  }, [bundle.plays, idsKey]);
 
   const [index, setIndex] = useState(0);
   useEffect(() => {
@@ -113,6 +107,40 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
   const play: Play | undefined = watch[Math.min(index, Math.max(0, watch.length - 1))];
   const prev = index > 0 ? watch[index - 1] : undefined;
   const next = watch[index + 1];
+
+  // Dynamically follow whichever game the active play belongs to (supports multi-game cutups!).
+  const activeGameId = play?.gameId || (request.gameId !== 'all' ? request.gameId : '') || bundle.games[0]?.id || request.gameId;
+  const gameInfo = bundle.games.find((g) => g.id === activeGameId);
+  const game: FilmGame = useMemo(
+    () => ({
+      key: source === 'own' ? filmGameKey('own', activeGameId) : filmGameKey('opponent', activeGameId, currentWeek),
+      source,
+      gameId: activeGameId,
+      name: gameInfo?.name || (source === 'own' ? `${teamName} film` : 'Scouting film'),
+      week: source === 'own' ? gameInfo?.week : currentWeek,
+    }),
+    [source, activeGameId, currentWeek, gameInfo?.name, gameInfo?.week, teamName]
+  );
+
+  // Every play of this film (the clips go with them in order).
+  const gamePlays = useMemo(() => {
+    const onlyGame = bundle.games.length === 1;
+    return bundle.plays
+      .filter((p) => p.gameId === activeGameId || (onlyGame && !p.gameId))
+      .sort((a, b) => (Number(a.playNumber) || 0) - (Number(b.playNumber) || 0));
+  }, [bundle, activeGameId]);
+
+  const cutupStats = useMemo(() => {
+    if (!watch.length) return null;
+    const runs = watch.filter((p) => p.playType === 'RUN' || p.playType === 'RPO').length;
+    const passes = watch.filter((p) => p.playType === 'PASS' || p.playType === 'SCREEN').length;
+    const sc = runs + passes;
+    const runPct = sc > 0 ? Math.round((runs / sc) * 100) : 0;
+    const totalYds = watch.reduce((acc, p) => acc + (Number(p.gainLoss) || 0), 0);
+    const avg = Math.round((totalYds / watch.length) * 10) / 10;
+    const eff = Math.round((watch.filter((p) => p.isEfficient).length / watch.length) * 100);
+    return { count: watch.length, runs, passes, runPct, avg, eff };
+  }, [watch]);
 
   // Film: the same folder / Google Drive link the Film Room uses for this film.
   const { shared, update } = useSharedGame(teamId, game.key);
@@ -393,6 +421,16 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
               {Math.min(index, watch.length - 1) + 1} / {watch.length}
             </span>
           )}
+          {onOpenInFilmRoom && watch.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onOpenInFilmRoom({ ...request, gameId: activeGameId, source })}
+              title="Open this cutup in the full Film Room (with Play Builder, Breakdown & Notes)"
+              className="h-6 px-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-[10px] font-black text-white shrink-0 cursor-pointer"
+            >
+              Film Room ↗
+            </button>
+          )}
           {!isPhone && screenSupported() && (
             <button
               type="button"
@@ -442,6 +480,30 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
 
         {!mini && (
           <>
+            {cutupStats && (
+              <div className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-1 bg-slate-950 border-b border-slate-800 text-[11px] text-slate-300 shrink-0">
+                <span className="font-bold">
+                  <span className="text-white font-black">{cutupStats.count}</span> snap{cutupStats.count === 1 ? '' : 's'}
+                  {cutupStats.runs + cutupStats.passes > 0 && (
+                    <>
+                      {' · '}
+                      <span className="text-emerald-400 font-bold">{cutupStats.runs}R</span>
+                      {' / '}
+                      <span className="text-sky-400 font-bold">{cutupStats.passes}P</span>
+                      {' ('}
+                      {cutupStats.runPct}% run)
+                    </>
+                  )}
+                </span>
+                <span className="tabular-nums font-bold">
+                  <span className={cutupStats.avg >= 4 ? 'text-emerald-400' : cutupStats.avg < 0 ? 'text-rose-400' : 'text-white'}>
+                    {cutupStats.avg > 0 ? `+${cutupStats.avg}` : cutupStats.avg} yds/play
+                  </span>
+                  {' · '}
+                  <span className="text-amber-300">{cutupStats.eff}% on-schedule</span>
+                </span>
+              </div>
+            )}
             <FilmPlayer
               maxVideoHeight={videoMax}
               src={placeholder ? undefined : clipUrl.url}

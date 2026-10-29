@@ -1,10 +1,15 @@
 import React, { useMemo, useState } from 'react';
 import type { Play } from '../../hudlScout/types/football';
 import { callResults, isTaggablePlay } from '../../hudlScout/utils/playTags';
-import { Card, SectionHeader } from '../../hudlScout/components/report/ui';
+import { Card, SectionHeader, WatchCutupFn, WatchPill } from '../../hudlScout/components/report/ui';
 
 /** What each tagged play call gained on film. Shows once at least one play is tagged. */
-export const CallResultsCard: React.FC<{ plays: Play[]; own: boolean; onDraw?: (playCallId: string) => void }> = ({ plays, own, onDraw }) => {
+export const CallResultsCard: React.FC<{
+  plays: Play[];
+  own: boolean;
+  onDraw?: (playCallId: string) => void;
+  onWatchCutup?: WatchCutupFn;
+}> = ({ plays, own, onDraw, onWatchCutup }) => {
   const [showAll, setShowAll] = useState(false);
   const rows = useMemo(() => callResults(plays), [plays]);
   const taggable = plays.filter(isTaggablePlay).length;
@@ -15,7 +20,7 @@ export const CallResultsCard: React.FC<{ plays: Play[]; own: boolean; onDraw?: (
     <Card>
       <SectionHeader
         title={own ? 'How our plays did' : 'Their plays by call'}
-        subtitle={`${tagged} of ${taggable} plays tagged. Success = stayed on schedule (Hudl efficiency).${onDraw ? ' Draw opens the play in the play builder, drawn from its name.' : ''}`}
+        subtitle={`${tagged} of ${taggable} plays tagged. Success = stayed on schedule (Hudl efficiency). Click any row to watch those snaps.${onDraw ? ' Draw opens the play in the play builder, drawn from its name.' : ''}`}
       />
       <div className="overflow-x-auto -mx-1">
         <table className="w-full text-xs">
@@ -28,46 +33,75 @@ export const CallResultsCard: React.FC<{ plays: Play[]; own: boolean; onDraw?: (
               <th className="py-1.5 px-1 font-black text-right hidden sm:table-cell">10+</th>
               <th className="py-1.5 px-1 font-black text-right hidden sm:table-cell">TD</th>
               <th className="py-1.5 px-1 font-black text-right hidden sm:table-cell">Lost yds</th>
-              {onDraw && <th className="py-1.5 px-1" />}
+              {(onDraw || onWatchCutup) && <th className="py-1.5 px-1" />}
             </tr>
           </thead>
           <tbody>
-            {shown.map((r) => (
-              <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800">
-                <td className="py-1.5 px-1 font-bold text-slate-900 dark:text-slate-100 max-w-[180px] truncate">{r.name}</td>
-                <td className="py-1.5 px-1 text-right text-slate-700 dark:text-slate-300">{r.count}</td>
-                <td
-                  className={`py-1.5 px-1 text-right font-black ${
-                    r.avgGain >= 4 ? 'text-emerald-700 dark:text-emerald-400' : r.avgGain < 1 ? 'text-rose-700 dark:text-rose-400' : 'text-slate-800 dark:text-slate-200'
+            {shown.map((r) => {
+              const callPlays = plays.filter(
+                (p) =>
+                  p.playCallId === r.id ||
+                  (p.playName || '').trim().toLowerCase() === r.name.trim().toLowerCase()
+              );
+              const canClick = Boolean(onWatchCutup && callPlays.length > 0);
+              return (
+                <tr
+                  key={r.id}
+                  onClick={canClick ? () => onWatchCutup?.(r.name, callPlays) : undefined}
+                  className={`border-t border-slate-100 dark:border-slate-800 ${
+                    canClick ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 group' : ''
                   }`}
                 >
-                  {r.avgGain > 0 ? `+${r.avgGain}` : r.avgGain}
-                </td>
-                <td className="py-1.5 px-1 text-right">
-                  <span className="inline-flex items-center gap-1.5 justify-end">
-                    <span className="w-10 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden hidden sm:inline-block">
-                      <span className="block h-full bg-emerald-500" style={{ width: `${r.successRate}%` }} />
-                    </span>
-                    <span className="font-bold text-slate-800 dark:text-slate-200">{r.successRate}%</span>
-                  </span>
-                </td>
-                <td className="py-1.5 px-1 text-right text-slate-700 dark:text-slate-300 hidden sm:table-cell">{r.explosive || '–'}</td>
-                <td className="py-1.5 px-1 text-right text-slate-700 dark:text-slate-300 hidden sm:table-cell">{r.touchdowns || '–'}</td>
-                <td className="py-1.5 px-1 text-right text-slate-700 dark:text-slate-300 hidden sm:table-cell">{r.negative || '–'}</td>
-                {onDraw && (
-                  <td className="py-1 px-1 text-right">
-                    <button
-                      type="button"
-                      onClick={() => onDraw(r.id)}
-                      title={`Draw ${r.name} in the play builder`}
-                      className="h-7 px-2 rounded-md border border-slate-300 dark:border-slate-600 text-[11px] font-black text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer whitespace-nowrap"
-                    >
-                      ✎ Draw
-                    </button>
+                  <td className="py-1.5 px-1 font-bold text-slate-900 dark:text-slate-100 max-w-[180px] truncate group-hover:text-amber-600 dark:group-hover:text-amber-400">
+                    {r.name}
                   </td>
-                )}
-              </tr>
-            ))}
+                  <td className="py-1.5 px-1 text-right text-slate-700 dark:text-slate-300">{r.count}</td>
+                  <td
+                    className={`py-1.5 px-1 text-right font-black ${
+                      r.avgGain >= 4 ? 'text-emerald-700 dark:text-emerald-400' : r.avgGain < 1 ? 'text-rose-700 dark:text-rose-400' : 'text-slate-800 dark:text-slate-200'
+                    }`}
+                  >
+                    {r.avgGain > 0 ? `+${r.avgGain}` : r.avgGain}
+                  </td>
+                  <td className="py-1.5 px-1 text-right">
+                    <span className="inline-flex items-center gap-1.5 justify-end">
+                      <span className="w-10 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden hidden sm:inline-block">
+                        <span className="block h-full bg-emerald-500" style={{ width: `${r.successRate}%` }} />
+                      </span>
+                      <span className="font-bold text-slate-800 dark:text-slate-200">{r.successRate}%</span>
+                    </span>
+                  </td>
+                  <td className="py-1.5 px-1 text-right text-slate-700 dark:text-slate-300 hidden sm:table-cell">{r.explosive || '–'}</td>
+                  <td className="py-1.5 px-1 text-right text-slate-700 dark:text-slate-300 hidden sm:table-cell">{r.touchdowns || '–'}</td>
+                  <td className="py-1.5 px-1 text-right text-slate-700 dark:text-slate-300 hidden sm:table-cell">{r.negative || '–'}</td>
+                  {(onDraw || onWatchCutup) && (
+                    <td className="py-1 px-1 text-right">
+                      <div className="inline-flex items-center gap-1">
+                        {canClick && (
+                          <WatchPill
+                            count={callPlays.length}
+                            onClick={() => onWatchCutup?.(r.name, callPlays)}
+                          />
+                        )}
+                        {onDraw && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDraw(r.id);
+                            }}
+                            title={`Draw ${r.name} in the play builder`}
+                            className="h-7 px-2 rounded-md border border-slate-300 dark:border-slate-600 text-[11px] font-black text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer whitespace-nowrap"
+                          >
+                            ✎ Draw
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

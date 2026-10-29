@@ -3,9 +3,9 @@
 // play). One switch picks all-purpose, rushing, receiving or passing for all three.
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Play } from '../../types/football';
-import type { CallTypeOf } from '../../utils/gameStats';
+import { playKind, type CallTypeOf } from '../../utils/gameStats';
 import { metricTouches, metricYards, playerWeeks, type PlayerMetric, type PlayerWeeks, type WeekColumn } from '../../utils/playerWeeks';
-import { Card, SectionHeader } from './ui';
+import { Card, SectionHeader, WatchCutupFn } from './ui';
 
 // Categorical slots in fixed order (validated: adjacent CVD and normal-vision separation, light on white and dark on
 // slate-900). A player keeps his slot while he's on the chart; slots are never cycled past eight.
@@ -56,6 +56,33 @@ function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] 
     return () => ro.disconnect();
   }, []);
   return [ref, w];
+}
+
+function playsForPlayerMetric(
+  plays: Play[],
+  playerName: string,
+  metric: PlayerMetric,
+  callTypeOf?: CallTypeOf,
+  gameIds?: Set<string>
+): Play[] {
+  const target = playerName.trim().toLowerCase();
+  const clean = (v?: string) => String(v || '').trim().toLowerCase();
+  return plays.filter((p) => {
+    if (p.odk !== 'O') return false;
+    if (gameIds && (!p.gameId || !gameIds.has(p.gameId))) return false;
+    const kind = playKind(p, callTypeOf);
+    const isRushMatch =
+      kind === 'run' &&
+      (clean(p.rusher) === target ||
+        (/scramble/i.test(p.result || '') && clean(p.passer) === target) ||
+        (!clean(p.rusher) && clean(p.carrierOrTarget) === target));
+    const isRecMatch = kind === 'pass' && clean(p.receiver) === target;
+    const isPassMatch = kind === 'pass' && clean(p.passer) === target;
+    if (metric === 'rush') return isRushMatch;
+    if (metric === 'rec') return isRecMatch;
+    if (metric === 'pass') return isPassMatch;
+    return isRushMatch || isRecMatch;
+  });
 }
 
 const Tip: React.FC<{ x: number; y: number; width: number; children: React.ReactNode }> = ({ x, y, width, children }) => (
@@ -176,7 +203,13 @@ const WeekLines: React.FC<{
 
 // ---------- Touches against yards per touch (scatter) ----------
 
-const Efficiency: React.FC<{ players: PlayerWeeks[]; metric: PlayerMetric; touchesLabel: string; perTouchLabel: string }> = ({ players, metric, touchesLabel, perTouchLabel }) => {
+const Efficiency: React.FC<{
+  players: PlayerWeeks[];
+  metric: PlayerMetric;
+  touchesLabel: string;
+  perTouchLabel: string;
+  onSelectPlayer?: (name: string) => void;
+}> = ({ players, metric, touchesLabel, perTouchLabel, onSelectPlayer }) => {
   const [boxRef, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<string | null>(null);
   const H = 250;
@@ -244,7 +277,11 @@ const Efficiency: React.FC<{ players: PlayerWeeks[]; metric: PlayerMetric; touch
           </g>
         )}
         {pts.map((d) => (
-          <g key={d.name}>
+          <g
+            key={d.name}
+            onClick={onSelectPlayer ? () => onSelectPlayer(d.name) : undefined}
+            className={onSelectPlayer ? 'cursor-pointer' : undefined}
+          >
             <circle cx={x(d.n)} cy={y(d.per)} r={hover === d.name ? 6.5 : 5} fill="var(--pa-s0)" stroke="var(--pa-surface)" strokeWidth={2} />
             {named.has(d.name) && (
               <text
@@ -277,6 +314,7 @@ const Efficiency: React.FC<{ players: PlayerWeeks[]; metric: PlayerMetric; touch
           <div className="tabular-nums">
             {hov.n} {touchesLabel.split(' (')[0].toLowerCase()} · {hov.yds} yds · <b>{r1(hov.per)}</b> {perTouchLabel.toLowerCase()}
           </div>
+          {onSelectPlayer && <div className="mt-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400">Click to watch cutup</div>}
         </Tip>
       )}
     </div>
@@ -285,7 +323,13 @@ const Efficiency: React.FC<{ players: PlayerWeeks[]; metric: PlayerMetric; touch
 
 // ---------- Every player x week (shaded table) ----------
 
-const WeekTable: React.FC<{ columns: WeekColumn[]; players: PlayerWeeks[]; metric: PlayerMetric; touchesLabel: string }> = ({ columns, players, metric, touchesLabel }) => {
+const WeekTable: React.FC<{
+  columns: WeekColumn[];
+  players: PlayerWeeks[];
+  metric: PlayerMetric;
+  touchesLabel: string;
+  onSelectCell?: (playerName: string, weekCol?: WeekColumn) => void;
+}> = ({ columns, players, metric, touchesLabel, onSelectCell }) => {
   const max = Math.max(1, ...players.flatMap((p) => columns.map((c) => (p.weeks[c.key] ? metricYards(p.weeks[c.key], metric) : 0))));
   const cell = (v: number) => {
     const t = v > 0 ? Math.min(1, v / max) : 0;
@@ -318,23 +362,45 @@ const WeekTable: React.FC<{ columns: WeekColumn[]; players: PlayerWeeks[]; metri
             const weeksOn = columns.filter((c) => p.weeks[c.key] && metricTouches(p.weeks[c.key], metric) > 0).length;
             return (
               <tr key={p.name}>
-                <td className="sticky left-0 z-[1] bg-white dark:bg-slate-900 py-1 pr-2 text-[12px] font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">{p.name}</td>
+                <td
+                  onClick={onSelectCell ? () => onSelectCell(p.name) : undefined}
+                  className={`sticky left-0 z-[1] bg-white dark:bg-slate-900 py-1 pr-2 text-[12px] font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap ${
+                    onSelectCell ? 'cursor-pointer hover:text-amber-600 dark:hover:text-amber-400' : ''
+                  }`}
+                >
+                  {p.name}
+                </td>
                 {columns.map((c) => {
                   const w = p.weeks[c.key];
                   const n = w ? metricTouches(w, metric) : 0;
                   const v = w ? metricYards(w, metric) : 0;
+                  const canClick = Boolean(onSelectCell && n > 0);
                   return (
                     <td
                       key={c.key}
-                      title={n ? `${p.name} · ${c.label}: ${v} yds on ${n} ${unit}${w?.td ? ` · ${w.td} TD` : ''}` : `${p.name} · ${c.label}: no ${unit}`}
-                      className="min-w-[44px] rounded-md py-1 px-1 text-center text-[12px] tabular-nums font-semibold text-slate-800 dark:text-slate-100"
+                      onClick={canClick ? () => onSelectCell?.(p.name, c) : undefined}
+                      title={
+                        n
+                          ? `${p.name} · ${c.label}: ${v} yds on ${n} ${unit}${w?.td ? ` · ${w.td} TD` : ''}${canClick ? ' (Click to watch)' : ''}`
+                          : `${p.name} · ${c.label}: no ${unit}`
+                      }
+                      className={`min-w-[44px] rounded-md py-1 px-1 text-center text-[12px] tabular-nums font-semibold text-slate-800 dark:text-slate-100 ${
+                        canClick ? 'cursor-pointer hover:ring-2 hover:ring-amber-500/80 transition-all' : ''
+                      }`}
                       style={cell(v)}
                     >
                       {n ? v : <span className="text-slate-300 dark:text-slate-600">·</span>}
                     </td>
                   );
                 })}
-                <td className="py-1 px-2 text-right text-[12px] font-black tabular-nums text-slate-900 dark:text-white">{total}</td>
+                <td
+                  onClick={onSelectCell ? () => onSelectCell(p.name) : undefined}
+                  className={`py-1 px-2 text-right text-[12px] font-black tabular-nums text-slate-900 dark:text-white ${
+                    onSelectCell ? 'cursor-pointer hover:text-amber-600 dark:hover:text-amber-400' : ''
+                  }`}
+                >
+                  {total}
+                </td>
                 <td className="py-1 px-2 text-right text-[12px] tabular-nums text-slate-600 dark:text-slate-300">{weeksOn ? r1(total / weeksOn) : '–'}</td>
               </tr>
             );
@@ -351,7 +417,8 @@ export const PlayerAnalytics: React.FC<{
   plays: Play[];
   games: { id: string; name: string; week?: string }[];
   callTypeOf?: CallTypeOf;
-}> = ({ plays, games, callTypeOf }) => {
+  onWatchCutup?: WatchCutupFn;
+}> = ({ plays, games, callTypeOf, onWatchCutup }) => {
   const [metric, setMetric] = useState<PlayerMetric>('all');
   const m = METRICS.find((x) => x.id === metric)!;
   const data = useMemo(() => playerWeeks(plays, games, callTypeOf), [plays, games, callTypeOf]);
@@ -397,6 +464,22 @@ export const PlayerAnalytics: React.FC<{
       touches: data.columns.map((c) => (p.weeks[c.key] ? metricTouches(p.weeks[c.key], metric) : 0)),
     }));
 
+  const handleWatchPlayer = (playerName: string, weekCol?: WeekColumn) => {
+    if (!onWatchCutup) return;
+    let gameIds: Set<string> | undefined;
+    if (weekCol) {
+      gameIds = new Set(
+        games
+          .filter((g) => (g.week ? String(g.week) === weekCol.key : `game:${g.id}` === weekCol.key))
+          .map((g) => g.id)
+      );
+    }
+    const subset = playsForPlayerMetric(plays, playerName, metric, callTypeOf, gameIds);
+    if (subset.length > 0) {
+      onWatchCutup(`${playerName} · ${m.label}${weekCol ? ` (${weekCol.label})` : ''}`, subset);
+    }
+  };
+
   if (!data.columns.length || !data.players.length) return null;
 
   return (
@@ -405,7 +488,7 @@ export const PlayerAnalytics: React.FC<{
       <div className="pa-viz">
         <SectionHeader
           title="Player analytics · yards by week"
-          subtitle="Our offense, from the RUSHER / PASSER / RECEIVER on each play. Hover (or tap) a week, a dot or a cell for the numbers."
+          subtitle="Our offense, from the RUSHER / PASSER / RECEIVER on each play. Click any player cell or scatter dot to watch their cutup."
           right={
             <div role="group" aria-label="Which yards" className="inline-flex flex-wrap rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5">
               {METRICS.map((x) => (
@@ -465,12 +548,24 @@ export const PlayerAnalytics: React.FC<{
             <div className="grid grid-cols-1 xl:grid-cols-5 gap-5">
               <div className="xl:col-span-3 min-w-0">
                 <h4 className="mb-1.5 text-xs font-black uppercase tracking-wide text-slate-600 dark:text-slate-300">Every player, every week</h4>
-                <WeekTable columns={data.columns} players={ranked} metric={metric} touchesLabel={m.touches} />
+                <WeekTable
+                  columns={data.columns}
+                  players={ranked}
+                  metric={metric}
+                  touchesLabel={m.touches}
+                  onSelectCell={onWatchCutup ? handleWatchPlayer : undefined}
+                />
               </div>
               <div className="xl:col-span-2 min-w-0">
                 <h4 className="text-xs font-black uppercase tracking-wide text-slate-600 dark:text-slate-300">Workload against {m.perTouch.toLowerCase()}</h4>
                 <p className="mb-1.5 text-[11px] text-slate-500 dark:text-slate-400">Right = more of the ball. Up = more yards each time. Dashed line = the team.</p>
-                <Efficiency players={ranked} metric={metric} touchesLabel={m.touches} perTouchLabel={m.perTouch} />
+                <Efficiency
+                  players={ranked}
+                  metric={metric}
+                  touchesLabel={m.touches}
+                  perTouchLabel={m.perTouch}
+                  onSelectPlayer={onWatchCutup ? (name) => handleWatchPlayer(name) : undefined}
+                />
               </div>
             </div>
           </div>

@@ -3,57 +3,133 @@
 import React, { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import type { Play } from '../../types/football';
-import { strengthReport, type SideSplit, type StrengthSide } from '../../utils/strength';
+import { playFormationBase, playStrengthSide, strengthReport, type SideSplit, type StrengthSide } from '../../utils/strength';
 import { ReportVoice, isPassPlay, isRunPlay } from './reportText';
-import { Card, EmptyNote, SectionHeader } from './ui';
+import { Card, EmptyNote, SectionHeader, WatchPill, type WatchCutupFn } from './ui';
 
 const SIDE_COLOR: Record<StrengthSide, string> = { strong: '#d97706', middle: '#64748b', weak: '#0284c7' };
 const SIDE_LABEL: Record<StrengthSide, string> = { strong: 'Strong', middle: 'Middle', weak: 'Weak' };
 const ORDER: StrengthSide[] = ['strong', 'middle', 'weak'];
 
-const SplitBar: React.FC<{ title: string; split: SideSplit; unit: string }> = ({ title, split, unit }) => (
-  <div>
-    <div className="flex items-baseline justify-between gap-2 mb-1">
-      <span className="text-xs font-black uppercase tracking-wide text-slate-700 dark:text-slate-200">{title}</span>
-      <span className="text-[11px] text-slate-500 dark:text-slate-400">{split.total} play{split.total === 1 ? '' : 's'}</span>
+const SplitBar: React.FC<{
+  title: string;
+  split: SideSplit;
+  unit: string;
+  pool: Play[];
+  onWatchCutup?: WatchCutupFn;
+}> = ({ title, split, unit, pool, onWatchCutup }) => {
+  const sidedPlays = pool.filter((p) => Boolean(playStrengthSide(p)));
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2 mb-1">
+        <span className="text-xs font-black uppercase tracking-wide text-slate-700 dark:text-slate-200">{title}</span>
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+          <span>{split.total} play{split.total === 1 ? '' : 's'}</span>
+          {onWatchCutup && sidedPlays.length > 0 && (
+            <WatchPill count={sidedPlays.length} onClick={() => onWatchCutup(`${title} (Strong / Middle / Weak)`, sidedPlays)} />
+          )}
+        </span>
+      </div>
+      <div className="flex h-9 rounded-lg overflow-hidden text-xs font-black">
+        {ORDER.filter((s) => split.count[s] > 0).map((s) => {
+          const sidePlays = pool.filter((p) => playStrengthSide(p) === s);
+          const clickable = Boolean(onWatchCutup && sidePlays.length > 0);
+          return (
+            <div
+              key={s}
+              onClick={clickable ? () => onWatchCutup!(`${title} · ${SIDE_LABEL[s]} side`, sidePlays) : undefined}
+              className={`flex items-center justify-center text-white dark:text-white border-r-2 border-white dark:border-slate-900 last:border-r-0 min-w-[70px] px-1 ${
+                clickable ? 'cursor-pointer hover:brightness-110 transition' : ''
+              }`}
+              style={{ flexGrow: Math.max(split.pct[s], 8), background: SIDE_COLOR[s] }}
+              title={`${SIDE_LABEL[s]} side: ${split.count[s]} ${unit}${clickable ? ' — click to watch cutup' : ''}`}
+            >
+              {SIDE_LABEL[s]} {split.pct[s]}%
+            </div>
+          );
+        })}
+      </div>
+      <div className="grid grid-cols-3 gap-2 mt-1.5 text-[11px]">
+        {ORDER.map((s) => {
+          const sidePlays = pool.filter((p) => playStrengthSide(p) === s);
+          const clickable = Boolean(onWatchCutup && sidePlays.length > 0);
+          return (
+            <div
+              key={s}
+              onClick={clickable ? () => onWatchCutup!(`${title} · ${SIDE_LABEL[s]} side`, sidePlays) : undefined}
+              className={`text-slate-600 dark:text-slate-300 ${clickable ? 'cursor-pointer hover:underline' : ''}`}
+              title={clickable ? `Watch ${sidePlays.length} ${unit} to ${SIDE_LABEL[s].toLowerCase()} side` : undefined}
+            >
+              <span className="font-bold" style={{ color: SIDE_COLOR[s] }}>{SIDE_LABEL[s]}</span>{' '}
+              {split.count[s] ? `${split.count[s]} · ${split.avg[s]} yds · ${split.success[s]}% success` : '–'}
+            </div>
+          );
+        })}
+      </div>
     </div>
-    <div className="flex h-9 rounded-lg overflow-hidden text-xs font-black">
-      {ORDER.filter((s) => split.count[s] > 0).map((s) => (
-        <div
-          key={s}
-          className="flex items-center justify-center text-white dark:text-white border-r-2 border-white dark:border-slate-900 last:border-r-0 min-w-[70px] px-1"
-          style={{ flexGrow: Math.max(split.pct[s], 8), background: SIDE_COLOR[s] }}
-          title={`${SIDE_LABEL[s]} side: ${split.count[s]} ${unit}`}
-        >
-          {SIDE_LABEL[s]} {split.pct[s]}%
-        </div>
-      ))}
-    </div>
-    <div className="grid grid-cols-3 gap-2 mt-1.5 text-[11px]">
-      {ORDER.map((s) => (
-        <div key={s} className="text-slate-600 dark:text-slate-300">
-          <span className="font-bold" style={{ color: SIDE_COLOR[s] }}>{SIDE_LABEL[s]}</span>{' '}
-          {split.count[s] ? `${split.count[s]} · ${split.avg[s]} yds · ${split.success[s]}% success` : '–'}
-        </div>
-      ))}
-    </div>
-  </div>
-);
-
-/** "64 / 14 / 22" (strong / middle / weak %), or a dash. */
-const triple = (s: SideSplit) =>
-  s.total ? (
-    <span className="tabular-nums">
-      <span style={{ color: SIDE_COLOR.strong }} className="font-black">{s.pct.strong}</span>
-      <span className="text-slate-400"> / </span>
-      <span style={{ color: SIDE_COLOR.middle }} className="font-bold">{s.pct.middle}</span>
-      <span className="text-slate-400"> / </span>
-      <span style={{ color: SIDE_COLOR.weak }} className="font-black">{s.pct.weak}</span>
-      <span className="text-slate-400"> ({s.total})</span>
-    </span>
-  ) : (
-    <span className="text-slate-400">–</span>
   );
+};
+
+/** "64 / 14 / 22" (strong / middle / weak %), or a dash, with click-to-watch on each side or the whole cell. */
+const triple = (s: SideSplit, labelPrefix: string, pool: Play[], onWatchCutup?: WatchCutupFn) => {
+  if (!s.total) return <span className="text-slate-400">–</span>;
+  const sided = pool.filter((p) => Boolean(playStrengthSide(p)));
+  const pick = (side: StrengthSide, e: React.MouseEvent) => {
+    if (!onWatchCutup) return;
+    e.stopPropagation();
+    const sub = pool.filter((p) => playStrengthSide(p) === side);
+    if (sub.length) onWatchCutup(`${labelPrefix} · ${SIDE_LABEL[side]} side`, sub);
+  };
+  return (
+    <span className="tabular-nums">
+      <button
+        type="button"
+        disabled={!onWatchCutup || !s.count.strong}
+        onClick={(e) => pick('strong', e)}
+        title={onWatchCutup && s.count.strong ? `Watch ${s.count.strong} strong-side plays` : undefined}
+        style={{ color: SIDE_COLOR.strong }}
+        className={`font-black ${onWatchCutup && s.count.strong ? 'hover:underline cursor-pointer' : ''}`}
+      >
+        {s.pct.strong}
+      </button>
+      <span className="text-slate-400"> / </span>
+      <button
+        type="button"
+        disabled={!onWatchCutup || !s.count.middle}
+        onClick={(e) => pick('middle', e)}
+        title={onWatchCutup && s.count.middle ? `Watch ${s.count.middle} middle plays` : undefined}
+        style={{ color: SIDE_COLOR.middle }}
+        className={`font-bold ${onWatchCutup && s.count.middle ? 'hover:underline cursor-pointer' : ''}`}
+      >
+        {s.pct.middle}
+      </button>
+      <span className="text-slate-400"> / </span>
+      <button
+        type="button"
+        disabled={!onWatchCutup || !s.count.weak}
+        onClick={(e) => pick('weak', e)}
+        title={onWatchCutup && s.count.weak ? `Watch ${s.count.weak} weak-side plays` : undefined}
+        style={{ color: SIDE_COLOR.weak }}
+        className={`font-black ${onWatchCutup && s.count.weak ? 'hover:underline cursor-pointer' : ''}`}
+      >
+        {s.pct.weak}
+      </button>
+      <button
+        type="button"
+        disabled={!onWatchCutup || !sided.length}
+        onClick={(e) => {
+          if (!onWatchCutup || !sided.length) return;
+          e.stopPropagation();
+          onWatchCutup(labelPrefix, sided);
+        }}
+        title={onWatchCutup && sided.length ? `Watch all ${sided.length} plays` : undefined}
+        className={`text-slate-400 ${onWatchCutup && sided.length ? 'hover:text-indigo-500 cursor-pointer' : ''}`}
+      >
+        {' '}({s.total})
+      </button>
+    </span>
+  );
+};
 
 function summary(r: ReturnType<typeof strengthReport>, v: ReportVoice): string | null {
   const runs = r.runs;
@@ -108,11 +184,18 @@ const BalancedList: React.FC<{ list: string[]; onChange?: (list: string[]) => vo
   );
 };
 
-export const StrengthCard: React.FC<{ plays: Play[]; voice: ReportVoice; balanced?: string[]; onChangeBalanced?: (list: string[]) => void }> = ({
+export const StrengthCard: React.FC<{
+  plays: Play[];
+  voice: ReportVoice;
+  balanced?: string[];
+  onChangeBalanced?: (list: string[]) => void;
+  onWatchCutup?: WatchCutupFn;
+}> = ({
   plays,
   voice,
   balanced,
   onChangeBalanced,
+  onWatchCutup,
 }) => {
   const balancedKey = (balanced || []).join('|');
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -120,6 +203,8 @@ export const StrengthCard: React.FC<{ plays: Play[]; voice: ReportVoice; balance
   const counted = r.runs.total + r.passes.total;
   const strengthTotal = r.strengthLeft + r.strengthRight;
   const line = summary(r, voice);
+  const runPool = useMemo(() => plays.filter(isRunPlay), [plays]);
+  const passPool = useMemo(() => plays.filter(isPassPlay), [plays]);
   return (
     <Card>
       <SectionHeader
@@ -145,8 +230,8 @@ export const StrengthCard: React.FC<{ plays: Play[]; voice: ReportVoice; balance
       ) : (
         <div className="space-y-4">
           {line && <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{line}</p>}
-          {r.runs.total > 0 && <SplitBar title="Runs" split={r.runs} unit="runs" />}
-          {r.passes.total > 0 && <SplitBar title="Passes" split={r.passes} unit="passes" />}
+          {r.runs.total > 0 && <SplitBar title="Runs" split={r.runs} unit="runs" pool={runPool} onWatchCutup={onWatchCutup} />}
+          {r.passes.total > 0 && <SplitBar title="Passes" split={r.passes} unit="passes" pool={passPool} onWatchCutup={onWatchCutup} />}
           {r.balanced > 0 && (
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
               {r.balanced} play{r.balanced === 1 ? '' : 's'} from balanced formations ({(balanced || []).join(', ') || 'none'}) not counted: no strong side.
@@ -170,13 +255,31 @@ export const StrengthCard: React.FC<{ plays: Play[]; voice: ReportVoice; balance
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {r.byFormation.slice(0, 10).map((f) => (
-                    <tr key={f.formation}>
-                      <td className="py-1.5 pr-2 font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">{f.formation}</td>
-                      <td className="py-1.5 px-2">{triple(f.runs)}</td>
-                      <td className="py-1.5 pl-2">{triple(f.passes)}</td>
-                    </tr>
-                  ))}
+                  {r.byFormation.slice(0, 10).map((f) => {
+                    const fPlays = plays.filter((p) => playFormationBase(p) === f.formation);
+                    const fRuns = fPlays.filter(isRunPlay);
+                    const fPasses = fPlays.filter(isPassPlay);
+                    return (
+                      <tr key={f.formation} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                        <td className="py-1.5 pr-2 font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">
+                          {onWatchCutup ? (
+                            <button
+                              type="button"
+                              onClick={() => onWatchCutup(`Formation ${f.formation}`, fPlays)}
+                              className="hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer text-left"
+                              title={`Watch all ${fPlays.length} plays from ${f.formation}`}
+                            >
+                              {f.formation} ▶
+                            </button>
+                          ) : (
+                            f.formation
+                          )}
+                        </td>
+                        <td className="py-1.5 px-2">{triple(f.runs, `${f.formation} · Runs`, fRuns, onWatchCutup)}</td>
+                        <td className="py-1.5 pl-2">{triple(f.passes, `${f.formation} · Passes`, fPasses, onWatchCutup)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -191,19 +294,38 @@ export const StrengthCard: React.FC<{ plays: Play[]; voice: ReportVoice; balance
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {r.byDown.map((d) => (
-                    <tr key={d.down}>
-                      <td className="py-1.5 pr-2 font-bold text-slate-800 dark:text-slate-100">{['1st', '2nd', '3rd', '4th'][d.down - 1]}</td>
-                      <td className="py-1.5 px-2">{triple(d.runs)}</td>
-                      <td className="py-1.5 pl-2">{triple(d.passes)}</td>
-                    </tr>
-                  ))}
+                  {r.byDown.map((d) => {
+                    const dLabel = ['1st', '2nd', '3rd', '4th'][d.down - 1];
+                    const dPlays = plays.filter((p) => p.down === d.down);
+                    const dRuns = dPlays.filter(isRunPlay);
+                    const dPasses = dPlays.filter(isPassPlay);
+                    return (
+                      <tr key={d.down} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                        <td className="py-1.5 pr-2 font-bold text-slate-800 dark:text-slate-100">
+                          {onWatchCutup && dPlays.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => onWatchCutup(`${dLabel} down`, dPlays)}
+                              className="hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer text-left"
+                              title={`Watch all ${dPlays.length} plays on ${dLabel} down`}
+                            >
+                              {dLabel} ▶
+                            </button>
+                          ) : (
+                            dLabel
+                          )}
+                        </td>
+                        <td className="py-1.5 px-2">{triple(d.runs, `${dLabel} down · Runs`, dRuns, onWatchCutup)}</td>
+                        <td className="py-1.5 pl-2">{triple(d.passes, `${dLabel} down · Passes`, dPasses, onWatchCutup)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </div>
           <p className="text-[11px] text-slate-500 dark:text-slate-400">
-            S / M / W = strong side / middle / weak side, with the number of plays in brackets. Only plays with a formation side and a direction count.
+            S / M / W = strong side / middle / weak side, with the number of plays in brackets.{onWatchCutup ? ' Click any number or bar to watch those snaps.' : ' Only plays with a formation side and a direction count.'}
           </p>
         </div>
       )}

@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
-import { FormationStat } from '../types/football';
+import { FormationStat, Play } from '../types/football';
 import { Layers, ChevronRight, Zap } from 'lucide-react';
+import { isPassPlay, isRunPlay } from './report/reportText';
+import { WatchCutupFn, WatchPill } from './report/ui';
 
 interface FormationAnalyticsProps {
   formations: FormationStat[];
   totalPlays: number;
+  plays?: Play[];
+  onWatchCutup?: WatchCutupFn;
 }
 
-export const FormationAnalytics: React.FC<FormationAnalyticsProps> = ({ formations, totalPlays }) => {
+export const FormationAnalytics: React.FC<FormationAnalyticsProps> = ({ formations, totalPlays, plays = [], onWatchCutup }) => {
   const [selectedFormation, setSelectedFormation] = useState<FormationStat | null>(formations[0] || null);
 
   if (formations.length === 0) {
@@ -25,6 +29,10 @@ export const FormationAnalytics: React.FC<FormationAnalyticsProps> = ({ formatio
       </div>
     );
   }
+
+  const formationPlays = selectedFormation
+    ? plays.filter((p) => (p.formation || '').trim().toLowerCase() === selectedFormation.formation.trim().toLowerCase())
+    : [];
 
   return (
     <div className="space-y-4">
@@ -46,11 +54,12 @@ export const FormationAnalytics: React.FC<FormationAnalyticsProps> = ({ formatio
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
           {formations.map((f) => {
             const isSelected = selectedFormation?.formation === f.formation;
+            const fPlays = plays.filter((p) => (p.formation || '').trim().toLowerCase() === f.formation.trim().toLowerCase());
             return (
-              <button
+              <div
                 key={f.formation}
                 onClick={() => setSelectedFormation(f)}
-                className={`p-3 rounded-lg border text-left transition-all flex flex-col justify-between ${
+                className={`p-3 rounded-lg border text-left transition-all flex flex-col justify-between cursor-pointer ${
                   isSelected
                     ? 'bg-emerald-950/40 border-emerald-500/60 shadow-md ring-1 ring-emerald-500/30'
                     : 'bg-slate-950/80 border-slate-800 hover:border-slate-700 hover:bg-slate-900'
@@ -63,7 +72,16 @@ export const FormationAnalytics: React.FC<FormationAnalyticsProps> = ({ formatio
                       {f.runPct >= 70 ? 'HEAVY RUN' : f.passPct >= 70 ? 'HEAVY PASS' : 'BALANCED'}
                     </span>
                   </div>
-                  <h3 className="text-xs font-bold text-slate-100 line-clamp-1">{f.formation}</h3>
+                  <div className="flex items-center justify-between gap-1.5">
+                    <h3 className="text-xs font-bold text-slate-100 line-clamp-1">{f.formation}</h3>
+                    {onWatchCutup && fPlays.length > 0 && (
+                      <WatchPill
+                        count={fPlays.length}
+                        label={`Watch ${f.formation}`}
+                        onClick={() => onWatchCutup(`Formation · ${f.formation}`, fPlays)}
+                      />
+                    )}
+                  </div>
                 </div>
 
                 <div className="mt-2 pt-2 border-t border-slate-800/80">
@@ -76,7 +94,7 @@ export const FormationAnalytics: React.FC<FormationAnalyticsProps> = ({ formatio
                     <div className="bg-sky-500" style={{ width: `${f.passPct}%` }} />
                   </div>
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
@@ -90,11 +108,34 @@ export const FormationAnalytics: React.FC<FormationAnalyticsProps> = ({ formatio
               <div className="text-[11px] font-mono text-emerald-400 uppercase tracking-wider font-semibold">
                 FORMATION SCOUTING DOSSIER
               </div>
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2 flex-wrap">
                 <span>{selectedFormation.formation}</span>
                 <span className="text-xs font-normal text-slate-400 font-mono">
                   ({selectedFormation.count} calls · {selectedFormation.pctOfTotal}% of total offense)
                 </span>
+                {onWatchCutup && formationPlays.length > 0 && (
+                  <>
+                    <WatchPill
+                      count={formationPlays.length}
+                      label={`Watch all ${formationPlays.length} snaps`}
+                      onClick={() => onWatchCutup(`Formation · ${selectedFormation.formation}`, formationPlays)}
+                    />
+                    {formationPlays.filter(isRunPlay).length > 0 && (
+                      <WatchPill
+                        count={formationPlays.filter(isRunPlay).length}
+                        label="Watch Runs"
+                        onClick={() => onWatchCutup(`${selectedFormation.formation} · Runs`, formationPlays.filter(isRunPlay))}
+                      />
+                    )}
+                    {formationPlays.filter(isPassPlay).length > 0 && (
+                      <WatchPill
+                        count={formationPlays.filter(isPassPlay).length}
+                        label="Watch Passes"
+                        onClick={() => onWatchCutup(`${selectedFormation.formation} · Passes`, formationPlays.filter(isPassPlay))}
+                      />
+                    )}
+                  </>
+                )}
               </h3>
             </div>
 
@@ -126,22 +167,37 @@ export const FormationAnalytics: React.FC<FormationAnalyticsProps> = ({ formatio
                 Go-To Concepts ({selectedFormation.formation})
               </h4>
               <div className="space-y-2">
-                {selectedFormation.topPlays.map((p, idx) => (
-                  <div key={idx} className="p-2 rounded bg-slate-900 border border-slate-800/80 flex items-center justify-between text-xs">
-                    <div>
-                      <div className="font-bold text-slate-200 flex items-center gap-1.5">
-                        <span className="text-emerald-400 font-mono text-[11px]">#{idx + 1}</span>
-                        <span>{p.name}</span>
+                {selectedFormation.topPlays.map((p, idx) => {
+                  const conceptPlays = formationPlays.filter(
+                    (pl) => (pl.playName || '').trim().toLowerCase() === p.name.trim().toLowerCase()
+                  );
+                  const canClick = Boolean(onWatchCutup && conceptPlays.length > 0);
+                  return (
+                    <div
+                      key={idx}
+                      onClick={canClick ? () => onWatchCutup?.(`${selectedFormation.formation} · ${p.name}`, conceptPlays) : undefined}
+                      className={`p-2 rounded bg-slate-900 border border-slate-800/80 flex items-center justify-between text-xs ${
+                        canClick ? 'cursor-pointer hover:border-amber-500/60 hover:bg-slate-800/70 transition-colors' : ''
+                      }`}
+                    >
+                      <div>
+                        <div className="font-bold text-slate-200 flex items-center gap-1.5">
+                          <span className="text-emerald-400 font-mono text-[11px]">#{idx + 1}</span>
+                          <span>{p.name}</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 uppercase">
+                          {p.runOrPass} · {p.count} calls
+                        </span>
                       </div>
-                      <span className="text-[10px] text-slate-400 uppercase">
-                        {p.runOrPass} · {p.count} calls
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-slate-300 text-xs">
+                          {p.avgGain} yds
+                        </span>
+                        {canClick && <WatchPill count={conceptPlays.length} />}
+                      </div>
                     </div>
-                    <span className="font-mono font-bold text-slate-300 text-xs">
-                      {p.avgGain} yds
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -152,35 +208,29 @@ export const FormationAnalytics: React.FC<FormationAnalyticsProps> = ({ formatio
                   Ball Placement & Hash Distribution
                 </h4>
                 <div className="space-y-3 text-xs">
-                  <div>
-                    <div className="flex justify-between text-[11px] text-slate-300 mb-1">
-                      <span>Left Hash</span>
-                      <span className="font-mono font-bold">{selectedFormation.hashBias.left}%</span>
-                    </div>
-                    <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                      <div className="bg-emerald-500 h-full" style={{ width: `${selectedFormation.hashBias.left}%` }} />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-[11px] text-slate-300 mb-1">
-                      <span>Middle of Field</span>
-                      <span className="font-mono font-bold">{selectedFormation.hashBias.middle}%</span>
-                    </div>
-                    <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                      <div className="bg-sky-500 h-full" style={{ width: `${selectedFormation.hashBias.middle}%` }} />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-[11px] text-slate-300 mb-1">
-                      <span>Right Hash</span>
-                      <span className="font-mono font-bold">{selectedFormation.hashBias.right}%</span>
-                    </div>
-                    <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                      <div className="bg-purple-500 h-full" style={{ width: `${selectedFormation.hashBias.right}%` }} />
-                    </div>
-                  </div>
+                  {([
+                    { label: 'Left Hash', code: 'L', pct: selectedFormation.hashBias.left, color: 'bg-emerald-500' },
+                    { label: 'Middle of Field', code: 'M', pct: selectedFormation.hashBias.middle, color: 'bg-sky-500' },
+                    { label: 'Right Hash', code: 'R', pct: selectedFormation.hashBias.right, color: 'bg-purple-500' },
+                  ] as const).map((hb) => {
+                    const hashSub = formationPlays.filter((pl) => pl.hash === hb.code);
+                    const canClick = Boolean(onWatchCutup && hashSub.length > 0);
+                    return (
+                      <div
+                        key={hb.code}
+                        onClick={canClick ? () => onWatchCutup?.(`${selectedFormation.formation} · ${hb.label}`, hashSub) : undefined}
+                        className={canClick ? 'cursor-pointer group' : undefined}
+                      >
+                        <div className="flex justify-between text-[11px] text-slate-300 mb-1">
+                          <span className="group-hover:text-amber-300">{hb.label}</span>
+                          <span className="font-mono font-bold">{hb.pct}%</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                          <div className={`${hb.color} h-full`} style={{ width: `${hb.pct}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 

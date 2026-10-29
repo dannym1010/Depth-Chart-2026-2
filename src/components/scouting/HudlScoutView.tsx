@@ -22,7 +22,8 @@ import { PlayersTab, SpecialTeamsCard } from '../../hudlScout/components/report/
 import { GamePlanTab } from '../../hudlScout/components/report/GamePlanTab';
 import { ActiveFiltersBanner, FilterPanel, activeFilterLabels } from '../../hudlScout/components/report/FilterPanel';
 import { makeVoice } from '../../hudlScout/components/report/reportText';
-import { Card, SectionHeader } from '../../hudlScout/components/report/ui';
+import { Card, SectionHeader, WatchCutupFn, WatchPill } from '../../hudlScout/components/report/ui';
+import { watchPlaysCutup } from '../../filmroom/filmWindowStore';
 import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { ScoutOppPlayLibrary } from './ScoutOppPlayLibrary';
@@ -844,6 +845,14 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
 
   const emptyLabel = scoutTarget === 'own' ? 'our team' : weekLabel;
   const specialTeamsOnly = filters.odk === 'K' && ['summary', 'situations', 'run'].includes(activeTab);
+  const handleWatchCutup: WatchCutupFn = (label, subset, startId) => {
+    const defaultGameId = oneGameId !== 'all' ? oneGameId : pickedGames[0]?.id || bundle.games[0]?.id;
+    watchPlaysCutup(subset, `${reportName} · ${label}`, {
+      source: scoutTarget,
+      defaultGameId,
+      startId,
+    });
+  };
 
   return (
     <div className="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col font-sans">
@@ -1049,7 +1058,13 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         ) : (
           <>
             {activeTab !== 'gameplan' && activeTab !== 'units' && (
-              <ActiveFiltersBanner labels={filterLabels} shown={filteredPlays.length} total={unitPlayCount} onClear={() => handleResetFilters()} />
+              <ActiveFiltersBanner
+                labels={filterLabels}
+                shown={filteredPlays.length}
+                total={unitPlayCount}
+                onClear={() => handleResetFilters()}
+                onWatchFiltered={() => handleWatchCutup(filterLabels.join(' · ') || 'Filtered Plays', filteredPlays)}
+              />
             )}
 
             {filteredPlays.length === 0 && unitPlayCount > 0 && activeTab !== 'units' ? (
@@ -1074,7 +1089,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                     subtitle="Run and pass charts don't apply to kicking plays. Pick an offense or defense above for the full report, or open the Play log to see each kick."
                   />
                 </Card>
-                <SpecialTeamsCard plays={plays} />
+                <SpecialTeamsCard plays={plays} onWatchCutup={handleWatchCutup} />
               </div>
             ) : (
               <>
@@ -1087,6 +1102,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                     onPickSituation={pickSituation}
                     onOpenGamePlan={() => setActiveTab('gameplan')}
                     onOpenTab={setActiveTab}
+                    onWatchCutup={handleWatchCutup}
                   />
                 )}
                 {activeTab === 'situations' && (
@@ -1097,6 +1113,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                     report={localReport}
                     selectedLabel={selectedSituation}
                     onSelect={(g) => setSelectedSituation(g.label)}
+                    onWatchCutup={handleWatchCutup}
                   />
                 )}
                 {activeTab === 'run' && (
@@ -1106,15 +1123,33 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                     voice={voice}
                     balancedFormations={balancedFormations}
                     onChangeBalancedFormations={onChangeBalancedFormations}
+                    onWatchCutup={handleWatchCutup}
                   />
                 )}
               </>
             )}
             {activeTab === 'players' && scoutTarget === 'own' && weekBoards && (
-              <OwnTeamReport plays={plays} lineupFor={lineupOnly} roster={roster || []} />
+              <OwnTeamReport plays={plays} lineupFor={lineupOnly} roster={roster || []} onWatchCutup={handleWatchCutup} />
             )}
-            {activeTab === 'players' && <PlayersTab analysis={analysis} plays={countedPlays} allPlays={plays.filter((p) => p.odk !== 'S')} voice={voice} />}
-            {activeTab === 'stats' && <StatsTab plays={plays} games={pickedGames} selectedGameId={oneGameId}own={scoutTarget === 'own'} playDatabase={playDatabase} />}
+            {activeTab === 'players' && (
+              <PlayersTab
+                analysis={analysis}
+                plays={countedPlays}
+                allPlays={plays.filter((p) => p.odk !== 'S')}
+                voice={voice}
+                onWatchCutup={handleWatchCutup}
+              />
+            )}
+            {activeTab === 'stats' && (
+              <StatsTab
+                plays={plays}
+                games={pickedGames}
+                selectedGameId={oneGameId}
+                own={scoutTarget === 'own'}
+                playDatabase={playDatabase}
+                onWatchCutup={handleWatchCutup}
+              />
+            )}
             {activeTab === 'gameplan' && (
               <GamePlanTab
                 report={localReport}
@@ -1137,15 +1172,35 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                   setBundle((prev) => ({ ...prev, oppFormations, updatedAt: Date.now() }));
                   onFormationPlans?.(oppFormations, { libraries: bundle.playLibraries, deletedIds: bundle.deletedOppPlayIds });
                 }}
+                onWatchCutup={handleWatchCutup}
               />
             )}
             {activeTab === 'plays' && (
               <>
-                <CallResultsCard plays={countedPlays} own={scoutTarget === 'own'} onDraw={drawFromLog ? (id) => drawTagged(id) : undefined} />
+                <CallResultsCard
+                  plays={countedPlays}
+                  own={scoutTarget === 'own'}
+                  onDraw={drawFromLog ? (id) => drawTagged(id) : undefined}
+                  onWatchCutup={handleWatchCutup}
+                />
                 <PlaysTable
                   viewKey={`hudl-${scoutTarget}-${currentWeek}`}
                   plays={filteredPlays}
                   writeInPlays={allPlays}
+                  onSelectPlay={(id) =>
+                    handleWatchCutup(filterLabels.length ? filterLabels.join(' · ') : 'Play Log', filteredPlays, id)
+                  }
+                  toolbarStart={
+                    filteredPlays.length > 0 ? (
+                      <WatchPill
+                        count={filteredPlays.length}
+                        label={`Watch ${filteredPlays.length} shown`}
+                        onClick={() =>
+                          handleWatchCutup(filterLabels.length ? filterLabels.join(' · ') : 'Play Log', filteredPlays)
+                        }
+                      />
+                    ) : undefined
+                  }
                   onSetUnit={scoutTarget === 'own' ? handleSetUnit : undefined}
                   playDatabase={playBank}
                   onTagPlays={onUpdatePlayDatabase ? handleTagPlays : undefined}
@@ -1172,6 +1227,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                 plays={plays}
                 games={pickedGames}
                 onOpenPlayLog={() => setActiveTab('plays')}
+                onWatchCutup={handleWatchCutup}
               />
             )}
           </>
