@@ -30,6 +30,31 @@ async function startServer() {
   registerTeamSnapRoutes(app);
   registerLeagueRoutes(app);
 
+  // Local Ollama proxy so browser clients never hit CORS / OLLAMA_ORIGINS issues
+  app.get('/api/ollama/tags', async (_req, res) => {
+    try {
+      const r = await fetch('http://127.0.0.1:11434/api/tags');
+      const text = await r.text();
+      res.status(r.status).type('application/json').send(text);
+    } catch (err: any) {
+      res.status(502).json({ error: err?.message || 'Ollama not reachable on 127.0.0.1:11434' });
+    }
+  });
+
+  app.post('/api/ollama/chat', async (req, res) => {
+    try {
+      const r = await fetch('http://127.0.0.1:11434/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body),
+      });
+      const text = await r.text();
+      res.status(r.status).type('application/json').send(text);
+    } catch (err: any) {
+      res.status(502).json({ error: err?.message || 'Ollama chat request failed' });
+    }
+  });
+
   // Vite middleware for development vs static serve for production
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

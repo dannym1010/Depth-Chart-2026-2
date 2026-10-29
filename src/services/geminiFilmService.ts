@@ -90,10 +90,11 @@ const GEMINI_MODEL_KEY = 'football_gemini_model';
 export const getSavedGeminiKey = (): string => {
   try {
     const saved = localStorage.getItem(GEMINI_STORAGE_KEY) || '';
-    if (saved) return saved.trim();
+    if (saved && /^AIza[0-9A-Za-z_-]{15,}/.test(saved.trim())) return saved.trim();
     const envKey = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_GEMINI_API_KEY ||
       (import.meta as unknown as { env?: Record<string, string> }).env?.GEMINI_API_KEY || '';
-    return envKey.trim();
+    const trimmedEnv = envKey.trim();
+    return /^AIza[0-9A-Za-z_-]{15,}/.test(trimmedEnv) ? trimmedEnv : '';
   } catch {
     return '';
   }
@@ -152,7 +153,12 @@ export function pickOllamaModel(saved: string, installed: string[]): string {
 
 export const getSavedAiEngine = (): AiEngine => {
   try {
-    return localStorage.getItem(AI_ENGINE_KEY) === 'ollama' ? 'ollama' : 'gemini';
+    const stored = localStorage.getItem(AI_ENGINE_KEY);
+    if (stored === 'ollama' || stored === 'gemini') {
+      if (stored === 'gemini' && !getSavedGeminiKey()) return 'ollama';
+      return stored;
+    }
+    return getSavedGeminiKey() ? 'gemini' : 'ollama';
   } catch {
     return 'gemini';
   }
@@ -183,7 +189,8 @@ export const saveOllamaModel = (model: string) => {
 /** Whether Ollama answers on this computer, and the models it has downloaded. */
 export async function checkOllama(): Promise<{ ok: boolean; models: string[]; error?: string }> {
   try {
-    const res = await fetch(`${OLLAMA_URL}/api/tags`);
+    let res = await fetch('/api/ollama/tags').catch(() => null);
+    if (!res || !res.ok) res = await fetch(`${OLLAMA_URL}/api/tags`);
     if (!res.ok) return { ok: false, models: [], error: `Ollama answered ${res.status}.` };
     const j = await res.json();
     return { ok: true, models: (j?.models || []).map((m: any) => String(m?.name || '')).filter(Boolean) };
@@ -206,7 +213,14 @@ async function askOllama(savedModel: string, prompt: string, frames: ExtractedFr
   onStatusUpdate?.(`Reading the play on this computer (${model})… the first one takes longer while it loads.`);
   let res: Response;
   try {
-    res = await fetch(`${OLLAMA_URL}/api/chat`, {
+    const ollamaFrames =
+      frames.length > 5
+        ? [0, 0.25, 0.5, 0.75, 1].map((p) => frames[Math.min(frames.length - 1, Math.floor(p * (frames.length - 1)))])
+        : frames;
+    const chatUrl = (await fetch('/api/ollama/tags').then((r) => r.ok).catch(() => false))
+      ? '/api/ollama/chat'
+      : `${OLLAMA_URL}/api/chat`;
+    res = await fetch(chatUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -218,8 +232,8 @@ async function askOllama(savedModel: string, prompt: string, frames: ExtractedFr
         // Stay loaded between plays of a breakdown (loading takes a while).
         keep_alive: '30m',
         // Room for eight frames and the instructions.
-        options: { temperature: 0.15, num_ctx: 16384 },
-        messages: [{ role: 'user', content: prompt, images: frames.map((f) => f.dataUrl.split(',')[1]).filter(Boolean) }],
+        options: { temperature: 0.15, num_ctx: 4096 },
+        messages: [{ role: 'user', content: prompt, images: ollamaFrames.map((f) => f.dataUrl.split(',')[1]).filter(Boolean) }],
       }),
     });
   } catch {
@@ -295,7 +309,12 @@ export async function captureVideoKeyframes(
 
   const seekTo = (t: number) =>
     within<void>(8000, "Couldn't step through this play's clip (timed out).", (done) => {
-      copy.addEventListener('seeked', () => done(), { once: true });
+      if (Math.abs(copy.currentTime - t) < 0.03 && copy.readyState >= 2) {
+        done();
+        return;
+      }
+      const softTimer = window.setTimeout(() => done(), 2500);
+      copy.addEventListener('seeked', () => { window.clearTimeout(softTimer); done(); }, { once: true });
       copy.currentTime = t;
     });
 
@@ -351,7 +370,7 @@ export async function captureVideoKeyframes(
  * players' move between each, then findSnapWithCamera.
  */
 async function snapOfClip(copy: HTMLVideoElement, duration: number, seekTo: (t: number) => Promise<void>): Promise<SnapGuess | null> {
-  const FPS = 3, W = 96, H = 54;
+  const FPS = 1.5, W = 96, H = 54;
   const c = document.createElement('canvas');
   c.width = W;
   c.height = H;
@@ -370,7 +389,7 @@ async function snapOfClip(copy: HTMLVideoElement, duration: number, seekTo: (t: 
   // At most 12 s on this: a clip that's slow to step through gets the pictures spread over it instead.
   const started = Date.now();
   for (let t = 0.05; t < end; t += 1 / FPS) {
-    if (Date.now() - started > 12000) return null;
+    if (Date.now() - started > 3500) return null;
     await seekTo(t);
     const g = grey();
     samples.push(last ? frameChange(last, g, W, H) : { camera: 0, players: 0 });
@@ -446,9 +465,10 @@ export async function analyzeFilmWithGemini(opts: AnalyzeFilmOptions): Promise<A
   } = opts;
 
   const cleanKey = apiKey.trim();
+  const activeEngine: AiEngine = engine === 'gemini' && !cleanKey ? 'ollama' : engine;
 
   // No key: no breakdown (never a made-up one passed off as real). A model on this computer needs none.
-  if (engine === 'gemini' && !cleanKey) {
+  if (activeEngine === 'gemini' && !cleanKey) {
     throw new Error('No Gemini API key on this device. Open the key settings (the gear at the top of this window), paste your key and save it, then run the breakdown again.');
   }
 
@@ -592,7 +612,7 @@ ${userPrompt ? `Coach's note for this play: ${userPrompt}` : ''}
     if (!raw || typeof raw !== 'object') throw new Error("The AI's answer wasn't a breakdown. Run it again.");
     return sanitizeAiResult(raw, roster, ctx);
   };
-  if (engine === 'ollama') {
+  if (activeEngine === 'ollama') {
     const text = await askOllama(ollamaModel, systemInstruction + '\n\n' + promptText, frames, onStatusUpdate);
     if (!text) throw new Error('Empty response from the model on this computer.');
     return cleanUp(text);
@@ -644,10 +664,12 @@ ${userPrompt ? `Coach's note for this play: ${userPrompt}` : ''}
       }
       const errText = (await res.text()).slice(0, 800);
       if (/API key not valid|API_KEY_INVALID/i.test(errText)) {
-        throw new Error("Google says this API key isn't valid. Open the settings (the gear at the top of this window), paste the key again and save it.");
+        lastError = "Google says this API key isn't valid. Open the settings (the gear at the top of this window), paste the key again and save it.";
+        break;
       }
       if (res.status === 401 || res.status === 403) {
-        throw new Error(`Google refused the key (${res.status}). Check the key in the settings (the gear), and that it's a Google AI Studio (Gemini API) key.`);
+        lastError = `Google refused the key (${res.status}). Check the key in the settings (the gear), and that it's a Google AI Studio (Gemini API) key.`;
+        break;
       }
       if (res.status === 404) {
         lastError = `The model ${m} isn't available.`;
@@ -671,9 +693,16 @@ ${userPrompt ? `Coach's note for this play: ${userPrompt}` : ''}
         continue;
       }
       lastError = `Google error ${res.status}: ${errText.slice(0, 200)}`;
-      if (res.status === 400) throw new Error(lastError);
+      if (res.status === 400) break;
       break;
     }
+  }
+  // Automatic failover to local Ollama if Gemini is out of quota or key is invalid
+  const olCheck = await checkOllama();
+  if (olCheck.ok && olCheck.models.length > 0) {
+    onStatusUpdate?.('Google Gemini unavailable — reading play with local Ollama model…');
+    const text = await askOllama(ollamaModel, systemInstruction + '\n\n' + promptText, frames, onStatusUpdate);
+    if (text) return cleanUp(text);
   }
   if (quotaHit) {
     throw new Error(
@@ -1080,7 +1109,8 @@ export async function autoSketchPlayFromVideo(
   } = opts;
 
   const cleanKey = apiKey.trim();
-  if (engine === 'gemini' && !cleanKey) {
+  const activeEngine: AiEngine = engine === 'gemini' && !cleanKey ? 'ollama' : engine;
+  if (activeEngine === 'gemini' && !cleanKey) {
     throw new Error('No Gemini API key configured. Open AI Breakdown settings (gear icon) to save your Gemini API key, or switch to Ollama.');
   }
 
@@ -1223,7 +1253,7 @@ Return ONLY valid JSON matching this exact structure:
 }`;
 
   let rawText = '';
-  if (engine === 'ollama') {
+  if (activeEngine === 'ollama') {
     rawText = await askOllama(ollamaModel, prompt, frames, onStatus);
   } else {
     const body = {
@@ -1255,6 +1285,13 @@ Return ONLY valid JSON matching this exact structure:
         if (rawText) break;
       } else {
         lastErr = `Gemini (${res.status})`;
+      }
+    }
+    if (!rawText) {
+      const ol = await checkOllama();
+      if (ol.ok && ol.models.length > 0) {
+        onStatus?.('Gemini unavailable — mapping play with local Ollama model…');
+        rawText = await askOllama(ollamaModel, prompt, frames, onStatus);
       }
     }
     if (!rawText) throw new Error(lastErr || 'No response from Gemini Vision.');

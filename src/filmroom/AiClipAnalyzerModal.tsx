@@ -224,6 +224,9 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
 
     setApiKey(getSavedGeminiKey());
     setModel(getSavedGeminiModel());
+    setEngine(getSavedAiEngine());
+    setOllamaModel(getSavedOllamaModel());
+    setModel(getSavedGeminiModel());
 
     const storageKey = `football_film_context_${gameId || 'default'}`;
     let loaded = false;
@@ -439,7 +442,20 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
     setFrames([]);
     setSelectedFrame(0);
     // No key on this device: say so and open the key settings (never a made-up breakdown).
-    if (engine === 'gemini' && !String(apiKey || '').trim()) {
+    let useEngine: AiEngine = engine;
+    if (useEngine === 'gemini' && !String(apiKey || '').trim()) {
+      const ol = await checkOllama();
+      if (ol.ok && ol.models.length > 0) {
+        useEngine = 'ollama';
+        setEngine('ollama');
+      } else {
+        setError('No Gemini API key on this device yet. Paste your key in the settings below and press Save, or start Ollama on this computer.');
+        setShowSettings(true);
+        setAnalyzing(false);
+        return;
+      }
+    }
+    if (false && engine === 'gemini' && !String(apiKey || '').trim()) {
       setError('No Gemini API key on this device yet. Paste your key in the settings below and press Save, then run the breakdown again.');
       setShowSettings(true);
       // A reading still going was replaced by this one (it won't clear the spinner): nothing is reading now.
@@ -451,16 +467,16 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
     try {
       let extracted: ExtractedFrame[] = [];
 
-      const theVideo = getVideo?.() || videoElement;
+      const theVideo = getVideo?.() || videoElement || (typeof document !== 'undefined' ? document.querySelector('video') : null);
       theVideo?.pause();
-      if (theVideo && theVideo.readyState >= 2) {
+      if (theVideo && Boolean(theVideo.currentSrc || theVideo.src)) {
         // Google: about one picture a second over the whole clip (the play is always in them, wherever it is in
         // the clip). The model on this computer fits eight: aimed at the play once the snap is found.
-        const gemini = engine !== 'ollama';
+        const gemini = useEngine !== 'ollama';
         setScanStep(gemini ? 'Taking pictures through the clip…' : 'Taking pictures of the play…');
         extracted = gemini
-          ? await captureVideoKeyframes(theVideo, 16, 1536, { mode: 'even' })
-          : await captureVideoKeyframes(theVideo, 8, 1024, { mode: 'snap', onStatus: (s) => current() && setScanStep(s) });
+          ? await captureVideoKeyframes(theVideo, 8, 1024, { mode: 'even' })
+          : await captureVideoKeyframes(theVideo, 5, 720, { mode: 'snap', onStatus: (s) => current() && setScanStep(s) });
         if (!current()) return;
         setFrames(extracted);
       } else {
@@ -496,7 +512,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
         userPrompt: coachPrompt,
         apiKey,
         modelName: model,
-        engine,
+        engine: useEngine,
         ollamaModel,
         onStatusUpdate: (msg) => current() && setScanStep(msg),
         gameType,
