@@ -887,10 +887,21 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const playNotes = play ? [...notesFor(play.id)].sort((a, b) => a.t - b.t) : [];
   const marks: FilmMark[] = (play && shared.drawings[play.id]?.marks) || [];
 
-  const addNote = (text: string, grade: FilmNote['grade'], t: number) => {
+  const addNote = (text: string, grade: FilmNote['grade'], t: number, extra?: { audioUrl?: string; durationSec?: number }) => {
     if (!play) return;
     const now = Date.now();
-    const note: FilmNote = { id: newId(), playId: play.id, t: Math.round(t * 10) / 10, text, ...(grade ? { grade } : {}), author: authorName, createdAt: now, editedAt: now };
+    const note: FilmNote = {
+      id: newId(),
+      playId: play.id,
+      t: Math.round(t * 10) / 10,
+      text,
+      ...(grade ? { grade } : {}),
+      ...(extra?.audioUrl ? { audioUrl: extra.audioUrl } : {}),
+      ...(extra?.durationSec ? { durationSec: extra.durationSec } : {}),
+      author: authorName,
+      createdAt: now,
+      editedAt: now,
+    };
     update((s) => ({ ...s, notes: [...s.notes, note] }));
   };
   const deleteNote = (id: string) =>
@@ -1288,12 +1299,24 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       moveTargets={weekOptions}
     />
   );
-  const builderEl = builderSeed ? (
+  const activeBuilderSeed: PlayBuilderSeed | null =
+    builderSeed ||
+    (play && !locked
+      ? {
+          name: play.callName || play.playName || `Play #${play.playNumber}`,
+          formation: play.formation,
+          kind: play.playType,
+          gameId: game?.gameId,
+          snaps: [{ id: play.id, playNumber: play.playNumber, gain: play.gainLoss, result: play.result }],
+        }
+      : null);
+  const builderEl = activeBuilderSeed ? (
     <PlayBuilderSection
-      key={builderSeed.playEntryId || builderSeed.name}
+      key={builderSeed ? builderSeed.playEntryId || builderSeed.name : `live_${play?.id || 'none'}`}
       compact
-      canEdit={Boolean(builderCanEdit && onSaveBuilderPlay)}
-      seed={builderSeed}
+      canEdit={Boolean(!locked && (builderCanEdit || onSaveBuilderPlay || onUpdatePlayDatabase))}
+      seed={activeBuilderSeed}
+      getVideo={() => apiRef.current?.video?.() || null}
       onStateChange={(state) => {
         // The play as it is on screen, including a name they typed, goes back to the builder with Back.
         if (!seedRef.current) return;
@@ -1303,9 +1326,9 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         if (name) setCutup((c) => (c && c.label !== name ? { ...c, label: name } : c));
       }}
       onRename={
-        builderSeed.scoutId && onRenameScoutPlay
+        builderSeed?.scoutId && onRenameScoutPlay
           ? (from, to, parts) =>
-              onRenameScoutPlay({ from, to, scoutId: builderSeed.scoutId, gameId: builderSeed.gameId, playEntryId: builderSeed.playEntryId, parts })
+              onRenameScoutPlay({ from, to, scoutId: builderSeed.scoutId!, gameId: builderSeed.gameId, playEntryId: builderSeed.playEntryId, parts })
           : undefined
       }
       onSaveFilmBackfield={
@@ -1324,12 +1347,21 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           : undefined
       }
       onAdd={(entry) => {
-        const saved = onSaveBuilderPlay?.(entry, seedRef.current);
-        if (!saved || !seedRef.current) return;
-        seedRef.current = { ...seedRef.current, name: saved.name, builder: saved.builder };
-        savePlayBuilderSeed(seedRef.current);
-        setBuilderSaved(`Saved ${saved.name}`);
-        window.setTimeout(() => setBuilderSaved(''), 2500);
+        if (onSaveBuilderPlay) {
+          const saved = onSaveBuilderPlay(entry, seedRef.current);
+          if (saved && seedRef.current) {
+            seedRef.current = { ...seedRef.current, name: saved.name, builder: saved.builder };
+            savePlayBuilderSeed(seedRef.current);
+          }
+          setBuilderSaved(`Saved ${saved?.name || entry.name}`);
+          window.setTimeout(() => setBuilderSaved(''), 2500);
+          return;
+        }
+        if (onUpdatePlayDatabase) {
+          onUpdatePlayDatabase([...(playDatabase || []), entry]);
+          setBuilderSaved(`Saved ${entry.name}`);
+          window.setTimeout(() => setBuilderSaved(''), 2500);
+        }
       }}
     />
   ) : null;
@@ -1340,7 +1372,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const editable = Boolean(game && !game.filmOnly) && !locked;
   // Drives: the drive chart as a column beside the video (any game with a breakdown).
   const sideTabList = [
-    ...(builderSeed ? (['builder'] as const) : []),
+    ...(activeBuilderSeed ? (['builder'] as const) : []),
     ...(editable ? (['breakdown'] as const) : []),
     'notes' as const,
     ...(game && !game.filmOnly ? (['drives'] as const) : []),
@@ -1804,6 +1836,13 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           onStopwatch={(s, at) => {
             addNote(`Pocket time ${s.toFixed(2)}s`, undefined, at);
           }}
+          onVoiceNote={
+            locked
+              ? undefined
+              : ({ text, audioUrl, durationSec, at }) => {
+                  addNote(text, undefined, at, { audioUrl, durationSec });
+                }
+          }
           apiRef={apiRef}
           startAt={resumeAt.current}
           autoNextDefault={listPlay ? true : !game?.fromFilm}
@@ -1889,7 +1928,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           Notes{play && notesFor(play.id).length ? ` (${notesFor(play.id).length})` : ''}
         </button>
         )}
-        {builderSeed && (
+        {activeBuilderSeed && (
           <button className={chip(mobileTab === 'builder')} onClick={() => setMobileTab('builder')}>
             Play builder
           </button>

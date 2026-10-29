@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Film, LayoutGrid, ListChecks, Play as PlayIcon, RotateCcw, Save, Search, Users, Wand2, Zap } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Film, LayoutGrid, ListChecks, Play as PlayIcon, RotateCcw, Save, Search, Sparkles, Users, Wand2, Zap } from 'lucide-react';
+import { autoSketchPlayFromVideo } from '../../services/geminiFilmService';
 import type { PlayBuilderState, PlayDatabaseEntry, PlayType } from '../../types/callSheet';
 import { defenseSystem, type DefenseSystem } from '../../hudlScout/utils/ourDefense';
 import { inferPlayType, newPlayEntry } from '../../utils/playbookImport';
@@ -145,6 +146,8 @@ interface Props {
   onOpenSameCall?: (scoutId: string, gameId: string) => void;
   /** Drawing one of their formations (seed.formationEdit): saved as the formation their plays start from. */
   onSaveFormation?: (formation: { id: string; name: string; builder: PlayBuilderState; diagramUrl: string; defenseUrl?: string; defenseName?: string }) => void;
+  /** Optional accessor for the active HTML5 video element (Film Room side-by-side player or open FilmWindow). */
+  getVideo?: () => HTMLVideoElement | null;
 }
 
 
@@ -244,7 +247,7 @@ function startFromSeed(seed?: PlayBuilderSeed | null) {
   };
 }
 
-export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, onStateChange, onSaveFilmBackfield, onSaveFormation, onStartFromFormation, onOpenSameCall, nav }) => {
+export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, onStateChange, onSaveFilmBackfield, onSaveFormation, onStartFromFormation, onOpenSameCall, nav, getVideo }) => {
   // Drawing their formation: just the alignment (no play lines), saved as the formation.
   const formationMode = Boolean(seed?.formationEdit);
   // One of our defensive plays: the defense is what's drawn (front, alignment, blitz arrows).
@@ -1107,6 +1110,65 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     commitName();
   };
 
+  // Vision-to-Play-Builder Auto-Sketch: reads pre-snap + post-snap frames from the active video and maps
+  // formation alignment + play paths onto the field.
+  const [autoSketching, setAutoSketching] = useState(false);
+  const [sketchStatus, setSketchStatus] = useState('');
+  const [sketchBanner, setSketchBanner] = useState<{ text: string; isError?: boolean } | null>(null);
+
+  const runAutoSketch = async () => {
+    if (autoSketching) return;
+    const vid = getVideo?.() || (typeof document !== 'undefined' ? document.querySelector('video') : null);
+    if (!vid || !(vid.currentSrc || vid.src)) {
+      setSketchBanner({ text: 'Open a play with linked video in the Film Player first, then click Auto-Sketch.', isError: true });
+      return;
+    }
+    setAutoSketching(true);
+    setSketchBanner(null);
+    setSketchStatus('Reading video frames…');
+    try {
+      const sketch = await autoSketchPlayFromVideo(vid, {
+        currentName: nameIn,
+        onStatus: (s) => setSketchStatus(s),
+      });
+      const fits = compatibleBackfields(sketch.baseKey);
+      const pickedBack = fits.includes(sketch.backfield) ? sketch.backfield : fits[0] || sketch.backfield;
+      // Update lastLook ref first so the formation-change effect doesn't wipe the AI-detected player overrides.
+      lastLook.current = `${sketch.baseKey}|${pickedBack}`;
+      setPersonnelPick(sketch.personnel);
+      setBaseKey(sketch.baseKey);
+      setBackfieldKey(pickedBack);
+      setStrength(sketch.strength);
+      setHash(sketch.hash);
+      setFamily(sketch.family);
+      setRunId(sketch.runId);
+      setHoleOverride(sketch.hole);
+      setBallCarrier(sketch.ball);
+      setTags(sketch.tags);
+      if (sketch.defenseKey && looks[sketch.defenseKey]) {
+        setDefenseKey(sketch.defenseKey);
+      }
+      setOverrides(sketch.overrides || {});
+      setUserDrew(false);
+      if (sketch.suggestedCall && !nameIn.trim()) {
+        setNameIn(sketch.suggestedCall);
+        setHoldName(true);
+        commitName(sketch.suggestedCall);
+      }
+      setSketchBanner({
+        text: `✨ ${sketch.summary} (${sketch.confidence}% confidence)`,
+      });
+    } catch (err: any) {
+      setSketchBanner({
+        text: err?.message || 'Could not auto-sketch play from video.',
+        isError: true,
+      });
+    } finally {
+      setAutoSketching(false);
+      setSketchStatus('');
+    }
+  };
+
   const callLabel = runMode
     ? `${/^[1-4]$/.test(String(ball)) && hole != null ? `${ball}${hole}` : ball} ${run.label}`
     : `${ball} ${play?.metadata.concept || ''}`;
@@ -1210,6 +1272,18 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
           >
             <Wand2 className="w-4 h-4" /> Draw it
           </button>
+          {!defenseMode && canEdit && (
+            <button
+              type="button"
+              onClick={() => void runAutoSketch()}
+              disabled={autoSketching}
+              title="Vision-to-Play-Builder Homography: reads the active video frame & post-snap motion to auto-sketch the formation, splits, backfield, and play routes"
+              className="h-11 px-3.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs sm:text-sm font-black inline-flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50 shrink-0"
+            >
+              <Sparkles className={`w-4 h-4 ${autoSketching ? 'animate-spin' : ''}`} />
+              <span>{autoSketching ? sketchStatus || 'Auto-Sketching…' : 'Auto-Sketch from Video'}</span>
+            </button>
+          )}
           {seed?.scoutId && !formationMode && onStartFromFormation && canEdit && (
             <label className="h-11 pl-3 pr-1 rounded-xl border border-slate-300 dark:border-slate-600 inline-flex items-center gap-2 text-xs font-black text-slate-600 dark:text-slate-300 shrink-0">
               Starts from
@@ -1307,7 +1381,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               </button>
             </div>
           )}
-          {!compact && canEdit && (
+          {canEdit && (
             <button
               type="button"
               disabled={!play || (!unsaved && Boolean(seed?.playEntryId || formationMode))}
@@ -1331,6 +1405,20 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
             </button>
           )}
         </div>
+        {sketchBanner && (
+          <div
+            className={`flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl text-xs font-bold border ${
+              sketchBanner.isError
+                ? 'bg-rose-50 text-rose-800 border-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:border-rose-800'
+                : 'bg-indigo-50 text-indigo-900 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-200 dark:border-indigo-800'
+            }`}
+          >
+            <span>{sketchBanner.text}</span>
+            <button type="button" onClick={() => setSketchBanner(null)} className="text-[11px] opacity-70 hover:opacity-100">
+              Dismiss
+            </button>
+          </div>
+        )}
         <div className={`flex flex-wrap items-center gap-1.5 text-[11px] min-h-6 ${defenseMode ? 'hidden' : ''}`}>
           {readParts.length > 0 ? (
             <>

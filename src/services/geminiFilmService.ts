@@ -1006,3 +1006,305 @@ export function aiCallParts(raw: any, playType: string): { callParts?: CallParts
   const run = !/pass|screen/i.test(playType) || /rpo/i.test(playType);
   return { callParts: parts, callName: buildCallName(parts, run) };
 }
+
+
+// ---------------------------------------------------------------------------
+// Vision-to-Play-Builder Auto-Sketch (Video Homography -> PlayBuilderState)
+// ---------------------------------------------------------------------------
+
+export interface VisionPlaySketch {
+  personnel: number;
+  baseKey: string;
+  backfield: string;
+  strength: 'Left' | 'Right';
+  hash: 'Left' | 'Middle' | 'Right';
+  family: 'run' | 'pass' | 'option' | 'screen';
+  runId: string;
+  conceptKey?: string;
+  hole: number | '';
+  ball: string;
+  tags: string[];
+  defenseKey: string;
+  suggestedCall: string;
+  summary: string;
+  confidence: number;
+  /** Observed pre-snap skill player coordinates (x in -16..16 yards from Center, y in -6..0 yards behind LOS). */
+  overrides: Record<string, { x: number; y: number }>;
+  /** Optional custom post-snap movement strokes traced from the video frames. */
+  strokes?: { kind: 'run' | 'pass' | 'block'; points: { x: number; y: number }[]; motion?: number }[];
+}
+
+const VALID_BASE_KEYS: Record<number, string[]> = {
+  10: ['10_SPREAD_2X2', '10_TRIPS', '10_QUADS'],
+  11: ['11_PRO', '11_TRIPS', '11_TE_WING', '11_TE_SLOT', '11_TE_WEAK'],
+  12: ['12_ACE', '12_WING', '12_DOUBLE_TE_SIDE', '12_TE_WING', '12_TE_SLOT', '12_TWINS', '12_TE_OVER'],
+  20: ['20_SPREAD_OPEN', '20_TWINS', '20_WING_T', '20_TRIPS'],
+  21: ['21_PRO', '21_TIGHT', '21_WING_T', '21_TE_WING', '21_TE_SLOT', '21_TE_SPLIT', '21_TWINS', '21_BEAST'],
+  22: ['22_DOUBLE_TIGHT', '22_WING', '22_DOUBLE_TE_SIDE', '22_TE_WING', '22_TE_SLOT', '22_TWINS', '22_TE_SPLIT', '22_BEAST'],
+  30: ['30_FULLHOUSE_OPEN', '30_TIGHT', '30_TWINS'],
+  31: ['31_POWER', '31_TE_SPLIT', '31_TE_NASTY', '31_TE_OVER'],
+  32: ['32_WISHBONE', '32_DOUBLE_WING', '32_TE_SPLIT', '32_TE_NASTY', '32_TE_OVER', '32_DOUBLE_TE_SIDE'],
+};
+
+const VALID_RUN_IDS = [
+  'dive', 'trap', 'counter', 'power', 'iso', 'toss', 'inside_zone', 'wedge', 'buck', 'reverse', 'keep', 'qb_sneak', 'draw',
+];
+
+/**
+ * Extracts 4 targeted keyframes starting at the current paused pre-snap frame (or auto-detected snap)
+ * and uses Gemini / Ollama Vision to map the opponent's alignment and play paths directly onto the
+ * Play Builder field coordinate system.
+ */
+export async function autoSketchPlayFromVideo(
+  video: HTMLVideoElement,
+  opts: {
+    currentName?: string;
+    onStatus?: (s: string) => void;
+    engine?: AiEngine;
+    apiKey?: string;
+    modelName?: string;
+    ollamaModel?: string;
+  } = {}
+): Promise<VisionPlaySketch> {
+  const {
+    currentName = '',
+    onStatus,
+    engine = getSavedAiEngine(),
+    apiKey = getSavedGeminiKey(),
+    modelName = getSavedGeminiModel(),
+    ollamaModel = getSavedOllamaModel(),
+  } = opts;
+
+  const cleanKey = apiKey.trim();
+  if (engine === 'gemini' && !cleanKey) {
+    throw new Error('No Gemini API key configured. Open AI Breakdown settings (gear icon) to save your Gemini API key, or switch to Ollama.');
+  }
+
+  const src = video.currentSrc || video.src;
+  if (!src) throw new Error('Load a video clip in the Film Player first before running Auto-Sketch.');
+
+  onStatus?.('Capturing pre-snap & post-snap keyframes from video…');
+
+  let frames: ExtractedFrame[];
+  if (video.paused && video.currentTime > 0.3 && video.duration - video.currentTime > 1.5) {
+    const t0 = video.currentTime;
+    const copy = document.createElement('video');
+    copy.muted = true;
+    copy.playsInline = true;
+    copy.preload = 'auto';
+    if (video.crossOrigin) copy.crossOrigin = video.crossOrigin;
+    await new Promise<void>((res, rej) => {
+      const tm = window.setTimeout(() => rej(new Error('Video load timed out')), 12000);
+      copy.addEventListener('loadeddata', () => { window.clearTimeout(tm); res(); }, { once: true });
+      copy.addEventListener('error', () => { window.clearTimeout(tm); rej(new Error('Failed to read video')); }, { once: true });
+      copy.src = src;
+    });
+    const dur = copy.duration || video.duration || 10;
+    const offsets = [
+      { t: t0, label: '1. Pre-snap alignment (coach paused frame)' },
+      { t: Math.min(dur - 0.1, t0 + 0.5), label: '2. Snap & initial motion (+0.5s)' },
+      { t: Math.min(dur - 0.1, t0 + 1.4), label: '3. Mesh / point of attack (+1.4s)' },
+      { t: Math.min(dur - 0.1, t0 + 2.6), label: '4. Play direction & routes (+2.6s)' },
+    ];
+    const canvas = document.createElement('canvas');
+    const w = copy.videoWidth || 1280;
+    const h = copy.videoHeight || 720;
+    const s = Math.min(1, 1280 / Math.max(w, h));
+    canvas.width = Math.round(w * s);
+    canvas.height = Math.round(h * s);
+    const ctx = canvas.getContext('2d')!;
+    frames = [];
+    try {
+      for (const item of offsets) {
+        await new Promise<void>((res) => {
+          const tm = window.setTimeout(res, 4000);
+          copy.addEventListener('seeked', () => { window.clearTimeout(tm); res(); }, { once: true });
+          copy.currentTime = item.t;
+        });
+        await new Promise((r) => setTimeout(r, 50));
+        ctx.drawImage(copy, 0, 0, canvas.width, canvas.height);
+        frames.push({ timestamp: item.t, label: item.label, dataUrl: canvas.toDataURL('image/jpeg', 0.88) });
+      }
+    } finally {
+      copy.removeAttribute('src');
+      copy.load();
+    }
+  } else {
+    frames = await captureVideoKeyframes(video, 5, 1280, { mode: 'snap', onStatus });
+  }
+
+  onStatus?.('Mapping formation geometry & play vectors…');
+
+  const prompt = `You are a football playbook homography & computer-vision engine for a 10U youth football coaching platform.
+Look at the sequential video frames of this play (from pre-snap alignment through point of attack) and convert what you see into a structured Play Builder diagram state.
+${currentName ? `Coach's current label for this play: "${currentName}"` : ''}
+
+FIELD COORDINATE SYSTEM (from the OFFENSE'S perspective looking downfield toward the defense):
+- The Center (C) snapping the ball is at (x: 0, y: 0).
+- Offensive Line (LT, LG, C, RG, RT) spans x = -4 to +4 along y = 0.
+- Negative x is Offensive LEFT; Positive x is Offensive RIGHT.
+  - Tight Ends on the line are around x = -6 (left) or +6 (right), y = 0.
+  - Wingbacks are around x = -7.5 or +7.5, y = -1.6.
+  - Slot receivers are around x = -10 to +11, y = -1.0.
+  - Outside Wide Receivers (X on left, Z on right) are around x = -14 to -16 (left) or +14 to +16 (right), y = 0 or -0.5.
+- Backfield depth y is negative behind the ball:
+  - Under center QB (role "1"): (x: 0, y: -1.3)
+  - Pistol QB (role "1"): (x: 0, y: -2.8)
+  - Shotgun QB (role "1"): (x: 0, y: -4.2)
+  - Fullback / B-back (role "2"): y = -3.0 to -3.6
+  - Tailback / A-back (role "3"): y = -4.5 to -5.4 (or offset in Shotgun at x: -1.8 or +1.8, y: -4.2)
+  - Extra Back / Wingback (role "4"): either in the backfield or on the wing (x: ±7.5, y: -1.6)
+- Downfield (past the line of scrimmage) is positive y (+1 to +10).
+
+HOLE NUMBERING SYSTEM:
+- Odd holes are LEFT of Center: 7 = C-gap/Off-Tackle Left, 9 = Wide Sweep Left, 5 = Center/A-gap
+- Even holes are RIGHT of Center: 2 = C-gap/Off-Tackle Right, 4 = A/B-gap Inside Right, 1 = Wide Sweep Right, 6 = Inside Left, 8 = Off-Tackle Left
+
+VALID OPTIONS:
+- "personnel": 10, 11, 12, 20, 21, 22, 30, 31, or 32 (first digit = RBs, second digit = TEs)
+- "baseKey":
+  - 10: "10_SPREAD_2X2", "10_TRIPS", "10_QUADS"
+  - 11: "11_PRO", "11_TRIPS", "11_TE_WING", "11_TE_SLOT", "11_TE_WEAK"
+  - 12: "12_ACE", "12_WING", "12_DOUBLE_TE_SIDE", "12_TE_WING", "12_TE_SLOT", "12_TWINS", "12_TE_OVER"
+  - 20: "20_SPREAD_OPEN", "20_TWINS", "20_WING_T", "20_TRIPS"
+  - 21: "21_PRO", "21_TIGHT", "21_WING_T", "21_TE_WING", "21_TE_SLOT", "21_TE_SPLIT", "21_TWINS", "21_BEAST"
+  - 22: "22_DOUBLE_TIGHT", "22_WING", "22_DOUBLE_TE_SIDE", "22_TE_WING", "22_TE_SLOT", "22_TWINS", "22_TE_SPLIT", "22_BEAST"
+  - 30: "30_FULLHOUSE_OPEN", "30_TIGHT", "30_TWINS"
+  - 31: "31_POWER", "31_TE_SPLIT", "31_TE_NASTY", "31_TE_OVER"
+  - 32: "32_WISHBONE", "32_DOUBLE_WING", "32_TE_SPLIT", "32_TE_NASTY", "32_TE_OVER", "32_DOUBLE_TE_SIDE"
+- "backfield": "I_FORM", "PRO_SPLIT", "SHOTGUN_OFFSET", "SHOTGUN_EMPTY", "PISTOL_I", "PISTOL_STRONG", "SINGLEBACK", "WISHBONE", "DOUBLE_WING", "T_FORM", "POWER_I", "BEAST", "WILDCAT"
+- "strength": "Left" or "Right" (from offense's view)
+- "hash": "Left", "Middle", or "Right"
+- "family": "run", "pass", "option", or "screen"
+- "runId": "dive", "trap", "counter", "power", "iso", "toss", "inside_zone", "wedge", "buck", "reverse", "keep", "qb_sneak", "draw"
+- "hole": 1, 2, 3, 4, 5, 6, 7, 8, or 9
+- "ball": "1" (QB), "2" (FB), "3" (RB/TB), "4" (WB), "X", "Z", or "Y"
+- "tags": array of applicable tags from ["Jet", "Rocket", "Orbit", "Crack", "Play Action", "Boot", "Waggle", "Bubble", "Reverse", "Keep"]
+- "defenseKey": "44_C3_LIZ", "44_C3_RIP", "53_C3", "53_OVER", "62", "43", "52"
+
+Return ONLY valid JSON matching this exact structure:
+{
+  "personnel": 22,
+  "baseKey": "22_WING",
+  "backfield": "I_FORM",
+  "strength": "Right",
+  "hash": "Middle",
+  "family": "run",
+  "runId": "power",
+  "hole": 2,
+  "ball": "3",
+  "tags": [],
+  "defenseKey": "53_C3",
+  "suggestedCall": "22 R WING 32 POWER",
+  "summary": "22 Double Tight Wing Right — #3 TB off-tackle power right (2-hole) vs 5-3 front",
+  "confidence": 85,
+  "overrides": {
+    "1": { "x": 0, "y": -1.3 },
+    "2": { "x": 0, "y": -3.1 },
+    "3": { "x": 0, "y": -4.8 }
+  }
+}`;
+
+  let rawText = '';
+  if (engine === 'ollama') {
+    rawText = await askOllama(ollamaModel, prompt, frames, onStatus);
+  } else {
+    const body = {
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: prompt },
+            ...frames.map((f) => ({ inlineData: { mimeType: 'image/jpeg', data: f.dataUrl.split(',')[1] } })),
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.15,
+        responseMimeType: 'application/json',
+      },
+    };
+    let lastErr = '';
+    for (const m of geminiCandidates(modelName)) {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`;
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cleanKey },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        if (rawText) break;
+      } else {
+        lastErr = `Gemini (${res.status})`;
+      }
+    }
+    if (!rawText) throw new Error(lastErr || 'No response from Gemini Vision.');
+  }
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch {
+    const m = rawText.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error('Could not parse AI play sketch JSON.');
+    parsed = JSON.parse(m[0]);
+  }
+
+  const personnel = [10, 11, 12, 20, 21, 22, 30, 31, 32].includes(Number(parsed.personnel)) ? Number(parsed.personnel) : 21;
+  const validBases = VALID_BASE_KEYS[personnel] || VALID_BASE_KEYS[21];
+  const baseKey = validBases.includes(String(parsed.baseKey)) ? String(parsed.baseKey) : validBases[0];
+  const backfield = String(parsed.backfield || 'I_FORM');
+  const strength: 'Left' | 'Right' = String(parsed.strength).toLowerCase().startsWith('l') ? 'Left' : 'Right';
+  const hashRaw = String(parsed.hash || 'Middle').toLowerCase();
+  const hash: 'Left' | 'Middle' | 'Right' = hashRaw.startsWith('l') ? 'Left' : hashRaw.startsWith('r') ? 'Right' : 'Middle';
+  const famRaw = String(parsed.family || 'run').toLowerCase();
+  const family: 'run' | 'pass' | 'option' | 'screen' =
+    famRaw === 'pass' || famRaw === 'option' || famRaw === 'screen' ? famRaw : 'run';
+  const runId = VALID_RUN_IDS.includes(String(parsed.runId)) ? String(parsed.runId) : 'inside_zone';
+  const holeNum = Number(parsed.hole);
+  const hole: number | '' = Number.isInteger(holeNum) && holeNum >= 1 && holeNum <= 9 ? holeNum : '';
+  const ball = ['1', '2', '3', '4', 'X', 'Z', 'Y', 'Y1', 'Y2', 'H', 'W'].includes(String(parsed.ball)) ? String(parsed.ball) : '3';
+  const tags = Array.isArray(parsed.tags) ? parsed.tags.map((t: unknown) => String(t)).filter(Boolean) : [];
+  const defenseKey = ['44_C3_LIZ', '44_C3_RIP', '53_C3', '53_OVER', '62', '43', '52', '353'].includes(String(parsed.defenseKey))
+    ? String(parsed.defenseKey)
+    : personnel % 10 >= 2
+      ? '53_C3'
+      : strength === 'Right'
+        ? '44_C3_RIP'
+        : '44_C3_LIZ';
+
+  const overrides: Record<string, { x: number; y: number }> = {};
+  if (parsed.overrides && typeof parsed.overrides === 'object') {
+    for (const [role, pt] of Object.entries(parsed.overrides as Record<string, any>)) {
+      if (!/^(?:[1-4]|X|Z|Y|Y1|Y2|H|W)$/.test(role)) continue;
+      const x = Number(pt?.x);
+      const y = Number(pt?.y);
+      if (Number.isFinite(x) && Number.isFinite(y)) {
+        overrides[role] = {
+          x: Math.round(Math.max(-17, Math.min(17, x)) * 100) / 100,
+          y: Math.round(Math.max(-6.5, Math.min(0.5, y)) * 100) / 100,
+        };
+      }
+    }
+  }
+
+  return {
+    personnel,
+    baseKey,
+    backfield,
+    strength,
+    hash,
+    family,
+    runId,
+    hole,
+    ball,
+    tags,
+    defenseKey,
+    suggestedCall: String(parsed.suggestedCall || currentName || '').trim(),
+    summary: String(parsed.summary || `Auto-sketched ${personnel} ${backfield} (${strength})`).trim(),
+    confidence: Math.min(100, Math.max(0, Math.round(Number(parsed.confidence) || 80))),
+    overrides,
+  };
+}

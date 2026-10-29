@@ -3,13 +3,17 @@
 // ↑ ↓ previous / next play, L loop, D draw, S stopwatch, M mute, F full screen.
 // Mouse / touch on the video: click or tap plays / pauses, scroll or pinch zooms, drag moves a zoomed-in
 // picture, double-click (double-tap) is full screen.
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ChevronLeft, ChevronRight, Circle, Maximize, MoveUpRight, Pause, Pencil, Play, Repeat, SkipBack, SkipForward,
-  Timer, Trash2, Undo2, Volume2, VolumeX, ZoomIn, ZoomOut,
+  ChevronLeft, ChevronRight, Circle, Download, Eye, Maximize, Mic, MoveUpRight, Pause, Pencil, Pin, Play, Repeat, SkipBack, SkipForward,
+  Square, Target, Timer, Trash2, Undo2, Volume2, VolumeX, X, Zap, ZoomIn, ZoomOut,
 } from 'lucide-react';
-import { MARK_COLORS, Telestration } from './Telestration';
+import { drawMarksOnCanvas, MARK_COLORS, Telestration } from './Telestration';
+import { findSnapWithCamera, frameChange } from './snapFinder';
 import type { FilmMark } from './types';
+
+// Cache detected snap timestamps by clip URL so Fast Cutup mode is instant on revisit.
+const snapTimeCache = new Map<string, number>();
 
 const FRAME = 1 / 30;
 const SPEEDS = [0.25, 0.5, 1, 2];
@@ -37,6 +41,8 @@ interface FilmPlayerProps {
   onPrev: () => void;
   onNext: () => void;
   onStopwatch: (seconds: number, at: number) => void;
+  /** Optional callback to save a recorded voice-over coaching note to the play's notes. */
+  onVoiceNote?: (note: { text: string; audioUrl: string; durationSec: number; at: number }) => void;
   apiRef: React.MutableRefObject<PlayerApi | null>;
   /** Tallest the video may be (CSS length). Default leaves room for the page and the controls. */
   maxVideoHeight?: string;
@@ -61,7 +67,7 @@ const idle = `${btn} hover:bg-white/10`; // text color comes from the player (IN
 const on = `${btn} bg-indigo-600 text-white`;
 
 export const FilmPlayer: React.FC<FilmPlayerProps> = ({
-  src, placeholder, title, marks, onMarksChange, hasPrev, hasNext, onPrev, onNext, onStopwatch, apiRef,
+  src, placeholder, title, marks, onMarksChange, hasPrev, hasNext, onPrev, onNext, onStopwatch, onVoiceNote, apiRef,
   maxVideoHeight = 'calc(100dvh - 20rem)',
   viewOnly = false,
   startAt = 0,
@@ -112,6 +118,54 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   const videoHeight = isFullscreen ? '100dvh' : maxVideoHeight;
   const [tool, setTool] = useState<FilmMark['kind']>('arrow');
   const [color, setColor] = useState(MARK_COLORS[0]);
+  // Timestamp-anchored freeze-frame telestration state
+  const [pinToFrame, setPinToFrame] = useState(true);
+  const [showAllMarks, setShowAllMarks] = useState(false);
+  const [markLabel, setMarkLabel] = useState('');
+  const [freezeActive, setFreezeActive] = useState<number | null>(null);
+  const triggeredFreezesRef = useRef<Set<number>>(new Set());
+  const freezeTimerRef = useRef<number | null>(null);
+
+  // Fast Cutup ("No-Huddle") mode: trims pre-snap walking (Snap - 2s to Snap + 6.5s)
+  const [fastCut, setFastCut] = useState(() => {
+    try {
+      return localStorage.getItem('footballFilmroomFastCut') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [detectedSnap, setDetectedSnap] = useState<number | null>(null);
+  const [detectingSnap, setDetectingSnap] = useState(false);
+  const toggleFastCut = useCallback(() => {
+    setFastCut((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('footballFilmroomFastCut', next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
+
+  // Voice-Over + Telestration Coaching Clip Recorder ("Loom for Film Room")
+  const [recording, setRecording] = useState(false);
+  const [recSeconds, setRecSeconds] = useState(0);
+  const [recordedClip, setRecordedClip] = useState<{
+    videoUrl: string;
+    mimeType: string;
+    audioDataUrl?: string;
+    durationSec: number;
+    at: number;
+  } | null>(null);
+  const [voiceNoteCaption, setVoiceNoteCaption] = useState('');
+  const [voiceNoteSaved, setVoiceNoteSaved] = useState(false);
+  const recCleanupRef = useRef<(() => void) | null>(null);
+  const marksRef = useRef<FilmMark[]>(marks);
+  marksRef.current = marks;
+  const titleRef = useRef(title);
+  titleRef.current = title;
+
   const [snapAt, setSnapAt] = useState<number | null>(null);
   const [lastWatch, setLastWatch] = useState<{ seconds: number; at: number } | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -122,21 +176,134 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     time: () => videoRef.current?.currentTime || 0,
     seek: (t) => {
       const v = videoRef.current;
-      if (v) v.currentTime = Math.max(0, t);
+      if (v) {
+        triggeredFreezesRef.current.clear();
+        if (freezeTimerRef.current) {
+          window.clearTimeout(freezeTimerRef.current);
+          freezeTimerRef.current = null;
+          setFreezeActive(null);
+        }
+        v.currentTime = Math.max(0, t);
+      }
     },
     video: () => videoRef.current,
   };
 
-  // New clip: start from the top at the chosen speed; keep zoom off and the stopwatch clear.
+  // Distinct freeze-frame timestamps on this play for timeline pins & auto-pause
+  const pinnedTimestamps = useMemo(() => {
+    const map = new Map<number, { t: number; color: string; label?: string; freeze?: boolean }>();
+    for (const m of marks) {
+      if (m.t === undefined || !Number.isFinite(m.t)) continue;
+      const bucket = Math.round(m.t * 5) / 5; // 0.2s buckets
+      if (!map.has(bucket)) {
+        map.set(bucket, { t: m.t, color: m.color, label: m.label, freeze: m.freeze !== false });
+      }
+    }
+    return [...map.values()].sort((a, b) => a.t - b.t);
+  }, [marks]);
+
+  // Background snap detector for Fast Cutup mode
+  useEffect(() => {
+    if (!src) {
+      setDetectedSnap(null);
+      setDetectingSnap(false);
+      return;
+    }
+    if (snapTimeCache.has(src)) {
+      setDetectedSnap(snapTimeCache.get(src)!);
+      setDetectingSnap(false);
+      return;
+    }
+    if (!fastCut) {
+      setDetectedSnap(null);
+      return;
+    }
+    let cancelled = false;
+    setDetectingSnap(true);
+    const probe = document.createElement('video');
+    probe.muted = true;
+    probe.playsInline = true;
+    probe.preload = 'auto';
+    probe.crossOrigin = 'anonymous';
+    const runProbe = async () => {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const timer = window.setTimeout(() => reject(new Error('timeout')), 7000);
+          probe.addEventListener('loadeddata', () => { window.clearTimeout(timer); resolve(); }, { once: true });
+          probe.addEventListener('error', () => { window.clearTimeout(timer); reject(new Error('err')); }, { once: true });
+          probe.src = src;
+        });
+        const dur = probe.duration;
+        if (!Number.isFinite(dur) || dur < 6) {
+          if (!cancelled) setDetectingSnap(false);
+          return;
+        }
+        const FPS = 3, W = 96, H = 54;
+        const c = document.createElement('canvas');
+        c.width = W;
+        c.height = H;
+        const x = c.getContext('2d', { willReadFrequently: true });
+        if (!x) return;
+        const samples: { camera: number; players: number }[] = [];
+        let last: Uint8Array | null = null;
+        const end = Math.min(dur - 0.1, 24);
+        for (let t = 0.1; t < end; t += 1 / FPS) {
+          if (cancelled) return;
+          await new Promise<void>((res) => {
+            const tm = window.setTimeout(res, 600);
+            probe.addEventListener('seeked', () => { window.clearTimeout(tm); res(); }, { once: true });
+            probe.currentTime = t;
+          });
+          x.drawImage(probe, 0, 0, W, H);
+          const d = x.getImageData(0, 0, W, H).data;
+          const g = new Uint8Array(W * H);
+          for (let i = 0; i < W * H; i++) g[i] = (d[i * 4] * 77 + d[i * 4 + 1] * 150 + d[i * 4 + 2] * 29) >> 8;
+          samples.push(last ? frameChange(last, g, W, H) : { camera: 0, players: 0 });
+          last = g;
+        }
+        const guess = findSnapWithCamera(samples, FPS);
+        if (!cancelled && guess && guess.snap > 1.2) {
+          snapTimeCache.set(src, guess.snap);
+          setDetectedSnap(guess.snap);
+          const v = videoRef.current;
+          const trimStart = Math.max(0, guess.snap - 2.0);
+          if (v && v.currentTime < trimStart - 0.5) {
+            v.currentTime = trimStart;
+          }
+        }
+      } catch {
+        /* ignore probe errors */
+      } finally {
+        probe.removeAttribute('src');
+        probe.load();
+        if (!cancelled) setDetectingSnap(false);
+      }
+    };
+    void runProbe();
+    return () => {
+      cancelled = true;
+      probe.removeAttribute('src');
+    };
+  }, [src, fastCut]);
+
+  // New clip: start from the top (or Fast Cut pre-snap window) at the chosen speed; keep zoom off and stopwatch clear.
   useEffect(() => {
     setTime(0);
     setDuration(0);
     setSnapAt(null);
     setLastWatch(null);
+    setFreezeActive(null);
+    triggeredFreezesRef.current.clear();
+    if (freezeTimerRef.current) {
+      window.clearTimeout(freezeTimerRef.current);
+      freezeTimerRef.current = null;
+    }
     const v = videoRef.current;
     if (v && src) {
       v.playbackRate = speed;
-      if (startAt > 0) v.currentTime = startAt;
+      const cachedSnap = fastCut ? snapTimeCache.get(src) : undefined;
+      const initialStart = startAt > 0 ? startAt : cachedSnap && cachedSnap > 2 ? Math.max(0, cachedSnap - 2.0) : 0;
+      if (initialStart > 0) v.currentTime = initialStart;
       v.play().catch(() => setPlaying(false));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -146,16 +313,34 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     if (videoRef.current) videoRef.current.playbackRate = speed;
   }, [speed]);
 
+  const resumeFromFreeze = useCallback(() => {
+    if (freezeTimerRef.current) {
+      window.clearTimeout(freezeTimerRef.current);
+      freezeTimerRef.current = null;
+    }
+    setFreezeActive(null);
+    videoRef.current?.play().catch(() => undefined);
+  }, []);
+
   const togglePlay = useCallback(() => {
+    if (freezeTimerRef.current) {
+      resumeFromFreeze();
+      return;
+    }
     const v = videoRef.current;
     if (!v || !src) return;
     if (v.paused) v.play().catch(() => undefined);
     else v.pause();
-  }, [src]);
+  }, [src, resumeFromFreeze]);
 
   const step = useCallback((dir: number) => {
     const v = videoRef.current;
     if (!v) return;
+    if (freezeTimerRef.current) {
+      window.clearTimeout(freezeTimerRef.current);
+      freezeTimerRef.current = null;
+      setFreezeActive(null);
+    }
     v.pause();
     v.currentTime = Math.min(v.duration || Infinity, Math.max(0, v.currentTime + dir * FRAME));
   }, []);
@@ -166,12 +351,16 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     if (snapAt === null) {
       setSnapAt(v.currentTime);
       setLastWatch(null);
+      if (src) {
+        snapTimeCache.set(src, v.currentTime);
+        setDetectedSnap(v.currentTime);
+      }
     } else {
       const seconds = Math.max(0, v.currentTime - snapAt);
       setLastWatch({ seconds, at: snapAt });
       setSnapAt(null);
     }
-  }, [snapAt]);
+  }, [snapAt, src]);
 
   const toggleDraw = useCallback(() => {
     setDrawing((d) => {
@@ -179,6 +368,177 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
       return !d;
     });
   }, []);
+
+  // Stop any active coaching clip recording when unmounting or changing clip
+  useEffect(() => {
+    return () => {
+      recCleanupRef.current?.();
+    };
+  }, [src]);
+
+  const stopRecording = useCallback(() => {
+    recCleanupRef.current?.();
+  }, []);
+
+  const startRecording = useCallback(async () => {
+    const v = videoRef.current;
+    if (!v || !src || recording) return;
+    setRecordedClip((prev) => {
+      if (prev?.videoUrl) URL.revokeObjectURL(prev.videoUrl);
+      return null;
+    });
+    setVoiceNoteSaved(false);
+    setVoiceNoteCaption('');
+    const startAtSec = v.currentTime || 0;
+    // Pause and open drawing tools so the coach can immediately telestrate + narrate
+    v.pause();
+    setDrawing(true);
+
+    let micStream: MediaStream | null = null;
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      micStream = null; // Still allow silent video + telestration recording if no mic
+    }
+
+    const cw = 1280;
+    const ch = 720;
+    const canvas = document.createElement('canvas');
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      micStream?.getTracks().forEach((t) => t.stop());
+      return;
+    }
+
+    let active = true;
+    const renderLoop = () => {
+      if (!active) return;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, cw, ch);
+      const { zoom: z, pan: p } = view.current;
+      ctx.save();
+      ctx.translate(cw / 2, ch / 2);
+      ctx.scale(z, z);
+      ctx.translate(-cw / 2 + p.x * cw, -ch / 2 + p.y * ch);
+      if (v.readyState >= 2) {
+        const vw = v.videoWidth || cw;
+        const vh = v.videoHeight || ch;
+        const scale = Math.min(cw / vw, ch / vh);
+        const dw = vw * scale;
+        const dh = vh * scale;
+        ctx.drawImage(v, (cw - dw) / 2, (ch - dh) / 2, dw, dh);
+      }
+      drawMarksOnCanvas(ctx, marksRef.current, cw, ch, v.currentTime, false);
+      ctx.restore();
+
+      // Top-left watermark
+      if (titleRef.current) {
+        ctx.save();
+        ctx.font = 'bold 20px Inter, system-ui, sans-serif';
+        const tw = ctx.measureText(titleRef.current).width;
+        ctx.fillStyle = 'rgba(0,0,0,0.65)';
+        ctx.fillRect(16, 16, Math.min(cw - 32, tw + 24), 36);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(titleRef.current, 28, 41);
+        ctx.restore();
+      }
+      requestAnimationFrame(renderLoop);
+    };
+    requestAnimationFrame(renderLoop);
+
+    const canvasStream = canvas.captureStream(30);
+    if (micStream) {
+      micStream.getAudioTracks().forEach((t) => canvasStream.addTrack(t));
+    }
+
+    const mimeType =
+      ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'].find((m) =>
+        typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(m)
+      ) || '';
+    const videoChunks: Blob[] = [];
+    const videoRecorder = new MediaRecorder(canvasStream, mimeType ? { mimeType } : undefined);
+    videoRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) videoChunks.push(e.data);
+    };
+
+    // Parallel lightweight audio-only recorder so voice-over can be saved into shared PlayNotes
+    let audioRecorder: MediaRecorder | null = null;
+    const audioChunks: Blob[] = [];
+    if (micStream) {
+      const audioMime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(
+        (m) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(m)
+      );
+      try {
+        audioRecorder = new MediaRecorder(micStream, audioMime ? { mimeType: audioMime } : undefined);
+        audioRecorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) audioChunks.push(e.data);
+        };
+        audioRecorder.start(200);
+      } catch {
+        audioRecorder = null;
+      }
+    }
+
+    const startedAt = Date.now();
+    setRecording(true);
+    setRecSeconds(0);
+    const tick = window.setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      setRecSeconds(elapsed);
+      if (elapsed >= 25) {
+        recCleanupRef.current?.();
+      }
+    }, 250);
+
+    videoRecorder.onstop = async () => {
+      const durSec = Math.max(1, Math.round(((Date.now() - startedAt) / 1000) * 10) / 10);
+      const blob = new Blob(videoChunks, { type: videoRecorder.mimeType || 'video/webm' });
+      const videoUrl = URL.createObjectURL(blob);
+      let audioDataUrl: string | undefined;
+      if (audioChunks.length > 0) {
+        const audioBlob = new Blob(audioChunks, { type: audioRecorder?.mimeType || 'audio/webm' });
+        if (audioBlob.size < 450_000) {
+          audioDataUrl = await new Promise<string | undefined>((res) => {
+            const r = new FileReader();
+            r.onloadend = () => res(typeof r.result === 'string' ? r.result : undefined);
+            r.onerror = () => res(undefined);
+            r.readAsDataURL(audioBlob);
+          });
+        }
+      }
+      setRecordedClip({
+        videoUrl,
+        mimeType: videoRecorder.mimeType || 'video/webm',
+        audioDataUrl,
+        durationSec: durSec,
+        at: startAtSec,
+      });
+    };
+
+    videoRecorder.start(200);
+
+    recCleanupRef.current = () => {
+      if (!active) return;
+      active = false;
+      window.clearInterval(tick);
+      setRecording(false);
+      try {
+        if (audioRecorder && audioRecorder.state !== 'inactive') audioRecorder.stop();
+      } catch {
+        /* ignore */
+      }
+      try {
+        if (videoRecorder.state !== 'inactive') videoRecorder.stop();
+      } catch {
+        /* ignore */
+      }
+      micStream?.getTracks().forEach((t) => t.stop());
+      canvasStream.getTracks().forEach((t) => t.stop());
+      recCleanupRef.current = null;
+    };
+  }, [src, recording]);
 
   const fullscreen = useCallback(() => {
     const el = rootRef.current as any;
@@ -231,7 +591,8 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
         arrowup: () => hasPrev && onPrev(),
         arrowdown: () => hasNext && onNext(),
         l: () => setLoop((x) => !x),
-        ...(viewOnly ? {} : { d: toggleDraw, s: stopwatch }),
+        c: toggleFastCut,
+        ...(viewOnly ? {} : { d: toggleDraw, s: stopwatch, r: () => (recording ? stopRecording() : void startRecording()) }),
         f: fullscreen,
         m: toggleMute,
       };
@@ -242,10 +603,58 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [shortcuts, togglePlay, step, hasPrev, hasNext, onPrev, onNext, toggleDraw, stopwatch, fullscreen, toggleMute]);
+  }, [shortcuts, togglePlay, step, hasPrev, hasNext, onPrev, onNext, toggleDraw, stopwatch, fullscreen, toggleMute, toggleFastCut, viewOnly, recording, stopRecording, startRecording]);
 
   const onEnded = () => {
+    triggeredFreezesRef.current.clear();
     if (!loop && autoNext && hasNext) onNext();
+  };
+
+  // Handle time updates: Fast Cutup end-of-play trim + Freeze-Frame telestration auto-pause
+  const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const v = e.currentTarget;
+    const cur = v.currentTime;
+    setTime(cur);
+    if (cur < 0.3) triggeredFreezesRef.current.clear();
+
+    // 1. Fast Cutup mode: auto-advance or loop when play window ends (Snap + 6.5s)
+    if (fastCut && detectedSnap !== null && !drawing && !recording) {
+      const cutStart = Math.max(0, detectedSnap - 2.0);
+      const cutEnd = Math.min(v.duration || Infinity, detectedSnap + 6.5);
+      if (cur >= cutEnd && cutEnd > cutStart + 2) {
+        if (loop) {
+          triggeredFreezesRef.current.clear();
+          v.currentTime = cutStart;
+          v.play().catch(() => undefined);
+          return;
+        }
+        if (autoNext && hasNext) {
+          v.pause();
+          onNext();
+          return;
+        }
+      }
+    }
+
+    // 2. Timestamp-Anchored Freeze-Frame Telestration: auto-pause at pinned mark `t` for 2.2s
+    if (!v.paused && !drawing && !recording && !showAllMarks) {
+      for (const pin of pinnedTimestamps) {
+        if (!pin.freeze) continue;
+        const bucket = Math.round(pin.t * 5) / 5;
+        if (!triggeredFreezesRef.current.has(bucket) && cur >= pin.t - 0.05 && cur <= pin.t + 0.28) {
+          triggeredFreezesRef.current.add(bucket);
+          v.pause();
+          setFreezeActive(pin.t);
+          if (freezeTimerRef.current) window.clearTimeout(freezeTimerRef.current);
+          freezeTimerRef.current = window.setTimeout(() => {
+            freezeTimerRef.current = null;
+            setFreezeActive(null);
+            v.play().catch(() => undefined);
+          }, 2200);
+          break;
+        }
+      }
+    }
   };
 
   // Mouse on the video: click plays / pauses, drag moves a zoomed-in picture, double-click is full screen.
@@ -308,24 +717,71 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
 
   const tools = (
     <>
-      {([['arrow', MoveUpRight], ['pen', Pencil], ['circle', Circle]] as const).map(([k, Icon]) => (
-        <button key={k} className={tool === k ? on : idle} onClick={() => setTool(k)} title={k}><Icon size={15} /></button>
+      {(
+        [
+          ['arrow', MoveUpRight, 'Arrow'],
+          ['pen', Pencil, 'Freehand pen'],
+          ['circle', Circle, 'Circle'],
+          ['spotlight', Target, 'Player spotlight ring'],
+        ] as const
+      ).map(([k, Icon, tip]) => (
+        <button key={k} className={tool === k ? on : idle} onClick={() => setTool(k)} title={tip}>
+          <Icon size={15} />
+        </button>
       ))}
       <span className="w-px h-6 bg-white/15 mx-1" />
       {MARK_COLORS.map((c) => (
         <button
           key={c}
           onClick={() => setColor(c)}
-          className={`w-7 h-7 rounded-full border-2 ${color === c ? 'border-white scale-110' : 'border-transparent'}`}
+          className={`w-6 h-6 rounded-full border-2 ${color === c ? 'border-white scale-110' : 'border-transparent'}`}
           style={{ background: c }}
           aria-label={`Color ${c}`}
         />
       ))}
       <span className="w-px h-6 bg-white/15 mx-1" />
-      <button className={idle} onClick={() => onMarksChange(marks.slice(0, -1))} disabled={!marks.length} title="Undo"><Undo2 size={15} /></button>
-      <button className={idle} onClick={() => onMarksChange([])} disabled={!marks.length} title="Clear this play's drawing"><Trash2 size={15} /></button>
-      <span className="text-[11px] mx-1" style={{ color: DIM }}>Saved for the team as you draw.</span>
-      <button className={on} onClick={() => setDrawing(false)}>Done</button>
+      <input
+        type="text"
+        value={markLabel}
+        onChange={(e) => setMarkLabel(e.target.value.slice(0, 22))}
+        placeholder="Callout tag (opt)…"
+        title="Optional short coaching label stamped onto the next arrow/spotlight (e.g. 'Contain!', 'Fill B-gap')"
+        className="h-8 w-28 sm:w-32 rounded-lg bg-white/10 border border-white/20 px-2 text-xs font-bold text-white placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
+      />
+      <button
+        type="button"
+        onClick={() => setPinToFrame((p) => !p)}
+        className={pinToFrame ? `${btn} bg-amber-500 text-slate-950` : idle}
+        title={
+          pinToFrame
+            ? `Freeze-Frame ON: drawing pins to ${fmtTime(time)}, auto-pauses playback for 2.2s, then fades out`
+            : 'All Clip: drawing stays on screen for the whole clip'
+        }
+      >
+        <Pin size={14} />
+        <span>{pinToFrame ? `@${fmtTime(time)}` : 'All clip'}</span>
+      </button>
+      {pinnedTimestamps.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowAllMarks((v) => !v)}
+          className={showAllMarks ? on : idle}
+          title="Toggle showing all timestamp-pinned drawings at once"
+        >
+          <Eye size={14} />
+          <span className="hidden md:inline">All ({marks.length})</span>
+        </button>
+      )}
+      <span className="w-px h-6 bg-white/15 mx-1" />
+      <button className={idle} onClick={() => onMarksChange(marks.slice(0, -1))} disabled={!marks.length} title="Undo">
+        <Undo2 size={15} />
+      </button>
+      <button className={idle} onClick={() => onMarksChange([])} disabled={!marks.length} title="Clear this play's drawing">
+        <Trash2 size={15} />
+      </button>
+      <button className={on} onClick={() => setDrawing(false)}>
+        Done
+      </button>
     </>
   );
 
@@ -362,7 +818,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
               preload="auto"
               onPlay={() => setPlaying(true)}
               onPause={() => setPlaying(false)}
-              onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
+              onTimeUpdate={handleTimeUpdate}
               onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
               onEnded={onEnded}
             />
@@ -372,14 +828,48 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
             active={drawing}
             tool={tool}
             color={color}
-            onAdd={(m) => onMarksChange([...marks, m])}
+            currentTime={time}
+            showAll={showAllMarks}
+            nextLabel={markLabel}
+            pinToFrame={pinToFrame}
+            onAdd={(m) => {
+              onMarksChange([...marks, m]);
+              if (markLabel) setMarkLabel('');
+            }}
           />
         </div>
         {/* Above the controls that sit over the bottom of the video, so its buttons (Link film...) can be tapped. */}
         {!src && <div className={`absolute inset-0 flex items-center justify-center p-4 text-center text-sm z-20 pointer-events-none [&>*]:pointer-events-auto ${isFullscreen ? 'pb-28' : 'sm:pb-28'}`}>{placeholder}</div>}
         <div className="absolute top-2 left-2 right-2 flex items-start justify-between gap-2 pointer-events-none">
-          <span className="px-2 py-1 rounded-md text-xs font-bold truncate" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>{title}</span>
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+            <span className="px-2 py-1 rounded-md text-xs font-bold truncate" style={{ background: 'rgba(0,0,0,0.65)', color: '#fff' }}>{title}</span>
+            {freezeActive !== null && (
+              <button
+                type="button"
+                onClick={resumeFromFreeze}
+                className="pointer-events-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-black bg-amber-500 text-slate-950 shadow-lg animate-pulse cursor-pointer"
+                title="Click or press Space to continue playback immediately"
+              >
+                <Pin size={12} /> Coaching Freeze-Frame @{fmtTime(freezeActive)} · Tap to resume
+              </button>
+            )}
+            {recording && (
+              <button
+                type="button"
+                onClick={stopRecording}
+                className="pointer-events-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-black bg-rose-600 text-white shadow-lg animate-pulse cursor-pointer"
+                title="Stop recording coaching clip"
+              >
+                <span className="w-2 h-2 rounded-full bg-white" /> REC {recSeconds}s / 25s · Draw &amp; Talk (Tap to Stop)
+              </button>
+            )}
+          </div>
           <span className="flex items-center gap-1.5 shrink-0">
+            {fastCut && (
+              <span className="px-2 py-1 rounded-md text-[11px] font-black tabular-nums bg-emerald-600/90 text-white">
+                {detectingSnap ? '⚡ Finding snap…' : detectedSnap ? `⚡ Snap @${fmtTime(detectedSnap)}` : '⚡ Fast Cut'}
+              </span>
+            )}
             {zoom > 1 && (
               <span className="px-2 py-1 rounded-md text-xs font-black tabular-nums" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>{zoom.toFixed(1)}×</span>
             )}
@@ -390,13 +880,75 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
             )}
           </span>
         </div>
+
+        {/* Recorded Coaching Clip action bar ("Loom for Film Room") */}
+        {recordedClip && !recording && (
+          <div
+            className="absolute top-11 left-2 right-2 z-20 flex flex-wrap items-center gap-2 p-2.5 rounded-xl border border-indigo-400/50 shadow-2xl"
+            style={{ background: 'rgba(15, 23, 42, 0.94)' }}
+          >
+            <span className="text-xs font-black text-indigo-300">
+              🎬 Coaching Reel ({recordedClip.durationSec}s @{fmtTime(recordedClip.at)})
+            </span>
+            <a
+              href={recordedClip.videoUrl}
+              download={`${(title || 'coaching-clip').replace(/[^a-zA-Z0-9_-]+/g, '_')}_${Math.round(recordedClip.at)}s.${
+                recordedClip.mimeType.includes('mp4') ? 'mp4' : 'webm'
+              }`}
+              className="inline-flex items-center gap-1 h-8 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black"
+              title="Download video + telestration + voice-over clip to share with coaches/parents"
+            >
+              <Download size={14} /> Download Video Reel
+            </a>
+            {onVoiceNote && (
+              <div className="flex items-center gap-1.5 flex-1 min-w-[200px]">
+                <input
+                  type="text"
+                  value={voiceNoteCaption}
+                  onChange={(e) => setVoiceNoteCaption(e.target.value)}
+                  placeholder="Add note summary (optional)…"
+                  className="flex-1 h-8 rounded-lg bg-white/10 border border-white/20 px-2.5 text-xs text-white placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
+                />
+                <button
+                  type="button"
+                  disabled={voiceNoteSaved}
+                  onClick={() => {
+                    onVoiceNote({
+                      text: voiceNoteCaption.trim() || `🎙️ Voice-over breakdown (${recordedClip.durationSec}s)`,
+                      audioUrl: recordedClip.audioDataUrl || '',
+                      durationSec: recordedClip.durationSec,
+                      at: recordedClip.at,
+                    });
+                    setVoiceNoteSaved(true);
+                  }}
+                  className={`h-8 px-3 rounded-lg text-xs font-black ${
+                    voiceNoteSaved ? 'bg-emerald-600 text-white' : 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                  }`}
+                >
+                  {voiceNoteSaved ? '✓ Saved to Play Notes' : '💬 Save Voice Note to Play'}
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                URL.revokeObjectURL(recordedClip.videoUrl);
+                setRecordedClip(null);
+              }}
+              className="ml-auto p-1 text-slate-400 hover:text-white"
+              title="Dismiss"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Drawing tools: over the top right of the video (under it on a phone) */}
       {drawing && (
         <div
           className={`${isFullscreen ? 'absolute top-11 right-2' : 'sm:absolute sm:top-11 sm:right-2'} z-10 flex flex-wrap items-center justify-end gap-1 p-1.5 sm:rounded-xl`}
-          style={{ background: 'rgba(0,0,0,0.75)' }}
+          style={{ background: 'rgba(0,0,0,0.82)' }}
         >
           {tools}
         </div>
@@ -409,17 +961,45 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
       >
         <div className="pointer-events-auto flex items-center gap-2 px-3 pt-2 text-[11px] tabular-nums" style={{ color: DIM }}>
           <span>{fmtTime(time)}</span>
-          <input
-            type="range"
-            min={0}
-            max={duration || 0}
-            step={FRAME}
-            value={Math.min(time, duration || 0)}
-            onChange={(e) => apiRef.current?.seek(Number(e.target.value))}
-            className="flex-1 accent-indigo-500"
-            aria-label="Position in clip"
-            disabled={!src}
-          />
+          <div className="relative flex-1 flex items-center">
+            {/* Fast Cutup active window highlight bar */}
+            {fastCut && detectedSnap !== null && duration > 0 && (
+              <div
+                className="absolute h-1.5 rounded-full bg-emerald-500/45 pointer-events-none"
+                style={{
+                  left: `${(Math.max(0, detectedSnap - 2.0) / duration) * 100}%`,
+                  width: `${((Math.min(duration, detectedSnap + 6.5) - Math.max(0, detectedSnap - 2.0)) / duration) * 100}%`,
+                }}
+                title={`Fast Cutup window: ${fmtTime(Math.max(0, detectedSnap - 2))} – ${fmtTime(Math.min(duration, detectedSnap + 6.5))}`}
+              />
+            )}
+            {/* Timestamp-anchored telestration pins on the timeline */}
+            {duration > 0 &&
+              pinnedTimestamps.map((pin) => (
+                <button
+                  key={pin.t}
+                  type="button"
+                  onClick={() => apiRef.current?.seek(pin.t)}
+                  style={{
+                    left: `${Math.min(98, Math.max(2, (pin.t / duration) * 100))}%`,
+                    background: pin.color,
+                  }}
+                  title={`Telestration @ ${fmtTime(pin.t)}${pin.label ? ` · "${pin.label}"` : ''} (click to jump)`}
+                  className="absolute -top-2.5 -translate-x-1/2 w-2.5 h-2.5 rotate-45 border border-slate-950 shadow cursor-pointer hover:scale-125 transition-transform z-10"
+                />
+              ))}
+            <input
+              type="range"
+              min={0}
+              max={duration || 0}
+              step={FRAME}
+              value={Math.min(time, duration || 0)}
+              onChange={(e) => apiRef.current?.seek(Number(e.target.value))}
+              className="w-full accent-indigo-500 relative z-0"
+              aria-label="Position in clip"
+              disabled={!src}
+            />
+          </div>
           <span>{fmtTime(duration)}</span>
         </div>
 
@@ -447,6 +1027,14 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
           </button>
           <button className={loop ? on : idle} onClick={() => setLoop((x) => !x)} title="Loop this play (L)"><Repeat size={15} /></button>
           <button className={`${autoNext ? on : idle} max-sm:!hidden`} onClick={() => setAutoNext((x) => !x)} title="Go to the next play when this one ends">Auto</button>
+          <button
+            className={fastCut ? `${btn} bg-emerald-600 text-white` : idle}
+            onClick={toggleFastCut}
+            title="Fast Cutup Mode (C): automatically trims pre-snap huddle walking and plays Snap -2s to +6.5s"
+          >
+            <Zap size={14} />
+            <span className="hidden md:inline">Fast Cut</span>
+          </button>
 
           <span className="w-px h-6 bg-white/15 mx-1 max-sm:hidden" />
           <button className={`${idle} max-sm:!hidden`} onClick={() => zoomBy(-0.5)} disabled={zoom === 1} title="Zoom out (or scroll on the video)"><ZoomOut size={16} /></button>
@@ -458,7 +1046,19 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
           <span className="w-px h-6 bg-white/15 mx-1 max-sm:hidden" />
           {!viewOnly && (
             <>
-              <button className={drawing ? on : idle} onClick={toggleDraw} title="Draw on the video (D)"><Pencil size={15} /><span className="hidden sm:inline">Draw</span></button>
+              <button className={drawing ? on : idle} onClick={toggleDraw} title="Draw freeze-frame telestration on the video (D)">
+                <Pencil size={15} />
+                <span className="hidden sm:inline">Draw</span>
+              </button>
+              <button
+                className={recording ? `${btn} bg-rose-600 text-white animate-pulse` : idle}
+                onClick={() => (recording ? stopRecording() : void startRecording())}
+                disabled={!src}
+                title="Record a 15-25s Voice-Over + Telestration Coaching Reel (R)"
+              >
+                {recording ? <Square size={14} /> : <Mic size={15} />}
+                <span className="hidden sm:inline">{recording ? `Stop (${recSeconds}s)` : 'Voice Clip'}</span>
+              </button>
               <button className={snapAt !== null ? btn : idle} style={snapAt !== null ? AMBER : undefined} onClick={stopwatch} disabled={!src} title="Stopwatch: tap at the snap, tap again at the release (S)">
                 <Timer size={15} />
                 <span className="hidden sm:inline">{snapAt !== null ? 'Release' : 'Snap'}</span>

@@ -35,6 +35,10 @@ export interface FilmNote {
   t: number;
   text: string;
   grade?: 'great' | 'good' | 'ok' | 'bad';
+  /** Optional voice-over audio recording (data URL) attached to this note. */
+  audioUrl?: string;
+  /** Duration of the attached voice note in seconds. */
+  durationSec?: number;
   author: string;
   createdAt: number;
   editedAt: number;
@@ -43,10 +47,16 @@ export interface FilmNote {
 /** One mark drawn over the video; points are 0..1 of the frame so they fit any size. */
 export interface FilmMark {
   id: string;
-  kind: 'pen' | 'arrow' | 'circle';
+  kind: 'pen' | 'arrow' | 'circle' | 'spotlight';
   color: string;
   width: number;
   points: { x: number; y: number }[];
+  /** Optional timestamp (seconds in clip) where this mark is anchored. */
+  t?: number;
+  /** If true, playback auto-pauses at `t` for 2.2s to display the telestration before resuming and fading out. */
+  freeze?: boolean;
+  /** Optional short coaching callout text attached to the mark. */
+  label?: string;
 }
 
 /** Everything the team shares for one game. */

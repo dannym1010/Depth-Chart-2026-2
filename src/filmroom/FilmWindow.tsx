@@ -187,10 +187,20 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
     if (!play) return;
     update((s) => ({ ...s, drawings: { ...s.drawings, [play.id]: { marks: m, editedAt: Date.now() } } }));
   };
-  const addNote = (text: string, t: number) => {
+  const addNote = (text: string, t: number, extra?: { audioUrl?: string; durationSec?: number }) => {
     if (!play) return;
     const now = Date.now();
-    const note: FilmNote = { id: newId(), playId: play.id, t: Math.round(t * 10) / 10, text, author: authorName, createdAt: now, editedAt: now };
+    const note: FilmNote = {
+      id: newId(),
+      playId: play.id,
+      t: Math.round(t * 10) / 10,
+      text,
+      ...(extra?.audioUrl ? { audioUrl: extra.audioUrl } : {}),
+      ...(extra?.durationSec ? { durationSec: extra.durationSec } : {}),
+      author: authorName,
+      createdAt: now,
+      editedAt: now,
+    };
     update((s) => ({ ...s, notes: [...s.notes, note] }));
   };
 
@@ -444,6 +454,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
               onPrev={() => prev && setIndex(index - 1)}
               onNext={() => next && setIndex(index + 1)}
               onStopwatch={(s, at) => addNote(`Pocket time ${s.toFixed(2)}s`, at)}
+              onVoiceNote={({ text, audioUrl, durationSec, at }) => addNote(text, at, { audioUrl, durationSec })}
               apiRef={apiRef}
               startAt={resumeAt.current}
               shortcuts={focused}
