@@ -1120,6 +1120,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [showHomography, setShowHomography] = useState(false);
   const [homographyQuad, setHomographyQuad] = useState<HomographyQuad>(DEFAULT_HOMOGRAPHY_QUAD);
   const [homographyFrameUrl, setHomographyFrameUrl] = useState<string | null>(null);
+  const [playAnimTrigger, setPlayAnimTrigger] = useState(0);
 
   const runAutoSketch = async () => {
     if (autoSketching) return;
@@ -1447,16 +1448,28 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
         </div>
         {sketchBanner && (
           <div
-            className={`flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl text-xs font-bold border ${
+            className={`flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 rounded-xl text-xs font-bold border ${
               sketchBanner.isError
                 ? 'bg-rose-50 text-rose-800 border-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:border-rose-800'
                 : 'bg-indigo-50 text-indigo-900 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-200 dark:border-indigo-800'
             }`}
           >
             <span>{sketchBanner.text}</span>
-            <button type="button" onClick={() => setSketchBanner(null)} className="text-[11px] opacity-70 hover:opacity-100">
-              Dismiss
-            </button>
+            <div className="flex items-center gap-2">
+              {!sketchBanner.isError && (
+                <button
+                  type="button"
+                  onClick={() => setPlayAnimTrigger((n) => n + 1)}
+                  className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 px-2.5 py-1 text-[11px] font-black text-white shadow-xs cursor-pointer"
+                  title="Animate the offensive & defensive player movement for this play"
+                >
+                  ▶ Play Player Movement
+                </button>
+              )}
+              <button type="button" onClick={() => setSketchBanner(null)} className="text-[11px] opacity-70 hover:opacity-100 cursor-pointer">
+                Dismiss
+              </button>
+            </div>
           </div>
         )}
         <div className={`flex flex-wrap items-center gap-1.5 text-[11px] min-h-6 ${defenseMode ? 'hidden' : ''}`}>
@@ -1572,11 +1585,13 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               }}
               onRunAutoSketch={() => void runAutoSketch()}
               autoSketchBusy={autoSketching}
+              playTrigger={playAnimTrigger}
               onClose={() => setShowHomography(false)}
             />
           )}
           {play ? (
             <PlayDiagramCanvas
+              playTrigger={playAnimTrigger}
               extraStrokes={callStrokes}
               play={{
                 ...play,

@@ -15,6 +15,7 @@ import {
   type PlayNode,
   type PlayStroke,
 } from '../../utils/footballEngine';
+import { computeAnimatedPlayFrame } from '../../utils/playAnimation';
 
 interface VideoHomographyOverlayProps {
   /** Getter for the active HTMLVideoElement in Film Player */
@@ -36,6 +37,8 @@ interface VideoHomographyOverlayProps {
   /** Trigger AI Vision Auto-Sketch from inside the calibrator */
   onRunAutoSketch?: () => void;
   autoSketchBusy?: boolean;
+  /** External trigger counter to start playing player movement immediately */
+  playTrigger?: number;
   onClose?: () => void;
 }
 
@@ -59,6 +62,7 @@ export const VideoHomographyOverlay: React.FC<VideoHomographyOverlayProps> = ({
   onMoveNode,
   onRunAutoSketch,
   autoSketchBusy = false,
+  playTrigger = 0,
   onClose,
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -69,6 +73,44 @@ export const VideoHomographyOverlay: React.FC<VideoHomographyOverlayProps> = ({
   const [showDefense, setShowDefense] = useState<boolean>(true);
   const [showStrokes, setShowStrokes] = useState<boolean>(true);
   const [hoverFieldPt, setHoverFieldPt] = useState<{ x: number; y: number } | null>(null);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [animProgress, setAnimProgress] = useState<number>(0);
+  const [animSpeed, setAnimSpeed] = useState<0.5 | 1>(1);
+  const [syncVideo, setSyncVideo] = useState<boolean>(false);
+  const baseVideoTimeRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (playTrigger > 0) {
+      setAnimProgress(0);
+      setIsPlaying(true);
+    }
+  }, [playTrigger]);
+
+  useEffect(() => {
+    if (!isPlaying) return;
+    let rafId = 0;
+    let lastTs = performance.now();
+    const vid = syncVideo ? getVideo?.() : null;
+    if (vid && baseVideoTimeRef.current === null) {
+      baseVideoTimeRef.current = vid.currentTime || 0;
+    }
+
+    const step = (now: number) => {
+      const dt = (now - lastTs) / 1000;
+      lastTs = now;
+      setAnimProgress((prev) => {
+        const next = prev + (dt * animSpeed) / 3.2;
+        if (next >= 1) {
+          setIsPlaying(false);
+          return 1;
+        }
+        return next;
+      });
+      rafId = requestAnimationFrame(step);
+    };
+    rafId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafId);
+  }, [isPlaying, animSpeed, syncVideo, getVideo]);
 
   useEffect(() => {
     if (initialFrameUrl) {
@@ -105,8 +147,15 @@ export const VideoHomographyOverlay: React.FC<VideoHomographyOverlayProps> = ({
 
   const gridLines = useMemo(() => buildProjectedFieldGrid(quad), [quad]);
 
+  const animatedFrame = useMemo(
+    () => computeAnimatedPlayFrame(nodes, strokes, [], ballRole || '3', animProgress),
+    [nodes, strokes, ballRole, animProgress],
+  );
+
+  const activeNodes = animProgress > 0.002 ? animatedFrame.nodes : nodes;
+
   const projectedNodes = useMemo(() => {
-    return nodes
+    return activeNodes
       .filter((n) => showDefense || !isDefenseRole(n.role))
       .map((n) => {
         const imgPt = fieldToImage(quad, { x: n.x, y: n.y });
@@ -118,7 +167,25 @@ export const VideoHomographyOverlay: React.FC<VideoHomographyOverlayProps> = ({
           isOL: ['LT', 'LG', 'C', 'RG', 'RT'].includes(n.role),
         };
       });
-  }, [nodes, quad, showDefense]);
+  }, [activeNodes, quad, showDefense]);
+
+  const projectedTrails = useMemo(() => {
+    if (animProgress <= 0.002) return [];
+    return animatedFrame.trails
+      .filter((t) => t.points.length >= 2)
+      .map((t, idx) => ({
+        id: `trail_${t.role}_${idx}`,
+        kind: t.kind,
+        color: t.color,
+        pts: t.points.map((p) => fieldToImage(quad, p)),
+      }));
+  }, [animatedFrame.trails, animProgress, quad]);
+
+  const projectedBall = useMemo(() => {
+    if (animProgress <= 0.002) return null;
+    const pt = fieldToImage(quad, animatedFrame.ball);
+    return { u: pt.u, v: pt.v, inAir: animatedFrame.ball.inAir };
+  }, [animatedFrame.ball, animProgress, quad]);
 
   const projectedStrokes = useMemo(() => {
     if (!showStrokes) return [];
@@ -213,6 +280,38 @@ export const VideoHomographyOverlay: React.FC<VideoHomographyOverlayProps> = ({
         <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
+            onClick={() => {
+              if (isPlaying) {
+                setIsPlaying(false);
+              } else {
+                if (animProgress >= 0.99) setAnimProgress(0);
+                setIsPlaying(true);
+              }
+            }}
+            className={`rounded-md border px-2.5 py-1 text-[11px] font-extrabold cursor-pointer transition-colors ${
+              isPlaying
+                ? 'border-emerald-400 bg-emerald-600 text-white shadow'
+                : 'border-emerald-400/60 bg-emerald-500/25 text-emerald-200 hover:bg-emerald-500/40'
+            }`}
+            title="Animate offensive & defensive player movement across the perspective field"
+          >
+            {isPlaying ? '⏸ Pause Movement' : animProgress > 0.01 && animProgress < 0.99 ? '▶ Resume Movement' : '▶ Play Movement'}
+          </button>
+          {animProgress > 0.005 && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsPlaying(false);
+                setAnimProgress(0);
+              }}
+              className="rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-[11px] font-bold text-slate-200 hover:text-white cursor-pointer"
+              title="Reset players back to pre-snap alignment"
+            >
+              ↺ Pre-Snap
+            </button>
+          )}
+          <button
+            type="button"
             onClick={() => onChangeQuad(flipHomographyOffenseDefense(quad))}
             className="rounded-md border border-amber-400/50 bg-amber-500/20 px-2.5 py-1 text-[11px] font-extrabold text-amber-200 hover:bg-amber-500/35 cursor-pointer"
             title="If Offense and Defense are on opposite sides of the Line of Scrimmage on the video, click to swap them across the LOS"
@@ -299,6 +398,65 @@ export const VideoHomographyOverlay: React.FC<VideoHomographyOverlayProps> = ({
             />
             <span>Play Vectors</span>
           </label>
+        </div>
+      </div>
+
+      {/* Player Movement Animation Scrubber & Phase Bar */}
+      <div className="mb-2 flex flex-wrap items-center gap-2.5 rounded-lg border border-emerald-500/30 bg-slate-900/90 px-2.5 py-1.5">
+        <button
+          type="button"
+          onClick={() => {
+            if (isPlaying) {
+              setIsPlaying(false);
+            } else {
+              if (animProgress >= 0.99) setAnimProgress(0);
+              setIsPlaying(true);
+            }
+          }}
+          className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-black cursor-pointer transition-colors ${
+            isPlaying
+              ? 'bg-emerald-600 text-white'
+              : 'bg-emerald-500/25 text-emerald-200 border border-emerald-400/40 hover:bg-emerald-500/35'
+          }`}
+        >
+          {isPlaying ? '⏸ Pause' : '▶ Play'}
+        </button>
+
+        <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-emerald-300 border border-emerald-500/30 min-w-[125px] text-center">
+          {animatedFrame.phaseLabel}
+        </span>
+
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={Math.round(animProgress * 100)}
+          onChange={(e) => {
+            setIsPlaying(false);
+            setAnimProgress(Number(e.target.value) / 100);
+          }}
+          aria-label="Play movement timeline"
+          className="h-1.5 flex-1 min-w-[120px] cursor-pointer accent-emerald-500"
+        />
+
+        <span className="font-mono text-[10px] font-bold text-slate-300 tabular-nums w-9 text-right">
+          {Math.round(animProgress * 100)}%
+        </span>
+
+        <div className="inline-flex rounded border border-slate-700 overflow-hidden text-[10px] font-extrabold">
+          {([0.5, 1] as const).map((spd) => (
+            <button
+              key={spd}
+              type="button"
+              onClick={() => setAnimSpeed(spd)}
+              className={`px-1.5 py-0.5 cursor-pointer ${
+                animSpeed === spd ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+              }`}
+              title={`Playback speed ${spd}x`}
+            >
+              {spd}x
+            </button>
+          ))}
         </div>
       </div>
 
@@ -441,7 +599,32 @@ export const VideoHomographyOverlay: React.FC<VideoHomographyOverlayProps> = ({
                 strokeWidth={3.2}
                 strokeDasharray={s.dashed ? '6 4' : undefined}
                 markerEnd={markerId}
-                opacity={0.92}
+                opacity={animProgress > 0.01 ? 0.3 : 0.92}
+              />
+            );
+          })}
+
+          {/* Animated Live Player Movement Trails */}
+          {projectedTrails.map((t) => {
+            const d = t.pts
+              .map((pt, i) => `${i === 0 ? 'M' : 'L'} ${pt.u * W} ${pt.v * H}`)
+              .join(' ');
+            const markerId =
+              t.kind === 'run'
+                ? 'url(#homography-arrow-run)'
+                : t.kind === 'pass' || t.kind === 'motion'
+                  ? 'url(#homography-arrow-pass)'
+                  : 'url(#homography-arrow-block)';
+            return (
+              <path
+                key={t.id}
+                d={d}
+                fill="none"
+                stroke={t.color}
+                strokeWidth={4}
+                strokeDasharray={t.kind === 'motion' ? '5 4' : undefined}
+                markerEnd={markerId}
+                opacity={0.98}
               />
             );
           })}
@@ -505,6 +688,25 @@ export const VideoHomographyOverlay: React.FC<VideoHomographyOverlayProps> = ({
               </g>
             );
           })}
+
+          {/* Animated Projected Football */}
+          {projectedBall && (
+            <g
+              transform={`translate(${projectedBall.u * W}, ${projectedBall.v * H - (projectedBall.inAir ? 14 : 6)})`}
+              pointerEvents="none"
+            >
+              <ellipse
+                cx={0}
+                cy={0}
+                rx={projectedBall.inAir ? 9 : 7.5}
+                ry={projectedBall.inAir ? 5.5 : 4.8}
+                fill="#92400e"
+                stroke="#fde68a"
+                strokeWidth={1.8}
+              />
+              <line x1={-3.5} y1={0} x2={3.5} y2={0} stroke="#ffffff" strokeWidth={1.3} />
+            </g>
+          )}
 
           {/* 4 Draggable Perspective Calibration Quad Corner Handles */}
           {CORNER_META.map((c) => {

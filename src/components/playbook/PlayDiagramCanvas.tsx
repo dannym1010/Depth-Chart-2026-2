@@ -27,6 +27,7 @@ import {
   type PlayStroke,
 } from '../../utils/footballEngine';
 import { COLOR, PlayerAssignmentPanel, arrowPts, strokeFor, tBar } from './PlayerAssignmentPanel';
+import { computeAnimatedPlayFrame } from '../../utils/playAnimation';
 import type { PlayerActionPreset } from '../../utils/playActionPresets';
 import type { DefenseWho } from './PlayerAssignmentPanel';
 
@@ -176,6 +177,8 @@ interface Props {
   drawFor?: 'offense' | 'defense';
   /** Lines drawn from our defensive call (blitz, stunt, coverage): shown under the coach's own, not editable. */
   extraStrokes?: PlayStroke[];
+  /** Incrementing trigger to start playing player movement animation */
+  playTrigger?: number;
 }
 
 type Tool = DrawKind | 'move' | 'motion';
@@ -220,6 +223,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   defenseWho,
   drawFor = 'offense',
   extraStrokes,
+  playTrigger = 0,
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const drag = useRef<Drag>(null);
@@ -227,11 +231,55 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   // gets the result once, when the drag ends (redrawing the whole builder on every move was choppy).
   const [draft, setDraft] = useState<PlayStroke[] | null>(null);
   const [dragPos, setDragPos] = useState<{ role: string; x: number; y: number } | null>(null);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [animProgress, setAnimProgress] = useState<number>(0);
+  const [animSpeed, setAnimSpeed] = useState<0.5 | 1>(1);
   const strokes = draft ?? strokesProp;
   const nodes = useMemo(
     () => (dragPos ? nodesProp.map((n) => (n.role === dragPos.role ? { ...n, x: dragPos.x, y: dragPos.y } : n)) : nodesProp),
     [nodesProp, dragPos]
   );
+  const animatedFrame = useMemo(
+    () =>
+      computeAnimatedPlayFrame(
+        nodes,
+        strokes,
+        extraStrokes || [],
+        ballRole,
+        animProgress,
+        typeof play.metadata?.targetHole === 'number' ? play.metadata.targetHole : null,
+      ),
+    [nodes, strokes, extraStrokes, ballRole, animProgress, play.metadata?.targetHole],
+  );
+  const displayNodes = animProgress > 0.002 ? animatedFrame.nodes : nodes;
+
+  useEffect(() => {
+    if (playTrigger > 0) {
+      setAnimProgress(0);
+      setIsPlaying(true);
+    }
+  }, [playTrigger]);
+
+  useEffect(() => {
+    if (!isPlaying) return;
+    let rafId = 0;
+    let lastTs = performance.now();
+    const tick = (now: number) => {
+      const dt = (now - lastTs) / 1000;
+      lastTs = now;
+      setAnimProgress((prev) => {
+        const next = prev + (dt * animSpeed) / 3.2;
+        if (next >= 1) {
+          setIsPlaying(false);
+          return 1;
+        }
+        return next;
+      });
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [isPlaying, animSpeed]);
   // The field is drawn around the ball (a formation on a hash keeps its spacing). From the spots before a
   // drag, so the field doesn't slide while the center is being moved.
   setFieldBall(ballXOf(nodesProp));
@@ -953,6 +1001,38 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
               +
             </button>
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (isPlaying) {
+                setIsPlaying(false);
+              } else {
+                if (animProgress >= 0.99) setAnimProgress(0);
+                setIsPlaying(true);
+              }
+            }}
+            title="Animate offensive & defensive player movement on the diagram"
+            className={`h-7 px-2.5 rounded-lg border text-xs font-black inline-flex items-center gap-1 cursor-pointer shadow-xs transition-colors ${
+              isPlaying
+                ? 'border-emerald-300 bg-emerald-600 text-white'
+                : 'border-emerald-400/50 bg-slate-900/85 backdrop-blur-sm text-emerald-300 hover:bg-emerald-600 hover:text-white'
+            }`}
+          >
+            {isPlaying ? '⏸ Pause' : animProgress > 0.01 && animProgress < 0.99 ? '▶ Resume' : '▶ Play Movement'}
+          </button>
+          {animProgress > 0.005 && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsPlaying(false);
+                setAnimProgress(0);
+              }}
+              title="Reset players back to pre-snap alignment"
+              className="h-7 px-2 rounded-lg border border-white/20 bg-slate-900/85 backdrop-blur-sm text-[11px] font-bold text-white hover:bg-slate-800 cursor-pointer"
+            >
+              ↺ Reset
+            </button>
+          )}
         </div>
         {chrome === 'full' && (
         <input
@@ -1078,7 +1158,45 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           })()}
 
           {/* Players: Offense in clean circles/squares, Defense in Cardinal Red badges */}
-          {nodes.map(glyph)}
+          {animProgress > 0.005 &&
+            animatedFrame.trails.map((tr, idx) => {
+              if (tr.points.length < 2) return null;
+              const d = tr.points
+                .map((pt, j) => {
+                  const { cx, cy } = fieldToSvg(pt.x, pt.y);
+                  return `${j === 0 ? 'M' : 'L'}${cx},${cy}`;
+                })
+                .join(' ');
+              const last = tr.points[tr.points.length - 1];
+              const prev = tr.points[tr.points.length - 2];
+              const a = fieldToSvg(prev.x, prev.y);
+              const b = fieldToSvg(last.x, last.y);
+              return (
+                <g key={`anim-trail-${tr.role}-${idx}`} pointerEvents="none">
+                  <path
+                    d={d}
+                    fill="none"
+                    stroke={tr.color}
+                    strokeWidth={3.6}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeDasharray={tr.kind === 'motion' ? '5 4' : undefined}
+                  />
+                  <polygon points={arrowPts(a.cx, a.cy, b.cx, b.cy)} fill={tr.color} />
+                </g>
+              );
+            })}
+          {displayNodes.map(glyph)}
+          {animProgress > 0.005 && (() => {
+            const { cx, cy } = fieldToSvg(animatedFrame.ball.x, animatedFrame.ball.y);
+            const inAir = animatedFrame.ball.inAir;
+            return (
+              <g key="animated-football" transform={`translate(${cx}, ${cy - (inAir ? 14 : 9)})`} pointerEvents="none">
+                <ellipse cx={0} cy={0} rx={inAir ? 8.5 : 7} ry={inAir ? 5.2 : 4.5} fill="#92400e" stroke="#fde68a" strokeWidth={1.8} />
+                <line x1={-3} y1={0} x2={3} y2={0} stroke="#ffffff" strokeWidth={1.3} />
+              </g>
+            );
+          })()}
 
           {/* Selected line bend vertices */}
           {sel != null &&
@@ -1090,6 +1208,66 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       </div>
 
       {/* Bottom Tool & Controls Bar */}
+      {(isPlaying || animProgress > 0.005) && (
+        <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 border-t border-emerald-500/30 bg-slate-900 text-white">
+          <button
+            type="button"
+            onClick={() => {
+              if (isPlaying) {
+                setIsPlaying(false);
+              } else {
+                if (animProgress >= 0.99) setAnimProgress(0);
+                setIsPlaying(true);
+              }
+            }}
+            className="h-7 px-2.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black cursor-pointer"
+          >
+            {isPlaying ? '⏸ Pause' : '▶ Play'}
+          </button>
+          <span className="px-2 py-0.5 rounded bg-slate-800 border border-emerald-500/30 text-[10px] font-extrabold uppercase tracking-wider text-emerald-300 min-w-[125px] text-center">
+            {animatedFrame.phaseLabel}
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round(animProgress * 100)}
+            onChange={(e) => {
+              setIsPlaying(false);
+              setAnimProgress(Number(e.target.value) / 100);
+            }}
+            aria-label="Play movement timeline"
+            className="h-1.5 flex-1 min-w-[100px] cursor-pointer accent-emerald-500"
+          />
+          <span className="font-mono text-[10px] font-bold text-slate-300 tabular-nums w-8 text-right">
+            {Math.round(animProgress * 100)}%
+          </span>
+          <div className="inline-flex rounded border border-slate-700 overflow-hidden text-[10px] font-extrabold">
+            {([0.5, 1] as const).map((spd) => (
+              <button
+                key={spd}
+                type="button"
+                onClick={() => setAnimSpeed(spd)}
+                className={`px-1.5 py-0.5 cursor-pointer ${
+                  animSpeed === spd ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                {spd}x
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setIsPlaying(false);
+              setAnimProgress(0);
+            }}
+            className="h-6 px-2 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-bold text-slate-300 cursor-pointer"
+          >
+            ↺ Pre-Snap
+          </button>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-1.5 px-3 py-1.5 border-t border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70">
         <div className="flex flex-wrap items-center gap-1">
           {toolBtn(
