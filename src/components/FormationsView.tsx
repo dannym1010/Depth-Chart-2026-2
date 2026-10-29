@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
+  Atom,
   Plus,
   Printer,
   Filter,
@@ -57,6 +58,7 @@ import {
 import { triggerPrint } from '../utils/printUtils';
 import { PocketDepthChartPrintModal } from './PocketDepthChartPrintModal';
 import { FormationDepthChartPrintModal } from './FormationDepthChartPrintModal';
+import { NuclearPackageModal } from './NuclearPackageModal';
 import { DismissibleTip } from './common/DismissibleTip';
 
 interface FormationsViewProps {
@@ -292,6 +294,7 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
   const [isPocketPrintModalOpen, setIsPocketPrintModalOpen] = useState(false);
   const [selectedPocketPrintFormId, setSelectedPocketPrintFormId] = useState<string | null>(null);
   const [isFormationPrintModalOpen, setIsFormationPrintModalOpen] = useState(false);
+  const [isNuclearOpen, setIsNuclearOpen] = useState(false);
   const [selectedFormationPrintId, setSelectedFormationPrintId] = useState<string | null>(null);
   const [showCopyModal, setShowCopyModal] = useState(false);
   const [copySourceTeamId, setCopySourceTeamId] = useState(
@@ -949,6 +952,19 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
             <Printer className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
             <span>Print</span>
           </button>
+
+          {/* One string in every formation, on one field */}
+          {unit === 'offense' && (
+            <button
+              type="button"
+              onClick={() => setIsNuclearOpen(true)}
+              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 hover:text-slate-950 dark:text-slate-200 dark:hover:text-white font-bold text-xs rounded-xl border border-slate-200 dark:border-slate-750 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-xs"
+              title="Black (or gold, blue) in every formation on one field, with who moves. Prints on one page."
+            >
+              <Atom className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+              <span>Nuclear</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -3740,6 +3756,15 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
           activeUnit={unit}
           activeTeamName={activeTeam?.name || 'Football Manager'}
           initialSelectedFormationId={selectedPocketPrintFormId}
+        />
+      )}
+
+      {isNuclearOpen && (
+        <NuclearPackageModal
+          onClose={() => setIsNuclearOpen(false)}
+          formations={formations.filter((f) => f.unit === 'offense')}
+          depthChart={depthChart}
+          teamName={activeTeam?.name || 'Football'}
         />
       )}
 
