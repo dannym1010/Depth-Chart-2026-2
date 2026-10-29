@@ -194,12 +194,12 @@ export const Header: React.FC<HeaderProps> = ({
             <span
               key={g.id}
               className={`min-h-[32px] inline-flex items-center gap-1 pl-3 pr-1 rounded-full text-xs font-semibold border ${
-                selectedGameId === g.id
+                selectedGameId.split(',').includes(g.id)
                   ? 'bg-slate-800 text-white border-slate-800 dark:bg-slate-600 dark:text-white dark:border-slate-500'
                   : 'bg-white text-slate-700 border-slate-300 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-700'
               }`}
             >
-              <button type="button" onClick={() => onSelectGame?.(g.id)} className="text-left cursor-pointer">
+              <button type="button" onClick={() => onSelectGame?.(g.id)} className="text-left cursor-pointer" title="Tap more games to add them, tap a picked game to take it out">
                 {g.name} · {g.playCount} plays
               </button>
               {own && weekOptions && onSetGameWeek && (

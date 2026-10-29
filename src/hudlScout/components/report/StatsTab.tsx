@@ -89,7 +89,7 @@ export const StatsTab: React.FC<Props> = ({ plays, games, selectedGameId, own, p
       <Card>
         <SectionHeader
           title={season ? `Season stats · ${games.length} game${games.length === 1 ? '' : 's'}` : `Game stats · ${game?.name || 'This game'}`}
-          subtitle={season ? 'Every game added up. Pick one game at the top for its box score.' : `${game?.week ? `Week ${game.week}. ` : ''}Pick All games at the top for the season.`}
+          subtitle={season ? 'The games picked at the top, added up. Pick just one game for its box score.' : `${game?.week ? `Week ${game.week}. ` : ''}Pick All games at the top for the season.`}
         />
         {unsided.length > 0 && (
           <p className="mb-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">

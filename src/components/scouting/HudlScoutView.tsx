@@ -502,19 +502,25 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   const drawFromLog = scoutTarget === 'opponent' && onDrawPlay;
   // Tagging their film: the plays already in Their plays (each with its formation) can be picked again.
   const theirCalls = useMemo(() => theirCallEntries(oppBundle.playLibraries), [oppBundle.playLibraries]);
-  // A game picked in another report (or removed since) isn't in this one: show all games.
-  const selectedGameId = pickedGameId === 'all' || bundle.games.some((g) => g.id === pickedGameId) ? pickedGameId : 'all';
+  // The games picked: 'all', or one or more game ids joined by commas. A game picked in another report (or
+  // removed since) drops out; none left, or every game, is all games.
+  const pickedIds = pickedGameId === 'all' ? [] : bundle.games.filter((g) => pickedGameId.split(',').includes(g.id)).map((g) => g.id);
+  const selectedGameId = pickedIds.length && pickedIds.length < bundle.games.length ? pickedIds.join(',') : 'all';
+  const picked = useMemo(() => new Set(selectedGameId === 'all' ? [] : selectedGameId.split(',')), [selectedGameId]);
+  // One game picked: its id (box score, its film); otherwise 'all'.
+  const oneGameId = picked.size === 1 ? selectedGameId : 'all';
+  const pickedGames = selectedGameId === 'all' ? bundle.games : bundle.games.filter((g) => picked.has(g.id));
+  // Tapping a game adds it to the games picked, or takes it out (from all games, it's the only one).
+  const toggleGame = (id: string) => {
+    if (id === 'all') return setSelectedGameId('all');
+    const next = picked.has(id) ? [...picked].filter((x) => x !== id) : [...picked, id];
+    setSelectedGameId(next.length ? bundle.games.filter((g) => next.includes(g.id)).map((g) => g.id).join(',') : 'all');
+  };
   const plays = useMemo(() => {
     if (selectedGameId === 'all') return allPlays;
-    return allPlays.filter((p) => {
-      if (p.gameId) return p.gameId === selectedGameId;
-      return bundle.games[0]?.id === selectedGameId;
-    });
-  }, [allPlays, selectedGameId, bundle.games]);
-  const datasetName =
-    selectedGameId !== 'all'
-      ? bundle.games.find((g) => g.id === selectedGameId)?.name || bundle.datasetName
-      : bundle.datasetName;
+    return allPlays.filter((p) => picked.has(p.gameId || bundle.games[0]?.id || ''));
+  }, [allPlays, selectedGameId, picked, bundle.games]);
+  const datasetName = selectedGameId !== 'all' ? pickedGames.map((g) => g.name).join(' + ') || bundle.datasetName : bundle.datasetName;
   const filters = bundle.filters;
   const coachNotes = bundle.coachNotes;
 
@@ -806,12 +812,12 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     const label = game?.name || 'this file';
     if (!window.confirm(`Remove "${label}" from this Hudl Scout report?`)) return;
     setBundle((prev) => removeScoutGame(prev, gameId, scoutTarget === 'own' ? ownFallback : opponentFallback));
-    if (selectedGameId === gameId) setSelectedGameId('all');
+    if (picked.has(gameId)) setSelectedGameId([...picked].filter((x) => x !== gameId).join(',') || 'all');
   };
 
   // Play log -> CSV to upload back into Hudl: one file per game (Hudl takes one game per upload), rows in play order.
   const handleExportForHudl = async () => {
-    const games = selectedGameId === 'all' ? bundle.games : bundle.games.filter((g) => g.id === selectedGameId);
+    const games = pickedGames;
     for (const game of games) {
       const gamePlays = bundle.plays.filter((p) => (p.gameId ? p.gameId === game.id : bundle.games[0]?.id === game.id));
       if (!gamePlays.length) continue;
@@ -854,7 +860,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         hideTargetToggle={!!onViewChange}
         games={bundle.games}
         selectedGameId={selectedGameId}
-        onSelectGame={setSelectedGameId}
+        onSelectGame={toggleGame}
         onRemoveGame={handleRemoveGame}
         onClearUploads={handleClearUploads}
         onExportForHudl={() => void handleExportForHudl()}
@@ -903,11 +909,11 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
               otherGames={reportsLibrary.others}
               currentWeek={String(currentWeek || '').split('__week_').pop() || ''}
               selectedKey={
-                selectedGameId === 'all'
+                oneGameId === 'all'
                   ? undefined
                   : scoutTarget === 'own'
-                    ? filmGameKey('own', selectedGameId)
-                    : filmGameKey('opponent', selectedGameId, String(currentWeek || '').split('__week_').pop() || '')
+                    ? filmGameKey('own', oneGameId)
+                    : filmGameKey('opponent', oneGameId,String(currentWeek || '').split('__week_').pop() || '')
               }
               onOpen={(g) => {
                 setLibraryOpen(false);
@@ -966,7 +972,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
             deletedIds={bundle.deletedOppPlayIds || []}
             filmPlays={bundle.plays}
             opponent={reportName}
-            selectedGameId={selectedGameId}
+            selectedGameId={pickedIds[0] || 'all'}
             onSelectGame={setSelectedGameId}
             playDatabase={playDatabase}
             onAddFilm={(name) => {
@@ -1108,7 +1114,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
               <OwnTeamReport plays={plays} lineupFor={lineupOnly} roster={roster || []} />
             )}
             {activeTab === 'players' && <PlayersTab analysis={analysis} plays={countedPlays} allPlays={plays.filter((p) => p.odk !== 'S')} voice={voice} />}
-            {activeTab === 'stats' && <StatsTab plays={plays} games={bundle.games} selectedGameId={selectedGameId} own={scoutTarget === 'own'} playDatabase={playDatabase} />}
+            {activeTab === 'stats' && <StatsTab plays={plays} games={pickedGames} selectedGameId={oneGameId}own={scoutTarget === 'own'} playDatabase={playDatabase} />}
             {activeTab === 'gameplan' && (
               <GamePlanTab
                 report={localReport}
@@ -1164,7 +1170,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
             {activeTab === 'units' && scoutTarget === 'own' && (
               <UnitStatsView
                 plays={plays}
-                games={selectedGameId === 'all' ? bundle.games : bundle.games.filter((g) => g.id === selectedGameId)}
+                games={pickedGames}
                 onOpenPlayLog={() => setActiveTab('plays')}
               />
             )}
