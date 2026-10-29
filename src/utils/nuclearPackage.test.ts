@@ -50,6 +50,21 @@ describe('a nuclear package: one string in every formation', () => {
     assert.equal(buildNuclear([b21, b11], depth, 1, ids).kids.length, 1);
   });
 
+  it('32 Beast: the 4 back up on the line as a wing is a move, not his 11 spot', () => {
+    const beast = { id: 'f32', unit: 'offense' as const, name: '32 Beast', rows: [
+      row('ol', [null, pos('32-LT', 'LT'), pos('32-C', 'C'), pos('32-RT', 'RT'), null]),
+      row('wg', [null, null, pos('32-QB', '1 (QB)'), null, pos('32-W', '4 (RB)')]),
+      row('bk', [null, null, pos('32-FB', '2 (FB)'), null, null]),
+    ] };
+    const ids = ['f11', 'f32'];
+    const pkg = buildNuclear([b11, beast], { ...depth, '32-LT': [kid('99', 'Crean')], '32-C': [kid('17', 'Dicob')], '32-RT': [kid('50', 'Convery')], '32-QB': [kid('21', 'Ward')], '32-W': [kid('13', 'Veto')], '32-FB': [kid('10', 'Mancini')] }, 0, ids);
+    const by = Object.fromEntries(pkg.kids.map((k) => [k.num, k]));
+    assert.ok(!by['13'].fixed && !by['13'].partial);
+    assert.deepEqual(kidPath(pkg, by['13'], ids).map((p) => `${p.spot.dx},${p.spot.row} ${p.spot.label}`), ['1,2 RB', '2,1 RB']);
+    // The QB: under center in Beast, in the gun in 11, the same spot.
+    assert.ok(by['21'].fixed);
+  });
+
   it('draws one field (or one formation) and a print sheet with names, escaped', () => {
     const ids = ['f21', 'f11'];
     const pkg = buildNuclear([b21, b11], { ...depth, '21-LT': [kid('99', 'O<Brien')], '11-LT': [kid('99', 'O<Brien')] }, 0, ids);

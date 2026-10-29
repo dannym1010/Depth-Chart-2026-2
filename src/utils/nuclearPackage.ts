@@ -94,8 +94,9 @@ export function buildNuclear(boards: FormationBoard[], depthChart: Record<string
       spots[key] ||= { key, dx: s.dx, row: s.row, label: spotLabel(s.name) };
       const k = kidKey(p);
       const kid = kids.get(k) || { key: k, num: String(p.num || '').trim(), name: String(p.name || '').trim(), at: {}, fixed: false, partial: false };
-      // The same position in another formation (QB under center or in the gun) is the same spot: he doesn't move.
-      const same = Object.values(kid.at).find((k) => spots[k].label.toUpperCase() === spots[key].label.toUpperCase());
+      // The same position straight back from the same slot (QB under center or in the gun) is the same spot: he
+      // doesn't move. The same name somewhere else on the board (the 4 back as a wing in Beast) is a move.
+      const same = Object.values(kid.at).find((k) => spots[k].dx === s.dx && spots[k].label.toUpperCase() === spots[key].label.toUpperCase());
       // A kid listed twice in one formation: the first spot.
       if (!kid.at[b.id]) kid.at[b.id] = same || key;
       kids.set(k, kid);
