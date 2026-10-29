@@ -4393,19 +4393,14 @@ export function generateFormationDepthChartPrintHTML(
                 const defaultBg = isWhiteStarter ? '#ffffff' : '#09090b';
                 const defaultText = isWhiteStarter ? '#000000' : '#ffffff';
                 const defaultBorder = isWhiteStarter ? '2px solid #000000' : '1.5px solid #27272a';
-                const defaultTagBg = isWhiteStarter ? '#000000' : '#ffffff';
-                const defaultTagColor = isWhiteStarter ? '#ffffff' : '#000000';
 
                 const bg = playerHl ? playerHl.bg : defaultBg;
                 const text = playerHl ? playerHl.text : defaultText;
-                const border = playerHl ? `2px solid ${playerHl.border}` : defaultBorder;
-                const tagBg = playerHl ? '#000000' : defaultTagBg;
-                const tagColor = playerHl ? '#ffffff' : defaultTagColor;
+                const border = playerHl ? `2px solid ${playerHl.border}` : defaultBorder;
 
                 return `
                   <div style="display: flex; align-items: center; justify-content: space-between; padding: 2.5px 5px; margin-bottom: 2.5px; border-radius: 3px; background: ${bg}; color: ${text}; border: ${border}; min-height: 21px; box-sizing: border-box; ${playerHl?.shadow ? `box-shadow: ${playerHl.shadow};` : ''}">
-                    <div style="display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden;">
-                      <span style="display: inline-block; font-size: 8.5px; font-weight: 900; padding: 1px 3.5px; border-radius: 2px; background: ${tagBg}; color: ${tagColor}; shrink: 0;">ST</span>
+                    <div style="display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden;">
                       <span style="font-family: monospace; font-size: 10px; font-weight: 900; color: ${text}; shrink: 0;">#${p.num}</span>
                       <span style="font-size: 10.5px; font-weight: 900; text-transform: uppercase; color: ${text}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</span>
                     </div>
@@ -4419,8 +4414,7 @@ export function generateFormationDepthChartPrintHTML(
 
                 return `
                   <div style="display: flex; align-items: center; justify-content: space-between; padding: 2.5px 5px; margin-bottom: 2.5px; border-radius: 3px; background: ${bg}; color: ${text}; border: ${border}; min-height: 21px; box-sizing: border-box; ${playerHl?.shadow ? `box-shadow: ${playerHl.shadow};` : ''}">
-                    <div style="display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden;">
-                      <span style="display: inline-block; font-size: 8.5px; font-weight: 900; padding: 1px 3.5px; border-radius: 2px; background: #000000; color: #facc15; shrink: 0;">D2</span>
+                    <div style="display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden;">
                       <span style="font-family: monospace; font-size: 10px; font-weight: 900; color: ${text}; shrink: 0;">#${p.num}</span>
                       <span style="font-size: 10.5px; font-weight: 900; text-transform: uppercase; color: ${text}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</span>
                     </div>
@@ -4430,14 +4424,11 @@ export function generateFormationDepthChartPrintHTML(
                 // 3rd String: Royal Blue (Ultra Crisp, 100% Guaranteed High Contrast)
                 const bg = playerHl ? playerHl.bg : '#1d4ed8';
                 const text = playerHl ? playerHl.text : '#ffffff';
-                const border = playerHl ? `2px solid ${playerHl.border}` : '1.5px solid #1e40af';
-                const tagBg = playerHl ? '#1d4ed8' : '#ffffff';
-                const tagColor = playerHl ? '#ffffff' : '#1d4ed8';
+                const border = playerHl ? `2px solid ${playerHl.border}` : '1.5px solid #1e40af';
 
                 return `
                   <div style="display: flex; align-items: center; justify-content: space-between; padding: 2.5px 5px; margin-bottom: 2.5px; border-radius: 3px; background: ${bg}; color: ${text}; border: ${border}; min-height: 21px; box-sizing: border-box; ${playerHl?.shadow ? `box-shadow: ${playerHl.shadow};` : ''}">
-                    <div style="display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden;">
-                      <span style="display: inline-block; font-size: 8.5px; font-weight: 900; padding: 1px 3.5px; border-radius: 2px; background: ${tagBg}; color: ${tagColor}; shrink: 0; border: 1px solid #ffffff;">D3</span>
+                    <div style="display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden;">
                       <span style="font-family: monospace; font-size: 10px; font-weight: 900; color: ${text}; shrink: 0;">#${p.num}</span>
                       <span style="font-size: 10.5px; font-weight: 900; text-transform: uppercase; color: ${text}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</span>
                     </div>

@@ -2275,23 +2275,11 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
                                           } ${userRole === 'admin' ? 'cursor-grab active:cursor-grabbing' : ''}`}
                                         >
                                           <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                                            <span
-                                              className={`text-[8.5px] print:text-[8.5px] font-black uppercase px-1 py-0.2 rounded-md shrink-0 ${
-                                                isStarter
-                                                  ? 'bg-zinc-800 text-white border border-zinc-700 dark:bg-zinc-800 dark:text-white dark:border-zinc-700 print-tag-st'
-                                                  : isD2
-                                                  ? 'bg-black/20 text-black print-tag-d2'
-                                                  : isD3
-                                                  ? 'bg-white/20 text-white print-tag-d3'
-                                                  : 'bg-slate-200 text-slate-900 border border-slate-300 print-tag-d4'
-                                              }`}
-                                            >
-                                              {isStarter ? 'ST' : isD2 ? 'D2' : isD3 ? 'D3' : `D${plIdx + 1}`}
-                                            </span>
-                                            <span className="font-mono text-[10px] print:text-[10.5px] opacity-90 font-black shrink-0">
+                                            {/* The badge color is the depth (black, gold, blue): no ST / D2 tag, so the number and name stand out */}
+                                            <span className="font-mono text-[11px] sm:text-[12px] print:text-[10.5px] font-black shrink-0">
                                               #{player.num}
                                             </span>
-                                            <span className="uppercase font-black text-[10.5px] sm:text-[11px] print:text-[10px] tracking-tight leading-tight break-words flex-1 line-clamp-2">
+                                            <span className="uppercase font-black text-[11px] sm:text-[12px] print:text-[10px] tracking-tight leading-tight break-words flex-1 line-clamp-2">
                                               {player.name}
                                             </span>
                                           </div>

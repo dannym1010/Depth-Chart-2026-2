@@ -977,13 +977,6 @@ export const FormationDepthChartPrintModal: React.FC<FormationDepthChartPrintMod
                                                           : 'bg-zinc-950 text-white border border-zinc-800'
                                                       }`}
                                                     >
-                                                      <span
-                                                        className={`text-[7.5px] px-1 rounded-xs font-black shrink-0 ${
-                                                          isWhiteStarter ? 'bg-black text-white' : 'bg-white text-black'
-                                                        }`}
-                                                      >
-                                                        ST
-                                                      </span>
                                                       <span className="font-mono text-[8.5px]">#{player.num}</span>
                                                       <span className="truncate uppercase">{player.name}</span>
                                                     </div>
@@ -1005,9 +998,6 @@ export const FormationDepthChartPrintModal: React.FC<FormationDepthChartPrintMod
                                                           : 'bg-amber-400 text-black border border-amber-500'
                                                       }`}
                                                     >
-                                                      <span className="text-[7.5px] px-1 rounded-xs font-black bg-black text-amber-400 shrink-0">
-                                                        D2
-                                                      </span>
                                                       <span className="font-mono text-[8.5px]">#{player.num}</span>
                                                       <span className="truncate uppercase">{player.name}</span>
                                                     </div>
@@ -1029,9 +1019,6 @@ export const FormationDepthChartPrintModal: React.FC<FormationDepthChartPrintMod
                                                           : 'bg-blue-600 text-white border border-blue-500'
                                                       }`}
                                                     >
-                                                      <span className="text-[7.5px] px-1 rounded-xs font-black bg-white text-blue-700 shrink-0">
-                                                        D3
-                                                      </span>
                                                       <span className="font-mono text-[8.5px]">#{player.num}</span>
                                                       <span className="truncate uppercase text-white">{player.name}</span>
                                                     </div>
