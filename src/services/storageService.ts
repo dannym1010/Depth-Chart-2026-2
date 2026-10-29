@@ -1173,9 +1173,10 @@ export async function saveSharedBoardCloud(payload: {
           const myStamps = slice.depthEditedAt || {};
           const chart = (field: string, kind: 'd' | 's') =>
             slice[field] && typeof slice[field] === 'object' ? { [field]: outgoingSpots(slice[field], myStamps, cloudStamps, kind) } : {};
+          // A field left undefined anywhere in the week (a play, a tag) would refuse the whole save.
           tx.set(
             ref,
-            opsMeta({
+            withoutUndefined(opsMeta({
               ...slice,
               ...chart('depthChart', 'd'),
               ...chart('depthSpots', 'd'),
@@ -1185,7 +1186,7 @@ export async function saveSharedBoardCloud(payload: {
               weekWriteKind: slice.weekWriteKind || 'full',
               teamId: payload.teamId,
               week: String(payload.week).replace(/[^a-zA-Z0-9_-]/g, '') || '1',
-            }),
+            })),
             { merge: true }
           );
         })
@@ -1921,6 +1922,29 @@ export function cleanFirestoreData(data: any, seen: WeakSet<object> = new WeakSe
     }
   }
   return cleaned;
+}
+
+/**
+ * Only the undefined values out (Firestore refuses a write with any): a key set to undefined is left off, one in a
+ * list becomes null. Unlike cleanFirestoreData, an object that appears twice (one player in two depth spots) is
+ * kept both times; only a real loop is cut.
+ */
+export function withoutUndefined(data: any, path: object[] = []): any {
+  if (data === undefined) return null;
+  if (data === null || typeof data !== 'object' || data instanceof Date) return data;
+  if (
+    (data.constructor && data.constructor.name === 'FieldValue') ||
+    data._methodName ||
+    (data._delegate && typeof data._delegate === 'object' && data._delegate._methodName)
+  ) {
+    return data;
+  }
+  if (path.includes(data)) return null;
+  const inner = [...path, data];
+  if (Array.isArray(data)) return data.map((item) => withoutUndefined(item, inner));
+  const out: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) if (value !== undefined) out[key] = withoutUndefined(value, inner);
+  return out;
 }
 
 let db: any = null;

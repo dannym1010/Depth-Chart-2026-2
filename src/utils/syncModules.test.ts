@@ -915,6 +915,27 @@ describe('remoteStateMerge', () => {
     assert.ok(out.at instanceof Qg);
   });
 
+  it('a week save leaves undefined values off (Firestore refuses them) and keeps a player who is in two spots', async () => {
+    const { withoutUndefined } = await import('../services/storageService.ts');
+    class Qg {
+      constructor(public _delegate: any) {}
+    }
+    const del = new Qg({ _methodName: 'FieldValue.delete' });
+    const kid = { num: '21', name: 'Ward' };
+    const loop: any = { a: 1 };
+    loop.self = loop;
+    const out = withoutUndefined({
+      depthChart: { '21-1': [kid], '22-1': [kid], gone: del },
+      hudlScout: { plays: [{ id: 'p1', callParts: undefined, tags: [undefined, 'x'] }], note: undefined },
+      loop,
+    });
+    assert.deepEqual(out.depthChart['21-1'], [kid]);
+    assert.deepEqual(out.depthChart['22-1'], [kid]);
+    assert.equal(out.depthChart.gone, del);
+    assert.deepEqual(out.hudlScout, { plays: [{ id: 'p1', tags: [null, 'x'] }] });
+    assert.equal(out.loop.self, null);
+  });
+
   it('takes another coach live patch even if this screen still has a 25s protect stamp', () => {
     const now = 1_700_000_000_000;
     const recent = new Map<string, number>([['a-qb', now - 5000]]);
