@@ -1309,7 +1309,9 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           gameId: game?.gameId,
           snaps: [{ id: play.id, playNumber: play.playNumber, gain: play.gainLoss, result: play.result }],
         }
-      : null);
+      : !locked
+        ? { name: game?.name ? `${game.name} Clip` : 'Film Clip', gameId: game?.gameId }
+        : null);
   const builderEl = activeBuilderSeed ? (
     <PlayBuilderSection
       key={builderSeed ? builderSeed.playEntryId || builderSeed.name : `live_${play?.id || 'none'}`}
@@ -1575,6 +1577,24 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         })()}
 
         <div className="flex items-center gap-1.5 ml-auto">
+          {!family && activeBuilderSeed && (
+            <button
+              type="button"
+              onClick={() => {
+                if (builderSeed) setHideBuilder(false);
+                else if (!showNotes) toggleNotes();
+                setSideTab('builder');
+              }}
+              className={`hidden lg:inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-extrabold transition-colors ${
+                sideShown && sideIsBuilder
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 dark:bg-indigo-500/20 dark:text-indigo-200 dark:border-indigo-500/40'
+              }`}
+              title="Open side-by-side Play Builder with Vision-to-Play-Builder Auto-Sketch & 3D Video Homography"
+            >
+              <span>✨</span> Diagram Play
+            </button>
+          )}
           {own.plays.length > 0 && (
             <button
               type="button"

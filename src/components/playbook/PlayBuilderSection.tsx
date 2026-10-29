@@ -43,6 +43,8 @@ import {
   shownText,
 } from '../../utils/footballEngine';
 import { PlayDiagramCanvas } from './PlayDiagramCanvas';
+import { VideoHomographyOverlay } from './VideoHomographyOverlay';
+import { DEFAULT_HOMOGRAPHY_QUAD, type HomographyQuad } from '../../utils/videoHomography';
 import { assignmentText } from './PlayerAssignmentPanel';
 import type { PlayBuilderSeed } from '../../utils/playBuilderSeed';
 import { callSetup } from '../../utils/callDiagram';
@@ -1115,6 +1117,9 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [autoSketching, setAutoSketching] = useState(false);
   const [sketchStatus, setSketchStatus] = useState('');
   const [sketchBanner, setSketchBanner] = useState<{ text: string; isError?: boolean } | null>(null);
+  const [showHomography, setShowHomography] = useState(false);
+  const [homographyQuad, setHomographyQuad] = useState<HomographyQuad>(DEFAULT_HOMOGRAPHY_QUAD);
+  const [homographyFrameUrl, setHomographyFrameUrl] = useState<string | null>(null);
 
   const runAutoSketch = async () => {
     if (autoSketching) return;
@@ -1149,7 +1154,25 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
         setDefenseKey(sketch.defenseKey);
       }
       setOverrides(sketch.overrides || {});
-      setUserDrew(false);
+      if (sketch.quad) {
+        setHomographyQuad(sketch.quad);
+      }
+      if (sketch.frameDataUrl) {
+        setHomographyFrameUrl(sketch.frameDataUrl);
+        setShowHomography(true);
+      }
+      if (sketch.strokes && sketch.strokes.length > 0) {
+        const mappedStrokes: PlayStroke[] = sketch.strokes.map((s) => ({
+          kind: s.kind,
+          color: s.motion === 1 ? '#38bdf8' : s.kind === 'run' ? '#ef4444' : s.kind === 'pass' ? '#f59e0b' : '#94a3b8',
+          motion: s.motion === 1 ? 1 : undefined,
+          points: s.points,
+        }));
+        setStrokes(mappedStrokes);
+        setUserDrew(true);
+      } else {
+        setUserDrew(false);
+      }
       if (sketch.suggestedCall && !nameIn.trim()) {
         setNameIn(sketch.suggestedCall);
         setHoldName(true);
@@ -1272,7 +1295,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
           >
             <Wand2 className="w-4 h-4" /> Draw it
           </button>
-          {!defenseMode && canEdit && (
+          {!defenseMode && (
             <button
               type="button"
               onClick={() => void runAutoSketch()}
@@ -1282,6 +1305,21 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
             >
               <Sparkles className={`w-4 h-4 ${autoSketching ? 'animate-spin' : ''}`} />
               <span>{autoSketching ? sketchStatus || 'Auto-Sketching…' : 'Auto-Sketch from Video'}</span>
+            </button>
+          )}
+          {!defenseMode && (
+            <button
+              type="button"
+              onClick={() => setShowHomography((v) => !v)}
+              title="Open 3D Video Homography Calibrator: overlay a perspective-warped football field grid onto the video frame and drag players in camera space"
+              className={`h-11 px-3 rounded-xl border text-xs sm:text-sm font-black inline-flex items-center gap-1.5 cursor-pointer shrink-0 transition-colors ${
+                showHomography
+                  ? 'border-indigo-500 bg-indigo-950 text-indigo-200 shadow-sm'
+                  : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:border-indigo-400'
+              }`}
+            >
+              <span>📐</span>
+              <span>3D Field Homography</span>
             </button>
           )}
           {seed?.scoutId && !formationMode && onStartFromFormation && canEdit && (
@@ -1518,6 +1556,23 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               </button>
             ))}
           </div>
+          {showHomography && (
+            <VideoHomographyOverlay
+              getVideo={() => getVideo?.() || (typeof document !== 'undefined' ? document.querySelector('video') : null)}
+              initialFrameUrl={homographyFrameUrl}
+              quad={homographyQuad}
+              onChangeQuad={setHomographyQuad}
+              nodes={diagramNodes}
+              strokes={[...strokes, ...callStrokes]}
+              ballRole={String(ball)}
+              onMoveNode={(role, x, y) => {
+                setOverrides((prev) => ({ ...prev, [role]: { x, y } }));
+              }}
+              onRunAutoSketch={() => void runAutoSketch()}
+              autoSketchBusy={autoSketching}
+              onClose={() => setShowHomography(false)}
+            />
+          )}
           {play ? (
             <PlayDiagramCanvas
               extraStrokes={callStrokes}

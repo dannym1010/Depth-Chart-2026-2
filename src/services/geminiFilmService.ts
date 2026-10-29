@@ -7,6 +7,8 @@ import { crossCheckPlayYardage } from './yardageCalculator';
 import { evenTimes, findSnapWithCamera, frameChange, pictureTimes, type SnapGuess } from '../filmroom/snapFinder';
 import { PASS_CONCEPTS, RUN_CONCEPTS, TAGS, buildCallName } from '../filmroom/callName';
 import type { CallParts } from '../hudlScout/types/football';
+import type { HomographyQuad } from '../utils/videoHomography';
+import { DEFAULT_HOMOGRAPHY_QUAD, HOMOGRAPHY_PRESETS } from '../utils/videoHomography';
 
 export interface FilmGameContext {
   gameType: 'our_game' | 'scout_game';
@@ -1032,6 +1034,8 @@ export interface VisionPlaySketch {
   overrides: Record<string, { x: number; y: number }>;
   /** Optional custom post-snap movement strokes traced from the video frames. */
   strokes?: { kind: 'run' | 'pass' | 'block'; points: { x: number; y: number }[]; motion?: number }[];
+  quad?: HomographyQuad;
+  frameDataUrl?: string;
 }
 
 const VALID_BASE_KEYS: Record<number, string[]> = {
@@ -1201,7 +1205,20 @@ Return ONLY valid JSON matching this exact structure:
   "overrides": {
     "1": { "x": 0, "y": -1.3 },
     "2": { "x": 0, "y": -3.1 },
-    "3": { "x": 0, "y": -4.8 }
+    "3": { "x": 0, "y": -4.8 },
+    "MIKE": { "x": 0, "y": 4.2 }
+  },
+  "cameraPreset": "sideline_l2r",
+  "quad": {
+    "losLeft": { "u": 0.56, "v": 0.28 },
+    "losRight": { "u": 0.44, "v": 0.84 },
+    "backLeft": { "u": 0.30, "v": 0.26 },
+    "backRight": { "u": 0.14, "v": 0.82 }
+  },
+  "strokes": [
+    { "kind": "run", "points": [{ "x": 0, "y": -4.8 }, { "x": 1.2, "y": -2.2 }, { "x": 3.0, "y": 0 }, { "x": 4.5, "y": 4.0 }] },
+    { "kind": "block", "points": [{ "x": 0, "y": -3.1 }, { "x": 2.6, "y": 0.5 }] }
+  ]
   }
 }`;
 
@@ -1278,13 +1295,13 @@ Return ONLY valid JSON matching this exact structure:
   const overrides: Record<string, { x: number; y: number }> = {};
   if (parsed.overrides && typeof parsed.overrides === 'object') {
     for (const [role, pt] of Object.entries(parsed.overrides as Record<string, any>)) {
-      if (!/^(?:[1-4]|X|Z|Y|Y1|Y2|H|W)$/.test(role)) continue;
+      if (!/^(?:[1-4]|X|Z|Y|Y1|Y2|H|W|DE_L|DT_L|NT|DT_R|DE_R|SAM|MIKE|WILL|ROV|CB_L|CB_R|FS|SS)$/.test(role)) continue;
       const x = Number(pt?.x);
       const y = Number(pt?.y);
       if (Number.isFinite(x) && Number.isFinite(y)) {
         overrides[role] = {
           x: Math.round(Math.max(-17, Math.min(17, x)) * 100) / 100,
-          y: Math.round(Math.max(-6.5, Math.min(0.5, y)) * 100) / 100,
+          y: Math.round(Math.max(-6.5, Math.min(9.5, y)) * 100) / 100,
         };
       }
     }
@@ -1306,5 +1323,40 @@ Return ONLY valid JSON matching this exact structure:
     summary: String(parsed.summary || `Auto-sketched ${personnel} ${backfield} (${strength})`).trim(),
     confidence: Math.min(100, Math.max(0, Math.round(Number(parsed.confidence) || 80))),
     overrides,
+    strokes: Array.isArray(parsed.strokes)
+      ? parsed.strokes
+          .map((s: any) => ({
+            kind: (s?.kind === 'pass' || s?.kind === 'block' ? s.kind : 'run') as 'run' | 'pass' | 'block',
+            motion: s?.motion === 1 ? 1 : undefined,
+            points: Array.isArray(s?.points)
+              ? s.points
+                  .map((p: any) => ({ x: Number(p?.x), y: Number(p?.y) }))
+                  .filter((p: { x: number; y: number }) => Number.isFinite(p.x) && Number.isFinite(p.y))
+              : [],
+          }))
+          .filter((s: { points: { x: number; y: number }[] }) => s.points.length >= 2)
+      : undefined,
+    quad: (() => {
+      const q = parsed.quad;
+      const presetKey = String(parsed.cameraPreset || '') as keyof typeof HOMOGRAPHY_PRESETS;
+      const fallback = HOMOGRAPHY_PRESETS[presetKey]?.quad || DEFAULT_HOMOGRAPHY_QUAD;
+      const validPt = (pt: any, def: { u: number; v: number }) => {
+        const u = Number(pt?.u);
+        const v = Number(pt?.v);
+        return Number.isFinite(u) && Number.isFinite(v) && u >= 0.02 && u <= 0.98 && v >= 0.02 && v <= 0.98
+          ? { u: Math.round(u * 1000) / 1000, v: Math.round(v * 1000) / 1000 }
+          : def;
+      };
+      return {
+        losLeft: validPt(q?.losLeft, fallback.losLeft),
+        losRight: validPt(q?.losRight, fallback.losRight),
+        backLeft: validPt(q?.backLeft, fallback.backLeft),
+        backRight: validPt(q?.backRight, fallback.backRight),
+        halfWidth: 12,
+        backDepth: 5,
+        preset: HOMOGRAPHY_PRESETS[presetKey] ? presetKey : 'custom',
+      };
+    })(),
+    frameDataUrl: frames[0]?.dataUrl,
   };
 }
