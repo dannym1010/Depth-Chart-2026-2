@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
-import { Atom, Printer, X } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, Atom, Printer, X } from 'lucide-react';
 import type { FormationBoard, PlacedPlayer } from '../types';
-import { PRINT_COLORS, STRINGS, buildNuclear, kidPath, nuclearPrintHtml, nuclearSvg } from '../utils/nuclearPackage';
+import { NUCLEAR_PRINT_DEFAULTS, PRINT_COLORS, STRINGS, buildNuclear, kidPath, nuclearPrintHtml, nuclearSvg, type NuclearPrintOptions } from '../utils/nuclearPackage';
 import { openCleanPrintTab } from '../utils/printUtils';
+import { loadPrintPrefs, savePrintPrefs } from '../utils/printPrefs';
 
 interface Props {
   onClose: () => void;
@@ -36,9 +37,19 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
     const next = formIds.includes(id) ? formIds.filter((x) => x !== id) : formations.map((b) => b.id).filter((x) => x === id || formIds.includes(x));
     setPicked((p) => ({ ...p, [stringIdx]: next }));
   };
+  // Print: options with a preview of the page first.
+  const [printOpen, setPrintOpen] = useState(false);
+  const [opts, setOpts] = useState<NuclearPrintOptions>(() => loadPrintPrefs('nuclear', NUCLEAR_PRINT_DEFAULTS));
+  const [title, setTitle] = useState('');
+  const sheetTitle = title.trim() || `${label} nuclear`;
+  const sheet = useMemo(
+    () => (printOpen ? nuclearPrintHtml(pkg, formIds, sheetTitle, `${teamName} · ${formIds.map(labelOf).join(' / ')}`, opts) : ''),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [printOpen, pkg, formIds.join(','), sheetTitle, teamName, opts]
+  );
   const print = () => {
-    const title = `${label} nuclear`;
-    openCleanPrintTab(nuclearPrintHtml(pkg, formIds, title, `${teamName} · ${formIds.map(labelOf).join(' / ')}`), `${teamName} ${title}`);
+    savePrintPrefs('nuclear', { ...opts });
+    openCleanPrintTab(sheet, `${teamName} ${sheetTitle}`);
   };
   const chip = (on: boolean) =>
     `h-9 px-3 rounded-full text-sm font-black border cursor-pointer ${on ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900 dark:border-white' : 'bg-white text-slate-700 border-slate-300 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-700'}`;
@@ -60,8 +71,18 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <button type="button" onClick={print} disabled={!formIds.length} className="h-9 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-black inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50">
-              <Printer className="w-4 h-4" /> Print
+            {printOpen && (
+              <button type="button" onClick={() => setPrintOpen(false)} className="h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-sm font-bold inline-flex items-center gap-1.5 cursor-pointer">
+                <ArrowLeft className="w-4 h-4" /> Back
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => (printOpen ? print() : setPrintOpen(true))}
+              disabled={!formIds.length}
+              className="h-9 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-black inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <Printer className="w-4 h-4" /> {printOpen ? 'Print' : 'Print…'}
             </button>
             <button type="button" onClick={onClose} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer" aria-label="Close">
               <X className="w-5 h-5" />
@@ -69,6 +90,9 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
           </div>
         </div>
 
+        {printOpen ? (
+          <PrintPanel opts={opts} setOpts={setOpts} title={title} setTitle={setTitle} placeholder={`${label} nuclear`} sheet={sheet} />
+        ) : (
         <div className="overflow-y-auto p-4 sm:p-5 space-y-4">
           <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -168,6 +192,93 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
               For a true nuclear package (no subs), put one kid in every formation: {subs.map((k) => `#${k.num} ${k.name}`).join(' and ')} {subs.length === 1 ? 'is' : 'are'} only in some.
             </p>
           )}
+        </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const Toggle: React.FC<{ on: boolean; onChange: (on: boolean) => void; label: string; hint?: string }> = ({ on, onChange, label, hint }) => (
+  <label className="flex items-start gap-2.5 cursor-pointer select-none">
+    <input type="checkbox" checked={on} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 w-4 h-4 accent-amber-500 cursor-pointer" />
+    <span>
+      <span className="block text-sm font-bold text-slate-800 dark:text-slate-100">{label}</span>
+      {hint && <span className="block text-xs text-slate-500 dark:text-slate-400">{hint}</span>}
+    </span>
+  </label>
+);
+
+/** Print options on the left, the page as it will print on the right. */
+const PrintPanel: React.FC<{
+  opts: NuclearPrintOptions;
+  setOpts: React.Dispatch<React.SetStateAction<NuclearPrintOptions>>;
+  title: string;
+  setTitle: (t: string) => void;
+  placeholder: string;
+  sheet: string;
+}> = ({ opts, setOpts, title, setTitle, placeholder, sheet }) => {
+  const set = (patch: Partial<NuclearPrintOptions>) => setOpts((o) => ({ ...o, ...patch }));
+  const box = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(600);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const fit = () => setWidth(el.clientWidth);
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // Letter at 96 px an inch.
+  const [pw, ph] = opts.orientation === 'landscape' ? [1056, 816] : [816, 1056];
+  const scale = Math.min(1, width / pw);
+  const seg = (on: boolean) =>
+    `flex-1 h-9 px-3 rounded-lg text-sm font-black cursor-pointer ${on ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'text-slate-600 dark:text-slate-300'}`;
+  return (
+    <div className="overflow-y-auto p-4 sm:p-5 grid gap-5 md:grid-cols-[260px_1fr]">
+      <div className="space-y-5 min-w-0">
+        <div className="space-y-1.5">
+          <div className="text-[11px] font-black uppercase tracking-wider text-slate-500">Title</div>
+          <input
+            id="nuclear-print-title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder={placeholder}
+            className="w-full h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm text-slate-900 dark:text-white"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <div className="text-[11px] font-black uppercase tracking-wider text-slate-500">Page</div>
+          <div className="flex gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800">
+            <button type="button" onClick={() => set({ orientation: 'landscape' })} className={seg(opts.orientation === 'landscape')}>Landscape</button>
+            <button type="button" onClick={() => set({ orientation: 'portrait' })} className={seg(opts.orientation === 'portrait')}>Portrait</button>
+          </div>
+          <div className="flex gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800">
+            <button type="button" onClick={() => set({ ink: false })} className={seg(!opts.ink)}>Color</button>
+            <button type="button" onClick={() => set({ ink: true })} className={seg(opts.ink)}>Black &amp; white</button>
+          </div>
+        </div>
+        <div className="space-y-3">
+          <div className="text-[11px] font-black uppercase tracking-wider text-slate-500">On the page</div>
+          <Toggle on={opts.names} onChange={(names) => set({ names })} label="Names on the field" hint="Off: jersey numbers only" />
+          <Toggle on={opts.moves} onChange={(moves) => set({ moves })} label="Who moves" hint="Each mover's spots, and who's in the same spot every time" />
+          <Toggle on={opts.formations} onChange={(formations) => set({ formations })} label="Each formation small" hint="One diagram per formation under the big field" />
+        </div>
+        {opts.ink && (
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            In black and white, the kids who move are white chips with a black ring, and each one's path has its own dashes.
+          </p>
+        )}
+      </div>
+      <div ref={box} className="min-w-0">
+        <div className="text-[11px] font-black uppercase tracking-wider text-slate-500 mb-1.5">Preview</div>
+        <div className="rounded-lg shadow-lg ring-1 ring-slate-300 dark:ring-slate-700 overflow-hidden bg-white" style={{ width: pw * scale, height: ph * scale }}>
+          <iframe
+            title="Print preview"
+            srcDoc={sheet.replace('<body>', '<body style="padding:0.35in">')}
+            style={{ width: pw, height: ph, border: 0, transform: `scale(${scale})`, transformOrigin: '0 0', pointerEvents: 'none' }}
+          />
         </div>
       </div>
     </div>

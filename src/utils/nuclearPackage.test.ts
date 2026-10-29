@@ -38,9 +38,9 @@ describe('a nuclear package: one string in every formation', () => {
     const ids = ['f21', 'f11'];
     const pkg = buildNuclear([b21, b11], depth, 0, ids);
     const by = Object.fromEntries(pkg.kids.map((k) => [k.num, k]));
-    assert.ok(by['99'].fixed && by['17'].fixed && by['50'].fixed);
-    // The shotgun QB is at a different depth: he moves (QB to QB), not to FB.
-    assert.deepEqual(kidPath(pkg, by['21'], ids).map((p) => p.spot.label), ['QB', 'QB']);
+    // The QB under center in 21 and in the gun in 11 is still the QB: he stays, like the line.
+    assert.ok(by['99'].fixed && by['17'].fixed && by['50'].fixed && by['21'].fixed);
+    assert.deepEqual(kidPath(pkg, by['21'], ids).map((p) => p.spot.label), ['QB']);
     assert.deepEqual(kidPath(pkg, by['10'], ids).map((p) => `${p.spot.label} ${p.forms.join(',')}`), ['FB 21', 'X 11']);
     assert.ok(by['12'].partial && by['13'].partial);
     // The X spot is one spot in both formations, whoever's in it.
