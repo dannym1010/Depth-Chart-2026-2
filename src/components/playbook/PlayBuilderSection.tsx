@@ -1134,6 +1134,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     try {
       const sketch = await autoSketchPlayFromVideo(vid, {
         currentName: nameIn,
+        gameId: seed?.gameId,
+        playOdk: seed?.odk,
         onStatus: (s) => setSketchStatus(s),
       });
       const fits = compatibleBackfields(sketch.baseKey);

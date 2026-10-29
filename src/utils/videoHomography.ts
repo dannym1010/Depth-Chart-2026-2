@@ -110,7 +110,76 @@ export const HOMOGRAPHY_PRESETS: Record<
   },
 };
 
-export const DEFAULT_HOMOGRAPHY_QUAD: HomographyQuad = HOMOGRAPHY_PRESETS.endzone.quad;
+export const DEFAULT_HOMOGRAPHY_QUAD: HomographyQuad = HOMOGRAPHY_PRESETS.sideline_l2r.quad;
+
+/**
+ * Swap the Offense and Defense sides across the Line of Scrimmage in camera space.
+ * If the quad is on a sideline preset (l2r <-> r2l), switches presets while preserving any LOS shift;
+ * otherwise reflects the backfield corners across the LOS segment and swaps losLeft <-> losRight.
+ */
+export function flipHomographyOffenseDefense(quad: HomographyQuad): HomographyQuad {
+  if (quad.preset === 'sideline_l2r') {
+    return { ...HOMOGRAPHY_PRESETS.sideline_r2l.quad };
+  }
+  if (quad.preset === 'sideline_r2l') {
+    return { ...HOMOGRAPHY_PRESETS.sideline_l2r.quad };
+  }
+  const clamp = (v: number) => Math.max(0.03, Math.min(0.97, Math.round(v * 1000) / 1000));
+  return {
+    ...quad,
+    losLeft: { ...quad.losRight },
+    losRight: { ...quad.losLeft },
+    backLeft: {
+      u: clamp(2 * quad.losRight.u - quad.backRight.u),
+      v: clamp(2 * quad.losRight.v - quad.backRight.v),
+    },
+    backRight: {
+      u: clamp(2 * quad.losLeft.u - quad.backLeft.u),
+      v: clamp(2 * quad.losLeft.v - quad.backLeft.v),
+    },
+    preset: 'custom',
+  };
+}
+
+/**
+ * Construct a calibrated HomographyQuad from which side of the video frame the Offense is lined up on
+ * ('left' -> marching left-to-right, 'right' -> marching right-to-left, 'bottom' -> endzone behind offense)
+ * and the optional horizontal position of the Line of Scrimmage (losCenterU in 0.25..0.75).
+ */
+export function buildQuadFromScreenSide(
+  offenseScreenSide: 'left' | 'right' | 'bottom' | 'top',
+  losCenterU = 0.5,
+): HomographyQuad {
+  const clamp = (v: number) => Math.max(0.04, Math.min(0.96, Math.round(v * 1000) / 1000));
+  const shift = Number.isFinite(losCenterU) ? Math.max(-0.22, Math.min(0.22, losCenterU - 0.5)) : 0;
+
+  if (offenseScreenSide === 'right') {
+    const base = HOMOGRAPHY_PRESETS.sideline_r2l.quad;
+    return {
+      ...base,
+      losLeft: { u: clamp(base.losLeft.u + shift), v: base.losLeft.v },
+      losRight: { u: clamp(base.losRight.u + shift), v: base.losRight.v },
+      backLeft: { u: clamp(base.backLeft.u + shift), v: base.backLeft.v },
+      backRight: { u: clamp(base.backRight.u + shift), v: base.backRight.v },
+      preset: 'sideline_r2l',
+    };
+  }
+  if (offenseScreenSide === 'left') {
+    const base = HOMOGRAPHY_PRESETS.sideline_l2r.quad;
+    return {
+      ...base,
+      losLeft: { u: clamp(base.losLeft.u + shift), v: base.losLeft.v },
+      losRight: { u: clamp(base.losRight.u + shift), v: base.losRight.v },
+      backLeft: { u: clamp(base.backLeft.u + shift), v: base.backLeft.v },
+      backRight: { u: clamp(base.backRight.u + shift), v: base.backRight.v },
+      preset: 'sideline_l2r',
+    };
+  }
+  if (offenseScreenSide === 'top') {
+    return flipHomographyOffenseDefense(HOMOGRAPHY_PRESETS.endzone.quad);
+  }
+  return { ...HOMOGRAPHY_PRESETS.endzone.quad };
+}
 
 /**
  * Solve an 8x8 linear system A * h = b via Gaussian elimination with partial pivoting,

@@ -8,7 +8,7 @@ import { evenTimes, findSnapWithCamera, frameChange, pictureTimes, type SnapGues
 import { PASS_CONCEPTS, RUN_CONCEPTS, TAGS, buildCallName } from '../filmroom/callName';
 import type { CallParts } from '../hudlScout/types/football';
 import type { HomographyQuad } from '../utils/videoHomography';
-import { DEFAULT_HOMOGRAPHY_QUAD, HOMOGRAPHY_PRESETS } from '../utils/videoHomography';
+import { DEFAULT_HOMOGRAPHY_QUAD, HOMOGRAPHY_PRESETS, buildQuadFromScreenSide } from '../utils/videoHomography';
 
 export interface FilmGameContext {
   gameType: 'our_game' | 'scout_game';
@@ -1117,6 +1117,8 @@ export async function autoSketchPlayFromVideo(
   video: HTMLVideoElement,
   opts: {
     currentName?: string;
+    gameId?: string;
+    playOdk?: 'O' | 'D' | 'K' | 'S' | 'UNKNOWN';
     onStatus?: (s: string) => void;
     engine?: AiEngine;
     apiKey?: string;
@@ -1126,6 +1128,8 @@ export async function autoSketchPlayFromVideo(
 ): Promise<VisionPlaySketch> {
   const {
     currentName = '',
+    gameId,
+    playOdk,
     onStatus,
     engine = getSavedAiEngine(),
     apiKey = getSavedGeminiKey(),
@@ -1194,9 +1198,50 @@ export async function autoSketchPlayFromVideo(
 
   onStatus?.('Mapping formation geometry & play vectors…');
 
+  let unitContextHint = '';
+  try {
+    const rawCtx = localStorage.getItem(`football_film_context_${gameId || 'default'}`);
+    if (rawCtx) {
+      const ctx = JSON.parse(rawCtx) as Partial<FilmGameContext>;
+      const teamA = ctx.ourTeamName || ctx.offenseTeam || '';
+      const teamB = ctx.opponentTeamName || ctx.defenseTeam || '';
+      const colorA = ctx.offenseJerseyColor || '';
+      const colorB = ctx.defenseJerseyColor || '';
+      const scouted = ctx.scoutedTeam || teamA;
+      if (playOdk === 'D') {
+        const offTeam = scouted && scouted === teamA ? teamB : teamA;
+        const offColor = scouted && scouted === teamA ? colorB : colorA;
+        const defTeam = scouted || teamA;
+        const defColor = scouted && scouted === teamA ? colorA : colorB;
+        unitContextHint = `\nUNIT & JERSEY CONTEXT FOR THIS PLAY (ODK = D — Scouted team "${defTeam}" is on DEFENSE):\n- Team WITH THE BALL (OFFENSE to diagram for personnel/baseKey/backfield/hole/ball/runId): "${offTeam || 'Non-scouted opponent'}"${offColor ? ` wearing ${offColor} jerseys` : ''}.\n- Team ON DEFENSE (across the Line of Scrimmage, diagram for defenseKey): "${defTeam || 'Scouted team'}"${defColor ? ` wearing ${defColor} jerseys` : ''}.`;
+      } else if (playOdk === 'O') {
+        const offTeam = scouted || teamA;
+        const offColor = scouted && scouted === teamB ? colorB : colorA;
+        const defTeam = scouted && scouted === teamB ? teamA : teamB;
+        const defColor = scouted && scouted === teamB ? colorA : colorB;
+        unitContextHint = `\nUNIT & JERSEY CONTEXT FOR THIS PLAY (ODK = O — Scouted team "${offTeam}" is on OFFENSE):\n- Team WITH THE BALL (OFFENSE to diagram for personnel/baseKey/backfield/hole/ball/runId): "${offTeam}"${offColor ? ` wearing ${offColor} jerseys` : ''}.\n- Team ON DEFENSE (across the Line of Scrimmage, diagram for defenseKey): "${defTeam}"${defColor ? ` wearing ${defColor} jerseys` : ''}.`;
+      } else if (teamA || teamB) {
+        unitContextHint = `\nTEAMS IN FILM: "${teamA}" (${colorA || 'jerseys'}) vs "${teamB}" (${colorB || 'jerseys'}). Always diagram the team WITH THE BALL (snapping from Center to QB/RB) as OFFENSE and the team defending across the Line of Scrimmage as DEFENSE.`;
+      }
+    }
+  } catch {
+    // ignore storage parse errors
+  }
+
   const prompt = `You are a football playbook homography & computer-vision engine for a 10U youth football coaching platform.
 Look at the sequential video frames of this play (from pre-snap alignment through point of attack) and convert what you see into a structured Play Builder diagram state.
-${currentName ? `Coach's current label for this play: "${currentName}"` : ''}
+${currentName ? `Coach's current label for this play: "${currentName}"` : ''}${unitContextHint}
+
+CRITICAL RULE — IDENTIFY OFFENSE vs DEFENSE SIDE OF THE SCREEN FIRST:
+1. Find the Line of Scrimmage (neutral zone between the two lines of players on Frame 1).
+2. Identify which side of the Line of Scrimmage has the OFFENSE (the 5 offensive linemen in stances, the Quarterback behind Center, and Running Backs in the backfield snapping and running/throwing the ball) versus the DEFENSE (defensive linemen, linebackers, and cornerbacks facing the offense).
+3. ALWAYS diagram the team WITH THE BALL as the OFFENSE ("personnel", "baseKey", "backfield", "hole", "ball", "runId") and the team defending as the DEFENSE ("defenseKey"), even if this clip is labeled ODK = "D".
+4. Set "offenseScreenSide" based on where the OFFENSE (team with the ball) is lined up on the video screen in Frame 1:
+   - "left": Offense is on the LEFT side of the Line of Scrimmage, marching Left -> Right across the screen (Offensive backfield is to the left of the LOS; Defense is to the right of the LOS).
+   - "right": Offense is on the RIGHT side of the Line of Scrimmage, marching Right -> Left across the screen (Offensive backfield is to the right of the LOS; Defense is to the left of the LOS).
+   - "bottom": End-zone camera behind the offense, marching Bottom -> Top.
+   - "top": End-zone camera behind the defense, offense marching Top -> Bottom.
+5. Set "losCenterU" (0.25 to 0.75) to the horizontal screen position (0 = left edge, 0.5 = center, 1 = right edge) where the ball / Line of Scrimmage is on Frame 1.
 
 FIELD COORDINATE SYSTEM (from the OFFENSE'S perspective looking downfield toward the defense):
 - The Center (C) snapping the ball is at (x: 0, y: 0).
@@ -1263,13 +1308,9 @@ Return ONLY valid JSON matching this exact structure:
     "3": { "x": 0, "y": -4.8 },
     "MIKE": { "x": 0, "y": 4.2 }
   },
+  "offenseScreenSide": "left",
+  "losCenterU": 0.50,
   "cameraPreset": "sideline_l2r",
-  "quad": {
-    "losLeft": { "u": 0.56, "v": 0.28 },
-    "losRight": { "u": 0.44, "v": 0.84 },
-    "backLeft": { "u": 0.30, "v": 0.26 },
-    "backRight": { "u": 0.14, "v": 0.82 }
-  },
   "strokes": [
     { "kind": "run", "points": [{ "x": 0, "y": -4.8 }, { "x": 1.2, "y": -2.2 }, { "x": 3.0, "y": 0 }, { "x": 4.5, "y": 4.0 }] },
     { "kind": "block", "points": [{ "x": 0, "y": -3.1 }, { "x": 2.6, "y": 0.5 }] }
@@ -1399,25 +1440,48 @@ Return ONLY valid JSON matching this exact structure:
           .filter((s: { points: { x: number; y: number }[] }) => s.points.length >= 2)
       : undefined,
     quad: (() => {
+      const sideRaw = String(parsed.offenseScreenSide || '').toLowerCase().trim();
+      const presetRaw = String(parsed.cameraPreset || '').toLowerCase().trim();
+      let side: 'left' | 'right' | 'bottom' | 'top' = 'left';
+      if (sideRaw === 'right' || sideRaw.includes('right') || sideRaw === 'r2l' || presetRaw === 'sideline_r2l') {
+        side = 'right';
+      } else if (sideRaw === 'bottom' || presetRaw === 'endzone') {
+        side = 'bottom';
+      } else if (sideRaw === 'top') {
+        side = 'top';
+      } else {
+        side = 'left';
+      }
+      const losCenterU = Number.isFinite(Number(parsed.losCenterU)) ? Number(parsed.losCenterU) : 0.5;
+      const baseQuad = buildQuadFromScreenSide(side, losCenterU);
       const q = parsed.quad;
-      const presetKey = String(parsed.cameraPreset || '') as keyof typeof HOMOGRAPHY_PRESETS;
-      const fallback = HOMOGRAPHY_PRESETS[presetKey]?.quad || DEFAULT_HOMOGRAPHY_QUAD;
-      const validPt = (pt: any, def: { u: number; v: number }) => {
-        const u = Number(pt?.u);
-        const v = Number(pt?.v);
-        return Number.isFinite(u) && Number.isFinite(v) && u >= 0.02 && u <= 0.98 && v >= 0.02 && v <= 0.98
-          ? { u: Math.round(u * 1000) / 1000, v: Math.round(v * 1000) / 1000 }
-          : def;
-      };
-      return {
-        losLeft: validPt(q?.losLeft, fallback.losLeft),
-        losRight: validPt(q?.losRight, fallback.losRight),
-        backLeft: validPt(q?.backLeft, fallback.backLeft),
-        backRight: validPt(q?.backRight, fallback.backRight),
-        halfWidth: 12,
-        backDepth: 5,
-        preset: HOMOGRAPHY_PRESETS[presetKey] ? presetKey : 'custom',
-      };
+      if (q && typeof q === 'object') {
+        const validPt = (pt: any, def: { u: number; v: number }) => {
+          const u = Number(pt?.u);
+          const v = Number(pt?.v);
+          return Number.isFinite(u) && Number.isFinite(v) && u >= 0.02 && u <= 0.98 && v >= 0.02 && v <= 0.98
+            ? { u: Math.round(u * 1000) / 1000, v: Math.round(v * 1000) / 1000 }
+            : def;
+        };
+        const candidate = {
+          losLeft: validPt(q.losLeft, baseQuad.losLeft),
+          losRight: validPt(q.losRight, baseQuad.losRight),
+          backLeft: validPt(q.backLeft, baseQuad.backLeft),
+          backRight: validPt(q.backRight, baseQuad.backRight),
+          halfWidth: 12,
+          backDepth: 5,
+          preset: baseQuad.preset,
+        };
+        const losMidU = (candidate.losLeft.u + candidate.losRight.u) / 2;
+        const backMidU = (candidate.backLeft.u + candidate.backRight.u) / 2;
+        const matchesSide =
+          (side === 'left' && backMidU < losMidU) ||
+          (side === 'right' && backMidU > losMidU) ||
+          side === 'bottom' ||
+          side === 'top';
+        if (matchesSide) return candidate;
+      }
+      return baseQuad;
     })(),
     frameDataUrl: frames[0]?.dataUrl,
   };

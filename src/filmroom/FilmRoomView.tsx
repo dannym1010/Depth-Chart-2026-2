@@ -1306,7 +1306,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           name: play.callName || play.playName || `Play #${play.playNumber}`,
           formation: play.formation,
           kind: play.playType,
-          gameId: game?.gameId,
+          gameId: game?.gameId || game?.key,
+          odk: play.odk,
           snaps: [{ id: play.id, playNumber: play.playNumber, gain: play.gainLoss, result: play.result }],
         }
       : !locked

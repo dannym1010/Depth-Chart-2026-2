@@ -3,6 +3,7 @@ import {
   buildProjectedFieldGrid,
   DEFAULT_HOMOGRAPHY_QUAD,
   fieldToImage,
+  flipHomographyOffenseDefense,
   HOMOGRAPHY_PRESETS,
   imageToField,
   type HomographyQuad,
@@ -210,6 +211,14 @@ export const VideoHomographyOverlay: React.FC<VideoHomographyOverlayProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onChangeQuad(flipHomographyOffenseDefense(quad))}
+            className="rounded-md border border-amber-400/50 bg-amber-500/20 px-2.5 py-1 text-[11px] font-extrabold text-amber-200 hover:bg-amber-500/35 cursor-pointer"
+            title="If Offense and Defense are on opposite sides of the Line of Scrimmage on the video, click to swap them across the LOS"
+          >
+            ⇄ Swap Offense / Defense Side
+          </button>
           {getVideo && (
             <button
               type="button"

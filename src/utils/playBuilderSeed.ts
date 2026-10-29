@@ -14,6 +14,7 @@ export interface PlayBuilderSeed {
   /** Their-plays card this diagram belongs to. */
   scoutId?: string;
   gameId?: string;
+  odk?: 'O' | 'D' | 'K' | 'S' | 'UNKNOWN';
   /** Play Library row created for this card. */
   playEntryId?: string;
   /** Film snaps of this call, in play order. Their clips are the videos for the play. */
