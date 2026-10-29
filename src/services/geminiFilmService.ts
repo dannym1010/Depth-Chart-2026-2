@@ -232,7 +232,7 @@ async function askOllama(savedModel: string, prompt: string, frames: ExtractedFr
         // Stay loaded between plays of a breakdown (loading takes a while).
         keep_alive: '30m',
         // Room for eight frames and the instructions.
-        options: { temperature: 0.15, num_ctx: 4096 },
+        options: { temperature: 0.15, num_ctx: 12288 },
         messages: [{ role: 'user', content: prompt, images: ollamaFrames.map((f) => f.dataUrl.split(',')[1]).filter(Boolean) }],
       }),
     });
@@ -242,6 +242,31 @@ async function askOllama(savedModel: string, prompt: string, frames: ExtractedFr
   if (res.status === 404) throw new Error(`The model "${model}" isn't on this computer yet. In PowerShell run: ollama pull ${model}`);
   if (!res.ok) {
     const text = (await res.text()).slice(0, 300);
+    if (/exceeds the available context size/i.test(text)) {
+      const m = text.match(/request\s*\((\d+)\s*tokens\)/i);
+      const retryCtx = m ? Math.min(32768, Number(m[1]) + 2048) : 16384;
+      const fewer = [frames[0], frames[Math.floor(frames.length / 2)], frames[frames.length - 1]].filter(Boolean);
+      const chatUrl = (await fetch('/api/ollama/tags').then((r) => r.ok).catch(() => false))
+        ? '/api/ollama/chat'
+        : `${OLLAMA_URL}/api/chat`;
+      const retryRes = await fetch(chatUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          stream: false,
+          format: 'json',
+          think: false,
+          keep_alive: '30m',
+          options: { temperature: 0.15, num_ctx: retryCtx },
+          messages: [{ role: 'user', content: prompt, images: fewer.map((f) => f.dataUrl.split(',')[1]).filter(Boolean) }],
+        }),
+      });
+      if (retryRes.ok) {
+        const rj = await retryRes.json();
+        return String(rj?.message?.content || '');
+      }
+    }
     // Loading the model needs about 6 GB of free memory (RAM); a game or other big program can crowd it out.
     if (/llama-server to start|out of memory|insufficient memory|requires more system memory/i.test(text)) {
       throw new Error(

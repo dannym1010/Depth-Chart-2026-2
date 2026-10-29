@@ -476,7 +476,7 @@ export const AiClipAnalyzerModal: React.FC<Props> = ({
         setScanStep(gemini ? 'Taking pictures through the clip…' : 'Taking pictures of the play…');
         extracted = gemini
           ? await captureVideoKeyframes(theVideo, 8, 1024, { mode: 'even' })
-          : await captureVideoKeyframes(theVideo, 5, 720, { mode: 'snap', onStatus: (s) => current() && setScanStep(s) });
+          : await captureVideoKeyframes(theVideo, 4, 640, { mode: 'snap', onStatus: (s) => current() && setScanStep(s) });
         if (!current()) return;
         setFrames(extracted);
       } else {
