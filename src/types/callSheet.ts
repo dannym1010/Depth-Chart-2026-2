@@ -170,6 +170,12 @@ export interface PlayBuilderState {
   defensePlayers?: Record<string, { num: string; name: string; unit?: 'black' | 'gold' | 'blue'; pos?: string }>;
   /** The name as the coach typed it (a scout play keeps this instead of the generated call). */
   name?: string;
+  /** 3D Video Homography perspective calibration quad saved with this play */
+  homographyQuad?: unknown;
+  /** Captured pre-snap video frame data URL for the 3D Homography overlay */
+  homographyFrameUrl?: string | null;
+  /** Whether the 3D Homography overlay was open on this play */
+  showHomography?: boolean;
 }
 
 export interface PlayDatabaseEntry {

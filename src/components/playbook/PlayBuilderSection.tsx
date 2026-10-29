@@ -821,15 +821,19 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       ...(seed?.gameId
         ? { filmSpots: { backfield: activeBack, ...(shape.spots ? { spots: shape.spots } : {}), ...(shape.baseKey ? { baseKey: shape.baseKey } : {}) } }
         : {}),
+      ...(homographyQuad ? { homographyQuad } : {}),
+      ...(homographyFrameUrl ? { homographyFrameUrl } : {}),
+      ...(showHomography ? { showHomography: true } : {}),
       name: nameIn,
   });
   const stateKey = JSON.stringify(currentState());
+  // Drawing their formation: each change saves itself a moment later, so leaving (Back) never loses it.
+  const openedKey = useRef(stateKey);
   useEffect(() => {
+    if (stateKey === openedKey.current && !saved) return;
     onStateChange?.(currentState());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stateKey]);
-  // Drawing their formation: each change saves itself a moment later, so leaving (Back) never loses it.
-  const openedKey = useRef(stateKey);
   const autoSave = useRef<() => void>(() => {});
   useEffect(() => {
     if (!formationMode || !canEdit || stateKey === openedKey.current) return;
@@ -1117,9 +1121,11 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [autoSketching, setAutoSketching] = useState(false);
   const [sketchStatus, setSketchStatus] = useState('');
   const [sketchBanner, setSketchBanner] = useState<{ text: string; isError?: boolean } | null>(null);
-  const [showHomography, setShowHomography] = useState(false);
-  const [homographyQuad, setHomographyQuad] = useState<HomographyQuad>(DEFAULT_HOMOGRAPHY_QUAD);
-  const [homographyFrameUrl, setHomographyFrameUrl] = useState<string | null>(null);
+  const [showHomography, setShowHomography] = useState<boolean>(() => Boolean(saved?.showHomography || saved?.homographyFrameUrl));
+  const [homographyQuad, setHomographyQuad] = useState<HomographyQuad>(
+    () => (saved?.homographyQuad as HomographyQuad) || DEFAULT_HOMOGRAPHY_QUAD,
+  );
+  const [homographyFrameUrl, setHomographyFrameUrl] = useState<string | null>(() => saved?.homographyFrameUrl || null);
   const [playAnimTrigger, setPlayAnimTrigger] = useState(0);
 
   const runAutoSketch = async () => {
@@ -1172,10 +1178,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
           points: s.points,
         }));
         setStrokes(mappedStrokes);
-        setUserDrew(true);
-      } else {
-        setUserDrew(false);
       }
+      setUserDrew(true);
       if (sketch.suggestedCall && !nameIn.trim()) {
         setNameIn(sketch.suggestedCall);
         setHoldName(true);

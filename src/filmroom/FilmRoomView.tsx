@@ -14,7 +14,7 @@ import { autoTagFromHudl, setPlaysFormation, tagPlays } from '../hudlScout/utils
 import { tagPlayUnits } from '../hudlScout/utils/unitStats';
 import { isReadOnlySession, safeJSONParse, safeJSONSet } from '../services/storageService';
 import type { FilmPlayerRef, RosterPlayer } from '../types';
-import type { PlayDatabaseEntry } from '../types/callSheet';
+import type { PlayBuilderState, PlayDatabaseEntry } from '../types/callSheet';
 import { filmLineup, setPlayBallPlayer, setPlayDefPlay, setPlaySub, type BallRole, type WeekBoards } from '../utils/filmLineup';
 import { newPlayEntry } from '../utils/playbookImport';
 import { theirCallEntries } from '../utils/theirCalls';
@@ -1299,32 +1299,64 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       moveTargets={weekOptions}
     />
   );
+  const livePlayDiagramsRef = useRef<Record<string, PlayBuilderState>>((() => {
+    try {
+      const raw = localStorage.getItem('mahopac_film_play_diagrams_v1');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  })());
+  const livePlayKey = `${game?.gameId || game?.key || 'game'}__${play?.id || play?.playNumber || 'clip'}`;
+  const savedPlayState = livePlayDiagramsRef.current[livePlayKey];
+
   const activeBuilderSeed: PlayBuilderSeed | null =
-    builderSeed ||
-    (play && !locked
+    builderSeed
       ? {
-          name: play.callName || play.playName || `Play #${play.playNumber}`,
-          formation: play.formation,
-          kind: play.playType,
-          gameId: game?.gameId || game?.key,
-          odk: play.odk,
-          snaps: [{ id: play.id, playNumber: play.playNumber, gain: play.gainLoss, result: play.result }],
+          ...builderSeed,
+          odk: play?.odk || builderSeed.odk,
+          builder: savedPlayState || builderSeed.builder,
         }
-      : !locked
-        ? { name: game?.name ? `${game.name} Clip` : 'Film Clip', gameId: game?.gameId }
-        : null);
+      : play && !locked
+        ? {
+            name: savedPlayState?.name || play.callName || play.playName || `Play #${play.playNumber}`,
+            formation: play.formation,
+            kind: play.playType,
+            gameId: game?.gameId || game?.key,
+            odk: play.odk,
+            snaps: [{ id: play.id, playNumber: play.playNumber, gain: play.gainLoss, result: play.result }],
+            builder: savedPlayState,
+          }
+        : !locked
+          ? { name: game?.name ? `${game.name} Clip` : 'Film Clip', gameId: game?.gameId, builder: savedPlayState }
+          : null;
   const builderEl = activeBuilderSeed ? (
     <PlayBuilderSection
-      key={builderSeed ? builderSeed.playEntryId || builderSeed.name : `live_${play?.id || 'none'}`}
+      key={play?.id ? `play_${livePlayKey}` : builderSeed ? builderSeed.playEntryId || builderSeed.name : 'live_none'}
       compact
       canEdit={Boolean(!locked && (builderCanEdit || onSaveBuilderPlay || onUpdatePlayDatabase))}
       seed={activeBuilderSeed}
       getVideo={() => apiRef.current?.video?.() || null}
       onStateChange={(state) => {
+        const name = state.name?.trim() || activeBuilderSeed.name;
+        const nextState = { ...state, name };
+        livePlayDiagramsRef.current[livePlayKey] = nextState;
+        try {
+          localStorage.setItem('mahopac_film_play_diagrams_v1', JSON.stringify(livePlayDiagramsRef.current));
+        } catch {
+          try {
+            // If base64 frame URLs exceed localStorage quota, persist diagram state without frame data URLs
+            const compactMap = Object.fromEntries(
+              Object.entries(livePlayDiagramsRef.current).map(([k, v]) => [k, { ...v, homographyFrameUrl: undefined }]),
+            );
+            localStorage.setItem('mahopac_film_play_diagrams_v1', JSON.stringify(compactMap));
+          } catch {
+            // ignore storage quota errors
+          }
+        }
         // The play as it is on screen, including a name they typed, goes back to the builder with Back.
         if (!seedRef.current) return;
-        const name = state.name?.trim() || seedRef.current.name;
-        seedRef.current = { ...seedRef.current, name, builder: { ...state, name } };
+        seedRef.current = { ...seedRef.current, name, builder: nextState };
         savePlayBuilderSeed(seedRef.current);
         if (name) setCutup((c) => (c && c.label !== name ? { ...c, label: name } : c));
       }}
