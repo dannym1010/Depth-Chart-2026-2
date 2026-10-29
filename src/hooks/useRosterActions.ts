@@ -1,10 +1,11 @@
-import { RosterPlayer, PlacedPlayer } from '../types';
+import { RosterPlayer } from '../types';
 import type { WeekState } from '../types';
 import { normalizeRoster } from '../utils/depthChartUtils';
 import { safeJSONSet } from '../services/storageService';
 import type { Dispatch, SetStateAction, RefObject } from 'react';
 import type { LatestAppState } from './appStateTypes';
 import { playerKey, removedPlayerKeys, stampRosterEdits } from '../utils/recordMerge';
+import { cascadeRosterToWeeks, renumberedPlayers } from '../utils/rosterCascade';
 
 export interface RosterActionsDeps {
   setRoster: Dispatch<SetStateAction<RosterPlayer[]>>;
@@ -34,102 +35,21 @@ export function useRosterActions({
     safeJSONSet('footballRoster', normalized);
     latestStateRef.current.roster = normalized;
 
-    // Map of team + jersey number -> display name (numbers repeat across teams)
-    const nameMap = new Map<string, string>();
-    normalized.forEach((p) => {
-      const displayName = (p.rosterName || p.lastName || `${p.firstName} ${p.lastName}`).trim();
-      nameMap.set(playerKey(p), displayName);
-    });
-
-    // Cascade updated names to placed players in depth charts and scrimmage charts
-    setWeeklyData((prev) => {
-      let changed = false;
-      const nextWeekly = { ...prev };
-      Object.keys(nextWeekly).forEach((wKey) => {
-        const wState = nextWeekly[wKey];
-        if (!wState) return;
-        // The team this week belongs to (plain week keys are 10U's).
-        const weekTeam = wKey.includes('__week_') ? wKey.split('__week_')[0] : 'team_10u';
-        const keyOf = (num: string) => playerKey({ teamId: weekTeam, num });
-        let weekChanged = false;
-        let newDC = wState.depthChart;
-        let newSC = wState.scrimmageChart;
-
-        if (newDC) {
-          const updatedDC: Record<string, PlacedPlayer[]> = {};
-          let dcChanged = false;
-          Object.entries(newDC).forEach(([posId, players]) => {
-            if (Array.isArray(players)) {
-              let posChanged = false;
-              const nextPlayers = players.map((p) => {
-                if (p && p.num && nameMap.has(keyOf(p.num))) {
-                  const mappedName = nameMap.get(keyOf(p.num))!;
-                  if (p.name !== mappedName) {
-                    posChanged = true;
-                    return { ...p, name: mappedName };
-                  }
-                }
-                return p;
-              });
-              if (posChanged) {
-                dcChanged = true;
-                updatedDC[posId] = nextPlayers;
-              } else {
-                updatedDC[posId] = players;
-              }
-            } else {
-              updatedDC[posId] = players;
-            }
-          });
-          if (dcChanged) {
-            newDC = updatedDC;
-            weekChanged = true;
-          }
-        }
-
-        if (newSC) {
-          const updatedSC: Record<string, PlacedPlayer[]> = {};
-          let scChanged = false;
-          Object.entries(newSC).forEach(([posId, players]) => {
-            if (Array.isArray(players)) {
-              let posChanged = false;
-              const nextPlayers = players.map((p) => {
-                if (p && p.num && nameMap.has(keyOf(p.num))) {
-                  const mappedName = nameMap.get(keyOf(p.num))!;
-                  if (p.name !== mappedName) {
-                    posChanged = true;
-                    return { ...p, name: mappedName };
-                  }
-                }
-                return p;
-              });
-              if (posChanged) {
-                scChanged = true;
-                updatedSC[posId] = nextPlayers;
-              } else {
-                updatedSC[posId] = players;
-              }
-            } else {
-              updatedSC[posId] = players;
-            }
-          });
-          if (scChanged) {
-            newSC = updatedSC;
-            weekChanged = true;
-          }
-        }
-
-        if (weekChanged) {
-          changed = true;
-          nextWeekly[wKey] = {
-            ...wState,
-            depthChart: newDC,
-            scrimmageChart: newSC,
-          };
-        }
-      });
-      return changed ? nextWeekly : prev;
-    });
+    // Every week's depth and scrimmage charts get the new names and numbers (a kid's spots follow them to a new
+    // number). Changed spots are stamped now, so they win over other coaches' older copies.
+    const renumbered = renumberedPlayers(prevRoster, normalized);
+    const now = Date.now();
+    const cascade = (weekly: Record<string, WeekState>) => cascadeRosterToWeeks(weekly, normalized, renumbered, now);
+    const fromRef = latestStateRef.current.weeklyData ? cascade(latestStateRef.current.weeklyData) : null;
+    if (fromRef && fromRef.weekly !== latestStateRef.current.weeklyData) {
+      latestStateRef.current.weeklyData = fromRef.weekly;
+      safeJSONSet('footballWeeklyData', fromRef.weekly);
+    }
+    setWeeklyData((prev) => cascade(prev).weekly);
+    // The open week's changed spots go to the other coaches now (other weeks go with their next save).
+    const spots = (kind: 'd' | 's') => [...new Set(Object.values(fromRef?.changed || {}).flatMap((c) => c[kind]))];
+    if (spots('d').length) debouncedSave('player_roster_cascade', { modifiedPosIds: spots('d') });
+    if (spots('s').length) debouncedSave('player_roster_cascade_scrimmage', { modifiedPosIds: spots('s'), chartKind: 'scrimmage' });
 
     // Push the roster so other coaches and the server get the edit (the cloud
     // roster doc is only written for the roster scope).
