@@ -17,6 +17,7 @@ import {
   sanitizeAiResult,
 } from './geminiFilmService.ts';
 import { evenTimes, findSnapWithCamera, pictureTimes } from '../filmroom/snapFinder.ts';
+import { buildProjectedFieldGrid, DEFAULT_HOMOGRAPHY_QUAD, fieldToImage, HOMOGRAPHY_PRESETS, imageToField } from '../utils/videoHomography.ts';
 
 describe('yardageCalculator', () => {
   it('correctly parses absolute yard line values', () => {
@@ -320,5 +321,27 @@ describe('the AI clip analyzer, before testing again', () => {
     const g = findSnapWithCamera(s, 3)!;
     assert.ok(Math.abs(g.snap - 7.8) <= 0.4, `snap ${g.snap}`);
     assert.equal(g.sure, true);
+  });
+
+  it('2D/3D video homography projects field coordinates to camera frame and back accurately', () => {
+    for (const key of ['endzone', 'sideline_l2r', 'sideline_r2l', 'pressbox_top_down'] as const) {
+      const quad = HOMOGRAPHY_PRESETS[key].quad;
+      for (const pt of [
+        { x: 0, y: 0 },
+        { x: -12, y: 0 },
+        { x: 12, y: 0 },
+        { x: -7.5, y: -1.5 },
+        { x: 0, y: -4.5 },
+        { x: 3.5, y: 4.0 },
+      ]) {
+        const uv = fieldToImage(quad, pt);
+        const back = imageToField(quad, uv);
+        assert.ok(Math.abs(back.x - pt.x) <= 0.5, `${key}: x ${back.x} vs ${pt.x}`);
+        assert.ok(Math.abs(back.y - pt.y) <= 0.5, `${key}: y ${back.y} vs ${pt.y}`);
+      }
+    }
+    const grid = buildProjectedFieldGrid(DEFAULT_HOMOGRAPHY_QUAD);
+    assert.ok(grid.some((l) => l.kind === 'los' && l.label === 'LOS'));
+    assert.ok(grid.some((l) => l.kind === 'hash'));
   });
 });
