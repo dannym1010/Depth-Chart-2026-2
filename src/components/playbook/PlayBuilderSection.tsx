@@ -787,6 +787,13 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     window.setTimeout(() => setConceptNote(''), 5000);
   };
 
+  // The 3D homography overlay, saved with the play (declared before currentState, which reads it).
+  const [showHomography, setShowHomography] = useState<boolean>(() => Boolean(saved?.showHomography || saved?.homographyFrameUrl));
+  const [homographyQuad, setHomographyQuad] = useState<HomographyQuad>(
+    () => (saved?.homographyQuad as HomographyQuad) || DEFAULT_HOMOGRAPHY_QUAD,
+  );
+  const [homographyFrameUrl, setHomographyFrameUrl] = useState<string | null>(() => saved?.homographyFrameUrl || null);
+
   /** Everything about the play as it stands, to save with it or carry to another screen. */
   const currentState = (): PlayBuilderState => ({
       personnel: personnelPick,
@@ -1121,11 +1128,6 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [autoSketching, setAutoSketching] = useState(false);
   const [sketchStatus, setSketchStatus] = useState('');
   const [sketchBanner, setSketchBanner] = useState<{ text: string; isError?: boolean } | null>(null);
-  const [showHomography, setShowHomography] = useState<boolean>(() => Boolean(saved?.showHomography || saved?.homographyFrameUrl));
-  const [homographyQuad, setHomographyQuad] = useState<HomographyQuad>(
-    () => (saved?.homographyQuad as HomographyQuad) || DEFAULT_HOMOGRAPHY_QUAD,
-  );
-  const [homographyFrameUrl, setHomographyFrameUrl] = useState<string | null>(() => saved?.homographyFrameUrl || null);
   const [playAnimTrigger, setPlayAnimTrigger] = useState(0);
 
   const runAutoSketch = async () => {
