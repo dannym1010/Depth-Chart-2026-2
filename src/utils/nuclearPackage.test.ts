@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { PRINT_COLORS, buildNuclear, changedFromBase, formLabels, nuclearBase, nuclearFormColors, kidPath, nuclearPrintHtml, nuclearSvg, spotLabel } from './nuclearPackage.ts';
+import { PRINT_COLORS, buildNuclear, changedFromBase, formLabels, nuclearBase, nuclearFormColors, nuclearSwitch, nuclearSwitchLines, kidPath, nuclearPrintHtml, nuclearSvg, spotLabel } from './nuclearPackage.ts';
 
 const pos = (id: string, name: string) => ({ id, name });
 const row = (id: string, positions: ({ id: string; name: string } | null)[]) => ({ id, label: id, slotCount: positions.length, positions });
@@ -74,6 +74,26 @@ describe('a nuclear package: one string in every formation', () => {
     const pkg = buildNuclear([b11, b21], depth, 0, ['f11', 'f21']);
     assert.equal(nuclearBase(pkg, ['f11', 'f21']), 'f21');
     assert.equal(nuclearBase(pkg, ['f11']), 'f11');
+  });
+
+  it('switching formations: who comes in for whom, who goes out, who changes spots', () => {
+    const ids = ['f21', 'f11'];
+    const pkg = buildNuclear([b21, b11], depth, 0, ids);
+    const s = nuclearSwitch(pkg, 'f21', 'f11');
+    // 21 to 11: Veto in for Barry at RB; Mancini FB to X; the QB stays (under center or in the gun).
+    assert.deepEqual(s.ins.map((i) => `${i.kid.num} ${i.to} for ${i.for?.num}`), ['13 RB for 12']);
+    assert.deepEqual(s.outs.map((o) => `${o.kid.num} ${o.from}`), ['12 X']);
+    assert.deepEqual(s.moves.map((m) => `${m.kid.num} ${m.from}>${m.to}`), ['10 FB>X']);
+    const lines = nuclearSwitchLines(s);
+    assert.equal(lines.length, 2);
+    assert.ok(lines[0].includes('IN') && lines[0].includes('Veto') && lines[0].includes('for <b>#12</b> Barry'));
+    // Back the other way: Barry in for Veto at X, Mancini X to FB.
+    const back = nuclearSwitch(pkg, 'f11', 'f21');
+    assert.deepEqual(back.ins.map((i) => `${i.kid.num} ${i.to} for ${i.for?.num}`), ['12 X for 13']);
+    assert.deepEqual(back.moves.map((m) => `${m.kid.num} ${m.from}>${m.to}`), ['10 X>FB']);
+    // Page 2 of the print, only when asked.
+    assert.ok(nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U', { switches: true }).includes('class="sw-grid"'));
+    assert.ok(!nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U').includes('class="sw-grid"'));
   });
 
   it('draws one field (or one formation) and a print sheet with names, escaped', () => {

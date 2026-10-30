@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Atom, Printer, X } from 'lucide-react';
+import { ArrowLeft, ArrowLeftRight, Atom, Printer, X } from 'lucide-react';
 import type { FormationBoard, PlacedPlayer } from '../types';
-import { NUCLEAR_PRINT_DEFAULTS, PRINT_COLORS, STRINGS, buildNuclear, changedFromBase, nuclearBase, nuclearFormColors, nuclearGrid, nuclearPrintHtml, nuclearSvg, type NuclearPrintOptions } from '../utils/nuclearPackage';
+import { NUCLEAR_PRINT_DEFAULTS, PRINT_COLORS, STRINGS, buildNuclear, changedFromBase, nuclearBase, nuclearFormColors, nuclearGrid, nuclearSwitch, nuclearPrintHtml, nuclearSvg, type NuclearPrintOptions } from '../utils/nuclearPackage';
 import { openCleanPrintTab } from '../utils/printUtils';
 import { loadPrintPrefs, savePrintPrefs } from '../utils/printPrefs';
 
@@ -35,6 +35,17 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
   // Each formation's color (the base is black): its moves on the field and in the chart.
   const fc = nuclearFormColors(formIds, base);
   const dot = (id: string) => (id === base ? null : <i className="inline-block w-2.5 h-2.5 rounded-full mr-1.5 align-[0px]" style={{ background: fc[id] }} />);
+  // Switching formations: from the base to the next one, unless the coach picks.
+  const [swPick, setSwPick] = useState<{ from: string; to: string }>({ from: '', to: '' });
+  const swFrom = formIds.includes(swPick.from) ? swPick.from : base;
+  const swTo = formIds.includes(swPick.to) && swPick.to !== swFrom ? swPick.to : formIds.find((id) => id !== swFrom) || '';
+  const sw = swFrom && swTo ? nuclearSwitch(pkg, swFrom, swTo) : null;
+  const swPaired = new Set(sw?.ins.map((i) => i.for).filter(Boolean));
+  const who = (k: { num: string; name: string }) => (
+    <>
+      <b className="text-slate-900 dark:text-white">#{k.num}</b> {k.name}
+    </>
+  );
   const movers = pkg.kids.filter((k) => !k.fixed && !k.partial);
   const subs = pkg.kids.filter((k) => k.partial);
   const fixed = pkg.kids.filter((k) => k.fixed);
@@ -213,6 +224,66 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
             </div>
           )}
 
+          {sw && (
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 sm:p-4 space-y-3">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">Switch</span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs font-bold text-slate-500 mr-0.5">From</span>
+                  {formIds.map((id) => (
+                    <button key={id} type="button" onClick={() => setSwPick({ from: id, to: swTo === id ? swFrom : swTo })} className={chip(swFrom === id)}>
+                      {dot(id)}
+                      {labelOf(id)}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSwPick({ from: swTo, to: swFrom })}
+                  className="h-9 w-9 rounded-full border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 inline-flex items-center justify-center cursor-pointer"
+                  title="Switch back the other way"
+                  aria-label="Swap from and to"
+                >
+                  <ArrowLeftRight className="w-4 h-4" />
+                </button>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs font-bold text-slate-500 mr-0.5">To</span>
+                  {formIds
+                    .filter((id) => id !== swFrom)
+                    .map((id) => (
+                      <button key={id} type="button" onClick={() => setSwPick({ from: swFrom, to: id })} className={chip(swTo === id)}>
+                        {dot(id)}
+                        {labelOf(id)}
+                      </button>
+                    ))}
+                </div>
+              </div>
+              <ul className="space-y-1.5 text-sm text-slate-700 dark:text-slate-200">
+                {sw.ins.map((i) => (
+                  <li key={`in${i.kid.key}`}>
+                    <span className="inline-block mr-1.5 px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-600 text-white align-[1px]">IN</span>
+                    {who(i.kid)}
+                    {i.for && <> for {who(i.for)}</>} → <b className="text-slate-900 dark:text-white">{i.to}</b>
+                  </li>
+                ))}
+                {sw.outs
+                  .filter((o) => !swPaired.has(o.kid))
+                  .map((o) => (
+                    <li key={`out${o.kid.key}`}>
+                      <span className="inline-block mr-1.5 px-1.5 py-0.5 rounded text-[10px] font-black border border-slate-500 align-[1px]">OUT</span>
+                      {who(o.kid)} ({o.from})
+                    </li>
+                  ))}
+                {sw.moves.map((m) => (
+                  <li key={`mv${m.kid.key}`}>
+                    {who(m.kid)} {m.from} → <b className="text-slate-900 dark:text-white">{m.to}</b>
+                  </li>
+                ))}
+                {!sw.ins.length && !sw.outs.length && !sw.moves.length && <li className="italic text-slate-500">No change: the same kids in the same spots.</li>}
+              </ul>
+            </div>
+          )}
+
           {fixed.length > 0 && (
             <p className="text-xs text-slate-500 dark:text-slate-400">
               <b className="text-slate-700 dark:text-slate-200">Same spot every time:</b>{' '}
@@ -264,6 +335,7 @@ const PrintPanel: React.FC<{
   }, []);
   // Letter at 96 px an inch.
   const [pw, ph] = opts.orientation === 'landscape' ? [1056, 816] : [816, 1056];
+  const pages = opts.switches && sheet.includes('class="switches"') ? 2 : 1;
   const scale = Math.min(1, width / pw);
   const seg = (on: boolean) =>
     `flex-1 h-9 px-3 rounded-lg text-sm font-black cursor-pointer ${on ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'text-slate-600 dark:text-slate-300'}`;
@@ -294,22 +366,24 @@ const PrintPanel: React.FC<{
         <div className="space-y-3">
           <div className="text-[11px] font-black uppercase tracking-wider text-slate-500">On the page</div>
           <Toggle on={opts.names} onChange={(names) => set({ names })} label="Names on the field" hint="Off: jersey numbers only" />
-          <Toggle on={opts.moves} onChange={(moves) => set({ moves })} label="Who moves" hint="Each mover's spots, and who's in the same spot every time" />
+          <Toggle on={opts.moves} onChange={(moves) => set({ moves })} label="Who lines up where" hint="Each kid's spot in every formation, and who's in the same spot every time" />
           <Toggle on={opts.formations} onChange={(formations) => set({ formations })} label="Each formation small" hint="One diagram per formation under the big field" />
+          <Toggle on={opts.switches} onChange={(switches) => set({ switches })} label="Switch chart (page 2)" hint="Every formation to every other: who comes in, who goes out, who moves" />
         </div>
         {opts.ink && (
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            In black and white, the kids who move are white chips with a black ring, and each one's path has its own dashes.
+            In black and white, a kid's move is an outlined chip and the formation tags are outlined.
           </p>
         )}
       </div>
       <div ref={box} className="min-w-0">
         <div className="text-[11px] font-black uppercase tracking-wider text-slate-500 mb-1.5">Preview</div>
-        <div className="rounded-lg shadow-lg ring-1 ring-slate-300 dark:ring-slate-700 overflow-hidden bg-white" style={{ width: pw * scale, height: ph * scale }}>
+        {/* Page 2 (the switch chart) follows page 1 in the preview. */}
+        <div className="rounded-lg shadow-lg ring-1 ring-slate-300 dark:ring-slate-700 overflow-hidden bg-white" style={{ width: pw * scale, height: ph * pages * scale }}>
           <iframe
             title="Print preview"
-            srcDoc={sheet.replace('<body>', '<body style="padding:0.35in">')}
-            style={{ width: pw, height: ph, border: 0, transform: `scale(${scale})`, transformOrigin: '0 0', pointerEvents: 'none' }}
+            srcDoc={sheet.replace('<body>', '<body style="padding:0.35in">').replace('.switches { break-before: page; }', `.switches { position: absolute; top: ${ph}px; left: 0.35in; right: 0.35in; padding-top: 0.35in; border-top: 2px dashed #c9cfc8; }`)}
+            style={{ width: pw, height: ph * pages, border: 0, transform: `scale(${scale})`, transformOrigin: '0 0', pointerEvents: 'none' }}
           />
         </div>
       </div>

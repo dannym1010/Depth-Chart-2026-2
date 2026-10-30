@@ -143,6 +143,37 @@ export function nuclearGrid(pkg: NuclearPackage, formIds: string[]): { kid: Nucl
     .map((kid) => ({ kid, cells: formIds.map((id) => (kid.at[id] ? pkg.spots[kid.at[id]].label : null)) }));
 }
 
+export interface NuclearSwitch {
+  /** Coming in, to this spot; `for`: the kid he goes in for, when the subs pair up one for one. */
+  ins: { kid: NuclearKid; to: string; for?: NuclearKid }[];
+  outs: { kid: NuclearKid; from: string }[];
+  moves: { kid: NuclearKid; from: string; to: string }[];
+}
+
+/** Going from one formation to another: who comes in, who goes out, who changes spots. */
+export function nuclearSwitch(pkg: NuclearPackage, from: string, to: string): NuclearSwitch {
+  const out: NuclearSwitch = { ins: [], outs: [], moves: [] };
+  for (const kid of pkg.kids) {
+    const a = kid.at[from], b = kid.at[to];
+    if (a && !b) out.outs.push({ kid, from: pkg.spots[a].label });
+    else if (!a && b) out.ins.push({ kid, to: pkg.spots[b].label });
+    else if (a && b && a !== b) out.moves.push({ kid, from: pkg.spots[a].label, to: pkg.spots[b].label });
+  }
+  // One in for one out: the kid whose spot he takes first, then in order.
+  if (out.ins.length === out.outs.length) {
+    const left = out.outs.map((o) => o.kid);
+    for (const i of out.ins) {
+      const same = out.outs.find((o) => o.from === i.to && left.includes(o.kid))?.kid;
+      if (same) {
+        i.for = same;
+        left.splice(left.indexOf(same), 1);
+      }
+    }
+    for (const i of out.ins) if (!i.for) i.for = left.shift();
+  }
+  return out;
+}
+
 export interface NuclearColors {
   turf: string;
   turfLine: string;
@@ -309,10 +340,23 @@ export type NuclearPrintOptions = {
   moves: boolean;
   /** Each formation drawn small. */
   formations: boolean;
+  /** A second page: every formation to every other, who comes in, goes out and moves. */
+  switches: boolean;
   /** The base formation the chart shades changes from (not a saved preference). */
   baseId?: string;
 };
-export const NUCLEAR_PRINT_DEFAULTS: NuclearPrintOptions = { orientation: 'landscape', ink: false, names: true, moves: true, formations: true };
+export const NUCLEAR_PRINT_DEFAULTS: NuclearPrintOptions = { orientation: 'landscape', ink: false, names: true, moves: true, formations: true, switches: false };
+
+/** The lines of one switch, as HTML: subs first (in for out), then the kids who change spots. */
+export function nuclearSwitchLines(sw: NuclearSwitch): string[] {
+  const kid = (k: NuclearKid) => `<b>#${esc(k.num)}</b> ${esc(k.name)}`;
+  const paired = new Set(sw.ins.map((i) => i.for).filter(Boolean));
+  return [
+    ...sw.ins.map((i) => `<span class="tag in">IN</span> ${kid(i.kid)}${i.for ? ` for ${kid(i.for)}` : ''} &rarr; <b>${esc(i.to)}</b>`),
+    ...sw.outs.filter((o) => !paired.has(o.kid)).map((o) => `<span class="tag out">OUT</span> ${kid(o.kid)} (${esc(o.from)})`),
+    ...sw.moves.map((m) => `${kid(m.kid)} ${esc(m.from)} &rarr; <b>${esc(m.to)}</b>`),
+  ];
+}
 
 /** One page: the package on one field, who moves, and each formation small (each part can be left off). */
 export function nuclearPrintHtml(pkg: NuclearPackage, formIds: string[], title: string, subtitle: string, options: Partial<NuclearPrintOptions> = {}): string {
@@ -340,6 +384,22 @@ export function nuclearPrintHtml(pkg: NuclearPackage, formIds: string[], title: 
     })
     .join('');
   const fixed = pkg.kids.filter((k) => k.fixed).map((k) => `#${esc(k.num)} ${esc(k.name)} (${esc(pkg.spots[Object.values(k.at)[0]]?.label || '')})`).join(' · ');
+  // Page 2: from each formation (rows) to each other (columns).
+  const switches =
+    o.switches && formIds.length > 1
+      ? `<div class="switches"><div class="head"><h1>${esc(title)}: switches</h1><span class="sub">From the row's formation to the column's</span></div><table class="sw-grid"><thead><tr><th>From &darr; &nbsp; To &rarr;</th>${formIds.map((id) => `<th>${sw(id)}${esc(labelOf(id))}</th>`).join('')}</tr></thead><tbody>${formIds
+          .map(
+            (from) =>
+              `<tr><th>${sw(from)}${esc(labelOf(from))}</th>${formIds
+                .map((to) => {
+                  if (to === from) return '<td class="self"></td>';
+                  const lines = nuclearSwitchLines(nuclearSwitch(pkg, from, to));
+                  return `<td>${lines.length ? lines.map((l) => `<div>${l}</div>`).join('') : '<div class="none">No change</div>'}</td>`;
+                })
+                .join('')}</tr>`
+          )
+          .join('')}</tbody></table></div>`
+      : '';
   const cols = portrait ? Math.min(2, formIds.length) : Math.min(4, formIds.length);
   const minis = o.formations
     ? formIds
@@ -378,6 +438,17 @@ ${portrait ? '.field svg { max-height: 3.5in; width: auto !important; max-width:
 .mini { border: 1px solid #d9ddd8; border-radius: 8px; padding: 4px; break-inside: avoid; }
 .mt { font: 800 16px/1 "Barlow Condensed", Arial, sans-serif; padding: 2px 4px 4px; }
 .mt small { font: 700 10px/1 Barlow, Arial, sans-serif; text-transform: uppercase; letter-spacing: .08em; color: ${C.muted}; }
+.switches { break-before: page; }
+.sw-grid { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12px; line-height: 1.35; }
+.sw-grid th { font: 800 16px/1 "Barlow Condensed", Arial, sans-serif; padding: 6px; border: 1px solid #c9cfc8; background: #f3f5f2; text-align: left; }
+.sw-grid thead th:first-child { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: ${C.muted}; }
+.sw-grid td { vertical-align: top; padding: 6px; border: 1px solid #c9cfc8; }
+.sw-grid td > div { padding: 2px 0; }
+.sw-grid td.self { background: repeating-linear-gradient(135deg, #f3f5f2 0 6px, #fff 6px 12px); }
+.sw-grid .none { color: ${C.muted}; font-style: italic; }
+.tag { display: inline-block; font: 800 10px/1 "Barlow Condensed", Arial, sans-serif; padding: 2px 4px; border-radius: 3px; letter-spacing: .05em; vertical-align: 1px; }
+.tag.in { background: ${C.inkOnly ? C.ink : '#2b8a3e'}; color: #fff; }
+.tag.out { background: #fff; color: ${C.ink}; border: 1.5px solid ${C.ink}; }
 </style></head><body>
 <div class="head"><h1>${esc(title)}</h1><span class="sub">${esc(subtitle)}</span></div>
 <div class="main">
@@ -385,5 +456,6 @@ ${portrait ? '.field svg { max-height: 3.5in; width: auto !important; max-width:
   ${side}
 </div>
 ${minis ? `<div class="minis">${minis}</div>` : ''}
+${switches}
 </body></html>`;
 }
