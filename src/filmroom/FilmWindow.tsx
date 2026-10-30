@@ -4,6 +4,7 @@
 // Room does (the folder or Google Drive link for that scouting film), the same player, and the same
 // shared drawings and notes.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Expand, ExternalLink, Film, Maximize2, Minimize2, Minus, Plus, RefreshCw, Shrink, X } from 'lucide-react';
 import { bundleFromSaved } from '../hudlScout/scoutBundle';
 import type { Play } from '../hudlScout/types/football';
@@ -22,7 +23,9 @@ import {
   closeFilmWindow,
   filmWindowAutoOpen,
   setFilmWindowAutoOpen,
+  useFilmWindowDock,
   useFilmWindowRequest,
+  type FilmWindowDock,
   type FilmWindowRequest,
 } from './filmWindowStore';
 
@@ -43,8 +46,9 @@ interface HostProps {
 /** Draws the film window when something asked for it. One of these lives in App. */
 export const FilmWindowHost: React.FC<HostProps> = (props) => {
   const request = useFilmWindowRequest();
+  const dock = useFilmWindowDock();
   if (!request) return null;
-  return <FilmWindow key={`${props.teamId}:${request.source || 'opponent'}:${request.gameId}`} {...props} request={request} />;
+  return <FilmWindow key={`${props.teamId}:${request.source || 'opponent'}:${request.gameId}`} {...props} request={request} dock={dock} />;
 };
 
 const SIZES = { s: 470, l: 700 } as const;
@@ -80,8 +84,9 @@ function useMedia(query: string) {
   return match;
 }
 
-const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
-  teamId, teamName, currentWeek, opponentName, opponentScout, ownTeamScout, authorName, onOpenInFilmRoom, request,
+/** Docked (presentation mode): the film fills that place instead of floating, without the window's own buttons. */
+const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: FilmWindowDock | null }> = ({
+  teamId, teamName, currentWeek, opponentName, opponentScout, ownTeamScout, authorName, onOpenInFilmRoom, request, dock,
 }) => {
   const oppBundle = useMemo(() => bundleFromSaved(opponentScout, opponentName || 'Opponent'), [opponentScout, opponentName]);
   const ownBundle = useMemo(() => bundleFromSaved(ownTeamScout, teamName), [ownTeamScout, teamName]);
@@ -252,7 +257,21 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
   });
   const [mini, setMini] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const fill = (expanded || isShort) && !mini;
+  const fill = !dock && (expanded || isShort) && !mini;
+  // Docked: the video as big as the place allows (the controls and the snaps under it).
+  const [dockSize, setDockSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    if (!dock) return;
+    const measure = () => setDockSize({ w: dock.el.clientWidth, h: dock.el.clientHeight });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(dock.el);
+    return () => ro.disconnect();
+  }, [dock?.el]);
+  // The other view showing: the film stops.
+  useEffect(() => {
+    if (dock && !dock.shown) apiRef.current?.video?.()?.pause();
+  }, [dock?.shown]);
   // The page behind doesn't scroll while the window fills the screen; Escape shrinks it back.
   useEffect(() => {
     if (!fill) return;
@@ -275,7 +294,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
     y: Math.max(64, Math.min(p.y, window.innerHeight - 48)),
   });
   const onTitleDown = (e: React.PointerEvent) => {
-    if (isPhone || fill || (e.target as HTMLElement).closest('button')) return;
+    if (isPhone || fill || dock || (e.target as HTMLElement).closest('button')) return;
     const r = boxRef.current?.getBoundingClientRect();
     if (!r) return;
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
@@ -310,7 +329,9 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
     return () => document.removeEventListener('pointerdown', on, true);
   }, []);
 
-  const videoMax = fill
+  const videoMax = dock
+    ? `${Math.max(160, Math.round(Math.min(dockSize.h - 200, ((dockSize.w || 640) * 9) / 16)))}px`
+    : fill
     ? isShort
       ? 'calc(100dvh - 6rem)'
       : 'min(calc(100dvh - 15rem), calc((100vw - 1rem) * 9 / 16))'
@@ -391,7 +412,9 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
 
   // Clear of the iPhone's notch and home bar.
   const safe = (side: 'top' | 'right' | 'bottom' | 'left', px = 0) => `calc(${px}px + env(safe-area-inset-${side}, 0px))`;
-  const style: React.CSSProperties = fill
+  const style: React.CSSProperties = dock
+    ? {}
+    : fill
     ? { inset: 0, paddingTop: safe('top'), paddingRight: safe('right'), paddingBottom: safe('bottom'), paddingLeft: safe('left') }
     : isPhone
       ? { left: safe('left', 8), right: safe('right', 8), bottom: safe('bottom', 8) }
@@ -404,14 +427,14 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
   const gain = (p: Play) => (Number.isFinite(Number(p.gainLoss)) && p.gainLoss !== undefined ? `${p.gainLoss > 0 ? '+' : ''}${p.gainLoss}` : '');
   const views = film.status === 'ready' ? film.views : [];
 
-  return (
+  const body = (
     <>
       <div
         ref={boxRef}
-        role="dialog"
+        role={dock ? 'region' : 'dialog'}
         aria-label="Film window"
-        className={`fixed z-[45] overflow-hidden flex flex-col ${
-          fill ? 'bg-slate-950' : 'bg-white dark:bg-slate-900 rounded-xl border border-slate-300 dark:border-slate-600 shadow-2xl'
+        className={`${dock ? 'h-full overflow-y-auto' : 'fixed z-[45] overflow-hidden'} flex flex-col ${
+          fill ? 'bg-slate-950' : dock ? 'bg-white dark:bg-slate-900' : 'bg-white dark:bg-slate-900 rounded-xl border border-slate-300 dark:border-slate-600 shadow-2xl'
         }`}
         style={style}
       >
@@ -419,7 +442,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
           onPointerDown={onTitleDown}
           onPointerMove={onTitleMove}
           onPointerUp={onTitleUp}
-          className={`flex items-center gap-1.5 px-2.5 h-9 pointer-coarse:h-11 bg-slate-900 text-white shrink-0 select-none touch-none ${isPhone || fill ? '' : 'cursor-move'}`}
+          className={`flex items-center gap-1.5 px-2.5 h-9 pointer-coarse:h-11 bg-slate-900 text-white shrink-0 select-none touch-none ${isPhone || fill || dock ? '' : 'cursor-move'}`}
         >
           <Film size={14} className="text-indigo-300 shrink-0" />
           <span className="text-xs font-black truncate min-w-0 flex-1" title={request.label}>
@@ -430,7 +453,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
               {Math.min(index, watch.length - 1) + 1} / {watch.length}
             </span>
           )}
-          {onOpenInFilmRoom && watch.length > 0 && (
+          {onOpenInFilmRoom && !dock && watch.length > 0 && (
             <button
               type="button"
               onClick={() => onOpenInFilmRoom({ ...request, gameId: activeGameId, source })}
@@ -451,7 +474,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
               <ExternalLink size={14} />
             </button>
           )}
-          {!isPhone && !fill && (
+          {!isPhone && !fill && !dock && (
             <button
               type="button"
               aria-label={size === 's' ? 'Make the window bigger' : 'Make the window smaller'}
@@ -462,7 +485,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
               {size === 's' ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
             </button>
           )}
-          {!isShort && !mini && (
+          {!dock && !isShort && !mini && (
             <button
               type="button"
               aria-label={expanded ? 'Back to the small window' : 'Fill the screen'}
@@ -473,7 +496,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
               {expanded ? <Shrink size={15} /> : <Expand size={15} />}
             </button>
           )}
-          <button
+          {!dock && <button
             type="button"
             aria-label={mini ? 'Show the video' : 'Tuck the window away'}
             title={mini ? 'Show' : 'Tuck away'}
@@ -481,13 +504,13 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
             className={headBtn}
           >
             {mini ? <Plus size={14} /> : <Minus size={14} />}
-          </button>
-          <button type="button" aria-label="Close the film window" title="Close" onClick={closeFilmWindow} className={headBtn}>
+          </button>}
+          {!dock && <button type="button" aria-label="Close the film window" title="Close" onClick={closeFilmWindow} className={headBtn}>
             <X size={15} />
-          </button>
+          </button>}
         </div>
 
-        {!mini && (
+        {(dock || !mini) && (
           <>
             {cutupStats && (
               <div className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-1 bg-slate-950 border-b border-slate-800 text-[11px] text-slate-300 shrink-0">
@@ -529,7 +552,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
               apiRef={apiRef}
               playLines={playLines}
               startAt={resumeAt.current}
-              shortcuts={focused}
+              shortcuts={focused && (!dock || dock.shown)}
             />
             {/* Filling a tall screen: each snap as a line to read and tap (the chips are for the small window). */}
             {fill && !isShort && watch.length > 0 && (
@@ -625,7 +648,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
               </div>
             )}
             {/* A setting, not something to do while watching: left off a phone's small window and a filled short screen. */}
-            {!(isPhone && !fill) && !isShort && <label className={`flex items-center gap-1.5 px-2.5 py-1.5 border-t text-[11px] cursor-pointer ${fill ? 'border-slate-800 text-slate-400 bg-slate-950' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'}`}>
+            {!dock && !(isPhone && !fill) && !isShort && <label className={`flex items-center gap-1.5 px-2.5 py-1.5 border-t text-[11px] cursor-pointer ${fill ? 'border-slate-800 text-slate-400 bg-slate-950' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'}`}>
               <input
                 type="checkbox"
                 checked={auto}
@@ -652,4 +675,5 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
       )}
     </>
   );
+  return dock ? createPortal(body, dock.el) : body;
 };

@@ -98,3 +98,21 @@ const subscribe = (l: () => void) => {
 export function useFilmWindowRequest(): FilmWindowRequest | null {
   return useSyncExternalStore(subscribe, () => current, () => null);
 }
+
+/** Where the film shows instead of floating (presentation mode's Film view), and whether that view is showing. */
+export interface FilmWindowDock {
+  el: HTMLElement;
+  shown: boolean;
+}
+
+let dock: FilmWindowDock | null = null;
+
+export function setFilmWindowDock(next: FilmWindowDock | null) {
+  if (dock === next || (dock && next && dock.el === next.el && dock.shown === next.shown)) return;
+  dock = next;
+  emit();
+}
+
+export function useFilmWindowDock(): FilmWindowDock | null {
+  return useSyncExternalStore(subscribe, () => dock, () => null);
+}
