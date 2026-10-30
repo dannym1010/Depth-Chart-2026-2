@@ -63,12 +63,17 @@ const FILM_START = HOMOGRAPHY_PRESETS.endzone.quad;
  * The lineup a quarter turn clockwise about its middle, on a 16:9 picture (for film shot from another angle).
  */
 function rotateQuad(q: HomographyQuad): HomographyQuad {
+  return turnQuad(q, 90, 1);
+}
+/** The lineup turned `degrees` clockwise and sized by `scale`, about its middle, on a 16:9 picture. */
+export function turnQuad(q: HomographyQuad, degrees: number, scale: number): HomographyQuad {
   const A = 16 / 9;
   const all = [q.losLeft, q.losRight, q.backLeft, q.backRight];
   const cu = all.reduce((s, p) => s + p.u, 0) / 4, cv = all.reduce((s, p) => s + p.v, 0) / 4;
+  const a = (degrees * Math.PI) / 180, cos = Math.cos(a), sin = Math.sin(a);
   const turn = (p: ImagePoint): ImagePoint => {
     const x = (p.u - cu) * A, y = p.v - cv;
-    return { u: Math.round((cu - y / A) * 1000) / 1000, v: Math.round((cv + x) * 1000) / 1000 };
+    return { u: Math.round((cu + ((x * cos - y * sin) * scale) / A) * 1000) / 1000, v: Math.round((cv + (x * sin + y * cos) * scale) * 1000) / 1000 };
   };
   return { ...q, losLeft: turn(q.losLeft), losRight: turn(q.losRight), backLeft: turn(q.backLeft), backRight: turn(q.backRight), preset: 'custom' };
 }
@@ -105,6 +110,8 @@ export function usePlayLines(opts: {
   const [slow, setSlow] = useState(true);
   // Turned on, it shows the players lined up; the lines come on with a click.
   const [showLines, setShowLines] = useState(false);
+  // Lining up: the 4 corners to drag, only when the coach wants an exact fit.
+  const [corners, setCorners] = useState(false);
   const lineupKey = `mahopac_film_lineup_${filmKey}`;
 
   // A play not lined up yet: the last lineup on this film, else the line of scrimmage across the picture.
@@ -157,7 +164,7 @@ export function usePlayLines(opts: {
       setOn((v) => !v);
     },
     layer: ({ playing, zoom }) =>
-      shown && frame && !playing ? <LinesDrawing video={video} lines={shown} frame={moving ? frame : null} side={side} showLines={showLines} lineUp={lineUp} zoom={zoom} /> : null,
+      shown && frame && !playing ? <LinesDrawing video={video} lines={shown} frame={moving ? frame : null} side={side} showLines={showLines} lineUp={lineUp} corners={corners} zoom={zoom} /> : null,
     controls: ({ playing }) => (
       <div className="absolute right-2 top-11 z-20 flex flex-col items-end gap-1.5 pointer-events-auto" {...keep}>
         <div className="flex flex-wrap justify-end gap-1 p-1 rounded-xl" style={panel}>
@@ -205,14 +212,9 @@ export function usePlayLines(opts: {
                   Reset
                 </button>
               )}
-              <button type="button" className={`${btn} ${lineUp ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`} onClick={() => setLineUp((v) => !v)} title="Show the yard lines and drag the corners to fit the field on the film">
+              <button type="button" className={`${btn} ${lineUp ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`} onClick={() => setLineUp((v) => !v)} title="Show the yard lines: move, turn and size them to fit the field on the film">
                 Line up field
               </button>
-              {lineUp && (
-                <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown?.setQuad(rotateQuad(shown.quad))} title="Turn the lineup a quarter turn (film shot from another angle)">
-                  ⟳ Rotate
-                </button>
-              )}
               <span className="inline-flex rounded-lg overflow-hidden border border-white/15" role="group" aria-label="Show">
                 {SIDES.map(([id, label]) => (
                   <button key={id} type="button" aria-pressed={side === id} className={`h-8 px-2 text-xs font-bold cursor-pointer ${side === id ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`} onClick={() => pickSide(id)}>
@@ -231,10 +233,45 @@ export function usePlayLines(opts: {
             {waiting}
           </div>
         )}
-        {lines && lineUp && !playing && (
-          <div className="max-w-xs rounded-lg px-2.5 py-1.5 text-[11px] leading-snug" style={panel}>
-            Drag the <b style={{ color: '#f59e0b' }}>orange</b> dots onto the line of scrimmage and the <b style={{ color: '#38bdf8' }}>blue</b> dots 5 yards behind it, until the orange line sits on the ball. The middle handle moves it all; Rotate turns it a quarter turn. Saved with this play; the next play on this film starts from it.
-          </div>
+        {lines && lineUp && !playing && shown && (
+          <>
+            {/* Lining up: move, turn and size the field (the corners only when asked for). */}
+            <div className="flex flex-wrap justify-end items-center gap-1 p-1 rounded-xl" style={panel}>
+              <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">Turn</span>
+              <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad(turnQuad(shown.quad, -5, 1))} title="Turn left a little" aria-label="Turn left">
+                ⟲
+              </button>
+              <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad(turnQuad(shown.quad, 5, 1))} title="Turn right a little" aria-label="Turn right">
+                ⟳
+              </button>
+              <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad(rotateQuad(shown.quad))} title="A quarter turn (film shot from the side)">
+                90°
+              </button>
+              <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">Size</span>
+              <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(turnQuad(shown.quad, 0, 1 / 1.08))} title="Smaller" aria-label="Smaller">
+                −
+              </button>
+              <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(turnQuad(shown.quad, 0, 1.08))} title="Bigger" aria-label="Bigger">
+                +
+              </button>
+              <button type="button" className={`${btn} ${corners ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`} onClick={() => setCorners((v) => !v)} title="Drag each corner for an exact fit">
+                Corners
+              </button>
+              <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad({ ...FILM_START, preset: 'custom' })} title="Back to the starting lineup">
+                Reset
+              </button>
+            </div>
+            <div className="max-w-xs rounded-lg px-2.5 py-1.5 text-[11px] leading-snug" style={panel}>
+              Drag the field to move it. Turn and size it until the <b style={{ color: '#f59e0b' }}>orange</b> line sits on the ball and the yard lines match the film.
+              {corners && (
+                <>
+                  {' '}
+                  Corners: <b style={{ color: '#f59e0b' }}>orange</b> on the line of scrimmage, <b style={{ color: '#38bdf8' }}>blue</b> 5 yards behind it.
+                </>
+              )}{' '}
+              Saved with this play; the next play on this film starts from it.
+            </div>
+          </>
         )}
         {lines && side === 'defense' && !lines.nodes.some((n) => isDefenseRole(n.role)) && (
           <div className="max-w-xs rounded-lg px-2.5 py-1.5 text-[11px] leading-snug" style={panel}>
@@ -339,8 +376,10 @@ const LinesDrawing: React.FC<{
   /** The play's lines (off: just the players lined up, and their trails when the play runs). */
   showLines: boolean;
   lineUp: boolean;
+  /** Lining up: the 4 corners to drag one at a time. */
+  corners: boolean;
   zoom: number;
-}> = ({ video, lines, frame, side, showLines, lineUp, zoom }) => {
+}> = ({ video, lines, frame, side, showLines, lineUp, corners, zoom }) => {
   const boxRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
@@ -531,7 +570,7 @@ const LinesDrawing: React.FC<{
           onPointerMove={onMove}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
-          {...(lineUp ? { onPointerDown: (e: React.PointerEvent) => e.stopPropagation(), onClick: (e: React.MouseEvent) => e.stopPropagation() } : {})}
+          {...(lineUp ? { onPointerDown: startDrag('all'), onClick: (e: React.MouseEvent) => e.stopPropagation(), style: { left, top, width: cw, height: ch, pointerEvents: 'auto' as const, cursor: 'move', touchAction: 'none' as const } } : {})}
         >
           {lineUp &&
             buildProjectedFieldGrid(quad).map((g) => (
@@ -566,7 +605,7 @@ const LinesDrawing: React.FC<{
           {frame && <circle cx={px(frame.ball)[0]} cy={px(frame.ball)[1]} r={5 * k} fill="#92400e" stroke="#fff" strokeWidth={1.5 * k} />}
           {lineUp && (
             <>
-              {CORNERS.map(({ key, color }) => (
+              {corners && CORNERS.map(({ key, color }) => (
                 <circle
                   key={key}
                   cx={quad[key].u * cw}
