@@ -1,4 +1,4 @@
-import { isDefenseRole, lineStartsOn, type PlayNode, type PlayStroke } from './footballEngine';
+import { isDefenseRole, isThrownLine, lineStartsOn, type PlayNode, type PlayStroke } from './footballEngine';
 
 export interface AnimatedTrail {
   role: string;
@@ -222,8 +222,9 @@ export function computeAnimatedPlayFrame(
 
   // Determine overall play type (run vs pass) and target horizontal flow
   const hasPassRoutes = allStrokes.filter((s) => s.kind === 'pass' && !(s.motion && s.motion >= s.points.length - 1)).length >= 2;
-  // The ball carrier runs a route (not the QB): it's thrown to him.
-  const throwTo = ballRole !== '1' && ballRole !== 'QB' && roleStroke.get(ballRole)?.kind === 'pass';
+  // The ball carrier runs a route, or a back's run line marked as a pass (not the QB): it's thrown to him.
+  const carrierLine = roleStroke.get(ballRole);
+  const throwTo = ballRole !== '1' && ballRole !== 'QB' && Boolean(carrierLine && isThrownLine(carrierLine));
   const isPassPlay = throwTo || (hasPassRoutes && !roleStroke.get(ballRole)?.kind?.includes('run'));
 
   const holeXMap: Record<number, number> = {
@@ -354,9 +355,9 @@ export function computeAnimatedPlayFrame(
         });
       }
     } else if (n.role === '1' || n.role === 'QB') {
-      // QB opens toward the ball carrier mesh point, then carries out boot fake
+      // QB opens toward the ball carrier mesh point, then carries out boot fake (a pass: he drops straight back)
       const qbT = easeOutQuad(Math.min(1, postSnapT * 1.5));
-      const bootDir = fallbackAimX >= 0 ? -1 : 1;
+      const bootDir = isPassPlay ? 0 : fallbackAimX >= 0 ? -1 : 1;
       animatedPos.set(n.role, {
         x: Math.round((n.x + bootDir * 1.8 * qbT) * 100) / 100,
         y: Math.round((n.y - 1.2 * qbT) * 100) / 100,
@@ -393,12 +394,24 @@ export function computeAnimatedPlayFrame(
     const passStrokeEntry =
       Array.from(roleStroke.entries()).find(([r, s]) => r === ballRole && s.kind === 'pass') ||
       Array.from(roleStroke.entries()).find(([, s]) => s.kind === 'pass');
-    const targetRole = passStrokeEntry?.[0];
+    const targetRole = throwTo ? ballRole : passStrokeEntry?.[0];
     const targetPos = (targetRole && animatedPos.get(targetRole)) || carrierNow;
-    if (postSnapT < 0.45) {
+    // Thrown, then caught: a back's run line is caught at the end of its first leg (he runs with it after).
+    let release = 0.45;
+    let caught = 0.78;
+    if (throwTo && carrierLine?.kind === 'run' && carrierNode) {
+      const pts = [{ x: carrierNode.x, y: carrierNode.y }, ...carrierLine.points.slice(1)];
+      const at = Math.min(pts.length - 1, (carrierLine.motion || 0) + 1);
+      const len = (a: number, b: number) => pts.slice(a + 1, b + 1).reduce((sum, p, i) => sum + Math.hypot(p.x - pts[a + i].x, p.y - pts[a + i].y), 0);
+      const m = carrierLine.motion || 0;
+      const total = len(m, pts.length - 1);
+      caught = Math.max(0.35, Math.min(0.85, total > 0 ? len(m, at) / total : 0.5));
+      release = Math.max(0.12, caught - 0.25);
+    }
+    if (postSnapT < release) {
       ball = { x: qbNow.x, y: qbNow.y, inAir: false };
-    } else if (postSnapT < 0.78) {
-      const airT = (postSnapT - 0.45) / 0.33;
+    } else if (postSnapT < caught) {
+      const airT = (postSnapT - release) / (caught - release);
       ball = {
         x: qbNow.x + (targetPos.x - qbNow.x) * airT,
         y: qbNow.y + (targetPos.y - qbNow.y) * airT,

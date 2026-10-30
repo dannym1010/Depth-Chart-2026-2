@@ -514,6 +514,21 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     change(strokes.filter((s) => s !== mine));
   };
 
+  // The ball carrier's run line: handed off, or thrown to him (a pass to a back).
+  const handleThrownChange = (role: string, thrown: boolean) => {
+    const pNode = nodes.find((n) => n.role === role);
+    const mine = pNode && strokeFor(strokes, pNode, nodes);
+    if (!mine || Boolean(mine.thrown) === thrown) return;
+    remember();
+    change(
+      strokes.map((s) => {
+        if (s !== mine) return s;
+        const { thrown: _was, ...rest } = s;
+        return thrown ? { ...rest, thrown: true } : rest;
+      })
+    );
+  };
+
   const pointFromEvent = (e: React.PointerEvent | React.MouseEvent) => {
     const svg = svgRef.current;
     if (!svg) return { x: 0, y: 0, cx: 0, cy: 0 };
@@ -884,6 +899,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       onClear={handleClearPlayerRoute}
       onPreview={setPreviewAction}
       onBallCarrierChange={onBallCarrierChange}
+      onThrownChange={handleThrownChange}
     onLabelChange={onLabelChange}
     defenseWho={defenseWho}
       ctx={{ holesXs, qbNode: nodes.find((n) => n.role === '1' || n.role === 'QB') }}

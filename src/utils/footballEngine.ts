@@ -2112,6 +2112,8 @@ export interface PlayStroke {
   zone?: { rx: number; ry: number };
   /** Man coverage: the receiver he's on (a dotted line to him and a ring around him, no arrow). */
   man?: { x: number; y: number };
+  /** A run line the ball is thrown to (a pass to a back), not handed off: caught at the end of its first leg. */
+  thrown?: boolean;
 }
 
 /** Pre-snap motion is drawn as a zigzag in its own color. */
@@ -2810,18 +2812,21 @@ export const MAN_RING = 17;
 /** The ball in the air: a dotted line from the QB to the catch, and the ball there. */
 export const THROW_COLOR = '#92400e';
 
+/** A line the ball is thrown to: a pass route, or a run line marked as a pass (to a back). */
+export const isThrownLine = (s: PlayStroke) => s.kind === 'pass' || (s.kind === 'run' && Boolean(s.thrown));
+
 /**
- * A pass to the ball carrier: from the QB to the end of the carrier's route (the catch). Nothing when the QB
- * keeps it or the carrier runs (that's a handoff).
+ * A pass to the ball carrier: from the QB to the catch, the end of his route (a back's run line marked as a pass:
+ * the end of its first leg, then he runs with it). Nothing when the QB keeps it or the carrier is handed the ball.
  */
 export function passThrow(nodes: PlayNode[], strokes: PlayStroke[], ballRole?: string): { from: { x: number; y: number }; to: { x: number; y: number } } | null {
   if (!ballRole || ballRole === '1' || ballRole === 'QB') return null;
   const qb = nodes.find((n) => n.role === '1' || n.role === 'QB');
   const carrier = nodes.find((n) => n.role === ballRole);
   if (!qb || !carrier) return null;
-  const route = strokes.find((s) => s.kind === 'pass' && s.points.length >= 2 && !(s.motion && s.motion >= s.points.length - 1) && lineStartsOn(s, carrier, nodes));
+  const route = strokes.find((s) => isThrownLine(s) && s.points.length >= 2 && !(s.motion && s.motion >= s.points.length - 1) && lineStartsOn(s, carrier, nodes));
   if (!route) return null;
-  const end = route.points[route.points.length - 1];
+  const end = route.kind === 'run' ? route.points[Math.min(route.points.length - 1, (route.motion || 0) + 1)] : route.points[route.points.length - 1];
   return { from: { x: qb.x, y: qb.y }, to: { x: end.x, y: end.y } };
 }
 

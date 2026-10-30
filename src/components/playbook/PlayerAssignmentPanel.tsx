@@ -162,6 +162,8 @@ interface Props {
   onClear: (role: string) => void;
   onPreview: (preset: PlayerActionPreset | null) => void;
   onBallCarrierChange?: (role: string) => void;
+  /** The ball carrier's run line: handed off (false) or thrown to him (true, a pass to a back). */
+  onThrownChange?: (role: string, thrown: boolean) => void;
   /** Rename a player on the diagram ("" puts the usual letter back). */
   onLabelChange?: (role: string, label: string) => void;
   /** Who plays this defender (when defenders are tagged from the depth chart). */
@@ -186,6 +188,7 @@ export const PlayerAssignmentPanel: React.FC<Props> = ({
   onClear,
   onPreview,
   onBallCarrierChange,
+  onThrownChange,
   onLabelChange,
   defenseWho,
   ctx,
@@ -305,6 +308,22 @@ export const PlayerAssignmentPanel: React.FC<Props> = ({
                   ? 'Has the ball'
                   : 'Make ball carrier'}
             </button>
+          )}
+          {onThrownChange && !readOnly && player.role === ballRole && current?.kind === 'run' && player.role !== '1' && (
+            <span className="inline-flex h-8 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 text-[11px] font-black" role="group" aria-label="How he gets the ball">
+              {([[false, 'Handoff'], [true, 'Pass']] as const).map(([thrown, text]) => (
+                <button
+                  key={text}
+                  type="button"
+                  aria-pressed={Boolean(current.thrown) === thrown}
+                  onClick={() => onThrownChange(player.role, thrown)}
+                  title={thrown ? 'The QB throws it to him: a dotted ball line to the end of the first leg of his line, then he runs with it' : 'The QB hands it to him'}
+                  className={`px-2 cursor-pointer ${Boolean(current.thrown) === thrown ? 'bg-orange-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-orange-50 dark:hover:bg-slate-700'}`}
+                >
+                  {text}
+                </button>
+              ))}
+            </span>
           )}
           {current && !readOnly && (
             <button

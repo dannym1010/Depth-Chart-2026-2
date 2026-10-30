@@ -78,3 +78,25 @@ describe('running a play: a pass to the ball carrier', () => {
     assert.deepEqual([end.ball.x, end.ball.y], [x.x, x.y]);
   });
 });
+
+describe('running a play: a pass to a running back', () => {
+  const nodes = [{ role: 'C', x: 0, y: 0 }, { role: '1', x: 0, y: -1 }, { role: '3', x: 0, y: -5 }, { role: 'X', x: -12, y: -1 }] as PlayNode[];
+  // A swing to the flat, then up the field.
+  const swing: PlayStroke = { kind: 'run', points: [{ x: 0, y: -5 }, { x: 8, y: -3 }, { x: 9, y: 10 }] };
+  const go: PlayStroke = { kind: 'pass', points: [{ x: -12, y: -1 }, { x: -12, y: 12 }] };
+  it('a run line is a handoff unless marked as a pass', () => {
+    assert.equal(passThrow(nodes, [swing, go], '3'), null);
+    assert.deepEqual(passThrow(nodes, [{ ...swing, thrown: true }, go], '3'), { from: { x: 0, y: -1 }, to: { x: 8, y: -3 } });
+  });
+  it('marked as a pass: thrown to him (not the receiver), caught at the end of his first leg, then he runs with it', () => {
+    const strokes = [{ ...swing, thrown: true }, go];
+    // In the air on the way to him (aimed at him, not the receiver on the go route).
+    const frames = Array.from({ length: 101 }, (_, i) => computeAnimatedPlayFrame(nodes, strokes, [], '3', i / 100));
+    const flying = frames.filter((f) => f.ball.inAir && f.progress > 0.2);
+    assert.ok(flying.length > 0, 'thrown');
+    assert.ok(flying.every((f) => f.ball.x >= 0), 'toward the back, not the X');
+    const end = computeAnimatedPlayFrame(nodes, strokes, [], '3', 1);
+    const back = end.nodes.find((n) => n.role === '3')!;
+    assert.deepEqual([end.ball.x, end.ball.y], [back.x, back.y]);
+  });
+});
