@@ -966,6 +966,8 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
         className={`${overlay} z-10 flex flex-col pointer-events-none sm:pt-8`}
         style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.92), rgba(0,0,0,0.6) 65%, rgba(0,0,0,0))' }}
       >
+        {/* Play lines' buttons, right above the Play lines button that turns them off. */}
+        {playLines?.on && src && !drawing && playLines.bar({ playing })}
         <div className="pointer-events-auto flex items-center gap-2 px-3 pt-2 text-[11px] tabular-nums" style={{ color: DIM }}>
           <span>{fmtTime(time)}</span>
           <div className="relative flex-1 flex items-center">

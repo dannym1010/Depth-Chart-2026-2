@@ -22,6 +22,9 @@ export interface PlayLinesControl {
   on: boolean;
   toggle: () => void;
   layer: (state: { playing: boolean; zoom: number }) => React.ReactNode;
+  /** Its buttons: in the player's control bar, just above the Play lines button. */
+  bar: (state: { playing: boolean }) => React.ReactNode;
+  /** What's happening (the phase, how to line up the field...): over the top right of the video. */
   controls: (state: { playing: boolean }) => React.ReactNode;
 }
 
@@ -177,9 +180,9 @@ export function usePlayLines(opts: {
     },
     layer: ({ playing, zoom }) =>
       shown && frame && !playing ? <LinesDrawing video={video} lines={shown} frame={moving ? frame : null} side={side} showLines={showLines} lineUp={lineUp} corners={corners} zoom={zoom} /> : null,
-    controls: ({ playing }) => (
-      <div className="absolute right-2 top-11 z-20 flex flex-col items-end gap-1.5 pointer-events-auto" {...keep}>
-        <div className="flex flex-wrap justify-end gap-1 p-1 rounded-xl" style={panel}>
+    bar: ({ playing }) => (
+      <div className="pointer-events-auto flex flex-col items-start gap-1 px-2 pt-1.5" {...keep}>
+        <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl" style={panel}>
           <span className="h-8 px-2 inline-flex items-center text-xs font-black truncate max-w-[12rem]" title={lines?.name}>
             {lines?.name || 'Play lines'}
           </span>
@@ -236,19 +239,10 @@ export function usePlayLines(opts: {
               </span>
             </>
           )}
-          <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => setOn(false)} aria-label="Hide play lines">
-            ✕
-          </button>
         </div>
-        {!lines && (
-          <div className="max-w-xs rounded-lg px-2.5 py-1.5 text-[11px] leading-snug" style={panel}>
-            {waiting}
-          </div>
-        )}
         {lines && lineUp && !playing && shown && (
-          <>
-            {/* Lining up: move, turn and size the field (the corners only when asked for). */}
-            <div className="flex flex-wrap justify-end items-center gap-1 p-1 rounded-xl" style={panel}>
+          // Lining up: move, turn and size the field (the corners only when asked for).
+          <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl" style={panel}>
               <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">Turn</span>
               <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad(turnQuad(shown.quad, -5, 1))} title="Turn left a little" aria-label="Turn left">
                 ⟲
@@ -272,7 +266,18 @@ export function usePlayLines(opts: {
               <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad({ ...FILM_START, preset: 'custom' })} title="Back to the starting lineup">
                 Reset
               </button>
-            </div>
+          </div>
+        )}
+      </div>
+    ),
+    controls: ({ playing }) => (
+      <div className="absolute right-2 top-11 z-20 flex flex-col items-end gap-1.5 pointer-events-auto" {...keep}>
+        {!lines && (
+          <div className="max-w-xs rounded-lg px-2.5 py-1.5 text-[11px] leading-snug" style={panel}>
+            {waiting}
+          </div>
+        )}
+        {lines && lineUp && !playing && shown && (
             <div className="max-w-xs rounded-lg px-2.5 py-1.5 text-[11px] leading-snug" style={panel}>
               Drag the field to move it. Turn and size it until the <b style={{ color: '#f59e0b' }}>orange</b> line sits on the ball and the yard lines match the film.
               {corners && (
@@ -283,7 +288,6 @@ export function usePlayLines(opts: {
               )}{' '}
               Saved with this play; the next play on this film starts from it.
             </div>
-          </>
         )}
         {lines && side === 'defense' && !lines.nodes.some((n) => isDefenseRole(n.role)) && (
           <div className="max-w-xs rounded-lg px-2.5 py-1.5 text-[11px] leading-snug" style={panel}>
