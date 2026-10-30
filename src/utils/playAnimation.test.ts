@@ -114,3 +114,21 @@ describe('passing to any eligible player', () => {
     assert.deepEqual(roles, ['4', 'Y3', 'W3']);
   });
 });
+
+describe('running a play: the run after the catch', () => {
+  const nodes = [{ role: 'C', x: 0, y: 0 }, { role: '1', x: 0, y: -1 }, { role: 'X', x: -12, y: -1 }, { role: 'CBL', x: -12, y: 6 }] as PlayNode[];
+  // A slant, then a red line from where he catches it, up the field.
+  const slant: PlayStroke = { kind: 'pass', points: [{ x: -12, y: -1 }, { x: -12, y: 2 }, { x: -7, y: 6 }] };
+  const after: PlayStroke = { kind: 'run', points: [{ x: -7, y: 6 }, { x: -6, y: 18 }] };
+  it('the ball line still goes to the end of the route (the catch)', () => {
+    assert.deepEqual(passThrow(nodes, [slant, after], 'X')?.to, { x: -7, y: 6 });
+  });
+  it('he catches it there and runs the red line with it; the corner by the catch stays a corner', () => {
+    const end = computeAnimatedPlayFrame(nodes, [slant, after], [], 'X', 1);
+    const x = end.nodes.find((n) => n.role === 'X')!;
+    assert.deepEqual([x.x, x.y], [-6, 18]);
+    assert.deepEqual([end.ball.x, end.ball.y], [-6, 18]);
+    const cb = end.nodes.find((n) => n.role === 'CBL')!;
+    assert.ok(Math.hypot(cb.x + 6, cb.y - 18) > 3, 'the corner did not run the receiver\'s line');
+  });
+});

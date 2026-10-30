@@ -583,8 +583,32 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     }
     remember();
     const here = { x: p.x, y: p.y };
+    // Drawing a route, then Run: his run after the catch, its own red line from where the route ends.
+    const route = i != null ? cur[i] : null;
+    if (route && route.kind === 'pass' && tool === 'run' && route.points.length >= 2 && !((route.motion || 0) >= route.points.length - 1)) {
+      finishLine();
+      cur = strokesRef.current;
+      const end = (cur[i!] || route).points[(cur[i!] || route).points.length - 1];
+      i = cur.length;
+      change([...cur, { kind: 'run', points: [{ x: end.x, y: end.y }, here] }]);
+      setOpen(i);
+      drag.current = { mode: 'draw', index: i, anchor: 1, fresh: false, downCx: p.cx, downCy: p.cy, moved: false };
+      setSelected(i);
+      return;
+    }
     if (i == null || !cur[i]) {
-      const start = onOurs ? { x: near!.x, y: near!.y } : here;
+      // A run started at the end of a route: his run after the catch, from right where the route ends.
+      const routeEnd =
+        !onOurs && tool === 'run'
+          ? cur
+              .filter((s) => s.kind === 'pass' && s.points.length >= 2)
+              .map((s) => s.points[s.points.length - 1])
+              .find((e) => {
+                const at = fieldToSvg(e.x, e.y);
+                return Math.hypot(at.cx - p.cx, at.cy - p.cy) <= 20;
+              })
+          : undefined;
+      const start = onOurs ? { x: near!.x, y: near!.y } : routeEnd ? { x: routeEnd.x, y: routeEnd.y } : here;
       const line: PlayStroke = tool === 'motion' ? { kind: 'pass', points: [start, here], motion: 1 } : { kind: tool as DrawKind, points: [start, here] };
       i = cur.length;
       change([...cur, line]);

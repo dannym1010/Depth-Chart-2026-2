@@ -128,7 +128,35 @@ export function computeAnimatedPlayFrame(
   targetHole?: number | null
 ): AnimatedPlayFrame {
   const p = Math.max(0, Math.min(1, progress));
-  const allStrokes = [...strokes, ...extraStrokes].filter((s) => s.points && s.points.length >= 2);
+  const drawn = [...strokes, ...extraStrokes].filter((s) => s.points && s.points.length >= 2);
+  // A run line starting where a route ends (no player there): that receiver's run after the catch, one line with
+  // his route; the catch is at the end of the route.
+  const catchAt = new Map<PlayStroke, number>();
+  const joined = new Set<PlayStroke>();
+  const allStrokes: PlayStroke[] = [];
+  for (const st of drawn) {
+    if (joined.has(st)) continue;
+    const end = st.points[st.points.length - 1];
+    const routeOf = st.kind === 'pass' && !((st.motion || 0) >= st.points.length - 1) && nodes.some((n) => !isDefenseRole(n.role) && lineStartsOn(st, n, nodes));
+    const after = routeOf
+      ? drawn.find(
+          (r) =>
+            r !== st &&
+            !joined.has(r) &&
+            r.kind === 'run' &&
+            Math.hypot(r.points[0].x - end.x, r.points[0].y - end.y) < 1.2 &&
+            !nodes.some((n) => !isDefenseRole(n.role) && Math.hypot(r.points[0].x - n.x, r.points[0].y - n.y) < 1.4)
+        )
+      : undefined;
+    if (!after) {
+      allStrokes.push(st);
+      continue;
+    }
+    joined.add(after);
+    const whole = { ...st, points: [...st.points, ...after.points.slice(1)] };
+    catchAt.set(whole, st.points.length - 1);
+    allStrokes.push(whole);
+  }
 
   // Match each player role to its primary stroke (if any): his motion first, when he has one.
   const roleStroke = new Map<string, PlayStroke>();
@@ -396,12 +424,14 @@ export function computeAnimatedPlayFrame(
       Array.from(roleStroke.entries()).find(([, s]) => s.kind === 'pass');
     const targetRole = throwTo ? ballRole : passStrokeEntry?.[0];
     const targetPos = (targetRole && animatedPos.get(targetRole)) || carrierNow;
-    // Thrown, then caught: a back's run line is caught at the end of its first leg (he runs with it after).
+    // Thrown, then caught: at the end of a route with a run after the catch, or the end of the first leg of a back's
+    // line; he runs with it after.
     let release = 0.45;
     let caught = 0.78;
-    if (throwTo && carrierLine && carrierLine.kind !== 'pass' && carrierNode) {
+    const catchPoint = carrierLine ? (catchAt.get(carrierLine) ?? (carrierLine.kind !== 'pass' ? (carrierLine.motion || 0) + 1 : undefined)) : undefined;
+    if (throwTo && carrierLine && catchPoint !== undefined && carrierNode) {
       const pts = [{ x: carrierNode.x, y: carrierNode.y }, ...carrierLine.points.slice(1)];
-      const at = Math.min(pts.length - 1, (carrierLine.motion || 0) + 1);
+      const at = Math.min(pts.length - 1, catchPoint);
       const len = (a: number, b: number) => pts.slice(a + 1, b + 1).reduce((sum, p, i) => sum + Math.hypot(p.x - pts[a + i].x, p.y - pts[a + i].y), 0);
       const m = carrierLine.motion || 0;
       const total = len(m, pts.length - 1);
