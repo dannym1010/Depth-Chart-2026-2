@@ -31,6 +31,8 @@ import { clearFilmCutup, peekFilmCutup, type FilmCutup } from '../utils/filmCutu
 import { peekPlayBuilderSeed, savePlayBuilderSeed, type PlayBuilderSeed } from '../utils/playBuilderSeed';
 import { PlayBuilderSection } from '../components/playbook/PlayBuilderSection';
 import { FilmPlayer, type PlayerApi } from './FilmPlayer';
+import { PlayLinesOverlay, type VideoLines } from './PlayLinesOverlay';
+import { DEFAULT_HOMOGRAPHY_QUAD, type HomographyQuad } from '../utils/videoHomography';
 import { LinkFilmDialog } from './LinkFilmDialog';
 import { FilmLibrary, buildLibrary, type LibraryGame, type ScheduledGame } from './FilmLibrary';
 import { PlayNotes } from './PlayNotes';
@@ -721,6 +723,19 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const clipUrl = useClipUrl(clip, localFiles, nextClip);
 
   const apiRef = useRef<PlayerApi | null>(null);
+  // Play lines: the selected play's routes and runs on the paused video, as its diagram (Play Builder) draws them.
+  const [linesOn, setLinesOn] = useState(false);
+  const [videoLines, setVideoLines] = useState<VideoLines | null>(null);
+  useEffect(() => setVideoLines(null), [play?.id]);
+  // The field's lineup on this film: the camera rarely moves, so a play not lined up yet starts from the last one.
+  const lineupKey = `mahopac_film_lineup_${game?.gameId || game?.key || ''}`;
+  const isDefaultQuad = (q: HomographyQuad) => JSON.stringify(q) === JSON.stringify(DEFAULT_HOMOGRAPHY_QUAD);
+  useEffect(() => {
+    if (!linesOn || !videoLines || !isDefaultQuad(videoLines.quad)) return;
+    const saved = safeJSONParse<HomographyQuad | null>(lineupKey, null);
+    if (saved && !isDefaultQuad(saved)) videoLines.setQuad(saved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linesOn, videoLines, lineupKey]);
   // The video on a second screen (a TV or monitor): that window plays the clip, this one keeps the play log.
   const [tvOn, setTvOn] = useState(false);
   useVideoScreenSender({
@@ -1337,6 +1352,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       canEdit={Boolean(!locked && (builderCanEdit || onSaveBuilderPlay || onUpdatePlayDatabase))}
       seed={activeBuilderSeed}
       getVideo={() => apiRef.current?.video?.() || null}
+      onVideoLines={setVideoLines}
       onStateChange={(state) => {
         const name = state.name?.trim() || activeBuilderSeed.name;
         const nextState = { ...state, name };
@@ -1431,6 +1447,41 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       {builderSaved && <span className="ml-auto text-[11px] font-bold text-emerald-700 dark:text-emerald-400">{builderSaved}</span>}
     </div>
   ) : null;
+  // The Play lines button on the video, and the lines it draws (the play's diagram works them out, so it opens beside the video).
+  const playLines =
+    activeBuilderSeed && !family
+      ? {
+          on: linesOn,
+          toggle: () => {
+            if (!linesOn) {
+              if (builderSeed) setHideBuilder(false);
+              else if (!showNotes) toggleNotes();
+              setSideTab('builder');
+              setMobileTab('builder');
+            }
+            setLinesOn((v) => !v);
+          },
+          layer: ({ playing }: { playing: boolean }) =>
+            videoLines ? (
+              <PlayLinesOverlay
+                video={() => apiRef.current?.video?.() || null}
+                lines={{
+                  ...videoLines,
+                  setQuad: (q) => {
+                    videoLines.setQuad(q);
+                    safeJSONSet(lineupKey, q);
+                  },
+                }}
+                playing={playing}
+                onClose={() => setLinesOn(false)}
+              />
+            ) : (
+              <div className="absolute right-2 top-11 z-10 rounded-lg px-2.5 py-1.5 text-[11px]" style={{ background: 'rgba(15,23,42,0.85)', color: '#e2e8f0' }}>
+                Drawing the play…
+              </div>
+            ),
+        }
+      : undefined;
   const breakdownEl = (
     <BreakdownPanel
       play={play}
@@ -1897,6 +1948,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                 }
           }
           apiRef={apiRef}
+          playLines={playLines}
           startAt={resumeAt.current}
           autoNextDefault={listPlay ? true : !game?.fromFilm}
         />

@@ -5,7 +5,7 @@
 // picture, double-click (double-tap) is full screen.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ChevronLeft, ChevronRight, Circle, Download, Eye, Maximize, Mic, MoveUpRight, Pause, Pencil, Pin, Play, Repeat, SkipBack, SkipForward,
+  ChevronLeft, ChevronRight, Circle, Download, Eye, Maximize, Mic, MoveUpRight, Pause, Pencil, Pin, Play, Repeat, Route, SkipBack, SkipForward,
   Square, Target, Timer, Trash2, Undo2, Volume2, VolumeX, X, Zap, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { drawMarksOnCanvas, MARK_COLORS, Telestration } from './Telestration';
@@ -54,6 +54,8 @@ interface FilmPlayerProps {
   autoNextDefault?: boolean;
   /** Watching only (a player or family account): no drawing, no stopwatch. */
   viewOnly?: boolean;
+  /** The selected play's lines on the video: the button that turns them on, and the layer drawn over the picture. */
+  playLines?: { on: boolean; toggle: () => void; layer: (state: { playing: boolean }) => React.ReactNode };
 }
 
 // Bigger on a touch screen (a finger needs about 40px).
@@ -73,6 +75,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   startAt = 0,
   shortcuts = true,
   autoNextDefault = true,
+  playLines,
 }) => {
   const rootRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -837,6 +840,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
               if (markLabel) setMarkLabel('');
             }}
           />
+          {playLines?.on && src && !drawing && playLines.layer({ playing })}
         </div>
         {/* Above the controls that sit over the bottom of the video, so its buttons (Link film...) can be tapped. */}
         {!src && <div className={`absolute inset-0 flex items-center justify-center p-4 text-center text-sm z-20 pointer-events-none [&>*]:pointer-events-auto ${isFullscreen ? 'pb-28' : 'sm:pb-28'}`}>{placeholder}</div>}
@@ -1050,6 +1054,21 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
                 <Pencil size={15} />
                 <span className="hidden sm:inline">Draw</span>
               </button>
+              {playLines && (
+                <button
+                  className={playLines.on ? on : idle}
+                  onClick={() => {
+                    // The lines are drawn for a still frame.
+                    if (!playLines.on) videoRef.current?.pause();
+                    playLines.toggle();
+                  }}
+                  disabled={!src}
+                  title="Show the selected play's routes, runs and motion on the paused video"
+                >
+                  <Route size={15} />
+                  <span className="hidden sm:inline">Play lines</span>
+                </button>
+              )}
               <button
                 className={recording ? `${btn} bg-rose-600 text-white animate-pulse` : idle}
                 onClick={() => (recording ? stopRecording() : void startRecording())}

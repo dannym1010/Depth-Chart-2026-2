@@ -44,6 +44,7 @@ import {
 } from '../../utils/footballEngine';
 import { PlayDiagramCanvas } from './PlayDiagramCanvas';
 import { VideoHomographyOverlay } from './VideoHomographyOverlay';
+import type { VideoLines } from '../../filmroom/PlayLinesOverlay';
 import { DEFAULT_HOMOGRAPHY_QUAD, type HomographyQuad } from '../../utils/videoHomography';
 import { assignmentText } from './PlayerAssignmentPanel';
 import type { PlayBuilderSeed } from '../../utils/playBuilderSeed';
@@ -150,6 +151,8 @@ interface Props {
   onSaveFormation?: (formation: { id: string; name: string; builder: PlayBuilderState; diagramUrl: string; defenseUrl?: string; defenseName?: string }) => void;
   /** Optional accessor for the active HTML5 video element (Film Room side-by-side player or open FilmWindow). */
   getVideo?: () => HTMLVideoElement | null;
+  /** The play as drawn here (players, lines, the field's lineup on the film), for the Film Room to lay over the video. */
+  onVideoLines?: (lines: VideoLines) => void;
 }
 
 
@@ -249,7 +252,7 @@ function startFromSeed(seed?: PlayBuilderSeed | null) {
   };
 }
 
-export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, onStateChange, onSaveFilmBackfield, onSaveFormation, onStartFromFormation, onOpenSameCall, nav, getVideo }) => {
+export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, onStateChange, onSaveFilmBackfield, onSaveFormation, onStartFromFormation, onOpenSameCall, nav, getVideo, onVideoLines }) => {
   // Drawing their formation: just the alignment (no play lines), saved as the formation.
   const formationMode = Boolean(seed?.formationEdit);
   // One of our defensive plays: the defense is what's drawn (front, alignment, blitz arrows).
@@ -1210,6 +1213,15 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     { tab: 'play', text: `${eligibleName(String(ball))} ${hole != null ? `→ ${hole} hole` : ''} · ${runMode ? run.label : play?.metadata.concept || ''}` },
     { tab: 'notes', text: dLook ? `vs ${callName}` : 'No defense' },
   ];
+
+  // The play on the film (Film Room's play lines): sent again only when something in it changes.
+  const allLines = [...strokes, ...callStrokes];
+  const videoLinesKey = onVideoLines ? JSON.stringify([diagramNodes, allLines, ball, homographyQuad, callLabel]) : '';
+  useEffect(() => {
+    if (!onVideoLines) return;
+    onVideoLines({ nodes: diagramNodes, strokes: allLines, ballRole: String(ball), quad: homographyQuad, setQuad: setHomographyQuad, name: callLabel.trim() });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoLinesKey]);
 
   const label = (text: string, extra?: React.ReactNode) => (
     <div className="flex items-center justify-between mb-1.5">
