@@ -148,9 +148,9 @@ export const ScoutPresentation: React.FC<{
           </button>
         </div>
       </header>
-      <div className={`flex-1 min-h-0 grid ${script ? 'lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[17rem_minmax(0,1fr)]' : ''}`}>
+      <div className={`flex-1 min-h-0 grid ${script ? 'lg:grid-cols-[10.5rem_minmax(0,1fr)] xl:grid-cols-[12rem_minmax(0,1fr)]' : ''}`}>
         <nav className={`hidden ${script ? 'lg:block' : ''} overflow-y-auto overscroll-contain border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900`} aria-label="Scout script">
-          <ol className="p-2 space-y-1">
+          <ol className="p-1.5 space-y-0.5">
             {show.lines.map((l, i) => (
               <li key={l.playId}>
                 <button
@@ -158,14 +158,14 @@ export const ScoutPresentation: React.FC<{
                   onClick={() => go(i)}
                   aria-current={i === index ? 'true' : undefined}
                   ref={i === index ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
-                  className={`w-full text-left flex gap-2 rounded-lg px-2 py-1.5 pointer-coarse:py-2.5 cursor-pointer ${
+                  className={`w-full text-left flex gap-1.5 rounded-lg px-1.5 py-1 pointer-coarse:py-2 cursor-pointer ${
                     i === index ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
                   }`}
                 >
-                  <span className={`w-6 shrink-0 text-right text-xs font-black tabular-nums pt-0.5 ${i === index ? 'text-indigo-100' : 'text-slate-400'}`}>{i + 1}</span>
+                  <span className={`w-5 shrink-0 text-right text-[11px] font-black tabular-nums pt-0.5 ${i === index ? 'text-indigo-100' : 'text-slate-400'}`}>{i + 1}</span>
                   <span className="min-w-0">
-                    <span className="block text-sm font-black leading-tight break-words">{l.name}</span>
-                    {l.detail && <span className={`block text-[11px] leading-snug mt-0.5 ${i === index ? 'text-indigo-100' : 'text-slate-500'}`}>{l.detail}</span>}
+                    <span className="block text-[13px] font-black leading-tight break-words">{l.name}</span>
+                    {l.detail && <span className={`block text-[10px] leading-snug mt-0.5 ${i === index ? 'text-indigo-100' : 'text-slate-500'}`}>{l.detail}</span>}
                   </span>
                 </button>
               </li>

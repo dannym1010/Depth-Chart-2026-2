@@ -314,7 +314,7 @@ export const PlayLibraryView: React.FC<Props> = ({
   const diagramCount = myPlays.filter((p) => diagramOf(p)).length;
 
   return (
-    <div className={bare ? 'w-full px-2 sm:px-4 py-3 space-y-4' : 'w-full max-w-6xl mx-auto px-2 sm:px-4 py-3 sm:py-5 space-y-4'}>
+    <div className={bare ? 'w-full p-2 space-y-3' : 'w-full max-w-6xl mx-auto px-2 sm:px-4 py-3 sm:py-5 space-y-4'}>
       {/* Header */}
       {!bare && (
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-sm">
@@ -439,6 +439,7 @@ export const PlayLibraryView: React.FC<Props> = ({
       <PlayBuilderSection
         key={`${builderSeed?.playEntryId || builderSeed?.name || 'new'}|${builderSeed?.restartAt || ''}`}
         canEdit={canEdit}
+        present={bare}
         seed={builderSeed}
         nav={builderNav}
         onBack={(builderSeed?.scoutId || builderSeed?.backfieldEdit || builderSeed?.formationEdit) && onBackToPlayList ? onBackToPlayList : undefined}

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Film, LayoutGrid, ListChecks, Play as PlayIcon, RotateCcw, Save, Search, Sparkles, Users, Wand2, Zap } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Film, LayoutGrid, ListChecks, PanelRightClose, PanelRightOpen, Play as PlayIcon, RotateCcw, Save, Search, Sparkles, Users, Wand2, Zap } from 'lucide-react';
 import { autoSketchPlayFromVideo } from '../../services/geminiFilmService';
 import type { PlayBuilderState, PlayDatabaseEntry, PlayType } from '../../types/callSheet';
 import { defenseSystem, type DefenseSystem } from '../../hudlScout/utils/ourDefense';
@@ -140,6 +140,8 @@ interface Props {
   onWatchFilm?: (label: string, state: PlayBuilderState) => void;
   /** Narrow layout (beside the video in the Film Room): the diagram first, the settings under it. */
   compact?: boolean;
+  /** Presentation mode: the field as big as the screen allows; the Formation / Play / Jobs panel starts hidden. */
+  present?: boolean;
   /** Every change to the play, so the screen it's open on can keep it (e.g. going back and forth to the film). */
   onStateChange?: (state: PlayBuilderState) => void;
   /** This alignment becomes the backfield for every play on this scout film that uses it. */
@@ -253,7 +255,10 @@ function startFromSeed(seed?: PlayBuilderSeed | null) {
   };
 }
 
-export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, onStateChange, onSaveFilmBackfield, onSaveFormation, onStartFromFormation, onOpenSameCall, nav, getVideo, onVideoLines }) => {
+// Presenting: whether the coach showed the Formation / Play / Jobs panel (each play opens the builder anew).
+let presentPanelOpen = false;
+
+export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, present, onStateChange, onSaveFilmBackfield, onSaveFormation, onStartFromFormation, onOpenSameCall, nav, getVideo, onVideoLines }) => {
   // Drawing their formation: just the alignment (no play lines), saved as the formation.
   const formationMode = Boolean(seed?.formationEdit);
   // One of our defensive plays: the defense is what's drawn (front, alignment, blitz arrows).
@@ -278,6 +283,13 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [tab, setTab] = useState<BuilderTab>(seed?.defenseCall ? 'jobs' : seed?.scoutId && !seed.formationEdit ? 'play' : 'formation');
   // The side panel's Players tab: the field draws its "who does what" panel into it.
   const [host, setHost] = useState<HTMLDivElement | null>(null);
+  // Presenting: the panel hidden at first (shown, it stays shown from play to play).
+  const [panelOpen, setPanelOpenState] = useState(() => !present || presentPanelOpen);
+  const setPanelOpen = (open: boolean) => {
+    setPanelOpenState(open);
+    if (present) presentPanelOpen = open;
+  };
+  const panelHidden = Boolean(present) && !panelOpen;
   const [situations, setSituations] = useState<string[]>(saved?.situations || []);
   const looks = teamDefenseLooks(defenseSystem());
   // An opponent's play opens against our base 4-4 (the 5-3 is the coach's pick per formation).
@@ -1282,7 +1294,9 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       className={
         compact
           ? 'bg-white dark:bg-slate-900 p-2.5 space-y-3'
-          : 'bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-sm space-y-4'
+          : present
+            ? 'bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3 space-y-3'
+            : 'bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-sm space-y-4'
       }
     >
       {/* The call: type it the way it is called and the field draws it. */}
@@ -1336,7 +1350,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
           >
             <Wand2 className="w-4 h-4" /> Draw it
           </button>
-          {!defenseMode && (
+          {!defenseMode && !present && (
             <button
               type="button"
               onClick={() => void runAutoSketch()}
@@ -1348,7 +1362,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               <span>{autoSketching ? sketchStatus || 'Auto-Sketching…' : 'Auto-Sketch from Video'}</span>
             </button>
           )}
-          {!defenseMode && (
+          {!defenseMode && !present && (
             <button
               type="button"
               onClick={() => setShowHomography((v) => !v)}
@@ -1435,6 +1449,19 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               <Film className="w-4 h-4 text-indigo-500" /> Film Room
             </button>
           )}
+          {present && (
+            <button
+              type="button"
+              aria-pressed={panelOpen}
+              onClick={() => setPanelOpen(!panelOpen)}
+              title={panelOpen ? 'Hide Formation / Play / Jobs: the field gets the whole width' : 'Show Formation / Play / Jobs / Players beside the field'}
+              className={`h-11 px-3 rounded-xl border text-sm font-black inline-flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                panelOpen ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300' : 'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
+              }`}
+            >
+              {panelOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />} Formation · Play · Jobs
+            </button>
+          )}
           {!compact && nav && (
             <div className="inline-flex items-center h-11 rounded-xl border border-slate-300 dark:border-slate-600 overflow-hidden shrink-0">
               <button
@@ -1510,7 +1537,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
             </div>
           </div>
         )}
-        <div className={`flex flex-wrap items-center gap-1.5 text-[11px] min-h-6 ${defenseMode ? 'hidden' : ''}`}>
+        <div className={`flex flex-wrap items-center gap-1.5 text-[11px] min-h-6 ${defenseMode || present ? 'hidden' : ''}`}>
           {readParts.length > 0 ? (
             <>
               <span className="font-bold text-slate-400">Reads as:</span>
@@ -1530,7 +1557,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
         </div>
       </div>
 
-      <div className={compact ? 'space-y-3' : 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-4 items-start'}>
+      <div className={compact || panelHidden ? 'space-y-3' : `grid grid-cols-1 ${present ? 'lg:grid-cols-[minmax(0,1fr)_340px]' : 'lg:grid-cols-[minmax(0,1fr)_380px]'} gap-4 items-start`}>
         {/* The field */}
         <div className="space-y-2 min-w-0">
           {(formationMode || defenseMode) && (
@@ -1661,6 +1688,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               }}
               linesFollow={userDrew}
               dense={compact}
+              maxFieldHeight={present ? 'calc(100dvh - 17.5rem)' : undefined}
               chrome="minimal"
               assignmentHost={host}
               onSelectPlayer={(n) => {
@@ -1782,7 +1810,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
         </div>
 
         {/* One panel, one job at a time */}
-        <div className={`rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden ${compact ? '' : 'lg:sticky lg:top-3'}`}>
+        {/* Hidden (presenting), it stays mounted: a tapped player's options still have their place. */}
+        <div className={`rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden ${compact ? '' : 'lg:sticky lg:top-3'} ${panelHidden ? 'hidden' : ''}`}>
           <div className="grid grid-cols-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
             {tabs.filter((t) => (t.id === 'jobs' ? (defenseMode || Boolean(dLook)) : !(formationMode || defenseMode) || t.id !== 'play')).map((t) => (
               <button

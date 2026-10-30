@@ -431,7 +431,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
           onPointerDown={onTitleDown}
           onPointerMove={onTitleMove}
           onPointerUp={onTitleUp}
-          className={`flex items-center gap-1.5 px-2.5 h-9 pointer-coarse:h-11 bg-slate-900 text-white shrink-0 select-none touch-none ${isPhone || fill || dock ? '' : 'cursor-move'}`}
+          className={`${dock ? 'hidden' : 'flex'} items-center gap-1.5 px-2.5 h-9 pointer-coarse:h-11 bg-slate-900 text-white shrink-0 select-none touch-none ${isPhone || fill ? '' : 'cursor-move'}`}
         >
           <Film size={14} className="text-indigo-300 shrink-0" />
           <span className="text-xs font-black truncate min-w-0 flex-1" title={request.label}>

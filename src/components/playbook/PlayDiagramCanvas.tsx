@@ -157,6 +157,8 @@ interface Props {
   onDefense?: (id: string) => void;
   /** Shorter picture, so the name and the call stay on screen beside the video. */
   dense?: boolean;
+  /** Tallest the field may be (CSS length): narrower to fit, so the whole field shows on the screen (presenting). */
+  maxFieldHeight?: string;
   coachNote: string;
   onCoachNote: (v: string) => void;
   onMove: (role: string, x: number, y: number) => void;
@@ -210,6 +212,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   defenseValue,
   onDefense,
   dense,
+  maxFieldHeight,
   coachNote,
   onCoachNote,
   onMove,
@@ -985,6 +988,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       {/* Field Canvas Container */}
       <div
         className="relative"
+        style={maxFieldHeight ? { maxWidth: `calc(${maxFieldHeight} * ${FIELD_SVG.w} / ${FIELD_SVG.h})`, marginInline: 'auto' } : undefined}
         ref={fieldRef}
         onPointerLeave={() => {
           setHover(null);
