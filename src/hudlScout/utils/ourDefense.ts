@@ -94,10 +94,24 @@ export function defenseMirrored(b: { defenseMirror?: boolean; defenseFlip?: bool
 }
 
 /**
+ * Which way our defense turns for this offense: to the tight end's side (the 9 technique, the 3 technique and
+ * the Mike go to him, the Will away). Every look is drawn strength left, so a tight end on the right flips it.
+ * Undefined when there's no tight end, or one on each side: the play's strength call decides.
+ */
+export function tightEndFlip(offense: PlayNode[], ball = 0): boolean | undefined {
+  const tes = offense.filter((n) => /^Y\d*$/.test(n.role));
+  const left = tes.filter((n) => n.x < ball - 0.1).length;
+  const right = tes.filter((n) => n.x > ball + 0.1).length;
+  if (left && !right) return false;
+  if (right && !left) return true;
+  return undefined;
+}
+
+/**
  * Our defense lined up on their offense. Every look is drawn for their strength to the LEFT (9 technique,
  * Sam and Rover to that side); `flip` mirrors it for their strength to the right, the coach's saved
  * moves with it. Then it moves with the ball to the hash, the line sets its techniques on their line, and
- * any technique the coach picked for a lineman.
+ * any technique the coach picked for a lineman. The Sam plays the wide side of the field (away from the hash).
  */
 export function lineUpOurDefense(
   lookKey: string,
@@ -109,7 +123,21 @@ export function lineUpOurDefense(
   const mirror = (nodes: PlayNode[], about: number) => nodes.map((n) => ({ ...n, x: 2 * about - n.x }));
   const aligned = defenseAtHash(o.flip ? mirror(look, 0) : look, offense, ball);
   const moved = o.flip ? mirror(withMyAlignment(lookKey, mirror(aligned, ball)), ball) : withMyAlignment(lookKey, aligned);
-  return applyTechniques(moved, offense, o.techs);
+  return samToWideSide(applyTechniques(moved, offense, o.techs), ball);
+}
+
+/**
+ * The Sam on the wide side of the field: the ball on a hash, he goes to the other side of it. In the middle, he
+ * stays. Where a backer is already standing in his new spot (the Will, in a front that mirrors its backers), they trade.
+ */
+export function samToWideSide(defense: PlayNode[], ball: number): PlayNode[] {
+  if (Math.abs(ball) < 0.5) return defense;
+  const wideRight = ball < 0;
+  const sam = defense.find((n) => n.role === 'SAM');
+  if (!sam || sam.x > ball === wideRight) return defense;
+  const to = { x: Math.round((2 * ball - sam.x) * 100) / 100, y: sam.y };
+  const there = defense.find((n) => n !== sam && Math.hypot(n.x - to.x, n.y - to.y) < 1.5);
+  return defense.map((n) => (n === sam ? { ...n, x: there ? there.x : to.x, y: there ? there.y : n.y } : n === there ? { ...n, x: sam.x, y: sam.y } : n));
 }
 
 /**

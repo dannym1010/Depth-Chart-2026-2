@@ -233,7 +233,7 @@ describe('defense on a hash', () => {
 
 
 describe('our defense flips to their strength', () => {
-  it('strength right: the 9 technique, Sam and Rover go to the tight end side, on any hash', async () => {
+  it('strength right: the 9 technique and Rover go to the tight end side, the Sam to the wide side, on any hash', async () => {
     const { lineUpOurDefense } = await import('../hudlScout/utils/ourDefense.ts');
     const look = OUR_DEFENSE_LOOKS['44_C3_LIZ'].nodes;
     for (const dx of [0, -4.2, 4.2]) {
@@ -241,10 +241,31 @@ describe('our defense flips to their strength', () => {
       const d = lineUpOurDefense('44_C3_LIZ', look, o, { hashDx: dx, flip: true });
       const at = (r: string) => d.find((n) => n.role === r)!;
       assert.ok(Math.abs(at('E9').x - (6.9 + dx)) < 0.01, `E9 at ${at('E9').x}`);
-      assert.ok(at('SAM').x > dx && at('ROV').x > dx);
+      assert.ok(at('ROV').x > dx);
+      // The Sam: the wide side (away from the hash); in the middle he stays with the strength.
+      if (dx === 0) assert.ok(at('SAM').x > dx);
+      else assert.equal(at('SAM').x > dx, dx < 0, `SAM at ${at('SAM').x} on hash ${dx}`);
       // Unflipped it stays drawn for strength left.
       const left = lineUpOurDefense('44_C3_LIZ', look, o, { hashDx: dx });
       assert.ok(left.find((n) => n.role === 'E9')!.x < dx);
+    }
+  });
+
+  it('turns to the tight end: the 9 and 3 techniques and the Mike to his side, the Will away', async () => {
+    const { lineUpOurDefense, tightEndFlip } = await import('../hudlScout/utils/ourDefense.ts');
+    const look = OUR_DEFENSE_LOOKS['44_C3_LIZ'].nodes;
+    const line = [-4, -2, 0, 2, 4].map((x, i) => ({ role: ['LT', 'LG', 'C', 'RG', 'RT'][i], x, y: 0, line: true }));
+    const teRight = [...line, { role: 'Y', x: 6, y: 0, line: true }];
+    const teLeft = [...line, { role: 'Y', x: -6, y: 0, line: true }];
+    assert.equal(tightEndFlip(teRight), true);
+    assert.equal(tightEndFlip(teLeft), false);
+    assert.equal(tightEndFlip(line), undefined);
+    assert.equal(tightEndFlip([...line, { role: 'Y1', x: 6, y: 0 }, { role: 'Y2', x: -6, y: 0 }]), undefined);
+    for (const o of [teRight, teLeft]) {
+      const d = lineUpOurDefense('44_C3_LIZ', look, o, { flip: tightEndFlip(o) });
+      const side = (r: string) => Math.sign(d.find((n) => n.role === r)!.x);
+      const te = Math.sign(o.find((n) => n.role === 'Y')!.x);
+      assert.ok(side('E9') === te && side('T3') === te && side('MIKE') === te && side('WILL') === -te);
     }
   });
 
