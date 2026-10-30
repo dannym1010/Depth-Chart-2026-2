@@ -128,6 +128,14 @@ export function kidPath(pkg: NuclearPackage, kid: NuclearKid, formIds: string[])
   return out;
 }
 
+/** The base formation the others are read against: the one called 21 when it's in the package, else the first. */
+export function nuclearBase(pkg: NuclearPackage, formIds: string[]): string {
+  return formIds.find((id) => /^21\b/.test(pkg.forms.find((f) => f.id === id)?.label || '')) || formIds[0] || '';
+}
+
+/** A kid's spot in a formation is a change from the base: in it, and not where he is in the base. */
+export const changedFromBase = (cells: (string | null)[], i: number, baseIdx: number) => Boolean(cells[i]) && i !== baseIdx && cells[i] !== cells[baseIdx];
+
 /** Who lines up where: a row per kid who moves or subs, a column per formation (null: not in it). */
 export function nuclearGrid(pkg: NuclearPackage, formIds: string[]): { kid: NuclearKid; color: number; cells: (string | null)[] }[] {
   const movers = pkg.kids.filter((k) => !k.fixed && !k.partial);
@@ -254,6 +262,8 @@ export type NuclearPrintOptions = {
   moves: boolean;
   /** Each formation drawn small. */
   formations: boolean;
+  /** The base formation the chart shades changes from (not a saved preference). */
+  baseId?: string;
 };
 export const NUCLEAR_PRINT_DEFAULTS: NuclearPrintOptions = { orientation: 'landscape', ink: false, names: true, moves: true, formations: true };
 
@@ -263,12 +273,14 @@ export function nuclearPrintHtml(pkg: NuclearPackage, formIds: string[], title: 
   const C = o.ink ? INK_COLORS : PRINT_COLORS;
   const portrait = o.orientation === 'portrait';
   const labelOf = (id: string) => pkg.forms.find((f) => f.id === id)?.label || id;
-  const head = formIds.map((id) => `<th>${esc(labelOf(id))}</th>`).join('');
+  const base = o.baseId && formIds.includes(o.baseId) ? o.baseId : nuclearBase(pkg, formIds);
+  const baseIdx = formIds.indexOf(base);
+  const head = formIds.map((id) => (id === base ? `<th class="base">${esc(labelOf(id))}<small>base</small></th>` : `<th>${esc(labelOf(id))}</th>`)).join('');
   const rows = nuclearGrid(pkg, formIds)
     .map(({ kid: k, color: ci, cells }) => {
       const color = k.partial || C.inkOnly ? C.paper : C.movers[ci % C.movers.length];
       const ring = k.partial ? `border:2px dashed ${C.muted};color:${C.ink}` : C.inkOnly ? `border:2.5px solid ${C.ink};color:${C.ink}` : '';
-      const tds = cells.map((c, i) => `<td class="${c ? (i && c !== cells[i - 1] && cells[i - 1] ? 'mvd' : '') : 'out'}">${c ? esc(c) : 'out'}</td>`).join('');
+      const tds = cells.map((c, i) => `<td class="${c ? [i === baseIdx ? 'base' : '', changedFromBase(cells, i, baseIdx) ? 'mvd' : ''].join(' ').trim() : 'out'}">${c ? esc(c) : 'out'}</td>`).join('');
       return `<tr><td class="who"><span class="dot" style="background:${color};${ring}">${esc(k.num)}</span><span class="nm">${esc(k.name)}</span></td>${tds}</tr>`;
     })
     .join('');
@@ -295,6 +307,8 @@ ${portrait ? '.mini svg { max-height: 1.7in; width: auto !important; margin: 0 a
 .grid th { font: 800 14px/1 "Barlow Condensed", Arial, sans-serif; text-align: center; padding: 3px 4px; border-bottom: 2px solid ${C.ink}; }
 .grid td { text-align: center; padding: 4px; border-bottom: 1px solid #e3e6e2; }
 .grid td.who { text-align: left; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+.grid th.base, .grid td.base { background: ${C.inkOnly ? '#f2f2f2' : '#eef3ec'}; }
+.grid th small { display: block; font: 700 9px/1 Barlow, Arial, sans-serif; text-transform: uppercase; letter-spacing: .08em; color: ${C.muted}; margin-top: 2px; }
 .grid td.mvd { background: ${C.inkOnly ? '#e6e6e6' : '#fff1d6'}; font-weight: 800; }
 .grid td.out { color: ${C.muted}; font-style: italic; font-weight: 600; }
 .dot { flex: none; width: 22px; height: 22px; border-radius: 50%; color: #fff; display: inline-flex; align-items: center; justify-content: center; font: 800 12px/1 "Barlow Condensed", Arial, sans-serif; }

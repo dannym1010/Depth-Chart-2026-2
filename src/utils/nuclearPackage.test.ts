@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildNuclear, formLabels, kidPath, nuclearPrintHtml, nuclearSvg, spotLabel } from './nuclearPackage.ts';
+import { buildNuclear, changedFromBase, formLabels, nuclearBase, kidPath, nuclearPrintHtml, nuclearSvg, spotLabel } from './nuclearPackage.ts';
 
 const pos = (id: string, name: string) => ({ id, name });
 const row = (id: string, positions: ({ id: string; name: string } | null)[]) => ({ id, label: id, slotCount: positions.length, positions });
@@ -63,6 +63,17 @@ describe('a nuclear package: one string in every formation', () => {
     assert.deepEqual(kidPath(pkg, by['13'], ids).map((p) => `${p.spot.dx},${p.spot.row} ${p.spot.label}`), ['1,2 RB', '2,1 RB']);
     // The QB: under center in Beast, in the gun in 11, the same spot.
     assert.ok(by['21'].fixed);
+  });
+
+  it('changes are read against the base (21): back in his 21 spot is not a change', () => {
+    // Z in 21, Z in 22, HB in 32, Z in 11: only 32 is a change.
+    const cells = ['Z', 'Z', 'HB', 'Z'];
+    assert.deepEqual(cells.map((_, i) => changedFromBase(cells, i, 0)), [false, false, true, false]);
+    // Not in the base: every spot he plays is a change; out is never one.
+    assert.deepEqual(['X', null, 'Y2'].map((_, i, c) => changedFromBase(c, i, 1)), [true, false, true]);
+    const pkg = buildNuclear([b11, b21], depth, 0, ['f11', 'f21']);
+    assert.equal(nuclearBase(pkg, ['f11', 'f21']), 'f21');
+    assert.equal(nuclearBase(pkg, ['f11']), 'f11');
   });
 
   it('draws one field (or one formation) and a print sheet with names, escaped', () => {

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Atom, Printer, X } from 'lucide-react';
 import type { FormationBoard, PlacedPlayer } from '../types';
-import { NUCLEAR_PRINT_DEFAULTS, PRINT_COLORS, STRINGS, buildNuclear, nuclearGrid, nuclearPrintHtml, nuclearSvg, type NuclearPrintOptions } from '../utils/nuclearPackage';
+import { NUCLEAR_PRINT_DEFAULTS, PRINT_COLORS, STRINGS, buildNuclear, changedFromBase, nuclearBase, nuclearGrid, nuclearPrintHtml, nuclearSvg, type NuclearPrintOptions } from '../utils/nuclearPackage';
 import { openCleanPrintTab } from '../utils/printUtils';
 import { loadPrintPrefs, savePrintPrefs } from '../utils/printPrefs';
 
@@ -26,6 +26,10 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
   const formIds = picked[stringIdx] ?? (full.length ? full : all.forms.filter((f) => f.filled > 0)).map((f) => f.id);
   const pkg = useMemo(() => buildNuclear(formations, depthChart, stringIdx, formIds), [formations, depthChart, stringIdx, formIds.join(',')]);
   const [only, setOnly] = useState<string>('');
+  // The formation the chart shades changes from: 21 unless the coach taps another column.
+  const [basePick, setBasePick] = useState('');
+  const base = formIds.includes(basePick) ? basePick : nuclearBase(pkg, formIds);
+  const baseIdx = formIds.indexOf(base);
   const view = formIds.includes(only) ? only : '';
   const svg = useMemo(() => nuclearSvg(pkg, formIds, { only: view || undefined }), [pkg, formIds.join(','), view]);
   const movers = pkg.kids.filter((k) => !k.fixed && !k.partial);
@@ -43,9 +47,9 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
   const [title, setTitle] = useState('');
   const sheetTitle = title.trim() || `${label} nuclear`;
   const sheet = useMemo(
-    () => (printOpen ? nuclearPrintHtml(pkg, formIds, sheetTitle, `${teamName} · ${formIds.map(labelOf).join(' / ')}`, opts) : ''),
+    () => (printOpen ? nuclearPrintHtml(pkg, formIds, sheetTitle, `${teamName} · ${formIds.map(labelOf).join(' / ')}`, { ...opts, baseId: base }) : ''),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [printOpen, pkg, formIds.join(','), sheetTitle, teamName, opts]
+    [printOpen, pkg, formIds.join(','), sheetTitle, teamName, opts, base]
   );
   const print = () => {
     savePrintPrefs('nuclear', { ...opts });
@@ -145,7 +149,7 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
           {formIds.length > 0 && (
             <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
               <span><i className="inline-block w-3 h-3 rounded-full align-[-1px] mr-1.5 border border-slate-400" style={{ background: PRINT_COLORS.ink }} />Same spot in every formation</span>
-              <span><i className="inline-block w-3 h-3 rounded-full align-[-1px] mr-1.5" style={{ background: PRINT_COLORS.movers[0] }} />Moves (shaded in the chart where he changes spots)</span>
+              <span><i className="inline-block w-3 h-3 rounded-full align-[-1px] mr-1.5" style={{ background: PRINT_COLORS.movers[0] }} />Moves (shaded in the chart where he's not in his base spot; tap a formation to make it the base)</span>
               <span><i className="inline-block w-3 h-3 rounded-full align-[-1px] mr-1.5 border-2 border-dashed border-slate-500" />Not in every formation (a sub)</span>
             </div>
           )}
@@ -157,7 +161,17 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
                   <tr className="border-b-2 border-slate-900 dark:border-slate-200">
                     <th className="text-left py-1.5 pr-3 text-[11px] font-black uppercase tracking-wider text-slate-500">Who lines up where</th>
                     {formIds.map((id) => (
-                      <th key={id} className="px-2 py-1.5 font-black text-slate-900 dark:text-white">{labelOf(id)}</th>
+                      <th key={id} className={`px-1 py-1 ${id === base ? 'bg-slate-100 dark:bg-slate-800' : ''}`}>
+                        <button
+                          type="button"
+                          onClick={() => setBasePick(id)}
+                          className="w-full font-black text-slate-900 dark:text-white cursor-pointer leading-tight"
+                          title={id === base ? 'Changes are shaded against this formation' : `Shade changes from ${labelOf(id)} instead`}
+                        >
+                          {labelOf(id)}
+                          <span className={`block text-[9px] uppercase tracking-wider ${id === base ? 'text-amber-600 dark:text-amber-400' : 'invisible'}`}>base</span>
+                        </button>
+                      </th>
                     ))}
                   </tr>
                 </thead>
@@ -176,11 +190,11 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
                         </span>
                       </td>
                       {cells.map((c, i) => {
-                        const moved = Boolean(c && i > 0 && cells[i - 1] && c !== cells[i - 1]);
+                        const moved = changedFromBase(cells, i, baseIdx);
                         return (
                           <td
                             key={i}
-                            className={`px-2 py-1.5 text-center ${!c ? 'italic text-slate-400' : moved ? 'font-black bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-200' : 'font-bold text-slate-700 dark:text-slate-200'}`}
+                            className={`px-2 py-1.5 text-center ${i === baseIdx && !moved ? 'bg-slate-100 dark:bg-slate-800 ' : ''}${!c ? 'italic text-slate-400' : moved ? 'font-black bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-200' : 'font-bold text-slate-700 dark:text-slate-200'}`}
                           >
                             {c || 'out'}
                           </td>
