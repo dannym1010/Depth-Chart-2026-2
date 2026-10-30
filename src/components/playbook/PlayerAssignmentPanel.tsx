@@ -172,7 +172,7 @@ interface Props {
   readOnly?: boolean;
 }
 
-const ELIGIBLE = /^(?:[1-4]|X|Z|Y|W|H|Y1|Y2|W1|W2)$/;
+const ELIGIBLE = /^(?:[1-4]|[XZH]|Y\d*|W\d*)$/;
 
 /**
  * Who does what on the play. Tap a player (here or on the field) to see the choices, each drawn
@@ -284,15 +284,11 @@ export const PlayerAssignmentPanel: React.FC<Props> = ({
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          {onBallCarrierChange && ELIGIBLE.test(player.role) && !readOnly && (
+          {onBallCarrierChange && ELIGIBLE.test(player.role) && !readOnly && player.role === '1' && (
             <button
               type="button"
               onClick={() => onBallCarrierChange(player.role)}
-              title={
-                passThrow(nodes, strokes, player.role)
-                  ? 'The ball is thrown to him: a dotted line from the QB to the end of his route, and the ball flies there when the play runs'
-                  : 'He gets the ball (handoff, or the QB keeps it)'
-              }
+              title="The QB keeps it"
               className={`h-8 px-2 rounded-lg text-[11px] font-black inline-flex items-center gap-1 cursor-pointer border ${
                 player.role === ballRole
                   ? 'bg-orange-600 text-white border-orange-600'
@@ -300,31 +296,50 @@ export const PlayerAssignmentPanel: React.FC<Props> = ({
               }`}
             >
               <Star className={`w-3 h-3 ${player.role === ballRole ? 'fill-white' : 'text-orange-500'}`} />
-              {passThrow(nodes, strokes, player.role)
-                ? player.role === ballRole
-                  ? 'Gets the pass'
-                  : 'Throw to him'
-                : player.role === ballRole
-                  ? 'Has the ball'
-                  : 'Make ball carrier'}
+              {player.role === ballRole ? 'Keeps it' : 'QB keeps it'}
             </button>
           )}
-          {onThrownChange && !readOnly && player.role === ballRole && current?.kind === 'run' && player.role !== '1' && (
-            <span className="inline-flex h-8 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 text-[11px] font-black" role="group" aria-label="How he gets the ball">
-              {([[false, 'Handoff'], [true, 'Pass']] as const).map(([thrown, text]) => (
+          {/* Anyone else eligible (backs, tight ends, receivers): handed the ball, or thrown it. */}
+          {onBallCarrierChange && ELIGIBLE.test(player.role) && !readOnly && player.role !== '1' && (() => {
+            const has = player.role === ballRole;
+            const thrown = has && Boolean(passThrow(nodes, strokes, player.role));
+            const route = current?.kind === 'pass';
+            const pick = (pass: boolean) => {
+              onBallCarrierChange(player.role);
+              if (current && !route) onThrownChange?.(player.role, pass);
+            };
+            const seg = (on: boolean) =>
+              `px-2 inline-flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-default ${
+                on ? 'bg-orange-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-orange-50 dark:hover:bg-slate-700'
+              }`;
+            return (
+              <span className="inline-flex h-8 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 text-[11px] font-black" role="group" aria-label="Give him the ball">
+                {!route && (
+                  <button type="button" aria-pressed={has && !thrown} onClick={() => pick(false)} title="The QB hands it to him" className={seg(has && !thrown)}>
+                    <Star className={`w-3 h-3 ${has && !thrown ? 'fill-white' : 'text-orange-500'}`} />
+                    Hand off
+                  </button>
+                )}
                 <button
-                  key={text}
                   type="button"
-                  aria-pressed={Boolean(current.thrown) === thrown}
-                  onClick={() => onThrownChange(player.role, thrown)}
-                  title={thrown ? 'The QB throws it to him: a dotted ball line to the end of the first leg of his line, then he runs with it' : 'The QB hands it to him'}
-                  className={`px-2 cursor-pointer ${Boolean(current.thrown) === thrown ? 'bg-orange-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-orange-50 dark:hover:bg-slate-700'}`}
+                  aria-pressed={thrown}
+                  disabled={!current}
+                  onClick={() => pick(true)}
+                  title={
+                    !current
+                      ? 'Draw his line first: the ball is thrown to where it goes'
+                      : route
+                        ? 'The QB throws it to him: a dotted ball line to the end of his route'
+                        : 'The QB throws it to him: a dotted ball line to the end of the first leg of his line, then he runs with it'
+                  }
+                  className={seg(thrown)}
                 >
-                  {text}
+                  {route && <Star className={`w-3 h-3 ${thrown ? 'fill-white' : 'text-orange-500'}`} />}
+                  {thrown ? 'Gets the pass' : 'Pass to him'}
                 </button>
-              ))}
-            </span>
-          )}
+              </span>
+            );
+          })()}
           {current && !readOnly && (
             <button
               type="button"

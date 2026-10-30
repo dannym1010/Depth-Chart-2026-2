@@ -1371,7 +1371,10 @@ export function eligibleName(role: string) {
 
 /** Backs, tight ends, and receivers on this formation. Linemen stay off the list. */
 export function eligiblePlayers(nodes: PlayNode[]): PlayNode[] {
-  return ELIGIBLE_ORDER.map((role) => nodes.find((n) => n.role === role)).filter((n): n is PlayNode => !!n);
+  const listed = ELIGIBLE_ORDER.map((role) => nodes.find((n) => n.role === role)).filter((n): n is PlayNode => !!n);
+  // Any other back, tight end or receiver on the formation (Y3, W3...), after the usual ones.
+  const more = nodes.filter((n) => !ELIGIBLE_ORDER.includes(n.role) && (/^[1-4]$/.test(n.role) || /^(?:[XZH]|Y\d+|W\d+)$/.test(n.role)));
+  return [...listed, ...more];
 }
 
 export const MASTER_TAGS: Record<string, { type: string; effect: string; axis?: string; xOffsetScale?: number; xOffset?: number; vector?: string }> = {
@@ -2112,7 +2115,7 @@ export interface PlayStroke {
   zone?: { rx: number; ry: number };
   /** Man coverage: the receiver he's on (a dotted line to him and a ring around him, no arrow). */
   man?: { x: number; y: number };
-  /** A run line the ball is thrown to (a pass to a back), not handed off: caught at the end of its first leg. */
+  /** A run or block line the ball is thrown to (a pass to a back or tight end), not handed off: caught at the end of its first leg. */
   thrown?: boolean;
 }
 
@@ -2812,8 +2815,8 @@ export const MAN_RING = 17;
 /** The ball in the air: a dotted line from the QB to the catch, and the ball there. */
 export const THROW_COLOR = '#92400e';
 
-/** A line the ball is thrown to: a pass route, or a run line marked as a pass (to a back). */
-export const isThrownLine = (s: PlayStroke) => s.kind === 'pass' || (s.kind === 'run' && Boolean(s.thrown));
+/** A line the ball is thrown to: a pass route, or any other line marked as a pass (a back's run, a tight end's block). */
+export const isThrownLine = (s: PlayStroke) => s.kind === 'pass' || Boolean(s.thrown);
 
 /**
  * A pass to the ball carrier: from the QB to the catch, the end of his route (a back's run line marked as a pass:
@@ -2826,7 +2829,7 @@ export function passThrow(nodes: PlayNode[], strokes: PlayStroke[], ballRole?: s
   if (!qb || !carrier) return null;
   const route = strokes.find((s) => isThrownLine(s) && s.points.length >= 2 && !(s.motion && s.motion >= s.points.length - 1) && lineStartsOn(s, carrier, nodes));
   if (!route) return null;
-  const end = route.kind === 'run' ? route.points[Math.min(route.points.length - 1, (route.motion || 0) + 1)] : route.points[route.points.length - 1];
+  const end = route.kind !== 'pass' ? route.points[Math.min(route.points.length - 1, (route.motion || 0) + 1)] : route.points[route.points.length - 1];
   return { from: { x: qb.x, y: qb.y }, to: { x: end.x, y: end.y } };
 }
 

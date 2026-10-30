@@ -100,3 +100,17 @@ describe('running a play: a pass to a running back', () => {
     assert.deepEqual([end.ball.x, end.ball.y], [back.x, back.y]);
   });
 });
+
+describe('passing to any eligible player', () => {
+  it('a tight end on a block line, marked as a pass: caught at the end of his first leg', () => {
+    const nodes = [{ role: 'C', x: 0, y: 0 }, { role: '1', x: 0, y: -1 }, { role: 'Y', x: 5, y: 0 }] as PlayNode[];
+    const pop: PlayStroke = { kind: 'block', thrown: true, points: [{ x: 5, y: 0 }, { x: 6, y: 4 }] };
+    assert.deepEqual(passThrow(nodes, [pop], 'Y'), { from: { x: 0, y: -1 }, to: { x: 6, y: 4 } });
+    assert.equal(passThrow(nodes, [{ ...pop, thrown: undefined }], 'Y'), null);
+  });
+  it('any back, tight end or receiver can carry it (Y3, W3 too), not the line', async () => {
+    const { eligiblePlayers } = await import('./footballEngine.ts');
+    const roles = eligiblePlayers([{ role: 'LT' }, { role: 'Y3' }, { role: '4' }, { role: 'W3' }, { role: 'C' }] as PlayNode[]).map((n) => n.role);
+    assert.deepEqual(roles, ['4', 'Y3', 'W3']);
+  });
+});

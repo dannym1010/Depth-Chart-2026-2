@@ -399,7 +399,7 @@ export function computeAnimatedPlayFrame(
     // Thrown, then caught: a back's run line is caught at the end of its first leg (he runs with it after).
     let release = 0.45;
     let caught = 0.78;
-    if (throwTo && carrierLine?.kind === 'run' && carrierNode) {
+    if (throwTo && carrierLine && carrierLine.kind !== 'pass' && carrierNode) {
       const pts = [{ x: carrierNode.x, y: carrierNode.y }, ...carrierLine.points.slice(1)];
       const at = Math.min(pts.length - 1, (carrierLine.motion || 0) + 1);
       const len = (a: number, b: number) => pts.slice(a + 1, b + 1).reduce((sum, p, i) => sum + Math.hypot(p.x - pts[a + i].x, p.y - pts[a + i].y), 0);
