@@ -31,6 +31,15 @@ const CORNERS: { key: Corner; color: string }[] = [
   { key: 'backRight', color: '#38bdf8' },
 ];
 
+type Side = 'offense' | 'defense' | 'both';
+const SIDES: [Side, string][] = [
+  ['offense', 'Offense'],
+  ['defense', 'Defense'],
+  ['both', 'Both'],
+];
+const SIDE_KEY = 'mahopac_film_lines_side';
+const showsDefense = (side: Side) => side !== 'offense';
+const showsOffense = (side: Side) => side !== 'defense';
 /** Our defense's lines (blitzes, coverage) carry their own color; the offense's don't. */
 const isDefenseStroke = (s: PlayStroke) => Boolean(s.color || s.zone || s.man);
 // Seconds for the whole play (motion, snap and the play) at full speed.
@@ -66,7 +75,7 @@ function rotateQuad(q: HomographyQuad): HomographyQuad {
 
 /**
  * Play lines for a film player: on / off, "Run play" (the motion, the snap and everyone along their lines on the
- * paused frame), "Line up field" (the yard lines and 4 corners to drag onto the film) and the defense. The field's
+ * paused frame), "Line up field" (the yard lines and 4 corners to drag onto the film) and whose lines show (offense, defense or both). The field's
  * lineup is kept for the film (`filmKey`): the camera rarely moves, so a play not lined up yet starts from the last one.
  */
 export function usePlayLines(opts: {
@@ -81,7 +90,15 @@ export function usePlayLines(opts: {
   const { lines, video, filmKey, onTurnOn, waiting } = opts;
   const [on, setOn] = useState(false);
   const [lineUp, setLineUp] = useState(false);
-  const [defense, setDefense] = useState(false);
+  // Whose lines show: the coach's last pick.
+  const [side, setSide] = useState<Side>(() => {
+    const saved = safeJSONParse<Side | null>(SIDE_KEY, null);
+    return saved && SIDES.some(([id]) => id === saved) ? saved : 'offense';
+  });
+  const pickSide = (s: Side) => {
+    setSide(s);
+    safeJSONSet(SIDE_KEY, s);
+  };
   const [progress, setProgress] = useState(0);
   const [running, setRunning] = useState(false);
   const [slow, setSlow] = useState(false);
@@ -134,7 +151,7 @@ export function usePlayLines(opts: {
       setOn((v) => !v);
     },
     layer: ({ playing, zoom }) =>
-      shown && frame && !playing ? <LinesDrawing video={video} lines={shown} frame={moving ? frame : null} defense={defense} lineUp={lineUp} zoom={zoom} /> : null,
+      shown && frame && !playing ? <LinesDrawing video={video} lines={shown} frame={moving ? frame : null} side={side} lineUp={lineUp} zoom={zoom} /> : null,
     controls: ({ playing }) => (
       <div className="absolute right-2 top-11 z-20 flex flex-col items-end gap-1.5 pointer-events-auto" {...keep}>
         <div className="flex flex-wrap justify-end gap-1 p-1 rounded-xl" style={panel}>
@@ -180,9 +197,13 @@ export function usePlayLines(opts: {
                   ⟳ Rotate
                 </button>
               )}
-              <button type="button" className={`${btn} ${defense ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`} onClick={() => setDefense((v) => !v)}>
-                Defense
-              </button>
+              <span className="inline-flex rounded-lg overflow-hidden border border-white/15" role="group" aria-label="Show">
+                {SIDES.map(([id, label]) => (
+                  <button key={id} type="button" aria-pressed={side === id} className={`h-8 px-2 text-xs font-bold cursor-pointer ${side === id ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`} onClick={() => pickSide(id)}>
+                    {label}
+                  </button>
+                ))}
+              </span>
             </>
           )}
           <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => setOn(false)} aria-label="Hide play lines">
@@ -197,6 +218,11 @@ export function usePlayLines(opts: {
         {lines && lineUp && !playing && (
           <div className="max-w-xs rounded-lg px-2.5 py-1.5 text-[11px] leading-snug" style={panel}>
             Drag the <b style={{ color: '#f59e0b' }}>orange</b> dots onto the line of scrimmage and the <b style={{ color: '#38bdf8' }}>blue</b> dots 5 yards behind it, until the orange line sits on the ball. The middle handle moves it all; Rotate turns it a quarter turn. Saved with this play; the next play on this film starts from it.
+          </div>
+        )}
+        {lines && side === 'defense' && !lines.nodes.some((n) => isDefenseRole(n.role)) && (
+          <div className="max-w-xs rounded-lg px-2.5 py-1.5 text-[11px] leading-snug" style={panel}>
+            No defense on this play yet. Pick one in the play's diagram (vs a defense) and it shows here.
           </div>
         )}
         {lines && playing && (
@@ -292,10 +318,11 @@ const LinesDrawing: React.FC<{
   lines: VideoLines;
   /** The play running (null: the lineup before the snap). */
   frame: ReturnType<typeof computeAnimatedPlayFrame> | null;
-  defense: boolean;
+  /** Whose players and lines show. */
+  side: Side;
   lineUp: boolean;
   zoom: number;
-}> = ({ video, lines, frame, defense, lineUp, zoom }) => {
+}> = ({ video, lines, frame, side, lineUp, zoom }) => {
   const boxRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
@@ -337,8 +364,9 @@ const LinesDrawing: React.FC<{
   const k = Math.max(0.6, ch * 0.0019) / z;
   const handle = Math.max(9, ch * 0.02) / z;
   const moving = Boolean(frame);
-  const shownNodes = (frame ? frame.nodes : lines.nodes).filter((n) => defense || !isDefenseRole(n.role));
-  const shownStrokes = lines.strokes.filter((s) => s.points?.length >= 2 && (defense || !isDefenseStroke(s)));
+  const showing = (def: boolean) => (def ? showsDefense(side) : showsOffense(side));
+  const shownNodes = (frame ? frame.nodes : lines.nodes).filter((n) => showing(isDefenseRole(n.role)));
+  const shownStrokes = lines.strokes.filter((s) => s.points?.length >= 2 && showing(isDefenseStroke(s)));
   // A white edge under each line, so the builder's colors read on the film.
   const halo = (d: string, w: number, key?: string) => <path key={key} d={d} fill="none" stroke="#ffffff" strokeOpacity="0.8" strokeWidth={w + 2.6 * k} strokeLinecap="round" strokeLinejoin="round" />;
 
@@ -504,7 +532,7 @@ const LinesDrawing: React.FC<{
           {/* The play's lines; faded while it runs, with each player's trail drawn on top. */}
           <g opacity={moving ? 0.35 : 1}>{shownStrokes.map(strokeEl)}</g>
           {frame?.trails
-            .filter((t) => t.points.length >= 2 && (defense || !isDefenseRole(t.role)))
+            .filter((t) => t.points.length >= 2 && showing(isDefenseRole(t.role)))
             .map((t, i) => {
               const pts = t.points.map(px);
               const [a, b] = lastStep(pts);
