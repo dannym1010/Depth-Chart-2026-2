@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { buildProjectedFieldGrid, DEFAULT_HOMOGRAPHY_QUAD, fieldToImage, type HomographyQuad, type ImagePoint } from '../utils/videoHomography';
+import { buildProjectedFieldGrid, fieldToImage, HOMOGRAPHY_PRESETS, type HomographyQuad, type ImagePoint } from '../utils/videoHomography';
 import { DEFENSE_COLOR, diagramLabel, isDefenseRole, MOTION_COLOR, shownText, skillDiagramLabel, STROKE_COLOR, type PlayNode, type PlayStroke } from '../utils/footballEngine';
 import { computeAnimatedPlayFrame } from '../utils/playAnimation';
 import { safeJSONParse, safeJSONSet } from '../services/storageService';
@@ -43,7 +43,26 @@ const keep = {
   onDoubleClick: (e: React.MouseEvent) => e.stopPropagation(),
 };
 const panel = { background: 'rgba(15,23,42,0.85)', color: '#e2e8f0' };
-const isDefaultQuad = (q: HomographyQuad) => JSON.stringify(q) === JSON.stringify(DEFAULT_HOMOGRAPHY_QUAD);
+// A lineup nobody has fitted to a film yet: one of the stock camera angles (the builder starts plays on the sideline one).
+const STOCK = Object.values(HOMOGRAPHY_PRESETS)
+  .filter((p) => p.quad.preset !== 'custom')
+  .map((p) => JSON.stringify(p.quad));
+const notLinedUp = (q: HomographyQuad) => STOCK.includes(JSON.stringify(q));
+/** Film starts from behind the offense: the line of scrimmage across the picture, the offense below it. */
+const FILM_START = HOMOGRAPHY_PRESETS.endzone.quad;
+/**
+ * The lineup a quarter turn clockwise about its middle, on a 16:9 picture (for film shot from another angle).
+ */
+function rotateQuad(q: HomographyQuad): HomographyQuad {
+  const A = 16 / 9;
+  const all = [q.losLeft, q.losRight, q.backLeft, q.backRight];
+  const cu = all.reduce((s, p) => s + p.u, 0) / 4, cv = all.reduce((s, p) => s + p.v, 0) / 4;
+  const turn = (p: ImagePoint): ImagePoint => {
+    const x = (p.u - cu) * A, y = p.v - cv;
+    return { u: Math.round((cu - y / A) * 1000) / 1000, v: Math.round((cv + x) * 1000) / 1000 };
+  };
+  return { ...q, losLeft: turn(q.losLeft), losRight: turn(q.losRight), backLeft: turn(q.backLeft), backRight: turn(q.backRight), preset: 'custom' };
+}
 
 /**
  * Play lines for a film player: on / off, "Run play" (the motion, the snap and everyone along their lines on the
@@ -68,10 +87,12 @@ export function usePlayLines(opts: {
   const [slow, setSlow] = useState(false);
   const lineupKey = `mahopac_film_lineup_${filmKey}`;
 
+  // A play not lined up yet: the last lineup on this film, else the line of scrimmage across the picture.
   useEffect(() => {
-    if (!on || !lines || !isDefaultQuad(lines.quad)) return;
+    if (!on || !lines || !notLinedUp(lines.quad)) return;
     const saved = safeJSONParse<HomographyQuad | null>(lineupKey, null);
-    if (saved && !isDefaultQuad(saved)) lines.setQuad(saved);
+    const next = saved && !notLinedUp(saved) ? saved : FILM_START;
+    if (JSON.stringify(next) !== JSON.stringify(lines.quad)) lines.setQuad(next);
   }, [on, lines, lineupKey]);
 
   // Run play: 0 -> 1 over the play's length, then it stays on the last frame.
@@ -154,6 +175,11 @@ export function usePlayLines(opts: {
               <button type="button" className={`${btn} ${lineUp ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`} onClick={() => setLineUp((v) => !v)} title="Show the yard lines and drag the corners to fit the field on the film">
                 Line up field
               </button>
+              {lineUp && (
+                <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown?.setQuad(rotateQuad(shown.quad))} title="Turn the lineup a quarter turn (film shot from another angle)">
+                  ⟳ Rotate
+                </button>
+              )}
               <button type="button" className={`${btn} ${defense ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`} onClick={() => setDefense((v) => !v)}>
                 Defense
               </button>
@@ -170,7 +196,7 @@ export function usePlayLines(opts: {
         )}
         {lines && lineUp && !playing && (
           <div className="max-w-xs rounded-lg px-2.5 py-1.5 text-[11px] leading-snug" style={panel}>
-            Drag the <b style={{ color: '#f59e0b' }}>orange</b> dots onto the line of scrimmage and the <b style={{ color: '#38bdf8' }}>blue</b> dots 5 yards behind it, until the orange line sits on the ball. The middle handle moves it all. Saved with this play; the next play on this film starts from it.
+            Drag the <b style={{ color: '#f59e0b' }}>orange</b> dots onto the line of scrimmage and the <b style={{ color: '#38bdf8' }}>blue</b> dots 5 yards behind it, until the orange line sits on the ball. The middle handle moves it all; Rotate turns it a quarter turn. Saved with this play; the next play on this film starts from it.
           </div>
         )}
         {lines && playing && (
