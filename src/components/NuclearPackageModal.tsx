@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Atom, Printer, X } from 'lucide-react';
 import type { FormationBoard, PlacedPlayer } from '../types';
-import { NUCLEAR_PRINT_DEFAULTS, PRINT_COLORS, STRINGS, buildNuclear, kidPath, nuclearPrintHtml, nuclearSvg, type NuclearPrintOptions } from '../utils/nuclearPackage';
+import { NUCLEAR_PRINT_DEFAULTS, PRINT_COLORS, STRINGS, buildNuclear, nuclearGrid, nuclearPrintHtml, nuclearSvg, type NuclearPrintOptions } from '../utils/nuclearPackage';
 import { openCleanPrintTab } from '../utils/printUtils';
 import { loadPrintPrefs, savePrintPrefs } from '../utils/printPrefs';
 
@@ -145,39 +145,51 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
           {formIds.length > 0 && (
             <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
               <span><i className="inline-block w-3 h-3 rounded-full align-[-1px] mr-1.5 border border-slate-400" style={{ background: PRINT_COLORS.ink }} />Same spot in every formation</span>
-              <span><i className="inline-block w-3 h-3 rounded-full align-[-1px] mr-1.5" style={{ background: PRINT_COLORS.movers[0] }} />Moves (tagged with the formations at that spot)</span>
+              <span><i className="inline-block w-3 h-3 rounded-full align-[-1px] mr-1.5" style={{ background: PRINT_COLORS.movers[0] }} />Moves (shaded in the chart where he changes spots)</span>
               <span><i className="inline-block w-3 h-3 rounded-full align-[-1px] mr-1.5 border-2 border-dashed border-slate-500" />Not in every formation (a sub)</span>
             </div>
           )}
 
           {(movers.length > 0 || subs.length > 0) && (
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {[...movers, ...subs].map((k) => {
-                const color = k.partial ? undefined : PRINT_COLORS.movers[movers.indexOf(k) % PRINT_COLORS.movers.length];
-                const out = formIds.filter((id) => !k.at[id]).map(labelOf);
-                return (
-                  <div key={k.key} className="flex items-start gap-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 px-3 py-2 min-w-0">
-                    <span
-                      className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-black ${k.partial ? 'border-2 border-dashed border-slate-500 text-slate-700 dark:text-slate-200' : 'text-white'}`}
-                      style={color ? { background: color } : undefined}
-                    >
-                      {k.num || '?'}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="text-sm font-black text-slate-900 dark:text-white truncate">{k.name}</div>
-                      <div className="text-xs text-slate-600 dark:text-slate-300">
-                        {kidPath(pkg, k, formIds).map((p, i) => (
-                          <span key={i}>
-                            {i > 0 && ' → '}
-                            <b>{p.spot.label}</b> {p.forms.join(', ')}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="border-b-2 border-slate-900 dark:border-slate-200">
+                    <th className="text-left py-1.5 pr-3 text-[11px] font-black uppercase tracking-wider text-slate-500">Who lines up where</th>
+                    {formIds.map((id) => (
+                      <th key={id} className="px-2 py-1.5 font-black text-slate-900 dark:text-white">{labelOf(id)}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {nuclearGrid(pkg, formIds).map(({ kid: k, color: ci, cells }) => (
+                    <tr key={k.key} className="border-b border-slate-200 dark:border-slate-800">
+                      <td className="py-1.5 pr-3">
+                        <span className="flex items-center gap-2 min-w-0">
+                          <span
+                            className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-black ${k.partial ? 'border-2 border-dashed border-slate-500 text-slate-700 dark:text-slate-200' : 'text-white'}`}
+                            style={ci >= 0 ? { background: PRINT_COLORS.movers[ci % PRINT_COLORS.movers.length] } : undefined}
+                          >
+                            {k.num || '?'}
                           </span>
-                        ))}
-                        {out.length > 0 && <span className="text-amber-700 dark:text-amber-300"> · out in {out.join(', ')}</span>}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+                          <span className="font-black text-slate-900 dark:text-white truncate">{k.name}</span>
+                        </span>
+                      </td>
+                      {cells.map((c, i) => {
+                        const moved = Boolean(c && i > 0 && cells[i - 1] && c !== cells[i - 1]);
+                        return (
+                          <td
+                            key={i}
+                            className={`px-2 py-1.5 text-center ${!c ? 'italic text-slate-400' : moved ? 'font-black bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-200' : 'font-bold text-slate-700 dark:text-slate-200'}`}
+                          >
+                            {c || 'out'}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
 

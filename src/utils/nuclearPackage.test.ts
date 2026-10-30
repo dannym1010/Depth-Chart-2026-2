@@ -74,7 +74,8 @@ describe('a nuclear package: one string in every formation', () => {
     assert.ok(svg.includes('X · 11') && svg.includes('FB · 21'));
     assert.ok(!nuclearSvg(pkg, ids, { only: 'f11' }).includes('Barry'));
     const sheet = nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U');
-    assert.ok(sheet.includes('size: letter landscape') && sheet.includes('Who moves') && sheet.includes('out in 11'));
+    assert.ok(sheet.includes('size: letter landscape') && sheet.includes('Who lines up where') && sheet.includes('<td class="mvd">X</td>') && sheet.includes('<td class="out">out</td>'));
+    assert.ok(!svg.includes('<polyline'));
     assert.equal(nuclearSvg(buildNuclear([b21], {}, 0), ['f21']), '');
   });
 });

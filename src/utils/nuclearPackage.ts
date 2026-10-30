@@ -128,6 +128,14 @@ export function kidPath(pkg: NuclearPackage, kid: NuclearKid, formIds: string[])
   return out;
 }
 
+/** Who lines up where: a row per kid who moves or subs, a column per formation (null: not in it). */
+export function nuclearGrid(pkg: NuclearPackage, formIds: string[]): { kid: NuclearKid; color: number; cells: (string | null)[] }[] {
+  const movers = pkg.kids.filter((k) => !k.fixed && !k.partial);
+  return pkg.kids
+    .filter((k) => !k.fixed)
+    .map((kid) => ({ kid, color: kid.partial ? -1 : movers.indexOf(kid), cells: formIds.map((id) => (kid.at[id] ? pkg.spots[kid.at[id]].label : null)) }));
+}
+
 export interface NuclearColors {
   turf: string;
   turfLine: string;
@@ -162,8 +170,6 @@ export const INK_COLORS: NuclearColors = {
   movers: ['#ffffff'],
   inkOnly: true,
 };
-// Black and white: each mover's path gets its own dashes.
-const INK_DASHES = ['2 6', '10 5', '1 4', '14 4 3 4', '6 3', '20 6'];
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
@@ -183,7 +189,7 @@ export function nuclearSvg(pkg: NuclearPackage, formIds: string[], opts: { only?
   const minDx = Math.min(...keys.map((s) => s.dx)), maxDx = Math.max(...keys.map((s) => s.dx));
   const maxRow = Math.max(...keys.map((s) => s.row));
   const W = (maxDx - minDx) * CELL_X + PAD_X * 2;
-  const H = TOP + maxRow * CELL_Y + 30 * z + (names ? 36 : 22) + (opts.only ? 0 : 14);
+  const H = TOP + maxRow * CELL_Y + 30 * z + (names ? 40 : 24) + (opts.only ? 6 * z : 14);
   const at = (s: NuclearSpot) => [PAD_X + (s.dx - minDx) * CELL_X, TOP + s.row * CELL_Y];
   const movers = pkg.kids.filter((k) => !k.fixed && !k.partial);
   const color = (k: NuclearKid) => (k.fixed ? C.ink : k.partial ? C.paper : C.movers[movers.indexOf(k) % C.movers.length]);
@@ -221,26 +227,18 @@ export function nuclearSvg(pkg: NuclearPackage, formIds: string[], opts: { only?
   for (let y = TOP + CELL_Y / 2; y < H - 10; y += CELL_Y / 2) out.push(`<line x1="12" x2="${W - 12}" y1="${y}" y2="${y}" stroke="${C.turfLine}" stroke-width="0.8"/>`);
   out.push(`<line x1="12" x2="${W - 12}" y1="${TOP - 22 * z}" y2="${TOP - 22 * z}" stroke="${C.los}" stroke-width="2" stroke-dasharray="7 5"/>`);
   if (!opts.only) out.push(`<text x="18" y="${TOP - 28}" ${font} font-size="12" font-weight="700" letter-spacing="1.5" fill="${C.muted}">LINE OF SCRIMMAGE</text>`);
-  // Paths: a mover's spots joined in formation order.
-  if (!opts.only) {
-    for (const kid of movers) {
-      const pts = kidPath(pkg, kid, shown).map((p) => drawn.find((c) => c.kid === kid && c.spot.key === p.spot.key)!);
-      if (pts.length < 2) continue;
-      out.push(`<polyline points="${pts.map((c) => `${c.x},${c.y}`).join(' ')}" fill="none" stroke="${C.inkOnly ? C.ink : color(kid)}" stroke-width="${C.inkOnly ? 2 : 2.5}" stroke-opacity="${C.inkOnly ? 0.8 : 0.55}" stroke-dasharray="${C.inkOnly ? INK_DASHES[movers.indexOf(kid) % INK_DASHES.length] : '2 6'}" stroke-linecap="round"/>`);
-    }
-  }
   for (const c of drawn) {
     const fill = color(c.kid);
     const dashed = c.kid.partial;
     out.push(`<circle cx="${c.x}" cy="${c.y}" r="${19 * z}" fill="${fill}" stroke="${dashed ? C.muted : C.inkOnly && !c.kid.fixed ? C.ink : C.paper}" stroke-width="${(dashed ? 2 : C.inkOnly && !c.kid.fixed ? 3.5 : 3) * Math.sqrt(z)}"${dashed ? ' stroke-dasharray="4 3"' : ''}/>`);
     out.push(`<text x="${c.x}" y="${c.y + 6.5 * z}" text-anchor="middle" ${font} font-size="${19 * z}" font-weight="800" fill="${dashed || (C.inkOnly && !c.kid.fixed) ? C.ink : c.kid.fixed ? C.inkText : '#ffffff'}">${esc(c.kid.num || '?')}</text>`);
-    let y = c.y + 19 * z + 16;
+    let y = c.y + 19 * z + 17;
     if (names && c.kid.name) {
-      out.push(`<text x="${c.x}" y="${y}" text-anchor="middle" ${font} font-size="14" font-weight="700" fill="${C.ink}">${esc(c.kid.name.slice(0, 11))}</text>`);
-      y += 14;
+      out.push(`<text x="${c.x}" y="${y}" text-anchor="middle" ${font} font-size="16" font-weight="700" fill="${C.ink}">${esc(c.kid.name.slice(0, 11))}</text>`);
+      y += 16;
     }
     const tag = c.forms.length < shown.length ? `${esc(c.spot.label)} · ${esc(c.forms.join(' '))}` : esc(c.spot.label);
-    out.push(`<text x="${c.x}" y="${y + (z - 1) * 8}" text-anchor="middle" ${font} font-size="${12 * z}" font-weight="700" fill="${c.kid.fixed || c.kid.partial || C.inkOnly ? C.muted : fill}">${tag}</text>`);
+    out.push(`<text x="${c.x}" y="${y + (z - 1) * 8}" text-anchor="middle" ${font} font-size="${(opts.only ? 15 : 14) * z}" font-weight="800" fill="${c.kid.fixed || c.kid.partial || C.inkOnly ? C.muted : fill}">${tag}</text>`);
   }
   out.push('</svg>');
   return out.join('');
@@ -264,16 +262,14 @@ export function nuclearPrintHtml(pkg: NuclearPackage, formIds: string[], title: 
   const o = { ...NUCLEAR_PRINT_DEFAULTS, ...options };
   const C = o.ink ? INK_COLORS : PRINT_COLORS;
   const portrait = o.orientation === 'portrait';
-  const movers = pkg.kids.filter((k) => !k.fixed && !k.partial);
   const labelOf = (id: string) => pkg.forms.find((f) => f.id === id)?.label || id;
-  const rows = pkg.kids
-    .filter((k) => !k.fixed)
-    .map((k) => {
-      const color = k.partial || C.inkOnly ? C.paper : C.movers[movers.indexOf(k) % C.movers.length];
+  const head = formIds.map((id) => `<th>${esc(labelOf(id))}</th>`).join('');
+  const rows = nuclearGrid(pkg, formIds)
+    .map(({ kid: k, color: ci, cells }) => {
+      const color = k.partial || C.inkOnly ? C.paper : C.movers[ci % C.movers.length];
       const ring = k.partial ? `border:2px dashed ${C.muted};color:${C.ink}` : C.inkOnly ? `border:2.5px solid ${C.ink};color:${C.ink}` : '';
-      const path = kidPath(pkg, k, formIds).map((p) => `<b>${esc(p.spot.label)}</b> ${esc(p.forms.join(', '))}`).join(' &rarr; ');
-      const out = formIds.filter((id) => !k.at[id]).map(labelOf);
-      return `<div class="mv"><span class="dot" style="background:${color};${ring}">${esc(k.num)}</span><span><span class="nm">${esc(k.name)}</span> ${path}${out.length ? ` <i>(out in ${esc(out.join(', '))})</i>` : ''}</span></div>`;
+      const tds = cells.map((c, i) => `<td class="${c ? (i && c !== cells[i - 1] && cells[i - 1] ? 'mvd' : '') : 'out'}">${c ? esc(c) : 'out'}</td>`).join('');
+      return `<tr><td class="who"><span class="dot" style="background:${color};${ring}">${esc(k.num)}</span><span class="nm">${esc(k.name)}</span></td>${tds}</tr>`;
     })
     .join('');
   const fixed = pkg.kids.filter((k) => k.fixed).map((k) => `#${esc(k.num)} ${esc(k.name)} (${esc(pkg.spots[Object.values(k.at)[0]]?.label || '')})`).join(' · ');
@@ -282,7 +278,7 @@ export function nuclearPrintHtml(pkg: NuclearPackage, formIds: string[], title: 
     ? formIds.map((id) => `<div class="mini"><div class="mt">${esc(labelOf(id))}</div>${nuclearSvg(pkg, formIds, { only: id, names: false, zoom: 2, colors: C })}</div>`).join('')
     : '';
   const side = o.moves
-    ? `<div class="side"><h2>Who moves</h2>${rows || '<div class="mv">Nobody: every kid stays in one spot.</div>'}${fixed ? `<div class="fixed"><b>Same spot every time:</b> ${fixed}</div>` : ''}</div>`
+    ? `<div class="side"><h2>Who lines up where</h2>${rows ? `<table class="grid"><thead><tr><th></th>${head}</tr></thead><tbody>${rows}</tbody></table>` : '<p>Nobody moves: every kid stays in one spot.</p>'}${fixed ? `<div class="fixed"><b>Same spot every time:</b> ${fixed}</div>` : ''}</div>`
     : '';
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;600&display=swap">
@@ -293,16 +289,21 @@ body { margin: 0; font-family: Barlow, Arial, sans-serif; color: ${C.ink}; backg
 .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; border-bottom: 3px solid ${C.ink}; padding-bottom: 4px; margin-bottom: 8px; }
 h1 { font: 800 24px/1 "Barlow Condensed", "Arial Narrow", sans-serif; margin: 0; text-transform: uppercase; letter-spacing: .02em; }
 .sub { font: 700 12px/1 "Barlow Condensed", "Arial Narrow", sans-serif; text-transform: uppercase; letter-spacing: .1em; color: ${C.muted}; text-align: right; }
-.main { display: grid; grid-template-columns: ${side && !portrait ? '1fr 230px' : '1fr'}; gap: 12px; align-items: start; }
-${portrait ? '.side { columns: 2; column-gap: 16px; } .side h2 { column-span: all; } .mv { break-inside: avoid; } .mini svg { max-height: 1.7in; width: auto !important; margin: 0 auto; }' : ''}
-.mv { display: flex; gap: 6px; align-items: flex-start; padding: 4px 0; border-bottom: 1px solid #e3e6e2; line-height: 1.3; }
+.main { display: grid; grid-template-columns: ${side && !portrait ? '1fr 300px' : '1fr'}; gap: 12px; align-items: start; }
+${portrait ? '.mini svg { max-height: 1.7in; width: auto !important; margin: 0 auto; }' : ''}
+.grid { width: 100%; border-collapse: collapse; font: 700 13px/1.2 "Barlow Condensed", Arial, sans-serif; }
+.grid th { font: 800 14px/1 "Barlow Condensed", Arial, sans-serif; text-align: center; padding: 3px 4px; border-bottom: 2px solid ${C.ink}; }
+.grid td { text-align: center; padding: 4px; border-bottom: 1px solid #e3e6e2; }
+.grid td.who { text-align: left; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+.grid td.mvd { background: ${C.inkOnly ? '#e6e6e6' : '#fff1d6'}; font-weight: 800; }
+.grid td.out { color: ${C.muted}; font-style: italic; font-weight: 600; }
 .dot { flex: none; width: 22px; height: 22px; border-radius: 50%; color: #fff; display: inline-flex; align-items: center; justify-content: center; font: 800 12px/1 "Barlow Condensed", Arial, sans-serif; }
-.nm { font-weight: 600; display: block; }
+.nm { font-weight: 700; }
 .side h2 { font: 800 13px/1 "Barlow Condensed", Arial, sans-serif; text-transform: uppercase; letter-spacing: .1em; margin: 0 0 4px; }
-.fixed { margin-top: 8px; color: ${C.muted}; break-inside: avoid; }
+.fixed { margin-top: 8px; color: ${C.muted}; font-size: 12px; line-height: 1.4; }
 .minis { display: grid; grid-template-columns: repeat(${Math.max(1, cols)}, 1fr); gap: 8px; margin-top: 10px; }
 .mini { border: 1px solid #d9ddd8; border-radius: 8px; padding: 4px; break-inside: avoid; }
-.mt { font: 800 14px/1 "Barlow Condensed", Arial, sans-serif; padding: 2px 4px 4px; }
+.mt { font: 800 16px/1 "Barlow Condensed", Arial, sans-serif; padding: 2px 4px 4px; }
 </style></head><body>
 <div class="head"><h1>${esc(title)}</h1><span class="sub">${esc(subtitle)}</span></div>
 <div class="main">
