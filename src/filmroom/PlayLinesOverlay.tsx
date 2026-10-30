@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { buildProjectedFieldGrid, fieldToImage, HOMOGRAPHY_PRESETS, type HomographyQuad, type ImagePoint } from '../utils/videoHomography';
+import { buildProjectedFieldGrid, fieldToImage, HOMOGRAPHY_PRESETS, imageToField, type HomographyQuad, type ImagePoint } from '../utils/videoHomography';
 import { DEFENSE_COLOR, diagramLabel, isDefenseRole, MOTION_COLOR, shownText, skillDiagramLabel, STROKE_COLOR, type PlayNode, type PlayStroke } from '../utils/footballEngine';
 import { computeAnimatedPlayFrame } from '../utils/playAnimation';
 import { safeJSONParse, safeJSONSet } from '../services/storageService';
@@ -12,6 +12,8 @@ export interface VideoLines {
   /** Where the field is in the video: 4 corners (fractions of the frame). */
   quad: HomographyQuad;
   setQuad: (quad: HomographyQuad) => void;
+  /** A player dragged on the film, to his spot on the field (yards). */
+  moveNode?: (role: string, x: number, y: number) => void;
   name: string;
 }
 
@@ -56,7 +58,8 @@ const panel = { background: 'rgba(15,23,42,0.85)', color: '#e2e8f0' };
 const STOCK = Object.values(HOMOGRAPHY_PRESETS)
   .filter((p) => p.quad.preset !== 'custom')
   .map((p) => JSON.stringify(p.quad));
-const notLinedUp = (q: HomographyQuad) => STOCK.includes(JSON.stringify(q));
+// A stock angle, or the film's lineup picked up (not set on this play): it follows the film's latest lineup.
+const notLinedUp = (q: HomographyQuad) => Boolean(q.fromFilm) || STOCK.includes(JSON.stringify(q));
 /** Film starts from behind the offense: the line of scrimmage across the picture, the offense below it. */
 const FILM_START = HOMOGRAPHY_PRESETS.endzone.quad;
 /**
@@ -114,11 +117,12 @@ export function usePlayLines(opts: {
   const [corners, setCorners] = useState(false);
   const lineupKey = `mahopac_film_lineup_${filmKey}`;
 
-  // A play not lined up yet: the last lineup on this film, else the line of scrimmage across the picture.
+  // A play not lined up on its own: the latest lineup on this film (the plays before it in the series), else the line
+  // of scrimmage across the picture. Once the coach turns, sizes or moves it on this play, it keeps its own.
   useEffect(() => {
     if (!on || !lines || !notLinedUp(lines.quad)) return;
     const saved = safeJSONParse<HomographyQuad | null>(lineupKey, null);
-    const next = saved && !notLinedUp(saved) ? saved : FILM_START;
+    const next = saved && !notLinedUp(saved) ? { ...saved, fromFilm: true } : FILM_START;
     if (JSON.stringify(next) !== JSON.stringify(lines.quad)) lines.setQuad(next);
   }, [on, lines, lineupKey]);
 
@@ -146,7 +150,15 @@ export function usePlayLines(opts: {
     setProgress(0);
   }, [lines?.name]);
 
-  const shown = lines && { ...lines, setQuad: (q: HomographyQuad) => (lines.setQuad(q), safeJSONSet(lineupKey, q)) };
+  // The coach's change to the lineup: this play's own from now on, and the film's latest for the plays after it.
+  const shown = lines && {
+    ...lines,
+    setQuad: (q: HomographyQuad) => {
+      const { fromFilm: _picked, ...own } = q;
+      lines.setQuad(own);
+      safeJSONSet(lineupKey, own);
+    },
+  };
   const frame = useMemo(
     () => (lines ? computeAnimatedPlayFrame(lines.nodes, lines.strokes, [], lines.ballRole, progress) : null),
     [lines, progress]
@@ -384,7 +396,7 @@ const LinesDrawing: React.FC<{
   const svgRef = useRef<SVGSVGElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [aspect, setAspect] = useState(16 / 9);
-  const drag = useRef<{ corner: Corner | 'all'; from: ImagePoint; quad: HomographyQuad } | null>(null);
+  const drag = useRef<{ corner: Corner | 'all' | 'player'; role?: string; from: ImagePoint; quad: HomographyQuad } | null>(null);
 
   // The video's picture inside the player (letterboxed when it isn't 16:9).
   useEffect(() => {
@@ -436,7 +448,11 @@ const LinesDrawing: React.FC<{
     e.stopPropagation();
     const from = toUV(e);
     if (!from) return;
-    (e.target as Element).setPointerCapture?.(e.pointerId);
+    try {
+      (e.target as Element).setPointerCapture(e.pointerId);
+    } catch {
+      // No capture (an old browser): the drag still follows over the picture.
+    }
     drag.current = { corner, from, quad };
   };
   const onMove = (e: React.PointerEvent) => {
@@ -446,12 +462,36 @@ const LinesDrawing: React.FC<{
     const at = toUV(e);
     if (!at) return;
     const clamp = (n: number) => Math.round(Math.max(-0.2, Math.min(1.2, n)) * 1000) / 1000;
-    if (d.corner === 'all') {
+    if (d.corner === 'player') {
+      // A player moved on the film: his spot on the field, to a tenth of a yard.
+      const f = imageToField(quad, at);
+      lines.moveNode?.(d.role!, Math.round(f.x * 10) / 10, Math.round(f.y * 10) / 10);
+    } else if (d.corner === 'all') {
       const du = at.u - d.from.u, dv = at.v - d.from.v;
       const move = (p: ImagePoint) => ({ u: clamp(p.u + du), v: clamp(p.v + dv) });
       lines.setQuad({ ...d.quad, losLeft: move(d.quad.losLeft), losRight: move(d.quad.losRight), backLeft: move(d.quad.backLeft), backRight: move(d.quad.backRight), preset: 'custom' });
     } else lines.setQuad({ ...d.quad, [d.corner]: { u: clamp(at.u), v: clamp(at.v) }, preset: 'custom' });
   };
+  // Players can be dragged while the play isn't running and the field isn't being lined up.
+  const canMove = Boolean(lines.moveNode) && !frame && !lineUp;
+  const grab = (n: PlayNode) =>
+    canMove
+      ? {
+          style: { pointerEvents: 'auto' as const, cursor: 'grab', touchAction: 'none' as const },
+          onPointerDown: (e: React.PointerEvent) => {
+            e.stopPropagation();
+            const from = toUV(e);
+            if (!from) return;
+            try {
+              (e.currentTarget as Element).setPointerCapture(e.pointerId);
+            } catch {
+              // No capture (an old browser): the drag still follows over the picture.
+            }
+            drag.current = { corner: 'player', role: n.role, from, quad };
+          },
+          onClick: (e: React.MouseEvent) => e.stopPropagation(),
+        }
+      : {};
   const endDrag = (e: React.PointerEvent) => {
     if (!drag.current) return;
     e.stopPropagation();
@@ -601,7 +641,11 @@ const LinesDrawing: React.FC<{
                 </g>
               );
             })}
-          {shownNodes.map(nodeEl)}
+          {shownNodes.map((n) => (
+            <g key={n.role} {...grab(n)}>
+              {nodeEl(n)}
+            </g>
+          ))}
           {frame && <circle cx={px(frame.ball)[0]} cy={px(frame.ball)[1]} r={5 * k} fill="#92400e" stroke="#fff" strokeWidth={1.5 * k} />}
           {lineUp && (
             <>

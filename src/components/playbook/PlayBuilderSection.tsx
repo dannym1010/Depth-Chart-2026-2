@@ -74,7 +74,7 @@ import { defenseJob, defenseOrder, standardDefenseJob } from '../../utils/defens
 import { pickedTechniques, rulesText } from '../../utils/defenseRules';
 import { DefenderRules } from './DefenderRules';
 import { defenseCallName, defenseCallStrokes, mirrorJob, mirrorPressure, pressureGaps } from '../../utils/defenseCalls';
-import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, defenseMirrored, lineUpOurDefense } from '../../hudlScout/utils/ourDefense';
+import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, defenseMirrored, lineUpOurDefense, samToWideSide, tightEndFlip } from '../../hudlScout/utils/ourDefense';
 import { DEF_UNITS, defensePlayerAt, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
 import { rememberDefenseUnit, rememberedDefenseUnit, useDefenseRosterSource } from '../../utils/defenseRosterStore';
 
@@ -398,7 +398,9 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     : [];
   const dLook = defenseKey ? looks[defenseKey] || null : null;
   const defFront = frontOfLook(defenseKey);
-  const strongLeft = defenseMirror ? true : dLook && (dLook.strength === 'Left' || dLook.strength === 'Right') ? dLook.strength === 'Left' : strength === 'Left';
+  // Our defense turns to the tight end's side (else the strength call: the coach's mirror).
+  const flipDefense = tightEndFlip(offNodes, hashDx) ?? defenseMirror;
+  const strongLeft = flipDefense ? true : dLook && (dLook.strength === 'Left' || dLook.strength === 'Right') ? dLook.strength === 'Left' : strength === 'Left';
   const tagging = Boolean(dLook) && defUnit !== 'off' && hasDepth;
   const taggedWho = useMemo(
     () => (dLook && tagging ? lineupForDefense(dLook.nodes, { unit: defUnit as DefUnit, front: defFront, strongLeft, src: rosterSrc, overrides: defWho }) : {}),
@@ -407,10 +409,9 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   );
   // Our defense where it starts before any of its players are dragged: the whole look moves with the
   // ball to the hash first, then the line sets its techniques on the offense's line (no second shift).
-  const flipDefense = defenseMirror;
   // Saved moves are kept for the defense drawn strength-left: measured the other way when it's mirrored.
   const flipSign = flipDefense ? -1 : 1;
-  const lineUpDefense = (nodes: PlayNode[]) => defenseAtHash(flipDefense ? nodes.map((n) => ({ ...n, x: -n.x })) : nodes, offNodes, hashDx);
+  const lineUpDefense = (nodes: PlayNode[]) => samToWideSide(defenseAtHash(flipDefense ? nodes.map((n) => ({ ...n, x: -n.x })) : nodes, offNodes, hashDx), hashDx);
   const standardDefense = useMemo(
     () => (dLook ? lineUpOurDefense(defenseKey, dLook.nodes, offNodes, { hashDx, flip: flipDefense, techs: pickedTechniques(defRules) }) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -927,9 +928,11 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     savedKey.current = stateKeyRef.current;
     setSaveTick((n) => n + 1);
   };
+  // Changed on the film (a player moved, the field lined up): kept like a drawing.
+  const videoEdited = useRef(false);
   /**
    * Leaving the play (another page, Back, Previous / Next) saves it when it changed. A new play is only
-   * added when something was drawn for it.
+   * added when something was drawn for it (or changed on the film).
    */
   const saveOnLeave = useRef<() => void>(() => {});
   saveOnLeave.current = () => {
@@ -939,7 +942,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       savedKey.current = stateKeyRef.current;
       return;
     }
-    if (!seed?.playEntryId && !userDrew) return;
+    if (!seed?.playEntryId && !userDrew && !videoEdited.current) return;
     saveNow(true);
   };
   useEffect(() => () => saveOnLeave.current(), []);
@@ -1221,7 +1224,23 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const videoLinesKey = JSON.stringify([diagramNodes, allLines, ball, homographyQuad, callLabel]);
   const linesOwner = useRef({});
   useEffect(() => {
-    const lines: VideoLines = { nodes: diagramNodes, strokes: allLines, ballRole: String(ball), quad: homographyQuad, setQuad: setHomographyQuad, name: callLabel.trim() };
+    const lines: VideoLines = {
+      nodes: diagramNodes,
+      strokes: allLines,
+      ballRole: String(ball),
+      quad: homographyQuad,
+      setQuad: (q) => {
+        // Picked up from the film's lineup isn't the coach's change; turning or sizing it is.
+        if (!q.fromFilm) videoEdited.current = true;
+        setHomographyQuad(q);
+      },
+      // A player dragged on the film: moved here the same as dragging him on the diagram.
+      moveNode: (role, x, y) => {
+        videoEdited.current = true;
+        setOverrides((prev) => ({ ...prev, [role]: { x, y } }));
+      },
+      name: callLabel.trim(),
+    };
     if (onVideoLines) onVideoLines(lines);
     else publishPlayLines(linesOwner.current, lines);
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -37,6 +37,8 @@ export interface HomographyQuad {
   backDepth?: number;
   /** Optional preset label */
   preset?: 'pressbox_top_down' | 'sideline_l2r' | 'sideline_r2l' | 'endzone' | 'custom';
+  /** Picked up from the film's lineup (the play before it), not set on this play: it keeps following the film. */
+  fromFilm?: boolean;
 }
 
 export const HOMOGRAPHY_PRESETS: Record<
