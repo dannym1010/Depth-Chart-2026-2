@@ -27,7 +27,7 @@ import {
   type PlayStroke,
 } from '../../utils/footballEngine';
 import { COLOR, PlayerAssignmentPanel, arrowPts, strokeFor, tBar } from './PlayerAssignmentPanel';
-import { computeAnimatedPlayFrame } from '../../utils/playAnimation';
+import { computeAnimatedPlayFrame, playAnimationSeconds } from '../../utils/playAnimation';
 import type { PlayerActionPreset } from '../../utils/playActionPresets';
 import type { DefenseWho } from './PlayerAssignmentPanel';
 
@@ -235,6 +235,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   const [animProgress, setAnimProgress] = useState<number>(0);
   const [animSpeed, setAnimSpeed] = useState<0.5 | 1>(1);
   const strokes = draft ?? strokesProp;
+  const seconds = playAnimationSeconds(strokes, extraStrokes || []);
   const nodes = useMemo(
     () => (dragPos ? nodesProp.map((n) => (n.role === dragPos.role ? { ...n, x: dragPos.x, y: dragPos.y } : n)) : nodesProp),
     [nodesProp, dragPos]
@@ -268,7 +269,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       const dt = (now - lastTs) / 1000;
       lastTs = now;
       setAnimProgress((prev) => {
-        const next = prev + (dt * animSpeed) / 3.2;
+        const next = prev + (dt * animSpeed) / seconds;
         if (next >= 1) {
           setIsPlaying(false);
           return 1;
@@ -279,7 +280,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     };
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [isPlaying, animSpeed]);
+  }, [isPlaying, animSpeed, seconds]);
   // The field is drawn around the ball (a formation on a hash keeps its spacing). From the spots before a
   // drag, so the field doesn't slide while the center is being moved.
   setFieldBall(ballXOf(nodesProp));

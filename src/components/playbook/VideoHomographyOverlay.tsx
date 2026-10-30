@@ -15,7 +15,7 @@ import {
   type PlayNode,
   type PlayStroke,
 } from '../../utils/footballEngine';
-import { computeAnimatedPlayFrame } from '../../utils/playAnimation';
+import { computeAnimatedPlayFrame, playAnimationSeconds } from '../../utils/playAnimation';
 
 interface VideoHomographyOverlayProps {
   /** Getter for the active HTMLVideoElement in Film Player */
@@ -86,6 +86,7 @@ export const VideoHomographyOverlay: React.FC<VideoHomographyOverlayProps> = ({
     }
   }, [playTrigger]);
 
+  const seconds = playAnimationSeconds(strokes);
   useEffect(() => {
     if (!isPlaying) return;
     let rafId = 0;
@@ -99,7 +100,7 @@ export const VideoHomographyOverlay: React.FC<VideoHomographyOverlayProps> = ({
       const dt = (now - lastTs) / 1000;
       lastTs = now;
       setAnimProgress((prev) => {
-        const next = prev + (dt * animSpeed) / 3.2;
+        const next = prev + (dt * animSpeed) / seconds;
         if (next >= 1) {
           setIsPlaying(false);
           return 1;
@@ -110,7 +111,7 @@ export const VideoHomographyOverlay: React.FC<VideoHomographyOverlayProps> = ({
     };
     rafId = requestAnimationFrame(step);
     return () => cancelAnimationFrame(rafId);
-  }, [isPlaying, animSpeed, syncVideo, getVideo]);
+  }, [isPlaying, animSpeed, syncVideo, getVideo, seconds]);
 
   useEffect(() => {
     if (initialFrameUrl) {

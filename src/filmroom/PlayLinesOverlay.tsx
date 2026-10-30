@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { buildProjectedFieldGrid, fieldToImage, HOMOGRAPHY_PRESETS, imageToField, type HomographyQuad, type ImagePoint } from '../utils/videoHomography';
 import { DEFENSE_COLOR, diagramLabel, isDefenseRole, MOTION_COLOR, shownText, skillDiagramLabel, STROKE_COLOR, type PlayNode, type PlayStroke } from '../utils/footballEngine';
-import { computeAnimatedPlayFrame } from '../utils/playAnimation';
+import { computeAnimatedPlayFrame, playAnimationSeconds } from '../utils/playAnimation';
 import { safeJSONParse, safeJSONSet } from '../services/storageService';
 
 /** The selected play as the Play Builder draws it, to lay over the film. */
@@ -45,7 +45,6 @@ const showsOffense = (side: Side) => side !== 'defense';
 /** Our defense's lines (blitzes, coverage) carry their own color; the offense's don't. */
 const isDefenseStroke = (s: PlayStroke) => Boolean(s.color || s.zone || s.man);
 // Seconds for the whole play (motion, snap and the play) at full speed.
-const PLAY_SECONDS = 3.2;
 // Stops the stage under the controls from taking a press as play / pause or a pan.
 const keep = {
   onPointerDown: (e: React.PointerEvent) => e.stopPropagation(),
@@ -126,7 +125,8 @@ export function usePlayLines(opts: {
     if (JSON.stringify(next) !== JSON.stringify(lines.quad)) lines.setQuad(next);
   }, [on, lines, lineupKey]);
 
-  // Run play: 0 -> 1 over the play's length, then it stays on the last frame.
+  // Run play: 0 -> 1 over the play's length (longer with motion: the motion, then set), then it stays on the last frame.
+  const seconds = playAnimationSeconds(lines?.strokes || []);
   useEffect(() => {
     if (!running) return;
     let raf = 0;
@@ -135,7 +135,7 @@ export function usePlayLines(opts: {
       const dt = (now - last) / 1000;
       last = now;
       setProgress((p) => {
-        const next = Math.min(1, p + (dt * (slow ? 0.5 : 1)) / PLAY_SECONDS);
+        const next = Math.min(1, p + (dt * (slow ? 0.5 : 1)) / seconds);
         if (next >= 1) setRunning(false);
         return next;
       });
@@ -143,7 +143,7 @@ export function usePlayLines(opts: {
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [running, slow]);
+  }, [running, slow, seconds]);
   // Another play: back to the start.
   useEffect(() => {
     setRunning(false);

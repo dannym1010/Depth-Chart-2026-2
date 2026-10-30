@@ -21,6 +21,38 @@ const OL_ROLES = ['LT', 'LG', 'C', 'RG', 'RT'];
 /** Yards a lineman who isn't pulling moves: a short step into his block. */
 export const LINE_STEP = 0.75;
 
+/** Seconds the play runs after the snap (at full speed). */
+export const PLAY_SECONDS = 3.2;
+/** Pre-snap motion: seconds in motion, then set this long before the snap. */
+export const MOTION_SECONDS = 1;
+export const SET_SECONDS = 1;
+
+/** The play has pre-snap motion. */
+export function hasPreSnapMotion(strokes: PlayStroke[]): boolean {
+  return strokes.some((s) => s.points && s.points.length >= 2 && (s.motion || 0) >= 1);
+}
+
+/** How long the whole animation runs at full speed: the motion and the set before the snap, then the play. */
+export function playAnimationSeconds(strokes: PlayStroke[], extraStrokes: PlayStroke[] = []): number {
+  return PLAY_SECONDS + (hasPreSnapMotion([...strokes, ...extraStrokes]) ? MOTION_SECONDS + SET_SECONDS : 0);
+}
+
+/** The closest point on a line to a spot: how far, the point, and the segment it's on. */
+function closestOnLine(points: { x: number; y: number }[], at: { x: number; y: number }) {
+  let best = { d: Infinity, x: points[0].x, y: points[0].y, seg: 0 };
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const len2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
+    const t = len2 > 1e-9 ? Math.max(0, Math.min(1, ((at.x - a.x) * (b.x - a.x) + (at.y - a.y) * (b.y - a.y)) / len2)) : 0;
+    const x = a.x + (b.x - a.x) * t;
+    const y = a.y + (b.y - a.y) * t;
+    const d = Math.hypot(at.x - x, at.y - y);
+    if (d < best.d) best = { d, x, y, seg: i };
+  }
+  return best;
+}
+
 /** A lineman's line is a pull: it drops off the ball first, or runs 2.5 yards or more down the line. */
 export function isPullLine(st: PlayStroke, start: { x: number; y: number }): boolean {
   const last = st.points[st.points.length - 1];
@@ -98,17 +130,47 @@ export function computeAnimatedPlayFrame(
   const p = Math.max(0, Math.min(1, progress));
   const allStrokes = [...strokes, ...extraStrokes].filter((s) => s.points && s.points.length >= 2);
 
-  // Match each player role to its primary stroke (if any)
+  // Match each player role to its primary stroke (if any): his motion first, when he has one.
   const roleStroke = new Map<string, PlayStroke>();
   const usedStrokes = new Set<PlayStroke>();
-
-  for (const st of allStrokes) {
+  const claim = (st: PlayStroke) => {
     const owner = nodes.find((n) => !roleStroke.has(n.role) && lineStartsOn(st, n, nodes));
     if (owner) {
       roleStroke.set(owner.role, st);
       usedStrokes.add(st);
     }
+  };
+  for (const st of allStrokes) if ((st.motion || 0) >= 1) claim(st);
+
+  // A motion drawn on its own: after it, he runs the run or route closest to where the motion ends (joined to it).
+  const offense = nodes.filter((n) => !isDefenseRole(n.role));
+  for (const n of offense) {
+    const st = roleStroke.get(n.role);
+    if (!st || !st.motion || st.motion < st.points.length - 1) continue;
+    const end = st.points[st.points.length - 1];
+    let pick: { st: PlayStroke; at: ReturnType<typeof closestOnLine> } | null = null;
+    for (const cand of allStrokes) {
+      if (usedStrokes.has(cand) || (cand.motion || 0) >= 1) continue;
+      const at = closestOnLine(cand.points, end);
+      // Not one that starts on another player (closer to him than to the end of this motion).
+      const start = cand.points[0];
+      const theirs = offense.some((o) => o !== n && Math.hypot(start.x - o.x, start.y - o.y) < Math.min(at.d, 1.4));
+      // Near the end of the motion, or drawn from where he lined up.
+      const his = at.d <= 6 || lineStartsOn(cand, n, nodes);
+      if (his && !theirs && (!pick || at.d < pick.at.d)) pick = { st: cand, at };
+    }
+    if (!pick) continue;
+    const rest = pick.st.points.slice(pick.at.seg + 1);
+    const join = { x: pick.at.x, y: pick.at.y };
+    const after = [join, ...rest];
+    // Drop a join right on the motion's end (or the route's next point).
+    const route = after.filter((p, i) => Math.hypot(p.x - (i ? after[i - 1].x : end.x), p.y - (i ? after[i - 1].y : end.y)) > 0.05);
+    if (!route.length) continue;
+    roleStroke.set(n.role, { ...pick.st, points: [...st.points, ...route], motion: st.points.length - 1 });
+    usedStrokes.add(pick.st);
   }
+
+  for (const st of allStrokes) if (!usedStrokes.has(st)) claim(st);
 
   // If the designated ball carrier doesn't have a matched stroke yet, check if there is an unclaimed 'run' stroke
   const carrierNode = nodes.find((n) => n.role === ballRole);
@@ -125,9 +187,11 @@ export function computeAnimatedPlayFrame(
     }
   }
 
-  // Determine whether any player has pre-snap motion
-  const hasPreSnapMotion = Array.from(roleStroke.values()).some((s) => (s.motion || 0) >= 1);
-  const snapStart = hasPreSnapMotion ? 0.24 : 0;
+  // Pre-snap motion: the motion, then set a moment, then the snap (see playAnimationSeconds).
+  const motion = hasPreSnapMotion(allStrokes);
+  const total = PLAY_SECONDS + MOTION_SECONDS + SET_SECONDS;
+  const motionEnd = motion ? MOTION_SECONDS / total : 0;
+  const snapStart = motion ? (MOTION_SECONDS + SET_SECONDS) / total : 0;
 
   let motionT = 1;
   let postSnapT = 0;
@@ -139,11 +203,16 @@ export function computeAnimatedPlayFrame(
     postSnapT = 0;
     phase = 'pre_snap';
     phaseLabel = 'Pre-Snap Alignment';
-  } else if (hasPreSnapMotion && p < snapStart) {
-    motionT = easeInOutSine(p / snapStart);
+  } else if (motion && p < motionEnd) {
+    motionT = easeInOutSine(p / motionEnd);
     postSnapT = 0;
     phase = 'motion';
     phaseLabel = 'Pre-Snap Motion';
+  } else if (motion && p < snapStart) {
+    motionT = 1;
+    postSnapT = 0;
+    phase = 'motion';
+    phaseLabel = 'Set';
   } else {
     motionT = 1;
     postSnapT = easeInOutSine((p - snapStart) / Math.max(0.01, 1 - snapStart));
