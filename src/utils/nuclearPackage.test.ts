@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildNuclear, changedFromBase, formLabels, nuclearBase, kidPath, nuclearPrintHtml, nuclearSvg, spotLabel } from './nuclearPackage.ts';
+import { PRINT_COLORS, buildNuclear, changedFromBase, formLabels, nuclearBase, nuclearFormColors, kidPath, nuclearPrintHtml, nuclearSvg, spotLabel } from './nuclearPackage.ts';
 
 const pos = (id: string, name: string) => ({ id, name });
 const row = (id: string, positions: ({ id: string; name: string } | null)[]) => ({ id, label: id, slotCount: positions.length, positions });
@@ -82,10 +82,23 @@ describe('a nuclear package: one string in every formation', () => {
     const svg = nuclearSvg(pkg, ids);
     assert.match(svg, /^<svg/);
     assert.ok(svg.includes('O&lt;Brien') && !svg.includes('O<Brien'));
-    assert.ok(svg.includes('X · 11') && svg.includes('FB · 21'));
-    assert.ok(!nuclearSvg(pkg, ids, { only: 'f11' }).includes('Barry'));
+    // 21 is the base: Mancini's chip (with his name) at FB, and a marker at X tagged 11, in 11's color.
+    const orange = nuclearFormColors(ids, 'f21').f11;
+    assert.equal(orange, PRINT_COLORS.forms[0]);
+    assert.equal(svg.split('>Mancini<').length - 1, 1);
+    assert.equal(svg.split('>10<').length - 1, 2);
+    assert.ok(svg.includes(`stroke="${orange}"`) && svg.includes('>11<') && svg.includes('BASE 21 · MOVES IN'));
+    // Veto isn't in 21: no chip, his name goes on his marker.
+    assert.ok(svg.includes('>Veto · RB<'));
+    // Barry is only in 21: a sub's chip says so.
+    assert.ok(svg.includes('>X · 21<'));
+    // One formation: the kids out of their 21 spot are filled with its color.
+    const only11 = nuclearSvg(pkg, ids, { only: 'f11' });
+    assert.ok(!only11.includes('Barry') && only11.includes(`fill="${orange}"`));
+    assert.ok(!nuclearSvg(pkg, ids, { only: 'f21' }).includes(`fill="${orange}"`));
     const sheet = nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U');
-    assert.ok(sheet.includes('size: letter landscape') && sheet.includes('Who lines up where') && sheet.includes('<td class="mvd">X</td>') && sheet.includes('<td class="out">out</td>'));
+    assert.ok(sheet.includes('size: letter landscape') && sheet.includes('Who lines up where') && sheet.includes(`<td class="mvd" style="background:${orange}33">X</td>`) && sheet.includes('<td class="out">out</td>'));
+    assert.ok(nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U', { ink: true }).includes('<td class="mvd">X</td>'));
     assert.ok(!svg.includes('<polyline'));
     assert.equal(nuclearSvg(buildNuclear([b21], {}, 0), ['f21']), '');
   });

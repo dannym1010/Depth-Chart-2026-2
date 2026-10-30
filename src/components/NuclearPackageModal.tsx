@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Atom, Printer, X } from 'lucide-react';
 import type { FormationBoard, PlacedPlayer } from '../types';
-import { NUCLEAR_PRINT_DEFAULTS, PRINT_COLORS, STRINGS, buildNuclear, changedFromBase, nuclearBase, nuclearGrid, nuclearPrintHtml, nuclearSvg, type NuclearPrintOptions } from '../utils/nuclearPackage';
+import { NUCLEAR_PRINT_DEFAULTS, PRINT_COLORS, STRINGS, buildNuclear, changedFromBase, nuclearBase, nuclearFormColors, nuclearGrid, nuclearPrintHtml, nuclearSvg, type NuclearPrintOptions } from '../utils/nuclearPackage';
 import { openCleanPrintTab } from '../utils/printUtils';
 import { loadPrintPrefs, savePrintPrefs } from '../utils/printPrefs';
 
@@ -31,7 +31,10 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
   const base = formIds.includes(basePick) ? basePick : nuclearBase(pkg, formIds);
   const baseIdx = formIds.indexOf(base);
   const view = formIds.includes(only) ? only : '';
-  const svg = useMemo(() => nuclearSvg(pkg, formIds, { only: view || undefined }), [pkg, formIds.join(','), view]);
+  const svg = useMemo(() => nuclearSvg(pkg, formIds, { only: view || undefined, base }), [pkg, formIds.join(','), view, base]);
+  // Each formation's color (the base is black): its moves on the field and in the chart.
+  const fc = nuclearFormColors(formIds, base);
+  const dot = (id: string) => (id === base ? null : <i className="inline-block w-2.5 h-2.5 rounded-full mr-1.5 align-[0px]" style={{ background: fc[id] }} />);
   const movers = pkg.kids.filter((k) => !k.fixed && !k.partial);
   const subs = pkg.kids.filter((k) => k.partial);
   const fixed = pkg.kids.filter((k) => k.fixed);
@@ -130,6 +133,7 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
               <button type="button" onClick={() => setOnly('')} className={chip(!view)}>All on one field</button>
               {formIds.map((id) => (
                 <button key={id} type="button" onClick={() => setOnly(id)} className={chip(view === id)}>
+                  {dot(id)}
                   {labelOf(id)}
                 </button>
               ))}
@@ -148,9 +152,10 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
 
           {formIds.length > 0 && (
             <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
-              <span><i className="inline-block w-3 h-3 rounded-full align-[-1px] mr-1.5 border border-slate-400" style={{ background: PRINT_COLORS.ink }} />Same spot in every formation</span>
-              <span><i className="inline-block w-3 h-3 rounded-full align-[-1px] mr-1.5" style={{ background: PRINT_COLORS.movers[0] }} />Moves (shaded in the chart where he's not in his base spot; tap a formation to make it the base)</span>
+              <span><i className="inline-block w-3 h-3 rounded-full align-[-1px] mr-1.5 border border-slate-400" style={{ background: PRINT_COLORS.ink }} />Black: his {labelOf(base)} spot</span>
+              <span><i className="inline-block w-3 h-3 rounded-full align-[-1px] mr-1.5 border-2 bg-white" style={{ borderColor: PRINT_COLORS.forms[0] }} />In a formation's color: where he moves in it</span>
               <span><i className="inline-block w-3 h-3 rounded-full align-[-1px] mr-1.5 border-2 border-dashed border-slate-500" />Not in every formation (a sub)</span>
+              <span className="text-slate-500 dark:text-slate-400">Tap a formation in the chart to make it the base.</span>
             </div>
           )}
 
@@ -168,6 +173,7 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
                           className="w-full font-black text-slate-900 dark:text-white cursor-pointer leading-tight"
                           title={id === base ? 'Changes are shaded against this formation' : `Shade changes from ${labelOf(id)} instead`}
                         >
+                          {dot(id)}
                           {labelOf(id)}
                           <span className={`block text-[9px] uppercase tracking-wider ${id === base ? 'text-amber-600 dark:text-amber-400' : 'invisible'}`}>base</span>
                         </button>
@@ -176,13 +182,12 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
                   </tr>
                 </thead>
                 <tbody>
-                  {nuclearGrid(pkg, formIds).map(({ kid: k, color: ci, cells }) => (
+                  {nuclearGrid(pkg, formIds).map(({ kid: k, cells }) => (
                     <tr key={k.key} className="border-b border-slate-200 dark:border-slate-800">
                       <td className="py-1.5 pr-3">
                         <span className="flex items-center gap-2 min-w-0">
                           <span
-                            className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-black ${k.partial ? 'border-2 border-dashed border-slate-500 text-slate-700 dark:text-slate-200' : 'text-white'}`}
-                            style={ci >= 0 ? { background: PRINT_COLORS.movers[ci % PRINT_COLORS.movers.length] } : undefined}
+                            className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-black ${k.partial ? 'border-2 border-dashed border-slate-500 text-slate-700 dark:text-slate-200' : 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'}`}
                           >
                             {k.num || '?'}
                           </span>
@@ -194,7 +199,8 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
                         return (
                           <td
                             key={i}
-                            className={`px-2 py-1.5 text-center ${i === baseIdx && !moved ? 'bg-slate-100 dark:bg-slate-800 ' : ''}${!c ? 'italic text-slate-400' : moved ? 'font-black bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-200' : 'font-bold text-slate-700 dark:text-slate-200'}`}
+                            className={`px-2 py-1.5 text-center ${i === baseIdx && !moved ? 'bg-slate-100 dark:bg-slate-800 ' : ''}${!c ? 'italic text-slate-400' : moved ? 'font-black text-slate-900 dark:text-white' : 'font-bold text-slate-700 dark:text-slate-200'}`}
+                            style={moved ? { background: `${fc[formIds[i]]}40` } : undefined}
                           >
                             {c || 'out'}
                           </td>

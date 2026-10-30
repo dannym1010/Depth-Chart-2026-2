@@ -137,11 +137,10 @@ export function nuclearBase(pkg: NuclearPackage, formIds: string[]): string {
 export const changedFromBase = (cells: (string | null)[], i: number, baseIdx: number) => Boolean(cells[i]) && i !== baseIdx && cells[i] !== cells[baseIdx];
 
 /** Who lines up where: a row per kid who moves or subs, a column per formation (null: not in it). */
-export function nuclearGrid(pkg: NuclearPackage, formIds: string[]): { kid: NuclearKid; color: number; cells: (string | null)[] }[] {
-  const movers = pkg.kids.filter((k) => !k.fixed && !k.partial);
+export function nuclearGrid(pkg: NuclearPackage, formIds: string[]): { kid: NuclearKid; cells: (string | null)[] }[] {
   return pkg.kids
     .filter((k) => !k.fixed)
-    .map((kid) => ({ kid, color: kid.partial ? -1 : movers.indexOf(kid), cells: formIds.map((id) => (kid.at[id] ? pkg.spots[kid.at[id]].label : null)) }));
+    .map((kid) => ({ kid, cells: formIds.map((id) => (kid.at[id] ? pkg.spots[kid.at[id]].label : null)) }));
 }
 
 export interface NuclearColors {
@@ -152,8 +151,9 @@ export interface NuclearColors {
   inkText: string;
   muted: string;
   paper: string;
-  movers: string[];
-  /** Black and white: movers are white chips with a black ring, told apart by the dashes of their paths. */
+  /** The formations other than the base, in package order: a kid's move in one is drawn in its color. */
+  forms: string[];
+  /** Black and white: a move is a white chip with a heavy black ring, its formations named in outlined tags. */
   inkOnly?: boolean;
 }
 export const PRINT_COLORS: NuclearColors = {
@@ -164,7 +164,7 @@ export const PRINT_COLORS: NuclearColors = {
   inkText: '#ffffff',
   muted: '#4d5457',
   paper: '#ffffff',
-  movers: ['#c4521b', '#1d6fb8', '#7b3fb0', '#138a5c', '#b0306a', '#8a6d0b', '#0f7c8c', '#5a5fd0'],
+  forms: ['#d9480f', '#1971c2', '#2b8a3e', '#7b3fb0', '#c2255c', '#8a6d0b', '#0c8599', '#5a5fd0'],
 };
 
 export const INK_COLORS: NuclearColors = {
@@ -175,78 +175,125 @@ export const INK_COLORS: NuclearColors = {
   inkText: '#ffffff',
   muted: '#333333',
   paper: '#ffffff',
-  movers: ['#ffffff'],
+  forms: ['#000000'],
   inkOnly: true,
 };
+
+/** Each formation's color: the base is ink, the others take the palette in package order. */
+export function nuclearFormColors(formIds: string[], base: string, C: NuclearColors = PRINT_COLORS): Record<string, string> {
+  const out: Record<string, string> = {};
+  let i = 0;
+  for (const id of formIds) out[id] = id === base ? C.ink : C.forms[i++ % C.forms.length];
+  return out;
+}
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 /**
- * The field as an SVG string. `only` draws one formation's 11 (no tags, no paths); otherwise every formation picked
- * is on it, each chip tagged with the formations it's in unless that's all of them.
+ * The field as an SVG string. With every formation picked it's the base formation (21): each kid once, at his base
+ * spot, and a marker at every other spot he lines up in, tagged with the formations that put him there in their
+ * colors. `only` draws one formation's 11, the kids who aren't in their base spot filled with its color.
  */
-export function nuclearSvg(pkg: NuclearPackage, formIds: string[], opts: { only?: string; colors?: NuclearColors; names?: boolean; zoom?: number } = {}): string {
+export function nuclearSvg(
+  pkg: NuclearPackage,
+  formIds: string[],
+  opts: { only?: string; base?: string; colors?: NuclearColors; names?: boolean; zoom?: number } = {}
+): string {
   const C = opts.colors || PRINT_COLORS;
   const names = opts.names !== false;
   // Chips and text bigger for a field drawn small (each formation on the print sheet).
   const z = opts.zoom || 1;
+  const base = opts.base && formIds.includes(opts.base) ? opts.base : nuclearBase(pkg, formIds);
+  const fc = nuclearFormColors(formIds, base, C);
+  const labelOf = (id: string) => pkg.forms.find((f) => f.id === id)?.label || id;
   const shown = opts.only ? [opts.only] : formIds;
   const keys = Object.values(pkg.spots).filter((s) => pkg.kids.some((k) => shown.some((f) => k.at[f] === s.key)));
   if (!keys.length) return '';
-  const CELL_X = 118, CELL_Y = Math.max(96, 70 + 30 * z), PAD_X = 92, TOP = 26 + 20 * z;
+  const CELL_X = 118, CELL_Y = Math.max(100, 70 + 30 * z), PAD_X = 92, TOP = (opts.only ? 26 : 38) + 20 * z;
   const minDx = Math.min(...keys.map((s) => s.dx)), maxDx = Math.max(...keys.map((s) => s.dx));
   const maxRow = Math.max(...keys.map((s) => s.row));
   const W = (maxDx - minDx) * CELL_X + PAD_X * 2;
   const H = TOP + maxRow * CELL_Y + 30 * z + (names ? 40 : 24) + (opts.only ? 6 * z : 14);
   const at = (s: NuclearSpot) => [PAD_X + (s.dx - minDx) * CELL_X, TOP + s.row * CELL_Y];
-  const movers = pkg.kids.filter((k) => !k.fixed && !k.partial);
-  const color = (k: NuclearKid) => (k.fixed ? C.ink : k.partial ? C.paper : C.movers[movers.indexOf(k) % C.movers.length]);
-  // Chips: one per kid per spot; kids in the same cell of the board (the FB and a shotgun QB) sit side by side.
-  const chips: { kid: NuclearKid; spot: NuclearSpot; forms: string[]; x: number; y: number }[] = [];
-  const bySpot: Record<string, typeof chips> = {};
+  // A kid at each spot he's in, with the formations that put him there; a move when it isn't his base spot.
+  type Mark = { kid: NuclearKid; spot: NuclearSpot; forms: string[]; move: boolean; x: number; y: number };
+  const byCell: Record<string, Mark[]> = {};
   for (const kid of pkg.kids) {
-    for (const p of kidPath(pkg, kid, shown)) {
-      const c = { kid, spot: p.spot, forms: p.forms, x: 0, y: 0 };
-      (bySpot[`${p.spot.dx},${p.spot.row}`] ||= []).push(c);
-      chips.push(c);
+    const spots = new Map<string, string[]>();
+    for (const id of shown) if (kid.at[id]) spots.set(kid.at[id], [...(spots.get(kid.at[id]) || []), id]);
+    for (const [key, forms] of spots) {
+      const spot = pkg.spots[key];
+      (byCell[`${spot.dx},${spot.row}`] ||= []).push({ kid, spot, forms, move: key !== kid.at[base], x: 0, y: 0 });
     }
   }
-  // The same kid twice at one spot (formations not next to each other): one chip with every formation.
-  for (const key in bySpot) {
-    const merged: typeof chips = [];
-    for (const c of bySpot[key]) {
-      const same = merged.find((m) => m.kid === c.kid && m.spot === c.spot);
-      if (same) same.forms.push(...c.forms);
-      else merged.push(c);
-    }
-    bySpot[key] = merged;
-    const [x, y] = at(merged[0].spot);
-    const gap = Math.min(70, CELL_X / Math.max(1, merged.length - 0.2));
-    merged.forEach((c, i) => {
-      c.x = x + (i - (merged.length - 1) / 2) * gap;
-      c.y = y;
+  // Kids in the same cell of the board (the FB and a shotgun QB, a kid and one who moves there) sit side by side,
+  // the base spots first.
+  for (const cell of Object.values(byCell)) {
+    cell.sort((a, b) => Number(a.move) - Number(b.move));
+    const [x, y] = at(cell[0].spot);
+    const gap = Math.min(70, CELL_X / Math.max(1, cell.length - 0.2));
+    cell.forEach((m, i) => {
+      m.x = x + (i - (cell.length - 1) / 2) * gap;
+      m.y = y;
     });
   }
-  const drawn = Object.values(bySpot).flat();
   const font = `font-family="Barlow Condensed, Arial Narrow, Arial, sans-serif"`;
+  // A formation's tag: its name in a pill of its color (outlined in black and white).
+  const pillW = (id: string) => 10 + 7 * labelOf(id).length;
+  const pills = (ids: string[], cx: number, top: number) => {
+    let x = cx - (ids.reduce((w, id) => w + pillW(id) + 3, -3)) / 2;
+    return ids
+      .map((id) => {
+        const w = pillW(id);
+        const s = `<rect x="${x}" y="${top}" width="${w}" height="16" rx="8" fill="${C.inkOnly ? C.paper : fc[id]}"${C.inkOnly ? ` stroke="${C.ink}" stroke-width="1.5"` : ''}/><text x="${x + w / 2}" y="${top + 12.5}" text-anchor="middle" ${font} font-size="13" font-weight="800" fill="${C.inkOnly ? C.ink : '#ffffff'}">${esc(labelOf(id))}</text>`;
+        x += w + 3;
+        return s;
+      })
+      .join('');
+  };
   const out: string[] = [];
   out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="100%" style="display:block;height:auto">`);
   out.push(`<rect x="0" y="0" width="${W}" height="${H}" rx="10" fill="${C.turf}"/>`);
   for (let y = TOP + CELL_Y / 2; y < H - 10; y += CELL_Y / 2) out.push(`<line x1="12" x2="${W - 12}" y1="${y}" y2="${y}" stroke="${C.turfLine}" stroke-width="0.8"/>`);
   out.push(`<line x1="12" x2="${W - 12}" y1="${TOP - 22 * z}" y2="${TOP - 22 * z}" stroke="${C.los}" stroke-width="2" stroke-dasharray="7 5"/>`);
-  if (!opts.only) out.push(`<text x="18" y="${TOP - 28}" ${font} font-size="12" font-weight="700" letter-spacing="1.5" fill="${C.muted}">LINE OF SCRIMMAGE</text>`);
-  for (const c of drawn) {
-    const fill = color(c.kid);
-    const dashed = c.kid.partial;
-    out.push(`<circle cx="${c.x}" cy="${c.y}" r="${19 * z}" fill="${fill}" stroke="${dashed ? C.muted : C.inkOnly && !c.kid.fixed ? C.ink : C.paper}" stroke-width="${(dashed ? 2 : C.inkOnly && !c.kid.fixed ? 3.5 : 3) * Math.sqrt(z)}"${dashed ? ' stroke-dasharray="4 3"' : ''}/>`);
-    out.push(`<text x="${c.x}" y="${c.y + 6.5 * z}" text-anchor="middle" ${font} font-size="${19 * z}" font-weight="800" fill="${dashed || (C.inkOnly && !c.kid.fixed) ? C.ink : c.kid.fixed ? C.inkText : '#ffffff'}">${esc(c.kid.num || '?')}</text>`);
-    let y = c.y + 19 * z + 17;
-    if (names && c.kid.name) {
-      out.push(`<text x="${c.x}" y="${y}" text-anchor="middle" ${font} font-size="16" font-weight="700" fill="${C.ink}">${esc(c.kid.name.slice(0, 11))}</text>`);
+  if (!opts.only) {
+    out.push(`<text x="18" y="${TOP - 30}" ${font} font-size="12" font-weight="700" letter-spacing="1.5" fill="${C.muted}">LINE OF SCRIMMAGE</text>`);
+    // The key: the base, and each formation's tag.
+    const others = formIds.filter((id) => id !== base);
+    if (others.length) {
+      const w = others.reduce((s, id) => s + pillW(id) + 3, -3);
+      out.push(pills(others, W - 18 - w / 2, TOP - 42));
+      out.push(`<text x="${W - 26 - w}" y="${TOP - 30}" text-anchor="end" ${font} font-size="12" font-weight="700" letter-spacing="1.5" fill="${C.muted}">BASE ${esc(labelOf(base).toUpperCase())} · MOVES IN</text>`);
+    }
+  }
+  for (const m of Object.values(byCell).flat()) {
+    const { kid, spot } = m;
+    const color = fc[m.forms[0]];
+    if (m.move && !opts.only) {
+      // He lines up here in these formations.
+      out.push(`<circle cx="${m.x}" cy="${m.y}" r="15" fill="${C.paper}" stroke="${C.inkOnly ? C.ink : color}" stroke-width="3"${kid.partial ? ' stroke-dasharray="4 3"' : ''}/>`);
+      out.push(`<text x="${m.x}" y="${m.y + 5.5}" text-anchor="middle" ${font} font-size="16" font-weight="800" fill="${C.ink}">${esc(kid.num || '?')}</text>`);
+      out.push(pills(m.forms, m.x, m.y + 20));
+      // A kid who isn't in the base has no chip with his name on it.
+      const who = names && !kid.at[base] && kid.name ? `${kid.name.slice(0, 11)} · ` : '';
+      out.push(`<text x="${m.x}" y="${m.y + 50}" text-anchor="middle" ${font} font-size="13" font-weight="700" fill="${C.muted}">${esc(who + spot.label)}</text>`);
+      continue;
+    }
+    const sub = kid.partial;
+    const fill = sub ? C.paper : m.move ? (C.inkOnly ? C.paper : color) : C.ink;
+    const stroke = sub ? (m.move && !C.inkOnly ? color : C.muted) : m.move && C.inkOnly ? C.ink : C.paper;
+    const width = (sub ? 2.5 : m.move && C.inkOnly ? 3.5 : 3) * Math.sqrt(z);
+    const num = sub ? (m.move && !C.inkOnly ? color : C.ink) : m.move && C.inkOnly ? C.ink : C.inkText;
+    out.push(`<circle cx="${m.x}" cy="${m.y}" r="${19 * z}" fill="${fill}" stroke="${stroke}" stroke-width="${width}"${sub ? ' stroke-dasharray="4 3"' : ''}/>`);
+    out.push(`<text x="${m.x}" y="${m.y + 6.5 * z}" text-anchor="middle" ${font} font-size="${19 * z}" font-weight="800" fill="${num}">${esc(kid.num || '?')}</text>`);
+    let y = m.y + 19 * z + 17;
+    if (names && kid.name) {
+      out.push(`<text x="${m.x}" y="${y}" text-anchor="middle" ${font} font-size="16" font-weight="700" fill="${C.ink}">${esc(kid.name.slice(0, 11))}</text>`);
       y += 16;
     }
-    const tag = c.forms.length < shown.length ? `${esc(c.spot.label)} · ${esc(c.forms.join(' '))}` : esc(c.spot.label);
-    out.push(`<text x="${c.x}" y="${y + (z - 1) * 8}" text-anchor="middle" ${font} font-size="${(opts.only ? 15 : 14) * z}" font-weight="800" fill="${c.kid.fixed || c.kid.partial || C.inkOnly ? C.muted : fill}">${tag}</text>`);
+    // A sub's base spot says which formations he's in.
+    const tag = !opts.only && sub ? `${spot.label} · ${m.forms.map(labelOf).join(' ')}` : spot.label;
+    out.push(`<text x="${m.x}" y="${y + (z - 1) * 8}" text-anchor="middle" ${font} font-size="${(opts.only ? 15 : 14) * z}" font-weight="800" fill="${m.move && !C.inkOnly ? color : C.muted}">${esc(tag)}</text>`);
   }
   out.push('</svg>');
   return out.join('');
@@ -258,7 +305,7 @@ export type NuclearPrintOptions = {
   ink: boolean;
   /** Names under the chips on the big field (numbers only when off). */
   names: boolean;
-  /** The "Who moves" list. */
+  /** The "Who lines up where" chart. */
   moves: boolean;
   /** Each formation drawn small. */
   formations: boolean;
@@ -275,19 +322,29 @@ export function nuclearPrintHtml(pkg: NuclearPackage, formIds: string[], title: 
   const labelOf = (id: string) => pkg.forms.find((f) => f.id === id)?.label || id;
   const base = o.baseId && formIds.includes(o.baseId) ? o.baseId : nuclearBase(pkg, formIds);
   const baseIdx = formIds.indexOf(base);
-  const head = formIds.map((id) => (id === base ? `<th class="base">${esc(labelOf(id))}<small>base</small></th>` : `<th>${esc(labelOf(id))}</th>`)).join('');
+  const fc = nuclearFormColors(formIds, base, C);
+  // A formation's color dot (none for the base, or in black and white).
+  const sw = (id: string) => (C.inkOnly || id === base ? '' : `<i class="sw" style="background:${fc[id]}"></i>`);
+  const head = formIds.map((id) => (id === base ? `<th class="base">${esc(labelOf(id))}<small>base</small></th>` : `<th>${sw(id)}${esc(labelOf(id))}</th>`)).join('');
   const rows = nuclearGrid(pkg, formIds)
-    .map(({ kid: k, color: ci, cells }) => {
-      const color = k.partial || C.inkOnly ? C.paper : C.movers[ci % C.movers.length];
-      const ring = k.partial ? `border:2px dashed ${C.muted};color:${C.ink}` : C.inkOnly ? `border:2.5px solid ${C.ink};color:${C.ink}` : '';
-      const tds = cells.map((c, i) => `<td class="${c ? [i === baseIdx ? 'base' : '', changedFromBase(cells, i, baseIdx) ? 'mvd' : ''].join(' ').trim() : 'out'}">${c ? esc(c) : 'out'}</td>`).join('');
-      return `<tr><td class="who"><span class="dot" style="background:${color};${ring}">${esc(k.num)}</span><span class="nm">${esc(k.name)}</span></td>${tds}</tr>`;
+    .map(({ kid: k, cells }) => {
+      const tds = cells
+        .map((c, i) => {
+          if (!c) return '<td class="out">out</td>';
+          if (!changedFromBase(cells, i, baseIdx)) return `<td${i === baseIdx ? ' class="base"' : ''}>${esc(c)}</td>`;
+          // A move, shaded in that formation's color.
+          return `<td class="mvd"${C.inkOnly ? '' : ` style="background:${fc[formIds[i]]}33"`}>${esc(c)}</td>`;
+        })
+        .join('');
+      return `<tr><td class="who"><span class="dot${k.partial ? ' sub' : ''}">${esc(k.num)}</span><span class="nm">${esc(k.name)}</span></td>${tds}</tr>`;
     })
     .join('');
   const fixed = pkg.kids.filter((k) => k.fixed).map((k) => `#${esc(k.num)} ${esc(k.name)} (${esc(pkg.spots[Object.values(k.at)[0]]?.label || '')})`).join(' · ');
   const cols = portrait ? Math.min(2, formIds.length) : Math.min(4, formIds.length);
   const minis = o.formations
-    ? formIds.map((id) => `<div class="mini"><div class="mt">${esc(labelOf(id))}</div>${nuclearSvg(pkg, formIds, { only: id, names: false, zoom: 2, colors: C })}</div>`).join('')
+    ? formIds
+        .map((id) => `<div class="mini"><div class="mt">${sw(id)}${esc(labelOf(id))}${id === base ? ' <small>base</small>' : ''}</div>${nuclearSvg(pkg, formIds, { only: id, base, names: false, zoom: 2, colors: C })}</div>`)
+        .join('')
     : '';
   const side = o.moves
     ? `<div class="side"><h2>Who lines up where</h2>${rows ? `<table class="grid"><thead><tr><th></th>${head}</tr></thead><tbody>${rows}</tbody></table>` : '<p>Nobody moves: every kid stays in one spot.</p>'}${fixed ? `<div class="fixed"><b>Same spot every time:</b> ${fixed}</div>` : ''}</div>`
@@ -302,26 +359,29 @@ body { margin: 0; font-family: Barlow, Arial, sans-serif; color: ${C.ink}; backg
 h1 { font: 800 24px/1 "Barlow Condensed", "Arial Narrow", sans-serif; margin: 0; text-transform: uppercase; letter-spacing: .02em; }
 .sub { font: 700 12px/1 "Barlow Condensed", "Arial Narrow", sans-serif; text-transform: uppercase; letter-spacing: .1em; color: ${C.muted}; text-align: right; }
 .main { display: grid; grid-template-columns: ${side && !portrait ? '1fr 300px' : '1fr'}; gap: 12px; align-items: start; }
-${portrait ? '.mini svg { max-height: 1.7in; width: auto !important; margin: 0 auto; }' : ''}
+${portrait ? '.field svg { max-height: 3.5in; width: auto !important; max-width: 100%; margin: 0 auto; } .mini svg { max-height: 1.35in; width: auto !important; margin: 0 auto; }' : ''}
 .grid { width: 100%; border-collapse: collapse; font: 700 13px/1.2 "Barlow Condensed", Arial, sans-serif; }
 .grid th { font: 800 14px/1 "Barlow Condensed", Arial, sans-serif; text-align: center; padding: 3px 4px; border-bottom: 2px solid ${C.ink}; }
 .grid td { text-align: center; padding: 4px; border-bottom: 1px solid #e3e6e2; }
 .grid td.who { text-align: left; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
 .grid th.base, .grid td.base { background: ${C.inkOnly ? '#f2f2f2' : '#eef3ec'}; }
 .grid th small { display: block; font: 700 9px/1 Barlow, Arial, sans-serif; text-transform: uppercase; letter-spacing: .08em; color: ${C.muted}; margin-top: 2px; }
-.grid td.mvd { background: ${C.inkOnly ? '#e6e6e6' : '#fff1d6'}; font-weight: 800; }
+.grid td.mvd { background: #e6e6e6; font-weight: 800; }
+.sw { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: 1px; }
 .grid td.out { color: ${C.muted}; font-style: italic; font-weight: 600; }
-.dot { flex: none; width: 22px; height: 22px; border-radius: 50%; color: #fff; display: inline-flex; align-items: center; justify-content: center; font: 800 12px/1 "Barlow Condensed", Arial, sans-serif; }
+.dot { flex: none; width: 22px; height: 22px; border-radius: 50%; background: ${C.ink}; color: #fff; display: inline-flex; align-items: center; justify-content: center; font: 800 12px/1 "Barlow Condensed", Arial, sans-serif; }
+.dot.sub { background: #fff; border: 2px dashed ${C.muted}; color: ${C.ink}; }
 .nm { font-weight: 700; }
 .side h2 { font: 800 13px/1 "Barlow Condensed", Arial, sans-serif; text-transform: uppercase; letter-spacing: .1em; margin: 0 0 4px; }
 .fixed { margin-top: 8px; color: ${C.muted}; font-size: 12px; line-height: 1.4; }
 .minis { display: grid; grid-template-columns: repeat(${Math.max(1, cols)}, 1fr); gap: 8px; margin-top: 10px; }
 .mini { border: 1px solid #d9ddd8; border-radius: 8px; padding: 4px; break-inside: avoid; }
 .mt { font: 800 16px/1 "Barlow Condensed", Arial, sans-serif; padding: 2px 4px 4px; }
+.mt small { font: 700 10px/1 Barlow, Arial, sans-serif; text-transform: uppercase; letter-spacing: .08em; color: ${C.muted}; }
 </style></head><body>
 <div class="head"><h1>${esc(title)}</h1><span class="sub">${esc(subtitle)}</span></div>
 <div class="main">
-  <div>${nuclearSvg(pkg, formIds, { colors: C, names: o.names })}</div>
+  <div class="field">${nuclearSvg(pkg, formIds, { colors: C, names: o.names, base })}</div>
   ${side}
 </div>
 ${minis ? `<div class="minis">${minis}</div>` : ''}
