@@ -47,6 +47,8 @@ interface FilmPlayerProps {
   apiRef: React.MutableRefObject<PlayerApi | null>;
   /** Tallest the video may be (CSS length). Default leaves room for the page and the controls. */
   maxVideoHeight?: string;
+  /** Fill the height it is given (in a flex column): the video as big as fits, with the controls under it, not over it. */
+  fit?: boolean;
   /** Where a new clip starts (seconds): the same moment when switching camera view, else the top. */
   startAt?: number;
   /** Keyboard shortcuts (space, arrows, D, S...). Off while a coach is working elsewhere on the page. */
@@ -72,6 +74,7 @@ const on = `${btn} bg-indigo-600 text-white`;
 export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   src, placeholder, title, marks, onMarksChange, hasPrev, hasNext, onPrev, onNext, onStopwatch, onVoiceNote, apiRef,
   maxVideoHeight = 'calc(100dvh - 20rem)',
+  fit = false,
   viewOnly = false,
   startAt = 0,
   shortcuts = true,
@@ -717,7 +720,8 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     }
   };
   // On a phone the controls go under the video; everywhere else (and in full screen) they sit on it, like Hudl.
-  const overlay = isFullscreen ? 'absolute inset-x-0 bottom-0' : 'sm:absolute sm:inset-x-0 sm:bottom-0';
+  const fitting = fit && !isFullscreen;
+  const overlay = isFullscreen ? 'absolute inset-x-0 bottom-0' : fit ? '' : 'sm:absolute sm:inset-x-0 sm:bottom-0';
 
   const tools = (
     <>
@@ -792,12 +796,16 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   return (
     <div
       ref={rootRef}
-      className="relative flex flex-col rounded-xl overflow-hidden select-none [&:fullscreen]:rounded-none [&:fullscreen]:justify-center"
+      className={`relative flex flex-col rounded-xl overflow-hidden select-none [&:fullscreen]:rounded-none [&:fullscreen]:justify-center ${fit ? 'flex-1 min-h-0' : ''}`}
       style={{ color: INK, background: '#000' }}
     >
+      {/* Fitting: the biggest 16:9 picture the room above the controls allows, the two together in the middle (an
+          iPad standing up: black above and below, the controls right under the film). */}
+      {fitting && <div className="flex-1" />}
+      <div className={fitting ? 'w-full aspect-video min-h-[10rem] flex items-center justify-center' : 'contents'} style={fitting ? { containerType: 'size' } : undefined}>
       <div
         ref={stageRef}
-        style={{ width: `min(100%, max(18rem, calc(${videoHeight} * 16 / 9)))` }}
+        style={{ width: fitting ? 'min(100cqw, calc(100cqh * 16 / 9))' : `min(100%, max(18rem, calc(${videoHeight} * 16 / 9)))` }}
         className={`relative mx-auto aspect-video overflow-hidden bg-black ${drawing || zoom > 1 ? 'touch-none' : 'touch-pan-y'} ${drawing ? '' : zoom > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
         title={drawing ? undefined : 'Click: play / pause · Scroll: zoom · Drag: move around · Double-click: full screen · On a touch screen: swipe for the next play'}
         onPointerDown={onStageDown}
@@ -950,6 +958,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
           </div>
         )}
       </div>
+      </div>
 
       {/* Drawing tools: over the top right of the video (under it on a phone) */}
       {drawing && (
@@ -963,7 +972,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
 
       {/* Scrubber and controls: over the bottom of the video, like Hudl (under it on a phone) */}
       <div
-        className={`${overlay} z-10 flex flex-col pointer-events-none sm:pt-8`}
+        className={`${overlay} z-10 flex flex-col pointer-events-none ${fitting ? 'shrink-0 pt-1' : 'sm:pt-8'}`}
         style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.92), rgba(0,0,0,0.6) 65%, rgba(0,0,0,0))' }}
       >
         {/* Play lines' buttons, right above the Play lines button that turns them off. */}
@@ -1100,6 +1109,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
           <button className={idle} onClick={fullscreen} title="Full screen (F, or double-click the video)"><Maximize size={16} /></button>
         </div>
       </div>
+      {fitting && <div className="flex-1" />}
     </div>
   );
 };

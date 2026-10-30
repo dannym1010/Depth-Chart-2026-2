@@ -258,16 +258,6 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
   const [mini, setMini] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const fill = !dock && (expanded || isShort) && !mini;
-  // Docked: the video as big as the place allows (the controls and the snaps under it).
-  const [dockSize, setDockSize] = useState({ w: 0, h: 0 });
-  useEffect(() => {
-    if (!dock) return;
-    const measure = () => setDockSize({ w: dock.el.clientWidth, h: dock.el.clientHeight });
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(dock.el);
-    return () => ro.disconnect();
-  }, [dock?.el]);
   // The other view showing: the film stops.
   useEffect(() => {
     if (dock && !dock.shown) apiRef.current?.video?.()?.pause();
@@ -329,9 +319,8 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
     return () => document.removeEventListener('pointerdown', on, true);
   }, []);
 
-  const videoMax = dock
-    ? `${Math.max(160, Math.round(Math.min(dockSize.h - 200, ((dockSize.w || 640) * 9) / 16)))}px`
-    : fill
+  // Docked, the player fits the place by itself (fit): the video as big as the room above its controls allows.
+  const videoMax = fill
     ? isShort
       ? 'calc(100dvh - 6rem)'
       : 'min(calc(100dvh - 15rem), calc((100vw - 1rem) * 9 / 16))'
@@ -538,6 +527,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
             )}
             <FilmPlayer
               maxVideoHeight={videoMax}
+              fit={Boolean(dock)}
               src={placeholder ? undefined : clipUrl.url}
               placeholder={placeholder}
               title={play ? playTitle(play) : ''}

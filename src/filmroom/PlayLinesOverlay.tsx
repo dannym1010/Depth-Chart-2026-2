@@ -512,8 +512,13 @@ const LinesDrawing: React.FC<{
     if (!v) return;
     const read = () => v.videoWidth && v.videoHeight && setAspect(v.videoWidth / v.videoHeight);
     read();
+    // resize: a new clip of another shape (or the iPad's player settling on the real size).
     v.addEventListener('loadedmetadata', read);
-    return () => v.removeEventListener('loadedmetadata', read);
+    v.addEventListener('resize', read);
+    return () => {
+      v.removeEventListener('loadedmetadata', read);
+      v.removeEventListener('resize', read);
+    };
   }, [video]);
   let cw = box.w, ch = box.w / aspect;
   if (ch > box.h) {
@@ -530,7 +535,9 @@ const LinesDrawing: React.FC<{
   };
   // One builder picture unit on screen: the builder's sizes (an 11-unit player, a 2.8-unit line) times this.
   const k = Math.max(0.6, ch * 0.0019) / z;
-  const handle = Math.max(9, ch * 0.02) / z;
+  // A finger (an iPad) needs a bigger corner to grab, and room around each player.
+  const touch = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
+  const handle = Math.max(touch ? 16 : 9, ch * 0.02) / z;
   const moving = Boolean(frame);
   const showing = (def: boolean) => (def ? showsDefense(side) : showsOffense(side));
   const shownNodes = (frame ? frame.nodes : lines.nodes).filter((n) => showing(isDefenseRole(n.role)));
@@ -757,6 +764,7 @@ const LinesDrawing: React.FC<{
             })}
           {shownNodes.map((n) => (
             <g key={n.role} {...grab(n)}>
+              {canMove && touch && <circle cx={px(n)[0]} cy={px(n)[1]} r={22 / z} fill="transparent" />}
               {nodeEl(n)}
             </g>
           ))}

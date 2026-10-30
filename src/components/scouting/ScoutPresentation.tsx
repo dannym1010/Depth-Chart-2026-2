@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Film, PenTool, Presentation, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Film, ListOrdered, PenTool, Presentation, X } from 'lucide-react';
 import { setFilmWindowDock, useFilmWindowRequest } from '../../filmroom/filmWindowStore';
 import type { ScoutOppPlay } from '../../utils/scoutOppPlays';
 
@@ -19,6 +19,21 @@ export interface ScoutShow {
 
 type View = 'diagram' | 'film';
 const VIEW_KEY = 'footballPresentView';
+const SCRIPT_KEY = 'footballPresentScript';
+const saved = (key: string) => {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+const save = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* this visit only */
+  }
+};
 
 /**
  * Presentation mode: the scout script down the side and the play open beside it, as its diagram (the play builder,
@@ -34,20 +49,16 @@ export const ScoutPresentation: React.FC<{
   children: React.ReactNode;
 }> = ({ show, index, onIndex, onExit, children }) => {
   const line = show.lines[index];
-  const [view, setViewState] = useState<View>(() => {
-    try {
-      return localStorage.getItem(VIEW_KEY) === 'film' ? 'film' : 'diagram';
-    } catch {
-      return 'diagram';
-    }
-  });
+  const [view, setViewState] = useState<View>(() => (saved(VIEW_KEY) === 'film' ? 'film' : 'diagram'));
   const setView = (v: View) => {
     setViewState(v);
-    try {
-      localStorage.setItem(VIEW_KEY, v);
-    } catch {
-      /* this visit only */
-    }
+    save(VIEW_KEY, v);
+  };
+  // The script down the side (a wide screen, an iPad on its side); hidden, the play gets the whole width.
+  const [script, setScriptState] = useState(() => saved(SCRIPT_KEY) !== 'off');
+  const toggleScript = () => {
+    setScriptState(!script);
+    save(SCRIPT_KEY, script ? 'off' : 'on');
   };
   // The film plays here (Film view) instead of in the floating window; the diagram stays open underneath, so its
   // play lines and edits carry on.
@@ -68,25 +79,45 @@ export const ScoutPresentation: React.FC<{
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
-  const navBtn = 'h-9 px-3 rounded-lg text-sm font-black inline-flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-default';
+  // Finger-sized on a touch screen (an iPad).
+  const navBtn = 'h-9 pointer-coarse:h-11 px-3 rounded-lg text-sm font-black inline-flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-default';
   const viewBtn = (v: View) =>
-    `h-7 px-3 rounded-md text-xs font-black inline-flex items-center gap-1.5 cursor-pointer ${
+    `h-7 pointer-coarse:h-9 px-3 rounded-md text-xs pointer-coarse:text-sm font-black inline-flex items-center gap-1.5 cursor-pointer ${
       view === v ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
     }`;
 
   return (
-    <div className="fixed inset-0 z-40 flex flex-col bg-slate-100 dark:bg-slate-950" role="dialog" aria-label={`${show.title} presentation`}>
-      <header className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
-        <span className="inline-flex items-center gap-2 min-w-0">
+    <div
+      className="fixed inset-0 z-40 flex flex-col bg-slate-100 dark:bg-slate-950"
+      style={{ paddingLeft: 'env(safe-area-inset-left, 0px)', paddingRight: 'env(safe-area-inset-right, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      role="dialog"
+      aria-label={`${show.title} presentation`}
+    >
+      {/* Clear of the iPad's status bar (the app on the home screen). */}
+      <header
+        className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
+        style={{ paddingTop: 'calc(0.5rem + env(safe-area-inset-top, 0px))' }}
+      >
+        <button
+          type="button"
+          className={`max-lg:hidden ${navBtn} !px-2 ${script ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+          aria-pressed={script}
+          onClick={toggleScript}
+          title={script ? 'Hide the script: the play gets the whole width' : 'Show the script down the side'}
+        >
+          <ListOrdered className="w-5 h-5" />
+        </button>
+        {/* Standing up, the menu names the play: the header stays one row. */}
+        <span className="hidden lg:inline-flex items-center gap-2 min-w-0">
           <Presentation className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
           <span className="text-sm font-black text-slate-900 dark:text-white truncate">{show.title}</span>
         </span>
-        {/* On a phone or a small tablet: the script as a menu. */}
+        {/* On a phone, an iPad standing up, or with the side list hidden: the script as a menu. */}
         <select
           aria-label="Play on the script"
           value={index}
           onChange={(e) => go(Number(e.target.value))}
-          className="lg:hidden h-9 max-w-[14rem] rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 text-sm font-bold"
+          className={`${script ? 'lg:hidden' : ''} h-9 pointer-coarse:h-11 min-w-0 max-w-[16rem] flex-1 sm:flex-none rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white px-2 text-sm font-bold`}
         >
           {show.lines.map((l, i) => (
             <option key={l.playId} value={i}>
@@ -104,21 +135,21 @@ export const ScoutPresentation: React.FC<{
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           <button type="button" className={`${navBtn} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200`} disabled={index === 0} onClick={() => go(index - 1)} title="The play before (Page Up)">
-            <ChevronLeft className="w-4 h-4" /> Prev
+            <ChevronLeft className="w-4 h-4" /> <span className="max-sm:hidden">Prev</span>
           </button>
           <span className="text-xs font-bold tabular-nums text-slate-500 px-1">
             {index + 1} / {show.lines.length}
           </span>
           <button type="button" className={`${navBtn} bg-indigo-600 text-white hover:bg-indigo-500`} disabled={index === show.lines.length - 1} onClick={() => go(index + 1)} title="The next play (Page Down)">
-            Next <ChevronRight className="w-4 h-4" />
+            <span className="max-sm:hidden">Next</span> <ChevronRight className="w-4 h-4" />
           </button>
           <button type="button" className={`${navBtn} text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800`} onClick={onExit} title="Leave presentation mode">
-            <X className="w-4 h-4" /> Exit
+            <X className="w-4 h-4" /> <span className="max-sm:hidden">Exit</span>
           </button>
         </div>
       </header>
-      <div className="flex-1 min-h-0 grid lg:grid-cols-[17rem_minmax(0,1fr)]">
-        <nav className="hidden lg:block overflow-y-auto border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900" aria-label="Scout script">
+      <div className={`flex-1 min-h-0 grid ${script ? 'lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[17rem_minmax(0,1fr)]' : ''}`}>
+        <nav className={`hidden ${script ? 'lg:block' : ''} overflow-y-auto overscroll-contain border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900`} aria-label="Scout script">
           <ol className="p-2 space-y-1">
             {show.lines.map((l, i) => (
               <li key={l.playId}>
@@ -126,7 +157,8 @@ export const ScoutPresentation: React.FC<{
                   type="button"
                   onClick={() => go(i)}
                   aria-current={i === index ? 'true' : undefined}
-                  className={`w-full text-left flex gap-2 rounded-lg px-2 py-1.5 cursor-pointer ${
+                  ref={i === index ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
+                  className={`w-full text-left flex gap-2 rounded-lg px-2 py-1.5 pointer-coarse:py-2.5 cursor-pointer ${
                     i === index ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
                   }`}
                 >
