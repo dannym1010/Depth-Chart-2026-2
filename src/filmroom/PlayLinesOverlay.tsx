@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { buildProjectedFieldGrid, fieldToImage, HOMOGRAPHY_PRESETS, imageToField, type HomographyQuad, type ImagePoint } from '../utils/videoHomography';
-import { DEFENSE_COLOR, diagramLabel, isDefenseRole, MOTION_COLOR, passThrow, shownText, skillDiagramLabel, STROKE_COLOR, THROW_COLOR, type PlayNode, type PlayStroke } from '../utils/footballEngine';
+import { DEFENSE_COLOR, diagramLabel, isDefenseRole, lineStartsOn, MOTION_COLOR, passThrow, shownText, skillDiagramLabel, STROKE_COLOR, THROW_COLOR, type PlayNode, type PlayStroke } from '../utils/footballEngine';
 import { computeAnimatedPlayFrame, playAnimationSeconds } from '../utils/playAnimation';
 import { safeJSONParse, safeJSONSet } from '../services/storageService';
 
@@ -12,7 +12,7 @@ export interface VideoLines {
   /** Where the field is in the video: 4 corners (fractions of the frame). */
   quad: HomographyQuad;
   setQuad: (quad: HomographyQuad) => void;
-  /** A player dragged on the film, to his spot on the field (yards). */
+  /** A player dragged on the film, to his spot on the field (yards): kept in the lineup, on this film only. */
   moveNode?: (role: string, x: number, y: number) => void;
   name: string;
 }
@@ -62,8 +62,62 @@ const STOCK = Object.values(HOMOGRAPHY_PRESETS)
   .map((p) => JSON.stringify(p.quad));
 // A stock angle, or the film's lineup picked up (not set on this play): it follows the film's latest lineup.
 const notLinedUp = (q: HomographyQuad) => Boolean(q.fromFilm) || STOCK.includes(JSON.stringify(q));
-/** Film starts from behind the offense: the line of scrimmage across the picture, the offense below it. */
-const FILM_START = HOMOGRAPHY_PRESETS.endzone.quad;
+/**
+ * Film starts from behind the offense, high up: the line of scrimmage across the middle of the picture, the offense
+ * below it. Seen from there the field is wide and its depth short (5 yards of backfield is a sliver of the picture).
+ */
+const FILM_START: HomographyQuad = {
+  losLeft: { u: 0.2, v: 0.5 },
+  losRight: { u: 0.8, v: 0.5 },
+  backLeft: { u: 0.16, v: 0.63 },
+  backRight: { u: 0.84, v: 0.63 },
+  halfWidth: 12,
+  backDepth: 5,
+  preset: 'custom',
+};
+/** The lineup wider or narrower (along the line of scrimmage) and deeper or shallower (the backfield), the line where it is. */
+export function stretchQuad(q: HomographyQuad, width: number, depth: number): HomographyQuad {
+  const r = (n: number) => Math.round(n * 1000) / 1000;
+  const spread = (a: ImagePoint, b: ImagePoint): [ImagePoint, ImagePoint] => {
+    const mu = (a.u + b.u) / 2, mv = (a.v + b.v) / 2;
+    return [
+      { u: mu + (a.u - mu) * width, v: mv + (a.v - mv) * width },
+      { u: mu + (b.u - mu) * width, v: mv + (b.v - mv) * width },
+    ];
+  };
+  const [losLeft, losRight] = spread(q.losLeft, q.losRight);
+  const [bl, br] = spread(q.backLeft, q.backRight);
+  const back = (los: ImagePoint, b: ImagePoint) => ({ u: r(los.u + (b.u - los.u) * depth), v: r(los.v + (b.v - los.v) * depth) });
+  return {
+    ...q,
+    losLeft: { u: r(losLeft.u), v: r(losLeft.v) },
+    losRight: { u: r(losRight.u), v: r(losRight.v) },
+    backLeft: back(losLeft, bl),
+    backRight: back(losRight, br),
+    preset: 'custom',
+  };
+}
+
+/**
+ * The play as it lines up on this film: players moved on the film where the coach put them, each one's lines
+ * moving with him. The diagram itself isn't changed.
+ */
+function onFilm(lines: VideoLines): VideoLines {
+  const moved = lines.quad.moved;
+  if (!moved || !Object.keys(moved).length) return lines;
+  const shift = new Map<string, { dx: number; dy: number }>();
+  for (const n of lines.nodes) {
+    const m = moved[n.role];
+    if (m) shift.set(n.role, { dx: m.x - n.x, dy: m.y - n.y });
+  }
+  const strokes = lines.strokes.map((st) => {
+    const owner = lines.nodes.find((n) => shift.has(n.role) && lineStartsOn(st, n, lines.nodes));
+    if (!owner) return st;
+    const { dx, dy } = shift.get(owner.role)!;
+    return { ...st, points: st.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })) };
+  });
+  return { ...lines, nodes: lines.nodes.map((n) => (moved[n.role] ? { ...n, ...moved[n.role] } : n)), strokes };
+}
 /**
  * The lineup a quarter turn clockwise about its middle, on a 16:9 picture (for film shot from another angle).
  */
@@ -124,7 +178,7 @@ export function usePlayLines(opts: {
   useEffect(() => {
     if (!on || !lines || !notLinedUp(lines.quad)) return;
     const saved = safeJSONParse<HomographyQuad | null>(lineupKey, null);
-    const next = saved && !notLinedUp(saved) ? { ...saved, fromFilm: true } : FILM_START;
+    const next = saved && !notLinedUp(saved) ? { ...saved, fromFilm: true } : { ...FILM_START, fromFilm: true };
     if (JSON.stringify(next) !== JSON.stringify(lines.quad)) lines.setQuad(next);
   }, [on, lines, lineupKey]);
 
@@ -154,17 +208,26 @@ export function usePlayLines(opts: {
   }, [lines?.name]);
 
   // The coach's change to the lineup: this play's own from now on, and the film's latest for the plays after it.
-  const shown = lines && {
-    ...lines,
-    setQuad: (q: HomographyQuad) => {
+  // Players moved on the film are this play's own (saved with its lineup), not the film's for the plays after it.
+  const shown = useMemo(() => {
+    if (!lines) return null;
+    const setQuad = (q: HomographyQuad) => {
       const { fromFilm: _picked, ...own } = q;
       lines.setQuad(own);
-      safeJSONSet(lineupKey, own);
-    },
-  };
+      const { moved: _players, ...field } = own;
+      safeJSONSet(lineupKey, field);
+    };
+    return {
+      ...onFilm(lines),
+      setQuad,
+      // A player dragged on the film: where he lines up in this clip. The diagram keeps him where he's drawn.
+      moveNode: (role: string, x: number, y: number) => setQuad({ ...lines.quad, moved: { ...lines.quad.moved, [role]: { x, y } } }),
+    };
+  }, [lines, lineupKey]);
+  const filmMoves = Object.keys(lines?.quad.moved || {}).length;
   const frame = useMemo(
-    () => (lines ? computeAnimatedPlayFrame(lines.nodes, lines.strokes, [], lines.ballRole, progress) : null),
-    [lines, progress]
+    () => (shown ? computeAnimatedPlayFrame(shown.nodes, shown.strokes, [], shown.ballRole, progress) : null),
+    [shown, progress]
   );
   const moving = progress > 0.002;
   const btn = 'h-8 px-2.5 rounded-lg text-xs font-bold cursor-pointer';
@@ -260,12 +323,44 @@ export function usePlayLines(opts: {
               <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(turnQuad(shown.quad, 0, 1.08))} title="Bigger" aria-label="Bigger">
                 +
               </button>
+              <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">Width</span>
+              <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(stretchQuad(shown.quad, 1 / 1.08, 1))} title="Narrower: the line squeezed in" aria-label="Narrower">
+                −
+              </button>
+              <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(stretchQuad(shown.quad, 1.08, 1))} title="Wider: the line spread out" aria-label="Wider">
+                +
+              </button>
+              <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">Depth</span>
+              <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(stretchQuad(shown.quad, 1, 1 / 1.1))} title="Shallower: the backfield and the defense closer to the line" aria-label="Shallower">
+                −
+              </button>
+              <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(stretchQuad(shown.quad, 1, 1.1))} title="Deeper: the backfield and the defense farther from the line" aria-label="Deeper">
+                +
+              </button>
               <button type="button" className={`${btn} ${corners ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`} onClick={() => setCorners((v) => !v)} title="Drag each corner for an exact fit">
                 Corners
               </button>
-              <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad({ ...FILM_START, preset: 'custom' })} title="Back to the starting lineup">
+              <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad({ ...FILM_START, moved: shown.quad.moved })} title="Back to the starting lineup">
                 Reset
               </button>
+          </div>
+        )}
+        {lines && filmMoves > 0 && !lineUp && !playing && shown && (
+          <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl" style={panel}>
+            <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">
+              {filmMoves} player{filmMoves === 1 ? '' : 's'} moved on this film (the diagram is unchanged)
+            </span>
+            <button
+              type="button"
+              className={`${btn} hover:bg-white/10`}
+              onClick={() => {
+                const { moved: _players, ...field } = shown.quad;
+                shown.setQuad(field);
+              }}
+              title="Put the players back where they are in the diagram"
+            >
+              Reset players
+            </button>
           </div>
         )}
       </div>

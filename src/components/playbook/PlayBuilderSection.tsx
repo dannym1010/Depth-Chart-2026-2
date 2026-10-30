@@ -1234,11 +1234,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
         if (!q.fromFilm) videoEdited.current = true;
         setHomographyQuad(q);
       },
-      // A player dragged on the film: moved here the same as dragging him on the diagram.
-      moveNode: (role, x, y) => {
-        videoEdited.current = true;
-        setOverrides((prev) => ({ ...prev, [role]: { x, y } }));
-      },
+      // Players dragged on the film ride in the lineup (quad.moved), so the diagram stays as drawn.
       name: callLabel.trim(),
     };
     if (onVideoLines) onVideoLines(lines);

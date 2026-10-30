@@ -39,6 +39,8 @@ export interface HomographyQuad {
   preset?: 'pressbox_top_down' | 'sideline_l2r' | 'sideline_r2l' | 'endzone' | 'custom';
   /** Picked up from the film's lineup (the play before it), not set on this play: it keeps following the film. */
   fromFilm?: boolean;
+  /** Players moved on the film only (yards): where they line up in this clip. The play's diagram stays as drawn. */
+  moved?: Record<string, { x: number; y: number }>;
 }
 
 export const HOMOGRAPHY_PRESETS: Record<
