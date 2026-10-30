@@ -28,6 +28,7 @@ import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { ScoutOppPlayLibrary } from './ScoutOppPlayLibrary';
 import { StatsTab } from '../../hudlScout/components/report/StatsTab';
+import type { ScoutShow } from './ScoutPresentation';
 import { buildScoutScript, cardsFromTags, followRenamedClips, kindFollowsClips, foldBlankTwins, mergeDrawnIntoTags, placeholdersFromNames, coachingPoint, onCallSheet, runOrPass, formationNotes, withFormationNotes, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, printOrder, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
 import { leadOppPlay, oppPlayDiagram, playPoint, theirPlaysByFormation } from '../../utils/filmBackfields';
 import { theirCallEntries } from '../../utils/theirCalls';
@@ -96,6 +97,8 @@ export interface HudlScoutViewProps {
   onChangeDefenseSystem?: (next: DefenseSystem) => void;
   /** Open the play builder to draw this opponent play. */
   onDrawPlay?: (play: ScoutOppPlay, group?: { label: string; plays: ScoutOppPlay[] }) => void;
+  /** Present the scout script (presentation mode). */
+  onPresentScript?: (show: ScoutShow) => void;
   /** Cards made from plays tagged on the film: make each its own opponent play (a copy of our play, or a new one). */
   onAddTaggedPlays?: (cards: ScoutOppPlay[]) => void;
   /** Opponent plays removed from Their plays: delete the diagrams drawn for them. */
@@ -136,6 +139,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   defenseSystem: teamDefense,
   onChangeDefenseSystem,
   onDrawPlay,
+  onPresentScript,
   onRemoveDrawnPlays,
   onAddTaggedPlays,
   onAdjustBackfield,
@@ -1018,6 +1022,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
               onFormationPlans?.(bundle.oppFormations || [], { libraries: playLibraries, deletedIds: deletedOppPlayIds });
             }}
             onDraw={onDrawPlay}
+            onPresent={onPresentScript}
             backfieldBases={bundle.backfieldBases}
             onAdjustBackfield={onAdjustBackfield}
             formations={bundle.oppFormations}

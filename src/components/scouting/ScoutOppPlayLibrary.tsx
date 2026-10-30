@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowDownWideNarrow, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, GripVertical, Image as ImageIcon, Layers, Pencil, Play as PlayIcon, Plus, Printer, Shield, X } from 'lucide-react';
+import { ArrowDownWideNarrow, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, GripVertical, Image as ImageIcon, Layers, Pencil, Play as PlayIcon, Plus, Presentation, Printer, Shield, X } from 'lucide-react';
+import type { ScoutShow, ScoutShowLine } from './ScoutPresentation';
 import type { ScoutGame } from '../../hudlScout/components/Header';
 import type { Play } from '../../hudlScout/types/football';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
@@ -66,6 +67,8 @@ export const ScoutOppPlayLibrary: React.FC<{
   onAddFilm: (name: string) => void;
   playDatabase?: PlayDatabaseEntry[];
   onDraw?: (play: ScoutOppPlay, group?: { label: string; plays: ScoutOppPlay[] }) => void;
+  /** Present the script: every play on it, in order, with what opens each one. */
+  onPresent?: (show: ScoutShow) => void;
   /** This film's own backfield shapes. */
   backfieldBases?: FilmBackfieldBases;
   /** Open the builder to set that backfield for every play on this film that uses it. */
@@ -78,7 +81,7 @@ export const ScoutOppPlayLibrary: React.FC<{
   onSaveFormations?: (list: OppFormation[]) => void;
   /** The calls against their formations changed (they go on the call sheets). */
   onPlansChange?: (list: OppFormation[]) => void;
-}> = ({ games, libraries, filmPlays, opponent, selectedGameId, onSelectGame, onSave, deletedIds, onAddFilm, playDatabase, onDraw, backfieldBases, onAdjustBackfield, scriptOrder, formations, onEditFormation, onSaveFormations, onPlansChange }) => {
+}> = ({ games, libraries, filmPlays, opponent, selectedGameId, onSelectGame, onSave, deletedIds, onAddFilm, playDatabase, onDraw, onPresent, backfieldBases, onAdjustBackfield, scriptOrder, formations, onEditFormation, onSaveFormations, onPlansChange }) => {
   const films = games.length ? games : [];
   const gameId = films.some((g) => g.id === selectedGameId) ? selectedGameId : films[0]?.id || '';
   const plays = libraries[gameId] || [];
@@ -263,6 +266,18 @@ export const ScoutOppPlayLibrary: React.FC<{
     if (p.kind !== 'run') return p.kind;
     const t = (playDatabase || []).find((e) => e.id === `scout_${p.id}`)?.type || inferPlayType(p.name, 'offense');
     return t === 'pass' || t === 'play_action' ? 'pass' : t === 'screen' ? 'screen' : t === 'rpo' ? 'rpo' : 'run';
+  };
+  // Presentation mode: the script's plays in order, each with the plays combined with it (its film too).
+  const present = () => {
+    if (!onPresent) return;
+    const lines: ScoutShowLine[] = [];
+    for (const line of script.lines) {
+      const card = onTheReport.find((p) => p.id === line.playId);
+      if (!card) continue;
+      const { snaps, group } = scriptFilm(card);
+      lines.push({ playId: line.playId, name: line.name, detail: line.detail, card, ...(snaps.length && group ? { group } : {}) });
+    }
+    if (lines.length) onPresent({ title: script.title, lines });
   };
   const openScriptPlay = (p: ScoutOppPlay) => {
     const { snaps, group } = scriptFilm(p);
@@ -1307,7 +1322,19 @@ export const ScoutOppPlayLibrary: React.FC<{
       </section>
       <section className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 space-y-3 lg:sticky lg:top-3 h-fit">
         <div>
-          <h2 className="text-sm font-black">{script.title}</h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-black">{script.title}</h2>
+            {onPresent && onDraw && script.lines.length > 0 && (
+              <button
+                type="button"
+                onClick={present}
+                className="h-8 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black inline-flex items-center gap-1.5 cursor-pointer shrink-0"
+                title="Go through the script play by play: each play's diagram and film on one screen"
+              >
+                <Presentation className="w-3.5 h-3.5" /> Present
+              </button>
+            )}
+          </div>
           <p className="text-xs text-slate-500 mt-0.5">
             {onTheReport.length} play{onTheReport.length === 1 ? '' : 's'} on the report
             {onTheReport.some((p) => p.printSkip) ? ` (${onTheReport.filter((p) => !p.printSkip).length} print)` : ''}. Drag the handle, type a number, or put them in order at once. Print follows this order; uncheck

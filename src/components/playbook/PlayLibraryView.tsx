@@ -44,6 +44,8 @@ interface Props {
   onOpenScoutPlay?: (scoutId: string, gameId: string) => boolean;
   /** Their formation drawn in the builder (Hudl Scout → Their plays → Their formations). */
   onSaveOppFormation?: (formation: { id: string; name: string; builder: PlayBuilderState; diagramUrl: string; defenseUrl?: string; defenseName?: string }) => void;
+  /** Just the play builder, with nothing around it (presentation mode). */
+  bare?: boolean;
 }
 
 const TYPES: { id: PlayType; label: string }[] = [
@@ -85,6 +87,7 @@ export const PlayLibraryView: React.FC<Props> = ({
   onRestartScoutPlay,
   onOpenScoutPlay,
   scoutNeighbors,
+  bare = false,
 }) => {
   const canEdit = userRole === 'admin' || userRole === 'assistant';
   const [query, setQuery] = useState('');
@@ -311,8 +314,9 @@ export const PlayLibraryView: React.FC<Props> = ({
   const diagramCount = myPlays.filter((p) => diagramOf(p)).length;
 
   return (
-    <div className="w-full max-w-6xl mx-auto px-2 sm:px-4 py-3 sm:py-5 space-y-4">
+    <div className={bare ? 'w-full px-2 sm:px-4 py-3 space-y-4' : 'w-full max-w-6xl mx-auto px-2 sm:px-4 py-3 sm:py-5 space-y-4'}>
       {/* Header */}
+      {!bare && (
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div className="flex items-start gap-3">
@@ -429,8 +433,9 @@ export const PlayLibraryView: React.FC<Props> = ({
         </div>
         )}
       </div>
+      )}
 
-      {pane === 'builder' ? (
+      {pane === 'builder' || bare ? (
       <PlayBuilderSection
         key={`${builderSeed?.playEntryId || builderSeed?.name || 'new'}|${builderSeed?.restartAt || ''}`}
         canEdit={canEdit}

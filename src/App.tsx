@@ -186,6 +186,7 @@ import { OWN_HUDL_KEY, WEEKLY_HUDL_KEY, bigGet, bigStoreAvailable, markBigStoreR
 import { syncWristbandToCallSheet } from './utils/wristbandLinking';
 import { saveCallSheetSnapshot, countCallSheetPlays } from './utils/callSheetStorage';
 import { ScoutingView } from './components/ScoutingView';
+import { ScoutPresentation, type ScoutShow } from './components/scouting/ScoutPresentation';
 import { FilmRoomView } from './filmroom/FilmRoomView';
 import { FilmWindowHost } from './filmroom/FilmWindow';
 import { ScoutSafetyNet } from './components/ScoutSafetyNet';
@@ -4855,7 +4856,7 @@ export default function App() {
     setActiveUnit('playbook');
   };
   /** Their play in the play builder (from Their plays, the play log or a clip), with its film in the film window. */
-  const drawOppPlay = (asked: ScoutOppPlay, group?: { label: string; plays: ScoutOppPlay[] }, opts?: { fromFormation?: boolean }) => {
+  const drawOppPlay = (asked: ScoutOppPlay, group?: { label: string; plays: ScoutOppPlay[] }, opts?: { fromFormation?: boolean; stay?: boolean }) => {
     const teamId = activeTeamIdRef.current;
     const week = currentWeekRef.current;
     const scopedKey = getScopedWeekKey(teamId, week);
@@ -4950,10 +4951,30 @@ export default function App() {
     });
     holdPlayBuilderSeed();
     // Their film of this play opens in the film window while the coach works on it.
-    if (play.gameId && snaps.length && (filmWindowAutoOpen() || play.clips?.length)) {
+    if (play.gameId && snaps.length && (opts?.stay || filmWindowAutoOpen() || play.clips?.length)) {
       openFilmWindow({ gameId: play.gameId, playIds: snaps.map((x) => x.id), label: group?.label || play.name });
-    }
-    setActiveUnit('playbook');
+    } else if (opts?.stay) closeFilmWindow(); // presenting: no film of this play, not the last play's
+    if (!opts?.stay) setActiveUnit('playbook');
+  };
+  // Presentation mode: the scout script, one play after another, its diagram and film on one screen.
+  const [presenting, setPresenting] = useState<ScoutShow | null>(null);
+  const [presentIndex, setPresentIndex] = useState(0);
+  // Each play opened gets a fresh builder (it reads the play from the seed when it starts).
+  const [presentOpen, setPresentOpen] = useState(0);
+  const presentLine = (show: ScoutShow, index: number) => {
+    const line = show.lines[index];
+    if (!line) return;
+    drawOppPlay(line.card, line.group, { stay: true });
+    setPresentIndex(index);
+    setPresentOpen((n) => n + 1);
+  };
+  const startPresenting = (show: ScoutShow) => {
+    setPresenting(show);
+    presentLine(show, 0);
+  };
+  const stopPresenting = () => {
+    setPresenting(null);
+    closeFilmWindow();
   };
   /** Start one of their plays over from one of their drawn formations (picked in the builder). */
   const restartOppPlay = (scoutId: string, gameId: string, formationId: string): boolean => {
@@ -7304,6 +7325,62 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
       />
   );
 
+  /** The play library (the Playbook page), or just its play builder in presentation mode. */
+  const renderPlayLibrary = (present = false) => (
+    <PlayLibraryView
+      key={present ? `present-${presentOpen}` : `plays-${activeTeamId}`}
+      bare={present}
+      playDatabase={teamPlayDatabase}
+      onUpdatePlayDatabase={handleUpdateTeamPlayDatabase}
+      deletedPlayIds={deletedPlayIds}
+      onUpdateDeletedPlayIds={handleUpdateDeletedPlayIds}
+      ownTeamScout={teamOwnScout}
+      teamName={currentActiveTeam?.name || 'Mahopac 10U'}
+      userRole={userRole}
+      onOpenScouting={() => setActiveUnit('hudl_scout')}
+      onOpenPff={() => setActiveUnit('ppr')}
+      onBackToPlayList={present ? undefined : () => {
+        goToPreviousScreen(() => {
+          setHudlView({ target: 'opponent', tab: 'theirplays' });
+          setActiveUnit('hudl_scout');
+        });
+      }}
+      onRenameScoutPlay={renameScoutPlay}
+      onSaveFilmBackfield={saveFilmBackfield}
+      onSaveOppFormation={saveOppFormation}
+      onRestartScoutPlay={restartOppPlay}
+      onOpenScoutPlay={(scoutId, gameId) => {
+        if (present) return false;
+        const card = (((weekHudl().hudl?.playLibraries || {})[gameId] || []) as ScoutOppPlay[]).find((c) => c.id === scoutId);
+        if (!card) return false;
+        drawOppPlay(card);
+        return true;
+      }}
+      scoutNeighbors={present ? undefined : (scoutId, gameId) => {
+        // Their plays on that film, in the film's order.
+        const cards = ((weekHudl().hudl?.playLibraries || {})[gameId] || []) as ScoutOppPlay[];
+        const index = cards.findIndex((c) => c.id === scoutId);
+        if (index < 0) return null;
+        return {
+          index,
+          total: cards.length,
+          open: (dir) => {
+            const next = cards[index + dir];
+            if (!next) return false;
+            drawOppPlay(next);
+            return true;
+          },
+        };
+      }}
+      onWatchScoutFilm={present ? undefined : (cutup, seed) => {
+        savePlayBuilderSeed(seed);
+        saveFilmCutup(cutup);
+        holdFilmCutup();
+        setActiveUnit('filmroom');
+      }}
+    />
+  );
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 print:bg-white print:text-black flex flex-row print:block print:h-auto print:min-h-0 print:overflow-visible font-sans text-slate-900 dark:text-slate-100 selection:bg-indigo-600 selection:text-white overflow-x-hidden print:overflow-x-visible">
       {/* Hidden File Inputs for Import */}
@@ -7820,58 +7897,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
               />
             )}
 
-            {activeUnit === 'playbook' && (
-              <PlayLibraryView
-                key={`plays-${activeTeamId}`}
-                playDatabase={teamPlayDatabase}
-                onUpdatePlayDatabase={handleUpdateTeamPlayDatabase}
-                deletedPlayIds={deletedPlayIds}
-                onUpdateDeletedPlayIds={handleUpdateDeletedPlayIds}
-                ownTeamScout={teamOwnScout}
-                teamName={currentActiveTeam?.name || 'Mahopac 10U'}
-                userRole={userRole}
-                onOpenScouting={() => setActiveUnit('hudl_scout')}
-                onOpenPff={() => setActiveUnit('ppr')}
-                onBackToPlayList={() => {
-                  goToPreviousScreen(() => {
-                    setHudlView({ target: 'opponent', tab: 'theirplays' });
-                    setActiveUnit('hudl_scout');
-                  });
-                }}
-                onRenameScoutPlay={renameScoutPlay}
-                onSaveFilmBackfield={saveFilmBackfield}
-                onSaveOppFormation={saveOppFormation}
-                onRestartScoutPlay={restartOppPlay}
-                onOpenScoutPlay={(scoutId, gameId) => {
-                  const card = (((weekHudl().hudl?.playLibraries || {})[gameId] || []) as ScoutOppPlay[]).find((c) => c.id === scoutId);
-                  if (!card) return false;
-                  drawOppPlay(card);
-                  return true;
-                }}
-                scoutNeighbors={(scoutId, gameId) => {
-                  // Their plays on that film, in the film's order.
-                  const cards = ((weekHudl().hudl?.playLibraries || {})[gameId] || []) as ScoutOppPlay[];
-                  const index = cards.findIndex((c) => c.id === scoutId);
-                  if (index < 0) return null;
-                  return {
-                    index,
-                    total: cards.length,
-                    open: (dir) => {
-                      const next = cards[index + dir];
-                      if (!next) return false;
-                      drawOppPlay(next);
-                      return true;
-                    },
-                  };
-                }}
-                onWatchScoutFilm={(cutup, seed) => {
-                  savePlayBuilderSeed(seed);
-                  saveFilmCutup(cutup);
-                  holdFilmCutup();
-                  setActiveUnit('filmroom');
-                }}
-              />
-            )}
+            {activeUnit === 'playbook' && renderPlayLibrary()}
 
             {(activeUnit === 'hudl_scout' || activeUnit === 'scouting' || activeUnit === 'ppr') && (
               <HudlScoutSections
@@ -8292,6 +8318,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onEditFormation={openOppFormation}
                 onFormationPlans={putFormationPlansOnCallSheet}
                 onDrawPlay={drawOppPlay}
+                onPresentScript={startPresenting}
                 onDrawSnap={drawSnap}
               />
             )}
@@ -9042,6 +9069,12 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
             return true;
           }}
         />
+      )}
+
+      {presenting && (
+        <ScoutPresentation show={presenting} index={presentIndex} onIndex={(i) => presentLine(presenting, i)} onExit={stopPresenting}>
+          {renderPlayLibrary(true)}
+        </ScoutPresentation>
       )}
 
       {/* The film window: their film of a play, floating over Their plays, scouting reports, and the play builder */}
