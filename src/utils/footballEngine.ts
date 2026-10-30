@@ -2802,7 +2802,8 @@ export function applyNodeOverrides(nodes: PlayNode[], overrides: Record<string, 
   return nodes.map((n) => (overrides[n.role] ? { ...n, x: overrides[n.role].x, y: overrides[n.role].y } : n));
 }
 
-const STROKE_COLOR: Record<DrawKind, string> = { run: '#e11d2a', pass: '#2563eb', block: '#111827' };
+/** Each kind of line's color (the editor, the saved pictures, print and the film's play lines). */
+export const STROKE_COLOR: Record<DrawKind, string> = { run: '#e11d2a', pass: '#2563eb', block: '#111827' };
 /** The ring around a receiver in man coverage (picture units, just outside his circle). */
 export const MAN_RING = 17;
 

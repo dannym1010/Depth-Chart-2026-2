@@ -16,6 +16,17 @@ export interface AnimatedPlayFrame {
   ball: { x: number; y: number; inAir: boolean };
 }
 
+/** The offensive line. */
+const OL_ROLES = ['LT', 'LG', 'C', 'RG', 'RT'];
+/** Yards a lineman who isn't pulling moves: a short step into his block. */
+export const LINE_STEP = 0.75;
+
+/** A lineman's line is a pull: it drops off the ball first, or runs 2.5 yards or more down the line. */
+export function isPullLine(st: PlayStroke, start: { x: number; y: number }): boolean {
+  const last = st.points[st.points.length - 1];
+  return st.points.slice(1).some((p) => p.y < start.y - 0.4) || Math.abs(last.x - start.x) >= 2.5;
+}
+
 /**
  * Interpolates a position and partial path along a polyline by arc-length for t in [0, 1].
  */
@@ -215,7 +226,12 @@ export function computeAnimatedPlayFrame(
           animatedPos.set(n.role, { x: n.x, y: n.y });
           continue;
         }
-        const pts = [{ x: n.x, y: n.y }, ...st.points.slice(1)];
+        let pts = [{ x: n.x, y: n.y }, ...st.points.slice(1)];
+        // A lineman who isn't pulling only steps into his block (the first yard or so of his line).
+        if (OL_ROLES.includes(n.role) && !isPullLine(st, n)) {
+          const total = pts.slice(1).reduce((sum, p, i) => sum + Math.hypot(p.x - pts[i].x, p.y - pts[i].y), 0);
+          if (total > LINE_STEP) pts = samplePolyline(pts, LINE_STEP / total).traveled;
+        }
         // Blockers engage quickly in the first 55% of the play
         const effectiveT = st.kind === 'block' ? easeOutQuad(Math.min(1, postSnapT * 1.65)) : postSnapT;
         const sample = samplePolyline(pts, effectiveT);
@@ -259,10 +275,11 @@ export function computeAnimatedPlayFrame(
           y: Math.round((n.y + dropY * blockT) * 100) / 100,
         });
       } else {
-        const stepX = Math.sign(fallbackAimX || 1) * 0.55;
+        // A short step into his block (about LINE_STEP), toward the hole.
+        const stepX = Math.sign(fallbackAimX || 1) * 0.3;
         animatedPos.set(n.role, {
           x: Math.round((n.x + stepX * blockT) * 100) / 100,
-          y: Math.round((n.y + 1.15 * blockT) * 100) / 100,
+          y: Math.round((n.y + 0.65 * blockT) * 100) / 100,
         });
       }
     } else if (n.role === '1' || n.role === 'QB') {

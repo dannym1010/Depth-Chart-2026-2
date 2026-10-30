@@ -45,6 +45,7 @@ import {
 import { PlayDiagramCanvas } from './PlayDiagramCanvas';
 import { VideoHomographyOverlay } from './VideoHomographyOverlay';
 import type { VideoLines } from '../../filmroom/PlayLinesOverlay';
+import { publishPlayLines } from '../../filmroom/playLinesStore';
 import { DEFAULT_HOMOGRAPHY_QUAD, type HomographyQuad } from '../../utils/videoHomography';
 import { assignmentText } from './PlayerAssignmentPanel';
 import type { PlayBuilderSeed } from '../../utils/playBuilderSeed';
@@ -1214,14 +1215,18 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     { tab: 'notes', text: dLook ? `vs ${callName}` : 'No defense' },
   ];
 
-  // The play on the film (Film Room's play lines): sent again only when something in it changes.
+  // The play on the film (play lines): to the Film Room that opened it, or for a film window beside it. Sent again
+  // only when something in it changes.
   const allLines = [...strokes, ...callStrokes];
-  const videoLinesKey = onVideoLines ? JSON.stringify([diagramNodes, allLines, ball, homographyQuad, callLabel]) : '';
+  const videoLinesKey = JSON.stringify([diagramNodes, allLines, ball, homographyQuad, callLabel]);
+  const linesOwner = useRef({});
   useEffect(() => {
-    if (!onVideoLines) return;
-    onVideoLines({ nodes: diagramNodes, strokes: allLines, ballRole: String(ball), quad: homographyQuad, setQuad: setHomographyQuad, name: callLabel.trim() });
+    const lines: VideoLines = { nodes: diagramNodes, strokes: allLines, ballRole: String(ball), quad: homographyQuad, setQuad: setHomographyQuad, name: callLabel.trim() };
+    if (onVideoLines) onVideoLines(lines);
+    else publishPlayLines(linesOwner.current, lines);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoLinesKey]);
+  useEffect(() => () => publishPlayLines(linesOwner.current, null), []);
 
   const label = (text: string, extra?: React.ReactNode) => (
     <div className="flex items-center justify-between mb-1.5">

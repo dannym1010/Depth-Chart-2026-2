@@ -8,6 +8,8 @@ import { Expand, ExternalLink, Film, Maximize2, Minimize2, Minus, Plus, RefreshC
 import { bundleFromSaved } from '../hudlScout/scoutBundle';
 import type { Play } from '../hudlScout/types/football';
 import { FilmPlayer, type PlayerApi } from './FilmPlayer';
+import { usePlayLines } from './PlayLinesOverlay';
+import { usePublishedPlayLines } from './playLinesStore';
 import { LinkFilmDialog } from './LinkFilmDialog';
 import { matchClipsToPlays } from './clipMatching';
 import { playTitle } from './playText';
@@ -178,6 +180,13 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
   const clipUrl = useClipUrl(clip, localFiles, clipOf(next));
 
   const apiRef = useRef<PlayerApi | null>(null);
+  // Play lines: the play open in the play builder beside this window (a scout script play, or the playbook's).
+  const playLines = usePlayLines({
+    lines: usePublishedPlayLines(),
+    video: () => apiRef.current?.video?.() || null,
+    filmKey: request.gameId,
+    waiting: 'Open the play (tap it in the play script, or Draw it) and its lines show here.',
+  });
   const resumeAt = useRef(0);
   // Popped out: the clip plays in its own browser window (to drag onto another screen); this one keeps the
   // controls and the plays, tucked away.
@@ -518,6 +527,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest }> = ({
               onStopwatch={(s, at) => addNote(`Pocket time ${s.toFixed(2)}s`, at)}
               onVoiceNote={({ text, audioUrl, durationSec, at }) => addNote(text, at, { audioUrl, durationSec })}
               apiRef={apiRef}
+              playLines={playLines}
               startAt={resumeAt.current}
               shortcuts={focused}
             />

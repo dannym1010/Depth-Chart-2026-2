@@ -11,6 +11,7 @@ import {
 import { drawMarksOnCanvas, MARK_COLORS, Telestration } from './Telestration';
 import { findSnapWithCamera, frameChange } from './snapFinder';
 import type { FilmMark } from './types';
+import type { PlayLinesControl } from './PlayLinesOverlay';
 
 // Cache detected snap timestamps by clip URL so Fast Cutup mode is instant on revisit.
 const snapTimeCache = new Map<string, number>();
@@ -54,8 +55,8 @@ interface FilmPlayerProps {
   autoNextDefault?: boolean;
   /** Watching only (a player or family account): no drawing, no stopwatch. */
   viewOnly?: boolean;
-  /** The selected play's lines on the video: the button that turns them on, and the layer drawn over the picture. */
-  playLines?: { on: boolean; toggle: () => void; layer: (state: { playing: boolean }) => React.ReactNode };
+  /** The selected play's lines on the video: the button that turns them on, the lines (zoomed with the picture) and their controls. */
+  playLines?: PlayLinesControl;
 }
 
 // Bigger on a touch screen (a finger needs about 40px).
@@ -840,8 +841,9 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
               if (markLabel) setMarkLabel('');
             }}
           />
-          {playLines?.on && src && !drawing && playLines.layer({ playing })}
+          {playLines?.on && src && !drawing && playLines.layer({ playing, zoom })}
         </div>
+        {playLines?.on && src && !drawing && playLines.controls({ playing })}
         {/* Above the controls that sit over the bottom of the video, so its buttons (Link film...) can be tapped. */}
         {!src && <div className={`absolute inset-0 flex items-center justify-center p-4 text-center text-sm z-20 pointer-events-none [&>*]:pointer-events-auto ${isFullscreen ? 'pb-28' : 'sm:pb-28'}`}>{placeholder}</div>}
         <div className="absolute top-2 left-2 right-2 flex items-start justify-between gap-2 pointer-events-none">
