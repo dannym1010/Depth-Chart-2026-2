@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { assemblePlay, autoDrawPlay, PLAY_CONCEPTS } from './footballEngine.ts';
 import { computeAnimatedPlayFrame, LINE_STEP, MOTION_SECONDS, PLAY_SECONDS, playAnimationSeconds, SET_SECONDS } from './playAnimation.ts';
-import type { PlayNode, PlayStroke } from './footballEngine.ts';
+import { passThrow, type PlayNode, type PlayStroke } from './footballEngine.ts';
 
 describe('running a play: the offensive line', () => {
   it('pullers run their path; the rest of the line only steps into their blocks', () => {
@@ -59,5 +59,22 @@ describe('running a play: motion, the route drawn from where he lined up', () =>
     const route: PlayStroke = { kind: 'pass', points: [{ x: 12, y: -1 }, { x: 12, y: 8 }] };
     const z = computeAnimatedPlayFrame(nodes, [motion, route], [], '3', 1).nodes.find((n) => n.role === 'Z')!;
     assert.deepEqual([z.x, z.y], [12, 8]);
+  });
+});
+
+describe('running a play: a pass to the ball carrier', () => {
+  const nodes = [{ role: 'C', x: 0, y: 0 }, { role: '1', x: 0, y: -1 }, { role: '3', x: 0, y: -5 }, { role: 'X', x: -12, y: -1 }] as PlayNode[];
+  const go: PlayStroke = { kind: 'pass', points: [{ x: -12, y: -1 }, { x: -12, y: 12 }] };
+  it('draws the ball from the QB to the end of his route', () => {
+    assert.deepEqual(passThrow(nodes, [go], 'X'), { from: { x: 0, y: -1 }, to: { x: -12, y: 12 } });
+    assert.equal(passThrow(nodes, [go], '3'), null);
+    assert.equal(passThrow(nodes, [go], '1'), null);
+  });
+  it('throws it to him (one route is enough), no handoff', () => {
+    const mid = computeAnimatedPlayFrame(nodes, [go], [], 'X', 0.6);
+    assert.equal(mid.ball.inAir, true);
+    const end = computeAnimatedPlayFrame(nodes, [go], [], 'X', 1);
+    const x = end.nodes.find((n) => n.role === 'X')!;
+    assert.deepEqual([end.ball.x, end.ball.y], [x.x, x.y]);
   });
 });

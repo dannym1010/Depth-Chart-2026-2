@@ -5,6 +5,7 @@ import {
   lineStartsOn,
   DEFENSE_COLOR,
   isDefenseRole,
+  passThrow,
   type NodePlayer,
   type DrawKind,
   type PlayNode,
@@ -284,6 +285,11 @@ export const PlayerAssignmentPanel: React.FC<Props> = ({
             <button
               type="button"
               onClick={() => onBallCarrierChange(player.role)}
+              title={
+                passThrow(nodes, strokes, player.role)
+                  ? 'The ball is thrown to him: a dotted line from the QB to the end of his route, and the ball flies there when the play runs'
+                  : 'He gets the ball (handoff, or the QB keeps it)'
+              }
               className={`h-8 px-2 rounded-lg text-[11px] font-black inline-flex items-center gap-1 cursor-pointer border ${
                 player.role === ballRole
                   ? 'bg-orange-600 text-white border-orange-600'
@@ -291,7 +297,13 @@ export const PlayerAssignmentPanel: React.FC<Props> = ({
               }`}
             >
               <Star className={`w-3 h-3 ${player.role === ballRole ? 'fill-white' : 'text-orange-500'}`} />
-              {player.role === ballRole ? 'Has the ball' : 'Make ball carrier'}
+              {passThrow(nodes, strokes, player.role)
+                ? player.role === ballRole
+                  ? 'Gets the pass'
+                  : 'Throw to him'
+                : player.role === ballRole
+                  ? 'Has the ball'
+                  : 'Make ball carrier'}
             </button>
           )}
           {current && !readOnly && (

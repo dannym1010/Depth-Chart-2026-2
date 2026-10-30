@@ -2807,6 +2807,37 @@ export const STROKE_COLOR: Record<DrawKind, string> = { run: '#e11d2a', pass: '#
 /** The ring around a receiver in man coverage (picture units, just outside his circle). */
 export const MAN_RING = 17;
 
+/** The ball in the air: a dotted line from the QB to the catch, and the ball there. */
+export const THROW_COLOR = '#92400e';
+
+/**
+ * A pass to the ball carrier: from the QB to the end of the carrier's route (the catch). Nothing when the QB
+ * keeps it or the carrier runs (that's a handoff).
+ */
+export function passThrow(nodes: PlayNode[], strokes: PlayStroke[], ballRole?: string): { from: { x: number; y: number }; to: { x: number; y: number } } | null {
+  if (!ballRole || ballRole === '1' || ballRole === 'QB') return null;
+  const qb = nodes.find((n) => n.role === '1' || n.role === 'QB');
+  const carrier = nodes.find((n) => n.role === ballRole);
+  if (!qb || !carrier) return null;
+  const route = strokes.find((s) => s.kind === 'pass' && s.points.length >= 2 && !(s.motion && s.motion >= s.points.length - 1) && lineStartsOn(s, carrier, nodes));
+  if (!route) return null;
+  const end = route.points[route.points.length - 1];
+  return { from: { x: qb.x, y: qb.y }, to: { x: end.x, y: end.y } };
+}
+
+/** The pass to the ball carrier in a saved picture: the dotted ball line and the ball at the catch. */
+function throwSvg(nodes: PlayNode[], strokes: PlayStroke[], ballRole?: string) {
+  const t = passThrow(nodes, strokes, ballRole);
+  if (!t) return '';
+  const a = fieldToSvg(t.from.x, t.from.y);
+  const b = fieldToSvg(t.to.x, t.to.y);
+  const ang = (Math.atan2(b.cy - a.cy, b.cx - a.cx) * 180) / Math.PI;
+  return (
+    `<line x1="${a.cx.toFixed(1)}" y1="${a.cy.toFixed(1)}" x2="${b.cx.toFixed(1)}" y2="${b.cy.toFixed(1)}" stroke="${THROW_COLOR}" stroke-width="2.2" stroke-linecap="round" stroke-dasharray="0.1 6"/>` +
+    `<ellipse cx="${b.cx.toFixed(1)}" cy="${b.cy.toFixed(1)}" rx="7" ry="4.3" fill="${THROW_COLOR}" stroke="#ffffff" stroke-width="1.4" transform="rotate(${ang.toFixed(0)} ${b.cx.toFixed(1)} ${b.cy.toFixed(1)})"/>`
+  );
+}
+
 function strokeSvg(strokes: PlayStroke[]) {
   return strokes
     .map((s) => {
@@ -2967,7 +2998,7 @@ export function diagramSvg(play: AssembledPlay, strokes: PlayStroke[] = [], extr
   // Drawn around the ball (a formation on a hash keeps its spacing).
   return withFieldBall(ballXOf(play.nodes), () => {
     const dots = [...play.nodes, ...extraNodes].map((n) => playerGlyphSvg(n, ballRole)).join('');
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">${fieldBgSvg()}${strokeSvg(strokes)}${dots}</svg>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">${fieldBgSvg()}${strokeSvg(strokes)}${throwSvg(play.nodes, strokes, ballRole)}${dots}</svg>`;
     return svgDataUrl(svg);
   });
 }

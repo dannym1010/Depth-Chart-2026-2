@@ -14,6 +14,8 @@ import {
   ballXOf,
   setFieldBall,
   MAN_RING,
+  passThrow,
+  THROW_COLOR,
   DEFENSE_COLOR,
   shownText,
   tagColors,
@@ -1114,6 +1116,20 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
               </g>
             );
           })}
+          {/* A pass to the ball carrier: the ball's dotted line from the QB to the catch, and the ball there (the real one flies when the play runs). */}
+          {animProgress <= 0.002 && (() => {
+            const t = passThrow(nodes, strokes, ballRole);
+            if (!t) return null;
+            const a = fieldToSvg(t.from.x, t.from.y);
+            const b = fieldToSvg(t.to.x, t.to.y);
+            const ang = (Math.atan2(b.cy - a.cy, b.cx - a.cx) * 180) / Math.PI;
+            return (
+              <g pointerEvents="none">
+                <line x1={a.cx} y1={a.cy} x2={b.cx} y2={b.cy} stroke={THROW_COLOR} strokeWidth={2.4} strokeLinecap="round" strokeDasharray="0.1 6" />
+                <ellipse cx={b.cx} cy={b.cy} rx={7.5} ry={4.6} fill={THROW_COLOR} stroke="#ffffff" strokeWidth={1.5} transform={`rotate(${ang} ${b.cx} ${b.cy})`} />
+              </g>
+            );
+          })()}
           {/* The next leg of the line being drawn follows the pointer */}
           {openIdx != null && ghost && strokes[openIdx]?.points.length ? (() => {
             const lastPt = strokes[openIdx].points[strokes[openIdx].points.length - 1];

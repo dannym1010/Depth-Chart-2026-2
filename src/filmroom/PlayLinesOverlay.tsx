@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { buildProjectedFieldGrid, fieldToImage, HOMOGRAPHY_PRESETS, imageToField, type HomographyQuad, type ImagePoint } from '../utils/videoHomography';
-import { DEFENSE_COLOR, diagramLabel, isDefenseRole, MOTION_COLOR, shownText, skillDiagramLabel, STROKE_COLOR, type PlayNode, type PlayStroke } from '../utils/footballEngine';
+import { DEFENSE_COLOR, diagramLabel, isDefenseRole, MOTION_COLOR, passThrow, shownText, skillDiagramLabel, STROKE_COLOR, THROW_COLOR, type PlayNode, type PlayStroke } from '../utils/footballEngine';
 import { computeAnimatedPlayFrame, playAnimationSeconds } from '../utils/playAnimation';
 import { safeJSONParse, safeJSONSet } from '../services/storageService';
 
@@ -632,6 +632,21 @@ const LinesDrawing: React.FC<{
             ))}
           {/* The play's lines; faded while it runs, with each player's trail drawn on top. */}
           {showLines && <g opacity={moving ? 0.35 : 1}>{shownStrokes.map(strokeEl)}</g>}
+          {/* A pass to the ball carrier: the ball's dotted line from the QB to the catch (the real ball flies when it runs). */}
+          {showLines && !moving && showing(false) && (() => {
+            const t = passThrow(lines.nodes, lines.strokes, lines.ballRole);
+            if (!t) return null;
+            const [ax, ay] = px(t.from);
+            const [bx, by] = px(t.to);
+            const ang = (Math.atan2(by - ay, bx - ax) * 180) / Math.PI;
+            return (
+              <g>
+                <path d={`M${ax} ${ay}L${bx} ${by}`} stroke="#ffffff" strokeOpacity="0.85" strokeWidth={5 * k} strokeLinecap="round" strokeDasharray={`${0.1 * k} ${6 * k}`} />
+                <path d={`M${ax} ${ay}L${bx} ${by}`} stroke={THROW_COLOR} strokeWidth={2.6 * k} strokeLinecap="round" strokeDasharray={`${0.1 * k} ${6 * k}`} />
+                <ellipse cx={bx} cy={by} rx={7.5 * k} ry={4.6 * k} fill={THROW_COLOR} stroke="#ffffff" strokeWidth={1.5 * k} transform={`rotate(${ang} ${bx} ${by})`} />
+              </g>
+            );
+          })()}
           {frame?.trails
             .filter((t) => t.points.length >= 2 && showing(isDefenseRole(t.role)))
             .map((t, i) => {

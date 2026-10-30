@@ -222,7 +222,9 @@ export function computeAnimatedPlayFrame(
 
   // Determine overall play type (run vs pass) and target horizontal flow
   const hasPassRoutes = allStrokes.filter((s) => s.kind === 'pass' && !(s.motion && s.motion >= s.points.length - 1)).length >= 2;
-  const isPassPlay = hasPassRoutes && !roleStroke.get(ballRole)?.kind?.includes('run');
+  // The ball carrier runs a route (not the QB): it's thrown to him.
+  const throwTo = ballRole !== '1' && ballRole !== 'QB' && roleStroke.get(ballRole)?.kind === 'pass';
+  const isPassPlay = throwTo || (hasPassRoutes && !roleStroke.get(ballRole)?.kind?.includes('run'));
 
   const holeXMap: Record<number, number> = {
     9: -9.5,
