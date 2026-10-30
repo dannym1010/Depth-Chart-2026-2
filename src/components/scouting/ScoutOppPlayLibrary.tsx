@@ -267,17 +267,20 @@ export const ScoutOppPlayLibrary: React.FC<{
     const t = (playDatabase || []).find((e) => e.id === `scout_${p.id}`)?.type || inferPlayType(p.name, 'offense');
     return t === 'pass' || t === 'play_action' ? 'pass' : t === 'screen' ? 'screen' : t === 'rpo' ? 'rpo' : 'run';
   };
-  // Presentation mode: the script's plays in order, each with the plays combined with it (its film too).
+  // Presentation mode: the checked plays on the script, in order, each with the plays combined with it (its film too).
   const present = () => {
     if (!onPresent) return;
     const lines: ScoutShowLine[] = [];
     for (const line of script.lines) {
       const card = onTheReport.find((p) => p.id === line.playId);
-      if (!card) continue;
+      if (!card || card.printSkip) continue;
       const { snaps, group } = scriptFilm(card);
       lines.push({ playId: line.playId, name: line.name, detail: line.detail, card, ...(snaps.length && group ? { group } : {}) });
     }
-    if (lines.length) onPresent({ title: script.title, lines });
+    if (lines.length) {
+      setPrintNote('');
+      onPresent({ title: script.title, lines });
+    } else setPrintNote('Every play is unchecked: check the ones to present.');
   };
   const openScriptPlay = (p: ScoutOppPlay) => {
     const { snaps, group } = scriptFilm(p);
@@ -1329,7 +1332,7 @@ export const ScoutOppPlayLibrary: React.FC<{
                 type="button"
                 onClick={present}
                 className="h-8 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black inline-flex items-center gap-1.5 cursor-pointer shrink-0"
-                title="Go through the script play by play: each play's diagram and film on one screen"
+                title="Go through the checked plays one by one: each play's diagram and film on one screen"
               >
                 <Presentation className="w-3.5 h-3.5" /> Present
               </button>
@@ -1337,8 +1340,8 @@ export const ScoutOppPlayLibrary: React.FC<{
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
             {onTheReport.length} play{onTheReport.length === 1 ? '' : 's'} on the report
-            {onTheReport.some((p) => p.printSkip) ? ` (${onTheReport.filter((p) => !p.printSkip).length} print)` : ''}. Drag the handle, type a number, or put them in order at once. Print follows this order; uncheck
-            a play to leave it off the printout.
+            {onTheReport.some((p) => p.printSkip) ? ` (${onTheReport.filter((p) => !p.printSkip).length} checked)` : ''}. Drag the handle, type a number, or put them in order at once. Print and Present follow this order;
+            uncheck a play to leave it off the printout and the presentation.
           </p>
         </div>
         {script.lines.length > 1 && (
@@ -1419,8 +1422,8 @@ export const ScoutOppPlayLibrary: React.FC<{
                       checked={!play?.printSkip}
                       disabled={!play}
                       onChange={(e) => play && patchAnyFilm(play.id, { printSkip: e.target.checked ? undefined : true })}
-                      aria-label={`Print ${line.name}`}
-                      title={play?.printSkip ? 'Left off the printout (still on the script)' : 'Prints (uncheck to leave it off the printout)'}
+                      aria-label={`Print and present ${line.name}`}
+                      title={play?.printSkip ? 'Left off the printout and the presentation (still on the script)' : 'Prints and presents (uncheck to leave it off)'}
                       className="h-4 w-4 shrink-0 cursor-pointer"
                     />
                     <input
