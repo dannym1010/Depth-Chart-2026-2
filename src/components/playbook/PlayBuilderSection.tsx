@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Film, LayoutGrid, ListChecks, PanelRightClose, PanelRightOpen, Play as PlayIcon, RotateCcw, Save, Search, Sparkles, Users, Wand2, Zap } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Film, LayoutGrid, ListChecks, PanelRightClose, PanelRightOpen, Pencil, Play as PlayIcon, RotateCcw, Save, Search, Sparkles, Users, Wand2, Zap } from 'lucide-react';
 import { autoSketchPlayFromVideo } from '../../services/geminiFilmService';
 import type { PlayBuilderState, PlayDatabaseEntry, PlayType } from '../../types/callSheet';
 import { defenseSystem, type DefenseSystem } from '../../hudlScout/utils/ourDefense';
@@ -255,8 +255,10 @@ function startFromSeed(seed?: PlayBuilderSeed | null) {
   };
 }
 
-// Presenting: whether the coach showed the Formation / Play / Jobs panel (each play opens the builder anew).
+// Presenting: whether the coach showed the Formation / Play / Jobs panel, and the editing tools (each play opens the
+// builder anew).
 let presentPanelOpen = false;
+let presentEditing = false;
 
 export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, present, onStateChange, onSaveFilmBackfield, onSaveFormation, onStartFromFormation, onOpenSameCall, nav, getVideo, onVideoLines }) => {
   // Drawing their formation: just the alignment (no play lines), saved as the formation.
@@ -290,6 +292,13 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     if (present) presentPanelOpen = open;
   };
   const panelHidden = Boolean(present) && !panelOpen;
+  // Presenting, the field alone: the call, the summary and the drawing tools come back with Edit.
+  const [editing, setEditingState] = useState(() => !present || presentEditing);
+  const setEditing = (on: boolean) => {
+    setEditingState(on);
+    if (present) presentEditing = on;
+  };
+  const fieldOnly = Boolean(present) && !editing;
   const [situations, setSituations] = useState<string[]>(saved?.situations || []);
   const looks = teamDefenseLooks(defenseSystem());
   // An opponent's play opens against our base 4-4 (the 5-3 is the coach's pick per formation).
@@ -1295,12 +1304,12 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
         compact
           ? 'bg-white dark:bg-slate-900 p-2.5 space-y-3'
           : present
-            ? 'bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3 space-y-3'
+            ? `bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3 ${fieldOnly ? 'p-2' : 'p-3'}`
             : 'bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-sm space-y-4'
       }
     >
       {/* The call: type it the way it is called and the field draws it. */}
-      <div className="space-y-2">
+      <div className={`space-y-2 ${fieldOnly ? 'hidden' : ''}`}>
         <div className="flex flex-wrap items-center gap-2">
           {onBack && !compact && (
             <button
@@ -1449,19 +1458,6 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               <Film className="w-4 h-4 text-indigo-500" /> Film Room
             </button>
           )}
-          {present && (
-            <button
-              type="button"
-              aria-pressed={panelOpen}
-              onClick={() => setPanelOpen(!panelOpen)}
-              title={panelOpen ? 'Hide Formation / Play / Jobs: the field gets the whole width' : 'Show Formation / Play / Jobs / Players beside the field'}
-              className={`h-11 px-3 rounded-xl border text-sm font-black inline-flex items-center gap-1.5 cursor-pointer shrink-0 ${
-                panelOpen ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300' : 'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
-              }`}
-            >
-              {panelOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />} Formation · Play · Jobs
-            </button>
-          )}
           {!compact && nav && (
             <div className="inline-flex items-center h-11 rounded-xl border border-slate-300 dark:border-slate-600 overflow-hidden shrink-0">
               <button
@@ -1559,7 +1555,34 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
 
       <div className={compact || panelHidden ? 'space-y-3' : `grid grid-cols-1 ${present ? 'lg:grid-cols-[minmax(0,1fr)_340px]' : 'lg:grid-cols-[minmax(0,1fr)_380px]'} gap-4 items-start`}>
         {/* The field */}
-        <div className="space-y-2 min-w-0">
+        <div className="relative space-y-2 min-w-0">
+          {present && (
+            // Presenting: the field alone; these bring back the editing tools and the Formation / Play / Jobs panel.
+            <div className="absolute top-2 right-2 z-20 flex gap-1.5">
+              <button
+                type="button"
+                aria-pressed={editing}
+                onClick={() => setEditing(!editing)}
+                title={editing ? 'Hide the call and the drawing tools' : 'Show the call, Save and the drawing tools (Route, Run, Block, Motion)'}
+                className={`h-9 pointer-coarse:h-11 px-3 rounded-lg text-xs font-black inline-flex items-center gap-1.5 shadow-sm border cursor-pointer ${
+                  editing ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white/95 dark:bg-slate-900/95 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                <Pencil className="w-3.5 h-3.5" /> {editing ? 'Done' : 'Edit'}
+              </button>
+              <button
+                type="button"
+                aria-pressed={panelOpen}
+                onClick={() => setPanelOpen(!panelOpen)}
+                title={panelOpen ? 'Hide Formation / Play / Jobs: the field gets the whole width' : 'Show Formation / Play / Jobs / Players beside the field'}
+                className={`h-9 pointer-coarse:h-11 px-3 rounded-lg text-xs font-black inline-flex items-center gap-1.5 shadow-sm border cursor-pointer ${
+                  panelOpen ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white/95 dark:bg-slate-900/95 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                {panelOpen ? <PanelRightClose className="w-3.5 h-3.5" /> : <PanelRightOpen className="w-3.5 h-3.5" />} Formation · Play · Jobs
+              </button>
+            </div>
+          )}
           {(formationMode || defenseMode) && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-300/70 dark:border-emerald-700/60 bg-emerald-50/60 dark:bg-emerald-950/20 px-2.5 py-1.5">
               <span className="w-full text-[11px] font-black uppercase tracking-wider text-emerald-800 dark:text-emerald-300">{defenseMode ? 'Our defensive call' : 'Our defense vs it'}{dLook ? `: ${callName}` : ''}</span>
@@ -1574,7 +1597,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               {defaultButtons}
             </div>
           )}
-          {dNodes.length > 0 && hasDepth && (
+          {dNodes.length > 0 && hasDepth && !fieldOnly && (
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">Who&apos;s in</span>
               <div role="group" aria-label="Which unit plays our defense" className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-[11px] font-black">
@@ -1624,7 +1647,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               {defUnit !== 'off' && <span className="hidden lg:inline text-[11px] text-slate-400">Hover a defender to see who plays there</span>}
             </div>
           )}
-          <div className="hidden sm:flex flex-wrap gap-1.5">
+          <div className={`${fieldOnly ? 'hidden' : 'hidden sm:flex'} flex-wrap gap-1.5`}>
             {summary.map((s) => (
               <button
                 key={s.text}
@@ -1688,7 +1711,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               }}
               linesFollow={userDrew}
               dense={compact}
-              maxFieldHeight={present ? 'calc(100dvh - 17.5rem)' : undefined}
+              maxFieldHeight={present ? (fieldOnly ? 'calc(100dvh - 6.5rem)' : 'calc(100dvh - 17.5rem)') : undefined}
+              tools={!fieldOnly}
               chrome="minimal"
               assignmentHost={host}
               onSelectPlayer={(n) => {

@@ -22,8 +22,8 @@ export interface PlayLinesControl {
   on: boolean;
   toggle: () => void;
   layer: (state: { playing: boolean; zoom: number }) => React.ReactNode;
-  /** Its buttons: in the player's control bar, just above the Play lines button. */
-  bar: (state: { playing: boolean }) => React.ReactNode;
+  /** Its buttons: in the player's control bar, just above the Play lines button (inline: in its row, without the play's name). */
+  bar: (state: { playing: boolean; inline?: boolean }) => React.ReactNode;
   /** What's happening (the phase, how to line up the field...): over the top right of the video. */
   controls: (state: { playing: boolean }) => React.ReactNode;
 }
@@ -243,12 +243,14 @@ export function usePlayLines(opts: {
     },
     layer: ({ playing, zoom }) =>
       shown && frame && !playing ? <LinesDrawing video={video} lines={shown} frame={moving ? frame : null} side={side} showLines={showLines} lineUp={lineUp} corners={corners} zoom={zoom} /> : null,
-    bar: ({ playing }) => (
-      <div className="pointer-events-auto flex flex-col items-start gap-1 px-2 pt-1.5" {...keep}>
+    bar: ({ playing, inline }) => (
+      <div className={`pointer-events-auto flex flex-col items-start gap-1 ${inline ? '' : 'px-2 pt-1.5'}`} {...keep}>
         <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl" style={panel}>
-          <span className="h-8 px-2 inline-flex items-center text-xs font-black truncate max-w-[12rem]" title={lines?.name}>
-            {lines?.name || 'Play lines'}
-          </span>
+          {!(inline && lines) && (
+            <span className="h-8 px-2 inline-flex items-center text-xs font-black truncate max-w-[12rem]" title={lines?.name}>
+              {lines?.name || 'Play lines'}
+            </span>
+          )}
           {lines && (
             <>
               <button

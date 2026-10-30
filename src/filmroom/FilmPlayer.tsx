@@ -976,7 +976,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
         style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.92), rgba(0,0,0,0.6) 65%, rgba(0,0,0,0))' }}
       >
         {/* Play lines' buttons, right above the Play lines button that turns them off. */}
-        {playLines?.on && src && !drawing && playLines.bar({ playing })}
+        {playLines?.on && src && !drawing && !fitting && playLines.bar({ playing })}
         <div className="pointer-events-auto flex items-center gap-2 px-3 pt-2 text-[11px] tabular-nums" style={{ color: DIM }}>
           <span>{fmtTime(time)}</span>
           <div className="relative flex-1 flex items-center">
@@ -1032,7 +1032,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
 
           <span className="w-px h-6 bg-white/15 mx-1 max-sm:hidden" />
           {SPEEDS.map((sp) => (
-            <button key={sp} className={`${speed === sp ? on : idle} max-sm:!hidden`} onClick={() => setSpeed(sp)} title={`${sp}× speed`}>
+            <button key={sp} className={`${speed === sp ? on : idle} max-sm:!hidden ${fitting && (sp === 0.25 || sp === 2) ? '!hidden' : ''}`} onClick={() => setSpeed(sp)} title={`${sp}× speed`}>
               {sp === 0.25 ? '¼' : sp === 0.5 ? '½' : sp}×
             </button>
           ))}
@@ -1043,10 +1043,10 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
           >
             {speed === 0.25 ? '¼' : speed === 0.5 ? '½' : speed}×
           </button>
-          <button className={loop ? on : idle} onClick={() => setLoop((x) => !x)} title="Loop this play (L)"><Repeat size={15} /></button>
-          <button className={`${autoNext ? on : idle} max-sm:!hidden`} onClick={() => setAutoNext((x) => !x)} title="Go to the next play when this one ends">Auto</button>
+          <button className={`${loop ? on : idle} ${fitting ? '!hidden' : ''}`} onClick={() => setLoop((x) => !x)} title="Loop this play (L)"><Repeat size={15} /></button>
+          <button className={`${autoNext ? on : idle} max-sm:!hidden ${fitting ? '!hidden' : ''}`} onClick={() => setAutoNext((x) => !x)} title="Go to the next play when this one ends">Auto</button>
           <button
-            className={fastCut ? `${btn} bg-emerald-600 text-white` : idle}
+            className={`${fastCut ? `${btn} bg-emerald-600 text-white` : idle} ${fitting ? '!hidden' : ''}`}
             onClick={toggleFastCut}
             title="Fast Cutup Mode (C): automatically trims pre-snap huddle walking and plays Snap -2s to +6.5s"
           >
@@ -1054,17 +1054,17 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
             <span className="hidden md:inline">Fast Cut</span>
           </button>
 
-          <span className="w-px h-6 bg-white/15 mx-1 max-sm:hidden" />
-          <button className={`${idle} max-sm:!hidden`} onClick={() => zoomBy(-0.5)} disabled={zoom === 1} title="Zoom out (or scroll on the video)"><ZoomOut size={16} /></button>
+          <span className={`w-px h-6 bg-white/15 mx-1 max-sm:hidden ${fitting ? '!hidden' : ''}`} />
+          <button className={`${idle} max-sm:!hidden ${fitting ? '!hidden' : ''}`} onClick={() => zoomBy(-0.5)} disabled={zoom === 1} title="Zoom out (or scroll on the video)"><ZoomOut size={16} /></button>
           {zoom > 1 && (
             <button className={idle} onClick={() => zoomTo(1)} title="Reset zoom">{zoom.toFixed(1)}×</button>
           )}
-          <button className={`${idle} max-sm:!hidden`} onClick={() => zoomBy(0.5)} disabled={zoom === 4} title="Zoom in (or scroll on the video; drag to move around)"><ZoomIn size={16} /></button>
+          <button className={`${idle} max-sm:!hidden ${fitting ? '!hidden' : ''}`} onClick={() => zoomBy(0.5)} disabled={zoom === 4} title="Zoom in (or scroll on the video; drag to move around)"><ZoomIn size={16} /></button>
 
           <span className="w-px h-6 bg-white/15 mx-1 max-sm:hidden" />
           {!viewOnly && (
             <>
-              <button className={drawing ? on : idle} onClick={toggleDraw} title="Draw freeze-frame telestration on the video (D)">
+              <button className={`${drawing ? on : idle} ${fitting ? '!hidden' : ''}`} onClick={toggleDraw} title="Draw freeze-frame telestration on the video (D)">
                 <Pencil size={15} />
                 <span className="hidden sm:inline">Draw</span>
               </button>
@@ -1083,8 +1083,9 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
                   <span className="hidden sm:inline">Play lines</span>
                 </button>
               )}
+              {fitting && playLines?.on && src && !drawing && playLines.bar({ playing, inline: true })}
               <button
-                className={recording ? `${btn} bg-rose-600 text-white animate-pulse` : idle}
+                className={`${recording ? `${btn} bg-rose-600 text-white animate-pulse` : idle} ${fitting && !recording ? '!hidden' : ''}`}
                 onClick={() => (recording ? stopRecording() : void startRecording())}
                 disabled={!src}
                 title="Record a 15-25s Voice-Over + Telestration Coaching Reel (R)"
@@ -1092,7 +1093,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
                 {recording ? <Square size={14} /> : <Mic size={15} />}
                 <span className="hidden sm:inline">{recording ? `Stop (${recSeconds}s)` : 'Voice Clip'}</span>
               </button>
-              <button className={snapAt !== null ? btn : idle} style={snapAt !== null ? AMBER : undefined} onClick={stopwatch} disabled={!src} title="Stopwatch: tap at the snap, tap again at the release (S)">
+              <button className={`${snapAt !== null ? btn : idle} ${fitting && snapAt === null ? '!hidden' : ''}`} style={snapAt !== null ? AMBER : undefined} onClick={stopwatch} disabled={!src} title="Stopwatch: tap at the snap, tap again at the release (S)">
                 <Timer size={15} />
                 <span className="hidden sm:inline">{snapAt !== null ? 'Release' : 'Snap'}</span>
               </button>
@@ -1103,10 +1104,10 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
               Save {lastWatch.seconds.toFixed(2)}s as note
             </button>
           )}
-          <button className={`${idle} ml-auto`} onClick={toggleMute} title={muted ? 'Sound on (M)' : 'Mute (M)'} aria-label={muted ? 'Sound on' : 'Mute'} aria-pressed={muted}>
+          <button className={`${idle} ml-auto ${fitting ? '!hidden' : ''}`} onClick={toggleMute} title={muted ? 'Sound on (M)' : 'Mute (M)'} aria-label={muted ? 'Sound on' : 'Mute'} aria-pressed={muted}>
             {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
           </button>
-          <button className={idle} onClick={fullscreen} title="Full screen (F, or double-click the video)"><Maximize size={16} /></button>
+          <button className={`${idle} ${fitting ? 'ml-auto' : ''}`} onClick={fullscreen} title="Full screen (F, or double-click the video)"><Maximize size={16} /></button>
         </div>
       </div>
       {fitting && <div className="flex-1" />}

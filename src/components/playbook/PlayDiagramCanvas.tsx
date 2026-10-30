@@ -159,6 +159,8 @@ interface Props {
   dense?: boolean;
   /** Tallest the field may be (CSS length): narrower to fit, so the whole field shows on the screen (presenting). */
   maxFieldHeight?: string;
+  /** The drawing tools under the field (off: just the field, presenting; players still drag). */
+  tools?: boolean;
   coachNote: string;
   onCoachNote: (v: string) => void;
   onMove: (role: string, x: number, y: number) => void;
@@ -213,6 +215,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   onDefense,
   dense,
   maxFieldHeight,
+  tools = true,
   coachNote,
   onCoachNote,
   onMove,
@@ -1329,6 +1332,8 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           </button>
         </div>
       )}
+      {tools && (
+      <>
       <div className="flex flex-wrap items-center justify-between gap-1.5 px-3 py-1.5 border-t border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70">
         <div className="flex flex-wrap items-center gap-1">
           {toolBtn(
@@ -1435,6 +1440,8 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       <div className="px-3 py-1 bg-slate-50/50 dark:bg-slate-950/50 border-t border-slate-100 dark:border-slate-800/40 text-[10px] text-slate-400 dark:text-slate-500 font-medium truncate">
         {hint}
       </div>
+      </>
+      )}
       {assignmentHost ? createPortal(assignmentPanel, assignmentHost) : assignmentPanel}
     </div>
   );
