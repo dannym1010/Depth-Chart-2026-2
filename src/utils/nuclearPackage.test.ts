@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { PRINT_COLORS, buildNuclear, changedFromBase, formLabels, nuclearBase, nuclearFormColors, nuclearSwitch, nuclearSwitchLines, kidPath, nuclearPrintHtml, nuclearSvg, spotLabel } from './nuclearPackage.ts';
+import { PRINT_COLORS, buildNuclear, changedFromBase, formLabels, nuclearBase, nuclearFormColors, nuclearSwitch, nuclearSwitchLines, nuclearSwitchSvg, kidPath, nuclearPrintHtml, nuclearSvg, spotLabel } from './nuclearPackage.ts';
 
 const pos = (id: string, name: string) => ({ id, name });
 const row = (id: string, positions: ({ id: string; name: string } | null)[]) => ({ id, label: id, slotCount: positions.length, positions });
@@ -91,6 +91,14 @@ describe('a nuclear package: one string in every formation', () => {
     const back = nuclearSwitch(pkg, 'f11', 'f21');
     assert.deepEqual(back.ins.map((i) => `${i.kid.num} ${i.to} for ${i.for?.num}`), ['12 X for 13']);
     assert.deepEqual(back.moves.map((m) => `${m.kid.num} ${m.from}>${m.to}`), ['10 X>FB']);
+    // Drawn like a play: an arrow for Mancini, Veto running on for Barry, Barry crossed off; the line has no arrows.
+    const svg = nuclearSwitchSvg(pkg, ids, 'f21', 'f11');
+    assert.equal(svg.split('marker-end=').length - 1, 2);
+    assert.ok(svg.includes('IN for 12') && svg.includes('>OUT<') && svg.includes('SIDELINE'));
+    assert.equal(nuclearSwitchSvg(pkg, ids, 'f21', 'f21').split('marker-end=').length - 1, 0);
+    // The practice page: to each formation and back.
+    const practice = nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U', { diagrams: true });
+    assert.equal(practice.split('<figure class="arrow">').length - 1, 2);
     // Page 2 of the print, only when asked.
     assert.ok(nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U', { switches: true }).includes('class="sw-grid"'));
     assert.ok(!nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U').includes('class="sw-grid"'));

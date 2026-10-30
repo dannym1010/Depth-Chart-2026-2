@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowLeftRight, Atom, Printer, X } from 'lucide-react';
 import type { FormationBoard, PlacedPlayer } from '../types';
-import { NUCLEAR_PRINT_DEFAULTS, PRINT_COLORS, STRINGS, buildNuclear, changedFromBase, nuclearBase, nuclearFormColors, nuclearGrid, nuclearSwitch, nuclearPrintHtml, nuclearSvg, type NuclearPrintOptions } from '../utils/nuclearPackage';
+import { NUCLEAR_PRINT_DEFAULTS, PRINT_COLORS, STRINGS, buildNuclear, changedFromBase, nuclearBase, nuclearFormColors, nuclearGrid, nuclearSwitch, nuclearSwitchSvg, nuclearPrintHtml, nuclearSvg, type NuclearPrintOptions } from '../utils/nuclearPackage';
 import { openCleanPrintTab } from '../utils/printUtils';
 import { loadPrintPrefs, savePrintPrefs } from '../utils/printPrefs';
 
@@ -258,6 +258,7 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
                     ))}
                 </div>
               </div>
+              <div className="rounded-lg overflow-hidden bg-white max-w-2xl" dangerouslySetInnerHTML={{ __html: nuclearSwitchSvg(pkg, formIds, swFrom, swTo, { base }) }} />
               <ul className="space-y-1.5 text-sm text-slate-700 dark:text-slate-200">
                 {sw.ins.map((i) => (
                   <li key={`in${i.kid.key}`}>
@@ -335,7 +336,11 @@ const PrintPanel: React.FC<{
   }, []);
   // Letter at 96 px an inch.
   const [pw, ph] = opts.orientation === 'landscape' ? [1056, 816] : [816, 1056];
-  const pages = opts.switches && sheet.includes('class="switches"') ? 2 : 1;
+  // Extra pages after the package: the switch diagrams, then the switch chart.
+  const hasDiagrams = sheet.includes('class="diagrams"');
+  const hasSwitches = sheet.includes('class="switches"');
+  const pages = 1 + Number(hasDiagrams) + Number(hasSwitches);
+  const pageAt = (n: number) => `position: absolute; top: ${ph * n}px; left: 0.35in; right: 0.35in; padding-top: 0.35in; border-top: 2px dashed #c9cfc8;`;
   const scale = Math.min(1, width / pw);
   const seg = (on: boolean) =>
     `flex-1 h-9 px-3 rounded-lg text-sm font-black cursor-pointer ${on ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'text-slate-600 dark:text-slate-300'}`;
@@ -368,7 +373,8 @@ const PrintPanel: React.FC<{
           <Toggle on={opts.names} onChange={(names) => set({ names })} label="Names on the field" hint="Off: jersey numbers only" />
           <Toggle on={opts.moves} onChange={(moves) => set({ moves })} label="Who lines up where" hint="Each kid's spot in every formation, and who's in the same spot every time" />
           <Toggle on={opts.formations} onChange={(formations) => set({ formations })} label="Each formation small" hint="One diagram per formation under the big field" />
-          <Toggle on={opts.switches} onChange={(switches) => set({ switches })} label="Switch chart (page 2)" hint="Every formation to every other: who comes in, who goes out, who moves" />
+          <Toggle on={opts.diagrams} onChange={(diagrams) => set({ diagrams })} label="Switch diagrams (practice page)" hint="Arrows from the base to each formation and back, drawn like plays" />
+          <Toggle on={opts.switches} onChange={(switches) => set({ switches })} label="Switch chart" hint="Every formation to every other: who comes in, who goes out, who moves" />
         </div>
         {opts.ink && (
           <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -378,11 +384,13 @@ const PrintPanel: React.FC<{
       </div>
       <div ref={box} className="min-w-0">
         <div className="text-[11px] font-black uppercase tracking-wider text-slate-500 mb-1.5">Preview</div>
-        {/* Page 2 (the switch chart) follows page 1 in the preview. */}
+        {/* The extra pages follow page 1 in the preview. */}
         <div className="rounded-lg shadow-lg ring-1 ring-slate-300 dark:ring-slate-700 overflow-hidden bg-white" style={{ width: pw * scale, height: ph * pages * scale }}>
           <iframe
             title="Print preview"
-            srcDoc={sheet.replace('<body>', '<body style="padding:0.35in">').replace('.switches { break-before: page; }', `.switches { position: absolute; top: ${ph}px; left: 0.35in; right: 0.35in; padding-top: 0.35in; border-top: 2px dashed #c9cfc8; }`)}
+            srcDoc={sheet
+              .replace('<body>', '<body style="padding:0.35in">')
+              .replace('.switches, .diagrams { break-before: page; }', `.diagrams { ${pageAt(1)} } .switches { ${pageAt(hasDiagrams ? 2 : 1)} }`)}
             style={{ width: pw, height: ph * pages, border: 0, transform: `scale(${scale})`, transformOrigin: '0 0', pointerEvents: 'none' }}
           />
         </div>
