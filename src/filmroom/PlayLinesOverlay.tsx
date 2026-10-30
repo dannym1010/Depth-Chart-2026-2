@@ -101,7 +101,10 @@ export function usePlayLines(opts: {
   };
   const [progress, setProgress] = useState(0);
   const [running, setRunning] = useState(false);
-  const [slow, setSlow] = useState(false);
+  // Half speed unless the coach picks full speed.
+  const [slow, setSlow] = useState(true);
+  // Turned on, it shows the players lined up; the lines come on with a click.
+  const [showLines, setShowLines] = useState(false);
   const lineupKey = `mahopac_film_lineup_${filmKey}`;
 
   // A play not lined up yet: the last lineup on this film, else the line of scrimmage across the picture.
@@ -147,11 +150,14 @@ export function usePlayLines(opts: {
   return {
     on,
     toggle: () => {
-      if (!on) onTurnOn?.();
+      if (!on) {
+        onTurnOn?.();
+        setShowLines(false);
+      }
       setOn((v) => !v);
     },
     layer: ({ playing, zoom }) =>
-      shown && frame && !playing ? <LinesDrawing video={video} lines={shown} frame={moving ? frame : null} side={side} lineUp={lineUp} zoom={zoom} /> : null,
+      shown && frame && !playing ? <LinesDrawing video={video} lines={shown} frame={moving ? frame : null} side={side} showLines={showLines} lineUp={lineUp} zoom={zoom} /> : null,
     controls: ({ playing }) => (
       <div className="absolute right-2 top-11 z-20 flex flex-col items-end gap-1.5 pointer-events-auto" {...keep}>
         <div className="flex flex-wrap justify-end gap-1 p-1 rounded-xl" style={panel}>
@@ -160,6 +166,16 @@ export function usePlayLines(opts: {
           </span>
           {lines && (
             <>
+              <button
+                type="button"
+                className={btn}
+                style={showLines ? { background: '#4f46e5', color: '#ffffff' } : { background: '#ffffff', color: '#111827' }}
+                aria-pressed={showLines}
+                onClick={() => setShowLines((v) => !v)}
+                title="The play's routes, runs, blocks and motion"
+              >
+                {showLines ? 'Hide lines' : 'Show lines'}
+              </button>
               <button
                 type="button"
                 className={btn}
@@ -173,8 +189,8 @@ export function usePlayLines(opts: {
               >
                 ▶ Run play
               </button>
-              <button type="button" className={`${btn} ${slow ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`} onClick={() => setSlow((s) => !s)} title="Half speed">
-                ½×
+              <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => setSlow((s) => !s)} title={slow ? 'Running at half speed: tap for full speed' : 'Running at full speed: tap for half speed'}>
+                {slow ? '½×' : '1×'}
               </button>
               {moving && (
                 <button
@@ -320,9 +336,11 @@ const LinesDrawing: React.FC<{
   frame: ReturnType<typeof computeAnimatedPlayFrame> | null;
   /** Whose players and lines show. */
   side: Side;
+  /** The play's lines (off: just the players lined up, and their trails when the play runs). */
+  showLines: boolean;
   lineUp: boolean;
   zoom: number;
-}> = ({ video, lines, frame, side, lineUp, zoom }) => {
+}> = ({ video, lines, frame, side, showLines, lineUp, zoom }) => {
   const boxRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
@@ -530,7 +548,7 @@ const LinesDrawing: React.FC<{
               />
             ))}
           {/* The play's lines; faded while it runs, with each player's trail drawn on top. */}
-          <g opacity={moving ? 0.35 : 1}>{shownStrokes.map(strokeEl)}</g>
+          {showLines && <g opacity={moving ? 0.35 : 1}>{shownStrokes.map(strokeEl)}</g>}
           {frame?.trails
             .filter((t) => t.points.length >= 2 && showing(isDefenseRole(t.role)))
             .map((t, i) => {
