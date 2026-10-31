@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 
 import {
   clipsFromFiles, driveClipUrl, driveFolderName, driveFolderNode, driveSignIn, folderAccess, forgetFolder, isDriveSignedIn,
   listNodeClips, localFolderNode, parseDriveFolderId, pickedFolderNode, pickFolder, prepareDriveSignIn, recallFolder, rememberFolder,
+  takeDriveSignInProblem,
 } from './filmSources';
 import { gameViews, isFilmRoot, resolveGameFolder, type FolderNode } from './folderRoutes';
 import type { FilmClip, FilmGame, FilmGameShared } from './types';
@@ -76,7 +77,11 @@ export function useGameFilm(opts: {
   const [film, setFilm] = useState<FilmState>({ status: 'none' });
   // "Sign in" showing: Google's window has to open right in the tap, so its script loads now.
   useEffect(() => {
-    if (film.status === 'signin') prepareDriveSignIn();
+    if (film.status !== 'signin') return;
+    prepareDriveSignIn();
+    // Back from Google's sign-in page without signing in: say why.
+    const problem = takeDriveSignInProblem();
+    if (problem) setFilm((f) => (f.status === 'signin' ? { ...f, message: problem } : f));
   }, [film.status]);
   const localFiles = useRef<LocalFiles>(new Map());
   const viewClips = useRef<FilmClip[][]>([]);

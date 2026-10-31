@@ -283,11 +283,66 @@ async function rememberAccount() {
   }
 }
 
+// The app added to an iPad's Home Screen: Google's sign-in window can't hand the sign-in back to it, so the app goes
+// to Google's sign-in page and comes back (this site's address is set up in Google Cloud as a place to come back to).
+const RETURN_KEY = 'filmroom_drive_return';
+const homeScreenApp = () =>
+  typeof window !== 'undefined' && ((navigator as any).standalone === true || Boolean(window.matchMedia?.('(display-mode: standalone)').matches));
+
+function signInByPage(): Promise<string> {
+  const state = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  try {
+    localStorage.setItem(RETURN_KEY, JSON.stringify({ state, back: location.hash }));
+  } catch {
+    /* comes back to the start */
+  }
+  const account = savedAccount();
+  const q = new URLSearchParams({
+    client_id: driveClientId(),
+    redirect_uri: `${location.origin}/`,
+    response_type: 'token',
+    scope: DRIVE_SCOPE,
+    include_granted_scopes: 'true',
+    state,
+    ...(account ? { login_hint: account } : {}),
+  });
+  location.assign(`https://accounts.google.com/o/oauth2/v2/auth?${q}`);
+  return new Promise(() => undefined); // off to Google's page
+}
+
+let pageProblem = '';
+/** Back from Google's sign-in page: keep the sign-in and put the app's address back. Runs before the app reads it. */
+export function finishDriveSignInPage() {
+  if (typeof window === 'undefined' || !/[#&](access_token|error)=/.test(location.hash)) return;
+  let saved: { state: string; back: string } | null = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(RETURN_KEY) || 'null');
+    localStorage.removeItem(RETURN_KEY);
+  } catch {
+    /* not ours */
+  }
+  const p = new URLSearchParams(location.hash.slice(1));
+  if (!saved || p.get('state') !== saved.state) return;
+  history.replaceState(null, '', location.pathname + location.search + (saved.back || ''));
+  const token = p.get('access_token');
+  if (token) {
+    storeToken(token, Number(p.get('expires_in')) || 3600);
+    if (!savedAccount()) void rememberAccount();
+  } else pageProblem = p.get('error') === 'access_denied' ? 'Google sign-in was cancelled. Tap Sign in again.' : 'Google sign-in did not finish. Tap Sign in again.';
+}
+/** Why the sign-in on Google's page didn't work (once). */
+export function takeDriveSignInProblem() {
+  const m = pageProblem;
+  pageProblem = '';
+  return m;
+}
+
 /** Sign in with Google to read Drive (opens Google's window; must follow a tap). Returns an access token. */
 export async function driveSignIn(): Promise<string> {
   const existing = savedToken();
   if (existing) return existing;
   if (!driveReady()) throw new Error('Google Drive is not set up for this site yet.');
+  if (homeScreenApp()) return signInByPage();
   if (!(window as any).google?.accounts?.oauth2) await loadGoogleSignIn();
   return requestToken();
 }
@@ -297,7 +352,8 @@ export async function driveSignIn(): Promise<string> {
 let renewWatch = false;
 let lastRenew = 0;
 function watchToRenew() {
-  if (renewWatch || typeof document === 'undefined') return;
+  // On the Home Screen a sign-in leaves the app for Google's page: not on a tap on the film.
+  if (renewWatch || typeof document === 'undefined' || homeScreenApp()) return;
   renewWatch = true;
   document.addEventListener(
     'click',
