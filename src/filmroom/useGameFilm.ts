@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import {
   clipsFromFiles, driveClipUrl, driveFolderName, driveFolderNode, driveSignIn, folderAccess, forgetFolder, isDriveSignedIn,
-  listNodeClips, localFolderNode, parseDriveFolderId, pickedFolderNode, pickFolder, recallFolder, rememberFolder,
+  listNodeClips, localFolderNode, parseDriveFolderId, pickedFolderNode, pickFolder, prepareDriveSignIn, recallFolder, rememberFolder,
 } from './filmSources';
 import { gameViews, isFilmRoot, resolveGameFolder, type FolderNode } from './folderRoutes';
 import type { FilmClip, FilmGame, FilmGameShared } from './types';
@@ -74,6 +74,10 @@ export function useGameFilm(opts: {
   const drive = linked(opts.drive);
   const rootDrive = linked(opts.rootDrive);
   const [film, setFilm] = useState<FilmState>({ status: 'none' });
+  // "Sign in" showing: Google's window has to open right in the tap, so its script loads now.
+  useEffect(() => {
+    if (film.status === 'signin') prepareDriveSignIn();
+  }, [film.status]);
   const localFiles = useRef<LocalFiles>(new Map());
   const viewClips = useRef<FilmClip[][]>([]);
   const gameKey = game?.key;
@@ -428,7 +432,9 @@ export function useGameFilm(opts: {
       if (driveId) await loadDrive(driveId, driveLabel);
       else if (rootId) await loadFromRoot(driveFolderNode(rootId, rootLabel));
     } catch (err: any) {
-      setFilm({ status: 'error', label: driveLabel, message: err?.message || String(err) });
+      // Still not signed in (the window was closed, or Google wanted to ask again): the button stays for another tap.
+      if (!isDriveSignedIn()) setFilm({ status: 'signin', label: driveLabel || rootLabel });
+      else setFilm({ status: 'error', label: driveLabel, message: err?.message || String(err) });
     }
   }, [driveId, driveLabel, rootId, rootLabel, loadDrive, loadFromRoot]);
 

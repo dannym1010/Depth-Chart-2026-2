@@ -154,23 +154,48 @@ export function clipsFromFiles(list: FileList | File[]): { clips: FilmClip[]; fi
 
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
 const TOKEN_KEY = 'filmroom_drive_token';
+// The Google account the coach signed in with, so signing in again doesn't ask which account (or for consent again).
+const ACCOUNT_KEY = 'filmroom_drive_account';
 
 /** The Google sign-in app id for this site (set up once in Google Cloud; see the Film Room setup note). */
 export const driveClientId = (): string =>
   String((import.meta as { env?: Record<string, string> }).env?.VITE_GOOGLE_CLIENT_ID || '').trim();
 export const driveReady = () => Boolean(driveClientId());
 
-function savedToken(): string | null {
+// Google's sign-in lasts an hour. It's kept on this device (not just this tab), so a reload, a new tab or the iPad
+// closing the tab in the background doesn't sign the coach out.
+function storedToken(): { value: string; exp: number } | null {
   try {
-    const t = JSON.parse(sessionStorage.getItem(TOKEN_KEY) || 'null');
-    return t && t.exp > Date.now() + 60_000 ? t.value : null;
+    const t = JSON.parse(localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || 'null');
+    return t && typeof t.value === 'string' && Number.isFinite(t.exp) ? t : null;
   } catch {
     return null;
   }
 }
+function savedToken(): string | null {
+  const t = storedToken();
+  return t && t.exp > Date.now() + 60_000 ? t.value : null;
+}
+function storeToken(value: string, seconds: number) {
+  try {
+    localStorage.setItem(TOKEN_KEY, JSON.stringify({ value, exp: Date.now() + seconds * 1000 }));
+    sessionStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* this visit only */
+  }
+}
+function savedAccount(): string {
+  try {
+    return localStorage.getItem(ACCOUNT_KEY) || '';
+  } catch {
+    return '';
+  }
+}
 export const isDriveSignedIn = () => Boolean(savedToken());
+/** Signed out (the sign-in ran out or was refused); the account is remembered, so signing in again is one tap. */
 export function driveSignOut() {
   try {
+    localStorage.removeItem(TOKEN_KEY);
     sessionStorage.removeItem(TOKEN_KEY);
   } catch {
     /* ignore */
@@ -196,29 +221,98 @@ function loadGoogleSignIn(): Promise<void> {
   return gisLoading;
 }
 
-/** Sign in with Google to read Drive (opens Google's window; must follow a tap). Returns an access token. */
-export async function driveSignIn(): Promise<string> {
-  const existing = savedToken();
-  if (existing) return existing;
-  if (!driveReady()) throw new Error('Google Drive is not set up for this site yet.');
-  await loadGoogleSignIn();
-  return new Promise((resolve, reject) => {
+let signingIn: Promise<string> | null = null;
+/**
+ * Google's window for a new sign-in. It has to open right in the tap (Safari on an iPad blocks it after a wait), so
+ * Google's script is loaded ahead of time. With the account remembered it asks nothing: the window opens and closes.
+ */
+function requestToken(): Promise<string> {
+  if (signingIn) return signingIn;
+  const account = savedAccount();
+  const p = new Promise<string>((resolve, reject) => {
     const client = (window as any).google.accounts.oauth2.initTokenClient({
       client_id: driveClientId(),
       scope: DRIVE_SCOPE,
+      ...(account ? { login_hint: account, prompt: '' } : {}),
       callback: (res: any) => {
         if (res?.error || !res?.access_token) return reject(new Error(res?.error_description || 'Google sign-in was cancelled.'));
-        try {
-          sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ value: res.access_token, exp: Date.now() + (Number(res.expires_in) || 3600) * 1000 }));
-        } catch {
-          /* ignore */
-        }
+        storeToken(res.access_token, Number(res.expires_in) || 3600);
+        watchToRenew();
         resolve(res.access_token);
+        if (!account) void rememberAccount();
       },
       error_callback: (err: any) => reject(new Error(err?.message || 'Google sign-in was cancelled.')),
     });
     client.requestAccessToken();
   });
+  signingIn = p;
+  const done = () => {
+    if (signingIn === p) signingIn = null;
+  };
+  p.then(done, () => {
+    done();
+    // Asking quietly didn't work (another account, access taken back): the next tap asks the usual way.
+    if (account) {
+      try {
+        localStorage.removeItem(ACCOUNT_KEY);
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+  return p;
+}
+
+/** Which Google account this is, for signing in again without choosing it. */
+async function rememberAccount() {
+  try {
+    const res = await driveFetch('https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)');
+    const email = String((await res.json())?.user?.emailAddress || '');
+    if (email) localStorage.setItem(ACCOUNT_KEY, email);
+  } catch {
+    /* asks for the account next time */
+  }
+}
+
+/** Sign in with Google to read Drive (opens Google's window; must follow a tap). Returns an access token. */
+export async function driveSignIn(): Promise<string> {
+  const existing = savedToken();
+  if (existing) return existing;
+  if (!driveReady()) throw new Error('Google Drive is not set up for this site yet.');
+  if (!(window as any).google?.accounts?.oauth2) await loadGoogleSignIn();
+  return requestToken();
+}
+
+// Renewing before it runs out: the sign-in is about to end (or just did) and the coach taps the film (a player,
+// the film window, the Film Room): a new one comes in that tap, so the film doesn't stop for "Sign in" again.
+let renewWatch = false;
+let lastRenew = 0;
+function watchToRenew() {
+  if (renewWatch || typeof document === 'undefined') return;
+  renewWatch = true;
+  document.addEventListener(
+    'click',
+    (e) => {
+      const t = storedToken();
+      if (!t || t.exp - Date.now() > 10 * 60_000 || signingIn || Date.now() - lastRenew < 5 * 60_000) return;
+      if (!(e.target as Element | null)?.closest?.('[data-film-area]')) return;
+      if (!(window as any).google?.accounts?.oauth2 || !driveReady()) return;
+      lastRenew = Date.now();
+      requestToken().catch(() => undefined);
+    },
+    true
+  );
+}
+// A coach who uses Drive film: Google's script ready ahead of the tap, and the renewing watch on.
+if (typeof window !== 'undefined' && driveReady() && (storedToken() || savedAccount())) {
+  watchToRenew();
+  setTimeout(() => void loadGoogleSignIn().catch(() => undefined), 2000);
+}
+/** Get ready to sign in (Google's script loaded before the coach taps "Sign in"). */
+export function prepareDriveSignIn() {
+  if (!driveReady()) return;
+  watchToRenew();
+  void loadGoogleSignIn().catch(() => undefined);
 }
 
 async function driveFetch(url: string): Promise<Response> {

@@ -796,6 +796,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   return (
     <div
       ref={rootRef}
+      data-film-area
       className={`relative flex flex-col rounded-xl overflow-hidden select-none [&:fullscreen]:rounded-none [&:fullscreen]:justify-center ${fit ? 'flex-1 min-h-0' : ''}`}
       style={{ color: INK, background: '#000' }}
     >

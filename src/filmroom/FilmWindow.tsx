@@ -422,6 +422,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
         ref={boxRef}
         role={dock ? 'region' : 'dialog'}
         aria-label="Film window"
+        data-film-area
         className={`${dock ? 'h-full overflow-y-auto' : 'fixed z-[45] overflow-hidden'} flex flex-col ${
           fill ? 'bg-slate-950' : dock ? 'bg-white dark:bg-slate-900' : 'bg-white dark:bg-slate-900 rounded-xl border border-slate-300 dark:border-slate-600 shadow-2xl'
         }`}
