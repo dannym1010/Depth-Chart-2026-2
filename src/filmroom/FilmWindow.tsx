@@ -15,7 +15,8 @@ import { LinkFilmDialog } from './LinkFilmDialog';
 import { matchClipsToPlays } from './clipMatching';
 import { playTitle } from './playText';
 import { filmGameKey } from './sharedMerge';
-import type { FilmGame, FilmGameShared, FilmMark, FilmNote } from './types';
+import type { FilmClip, FilmGame, FilmGameShared, FilmMark, FilmNote } from './types';
+import { driveClipUrl } from './filmSources';
 import { useClipUrl, useGameFilm } from './useGameFilm';
 import { useSharedGame } from './useSharedGame';
 import { openVideoScreen, screenSupported, useVideoScreenSender } from './screenLink';
@@ -25,6 +26,7 @@ import {
   setFilmWindowAutoOpen,
   useFilmWindowDock,
   useFilmWindowRequest,
+  useFilmWindowUpcoming,
   type FilmWindowDock,
   type FilmWindowRequest,
 } from './filmWindowStore';
@@ -183,6 +185,28 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
   const clipOf = (p?: Play) => (p && clipFor.has(p.id) ? clips[clipFor.get(p.id)!] : undefined);
   const clip = clipOf(play);
   const clipUrl = useClipUrl(clip, localFiles, clipOf(next));
+  // Presenting: once this clip is ready, the next plays' first clips on this film download in the background, one at
+  // a time, so Next plays right away. (A play from another game's film loads when it opens.)
+  const upcoming = useFilmWindowUpcoming();
+  useEffect(() => {
+    if (!upcoming.length || clipUrl.loading || !clipUrl.url) return;
+    const byId = new Map(gamePlays.map((p) => [p.id, p]));
+    const ahead = upcoming
+      .filter((r) => r.gameId === activeGameId || r.gameId === 'all')
+      .map((r) => clipOf(byId.get(r.playIds[0])))
+      .filter((c): c is FilmClip => c?.kind === 'drive');
+    let stop = false;
+    void (async () => {
+      for (const c of ahead) {
+        if (stop) return;
+        await driveClipUrl(c.id).catch(() => undefined);
+      }
+    })();
+    return () => {
+      stop = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [upcoming, clipUrl.loading, clipUrl.url, gamePlays, activeGameId, clipFor]);
 
   const apiRef = useRef<PlayerApi | null>(null);
   // Play lines: the play open in the play builder beside this window (a scout script play, or the playbook's).
@@ -191,8 +215,10 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
     video: () => apiRef.current?.video?.() || null,
     filmKey: request.gameId,
     waiting: 'Open the play (tap it in the play script, or Draw it) and its lines show here.',
-    // The snap's down and distance: the line to gain across the field.
-    situation: play ? { down: Number(play.down) || undefined, toGo: Number(play.distance) || undefined } : undefined,
+    // The snap's down and distance (the line to gain), and its spot and hash (the clean field's markings).
+    situation: play
+      ? { down: Number(play.down) || undefined, toGo: Number(play.distance) || undefined, yardLine: Number(play.yardLine) || undefined, hash: play.hash }
+      : undefined,
   });
   const resumeAt = useRef(0);
   // Popped out: the clip plays in its own browser window (to drag onto another screen); this one keeps the

@@ -1,4 +1,5 @@
 import { isDefenseRole, isThrownLine, lineStartsOn, type PlayNode, type PlayStroke } from './footballEngine';
+import { defendPlay } from './defenseReads';
 
 export interface AnimatedTrail {
   role: string;
@@ -19,6 +20,8 @@ export interface AnimatedPlayFrame {
 
 /** The offensive line. */
 const OL_ROLES = ['LT', 'LG', 'C', 'RG', 'RT'];
+/** Our defense's paths as they read the play (its drawn lines keep their own color). */
+export const DEFENSE_TRAIL = '#16a34a';
 /** Yards a lineman who isn't pulling moves: a short step into his block. */
 export const LINE_STEP = 0.75;
 
@@ -269,10 +272,6 @@ export function computeAnimatedPlayFrame(
   };
   const fallbackAimX = targetHole && holeXMap[targetHole] !== undefined ? holeXMap[targetHole] : 2.5;
 
-  // First pass: compute offensive trajectories so defenders can react to the ball carrier
-  const trails: AnimatedTrail[] = [];
-  const animatedPos = new Map<string, { x: number; y: number }>();
-
   // Calculate carrier path even if no stroke was drawn
   const getSyntheticCarrierPoints = (node: PlayNode): { x: number; y: number }[] => {
     if (isPassPlay && (node.role === '1' || node.role === 'QB')) {
@@ -290,145 +289,141 @@ export function computeAnimatedPlayFrame(
     ];
   };
 
-  for (const n of nodes) {
-    if (isDefenseRole(n.role)) continue;
-    const st = roleStroke.get(n.role);
+  // The offense: where each player is at a time after the snap (and how far through his pre-snap motion), with the
+  // path behind him when asked. Worked out for any time, so our defense can read where the play is going.
+  const offenseAt = (postT: number, mT: number, trailsOut?: AnimatedTrail[]) => {
+    const at = new Map<string, { x: number; y: number }>();
+    for (const n of nodes) {
+      if (isDefenseRole(n.role)) continue;
+      const st = roleStroke.get(n.role);
 
-    if (st && st.points.length >= 2) {
-      const mIdx = st.motion && st.motion > 0 ? Math.min(st.motion, st.points.length - 1) : 0;
-      if (mIdx > 0) {
-        const motionPts = [{ x: n.x, y: n.y }, ...st.points.slice(1, mIdx + 1)];
-        const mSample = samplePolyline(motionPts, motionT);
-        if (mSample.traveled.length >= 2 && motionT > 0) {
-          trails.push({
-            role: `${n.role}_motion`,
-            kind: 'motion',
-            points: mSample.traveled,
-            color: '#38bdf8',
-          });
+      if (st && st.points.length >= 2) {
+        const mIdx = st.motion && st.motion > 0 ? Math.min(st.motion, st.points.length - 1) : 0;
+        if (mIdx > 0) {
+          const motionPts = [{ x: n.x, y: n.y }, ...st.points.slice(1, mIdx + 1)];
+          const mSample = samplePolyline(motionPts, mT);
+          if (mSample.traveled.length >= 2 && mT > 0) {
+            trailsOut?.push({
+              role: `${n.role}_motion`,
+              kind: 'motion',
+              points: mSample.traveled,
+              color: '#38bdf8',
+            });
+          }
+          if (postT <= 0 || mIdx >= st.points.length - 1) {
+            at.set(n.role, { x: mSample.x, y: mSample.y });
+            continue;
+          }
+          const postPts = [st.points[mIdx], ...st.points.slice(mIdx + 1)];
+          const postSample = samplePolyline(postPts, postT);
+          if (postSample.traveled.length >= 2) {
+            trailsOut?.push({
+              role: n.role,
+              kind: st.kind,
+              points: postSample.traveled,
+              color: st.kind === 'run' ? '#ef4444' : st.kind === 'pass' ? '#2563eb' : '#475569',
+            });
+          }
+          at.set(n.role, { x: postSample.x, y: postSample.y });
+        } else {
+          if (postT <= 0) {
+            at.set(n.role, { x: n.x, y: n.y });
+            continue;
+          }
+          let pts = [{ x: n.x, y: n.y }, ...st.points.slice(1)];
+          // A lineman who isn't pulling only steps into his block (the first yard or so of his line).
+          if (OL_ROLES.includes(n.role) && !isPullLine(st, n)) {
+            const total = pts.slice(1).reduce((sum, p, i) => sum + Math.hypot(p.x - pts[i].x, p.y - pts[i].y), 0);
+            if (total > LINE_STEP) pts = samplePolyline(pts, LINE_STEP / total).traveled;
+          }
+          // Blockers engage quickly in the first 55% of the play
+          const effectiveT = st.kind === 'block' ? easeOutQuad(Math.min(1, postT * 1.65)) : postT;
+          const sample = samplePolyline(pts, effectiveT);
+          if (sample.traveled.length >= 2) {
+            trailsOut?.push({
+              role: n.role,
+              kind: st.kind,
+              points: sample.traveled,
+              color: st.kind === 'run' ? '#ef4444' : st.kind === 'pass' ? '#2563eb' : '#475569',
+            });
+          }
+          at.set(n.role, { x: sample.x, y: sample.y });
         }
-        if (postSnapT <= 0 || mIdx >= st.points.length - 1) {
-          animatedPos.set(n.role, { x: mSample.x, y: mSample.y });
-          continue;
-        }
-        const postPts = [st.points[mIdx], ...st.points.slice(mIdx + 1)];
-        const postSample = samplePolyline(postPts, postSnapT);
-        if (postSample.traveled.length >= 2) {
-          trails.push({
-            role: n.role,
-            kind: st.kind,
-            points: postSample.traveled,
-            color: st.kind === 'run' ? '#ef4444' : st.kind === 'pass' ? '#2563eb' : '#475569',
-          });
-        }
-        animatedPos.set(n.role, { x: postSample.x, y: postSample.y });
-      } else {
-        if (postSnapT <= 0) {
-          animatedPos.set(n.role, { x: n.x, y: n.y });
-          continue;
-        }
-        let pts = [{ x: n.x, y: n.y }, ...st.points.slice(1)];
-        // A lineman who isn't pulling only steps into his block (the first yard or so of his line).
-        if (OL_ROLES.includes(n.role) && !isPullLine(st, n)) {
-          const total = pts.slice(1).reduce((sum, p, i) => sum + Math.hypot(p.x - pts[i].x, p.y - pts[i].y), 0);
-          if (total > LINE_STEP) pts = samplePolyline(pts, LINE_STEP / total).traveled;
-        }
-        // Blockers engage quickly in the first 55% of the play
-        const effectiveT = st.kind === 'block' ? easeOutQuad(Math.min(1, postSnapT * 1.65)) : postSnapT;
-        const sample = samplePolyline(pts, effectiveT);
+        continue;
+      }
+
+      // Synthetic movement for offensive players without a manually drawn stroke
+      if (postT <= 0) {
+        at.set(n.role, { x: n.x, y: n.y });
+        continue;
+      }
+
+      if (n.role === ballRole) {
+        const synthPts = getSyntheticCarrierPoints(n);
+        const sample = samplePolyline(synthPts, postT);
         if (sample.traveled.length >= 2) {
-          trails.push({
+          trailsOut?.push({
             role: n.role,
-            kind: st.kind,
+            kind: isPassPlay ? 'pass' : 'run',
             points: sample.traveled,
-            color: st.kind === 'run' ? '#ef4444' : st.kind === 'pass' ? '#2563eb' : '#475569',
+            color: '#ef4444',
           });
         }
-        animatedPos.set(n.role, { x: sample.x, y: sample.y });
-      }
-      continue;
-    }
-
-    // Synthetic movement for offensive players without a manually drawn stroke
-    if (postSnapT <= 0) {
-      animatedPos.set(n.role, { x: n.x, y: n.y });
-      continue;
-    }
-
-    if (n.role === ballRole) {
-      const synthPts = getSyntheticCarrierPoints(n);
-      const sample = samplePolyline(synthPts, postSnapT);
-      if (sample.traveled.length >= 2) {
-        trails.push({
-          role: n.role,
-          kind: isPassPlay ? 'pass' : 'run',
-          points: sample.traveled,
-          color: '#ef4444',
-        });
-      }
-      animatedPos.set(n.role, { x: sample.x, y: sample.y });
-    } else if (['LT', 'LG', 'C', 'RG', 'RT'].includes(n.role)) {
-      const blockT = easeOutQuad(Math.min(1, postSnapT * 1.8));
-      if (isPassPlay) {
-        const dropY = n.role === 'C' ? -0.7 : n.role === 'LG' || n.role === 'RG' ? -0.95 : -1.35;
-        animatedPos.set(n.role, {
-          x: Math.round((n.x * 0.96) * 100) / 100,
-          y: Math.round((n.y + dropY * blockT) * 100) / 100,
+        at.set(n.role, { x: sample.x, y: sample.y });
+      } else if (['LT', 'LG', 'C', 'RG', 'RT'].includes(n.role)) {
+        const blockT = easeOutQuad(Math.min(1, postT * 1.8));
+        if (isPassPlay) {
+          const dropY = n.role === 'C' ? -0.7 : n.role === 'LG' || n.role === 'RG' ? -0.95 : -1.35;
+          at.set(n.role, {
+            x: Math.round((n.x * 0.96) * 100) / 100,
+            y: Math.round((n.y + dropY * blockT) * 100) / 100,
+          });
+        } else {
+          // A short step into his block (about LINE_STEP), toward the hole.
+          const stepX = Math.sign(fallbackAimX || 1) * 0.3;
+          at.set(n.role, {
+            x: Math.round((n.x + stepX * blockT) * 100) / 100,
+            y: Math.round((n.y + 0.65 * blockT) * 100) / 100,
+          });
+        }
+      } else if (n.role === '1' || n.role === 'QB') {
+        // QB opens toward the ball carrier mesh point, then carries out boot fake (a pass: he drops straight back)
+        const qbT = easeOutQuad(Math.min(1, postT * 1.5));
+        const bootDir = isPassPlay ? 0 : fallbackAimX >= 0 ? -1 : 1;
+        at.set(n.role, {
+          x: Math.round((n.x + bootDir * 1.8 * qbT) * 100) / 100,
+          y: Math.round((n.y - 1.2 * qbT) * 100) / 100,
         });
       } else {
-        // A short step into his block (about LINE_STEP), toward the hole.
-        const stepX = Math.sign(fallbackAimX || 1) * 0.3;
-        animatedPos.set(n.role, {
-          x: Math.round((n.x + stepX * blockT) * 100) / 100,
-          y: Math.round((n.y + 0.65 * blockT) * 100) / 100,
+        // Other skill / TE players step downfield into stalk block or clear-out route
+        const skillT = easeOutQuad(postT);
+        at.set(n.role, {
+          x: n.x,
+          y: Math.round((n.y + (isPassPlay ? 4.2 : 2.2) * skillT) * 100) / 100,
         });
       }
-    } else if (n.role === '1' || n.role === 'QB') {
-      // QB opens toward the ball carrier mesh point, then carries out boot fake (a pass: he drops straight back)
-      const qbT = easeOutQuad(Math.min(1, postSnapT * 1.5));
-      const bootDir = isPassPlay ? 0 : fallbackAimX >= 0 ? -1 : 1;
-      animatedPos.set(n.role, {
-        x: Math.round((n.x + bootDir * 1.8 * qbT) * 100) / 100,
-        y: Math.round((n.y - 1.2 * qbT) * 100) / 100,
-      });
-    } else {
-      // Other skill / TE players step downfield into stalk block or clear-out route
-      const skillT = easeOutQuad(postSnapT);
-      animatedPos.set(n.role, {
-        x: n.x,
-        y: Math.round((n.y + (isPassPlay ? 4.2 : 2.2) * skillT) * 100) / 100,
-      });
     }
-  }
+    return at;
+  };
+
+  const trails: AnimatedTrail[] = [];
+  const animatedPos = offenseAt(postSnapT, motionT, trails);
 
   // Ball position calculation
   const centerNode = nodes.find((n) => n.role === 'C') || { role: 'C', x: 0, y: 0 };
   const qbNode = nodes.find((n) => n.role === '1' || n.role === 'QB') || centerNode;
-  const qbNow = animatedPos.get(qbNode.role) || { x: qbNode.x, y: qbNode.y };
-  const carrierNow = animatedPos.get(ballRole) || qbNow;
-
-  let ball: AnimatedPlayFrame['ball'] = { x: centerNode.x, y: centerNode.y, inAir: false };
-  if (postSnapT <= 0) {
-    ball = { x: centerNode.x, y: centerNode.y, inAir: false };
-  } else if (postSnapT < 0.12) {
-    // Ball snapping from Center to QB
-    const snapFrac = postSnapT / 0.12;
-    ball = {
-      x: centerNode.x + (qbNode.x - centerNode.x) * snapFrac,
-      y: centerNode.y + (qbNode.y - centerNode.y) * snapFrac,
-      inAir: true,
-    };
-  } else if (isPassPlay) {
+  // A pass: who it's thrown to, when it leaves the QB's hand and when it's caught.
+  let release = 0.45;
+  let caught = 0.78;
+  let passTarget: string | undefined;
+  if (isPassPlay) {
     // Find primary pass route target
     const passStrokeEntry =
       Array.from(roleStroke.entries()).find(([r, s]) => r === ballRole && s.kind === 'pass') ||
       Array.from(roleStroke.entries()).find(([, s]) => s.kind === 'pass');
-    const targetRole = throwTo ? ballRole : passStrokeEntry?.[0];
-    const targetPos = (targetRole && animatedPos.get(targetRole)) || carrierNow;
+    passTarget = throwTo ? ballRole : passStrokeEntry?.[0];
     // Thrown, then caught: at the end of a route with a run after the catch, or the end of the first leg of a back's
     // line; he runs with it after.
-    let release = 0.45;
-    let caught = 0.78;
     const catchPoint = carrierLine ? (catchAt.get(carrierLine) ?? (carrierLine.kind !== 'pass' ? (carrierLine.motion || 0) + 1 : undefined)) : undefined;
     if (throwTo && carrierLine && catchPoint !== undefined && carrierNode) {
       const pts = [{ x: carrierNode.x, y: carrierNode.y }, ...carrierLine.points.slice(1)];
@@ -439,101 +434,67 @@ export function computeAnimatedPlayFrame(
       caught = Math.max(0.35, Math.min(0.85, total > 0 ? len(m, at) / total : 0.5));
       release = Math.max(0.12, caught - 0.25);
     }
-    if (postSnapT < release) {
-      ball = { x: qbNow.x, y: qbNow.y, inAir: false };
-    } else if (postSnapT < caught) {
-      const airT = (postSnapT - release) / (caught - release);
-      ball = {
-        x: qbNow.x + (targetPos.x - qbNow.x) * airT,
-        y: qbNow.y + (targetPos.y - qbNow.y) * airT,
+  }
+  const flight = isPassPlay && passTarget ? { to: passTarget, release, caught } : null;
+  const ballAt = (postT: number, at: Map<string, { x: number; y: number }>): AnimatedPlayFrame['ball'] => {
+    const qbNow = at.get(qbNode.role) || { x: qbNode.x, y: qbNode.y };
+    const carrierNow = at.get(ballRole) || qbNow;
+    if (postT <= 0) return { x: centerNode.x, y: centerNode.y, inAir: false };
+    if (postT < 0.12) {
+      // Ball snapping from Center to QB
+      const snapFrac = postT / 0.12;
+      return {
+        x: centerNode.x + (qbNode.x - centerNode.x) * snapFrac,
+        y: centerNode.y + (qbNode.y - centerNode.y) * snapFrac,
         inAir: true,
-        air: airT,
       };
-    } else {
-      ball = { x: targetPos.x, y: targetPos.y, inAir: false };
     }
-  } else {
+    if (isPassPlay) {
+      const targetPos = (passTarget && at.get(passTarget)) || carrierNow;
+      if (postT < release) return { x: qbNow.x, y: qbNow.y, inAir: false };
+      if (postT < caught) {
+        const airT = (postT - release) / (caught - release);
+        return {
+          x: qbNow.x + (targetPos.x - qbNow.x) * airT,
+          y: qbNow.y + (targetPos.y - qbNow.y) * airT,
+          inAir: true,
+          air: airT,
+        };
+      }
+      return { x: targetPos.x, y: targetPos.y, inAir: false };
+    }
     // Run play: mesh/handoff from QB to ball carrier between 0.12 and 0.24, then carrier carries it
-    if (ballRole !== '1' && ballRole !== 'QB' && postSnapT < 0.24) {
-      const meshT = (postSnapT - 0.12) / 0.12;
-      ball = {
+    if (ballRole !== '1' && ballRole !== 'QB' && postT < 0.24) {
+      const meshT = (postT - 0.12) / 0.12;
+      return {
         x: qbNow.x + (carrierNow.x - qbNow.x) * meshT,
         y: qbNow.y + (carrierNow.y - qbNow.y) * meshT,
         inAir: false,
       };
-    } else {
-      ball = { x: carrierNow.x, y: carrierNow.y, inAir: false };
     }
-  }
+    return { x: carrierNow.x, y: carrierNow.y, inAir: false };
+  };
+  const ball = ballAt(postSnapT, animatedPos);
 
-  // Second pass: compute defensive player movement (drawn blitz/coverage strokes OR pursuit/drop reaction)
-  for (const n of nodes) {
-    if (!isDefenseRole(n.role)) continue;
-    const st = roleStroke.get(n.role);
-    if (st && st.points.length >= 2) {
-      if (postSnapT <= 0) {
-        animatedPos.set(n.role, { x: n.x, y: n.y });
-        continue;
-      }
-      const pts = [{ x: n.x, y: n.y }, ...st.points.slice(1)];
-      const sample = samplePolyline(pts, postSnapT);
-      if (sample.traveled.length >= 2) {
-        trails.push({
-          role: n.role,
-          kind: st.kind,
-          points: sample.traveled,
-          color: '#e11d48',
-        });
-      }
-      animatedPos.set(n.role, { x: sample.x, y: sample.y });
-      continue;
+  // Our defense reads the play (see defenseReads): a line drawn for a defender first, then the base 4-4 Cover 3's run
+  // fits or pass drops, and pursuit.
+  const defense = nodes.filter((n) => isDefenseRole(n.role));
+  if (defense.length) {
+    const drawnFor = new Map<string, PlayStroke>();
+    for (const n of defense) {
+      const st = roleStroke.get(n.role);
+      if (st && st.points.length >= 2) drawnFor.set(n.role, st);
     }
-
-    if (postSnapT <= 0) {
-      animatedPos.set(n.role, { x: n.x, y: n.y });
-      continue;
-    }
-
-    const isDL = /^(?:DE|DT|NT)/.test(n.role);
-    const isLB = /^(?:SAM|MIKE|WILL|ROV|LB)/.test(n.role);
-    if (isDL) {
-      // DL penetrates across LOS and bends toward ball
-      const dlT = easeOutQuad(Math.min(1, postSnapT * 1.4));
-      const dx = (ball.x - n.x) * 0.28 * dlT;
-      const dy = -1.15 * dlT + (ball.y - n.y) * 0.18 * postSnapT;
-      animatedPos.set(n.role, {
-        x: Math.round((n.x + dx) * 100) / 100,
-        y: Math.round((n.y + dy) * 100) / 100,
-      });
-    } else if (isLB) {
-      if (isPassPlay) {
-        // Zone hook/curl drop, then break on ball
-        const dropT = easeOutQuad(Math.min(1, postSnapT * 1.3));
-        animatedPos.set(n.role, {
-          x: Math.round((n.x + (ball.x - n.x) * 0.22 * postSnapT) * 100) / 100,
-          y: Math.round((n.y + 1.8 * dropT) * 100) / 100,
-        });
-      } else {
-        // Read step then flow downhill to ball carrier
-        const pursuitT = Math.max(0, (postSnapT - 0.1) / 0.9);
-        animatedPos.set(n.role, {
-          x: Math.round((n.x + (ball.x - n.x) * 0.55 * pursuitT) * 100) / 100,
-          y: Math.round((n.y + (ball.y - n.y) * 0.48 * pursuitT) * 100) / 100,
-        });
-      }
-    } else {
-      // DBs (CB, FS, SS): backpedal first, then rally to the ball
-      if (isPassPlay) {
-        animatedPos.set(n.role, {
-          x: Math.round((n.x + (ball.x - n.x) * 0.2 * postSnapT) * 100) / 100,
-          y: Math.round((n.y + 2.6 * easeOutQuad(postSnapT)) * 100) / 100,
-        });
-      } else {
-        const rallyT = Math.max(0, (postSnapT - 0.22) / 0.78);
-        animatedPos.set(n.role, {
-          x: Math.round((n.x + (ball.x - n.x) * 0.38 * rallyT) * 100) / 100,
-          y: Math.round((n.y + (ball.y - n.y) * 0.35 * rallyT) * 100) / 100,
-        });
+    const read = defendPlay(
+      { defense, offense, drawn: drawnFor, offenseAt: (t) => offenseAt(t, 1), pass: isPassPlay, carrier: ballRole, qb: qbNode.role, flight },
+      postSnapT
+    );
+    for (const n of defense) {
+      const at = read.pos.get(n.role);
+      if (at) animatedPos.set(n.role, at);
+      const path = read.trails.get(n.role);
+      if (postSnapT > 0 && path && path.length >= 2) {
+        trails.push({ role: n.role, kind: drawnFor.get(n.role)?.kind || 'run', points: path, color: drawnFor.has(n.role) ? '#e11d48' : DEFENSE_TRAIL });
       }
     }
   }

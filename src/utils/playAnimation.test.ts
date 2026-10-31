@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { assemblePlay, autoDrawPlay, PLAY_CONCEPTS } from './footballEngine.ts';
-import { computeAnimatedPlayFrame, LINE_STEP, MOTION_SECONDS, PLAY_SECONDS, playAnimationSeconds, SET_SECONDS } from './playAnimation.ts';
+import { computeAnimatedPlayFrame, DEFENSE_TRAIL, LINE_STEP, MOTION_SECONDS, PLAY_SECONDS, playAnimationSeconds, SET_SECONDS } from './playAnimation.ts';
 import { passThrow, type PlayNode, type PlayStroke } from './footballEngine.ts';
 
 describe('running a play: the offensive line', () => {
@@ -128,7 +128,8 @@ describe('running a play: the run after the catch', () => {
     const x = end.nodes.find((n) => n.role === 'X')!;
     assert.deepEqual([x.x, x.y], [-6, 18]);
     assert.deepEqual([end.ball.x, end.ball.y], [-6, 18]);
-    const cb = end.nodes.find((n) => n.role === 'CBL')!;
-    assert.ok(Math.hypot(cb.x + 6, cb.y - 18) > 3, 'the corner did not run the receiver\'s line');
+    // The corner wasn't handed the receiver's red line: he reads the play (his path is the defense's own).
+    const cbPath = end.trails.find((t) => t.role === 'CBL');
+    assert.equal(cbPath?.color, DEFENSE_TRAIL, 'the corner did not run the receiver\'s line');
   });
 });

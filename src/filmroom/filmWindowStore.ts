@@ -122,3 +122,19 @@ export function setFilmWindowDock(next: FilmWindowDock | null) {
 export function useFilmWindowDock(): FilmWindowDock | null {
   return useSyncExternalStore(subscribe, () => dock, () => null);
 }
+
+/**
+ * Presenting: the film of the next plays on the script, so their clips start downloading before the coach gets
+ * there (a Drive clip has to come down whole before it plays).
+ */
+let upcoming: FilmWindowRequest[] = [];
+const NONE: FilmWindowRequest[] = [];
+export function setFilmWindowUpcoming(next: FilmWindowRequest[]) {
+  if (next.length === upcoming.length && next.every((r, i) => sameRequest(upcoming[i], r))) return;
+  upcoming = next.length ? next : NONE;
+  emit();
+}
+
+export function useFilmWindowUpcoming(): FilmWindowRequest[] {
+  return useSyncExternalStore(subscribe, () => upcoming, () => NONE);
+}

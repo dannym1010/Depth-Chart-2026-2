@@ -190,7 +190,7 @@ import { ScoutPresentation, type ScoutShow } from './components/scouting/ScoutPr
 import { FilmRoomView } from './filmroom/FilmRoomView';
 import { FilmWindowHost } from './filmroom/FilmWindow';
 import { ScoutSafetyNet } from './components/ScoutSafetyNet';
-import { closeFilmWindow, filmWindowAutoOpen, openFilmWindow } from './filmroom/filmWindowStore';
+import { closeFilmWindow, filmWindowAutoOpen, openFilmWindow, setFilmWindowUpcoming, type FilmWindowRequest } from './filmroom/filmWindowStore';
 import { setDefenseRosterSource } from './utils/defenseRosterStore';
 import { setReadOnlySession, setAccessPublisher, syncAccessDoc, requestSignup, listenSignups, clearSignup } from './services/storageService';
 import { DEFAULT_PLAYER_TABS, accountTabs, defaultTabsFor, firstPlayerScreen, isFamilyRole, isViewOnlyRole, playerCanSee } from './utils/playerAccess';
@@ -4961,12 +4961,31 @@ export default function App() {
   const [presentIndex, setPresentIndex] = useState(0);
   // Each play opened gets a fresh builder (it reads the play from the seed when it starts).
   const [presentOpen, setPresentOpen] = useState(0);
+  /** A line of the scout script's film (its snaps), without opening it: for its clips to start downloading early. */
+  const scriptFilm = (card: ScoutOppPlay, group?: { label: string; plays: ScoutOppPlay[] }): FilmWindowRequest | null => {
+    const week = currentWeekRef.current;
+    const weekState = latestStateRef.current.weeklyData?.[getScopedWeekKey(activeTeamIdRef.current, week)] || latestStateRef.current.weeklyData?.[week];
+    const plays = weekState?.scouting?.hudlScout?.plays || [];
+    const snaps = new Map<string, number>();
+    for (const member of group?.plays?.length ? group.plays : [card]) {
+      for (const snap of snapsForCall(plays, member.gameId, member.name, `scout_${member.id}`, member.fromPlayId, member.clips)) snaps.set(snap.id, snap.playNumber);
+    }
+    const playIds = [...snaps.entries()].sort((a, b) => a[1] - b[1]).map(([id]) => id);
+    return card.gameId && playIds.length ? { gameId: card.gameId, playIds, label: group?.label || card.name } : null;
+  };
   const presentLine = (show: ScoutShow, index: number) => {
     const line = show.lines[index];
     if (!line) return;
     drawOppPlay(line.card, line.group, { stay: true });
     setPresentIndex(index);
     setPresentOpen((n) => n + 1);
+    // The next two plays' film starts downloading now, so Next plays right away.
+    setFilmWindowUpcoming(
+      show.lines
+        .slice(index + 1, index + 3)
+        .map((l) => scriptFilm(l.card, l.group))
+        .filter((r): r is FilmWindowRequest => Boolean(r))
+    );
   };
   const startPresenting = (show: ScoutShow) => {
     setPresenting(show);
@@ -4975,6 +4994,7 @@ export default function App() {
   const stopPresenting = () => {
     setPresenting(null);
     closeFilmWindow();
+    setFilmWindowUpcoming([]);
   };
   /** Start one of their plays over from one of their drawn formations (picked in the builder). */
   const restartOppPlay = (scoutId: string, gameId: string, formationId: string): boolean => {

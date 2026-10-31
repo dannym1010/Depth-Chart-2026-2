@@ -737,8 +737,10 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       setMobileTab('builder');
     },
     waiting: 'Drawing the play…',
-    // The snap's down and distance: the line to gain across the field.
-    situation: play ? { down: Number(play.down) || undefined, toGo: Number(play.distance) || undefined } : undefined,
+    // The snap's down and distance (the line to gain), and its spot and hash (the clean field's markings).
+    situation: play
+      ? { down: Number(play.down) || undefined, toGo: Number(play.distance) || undefined, yardLine: Number(play.yardLine) || undefined, hash: play.hash }
+      : undefined,
   });
   // The video on a second screen (a TV or monitor): that window plays the clip, this one keeps the play log.
   const [tvOn, setTvOn] = useState(false);

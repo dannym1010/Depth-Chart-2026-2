@@ -1,7 +1,8 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { applyHomography, buildProjectedFieldGrid, getQuadHomographies, HOMOGRAPHY_PRESETS, imageToField, type HomographyQuad, type ImagePoint } from '../utils/videoHomography';
+import { buildProjectedFieldGrid, getQuadHomographies, HOMOGRAPHY_PRESETS, imageToField, type HomographyQuad, type ImagePoint } from '../utils/videoHomography';
 import { DEFENSE_COLOR, diagramLabel, isDefenseRole, lineStartsOn, passThrow, shownText, skillDiagramLabel, STROKE_COLOR, THROW_COLOR, type PlayNode, type PlayStroke } from '../utils/footballEngine';
 import { arrowOnField, circleOnField, cutLine, dashLine, densify, lengthOf, pointBack, polygon, polyline, ribbon, tOnField, zigzagLine, type Px } from './linesArt';
+import { cameraFromFilm, cameraProjector, clipPolygon, filmProjector, lerpCam, MAX_PITCH, MIN_PITCH, VIEWS, visibleRuns, type Cam } from './fieldCamera';
 import { computeAnimatedPlayFrame, playAnimationSeconds } from '../utils/playAnimation';
 import { safeJSONParse, safeJSONSet } from '../services/storageService';
 
@@ -44,6 +45,7 @@ const SIDES: [Side, string][] = [
   ['both', 'Both'],
 ];
 const SIDE_KEY = 'mahopac_film_lines_side';
+const CLEAN_KEY = 'mahopac_film_lines_clean';
 const showsDefense = (side: Side) => side !== 'offense';
 const showsOffense = (side: Side) => side !== 'defense';
 /** Our defense's lines (blitzes, coverage) carry their own color; the offense's don't. */
@@ -151,8 +153,8 @@ export function usePlayLines(opts: {
   onTurnOn?: () => void;
   /** Shown when there's no play to draw yet. */
   waiting: string;
-  /** The snap's down and distance: the line to gain (yellow) across the field. */
-  situation?: { down?: number; toGo?: number };
+  /** The snap's down and distance (the line to gain, in yellow), and its spot and hash (the clean field's markings). */
+  situation?: { down?: number; toGo?: number; yardLine?: number; hash?: 'L' | 'M' | 'R' };
 }): PlayLinesControl {
   const { lines, video, filmKey, onTurnOn, waiting, situation } = opts;
   const [on, setOn] = useState(false);
@@ -176,6 +178,41 @@ export function usePlayLines(opts: {
   const [corners, setCorners] = useState(false);
   // A tapped player: just his job.
   const [focus, setFocus] = useState<string | null>(null);
+  // The clean field (a drawn field instead of the video), and its camera: null is the film's own angle.
+  const [clean, setClean] = useState(() => safeJSONParse<boolean>(CLEAN_KEY, false) === true);
+  const [cam, setCam] = useState<Cam | null>(null);
+  const camRef = useRef(cam);
+  camRef.current = cam;
+  const pickClean = (on: boolean) => {
+    setClean(on);
+    safeJSONSet(CLEAN_KEY, on);
+    cancelAnimationFrame(flight.current);
+    if (!on) setCam(null);
+  };
+  // Flying the camera to an angle: from where it is (the film's own angle worked out from the lineup) over 0.6s.
+  const flight = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(flight.current), []);
+  const filmCam = () => (lines ? cameraFromFilm(getQuadHomographies(lines.quad).fieldToImageH, 1600, 900) : null);
+  const flyTo = (to: Cam | 'film') => {
+    cancelAnimationFrame(flight.current);
+    const end = to === 'film' ? filmCam() : to;
+    const start = camRef.current ?? filmCam();
+    if (!start || !end || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      setCam(to === 'film' ? null : to);
+      return;
+    }
+    const t0 = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - t0) / 600);
+      if (t >= 1) {
+        setCam(to === 'film' ? null : end);
+        return;
+      }
+      setCam(lerpCam(start, end, 1 - Math.pow(1 - t, 3)));
+      flight.current = requestAnimationFrame(step);
+    };
+    flight.current = requestAnimationFrame(step);
+  };
   const lineupKey = `mahopac_film_lineup_${filmKey}`;
 
   // A play not lined up on its own: the latest lineup on this film (the plays before it in the series), else the line
@@ -250,7 +287,28 @@ export function usePlayLines(opts: {
       setOn((v) => !v);
     },
     layer: ({ playing, zoom }) =>
-      shown && frame && !playing ? <LinesDrawing video={video} lines={shown} frame={moving ? frame : null} side={side} showLines={showLines} lineUp={lineUp} corners={corners} zoom={zoom} situation={situation} focus={focus} onFocus={setFocus} /> : null,
+      shown && frame && !playing ? (
+        <LinesDrawing
+          video={video}
+          lines={shown}
+          frame={moving ? frame : null}
+          side={side}
+          showLines={showLines}
+          lineUp={lineUp}
+          corners={corners}
+          zoom={zoom}
+          situation={situation}
+          focus={focus}
+          onFocus={setFocus}
+          clean={clean}
+          cam={cam}
+          onCam={(c) => {
+            cancelAnimationFrame(flight.current);
+            setCam(c);
+          }}
+          onView={flyTo}
+        />
+      ) : null,
     bar: ({ playing, inline }) => (
       <div className={`pointer-events-auto flex flex-col items-start gap-1 ${inline ? '' : 'px-2 pt-1.5'}`} {...keep}>
         <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl" style={panel}>
@@ -302,6 +360,15 @@ export function usePlayLines(opts: {
               )}
               <button type="button" className={`${btn} ${lineUp ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`} onClick={() => setLineUp((v) => !v)} title="Show the yard lines: move, turn and size them to fit the field on the film">
                 Line up field
+              </button>
+              <button
+                type="button"
+                aria-pressed={clean}
+                className={`${btn} ${clean ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`}
+                onClick={() => pickClean(!clean)}
+                title="The play on a drawn field instead of the video, at the film's angle: drag to turn it any way"
+              >
+                Clean field
               </button>
               <span className="inline-flex rounded-lg overflow-hidden border border-white/15" role="group" aria-label="Show">
                 {SIDES.map(([id, label]) => (
@@ -409,6 +476,24 @@ export function usePlayLines(opts: {
             {frame.phaseLabel}
           </div>
         )}
+        {lines && clean && !lineUp && !playing && (
+          // The clean field's angles: the film's own, or one tap to another (dragging turns it any way).
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex items-center gap-0.5 rounded-xl p-1" style={panel} role="group" aria-label="Angle">
+              <button type="button" aria-pressed={!cam} className={`h-8 px-2 rounded-lg text-[11px] font-bold cursor-pointer ${!cam ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`} onClick={() => flyTo('film')} title="The film's own angle">
+                Film
+              </button>
+              {VIEWS.map((v) => (
+                <button key={v.id} type="button" className="h-8 px-2 rounded-lg text-[11px] font-bold cursor-pointer hover:bg-white/10" onClick={() => flyTo(v.cam)} title={v.title}>
+                  {v.label}
+                </button>
+              ))}
+            </div>
+            <div className="rounded-lg px-2 py-1 text-[10px] font-semibold opacity-90" style={panel}>
+              Drag to turn · scroll or pinch to zoom · double-tap for the film&apos;s angle
+            </div>
+          </div>
+        )}
         {lines && focusNode && !playing && (
           <div className="flex items-center gap-1.5 rounded-lg pl-2.5 pr-1 py-1 text-[11px] font-bold" style={panel}>
             Just {tagOf(focusNode)}&apos;s job
@@ -474,6 +559,21 @@ const land = (t: number) => {
   return 1 + 2.70158 * Math.pow(c - 1, 3) + 1.70158 * Math.pow(c - 1, 2);
 };
 const ORDINAL = ['', '1st', '2nd', '3rd', '4th'];
+/** The field's numbers, painted: each digit's strokes in a box 1 wide and 2 tall (0 at its foot). */
+const DIGITS: Record<string, [number, number][][]> = {
+  '0': [Array.from({ length: 25 }, (_, i) => [0.5 + 0.48 * Math.cos((i / 24) * 2 * Math.PI), 1 + 0.98 * Math.sin((i / 24) * 2 * Math.PI)] as [number, number])],
+  '1': [[[0.25, 1.6], [0.6, 2], [0.6, 0]]],
+  '2': [[[0.05, 1.6], [0.2, 1.92], [0.5, 2], [0.8, 1.92], [0.95, 1.6], [0.9, 1.3], [0.05, 0], [0.95, 0]]],
+  '3': [
+    [[0.05, 1.8], [0.3, 2], [0.7, 2], [0.95, 1.78], [0.95, 1.3], [0.7, 1.05], [0.35, 1.05]],
+    [[0.7, 1.05], [0.95, 0.8], [0.95, 0.25], [0.7, 0], [0.3, 0], [0.05, 0.2]],
+  ],
+  '4': [[[0.75, 0], [0.75, 2], [0.02, 0.62], [1, 0.62]]],
+  '5': [[[0.92, 2], [0.12, 2], [0.08, 1.12], [0.5, 1.25], [0.88, 1.05], [0.98, 0.55], [0.75, 0.08], [0.35, 0], [0.05, 0.2]]],
+};
+/** Half the width of the field (53 1/3 yards), and the hash marks' distance from its middle (high school). */
+const HALF_FIELD = 80 / 3;
+const HASH = 80 / 3 - 160 / 9;
 const FONT = 'system-ui, -apple-system, sans-serif';
 
 /** A player's tag, the way the builder labels him: his own name, else WR / TE / 1 / 2 / LT..., our defenders' spots. */
@@ -528,17 +628,27 @@ const LinesDrawing: React.FC<{
   /** Lining up: the 4 corners to drag one at a time. */
   corners: boolean;
   zoom: number;
-  /** The down and the yards to go: the line to gain in yellow. */
-  situation?: { down?: number; toGo?: number };
+  /** The down and the yards to go (the line to gain in yellow); the spot and the hash (the clean field's markings). */
+  situation?: { down?: number; toGo?: number; yardLine?: number; hash?: 'L' | 'M' | 'R' };
   /** One player's job alone (his role), or everyone's. */
   focus: string | null;
   onFocus: (role: string | null) => void;
-}> = ({ video, lines, frame, side, showLines, lineUp, corners, zoom, situation, focus, onFocus }) => {
+  /** The clean field: a drawn field instead of the video, the play on it. */
+  clean: boolean;
+  /** Its camera, turned to any angle (null: the film's own). */
+  cam: Cam | null;
+  onCam: (cam: Cam | null) => void;
+  /** Fly the camera to an angle (or back to the film's). */
+  onView: (to: Cam | 'film') => void;
+}> = ({ video, lines, frame, side, showLines, lineUp, corners, zoom, situation, focus, onFocus, clean, cam, onCam, onView }) => {
   const boxRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const uid = `pl${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [aspect, setAspect] = useState(16 / 9);
+  // The clean field turned by hand: the fingers down, and where the turn started.
+  const fingers = useRef(new Map<number, { x: number; y: number }>());
+  const orbit = useRef<{ x: number; y: number; cam: Cam; pinch?: number } | null>(null);
   const drag = useRef<{
     corner: Corner | 'all' | 'player';
     role?: string;
@@ -584,10 +694,12 @@ const LinesDrawing: React.FC<{
   // The field -> picture mapping, worked out once for this lineup (every point of every line goes through it).
   const H = useMemo(() => getQuadHomographies(quad).fieldToImageH, [quad]);
   const z = Math.max(1, zoom);
-  const px = (p: Pt): Px => {
-    const r = applyHomography(H, p.x, p.y);
-    return [r.x * cw, r.y * ch];
-  };
+  // The camera: the film's own (its lineup), or the clean field's turned to any angle. Lining up uses the film's.
+  const free = clean && !lineUp && cam ? cam : null;
+  const proj = useMemo(() => (free ? cameraProjector(free, cw, ch) : filmProjector(H, cw, ch)), [free, H, cw, ch]);
+  /** In front of the camera (on the picture). */
+  const seen = (p: Pt) => proj.depth(p) >= proj.near;
+  const px = (p: Pt): Px => proj.to(p) ?? [-1e4, -1e4];
   const gap = (a: Px, b: Px) => Math.hypot(b[0] - a[0], b[1] - a[1]);
   // How big a yard is on the picture there (across and deep): what lays the lines on the turf, wider near the camera.
   const yardAt = (p: Pt) =>
@@ -595,10 +707,16 @@ const LinesDrawing: React.FC<{
   // One builder picture unit on screen (the tags' size).
   const k = Math.max(0.6, ch * 0.0019) / z;
   const halfAt = (p: Pt, yards: number) => Math.max(1.1 * k, Math.min(6.5 * k, yards * yardAt(p)));
-  /** A line laid on the turf: its points on the picture and how wide it is at each. */
-  const lay = (pts: Pt[], yards: number) => {
-    const d = densify(pts, 0.75);
-    return { pts: d.map(px), half: d.map((p) => halfAt(p, yards)) };
+  /** A line laid on the turf: its parts in front of the camera, each with its points on the picture and widths. */
+  const lay = (pts: Pt[], yards: number) =>
+    visibleRuns(densify(pts, 0.75), proj.depth, proj.near).map((run) => ({ pts: run.map(px), half: run.map((p) => halfAt(p, yards)) }));
+  /** A laid line as one shape, each side `grow(width)` wide. */
+  const rib = (runs: ReturnType<typeof lay>, grow: (h: number) => number = (h) => h, roundEnd = false) =>
+    runs.map((r) => ribbon(r.pts, r.half.map(grow), roundEnd)).join('');
+  /** A shape on the grass: the part in front of the camera. */
+  const shape = (pts: Pt[]) => {
+    const c = clipPolygon(pts, proj.depth, proj.near);
+    return c.length >= 3 ? polygon(c.map(px)) : '';
   };
   // A finger (an iPad) needs a bigger corner to grab, and room around each player.
   const touch = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
@@ -636,7 +754,98 @@ const LinesDrawing: React.FC<{
     }
     drag.current = { corner, from, quad };
   };
+  // The clean field: one finger (or the mouse) turns it round the play, two fingers zoom; from the film's own angle.
+  const camNow = () => cam ?? cameraFromFilm(H, cw, ch) ?? VIEWS[0].cam;
+  const camRef = useRef(cam);
+  camRef.current = cam;
+  const camNowRef = useRef(camNow);
+  camNowRef.current = camNow;
+  const onCamRef = useRef(onCam);
+  onCamRef.current = onCam;
+  const startOrbit = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    try {
+      (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    } catch {
+      // No capture: the turn still follows over the picture.
+    }
+    fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const base = camNow();
+    const [a, b] = [...fingers.current.values()];
+    orbit.current = b ? { x: e.clientX, y: e.clientY, cam: base, pinch: Math.hypot(a.x - b.x, a.y - b.y) || 1 } : { x: e.clientX, y: e.clientY, cam: base };
+  };
+  const turnBy = (e: React.PointerEvent) => {
+    const o = orbit.current;
+    if (!o || !fingers.current.has(e.pointerId)) return false;
+    e.stopPropagation();
+    fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (o.pinch && fingers.current.size >= 2) {
+      const [a, b] = [...fingers.current.values()];
+      onCam({ ...o.cam, dist: Math.max(8, Math.min(150, (o.cam.dist * o.pinch) / (Math.hypot(a.x - b.x, a.y - b.y) || 1))) });
+      return true;
+    }
+    const dx = e.clientX - o.x;
+    const dy = e.clientY - o.y;
+    // A tap doesn't leave the film's angle.
+    if (!cam && Math.hypot(dx, dy) < 3) return true;
+    onCam({ ...o.cam, yaw: o.cam.yaw - dx * 0.3, pitch: Math.max(MIN_PITCH, Math.min(MAX_PITCH, o.cam.pitch + dy * 0.25)) });
+    return true;
+  };
+  const stopOrbit = (e: React.PointerEvent) => {
+    if (!fingers.current.delete(e.pointerId)) return false;
+    e.stopPropagation();
+    // A finger up from a pinch: the other one turns on from here.
+    const rest = [...fingers.current.values()];
+    orbit.current = rest.length ? { x: rest[0].x, y: rest[0].y, cam: camRef.current ?? camNow() } : null;
+    return true;
+  };
+  // A scroll (a mouse wheel, two fingers on a trackpad) or a trackpad's pinch zooms the clean field (not the video).
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el || !clean || lineUp) return;
+    const zoomTo = (dist: number) => {
+      const base = camRef.current ?? camNowRef.current();
+      const next = { ...base, dist: Math.max(8, Math.min(150, dist)) };
+      camRef.current = next;
+      onCamRef.current(next);
+    };
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+      zoomTo((camRef.current ?? camNowRef.current()).dist * Math.exp(Math.max(-120, Math.min(120, dy)) * (e.ctrlKey ? 0.01 : 0.0025)));
+    };
+    let start = 0;
+    const onStart = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      start = (camRef.current ?? camNowRef.current()).dist;
+    };
+    const onChange = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Fingers on the screen pinch through the pointers instead.
+      if (!start || fingers.current.size >= 2) return;
+      zoomTo(start / ((e as Event & { scale?: number }).scale || 1));
+    };
+    const onEnd = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      start = 0;
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    el.addEventListener('gesturestart', onStart);
+    el.addEventListener('gesturechange', onChange);
+    el.addEventListener('gestureend', onEnd);
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('gesturestart', onStart);
+      el.removeEventListener('gesturechange', onChange);
+      el.removeEventListener('gestureend', onEnd);
+    };
+  }, [clean, lineUp, cw]);
   const onMove = (e: React.PointerEvent) => {
+    if (turnBy(e)) return;
     const d = drag.current;
     if (!d) return;
     e.stopPropagation();
@@ -646,7 +855,7 @@ const LinesDrawing: React.FC<{
     if (d.corner === 'player') {
       // A drag, not a tap, moves him: his spot on the field, to a tenth of a yard.
       if (!d.active) {
-        if (!lines.moveNode || Math.hypot(e.clientX - (d.x ?? e.clientX), e.clientY - (d.y ?? e.clientY)) < 6) return;
+        if (!lines.moveNode || free || Math.hypot(e.clientX - (d.x ?? e.clientX), e.clientY - (d.y ?? e.clientY)) < 6) return;
         d.active = true;
       }
       const f = imageToField(quad, at);
@@ -678,6 +887,7 @@ const LinesDrawing: React.FC<{
         }
       : {};
   const endDrag = (e: React.PointerEvent) => {
+    if (stopOrbit(e)) return;
     const d = drag.current;
     if (!d) return;
     e.stopPropagation();
@@ -715,12 +925,12 @@ const LinesDrawing: React.FC<{
 
     // Man coverage: dots to the receiver and a ring around him.
     if (s.man && mainF.length >= 2) {
-      const dots = polyline(cutLine(mainF, mainLen * f).map(px));
+      const dots = visibleRuns(cutLine(mainF, mainLen * f), proj.depth, proj.near).map((run) => polyline(run.map(px))).join('');
       body.push(
         <path key="w" d={dots} fill="none" stroke="#ffffff" strokeOpacity="0.85" strokeWidth={5.5 * k} strokeLinecap="round" strokeDasharray={`0.1 ${7 * k}`} />,
         <path key="c" d={dots} fill="none" stroke={color} strokeWidth={3.2 * k} strokeLinecap="round" strokeDasharray={`0.1 ${7 * k}`} />
       );
-      if (f >= 1) body.push(<path key="r" d={polygon(circleOnField(s.man, 1.1 * head).map(px))} fill={color} fillOpacity="0.12" stroke={color} strokeWidth={2.4 * k} />);
+      if (f >= 1) body.push(<path key="r" d={shape(circleOnField(s.man, 1.1 * head))} fill={color} fillOpacity="0.12" stroke={color} strokeWidth={2.4 * k} />);
       bodies.push(<g key={order} opacity={op}>{body}</g>);
       return;
     }
@@ -728,7 +938,7 @@ const LinesDrawing: React.FC<{
     const last = s.points[s.points.length - 1];
     if (s.zone && last && f >= 1) {
       const zf = head;
-      const area = polygon(Array.from({ length: 36 }, (_, j) => px({ x: last.x + s.zone!.rx * zf * Math.cos((j / 36) * 2 * Math.PI), y: last.y + s.zone!.ry * zf * Math.sin((j / 36) * 2 * Math.PI) })));
+      const area = shape(Array.from({ length: 36 }, (_, j) => ({ x: last.x + s.zone!.rx * zf * Math.cos((j / 36) * 2 * Math.PI), y: last.y + s.zone!.ry * zf * Math.sin((j / 36) * 2 * Math.PI) })));
       body.push(<path key="z" d={area} fill={color} fillOpacity="0.16" stroke={color} strokeOpacity="0.7" strokeWidth={1.6 * k} strokeDasharray={`${6 * k} ${4 * k}`} />);
     }
     // Pre-snap motion: a zigzag.
@@ -736,10 +946,10 @@ const LinesDrawing: React.FC<{
       const cut = cutLine(motionF, Math.min(motionLen, reach));
       if (lengthOf(cut) > 0.05) {
         const zig = lay(zigzagLine(cut, 0.32, 1.1), HALF.motion);
-        glow.push(<path key="m" d={ribbon(zig.pts, zig.half.map((h) => h * 2.2 + 2 * k))} fill={FILM_COLOR.motion} />);
+        glow.push(<path key="m" d={rib(zig, (h) => h * 2.2 + 2 * k)} fill={FILM_COLOR.motion} />);
         body.push(
-          <path key="me" d={ribbon(zig.pts, zig.half.map((h) => h + 1.2 * k))} fill="#ffffff" fillOpacity="0.9" />,
-          <path key="mc" d={ribbon(zig.pts, zig.half)} fill={FILM_COLOR.motion} />
+          <path key="me" d={rib(zig, (h) => h + 1.2 * k)} fill="#ffffff" fillOpacity="0.9" />,
+          <path key="mc" d={rib(zig)} fill={FILM_COLOR.motion} />
         );
       }
     }
@@ -749,21 +959,21 @@ const LinesDrawing: React.FC<{
       const tuck = block || f < 1 ? 0 : ARROW * 0.55 * head;
       const cut = cutLine(mainF, Math.max(0.02, Math.min(mainLen, mainReach) - tuck));
       const line = lay(cut, W);
-      glow.push(<path key="g" d={ribbon(line.pts, line.half.map((h) => h * 2.4 + 2 * k))} fill={color} />);
+      glow.push(<path key="g" d={rib(line, (h) => h * 2.4 + 2 * k)} fill={color} />);
       if (s.kind === 'pass') {
         // A route: dashes over a faint line of its whole path.
-        body.push(<path key="p" d={ribbon(line.pts, line.half.map((h) => h * 0.55))} fill={color} fillOpacity="0.45" />);
+        body.push(<path key="p" d={rib(line, (h) => h * 0.55)} fill={color} fillOpacity="0.45" />);
         dashLine(cut, 0.95, 0.55).forEach((d, j) => {
           const dash = lay(d, W);
           body.push(
-            <path key={`de${j}`} d={ribbon(dash.pts, dash.half.map((h) => h + 1.2 * k), true)} fill="#ffffff" fillOpacity="0.92" />,
-            <path key={`dc${j}`} d={ribbon(dash.pts, dash.half, true)} fill={color} />
+            <path key={`de${j}`} d={rib(dash, (h) => h + 1.2 * k, true)} fill="#ffffff" fillOpacity="0.92" />,
+            <path key={`dc${j}`} d={rib(dash, (h) => h, true)} fill={color} />
           );
         });
       } else {
         body.push(
-          <path key="e" d={ribbon(line.pts, line.half.map((h) => h + 1.3 * k))} fill="#ffffff" fillOpacity="0.92" />,
-          <path key="c" d={ribbon(line.pts, line.half)} fill={color} />
+          <path key="e" d={rib(line, (h) => h + 1.3 * k)} fill="#ffffff" fillOpacity="0.92" />,
+          <path key="c" d={rib(line)} fill={color} />
         );
       }
     }
@@ -771,13 +981,13 @@ const LinesDrawing: React.FC<{
     if (f >= 1 && head > 0 && end && endLine.length >= 2) {
       if (block && mainF.length >= 2) {
         const t = lay(tOnField(end, from, 0.6 * head), W);
-        glow.push(<path key="tg" d={ribbon(t.pts, t.half.map((h) => h * 2.4 + 2 * k), true)} fill={color} />);
+        glow.push(<path key="tg" d={rib(t, (h) => h * 2.4 + 2 * k, true)} fill={color} />);
         body.push(
-          <path key="te" d={ribbon(t.pts, t.half.map((h) => h + 1.3 * k), true)} fill="#ffffff" fillOpacity="0.92" />,
-          <path key="tc" d={ribbon(t.pts, t.half, true)} fill={color} />
+          <path key="te" d={rib(t, (h) => h + 1.3 * k, true)} fill="#ffffff" fillOpacity="0.92" />,
+          <path key="tc" d={rib(t, (h) => h, true)} fill={color} />
         );
       } else {
-        const tip = polygon(arrowOnField(end, from, ARROW * head, 0.48 * head).map(px));
+        const tip = shape(arrowOnField(end, from, ARROW * head, 0.48 * head));
         const ink = mainF.length >= 2 ? color : FILM_COLOR.motion;
         glow.push(<path key="ag" d={tip} fill={ink} stroke={ink} strokeWidth={6 * k} strokeLinejoin="round" />);
         body.push(<path key="a" d={tip} fill={ink} stroke="#ffffff" strokeOpacity="0.92" strokeWidth={1.4 * k} strokeLinejoin="round" />);
@@ -785,7 +995,8 @@ const LinesDrawing: React.FC<{
     }
     // Drawn: a light runs along each route and run, the way the player goes.
     if (settled && op === 1 && !reduce && (s.kind === 'run' || s.kind === 'pass') && mainF.length >= 2) {
-      const c = densify(cutLine(mainF, Math.max(0.05, mainLen - ARROW * 0.55)), 0.75).map(px);
+      const runs = visibleRuns(densify(cutLine(mainF, Math.max(0.05, mainLen - ARROW * 0.55)), 0.75), proj.depth, proj.near);
+      const c = runs.length === 1 ? runs[0].map(px) : [];
       let len = 0;
       for (let i = 1; i < c.length; i++) len += gap(c[i - 1], c[i]);
       const dash = Math.min(26 * k, len * 0.3);
@@ -803,14 +1014,17 @@ const LinesDrawing: React.FC<{
   // A pass to the ball carrier: the ball's flight, an arc from the QB to the catch, after the routes are drawn.
   const thrown = showing(false) && !moving && (showLines || focus === lines.ballRole) ? passThrow(lines.nodes, lines.strokes, lines.ballRole) : null;
   let throwArt: React.ReactNode = null;
-  if (thrown) {
+  if (thrown && seen(thrown.from) && seen(thrown.to)) {
     const tf = linesSince === Infinity ? 1 : easeOut((linesSince - drawn.length * STAGGER - 150) / 600);
     if (tf > 0) {
       const a = px(thrown.from);
       const b = px(thrown.to);
       const lift = Math.min(110 * k, gap(a, b) * 0.32);
+      // Through a turned camera the ball really flies, a few yards up; on the film it arcs on the picture.
+      const high = Math.min(4, Math.hypot(thrown.to.x - thrown.from.x, thrown.to.y - thrown.from.y) * 0.22);
       const arc: Px[] = Array.from({ length: 25 }, (_, i) => {
         const t = (i / 24) * tf;
+        if (free) return proj.to({ x: thrown.from.x + (thrown.to.x - thrown.from.x) * t, y: thrown.from.y + (thrown.to.y - thrown.from.y) * t }, 4 * high * t * (1 - t)) ?? b;
         return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t - 4 * lift * t * (1 - t)] as const;
       });
       const d = polyline(arc);
@@ -830,7 +1044,9 @@ const LinesDrawing: React.FC<{
   const trails = (frame?.trails || [])
     .filter((t) => t.points.length >= 2 && showing(isDefenseRole(t.role)))
     .map((t, i) => {
-      const fp = densify(t.points, 0.5);
+      // The part in front of the camera that ends where he is now.
+      const runs = visibleRuns(densify(t.points, 0.5), proj.depth, proj.near);
+      const fp = runs[runs.length - 1] || [];
       const sp = fp.map(px);
       const n = sp.length;
       if (n < 2) return null;
@@ -853,13 +1069,14 @@ const LinesDrawing: React.FC<{
 
   // The ball while it runs: in the air it rises over its shadow.
   let ballArt: React.ReactNode = null;
-  if (frame) {
+  if (frame && seen(frame.ball)) {
     const g = px(frame.ball);
-    const lift = frame.ball.inAir ? (frame.ball.air !== undefined ? Math.sin(Math.PI * frame.ball.air) * 3 : 0.35) * yardAt(frame.ball) : 0;
+    const high = frame.ball.inAir ? (frame.ball.air !== undefined ? Math.sin(Math.PI * frame.ball.air) * 3 : 0.35) : 0;
+    const top = (high && proj.to(frame.ball, high)) || g;
     ballArt = (
       <g pointerEvents="none">
-        <ellipse cx={g[0]} cy={g[1]} rx={5 * k} ry={2.4 * k} fill="#000000" opacity={lift ? 0.3 : 0.4} />
-        <g transform={`translate(${g[0].toFixed(1)} ${(g[1] - lift - 3 * k).toFixed(1)}) rotate(-25)`}>
+        <ellipse cx={g[0]} cy={g[1]} rx={5 * k} ry={2.4 * k} fill="#000000" opacity={top[1] < g[1] - 1 ? 0.3 : 0.4} />
+        <g transform={`translate(${top[0].toFixed(1)} ${(top[1] - 3 * k).toFixed(1)}) rotate(-25)`}>
           <ellipse rx={6 * k} ry={3.6 * k} fill="#7c2d12" stroke="#ffffff" strokeWidth={1.3 * k} />
           <path d={`M${(-2.4 * k).toFixed(1)} 0H${(2.4 * k).toFixed(1)}`} stroke="#ffffff" strokeWidth={1 * k} strokeLinecap="round" />
         </g>
@@ -871,15 +1088,18 @@ const LinesDrawing: React.FC<{
   // the middle when the picture stops on a play.
   const toGo = situation?.toGo && situation.toGo > 0 && situation.toGo <= 30 ? situation.toGo : 0;
   const sweep = layerSince === Infinity ? 1 : easeOut(layerSince / 650);
-  const across = (quad.halfWidth ?? 12) + 10;
+  // The field's middle (from the ball): the hash the ball is on puts it to the other side.
+  const fieldMid = situation?.hash === 'L' ? HASH : situation?.hash === 'R' ? -HASH : 0;
+  const [bandL, bandR] = clean ? [fieldMid - HALF_FIELD, fieldMid + HALF_FIELD] : [-((quad.halfWidth ?? 12) + 10), (quad.halfWidth ?? 12) + 10];
   const band = (y: number, yards: number) => {
-    const b = lay([{ x: -across * sweep, y }, { x: across * sweep, y }], yards);
-    return ribbon(b.pts, b.half);
+    const c = (bandL + bandR) / 2;
+    return rib(lay([{ x: c + (bandL - c) * sweep, y }, { x: c + (bandR - c) * sweep, y }], yards));
   };
   let gainTag: React.ReactNode = null;
   if (toGo && sweep >= 1) {
     const text = (situation?.down && ORDINAL[situation.down] ? `${ORDINAL[situation.down]} & ${toGo}` : `${toGo} to go`).toUpperCase();
-    const at = px({ x: (quad.halfWidth ?? 12) - 1, y: toGo });
+    const spot = clean ? { x: bandR - 5, y: toGo } : { x: (quad.halfWidth ?? 12) - 1, y: toGo };
+    const at = seen(spot) ? px(spot) : ([-1e4, -1e4] as const);
     const tw = text.length * 6.6 * k + 14 * k;
     const th = 17 * k;
     const tx = Math.max(4, Math.min(cw - tw - 4, at[0] - tw / 2));
@@ -894,6 +1114,66 @@ const LinesDrawing: React.FC<{
     );
   }
 
+  // The clean field: the video covered by a drawn field (turf, yard lines, hash marks, and the numbers when the spot is
+  // known), laid out from the snap's spot and hash, through the same camera as the play.
+  let fieldArt: React.ReactNode = null;
+  if (clean && !lineUp) {
+    const known = Boolean(situation?.yardLine && situation.yardLine > 0 && situation.yardLine < 100);
+    // The line of scrimmage, yards from the offense's own goal line (unknown: their 35, no numbers).
+    const los = known ? 100 - situation!.yardLine! : 35;
+    const yOf = (A: number) => A - los;
+    const yLo = Math.max(yOf(-10), -45);
+    const yHi = Math.min(yOf(110), 75);
+    const L = fieldMid - HALF_FIELD;
+    const R = fieldMid + HALF_FIELD;
+    const rect = (xa: number, xb: number, ya: number, yb: number) => (yb > ya ? shape([{ x: xa, y: ya }, { x: xb, y: ya }, { x: xb, y: yb }, { x: xa, y: yb }]) : '');
+    const stripes: [string[], string[]] = [[], []];
+    for (let A = 0; A < 100; A += 5) stripes[(A / 5) % 2].push(rect(L, R, Math.max(yOf(A), yLo), Math.min(yOf(A + 5), yHi)));
+    const ends = rect(L, R, Math.max(yOf(-10), yLo), Math.min(yOf(0), yHi)) + rect(L, R, Math.max(yOf(100), yLo), Math.min(yOf(110), yHi));
+    const yardLines: string[] = [];
+    for (let A = 0; A <= 100; A += 5) {
+      const y = yOf(A);
+      if (y >= yLo && y <= yHi) yardLines.push(rib(lay([{ x: L, y }, { x: R, y }], A === 0 || A === 100 ? 0.22 : 0.1)));
+    }
+    const sidelines = rib(lay([{ x: L, y: yLo }, { x: L, y: yHi }], 0.3)) + rib(lay([{ x: R, y: yLo }, { x: R, y: yHi }], 0.3));
+    const ticks: string[] = [];
+    for (let A = 1; A < 100; A++) {
+      const y = yOf(A);
+      if (A % 5 === 0 || y < yLo || y > yHi) continue;
+      for (const x of [fieldMid - HASH, fieldMid + HASH]) ticks.push(rib(lay([{ x: x - 0.33, y }, { x: x + 0.33, y }], 0.06)));
+      ticks.push(rib(lay([{ x: L + 0.3, y }, { x: L + 0.97, y }], 0.06)), rib(lay([{ x: R - 0.97, y }, { x: R - 0.3, y }], 0.06)));
+    }
+    const numbers: string[] = [];
+    if (known) {
+      for (let A = 10; A <= 90; A += 10) {
+        const y = yOf(A);
+        if (y < yLo + 1 || y > yHi - 1) continue;
+        const text = String(Math.min(A, 100 - A));
+        for (const s of [-1, 1]) {
+          // Tops toward the sideline, read standing in the middle of the field facing it; the yard line between the digits.
+          const put = (u: number, v: number): Pt => ({ x: fieldMid + s * (HALF_FIELD - 11 + v), y: y - s * u });
+          [...text].forEach((d, i) => {
+            const from = i === 0 ? -1.8 : 0.5;
+            for (const stroke of DIGITS[d] || []) numbers.push(rib(lay(stroke.map(([u, v]) => put(from + u * 1.3, v)), 0.16), (h) => h, true));
+          });
+        }
+      }
+    }
+    fieldArt = (
+      <g>
+        <rect x={0} y={0} width={cw} height={ch} fill={`url(#${uid}sky)`} />
+        <path d={rect(L - 8, R + 8, yLo - 8, yHi + 8)} fill="#24502a" />
+        <path d={stripes[0].join('')} fill="#2f7a36" />
+        <path d={stripes[1].join('')} fill="#2a6f31" />
+        <path d={ends} fill="#1d5226" />
+        <path d={ticks.join('')} fill="#f8fafc" fillOpacity="0.75" />
+        <path d={yardLines.join('')} fill="#f8fafc" fillOpacity="0.92" />
+        <path d={sidelines} fill="#f8fafc" />
+        <path d={numbers.join('')} fill="#f8fafc" fillOpacity="0.85" />
+      </g>
+    );
+  }
+
   /** A player: a ring at his feet (his color) with his tag under it; they land one by one when the picture stops. */
   const playerArt = (n: PlayNode, i: number) => {
     const def = isDefenseRole(n.role);
@@ -904,7 +1184,9 @@ const LinesDrawing: React.FC<{
     const focused = focus === n.role;
     const pin = layerSince === Infinity ? 1 : land((layerSince - i * 22) / 380);
     if (pin <= 0) return null;
-    const ring = circleOnField(n, (lineman ? 0.5 : 0.68) * pin).map(px);
+    const around = circleOnField(n, (lineman ? 0.5 : 0.68) * pin);
+    if (!around.every(seen)) return null;
+    const ring = around.map(px);
     const [cx, cy] = px(n);
     const low = Math.max(...ring.map((q) => q[1]));
     const tint = focused ? '#a5b4fc' : def ? '#4ade80' : carrier ? '#fb923c' : '#ffffff';
@@ -946,13 +1228,31 @@ const LinesDrawing: React.FC<{
           onPointerMove={onMove}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
-          {...(lineUp ? { onPointerDown: startDrag('all'), onClick: (e: React.MouseEvent) => e.stopPropagation(), style: { left, top, width: cw, height: ch, pointerEvents: 'auto' as const, cursor: 'move', touchAction: 'none' as const } } : {})}
+          {...(lineUp
+            ? { onPointerDown: startDrag('all'), onClick: (e: React.MouseEvent) => e.stopPropagation(), style: { left, top, width: cw, height: ch, pointerEvents: 'auto' as const, cursor: 'move', touchAction: 'none' as const } }
+            : clean
+              ? {
+                  // The clean field: drag to turn it, double-tap for the film's own angle.
+                  onPointerDown: startOrbit,
+                  onClick: (e: React.MouseEvent) => e.stopPropagation(),
+                  onDoubleClick: (e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    onView('film');
+                  },
+                  style: { left, top, width: cw, height: ch, pointerEvents: 'auto' as const, cursor: 'grab', touchAction: 'none' as const },
+                }
+              : {})}
         >
           <defs>
             <filter id={`${uid}glow`} x="-50%" y="-50%" width="200%" height="200%">
               <feGaussianBlur stdDeviation={(3.5 * k).toFixed(2)} />
             </filter>
+            <linearGradient id={`${uid}sky`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="#0b1020" />
+              <stop offset="1" stopColor="#173320" />
+            </linearGradient>
           </defs>
+          {fieldArt}
           {lineUp &&
             buildProjectedFieldGrid(quad).map((g) => (
               <line
