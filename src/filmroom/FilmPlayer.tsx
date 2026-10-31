@@ -59,6 +59,10 @@ interface FilmPlayerProps {
   viewOnly?: boolean;
   /** The selected play's lines on the video: the button that turns them on, the lines (not zoomed: the whole play fits the view) and their controls. */
   playLines?: PlayLinesControl;
+  /** Presentation's full screen: the film edge to edge on black, its controls over the bottom of it. */
+  stage?: boolean;
+  /** Full screen while the coach isn't touching the screen: the controls and the title fade away. */
+  controlsHidden?: boolean;
 }
 
 // Bigger on a touch screen (a finger needs about 40px).
@@ -80,6 +84,8 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   shortcuts = true,
   autoNextDefault = true,
   playLines,
+  stage = false,
+  controlsHidden = false,
 }) => {
   const rootRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -600,7 +606,8 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
         l: () => setLoop((x) => !x),
         c: toggleFastCut,
         ...(viewOnly ? {} : { d: toggleDraw, s: stopwatch, r: () => (recording ? stopRecording() : void startRecording()) }),
-        f: fullscreen,
+        // Presentation's full screen is already full screen.
+        ...(stage ? {} : { f: fullscreen }),
         m: toggleMute,
       };
       if (act[k]) {
@@ -610,7 +617,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [shortcuts, togglePlay, step, hasPrev, hasNext, onPrev, onNext, toggleDraw, stopwatch, fullscreen, toggleMute, toggleFastCut, viewOnly, recording, stopRecording, startRecording]);
+  }, [shortcuts, togglePlay, step, hasPrev, hasNext, onPrev, onNext, toggleDraw, stopwatch, fullscreen, toggleMute, toggleFastCut, viewOnly, recording, stopRecording, startRecording, stage]);
 
   const onEnded = () => {
     triggeredFreezesRef.current.clear();
@@ -710,7 +717,8 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     press.current = null;
     if (s && !s.moved) return togglePlay();
     // A finger swiped across the video (not zoomed in): the next play to the left, the one before to the right.
-    if (s?.touch && zoom === 1) {
+    // (Presentation's full screen: the swipe goes to the script's next play instead.)
+    if (s?.touch && zoom === 1 && !stage) {
       const dx = e.clientX - s.x;
       const dy = e.clientY - s.y;
       if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
@@ -720,8 +728,11 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     }
   };
   // On a phone the controls go under the video; everywhere else (and in full screen) they sit on it, like Hudl.
+  // Presenting (fitting), they have a bar of their own along the bottom (fitBar).
   const fitting = fit && !isFullscreen;
-  const overlay = isFullscreen ? 'absolute inset-x-0 bottom-0' : fit ? '' : 'sm:absolute sm:inset-x-0 sm:bottom-0';
+  const overlay = isFullscreen ? 'absolute inset-x-0 bottom-0' : 'sm:absolute sm:inset-x-0 sm:bottom-0';
+  // Presentation's full screen with the coach not touching the screen: the controls and the title fade away.
+  const tucked = stage && controlsHidden && !drawing && !recording;
 
   const tools = (
     <>
@@ -793,19 +804,160 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     </>
   );
 
+  // Where in the clip: the Fast Cutup window and the pinned drawings on it.
+  const timeline = (
+    <div className="relative flex-1 flex items-center">
+      {/* Fast Cutup active window highlight bar */}
+      {fastCut && detectedSnap !== null && duration > 0 && (
+        <div
+          className="absolute h-1.5 rounded-full bg-emerald-500/45 pointer-events-none"
+          style={{
+            left: `${(Math.max(0, detectedSnap - 2.0) / duration) * 100}%`,
+            width: `${((Math.min(duration, detectedSnap + 6.5) - Math.max(0, detectedSnap - 2.0)) / duration) * 100}%`,
+          }}
+          title={`Fast Cutup window: ${fmtTime(Math.max(0, detectedSnap - 2))} – ${fmtTime(Math.min(duration, detectedSnap + 6.5))}`}
+        />
+      )}
+      {/* Timestamp-anchored telestration pins on the timeline */}
+      {duration > 0 &&
+        pinnedTimestamps.map((pin) => (
+          <button
+            key={pin.t}
+            type="button"
+            onClick={() => apiRef.current?.seek(pin.t)}
+            style={{
+              left: `${Math.min(98, Math.max(2, (pin.t / duration) * 100))}%`,
+              background: pin.color,
+            }}
+            title={`Telestration @ ${fmtTime(pin.t)}${pin.label ? ` · "${pin.label}"` : ''} (click to jump)`}
+            className="absolute -top-2.5 -translate-x-1/2 w-2.5 h-2.5 rotate-45 border border-slate-950 shadow cursor-pointer hover:scale-125 transition-transform z-10"
+          />
+        ))}
+      <input
+        type="range"
+        min={0}
+        max={duration || 0}
+        step={FRAME}
+        value={Math.min(time, duration || 0)}
+        onChange={(e) => apiRef.current?.seek(Number(e.target.value))}
+        className="w-full accent-indigo-500 relative z-0"
+        aria-label="Position in clip"
+        disabled={!src}
+      />
+    </div>
+  );
+
+  // Presenting: one bar along the bottom. The play's lines and its other snaps on the left, the timeline, and in the
+  // bottom right corner the frame steps around play / pause, then the speed. Full screen it sits over the bottom of
+  // the film and fades away while the coach isn't touching the screen.
+  const fitBar = (
+    <div
+      className={`${stage ? 'absolute inset-x-0 bottom-0 pt-12' : 'shrink-0 pt-2 border-t border-white/10'} z-10 flex flex-wrap items-center gap-x-1.5 gap-y-1 px-2 sm:px-3 pb-2 transition-opacity duration-300 ${
+        tucked ? 'opacity-0 [&_*]:!pointer-events-none' : ''
+      }`}
+      style={
+        stage
+          ? {
+              background: 'linear-gradient(to top, rgba(0,0,0,0.88), rgba(0,0,0,0.5) 55%, rgba(0,0,0,0))',
+              paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom, 0px))',
+              paddingLeft: 'max(0.75rem, env(safe-area-inset-left, 0px))',
+              paddingRight: 'max(0.75rem, env(safe-area-inset-right, 0px))',
+            }
+          : { background: '#020617' }
+      }
+    >
+      {(hasPrev || hasNext) && (
+        <>
+          <button className={idle} onClick={onPrev} disabled={!hasPrev} title="The snap before (↑)" aria-label="The snap before"><SkipBack size={16} /></button>
+          <button className={idle} onClick={onNext} disabled={!hasNext} title="The next snap (↓)" aria-label="The next snap"><SkipForward size={16} /></button>
+        </>
+      )}
+      {!viewOnly && playLines && (
+        <button
+          className={playLines.on ? on : idle}
+          onClick={() => {
+            // The lines are drawn for a still frame.
+            if (!playLines.on) videoRef.current?.pause();
+            playLines.toggle();
+          }}
+          disabled={!src}
+          title="Show the selected play's routes, runs and motion on the paused video"
+        >
+          <Route size={15} />
+          <span className="hidden sm:inline">Play lines</span>
+        </button>
+      )}
+      {playLines?.on && src && !drawing && playLines.bar({ playing, inline: true })}
+      {recording && (
+        <button className={`${btn} bg-rose-600 text-white animate-pulse`} onClick={stopRecording} title="Stop recording (R)">
+          <Square size={14} /> Stop ({recSeconds}s)
+        </button>
+      )}
+      {snapAt !== null && (
+        <button className={btn} style={AMBER} onClick={stopwatch} title="Stopwatch: tap again at the release (S)">
+          <Timer size={15} /> Release
+        </button>
+      )}
+      {lastWatch && (
+        <button className={`${btn} hover:opacity-85`} style={{ background: 'rgba(245,158,11,0.2)', color: '#fcd34d' }} onClick={() => { onStopwatch(lastWatch.seconds, lastWatch.at); setLastWatch(null); }}>
+          Save {lastWatch.seconds.toFixed(2)}s as note
+        </button>
+      )}
+      <div className="flex-1 min-w-[9rem] flex items-center gap-2 px-1 text-[11px] tabular-nums" style={{ color: DIM }}>
+        <span>{fmtTime(time)}</span>
+        {timeline}
+        <span>{fmtTime(duration)}</span>
+      </div>
+      <div className="ml-auto flex items-center gap-1">
+        <button className={idle} onClick={() => step(-1)} disabled={!src} title="Back one frame (←)" aria-label="Back one frame"><ChevronLeft size={18} /></button>
+        <button
+          className="inline-flex items-center justify-center h-11 w-11 rounded-full shadow-lg hover:opacity-85 disabled:opacity-40"
+          style={{ background: '#fff', color: '#0f172a' }}
+          onClick={togglePlay}
+          disabled={!src}
+          title="Play / pause (space, or tap the film)"
+          aria-label={playing ? 'Pause' : 'Play'}
+        >
+          {playing ? <Pause size={20} /> : <Play size={20} className="translate-x-px" />}
+        </button>
+        <button className={idle} onClick={() => step(1)} disabled={!src} title="Forward one frame (→)" aria-label="Forward one frame"><ChevronRight size={18} /></button>
+        <div role="group" aria-label="Speed" className="ml-1 inline-flex items-center gap-0.5 p-0.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.1)' }}>
+          {[0.25, 0.5, 1].map((sp) => (
+            <button
+              key={sp}
+              className={`h-8 pointer-coarse:h-9 min-w-8 px-1.5 rounded-md text-xs font-black transition-colors ${speed === sp ? '' : 'hover:bg-white/10'}`}
+              style={speed === sp ? { background: '#fff', color: '#0f172a' } : undefined}
+              onClick={() => setSpeed(sp)}
+              aria-pressed={speed === sp}
+              title={`${sp}× speed`}
+            >
+              {sp === 0.25 ? '¼' : sp === 0.5 ? '½' : '1'}×
+            </button>
+          ))}
+        </div>
+        {!stage && (
+          <button className={idle} onClick={fullscreen} title="Full screen (F, or double-click the film)" aria-label="Full screen">
+            <Maximize size={16} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div
       ref={rootRef}
       data-film-area
-      className={`relative flex flex-col rounded-xl overflow-hidden select-none [&:fullscreen]:rounded-none [&:fullscreen]:justify-center ${fit ? 'flex-1 min-h-0' : ''}`}
+      className={`relative flex flex-col ${stage ? '' : 'rounded-xl'} overflow-hidden select-none [&:fullscreen]:rounded-none [&:fullscreen]:justify-center ${fit ? 'flex-1 min-h-0' : ''}`}
       style={{ color: INK, background: '#000' }}
     >
-      {/* Fitting: the biggest 16:9 picture the room above the controls allows, the two together in the middle (an
-          iPad standing up: black above and below, the controls right under the film). */}
-      {fitting && <div className="flex-1" />}
-      <div className={fitting ? 'w-full aspect-video min-h-[10rem] flex items-center justify-center' : 'contents'} style={fitting ? { containerType: 'size' } : undefined}>
+      {/* Presenting: the biggest 16:9 picture the place allows, in the middle of it (an iPad standing up: black above
+          and below); the controls along the bottom, not in the middle of the screen. */}
+      <div className={fitting ? 'flex-1 min-h-[8rem] w-full flex items-center justify-center' : 'contents'} style={fitting ? { containerType: 'size' } : undefined}>
       <div
         ref={stageRef}
+        data-film-stage
+        data-zoomed={zoom > 1 ? '' : undefined}
         style={{ width: fitting ? 'min(100cqw, calc(100cqh * 16 / 9))' : `min(100%, max(18rem, calc(${videoHeight} * 16 / 9)))` }}
         className={`relative mx-auto aspect-video overflow-hidden bg-black ${drawing || zoom > 1 ? 'touch-none' : 'touch-pan-y'} ${drawing ? '' : zoom > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
         title={drawing ? undefined : 'Click: play / pause · Scroll: zoom · Drag: move around · Double-click: full screen · On a touch screen: swipe for the next play'}
@@ -816,7 +968,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
           releasePointer(e);
           press.current = null;
         }}
-        onDoubleClick={() => !drawing && fullscreen()}
+        onDoubleClick={() => !drawing && !stage && fullscreen()}
       >
         <div className="absolute inset-0" style={{ transform: `scale(${zoom}) translate(${pan.x * 100}%, ${pan.y * 100}%)`, transformOrigin: 'center' }}>
           {src && (
@@ -855,8 +1007,8 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
         {playLines?.on && src && !drawing && playLines.layer({ playing, zoom: 1 })}
         {playLines?.on && src && !drawing && playLines.controls({ playing })}
         {/* Above the controls that sit over the bottom of the video, so its buttons (Link film...) can be tapped. */}
-        {!src && <div className={`absolute inset-0 flex items-center justify-center p-4 text-center text-sm z-20 pointer-events-none [&>*]:pointer-events-auto ${isFullscreen ? 'pb-28' : 'sm:pb-28'}`}>{placeholder}</div>}
-        <div className="absolute top-2 left-2 right-2 flex items-start justify-between gap-2 pointer-events-none">
+        {!src && <div className={`absolute inset-0 flex items-center justify-center p-4 text-center text-sm z-20 pointer-events-none [&>*]:pointer-events-auto ${isFullscreen ? 'pb-28' : fitting ? '' : 'sm:pb-28'}`}>{placeholder}</div>}
+        <div className={`absolute top-2 left-2 right-2 flex items-start justify-between gap-2 pointer-events-none transition-opacity duration-300 ${tucked ? 'opacity-0' : ''}`}>
           <div className="flex flex-wrap items-center gap-1.5 min-w-0">
             <span className="px-2 py-1 rounded-md text-xs font-bold truncate" style={{ background: 'rgba(0,0,0,0.65)', color: '#fff' }}>{title}</span>
             {freezeActive !== null && (
@@ -971,54 +1123,17 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
         </div>
       )}
 
-      {/* Scrubber and controls: over the bottom of the video, like Hudl (under it on a phone) */}
+      {/* Scrubber and controls: over the bottom of the video, like Hudl (under it on a phone); presenting, a bar of their own */}
+      {fitting ? fitBar : (
       <div
-        className={`${overlay} z-10 flex flex-col pointer-events-none ${fitting ? 'shrink-0 pt-1' : 'sm:pt-8'}`}
+        className={`${overlay} z-10 flex flex-col pointer-events-none sm:pt-8`}
         style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.92), rgba(0,0,0,0.6) 65%, rgba(0,0,0,0))' }}
       >
         {/* Play lines' buttons, right above the Play lines button that turns them off. */}
-        {playLines?.on && src && !drawing && !fitting && playLines.bar({ playing })}
+        {playLines?.on && src && !drawing && playLines.bar({ playing })}
         <div className="pointer-events-auto flex items-center gap-2 px-3 pt-2 text-[11px] tabular-nums" style={{ color: DIM }}>
           <span>{fmtTime(time)}</span>
-          <div className="relative flex-1 flex items-center">
-            {/* Fast Cutup active window highlight bar */}
-            {fastCut && detectedSnap !== null && duration > 0 && (
-              <div
-                className="absolute h-1.5 rounded-full bg-emerald-500/45 pointer-events-none"
-                style={{
-                  left: `${(Math.max(0, detectedSnap - 2.0) / duration) * 100}%`,
-                  width: `${((Math.min(duration, detectedSnap + 6.5) - Math.max(0, detectedSnap - 2.0)) / duration) * 100}%`,
-                }}
-                title={`Fast Cutup window: ${fmtTime(Math.max(0, detectedSnap - 2))} – ${fmtTime(Math.min(duration, detectedSnap + 6.5))}`}
-              />
-            )}
-            {/* Timestamp-anchored telestration pins on the timeline */}
-            {duration > 0 &&
-              pinnedTimestamps.map((pin) => (
-                <button
-                  key={pin.t}
-                  type="button"
-                  onClick={() => apiRef.current?.seek(pin.t)}
-                  style={{
-                    left: `${Math.min(98, Math.max(2, (pin.t / duration) * 100))}%`,
-                    background: pin.color,
-                  }}
-                  title={`Telestration @ ${fmtTime(pin.t)}${pin.label ? ` · "${pin.label}"` : ''} (click to jump)`}
-                  className="absolute -top-2.5 -translate-x-1/2 w-2.5 h-2.5 rotate-45 border border-slate-950 shadow cursor-pointer hover:scale-125 transition-transform z-10"
-                />
-              ))}
-            <input
-              type="range"
-              min={0}
-              max={duration || 0}
-              step={FRAME}
-              value={Math.min(time, duration || 0)}
-              onChange={(e) => apiRef.current?.seek(Number(e.target.value))}
-              className="w-full accent-indigo-500 relative z-0"
-              aria-label="Position in clip"
-              disabled={!src}
-            />
-          </div>
+          {timeline}
           <span>{fmtTime(duration)}</span>
         </div>
 
@@ -1033,7 +1148,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
 
           <span className="w-px h-6 bg-white/15 mx-1 max-sm:hidden" />
           {SPEEDS.map((sp) => (
-            <button key={sp} className={`${speed === sp ? on : idle} max-sm:!hidden ${fitting && (sp === 0.25 || sp === 2) ? '!hidden' : ''}`} onClick={() => setSpeed(sp)} title={`${sp}× speed`}>
+            <button key={sp} className={`${speed === sp ? on : idle} max-sm:!hidden`} onClick={() => setSpeed(sp)} title={`${sp}× speed`}>
               {sp === 0.25 ? '¼' : sp === 0.5 ? '½' : sp}×
             </button>
           ))}
@@ -1044,10 +1159,10 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
           >
             {speed === 0.25 ? '¼' : speed === 0.5 ? '½' : speed}×
           </button>
-          <button className={`${loop ? on : idle} ${fitting ? '!hidden' : ''}`} onClick={() => setLoop((x) => !x)} title="Loop this play (L)"><Repeat size={15} /></button>
-          <button className={`${autoNext ? on : idle} max-sm:!hidden ${fitting ? '!hidden' : ''}`} onClick={() => setAutoNext((x) => !x)} title="Go to the next play when this one ends">Auto</button>
+          <button className={loop ? on : idle} onClick={() => setLoop((x) => !x)} title="Loop this play (L)"><Repeat size={15} /></button>
+          <button className={`${autoNext ? on : idle} max-sm:!hidden`} onClick={() => setAutoNext((x) => !x)} title="Go to the next play when this one ends">Auto</button>
           <button
-            className={`${fastCut ? `${btn} bg-emerald-600 text-white` : idle} ${fitting ? '!hidden' : ''}`}
+            className={fastCut ? `${btn} bg-emerald-600 text-white` : idle}
             onClick={toggleFastCut}
             title="Fast Cutup Mode (C): automatically trims pre-snap huddle walking and plays Snap -2s to +6.5s"
           >
@@ -1055,17 +1170,17 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
             <span className="hidden md:inline">Fast Cut</span>
           </button>
 
-          <span className={`w-px h-6 bg-white/15 mx-1 max-sm:hidden ${fitting ? '!hidden' : ''}`} />
-          <button className={`${idle} max-sm:!hidden ${fitting ? '!hidden' : ''}`} onClick={() => zoomBy(-0.5)} disabled={zoom === 1} title="Zoom out (or scroll on the video)"><ZoomOut size={16} /></button>
+          <span className="w-px h-6 bg-white/15 mx-1 max-sm:hidden" />
+          <button className={`${idle} max-sm:!hidden`} onClick={() => zoomBy(-0.5)} disabled={zoom === 1} title="Zoom out (or scroll on the video)"><ZoomOut size={16} /></button>
           {zoom > 1 && (
             <button className={idle} onClick={() => zoomTo(1)} title="Reset zoom">{zoom.toFixed(1)}×</button>
           )}
-          <button className={`${idle} max-sm:!hidden ${fitting ? '!hidden' : ''}`} onClick={() => zoomBy(0.5)} disabled={zoom === 4} title="Zoom in (or scroll on the video; drag to move around)"><ZoomIn size={16} /></button>
+          <button className={`${idle} max-sm:!hidden`} onClick={() => zoomBy(0.5)} disabled={zoom === 4} title="Zoom in (or scroll on the video; drag to move around)"><ZoomIn size={16} /></button>
 
           <span className="w-px h-6 bg-white/15 mx-1 max-sm:hidden" />
           {!viewOnly && (
             <>
-              <button className={`${drawing ? on : idle} ${fitting ? '!hidden' : ''}`} onClick={toggleDraw} title="Draw freeze-frame telestration on the video (D)">
+              <button className={drawing ? on : idle} onClick={toggleDraw} title="Draw freeze-frame telestration on the video (D)">
                 <Pencil size={15} />
                 <span className="hidden sm:inline">Draw</span>
               </button>
@@ -1084,9 +1199,8 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
                   <span className="hidden sm:inline">Play lines</span>
                 </button>
               )}
-              {fitting && playLines?.on && src && !drawing && playLines.bar({ playing, inline: true })}
               <button
-                className={`${recording ? `${btn} bg-rose-600 text-white animate-pulse` : idle} ${fitting && !recording ? '!hidden' : ''}`}
+                className={recording ? `${btn} bg-rose-600 text-white animate-pulse` : idle}
                 onClick={() => (recording ? stopRecording() : void startRecording())}
                 disabled={!src}
                 title="Record a 15-25s Voice-Over + Telestration Coaching Reel (R)"
@@ -1094,7 +1208,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
                 {recording ? <Square size={14} /> : <Mic size={15} />}
                 <span className="hidden sm:inline">{recording ? `Stop (${recSeconds}s)` : 'Voice Clip'}</span>
               </button>
-              <button className={`${snapAt !== null ? btn : idle} ${fitting && snapAt === null ? '!hidden' : ''}`} style={snapAt !== null ? AMBER : undefined} onClick={stopwatch} disabled={!src} title="Stopwatch: tap at the snap, tap again at the release (S)">
+              <button className={snapAt !== null ? btn : idle} style={snapAt !== null ? AMBER : undefined} onClick={stopwatch} disabled={!src} title="Stopwatch: tap at the snap, tap again at the release (S)">
                 <Timer size={15} />
                 <span className="hidden sm:inline">{snapAt !== null ? 'Release' : 'Snap'}</span>
               </button>
@@ -1105,13 +1219,13 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
               Save {lastWatch.seconds.toFixed(2)}s as note
             </button>
           )}
-          <button className={`${idle} ml-auto ${fitting ? '!hidden' : ''}`} onClick={toggleMute} title={muted ? 'Sound on (M)' : 'Mute (M)'} aria-label={muted ? 'Sound on' : 'Mute'} aria-pressed={muted}>
+          <button className={`${idle} ml-auto`} onClick={toggleMute} title={muted ? 'Sound on (M)' : 'Mute (M)'} aria-label={muted ? 'Sound on' : 'Mute'} aria-pressed={muted}>
             {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
           </button>
-          <button className={`${idle} ${fitting ? 'ml-auto' : ''}`} onClick={fullscreen} title="Full screen (F, or double-click the video)"><Maximize size={16} /></button>
+          <button className={idle} onClick={fullscreen} title="Full screen (F, or double-click the video)"><Maximize size={16} /></button>
         </div>
       </div>
-      {fitting && <div className="flex-1" />}
+      )}
     </div>
   );
 };

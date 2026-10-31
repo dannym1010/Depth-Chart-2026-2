@@ -103,12 +103,18 @@ export function useFilmWindowRequest(): FilmWindowRequest | null {
 export interface FilmWindowDock {
   el: HTMLElement;
   shown: boolean;
+  /** Presentation's full screen: the film on black, edge to edge, its controls over it. */
+  stage?: boolean;
+  /** Full screen while the coach isn't touching the screen: the controls tucked away. */
+  controlsHidden?: boolean;
 }
 
 let dock: FilmWindowDock | null = null;
+const sameDock = (a: FilmWindowDock, b: FilmWindowDock) =>
+  a.el === b.el && a.shown === b.shown && Boolean(a.stage) === Boolean(b.stage) && Boolean(a.controlsHidden) === Boolean(b.controlsHidden);
 
 export function setFilmWindowDock(next: FilmWindowDock | null) {
-  if (dock === next || (dock && next && dock.el === next.el && dock.shown === next.shown)) return;
+  if (dock === next || (dock && next && sameDock(dock, next))) return;
   dock = next;
   emit();
 }

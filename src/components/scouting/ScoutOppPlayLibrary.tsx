@@ -275,7 +275,7 @@ export const ScoutOppPlayLibrary: React.FC<{
       const card = onTheReport.find((p) => p.id === line.playId);
       if (!card || card.printSkip) continue;
       const { snaps, group } = scriptFilm(card);
-      lines.push({ playId: line.playId, name: line.name, detail: line.detail, card, ...(snaps.length && group ? { group } : {}) });
+      lines.push({ playId: line.playId, name: line.name, detail: line.detail, card, diagram: diagramFor(card), ...(snaps.length && group ? { group } : {}) });
     }
     if (lines.length) {
       setPrintNote('');

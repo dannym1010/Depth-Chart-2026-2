@@ -258,6 +258,8 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
   const [mini, setMini] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const fill = !dock && (expanded || isShort) && !mini;
+  // Presentation's full screen: the film alone on black (no stats strip, no snap chips).
+  const stage = Boolean(dock?.stage);
   // The other view showing: the film stops.
   useEffect(() => {
     if (dock && !dock.shown) apiRef.current?.video?.()?.pause();
@@ -424,8 +426,8 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
         role={dock ? 'region' : 'dialog'}
         aria-label="Film window"
         data-film-area
-        className={`${dock ? 'h-full overflow-y-auto' : 'fixed z-[45] overflow-hidden'} flex flex-col ${
-          fill ? 'bg-slate-950' : dock ? 'bg-white dark:bg-slate-900' : 'bg-white dark:bg-slate-900 rounded-xl border border-slate-300 dark:border-slate-600 shadow-2xl'
+        className={`${dock ? `h-full ${stage ? 'overflow-hidden' : 'overflow-y-auto'}` : 'fixed z-[45] overflow-hidden'} flex flex-col ${
+          fill ? 'bg-slate-950' : dock ? (stage ? 'bg-black' : 'bg-white dark:bg-slate-900') : 'bg-white dark:bg-slate-900 rounded-xl border border-slate-300 dark:border-slate-600 shadow-2xl'
         }`}
         style={style}
       >
@@ -503,7 +505,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
 
         {(dock || !mini) && (
           <>
-            {cutupStats && (
+            {cutupStats && !stage && (
               <div className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-1 bg-slate-950 border-b border-slate-800 text-[11px] text-slate-300 shrink-0">
                 <span className="font-bold">
                   <span className="text-white font-black">{cutupStats.count}</span> snap{cutupStats.count === 1 ? '' : 's'}
@@ -545,6 +547,8 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
               playLines={playLines}
               startAt={resumeAt.current}
               shortcuts={focused && (!dock || dock.shown)}
+              stage={stage}
+              controlsHidden={Boolean(dock?.controlsHidden)}
             />
             {/* Filling a tall screen: each snap as a line to read and tap (the chips are for the small window). */}
             {fill && !isShort && watch.length > 0 && (
@@ -600,7 +604,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
                 </ul>
               </div>
             )}
-            {!(fill && !isShort) && (watch.length > 1 || views.length > 1) && (
+            {!(fill && !isShort) && !stage && (watch.length > 1 || views.length > 1) && (
               <div className="flex items-center gap-1.5 px-2 py-1.5 border-t border-slate-200 dark:border-slate-700 overflow-x-auto">
                 {views.length > 1 && (
                   <select

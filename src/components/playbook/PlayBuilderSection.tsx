@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Film, LayoutGrid, ListChecks, PanelRightClose, PanelRightOpen, Pencil, Play as PlayIcon, RotateCcw, Save, Search, Sparkles, Users, Wand2, Zap } from 'lucide-react';
 import { autoSketchPlayFromVideo } from '../../services/geminiFilmService';
+import { usePresentStage } from '../scouting/presentStage';
 import type { PlayBuilderState, PlayDatabaseEntry, PlayType } from '../../types/callSheet';
 import { defenseSystem, type DefenseSystem } from '../../hudlScout/utils/ourDefense';
 import { inferPlayType, newPlayEntry } from '../../utils/playbookImport';
@@ -259,6 +260,8 @@ function startFromSeed(seed?: PlayBuilderSeed | null) {
 // builder anew).
 let presentPanelOpen = false;
 let presentEditing = false;
+// Presentation's full screen: the field as tall as the screen allows, a little room around it.
+const STAGE_FIELD_HEIGHT = 'calc(100dvh - 1.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))';
 
 export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBack, onRename, onWatchFilm, compact, present, onStateChange, onSaveFilmBackfield, onSaveFormation, onStartFromFormation, onOpenSameCall, nav, getVideo, onVideoLines }) => {
   // Drawing their formation: just the alignment (no play lines), saved as the formation.
@@ -291,14 +294,17 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     setPanelOpenState(open);
     if (present) presentPanelOpen = open;
   };
-  const panelHidden = Boolean(present) && !panelOpen;
+  // Presentation's full screen: the field alone, nothing to edit (the coach's choices are kept for after).
+  const stage = usePresentStage();
+  const staged = Boolean(present) && stage.on;
+  const panelHidden = Boolean(present) && (!panelOpen || staged);
   // Presenting, the field alone: the call, the summary and the drawing tools come back with Edit.
   const [editing, setEditingState] = useState(() => !present || presentEditing);
   const setEditing = (on: boolean) => {
     setEditingState(on);
     if (present) presentEditing = on;
   };
-  const fieldOnly = Boolean(present) && !editing;
+  const fieldOnly = Boolean(present) && (!editing || staged);
   const [situations, setSituations] = useState<string[]>(saved?.situations || []);
   const looks = teamDefenseLooks(defenseSystem());
   // An opponent's play opens against our base 4-4 (the 5-3 is the coach's pick per formation).
@@ -1157,6 +1163,13 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [sketchStatus, setSketchStatus] = useState('');
   const [sketchBanner, setSketchBanner] = useState<{ text: string; isError?: boolean } | null>(null);
   const [playAnimTrigger, setPlayAnimTrigger] = useState(0);
+  // Full screen: Run (in the presentation's controls) plays the play on the field.
+  const runSeen = useRef(stage.run);
+  useEffect(() => {
+    if (stage.run === runSeen.current) return;
+    runSeen.current = stage.run;
+    setPlayAnimTrigger((n) => n + 1);
+  }, [stage.run]);
 
   const runAutoSketch = async () => {
     if (autoSketching) return;
@@ -1303,7 +1316,9 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       className={
         compact
           ? 'bg-white dark:bg-slate-900 p-2.5 space-y-3'
-          : present
+          : staged
+            ? 'space-y-0'
+            : present
             ? `bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3 ${fieldOnly ? 'p-2' : 'p-3'}`
             : 'bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-sm space-y-4'
       }
@@ -1556,7 +1571,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       <div className={compact || panelHidden ? 'space-y-3' : `grid grid-cols-1 ${present ? 'lg:grid-cols-[minmax(0,1fr)_340px]' : 'lg:grid-cols-[minmax(0,1fr)_380px]'} gap-4 items-start`}>
         {/* The field */}
         <div className="relative space-y-2 min-w-0">
-          {present && (
+          {present && !staged && (
             // Presenting: the field alone; these bring back the editing tools and the Formation / Play / Jobs panel.
             <div className="absolute top-2 right-2 z-20 flex gap-1.5">
               <button
@@ -1583,7 +1598,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               </button>
             </div>
           )}
-          {(formationMode || defenseMode) && (
+          {(formationMode || defenseMode) && !staged && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-300/70 dark:border-emerald-700/60 bg-emerald-50/60 dark:bg-emerald-950/20 px-2.5 py-1.5">
               <span className="w-full text-[11px] font-black uppercase tracking-wider text-emerald-800 dark:text-emerald-300">{defenseMode ? 'Our defensive call' : 'Our defense vs it'}{dLook ? `: ${callName}` : ''}</span>
               <div className="w-full">{defensePicker(false, !defenseMode)}</div>
@@ -1711,8 +1726,10 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               }}
               linesFollow={userDrew}
               dense={compact}
-              maxFieldHeight={present ? (fieldOnly ? 'calc(100dvh - 6.5rem)' : 'calc(100dvh - 17.5rem)') : undefined}
+              maxFieldHeight={staged ? STAGE_FIELD_HEIGHT : present ? (fieldOnly ? 'calc(100dvh - 6.5rem)' : 'calc(100dvh - 17.5rem)') : undefined}
               tools={!fieldOnly}
+              bare={staged}
+              locked={staged}
               chrome="minimal"
               assignmentHost={host}
               onSelectPlayer={(n) => {
@@ -1762,8 +1779,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               <span className="text-xs font-bold text-slate-500">This formation and backfield do not add up to 11. Pick another backfield.</span>
             </div>
           )}
-          {baseNote && <p className="px-1 text-xs font-bold text-emerald-600 dark:text-emerald-400">{baseNote}</p>}
-          {!formationMode && !!seed?.scoutId && !!seed.sameCall?.length && (
+          {baseNote && !staged && <p className="px-1 text-xs font-bold text-emerald-600 dark:text-emerald-400">{baseNote}</p>}
+          {!formationMode && !staged && !!seed?.scoutId && !!seed.sameCall?.length && (
             <div className="rounded-2xl border border-slate-200 dark:border-slate-800 p-3 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -1792,7 +1809,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               </ul>
             </div>
           )}
-          {formationMode && !!seed?.formationPlays?.length && !!seed.gameId && (
+          {formationMode && !staged && !!seed?.formationPlays?.length && !!seed.gameId && (
             <div className="rounded-2xl border border-slate-200 dark:border-slate-800 p-3 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">

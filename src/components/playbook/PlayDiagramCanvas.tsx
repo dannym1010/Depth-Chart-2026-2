@@ -161,6 +161,10 @@ interface Props {
   maxFieldHeight?: string;
   /** The drawing tools under the field (off: just the field, presenting; players still drag). */
   tools?: boolean;
+  /** Presentation's full screen: the field alone on the dark screen (no card, none of its own buttons), the play's movement bar over its bottom right corner. */
+  bare?: boolean;
+  /** Nothing on the field moves under a finger (presenting full screen: a swipe changes the play, a pencil draws over it). */
+  locked?: boolean;
   coachNote: string;
   onCoachNote: (v: string) => void;
   onMove: (role: string, x: number, y: number) => void;
@@ -216,6 +220,8 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   dense,
   maxFieldHeight,
   tools = true,
+  bare = false,
+  locked = false,
   coachNote,
   onCoachNote,
   onMove,
@@ -544,7 +550,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
 
   const onPointerDown = (e: React.PointerEvent) => {
     const svg = svgRef.current;
-    if (!svg) return;
+    if (!svg || locked) return;
     svg.setPointerCapture(e.pointerId);
     const p = pointFromEvent(e);
     if (tool === 'move') {
@@ -763,6 +769,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   };
 
   const onDoubleClick = (e: React.MouseEvent) => {
+    if (locked) return;
     if (tool !== 'move') {
       finishLine();
       return;
@@ -935,9 +942,19 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       ctx={{ holesXs, qbNode: nodes.find((n) => n.role === '1' || n.role === 'QB') }}
     />
   );
+  // Presenting: no taller than given, so the whole field shows on the screen (narrower to keep its shape).
+  const fieldFit: React.CSSProperties | undefined = maxFieldHeight
+    ? { maxWidth: `calc(${maxFieldHeight} * ${FIELD_SVG.w} / ${FIELD_SVG.h})`, marginInline: 'auto' }
+    : undefined;
 
   return (
-    <div ref={boxRef} className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden shadow-xs outline-none" onKeyDown={onKeyDown} tabIndex={-1}>
+    <div
+      ref={boxRef}
+      className={bare ? 'relative outline-none' : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden shadow-xs outline-none'}
+      style={bare ? fieldFit : undefined}
+      onKeyDown={onKeyDown}
+      tabIndex={-1}
+    >
       {/* Unified Minimalist Header Bar */}
       {chrome === 'full' && (
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40">
@@ -990,8 +1007,8 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
 
       {/* Field Canvas Container */}
       <div
-        className="relative"
-        style={maxFieldHeight ? { maxWidth: `calc(${maxFieldHeight} * ${FIELD_SVG.w} / ${FIELD_SVG.h})`, marginInline: 'auto' } : undefined}
+        className={bare ? 'relative rounded-xl overflow-hidden shadow-2xl shadow-black/60 ring-1 ring-white/10' : 'relative'}
+        style={bare ? undefined : fieldFit}
         ref={fieldRef}
         onPointerLeave={() => {
           setHover(null);
@@ -1020,6 +1037,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             </div>
           );
         })()}
+        {!bare && (
         <div className="absolute top-2.5 left-2.5 z-10 flex items-center gap-1.5">
           <div role="group" aria-label="Zoom" className="inline-flex items-center rounded-lg border border-white/20 bg-slate-900/80 backdrop-blur-sm text-white shadow-xs overflow-hidden">
             <button
@@ -1084,6 +1102,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             </button>
           )}
         </div>
+        )}
         {chrome === 'full' && (
         <input
           value={coachNote}
@@ -1273,7 +1292,13 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
 
       {/* Bottom Tool & Controls Bar */}
       {(isPlaying || animProgress > 0.005) && (
-        <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 border-t border-emerald-500/30 bg-slate-900 text-white">
+        <div
+          className={
+            bare
+              ? 'absolute right-3 bottom-3 z-10 w-[min(34rem,calc(100%-1.5rem))] flex flex-wrap items-center gap-2 px-3 py-2 rounded-2xl ring-1 ring-white/15 bg-slate-950/85 backdrop-blur-md text-white shadow-2xl'
+              : 'flex flex-wrap items-center gap-2 px-3 py-1.5 border-t border-emerald-500/30 bg-slate-900 text-white'
+          }
+        >
           <button
             type="button"
             onClick={() => {
