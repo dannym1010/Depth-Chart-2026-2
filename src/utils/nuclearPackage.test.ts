@@ -86,7 +86,9 @@ describe('a nuclear package: one string in every formation', () => {
     assert.deepEqual(s.moves.map((m) => `${m.kid.num} ${m.from}>${m.to}`), ['10 FB>X']);
     const lines = nuclearSwitchLines(s);
     assert.equal(lines.length, 2);
-    assert.ok(lines[0].includes('IN') && lines[0].includes('Veto') && lines[0].includes('for <b>#12</b> Barry'));
+    // Veto takes Barry's place: Barry's position (X) is named.
+    assert.equal(s.ins[0].forSpot, 'X');
+    assert.ok(lines[0].includes('IN') && lines[0].includes('Veto') && lines[0].includes('&rarr; <b>RB</b>, in for <b>#12</b> Barry at <b>X</b>'));
     // Back the other way: Barry in for Veto at X, Mancini X to FB.
     const back = nuclearSwitch(pkg, 'f11', 'f21');
     assert.deepEqual(back.ins.map((i) => `${i.kid.num} ${i.to} for ${i.for?.num}`), ['12 X for 13']);
@@ -94,7 +96,7 @@ describe('a nuclear package: one string in every formation', () => {
     // Drawn like a play: an arrow for Mancini, Veto running on for Barry, Barry crossed off; the line has no arrows.
     const svg = nuclearSwitchSvg(pkg, ids, 'f21', 'f11');
     assert.equal(svg.split('marker-end=').length - 1, 2);
-    assert.ok(svg.includes('IN for 12') && svg.includes('>OUT<') && svg.includes('SIDELINE'));
+    assert.ok(svg.includes('IN for #12 (X)') && svg.includes('>RB for X<') && svg.includes('>OUT<') && svg.includes('SIDELINE'));
     assert.equal(nuclearSwitchSvg(pkg, ids, 'f21', 'f21').split('marker-end=').length - 1, 0);
     // Under the big field: every formation to every other (both ways), unless left off.
     const sheet = nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U');

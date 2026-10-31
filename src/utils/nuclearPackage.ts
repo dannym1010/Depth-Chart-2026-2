@@ -144,8 +144,9 @@ export function nuclearGrid(pkg: NuclearPackage, formIds: string[]): { kid: Nucl
 }
 
 export interface NuclearSwitch {
-  /** Coming in, to this spot; `for`: the kid he goes in for, when the subs pair up one for one. */
-  ins: { kid: NuclearKid; to: string; for?: NuclearKid }[];
+  /** Coming in, to this spot; `for`: the kid he goes in for (and `forSpot`, the position that kid leaves), when the
+   * subs pair up one for one. */
+  ins: { kid: NuclearKid; to: string; for?: NuclearKid; forSpot?: string }[];
   outs: { kid: NuclearKid; from: string }[];
   moves: { kid: NuclearKid; from: string; to: string }[];
 }
@@ -170,6 +171,7 @@ export function nuclearSwitch(pkg: NuclearPackage, from: string, to: string): Nu
       }
     }
     for (const i of out.ins) if (!i.for) i.for = left.shift();
+    for (const i of out.ins) i.forSpot = out.outs.find((o) => o.kid === i.for)?.from;
   }
   return out;
 }
@@ -395,7 +397,7 @@ export function nuclearSwitchSvg(pkg: NuclearPackage, formIds: string[], from: s
     const [ex, ey] = [x2 + s * (R + 5) * 0.8, y2 + (R + 5) * 0.6];
     out.push(arrow(`M${sx} ${sy - R - 2} C ${sx} ${sy - 70}, ${ex + s * 50} ${ey + 34}, ${ex} ${ey}`, ' stroke-dasharray="8 5"'));
     out.push(chip(sx, sy, i.kid.num, { ...was, dashed: false }));
-    out.push(`<text x="${sx + R + 5}" y="${sy + 6}" ${font} font-size="17" font-weight="800" fill="${color}">IN${i.for ? ` for ${esc(i.for.num)}` : ''}</text>`);
+    out.push(`<text x="${sx + R + 5}" y="${sy + 6}" ${font} font-size="17" font-weight="800" fill="${color}">IN${i.for ? ` for #${esc(i.for.num)}${i.forSpot ? ` (${esc(i.forSpot)})` : ''}` : ''}</text>`);
   });
   const outs = new Set(sw.outs.map((o) => o.kid));
   const moved = new Set(sw.moves.map((m) => m.kid));
@@ -419,12 +421,14 @@ export function nuclearSwitchSvg(pkg: NuclearPackage, formIds: string[], from: s
     out.push(chip(x, y, k.num, stay));
     out.push(tag(x, y + R + 15, sp.label, light, 13));
   }
-  // Where the movers and the subs end up.
+  // Where the movers and the subs end up (a sub at a new position: whose he takes, "Y2 for X").
+  const replaces = new Map(sw.ins.map((i) => [i.kid, i.forSpot]));
   for (const k of [...sw.moves.map((m) => m.kid), ...sw.ins.map((i) => i.kid)]) {
     const sp = pkg.spots[k.at[to]];
     const [x, y] = pos(sp, 'to');
+    const was = replaces.get(k);
     out.push(chip(x, y, k.num, goes));
-    out.push(tag(x, y + R + 18, sp.label, color, 18));
+    out.push(tag(x, y + R + 18, was && was.toUpperCase() !== sp.label.toUpperCase() ? `${sp.label} for ${was}` : sp.label, color, 18));
   }
   if (!sw.ins.length && !sw.outs.length && !sw.moves.length)
     out.push(`<text x="${W / 2}" y="${SIDE + 24}" text-anchor="middle" ${font} font-size="18" font-weight="800" letter-spacing="1" fill="${C.muted}">NO CHANGE: THE SAME KIDS IN THE SAME SPOTS</text>`);
@@ -458,7 +462,7 @@ export function nuclearSwitchLines(sw: NuclearSwitch): string[] {
   const kid = (k: NuclearKid) => `<b>#${esc(k.num)}</b> ${esc(k.name)}`;
   const paired = new Set(sw.ins.map((i) => i.for).filter(Boolean));
   return [
-    ...sw.ins.map((i) => `<span class="tag in">IN</span> ${kid(i.kid)}${i.for ? ` for ${kid(i.for)}` : ''} &rarr; <b>${esc(i.to)}</b>`),
+    ...sw.ins.map((i) => `<span class="tag in">IN</span> ${kid(i.kid)} &rarr; <b>${esc(i.to)}</b>${i.for ? `, in for ${kid(i.for)}${i.forSpot ? ` at <b>${esc(i.forSpot)}</b>` : ''}` : ''}`),
     ...sw.outs.filter((o) => !paired.has(o.kid)).map((o) => `<span class="tag out">OUT</span> ${kid(o.kid)} (${esc(o.from)})`),
     ...sw.moves.map((m) => `${kid(m.kid)} ${esc(m.from)} &rarr; <b>${esc(m.to)}</b>`),
   ];

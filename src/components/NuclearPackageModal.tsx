@@ -263,8 +263,17 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
                 {sw.ins.map((i) => (
                   <li key={`in${i.kid.key}`}>
                     <span className="inline-block mr-1.5 px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-600 text-white align-[1px]">IN</span>
-                    {who(i.kid)}
-                    {i.for && <> for {who(i.for)}</>} → <b className="text-slate-900 dark:text-white">{i.to}</b>
+                    {who(i.kid)} → <b className="text-slate-900 dark:text-white">{i.to}</b>
+                    {i.for && (
+                      <>
+                        , in for {who(i.for)}
+                        {i.forSpot && (
+                          <>
+                            {' '}at <b className="text-slate-900 dark:text-white">{i.forSpot}</b>
+                          </>
+                        )}
+                      </>
+                    )}
                   </li>
                 ))}
                 {sw.outs
