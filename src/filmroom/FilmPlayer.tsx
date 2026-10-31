@@ -576,14 +576,16 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   }, []);
   const zoomBy = (d: number) => zoomTo(Math.round((view.current.zoom + d) * 2) / 2);
 
-  // Scroll wheel on the video zooms toward the pointer (a real listener, so the page doesn't scroll too).
+  // Scroll wheel on the video zooms toward the pointer (a real listener, so the page doesn't scroll too). Two fingers
+  // on a trackpad scroll the same way; a trackpad's pinch comes as a scroll with Ctrl, in smaller steps.
   useEffect(() => {
     const el = stageRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const r = el.getBoundingClientRect();
-      const factor = Math.exp(-Math.max(-100, Math.min(100, e.deltaY)) * 0.0025);
+      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+      const factor = Math.exp(-Math.max(-100, Math.min(100, dy)) * (e.ctrlKey ? 0.01 : 0.0025));
       zoomTo(view.current.zoom * factor, (e.clientX - r.left) / r.width - 0.5, (e.clientY - r.top) / r.height - 0.5);
     };
     el.addEventListener('wheel', onWheel, { passive: false });
@@ -679,6 +681,39 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     const [a, b] = [...pointers.current.values()];
     return { a, b, dist: Math.hypot(a.x - b.x, a.y - b.y) || 1 };
   };
+  // A pinch on a trackpad (Safari: the iPad's Magic Keyboard, a Mac) zooms in on the middle of the fingers. Fingers on
+  // the screen pinch through the pointers instead.
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    let start = 0;
+    type Gesture = Event & { scale?: number; clientX?: number; clientY?: number };
+    const onStart = (e: Event) => {
+      e.preventDefault();
+      start = view.current.zoom;
+    };
+    const onChange = (e: Event) => {
+      e.preventDefault();
+      if (!start || pointers.current.size >= 2) return;
+      const g = e as Gesture;
+      const r = el.getBoundingClientRect();
+      const x = Number.isFinite(g.clientX) ? g.clientX! : r.left + r.width / 2;
+      const y = Number.isFinite(g.clientY) ? g.clientY! : r.top + r.height / 2;
+      zoomTo(start * (g.scale || 1), (x - r.left) / r.width - 0.5, (y - r.top) / r.height - 0.5);
+    };
+    const onEnd = (e: Event) => {
+      e.preventDefault();
+      start = 0;
+    };
+    el.addEventListener('gesturestart', onStart);
+    el.addEventListener('gesturechange', onChange);
+    el.addEventListener('gestureend', onEnd);
+    return () => {
+      el.removeEventListener('gesturestart', onStart);
+      el.removeEventListener('gesturechange', onChange);
+      el.removeEventListener('gestureend', onEnd);
+    };
+  }, [zoomTo]);
   const onStageDown = (e: React.PointerEvent) => {
     if (drawing || e.button !== 0 || (e.target as HTMLElement).closest('button, input, a')) return;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });

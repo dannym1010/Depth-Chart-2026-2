@@ -191,6 +191,8 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
     video: () => apiRef.current?.video?.() || null,
     filmKey: request.gameId,
     waiting: 'Open the play (tap it in the play script, or Draw it) and its lines show here.',
+    // The snap's down and distance: the line to gain across the field.
+    situation: play ? { down: Number(play.down) || undefined, toGo: Number(play.distance) || undefined } : undefined,
   });
   const resumeAt = useRef(0);
   // Popped out: the clip plays in its own browser window (to drag onto another screen); this one keeps the

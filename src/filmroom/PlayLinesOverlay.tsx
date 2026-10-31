@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { buildProjectedFieldGrid, fieldToImage, HOMOGRAPHY_PRESETS, imageToField, type HomographyQuad, type ImagePoint } from '../utils/videoHomography';
-import { DEFENSE_COLOR, diagramLabel, isDefenseRole, lineStartsOn, MOTION_COLOR, passThrow, shownText, skillDiagramLabel, STROKE_COLOR, THROW_COLOR, type PlayNode, type PlayStroke } from '../utils/footballEngine';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { applyHomography, buildProjectedFieldGrid, getQuadHomographies, HOMOGRAPHY_PRESETS, imageToField, type HomographyQuad, type ImagePoint } from '../utils/videoHomography';
+import { DEFENSE_COLOR, diagramLabel, isDefenseRole, lineStartsOn, passThrow, shownText, skillDiagramLabel, STROKE_COLOR, THROW_COLOR, type PlayNode, type PlayStroke } from '../utils/footballEngine';
+import { arrowOnField, circleOnField, cutLine, dashLine, densify, lengthOf, pointBack, polygon, polyline, ribbon, tOnField, zigzagLine, type Px } from './linesArt';
 import { computeAnimatedPlayFrame, playAnimationSeconds } from '../utils/playAnimation';
 import { safeJSONParse, safeJSONSet } from '../services/storageService';
 
@@ -150,8 +151,10 @@ export function usePlayLines(opts: {
   onTurnOn?: () => void;
   /** Shown when there's no play to draw yet. */
   waiting: string;
+  /** The snap's down and distance: the line to gain (yellow) across the field. */
+  situation?: { down?: number; toGo?: number };
 }): PlayLinesControl {
-  const { lines, video, filmKey, onTurnOn, waiting } = opts;
+  const { lines, video, filmKey, onTurnOn, waiting, situation } = opts;
   const [on, setOn] = useState(false);
   const [lineUp, setLineUp] = useState(false);
   // Whose lines show: the coach's last pick.
@@ -171,6 +174,8 @@ export function usePlayLines(opts: {
   const [showLines, setShowLines] = useState(false);
   // Lining up: the 4 corners to drag, only when the coach wants an exact fit.
   const [corners, setCorners] = useState(false);
+  // A tapped player: just his job.
+  const [focus, setFocus] = useState<string | null>(null);
   const lineupKey = `mahopac_film_lineup_${filmKey}`;
 
   // A play not lined up on its own: the latest lineup on this film (the plays before it in the series), else the line
@@ -205,6 +210,7 @@ export function usePlayLines(opts: {
   useEffect(() => {
     setRunning(false);
     setProgress(0);
+    setFocus(null);
   }, [lines?.name]);
 
   // The coach's change to the lineup: this play's own from now on, and the film's latest for the plays after it.
@@ -230,6 +236,7 @@ export function usePlayLines(opts: {
     [shown, progress]
   );
   const moving = progress > 0.002;
+  const focusNode = focus ? lines?.nodes.find((n) => n.role === focus) : undefined;
   const btn = 'h-8 px-2.5 rounded-lg text-xs font-bold cursor-pointer';
 
   return {
@@ -238,11 +245,12 @@ export function usePlayLines(opts: {
       if (!on) {
         onTurnOn?.();
         setShowLines(false);
+        setFocus(null);
       }
       setOn((v) => !v);
     },
     layer: ({ playing, zoom }) =>
-      shown && frame && !playing ? <LinesDrawing video={video} lines={shown} frame={moving ? frame : null} side={side} showLines={showLines} lineUp={lineUp} corners={corners} zoom={zoom} /> : null,
+      shown && frame && !playing ? <LinesDrawing video={video} lines={shown} frame={moving ? frame : null} side={side} showLines={showLines} lineUp={lineUp} corners={corners} zoom={zoom} situation={situation} focus={focus} onFocus={setFocus} /> : null,
     bar: ({ playing, inline }) => (
       <div className={`pointer-events-auto flex flex-col items-start gap-1 ${inline ? '' : 'px-2 pt-1.5'}`} {...keep}>
         <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl" style={panel}>
@@ -259,7 +267,7 @@ export function usePlayLines(opts: {
                 style={showLines ? { background: '#4f46e5', color: '#ffffff' } : { background: '#ffffff', color: '#111827' }}
                 aria-pressed={showLines}
                 onClick={() => setShowLines((v) => !v)}
-                title="The play's routes, runs, blocks and motion"
+                title="The play's routes, runs, blocks and motion (tap a player for just his job)"
               >
                 {showLines ? 'Hide lines' : 'Show lines'}
               </button>
@@ -401,13 +409,20 @@ export function usePlayLines(opts: {
             {frame.phaseLabel}
           </div>
         )}
+        {lines && focusNode && !playing && (
+          <div className="flex items-center gap-1.5 rounded-lg pl-2.5 pr-1 py-1 text-[11px] font-bold" style={panel}>
+            Just {tagOf(focusNode)}&apos;s job
+            <button type="button" className="h-7 px-2 rounded-md bg-white/15 hover:bg-white/25 cursor-pointer" onClick={() => setFocus(null)}>
+              Show all
+            </button>
+          </div>
+        )}
       </div>
     ),
   };
 }
 
 type Pt = { x: number; y: number };
-type Px = readonly [number, number];
 
 /**
  * A line's points in field yards the way the play builder draws it: straight between sharp breaks, and a smooth
@@ -439,45 +454,66 @@ function shapedPoints(pts: (Pt & { smooth?: boolean })[], smooth: (i: number) =>
   }
   return out;
 }
-const pathOf = (pts: Px[]) => pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ');
-/** Pre-snap motion: a zigzag along the points, on screen (like the builder's). */
-function zigzag(pts: Px[], amp: number, step: number) {
-  let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
-  let side = 1;
-  for (let i = 1; i < pts.length; i++) {
-    const [ax, ay] = pts[i - 1], [bx, by] = pts[i];
-    const len = Math.hypot(bx - ax, by - ay);
-    const n = Math.max(2, Math.round(len / step));
-    const ux = (bx - ax) / (len || 1), uy = (by - ay) / (len || 1);
-    for (let k = 1; k < n; k++) {
-      const t = (len * k) / n;
-      d += ` L${(ax + ux * t - uy * amp * side).toFixed(1)} ${(ay + uy * t + ux * amp * side).toFixed(1)}`;
-      side = -side;
-    }
-    d += ` L${bx.toFixed(1)} ${by.toFixed(1)}`;
-  }
-  return d;
-}
-/** The end of a line: an arrowhead, or a T for a block (from a to b). */
-function arrowHead([ax, ay]: Px, [bx, by]: Px, l: number) {
-  const ang = Math.atan2(by - ay, bx - ax);
-  return `${bx},${by} ${bx - l * Math.cos(ang - 0.45)},${by - l * Math.sin(ang - 0.45)} ${bx - l * Math.cos(ang + 0.45)},${by - l * Math.sin(ang + 0.45)}`;
-}
-function tBar([ax, ay]: Px, [bx, by]: Px, w: number) {
-  const ang = Math.atan2(by - ay, bx - ax);
-  return `M${bx + w * Math.cos(ang + Math.PI / 2)} ${by + w * Math.sin(ang + Math.PI / 2)}L${bx + w * Math.cos(ang - Math.PI / 2)} ${by + w * Math.sin(ang - Math.PI / 2)}`;
-}
-/** The last real step of a line (skipping repeats), for its arrow. */
-const lastStep = (pts: Px[]): [Px, Px] => {
-  const b = pts[pts.length - 1];
-  for (let i = pts.length - 2; i >= 0; i--) if (Math.hypot(pts[i][0] - b[0], pts[i][1] - b[1]) > 0.5) return [pts[i], b];
-  return [pts[0], b];
+
+/** The builder's colors, brighter so they read on grass (our defense's lines keep their own). */
+const FILM_COLOR: Record<string, string> = { run: '#ff3349', pass: '#3b8cff', block: '#0f172a', motion: '#a259ff' };
+const inkOf = (s: PlayStroke) => s.color || FILM_COLOR[s.kind] || STROKE_COLOR[s.kind];
+/** How wide each kind of line is on the turf, either side of its middle (yards). */
+const HALF: Record<string, number> = { run: 0.15, pass: 0.13, block: 0.14, motion: 0.09 };
+/** The arrowhead's length on the turf (yards). */
+const ARROW = 0.8;
+// Shown, the lines draw themselves one after another: one starts every STAGGER ms and takes GROW ms.
+const STAGGER = 70;
+const GROW = 520;
+const clamp01 = (t: number) => Math.max(0, Math.min(1, t));
+const easeOut = (t: number) => 1 - Math.pow(1 - clamp01(t), 3);
+/** Up to full size with a little overshoot (an arrowhead or a ring landing). */
+const land = (t: number) => {
+  const c = clamp01(t);
+  if (c >= 1) return 1;
+  return 1 + 2.70158 * Math.pow(c - 1, 3) + 1.70158 * Math.pow(c - 1, 2);
 };
+const ORDINAL = ['', '1st', '2nd', '3rd', '4th'];
+const FONT = 'system-ui, -apple-system, sans-serif';
+
+/** A player's tag, the way the builder labels him: his own name, else WR / TE / 1 / 2 / LT..., our defenders' spots. */
+function tagOf(n: PlayNode): string {
+  const custom = n.label?.trim();
+  if (isDefenseRole(n.role)) return shownText(n, diagramLabel(n.role));
+  if (n.role === 'C') return custom || 'C';
+  const skill = skillDiagramLabel(n.role);
+  const isBack = !skill && !(n.line || !/^[1-4]$/.test(n.role));
+  return custom || (skill ? skill : isBack ? diagramLabel(n.role) : n.role.replace(/^O_?/, '').slice(0, 2));
+}
 
 /**
- * The play's players and lines drawn on the film through the field's 4-corner lineup, the way the play builder
- * draws them: the same colors, curves, motion zigzag, blocks, zones and man rings, and the same player marks. It sits
- * inside the player's zoom, so it stays on the field; sizes are divided by the zoom, so they keep their size on screen.
+ * Milliseconds since `key` last changed, drawn every frame for `ms` after it (things coming in). Infinity with no
+ * key, or for a coach who has asked for less motion: everything shows at once.
+ */
+function useSince(key: string, ms: number, still: boolean): number {
+  const at = useRef({ key: '', t0: 0 });
+  if (at.current.key !== key) at.current = { key, t0: performance.now() };
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (still || !key) return;
+    const t0 = at.current.t0;
+    let raf = 0;
+    const step = () => {
+      setTick((n) => n + 1);
+      if (performance.now() - t0 < ms) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [key, ms, still]);
+  return still || !key ? Infinity : performance.now() - at.current.t0;
+}
+
+/**
+ * The play's players and lines on the film, the way TV draws on the field: each line laid on the turf in the film's
+ * perspective (wider near the camera), with a soft glow and a white edge, its arrowhead flat on the field; a ring at
+ * each player's feet with his tag (the real player shows through); the line of scrimmage in blue and the line to
+ * gain in yellow. Shown, the lines draw themselves one player after another and a light runs along each route.
+ * Tapping a player shows his job alone; dragging him moves him to where he lines up on this film.
  */
 const LinesDrawing: React.FC<{
   video: () => HTMLVideoElement | null;
@@ -492,12 +528,27 @@ const LinesDrawing: React.FC<{
   /** Lining up: the 4 corners to drag one at a time. */
   corners: boolean;
   zoom: number;
-}> = ({ video, lines, frame, side, showLines, lineUp, corners, zoom }) => {
+  /** The down and the yards to go: the line to gain in yellow. */
+  situation?: { down?: number; toGo?: number };
+  /** One player's job alone (his role), or everyone's. */
+  focus: string | null;
+  onFocus: (role: string | null) => void;
+}> = ({ video, lines, frame, side, showLines, lineUp, corners, zoom, situation, focus, onFocus }) => {
   const boxRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const uid = `pl${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [aspect, setAspect] = useState(16 / 9);
-  const drag = useRef<{ corner: Corner | 'all' | 'player'; role?: string; from: ImagePoint; quad: HomographyQuad } | null>(null);
+  const drag = useRef<{
+    corner: Corner | 'all' | 'player';
+    role?: string;
+    from: ImagePoint;
+    quad: HomographyQuad;
+    /** A player pressed: where, and whether it has become a drag (else it's a tap). */
+    x?: number;
+    y?: number;
+    active?: boolean;
+  } | null>(null);
 
   // The video's picture inside the player (letterboxed when it isn't 16:9).
   useEffect(() => {
@@ -530,22 +581,44 @@ const LinesDrawing: React.FC<{
   const left = (box.w - cw) / 2, top = (box.h - ch) / 2;
 
   const { quad } = lines;
+  // The field -> picture mapping, worked out once for this lineup (every point of every line goes through it).
+  const H = useMemo(() => getQuadHomographies(quad).fieldToImageH, [quad]);
   const z = Math.max(1, zoom);
   const px = (p: Pt): Px => {
-    const uv = fieldToImage(quad, p);
-    return [uv.u * cw, uv.v * ch];
+    const r = applyHomography(H, p.x, p.y);
+    return [r.x * cw, r.y * ch];
   };
-  // One builder picture unit on screen: the builder's sizes (an 11-unit player, a 2.8-unit line) times this.
+  const gap = (a: Px, b: Px) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+  // How big a yard is on the picture there (across and deep): what lays the lines on the turf, wider near the camera.
+  const yardAt = (p: Pt) =>
+    Math.sqrt(gap(px({ x: p.x - 0.5, y: p.y }), px({ x: p.x + 0.5, y: p.y })) * gap(px({ x: p.x, y: p.y - 0.5 }), px({ x: p.x, y: p.y + 0.5 })));
+  // One builder picture unit on screen (the tags' size).
   const k = Math.max(0.6, ch * 0.0019) / z;
+  const halfAt = (p: Pt, yards: number) => Math.max(1.1 * k, Math.min(6.5 * k, yards * yardAt(p)));
+  /** A line laid on the turf: its points on the picture and how wide it is at each. */
+  const lay = (pts: Pt[], yards: number) => {
+    const d = densify(pts, 0.75);
+    return { pts: d.map(px), half: d.map((p) => halfAt(p, yards)) };
+  };
   // A finger (an iPad) needs a bigger corner to grab, and room around each player.
   const touch = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
+  const reduce = typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
   const handle = Math.max(touch ? 16 : 9, ch * 0.02) / z;
   const moving = Boolean(frame);
   const showing = (def: boolean) => (def ? showsDefense(side) : showsOffense(side));
+  const ownerOf = (s: PlayStroke) => lines.nodes.find((n) => lineStartsOn(s, n, lines.nodes))?.role;
+  // The lines to draw: everyone's (Show lines) or the tapped player's; the offense's before our defense's, motion
+  // first, then across the field.
+  const drawn = lines.strokes
+    .filter((s) => s.points?.length >= 2 && showing(isDefenseStroke(s)))
+    .map((s) => ({ s, owner: ownerOf(s) }))
+    .filter(({ owner }) => showLines || (focus !== null && owner === focus))
+    .sort((a, b) => Number(isDefenseStroke(a.s)) - Number(isDefenseStroke(b.s)) || Number(!a.s.motion) - Number(!b.s.motion) || a.s.points[0].x - b.s.points[0].x);
   const shownNodes = (frame ? frame.nodes : lines.nodes).filter((n) => showing(isDefenseRole(n.role)));
-  const shownStrokes = lines.strokes.filter((s) => s.points?.length >= 2 && showing(isDefenseStroke(s)));
-  // A white edge under each line, so the builder's colors read on the film.
-  const halo = (d: string, w: number, key?: string) => <path key={key} d={d} fill="none" stroke="#ffffff" strokeOpacity="0.8" strokeWidth={w + 2.6 * k} strokeLinecap="round" strokeLinejoin="round" />;
+  // Coming in: the rings and the TV lines when the picture stops on a play; the lines when they're shown.
+  const layerSince = useSince(lines.name, 1100, reduce);
+  const linesSince = useSince(showLines || focus ? `${lines.name}|${side}|${focus ?? ''}|${showLines ? 1 : 0}` : '', 3400, reduce);
+  const settled = linesSince >= drawn.length * STAGGER + GROW + 300;
 
   const toUV = (e: React.PointerEvent): ImagePoint | null => {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -571,7 +644,11 @@ const LinesDrawing: React.FC<{
     if (!at) return;
     const clamp = (n: number) => Math.round(Math.max(-0.2, Math.min(1.2, n)) * 1000) / 1000;
     if (d.corner === 'player') {
-      // A player moved on the film: his spot on the field, to a tenth of a yard.
+      // A drag, not a tap, moves him: his spot on the field, to a tenth of a yard.
+      if (!d.active) {
+        if (!lines.moveNode || Math.hypot(e.clientX - (d.x ?? e.clientX), e.clientY - (d.y ?? e.clientY)) < 6) return;
+        d.active = true;
+      }
       const f = imageToField(quad, at);
       lines.moveNode?.(d.role!, Math.round(f.x * 10) / 10, Math.round(f.y * 10) / 10);
     } else if (d.corner === 'all') {
@@ -580,12 +657,12 @@ const LinesDrawing: React.FC<{
       lines.setQuad({ ...d.quad, losLeft: move(d.quad.losLeft), losRight: move(d.quad.losRight), backLeft: move(d.quad.backLeft), backRight: move(d.quad.backRight), preset: 'custom' });
     } else lines.setQuad({ ...d.quad, [d.corner]: { u: clamp(at.u), v: clamp(at.v) }, preset: 'custom' });
   };
-  // Players can be dragged while the play isn't running and the field isn't being lined up.
-  const canMove = Boolean(lines.moveNode) && !frame && !lineUp;
+  // Players can be tapped (and dragged) while the play isn't running and the field isn't being lined up.
+  const tapOK = !frame && !lineUp;
   const grab = (n: PlayNode) =>
-    canMove
+    tapOK
       ? {
-          style: { pointerEvents: 'auto' as const, cursor: 'grab', touchAction: 'none' as const },
+          style: { pointerEvents: 'auto' as const, cursor: lines.moveNode ? 'grab' : 'pointer', touchAction: 'none' as const },
           onPointerDown: (e: React.PointerEvent) => {
             e.stopPropagation();
             const from = toUV(e);
@@ -595,112 +672,263 @@ const LinesDrawing: React.FC<{
             } catch {
               // No capture (an old browser): the drag still follows over the picture.
             }
-            drag.current = { corner: 'player', role: n.role, from, quad };
+            drag.current = { corner: 'player', role: n.role, from, quad, x: e.clientX, y: e.clientY, active: false };
           },
           onClick: (e: React.MouseEvent) => e.stopPropagation(),
         }
       : {};
   const endDrag = (e: React.PointerEvent) => {
-    if (!drag.current) return;
+    const d = drag.current;
+    if (!d) return;
     e.stopPropagation();
     drag.current = null;
+    // A tap on a player: just his job (again: everyone's).
+    if (d.corner === 'player' && !d.active && d.role) onFocus(focus === d.role ? null : d.role);
   };
   const mid = (a: ImagePoint, b: ImagePoint) => ({ u: (a.u + b.u) / 2, v: (a.v + b.v) / 2 });
   const center = mid(mid(quad.losLeft, quad.losRight), mid(quad.backLeft, quad.backRight));
 
-  /** One line as the builder draws it (see strokePaths), on the film. */
-  const strokeEl = (s: PlayStroke, i: number) => {
+  // Each line: its glow (under all of them, blurred once) and the line itself (a white edge, the color).
+  const glows: React.ReactNode[] = [];
+  const bodies: React.ReactNode[] = [];
+  drawn.forEach(({ s, owner }, order) => {
+    const f = linesSince === Infinity ? 1 : easeOut((linesSince - order * STAGGER) / GROW);
+    if (f <= 0) return;
+    const color = inkOf(s);
+    const op = moving ? 0.22 : focus !== null && owner !== focus ? 0.16 : 1;
+    const block = s.kind === 'block';
+    const W = HALF[s.kind] ?? 0.14;
     const m = Math.min(Math.max(0, Math.round(Number(s.motion) || 0)), s.points.length - 1);
-    const motionPts = m > 0 ? s.points.slice(0, m + 1).map(px) : [];
-    const main = s.points.slice(m);
-    const mainPts = main.length >= 2 ? shapedPoints(main, (j) => Boolean(s.curve || main[j]?.smooth)).map(px) : [];
-    const color = s.color || STROKE_COLOR[s.kind];
-    const w = (s.kind === 'block' ? 2.6 : 2.8) * k;
-    const endPts = mainPts.length >= 2 ? mainPts : motionPts;
-    const [a, b] = endPts.length >= 2 ? lastStep(endPts) : [null, null];
+    const motionF: Pt[] = m > 0 ? s.points.slice(0, m + 1) : [];
+    const mainRaw = s.points.slice(m);
+    const mainF: Pt[] = mainRaw.length >= 2 ? shapedPoints(mainRaw, (j) => Boolean(s.curve || mainRaw[j]?.smooth)) : [];
+    const motionLen = lengthOf(motionF);
+    const mainLen = lengthOf(mainF);
+    const reach = (motionLen + mainLen) * f;
+    // The arrowhead lands as the line gets there.
+    const head = linesSince === Infinity ? 1 : land((linesSince - order * STAGGER - GROW * 0.8) / 240);
+    const endLine = mainF.length >= 2 ? mainF : motionF;
+    const end = endLine[endLine.length - 1];
+    const from = endLine.length >= 2 ? pointBack(endLine, 1.2) : end;
+    const glow: React.ReactNode[] = [];
+    const body: React.ReactNode[] = [];
+
+    // Man coverage: dots to the receiver and a ring around him.
+    if (s.man && mainF.length >= 2) {
+      const dots = polyline(cutLine(mainF, mainLen * f).map(px));
+      body.push(
+        <path key="w" d={dots} fill="none" stroke="#ffffff" strokeOpacity="0.85" strokeWidth={5.5 * k} strokeLinecap="round" strokeDasharray={`0.1 ${7 * k}`} />,
+        <path key="c" d={dots} fill="none" stroke={color} strokeWidth={3.2 * k} strokeLinecap="round" strokeDasharray={`0.1 ${7 * k}`} />
+      );
+      if (f >= 1) body.push(<path key="r" d={polygon(circleOnField(s.man, 1.1 * head).map(px))} fill={color} fillOpacity="0.12" stroke={color} strokeWidth={2.4 * k} />);
+      bodies.push(<g key={order} opacity={op}>{body}</g>);
+      return;
+    }
+    // A zone: its area around the end of the line, laid on the field.
     const last = s.points[s.points.length - 1];
-    // A zone: an oval of the drawn size around the end of the line, laid on the field.
-    const zone =
-      s.zone && last
-        ? pathOf(Array.from({ length: 33 }, (_, j) => px({ x: last.x + s.zone!.rx * Math.cos((j / 32) * 2 * Math.PI), y: last.y + s.zone!.ry * Math.sin((j / 32) * 2 * Math.PI) }))) + 'Z'
-        : '';
-    if (s.man && mainPts.length >= 2) {
-      const [mx, my] = px(s.man);
-      return (
-        <g key={i}>
-          <circle cx={mx} cy={my} r={17 * k} fill="none" stroke={color} strokeWidth={2.2 * k} />
-          <path d={pathOf(mainPts)} fill="none" stroke={color} strokeWidth={2.6 * k} strokeLinecap="round" strokeDasharray={`${0.1 * k} ${6 * k}`} />
+    if (s.zone && last && f >= 1) {
+      const zf = head;
+      const area = polygon(Array.from({ length: 36 }, (_, j) => px({ x: last.x + s.zone!.rx * zf * Math.cos((j / 36) * 2 * Math.PI), y: last.y + s.zone!.ry * zf * Math.sin((j / 36) * 2 * Math.PI) })));
+      body.push(<path key="z" d={area} fill={color} fillOpacity="0.16" stroke={color} strokeOpacity="0.7" strokeWidth={1.6 * k} strokeDasharray={`${6 * k} ${4 * k}`} />);
+    }
+    // Pre-snap motion: a zigzag.
+    if (motionF.length >= 2) {
+      const cut = cutLine(motionF, Math.min(motionLen, reach));
+      if (lengthOf(cut) > 0.05) {
+        const zig = lay(zigzagLine(cut, 0.32, 1.1), HALF.motion);
+        glow.push(<path key="m" d={ribbon(zig.pts, zig.half.map((h) => h * 2.2 + 2 * k))} fill={FILM_COLOR.motion} />);
+        body.push(
+          <path key="me" d={ribbon(zig.pts, zig.half.map((h) => h + 1.2 * k))} fill="#ffffff" fillOpacity="0.9" />,
+          <path key="mc" d={ribbon(zig.pts, zig.half)} fill={FILM_COLOR.motion} />
+        );
+      }
+    }
+    // The route, run or block: under its arrowhead, the line stops inside it.
+    const mainReach = Math.max(0, reach - motionLen);
+    if (mainF.length >= 2 && mainReach > 0.02) {
+      const tuck = block || f < 1 ? 0 : ARROW * 0.55 * head;
+      const cut = cutLine(mainF, Math.max(0.02, Math.min(mainLen, mainReach) - tuck));
+      const line = lay(cut, W);
+      glow.push(<path key="g" d={ribbon(line.pts, line.half.map((h) => h * 2.4 + 2 * k))} fill={color} />);
+      if (s.kind === 'pass') {
+        // A route: dashes over a faint line of its whole path.
+        body.push(<path key="p" d={ribbon(line.pts, line.half.map((h) => h * 0.55))} fill={color} fillOpacity="0.45" />);
+        dashLine(cut, 0.95, 0.55).forEach((d, j) => {
+          const dash = lay(d, W);
+          body.push(
+            <path key={`de${j}`} d={ribbon(dash.pts, dash.half.map((h) => h + 1.2 * k), true)} fill="#ffffff" fillOpacity="0.92" />,
+            <path key={`dc${j}`} d={ribbon(dash.pts, dash.half, true)} fill={color} />
+          );
+        });
+      } else {
+        body.push(
+          <path key="e" d={ribbon(line.pts, line.half.map((h) => h + 1.3 * k))} fill="#ffffff" fillOpacity="0.92" />,
+          <path key="c" d={ribbon(line.pts, line.half)} fill={color} />
+        );
+      }
+    }
+    // The end: a T for a block, else an arrowhead lying on the field.
+    if (f >= 1 && head > 0 && end && endLine.length >= 2) {
+      if (block && mainF.length >= 2) {
+        const t = lay(tOnField(end, from, 0.6 * head), W);
+        glow.push(<path key="tg" d={ribbon(t.pts, t.half.map((h) => h * 2.4 + 2 * k), true)} fill={color} />);
+        body.push(
+          <path key="te" d={ribbon(t.pts, t.half.map((h) => h + 1.3 * k), true)} fill="#ffffff" fillOpacity="0.92" />,
+          <path key="tc" d={ribbon(t.pts, t.half, true)} fill={color} />
+        );
+      } else {
+        const tip = polygon(arrowOnField(end, from, ARROW * head, 0.48 * head).map(px));
+        const ink = mainF.length >= 2 ? color : FILM_COLOR.motion;
+        glow.push(<path key="ag" d={tip} fill={ink} stroke={ink} strokeWidth={6 * k} strokeLinejoin="round" />);
+        body.push(<path key="a" d={tip} fill={ink} stroke="#ffffff" strokeOpacity="0.92" strokeWidth={1.4 * k} strokeLinejoin="round" />);
+      }
+    }
+    // Drawn: a light runs along each route and run, the way the player goes.
+    if (settled && op === 1 && !reduce && (s.kind === 'run' || s.kind === 'pass') && mainF.length >= 2) {
+      const c = densify(cutLine(mainF, Math.max(0.05, mainLen - ARROW * 0.55)), 0.75).map(px);
+      let len = 0;
+      for (let i = 1; i < c.length; i++) len += gap(c[i - 1], c[i]);
+      const dash = Math.min(26 * k, len * 0.3);
+      if (len > 8)
+        body.push(
+          <path key="run" d={polyline(c)} fill="none" stroke="#ffffff" strokeOpacity="0.9" strokeWidth={2.6 * k} strokeLinecap="round" strokeDasharray={`${dash.toFixed(1)} ${(len + dash).toFixed(1)}`} strokeDashoffset={dash.toFixed(1)}>
+            <animate attributeName="stroke-dashoffset" values={`${dash.toFixed(1)};${(-len).toFixed(1)}`} dur={`${Math.max(1.2, len / 240).toFixed(2)}s`} begin={`${((order * 0.35) % 2.5).toFixed(2)}s`} repeatCount="indefinite" />
+          </path>
+        );
+    }
+    glows.push(<g key={order} opacity={op}>{glow}</g>);
+    bodies.push(<g key={order} opacity={op}>{body}</g>);
+  });
+
+  // A pass to the ball carrier: the ball's flight, an arc from the QB to the catch, after the routes are drawn.
+  const thrown = showing(false) && !moving && (showLines || focus === lines.ballRole) ? passThrow(lines.nodes, lines.strokes, lines.ballRole) : null;
+  let throwArt: React.ReactNode = null;
+  if (thrown) {
+    const tf = linesSince === Infinity ? 1 : easeOut((linesSince - drawn.length * STAGGER - 150) / 600);
+    if (tf > 0) {
+      const a = px(thrown.from);
+      const b = px(thrown.to);
+      const lift = Math.min(110 * k, gap(a, b) * 0.32);
+      const arc: Px[] = Array.from({ length: 25 }, (_, i) => {
+        const t = (i / 24) * tf;
+        return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t - 4 * lift * t * (1 - t)] as const;
+      });
+      const d = polyline(arc);
+      const [e1, e0] = [arc[arc.length - 1], arc[arc.length - 2]];
+      const ang = (Math.atan2(e1[1] - e0[1], e1[0] - e0[0]) * 180) / Math.PI;
+      throwArt = (
+        <g opacity={focus !== null && focus !== lines.ballRole ? 0.3 : 1}>
+          <path d={d} fill="none" stroke="#ffffff" strokeOpacity="0.9" strokeWidth={5.2 * k} strokeLinecap="round" strokeDasharray={`0.1 ${7 * k}`} />
+          <path d={d} fill="none" stroke={THROW_COLOR} strokeWidth={3 * k} strokeLinecap="round" strokeDasharray={`0.1 ${7 * k}`} />
+          {tf >= 1 && <ellipse cx={b[0]} cy={b[1]} rx={7 * k} ry={4.3 * k} fill={THROW_COLOR} stroke="#ffffff" strokeWidth={1.5 * k} transform={`rotate(${ang.toFixed(1)} ${b[0].toFixed(1)} ${b[1].toFixed(1)})`} />}
         </g>
       );
     }
-    return (
-      <g key={i}>
-        {zone && <path d={zone} fill={color} fillOpacity="0.15" stroke={color} strokeOpacity="0.6" strokeWidth={1.2 * k} />}
-        {motionPts.length >= 2 && (
-          <>
-            {halo(zigzag(motionPts, 4 * k, 7 * k), 2.2 * k)}
-            <path d={zigzag(motionPts, 4 * k, 7 * k)} fill="none" stroke={MOTION_COLOR} strokeWidth={2.2 * k} strokeLinecap="round" strokeLinejoin="round" />
-          </>
-        )}
-        {mainPts.length >= 2 && (
-          <>
-            {halo(pathOf(mainPts), w)}
-            <path d={pathOf(mainPts)} fill="none" stroke={color} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={s.kind === 'pass' ? `${5 * k} ${4 * k}` : undefined} />
-          </>
-        )}
-        {a && b && (mainPts.length >= 2 && s.kind === 'block' ? (
-          <>
-            {halo(tBar(a, b, 7 * k), 2.4 * k)}
-            <path d={tBar(a, b, 7 * k)} stroke={color} strokeWidth={2.4 * k} strokeLinecap="round" />
-          </>
-        ) : (
-          <polygon points={arrowHead(a, b, 8 * k)} fill={mainPts.length >= 2 ? color : MOTION_COLOR} stroke="#ffffff" strokeOpacity="0.8" strokeWidth={1 * k} />
-        ))}
+  }
+
+  // The play running: a comet behind each player, wide at him and fading out behind.
+  const trails = (frame?.trails || [])
+    .filter((t) => t.points.length >= 2 && showing(isDefenseRole(t.role)))
+    .map((t, i) => {
+      const fp = densify(t.points, 0.5);
+      const sp = fp.map(px);
+      const n = sp.length;
+      if (n < 2) return null;
+      const half = fp.map((p, j) => halfAt(p, 0.17) * Math.pow(j / (n - 1), 0.8));
+      const ink = isDefenseRole(t.role) ? t.color : FILM_COLOR[t.kind] || t.color;
+      const id = `${uid}t${i}`;
+      return (
+        <g key={id} opacity={focus !== null && focus !== t.role ? 0.25 : 1}>
+          <defs>
+            <linearGradient id={id} gradientUnits="userSpaceOnUse" x1={sp[0][0]} y1={sp[0][1]} x2={sp[n - 1][0]} y2={sp[n - 1][1]}>
+              <stop offset="0" stopColor={ink} stopOpacity="0" />
+              <stop offset="0.55" stopColor={ink} stopOpacity="0.5" />
+              <stop offset="1" stopColor={ink} stopOpacity="0.95" />
+            </linearGradient>
+          </defs>
+          <path d={ribbon(sp, half, true)} fill={`url(#${id})`} />
+        </g>
+      );
+    });
+
+  // The ball while it runs: in the air it rises over its shadow.
+  let ballArt: React.ReactNode = null;
+  if (frame) {
+    const g = px(frame.ball);
+    const lift = frame.ball.inAir ? (frame.ball.air !== undefined ? Math.sin(Math.PI * frame.ball.air) * 3 : 0.35) * yardAt(frame.ball) : 0;
+    ballArt = (
+      <g pointerEvents="none">
+        <ellipse cx={g[0]} cy={g[1]} rx={5 * k} ry={2.4 * k} fill="#000000" opacity={lift ? 0.3 : 0.4} />
+        <g transform={`translate(${g[0].toFixed(1)} ${(g[1] - lift - 3 * k).toFixed(1)}) rotate(-25)`}>
+          <ellipse rx={6 * k} ry={3.6 * k} fill="#7c2d12" stroke="#ffffff" strokeWidth={1.3 * k} />
+          <path d={`M${(-2.4 * k).toFixed(1)} 0H${(2.4 * k).toFixed(1)}`} stroke="#ffffff" strokeWidth={1 * k} strokeLinecap="round" />
+        </g>
       </g>
     );
-  };
+  }
 
-  /** A player as the builder marks him: our defense a green box, the center a square, the rest circles. */
-  const nodeEl = (n: PlayNode) => {
-    const [cx, cy] = px(n);
-    const font = 'system-ui, -apple-system, sans-serif';
-    const custom = n.label?.trim();
-    const fit = (text: string, base: number, room: number) => Math.min(base, room / Math.max(1, text.length * 0.62));
-    if (isDefenseRole(n.role)) {
-      const text = shownText(n, diagramLabel(n.role));
-      const bw = Math.max(23, text.length * 7 + 8) * k;
-      return (
-        <g key={n.role}>
-          <rect x={cx - bw / 2} y={cy - 10.5 * k} width={bw} height={20 * k} rx={4 * k} fill={DEFENSE_COLOR} stroke="#ffffff" strokeWidth={1.8 * k} />
-          <text x={cx} y={cy + 3.6 * k} textAnchor="middle" fill="#ffffff" fontSize={10.5 * k} fontFamily={font} fontWeight={900}>
-            {text}
-          </text>
-        </g>
-      );
-    }
-    if (n.role === 'C') {
-      const text = custom || 'C';
-      const bw = Math.max(18, text.length * 6.5 + 6) * k;
-      return (
-        <g key={n.role}>
-          <rect x={cx - bw / 2} y={cy - 9 * k} width={bw} height={18 * k} rx={3 * k} fill="#ffffff" stroke="#0f172a" strokeWidth={2 * k} />
-          <text x={cx} y={cy + 4 * k} textAnchor="middle" fill="#0f172a" fontSize={10 * k} fontFamily={font} fontWeight={900}>
-            {text}
-          </text>
-        </g>
-      );
-    }
+  // The line of scrimmage (blue) and the line to gain (yellow), across the field like on TV; they sweep out from
+  // the middle when the picture stops on a play.
+  const toGo = situation?.toGo && situation.toGo > 0 && situation.toGo <= 30 ? situation.toGo : 0;
+  const sweep = layerSince === Infinity ? 1 : easeOut(layerSince / 650);
+  const across = (quad.halfWidth ?? 12) + 10;
+  const band = (y: number, yards: number) => {
+    const b = lay([{ x: -across * sweep, y }, { x: across * sweep, y }], yards);
+    return ribbon(b.pts, b.half);
+  };
+  let gainTag: React.ReactNode = null;
+  if (toGo && sweep >= 1) {
+    const text = (situation?.down && ORDINAL[situation.down] ? `${ORDINAL[situation.down]} & ${toGo}` : `${toGo} to go`).toUpperCase();
+    const at = px({ x: (quad.halfWidth ?? 12) - 1, y: toGo });
+    const tw = text.length * 6.6 * k + 14 * k;
+    const th = 17 * k;
+    const tx = Math.max(4, Math.min(cw - tw - 4, at[0] - tw / 2));
+    const ty = Math.max(4, Math.min(ch - th - 4, at[1] - th - 5 * k));
+    gainTag = (
+      <g pointerEvents="none">
+        <rect x={tx} y={ty} width={tw} height={th} rx={4 * k} fill="#facc15" stroke="#0f172a" strokeOpacity="0.5" strokeWidth={1 * k} />
+        <text x={tx + tw / 2} y={ty + th / 2 + 3.8 * k} textAnchor="middle" fontSize={10.5 * k} fontWeight={900} fill="#111827" fontFamily={FONT}>
+          {text}
+        </text>
+      </g>
+    );
+  }
+
+  /** A player: a ring at his feet (his color) with his tag under it; they land one by one when the picture stops. */
+  const playerArt = (n: PlayNode, i: number) => {
+    const def = isDefenseRole(n.role);
     const skill = skillDiagramLabel(n.role);
     const isBack = !skill && !(n.line || !/^[1-4]$/.test(n.role));
-    const isBall = (skill || isBack) && n.role === lines.ballRole;
-    const r = (skill || isBack ? 11 : 10) * k;
-    const text = custom || (skill ? skill : isBack ? diagramLabel(n.role) : n.role.replace(/^O_?/, '').slice(0, 2));
-    const size = fit(text, (skill ? 9 : isBack ? 12 : 7.5) * k, r * 2);
+    const lineman = !def && !skill && !isBack;
+    const carrier = !def && !lineman && n.role === lines.ballRole;
+    const focused = focus === n.role;
+    const pin = layerSince === Infinity ? 1 : land((layerSince - i * 22) / 380);
+    if (pin <= 0) return null;
+    const ring = circleOnField(n, (lineman ? 0.5 : 0.68) * pin).map(px);
+    const [cx, cy] = px(n);
+    const low = Math.max(...ring.map((q) => q[1]));
+    const tint = focused ? '#a5b4fc' : def ? '#4ade80' : carrier ? '#fb923c' : '#ffffff';
+    const chip = focused ? '#4f46e5' : def ? DEFENSE_COLOR : carrier ? '#ea580c' : '#ffffff';
+    const ink = focused || def || carrier ? '#ffffff' : '#0f172a';
+    const text = tagOf(n);
+    const fs = (lineman ? 8.5 : 10) * k;
+    const tw = Math.max(fs * 1.7, text.length * fs * 0.64 + 7 * k);
+    const th = fs + 5 * k;
+    const ty = low + 2.5 * k;
     return (
-      <g key={n.role}>
-        {isBall && <circle cx={cx} cy={cy} r={14 * k} fill="none" stroke="#fb923c" strokeWidth={2.5 * k} strokeOpacity="0.85" />}
-        <circle cx={cx} cy={cy} r={r} fill={isBall ? '#ea580c' : '#ffffff'} stroke={isBall ? '#ffffff' : '#0f172a'} strokeWidth={(isBall ? 2.4 : 1.8) * k} />
-        <text x={cx} y={cy + size * 0.36} textAnchor="middle" fill={isBall ? '#ffffff' : '#0f172a'} fontSize={size} fontFamily={font} fontWeight={900}>
+      <g key={n.role} opacity={(focus !== null && !focused ? 0.45 : 1) * clamp01(pin * 1.5)} {...grab(n)}>
+        {tapOK && <circle cx={cx} cy={cy} r={Math.max(touch ? 22 / z : 12 / z, (low - cy) * 1.3)} fill="transparent" />}
+        <path d={polygon(ring)} fill={tint} fillOpacity="0.22" stroke={tint} strokeWidth={(focused ? 3.2 : 2.2) * k} />
+        {(carrier || focused) && !reduce && (
+          <g transform={`translate(${cx.toFixed(1)} ${cy.toFixed(1)})`} pointerEvents="none">
+            <path d={polygon(ring.map(([x, y]) => [x - cx, y - cy] as const))} fill="none" stroke={tint} strokeWidth={2 * k}>
+              <animateTransform attributeName="transform" type="scale" values="1;2" dur="1.6s" repeatCount="indefinite" />
+              <animate attributeName="opacity" values="0.9;0" dur="1.6s" repeatCount="indefinite" />
+            </path>
+          </g>
+        )}
+        <rect x={cx - tw / 2} y={ty} width={tw} height={th} rx={th / 2} fill={chip} stroke="#0f172a" strokeOpacity={def || carrier || focused ? 0 : 0.55} strokeWidth={1 * k} />
+        <text x={cx} y={ty + th / 2 + fs * 0.36} textAnchor="middle" fill={ink} fontSize={fs} fontFamily={FONT} fontWeight={900}>
           {text}
         </text>
       </g>
@@ -720,6 +948,11 @@ const LinesDrawing: React.FC<{
           onPointerCancel={endDrag}
           {...(lineUp ? { onPointerDown: startDrag('all'), onClick: (e: React.MouseEvent) => e.stopPropagation(), style: { left, top, width: cw, height: ch, pointerEvents: 'auto' as const, cursor: 'move', touchAction: 'none' as const } } : {})}
         >
+          <defs>
+            <filter id={`${uid}glow`} x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation={(3.5 * k).toFixed(2)} />
+            </filter>
+          </defs>
           {lineUp &&
             buildProjectedFieldGrid(quad).map((g) => (
               <line
@@ -734,43 +967,23 @@ const LinesDrawing: React.FC<{
                 strokeDasharray={g.kind === 'los' ? undefined : `${4 / z} ${4 / z}`}
               />
             ))}
-          {/* The play's lines; faded while it runs, with each player's trail drawn on top. */}
-          {showLines && <g opacity={moving ? 0.35 : 1}>{shownStrokes.map(strokeEl)}</g>}
-          {/* A pass to the ball carrier: the ball's dotted line from the QB to the catch (the real ball flies when it runs). */}
-          {showLines && !moving && showing(false) && (() => {
-            const t = passThrow(lines.nodes, lines.strokes, lines.ballRole);
-            if (!t) return null;
-            const [ax, ay] = px(t.from);
-            const [bx, by] = px(t.to);
-            const ang = (Math.atan2(by - ay, bx - ax) * 180) / Math.PI;
-            return (
-              <g>
-                <path d={`M${ax} ${ay}L${bx} ${by}`} stroke="#ffffff" strokeOpacity="0.85" strokeWidth={5 * k} strokeLinecap="round" strokeDasharray={`${0.1 * k} ${6 * k}`} />
-                <path d={`M${ax} ${ay}L${bx} ${by}`} stroke={THROW_COLOR} strokeWidth={2.6 * k} strokeLinecap="round" strokeDasharray={`${0.1 * k} ${6 * k}`} />
-                <ellipse cx={bx} cy={by} rx={7.5 * k} ry={4.6 * k} fill={THROW_COLOR} stroke="#ffffff" strokeWidth={1.5 * k} transform={`rotate(${ang} ${bx} ${by})`} />
-              </g>
-            );
-          })()}
-          {frame?.trails
-            .filter((t) => t.points.length >= 2 && showing(isDefenseRole(t.role)))
-            .map((t, i) => {
-              const pts = t.points.map(px);
-              const [a, b] = lastStep(pts);
-              return (
-                <g key={`t${i}`}>
-                  {halo(pathOf(pts), 2.8 * k)}
-                  <path d={pathOf(pts)} fill="none" stroke={t.color} strokeWidth={2.8 * k} strokeLinecap="round" strokeLinejoin="round" />
-                  <polygon points={arrowHead(a, b, 8 * k)} fill={t.color} />
-                </g>
-              );
-            })}
-          {shownNodes.map((n) => (
-            <g key={n.role} {...grab(n)}>
-              {canMove && touch && <circle cx={px(n)[0]} cy={px(n)[1]} r={22 / z} fill="transparent" />}
-              {nodeEl(n)}
+          {!lineUp && sweep > 0 && (
+            <g pointerEvents="none">
+              <path d={band(0, 0.17)} fill="#38bdf8" fillOpacity="0.55" />
+              {toGo > 0 && <path d={band(toGo, 0.19)} fill="#facc15" fillOpacity="0.8" />}
+              {gainTag}
             </g>
-          ))}
-          {frame && <circle cx={px(frame.ball)[0]} cy={px(frame.ball)[1]} r={5 * k} fill="#92400e" stroke="#fff" strokeWidth={1.5 * k} />}
+          )}
+          {glows.length > 0 && (
+            <g filter={`url(#${uid}glow)`} opacity="0.6" pointerEvents="none">
+              {glows}
+            </g>
+          )}
+          <g pointerEvents="none">{bodies}</g>
+          {throwArt}
+          <g pointerEvents="none">{trails}</g>
+          {shownNodes.map(playerArt)}
+          {ballArt}
           {lineUp && (
             <>
               {corners && CORNERS.map(({ key, color }) => (

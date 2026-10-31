@@ -165,6 +165,8 @@ interface Props {
   bare?: boolean;
   /** Nothing on the field moves under a finger (presenting full screen: a swipe changes the play, a pencil draws over it). */
   locked?: boolean;
+  /** Presenting: any scroll (a mouse wheel, two fingers on a trackpad) or a pinch zooms in on that spot, up to 4×; zoomed in, dragging moves around. */
+  presentZoom?: boolean;
   coachNote: string;
   onCoachNote: (v: string) => void;
   onMove: (role: string, x: number, y: number) => void;
@@ -222,6 +224,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   tools = true,
   bare = false,
   locked = false,
+  presentZoom = false,
   coachNote,
   onCoachNote,
   onMove,
@@ -322,6 +325,14 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     if (!svg) return;
     let last = 0;
     const onWheel = (e: WheelEvent) => {
+      // Presenting: any scroll zooms in on the spot under the pointer, smoothly (a mouse wheel, or two fingers on a
+      // trackpad; a trackpad's pinch comes as a scroll with Ctrl, in smaller steps).
+      if (presentZoomRef.current) {
+        e.preventDefault();
+        const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+        zoomAtRef.current(Math.exp(-Math.max(-120, Math.min(120, dy)) * (e.ctrlKey ? 0.012 : 0.003)), clientToSvg(svg, e.clientX, e.clientY));
+        return;
+      }
       if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
       // One step per gesture burst, so a pinch doesn't race through every level.
@@ -349,9 +360,10 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   const [zoom, setZoom] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 640 ? 1.25 : 1));
   const [center, setCenter] = useState(ZOOM_HOME);
   const zoomBy = (dir: 1 | -1, at?: { cx: number; cy: number }) => {
+    // Zoomed in past the steps (presenting): one step out goes back to the last of them.
     const i = ZOOM_LEVELS.findIndex((z) => z >= zoom - 0.001);
-    const next = ZOOM_LEVELS[Math.max(0, Math.min(ZOOM_LEVELS.length - 1, i + dir))];
-    if (next === zoom) return;
+    const next = ZOOM_LEVELS[Math.max(0, Math.min(ZOOM_LEVELS.length - 1, (i < 0 ? ZOOM_LEVELS.length : i) + dir))];
+    if (next === zoom || (dir > 0 && next < zoom)) return;
     // Zooming at a point keeps that point under the pointer.
     if (at) {
       const v = zoomView(zoom, center, FIELD_SVG.w, FIELD_SVG.h);
@@ -365,6 +377,72 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   };
   const zoomRef = useRef(zoomBy);
   zoomRef.current = zoomBy;
+  // The view as it is right now (a burst of scrolling lands before the next draw).
+  const viewRef = useRef({ zoom, center });
+  viewRef.current = { zoom, center };
+  /** Presenting: zoom by `factor` keeping `at` (picture units) under the pointer, from the whole field to 4×. */
+  const zoomAt = (factor: number, at: { cx: number; cy: number }) => {
+    const { zoom: z0, center: c0 } = viewRef.current;
+    let next = Math.min(4, Math.max(1, z0 * factor));
+    if (next < 1.02) next = 1;
+    if (Math.abs(next - z0) < 0.0005) return;
+    const v = zoomView(z0, c0, FIELD_SVG.w, FIELD_SVG.h);
+    const fx = (at.cx - v.x) / v.vw;
+    const fy = (at.cy - v.y) / v.vh;
+    const nw = FIELD_SVG.w / next;
+    const nh = FIELD_SVG.h / next;
+    const c = {
+      cx: Math.max(nw / 2, Math.min(FIELD_SVG.w - nw / 2, at.cx - fx * nw + nw / 2)),
+      cy: Math.max(nh / 2, Math.min(FIELD_SVG.h - nh / 2, at.cy - fy * nh + nh / 2)),
+    };
+    viewRef.current = { zoom: next, center: c };
+    setZoom(next);
+    setCenter(c);
+  };
+  const zoomAtRef = useRef(zoomAt);
+  zoomAtRef.current = zoomAt;
+  const presentZoomRef = useRef(presentZoom);
+  presentZoomRef.current = presentZoom;
+  // A pinch (Safari: on the screen or a trackpad, like the Magic Keyboard's) zooms in on the middle of the fingers.
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    let start = 0;
+    type Gesture = Event & { scale?: number; clientX?: number; clientY?: number };
+    const spot = (g: Gesture) => {
+      const r = svg.getBoundingClientRect();
+      return clientToSvg(svg, Number.isFinite(g.clientX) ? g.clientX! : r.left + r.width / 2, Number.isFinite(g.clientY) ? g.clientY! : r.top + r.height / 2);
+    };
+    const onStart = (e: Event) => {
+      if (!presentZoomRef.current) return;
+      e.preventDefault();
+      start = viewRef.current.zoom;
+    };
+    const onChange = (e: Event) => {
+      if (!presentZoomRef.current || !start) return;
+      e.preventDefault();
+      const g = e as Gesture;
+      zoomAtRef.current((start * (g.scale || 1)) / viewRef.current.zoom, spot(g));
+    };
+    const onEnd = (e: Event) => {
+      if (!start) return;
+      e.preventDefault();
+      start = 0;
+    };
+    svg.addEventListener('gesturestart', onStart);
+    svg.addEventListener('gesturechange', onChange);
+    svg.addEventListener('gestureend', onEnd);
+    return () => {
+      svg.removeEventListener('gesturestart', onStart);
+      svg.removeEventListener('gesturechange', onChange);
+      svg.removeEventListener('gestureend', onEnd);
+    };
+  }, []);
+  const wholeField = () => {
+    viewRef.current = { zoom: 1, center: ZOOM_HOME };
+    setZoom(1);
+    setCenter(ZOOM_HOME);
+  };
   const [selected, setSelected] = useState<number | null>(null);
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const selectedPlayer = selectedRole ? nodes.find((n) => n.role === selectedRole) || null : null;
@@ -550,7 +628,16 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
 
   const onPointerDown = (e: React.PointerEvent) => {
     const svg = svgRef.current;
-    if (!svg || locked) return;
+    if (!svg) return;
+    if (locked) {
+      // Nothing moves; zoomed in, one finger (or the mouse) drags the view around. A second finger is a pinch.
+      if (viewRef.current.zoom > 1 && e.isPrimary) {
+        svg.setPointerCapture(e.pointerId);
+        const v = zoomView(zoom, center, w, h);
+        drag.current = { mode: 'pan', clientX: e.clientX, clientY: e.clientY, from: { cx: v.x + v.vw / 2, cy: v.y + v.vh / 2 } };
+      } else drag.current = null;
+      return;
+    }
     svg.setPointerCapture(e.pointerId);
     const p = pointFromEvent(e);
     if (tool === 'move') {
@@ -769,7 +856,11 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   };
 
   const onDoubleClick = (e: React.MouseEvent) => {
-    if (locked) return;
+    // Presenting full screen: a double tap goes back to the whole field.
+    if (locked) {
+      if (zoom > 1) wholeField();
+      return;
+    }
     if (tool !== 'move') {
       finishLine();
       return;
@@ -1103,6 +1194,18 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           )}
         </div>
         )}
+        {bare && zoom > 1 && (
+          // Full screen, zoomed in: how far, and back to the whole field.
+          <button
+            type="button"
+            data-stage-ui
+            onClick={wholeField}
+            title="Back to the whole field (or double-tap the field)"
+            className="absolute left-3 bottom-3 z-10 h-10 px-3 rounded-xl inline-flex items-center gap-1.5 text-sm font-black text-white bg-slate-950/75 backdrop-blur-md ring-1 ring-white/15 shadow-2xl cursor-pointer"
+          >
+            {zoom.toFixed(1)}× <span className="font-bold text-white/70">· Whole field</span>
+          </button>
+        )}
         {chrome === 'full' && (
         <input
           value={coachNote}
@@ -1119,6 +1222,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             return `${v.x} ${v.y} ${v.vw} ${v.vh}`;
           })()}
           className={`bg-[#f0f0f0] touch-none select-none ${dense ? 'max-h-64 w-auto max-w-full mx-auto' : 'w-full h-auto'} ${tool === 'move' ? (zoom > 1 ? 'cursor-grab' : 'cursor-default') : 'cursor-crosshair'}`}
+          data-zoomed={zoom > 1 ? '' : undefined}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}

@@ -13,7 +13,8 @@ export interface AnimatedPlayFrame {
   phaseLabel: string;
   nodes: PlayNode[];
   trails: AnimatedTrail[];
-  ball: { x: number; y: number; inAir: boolean };
+  /** `air`: a thrown ball, how far through its flight it is (0 to 1). */
+  ball: { x: number; y: number; inAir: boolean; air?: number };
 }
 
 /** The offensive line. */
@@ -406,7 +407,7 @@ export function computeAnimatedPlayFrame(
   const qbNow = animatedPos.get(qbNode.role) || { x: qbNode.x, y: qbNode.y };
   const carrierNow = animatedPos.get(ballRole) || qbNow;
 
-  let ball = { x: centerNode.x, y: centerNode.y, inAir: false };
+  let ball: AnimatedPlayFrame['ball'] = { x: centerNode.x, y: centerNode.y, inAir: false };
   if (postSnapT <= 0) {
     ball = { x: centerNode.x, y: centerNode.y, inAir: false };
   } else if (postSnapT < 0.12) {
@@ -446,6 +447,7 @@ export function computeAnimatedPlayFrame(
         x: qbNow.x + (targetPos.x - qbNow.x) * airT,
         y: qbNow.y + (targetPos.y - qbNow.y) * airT,
         inAir: true,
+        air: airT,
       };
     } else {
       ball = { x: targetPos.x, y: targetPos.y, inAir: false };
@@ -551,6 +553,7 @@ export function computeAnimatedPlayFrame(
       x: Math.round(ball.x * 100) / 100,
       y: Math.round(ball.y * 100) / 100,
       inAir: ball.inAir,
+      ...(ball.air !== undefined ? { air: Math.round(ball.air * 1000) / 1000 } : {}),
     },
   };
 }

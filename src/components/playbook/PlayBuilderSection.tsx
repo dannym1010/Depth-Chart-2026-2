@@ -1730,6 +1730,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               tools={!fieldOnly}
               bare={staged}
               locked={staged}
+              presentZoom={Boolean(present)}
               chrome="minimal"
               assignmentHost={host}
               onSelectPlayer={(n) => {
