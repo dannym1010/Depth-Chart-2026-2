@@ -7,6 +7,7 @@ import type { ScoutOppPlay } from '../../utils/scoutOppPlays';
 import { DiagramImage } from '../playbook/DiagramImage';
 import { PresentStageContext } from './presentStage';
 import { INK_COLORS, StageInk, type InkApi, type InkMode } from './StageInk';
+import { useWakeLock } from '../../utils/wakeLock';
 
 /** One play on the scout script, and what opens it (the play, and the plays combined with it on the script). */
 export interface ScoutShowLine {
@@ -198,32 +199,8 @@ export const ScoutPresentation: React.FC<{
       document.removeEventListener('webkitfullscreenchange', onChange);
     };
   }, [full, leaveFull]);
-  // The iPad stays awake while the team watches (asked again after it comes back from the background).
-  useEffect(() => {
-    if (!full) return;
-    type Lock = { release: () => Promise<void> };
-    const wakeLock = (navigator as Navigator & { wakeLock?: { request: (type: 'screen') => Promise<Lock> } }).wakeLock;
-    if (!wakeLock) return;
-    let lock: Lock | null = null;
-    let done = false;
-    const ask = () => {
-      if (document.visibilityState !== 'visible') return;
-      wakeLock
-        .request('screen')
-        .then((l) => {
-          if (done) void l.release().catch(() => undefined);
-          else lock = l;
-        })
-        .catch(() => undefined);
-    };
-    ask();
-    document.addEventListener('visibilitychange', ask);
-    return () => {
-      done = true;
-      document.removeEventListener('visibilitychange', ask);
-      void lock?.release().catch(() => undefined);
-    };
-  }, [full]);
+  // The iPad stays awake while the team watches.
+  useWakeLock(full);
   useEffect(() => {
     if (!hint) return;
     const t = window.setTimeout(() => setHint(''), 5500);

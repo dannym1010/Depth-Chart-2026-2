@@ -2,7 +2,8 @@
 // the video, and the pocket stopwatch (snap -> release). Keyboard: space play, ← → frame,
 // ↑ ↓ previous / next play, L loop, D draw, S stopwatch, M mute, F full screen.
 // Mouse / touch on the video: click or tap plays / pauses, scroll or pinch zooms, drag moves a zoomed-in
-// picture, double-click (double-tap) is full screen.
+// picture, double-click (double-tap) is full screen. Apple Pencil draws on it. Full screen is the film edge to edge
+// on black, its controls fading away while nobody touches the screen.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronLeft, ChevronRight, Circle, Download, Eye, Maximize, Mic, MoveUpRight, Pause, Pencil, Pin, Play, Repeat, Route, SkipBack, SkipForward,
@@ -12,12 +13,15 @@ import { drawMarksOnCanvas, MARK_COLORS, Telestration } from './Telestration';
 import { findSnapWithCamera, frameChange } from './snapFinder';
 import type { FilmMark } from './types';
 import type { PlayLinesControl } from './PlayLinesOverlay';
+import { INK_COLORS, StageInk, type InkApi, type InkMode } from '../components/scouting/StageInk';
+import { useWakeLock } from '../utils/wakeLock';
 
 // Cache detected snap timestamps by clip URL so Fast Cutup mode is instant on revisit.
 const snapTimeCache = new Map<string, number>();
 
 const FRAME = 1 / 30;
 const SPEEDS = [0.25, 0.5, 1, 2];
+const FULL_HINT_KEY = 'footballFilmFullHint';
 
 export interface PlayerApi {
   time: () => number;
@@ -99,7 +103,10 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [drawing, setDrawing] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  // Full screen: the browser's, or the page's own where the browser can't (the iPad's Home Screen app, an iPhone).
+  const [browserFull, setBrowserFull] = useState(false);
+  const [ownFull, setOwnFull] = useState(false);
+  const isFullscreen = browserFull || ownFull;
   const [muted, setMuted] = useState(() => {
     try {
       return localStorage.getItem('footballFilmroomMuted') === '1';
@@ -122,10 +129,71 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     if (videoRef.current) videoRef.current.muted = muted;
   }, [muted, src]);
   useEffect(() => {
-    const onChange = () => setIsFullscreen(document.fullscreenElement === rootRef.current);
+    const onChange = () => {
+      const d = document as Document & { webkitFullscreenElement?: Element | null };
+      setBrowserFull((d.fullscreenElement || d.webkitFullscreenElement) === rootRef.current);
+    };
     document.addEventListener('fullscreenchange', onChange);
-    return () => document.removeEventListener('fullscreenchange', onChange);
+    document.addEventListener('webkitfullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      document.removeEventListener('webkitfullscreenchange', onChange);
+    };
   }, []);
+  // Full screen, like presentation's: the controls and the title fade away while nobody touches the screen (a tap, the
+  // mouse or a key brings them back), the screen stays awake, and how it works shows once on each device.
+  const [awake, setAwake] = useState(true);
+  const hideTimer = useRef(0);
+  const poke = useCallback(() => {
+    setAwake(true);
+    window.clearTimeout(hideTimer.current);
+    hideTimer.current = window.setTimeout(() => setAwake(false), 3200);
+  }, []);
+  useEffect(() => () => window.clearTimeout(hideTimer.current), []);
+  // In full screen, and each new play (its name shows for a moment).
+  useEffect(() => {
+    if (isFullscreen) poke();
+    else {
+      window.clearTimeout(hideTimer.current);
+      setAwake(true);
+    }
+  }, [isFullscreen, title, poke]);
+  useWakeLock(isFullscreen);
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      poke();
+      if (e.key === 'Escape' && ownFull) setOwnFull(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isFullscreen, ownFull, poke]);
+  const [hint, setHint] = useState('');
+  useEffect(() => {
+    if (!isFullscreen || stage) return setHint('');
+    try {
+      if (localStorage.getItem(FULL_HINT_KEY) === '1') return;
+      localStorage.setItem(FULL_HINT_KEY, '1');
+    } catch {
+      return;
+    }
+    setHint(
+      window.matchMedia?.('(pointer: coarse)').matches
+        ? 'Tap the film to play or pause and to bring back the controls · Swipe for the next play · Draw on it with Apple Pencil'
+        : 'Space plays · ← → a frame · ↑ ↓ the play · Esc leaves full screen'
+    );
+    const t = window.setTimeout(() => setHint(''), 6000);
+    return () => window.clearTimeout(t);
+  }, [isFullscreen, stage]);
+
+  // Apple Pencil draws on the film (Draw's tools aside): a pen line that stays until the next play, or a laser that
+  // fades. A finger still plays, swipes and zooms.
+  const [inkColor, setInkColor] = useState(INK_COLORS[0]);
+  const [inkMode, setInkMode] = useState<InkMode>('pen');
+  const [inkCount, setInkCount] = useState(0);
+  const ink = useRef<InkApi | null>(null);
+  const inking = useRef<number | null>(null);
+  useEffect(() => ink.current?.clear(), [src]);
   // The video keeps 16:9 and never grows taller than allowed. In full screen it fills the screen
   // (the controls sit on top of it).
   const videoHeight = isFullscreen ? '100dvh' : maxVideoHeight;
@@ -553,12 +621,30 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     };
   }, [src, recording]);
 
+  const ownFullRef = useRef(ownFull);
+  ownFullRef.current = ownFull;
   const fullscreen = useCallback(() => {
-    const el = rootRef.current as any;
+    const el = rootRef.current as (HTMLDivElement & { webkitRequestFullscreen?: () => Promise<void> | void }) | null;
     if (!el) return;
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => undefined);
-    else if (el.requestFullscreen || el.webkitRequestFullscreen) (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
-    else (videoRef.current as any)?.webkitEnterFullscreen?.();
+    const d = document as Document & { webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => Promise<void> | void };
+    if (d.fullscreenElement || d.webkitFullscreenElement) {
+      try {
+        void Promise.resolve((d.exitFullscreen || d.webkitExitFullscreen)?.call(d)).catch(() => undefined);
+      } catch {
+        /* already out */
+      }
+      return;
+    }
+    if (ownFullRef.current) return setOwnFull(false);
+    // The page's own full screen where the browser can't: the film keeps its lines, the ink and these controls (the
+    // phone's own video player has none of them).
+    const ask = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!ask) return setOwnFull(true);
+    try {
+      void Promise.resolve(ask.call(el)).catch(() => setOwnFull(true));
+    } catch {
+      setOwnFull(true);
+    }
   }, []);
 
   view.current = { zoom, pan };
@@ -766,8 +852,48 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   // Presenting (fitting), they have a bar of their own along the bottom (fitBar).
   const fitting = fit && !isFullscreen;
   const overlay = isFullscreen ? 'absolute inset-x-0 bottom-0' : 'sm:absolute sm:inset-x-0 sm:bottom-0';
-  // Presentation's full screen with the coach not touching the screen: the controls and the title fade away.
-  const tucked = stage && controlsHidden && !drawing && !recording;
+  // Full screen (and presentation's) with nobody touching the screen: the controls and the title fade away.
+  const tucked = ((stage && controlsHidden) || (isFullscreen && !awake)) && !drawing && !recording;
+
+  // The pencil on the film: taken before the play lines' players or a tap on the film get it.
+  const penDown = (e: React.PointerEvent) => {
+    if (stage || drawing || e.pointerType !== 'pen' || (e.target as HTMLElement).closest('button, input, a, [data-ink-ui]')) return;
+    e.stopPropagation();
+    e.preventDefault();
+    try {
+      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    } catch {
+      /* a pointer the browser no longer tracks */
+    }
+    inking.current = e.pointerId;
+    ink.current?.start(e.nativeEvent);
+  };
+  const penMove = (e: React.PointerEvent) => {
+    if (inking.current !== e.pointerId) return;
+    e.stopPropagation();
+    ink.current?.move(e.nativeEvent);
+  };
+  const penUp = (e: React.PointerEvent) => {
+    if (inking.current !== e.pointerId) return;
+    e.stopPropagation();
+    inking.current = null;
+    ink.current?.end();
+  };
+  // The pencil doesn't scroll the page while it draws (a finger still does).
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el || stage) return;
+    const onTouch = (e: TouchEvent) => {
+      if (drawing) return;
+      if ([...e.changedTouches].some((t) => (t as Touch & { touchType?: string }).touchType === 'stylus')) e.preventDefault();
+    };
+    el.addEventListener('touchstart', onTouch, { passive: false });
+    el.addEventListener('touchmove', onTouch, { passive: false });
+    return () => {
+      el.removeEventListener('touchstart', onTouch);
+      el.removeEventListener('touchmove', onTouch);
+    };
+  }, [stage, drawing]);
 
   const tools = (
     <>
@@ -882,6 +1008,43 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     </div>
   );
 
+  // In the bottom right corner of either bar: the frame steps around play / pause, then the speed.
+  const transport = (speeds: number[]) => (
+    <>
+      <button className={idle} onClick={() => step(-1)} disabled={!src} title="Back one frame (←)" aria-label="Back one frame"><ChevronLeft size={18} /></button>
+      <button
+        className="inline-flex items-center justify-center h-11 w-11 rounded-full shadow-lg hover:opacity-85 disabled:opacity-40"
+        style={{ background: '#fff', color: '#0f172a' }}
+        onClick={togglePlay}
+        disabled={!src}
+        title="Play / pause (space, or tap the film)"
+        aria-label={playing ? 'Pause' : 'Play'}
+      >
+        {playing ? <Pause size={20} /> : <Play size={20} className="translate-x-px" />}
+      </button>
+      <button className={idle} onClick={() => step(1)} disabled={!src} title="Forward one frame (→)" aria-label="Forward one frame"><ChevronRight size={18} /></button>
+      <div role="group" aria-label="Speed" className="ml-1 inline-flex items-center gap-0.5 p-0.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.1)' }}>
+        {speeds.map((sp) => (
+          <button
+            key={sp}
+            className={`h-8 pointer-coarse:h-9 min-w-8 px-1.5 rounded-md text-xs font-black transition-colors ${speed === sp ? '' : 'hover:bg-white/10'}`}
+            style={speed === sp ? { background: '#fff', color: '#0f172a' } : undefined}
+            onClick={() => setSpeed(sp)}
+            aria-pressed={speed === sp}
+            title={`${sp}× speed`}
+          >
+            {sp === 0.25 ? '¼' : sp === 0.5 ? '½' : sp}×
+          </button>
+        ))}
+      </div>
+    </>
+  );
+  const fullButton = (
+    <button className={idle} onClick={fullscreen} title={isFullscreen ? 'Leave full screen (F or Esc)' : 'Full screen (F, or double-click the film)'} aria-label={isFullscreen ? 'Leave full screen' : 'Full screen'}>
+      <Maximize size={16} />
+    </button>
+  );
+
   // Presenting: one bar along the bottom. The play's lines and its other snaps on the left, the timeline, and in the
   // bottom right corner the frame steps around play / pause, then the speed. Full screen it sits over the bottom of
   // the film and fades away while the coach isn't touching the screen.
@@ -944,37 +1107,8 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
         <span>{fmtTime(duration)}</span>
       </div>
       <div className="ml-auto flex items-center gap-1">
-        <button className={idle} onClick={() => step(-1)} disabled={!src} title="Back one frame (←)" aria-label="Back one frame"><ChevronLeft size={18} /></button>
-        <button
-          className="inline-flex items-center justify-center h-11 w-11 rounded-full shadow-lg hover:opacity-85 disabled:opacity-40"
-          style={{ background: '#fff', color: '#0f172a' }}
-          onClick={togglePlay}
-          disabled={!src}
-          title="Play / pause (space, or tap the film)"
-          aria-label={playing ? 'Pause' : 'Play'}
-        >
-          {playing ? <Pause size={20} /> : <Play size={20} className="translate-x-px" />}
-        </button>
-        <button className={idle} onClick={() => step(1)} disabled={!src} title="Forward one frame (→)" aria-label="Forward one frame"><ChevronRight size={18} /></button>
-        <div role="group" aria-label="Speed" className="ml-1 inline-flex items-center gap-0.5 p-0.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.1)' }}>
-          {[0.25, 0.5, 1].map((sp) => (
-            <button
-              key={sp}
-              className={`h-8 pointer-coarse:h-9 min-w-8 px-1.5 rounded-md text-xs font-black transition-colors ${speed === sp ? '' : 'hover:bg-white/10'}`}
-              style={speed === sp ? { background: '#fff', color: '#0f172a' } : undefined}
-              onClick={() => setSpeed(sp)}
-              aria-pressed={speed === sp}
-              title={`${sp}× speed`}
-            >
-              {sp === 0.25 ? '¼' : sp === 0.5 ? '½' : '1'}×
-            </button>
-          ))}
-        </div>
-        {!stage && (
-          <button className={idle} onClick={fullscreen} title="Full screen (F, or double-click the film)" aria-label="Full screen">
-            <Maximize size={16} />
-          </button>
-        )}
+        {transport([0.25, 0.5, 1])}
+        {!stage && fullButton}
       </div>
     </div>
   );
@@ -983,8 +1117,10 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     <div
       ref={rootRef}
       data-film-area
-      className={`relative flex flex-col ${stage ? '' : 'rounded-xl'} overflow-hidden select-none [&:fullscreen]:rounded-none [&:fullscreen]:justify-center ${fit ? 'flex-1 min-h-0' : ''}`}
-      style={{ color: INK, background: '#000' }}
+      className={`${ownFull ? 'fixed inset-0 z-[200] justify-center' : 'relative'} flex flex-col ${stage || isFullscreen ? '' : 'rounded-xl'} overflow-hidden select-none [&:fullscreen]:rounded-none [&:fullscreen]:justify-center ${fit && !ownFull ? 'flex-1 min-h-0' : ''}`}
+      style={{ color: INK, background: '#000', cursor: isFullscreen && tucked ? 'none' : undefined }}
+      onPointerDownCapture={isFullscreen ? poke : undefined}
+      onPointerMove={isFullscreen ? (e) => e.pointerType === 'mouse' && poke() : undefined}
     >
       {/* Presenting: the biggest 16:9 picture the place allows, in the middle of it (an iPad standing up: black above
           and below); the controls along the bottom, not in the middle of the screen. */}
@@ -996,6 +1132,10 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
         style={{ width: fitting ? 'min(100cqw, calc(100cqh * 16 / 9))' : `min(100%, max(18rem, calc(${videoHeight} * 16 / 9)))` }}
         className={`relative mx-auto aspect-video overflow-hidden bg-black ${drawing || zoom > 1 ? 'touch-none' : 'touch-pan-y'} ${drawing ? '' : zoom > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
         title={drawing ? undefined : 'Click: play / pause · Scroll: zoom · Drag: move around · Double-click: full screen · On a touch screen: swipe for the next play'}
+        onPointerDownCapture={penDown}
+        onPointerMoveCapture={penMove}
+        onPointerUpCapture={penUp}
+        onPointerCancelCapture={penUp}
         onPointerDown={onStageDown}
         onPointerMove={onStageMove}
         onPointerUp={onStageUp}
@@ -1041,6 +1181,47 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
         {/* Outside the zoom: zoomed in, the whole play still fits the view as it does at normal size. */}
         {playLines?.on && src && !drawing && playLines.layer({ playing, zoom: 1 })}
         {playLines?.on && src && !drawing && playLines.controls({ playing })}
+        {!stage && <StageInk color={inkColor} mode={inkMode} apiRef={ink} onCount={setInkCount} />}
+        {!stage && inkCount > 0 && !drawing && (
+          // The pencil's ink: its color, pen (stays until the next play) or laser (glows and fades), undo, clear.
+          <div
+            data-ink-ui
+            className={`absolute top-11 right-2 z-30 flex items-center gap-1 p-1 rounded-xl transition-opacity duration-300 ${tucked ? 'opacity-0 pointer-events-none' : ''}`}
+            style={{ background: 'rgba(0,0,0,0.75)' }}
+          >
+            {INK_COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setInkColor(c)}
+                className={`w-6 h-6 pointer-coarse:w-8 pointer-coarse:h-8 rounded-full border-2 ${inkColor === c ? 'border-white scale-110' : 'border-transparent'}`}
+                style={{ background: c }}
+                aria-label={`Ink color ${c}`}
+                aria-pressed={inkColor === c}
+              />
+            ))}
+            <span className="w-px h-6 bg-white/15 mx-0.5" />
+            <button type="button" className={inkMode === 'pen' ? on : idle} onClick={() => setInkMode('pen')} aria-pressed={inkMode === 'pen'} title="Pen: the lines stay until the next play">
+              Pen
+            </button>
+            <button type="button" className={inkMode === 'laser' ? on : idle} onClick={() => setInkMode('laser')} aria-pressed={inkMode === 'laser'} title="Laser: the lines glow, then fade away">
+              Laser
+            </button>
+            <button type="button" className={idle} onClick={() => ink.current?.undo()} title="Undo the last line" aria-label="Undo the last line">
+              <Undo2 size={15} />
+            </button>
+            <button type="button" className={idle} onClick={() => ink.current?.clear()} title="Clear the ink" aria-label="Clear the ink">
+              <Trash2 size={15} />
+            </button>
+          </div>
+        )}
+        {hint && (
+          <div className="absolute inset-x-0 top-1/3 z-30 flex justify-center px-4 pointer-events-none">
+            <span className="max-w-xl px-4 py-2.5 rounded-xl text-sm font-bold text-center shadow-2xl" style={{ background: 'rgba(15,23,42,0.88)', color: '#fff' }}>
+              {hint}
+            </span>
+          </div>
+        )}
         {/* Above the controls that sit over the bottom of the video, so its buttons (Link film...) can be tapped. */}
         {!src && <div className={`absolute inset-0 flex items-center justify-center p-4 text-center text-sm z-20 pointer-events-none [&>*]:pointer-events-auto ${isFullscreen ? 'pb-28' : fitting ? '' : 'sm:pb-28'}`}>{placeholder}</div>}
         <div className={`absolute top-2 left-2 right-2 flex items-start justify-between gap-2 pointer-events-none transition-opacity duration-300 ${tucked ? 'opacity-0' : ''}`}>
@@ -1161,8 +1342,17 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
       {/* Scrubber and controls: over the bottom of the video, like Hudl (under it on a phone); presenting, a bar of their own */}
       {fitting ? fitBar : (
       <div
-        className={`${overlay} z-10 flex flex-col pointer-events-none sm:pt-8`}
-        style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.92), rgba(0,0,0,0.6) 65%, rgba(0,0,0,0))' }}
+        className={`${overlay} z-10 flex flex-col pointer-events-none sm:pt-8 transition-opacity duration-300 ${tucked ? 'opacity-0 [&_*]:!pointer-events-none' : ''}`}
+        style={{
+          background: 'linear-gradient(to top, rgba(0,0,0,0.92), rgba(0,0,0,0.6) 65%, rgba(0,0,0,0))',
+          ...(isFullscreen
+            ? {
+                paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+                paddingLeft: 'env(safe-area-inset-left, 0px)',
+                paddingRight: 'env(safe-area-inset-right, 0px)',
+              }
+            : {}),
+        }}
       >
         {/* Play lines' buttons, right above the Play lines button that turns them off. */}
         {playLines?.on && src && !drawing && playLines.bar({ playing })}
@@ -1173,27 +1363,9 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
         </div>
 
         <div className="pointer-events-auto flex flex-wrap items-center gap-1 px-2 py-1.5">
-          <button className={idle} onClick={onPrev} disabled={!hasPrev} title="Previous play (↑)"><SkipBack size={16} /></button>
-          <button className={idle} onClick={() => step(-1)} disabled={!src} title="Back one frame (←)"><ChevronLeft size={18} /></button>
-          <button className={`${btn} w-11 hover:opacity-85`} style={{ background: '#fff', color: '#0f172a' }} onClick={togglePlay} disabled={!src} title="Play / pause (space, or click the video)">
-            {playing ? <Pause size={18} /> : <Play size={18} />}
-          </button>
-          <button className={idle} onClick={() => step(1)} disabled={!src} title="Forward one frame (→)"><ChevronRight size={18} /></button>
-          <button className={idle} onClick={onNext} disabled={!hasNext} title="Next play (↓)"><SkipForward size={16} /></button>
-
+          <button className={idle} onClick={onPrev} disabled={!hasPrev} title="Previous play (↑)" aria-label="Previous play"><SkipBack size={16} /></button>
+          <button className={idle} onClick={onNext} disabled={!hasNext} title="Next play (↓)" aria-label="Next play"><SkipForward size={16} /></button>
           <span className="w-px h-6 bg-white/15 mx-1 max-sm:hidden" />
-          {SPEEDS.map((sp) => (
-            <button key={sp} className={`${speed === sp ? on : idle} max-sm:!hidden`} onClick={() => setSpeed(sp)} title={`${sp}× speed`}>
-              {sp === 0.25 ? '¼' : sp === 0.5 ? '½' : sp}×
-            </button>
-          ))}
-          <button
-            className={`${speed === 1 ? idle : on} sm:!hidden`}
-            onClick={() => setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])}
-            title="Speed (tap to change)"
-          >
-            {speed === 0.25 ? '¼' : speed === 0.5 ? '½' : speed}×
-          </button>
           <button className={loop ? on : idle} onClick={() => setLoop((x) => !x)} title="Loop this play (L)"><Repeat size={15} /></button>
           <button className={`${autoNext ? on : idle} max-sm:!hidden`} onClick={() => setAutoNext((x) => !x)} title="Go to the next play when this one ends">Auto</button>
           <button
@@ -1254,10 +1426,15 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
               Save {lastWatch.seconds.toFixed(2)}s as note
             </button>
           )}
-          <button className={`${idle} ml-auto`} onClick={toggleMute} title={muted ? 'Sound on (M)' : 'Mute (M)'} aria-label={muted ? 'Sound on' : 'Mute'} aria-pressed={muted}>
-            {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
-          </button>
-          <button className={idle} onClick={fullscreen} title="Full screen (F, or double-click the video)"><Maximize size={16} /></button>
+          {/* On a phone the transport takes a row of its own, still on the right. */}
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
+            <button className={idle} onClick={toggleMute} title={muted ? 'Sound on (M)' : 'Mute (M)'} aria-label={muted ? 'Sound on' : 'Mute'} aria-pressed={muted}>
+              {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+            </button>
+            {fullButton}
+            <span className="w-px h-6 bg-white/15 mx-1 max-sm:hidden" />
+            <span className="flex items-center gap-1">{transport(SPEEDS)}</span>
+          </div>
         </div>
       </div>
       )}
