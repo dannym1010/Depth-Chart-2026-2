@@ -977,6 +977,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         <div className="flex flex-col items-center gap-2">
           <span>This game's film is in the team's Google Drive folder “{film.label}”.</span>
           <button onClick={signInToDrive} className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-bold">Sign in with Google to watch</button>
+          {film.message && <span className="max-w-sm text-xs font-semibold text-rose-600 dark:text-rose-400">{film.message}</span>}
           {sources.local && canOpenFolders() && (
             <button onClick={() => void playFromComputer()} className="text-xs font-bold underline">
               Use this computer's copy instead

@@ -20,7 +20,7 @@ export type FilmState =
   | { status: 'none' }
   | { status: 'loading'; label: string }
   | { status: 'reconnect'; label: string } // folder remembered, browser needs a tap to allow it again
-  | { status: 'signin'; label: string } // team Drive folder, this coach isn't signed in to Google yet
+  | { status: 'signin'; label: string; message?: string } // team Drive folder, this coach isn't signed in to Google yet
   | { status: 'error'; label?: string; message: string }
   /** The week has several game folders and nothing says which is this game. */
   | { status: 'choose'; label: string; choices: string[] }
@@ -433,7 +433,7 @@ export function useGameFilm(opts: {
       else if (rootId) await loadFromRoot(driveFolderNode(rootId, rootLabel));
     } catch (err: any) {
       // Still not signed in (the window was closed, or Google wanted to ask again): the button stays for another tap.
-      if (!isDriveSignedIn()) setFilm({ status: 'signin', label: driveLabel || rootLabel });
+      if (!isDriveSignedIn()) setFilm({ status: 'signin', label: driveLabel || rootLabel, message: err?.message || String(err) });
       else setFilm({ status: 'error', label: driveLabel, message: err?.message || String(err) });
     }
   }, [driveId, driveLabel, rootId, rootLabel, loadDrive, loadFromRoot]);

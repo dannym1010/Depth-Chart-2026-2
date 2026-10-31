@@ -1,7 +1,7 @@
 // "Link film": where this game's clips are. Nothing is uploaded; the app reads the clips where they are.
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Cloud, FolderOpen, Smartphone, X } from 'lucide-react';
-import { canOpenFolders, canPickFolderFiles, driveReady, driveSignIn } from './filmSources';
+import { canOpenFolders, canPickFolderFiles, driveReady, driveSignIn, prepareDriveSignIn } from './filmSources';
 import { DriveFolderPicker } from './DriveFolderPicker';
 
 interface LinkFilmDialogProps {
@@ -33,6 +33,8 @@ export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveL
   // Looking through Google Drive for the folder; the link box is the old way (a link already copied).
   const [browsing, setBrowsing] = useState(false);
   const [pasting, setPasting] = useState(Boolean(driveLink));
+  // Google's window has to open right in the tap (an iPad blocks it after a wait), so its script loads now.
+  useEffect(() => prepareDriveSignIn(), []);
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);

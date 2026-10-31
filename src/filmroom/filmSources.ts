@@ -221,13 +221,21 @@ function loadGoogleSignIn(): Promise<void> {
   return gisLoading;
 }
 
-let signingIn: Promise<string> | null = null;
+let signingIn: { p: Promise<string>; at: number } | null = null;
+/** What went wrong, in words a coach can act on. */
+function signInError(type: string, fallback?: string): Error {
+  if (type === 'popup_failed_to_open') return new Error("Google's sign-in window was blocked. Tap Sign in again (allow pop-ups for this site if it keeps happening).");
+  if (type === 'popup_closed' || type === 'access_denied') return new Error("Google's sign-in window was closed before signing in. Tap Sign in again.");
+  return new Error(fallback || 'Google sign-in did not finish. Tap Sign in again.');
+}
 /**
  * Google's window for a new sign-in. It has to open right in the tap (Safari on an iPad blocks it after a wait), so
  * Google's script is loaded ahead of time. With the account remembered it asks nothing: the window opens and closes.
+ * Every tap asks again (Google's window doesn't always say it was closed, and a sign-in waiting on it would never end);
+ * only the same tap (the renewing watch and the button) shares one window.
  */
 function requestToken(): Promise<string> {
-  if (signingIn) return signingIn;
+  if (signingIn && Date.now() - signingIn.at < 2000) return signingIn.p;
   const account = savedAccount();
   const p = new Promise<string>((resolve, reject) => {
     const client = (window as any).google.accounts.oauth2.initTokenClient({
@@ -235,19 +243,20 @@ function requestToken(): Promise<string> {
       scope: DRIVE_SCOPE,
       ...(account ? { login_hint: account, prompt: '' } : {}),
       callback: (res: any) => {
-        if (res?.error || !res?.access_token) return reject(new Error(res?.error_description || 'Google sign-in was cancelled.'));
+        if (res?.error || !res?.access_token) return reject(signInError(String(res?.error || ''), res?.error_description));
         storeToken(res.access_token, Number(res.expires_in) || 3600);
         watchToRenew();
         resolve(res.access_token);
         if (!account) void rememberAccount();
       },
-      error_callback: (err: any) => reject(new Error(err?.message || 'Google sign-in was cancelled.')),
+      error_callback: (err: any) => reject(signInError(String(err?.type || ''), err?.message)),
     });
     client.requestAccessToken();
   });
-  signingIn = p;
+  const mine = { p, at: Date.now() };
+  signingIn = mine;
   const done = () => {
-    if (signingIn === p) signingIn = null;
+    if (signingIn === mine) signingIn = null;
   };
   p.then(done, () => {
     done();
@@ -294,7 +303,8 @@ function watchToRenew() {
     'click',
     (e) => {
       const t = storedToken();
-      if (!t || t.exp - Date.now() > 10 * 60_000 || signingIn || Date.now() - lastRenew < 5 * 60_000) return;
+      if (!t || t.exp - Date.now() > 10 * 60_000 || Date.now() - lastRenew < 5 * 60_000) return;
+      if (signingIn && Date.now() - signingIn.at < 60_000) return;
       if (!(e.target as Element | null)?.closest?.('[data-film-area]')) return;
       if (!(window as any).google?.accounts?.oauth2 || !driveReady()) return;
       lastRenew = Date.now();

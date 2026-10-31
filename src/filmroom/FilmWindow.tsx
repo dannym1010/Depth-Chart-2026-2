@@ -374,6 +374,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
           <button onClick={signInToDrive} className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold">
             Sign in with Google to watch
           </button>
+          {film.message && <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">{film.message}</span>}
           {sources.local && (
             <button onClick={() => void playFromComputer()} className="text-[11px] font-bold underline">
               Use this computer's copy instead
