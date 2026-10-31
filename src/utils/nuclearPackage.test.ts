@@ -96,9 +96,17 @@ describe('a nuclear package: one string in every formation', () => {
     assert.equal(svg.split('marker-end=').length - 1, 2);
     assert.ok(svg.includes('IN for 12') && svg.includes('>OUT<') && svg.includes('SIDELINE'));
     assert.equal(nuclearSwitchSvg(pkg, ids, 'f21', 'f21').split('marker-end=').length - 1, 0);
-    // The practice page: to each formation and back.
-    const practice = nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U', { diagrams: true });
-    assert.equal(practice.split('<figure class="arrow">').length - 1, 2);
+    // Under the big field: every formation to every other (both ways), unless left off.
+    const sheet = nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U');
+    assert.equal(sheet.split('<figure class="arrow">').length - 1, 2);
+    assert.ok(sheet.indexOf('class="diagrams"') > sheet.indexOf('class="field"') && sheet.includes('1 in &middot; 1 out &middot; 1 move'));
+    assert.equal(nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U', { switchDiagrams: false }).split('<figure class="arrow">').length - 1, 0);
+    // Three formations: six switches, a row for each one you come from, the base first.
+    const b12 = { ...b11, id: 'f12', name: '12 Personnel' };
+    const three = nuclearPrintHtml(buildNuclear([b21, b11, b12], depth, 0, ['f11', 'f21', 'f12']), ['f11', 'f21', 'f12'], 'Black nuclear', '10U');
+    assert.equal(three.split('<figure class="arrow">').length - 1, 6);
+    assert.deepEqual([...three.matchAll(/<div class="from">From (?:<i[^>]*><\/i>)?(\d+)/g)].map((m) => m[1]), ['21', '11', '12']);
+    assert.ok(three.includes('NO CHANGE'));
     // Page 2 of the print, only when asked.
     assert.ok(nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U', { switches: true }).includes('class="sw-grid"'));
     assert.ok(!nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U').includes('class="sw-grid"'));

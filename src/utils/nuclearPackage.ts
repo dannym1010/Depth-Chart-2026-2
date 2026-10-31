@@ -331,8 +331,9 @@ export function nuclearSvg(
 }
 
 /**
- * One switch drawn like a play: the formation you're in, an arrow from each kid who moves to his new spot (filled in
- * the new formation's color), a sub running on from the sideline, and a kid going out crossed off.
+ * One switch drawn like a play: the formation you're in with the kids who stay light, an arrow from each kid who moves
+ * to his new spot (filled in the new formation's color), a sub running on from the sideline, and a kid going out
+ * crossed off.
  */
 export function nuclearSwitchSvg(pkg: NuclearPackage, formIds: string[], from: string, to: string, opts: { base?: string; colors?: NuclearColors } = {}): string {
   const C = opts.colors || PRINT_COLORS;
@@ -343,10 +344,11 @@ export function nuclearSwitchSvg(pkg: NuclearPackage, formIds: string[], from: s
   if (!used.length) return '';
   const minDx = Math.min(...used.map((x) => x.dx)), maxDx = Math.max(...used.map((x) => x.dx));
   const maxRow = Math.max(...used.map((x) => x.row));
-  const CX = 70, CY = 66, PX = 56, TOP = 48;
+  // Big chips (R) for a diagram printed small, a slot apart (CX) with room for the spot's name under each.
+  const R = 22, CX = 80, CY = 82, PX = 62, TOP = 56;
   const W = (maxDx - minDx) * CX + PX * 2;
-  const SIDE = TOP + maxRow * CY + 70;
-  const H = SIDE + 48;
+  const SIDE = TOP + maxRow * CY + 76;
+  const H = SIDE + 52;
   const cellOf = (sp: NuclearSpot) => `${sp.dx},${sp.row}`;
   // A spot one kid leaves and another comes to: the one leaving a little left, the one arriving a little right.
   const changing = pkg.kids.filter((k) => k.at[from] !== k.at[to]);
@@ -354,38 +356,46 @@ export function nuclearSwitchSvg(pkg: NuclearPackage, formIds: string[], from: s
   const arriving = new Set(changing.filter((k) => k.at[to]).map((k) => cellOf(pkg.spots[k.at[to]])));
   const pos = (sp: NuclearSpot, side: 'from' | 'to') => {
     const both = leaving.has(cellOf(sp)) && arriving.has(cellOf(sp));
-    return [PX + (sp.dx - minDx) * CX + (both ? (side === 'from' ? -19 : 19) : 0), TOP + sp.row * CY];
+    return [PX + (sp.dx - minDx) * CX + (both ? (side === 'from' ? -R - 4 : R + 4) : 0), TOP + sp.row * CY];
   };
   const font = `font-family="Barlow Condensed, Arial Narrow, Arial, sans-serif"`;
   const id = `ah${formIds.indexOf(from)}x${formIds.indexOf(to)}${C.inkOnly ? 'k' : ''}`;
-  const chip = (x: number, y: number, num: string, o: { fill: string; ring: string; text: string; width?: number; faded?: boolean }) =>
-    `<g${o.faded ? ' opacity="0.35"' : ''}><circle cx="${x}" cy="${y}" r="16" fill="${o.fill}" stroke="${o.ring}" stroke-width="${o.width || 2.5}"/><text x="${x}" y="${y + 5.5}" text-anchor="middle" ${font} font-size="16" font-weight="800" fill="${o.text}">${esc(num || '?')}</text></g>`;
-  const tag = (x: number, y: number, t: string, c: string) => `<text x="${x}" y="${y}" text-anchor="middle" ${font} font-size="12" font-weight="800" fill="${c}">${esc(t)}</text>`;
-  // Where he was: hollow in the new color (faded in black and white). Where he goes: filled (a heavy ring in black and white).
-  const was = { fill: C.paper, ring: color, text: C.ink, faded: C.inkOnly };
-  const goes = C.inkOnly ? { fill: C.paper, ring: C.ink, text: C.ink, width: 4.5 } : { fill: color, ring: C.paper, text: '#ffffff' };
+  const chip = (x: number, y: number, num: string, o: { fill: string; ring: string; text: string; width?: number; faded?: boolean; dashed?: boolean }) =>
+    `<g${o.faded ? ' opacity="0.4"' : ''}><circle cx="${x}" cy="${y}" r="${R}" fill="${o.fill}" stroke="${o.ring}" stroke-width="${o.width || 3}"${o.dashed ? ' stroke-dasharray="5 3"' : ''}/><text x="${x}" y="${y + 7.5}" text-anchor="middle" ${font} font-size="22" font-weight="800" fill="${o.text}">${esc(num || '?')}</text></g>`;
+  const tag = (x: number, y: number, t: string, c: string, size = 14) => `<text x="${x}" y="${y}" text-anchor="middle" ${font} font-size="${size}" font-weight="800" fill="${c}">${esc(t)}</text>`;
+  // The kids who stay: light, so the changes stand out. Where a mover was: a dashed ring in the new color. Where he
+  // goes: filled with it (black in black and white).
+  const light = C.inkOnly ? '#b3b3b3' : '#aab5a6';
+  const stay = { fill: C.paper, ring: light, text: C.muted, width: 2.5 };
+  const was = { fill: C.paper, ring: color, text: color, dashed: true };
+  const goes = { fill: color, ring: C.paper, text: '#ffffff', width: 3.5 };
   const out: string[] = [];
   out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="100%" style="display:block;height:auto">`);
-  out.push(`<defs><marker id="${id}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="${color}"/></marker></defs>`);
+  out.push(`<defs><marker id="${id}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="${color}"/></marker></defs>`);
   out.push(`<rect width="${W}" height="${SIDE - 18}" rx="10" fill="${C.turf}"/>`);
-  out.push(`<line x1="10" x2="${W - 10}" y1="${TOP - 26}" y2="${TOP - 26}" stroke="${C.los}" stroke-width="2" stroke-dasharray="7 5"/>`);
-  out.push(`<rect y="${SIDE - 10}" width="${W}" height="56" rx="10" fill="${C.inkOnly ? C.paper : '#f6f4ee'}" stroke="${C.turfLine}"/>`);
-  out.push(`<text x="12" y="${SIDE + 8}" ${font} font-size="11" font-weight="700" letter-spacing="1.4" fill="${C.muted}">SIDELINE</text>`);
-  // Arrows under the chips.
+  out.push(`<line x1="10" x2="${W - 10}" y1="${TOP - R - 10}" y2="${TOP - R - 10}" stroke="${C.los}" stroke-width="2" stroke-dasharray="7 5"/>`);
+  out.push(`<rect y="${SIDE - 10}" width="${W}" height="60" rx="10" fill="${C.inkOnly ? C.paper : '#f6f4ee'}" stroke="${C.turfLine}"/>`);
+  out.push(`<text x="12" y="${SIDE + 10}" ${font} font-size="13" font-weight="700" letter-spacing="1.4" fill="${C.muted}">SIDELINE</text>`);
+  // Arrows under the chips, each on a white halo so it reads over the field and the other arrows.
+  const arrow = (d: string, dash = '') =>
+    `<path d="${d}" stroke="${C.paper}" stroke-width="10" stroke-linecap="round" fill="none" opacity="0.9"/><path d="${d}" stroke="${color}" stroke-width="4.5" fill="none"${dash} marker-end="url(#${id})"/>`;
   for (const m of sw.moves) {
     const [x1, y1] = pos(pkg.spots[m.kid.at[from]], 'from');
     const [x2, y2] = pos(pkg.spots[m.kid.at[to]], 'to');
     const len = Math.hypot(x2 - x1, y2 - y1) || 1;
     const [ux, uy] = [(x2 - x1) / len, (y2 - y1) / len];
-    out.push(`<path d="M${x1 + ux * 19} ${y1 + uy * 19} L${x2 - ux * 20} ${y2 - uy * 20}" stroke="${color}" stroke-width="3" fill="none" marker-end="url(#${id})"/>`);
+    out.push(arrow(`M${x1 + ux * (R + 3)} ${y1 + uy * (R + 3)} L${x2 - ux * (R + 4)} ${y2 - uy * (R + 4)}`));
   }
-  // Coming in: from the sideline up to his spot.
+  // Coming in: from the sideline up to his spot, into the side of the chip nearer the sideline chip (the spot's name
+  // under it stays clear).
   sw.ins.forEach((i, n) => {
     const [x2, y2] = pos(pkg.spots[i.kid.at[to]], 'to');
-    const sx = 70 + n * 64, sy = SIDE + 22;
-    out.push(`<path d="M${sx} ${sy - 18} C ${sx} ${sy - 60}, ${x2} ${y2 + 60}, ${x2} ${y2 + 21}" stroke="${color}" stroke-width="3" fill="none" stroke-dasharray="6 4" marker-end="url(#${id})"/>`);
-    out.push(chip(sx, sy, i.kid.num, { ...was, faded: false }));
-    out.push(`<text x="${sx + 22}" y="${sy + 5}" ${font} font-size="13" font-weight="800" fill="${color}">IN${i.for ? ` for ${esc(i.for.num)}` : ''}</text>`);
+    const sx = 110 + n * 110, sy = SIDE + 22;
+    const s = sx <= x2 ? -1 : 1;
+    const [ex, ey] = [x2 + s * (R + 5) * 0.8, y2 + (R + 5) * 0.6];
+    out.push(arrow(`M${sx} ${sy - R - 2} C ${sx} ${sy - 70}, ${ex + s * 50} ${ey + 34}, ${ex} ${ey}`, ' stroke-dasharray="8 5"'));
+    out.push(chip(sx, sy, i.kid.num, { ...was, dashed: false }));
+    out.push(`<text x="${sx + R + 5}" y="${sy + 6}" ${font} font-size="17" font-weight="800" fill="${color}">IN${i.for ? ` for ${esc(i.for.num)}` : ''}</text>`);
   });
   const outs = new Set(sw.outs.map((o) => o.kid));
   const moved = new Set(sw.moves.map((m) => m.kid));
@@ -396,21 +406,28 @@ export function nuclearSwitchSvg(pkg: NuclearPackage, formIds: string[], from: s
     const [x, y] = pos(sp, 'from');
     if (outs.has(k)) {
       // Going out: crossed off.
-      out.push(chip(x, y, k.num, { fill: C.ink, ring: C.paper, text: C.inkText, faded: true }));
-      out.push(`<path d="M${x - 11} ${y - 11}L${x + 11} ${y + 11}M${x + 11} ${y - 11}L${x - 11} ${y + 11}" stroke="${C.inkOnly ? C.ink : '#c92a2a'}" stroke-width="3.5" stroke-linecap="round"/>`);
-      out.push(tag(x, y + 31, 'OUT', C.inkOnly ? C.ink : '#c92a2a'));
+      const red = C.inkOnly ? C.ink : '#c92a2a';
+      out.push(chip(x, y, k.num, { fill: C.paper, ring: red, text: red, width: 2.5 }));
+      out.push(`<path d="M${x - 16} ${y - 16}L${x + 16} ${y + 16}M${x + 16} ${y - 16}L${x - 16} ${y + 16}" stroke="${red}" stroke-width="5" stroke-linecap="round"/>`);
+      out.push(tag(x, y + R + 17, 'OUT', red, 16));
       continue;
     }
-    out.push(chip(x, y, k.num, moved.has(k) ? was : { fill: C.ink, ring: C.paper, text: C.inkText }));
-    out.push(tag(x, y + 31, sp.label, C.muted));
+    if (moved.has(k)) {
+      out.push(chip(x, y, k.num, was));
+      continue;
+    }
+    out.push(chip(x, y, k.num, stay));
+    out.push(tag(x, y + R + 15, sp.label, light, 13));
   }
   // Where the movers and the subs end up.
   for (const k of [...sw.moves.map((m) => m.kid), ...sw.ins.map((i) => i.kid)]) {
     const sp = pkg.spots[k.at[to]];
     const [x, y] = pos(sp, 'to');
     out.push(chip(x, y, k.num, goes));
-    out.push(tag(x, y + 31, sp.label, color));
+    out.push(tag(x, y + R + 18, sp.label, color, 18));
   }
+  if (!sw.ins.length && !sw.outs.length && !sw.moves.length)
+    out.push(`<text x="${W / 2}" y="${SIDE + 24}" text-anchor="middle" ${font} font-size="18" font-weight="800" letter-spacing="1" fill="${C.muted}">NO CHANGE: THE SAME KIDS IN THE SAME SPOTS</text>`);
   out.push('</svg>');
   return out.join('');
 }
@@ -427,12 +444,14 @@ export type NuclearPrintOptions = {
   formations: boolean;
   /** A second page: every formation to every other, who comes in, goes out and moves. */
   switches: boolean;
-  /** A practice page: arrow diagrams from the base to each formation and back. */
-  diagrams: boolean;
+  /** Under the big field: every formation to every other drawn like a play (arrows, subs, who comes out). */
+  switchDiagrams: boolean;
+  /** Big: 2 switch diagrams across the page; small: 3 (fewer pages). */
+  switchSize: 'big' | 'small';
   /** The base formation the chart shades changes from (not a saved preference). */
   baseId?: string;
 };
-export const NUCLEAR_PRINT_DEFAULTS: NuclearPrintOptions = { orientation: 'landscape', ink: false, names: true, moves: true, formations: true, switches: false, diagrams: false };
+export const NUCLEAR_PRINT_DEFAULTS: NuclearPrintOptions = { orientation: 'landscape', ink: false, names: true, moves: true, formations: true, switches: false, switchDiagrams: true, switchSize: 'big' };
 
 /** The lines of one switch, as HTML: subs first (in for out), then the kids who change spots. */
 export function nuclearSwitchLines(sw: NuclearSwitch): string[] {
@@ -471,14 +490,21 @@ export function nuclearPrintHtml(pkg: NuclearPackage, formIds: string[], title: 
     })
     .join('');
   const fixed = pkg.kids.filter((k) => k.fixed).map((k) => `#${esc(k.num)} ${esc(k.name)} (${esc(pkg.spots[Object.values(k.at)[0]]?.label || '')})`).join(' · ');
-  // Page 2: from each formation (rows) to each other (columns).
-  // Practice page: from the base to each formation (top row) and back (bottom row).
-  const others = formIds.filter((id) => id !== base);
-  const pair = (a: string, b: string) =>
-    `<figure class="arrow"><figcaption>${sw(a)}${esc(labelOf(a))} &rarr; ${sw(b)}${esc(labelOf(b))}</figcaption>${nuclearSwitchSvg(pkg, formIds, a, b, { base, colors: C })}</figure>`;
+  // Under the big field: every formation to every other, a row for each formation you're coming from (the base
+  // first), the formations you go to in the same order every row.
+  const pair = (a: string, b: string) => {
+    const s = nuclearSwitch(pkg, a, b);
+    const count = [s.ins.length && `${s.ins.length} in`, s.outs.length && `${s.outs.length} out`, s.moves.length && `${s.moves.length} move${s.moves.length > 1 ? 's' : ''}`].filter(Boolean).join(' &middot; ');
+    const lines = nuclearSwitchLines(s);
+    return `<figure class="arrow"><figcaption><span>${sw(a)}${esc(labelOf(a))} <b class="to">&rarr;</b> ${sw(b)}${esc(labelOf(b))}</span><small>${count || 'No change'}</small></figcaption>${nuclearSwitchSvg(pkg, formIds, a, b, { base, colors: C })}${lines.length ? `<div class="who">${lines.map((l) => `<div>${l}</div>`).join('')}</div>` : ''}</figure>`;
+  };
+  const froms = [base, ...formIds.filter((id) => id !== base)];
+  const grouped = formIds.length > 2;
   const diagrams =
-    o.diagrams && others.length
-      ? `<div class="diagrams"><div class="head"><h1>${esc(title)}: switch diagrams</h1><span class="sub">Arrows: who moves where &middot; dashed: who runs on &middot; crossed off: who comes out</span></div><div class="arrows">${others.map((id) => pair(base, id)).join('')}${others.map((id) => pair(id, base)).join('')}</div></div>`
+    o.switchDiagrams && formIds.length > 1
+      ? `<div class="diagrams"><div class="dh"><h2>Switches: every formation to every other</h2><span class="key"><i class="k stay"></i>Stays <i class="k was"></i>Was here <b class="ka">&rarr;</b> <i class="k goes"></i>Moves to &middot; dashed from the sideline: comes in &middot; crossed off: comes out</span></div><div class="arrows">${froms
+          .map((a) => `${grouped ? `<div class="from">From ${sw(a)}${esc(labelOf(a))}${a === base ? ' <small>base</small>' : ''}</div>` : ''}${formIds.filter((b) => b !== a).map((b) => pair(a, b)).join('')}`)
+          .join('')}</div></div>`
       : '';
   const switches =
     o.switches && formIds.length > 1
@@ -533,10 +559,25 @@ ${portrait ? '.field svg { max-height: 3.5in; width: auto !important; max-width:
 .mini { border: 1px solid #d9ddd8; border-radius: 8px; padding: 4px; break-inside: avoid; }
 .mt { font: 800 16px/1 "Barlow Condensed", Arial, sans-serif; padding: 2px 4px 4px; }
 .mt small { font: 700 10px/1 Barlow, Arial, sans-serif; text-transform: uppercase; letter-spacing: .08em; color: ${C.muted}; }
-.switches, .diagrams { break-before: page; }
-.arrows { display: grid; grid-template-columns: repeat(${portrait ? 2 : Math.min(3, Math.max(1, formIds.length - 1))}, 1fr); gap: 10px; }
+.switches { break-before: page; }
+.diagrams { margin-top: 12px; }
+.dh { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px; border-bottom: 2px solid ${C.ink}; padding-bottom: 4px; margin-bottom: 8px; break-after: avoid; }
+.dh h2 { font: 800 18px/1 "Barlow Condensed", "Arial Narrow", sans-serif; text-transform: uppercase; letter-spacing: .04em; margin: 0; }
+.key { font: 700 12px/1 "Barlow Condensed", Arial, sans-serif; color: ${C.muted}; display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.k { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-left: 6px; }
+.k.stay { border: 2px solid ${C.inkOnly ? '#b3b3b3' : '#aab5a6'}; }
+.k.was { border: 2px dashed ${C.inkOnly ? C.ink : C.forms[0]}; }
+.k.goes { background: ${C.inkOnly ? C.ink : C.forms[0]}; }
+.ka { color: ${C.inkOnly ? C.ink : C.forms[0]}; }
+.arrows { display: grid; grid-template-columns: repeat(${o.switchSize === 'small' ? 3 : 2}, minmax(0, 1fr)); gap: 8px; }
+.from { grid-column: 1 / -1; font: 800 15px/1 "Barlow Condensed", Arial, sans-serif; text-transform: uppercase; letter-spacing: .06em; padding: 6px 2px 0; border-top: 1px solid #d9ddd8; break-after: avoid; }
+.from:first-child { border-top: 0; padding-top: 0; }
+.from small { font: 700 10px/1 Barlow, Arial, sans-serif; letter-spacing: .08em; color: ${C.muted}; }
 .arrow { margin: 0; border: 1px solid #d9ddd8; border-radius: 8px; padding: 6px; break-inside: avoid; }
-.arrow figcaption { font: 800 16px/1 "Barlow Condensed", Arial, sans-serif; padding: 2px 2px 6px; }
+.arrow figcaption { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; font: 800 18px/1 "Barlow Condensed", Arial, sans-serif; padding: 2px 2px 6px; }
+.arrow figcaption .to { color: ${C.muted}; }
+.arrow figcaption small { font: 700 11px/1 "Barlow Condensed", Arial, sans-serif; text-transform: uppercase; letter-spacing: .06em; color: ${C.muted}; }
+.arrow .who { font-size: 10.5px; line-height: 1.35; padding: 4px 2px 0; }
 .sw-grid { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12px; line-height: 1.35; }
 .sw-grid th { font: 800 16px/1 "Barlow Condensed", Arial, sans-serif; padding: 6px; border: 1px solid #c9cfc8; background: #f3f5f2; text-align: left; }
 .sw-grid thead th:first-child { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: ${C.muted}; }
@@ -553,8 +594,8 @@ ${portrait ? '.field svg { max-height: 3.5in; width: auto !important; max-width:
   <div class="field">${nuclearSvg(pkg, formIds, { colors: C, names: o.names, base })}</div>
   ${side}
 </div>
-${minis ? `<div class="minis">${minis}</div>` : ''}
 ${diagrams}
+${minis ? `<div class="minis">${minis}</div>` : ''}
 ${switches}
 </body></html>`;
 }

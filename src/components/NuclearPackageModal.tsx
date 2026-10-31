@@ -336,11 +336,19 @@ const PrintPanel: React.FC<{
   }, []);
   // Letter at 96 px an inch.
   const [pw, ph] = opts.orientation === 'landscape' ? [1056, 816] : [816, 1056];
-  // Extra pages after the package: the switch diagrams, then the switch chart.
-  const hasDiagrams = sheet.includes('class="diagrams"');
-  const hasSwitches = sheet.includes('class="switches"');
-  const pages = 1 + Number(hasDiagrams) + Number(hasSwitches);
-  const pageAt = (n: number) => `position: absolute; top: ${ph * n}px; left: 0.35in; right: 0.35in; padding-top: 0.35in; border-top: 2px dashed #c9cfc8;`;
+  // The sheet runs as long as it needs (the switch diagrams carry on past page 1): the preview is as tall as it.
+  const [tall, setTall] = useState(ph);
+  const frame = useRef<HTMLIFrameElement>(null);
+  const measure = () => {
+    const doc = frame.current?.contentDocument;
+    if (doc?.body) setTall(Math.max(ph, Math.ceil(doc.documentElement.scrollHeight)));
+  };
+  useEffect(() => {
+    // Fonts and the fields settle after load.
+    const t = setTimeout(measure, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheet, ph]);
   const scale = Math.min(1, width / pw);
   const seg = (on: boolean) =>
     `flex-1 h-9 px-3 rounded-lg text-sm font-black cursor-pointer ${on ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'text-slate-600 dark:text-slate-300'}`;
@@ -371,9 +379,20 @@ const PrintPanel: React.FC<{
         <div className="space-y-3">
           <div className="text-[11px] font-black uppercase tracking-wider text-slate-500">On the page</div>
           <Toggle on={opts.names} onChange={(names) => set({ names })} label="Names on the field" hint="Off: jersey numbers only" />
+          <Toggle
+            on={opts.switchDiagrams}
+            onChange={(switchDiagrams) => set({ switchDiagrams })}
+            label="Switch diagrams"
+            hint="Under the big field: every formation to every other, drawn like plays (who moves, who runs on, who comes out)"
+          />
+          {opts.switchDiagrams && (
+            <div className="flex gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800 ml-6">
+              <button type="button" onClick={() => set({ switchSize: 'big' })} className={seg(opts.switchSize !== 'small')}>Big</button>
+              <button type="button" onClick={() => set({ switchSize: 'small' })} className={seg(opts.switchSize === 'small')}>Small</button>
+            </div>
+          )}
           <Toggle on={opts.moves} onChange={(moves) => set({ moves })} label="Who lines up where" hint="Each kid's spot in every formation, and who's in the same spot every time" />
-          <Toggle on={opts.formations} onChange={(formations) => set({ formations })} label="Each formation small" hint="One diagram per formation under the big field" />
-          <Toggle on={opts.diagrams} onChange={(diagrams) => set({ diagrams })} label="Switch diagrams (practice page)" hint="Arrows from the base to each formation and back, drawn like plays" />
+          <Toggle on={opts.formations} onChange={(formations) => set({ formations })} label="Each formation small" hint="One diagram per formation, after the switches" />
           <Toggle on={opts.switches} onChange={(switches) => set({ switches })} label="Switch chart" hint="Every formation to every other: who comes in, who goes out, who moves" />
         </div>
         {opts.ink && (
@@ -384,14 +403,16 @@ const PrintPanel: React.FC<{
       </div>
       <div ref={box} className="min-w-0">
         <div className="text-[11px] font-black uppercase tracking-wider text-slate-500 mb-1.5">Preview</div>
-        {/* The extra pages follow page 1 in the preview. */}
-        <div className="rounded-lg shadow-lg ring-1 ring-slate-300 dark:ring-slate-700 overflow-hidden bg-white" style={{ width: pw * scale, height: ph * pages * scale }}>
+        {/* The switch chart starts a new page when printed: a dashed line here. */}
+        <div className="rounded-lg shadow-lg ring-1 ring-slate-300 dark:ring-slate-700 overflow-hidden bg-white" style={{ width: pw * scale, height: tall * scale }}>
           <iframe
+            ref={frame}
             title="Print preview"
+            onLoad={measure}
             srcDoc={sheet
               .replace('<body>', '<body style="padding:0.35in">')
-              .replace('.switches, .diagrams { break-before: page; }', `.diagrams { ${pageAt(1)} } .switches { ${pageAt(hasDiagrams ? 2 : 1)} }`)}
-            style={{ width: pw, height: ph * pages, border: 0, transform: `scale(${scale})`, transformOrigin: '0 0', pointerEvents: 'none' }}
+              .replace('.switches { break-before: page; }', '.switches { margin-top: 0.35in; padding-top: 0.35in; border-top: 2px dashed #c9cfc8; }')}
+            style={{ width: pw, height: tall, border: 0, transform: `scale(${scale})`, transformOrigin: '0 0', pointerEvents: 'none' }}
           />
         </div>
       </div>
