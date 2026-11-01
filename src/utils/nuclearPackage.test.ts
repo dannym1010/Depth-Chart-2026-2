@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { PRINT_COLORS, buildNuclear, changedFromBase, formLabels, nuclearBase, nuclearFormColors, nuclearSwitch, nuclearSwitchLines, nuclearSwitchSvg, kidPath, nuclearPrintHtml, nuclearSvg, spotLabel } from './nuclearPackage.ts';
+import { PRINT_COLORS, buildNuclear, changedFromBase, formLabels, nuclearBase, nuclearFormColors, nuclearSwitch, nuclearSwitchLines, nuclearSwitchSvg, kidPath, nuclearOrder, nuclearPrintHtml, nuclearSvg, spotLabel } from './nuclearPackage.ts';
 
 const pos = (id: string, name: string) => ({ id, name });
 const row = (id: string, positions: ({ id: string; name: string } | null)[]) => ({ id, label: id, slotCount: positions.length, positions });
@@ -112,6 +112,12 @@ describe('a nuclear package: one string in every formation', () => {
     // Page 2 of the print, only when asked.
     assert.ok(nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U', { switches: true }).includes('class="sw-grid"'));
     assert.ok(!nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U').includes('class="sw-grid"'));
+    // The coach's order: the switch chart on top, the diagrams on a page of their own (and the part after them too).
+    const ordered = nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U', { switches: true, order: ['switches', 'field', 'diagrams', 'formations'], ownPage: ['diagrams'] });
+    const parts = [...ordered.matchAll(/<section class="sec( newpage)?" data-part="(\w+)">/g)].map((m) => m[2] + (m[1] ? '+' : ''));
+    assert.deepEqual(parts, ['switches', 'field', 'diagrams+', 'formations+']);
+    // An old or broken saved order still prints every part once.
+    assert.deepEqual(nuclearOrder(['diagrams', 'bogus', 'diagrams']), ['diagrams', 'field', 'formations', 'switches']);
   });
 
   it('draws one field (or one formation) and a print sheet with names, escaped', () => {

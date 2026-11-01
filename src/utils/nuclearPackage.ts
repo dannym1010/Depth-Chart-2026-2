@@ -436,6 +436,16 @@ export function nuclearSwitchSvg(pkg: NuclearPackage, formIds: string[], from: s
   return out.join('');
 }
 
+/** The parts of the printout, in the order the coach puts them. */
+export type NuclearSection = 'field' | 'switches' | 'diagrams' | 'formations';
+export const NUCLEAR_SECTIONS: NuclearSection[] = ['field', 'diagrams', 'formations', 'switches'];
+
+/** Every part once, in the saved order (a bad or old saved order falls back part by part). */
+export function nuclearOrder(order: unknown): NuclearSection[] {
+  const saved = Array.isArray(order) ? order.filter((s, i): s is NuclearSection => (NUCLEAR_SECTIONS as unknown[]).includes(s) && order.indexOf(s) === i) : [];
+  return [...saved, ...NUCLEAR_SECTIONS.filter((s) => !saved.includes(s))];
+}
+
 export type NuclearPrintOptions = {
   orientation: 'landscape' | 'portrait';
   /** Black and white instead of color. */
@@ -450,12 +460,16 @@ export type NuclearPrintOptions = {
   switches: boolean;
   /** Under the big field: every formation to every other drawn like a play (arrows, subs, who comes out). */
   switchDiagrams: boolean;
+  /** The parts top to bottom. */
+  order: NuclearSection[];
+  /** Parts printed on a page of their own (the next part starts a new page too). */
+  ownPage: NuclearSection[];
   /** Big: 2 switch diagrams across the page; small: 3 (fewer pages). */
   switchSize: 'big' | 'small';
   /** The base formation the chart shades changes from (not a saved preference). */
   baseId?: string;
 };
-export const NUCLEAR_PRINT_DEFAULTS: NuclearPrintOptions = { orientation: 'landscape', ink: false, names: true, moves: true, formations: true, switches: false, switchDiagrams: true, switchSize: 'big' };
+export const NUCLEAR_PRINT_DEFAULTS: NuclearPrintOptions = { orientation: 'landscape', ink: false, names: true, moves: true, formations: true, switches: false, switchDiagrams: true, switchSize: 'big', order: NUCLEAR_SECTIONS, ownPage: ['switches'] };
 
 /** The lines of one switch, as HTML: subs first (in for out), then the kids who change spots. */
 export function nuclearSwitchLines(sw: NuclearSwitch): string[] {
@@ -468,7 +482,8 @@ export function nuclearSwitchLines(sw: NuclearSwitch): string[] {
   ];
 }
 
-/** One page: the package on one field, who moves, and each formation small (each part can be left off). */
+/** The package on one field, who moves, the switches and each formation small (each part can be left off, in the
+ * coach's order, any part on a page of its own). */
 export function nuclearPrintHtml(pkg: NuclearPackage, formIds: string[], title: string, subtitle: string, options: Partial<NuclearPrintOptions> = {}): string {
   const o = { ...NUCLEAR_PRINT_DEFAULTS, ...options };
   const C = o.ink ? INK_COLORS : PRINT_COLORS;
@@ -506,13 +521,13 @@ export function nuclearPrintHtml(pkg: NuclearPackage, formIds: string[], title: 
   const grouped = formIds.length > 2;
   const diagrams =
     o.switchDiagrams && formIds.length > 1
-      ? `<div class="diagrams"><div class="dh"><h2>Switches: every formation to every other</h2><span class="key"><i class="k stay"></i>Stays <i class="k was"></i>Was here <b class="ka">&rarr;</b> <i class="k goes"></i>Moves to &middot; dashed from the sideline: comes in &middot; crossed off: comes out</span></div><div class="arrows">${froms
+      ? `<div><div class="dh"><h2>Switches: every formation to every other</h2><span class="key"><i class="k stay"></i>Stays <i class="k was"></i>Was here <b class="ka">&rarr;</b> <i class="k goes"></i>Moves to &middot; dashed from the sideline: comes in &middot; crossed off: comes out</span></div><div class="arrows">${froms
           .map((a) => `${grouped ? `<div class="from">From ${sw(a)}${esc(labelOf(a))}${a === base ? ' <small>base</small>' : ''}</div>` : ''}${formIds.filter((b) => b !== a).map((b) => pair(a, b)).join('')}`)
           .join('')}</div></div>`
       : '';
   const switches =
     o.switches && formIds.length > 1
-      ? `<div class="switches"><div class="head"><h1>${esc(title)}: switches</h1><span class="sub">From the row's formation to the column's</span></div><table class="sw-grid"><thead><tr><th>From &darr; &nbsp; To &rarr;</th>${formIds.map((id) => `<th>${sw(id)}${esc(labelOf(id))}</th>`).join('')}</tr></thead><tbody>${formIds
+      ? `<div><div class="dh"><h2>Switch chart</h2><span class="key">From the row's formation to the column's</span></div><table class="sw-grid"><thead><tr><th>From &darr; &nbsp; To &rarr;</th>${formIds.map((id) => `<th>${sw(id)}${esc(labelOf(id))}</th>`).join('')}</tr></thead><tbody>${formIds
           .map(
             (from) =>
               `<tr><th>${sw(from)}${esc(labelOf(from))}</th>${formIds
@@ -534,6 +549,20 @@ export function nuclearPrintHtml(pkg: NuclearPackage, formIds: string[], title: 
   const side = o.moves
     ? `<div class="side"><h2>Who lines up where</h2>${rows ? `<table class="grid"><thead><tr><th></th>${head}</tr></thead><tbody>${rows}</tbody></table>` : '<p>Nobody moves: every kid stays in one spot.</p>'}${fixed ? `<div class="fixed"><b>Same spot every time:</b> ${fixed}</div>` : ''}</div>`
     : '';
+  const parts: Record<NuclearSection, string> = {
+    field: `<div class="main"><div class="field">${nuclearSvg(pkg, formIds, { colors: C, names: o.names, base })}</div>${side}</div>`,
+    diagrams,
+    formations: minis ? `<div class="minis">${minis}</div>` : '',
+    switches,
+  };
+  const own = new Set(Array.isArray(o.ownPage) ? o.ownPage : []);
+  const shown = nuclearOrder(o.order).filter((s) => parts[s]);
+  const sections = shown
+    .map((s, i) => {
+      const page = i > 0 && (own.has(s) || own.has(shown[i - 1]));
+      return `<section class="sec${page ? ' newpage' : ''}" data-part="${s}">${parts[s]}</section>`;
+    })
+    .join('\n');
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;600&display=swap">
 <style>
@@ -559,12 +588,12 @@ ${portrait ? '.field svg { max-height: 3.5in; width: auto !important; max-width:
 .nm { font-weight: 700; }
 .side h2 { font: 800 13px/1 "Barlow Condensed", Arial, sans-serif; text-transform: uppercase; letter-spacing: .1em; margin: 0 0 4px; }
 .fixed { margin-top: 8px; color: ${C.muted}; font-size: 12px; line-height: 1.4; }
-.minis { display: grid; grid-template-columns: repeat(${Math.max(1, cols)}, 1fr); gap: 8px; margin-top: 10px; }
+.minis { display: grid; grid-template-columns: repeat(${Math.max(1, cols)}, 1fr); gap: 8px; }
 .mini { border: 1px solid #d9ddd8; border-radius: 8px; padding: 4px; break-inside: avoid; }
 .mt { font: 800 16px/1 "Barlow Condensed", Arial, sans-serif; padding: 2px 4px 4px; }
 .mt small { font: 700 10px/1 Barlow, Arial, sans-serif; text-transform: uppercase; letter-spacing: .08em; color: ${C.muted}; }
-.switches { break-before: page; }
-.diagrams { margin-top: 12px; }
+.sec + .sec { margin-top: 12px; }
+.newpage { break-before: page; }
 .dh { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px; border-bottom: 2px solid ${C.ink}; padding-bottom: 4px; margin-bottom: 8px; break-after: avoid; }
 .dh h2 { font: 800 18px/1 "Barlow Condensed", "Arial Narrow", sans-serif; text-transform: uppercase; letter-spacing: .04em; margin: 0; }
 .key { font: 700 12px/1 "Barlow Condensed", Arial, sans-serif; color: ${C.muted}; display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
@@ -594,12 +623,6 @@ ${portrait ? '.field svg { max-height: 3.5in; width: auto !important; max-width:
 .tag.out { background: #fff; color: ${C.ink}; border: 1.5px solid ${C.ink}; }
 </style></head><body>
 <div class="head"><h1>${esc(title)}</h1><span class="sub">${esc(subtitle)}</span></div>
-<div class="main">
-  <div class="field">${nuclearSvg(pkg, formIds, { colors: C, names: o.names, base })}</div>
-  ${side}
-</div>
-${diagrams}
-${minis ? `<div class="minis">${minis}</div>` : ''}
-${switches}
+${sections}
 </body></html>`;
 }

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowLeftRight, Atom, Printer, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowLeftRight, ArrowUp, Atom, Printer, X } from 'lucide-react';
 import type { FormationBoard, PlacedPlayer } from '../types';
-import { NUCLEAR_PRINT_DEFAULTS, PRINT_COLORS, STRINGS, buildNuclear, changedFromBase, nuclearBase, nuclearFormColors, nuclearGrid, nuclearSwitch, nuclearSwitchSvg, nuclearPrintHtml, nuclearSvg, type NuclearPrintOptions } from '../utils/nuclearPackage';
+import { NUCLEAR_PRINT_DEFAULTS, PRINT_COLORS, STRINGS, buildNuclear, changedFromBase, nuclearBase, nuclearFormColors, nuclearGrid, nuclearSwitch, nuclearSwitchSvg, nuclearOrder, nuclearPrintHtml, nuclearSvg, type NuclearPrintOptions, type NuclearSection } from '../utils/nuclearPackage';
 import { openCleanPrintTab } from '../utils/printUtils';
 import { loadPrintPrefs, savePrintPrefs } from '../utils/printPrefs';
 
@@ -322,6 +322,59 @@ const Toggle: React.FC<{ on: boolean; onChange: (on: boolean) => void; label: st
   </label>
 );
 
+const SECTION_LABELS: Record<NuclearSection, string> = {
+  field: 'Big field',
+  diagrams: 'Switch diagrams',
+  formations: 'Each formation small',
+  switches: 'Switch chart',
+};
+
+/** The parts top to bottom: move one up or down, or put it on a page of its own. */
+const OrderPanel: React.FC<{ opts: NuclearPrintOptions; set: (patch: Partial<NuclearPrintOptions>) => void }> = ({ opts, set }) => {
+  const order = nuclearOrder(opts.order);
+  const own = Array.isArray(opts.ownPage) ? opts.ownPage : [];
+  const on: Record<NuclearSection, boolean> = { field: true, diagrams: opts.switchDiagrams, formations: opts.formations, switches: opts.switches };
+  const move = (i: number, by: number) => {
+    const next = [...order];
+    [next[i], next[i + by]] = [next[i + by], next[i]];
+    set({ order: next });
+  };
+  const arrow = 'p-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-slate-700 cursor-pointer disabled:opacity-25 disabled:cursor-default disabled:hover:bg-transparent';
+  return (
+    <div className="space-y-1.5">
+      <div className="text-[11px] font-black uppercase tracking-wider text-slate-500">Order (top to bottom)</div>
+      <div className="rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-200 dark:divide-slate-700">
+        {order.map((s, i) => (
+          <div key={s} className={`flex items-center gap-1 px-1.5 py-1 ${on[s] ? '' : 'opacity-45'}`}>
+            <div className="flex">
+              <button type="button" aria-label={`Move ${SECTION_LABELS[s]} up`} disabled={i === 0} onClick={() => move(i, -1)} className={arrow}>
+                <ArrowUp className="w-3.5 h-3.5" />
+              </button>
+              <button type="button" aria-label={`Move ${SECTION_LABELS[s]} down`} disabled={i === order.length - 1} onClick={() => move(i, 1)} className={arrow}>
+                <ArrowDown className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <span className="flex-1 min-w-0 truncate text-sm font-bold text-slate-800 dark:text-slate-100">
+              {SECTION_LABELS[s]}
+              {!on[s] && <span className="ml-1 text-[10px] font-black uppercase text-slate-400">off</span>}
+            </span>
+            <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer select-none whitespace-nowrap">
+              <input
+                type="checkbox"
+                checked={own.includes(s)}
+                onChange={(e) => set({ ownPage: e.target.checked ? [...own, s] : own.filter((x) => x !== s) })}
+                className="w-3.5 h-3.5 accent-amber-500 cursor-pointer"
+              />
+              Own page
+            </label>
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-slate-500 dark:text-slate-400">The big field includes &ldquo;Who lines up where&rdquo; when it&apos;s on.</p>
+    </div>
+  );
+};
+
 /** Print options on the left, the page as it will print on the right. */
 const PrintPanel: React.FC<{
   opts: NuclearPrintOptions;
@@ -401,9 +454,10 @@ const PrintPanel: React.FC<{
             </div>
           )}
           <Toggle on={opts.moves} onChange={(moves) => set({ moves })} label="Who lines up where" hint="Each kid's spot in every formation, and who's in the same spot every time" />
-          <Toggle on={opts.formations} onChange={(formations) => set({ formations })} label="Each formation small" hint="One diagram per formation, after the switches" />
+          <Toggle on={opts.formations} onChange={(formations) => set({ formations })} label="Each formation small" hint="One diagram per formation" />
           <Toggle on={opts.switches} onChange={(switches) => set({ switches })} label="Switch chart" hint="Every formation to every other: who comes in, who goes out, who moves" />
         </div>
+        <OrderPanel opts={opts} set={set} />
         {opts.ink && (
           <p className="text-xs text-slate-500 dark:text-slate-400">
             In black and white, a kid's move is an outlined chip and the formation tags are outlined.
@@ -412,7 +466,7 @@ const PrintPanel: React.FC<{
       </div>
       <div ref={box} className="min-w-0">
         <div className="text-[11px] font-black uppercase tracking-wider text-slate-500 mb-1.5">Preview</div>
-        {/* The switch chart starts a new page when printed: a dashed line here. */}
+        {/* A part on its own page starts a new page when printed: a dashed line here. */}
         <div className="rounded-lg shadow-lg ring-1 ring-slate-300 dark:ring-slate-700 overflow-hidden bg-white" style={{ width: pw * scale, height: tall * scale }}>
           <iframe
             ref={frame}
@@ -420,7 +474,7 @@ const PrintPanel: React.FC<{
             onLoad={measure}
             srcDoc={sheet
               .replace('<body>', '<body style="padding:0.35in">')
-              .replace('.switches { break-before: page; }', '.switches { margin-top: 0.35in; padding-top: 0.35in; border-top: 2px dashed #c9cfc8; }')}
+              .replace('.newpage { break-before: page; }', '.newpage { margin-top: 0.35in !important; padding-top: 0.35in; border-top: 2px dashed #c9cfc8; }')}
             style={{ width: pw, height: tall, border: 0, transform: `scale(${scale})`, transformOrigin: '0 0', pointerEvents: 'none' }}
           />
         </div>

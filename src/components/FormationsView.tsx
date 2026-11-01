@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Atom,
+  Eye,
+  EyeOff,
   Plus,
   Printer,
   Filter,
@@ -388,18 +390,47 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
     [formations, unit]
   );
 
+  // Formations this coach hid from the depth chart: this device only, by team and unit.
+  const hiddenKey = `footballHiddenFormations:${activeTeam?.id || 'default'}:${unit}`;
+  const readHidden = (key: string): string[] => {
+    try {
+      const v = JSON.parse(localStorage.getItem(key) || '[]');
+      return Array.isArray(v) ? v : [];
+    } catch {
+      return [];
+    }
+  };
+  const [hiddenState, setHiddenState] = useState(() => ({ key: hiddenKey, ids: readHidden(hiddenKey) }));
+  const hiddenIds = hiddenState.key === hiddenKey ? hiddenState.ids : readHidden(hiddenKey);
+  const setHidden = (ids: string[]) => {
+    setHiddenState({ key: hiddenKey, ids });
+    try {
+      localStorage.setItem(hiddenKey, JSON.stringify(ids));
+    } catch {
+      /* private window */
+    }
+  };
+  const toggleHidden = (id: string) =>
+    setHidden(hiddenIds.includes(id) ? hiddenIds.filter((x) => x !== id) : [...hiddenIds, id]);
+  const shownFormations = useMemo(
+    () => unitFormations.filter((f) => !hiddenIds.includes(f.id)),
+    [unitFormations, hiddenIds]
+  );
+  const hiddenCount = unitFormations.length - shownFormations.length;
+  const [isShowPickerOpen, setIsShowPickerOpen] = useState(false);
+
   // Synchronous safe validation: never allow a stale filter ID to filter the view to empty
   const safeFilterViewId = useMemo(() => {
     if (filterViewId === 'ALL') return 'ALL';
-    return unitFormations.some((f) => f && f.id === filterViewId) ? filterViewId : 'ALL';
-  }, [filterViewId, unitFormations]);
+    return shownFormations.some((f) => f && f.id === filterViewId) ? filterViewId : 'ALL';
+  }, [filterViewId, shownFormations]);
 
   const safeMobileTab = useMemo(() => {
     if (activeMobileFormationTab === 'ALL') return 'ALL';
-    return unitFormations.some((f) => f && f.id === activeMobileFormationTab)
+    return shownFormations.some((f) => f && f.id === activeMobileFormationTab)
       ? activeMobileFormationTab
       : 'ALL';
-  }, [activeMobileFormationTab, unitFormations]);
+  }, [activeMobileFormationTab, shownFormations]);
 
   // Keep state in sync with valid choices
   useEffect(() => {
@@ -421,13 +452,13 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
   }, [unit]);
 
   const displayedFormations = useMemo(() => {
-    if (safeFilterViewId === 'ALL') return unitFormations;
-    const filtered = unitFormations.filter((f) => f.id === safeFilterViewId);
-    return filtered.length > 0 ? filtered : unitFormations;
-  }, [unitFormations, safeFilterViewId]);
+    if (safeFilterViewId === 'ALL') return shownFormations;
+    const filtered = shownFormations.filter((f) => f.id === safeFilterViewId);
+    return filtered.length > 0 ? filtered : shownFormations;
+  }, [shownFormations, safeFilterViewId]);
 
   const mobileFormations = useMemo(() => {
-    let list = unitFormations;
+    let list = shownFormations;
     if (safeMobileTab !== 'ALL') {
       const filtered = list.filter((f) => f.id === safeMobileTab);
       if (filtered.length > 0) return filtered;
@@ -437,7 +468,7 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
       if (filtered.length > 0) return filtered;
     }
     return list;
-  }, [unitFormations, safeMobileTab, safeFilterViewId]);
+  }, [shownFormations, safeMobileTab, safeFilterViewId]);
 
   const filteredRosterPlayers = useMemo(() => {
     if (!assignPlayerModalTarget) return [];
@@ -508,7 +539,7 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
         isStarter: boolean;
       }> = [];
 
-      unitFormations.forEach((form) => {
+      shownFormations.forEach((form) => {
         form.rows.forEach((row) => {
           row.positions.forEach((pos) => {
             if (pos && depthChart[pos.id]) {
@@ -552,7 +583,7 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
         isUnassigned: assignments.length === 0,
       };
     });
-  }, [roster, unitFormations, depthChart]);
+  }, [roster, shownFormations, depthChart]);
 
   const filteredMatrixPlayers = useMemo(() => {
     let list = [...playerAssignmentsMatrix];
@@ -699,14 +730,88 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
               onChange={(e) => setFilterViewId(e.target.value)}
               className="bg-transparent text-xs font-bold text-slate-900 dark:text-slate-100 focus:outline-none cursor-pointer"
             >
-              <option value="ALL" className="bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-100">All Formations ({unitFormations.length})</option>
-              {unitFormations.map((f) => (
+              <option value="ALL" className="bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-100">All Formations ({shownFormations.length})</option>
+              {shownFormations.map((f) => (
                 <option key={f.id} value={f.id} className="bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-100">
                   {f.name}
                 </option>
               ))}
             </select>
           </div>
+
+          {/* Hide / show formations (this device) */}
+          {unitFormations.length > 0 && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsShowPickerOpen((o) => !o)}
+                title={`Hide or show ${unit === 'offense' ? 'offenses' : unit === 'defense' ? 'defenses' : 'formations'} on this depth chart`}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
+                  hiddenCount > 0
+                    ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700/60 text-amber-800 dark:text-amber-200'
+                    : 'bg-slate-50 dark:bg-slate-900/90 border-slate-200 dark:border-slate-750 text-slate-900 dark:text-slate-100'
+                }`}
+              >
+                {hiddenCount > 0 ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
+                <span>{hiddenCount > 0 ? `${shownFormations.length} of ${unitFormations.length} shown` : 'Hide / Show'}</span>
+              </button>
+              {isShowPickerOpen && (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Close"
+                    onClick={() => setIsShowPickerOpen(false)}
+                    className="fixed inset-0 z-40 cursor-default"
+                  />
+                  <div className="absolute left-0 top-full mt-1.5 z-50 w-64 max-w-[calc(100vw-2rem)] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl p-2">
+                    <div className="flex items-center justify-between gap-2 px-1.5 pb-1.5 mb-1 border-b border-slate-100 dark:border-slate-800">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        Show on depth chart
+                      </span>
+                      <div className="flex items-center gap-2 text-[11px] font-bold">
+                        <button
+                          type="button"
+                          onClick={() => setHidden([])}
+                          className="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                        >
+                          All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setHidden(unitFormations.map((f) => f.id))}
+                          className="text-slate-500 dark:text-slate-400 hover:underline cursor-pointer"
+                        >
+                          None
+                        </button>
+                      </div>
+                    </div>
+                    <div className="max-h-72 overflow-y-auto">
+                      {unitFormations.map((f) => {
+                        const shown = !hiddenIds.includes(f.id);
+                        return (
+                          <label
+                            key={f.id}
+                            className="flex items-center gap-2 px-1.5 py-1.5 rounded-lg text-xs font-bold text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={shown}
+                              onChange={() => toggleHidden(f.id)}
+                              className="w-4 h-4 accent-indigo-600 cursor-pointer"
+                            />
+                            <span className={`truncate ${shown ? '' : 'text-slate-400 dark:text-slate-500 line-through'}`}>{f.name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <p className="px-1.5 pt-1.5 text-[10px] text-slate-500 dark:text-slate-400">
+                      Only hides them on this device. Nothing is deleted.
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Action Controls & Consolidated Dropdown */}
@@ -986,7 +1091,23 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
         </p>
       </div>
 
-      {displayedFormations.length === 0 && (
+      {unitFormations.length > 0 && shownFormations.length === 0 && (
+        <div className="bg-white dark:bg-slate-800/90 rounded-3xl border border-dashed border-slate-300 dark:border-slate-700 p-8 text-center shadow-sm print:hidden">
+          <EyeOff className="w-6 h-6 mx-auto text-slate-400" />
+          <p className="mt-2 text-sm font-bold text-slate-800 dark:text-slate-100">
+            All {unitFormations.length} {unit === 'offense' ? 'offenses' : unit === 'defense' ? 'defenses' : 'formations'} are hidden
+          </p>
+          <button
+            type="button"
+            onClick={() => setHidden([])}
+            className="mt-3 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl inline-flex items-center gap-1.5 cursor-pointer"
+          >
+            <Eye className="w-4 h-4" /> Show all
+          </button>
+        </div>
+      )}
+
+      {unitFormations.length === 0 && (
         <div className="bg-slate-800/90 rounded-3xl border border-dashed border-slate-700 p-10 text-center text-slate-400 shadow-xl space-y-4">
           <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto text-xl">
             🏈
@@ -1116,9 +1237,9 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
                         : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs'
                     }`}
                   >
-                    All Formations ({unitFormations.length})
+                    All Formations ({shownFormations.length})
                   </button>
-                  {unitFormations.map((f) => (
+                  {shownFormations.map((f) => (
                     <button
                       key={f.id}
                       type="button"
@@ -1801,7 +1922,7 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
           </button>
         </div>
 
-        {unitFormations.map((form) => {
+        {shownFormations.map((form) => {
           const isFilterMatch = safeFilterViewId === 'ALL' || form.id === safeFilterViewId;
           const isSelected = selectedFormationId === form.id;
 
@@ -1833,6 +1954,17 @@ export const FormationsView: React.FC<FormationsViewProps> = ({
                   <h2 className="font-black text-base md:text-lg text-slate-100 tracking-tight print:text-black print:text-xl print:font-black print:tracking-wider">
                     {form.name}
                   </h2>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleHidden(form.id);
+                    }}
+                    title="Hide this formation on the depth chart (Hide / Show brings it back)"
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-amber-300 hover:bg-slate-900 cursor-pointer print:hidden"
+                  >
+                    <EyeOff className="w-4 h-4" />
+                  </button>
                 </div>
 
                 {/* Admin Controls for Formation */}
