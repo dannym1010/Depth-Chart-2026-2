@@ -3,7 +3,7 @@
 // Only this site and its file host are ever fetched.
 
 const SITE = 'https://www.taconicyfc.com/Default.aspx?tabid=';
-const PAGES = { schedule: '2251500', results: '2251501', standings: '2251502' } as const;
+const PAGES = { home: '1354135', schedule: '2251500', results: '2251501', standings: '2251502' } as const;
 const FILE_HOST = 'dt5602vnjxv0c.cloudfront.net';
 const FILE_PATH = '/portals/13652/';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -43,9 +43,33 @@ async function pageLinks(tabid: string): Promise<LeagueLink[]> {
   return out;
 }
 
+/** Pictures on the home page slideshow about the schedule or the playoffs, with their titles: the league sometimes
+ * posts a schedule only this way (2026 semi-finals, when the PDF link was broken). */
+async function postedPictures(): Promise<LeagueLink[]> {
+  const res = await fetch(SITE + PAGES.home, { headers: { 'User-Agent': UA } });
+  if (!res.ok) return [];
+  const html = await res.text();
+  const out: LeagueLink[] = [];
+  const re = /<img\b[^>]*src="([^"]+)"[^>]*alt="([^"]*)"/gi;
+  for (let m = re.exec(html); m; m = re.exec(html)) {
+    const text = decode(m[2]);
+    // Not every slide is a schedule ("8U SPOOKY BOWL").
+    if (!/schedule|semi|playoff|post-?season|champion/i.test(text)) continue;
+    const src = entities(m[1]).trim();
+    const url = decodeUrl(src.startsWith('/') ? `https://${FILE_HOST}${src}` : src);
+    if (allowedFile(url) && /\.(png|jpe?g|gif|webp)$/i.test(url.split('?')[0]) && !out.some((l) => l.url === url)) out.push({ text, url });
+  }
+  return out;
+}
+
 export async function leagueIndex() {
-  const [schedule, results, standings] = await Promise.all([pageLinks(PAGES.schedule), pageLinks(PAGES.results), pageLinks(PAGES.standings)]);
-  return { schedule, results, standings };
+  const [schedule, results, standings, posted] = await Promise.all([
+    pageLinks(PAGES.schedule),
+    pageLinks(PAGES.results),
+    pageLinks(PAGES.standings),
+    postedPictures().catch(() => [] as LeagueLink[]),
+  ]);
+  return { schedule, results, standings, posted };
 }
 
 export async function leagueFile(url: string): Promise<{ bytes: ArrayBuffer; type: string }> {

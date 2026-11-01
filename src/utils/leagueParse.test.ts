@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { forLevel, parseByeRows, parseResultsText, parseScheduleRows, parseStandings, type LeagueData, type PositionedText } from './leagueParse';
+import { forLevel, parseByeRows, parsePostseasonPdf, postseasonRound, parseResultsText, parseScheduleRows, parseStandings, type LeagueData, type PositionedText } from './leagueParse';
 
 test('schedule rows are read by their header names', () => {
   const rows = [
@@ -94,4 +94,33 @@ test('a club\'s record at every level, added up (standings overall when listed, 
   assert.deepEqual(s.total, { w: 4, l: 1, t: 1, pf: 39, pa: 32 });
   assert.equal(s.levels[2].division, 'South East');
   assert.deepEqual(leagueClubs(data), ['Brewster', 'Carmel', 'Mahopac', 'Somers']);
+});
+
+test('post-season sheet: blocks side by side, each game under its day and site', () => {
+  // Laid out like the 2026 semi-finals sheet (two columns of blocks, a key on the right, byes below).
+  const at = (str: string, x: number, y: number): PositionedText => ({ str, x, y, page: 1 });
+  const items = [
+    at('TYF Semi-Finals: Sunday November 1st, 2026', 200, 780),
+    at('Sunday, 11-1-26 in Brewster (Brewster HS)', 20, 740),
+    at('Sunday, 11-1-26 in Somers (Somers HS)', 400, 740),
+    at('Playoff semi-final', 640, 740),
+    ...['9U', '11am', 'Suffern', '@', 'Brewster'].map((s, i) => at(s, 20 + i * 60, 724)),
+    ...['10U', '11am', 'Wappingers', '@', 'Somers'].map((s, i) => at(s, 400 + i * 60, 724)),
+    at('Sunday, 11-1-26 in Shrub Oak (Lakeland HS)', 20, 600),
+    ...['10U', '1pm', 'MHV', 'Mahopac'].map((s, i) => at(s, 20 + i * 60, 584)),
+    at('Sunday, 11-1-26 in Suffern (Suffern MS)', 400, 600),
+    ...['10U', '11am', 'Yorktown @ Suffern'].map((s, i) => at(s, 400 + i * 60, 584)),
+    at('BYE:', 20, 500),
+    ...['13U', 'Somers'].map((s, i) => at(s, 20 + i * 60, 484)),
+  ];
+  const games = parsePostseasonPdf(items, postseasonRound('Link to SEMI-FINAL Schedule - Sunday, 11/1/26'));
+  assert.deepEqual(
+    games.map((g) => `${g.week} ${g.date} ${g.level} ${g.time} ${g.away} @ ${g.home} · ${g.location}`),
+    [
+      'Semi-final 11/1/26 9U 11am Suffern @ Brewster · Brewster (Brewster HS)',
+      'Semi-final 11/1/26 10U 11am Wappingers @ Somers · Somers (Somers HS)',
+      'Semi-final 11/1/26 10U 1pm MHV @ Mahopac · Shrub Oak (Lakeland HS)',
+      'Semi-final 11/1/26 10U 11am Yorktown @ Suffern · Suffern (Suffern MS)',
+    ]
+  );
 });

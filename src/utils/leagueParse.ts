@@ -35,6 +35,12 @@ export interface LevelStandings {
 export interface LeagueData {
   fetchedAt: number;
   schedule: LeagueGame[];
+  /** Playoff games (semi-finals, championships) from the league's post-season schedule files; `week` is the round. */
+  postseason?: LeagueGame[];
+  /** The post-season schedule files the league links to, and whether each one opened. */
+  postseasonFiles?: { text: string; url: string; ok: boolean }[];
+  /** Schedule pictures from the league's home page ("2026 Semi-Finals Schedule"). */
+  posted?: { text: string; url: string }[];
   /** Results by week (from each week's results file). */
   results: LeagueGame[];
   /** The latest standings posted, per level, and the week they're from. */
@@ -107,6 +113,81 @@ export function parseSchedulePdf(items: { str: string; x: number; y: number; pag
     const away = get(/^away|visitor/);
     if (!LEVEL.test(level) || !home || !away) continue;
     out.push({ week: get(/^week/).replace(/\D+/g, ''), date: get(/^date/), level: level.toUpperCase(), home, away, location: get(/location|field|site/), time: get(/time/) });
+  }
+  return out;
+}
+
+/** The round a post-season file is for, from its link text or name. */
+export function postseasonRound(text: string): string {
+  if (/semi/i.test(text)) return 'Semi-final';
+  if (/quarter/i.test(text)) return 'Quarter-final';
+  if (/champion|final/i.test(text)) return 'Championship';
+  return 'Playoffs';
+}
+
+const WEEKDAY_HEAD = /^(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?,?\s+(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})\s+(?:in|at|@)\s+(.+)$/i;
+const GAME_TIME = /^\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?$/i;
+
+/**
+ * The post-season schedule: one sheet of blocks side by side, each headed by its day and site ("Sunday, 11-1-26 in
+ * Brewster (Brewster HS)") with a row per game ("10U  1pm  Carmel @ N Rockland"). A game belongs to the nearest block
+ * on its left, the latest heading above it. Lines with no time or no two teams (the key, byes, "season over") are
+ * skipped.
+ */
+export function parsePostseasonPdf(items: PositionedText[], round: string): LeagueGame[] {
+  const lines = new Map<string, { str: string; x: number }[]>();
+  for (const it of items) {
+    if (!clean(it.str)) continue;
+    const key = `${it.page}:${Math.round(it.y / 2)}`;
+    lines.set(key, [...(lines.get(key) || []), { str: clean(it.str), x: it.x }]);
+  }
+  // Top of the page first (PDF y runs up the page).
+  const rows = [...lines.entries()]
+    .map(([key, cells]) => ({ page: Number(key.split(':')[0]), y: Number(key.split(':')[1]), cells: cells.sort((a, b) => a.x - b.x) }))
+    .sort((a, b) => a.page - b.page || b.y - a.y);
+  const out: LeagueGame[] = [];
+  let blocks: { x: number; date: string; location: string }[] = [];
+  let page = 0;
+  for (const r of rows) {
+    if (r.page !== page) {
+      page = r.page;
+      blocks = [];
+    }
+    // Headings: a cell on its own, or with the next one or two when the heading came out in pieces.
+    for (let i = 0; i < r.cells.length; i++) {
+      for (let n = 1; n <= 3 && i + n <= r.cells.length; n++) {
+        const m = r.cells.slice(i, i + n).map((c) => c.str).join(' ').match(WEEKDAY_HEAD);
+        if (!m) continue;
+        const x = r.cells[i].x;
+        const y = Number(m[3]) < 100 ? Number(m[3]) : Number(m[3]) % 100;
+        blocks = [...blocks.filter((b) => Math.abs(b.x - x) > 60), { x, date: `${Number(m[1])}/${Number(m[2])}/${y}`, location: clean(m[4]) }];
+        break;
+      }
+    }
+    // Games: each level cell starts one.
+    const starts = r.cells.map((c, i) => (LEVEL.test(c.str) ? i : -1)).filter((i) => i >= 0);
+    starts.forEach((s, k) => {
+      const cells = r.cells.slice(s, k + 1 < starts.length ? starts[k + 1] : undefined);
+      const t = cells.findIndex((c) => GAME_TIME.test(c.str));
+      if (t < 0) return;
+      const rest = cells.slice(t + 1).map((c) => c.str);
+      let away = '';
+      let home = '';
+      const at = rest.indexOf('@');
+      const joined = rest.join(' ');
+      if (at > 0) {
+        away = rest.slice(0, at).join(' ');
+        home = rest.slice(at + 1).join(' ');
+      } else if (/\s@\s/.test(joined)) {
+        [away, home] = joined.split(/\s@\s/).map(clean);
+      } else if (rest.length >= 2) {
+        away = rest[0];
+        home = rest.slice(1).join(' ');
+      }
+      if (!away || !home) return;
+      const block = [...blocks].filter((b) => b.x <= cells[0].x + 20).sort((a, b) => b.x - a.x)[0];
+      out.push({ week: round, date: block?.date || '', level: cells[0].str.toUpperCase(), home: clean(home), away: clean(away), location: block?.location || '', time: cells[t].str });
+    });
   }
   return out;
 }

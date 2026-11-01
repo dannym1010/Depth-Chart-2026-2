@@ -27,6 +27,9 @@ const isPast = (date: string) => {
   return new Date(y, Number(m[1]) - 1, Number(m[2]) + 1) <= new Date();
 };
 
+/** "Week 5", or the round's name for a playoff game ("Semi-final"). */
+const weekLabel = (week: string) => (/^\d+$/.test(week) ? `Week ${week}` : week);
+
 type Tab = 'ours' | 'scores' | 'standings' | 'playoffs' | 'schedule' | 'club' | 'rules';
 
 const card = 'bg-slate-800/90 rounded-2xl border border-slate-700/80 p-4';
@@ -113,7 +116,16 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
     () => (view && level ? playoffPicture({ level, standings: view.standings, schedule: view.schedule, results: view.results, standingsWeek: data?.standingsWeek, ourTeam: ourName }) : null),
     [view, level, data?.standingsWeek, ourName]
   );
-  const nextGame = useMemo(() => (view?.ourGames || []).find((g) => g.homeScore == null && !isPast(g.date)), [view]);
+  // The post-season at this level: the games read from the league's files, any file whose link is broken, and the
+  // schedule pictures from the league's home page.
+  const post = useMemo(() => (data?.postseason || []).filter((g) => sameLevel(g.level, level)), [data, level]);
+  const ourPost = useMemo(() => post.filter((g) => sameTeam(g.home, ourName) || sameTeam(g.away, ourName)), [post, ourName]);
+  const brokenPost = (data?.postseasonFiles || []).filter((f) => !f.ok);
+  const posted = data?.posted || [];
+  const nextGame = useMemo(
+    () => [...(view?.ourGames || []), ...ourPost].find((g) => g.homeScore == null && !isPast(g.date)),
+    [view, ourPost]
+  );
   /** A week picker with arrows to the week before and after. */
   const weekPicker = (value: string, onPick: (w: string) => void, label: (w: string) => string, withAll = false) => {
     const at = weeks.indexOf(value);
@@ -143,7 +155,7 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
   const GameRow: React.FC<{ g: LeagueGame; showWeek?: boolean }> = ({ g, showWeek }) => (
     <div className="flex items-center gap-3 py-2 border-b border-slate-700/60 last:border-0 text-sm">
       <div className="w-24 shrink-0 text-xs text-slate-400">
-        {showWeek && <div className="font-bold text-slate-300">Week {g.week}</div>}
+        {showWeek && <div className="font-bold text-slate-300">{weekLabel(g.week)}</div>}
         {g.date}
       </div>
       <div className="flex-1 min-w-0">
@@ -162,6 +174,41 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
       </div>
     </div>
   );
+
+  /** Playoff games (ours, or every one at this level), a broken league link, and the pictures the league posted. */
+  const postSeason = (all: boolean) => {
+    const games = all ? post : ourPost;
+    if (!post.length && !brokenPost.length && !posted.length) return null;
+    return (
+      <div className={card}>
+        <h4 className="font-black text-slate-100 text-sm mb-2 flex items-center gap-1.5">
+          <Medal className="w-4 h-4 text-amber-300" /> Post-season
+        </h4>
+        {games.map((g, i) => (
+          <GameRow key={i} g={g} showWeek />
+        ))}
+        {post.length > 0 && !games.length && <p className="text-sm text-slate-400">No {level} playoff game for {ourName} in the league&apos;s post-season schedule.</p>}
+        {brokenPost.map((f) => (
+          <p key={f.url} className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+            The league&apos;s link <b>&ldquo;{f.text}&rdquo;</b> doesn&apos;t open (their file host says the file is missing), so its games can&apos;t be read
+            yet. Refresh again once the league fixes it (
+            <a href={f.url} target="_blank" rel="noreferrer" className="text-indigo-300 hover:underline">try the link</a>).
+            {posted.length ? ' Here is what they posted on their home page:' : ''}
+          </p>
+        ))}
+        {posted.map((p) => (
+          <figure key={p.url} className="mt-3">
+            <a href={p.url} target="_blank" rel="noreferrer" title="Open full size">
+              <img src={p.url} alt={p.text} className="w-full rounded-lg bg-white" />
+            </a>
+            <figcaption className="mt-1 text-xs text-slate-400">
+              {p.text} · from the league&apos;s home page (tap to open full size)
+            </figcaption>
+          </figure>
+        ))}
+      </div>
+    );
+  };
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'ours', label: 'Team games', icon: <Trophy className="w-3.5 h-3.5" /> },
@@ -247,6 +294,7 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
             ))}
           </div>
 
+          {tab === 'ours' && sameTeam(shownTeam, ourName) && postSeason(false)}
           {tab === 'ours' && (
             <div className={card}>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-2 text-xs">
@@ -274,7 +322,7 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
               </div>
               {sameTeam(shownTeam, ourName) && nextGame && (
                 <div className="mb-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-                  <b className="text-amber-300">Next game:</b> Week {nextGame.week} ·{' '}
+                  <b className="text-amber-300">Next game:</b> {weekLabel(nextGame.week)} ·{' '}
                   {sameTeam(nextGame.home, ourName) ? `vs ${nextGame.away}` : `@ ${nextGame.home}`} · {nextGame.date} {nextGame.time}
                   {nextGame.location ? ` · ${nextGame.location}` : ''}
                 </div>
@@ -306,6 +354,7 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
             </div>
           )}
 
+          {tab === 'playoffs' && postSeason(true)}
           {tab === 'playoffs' && <LeaguePlayoffs picture={picture} level={level} ourTeam={ourName} standingsWeek={data?.standingsWeek} />}
           {tab === 'rules' && <LeagueRules level={level} />}
 

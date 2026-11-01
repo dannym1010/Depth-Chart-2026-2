@@ -1,6 +1,6 @@
 // Loads the league's schedule, results and standings through /api/league (which only talks to the league
 // site) and reads them with leagueParse.ts. Kept in this browser for a few hours; Refresh gets the latest.
-import { byesFromSchedule, parseByeRows, parseResultsText, parseSchedulePdf, parseScheduleRows, parseStandings, type LeagueData, type LeagueGame, type PositionedText } from './leagueParse';
+import { byesFromSchedule, parseByeRows, parsePostseasonPdf, postseasonRound, parseResultsText, parseSchedulePdf, parseScheduleRows, parseStandings, type LeagueData, type LeagueGame, type PositionedText } from './leagueParse';
 
 interface LeagueLink {
   text: string;
@@ -56,12 +56,16 @@ export async function fetchLeague(): Promise<LeagueData> {
     throw new Error('The app server needs a restart to load the league feature (close it and start it again).');
   }
   if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'Could not reach the league site.');
-  const index = (await res.json()) as { schedule: LeagueLink[]; results: LeagueLink[]; standings: LeagueLink[] };
+  const index = (await res.json()) as { schedule: LeagueLink[]; results: LeagueLink[]; standings: LeagueLink[]; posted?: LeagueLink[] };
+  // Post-season files (semi-finals, championships) are linked beside the season's schedule.
+  const isPost = (l: LeagueLink) => /semi|playoff|post-?season|champion|bowl/i.test(`${l.text} ${decodeURIComponent(l.url)}`);
+  const seasonLinks = index.schedule.filter((l) => !isPost(l));
+  const postLinks = index.schedule.filter((l) => isPost(l) && /\.pdf$/i.test(l.url));
 
   // Schedule: the Excel file (the PDF is the same schedule).
   let schedule: LeagueGame[] = [];
   let byes: LeagueData['byes'] = [];
-  const sheet = index.schedule.find((l) => /\.xlsx?$/i.test(l.url));
+  const sheet = seasonLinks.find((l) => /\.xlsx?$/i.test(l.url));
   if (sheet) {
     const XLSX = await import('xlsx');
     const wb = XLSX.read(await fileBytes(sheet.url), { type: 'array' });
@@ -72,7 +76,7 @@ export async function fetchLeague(): Promise<LeagueData> {
     if (byeSheet) byes = parseByeRows(rows(byeSheet));
   }
   // The schedule posted as a PDF only (2026).
-  const schedulePdf = !schedule.length ? index.schedule.find((l) => /\.pdf$/i.test(l.url)) : undefined;
+  const schedulePdf = !schedule.length ? seasonLinks.find((l) => /\.pdf$/i.test(l.url)) : undefined;
   if (schedulePdf) {
     try {
       schedule = parseSchedulePdf((await pdfItems(await fileBytes(schedulePdf.url))).items);
@@ -108,7 +112,24 @@ export async function fetchLeague(): Promise<LeagueData> {
     standingsWeek = String(weekOf(standingLinks[0]) || '') || undefined;
   }
 
-  const data: LeagueData = { fetchedAt: Date.now(), schedule, results, standings, standingsWeek, byes };
+  // The post-season: each file read on its own (the league's link can be broken: the file host says "Access Denied").
+  const postseasonFiles: NonNullable<LeagueData['postseasonFiles']> = [];
+  const postseason = (
+    await Promise.all(
+      postLinks.map(async (l) => {
+        try {
+          const games = parsePostseasonPdf((await pdfItems(await fileBytes(l.url))).items, postseasonRound(`${l.text} ${decodeURIComponent(l.url)}`));
+          postseasonFiles.push({ text: l.text, url: l.url, ok: true });
+          return games;
+        } catch {
+          postseasonFiles.push({ text: l.text, url: l.url, ok: false });
+          return [];
+        }
+      })
+    )
+  ).flat();
+
+  const data: LeagueData = { fetchedAt: Date.now(), schedule, results, standings, standingsWeek, byes, postseason, postseasonFiles, posted: index.posted || [] };
   try {
     localStorage.setItem(CACHE_KEY, JSON.stringify(data));
   } catch {
