@@ -376,11 +376,16 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
                       <table className="w-full">
                         <thead>
                           <tr className="border-b border-slate-700">
-                            {['Team', 'W', 'L', 'T', 'Pct', 'Overall', 'Pct'].map((h, i) => <th key={i} className={th}>{h}</th>)}
+                            {['Team', 'W', 'L', 'T', 'Pct', 'Overall', 'Pct', 'PF', 'PA', '+/-'].map((h, i) => (
+                              <th key={i} className={th} title={i >= 7 ? 'Points for and against, from the scores the league posted' : undefined}>{h}</th>
+                            ))}
                           </tr>
                         </thead>
                         <tbody>
-                          {d.rows.map((r) => (
+                          {d.rows.map((r) => {
+                            const s = teamSeason(r.team);
+                            const diff = s.pf - s.pa;
+                            return (
                             <tr key={r.team} className={`border-b border-slate-700/60 last:border-0 ${sameTeam(r.team, ourName) ? 'bg-amber-500/10' : ''}`}>
                               <td className={`${td} ${hl(r.team)}`}>
                                 <button onClick={() => openTeam(r.team)} className="hover:underline text-left" title={`See ${r.team}'s games and scores`}>
@@ -393,11 +398,16 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
                               <td className={`${td} text-slate-300`}>{r.pct}</td>
                               <td className={`${td} text-slate-100`}>{r.ow}-{r.ol}{r.ot ? `-${r.ot}` : ''}</td>
                               <td className={`${td} text-slate-300`}>{r.opct}</td>
+                              <td className={`${td} text-slate-100`}>{s.pf}</td>
+                              <td className={`${td} text-slate-100`}>{s.pa}</td>
+                              <td className={`${td} font-bold ${diff > 0 ? 'text-emerald-400' : diff < 0 ? 'text-red-400' : 'text-slate-400'}`}>{diff > 0 ? `+${diff}` : diff}</td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
+                    <p className="mt-2 text-[11px] text-slate-400">PF / PA: points for and against in the scores the league posted, so a week without results isn&apos;t in them.</p>
                   </div>
                 ))
               ) : (
