@@ -8257,6 +8257,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 ownTeamScout={teamOwnScout}
                 onUpdateOwnTeamScout={persistOwnTeamHudlScout}
                 onUpdateScouting={persistWeekScouting}
+                canUseAi={isProgramAdmin}
                 onNavigateToSchedule={() => setActiveUnit('schedule')}
                 onNavigateToTendencies={() => setActiveUnit('tendencies')}
                 onNavigateToHtmlTendencies={() => setActiveUnit('tendencies')}

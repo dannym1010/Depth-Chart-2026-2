@@ -62,7 +62,7 @@ export function scoutFingerprint(scout: any): string {
   const formEdit = Array.isArray(scout.oppFormations)
     ? scout.oppFormations.reduce((m: number, f: any) => Math.max(m, Number(f?.editedAt) || 0), 0)
     : 0;
-  return `${Number(scout.updatedAt) || 0}|${plays.length}|${games.length}|${scout.datasetName || ''}|${scout.sourceCleared ? 1 : 0}|${edits}|${lastEdit}|${gameEdits}|${deleted}|${baseEdit}|${formEdit}`;
+  return `${Number(scout.updatedAt) || 0}|${plays.length}|${games.length}|${scout.datasetName || ''}|${scout.sourceCleared ? 1 : 0}|${edits}|${lastEdit}|${gameEdits}|${deleted}|${baseEdit}|${formEdit}|${Number(scout.aiNotes?.importedAt) || 0}`;
 }
 
 /**
@@ -143,6 +143,8 @@ export function pickScoutBundle(a?: any, b?: any) {
     .map((g) => ({ ...g, playCount: plays.filter((p) => p.gameId === g.id).length || g.playCount }));
   const deletedOpp = [...new Set([...(Array.isArray(a.deletedOppPlayIds) ? a.deletedOppPlayIds : []), ...(Array.isArray(b.deletedOppPlayIds) ? b.deletedOppPlayIds : [])])];
   const script = (Number(newer.practiceScript?.builtAt) || 0) >= (Number(older.practiceScript?.builtAt) || 0) ? newer.practiceScript : older.practiceScript;
+  // The AI notes put in last (removing them is putting in an empty list).
+  const aiNotes = (Number(newer.aiNotes?.importedAt) || 0) >= (Number(older.aiNotes?.importedAt) || 0) ? newer.aiNotes || older.aiNotes : older.aiNotes;
   const backfieldBases = mergeBackfieldBases(older.backfieldBases, newer.backfieldBases);
   const oppFormations = mergeOppFormations(older.oppFormations, newer.oppFormations);
   // The game plan's own calls: per row, the newer edit wins (a cleared row is an edit too).
@@ -161,6 +163,7 @@ export function pickScoutBundle(a?: any, b?: any) {
     ...(Object.keys(gamePlanCalls).length ? { gamePlanCalls } : {}),
     ...(deletedOpp.length ? { deletedOppPlayIds: deletedOpp } : {}),
     ...(script ? { practiceScript: script } : {}),
+    ...(aiNotes ? { aiNotes } : {}),
     // (the merged list replaces both copies' lists: a game put back isn't removed again by an older list)
     deletedGameIds: [...deleted],
     ...(Object.keys(tomb.deletedGameAt).length ? { deletedGameAt: tomb.deletedGameAt } : {}),

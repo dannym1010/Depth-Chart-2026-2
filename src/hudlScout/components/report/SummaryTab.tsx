@@ -1,5 +1,5 @@
-import React from 'react';
-import { Printer } from 'lucide-react';
+import React, { useState } from 'react';
+import { Download, Printer, Sparkles, Upload } from 'lucide-react';
 import { printCleanHTML } from '../../../utils/printUtils';
 import { summaryPrintHtml } from './summaryPrint';
 import { AIScoutingReport, DownDistGroup, Play, TendencyAnalysis } from '../../types/football';
@@ -8,6 +8,23 @@ import { DownDistanceHeatmap, RunPassRing, playsForRunGap } from '../ScoutCharts
 import { ReportVoice, buildTakeaways, identity, isPassPlay, isRunPlay, playerName, runSides, sampleSize, shareGreen, topNames } from './reportText';
 import { Card, PlanCallout, SectionHeader, WatchPill, type WatchCutupFn } from './ui';
 import { HashAndMotionCard } from './FieldTendenciesCard';
+import { PassTendenciesCard } from './PassTendenciesCard';
+import { passTendencies, passTendencyLines } from '../../utils/passTendencies';
+import { aiExportText, hasAiNotes, parseAiReply, type AiScoutNotes } from '../../utils/aiExport';
+
+/** The owner's AI tools on the summary, and the notes every coach sees. */
+export interface SummaryAi {
+  canUse: boolean;
+  notes?: AiScoutNotes;
+  /** Who's putting notes in (their email). */
+  by: string;
+  team: string;
+  opponent: string;
+  mode: 'own' | 'opponent';
+  unit: string;
+  ourDefense?: string;
+  onSave: (notes: AiScoutNotes) => void;
+}
 
 interface SummaryTabProps {
   analysis: TendencyAnalysis;
@@ -19,7 +36,127 @@ interface SummaryTabProps {
   onOpenGamePlan: () => void;
   onOpenTab: (tab: string) => void;
   onWatchCutup?: WatchCutupFn;
+  ai?: SummaryAi;
 }
+
+/** A file saved to the device (the AI file to upload). */
+function saveFile(name: string, text: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/markdown;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+const fileSafe = (s: string) => s.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+/** Paste (or open) the AI's answer; it's read and saved as the notes. */
+const AiImport: React.FC<{ ai: SummaryAi; onDone: () => void }> = ({ ai, onDone }) => {
+  const [text, setText] = useState('');
+  const [error, setError] = useState('');
+  const save = () => {
+    try {
+      ai.onSave(parseAiReply(text, ai.by));
+      onDone();
+    } catch (e: any) {
+      setError(e?.message || 'Could not read that.');
+    }
+  };
+  return (
+    <Card tone="plan">
+      <SectionHeader
+        title="Import AI notes"
+        subtitle="Paste the AI's whole answer (the JSON it was asked for, or plain words), or open a file with it. Every coach will see the notes on this summary."
+      />
+      <textarea
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          setError('');
+        }}
+        rows={8}
+        placeholder='{"summary": "...", "items": [ ... ]}'
+        className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 p-2 text-xs font-mono text-slate-900 dark:text-slate-100"
+      />
+      {error && <p className="text-xs text-rose-600 dark:text-rose-400 mt-1">{error}</p>}
+      <div className="flex flex-wrap items-center gap-2 mt-2">
+        <button type="button" onClick={save} className="min-h-[36px] px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold cursor-pointer">
+          Save notes
+        </button>
+        <label className="min-h-[36px] px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer inline-flex items-center gap-1.5">
+          <Upload className="w-3.5 h-3.5" /> Open a file
+          <input
+            type="file"
+            accept=".json,.md,.txt,text/*,application/json"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void f.text().then((t) => setText(t));
+              e.target.value = '';
+            }}
+          />
+        </label>
+        <button type="button" onClick={onDone} className="min-h-[36px] px-3 rounded-lg text-slate-600 dark:text-slate-300 text-xs font-bold cursor-pointer">
+          Cancel
+        </button>
+      </div>
+    </Card>
+  );
+};
+
+/** The AI's notes, for every coach: its read, then each habit with how we answer it and the plays to watch. */
+const AiNotesCard: React.FC<{ ai: SummaryAi; plays: Play[]; onWatchCutup?: WatchCutupFn }> = ({ ai, plays, onWatchCutup }) => {
+  const n = ai.notes;
+  if (!hasAiNotes(n)) return null;
+  const byId = new Map(plays.map((p) => [p.id, p]));
+  const when = new Date(n.importedAt).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return (
+    <Card tone="plan">
+      <SectionHeader
+        title="AI notes"
+        subtitle={`From an AI's read of the plays (${when}${n.by ? `, put in by ${n.by}` : ''}). Check each one against the film.`}
+        right={
+          ai.canUse ? (
+            <button
+              type="button"
+              data-print-skip
+              onClick={() => ai.onSave({ items: [], importedAt: Date.now(), by: ai.by })}
+              className="text-[11px] font-bold text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 cursor-pointer"
+            >
+              Remove
+            </button>
+          ) : undefined
+        }
+      />
+      {n.summary && <p className="text-sm text-slate-800 dark:text-slate-100 whitespace-pre-wrap mb-3">{n.summary}</p>}
+      {n.items.length > 0 && (
+        <ol className="space-y-3">
+          {n.items.map((t, i) => {
+            const tPlays = (t.refs || []).map((r) => byId.get(r)).filter((p): p is Play => Boolean(p));
+            return (
+              <li key={i} className="flex gap-3">
+                <span className="shrink-0 w-7 h-7 rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-200 text-sm font-black flex items-center justify-center">
+                  {i + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-sm font-bold text-slate-900 dark:text-slate-100">{t.title}</div>
+                    {onWatchCutup && tPlays.length > 0 && <WatchPill count={tPlays.length} onClick={() => onWatchCutup(t.title, tPlays)} />}
+                  </div>
+                  {t.detail && <div className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">{t.detail}</div>}
+                  {t.answer && <PlanCallout label="Our answer">{t.answer}</PlanCallout>}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </Card>
+  );
+};
 
 const Fact: React.FC<{
   label: string;
@@ -77,7 +214,9 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({
   onOpenGamePlan,
   onOpenTab,
   onWatchCutup,
+  ai,
 }) => {
+  const [importing, setImporting] = useState(false);
   const id = identity(a, voice);
   const sample = sampleSize(a.totalPlays);
   const sides = runSides(a);
@@ -112,15 +251,46 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({
     return plays;
   };
 
+  // Everything for an outside AI in one file: what to look for, how to answer, the app's own read and every play.
+  const exportForAi = () => {
+    if (!ai) return;
+    const appRead = [id.sentence, ...takeaways.map((t) => `${t.title}: ${t.detail}`), ...passTendencyLines(passTendencies(plays), voice.subject)];
+    const who = ai.mode === 'own' ? ai.team : ai.opponent;
+    saveFile(
+      `${fileSafe(`${who} ${ai.unit} for AI`)}.md`,
+      aiExportText(plays, { team: ai.team, opponent: ai.opponent, mode: ai.mode, unit: ai.unit, appRead, ourDefense: ai.mode === 'opponent' ? ai.ourDefense : undefined })
+    );
+  };
+
   return (
     <div className="space-y-4 md:space-y-5">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap justify-end gap-2">
+        {ai?.canUse && plays.length > 0 && (
+          <>
+            <button
+              type="button"
+              onClick={exportForAi}
+              title="A file with every play and what to look for: upload it to Claude or ChatGPT"
+              className="inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg border border-indigo-300 dark:border-indigo-500/50 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-xs font-bold cursor-pointer"
+            >
+              <Download className="w-4 h-4" /> Export for AI
+            </button>
+            <button
+              type="button"
+              onClick={() => setImporting((v) => !v)}
+              title="Paste the AI's answer back in"
+              className="inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg border border-indigo-300 dark:border-indigo-500/50 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-xs font-bold cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4" /> Import AI notes
+            </button>
+          </>
+        )}
         <button
           type="button"
           onClick={() => {
             // A page made for paper (big type, one page), not the screen shrunk down.
             const title = `${id.label} - Scouting summary`;
-            printCleanHTML(summaryPrintHtml(a, plays, voice, report, title), title);
+            printCleanHTML(summaryPrintHtml(a, plays, voice, report, title, ai?.notes), title);
           }}
           className="inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg bg-slate-900 hover:bg-slate-700 text-white dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200 text-xs font-bold cursor-pointer"
         >
@@ -128,6 +298,7 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({
         </button>
       </div>
       <div className="space-y-4 md:space-y-5">
+      {ai && importing && <AiImport ai={ai} onDone={() => setImporting(false)} />}
       {/* 1. Who they are, in one line */}
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -326,6 +497,8 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({
         )}
       </Card>
 
+      {ai && <AiNotesCard ai={ai} plays={plays} onWatchCutup={onWatchCutup} />}
+
       {/* 4. Situations at a glance + our base plan */}
       <div className={`grid grid-cols-1 ${showPlan ? 'lg:grid-cols-2' : ''} gap-4 md:gap-5`}>
         <DownDistanceHeatmap
@@ -368,7 +541,10 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({
         )}
       </div>
 
-      {/* 5. Which way plays go from each hash, and the motion (also on the Run game tab) */}
+      {/* 5. Passing: wide side or short side, and at the twins or away, by down */}
+      <PassTendenciesCard plays={plays} voice={voice} onWatchCutup={onWatchCutup} />
+
+      {/* 6. Which way plays go from each hash, and the motion (also on the Run game tab) */}
       <HashAndMotionCard plays={plays} voice={voice} onWatchCutup={onWatchCutup} />
       </div>
     </div>

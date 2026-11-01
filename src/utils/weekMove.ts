@@ -82,6 +82,7 @@ export function moveScoutReport(from: any, to: any | undefined, fromWeek: string
     const oppFormations = mergeOppFormations(to.oppFormations, from?.oppFormations);
     const script = newest(to.practiceScript, from?.practiceScript, 'builtAt');
     const callSheet = newest(to.callSheet, from?.callSheet, 'updatedAt');
+    const aiNotes = newest(to.aiNotes, from?.aiNotes, 'importedAt');
     next = {
       ...to,
       plays: [...list(to.plays), ...list(from?.plays).filter((p: any) => p?.id && !havePlay.has(p.id))],
@@ -96,6 +97,7 @@ export function moveScoutReport(from: any, to: any | undefined, fromWeek: string
       ...(deletedOpp.length ? { deletedOppPlayIds: deletedOpp } : {}),
       ...(script ? { practiceScript: script } : {}),
       ...(callSheet ? { callSheet } : {}),
+      ...(aiNotes ? { aiNotes } : {}),
     };
   }
   // A moved game the week had removed before is back now.

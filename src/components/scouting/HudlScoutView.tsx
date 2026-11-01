@@ -111,6 +111,8 @@ export interface HudlScoutViewProps {
   onDrawSnap?: (play: Play) => void;
   /** Our calls against their formations changed: put them on the call sheet. */
   onFormationPlans?: (list: OppFormation[], their?: { libraries?: Record<string, ScoutOppPlay[]>; deletedIds?: string[] }) => void;
+  /** The owner: Export for AI and Import AI notes on the summary (every coach sees the notes). */
+  canUseAi?: boolean;
 }
 
 export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
@@ -146,6 +148,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
   onEditFormation,
   onDrawSnap,
   onFormationPlans,
+  canUseAi,
 }) => {
   // The calls read our defense from the scouting helpers; rebuild them when it changes.
   setDefenseSystem(teamDefense);
@@ -652,6 +655,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       backfieldBases: oppBundle.backfieldBases,
       oppFormations: oppBundle.oppFormations,
       gamePlanCalls: oppBundle.gamePlanCalls,
+      aiNotes: oppBundle.aiNotes,
       updatedAt: oppBundle.updatedAt,
     });
     if (oppBundle.datasetName && oppBundle.datasetName !== opponentFallback) {
@@ -1108,6 +1112,17 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                     onOpenGamePlan={() => setActiveTab('gameplan')}
                     onOpenTab={setActiveTab}
                     onWatchCutup={handleWatchCutup}
+                    ai={{
+                      canUse: Boolean(canUseAi),
+                      notes: bundle.aiNotes,
+                      by: currentUser?.email || '',
+                      team: activeTeamName || 'Mahopac 10U',
+                      opponent: bundle.datasetName || opponentFallback,
+                      mode: scoutTarget === 'own' ? 'own' : 'opponent',
+                      unit: filters.odk === 'D' ? 'defense' : filters.odk === 'K' ? 'special teams' : 'offense',
+                      ourDefense: `${defense.base} with ${defense.baseCoverage} behind it (${defense.check} as a check)`,
+                      onSave: (notes) => setBundle((prev) => ({ ...prev, aiNotes: notes, updatedAt: Date.now() })),
+                    }}
                   />
                 )}
                 {activeTab === 'situations' && (

@@ -6,6 +6,7 @@ import { parseYardLine } from './utils/csvParser';
 import type { FilmBackfieldBases } from '../utils/filmBackfields';
 import { markGamesDeleted } from '../utils/gameTombstones';
 import type { OppFormation, ScoutOppPlay, ScoutPracticeScript } from '../utils/scoutOppPlays';
+import type { AiScoutNotes } from './utils/aiExport';
 
 export const DEFAULT_SCOUT_FILTERS: FilterState = {
   odk: 'O',
@@ -67,6 +68,8 @@ export interface ScoutBundle {
    * Library (callId) or typed (text); both empty = back to the suggested call. Newest edit wins per row.
    */
   gamePlanCalls?: Record<string, GamePlanCall>;
+  /** An outside AI's read of these plays, pasted in by the owner (newest wins; removed = an empty list). */
+  aiNotes?: AiScoutNotes;
 }
 
 export interface GamePlanCall {
@@ -105,6 +108,7 @@ export function bundleFromSaved(saved: any, fallbackName: string): ScoutBundle {
     backfieldBases: saved?.backfieldBases && typeof saved.backfieldBases === 'object' ? saved.backfieldBases : undefined,
     oppFormations: Array.isArray(saved?.oppFormations) ? saved.oppFormations : undefined,
     gamePlanCalls: saved?.gamePlanCalls && typeof saved.gamePlanCalls === 'object' ? saved.gamePlanCalls : undefined,
+    aiNotes: saved?.aiNotes && typeof saved.aiNotes === 'object' && Array.isArray(saved.aiNotes.items) ? saved.aiNotes : undefined,
   };
 }
 

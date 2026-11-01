@@ -4,6 +4,8 @@
 import type { AIScoutingReport, DownDistGroup, Play, TendencyAnalysis } from '../../types/football';
 import { fieldTendencies, type Split3 } from '../../utils/fieldTendencies';
 import { buildTakeaways, identity, runSides, type ReportVoice } from './reportText';
+import { passTendencies, passTendencyLines } from '../../utils/passTendencies';
+import { hasAiNotes, type AiScoutNotes } from '../../utils/aiExport';
 
 const esc = (s: unknown) =>
   String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string);
@@ -31,7 +33,7 @@ function bar(parts: { label: string; pct: number; count: number; color: string }
 
 const part = <K extends string>(s: Split3<K>, k: K, label: string, color: string) => ({ label, pct: s.pct[k], count: s.count[k], color });
 
-export function summaryPrintHtml(a: TendencyAnalysis, plays: Play[], voice: ReportVoice, report: AIScoutingReport | null, title: string): string {
+export function summaryPrintHtml(a: TendencyAnalysis, plays: Play[], voice: ReportVoice, report: AIScoutingReport | null, title: string, aiNotes?: AiScoutNotes): string {
   const id = identity(a, voice);
   const sides = runSides(a);
   const takeaways = buildTakeaways(a, plays, voice, 5);
@@ -104,6 +106,18 @@ export function summaryPrintHtml(a: TendencyAnalysis, plays: Play[], voice: Repo
     )
     .join('');
 
+  const passLines = passTendencyLines(passTendencies(plays), voice.subject);
+  const passing = passLines.length ? `<section class="passing"><h2>Passing</h2>${passLines.map((l) => `<p>${esc(l)}</p>`).join('')}</section>` : '';
+  const ai = hasAiNotes(aiNotes)
+    ? `<section class="ai"><h2>AI notes</h2>${aiNotes.summary ? `<p>${esc(aiNotes.summary)}</p>` : ''}${
+        aiNotes.items.length
+          ? `<ol>${aiNotes.items
+              .map((t, i) => `<li><span class="n">${i + 1}</span><div><b>${esc(t.title)}</b><div>${esc(t.detail)}</div>${t.answer ? `<div class="answer"><b>Our answer:</b> ${esc(t.answer)}</div>` : ''}</div></li>`)
+              .join('')}</ol>`
+          : ''
+      }</section>`
+    : '';
+
   const plan =
     showPlan && report
       ? `<div class="plan"><h2>${voice.showCounters ? 'Our base plan' : 'How teams will likely defend us'}</h2>
@@ -149,6 +163,7 @@ export function summaryPrintHtml(a: TendencyAnalysis, plays: Play[], voice: Repo
   .plan { margin-top: 10px; }
   .why { font-size: 9.5pt; color: #334155; }
   section { break-inside: avoid; }
+  .passing, .ai { margin-top: 10px; } .passing p, .ai > p { margin: 3px 0; }
 </style></head><body>
   <div class="top">
     <div><h1>${esc(id.label)}</h1><p>${esc(id.sentence)}</p></div>
@@ -166,6 +181,8 @@ export function summaryPrintHtml(a: TendencyAnalysis, plays: Play[], voice: Repo
       <h2 style="margin-top:10px">Motion</h2><div class="motion">${motionHtml}</div>
     </section>
   </div>
+  ${passing}
   ${plan}
+  ${ai}
 </body></html>`;
 }
