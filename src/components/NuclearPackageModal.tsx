@@ -266,10 +266,11 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
                     {who(i.kid)} → <b className="text-slate-900 dark:text-white">{i.to}</b>
                     {i.for && (
                       <>
-                        , in for {who(i.for)}
+                        <span className="inline-block ml-2.5 mr-1.5 px-1.5 py-0.5 rounded text-[10px] font-black bg-red-700 text-white align-[1px]">OUT</span>
+                        {who(i.for)}
                         {i.forSpot && (
                           <>
-                            {' '}at <b className="text-slate-900 dark:text-white">{i.forSpot}</b>
+                            {' '}(<b className="text-slate-900 dark:text-white">{i.forSpot}</b>)
                           </>
                         )}
                       </>
@@ -280,13 +281,13 @@ export const NuclearPackageModal: React.FC<Props> = ({ onClose, formations, dept
                   .filter((o) => !swPaired.has(o.kid))
                   .map((o) => (
                     <li key={`out${o.kid.key}`}>
-                      <span className="inline-block mr-1.5 px-1.5 py-0.5 rounded text-[10px] font-black border border-slate-500 align-[1px]">OUT</span>
+                      <span className="inline-block mr-1.5 px-1.5 py-0.5 rounded text-[10px] font-black bg-red-700 text-white align-[1px]">OUT</span>
                       {who(o.kid)} ({o.from})
                     </li>
                   ))}
                 {sw.moves.map((m) => (
-                  <li key={`mv${m.kid.key}`}>
-                    {who(m.kid)} {m.from} → <b className="text-slate-900 dark:text-white">{m.to}</b>
+                  <li key={`mv${m.kid.key}`} className="font-bold text-slate-900 dark:text-white">
+                    {who(m.kid)} {m.from} → {m.to}
                   </li>
                 ))}
                 {!sw.ins.length && !sw.outs.length && !sw.moves.length && <li className="italic text-slate-500">No change: the same kids in the same spots.</li>}

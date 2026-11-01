@@ -471,14 +471,17 @@ export type NuclearPrintOptions = {
 };
 export const NUCLEAR_PRINT_DEFAULTS: NuclearPrintOptions = { orientation: 'landscape', ink: false, names: true, moves: true, formations: true, switches: false, switchDiagrams: true, switchSize: 'big', order: NUCLEAR_SECTIONS, ownPage: ['switches'] };
 
-/** The lines of one switch, as HTML: subs first (in for out), then the kids who change spots. */
+/** The lines of one switch, as HTML: subs first (IN with the kid he sends OUT), then the kids who change spots, in bold. */
 export function nuclearSwitchLines(sw: NuclearSwitch): string[] {
   const kid = (k: NuclearKid) => `<b>#${esc(k.num)}</b> ${esc(k.name)}`;
   const paired = new Set(sw.ins.map((i) => i.for).filter(Boolean));
   return [
-    ...sw.ins.map((i) => `<span class="tag in">IN</span> ${kid(i.kid)} &rarr; <b>${esc(i.to)}</b>${i.for ? `, in for ${kid(i.for)}${i.forSpot ? ` at <b>${esc(i.forSpot)}</b>` : ''}` : ''}`),
+    ...sw.ins.map(
+      (i) =>
+        `<span class="tag in">IN</span> ${kid(i.kid)} &rarr; <b>${esc(i.to)}</b>${i.for ? ` &nbsp;<span class="nw"><span class="tag out">OUT</span> ${kid(i.for)}${i.forSpot ? ` (<b>${esc(i.forSpot)}</b>)` : ''}</span>` : ''}`
+    ),
     ...sw.outs.filter((o) => !paired.has(o.kid)).map((o) => `<span class="tag out">OUT</span> ${kid(o.kid)} (${esc(o.from)})`),
-    ...sw.moves.map((m) => `${kid(m.kid)} ${esc(m.from)} &rarr; <b>${esc(m.to)}</b>`),
+    ...sw.moves.map((m) => `<span class="mv">${kid(m.kid)} ${esc(m.from)} &rarr; ${esc(m.to)}</span>`),
   ];
 }
 
@@ -620,7 +623,9 @@ ${portrait ? '.field svg { max-height: 3.5in; width: auto !important; max-width:
 .sw-grid .none { color: ${C.muted}; font-style: italic; }
 .tag { display: inline-block; font: 800 10px/1 "Barlow Condensed", Arial, sans-serif; padding: 2px 4px; border-radius: 3px; letter-spacing: .05em; vertical-align: 1px; }
 .tag.in { background: ${C.inkOnly ? C.ink : '#2b8a3e'}; color: #fff; }
-.tag.out { background: #fff; color: ${C.ink}; border: 1.5px solid ${C.ink}; }
+.tag.out { ${C.inkOnly ? `background: #fff; color: ${C.ink}; border: 2px solid ${C.ink}; padding: 1px 3px;` : 'background: #c92a2a; color: #fff;'} }
+.mv { font-weight: 800; }
+.nw { white-space: nowrap; }
 </style></head><body>
 <div class="head"><h1>${esc(title)}</h1><span class="sub">${esc(subtitle)}</span></div>
 ${sections}
