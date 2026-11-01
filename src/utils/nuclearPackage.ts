@@ -462,7 +462,7 @@ export type NuclearPrintOptions = {
   switchDiagrams: boolean;
   /** The parts top to bottom. */
   order: NuclearSection[];
-  /** Parts printed on a page of their own (the next part starts a new page too). */
+  /** Parts that start a new page (the part after one can share its page). */
   ownPage: NuclearSection[];
   /** Big: 2 switch diagrams across the page; small: 3 (fewer pages). */
   switchSize: 'big' | 'small';
@@ -483,7 +483,7 @@ export function nuclearSwitchLines(sw: NuclearSwitch): string[] {
 }
 
 /** The package on one field, who moves, the switches and each formation small (each part can be left off, in the
- * coach's order, any part on a page of its own). */
+ * coach's order, any part starting a new page). */
 export function nuclearPrintHtml(pkg: NuclearPackage, formIds: string[], title: string, subtitle: string, options: Partial<NuclearPrintOptions> = {}): string {
   const o = { ...NUCLEAR_PRINT_DEFAULTS, ...options };
   const C = o.ink ? INK_COLORS : PRINT_COLORS;
@@ -559,7 +559,7 @@ export function nuclearPrintHtml(pkg: NuclearPackage, formIds: string[], title: 
   const shown = nuclearOrder(o.order).filter((s) => parts[s]);
   const sections = shown
     .map((s, i) => {
-      const page = i > 0 && (own.has(s) || own.has(shown[i - 1]));
+      const page = i > 0 && own.has(s);
       return `<section class="sec${page ? ' newpage' : ''}" data-part="${s}">${parts[s]}</section>`;
     })
     .join('\n');

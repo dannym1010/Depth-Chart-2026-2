@@ -101,7 +101,7 @@ describe('a nuclear package: one string in every formation', () => {
     // Under the big field: every formation to every other (both ways), unless left off.
     const sheet = nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U');
     assert.equal(sheet.split('<figure class="arrow">').length - 1, 2);
-    assert.ok(sheet.indexOf('class="diagrams"') > sheet.indexOf('class="field"') && sheet.includes('1 in &middot; 1 out &middot; 1 move'));
+    assert.ok(sheet.indexOf('data-part="diagrams"') > sheet.indexOf('data-part="field"') && sheet.includes('1 in &middot; 1 out &middot; 1 move'));
     assert.equal(nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U', { switchDiagrams: false }).split('<figure class="arrow">').length - 1, 0);
     // Three formations: six switches, a row for each one you come from, the base first.
     const b12 = { ...b11, id: 'f12', name: '12 Personnel' };
@@ -112,10 +112,10 @@ describe('a nuclear package: one string in every formation', () => {
     // Page 2 of the print, only when asked.
     assert.ok(nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U', { switches: true }).includes('class="sw-grid"'));
     assert.ok(!nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U').includes('class="sw-grid"'));
-    // The coach's order: the switch chart on top, the diagrams on a page of their own (and the part after them too).
+    // The coach's order: the switch chart on top, the diagrams start a new page and the formations share it.
     const ordered = nuclearPrintHtml(pkg, ids, 'Black nuclear', '10U', { switches: true, order: ['switches', 'field', 'diagrams', 'formations'], ownPage: ['diagrams'] });
     const parts = [...ordered.matchAll(/<section class="sec( newpage)?" data-part="(\w+)">/g)].map((m) => m[2] + (m[1] ? '+' : ''));
-    assert.deepEqual(parts, ['switches', 'field', 'diagrams+', 'formations+']);
+    assert.deepEqual(parts, ['switches', 'field', 'diagrams+', 'formations']);
     // An old or broken saved order still prints every part once.
     assert.deepEqual(nuclearOrder(['diagrams', 'bogus', 'diagrams']), ['diagrams', 'field', 'formations', 'switches']);
   });

@@ -329,11 +329,13 @@ const SECTION_LABELS: Record<NuclearSection, string> = {
   switches: 'Switch chart',
 };
 
-/** The parts top to bottom: move one up or down, or put it on a page of its own. */
+/** The parts top to bottom: move one up or down, or start it on a new page (the next part can share that page). */
 const OrderPanel: React.FC<{ opts: NuclearPrintOptions; set: (patch: Partial<NuclearPrintOptions>) => void }> = ({ opts, set }) => {
   const order = nuclearOrder(opts.order);
   const own = Array.isArray(opts.ownPage) ? opts.ownPage : [];
   const on: Record<NuclearSection, boolean> = { field: true, diagrams: opts.switchDiagrams, formations: opts.formations, switches: opts.switches };
+  // The first part printed is already at the top of page 1.
+  const first = order.find((s) => on[s]);
   const move = (i: number, by: number) => {
     const next = [...order];
     [next[i], next[i + by]] = [next[i + by], next[i]];
@@ -358,14 +360,18 @@ const OrderPanel: React.FC<{ opts: NuclearPrintOptions; set: (patch: Partial<Nuc
               {SECTION_LABELS[s]}
               {!on[s] && <span className="ml-1 text-[10px] font-black uppercase text-slate-400">off</span>}
             </span>
-            <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer select-none whitespace-nowrap">
+            <label
+              title={s === first ? 'Already at the top of page 1' : 'Start this on a new page; the next part can share it'}
+              className={`flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-300 select-none whitespace-nowrap ${s === first ? 'opacity-40' : 'cursor-pointer'}`}
+            >
               <input
                 type="checkbox"
-                checked={own.includes(s)}
+                disabled={s === first}
+                checked={s !== first && own.includes(s)}
                 onChange={(e) => set({ ownPage: e.target.checked ? [...own, s] : own.filter((x) => x !== s) })}
                 className="w-3.5 h-3.5 accent-amber-500 cursor-pointer"
               />
-              Own page
+              New page
             </label>
           </div>
         ))}
@@ -466,7 +472,7 @@ const PrintPanel: React.FC<{
       </div>
       <div ref={box} className="min-w-0">
         <div className="text-[11px] font-black uppercase tracking-wider text-slate-500 mb-1.5">Preview</div>
-        {/* A part on its own page starts a new page when printed: a dashed line here. */}
+        {/* A part set to New page starts a new page when printed: a dashed line here. */}
         <div className="rounded-lg shadow-lg ring-1 ring-slate-300 dark:ring-slate-700 overflow-hidden bg-white" style={{ width: pw * scale, height: tall * scale }}>
           <iframe
             ref={frame}

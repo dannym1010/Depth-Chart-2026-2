@@ -7,6 +7,7 @@ import { clubSummary, forLevel, leagueClubs, sameLevel, sameTeam, type LeagueDat
 import { fetchLeague, leagueIsStale, readCachedLeague } from '../utils/leagueFetch';
 import { playoffPicture } from '../utils/playoffs';
 import { LeaguePlayoffs, LeagueRules } from './LeaguePlayoffs';
+import { withKnownPostseason } from '../data/leaguePostseason';
 
 const LEAGUE_SITE = 'https://www.taconicyfc.com/Default.aspx?tabid=2251499';
 
@@ -29,6 +30,8 @@ const isPast = (date: string) => {
 
 /** "Week 5", or the round's name for a playoff game ("Semi-final"). */
 const weekLabel = (week: string) => (/^\d+$/.test(week) ? `Week ${week}` : week);
+/** The League schedule's choice for the post-season, after the last week. */
+const POST = 'post';
 
 type Tab = 'ours' | 'scores' | 'standings' | 'playoffs' | 'schedule' | 'club' | 'rules';
 
@@ -110,7 +113,6 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
   const [week, setWeek] = useState<string>('');
   const scoreWeek = week || lastScoredWeek || weeks[0] || '';
   const [schedWeek, setSchedWeek] = useState<string>('');
-  const scheduleWeek = schedWeek || thisWeek || 'all';
   // The playoff picture: seeds today, chances from the games left, and our team with a win or a loss.
   const picture = useMemo(
     () => (view && level ? playoffPicture({ level, standings: view.standings, schedule: view.schedule, results: view.results, standingsWeek: data?.standingsWeek, ourTeam: ourName }) : null),
@@ -118,7 +120,7 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
   );
   // The post-season at this level: the games read from the league's files, any file whose link is broken, and the
   // schedule pictures from the league's home page.
-  const post = useMemo(() => (data?.postseason || []).filter((g) => sameLevel(g.level, level)), [data, level]);
+  const post = useMemo(() => withKnownPostseason(data?.postseason).filter((g) => sameLevel(g.level, level)), [data, level]);
   const ourPost = useMemo(() => post.filter((g) => sameTeam(g.home, ourName) || sameTeam(g.away, ourName)), [post, ourName]);
   const brokenPost = (data?.postseasonFiles || []).filter((f) => !f.ok);
   const posted = data?.posted || [];
@@ -126,21 +128,25 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
     () => [...(view?.ourGames || []), ...ourPost].find((g) => g.homeScore == null && !isPast(g.date)),
     [view, ourPost]
   );
+  const scheduleWeeks = post.length ? [...weeks, POST] : weeks;
+  const seasonOver = !(view?.schedule || []).some((g) => !isPast(g.date));
+  const scheduleThisWeek = post.length && seasonOver && post.some((g) => !isPast(g.date)) ? POST : thisWeek;
+  const scheduleWeek = schedWeek || scheduleThisWeek || 'all';
   /** A week picker with arrows to the week before and after. */
-  const weekPicker = (value: string, onPick: (w: string) => void, label: (w: string) => string, withAll = false) => {
-    const at = weeks.indexOf(value);
+  const weekPicker = (value: string, onPick: (w: string) => void, label: (w: string) => string, withAll = false, list = weeks) => {
+    const at = list.indexOf(value);
     const arrow = 'h-7 w-7 rounded-lg bg-slate-900 border border-slate-600 text-slate-200 disabled:opacity-40 hover:bg-slate-700';
     return (
       <div className="flex items-center gap-1.5 text-xs">
         <span className="font-bold text-slate-300">Week</span>
-        <button type="button" className={arrow} disabled={at <= 0} onClick={() => onPick(weeks[at - 1])} aria-label="Week before">◀</button>
+        <button type="button" className={arrow} disabled={at <= 0} onClick={() => onPick(list[at - 1])} aria-label="Week before">◀</button>
         <select value={value} onChange={(e) => onPick(e.target.value)} className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-slate-100">
           {withAll && <option value="all">All weeks</option>}
-          {weeks.map((w) => (
+          {list.map((w) => (
             <option key={w} value={w}>{label(w)}</option>
           ))}
         </select>
-        <button type="button" className={arrow} disabled={at < 0 || at >= weeks.length - 1} onClick={() => onPick(weeks[at + 1])} aria-label="Week after">▶</button>
+        <button type="button" className={arrow} disabled={at < 0 || at >= list.length - 1} onClick={() => onPick(list[at + 1])} aria-label="Week after">▶</button>
       </div>
     );
   };
@@ -188,7 +194,7 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
           <GameRow key={i} g={g} showWeek />
         ))}
         {post.length > 0 && !games.length && <p className="text-sm text-slate-400">No {level} playoff game for {ourName} in the league&apos;s post-season schedule.</p>}
-        {brokenPost.map((f) => (
+        {!post.length && brokenPost.map((f) => (
           <p key={f.url} className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
             The league&apos;s link <b>&ldquo;{f.text}&rdquo;</b> doesn&apos;t open (their file host says the file is missing), so its games can&apos;t be read
             yet. Refresh again once the league fixes it (
@@ -197,14 +203,13 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
           </p>
         ))}
         {posted.map((p) => (
-          <figure key={p.url} className="mt-3">
-            <a href={p.url} target="_blank" rel="noreferrer" title="Open full size">
+          <details key={p.url} open={!post.length} className="mt-3">
+            <summary className="cursor-pointer text-xs font-bold text-indigo-300">The league&apos;s picture: {p.text}</summary>
+            <a href={p.url} target="_blank" rel="noreferrer" title="Open full size" className="block mt-2">
               <img src={p.url} alt={p.text} className="w-full rounded-lg bg-white" />
             </a>
-            <figcaption className="mt-1 text-xs text-slate-400">
-              {p.text} · from the league&apos;s home page (tap to open full size)
-            </figcaption>
-          </figure>
+            <p className="mt-1 text-xs text-slate-400">From the league&apos;s home page (tap to open full size)</p>
+          </details>
         ))}
       </div>
     );
@@ -467,7 +472,9 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
 
           {tab === 'schedule' && (
             <div className={card}>
-              <div className="mb-3">{weekPicker(scheduleWeek, setSchedWeek, (w) => `Week ${w}${w === thisWeek ? ' (this week)' : ''}`, true)}</div>
+              <div className="mb-3">
+                {weekPicker(scheduleWeek, setSchedWeek, (w) => `${w === POST ? 'Playoffs' : `Week ${w}`}${w === scheduleThisWeek ? ' (this week)' : ''}`, true, scheduleWeeks)}
+              </div>
               {!weeks.length && <p className="text-sm text-slate-400">No {level} schedule in the league files yet.</p>}
               {weeks.filter((w) => scheduleWeek === 'all' || w === scheduleWeek).map((w) => (
                 <div key={w} className="mb-3 last:mb-0">
@@ -480,6 +487,18 @@ export const LeagueView: React.FC<Props> = ({ team, onUpdateTeam, canEdit }) => 
                   {view.schedule.filter((g) => g.week === w).map((g, i) => <GameRow key={i} g={g} />)}
                 </div>
               ))}
+              {post.length > 0 && (scheduleWeek === 'all' || scheduleWeek === POST) && (
+                <div className="mt-3">
+                  {[...new Set(post.map((g) => g.week))].map((round) => (
+                    <div key={round} className="mb-3 last:mb-0">
+                      <div className="text-xs font-black uppercase tracking-wide text-slate-400 mb-1">
+                        {round} · {post.find((g) => g.week === round)?.date}
+                      </div>
+                      {post.filter((g) => g.week === round).map((g, i) => <GameRow key={i} g={g} />)}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </>
