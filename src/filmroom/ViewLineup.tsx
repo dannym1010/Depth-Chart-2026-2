@@ -91,7 +91,6 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
   const [shiftFrom, setShiftFrom] = useState('');
   const [undoShift, setUndoShift] = useState<{ undo: () => void; text: string } | null>(null);
   const lengthOf = useClipLengths(clips, localFiles);
-  const [showHidden, setShowHidden] = useState(false);
   const [picked, setPicked] = useState<string | undefined>(startClip || clips.find((c) => !hidden.has(c.name))?.name);
   const [shortSec, setShortSec] = useState(6);
   // Clips with no play that nobody marked yet: listed on their own so none get lost in a long list.
@@ -101,7 +100,7 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
   const onlyThese = onlyUnplaced && unplaced.length > 0;
   const rows = clips
     .map((c, i) => ({ c, n: i + 1 }))
-    .filter(({ c }) => c.name === picked || (onlyThese ? unplacedNames.has(c.name) : showHidden || !hidden.has(c.name)));
+    .filter(({ c }) => !onlyThese || c.name === picked || unplacedNames.has(c.name));
   const clip = clips.find((c) => c.name === picked);
   const play = clip ? playOf.get(clip.name) : undefined;
   const mainClip = play ? mainClipOf(play) : undefined;
@@ -209,10 +208,6 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
         </div>
 
         <div className="px-4 pt-3 pb-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
-          <label className="inline-flex items-center gap-1.5">
-            <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} />
-            Show extras ({hidden.size})
-          </label>
           {!readOnly && (
             <span className="inline-flex items-center gap-1.5">
               Clips shorter than
@@ -348,15 +343,13 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
                     key={c.id}
                     data-picked={isPicked ? '1' : undefined}
                     onClick={() => setPicked(c.name)}
-                    className={`cursor-pointer border-b border-slate-100 dark:border-slate-800 ${isPicked ? 'bg-indigo-50 dark:bg-indigo-500/15' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'} ${off ? 'opacity-50' : ''}`}
+                    className={`cursor-pointer border-b border-slate-100 dark:border-slate-800 ${isPicked ? 'bg-indigo-50 dark:bg-indigo-500/15' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}
                   >
                     <td className="py-1 px-2 tabular-nums text-slate-500">{n}</td>
                     <td className="py-1 px-2 max-w-[6rem] sm:max-w-[10rem] truncate text-slate-800 dark:text-slate-100" title={c.name}>{c.name}</td>
                     <td className="py-1 px-2 text-right tabular-nums text-slate-600 dark:text-slate-300">{fmtLen(lengthOf(c))}</td>
                     <td className="py-1 px-2 min-w-0">
-                      {off ? (
-                        <span className="font-bold text-slate-500">Extra · highlights</span>
-                      ) : readOnly ? (
+                      {off ? null : readOnly ? (
                         <span className="text-slate-700 dark:text-slate-200">{p ? `#${p.playNumber}` : 'Not lined up'}</span>
                       ) : (
                         <select
