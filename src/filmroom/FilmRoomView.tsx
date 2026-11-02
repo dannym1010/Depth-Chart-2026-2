@@ -929,7 +929,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         onResetSync={!locked && coachOffset !== undefined ? () => update((s) => ({ ...s, viewShift: clearOffset(s.viewShift, play.id, otherView) })) : undefined}
         onSwap={swapViews}
         onClose={() => toggleBoth(false)}
-        onNotAPlay={!locked && otherClip ? () => hideOther([otherClip.name], true) : undefined}
+        onNotAPlay={!locked && otherClip && otherIdx !== countIdx ? () => hideOther([otherClip.name], true) : undefined}
         onLineup={openLineup}
         lineup={
           locked
@@ -2185,6 +2185,22 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
               readOnly={locked}
               onHide={hideOther}
               onPick={placeOther}
+              mainLeft={(() => {
+                // Every file shows: Main's that are on no play, here. Line up has Main on screen, so these are its clips.
+                const on = new Set([...clipFor.values()].map((i) => clips[i]?.name));
+                const gone = hiddenNames(film.clips, shared.removedClips, mainView, multiView);
+                return film.clips.filter((c) => !on.has(c.name)).map((c) => ({ clip: c, removed: gone.has(c.name) }));
+              })()}
+              onBringBack={(name) => {
+                const key = removedKey(name, mainView, multiView);
+                const was = Boolean(shared.removedClips?.[key]?.removed);
+                const write = (removed: boolean) => {
+                  const editedAt = Date.now();
+                  update((s) => ({ ...s, removedClips: { ...(s.removedClips || {}), [key]: { removed, editedAt } } }));
+                };
+                write(false);
+                return () => write(was);
+              }}
               onShift={(fromId, dir) => {
                 // The camera one play off: every clip from that play on moves a play.
                 const order = otherInOrder.map((o) => o.c.name);

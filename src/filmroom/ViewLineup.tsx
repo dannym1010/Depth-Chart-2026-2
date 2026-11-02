@@ -82,11 +82,15 @@ export interface ViewLineupProps {
   onPick: (playId: string, clipName: string) => () => void;
   /** Every clip from a play on, one play later (1) or earlier (-1). Gives back an undo. */
   onShift: (fromPlayId: string, dir: 1 | -1) => () => void;
+  /** Main's files on no play: taken out of the game (`removed`), or past the last play. */
+  mainLeft?: { clip: FilmClip; removed: boolean }[];
+  /** A file taken out of Main goes back in its place (the clips after it move down one). Gives back an undo. */
+  onBringBack?: (name: string) => () => void;
   onClose: () => void;
 }
 
 export const ViewLineup: React.FC<ViewLineupProps> = ({
-  view, mainView, clips, hidden, playOf, plays, mainClipOf, localFiles, startClip, readOnly, onHide, onPick, onShift, onClose,
+  view, mainView, clips, hidden, playOf, plays, mainClipOf, localFiles, startClip, readOnly, onHide, onPick, onShift, mainLeft = [], onBringBack, onClose,
 }) => {
   const lengthOf = useClipLengths(clips, localFiles);
   const [picked, setPicked] = useState<string | undefined>(startClip || clips.find((c) => !hidden.has(c.name))?.name);
@@ -346,6 +350,31 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
               })}
             </tbody>
           </table>
+          {mainLeft.length > 0 && (
+            <div className="mt-3 mx-2 rounded-lg border border-amber-300 dark:border-amber-500/50 bg-amber-50 dark:bg-amber-500/10 px-2.5 py-2 text-xs" role="group" aria-label={`${mainView} files not on a play`}>
+              <div className="font-bold text-amber-800 dark:text-amber-200">
+                {mainLeft.length} {mainView} file{mainLeft.length === 1 ? '' : 's'} not on a play
+              </div>
+              <ul className="mt-1 space-y-1">
+                {mainLeft.map(({ clip: m, removed }) => (
+                  <li key={m.id} className="flex items-center gap-2 min-w-0">
+                    <span className="font-semibold truncate text-slate-800 dark:text-slate-100" title={m.name}>{m.name}</span>
+                    <span className="shrink-0 text-slate-600 dark:text-slate-300">{removed ? 'taken out of the game' : 'past the last play'}</span>
+                    {removed && onBringBack && !readOnly && (
+                      <button
+                        type="button"
+                        className="ml-auto shrink-0 h-7 px-2 rounded-lg font-bold border border-amber-400 text-amber-800 dark:text-amber-200"
+                        title={`Put it back in its place: the ${mainView} clips after it move down one play`}
+                        onClick={() => did(onBringBack(m.name), `${m.name} is back in ${mainView}.`)}
+                      >
+                        Bring back
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
     </div>
