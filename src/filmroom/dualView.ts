@@ -54,6 +54,11 @@ export function otherViewIndex(views: string[], main: number, wanted?: string): 
   return w >= 0 ? w : views.findIndex((_, i) => i !== main);
 }
 
+/** The view whose clips count the plays: Main, else the first (another camera's extra clips never become plays). */
+export function countViewIndex(views: string[]): number {
+  return Math.max(0, views.findIndex((v) => /^\s*main\b/i.test(v)));
+}
+
 export type ViewShifts = NonNullable<FilmGameShared['viewShift']>;
 
 /**

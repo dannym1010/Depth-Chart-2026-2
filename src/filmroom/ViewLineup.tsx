@@ -1,6 +1,6 @@
 // Lining a second camera view up with the plays ("Field" with "Main"): every clip of that view in order, the play
-// each one goes with, and its length. Clips that aren't plays (the camera running between plays) are hidden, and
-// the plays after them move up to the right clips; a clip can also be set as a play's (the plays after it follow).
+// each one goes with, and its length. Clips that aren't plays are extras (kept for highlights, never counted as
+// plays), and the plays after them move up to the right clips; a clip can also be set as a play's (the plays after it follow).
 // Tapping a clip shows it next to the main view's clip of its play, to see they're the same snap.
 import React, { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { EyeOff, Eye, Play as PlayIcon, X } from 'lucide-react';
@@ -63,7 +63,7 @@ export interface ViewLineupProps {
   mainView: string;
   /** Every clip of this view in order, the hidden ones too. */
   clips: FilmClip[];
-  /** Names of this view's clips hidden (not plays). */
+  /** Names of this view's extra clips (not plays, kept for highlights). */
   hidden: Set<string>;
   /** Clip name -> the play it goes with now. */
   playOf: Map<string, Play>;
@@ -144,9 +144,9 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
           <div className="min-w-0">
             <h3 className="font-black text-slate-900 dark:text-slate-100">Line up {view} with {mainView}</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              {clips.length} {view} clips · {hidden.size} hidden · {plays.length} plays
-              {noClip.length ? ` · ${noClip.length} play${noClip.length === 1 ? '' : 's'} without a ${view} clip` : ''}. Hide the clips that aren&apos;t plays: the
-              plays after one move up to the right clips. Saved for every coach.
+              {clips.length} {view} clips · {plays.length} plays (counted from {mainView}) · {hidden.size} extra{hidden.size === 1 ? '' : 's'}
+              {noClip.length ? ` · ${noClip.length} play${noClip.length === 1 ? '' : 's'} without a ${view} clip` : ''}. Mark the clips that aren&apos;t plays as
+              extras: the plays after one move up to the right clips, and the extras stay here for highlights. Saved for every coach.
             </p>
           </div>
           <button type="button" onClick={onClose} className="ml-auto h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500" aria-label="Close">
@@ -178,14 +178,14 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
           {clip && !readOnly && (
             hidden.has(clip.name) ? (
               <button type="button" onClick={() => onHide([clip.name], false)} className="inline-flex items-center gap-1 h-8 px-3 rounded-lg font-bold border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200">
-                <Eye size={13} /> Show this clip again
+                <Eye size={13} /> It&apos;s a play
               </button>
             ) : (
               <button
                 type="button"
                 onClick={() => hideAndNext(clip.name)}
                 className="inline-flex items-center gap-1 h-8 px-3 rounded-lg font-bold bg-rose-600 text-white"
-                title="The camera was running between plays: hide this clip, the plays after it move up one"
+                title="Not a play: an extra, kept for highlights (the plays after it move up one)"
               >
                 <EyeOff size={13} /> Not a play
               </button>
@@ -197,11 +197,11 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
         <div className="px-4 pt-3 pb-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
           <label className="inline-flex items-center gap-1.5">
             <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} />
-            Show hidden clips ({hidden.size})
+            Show extras ({hidden.size})
           </label>
           {!readOnly && (
             <span className="inline-flex items-center gap-1.5">
-              Hide clips shorter than
+              Clips shorter than
               <input
                 type="number"
                 min={1}
@@ -218,13 +218,13 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
                 onClick={() => onHide(short, true)}
                 className="h-7 px-2 rounded-lg font-bold border border-slate-300 dark:border-slate-600 disabled:opacity-40"
               >
-                Hide {short.length}
+                Make {short.length} extras
               </button>
             </span>
           )}
           {hidden.size > 0 && !readOnly && (
             <button type="button" onClick={() => onHide([...hidden], false)} className="h-7 px-2 rounded-lg font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-100">
-              Show all again
+              All plays again
             </button>
           )}
         </div>
@@ -257,7 +257,7 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
                     <td className="py-1 px-2 text-right tabular-nums text-slate-600 dark:text-slate-300">{fmtLen(lengthOf(c))}</td>
                     <td className="py-1 px-2 min-w-0">
                       {off ? (
-                        <span className="font-bold text-slate-500">Hidden (not a play)</span>
+                        <span className="font-bold text-slate-500">Extra · highlights</span>
                       ) : readOnly ? (
                         <span className="text-slate-700 dark:text-slate-200">{p ? `#${p.playNumber}` : 'Extra'}</span>
                       ) : (
@@ -288,11 +288,11 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
                             else onHide([c.name], true);
                           }}
                           className={`inline-flex items-center gap-1 h-7 px-2 rounded-lg font-bold ${off ? 'text-indigo-600 dark:text-indigo-300' : 'text-rose-600 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-500/10'}`}
-                          title={off ? 'Show this clip again' : 'Not a play: hide it (the plays after it move up one)'}
-                          aria-label={off ? `Show ${c.name} again` : `${c.name} is not a play`}
+                          title={off ? 'It\'s a play: line it up again' : 'Not a play: an extra, kept for highlights (the plays after it move up one)'}
+                          aria-label={off ? `${c.name} is a play` : `${c.name} is not a play`}
                         >
                           {off ? <Eye size={13} /> : <EyeOff size={13} />}
-                          <span className="hidden sm:inline">{off ? 'Show' : 'Not a play'}</span>
+                          <span className="hidden sm:inline">{off ? 'A play' : 'Not a play'}</span>
                         </button>
                       )}
                     </td>

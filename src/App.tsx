@@ -188,6 +188,7 @@ import { saveCallSheetSnapshot, countCallSheetPlays } from './utils/callSheetSto
 import { ScoutingView } from './components/ScoutingView';
 import { ScoutPresentation, type ScoutShow } from './components/scouting/ScoutPresentation';
 import { FilmRoomView } from './filmroom/FilmRoomView';
+import { HighlightsSection } from './highlights/HighlightsSection';
 import { FilmWindowHost } from './filmroom/FilmWindow';
 import { ScoutSafetyNet } from './components/ScoutSafetyNet';
 import { closeFilmWindow, filmWindowAutoOpen, openFilmWindow, setFilmWindowUpcoming, type FilmWindowRequest } from './filmroom/filmWindowStore';
@@ -8240,6 +8241,19 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
               />
             )}
 
+            {/* Highlights (coaches) */}
+            {activeUnit === 'highlights' && !isPlayer && (
+              <HighlightsSection
+                key={`highlights-${activeTeamId}`}
+                teamId={activeTeamId}
+                teamName={currentActiveTeam?.name || 'Mahopac 10U'}
+                ownTeamScout={teamOwnScout}
+                roster={activeTeamRoster}
+                userEmail={currentUserEmail}
+                authorName={currentUser?.displayName || (currentUser?.email || 'Coach').split('@')[0]}
+              />
+            )}
+
             {/* 4. Hudl Scout */}
             {(activeUnit === 'hudl_scout' || activeUnit === 'scouting') && (
               <ScoutingView
@@ -8882,7 +8896,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
           </div>
 
           {/* Master Roster Sidebar (Shown on Depth Charts and Scrimmage) */}
-          {!['home', 'mobile_hub', 'game_day', 'wristband', 'drills', 'scouting', 'hudl_scout', 'filmroom', 'guide', 'practice', 'users', 'schedule', 'compliance', 'call_sheet', 'whiteboard', 'ppr', 'playbook'].includes(
+          {!['home', 'mobile_hub', 'game_day', 'wristband', 'drills', 'scouting', 'hudl_scout', 'filmroom', 'highlights', 'guide', 'practice', 'users', 'schedule', 'compliance', 'call_sheet', 'whiteboard', 'ppr', 'playbook'].includes(
             activeUnit
           ) && (
             <div className="hidden lg:block shrink-0 w-80 self-start sticky top-[10rem] z-20 h-[calc(100dvh-11rem)] print:hidden">

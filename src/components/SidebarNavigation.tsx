@@ -33,7 +33,7 @@ import {
   Filter,
   Camera,
   Home as HomeIcon,
-  Activity, Library } from 'lucide-react';
+  Activity, Library, Clapperboard } from 'lucide-react';
 import { CustomTabGroup, UnitType, DepthSubUnit, UserRole, Team } from '../types';
 import { safeJSONParse, safeJSONSet } from '../services/storageService';
 import { TabGroupManagerModal } from './TabGroupManagerModal';
@@ -131,6 +131,14 @@ const MAIN_NAV_ITEMS: NavItemConfig[] = [
     shortLabel: 'Film Room',
     icon: Camera,
     description: 'Watch Hudl Scout games with film, notes and drawings',
+    badgeText: 'Film',
+  },
+  {
+    id: 'highlights',
+    label: 'Highlights',
+    shortLabel: 'Highlights',
+    icon: Clapperboard,
+    description: 'Game, season and player highlight reels: trim, title, play, and export to DaVinci Resolve',
     badgeText: 'Film',
   },
   {

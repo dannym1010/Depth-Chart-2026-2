@@ -25,8 +25,10 @@ export const PLAYER_TAB_OPTIONS: PlayerTabOption[] = [
 
 /** Staff & access: for coaches only (a player or family account never gets it). */
 export const STAFF_TAB_OPTION: PlayerTabOption = { id: 'users', label: 'Staff & access', units: ['users'] };
-/** The tabs a coach account can be given (everything a player can, plus Staff & access). */
-export const COACH_TAB_OPTIONS: PlayerTabOption[] = [...PLAYER_TAB_OPTIONS, STAFF_TAB_OPTION];
+/** Highlights (game and season reels): for coaches only. */
+export const HIGHLIGHTS_TAB_OPTION: PlayerTabOption = { id: 'highlights', label: 'Highlights', units: ['highlights'] };
+/** The tabs a coach account can be given (everything a player can, plus Highlights and Staff & access). */
+export const COACH_TAB_OPTIONS: PlayerTabOption[] = [...PLAYER_TAB_OPTIONS, HIGHLIGHTS_TAB_OPTION, STAFF_TAB_OPTION];
 
 /** What a new player account sees until a coach changes it. */
 export const DEFAULT_PLAYER_TABS = ['home', 'schedule', 'depth_chart', 'playbook'];
@@ -53,7 +55,10 @@ export const viewerTabs = (entry?: { role?: string; playerTabs?: string[] }) =>
  */
 export function accountTabs(entry?: { role?: string; playerTabs?: string[] } | null): string[] | undefined {
   if (!entry) return undefined;
-  if (isViewOnlyRole(entry.role)) return viewerTabs(entry).filter((t) => t !== STAFF_TAB_OPTION.id);
+  if (isViewOnlyRole(entry.role)) return viewerTabs(entry).filter((t) => t !== STAFF_TAB_OPTION.id && t !== HIGHLIGHTS_TAB_OPTION.id);
+  // A coach limited to some tabs before Highlights existed gets it with the Film Room.
+  if (Array.isArray(entry.playerTabs) && entry.playerTabs.includes('filmroom') && !entry.playerTabs.includes(HIGHLIGHTS_TAB_OPTION.id))
+    return [...entry.playerTabs, HIGHLIGHTS_TAB_OPTION.id];
   return Array.isArray(entry.playerTabs) ? entry.playerTabs : undefined;
 }
 /** The tab choices for an account of this role. */

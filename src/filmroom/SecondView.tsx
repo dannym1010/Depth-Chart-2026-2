@@ -40,7 +40,7 @@ export interface SecondViewProps {
   lineup?: { at: string; canPrev: boolean; canNext: boolean; onStep: (d: number) => void; none: boolean; onNone: () => void; picked: boolean; onUndo: () => void };
   /** With three or more views: which one shows here. */
   choices?: { names: string[]; value: number; onPick: (i: number) => void };
-  /** The clip shown isn't a play (the camera ran between plays): hide it, the plays after it move up one. */
+  /** The clip shown isn't a play (an extra, kept for highlights): the plays after it move up one. */
   onNotAPlay?: () => void;
   /** Every clip of this view and the play each goes with, to line them up. */
   onLineup?: () => void;
@@ -167,7 +167,7 @@ export const SecondView: React.FC<SecondViewProps> = ({
           <span className="min-w-0 flex-1 flex">{nameEl}</span>
           <span className="hidden sm:inline text-[10px] tabular-nums whitespace-nowrap ml-1" style={{ color: DIM }}>{fmtOffset(offset)}</span>
           {onNotAPlay && (
-            <button type="button" onClick={onNotAPlay} className={btn} title={`Not a play: hide this ${label} clip (the plays after it move up one)`} aria-label={`Not a play: hide this ${label} clip`}>
+            <button type="button" onClick={onNotAPlay} className={btn} title={`Not a play: an extra ${label} clip, kept for highlights (the plays after it move up one)`} aria-label={`Not a play: this ${label} clip is an extra`}>
               <EyeOff size={13} />
             </button>
           )}
@@ -227,7 +227,7 @@ export const SecondView: React.FC<SecondViewProps> = ({
             </span>
           )}
           {onNotAPlay && (
-            <button type="button" onClick={onNotAPlay} className={`${btn} text-rose-300`} title={`The camera ran between plays: hide this ${label} clip, the plays after it move up one`}>
+            <button type="button" onClick={onNotAPlay} className={`${btn} text-rose-300`} title={`Not a play: an extra ${label} clip, kept for highlights (the plays after it move up one)`}>
               <EyeOff size={13} /> Not a play
             </button>
           )}

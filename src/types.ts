@@ -15,6 +15,7 @@ export type UnitType =
   | 'scouting'
   | 'hudl_scout'
   | 'filmroom'
+  | 'highlights'
   | 'tendencies'
   | 'html_tendencies'
   | 'practice'

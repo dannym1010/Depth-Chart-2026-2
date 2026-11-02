@@ -1,12 +1,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  clearOffset, hiddenNames, liveViewClips, otherViewIndex, picksForView, pickKey, removedKey, savedOffset, snapOffset, syncTarget, withOffset,
+  clearOffset, countViewIndex, hiddenNames, liveViewClips, otherViewIndex, picksForView, pickKey, removedKey, savedOffset, snapOffset, syncTarget, withOffset,
 } from './dualView.ts';
 import { matchClipsToPlays, NO_CLIP } from './clipMatching.ts';
 import { mergeShared } from './sharedMerge.ts';
 import { refineSnap } from './snapFinder.ts';
 import { gameViews } from './folderRoutes.ts';
+import { playsFromClips } from './clipPlays.ts';
 
 const clip = (name: string) => ({ kind: 'local' as const, id: name, name });
 const plays = [1, 2, 3, 4].map((n) => ({ id: `p${n}`, playNumber: n }));
@@ -94,6 +95,20 @@ describe('two camera views', () => {
     const both = { F1b: { removed: true, editedAt: 1 }, 'Field/F1b': { removed: false, editedAt: 3 } };
     assert.equal(hiddenNames(field, both, 'Field', true).size, 0);
     assert.deepEqual([...hiddenNames(field, both, 'Main', true)], ['F1b']);
+  });
+
+  it('counts plays from Main only (Field extras are for highlights)', () => {
+    assert.equal(countViewIndex(['Field', 'Main']), 1);
+    assert.equal(countViewIndex(['Main', 'Field']), 0);
+    assert.equal(countViewIndex(['Sideline', 'End Zone']), 0);
+    assert.equal(countViewIndex(['Clips']), 0);
+    // 2 Main clips, 3 Field clips (one an extra nobody marked yet): still 2 plays.
+    const main = ['M1', 'M2'].map(clip);
+    const field = ['F1', 'F1b', 'F2'].map(clip);
+    const lists = [main, field];
+    const views = ['Main', 'Field'];
+    const counted = lists[countViewIndex(views)];
+    assert.equal(playsFromClips(counted, 'g1').length, 2);
   });
 
   it('puts Main first, then the other views', async () => {

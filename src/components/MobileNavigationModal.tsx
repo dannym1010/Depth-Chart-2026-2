@@ -19,7 +19,7 @@ import {
   Smartphone,
   ChevronRight,
   Sliders,
-  Sparkles, Library, Camera } from 'lucide-react';
+  Sparkles, Library, Camera, Clapperboard } from 'lucide-react';
 import { UnitType, DepthSubUnit, UserRole } from '../types';
 
 interface MobileNavigationModalProps {
@@ -106,6 +106,13 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
             label: '🎥 Film Room',
             subtitle: 'Watch each play with notes, drawings and tags',
             icon: Camera,
+            accentColor: 'border-blue-500/40 hover:bg-blue-950/40 text-blue-300',
+          },
+          {
+            id: 'highlights',
+            label: '🎬 Highlights',
+            subtitle: 'Game, season and player highlight reels',
+            icon: Clapperboard,
             accentColor: 'border-blue-500/40 hover:bg-blue-950/40 text-blue-300',
           },
         ],

@@ -32,7 +32,7 @@ import { peekPlayBuilderSeed, savePlayBuilderSeed, type PlayBuilderSeed } from '
 import { PlayBuilderSection } from '../components/playbook/PlayBuilderSection';
 import { FilmPlayer, type PlayerApi } from './FilmPlayer';
 import { SecondView, type DualLayout } from './SecondView';
-import { clearOffset, hiddenNames, liveViewClips, otherViewIndex, picksForView, pickKey as viewPickKey, removedKey, savedOffset, snapOffset, withOffset } from './dualView';
+import { clearOffset, countViewIndex, hiddenNames, liveViewClips, otherViewIndex, picksForView, pickKey as viewPickKey, removedKey, savedOffset, snapOffset, withOffset } from './dualView';
 import { ViewLineup } from './ViewLineup';
 import { probeSnap } from './snapProbe';
 import { usePlayLines, type VideoLines } from './PlayLinesOverlay';
@@ -53,6 +53,9 @@ import { readBreakdown, useFolderBreakdowns } from './folderImport';
 import { AddToPlaylistMenu, PlayListActions, PlaylistsPanel, type Person } from './PlaylistsPanel';
 import { useFilmLists } from './useFilmLists';
 import { isFavorite, moveListsGames, playInfo, toggleFavorite, type ClipRef, type PlayInfo } from './playlists';
+import { HighlightButton } from '../highlights/HighlightButton';
+import { seasonOf } from '../highlights/highlightData';
+import { useHighlights } from '../highlights/useHighlights';
 
 interface FilmRoomViewProps {
   teamId: string;
@@ -267,18 +270,26 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     () => (film.status === 'ready' ? liveViewClips(film.clips, shared.removedClips, mainView, multiView) : []),
     [film, shared.removedClips, mainView, multiView]
   );
+  // Plays are counted from the Main camera's clips (else the first view), whichever view is on screen: another
+  // camera's extra clips (Field's, kept for highlights) never become plays.
+  const countIdx = film.status === 'ready' ? countViewIndex(film.views) : 0;
+  const countView = film.status === 'ready' ? film.views[countIdx] || '' : '';
+  const countClips = useMemo(
+    () => (film.status === 'ready' ? liveViewClips(film.lists[countIdx] || [], shared.removedClips, countView, multiView) : []),
+    [film, shared.removedClips, countIdx, countView, multiView]
+  );
   // A film-only game's plays are its clips.
   useEffect(() => {
     if (!game?.filmOnly) return setClipPlays((c) => (c.length ? [] : c));
-    const next = film.status === 'ready' ? playsFromClips(liveClips, game.gameId) : [];
+    const next = film.status === 'ready' ? playsFromClips(countClips, game.gameId) : [];
     setClipPlays((c) => (c.length === 0 && next.length === 0 ? c : next));
-  }, [game?.key, game?.filmOnly, game?.gameId, film, liveClips]);
+  }, [game?.key, game?.filmOnly, game?.gameId, film, countClips]);
 
   // Film with no Hudl breakdown: once its clips are in, it becomes a Hudl Scout game with one blank play per
   // clip (same game id, so the film link and notes stay), and the coach fills the plays in while watching.
   const madeBreakdown = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!game?.filmOnly || film.status !== 'ready' || !liveClips.length || isReadOnlySession()) return;
+    if (!game?.filmOnly || film.status !== 'ready' || !countClips.length || isReadOnlySession()) return;
     if (madeBreakdown.current.has(game.key)) return;
     const week = game.week || '';
     const w = filmWeeks?.find((x) => x.key === week);
@@ -289,11 +300,11 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     // Deleted in Hudl Scout: leave it as plain film.
     if (target.games.some((g) => g.id === game.gameId || sameFolderGame(g.id, game.gameId)) || (target.deletedGameIds || []).includes(game.gameId)) return;
     madeBreakdown.current.add(game.key);
-    const fresh = blankPlays(liveClips, game.gameId);
+    const fresh = blankPlays(countClips, game.gameId);
     const now = Date.now();
     const g: ScoutGame = { id: game.gameId, name: game.name, playCount: fresh.length, addedAt: now, fromFilm: true, ...(week ? { week } : {}) };
     // Notes and drawings already made on the clips move to their plays.
-    const moved = new Map(playsFromClips(liveClips, game.gameId).map((p) => [p.id, breakdownPlayId(p.id, game.gameId)]));
+    const moved = new Map(playsFromClips(countClips, game.gameId).map((p) => [p.id, breakdownPlayId(p.id, game.gameId)]));
     if ([...moved.keys()].some((id) => shared.notes.some((n) => n.playId === id) || shared.drawings[id])) {
       update((st) => ({
         ...st,
@@ -355,18 +366,18 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   }, [opp.plays.length]);
   // More clips than plays (film in order): the breakdown gets an empty play for each clip it's missing, so
   // every clip has a spot (98 clips -> 98 plays). Added once per game, numbered after its last play;
-  // Line up film puts them where they belong.
+  // Line up film puts them where they belong. Counted from the Main camera only (Field's extras aren't plays).
   const paddedFor = useRef<Set<string>>(new Set());
   useEffect(() => {
     // Our games only, with film the app found for this game in the film folder (a folder linked by hand can be
     // another game's; a scouting game once got empty plays for our game's film).
     if (!game || game.source !== 'own' || game.filmOnly || locked || film.status !== 'ready' || !film.viaRoot) return;
-    if (!clips.length || clips.length <= plays.length || clipMatchMode(clips, plays) !== 'order') return;
-    const key = `${game.key}|${clips.length}`;
+    if (!countClips.length || countClips.length <= plays.length || clipMatchMode(countClips, plays) !== 'order') return;
+    const key = `${game.key}|${countClips.length}`;
     if (paddedFor.current.has(key)) return;
     paddedFor.current.add(key);
     const last = plays.reduce((m, p) => Math.max(m, Number(p.playNumber) || 0), 0);
-    const extra = blankPlays(clips, game.gameId)
+    const extra = blankPlays(countClips, game.gameId)
       .slice(plays.length)
       .map((p, k) => ({ ...p, id: `${p.id}-x${last + k + 1}`, playNumber: last + k + 1, gameId: game.gameId }));
     if (!extra.length) return;
@@ -380,7 +391,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     if (game.source === 'own') onUpdateOwnTeamScout({ ...own, ...next });
     else onUpdateScouting('hudlScout', { ...((opponentScout as object) || {}), ...next });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game?.key, film.status, clips.length, plays.length]);
+  }, [game?.key, film.status, countClips.length, plays.length]);
   // Clips in the order they're matched (by name): stepping a play's clip moves through this list.
   const clipsInOrder = useMemo(() => clips.map((c, i) => ({ c, i })).sort((a, b) => naturalCompare(a.c.name, b.c.name)), [clips]);
   /** Take this play's video out of the game: every play after it moves up one clip. The file stays (bring it back from More). */
@@ -969,6 +980,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const filmLists = useFilmLists(teamId);
   const me = userEmail.toLowerCase().trim();
   const canList = Boolean(me) && !locked;
+  // Highlights: ★ Highlight keeps the play on screen (our games).
+  const highlights = useHighlights(teamId, seasonOf());
 
   // A week off the schedule moved to a season week: its report (App), then each game's notes and drawings and
   // the playlists' plays, which are kept by the week an opponent's film is in.
@@ -1201,7 +1214,21 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   };
   const playActions =
     canList && play && clipRefOf(play) ? (
-      <PlayListActions current={clipRefOf(play)!} lists={filmLists.lists} update={filmLists.update} me={me} myName={authorName} />
+      <>
+        {game?.source === 'own' && !family && (
+          <HighlightButton
+            store={highlights}
+            game={{ key: game.key, gameId: game.gameId, name: game.name, week: game.week }}
+            play={play}
+            view={multiView ? mainView : ''}
+            clip={clip}
+            clipUrl={clipUrl.url}
+            getVideo={() => apiRef.current?.video?.()}
+            me={me}
+          />
+        )}
+        <PlayListActions current={clipRefOf(play)!} lists={filmLists.lists} update={filmLists.update} me={me} myName={authorName} />
+      </>
     ) : null;
   const odkChips = (
     <div className="flex flex-wrap items-center gap-1">
@@ -1922,7 +1949,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                           item(<><Trash2 size={14} /> Remove this play&apos;s video</>, () => removeClipOf(play), "Leave this video out of the game: the plays after it move up one (the file isn't deleted)")}
                         {removedCount > 0 && item(<><RotateCcw size={14} /> Bring back removed videos ({removedCount})</>, restoreClips)}
                         {film.status === 'ready' && otherIdx >= 0 &&
-                          item(<><Columns2 size={14} /> Line up {otherView} with {mainView}</>, () => setLineupOpen(true), `Every ${otherView} clip and the play it goes with: hide the ones that aren't plays`)}
+                          item(<><Columns2 size={14} /> Line up {otherView} with {mainView}</>, () => setLineupOpen(true), `Every ${otherView} clip and the play it goes with: mark the ones that aren't plays as extras (kept for highlights)`)}
                         {lostNames.length > 0 &&
                           item(
                             <><RotateCcw size={14} /> Bring back play names ({lostNames.length})</>,

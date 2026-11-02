@@ -180,6 +180,13 @@ const SCREEN_OPTIONS: ScreenOption[] = [
     icon: Camera,
   },
   {
+    id: 'highlights',
+    name: 'Highlights',
+    category: 'Game Day Operations',
+    description: 'Game, season and player highlight reels: trim, title, play, and export to DaVinci Resolve',
+    icon: Camera,
+  },
+  {
     id: 'whiteboard',
     name: 'Interactive Whiteboard Playbook',
     category: 'Reference & Guides',
