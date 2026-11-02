@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  clearOffset, compactPicks, countViewIndex, hiddenNames, hiddenPicks, lineupRows, placedPicks, shiftedPicks, unplacedClips, liveViewClips, otherViewIndex, picksForView, pickKey, removedKey, savedOffset, snapOffset, syncTarget, withOffset,
+  clearOffset, compactPicks, countViewIndex, hiddenNames, hiddenPicks, lineupRows, placedPicks, shiftedPicks, skippedClipSlot, unplacedClips, liveViewClips, otherViewIndex, picksForView, pickKey, removedKey, savedOffset, snapOffset, syncTarget, withOffset,
 } from './dualView.ts';
 import { matchClipsToPlays, NO_CLIP } from './clipMatching.ts';
 import { mergeShared } from './sharedMerge.ts';
@@ -181,6 +181,27 @@ describe('two camera views', () => {
     assert.deepEqual(order, ['A', 'C', 'D']);
     // A clip with no play moves nothing.
     assert.deepEqual(hiddenPicks(three, has, ['D'], ['A', 'B', 'C', 'D']).next, {});
+  });
+
+  it('puts a skipped clip back in its place', () => {
+    const five = [1, 2, 3, 4, 5].map((n) => ({ id: 'p' + n, playNumber: n }));
+    const names = ['A', 'B', 'C', 'D', 'E'];
+    const files = names.map(clip);
+    // Play 4 was pinned to E, so D is on no play and play 5 has no clip.
+    const pins: Record<string, { clip: string }> = { p4: { clip: 'E' } };
+    const m = matchClipsToPlays(files, five, pins);
+    const has = new Map(five.map((p) => [p.id, m.has(p.id) ? files[m.get(p.id)!].name : undefined]));
+    assert.equal(has.get('p5'), undefined);
+    const slot = skippedClipSlot(five, has, 'D', names)!;
+    assert.equal(slot.id, 'p4');
+    const out = compactPicks(five, has, placedPicks(five, has, slot.id, 'D', names), names);
+    const fixed = matchClipsToPlays(files, five, { ...pins, ...Object.fromEntries(Object.entries(out).map(([k, c]) => [k, { clip: c }])) });
+    assert.deepEqual(five.map((p) => files[fixed.get(p.id)!].name), names);
+    // Really past the last play: no place for it.
+    const full = new Map(five.map((p, i) => [p.id, names[i]]));
+    assert.equal(skippedClipSlot(five, full, 'F', [...names, 'F']), undefined);
+    // Nothing before it on a play: the first play.
+    assert.equal(skippedClipSlot(five, new Map([['p1', 'B']]), 'A', names)?.id, 'p1');
   });
 
   it('puts every file in the table, plays down the side', () => {

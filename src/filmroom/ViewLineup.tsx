@@ -83,14 +83,16 @@ export interface ViewLineupProps {
   /** Every clip from a play on, one play later (1) or earlier (-1). Gives back an undo. */
   onShift: (fromPlayId: string, dir: 1 | -1) => () => void;
   /** Main's files on no play: taken out of the game (`removed`), or past the last play. */
-  mainLeft?: { clip: FilmClip; removed: boolean }[];
+  mainLeft?: { clip: FilmClip; removed: boolean; slot?: Play }[];
   /** A file taken out of Main goes back in its place (the clips after it move down one). Gives back an undo. */
   onBringBack?: (name: string) => () => void;
+  /** A skipped Main file goes on that play, and the Main clips after it follow. Gives back an undo. */
+  onPutBack?: (name: string, playId: string) => () => void;
   onClose: () => void;
 }
 
 export const ViewLineup: React.FC<ViewLineupProps> = ({
-  view, mainView, clips, hidden, playOf, plays, mainClipOf, localFiles, startClip, readOnly, onHide, onPick, onShift, mainLeft = [], onBringBack, onClose,
+  view, mainView, clips, hidden, playOf, plays, mainClipOf, localFiles, startClip, readOnly, onHide, onPick, onShift, mainLeft = [], onBringBack, onPutBack, onClose,
 }) => {
   const lengthOf = useClipLengths(clips, localFiles);
   const [picked, setPicked] = useState<string | undefined>(startClip || clips.find((c) => !hidden.has(c.name))?.name);
@@ -356,10 +358,10 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
                 {mainLeft.length} {mainView} file{mainLeft.length === 1 ? '' : 's'} not on a play
               </div>
               <ul className="mt-1 space-y-1">
-                {mainLeft.map(({ clip: m, removed }) => (
+                {mainLeft.map(({ clip: m, removed, slot }) => (
                   <li key={m.id} className="flex items-center gap-2 min-w-0">
                     <span className="font-semibold truncate text-slate-800 dark:text-slate-100" title={m.name}>{m.name}</span>
-                    <span className="shrink-0 text-slate-600 dark:text-slate-300">{removed ? 'taken out of the game' : 'past the last play'}</span>
+                    <span className="shrink-0 text-slate-600 dark:text-slate-300">{removed ? 'taken out of the game' : slot ? 'skipped' : 'past the last play'}</span>
                     {removed && onBringBack && !readOnly && (
                       <button
                         type="button"
@@ -368,6 +370,16 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
                         onClick={() => did(onBringBack(m.name), `${m.name} is back in ${mainView}.`)}
                       >
                         Bring back
+                      </button>
+                    )}
+                    {!removed && slot && onPutBack && !readOnly && (
+                      <button
+                        type="button"
+                        className="ml-auto shrink-0 h-7 px-2 rounded-lg font-bold border border-amber-400 text-amber-800 dark:text-amber-200"
+                        title={`It goes on play #${slot.playNumber}, and the ${mainView} clips after it follow`}
+                        onClick={() => did(onPutBack(m.name, slot.id), `${m.name} is on play #${slot.playNumber}. The ${mainView} clips after it followed.`)}
+                      >
+                        Put back on play #{slot.playNumber}
                       </button>
                     )}
                   </li>

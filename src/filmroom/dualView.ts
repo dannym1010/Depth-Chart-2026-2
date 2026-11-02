@@ -60,6 +60,18 @@ export function placedPicks(plays: { id: string }[], clipOf: Map<string, string 
 }
 
 /**
+ * Where a skipped clip belongs: the play right after the one holding the nearest clip before it. Undefined when that
+ * clip is on the last play (the file really is past the last play).
+ */
+export function skippedClipSlot<P extends { id: string }>(plays: P[], clipOf: Map<string, string | undefined>, name: string, order: string[]): P | undefined {
+  for (let i = order.indexOf(name) - 1; i >= 0; i--) {
+    const at = plays.findIndex((p) => clipOf.get(p.id) === order[i]);
+    if (at >= 0) return plays[at + 1];
+  }
+  return order.includes(name) ? plays[0] : undefined;
+}
+
+/**
  * Clips marked as not plays: each one's play takes the next clip and the plays after move up one, the way they do when
  * nothing was moved by hand. Gives the picks to save and the clips still lined up.
  */

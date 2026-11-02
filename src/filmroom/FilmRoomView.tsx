@@ -32,7 +32,7 @@ import { peekPlayBuilderSeed, savePlayBuilderSeed, type PlayBuilderSeed } from '
 import { PlayBuilderSection } from '../components/playbook/PlayBuilderSection';
 import { FilmPlayer, type PlayerApi } from './FilmPlayer';
 import { SecondView, type DualLayout } from './SecondView';
-import { clearOffset, compactPicks, countViewIndex, hiddenNames, hiddenPicks, placedPicks, shiftedPicks, liveViewClips, otherViewIndex, picksForView, pickKey as viewPickKey, removedKey, savedOffset, snapOffset, withOffset } from './dualView';
+import { clearOffset, compactPicks, countViewIndex, hiddenNames, hiddenPicks, placedPicks, shiftedPicks, skippedClipSlot, liveViewClips, otherViewIndex, picksForView, pickKey as viewPickKey, removedKey, savedOffset, snapOffset, withOffset } from './dualView';
 import { ViewLineup } from './ViewLineup';
 import { probeSnap } from './snapProbe';
 import { usePlayLines, type VideoLines } from './PlayLinesOverlay';
@@ -2189,8 +2189,26 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                 // Every file shows: Main's that are on no play, here. Line up has Main on screen, so these are its clips.
                 const on = new Set([...clipFor.values()].map((i) => clips[i]?.name));
                 const gone = hiddenNames(film.clips, shared.removedClips, mainView, multiView);
-                return film.clips.filter((c) => !on.has(c.name)).map((c) => ({ clip: c, removed: gone.has(c.name) }));
+                const has = new Map(otherPlays.map((p) => [p.id, clipFor.has(p.id) ? clips[clipFor.get(p.id)!].name : undefined]));
+                const order = clipsInOrder.map((o) => o.c.name);
+                return film.clips
+                  .filter((c) => !on.has(c.name))
+                  .map((c) => ({ clip: c, removed: gone.has(c.name), slot: gone.has(c.name) ? undefined : skippedClipSlot(otherPlays, has, c.name, order) }));
               })()}
+              onPutBack={(name, playId) => {
+                const has = new Map(otherPlays.map((p) => [p.id, clipFor.has(p.id) ? clips[clipFor.get(p.id)!].name : undefined]));
+                const order = clipsInOrder.map((o) => o.c.name);
+                const next = placedPicks(otherPlays, has, playId, name, order);
+                const picks = clipMatchMode(clips, plays) === 'number' ? next : compactPicks(otherPlays, has, next, order);
+                const keyed = Object.entries(picks).map(([id, clip]) => [viewPickKey(id, mainView, multiView), clip] as const);
+                const was = keyed.map(([k]) => [k, shared.clipPicks?.[k]?.clip || ''] as const);
+                const write = (p: readonly (readonly [string, string])[]) => {
+                  const editedAt = Date.now();
+                  update((s) => ({ ...s, clipPicks: { ...(s.clipPicks || {}), ...Object.fromEntries(p.map(([k, clip]) => [k, { clip, editedAt }])) } }));
+                };
+                write(keyed);
+                return () => write(was);
+              }}
               onBringBack={(name) => {
                 const key = removedKey(name, mainView, multiView);
                 const was = Boolean(shared.removedClips?.[key]?.removed);
