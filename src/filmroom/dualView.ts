@@ -39,6 +39,11 @@ export function hiddenNames(clips: FilmClip[], removed: FilmGameShared['removedC
   return out;
 }
 
+/** A view's clips that go with no play and nobody marked "Not a play": a coach still has to say what they are. */
+export function unplacedClips<C extends { name: string }>(clips: C[], hidden: Set<string>, playOf: { has: (name: string) => boolean }): C[] {
+  return clips.filter((c) => !hidden.has(c.name) && !playOf.has(c.name));
+}
+
 /** A view's clips without the ones a coach took out. */
 export function liveViewClips(clips: FilmClip[], removed: FilmGameShared['removedClips'], view: string, multi: boolean): FilmClip[] {
   const gone = hiddenNames(clips, removed, view, multi);

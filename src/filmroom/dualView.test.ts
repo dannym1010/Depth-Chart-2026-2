@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  clearOffset, countViewIndex, hiddenNames, shiftedPicks, liveViewClips, otherViewIndex, picksForView, pickKey, removedKey, savedOffset, snapOffset, syncTarget, withOffset,
+  clearOffset, countViewIndex, hiddenNames, shiftedPicks, unplacedClips, liveViewClips, otherViewIndex, picksForView, pickKey, removedKey, savedOffset, snapOffset, syncTarget, withOffset,
 } from './dualView.ts';
 import { matchClipsToPlays, NO_CLIP } from './clipMatching.ts';
 import { mergeShared } from './sharedMerge.ts';
@@ -139,6 +139,18 @@ describe('two camera views', () => {
     assert.equal(now(gap), 'F1 F2 - F3 F4');
     assert.equal(now({ ...gap, ...asPicks(shiftedPicks(five, clipOf(gap), 'p1', 1)) }), '- F1 F2 - F3');
     assert.deepEqual(shiftedPicks(five, clipOf(), 'nope', 1), {});
+  });
+
+  it('lists the clips with no play that nobody marked', () => {
+    // 7 Field clips, 4 plays: F2b was marked Not a play, F5 and F6 are left over past the last play.
+    const field = ['F1', 'F2', 'F2b', 'F3', 'F4', 'F5', 'F6'].map(clip);
+    const hidden = new Set(['F2b']);
+    const live = liveViewClips(field, { 'Field/F2b': { removed: true, editedAt: 1 } }, 'Field', true);
+    const m = matchClipsToPlays(live, plays, undefined);
+    const playOf = new Map(plays.filter((p) => m.has(p.id)).map((p) => [live[m.get(p.id)!].name, p]));
+    assert.deepEqual(unplacedClips(field, hidden, playOf).map((c) => c.name), ['F5', 'F6']);
+    // Marked, it stops being asked about.
+    assert.deepEqual(unplacedClips(field, new Set(['F2b', 'F5', 'F6']), playOf), []);
   });
 
   it('puts Main first, then the other views', async () => {

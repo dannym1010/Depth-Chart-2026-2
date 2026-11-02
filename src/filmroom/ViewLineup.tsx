@@ -8,6 +8,7 @@ import type { Play } from '../hudlScout/types/football';
 import type { FilmClip } from './types';
 import { useClipUrl } from './useGameFilm';
 import { playTitle } from './playText';
+import { unplacedClips } from './dualView';
 
 type LocalFiles = MutableRefObject<Map<string, () => Promise<File>>>;
 
@@ -93,7 +94,14 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
   const [showHidden, setShowHidden] = useState(false);
   const [picked, setPicked] = useState<string | undefined>(startClip || clips.find((c) => !hidden.has(c.name))?.name);
   const [shortSec, setShortSec] = useState(6);
-  const rows = clips.map((c, i) => ({ c, n: i + 1 })).filter(({ c }) => showHidden || !hidden.has(c.name) || c.name === picked);
+  // Clips with no play that nobody marked yet: listed on their own so none get lost in a long list.
+  const unplaced = unplacedClips(clips, hidden, playOf);
+  const unplacedNames = new Set(unplaced.map((c) => c.name));
+  const [onlyUnplaced, setOnlyUnplaced] = useState(false);
+  const onlyThese = onlyUnplaced && unplaced.length > 0;
+  const rows = clips
+    .map((c, i) => ({ c, n: i + 1 }))
+    .filter(({ c }) => c.name === picked || (onlyThese ? unplacedNames.has(c.name) : showHidden || !hidden.has(c.name)));
   const clip = clips.find((c) => c.name === picked);
   const play = clip ? playOf.get(clip.name) : undefined;
   const mainClip = play ? mainClipOf(play) : undefined;
@@ -150,6 +158,7 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
             <h3 className="font-black text-slate-900 dark:text-slate-100">Line up {view} with {mainView}</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {clips.length} {view} clips · {plays.length} plays (counted from {mainView}) · {hidden.size} extra{hidden.size === 1 ? '' : 's'}
+              {unplaced.length ? ` · ${unplaced.length} not lined up` : ''}
               {noClip.length ? ` · ${noClip.length} play${noClip.length === 1 ? '' : 's'} without a ${view} clip` : ''}. Mark the clips that aren&apos;t plays as
               extras: the plays after one move up to the right clips, and the extras stay here for highlights. Saved for every coach.
             </p>
@@ -233,6 +242,34 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
             </button>
           )}
         </div>
+        {unplaced.length > 0 && (
+          <div className="mx-4 mt-1 mb-1 rounded-lg border border-amber-300 dark:border-amber-500/50 bg-amber-50 dark:bg-amber-500/10 px-2.5 py-1.5 text-xs" role="group" aria-label={`${view} clips not lined up`}>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="font-bold text-amber-800 dark:text-amber-200">
+                {unplaced.length} {view} clip{unplaced.length === 1 ? '' : 's'} with no play, not marked yet
+              </span>
+              <label className="inline-flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
+                <input type="checkbox" checked={onlyUnplaced} onChange={(e) => setOnlyUnplaced(e.target.checked)} />
+                Only these
+              </label>
+            </div>
+            <div className="mt-1 flex gap-1 flex-wrap max-h-16 overflow-auto">
+              {unplaced.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setPicked(c.name)}
+                  title={c.name}
+                  aria-pressed={c.name === picked}
+                  className={`h-7 px-2 rounded-lg font-bold tabular-nums border ${c.name === picked ? 'bg-amber-600 border-amber-600 text-white' : 'border-amber-400 text-amber-800 dark:text-amber-200'}`}
+                >
+                  Clip {clips.indexOf(c) + 1}
+                  {lengthOf(c) !== undefined ? ` · ${fmtLen(lengthOf(c))}` : ''}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {onShift && !readOnly && plays.length > 0 && (() => {
           const from = plays.find((p) => p.id === shiftFrom) || play || plays[0];
           const shift = (dir: 1 | -1) => {
@@ -320,7 +357,7 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
                       {off ? (
                         <span className="font-bold text-slate-500">Extra · highlights</span>
                       ) : readOnly ? (
-                        <span className="text-slate-700 dark:text-slate-200">{p ? `#${p.playNumber}` : 'Extra'}</span>
+                        <span className="text-slate-700 dark:text-slate-200">{p ? `#${p.playNumber}` : 'Not lined up'}</span>
                       ) : (
                         <select
                           value={p?.id || ''}
@@ -329,7 +366,7 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
                           aria-label={`Play for ${c.name}`}
                           className={`h-7 max-w-[8.5rem] sm:max-w-[16rem] rounded border px-1 bg-white dark:bg-slate-950 ${p ? 'border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-100' : 'border-amber-400 text-amber-700 dark:text-amber-300'}`}
                         >
-                          {!p && <option value="">Extra: not lined up</option>}
+                          {!p && <option value="">Not lined up: pick a play</option>}
                           {plays.map((x) => (
                             <option key={x.id} value={x.id}>
                               {playTitle(x)}
