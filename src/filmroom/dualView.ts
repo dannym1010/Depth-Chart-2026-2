@@ -1,6 +1,7 @@
 // Two camera views of one game at once (a folder per view: "Sideline", "End Zone"). Each view's clips line up with
 // the plays on their own (a view can be missing a clip or have an extra one), and the second view plays in step with
 // the first: at the same moment of the play, found from the snap in both clips or set by a coach (saved per play).
+import { NO_CLIP } from './clipMatching';
 import type { FilmClip, FilmGameShared } from './types';
 
 /** A per-view key: a play (or clip) in one camera view. */
@@ -107,3 +108,27 @@ export function syncTarget(mainTime: number, offset: number, otherDuration: numb
 
 /** "+0.40 s" / "−1.20 s" / "0 s" for the sync label. */
 export const fmtOffset = (s: number) => (Math.abs(s) < 0.005 ? '0 s' : `${s > 0 ? '+' : '−'}${Math.abs(s).toFixed(2)} s`);
+
+/**
+ * A view one play off: every clip from a play on moved one play later (`dir` 1: that play gets no clip, as if the
+ * camera missed it) or one play earlier (-1: that play takes the next play's clip, and its own clip becomes an extra).
+ * `plays` in play order; `clipOf`: the clip each play has now. Returns the picks to save (play id -> clip name; '(no
+ * clip)' for a play left without one). `order`: the view's clips in order, so moving earlier gives the last play the
+ * clip after its old one.
+ */
+export function shiftedPicks(plays: { id: string }[], clipOf: Map<string, string | undefined>, fromId: string, dir: 1 | -1, order: string[] = []): Record<string, string> {
+  const at = plays.findIndex((p) => p.id === fromId);
+  const out: Record<string, string> = {};
+  if (at < 0) return out;
+  const clip = (k: number) => clipOf.get(plays[k]?.id) || NO_CLIP;
+  for (let k = at; k < plays.length; k++) {
+    if (dir === 1) out[plays[k].id] = k === at ? NO_CLIP : clip(k - 1);
+    else if (k < plays.length - 1) out[plays[k].id] = clip(k + 1);
+    else {
+      const own = clipOf.get(plays[k].id);
+      const i = own ? order.indexOf(own) : -1;
+      out[plays[k].id] = i >= 0 && i < order.length - 1 ? order[i + 1] : NO_CLIP;
+    }
+  }
+  return out;
+}

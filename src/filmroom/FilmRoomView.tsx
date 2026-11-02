@@ -32,7 +32,7 @@ import { peekPlayBuilderSeed, savePlayBuilderSeed, type PlayBuilderSeed } from '
 import { PlayBuilderSection } from '../components/playbook/PlayBuilderSection';
 import { FilmPlayer, type PlayerApi } from './FilmPlayer';
 import { SecondView, type DualLayout } from './SecondView';
-import { clearOffset, countViewIndex, hiddenNames, liveViewClips, otherViewIndex, picksForView, pickKey as viewPickKey, removedKey, savedOffset, snapOffset, withOffset } from './dualView';
+import { clearOffset, countViewIndex, hiddenNames, shiftedPicks, liveViewClips, otherViewIndex, picksForView, pickKey as viewPickKey, removedKey, savedOffset, snapOffset, withOffset } from './dualView';
 import { ViewLineup } from './ViewLineup';
 import { probeSnap } from './snapProbe';
 import { usePlayLines, type VideoLines } from './PlayLinesOverlay';
@@ -2147,6 +2147,23 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
               onPick={(id, name) => {
                 if (otherHidden.has(name)) hideOther([name], false);
                 pickClip(id, name, otherView);
+              }}
+              onShift={(fromId, dir) => {
+                // The camera one play off: every clip from that play on moves a play, as picks (saved for every coach).
+                const sorted = [...plays].sort((a, b) => (Number(a.playNumber) || 0) - (Number(b.playNumber) || 0));
+                const has = new Map(sorted.map((p) => [p.id, otherFor.has(p.id) ? otherClips[otherFor.get(p.id)!].name : undefined]));
+                const next = shiftedPicks(sorted, has, fromId, dir, otherInOrder.map((o) => o.c.name));
+                const keys = Object.keys(next).map((id) => viewPickKey(id, otherView, true));
+                const before = new Map(keys.map((k) => [k, shared.clipPicks?.[k]?.clip || '']));
+                const now = Date.now();
+                update((s) => ({
+                  ...s,
+                  clipPicks: { ...(s.clipPicks || {}), ...Object.fromEntries(Object.entries(next).map(([id, clip]) => [viewPickKey(id, otherView, true), { clip, editedAt: now }])) },
+                }));
+                return () => {
+                  const t = Date.now();
+                  update((s) => ({ ...s, clipPicks: { ...(s.clipPicks || {}), ...Object.fromEntries(keys.map((k) => [k, { clip: before.get(k) || '', editedAt: t }])) } }));
+                };
               }}
               onClose={() => setLineupOpen(false)}
             />

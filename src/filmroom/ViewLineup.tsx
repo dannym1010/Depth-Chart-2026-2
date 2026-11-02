@@ -78,12 +78,17 @@ export interface ViewLineupProps {
   onHide: (names: string[], hide: boolean) => void;
   /** This clip is that play's (the plays after it follow). */
   onPick: (playId: string, clipName: string) => void;
+  /** Every clip from a play on, one play later (1) or earlier (-1). Gives back an undo. */
+  onShift?: (fromPlayId: string, dir: 1 | -1) => () => void;
   onClose: () => void;
 }
 
 export const ViewLineup: React.FC<ViewLineupProps> = ({
-  view, mainView, clips, hidden, playOf, plays, mainClipOf, localFiles, startClip, readOnly, onHide, onPick, onClose,
+  view, mainView, clips, hidden, playOf, plays, mainClipOf, localFiles, startClip, readOnly, onHide, onPick, onShift, onClose,
 }) => {
+  // A camera one play off: move every clip from a play on (the play being compared, at first).
+  const [shiftFrom, setShiftFrom] = useState('');
+  const [undoShift, setUndoShift] = useState<{ undo: () => void; text: string } | null>(null);
   const lengthOf = useClipLengths(clips, localFiles);
   const [showHidden, setShowHidden] = useState(false);
   const [picked, setPicked] = useState<string | undefined>(startClip || clips.find((c) => !hidden.has(c.name))?.name);
@@ -228,6 +233,62 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
             </button>
           )}
         </div>
+        {onShift && !readOnly && plays.length > 0 && (() => {
+          const from = plays.find((p) => p.id === shiftFrom) || play || plays[0];
+          const shift = (dir: 1 | -1) => {
+            const undo = onShift(from.id, dir);
+            setUndoShift({ undo, text: `Every ${view} clip from play #${from.playNumber} moved one play ${dir > 0 ? 'later' : 'earlier'}.` });
+          };
+          return (
+            <div className="px-4 pb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600 dark:text-slate-300" role="group" aria-label={`Move every ${view} clip`}>
+              <span className="font-bold">{view} one play off?</span>
+              <span>Move every clip from</span>
+              <select
+                value={from.id}
+                onChange={(e) => setShiftFrom(e.target.value)}
+                aria-label="From play"
+                className="h-7 max-w-[10rem] rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-1 text-slate-800 dark:text-slate-100"
+              >
+                {plays.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {playTitle(x)}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => shift(1)}
+                className="h-7 px-2 rounded-lg font-bold border border-slate-300 dark:border-slate-600"
+                title={`Play #${from.playNumber} gets no ${view} clip (the camera missed it); its clip and every one after go to the next play`}
+              >
+                ↓ One play later
+              </button>
+              <button
+                type="button"
+                onClick={() => shift(-1)}
+                className="h-7 px-2 rounded-lg font-bold border border-slate-300 dark:border-slate-600"
+                title={`Play #${from.playNumber} takes the next play's ${view} clip, and every play after moves up one (its clip now goes with no play)`}
+              >
+                ↑ One play earlier
+              </button>
+              {undoShift && (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="text-emerald-700 dark:text-emerald-300 font-semibold">{undoShift.text}</span>
+                  <button
+                    type="button"
+                    className="underline font-bold"
+                    onClick={() => {
+                      undoShift.undo();
+                      setUndoShift(null);
+                    }}
+                  >
+                    Undo
+                  </button>
+                </span>
+              )}
+            </div>
+          );
+        })()}
 
         <div ref={listRef} className="flex-1 min-h-0 overflow-auto px-2 pb-3">
           <table className="w-full text-xs">

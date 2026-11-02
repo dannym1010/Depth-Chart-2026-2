@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  clearOffset, countViewIndex, hiddenNames, liveViewClips, otherViewIndex, picksForView, pickKey, removedKey, savedOffset, snapOffset, syncTarget, withOffset,
+  clearOffset, countViewIndex, hiddenNames, shiftedPicks, liveViewClips, otherViewIndex, picksForView, pickKey, removedKey, savedOffset, snapOffset, syncTarget, withOffset,
 } from './dualView.ts';
 import { matchClipsToPlays, NO_CLIP } from './clipMatching.ts';
 import { mergeShared } from './sharedMerge.ts';
@@ -109,6 +109,36 @@ describe('two camera views', () => {
     const views = ['Main', 'Field'];
     const counted = lists[countViewIndex(views)];
     assert.equal(playsFromClips(counted, 'g1').length, 2);
+  });
+
+  it('moves every clip of a view one play later or earlier (a camera one play off)', () => {
+    const clips = ['F1', 'F2', 'F3', 'F4', 'F5'].map(clip);
+    const five = [1, 2, 3, 4, 5].map((n) => ({ id: 'p' + n, playNumber: n }));
+    const now = (picks?: Record<string, { clip: string }>) => {
+      const m = matchClipsToPlays(clips, five, picks);
+      return five.map((p) => (m.has(p.id) ? clips[m.get(p.id)!].name : '-')).join(' ');
+    };
+    const asPicks = (r: Record<string, string>) => Object.fromEntries(Object.entries(r).map(([k, c]) => [k, { clip: c }]));
+    const clipOf = (picks?: Record<string, { clip: string }>) => {
+      const m = matchClipsToPlays(clips, five, picks);
+      return new Map(five.map((p) => [p.id, m.has(p.id) ? clips[m.get(p.id)!].name : undefined]));
+    };
+    assert.equal(now(), 'F1 F2 F3 F4 F5');
+    const later = asPicks(shiftedPicks(five, clipOf(), 'p2', 1));
+    assert.equal(now(later), 'F1 - F2 F3 F4');
+    const earlier = asPicks(shiftedPicks(five, clipOf(), 'p2', -1, clips.map((c) => c.name)));
+    assert.equal(now(earlier), 'F1 F3 F4 F5 -');
+    // A clip after the last play's (an extra past the end) moves onto the last play.
+    const six = [...clips, clip('F6')];
+    const m6 = matchClipsToPlays(six, five);
+    const has6 = new Map(five.map((p) => [p.id, six[m6.get(p.id)!].name]));
+    const up6 = shiftedPicks(five, has6, 'p1', -1, six.map((c) => c.name));
+    assert.deepEqual(Object.values(up6), ['F2', 'F3', 'F4', 'F5', 'F6']);
+    // A play the camera missed keeps its gap when everything after moves.
+    const gap = { p3: { clip: NO_CLIP } };
+    assert.equal(now(gap), 'F1 F2 - F3 F4');
+    assert.equal(now({ ...gap, ...asPicks(shiftedPicks(five, clipOf(gap), 'p1', 1)) }), '- F1 F2 - F3');
+    assert.deepEqual(shiftedPicks(five, clipOf(), 'nope', 1), {});
   });
 
   it('puts Main first, then the other views', async () => {
