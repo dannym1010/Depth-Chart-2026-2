@@ -32,7 +32,7 @@ import { peekPlayBuilderSeed, savePlayBuilderSeed, type PlayBuilderSeed } from '
 import { PlayBuilderSection } from '../components/playbook/PlayBuilderSection';
 import { FilmPlayer, type PlayerApi } from './FilmPlayer';
 import { SecondView, type DualLayout } from './SecondView';
-import { clearOffset, countViewIndex, hiddenNames, shiftedPicks, liveViewClips, otherViewIndex, picksForView, pickKey as viewPickKey, removedKey, savedOffset, snapOffset, withOffset } from './dualView';
+import { clearOffset, compactPicks, countViewIndex, hiddenNames, hiddenPicks, placedPicks, shiftedPicks, liveViewClips, otherViewIndex, picksForView, pickKey as viewPickKey, removedKey, savedOffset, snapOffset, withOffset } from './dualView';
 import { ViewLineup } from './ViewLineup';
 import { probeSnap } from './snapProbe';
 import { usePlayLines, type VideoLines } from './PlayLinesOverlay';
@@ -780,13 +780,41 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   );
   const otherAll = useMemo(() => (film.status === 'ready' && otherIdx >= 0 ? film.lists[otherIdx] || [] : []), [film, otherIdx]);
   const otherHidden = useMemo(() => hiddenNames(otherAll, shared.removedClips, otherView, true), [otherAll, shared.removedClips, otherView]);
-  /** Hide clips of the second view as not plays (the plays after one move up a clip), or show them again. */
+  const otherPlays = useMemo(() => [...plays].sort((a, b) => (Number(a.playNumber) || 0) - (Number(b.playNumber) || 0)), [plays]);
+  const otherHas = () => new Map(otherPlays.map((p) => [p.id, otherFor.has(p.id) ? otherClips[otherFor.get(p.id)!].name : undefined]));
+  /**
+   * Save a move of the second view's clips, and marks on them, in one write. Only the picks a move needs are kept, so
+   * the next fix still carries on down the game. Gives back an undo.
+   */
+  const saveOther = (next: Record<string, string>, order: string[], marks: Record<string, boolean> = {}) => {
+    const has = otherHas();
+    const picks = clipMatchMode(otherClips, plays) === 'number' ? next : compactPicks(otherPlays, has, next, order);
+    const keyed = Object.entries(picks).map(([id, clip]) => [viewPickKey(id, otherView, true), clip] as const);
+    const marked = Object.entries(marks).map(([n, on]) => [removedKey(n, otherView, true), on] as const);
+    const was = keyed.map(([k]) => [k, shared.clipPicks?.[k]?.clip || ''] as const);
+    const wasMarked = marked.map(([k]) => [k, Boolean(shared.removedClips?.[k]?.removed)] as const);
+    const write = (p: readonly (readonly [string, string])[], m: readonly (readonly [string, boolean])[]) => {
+      const now = Date.now();
+      update((s) => ({
+        ...s,
+        clipPicks: { ...(s.clipPicks || {}), ...Object.fromEntries(p.map(([k, clip]) => [k, { clip, editedAt: now }])) },
+        removedClips: { ...(s.removedClips || {}), ...Object.fromEntries(m.map(([k, removed]) => [k, { removed, editedAt: now }])) },
+      }));
+    };
+    write(keyed, marked);
+    return () => write(was, wasMarked);
+  };
+  /** Mark clips of the second view as not plays (the plays after one move up a clip), or take the mark off. */
   const hideOther = (names: string[], hide: boolean) => {
-    const now = Date.now();
-    update((st) => ({
-      ...st,
-      removedClips: { ...(st.removedClips || {}), ...Object.fromEntries(names.map((n) => [removedKey(n, otherView, true), { removed: hide, editedAt: now }])) },
-    }));
+    const marks = Object.fromEntries(names.map((n) => [n, hide]));
+    if (!hide) return saveOther({}, [], marks);
+    const { next, order } = hiddenPicks(otherPlays, otherHas(), names, otherInOrder.map((o) => o.c.name));
+    return saveOther(next, order, marks);
+  };
+  /** This clip is that play's, and the plays after it follow. */
+  const placeOther = (playId: string, name: string) => {
+    const order = otherInOrder.map((o) => o.c.name);
+    return saveOther(placedPicks(otherPlays, otherHas(), playId, name, order), order);
   };
   const otherClipOf = (p?: Play) => (p && otherFor.has(p.id) ? otherClips[otherFor.get(p.id)!] : undefined);
   const otherClip = otherClipOf(play);
@@ -816,6 +844,18 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const dualOffset = coachOffset ?? autoOffset ?? 0;
   const syncNote =
     coachOffset !== undefined ? 'Synced by a coach' : snapSync.key === pairKey && !snapSync.done ? 'Finding the snap…' : autoOffset !== undefined ? 'At the snap' : 'From the clip starts';
+  // Line up always moves the other camera against the one that counts the plays (Main stays put), whichever is on screen.
+  const lineupTarget = film.status === 'ready' && otherIdx >= 0 ? (film.view === countIdx ? otherView : mainView) : '';
+  const openLineup = () => {
+    if (film.status === 'ready' && otherIdx >= 0 && film.view !== countIdx) {
+      if (otherIdx === countIdx) swapViews();
+      else {
+        setOtherWanted(mainView);
+        setView(countIdx, false);
+      }
+    }
+    setLineupOpen(true);
+  };
   /** The second view becomes the main one (at the same moment of the play), and the main one goes beside it. */
   const swapViews = () => {
     if (otherIdx < 0 || film.status !== 'ready') return;
@@ -890,7 +930,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         onSwap={swapViews}
         onClose={() => toggleBoth(false)}
         onNotAPlay={!locked && otherClip ? () => hideOther([otherClip.name], true) : undefined}
-        onLineup={() => setLineupOpen(true)}
+        onLineup={openLineup}
         lineup={
           locked
             ? undefined
@@ -900,7 +940,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                 canNext: otherAt < otherInOrder.length - 1,
                 onStep: (d) => {
                   const to = otherInOrder[Math.max(0, Math.min(otherInOrder.length - 1, (otherAt < 0 ? 0 : otherAt) + d))];
-                  if (to) pickClip(play.id, to.c.name, otherView);
+                  if (to) placeOther(play.id, to.c.name);
                 },
                 none: otherMissed,
                 onNone: () => pickClip(play.id, NO_CLIP, otherView),
@@ -1792,7 +1832,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         {/* Line up film: when this game's clips and plays don't match (or a play was lined up), the clip the play on
             screen shows and a step to the one before or after. The plays after it follow, so one fix past an extra
             (or missing) clip lines up the rest of the game. */}
-        {!locked && film.status === 'ready' && clips.length > 0 && play && !game?.filmOnly && (clipMatchMode(clips, plays) === 'order' && clips.length !== plays.length || Object.values(shared.clipPicks || {}).some((p) => p?.clip)) && (() => {
+        {!locked && film.status === 'ready' && clips.length > 0 && play && !game?.filmOnly && (clipMatchMode(clips, plays) === 'order' && clips.length !== plays.length || Object.values(mainPicks || {}).some((p) => p?.clip)) && (() => {
           const at = clipFor.has(play.id) ? clipsInOrder.findIndex((o) => o.i === clipFor.get(play.id)) : -1;
           const step = (d: number) => {
             const to = clipsInOrder[Math.max(0, Math.min(clipsInOrder.length - 1, (at < 0 ? 0 : at) + d))];
@@ -1956,7 +1996,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                           item(<><Trash2 size={14} /> Remove this play&apos;s video</>, () => removeClipOf(play), "Leave this video out of the game: the plays after it move up one (the file isn't deleted)")}
                         {removedCount > 0 && item(<><RotateCcw size={14} /> Bring back removed videos ({removedCount})</>, restoreClips)}
                         {film.status === 'ready' && otherIdx >= 0 &&
-                          item(<><Columns2 size={14} /> Line up {otherView} with {mainView}</>, () => setLineupOpen(true), `Every ${otherView} clip and the play it goes with: mark the ones that aren't plays as extras (kept for highlights)`)}
+                          item(<><Columns2 size={14} /> Line up {lineupTarget} with {countView}</>, openLineup, `${countView} stays put: move the ${lineupTarget} clips until every play matches`)}
                         {lostNames.length > 0 &&
                           item(
                             <><RotateCcw size={14} /> Bring back play names ({lostNames.length})</>,
@@ -2138,32 +2178,17 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
               clips={otherAll}
               hidden={otherHidden}
               playOf={playOf}
-              plays={[...plays].sort((a, b) => (Number(a.playNumber) || 0) - (Number(b.playNumber) || 0))}
+              plays={otherPlays}
               mainClipOf={(p) => clipOf(p)}
               localFiles={localFiles}
               startClip={otherClip?.name}
               readOnly={locked}
               onHide={hideOther}
-              onPick={(id, name) => {
-                if (otherHidden.has(name)) hideOther([name], false);
-                pickClip(id, name, otherView);
-              }}
+              onPick={placeOther}
               onShift={(fromId, dir) => {
-                // The camera one play off: every clip from that play on moves a play, as picks (saved for every coach).
-                const sorted = [...plays].sort((a, b) => (Number(a.playNumber) || 0) - (Number(b.playNumber) || 0));
-                const has = new Map(sorted.map((p) => [p.id, otherFor.has(p.id) ? otherClips[otherFor.get(p.id)!].name : undefined]));
-                const next = shiftedPicks(sorted, has, fromId, dir, otherInOrder.map((o) => o.c.name));
-                const keys = Object.keys(next).map((id) => viewPickKey(id, otherView, true));
-                const before = new Map(keys.map((k) => [k, shared.clipPicks?.[k]?.clip || '']));
-                const now = Date.now();
-                update((s) => ({
-                  ...s,
-                  clipPicks: { ...(s.clipPicks || {}), ...Object.fromEntries(Object.entries(next).map(([id, clip]) => [viewPickKey(id, otherView, true), { clip, editedAt: now }])) },
-                }));
-                return () => {
-                  const t = Date.now();
-                  update((s) => ({ ...s, clipPicks: { ...(s.clipPicks || {}), ...Object.fromEntries(keys.map((k) => [k, { clip: before.get(k) || '', editedAt: t }])) } }));
-                };
+                // The camera one play off: every clip from that play on moves a play.
+                const order = otherInOrder.map((o) => o.c.name);
+                return saveOther(shiftedPicks(otherPlays, otherHas(), fromId, dir, order), order);
               }}
               onClose={() => setLineupOpen(false)}
             />

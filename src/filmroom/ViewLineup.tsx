@@ -1,14 +1,14 @@
-// Lining a second camera view up with the plays ("Field" with "Main"): every clip of that view in order, the play
-// each one goes with, and its length. Clips that aren't plays are extras (kept for highlights, never counted as
-// plays), and the plays after them move up to the right clips; a clip can also be set as a play's (the plays after it follow).
-// Tapping a clip shows it next to the main view's clip of its play, to see they're the same snap.
+// Lining a second camera view up with the plays ("Field" with "Main"): a table with a row per play, its Main clip
+// fixed and the Field clip beside it, and every other Field file in a row of its own. Only Field moves: arrows move a
+// clip (and the clips after it) up or down a play, a clip with no play gets one, and a clip that isn't a play is marked
+// (kept for highlights; its play cell stays blank). Tapping a row shows both clips, to see they're the same snap.
 import React, { useEffect, useRef, useState, type MutableRefObject } from 'react';
-import { EyeOff, Eye, Play as PlayIcon, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, EyeOff, Eye, Play as PlayIcon, X } from 'lucide-react';
 import type { Play } from '../hudlScout/types/football';
 import type { FilmClip } from './types';
 import { useClipUrl } from './useGameFilm';
 import { playTitle } from './playText';
-import { unplacedClips } from './dualView';
+import { lineupRows, unplacedClips } from './dualView';
 
 type LocalFiles = MutableRefObject<Map<string, () => Promise<File>>>;
 
@@ -59,12 +59,12 @@ function useClipLengths(clips: FilmClip[], localFiles: LocalFiles) {
 const fmtLen = (s?: number) => (s === undefined ? '' : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`);
 
 export interface ViewLineupProps {
-  /** The view being lined up ("Field") and the main one ("Main"). */
+  /** The view being moved ("Field") and the one that stays put ("Main"). */
   view: string;
   mainView: string;
-  /** Every clip of this view in order, the hidden ones too. */
+  /** Every clip of this view in order, the marked ones too. */
   clips: FilmClip[];
-  /** Names of this view's extra clips (not plays, kept for highlights). */
+  /** Names of this view's clips marked Not a play (kept for highlights). */
   hidden: Set<string>;
   /** Clip name -> the play it goes with now. */
   playOf: Map<string, Play>;
@@ -76,33 +76,36 @@ export interface ViewLineupProps {
   startClip?: string;
   /** Watching only: no changes. */
   readOnly?: boolean;
-  onHide: (names: string[], hide: boolean) => void;
-  /** This clip is that play's (the plays after it follow). */
-  onPick: (playId: string, clipName: string) => void;
+  /** Mark clips Not a play, or take the mark off. Gives back an undo. */
+  onHide: (names: string[], hide: boolean) => () => void;
+  /** This clip is that play's (the plays after it follow). Gives back an undo. */
+  onPick: (playId: string, clipName: string) => () => void;
   /** Every clip from a play on, one play later (1) or earlier (-1). Gives back an undo. */
-  onShift?: (fromPlayId: string, dir: 1 | -1) => () => void;
+  onShift: (fromPlayId: string, dir: 1 | -1) => () => void;
   onClose: () => void;
 }
 
 export const ViewLineup: React.FC<ViewLineupProps> = ({
   view, mainView, clips, hidden, playOf, plays, mainClipOf, localFiles, startClip, readOnly, onHide, onPick, onShift, onClose,
 }) => {
-  // A camera one play off: move every clip from a play on (the play being compared, at first).
-  const [shiftFrom, setShiftFrom] = useState('');
-  const [undoShift, setUndoShift] = useState<{ undo: () => void; text: string } | null>(null);
   const lengthOf = useClipLengths(clips, localFiles);
   const [picked, setPicked] = useState<string | undefined>(startClip || clips.find((c) => !hidden.has(c.name))?.name);
+  // A play with no clip can be picked too, to see its Main clip.
+  const [pickedPlay, setPickedPlay] = useState<string | undefined>();
   const [shortSec, setShortSec] = useState(6);
-  // Clips with no play that nobody marked yet: listed on their own so none get lost in a long list.
+  const [undo, setUndo] = useState<{ undo: () => void; text: string } | null>(null);
+  const did = (u: () => void, text: string) => setUndo({ undo: u, text });
+
+  const clipOf = new Map<string, string | undefined>();
+  for (const [name, p] of playOf) clipOf.set(p.id, name);
+  const table = lineupRows(plays, clips, clipOf);
+  // Clips with no play that nobody marked yet: a coach still has to say what they are.
   const unplaced = unplacedClips(clips, hidden, playOf);
-  const unplacedNames = new Set(unplaced.map((c) => c.name));
   const [onlyUnplaced, setOnlyUnplaced] = useState(false);
   const onlyThese = onlyUnplaced && unplaced.length > 0;
-  const rows = clips
-    .map((c, i) => ({ c, n: i + 1 }))
-    .filter(({ c }) => !onlyThese || c.name === picked || unplacedNames.has(c.name));
+  const rows = onlyThese ? table.filter((r) => !r.play && r.clip && !hidden.has(r.clip.name)) : table;
   const clip = clips.find((c) => c.name === picked);
-  const play = clip ? playOf.get(clip.name) : undefined;
+  const play = clip ? playOf.get(clip.name) : plays.find((p) => p.id === pickedPlay);
   const mainClip = play ? mainClipOf(play) : undefined;
   const fieldUrl = useClipUrl(clip, localFiles);
   const mainUrl = useClipUrl(mainClip, localFiles);
@@ -115,21 +118,32 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
       void v.play().catch(() => undefined);
     }
   };
-  // Clips shown that are shorter than that (the camera bumped on between plays), to hide in one go.
+  // Clips shown that are shorter than that (the camera bumped on between plays), to mark in one go.
   const short = clips.filter((c) => !hidden.has(c.name) && (lengthOf(c) ?? Infinity) < shortSec).map((c) => c.name);
-  const linedUp = new Set([...playOf.values()].map((p) => p.id));
-  const noClip = plays.filter((p) => !linedUp.has(p.id));
-  // The row being compared stays in view.
+  const noClip = plays.filter((p) => !clipOf.has(p.id));
+  // The row being compared stays in view, also when a move takes it to another play.
   const listRef = useRef<HTMLDivElement>(null);
+  const pickedPlayNow = clip ? playOf.get(clip.name)?.id : pickedPlay;
   useEffect(() => {
     listRef.current?.querySelector('[data-picked="1"]')?.scrollIntoView({ block: 'nearest' });
-  }, [picked]);
-  // After hiding the clip being compared, compare the next one shown.
-  const hideAndNext = (name: string) => {
+  }, [picked, pickedPlay, pickedPlayNow]);
+  const pickRow = (r: { play?: Play; clip?: FilmClip }) => {
+    setPicked(r.clip?.name);
+    setPickedPlay(r.clip ? undefined : r.play?.id);
+  };
+  // After marking the clip being compared, compare the next one.
+  const markAndNext = (name: string) => {
     const at = clips.findIndex((c) => c.name === name);
     const next = clips.slice(at + 1).find((c) => !hidden.has(c.name));
-    onHide([name], true);
-    if (next) setPicked(next.name);
+    did(onHide([name], true), `${name} marked Not a play. The clips after it moved up one.`);
+    if (name === picked && next) setPicked(next.name);
+  };
+  const move = (k: number, up: boolean, name: string) => {
+    // Up: onto the play above (the clip there comes off its play). Down: this play is left empty.
+    const u = up ? onShift(plays[k - 1].id, -1) : onShift(plays[k].id, 1);
+    did(u, `${name} and every ${view} clip after it moved ${up ? 'up' : 'down'} one play.`);
+    setPicked(name);
+    setPickedPlay(undefined);
   };
 
   const video = (ref: React.RefObject<HTMLVideoElement | null>, state: { url?: string; loading: boolean; error?: string }, empty: string) => (
@@ -143,6 +157,7 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
       )}
     </div>
   );
+  const arrow = 'inline-flex items-center justify-center h-7 w-7 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-indigo-50 dark:hover:bg-indigo-500/15 disabled:opacity-30';
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/60 flex items-center justify-center p-2 sm:p-4" onClick={onClose}>
@@ -156,10 +171,10 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
           <div className="min-w-0">
             <h3 className="font-black text-slate-900 dark:text-slate-100">Line up {view} with {mainView}</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              {clips.length} {view} clips · {plays.length} plays (counted from {mainView}) · {hidden.size} extra{hidden.size === 1 ? '' : 's'}
+              {mainView} stays where it is. Tap a row, check the two videos are the same snap, and if not, move the {view} clip with ↑ ↓ (the clips after it move with it).
+              {' '}{plays.length} plays · {clips.length} {view} clips · {hidden.size} not a play
               {unplaced.length ? ` · ${unplaced.length} not lined up` : ''}
-              {noClip.length ? ` · ${noClip.length} play${noClip.length === 1 ? '' : 's'} without a ${view} clip` : ''}. Mark the clips that aren&apos;t plays as
-              extras: the plays after one move up to the right clips, and the extras stay here for highlights. Saved for every coach.
+              {noClip.length ? ` · ${noClip.length} play${noClip.length === 1 ? '' : 's'} without a ${view} clip` : ''}. Saved for every coach.
             </p>
           </div>
           <button type="button" onClick={onClose} className="ml-auto h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500" aria-label="Close">
@@ -167,47 +182,51 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
           </button>
         </div>
 
-        {/* The clip picked, next to the main view's clip of its play. */}
+        {/* The row picked: its two clips. */}
         <div className="px-4 pt-3 grid grid-cols-2 gap-2">
-          <div className="min-w-0">
-            <div className="text-[11px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1 truncate">
-              {view}
-              {clip ? ` · clip ${clips.indexOf(clip) + 1} · ${clip.name}` : ''}
-            </div>
-            {video(fieldRef, fieldUrl, 'Pick a clip below')}
-          </div>
           <div className="min-w-0">
             <div className="text-[11px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1 truncate">
               {mainView}
               {play ? ` · play #${play.playNumber}` : ''}
             </div>
-            {video(mainRef, mainUrl, play ? `No ${mainView} clip for play #${play.playNumber}` : `This ${view} clip isn't lined up with a play`)}
+            {video(mainRef, mainUrl, play ? `No ${mainView} clip for play #${play.playNumber}` : `This ${view} clip isn't on a play`)}
+          </div>
+          <div className="min-w-0">
+            <div className="text-[11px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1 truncate">
+              {view}
+              {clip ? ` · clip ${clips.indexOf(clip) + 1} · ${clip.name}` : ''}
+            </div>
+            {video(fieldRef, fieldUrl, `No ${view} clip on this play`)}
           </div>
         </div>
         <div className="px-4 pt-2 flex flex-wrap items-center gap-2 text-xs">
-          <button type="button" onClick={playBoth} disabled={!fieldUrl.url} className="inline-flex items-center gap-1 h-8 px-3 rounded-lg font-bold bg-indigo-600 text-white disabled:opacity-40">
+          <button type="button" onClick={playBoth} disabled={!fieldUrl.url && !mainUrl.url} className="inline-flex items-center gap-1 h-8 px-3 rounded-lg font-bold bg-indigo-600 text-white disabled:opacity-40">
             <PlayIcon size={13} /> Play both from the start
           </button>
-          {clip && !readOnly && (
-            hidden.has(clip.name) ? (
-              <button type="button" onClick={() => onHide([clip.name], false)} className="inline-flex items-center gap-1 h-8 px-3 rounded-lg font-bold border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200">
-                <Eye size={13} /> It&apos;s a play
-              </button>
-            ) : (
+          {undo && (
+            <span className="inline-flex items-center gap-1.5 min-w-0">
+              <span className="text-emerald-700 dark:text-emerald-300 font-semibold">{undo.text}</span>
               <button
                 type="button"
-                onClick={() => hideAndNext(clip.name)}
-                className="inline-flex items-center gap-1 h-8 px-3 rounded-lg font-bold bg-rose-600 text-white"
-                title="Not a play: an extra, kept for highlights (the plays after it move up one)"
+                className="underline font-bold text-slate-800 dark:text-slate-100"
+                onClick={() => {
+                  undo.undo();
+                  setUndo(null);
+                }}
               >
-                <EyeOff size={13} /> Not a play
+                Undo
               </button>
-            )
+            </span>
           )}
-          {clip && play && <span className="text-slate-600 dark:text-slate-300 truncate">Lined up with {playTitle(play)}</span>}
         </div>
 
-        <div className="px-4 pt-3 pb-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
+        <div className="px-4 pt-2 pb-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
+          {unplaced.length > 0 && (
+            <label className="inline-flex items-center gap-1.5 font-bold text-amber-700 dark:text-amber-300">
+              <input type="checkbox" checked={onlyUnplaced} onChange={(e) => setOnlyUnplaced(e.target.checked)} />
+              Only the {unplaced.length} not lined up
+            </label>
+          )}
           {!readOnly && (
             <span className="inline-flex items-center gap-1.5">
               Clips shorter than
@@ -224,167 +243,102 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
               <button
                 type="button"
                 disabled={!short.length}
-                onClick={() => onHide(short, true)}
+                onClick={() => did(onHide(short, true), `${short.length} short clip${short.length === 1 ? '' : 's'} marked Not a play.`)}
                 className="h-7 px-2 rounded-lg font-bold border border-slate-300 dark:border-slate-600 disabled:opacity-40"
               >
-                Make {short.length} extras
+                Mark {short.length} Not a play
               </button>
             </span>
           )}
-          {hidden.size > 0 && !readOnly && (
-            <button type="button" onClick={() => onHide([...hidden], false)} className="h-7 px-2 rounded-lg font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-100">
-              All plays again
-            </button>
-          )}
         </div>
-        {unplaced.length > 0 && (
-          <div className="mx-4 mt-1 mb-1 rounded-lg border border-amber-300 dark:border-amber-500/50 bg-amber-50 dark:bg-amber-500/10 px-2.5 py-1.5 text-xs" role="group" aria-label={`${view} clips not lined up`}>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <span className="font-bold text-amber-800 dark:text-amber-200">
-                {unplaced.length} {view} clip{unplaced.length === 1 ? '' : 's'} with no play, not marked yet
-              </span>
-              <label className="inline-flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
-                <input type="checkbox" checked={onlyUnplaced} onChange={(e) => setOnlyUnplaced(e.target.checked)} />
-                Only these
-              </label>
-            </div>
-            <div className="mt-1 flex gap-1 flex-wrap max-h-16 overflow-auto">
-              {unplaced.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => setPicked(c.name)}
-                  title={c.name}
-                  aria-pressed={c.name === picked}
-                  className={`h-7 px-2 rounded-lg font-bold tabular-nums border ${c.name === picked ? 'bg-amber-600 border-amber-600 text-white' : 'border-amber-400 text-amber-800 dark:text-amber-200'}`}
-                >
-                  Clip {clips.indexOf(c) + 1}
-                  {lengthOf(c) !== undefined ? ` · ${fmtLen(lengthOf(c))}` : ''}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        {onShift && !readOnly && plays.length > 0 && (() => {
-          const from = plays.find((p) => p.id === shiftFrom) || play || plays[0];
-          const shift = (dir: 1 | -1) => {
-            const undo = onShift(from.id, dir);
-            setUndoShift({ undo, text: `Every ${view} clip from play #${from.playNumber} moved one play ${dir > 0 ? 'later' : 'earlier'}.` });
-          };
-          return (
-            <div className="px-4 pb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600 dark:text-slate-300" role="group" aria-label={`Move every ${view} clip`}>
-              <span className="font-bold">{view} one play off?</span>
-              <span>Move every clip from</span>
-              <select
-                value={from.id}
-                onChange={(e) => setShiftFrom(e.target.value)}
-                aria-label="From play"
-                className="h-7 max-w-[10rem] rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-1 text-slate-800 dark:text-slate-100"
-              >
-                {plays.map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {playTitle(x)}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => shift(1)}
-                className="h-7 px-2 rounded-lg font-bold border border-slate-300 dark:border-slate-600"
-                title={`Play #${from.playNumber} gets no ${view} clip (the camera missed it); its clip and every one after go to the next play`}
-              >
-                ↓ One play later
-              </button>
-              <button
-                type="button"
-                onClick={() => shift(-1)}
-                className="h-7 px-2 rounded-lg font-bold border border-slate-300 dark:border-slate-600"
-                title={`Play #${from.playNumber} takes the next play's ${view} clip, and every play after moves up one (its clip now goes with no play)`}
-              >
-                ↑ One play earlier
-              </button>
-              {undoShift && (
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="text-emerald-700 dark:text-emerald-300 font-semibold">{undoShift.text}</span>
-                  <button
-                    type="button"
-                    className="underline font-bold"
-                    onClick={() => {
-                      undoShift.undo();
-                      setUndoShift(null);
-                    }}
-                  >
-                    Undo
-                  </button>
-                </span>
-              )}
-            </div>
-          );
-        })()}
 
         <div ref={listRef} className="flex-1 min-h-0 overflow-auto px-2 pb-3">
-          <table className="w-full text-xs">
-            <thead className="sticky top-0 bg-white dark:bg-slate-900">
+          <table className="w-full table-fixed sm:table-auto text-xs">
+            <thead className="sticky top-0 z-[1] bg-white dark:bg-slate-900">
               <tr className="text-left text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                <th className="py-1.5 px-2">#</th>
-                <th className="py-1.5 px-2">{view} clip</th>
-                <th className="py-1.5 px-2 text-right">Length</th>
-                <th className="py-1.5 px-2">Goes with</th>
+                <th className="w-9 sm:w-auto py-1.5 px-1 sm:px-2">Play</th>
+                <th className="w-[21%] sm:w-auto py-1.5 px-1 sm:px-2">{mainView}</th>
+                <th className="w-[21%] sm:w-auto py-1.5 px-1 sm:px-2">{view}</th>
+                <th className="hidden sm:table-cell py-1.5 px-2 text-right">Length</th>
                 <th className="py-1.5 px-2" />
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ c, n }) => {
-                const p = playOf.get(c.name);
-                const off = hidden.has(c.name);
-                const isPicked = c.name === picked;
+              {rows.map((r) => {
+                const c = r.clip;
+                const p = r.play;
+                const k = p ? plays.indexOf(p) : -1;
+                const off = Boolean(c && hidden.has(c.name));
+                const isPicked = c ? c.name === picked : Boolean(p && !picked && p.id === pickedPlay);
+                const main = p ? mainClipOf(p) : undefined;
                 return (
                   <tr
-                    key={c.id}
+                    key={`${p?.id || ''}|${c?.id || ''}`}
                     data-picked={isPicked ? '1' : undefined}
-                    onClick={() => setPicked(c.name)}
+                    onClick={() => pickRow(r)}
                     className={`cursor-pointer border-b border-slate-100 dark:border-slate-800 ${isPicked ? 'bg-indigo-50 dark:bg-indigo-500/15' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}
                   >
-                    <td className="py-1 px-2 tabular-nums text-slate-500">{n}</td>
-                    <td className="py-1 px-2 max-w-[6rem] sm:max-w-[10rem] truncate text-slate-800 dark:text-slate-100" title={c.name}>{c.name}</td>
-                    <td className="py-1 px-2 text-right tabular-nums text-slate-600 dark:text-slate-300">{fmtLen(lengthOf(c))}</td>
-                    <td className="py-1 px-2 min-w-0">
-                      {off ? null : readOnly ? (
-                        <span className="text-slate-700 dark:text-slate-200">{p ? `#${p.playNumber}` : 'Not lined up'}</span>
+                    <td className="py-1 px-1 sm:px-2 whitespace-nowrap max-w-[2.5rem] sm:max-w-[13rem] truncate font-bold text-slate-800 dark:text-slate-100" title={p ? playTitle(p) : undefined}>
+                      {p ? <>#{p.playNumber}<span className="hidden sm:inline font-normal text-slate-500 dark:text-slate-400"> {playTitle(p).replace(/^#\d+\s*·?\s*/, '')}</span></> : null}
+                    </td>
+                    <td className="py-1 px-1 sm:px-2 max-w-[3.75rem] sm:max-w-[10rem] truncate text-slate-600 dark:text-slate-300" title={main?.name}>
+                      {p ? main?.name || `No ${mainView} clip` : null}
+                    </td>
+                    <td className="py-1 px-1 sm:px-2 max-w-[3.75rem] sm:max-w-[11rem] truncate" title={c?.name}>
+                      {c ? (
+                        <span className="font-semibold text-slate-800 dark:text-slate-100">{c.name}</span>
                       ) : (
-                        <select
-                          value={p?.id || ''}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => e.target.value && onPick(e.target.value, c.name)}
-                          aria-label={`Play for ${c.name}`}
-                          className={`h-7 max-w-[8.5rem] sm:max-w-[16rem] rounded border px-1 bg-white dark:bg-slate-950 ${p ? 'border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-100' : 'border-amber-400 text-amber-700 dark:text-amber-300'}`}
-                        >
-                          {!p && <option value="">Not lined up: pick a play</option>}
-                          {plays.map((x) => (
-                            <option key={x.id} value={x.id}>
-                              {playTitle(x)}
-                            </option>
-                          ))}
-                        </select>
+                        <span className="text-slate-400 dark:text-slate-500">No {view} clip</span>
                       )}
                     </td>
+                    <td className="hidden sm:table-cell py-1 px-2 text-right tabular-nums text-slate-600 dark:text-slate-300">{c ? fmtLen(lengthOf(c)) : ''}</td>
                     <td className="py-1 px-1 sm:px-2 text-right whitespace-nowrap">
                       {!readOnly && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (off) onHide([c.name], false);
-                            else if (isPicked) hideAndNext(c.name);
-                            else onHide([c.name], true);
-                          }}
-                          className={`inline-flex items-center gap-1 h-7 px-2 rounded-lg font-bold ${off ? 'text-indigo-600 dark:text-indigo-300' : 'text-rose-600 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-500/10'}`}
-                          title={off ? 'It\'s a play: line it up again' : 'Not a play: an extra, kept for highlights (the plays after it move up one)'}
-                          aria-label={off ? `${c.name} is a play` : `${c.name} is not a play`}
-                        >
-                          {off ? <Eye size={13} /> : <EyeOff size={13} />}
-                          <span className="hidden sm:inline">{off ? 'A play' : 'Not a play'}</span>
-                        </button>
+                        <span className="inline-flex items-center justify-end gap-1">
+                          {/* A clip on a play moves with arrows; one on no play gets a play. */}
+                          {p && c && (
+                            <button type="button" className={arrow} disabled={k === 0} onClick={(e) => { e.stopPropagation(); move(k, true, c.name); }} aria-label={`Move ${c.name} up a play`} title={`Move this ${view} clip up to the play above, and every clip after it too`}>
+                              <ArrowUp size={14} />
+                            </button>
+                          )}
+                          {p && c && (
+                            <button type="button" className={arrow} onClick={(e) => { e.stopPropagation(); move(k, false, c.name); }} aria-label={`Move ${c.name} down a play`} title={`Move this ${view} clip down to the play below, and every clip after it too (this play is left empty)`}>
+                              <ArrowDown size={14} />
+                            </button>
+                          )}
+                          {!p && c && !off && (
+                            <select
+                              value=""
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => e.target.value && did(onPick(e.target.value, c.name), `${c.name} put on a play. The clips after it follow.`)}
+                              aria-label={`Play for ${c.name}`}
+                              className="h-7 max-w-[5.5rem] sm:max-w-[10rem] rounded border px-1 bg-white dark:bg-slate-950 border-amber-400 text-amber-700 dark:text-amber-300"
+                            >
+                              <option value="">Put on play…</option>
+                              {plays.map((x) => (
+                                <option key={x.id} value={x.id}>
+                                  {playTitle(x)}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                          {c && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (off) did(onHide([c.name], false), `${c.name} is a play again.`);
+                                else markAndNext(c.name);
+                              }}
+                              className={`inline-flex items-center gap-1 h-7 px-2 rounded-lg font-bold ${off ? 'text-indigo-600 dark:text-indigo-300' : 'text-rose-600 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-500/10'}`}
+                              title={off ? 'It\'s a play: line it up again' : 'Not a play: kept for highlights, and the clips after it move up one'}
+                              aria-label={off ? `${c.name} is a play` : `${c.name} is not a play`}
+                            >
+                              {off ? <Eye size={13} /> : <EyeOff size={13} />}
+                              <span className="hidden sm:inline">{off ? 'A play' : 'Not a play'}</span>
+                            </button>
+                          )}
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -392,12 +346,6 @@ export const ViewLineup: React.FC<ViewLineupProps> = ({
               })}
             </tbody>
           </table>
-          {noClip.length > 0 && (
-            <p className="px-2 pt-2 text-xs text-slate-500 dark:text-slate-400">
-              No {view} clip: {noClip.slice(0, 40).map((p) => `#${p.playNumber}`).join(', ')}
-              {noClip.length > 40 ? '…' : ''}
-            </p>
-          )}
         </div>
       </div>
     </div>

@@ -39,6 +39,100 @@ export function hiddenNames(clips: FilmClip[], removed: FilmGameShared['removedC
   return out;
 }
 
+/**
+ * A clip set as a play's, and the plays after it taking the clips after it. A play with no clip stays empty when
+ * clips still come after it; plays past the last clip fill in if there are clips left for them.
+ */
+export function placedPicks(plays: { id: string }[], clipOf: Map<string, string | undefined>, fromId: string, clipName: string, order: string[]): Record<string, string> {
+  const at = plays.findIndex((p) => p.id === fromId);
+  let pos = order.indexOf(clipName);
+  const out: Record<string, string> = {};
+  if (at < 0 || pos < 0) return out;
+  let last = -1;
+  plays.forEach((p, k) => {
+    if (clipOf.get(p.id)) last = k;
+  });
+  for (let k = at; k < plays.length; k++) {
+    if (k > at && k < last && !clipOf.get(plays[k].id)) out[plays[k].id] = NO_CLIP;
+    else out[plays[k].id] = order[pos++] ?? NO_CLIP;
+  }
+  return out;
+}
+
+/**
+ * Clips marked as not plays: each one's play takes the next clip and the plays after move up one, the way they do when
+ * nothing was moved by hand. Gives the picks to save and the clips still lined up.
+ */
+export function hiddenPicks(plays: { id: string }[], clipOf: Map<string, string | undefined>, names: string[], order: string[]) {
+  const has = new Map(clipOf);
+  let live = [...order];
+  const next: Record<string, string> = {};
+  for (const name of names) {
+    const p = plays.find((x) => has.get(x.id) === name);
+    if (p) {
+      for (const [id, clip] of Object.entries(shiftedPicks(plays, has, p.id, -1, live))) {
+        next[id] = clip;
+        has.set(id, clip === NO_CLIP ? undefined : clip);
+      }
+    }
+    live = live.filter((n) => n !== name);
+  }
+  return { next, order: live };
+}
+
+/**
+ * The picks a move really needs: only a clip that doesn't simply follow the one before, and a gap. The rest are cleared,
+ * so a later fix still carries on down the game (a pick on every play would pin each one where it is). '' clears a pick.
+ */
+export function compactPicks(plays: { id: string }[], clipOf: Map<string, string | undefined>, next: Record<string, string>, order: string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  const first = plays.findIndex((p) => p.id in next);
+  if (first < 0) return out;
+  let pos = 0;
+  plays.forEach((p, k) => {
+    const want = next[p.id] ?? clipOf.get(p.id) ?? NO_CLIP;
+    const save = (clip: string) => {
+      if (k >= first) out[p.id] = clip;
+    };
+    if (want === NO_CLIP) {
+      save(pos >= order.length ? '' : NO_CLIP);
+      return;
+    }
+    const at = order.indexOf(want);
+    if (at < 0) {
+      save(want);
+      return;
+    }
+    save(at === pos ? '' : want);
+    pos = at + 1;
+  });
+  return out;
+}
+
+/**
+ * The line-up table: a row per play in order (its clip beside it, or empty), with each clip that goes with no play in a
+ * row of its own where it falls between them, so every file of the view shows.
+ */
+export function lineupRows<P extends { id: string }, C extends { name: string }>(plays: P[], clips: C[], clipOf: Map<string, string | undefined>): { play?: P; clip?: C }[] {
+  const pos = new Map(clips.map((c, i) => [c.name, i]));
+  const used = new Set<number>();
+  const rows: { play?: P; clip?: C }[] = [];
+  let upTo = 0;
+  for (const p of plays) {
+    const name = clipOf.get(p.id);
+    const at = name === undefined ? undefined : pos.get(name);
+    if (at !== undefined) {
+      used.add(at);
+      for (; upTo < at; upTo++) if (!used.has(upTo) && ![...clipOf.values()].includes(clips[upTo].name)) rows.push({ clip: clips[upTo] });
+    }
+    rows.push({ play: p, clip: at === undefined ? undefined : clips[at] });
+  }
+  clips.forEach((c, i) => {
+    if (i >= upTo && !used.has(i) && ![...clipOf.values()].includes(c.name)) rows.push({ clip: c });
+  });
+  return rows;
+}
+
 /** A view's clips that go with no play and nobody marked "Not a play": a coach still has to say what they are. */
 export function unplacedClips<C extends { name: string }>(clips: C[], hidden: Set<string>, playOf: { has: (name: string) => boolean }): C[] {
   return clips.filter((c) => !hidden.has(c.name) && !playOf.has(c.name));

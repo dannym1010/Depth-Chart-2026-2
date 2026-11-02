@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  clearOffset, countViewIndex, hiddenNames, shiftedPicks, unplacedClips, liveViewClips, otherViewIndex, picksForView, pickKey, removedKey, savedOffset, snapOffset, syncTarget, withOffset,
+  clearOffset, compactPicks, countViewIndex, hiddenNames, hiddenPicks, lineupRows, placedPicks, shiftedPicks, unplacedClips, liveViewClips, otherViewIndex, picksForView, pickKey, removedKey, savedOffset, snapOffset, syncTarget, withOffset,
 } from './dualView.ts';
 import { matchClipsToPlays, NO_CLIP } from './clipMatching.ts';
 import { mergeShared } from './sharedMerge.ts';
@@ -139,6 +139,55 @@ describe('two camera views', () => {
     assert.equal(now(gap), 'F1 F2 - F3 F4');
     assert.equal(now({ ...gap, ...asPicks(shiftedPicks(five, clipOf(gap), 'p1', 1)) }), '- F1 F2 - F3');
     assert.deepEqual(shiftedPicks(five, clipOf(), 'nope', 1), {});
+  });
+
+  it('moves Field and a later fix still carries down the game', () => {
+    const five = [1, 2, 3, 4, 5].map((n) => ({ id: 'p' + n, playNumber: n }));
+    let live = ['F1', 'F2', 'F3', 'F4', 'F5', 'F6'];
+    let picks: Record<string, { clip: string }> = {};
+    const has = () => {
+      const c = live.map(clip);
+      const m = matchClipsToPlays(c, five, picks);
+      return new Map(five.map((p) => [p.id, m.has(p.id) ? c[m.get(p.id)!].name : undefined]));
+    };
+    const show = () => five.map((p) => has().get(p.id) || '-').join(' ');
+    const save = (next: Record<string, string>) => {
+      const out = compactPicks(five, has(), next, live);
+      picks = { ...picks, ...Object.fromEntries(Object.entries(out).map(([k, c]) => [k, { clip: c }])) };
+    };
+    assert.equal(show(), 'F1 F2 F3 F4 F5');
+    // F2 down a play: play 2 is empty. No pins past it.
+    save(shiftedPicks(five, has(), 'p2', 1, live));
+    assert.equal(show(), 'F1 - F2 F3 F4');
+    assert.deepEqual(Object.values(picks).filter((p) => p.clip).map((p) => p.clip), [NO_CLIP]);
+    // Up again closes the gap.
+    save(shiftedPicks(five, has(), 'p2', -1, live));
+    assert.equal(show(), 'F1 F2 F3 F4 F5');
+    // A clip put on a play: the plays after follow, and so does the next fix.
+    save(placedPicks(five, has(), 'p2', 'F3', live));
+    assert.equal(show(), 'F1 F3 F4 F5 F6');
+    const hid = hiddenPicks(five, has(), ['F4'], live);
+    save(hid.next);
+    live = hid.order;
+    picks = { ...picks };
+    assert.equal(show(), 'F1 F3 F5 F6 -');
+  });
+
+  it('marking a clip after a hand-made line-up moves the plays after it up', () => {
+    const three = [1, 2, 3].map((n) => ({ id: 'p' + n, playNumber: n }));
+    const has = new Map([['p1', 'A'], ['p2', 'B'], ['p3', 'C']]);
+    const { next, order } = hiddenPicks(three, has, ['B'], ['A', 'B', 'C', 'D']);
+    assert.deepEqual(next, { p2: 'C', p3: 'D' });
+    assert.deepEqual(order, ['A', 'C', 'D']);
+    // A clip with no play moves nothing.
+    assert.deepEqual(hiddenPicks(three, has, ['D'], ['A', 'B', 'C', 'D']).next, {});
+  });
+
+  it('puts every file in the table, plays down the side', () => {
+    const three = [1, 2, 3].map((n) => ({ id: 'p' + n, playNumber: n }));
+    const files = ['A', 'x', 'B', 'y', 'z'].map(clip);
+    const rows = lineupRows(three, files, new Map([['p1', 'A'], ['p2', undefined], ['p3', 'B']]));
+    assert.deepEqual(rows.map((r) => [r.play?.id || '', r.clip?.name || '']), [['p1', 'A'], ['p2', ''], ['', 'x'], ['p3', 'B'], ['', 'y'], ['', 'z']]);
   });
 
   it('lists the clips with no play that nobody marked', () => {
