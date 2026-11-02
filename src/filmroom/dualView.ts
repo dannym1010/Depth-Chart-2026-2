@@ -24,11 +24,24 @@ export function picksForView(picks: Picks | undefined, view: string, multi: bool
 /** Where a line-up pick is saved: per view when the game has more than one. */
 export const pickKey = (playId: string, view: string, multi: boolean) => (multi ? viewKey(playId, view) : playId);
 
-/** A view's clips without the ones a coach took out (in that view, or by name before the game had views). */
+/**
+ * Names of a view's clips a coach took out (hid as not plays): in that view, or by name before the game had views. A
+ * view's own entry wins over the older one by name (shown again in this view only).
+ */
+export function hiddenNames(clips: FilmClip[], removed: FilmGameShared['removedClips'], view: string, multi: boolean): Set<string> {
+  const out = new Set<string>();
+  if (!removed) return out;
+  for (const c of clips) {
+    const own = multi ? removed[`${view}/${c.name}`] : undefined;
+    if (own ? own.removed : removed[c.name]?.removed) out.add(c.name);
+  }
+  return out;
+}
+
+/** A view's clips without the ones a coach took out. */
 export function liveViewClips(clips: FilmClip[], removed: FilmGameShared['removedClips'], view: string, multi: boolean): FilmClip[] {
-  const gone = new Set(Object.entries(removed || {}).filter(([, r]) => r?.removed).map(([n]) => n));
-  if (!gone.size) return clips;
-  return clips.filter((c) => !gone.has(c.name) && !(multi && gone.has(`${view}/${c.name}`)));
+  const gone = hiddenNames(clips, removed, view, multi);
+  return gone.size ? clips.filter((c) => !gone.has(c.name)) : clips;
 }
 
 /** The name a clip is taken out under: per view when the game has more than one. */

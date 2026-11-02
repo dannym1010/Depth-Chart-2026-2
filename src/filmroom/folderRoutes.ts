@@ -128,8 +128,8 @@ export interface FolderNode extends FolderLike {
   picked?: File[];
 }
 
-/** Camera-view folder names ("Sideline", "End Zone", "Wide", "Tight", "All-22", ...). */
-const VIEW_NAME = /side\s*line|sideline|end\s*zone|endzone|\bez\b|\bsl\b|\bwide\b|\btight\b|all.?22|press\s*box|\bhigh\b|\blow\b|drone|sky|\bangle|\bview|\bcam(era)?\b|\bcoach/i;
+/** Camera-view folder names ("Main", "Field", "Sideline", "End Zone", "Wide", "Tight", "All-22", ...). */
+const VIEW_NAME = /^\s*(main|field)\b|side\s*line|sideline|end\s*zone|endzone|\bez\b|\bsl\b|\bwide\b|\btight\b|all.?22|press\s*box|\bhigh\b|\blow\b|drone|sky|\bangle|\bview|\bcam(era)?\b|\bcoach/i;
 export const isViewName = (name: string) => VIEW_NAME.test(String(name || ''));
 
 /** Dates in a name, the same whichever way they're written: "9/14", "09-14", "2025-09-14", "9.14" -> "9-14". */
@@ -292,8 +292,9 @@ export async function gameViews(node: FolderNode): Promise<FolderNode[]> {
   for (const d of dirs) {
     if ((await d.open()).videos) withClips.push(d);
   }
-  // Sideline first (the usual main view), then the rest in name order.
-  withClips.sort((a, b) => Number(/side/i.test(b.name)) - Number(/side/i.test(a.name)) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+  // "Main" first (the main feed), then Sideline (the usual main view), then the rest in name order.
+  const rank = (n: string) => (/^\s*main\b/i.test(n) ? 2 : /side/i.test(n) ? 1 : 0);
+  withClips.sort((a, b) => rank(b.name) - rank(a.name) || a.name.localeCompare(b.name, undefined, { numeric: true }));
   return videos ? [node, ...withClips] : withClips;
 }
 

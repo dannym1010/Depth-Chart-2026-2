@@ -125,12 +125,12 @@ export function useGameFilm(opts: {
     []
   );
 
-  /** Watch another camera view of the same game (remembered on this device). */
-  const setView = useCallback((i: number) => {
+  /** Watch another camera view of the same game (remembered on this device, unless just swapping two views). */
+  const setView = useCallback((i: number, remember = true) => {
     setFilm((f) => {
       if (f.status !== 'ready' || !f.views[i]) return f;
       try {
-        localStorage.setItem(VIEW_KEY, f.views[i]);
+        if (remember) localStorage.setItem(VIEW_KEY, f.views[i]);
       } catch {
         /* ignore */
       }

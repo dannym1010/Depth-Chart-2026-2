@@ -25,6 +25,8 @@ export interface FilmClip {
   id: string;
   name: string;
   sizeBytes?: number;
+  /** How long it runs (seconds), when the listing says (Google Drive does). */
+  durationSec?: number;
 }
 
 /** A coach's note on a play, at a moment in its clip. */

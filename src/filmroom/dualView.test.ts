@@ -1,11 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  clearOffset, liveViewClips, otherViewIndex, picksForView, pickKey, removedKey, savedOffset, snapOffset, syncTarget, withOffset,
+  clearOffset, hiddenNames, liveViewClips, otherViewIndex, picksForView, pickKey, removedKey, savedOffset, snapOffset, syncTarget, withOffset,
 } from './dualView.ts';
 import { matchClipsToPlays, NO_CLIP } from './clipMatching.ts';
 import { mergeShared } from './sharedMerge.ts';
 import { refineSnap } from './snapFinder.ts';
+import { gameViews } from './folderRoutes.ts';
 
 const clip = (name: string) => ({ kind: 'local' as const, id: name, name });
 const plays = [1, 2, 3, 4].map((n) => ({ id: `p${n}`, playNumber: n }));
@@ -81,5 +82,23 @@ describe('two camera views', () => {
     assert.equal(refineSnap(change, 10, 4).toFixed(2), '4.65');
     // No clear rise: nothing.
     assert.equal(refineSnap([0, 1, 1.2, 0.9, 1.1, 1, 1.2, 1, 0.9, 1.1], 10, 4), undefined);
+  });
+
+  it('hides Field clips that are not plays (the plays after one move up), and shows one again in that view only', () => {
+    const field = ['F1', 'F1b', 'F2', 'F3'].map(clip);
+    const removed = { 'Field/F1b': { removed: true, editedAt: 2 } };
+    const live = liveViewClips(field, removed, 'Field', true);
+    const m = matchClipsToPlays(live, plays.slice(0, 3), undefined);
+    assert.deepEqual(['p1', 'p2', 'p3'].map((id) => live[m.get(id)!].name), ['F1', 'F2', 'F3']);
+    // Hidden before the game had views (by name), shown again in Field only.
+    const both = { F1b: { removed: true, editedAt: 1 }, 'Field/F1b': { removed: false, editedAt: 3 } };
+    assert.equal(hiddenNames(field, both, 'Field', true).size, 0);
+    assert.deepEqual([...hiddenNames(field, both, 'Main', true)], ['F1b']);
+  });
+
+  it('puts Main first, then the other views', async () => {
+    const node = (name: string, kids: any[] = [], videos = 0): any => ({ name, open: async () => ({ dirs: kids, videos }) });
+    const game = node('Week 3 - Shrub Oak', [node('Field', [], 80), node('Main', [], 68)]);
+    assert.deepEqual((await gameViews(game)).map((v: any) => v.name), ['Main', 'Field']);
   });
 });

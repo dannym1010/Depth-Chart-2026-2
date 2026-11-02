@@ -4438,6 +4438,7 @@ describe('film room: several scouting games in a week, and camera views', () => 
     assert.deepEqual(dateKeys('2025-09-14 Carmel'), ['9-14']);
     assert.ok(isViewName('End Zone') && isViewName('Sideline') && isViewName('EZ') && isViewName('Wide angle'));
     assert.ok(!isViewName('vs Carmel') && !isViewName('Game A'));
+    assert.ok(isViewName('Main') && isViewName('Field') && isViewName('main') && !isViewName('Fieldston') && !isViewName('Mainland'));
   });
   it('a game\'s views: Sideline first, then End Zone; loose clips next to a view folder are the main film', async () => {
     const { gameViews, resolveGameFolder } = await import('../filmroom/folderRoutes.ts');

@@ -432,7 +432,7 @@ export async function listNodeClips(node: FolderNode, viewKey: string): Promise<
   let clips: FilmClip[] = [];
   if (node.driveId) {
     const kids = await listChildren(node.driveId);
-    clips = kids.filter((k) => isVideoName(k.name, k.mimeType)).map((k) => ({ kind: 'drive' as const, id: k.id, name: k.name, sizeBytes: Number(k.size) || undefined }));
+    clips = kids.filter((k) => isVideoName(k.name, k.mimeType)).map((k) => ({ kind: 'drive' as const, id: k.id, name: k.name, sizeBytes: Number(k.size) || undefined, ...driveDuration(k) }));
   } else if (node.handle) {
     for await (const [name, entry] of node.handle.entries()) {
       if (entry.kind !== 'file' || !isVideoName(name)) continue;
@@ -451,6 +451,12 @@ export async function listNodeClips(node: FolderNode, viewKey: string): Promise<
   clips.sort((a, b) => naturalCompare(a.name, b.name));
   return { clips, files };
 }
+
+/** A Drive video's length, from its listing (Drive works it out after the upload; missing until then). */
+const driveDuration = (f: { videoMediaMetadata?: { durationMillis?: string } }) => {
+  const ms = Number(f.videoMediaMetadata?.durationMillis);
+  return ms > 0 ? { durationSec: ms / 1000 } : {};
+};
 
 /** A Drive folder the film-folder finder can look inside. */
 export function driveFolderNode(folderId: string, name: string): FolderNode {
@@ -494,13 +500,13 @@ export function localFolderNode(handle: DirHandle): FolderNode {
   };
 }
 
-async function listChildren(folderId: string): Promise<{ id: string; name: string; mimeType: string; size?: string }[]> {
+async function listChildren(folderId: string): Promise<{ id: string; name: string; mimeType: string; size?: string; videoMediaMetadata?: { durationMillis?: string } }[]> {
   const out: any[] = [];
   let pageToken = '';
   do {
     const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
     const res = await driveFetch(
-      `${API}?q=${q}&fields=nextPageToken,files(id,name,mimeType,size)&pageSize=1000&${ALL_DRIVES}${pageToken ? `&pageToken=${pageToken}` : ''}`
+      `${API}?q=${q}&fields=nextPageToken,files(id,name,mimeType,size,videoMediaMetadata(durationMillis))&pageSize=1000&${ALL_DRIVES}${pageToken ? `&pageToken=${pageToken}` : ''}`
     );
     const data = await res.json();
     out.push(...(data.files || []));
@@ -561,7 +567,7 @@ export async function countDriveVideos(folderId: string): Promise<number> {
 /** The video clips in a Drive folder (or, when it has none, in the folders right inside it). */
 export async function listDriveClips(folderId: string): Promise<FilmClip[]> {
   const children = await listChildren(folderId);
-  const toClip = (f: any, prefix = ''): FilmClip => ({ kind: 'drive', id: f.id, name: prefix + f.name, sizeBytes: Number(f.size) || undefined });
+  const toClip = (f: any, prefix = ''): FilmClip => ({ kind: 'drive', id: f.id, name: prefix + f.name, sizeBytes: Number(f.size) || undefined, ...driveDuration(f) });
   let clips = children.filter((f) => isVideoName(f.name, f.mimeType)).map((f) => toClip(f));
   if (!clips.length) {
     for (const sub of children.filter((f) => f.mimeType === 'application/vnd.google-apps.folder')) {

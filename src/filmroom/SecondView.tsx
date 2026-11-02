@@ -4,7 +4,7 @@
 // one waits too, so the two stay together on a slow connection. Its own bar: line its clip up with the play, nudge
 // the sync, swap it with the main view, change the layout.
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeftRight, Columns2, PictureInPicture2, Rows2, X } from 'lucide-react';
+import { ArrowLeftRight, Columns2, EyeOff, ListChecks, PictureInPicture2, Rows2, X } from 'lucide-react';
 import { fmtOffset, syncTarget } from './dualView';
 
 export type DualLayout = 'side' | 'stack' | 'corner';
@@ -40,12 +40,16 @@ export interface SecondViewProps {
   lineup?: { at: string; canPrev: boolean; canNext: boolean; onStep: (d: number) => void; none: boolean; onNone: () => void; picked: boolean; onUndo: () => void };
   /** With three or more views: which one shows here. */
   choices?: { names: string[]; value: number; onPick: (i: number) => void };
+  /** The clip shown isn't a play (the camera ran between plays): hide it, the plays after it move up one. */
+  onNotAPlay?: () => void;
+  /** Every clip of this view and the play each goes with, to line them up. */
+  onLineup?: () => void;
   /** Tallest the video may be (CSS length), one above the other. */
   maxHeight?: string;
 }
 
 export const SecondView: React.FC<SecondViewProps> = ({
-  layout, onLayout, label, src, loading, error, missing, getMain, offset, syncNote, onNudge, onResetSync, onSwap, onClose, lineup, choices, maxHeight,
+  layout, onLayout, label, src, loading, error, missing, getMain, offset, syncNote, onNudge, onResetSync, onSwap, onClose, lineup, choices, maxHeight, onNotAPlay, onLineup,
 }) => {
   const ref = useRef<HTMLVideoElement>(null);
   const offsetRef = useRef(offset);
@@ -162,6 +166,11 @@ export const SecondView: React.FC<SecondViewProps> = ({
         <div className="flex items-center gap-0.5 px-1.5 py-0.5 bg-black/80">
           <span className="min-w-0 flex-1 flex">{nameEl}</span>
           <span className="hidden sm:inline text-[10px] tabular-nums whitespace-nowrap ml-1" style={{ color: DIM }}>{fmtOffset(offset)}</span>
+          {onNotAPlay && (
+            <button type="button" onClick={onNotAPlay} className={btn} title={`Not a play: hide this ${label} clip (the plays after it move up one)`} aria-label={`Not a play: hide this ${label} clip`}>
+              <EyeOff size={13} />
+            </button>
+          )}
           <button type="button" onClick={onSwap} className={btn} title={`Make ${label} the big view`} aria-label={`Make ${label} the big view`}>
             <ArrowLeftRight size={13} />
           </button>
@@ -216,6 +225,16 @@ export const SecondView: React.FC<SecondViewProps> = ({
                 </button>
               )}
             </span>
+          )}
+          {onNotAPlay && (
+            <button type="button" onClick={onNotAPlay} className={`${btn} text-rose-300`} title={`The camera ran between plays: hide this ${label} clip, the plays after it move up one`}>
+              <EyeOff size={13} /> Not a play
+            </button>
+          )}
+          {onLineup && (
+            <button type="button" onClick={onLineup} className={btn} title={`Every ${label} clip and the play it goes with`}>
+              <ListChecks size={13} /> Line up
+            </button>
           )}
           <span className="inline-flex items-center gap-0.5 ml-1" role="group" aria-label={`Sync the ${label} view`}>
             <span className="text-[11px]" style={{ color: DIM }} title={`${label} is ${fmtOffset(offset)} from the main view on this play`}>

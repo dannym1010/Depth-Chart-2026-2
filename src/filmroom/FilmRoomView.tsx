@@ -32,7 +32,8 @@ import { peekPlayBuilderSeed, savePlayBuilderSeed, type PlayBuilderSeed } from '
 import { PlayBuilderSection } from '../components/playbook/PlayBuilderSection';
 import { FilmPlayer, type PlayerApi } from './FilmPlayer';
 import { SecondView, type DualLayout } from './SecondView';
-import { clearOffset, liveViewClips, otherViewIndex, picksForView, pickKey as viewPickKey, removedKey, savedOffset, snapOffset, withOffset } from './dualView';
+import { clearOffset, hiddenNames, liveViewClips, otherViewIndex, picksForView, pickKey as viewPickKey, removedKey, savedOffset, snapOffset, withOffset } from './dualView';
+import { ViewLineup } from './ViewLineup';
 import { probeSnap } from './snapProbe';
 import { usePlayLines, type VideoLines } from './PlayLinesOverlay';
 import { LinkFilmDialog } from './LinkFilmDialog';
@@ -760,7 +761,22 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     [film, otherIdx, otherView, shared.removedClips]
   );
   const otherPicks = useMemo(() => picksForView(shared.clipPicks, otherView, true), [shared.clipPicks, otherView]);
-  const otherFor = useMemo(() => (dual ? matchClipsToPlays(otherClips, plays, otherPicks) : new Map<string, number>()), [dual, otherClips, plays, otherPicks]);
+  // Lining the second view's clips up with the plays (every clip, the play each goes with; hide the ones that aren't plays).
+  const [lineupOpen, setLineupOpen] = useState(false);
+  const otherFor = useMemo(
+    () => (dual || lineupOpen ? matchClipsToPlays(otherClips, plays, otherPicks) : new Map<string, number>()),
+    [dual, lineupOpen, otherClips, plays, otherPicks]
+  );
+  const otherAll = useMemo(() => (film.status === 'ready' && otherIdx >= 0 ? film.lists[otherIdx] || [] : []), [film, otherIdx]);
+  const otherHidden = useMemo(() => hiddenNames(otherAll, shared.removedClips, otherView, true), [otherAll, shared.removedClips, otherView]);
+  /** Hide clips of the second view as not plays (the plays after one move up a clip), or show them again. */
+  const hideOther = (names: string[], hide: boolean) => {
+    const now = Date.now();
+    update((st) => ({
+      ...st,
+      removedClips: { ...(st.removedClips || {}), ...Object.fromEntries(names.map((n) => [removedKey(n, otherView, true), { removed: hide, editedAt: now }])) },
+    }));
+  };
   const otherClipOf = (p?: Play) => (p && otherFor.has(p.id) ? otherClips[otherFor.get(p.id)!] : undefined);
   const otherClip = otherClipOf(play);
   const otherUrl = useClipUrl(dual ? otherClip : undefined, localFiles, dual ? otherClipOf(next) : undefined);
@@ -794,7 +810,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     if (otherIdx < 0 || film.status !== 'ready') return;
     resumeAt.current = Math.max(0, (apiRef.current?.time() || 0) + dualOffset);
     setOtherWanted(mainView);
-    setView(otherIdx);
+    setView(otherIdx, false);
   };
 
   const apiRef = useRef<PlayerApi | null>(null);
@@ -843,10 +859,20 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         getMain={() => apiRef.current?.video?.() || null}
         offset={dualOffset}
         syncNote={syncNote}
-        onNudge={locked ? undefined : (d) => update((s) => ({ ...s, viewShift: withOffset(s.viewShift, play.id, mainView, otherView, dualOffset + d) }))}
+        onNudge={
+          locked
+            ? undefined
+            : (d) =>
+                update((s) => ({
+                  ...s,
+                  viewShift: withOffset(s.viewShift, play.id, mainView, otherView, (savedOffset(s.viewShift, play.id, mainView, otherView) ?? dualOffset) + d),
+                }))
+        }
         onResetSync={!locked && coachOffset !== undefined ? () => update((s) => ({ ...s, viewShift: clearOffset(s.viewShift, play.id, otherView) })) : undefined}
         onSwap={swapViews}
         onClose={() => toggleBoth(false)}
+        onNotAPlay={!locked && otherClip ? () => hideOther([otherClip.name], true) : undefined}
+        onLineup={() => setLineupOpen(true)}
         lineup={
           locked
             ? undefined
@@ -1895,6 +1921,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                         {film.status === 'ready' && play && clipFor.has(play.id) &&
                           item(<><Trash2 size={14} /> Remove this play&apos;s video</>, () => removeClipOf(play), "Leave this video out of the game: the plays after it move up one (the file isn't deleted)")}
                         {removedCount > 0 && item(<><RotateCcw size={14} /> Bring back removed videos ({removedCount})</>, restoreClips)}
+                        {film.status === 'ready' && otherIdx >= 0 &&
+                          item(<><Columns2 size={14} /> Line up {otherView} with {mainView}</>, () => setLineupOpen(true), `Every ${otherView} clip and the play it goes with: hide the ones that aren't plays`)}
                         {lostNames.length > 0 &&
                           item(
                             <><RotateCcw size={14} /> Bring back play names ({lostNames.length})</>,
@@ -2062,6 +2090,34 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           startAt={resumeAt.current}
           autoNextDefault={listPlay ? true : !game?.fromFilm}
         />
+        {lineupOpen && film.status === 'ready' && otherIdx >= 0 && (() => {
+          const byId = new Map(plays.map((p) => [p.id, p]));
+          const playOf = new Map<string, Play>();
+          for (const [id, i] of otherFor) {
+            const p = byId.get(id);
+            if (p && otherClips[i]) playOf.set(otherClips[i].name, p);
+          }
+          return (
+            <ViewLineup
+              view={otherView}
+              mainView={mainView}
+              clips={otherAll}
+              hidden={otherHidden}
+              playOf={playOf}
+              plays={[...plays].sort((a, b) => (Number(a.playNumber) || 0) - (Number(b.playNumber) || 0))}
+              mainClipOf={(p) => clipOf(p)}
+              localFiles={localFiles}
+              startClip={otherClip?.name}
+              readOnly={locked}
+              onHide={hideOther}
+              onPick={(id, name) => {
+                if (otherHidden.has(name)) hideOther([name], false);
+                pickClip(id, name, otherView);
+              }}
+              onClose={() => setLineupOpen(false)}
+            />
+          );
+        })()}
         {(() => {
           // One above the other: no taller than the main video.
           const second = secondView(isDesktop ? `${clampVideoH(videoH)}px` : '40dvh');
