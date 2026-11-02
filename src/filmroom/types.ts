@@ -80,6 +80,11 @@ export interface FilmGameShared {
   clipPicks?: Record<string, { clip: string; editedAt: number }>;
   /** Clips taken out of this game (by file name): the plays after one take the clips after it. The files stay. */
   removedClips?: Record<string, { removed: boolean; editedAt: number }>;
+  /**
+   * Two camera views in step: "play@view" -> that view's clip time at a moment both show (seconds; only the difference
+   * between two views counts). Set by a coach nudging a view; `auto` = cleared (the snap lines them up again).
+   */
+  viewShift?: Record<string, { t: number; auto?: boolean; editedAt: number }>;
 }
 
 export const emptyShared = (): FilmGameShared => ({ notes: [], deletedNotes: {}, drawings: {} });

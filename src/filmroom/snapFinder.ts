@@ -170,3 +170,22 @@ export function pictureTimes(guess: SnapGuess | null, duration: number, count = 
     { t: clamp(s + span), label: 'Whistle / Ball Spot' },
   ];
 }
+
+/**
+ * The snap to a tenth of a second: `change` is how much the players moved between close-together samples (`fps` a
+ * second, the first at `t0`) around a first guess. The snap is where they go from standing set to moving: the first
+ * of two samples in a row that are a good part of the way from the still level up to the busiest one. Undefined when
+ * there's no clear rise in the window.
+ */
+export function refineSnap(change: number[], fps: number, t0: number): number | undefined {
+  const n = change.length;
+  if (n < 8) return undefined;
+  const still = mean(change.slice(1, 4));
+  const peak = Math.max(...change.slice(Math.floor(n / 3)));
+  if (peak - still < Math.max(0.5, still)) return undefined;
+  const rise = still + 0.3 * (peak - still);
+  for (let i = 2; i + 1 < n; i++) {
+    if (change[i] >= rise && change[i + 1] >= rise) return t0 + (i - 0.5) / fps;
+  }
+  return undefined;
+}

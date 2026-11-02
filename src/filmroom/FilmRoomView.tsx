@@ -3,7 +3,7 @@
 // whole staff sees. The play log under the video is Hudl Scout's own: sorting it sets the play order, and
 // tags changed here are the same tags Hudl Scout shows.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Copy, ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft, Star, ListVideo, X, MoreHorizontal, Trash2, RotateCcw, Tv, Users, History } from 'lucide-react';
+import { Columns2, Copy, ExternalLink, FileUp, Film, GripHorizontal, Library as LibraryIcon, Link2, MessageSquare, RefreshCw, Unlink, ArrowLeft, Star, ListVideo, X, MoreHorizontal, Trash2, RotateCcw, Tv, Users, History } from 'lucide-react';
 import { openScoutVersions } from '../components/ScoutSafetyNet';
 import { markGamesDeleted } from '../utils/gameTombstones';
 import { PlaysTable } from '../hudlScout/components/PlaysTable';
@@ -18,7 +18,7 @@ import type { PlayBuilderState, PlayDatabaseEntry } from '../types/callSheet';
 import { filmLineup, setPlayBallPlayer, setPlayDefPlay, setPlaySub, type BallRole, type WeekBoards } from '../utils/filmLineup';
 import { newPlayEntry } from '../utils/playbookImport';
 import { theirCallEntries } from '../utils/theirCalls';
-import { clipMatchMode, matchClipsToPlays, naturalCompare } from './clipMatching';
+import { clipMatchMode, matchClipsToPlays, naturalCompare, NO_CLIP } from './clipMatching';
 import { playsFromClips } from './clipPlays';
 import { applyBreakdown, blankPlays, breakdownPlayId, importIntoGame, isBrokenDown, type BreakdownRow } from './breakdownEntry';
 import { endProof, filledFrom, followOn } from './nextPlay';
@@ -31,6 +31,9 @@ import { clearFilmCutup, peekFilmCutup, type FilmCutup } from '../utils/filmCutu
 import { peekPlayBuilderSeed, savePlayBuilderSeed, type PlayBuilderSeed } from '../utils/playBuilderSeed';
 import { PlayBuilderSection } from '../components/playbook/PlayBuilderSection';
 import { FilmPlayer, type PlayerApi } from './FilmPlayer';
+import { SecondView, type DualLayout } from './SecondView';
+import { clearOffset, liveViewClips, otherViewIndex, picksForView, pickKey as viewPickKey, removedKey, savedOffset, snapOffset, withOffset } from './dualView';
+import { probeSnap } from './snapProbe';
 import { usePlayLines, type VideoLines } from './PlayLinesOverlay';
 import { LinkFilmDialog } from './LinkFilmDialog';
 import { FilmLibrary, buildLibrary, type LibraryGame, type ScheduledGame } from './FilmLibrary';
@@ -255,9 +258,14 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     pick: shared.folderPick?.name,
     setPick,
   });
-  // The game's clips without the ones a coach took out (the plays after one move up a clip).
-  const removedSet = useMemo(() => new Set(Object.entries(shared.removedClips || {}).filter(([, r]) => r?.removed).map(([n]) => n)), [shared.removedClips]);
-  const liveClips = useMemo(() => (film.status === 'ready' ? film.clips.filter((c) => !removedSet.has(c.name)) : []), [film, removedSet]);
+  // The game's clips without the ones a coach took out (the plays after one move up a clip). With camera views (a
+  // folder each) every view keeps its own line-up: one camera can miss a play the other caught.
+  const multiView = film.status === 'ready' && film.views.length > 1;
+  const mainView = film.status === 'ready' ? film.views[film.view] || '' : '';
+  const liveClips = useMemo(
+    () => (film.status === 'ready' ? liveViewClips(film.clips, shared.removedClips, mainView, multiView) : []),
+    [film, shared.removedClips, mainView, multiView]
+  );
   // A film-only game's plays are its clips.
   useEffect(() => {
     if (!game?.filmOnly) return setClipPlays((c) => (c.length ? [] : c));
@@ -317,7 +325,9 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   });
 
   const clips = liveClips;
-  const clipFor = useMemo(() => matchClipsToPlays(clips, plays, shared.clipPicks), [clips, plays, shared.clipPicks]);
+  const removedCount = Object.values(shared.removedClips || {}).filter((r) => r?.removed).length;
+  const mainPicks = useMemo(() => picksForView(shared.clipPicks, mainView, multiView), [shared.clipPicks, mainView, multiView]);
+  const clipFor = useMemo(() => matchClipsToPlays(clips, plays, mainPicks), [clips, plays, mainPicks]);
   // Empty plays added to a scouting game's breakdown for film that was really our game's (Oct 2026): taken
   // back out, as long as nobody has filled them in. Their ids end in "-x<play number>".
   const unpadded = useRef(false);
@@ -378,16 +388,16 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     const c = i !== undefined ? clips[i] : undefined;
     if (!c) return;
     if (!window.confirm(`Remove "${c.name}" from this game? Play #${p.playNumber} and every play after it move up one video. The file isn't deleted, and you can bring it back from More.`)) return;
-    update((st) => ({ ...st, removedClips: { ...(st.removedClips || {}), [c.name]: { removed: true, editedAt: Date.now() } } }));
+    update((st) => ({ ...st, removedClips: { ...(st.removedClips || {}), [removedKey(c.name, mainView, multiView)]: { removed: true, editedAt: Date.now() } } }));
   };
   const restoreClips = () =>
     update((st) => ({
       ...st,
       removedClips: Object.fromEntries(Object.entries(st.removedClips || {}).map(([n, r]) => [n, r?.removed ? { removed: false, editedAt: Date.now() } : r])),
     }));
-  /** Line the play up with another clip (the plays after it follow); null takes the coach's pick back. */
-  const pickClip = (playId: string, clipName: string | null) =>
-    update((s) => ({ ...s, clipPicks: { ...(s.clipPicks || {}), [playId]: { clip: clipName || '', editedAt: Date.now() } } }));
+  /** Line the play up with another clip in a view (the plays after it follow); null takes the coach's pick back. */
+  const pickClip = (playId: string, clipName: string | null, view = mainView) =>
+    update((s) => ({ ...s, clipPicks: { ...(s.clipPicks || {}), [viewPickKey(playId, view, multiView)]: { clip: clipName || '', editedAt: Date.now() } } }));
 
   // Previous / next follow the play log below as it's sorted and searched.
   const [order, setOrder] = useState<string[]>([]);
@@ -436,6 +446,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     }
   }, [games]);
   const switchView = (i: number) => {
+    // Watching both: the one beside it trades places, at the same moment of the play.
+    if (dual && i === otherIdx) return swapViews();
     resumeAt.current = apiRef.current?.time() || 0;
     setView(i);
   };
@@ -721,6 +733,70 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const nextClip = clipOf(next);
   const clipUrl = useClipUrl(clip, localFiles, nextClip);
 
+  // Both camera views at once: the second view (its own clips, lined up with the plays on their own) plays beside the
+  // main one, in step at the snap, or as a coach synced it on this play (saved for every coach).
+  const [bothViews, setBothViews] = useState(() => safeJSONParse<boolean>('footballFilmroomBothViews', false));
+  const toggleBoth = (on: boolean) => {
+    setBothViews(on);
+    safeJSONSet('footballFilmroomBothViews', on);
+  };
+  const [dualLayout, setDualLayoutState] = useState<DualLayout>(
+    () => safeJSONParse<DualLayout | null>('footballFilmroomDualLayout', null) || (window.innerWidth >= 1024 ? 'side' : 'corner')
+  );
+  const setDualLayout = (l: DualLayout) => {
+    setDualLayoutState(l);
+    safeJSONSet('footballFilmroomDualLayout', l);
+  };
+  const [otherWanted, setOtherWantedState] = useState(() => safeJSONParse<string>('footballFilmroomOtherView', '') || '');
+  const setOtherWanted = (name: string) => {
+    setOtherWantedState(name);
+    safeJSONSet('footballFilmroomOtherView', name);
+  };
+  const otherIdx = film.status === 'ready' ? otherViewIndex(film.views, film.view, otherWanted) : -1;
+  const dual = bothViews && otherIdx >= 0 && !family;
+  const otherView = film.status === 'ready' && otherIdx >= 0 ? film.views[otherIdx] : '';
+  const otherClips = useMemo(
+    () => (film.status === 'ready' && otherIdx >= 0 ? liveViewClips(film.lists[otherIdx] || [], shared.removedClips, otherView, true) : []),
+    [film, otherIdx, otherView, shared.removedClips]
+  );
+  const otherPicks = useMemo(() => picksForView(shared.clipPicks, otherView, true), [shared.clipPicks, otherView]);
+  const otherFor = useMemo(() => (dual ? matchClipsToPlays(otherClips, plays, otherPicks) : new Map<string, number>()), [dual, otherClips, plays, otherPicks]);
+  const otherClipOf = (p?: Play) => (p && otherFor.has(p.id) ? otherClips[otherFor.get(p.id)!] : undefined);
+  const otherClip = otherClipOf(play);
+  const otherUrl = useClipUrl(dual ? otherClip : undefined, localFiles, dual ? otherClipOf(next) : undefined);
+  const otherInOrder = useMemo(() => otherClips.map((c, i) => ({ c, i })).sort((a, b) => naturalCompare(a.c.name, b.c.name)), [otherClips]);
+  const coachOffset = play && dual ? savedOffset(shared.viewShift, play.id, mainView, otherView) : undefined;
+  // No coach's sync on this play: the snap is found in both clips (in the background) and lines them up.
+  const pairKey = `${clipUrl.url || ''}|${otherUrl.url || ''}`;
+  const [snapSync, setSnapSync] = useState<{ key: string; offset?: number; done: boolean }>({ key: '', done: true });
+  const needSnap = dual && coachOffset === undefined && Boolean(clipUrl.url && otherUrl.url);
+  useEffect(() => {
+    if (!needSnap || !clipUrl.url || !otherUrl.url) return;
+    const [a, b] = [clipUrl.url, otherUrl.url];
+    let cancelled = false;
+    setSnapSync({ key: pairKey, done: false });
+    void (async () => {
+      const mainSnap = await probeSnap(a, () => cancelled);
+      const otherSnap = mainSnap === null ? null : await probeSnap(b, () => cancelled);
+      if (!cancelled) setSnapSync({ key: pairKey, offset: snapOffset(mainSnap, otherSnap), done: true });
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needSnap, pairKey]);
+  const autoOffset = snapSync.key === pairKey ? snapSync.offset : undefined;
+  const dualOffset = coachOffset ?? autoOffset ?? 0;
+  const syncNote =
+    coachOffset !== undefined ? 'Synced by a coach' : snapSync.key === pairKey && !snapSync.done ? 'Finding the snap…' : autoOffset !== undefined ? 'At the snap' : 'From the clip starts';
+  /** The second view becomes the main one (at the same moment of the play), and the main one goes beside it. */
+  const swapViews = () => {
+    if (otherIdx < 0 || film.status !== 'ready') return;
+    resumeAt.current = Math.max(0, (apiRef.current?.time() || 0) + dualOffset);
+    setOtherWanted(mainView);
+    setView(otherIdx);
+  };
+
   const apiRef = useRef<PlayerApi | null>(null);
   // Play lines: the selected play's routes and runs on the paused video, as its diagram (Play Builder) draws them.
   const [videoLines, setVideoLines] = useState<VideoLines | null>(null);
@@ -751,6 +827,50 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     getVideo: () => apiRef.current?.video?.() || null,
     getBlob: async () => (clipUrl.url ? (await fetch(clipUrl.url)).blob() : null),
   });
+  const otherAt = play && otherFor.has(play.id) ? otherInOrder.findIndex((o) => o.i === otherFor.get(play.id)) : -1;
+  const otherMissed = Boolean(play && otherPicks?.[play.id]?.clip === NO_CLIP);
+  const secondView = (maxHeight: string) =>
+    dual && play ? (
+      <SecondView
+        layout={dualLayout}
+        maxHeight={maxHeight}
+        onLayout={setDualLayout}
+        label={otherView}
+        src={otherUrl.url}
+        loading={otherUrl.loading}
+        error={otherUrl.error}
+        missing={otherClip ? undefined : otherMissed ? `The ${otherView} camera missed play #${play.playNumber}` : `No ${otherView} clip for play #${play.playNumber}`}
+        getMain={() => apiRef.current?.video?.() || null}
+        offset={dualOffset}
+        syncNote={syncNote}
+        onNudge={locked ? undefined : (d) => update((s) => ({ ...s, viewShift: withOffset(s.viewShift, play.id, mainView, otherView, dualOffset + d) }))}
+        onResetSync={!locked && coachOffset !== undefined ? () => update((s) => ({ ...s, viewShift: clearOffset(s.viewShift, play.id, otherView) })) : undefined}
+        onSwap={swapViews}
+        onClose={() => toggleBoth(false)}
+        lineup={
+          locked
+            ? undefined
+            : {
+                at: otherAt >= 0 ? `clip ${otherAt + 1} of ${otherInOrder.length}` : otherMissed ? 'missed' : 'no clip',
+                canPrev: otherInOrder.length > 0 && otherAt !== 0,
+                canNext: otherAt < otherInOrder.length - 1,
+                onStep: (d) => {
+                  const to = otherInOrder[Math.max(0, Math.min(otherInOrder.length - 1, (otherAt < 0 ? 0 : otherAt) + d))];
+                  if (to) pickClip(play.id, to.c.name, otherView);
+                },
+                none: otherMissed,
+                onNone: () => pickClip(play.id, NO_CLIP, otherView),
+                picked: Boolean(otherPicks?.[play.id]?.clip),
+                onUndo: () => pickClip(play.id, null, otherView),
+              }
+        }
+        choices={
+          film.status === 'ready' && film.views.length > 2
+            ? { names: film.views, value: otherIdx, onPick: (i) => (i === film.view ? swapViews() : setOtherWanted(film.views[i])) }
+            : undefined
+        }
+      />
+    ) : null;
   // How to get the video window onto the TV (iPads won't always pull a tab out of the browser into its own window).
   const [tvHelp, setTvHelp] = useState(false);
   const [tvCopied, setTvCopied] = useState(false);
@@ -1594,6 +1714,21 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           </div>
         )}
 
+        {film.status === 'ready' && film.views.length > 1 && !family && (
+          <button
+            type="button"
+            onClick={() => toggleBoth(!bothViews)}
+            aria-pressed={bothViews}
+            title="Watch two camera views at once, playing in step"
+            className={`inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-[11px] font-bold border ${
+              bothViews ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+            }`}
+          >
+            <Columns2 size={13} />
+            Both views
+          </button>
+        )}
+
         {/* Line up film: when this game's clips and plays don't match (or a play was lined up), the clip the play on
             screen shows and a step to the one before or after. The plays after it follow, so one fix past an extra
             (or missing) clip lines up the rest of the game. */}
@@ -1603,7 +1738,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             const to = clipsInOrder[Math.max(0, Math.min(clipsInOrder.length - 1, (at < 0 ? 0 : at) + d))];
             if (to) pickClip(play.id, to.c.name);
           };
-          const mine = Boolean(shared.clipPicks?.[play.id]?.clip);
+          const mine = Boolean(mainPicks?.[play.id]?.clip);
           return (
             <span
               role="group"
@@ -1759,7 +1894,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
                           )}
                         {film.status === 'ready' && play && clipFor.has(play.id) &&
                           item(<><Trash2 size={14} /> Remove this play&apos;s video</>, () => removeClipOf(play), "Leave this video out of the game: the plays after it move up one (the file isn't deleted)")}
-                        {removedSet.size > 0 && item(<><RotateCcw size={14} /> Bring back removed videos ({removedSet.size})</>, restoreClips)}
+                        {removedCount > 0 && item(<><RotateCcw size={14} /> Bring back removed videos ({removedCount})</>, restoreClips)}
                         {lostNames.length > 0 &&
                           item(
                             <><RotateCcw size={14} /> Bring back play names ({lostNames.length})</>,
@@ -1898,6 +2033,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       }`}
       style={isDesktop && sideShown && !sideIsBuilder ? { gridTemplateColumns: `minmax(0,1fr) ${clampSideW(sideW)}px` } : undefined}
       >
+        <div className={dual ? (dualLayout === 'side' ? 'grid grid-cols-2 gap-2 items-start min-w-0' : 'relative flex flex-col gap-2 min-w-0') : 'contents'}>
         <FilmPlayer
           maxVideoHeight={isDesktop ? `${clampVideoH(videoH)}px` : 'calc(100dvh - 7rem)'}
           src={placeholder ? undefined : clipUrl.url}
@@ -1926,6 +2062,12 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           startAt={resumeAt.current}
           autoNextDefault={listPlay ? true : !game?.fromFilm}
         />
+        {(() => {
+          // One above the other: no taller than the main video.
+          const second = secondView(isDesktop ? `${clampVideoH(videoH)}px` : '40dvh');
+          return second && (dualLayout === 'corner' ? <div className="absolute top-2 right-2 z-10 w-[36%] min-w-44 max-w-sm">{second}</div> : second);
+        })()}
+        </div>
 
         {/* Notes: beside the video on a computer (as tall as the video, scrolling), a tab on phones and tablets */}
         {sideShown && (

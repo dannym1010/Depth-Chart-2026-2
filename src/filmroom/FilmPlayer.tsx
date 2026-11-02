@@ -10,14 +10,11 @@ import {
   Square, Target, Timer, Trash2, Undo2, Volume2, VolumeX, X, Zap, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { drawMarksOnCanvas, MARK_COLORS, Telestration } from './Telestration';
-import { findSnapWithCamera, frameChange } from './snapFinder';
+import { probeSnap, snapTimeCache } from './snapProbe';
 import type { FilmMark } from './types';
 import type { PlayLinesControl } from './PlayLinesOverlay';
 import { INK_COLORS, StageInk, type InkApi, type InkMode } from '../components/scouting/StageInk';
 import { useWakeLock } from '../utils/wakeLock';
-
-// Cache detected snap timestamps by clip URL so Fast Cutup mode is instant on revisit.
-const snapTimeCache = new Map<string, number>();
 
 const FRAME = 1 / 30;
 const SPEEDS = [0.25, 0.5, 1, 2];
@@ -301,69 +298,19 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     }
     let cancelled = false;
     setDetectingSnap(true);
-    const probe = document.createElement('video');
-    probe.muted = true;
-    probe.playsInline = true;
-    probe.preload = 'auto';
-    probe.crossOrigin = 'anonymous';
-    const runProbe = async () => {
-      try {
-        await new Promise<void>((resolve, reject) => {
-          const timer = window.setTimeout(() => reject(new Error('timeout')), 7000);
-          probe.addEventListener('loadeddata', () => { window.clearTimeout(timer); resolve(); }, { once: true });
-          probe.addEventListener('error', () => { window.clearTimeout(timer); reject(new Error('err')); }, { once: true });
-          probe.src = src;
-        });
-        const dur = probe.duration;
-        if (!Number.isFinite(dur) || dur < 6) {
-          if (!cancelled) setDetectingSnap(false);
-          return;
-        }
-        const FPS = 3, W = 96, H = 54;
-        const c = document.createElement('canvas');
-        c.width = W;
-        c.height = H;
-        const x = c.getContext('2d', { willReadFrequently: true });
-        if (!x) return;
-        const samples: { camera: number; players: number }[] = [];
-        let last: Uint8Array | null = null;
-        const end = Math.min(dur - 0.1, 24);
-        for (let t = 0.1; t < end; t += 1 / FPS) {
-          if (cancelled) return;
-          await new Promise<void>((res) => {
-            const tm = window.setTimeout(res, 600);
-            probe.addEventListener('seeked', () => { window.clearTimeout(tm); res(); }, { once: true });
-            probe.currentTime = t;
-          });
-          x.drawImage(probe, 0, 0, W, H);
-          const d = x.getImageData(0, 0, W, H).data;
-          const g = new Uint8Array(W * H);
-          for (let i = 0; i < W * H; i++) g[i] = (d[i * 4] * 77 + d[i * 4 + 1] * 150 + d[i * 4 + 2] * 29) >> 8;
-          samples.push(last ? frameChange(last, g, W, H) : { camera: 0, players: 0 });
-          last = g;
-        }
-        const guess = findSnapWithCamera(samples, FPS);
-        if (!cancelled && guess && guess.snap > 1.2) {
-          snapTimeCache.set(src, guess.snap);
-          setDetectedSnap(guess.snap);
-          const v = videoRef.current;
-          const trimStart = Math.max(0, guess.snap - 2.0);
-          if (v && v.currentTime < trimStart - 0.5) {
-            v.currentTime = trimStart;
-          }
-        }
-      } catch {
-        /* ignore probe errors */
-      } finally {
-        probe.removeAttribute('src');
-        probe.load();
-        if (!cancelled) setDetectingSnap(false);
+    void probeSnap(src, () => cancelled).then((snap) => {
+      if (cancelled) return;
+      setDetectingSnap(false);
+      if (snap === null) return;
+      setDetectedSnap(snap);
+      const v = videoRef.current;
+      const trimStart = Math.max(0, snap - 2.0);
+      if (v && v.currentTime < trimStart - 0.5) {
+        v.currentTime = trimStart;
       }
-    };
-    void runProbe();
+    });
     return () => {
       cancelled = true;
-      probe.removeAttribute('src');
     };
   }, [src, fastCut]);
 

@@ -35,6 +35,8 @@ export type FilmState =
       /** Camera views ("Sideline", "End Zone"); one entry when there's a single view. */
       views: string[];
       view: number;
+      /** Every view's clips (by view), to watch two views at once. */
+      lists: FilmClip[][];
       /** The week's other game folders (to switch when the wrong one was taken), and this one. */
       siblings?: string[];
       folder?: string;
@@ -117,7 +119,7 @@ export function useGameFilm(opts: {
       const names = views.map((v) => (v === node ? (views.length > 1 ? 'Film' : v.name) : v.name));
       const want = rememberedView().toLowerCase();
       const view = Math.max(0, names.findIndex((n) => n.toLowerCase() === want));
-      setFilm({ status: 'ready', kind: node.driveId ? 'drive' : 'folder', label, clips: lists[view] || [], views: names, view, ...extra });
+      setFilm({ status: 'ready', kind: node.driveId ? 'drive' : 'folder', label, clips: lists[view] || [], views: names, view, lists, ...extra });
       return total;
     },
     []
@@ -406,7 +408,7 @@ export function useGameFilm(opts: {
     viewClips.current = [clips];
     loadId.current++;
     localFiles.current = files;
-    setFilm(clips.length ? { status: 'ready', kind: 'files', label: `${clips.length} clip${clips.length === 1 ? '' : 's'} from this device`, clips, views: ['Clips'], view: 0 } : { status: 'error', message: 'None of those files are videos.' });
+    setFilm(clips.length ? { status: 'ready', kind: 'files', label: `${clips.length} clip${clips.length === 1 ? '' : 's'} from this device`, clips, views: ['Clips'], view: 0, lists: [clips] } : { status: 'error', message: 'None of those files are videos.' });
   }, []);
 
   /** Link a Google Drive folder: the shared film folder (every game finds its own), or one game's clips. */

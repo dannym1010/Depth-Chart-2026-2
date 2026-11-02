@@ -1,0 +1,91 @@
+// Two camera views of one game at once (a folder per view: "Sideline", "End Zone"). Each view's clips line up with
+// the plays on their own (a view can be missing a clip or have an extra one), and the second view plays in step with
+// the first: at the same moment of the play, found from the snap in both clips or set by a coach (saved per play).
+import type { FilmClip, FilmGameShared } from './types';
+
+/** A per-view key: a play (or clip) in one camera view. */
+export const viewKey = (id: string, view: string) => `${id}@${view}`;
+
+type Picks = NonNullable<FilmGameShared['clipPicks']>;
+
+/**
+ * The line-up picks for one view: picks made in that view (play@view), over the older picks made before a game had
+ * views (play id alone; those only apply where the clip name is in this view).
+ */
+export function picksForView(picks: Picks | undefined, view: string, multi: boolean): Picks | undefined {
+  if (!picks || !multi) return picks;
+  const out: Picks = {};
+  const tail = `@${view}`;
+  for (const [k, v] of Object.entries(picks)) if (!k.includes('@')) out[k] = v;
+  for (const [k, v] of Object.entries(picks)) if (k.endsWith(tail)) out[k.slice(0, -tail.length)] = v;
+  return out;
+}
+
+/** Where a line-up pick is saved: per view when the game has more than one. */
+export const pickKey = (playId: string, view: string, multi: boolean) => (multi ? viewKey(playId, view) : playId);
+
+/** A view's clips without the ones a coach took out (in that view, or by name before the game had views). */
+export function liveViewClips(clips: FilmClip[], removed: FilmGameShared['removedClips'], view: string, multi: boolean): FilmClip[] {
+  const gone = new Set(Object.entries(removed || {}).filter(([, r]) => r?.removed).map(([n]) => n));
+  if (!gone.size) return clips;
+  return clips.filter((c) => !gone.has(c.name) && !(multi && gone.has(`${view}/${c.name}`)));
+}
+
+/** The name a clip is taken out under: per view when the game has more than one. */
+export const removedKey = (clipName: string, view: string, multi: boolean) => (multi ? `${view}/${clipName}` : clipName);
+
+/** The view watched beside the main one: the one asked for, else the first other view. -1 with only one view. */
+export function otherViewIndex(views: string[], main: number, wanted?: string): number {
+  if (views.length < 2) return -1;
+  const w = wanted ? views.findIndex((v, i) => i !== main && v.toLowerCase() === wanted.toLowerCase()) : -1;
+  return w >= 0 ? w : views.findIndex((_, i) => i !== main);
+}
+
+export type ViewShifts = NonNullable<FilmGameShared['viewShift']>;
+
+/**
+ * How far ahead the other view's clip is of the main one's on this play (seconds), as a coach set it: the other
+ * view shows main time + offset. Undefined when nobody has (the snap lines them up instead).
+ */
+export function savedOffset(shifts: ViewShifts | undefined, playId: string, main: string, other: string): number | undefined {
+  const a = shifts?.[viewKey(playId, main)];
+  const b = shifts?.[viewKey(playId, other)];
+  if (!a || !b || a.auto || b.auto || !Number.isFinite(a.t) || !Number.isFinite(b.t)) return undefined;
+  return b.t - a.t;
+}
+
+/** Saving a coach's offset for this play: both views' shifts, so either can be the main one later. */
+export function withOffset(shifts: ViewShifts | undefined, playId: string, main: string, other: string, offset: number, now = Date.now()): ViewShifts {
+  const round = (n: number) => Math.round(n * 1000) / 1000;
+  const base = shifts?.[viewKey(playId, main)];
+  const mainT = base && !base.auto && Number.isFinite(base.t) ? base.t : 0;
+  return {
+    ...(shifts || {}),
+    [viewKey(playId, main)]: { t: round(mainT), editedAt: now },
+    [viewKey(playId, other)]: { t: round(mainT + offset), editedAt: now },
+  };
+}
+
+/** Back to lining up at the snap: the other view's shift is cleared (a clear sticks when copies merge). */
+export function clearOffset(shifts: ViewShifts | undefined, playId: string, other: string, now = Date.now()): ViewShifts {
+  return { ...(shifts || {}), [viewKey(playId, other)]: { t: 0, auto: true, editedAt: now } };
+}
+
+/** The offset that lines both clips up at the snap, when the snap was found in both. */
+export const snapOffset = (mainSnap: number | null | undefined, otherSnap: number | null | undefined) =>
+  mainSnap != null && otherSnap != null ? Math.round((otherSnap - mainSnap) * 1000) / 1000 : undefined;
+
+/**
+ * Where the other view should be for the main view's time: its time, and whether the moment is before its clip
+ * starts or after it ends (it then holds its first or last frame).
+ */
+export function syncTarget(mainTime: number, offset: number, otherDuration: number): { t: number; before: boolean; after: boolean } {
+  const want = mainTime + offset;
+  const end = Number.isFinite(otherDuration) && otherDuration > 0 ? otherDuration : Infinity;
+  if (want < 0) return { t: 0, before: true, after: false };
+  if (want > end) return { t: Math.max(0, end - 0.05), before: false, after: true };
+  return { t: want, before: false, after: false };
+}
+
+/** "+0.40 s" / "−1.20 s" / "0 s" for the sync label. */
+export const fmtOffset = (s: number) => (Math.abs(s) < 0.005 ? '0 s' : `${s > 0 ? '+' : '−'}${Math.abs(s).toFixed(2)} s`);

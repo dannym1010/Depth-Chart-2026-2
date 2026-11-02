@@ -13,6 +13,7 @@ import { usePlayLines } from './PlayLinesOverlay';
 import { usePublishedPlayLines } from './playLinesStore';
 import { LinkFilmDialog } from './LinkFilmDialog';
 import { matchClipsToPlays } from './clipMatching';
+import { liveViewClips, picksForView } from './dualView';
 import { playTitle } from './playText';
 import { filmGameKey } from './sharedMerge';
 import type { FilmClip, FilmGame, FilmGameShared, FilmMark, FilmNote } from './types';
@@ -177,11 +178,14 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
     setPick,
   });
 
-  const clips = useMemo(() => {
-    const gone = new Set(Object.entries(shared.removedClips || {}).filter(([, r]) => r?.removed).map(([n]) => n));
-    return film.status === 'ready' ? film.clips.filter((c) => !gone.has(c.name)) : [];
-  }, [film, shared.removedClips]);
-  const clipFor = useMemo(() => matchClipsToPlays(clips, gamePlays, shared.clipPicks), [clips, gamePlays, shared.clipPicks]);
+  // The view watched, lined up as in the Film Room (each camera view keeps its own line-up).
+  const winView = film.status === 'ready' ? film.views[film.view] || '' : '';
+  const winMulti = film.status === 'ready' && film.views.length > 1;
+  const clips = useMemo(() => (film.status === 'ready' ? liveViewClips(film.clips, shared.removedClips, winView, winMulti) : []), [film, shared.removedClips, winView, winMulti]);
+  const clipFor = useMemo(
+    () => matchClipsToPlays(clips, gamePlays, picksForView(shared.clipPicks, winView, winMulti)),
+    [clips, gamePlays, shared.clipPicks, winView, winMulti]
+  );
   const clipOf = (p?: Play) => (p && clipFor.has(p.id) ? clips[clipFor.get(p.id)!] : undefined);
   const clip = clipOf(play);
   const clipUrl = useClipUrl(clip, localFiles, clipOf(next));

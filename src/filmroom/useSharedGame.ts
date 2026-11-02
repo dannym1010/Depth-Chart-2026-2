@@ -150,7 +150,7 @@ export async function copySharedGame(teamId: string, fromKey: string, toKey: str
       console.warn('Reading Film Room notes to move:', err);
     }
   }
-  const empty = !from.notes.length && !Object.keys(from.drawings || {}).length && !from.drive && !from.folderPick && !from.clipPicks && !from.removedClips;
+  const empty = !from.notes.length && !Object.keys(from.drawings || {}).length && !from.drive && !from.folderPick && !from.clipPicks && !from.removedClips && !from.viewShift;
   if (empty) return false;
   const local = mergeShared(safeJSONParse(cacheKey(toId), emptyShared()), from);
   safeJSONSet(cacheKey(toId), local);

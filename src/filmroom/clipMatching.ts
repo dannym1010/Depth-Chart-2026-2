@@ -46,6 +46,9 @@ export function clipMatchMode(clips: { name: string }[], plays: { playNumber: nu
   return known >= Math.ceil(numbered.length * 0.9) ? 'number' : 'order';
 }
 
+/** A line-up pick that says the play has no clip (a camera missed it): the plays after it keep their clips. */
+export const NO_CLIP = '(no clip)';
+
 /**
  * Which clip goes with which play. Returns play id -> clip index. `picks` (play id -> clip file name) are the
  * clips coaches lined plays up with: with film in order, the plays after a pick take the clips after it (so one
@@ -71,6 +74,7 @@ export function matchClipsToPlays(
       if (n !== undefined) byNumber.set(n, i);
     });
     for (const p of orderedPlays) {
+      if (picks?.[p.id]?.clip === NO_CLIP) continue;
       const i = picked(p.id) ?? byNumber.get(Number(p.playNumber));
       if (i !== undefined) out.set(p.id, i);
     }
@@ -80,6 +84,7 @@ export function matchClipsToPlays(
   const posOf = new Map(order.map((o, k) => [o.i, k]));
   let next = 0;
   for (const p of orderedPlays) {
+    if (picks?.[p.id]?.clip === NO_CLIP) continue;
     const pick = picked(p.id);
     if (pick !== undefined) next = posOf.get(pick)!;
     if (next < order.length) out.set(p.id, order[next].i);
