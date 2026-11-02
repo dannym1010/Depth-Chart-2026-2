@@ -867,7 +867,14 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         loading={otherUrl.loading}
         error={otherUrl.error}
         missing={otherClip ? undefined : otherMissed ? `The ${otherView} camera missed play #${play.playNumber}` : `No ${otherView} clip for play #${play.playNumber}`}
-        getMain={() => apiRef.current?.video?.() || null}
+        mainApi={() => apiRef.current}
+        title={`${otherView} · ${playTitle(play)}`}
+        viewOnly={locked}
+        hasPrev={listPlay ? listPlay.index > 0 : Boolean(prev)}
+        hasNext={listPlay ? listPlay.index < listPlay.items.length - 1 : Boolean(next)}
+        onPrev={() => (listPlay ? stepList(-1) : prev && setPlayId(prev.id))}
+        onNext={() => (listPlay ? stepList(1) : next && setPlayId(next.id))}
+        onStopwatch={(s, at) => addNote(`Pocket time ${s.toFixed(2)}s (${otherView})`, undefined, Math.max(0, at - dualOffset))}
         offset={dualOffset}
         syncNote={syncNote}
         onNudge={

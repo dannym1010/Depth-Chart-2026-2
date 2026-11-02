@@ -24,6 +24,9 @@ export interface PlayerApi {
   time: () => number;
   seek: (t: number) => void;
   video?: () => HTMLVideoElement | null;
+  /** The speed picked on the player (its 1× / ½× buttons), and setting it from outside. */
+  speed?: () => number;
+  setSpeed?: (s: number) => void;
 }
 
 export const fmtTime = (t: number) => {
@@ -62,8 +65,13 @@ interface FilmPlayerProps {
   playLines?: PlayLinesControl;
   /** Presentation's full screen: the film edge to edge on black, its controls over the bottom of it. */
   stage?: boolean;
-  /** Full screen while the coach isn't touching the screen: the controls and the title fade away. */
+  /** The controls and the title fade away (full screen while the coach isn't touching the screen; a small corner view until it's pointed at). */
   controlsHidden?: boolean;
+  /**
+   * Played in step with another player (a second camera view, linked): it doesn't start, jump to the snap (Fast Cut)
+   * or go to the next play by itself; the other player leads.
+   */
+  follower?: boolean;
 }
 
 // Bigger on a touch screen (a finger needs about 40px).
@@ -87,7 +95,10 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   playLines,
   stage = false,
   controlsHidden = false,
+  follower = false,
 }) => {
+  const followerRef = useRef(follower);
+  followerRef.current = follower;
   const rootRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -251,6 +262,8 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   const view = useRef({ zoom: 1, pan: { x: 0, y: 0 } });
 
   apiRef.current = {
+    speed: () => speed,
+    setSpeed,
     time: () => videoRef.current?.currentTime || 0,
     seek: (t) => {
       const v = videoRef.current;
@@ -305,7 +318,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
       setDetectedSnap(snap);
       const v = videoRef.current;
       const trimStart = Math.max(0, snap - 2.0);
-      if (v && v.currentTime < trimStart - 0.5) {
+      if (v && !followerRef.current && v.currentTime < trimStart - 0.5) {
         v.currentTime = trimStart;
       }
     });
@@ -329,6 +342,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     const v = videoRef.current;
     if (v && src) {
       v.playbackRate = speed;
+      if (followerRef.current) return;
       const cachedSnap = fastCut ? snapTimeCache.get(src) : undefined;
       const initialStart = startAt > 0 ? startAt : cachedSnap && cachedSnap > 2 ? Math.max(0, cachedSnap - 2.0) : 0;
       if (initialStart > 0) v.currentTime = initialStart;
@@ -656,7 +670,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
 
   const onEnded = () => {
     triggeredFreezesRef.current.clear();
-    if (!loop && autoNext && hasNext) onNext();
+    if (!loop && autoNext && hasNext && !follower) onNext();
   };
 
   // Handle time updates: Fast Cutup end-of-play trim + Freeze-Frame telestration auto-pause
@@ -667,7 +681,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     if (cur < 0.3) triggeredFreezesRef.current.clear();
 
     // 1. Fast Cutup mode: auto-advance or loop when play window ends (Snap + 6.5s)
-    if (fastCut && detectedSnap !== null && !drawing && !recording) {
+    if (fastCut && !follower && detectedSnap !== null && !drawing && !recording) {
       const cutStart = Math.max(0, detectedSnap - 2.0);
       const cutEnd = Math.min(v.duration || Infinity, detectedSnap + 6.5);
       if (cur >= cutEnd && cutEnd > cutStart + 2) {
@@ -800,7 +814,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   const fitting = fit && !isFullscreen;
   const overlay = isFullscreen ? 'absolute inset-x-0 bottom-0' : 'sm:absolute sm:inset-x-0 sm:bottom-0';
   // Full screen (and presentation's) with nobody touching the screen: the controls and the title fade away.
-  const tucked = ((stage && controlsHidden) || (isFullscreen && !awake)) && !drawing && !recording;
+  const tucked = (controlsHidden || (isFullscreen && !awake)) && !drawing && !recording;
 
   // The pencil on the film: taken before the play lines' players or a tap on the film get it.
   const penDown = (e: React.PointerEvent) => {
