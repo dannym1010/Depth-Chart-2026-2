@@ -144,17 +144,22 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
     };
   }, [onClose]);
 
+  const [onlyTimed, setOnlyTimed] = useState<Record<Side, boolean>>({ a: false, b: false });
   const sideData = (s: Side) => {
     const pk = picks[s];
     const game = byKey.get(pk.gameKey);
-    const list = listOf(game, pk.formation);
+    const all = listOf(game, pk.formation);
+    // Plays with times marked (snap, handoff...): marked in the list, and a side can show only those.
+    const marked = (p: Play) => MOMENTS.filter((m) => momentsOf(pk.gameKey, p.id)[m.id] != null).length;
+    const timedCount = all.filter((p) => marked(p) > 0).length;
+    const list = onlyTimed[s] && timedCount ? all.filter((p) => marked(p) > 0) : all;
     const play = list.find((p) => p.id === pk.playId) || list[0];
     const at = play ? list.indexOf(play) : -1;
     // The team's numbers from the play's formation: our whole season, or every game of that week's scouting.
     const teamPlays = game ? games.filter((g) => (game.source === 'own' ? g.source === 'own' : g.source === 'opponent' && g.week === game.week)).flatMap((g) => g.plays) : [];
     const f = pk.formation || (play ? formationOf(play) : '');
     const numbers = f && f !== '(no formation)' ? formationNumbers(teamPlays.filter((p) => formationOf(p) === f)) : undefined;
-    return { pk, game, list, play, at, numbers, formation: f, gamesInTeam: game ? new Set(teamPlays.map((p) => p.gameId)).size : 0, moments: momentsOf(pk.gameKey, play?.id) };
+    return { pk, game, list, marked, timedCount, play, at, numbers, formation: f, gamesInTeam: game ? new Set(teamPlays.map((p) => p.gameId)).size : 0, moments: momentsOf(pk.gameKey, play?.id) };
   };
   const A = sideData('a');
   const B = sideData('b');
@@ -342,11 +347,18 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
             const g = Number(p.gainLoss);
             return (
               <option key={p.id} value={p.id}>
+                {d.marked(p) ? `⏱${d.marked(p)} ` : ''}
                 {[`#${p.playNumber}`, p.down ? `${p.down}&${p.distance ?? ''}` : '', d.pk.formation ? '' : p.formation, playNameOf(p), Number.isFinite(g) ? `${g > 0 ? '+' : ''}${g}` : ''].filter(Boolean).join(' · ')}
               </option>
             );
           })}
         </select>
+        {d.timedCount > 0 && (
+          <label className="-mt-1 inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer self-start">
+            <input type="checkbox" checked={onlyTimed[s]} onChange={(e) => setOnlyTimed((o) => ({ ...o, [s]: e.target.checked }))} />
+            Only timed plays ⏱ ({d.timedCount})
+          </label>
+        )}
         {d.game ? (
           renderFilm({
             side: s,

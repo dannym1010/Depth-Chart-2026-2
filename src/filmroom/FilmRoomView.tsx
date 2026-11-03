@@ -1252,6 +1252,16 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           </button>
         )}
         <Film size={12} className={clipFor.has(p.id) ? 'text-indigo-400' : 'text-slate-600'} aria-label={clipFor.has(p.id) ? 'Has film' : 'No film'} />
+        {(() => {
+          // Times marked in Compare plays (snap, handoff, hole...).
+          const m = shared.timing?.[p.id]?.moments;
+          const k = m ? Object.values(m).filter((x) => x != null).length : 0;
+          return k > 0 ? (
+            <span className="text-[10px] font-bold text-violet-400" title={`${k} moment${k === 1 ? '' : 's'} timed in Compare plays`} aria-label={`Timed: ${k} moment${k === 1 ? '' : 's'}`}>
+              ⏱{k}
+            </span>
+          ) : null;
+        })()}
         {n > 0 && (
           <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-amber-400">
             <MessageSquare size={10} />
