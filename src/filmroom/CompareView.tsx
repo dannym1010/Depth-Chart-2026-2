@@ -3,7 +3,9 @@
 // details row by row (the differences marked) and what each team gets from that formation.
 // The video itself comes from `renderFilm`, so this screen holds no film or database code.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeftRight, Columns2, Pause, Play as PlayIcon, SkipBack, X } from 'lucide-react';
+import { ArrowLeftRight, Columns2, Copy, Download, Pause, Play as PlayIcon, SkipBack, Sparkles, X } from 'lucide-react';
+import { saveGeminiKey } from '../services/geminiFilmService';
+import { askCompareAi, buildPrompt, captureAt, clipFileName, compareAiEngine, evenTimes, pictureWindow, type AiSide } from './compareAi';
 import type { Play } from '../hudlScout/types/football';
 import type { PlayerApi } from './FilmPlayer';
 import { probeSnap } from './snapProbe';
@@ -193,6 +195,86 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
       setBusy(false);
     }
   };
+  // Download a side's video (the clip as it is, named for the play).
+  const [saving, setSaving] = useState<Side | null>(null);
+  const download = async (s: Side) => {
+    const d = s === 'a' ? A : B;
+    const v = apis[s].current?.video?.();
+    const src = v?.currentSrc || v?.src;
+    if (!src || !d.play || !d.game) return;
+    setSaving(s);
+    try {
+      const blob = await (await fetch(src)).blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = clipFileName(d.game.source === 'own' ? 'Us' : d.game.team, d.play.playNumber, playNameOf(d.play), blob.type);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      window.alert("Couldn't save this video. Let it load (play it once), then try again.");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  // Ask an AI coach how to get to the line faster: pictures of both plays from the snap to contact, and the times.
+  const [ai, setAi] = useState<{ open: boolean; working: boolean; status: string; answer: string; error: string; needKey: boolean }>({
+    open: false, working: false, status: '', answer: '', error: '', needKey: false,
+  });
+  const [aiNote, setAiNote] = useState('');
+  const [keyText, setKeyText] = useState('');
+  const [copied, setCopied] = useState('');
+  const aiSide = (d: typeof A): AiSide | undefined =>
+    d.game && d.play
+      ? { team: d.game.source === 'own' ? 'Us' : d.game.team, ours: d.game.source === 'own', title: [`#${d.play.playNumber}`, d.play.down ? `${d.play.down}&${d.play.distance ?? ''}` : '', d.play.formation, playNameOf(d.play)].filter(Boolean).join(' · '), facts: playFacts(d.play), moments: d.moments }
+      : undefined;
+  const askAi = async () => {
+    const sa = aiSide(A);
+    const sb = aiSide(B);
+    if (!sa || !sb) return;
+    if (!compareAiEngine()) return setAi((x) => ({ ...x, open: true, needKey: true, error: '', answer: '' }));
+    setAi({ open: true, working: true, status: 'Taking pictures of both plays…', answer: '', error: '', needKey: false });
+    pauseBoth();
+    try {
+      const shots = await Promise.all(
+        (['a', 'b'] as Side[]).map(async (s) => {
+          const v = apis[s].current?.video?.();
+          if (!v || !(v.currentSrc || v.src)) throw new Error("Both videos need to be loaded. Let each one play, then ask again.");
+          const m = (s === 'a' ? A : B).moments;
+          const guess = m.snap == null ? await probeSnap(v.currentSrc || v.src).catch(() => null) : null;
+          const w = pictureWindow(m, v.duration || 0, guess);
+          const times = evenTimes(w.start, w.end, 10);
+          const pics = await captureAt(v, times);
+          return times.map((t, i) => ({ fromSnap: Math.round((t - w.snap) * 100) / 100, dataUrl: pics[i] }));
+        })
+      );
+      const prompt = buildPrompt(sa, sb, shots[0], shots[1], aiNote.trim());
+      const answer = await askCompareAi(prompt, [...shots[0], ...shots[1]].map((x) => x.dataUrl), (status) => setAi((x) => ({ ...x, status })));
+      setAi({ open: true, working: false, status: '', answer, error: '', needKey: false });
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      setAi({ open: true, working: false, status: '', answer: '', error: msg === 'NO_KEY' ? '' : msg, needKey: msg === 'NO_KEY' || /refused this device/.test(msg) });
+    }
+  };
+  const copyText = async (text: string, what: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(what);
+      window.setTimeout(() => setCopied(''), 2500);
+    } catch {
+      window.prompt('Copy this:', text);
+    }
+  };
+  /** The same question for another AI (ChatGPT, Claude): pasted with the two downloaded videos. */
+  const questionForVideos = () => {
+    const sa = aiSide(A);
+    const sb = aiSide(B);
+    return sa && sb ? buildPrompt(sa, sb, [], [], aiNote.trim()) : '';
+  };
+
   const swap = () => {
     setA(b);
     setB(a);
@@ -316,6 +398,17 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
             })}
           </div>
         )}
+        {d.game && d.play && (
+          <button
+            type="button"
+            onClick={() => void download(s)}
+            disabled={saving === s}
+            className="self-start inline-flex items-center gap-1 h-9 pointer-coarse:h-10 px-3 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 disabled:opacity-50"
+            title="Save this play's video file (to send it or open it in another app)"
+          >
+            <Download size={14} /> {saving === s ? 'Saving…' : 'Download video'}
+          </button>
+        )}
       </section>
     );
   };
@@ -367,6 +460,15 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={() => void askAi()}
+            disabled={ai.working || !A.play || !B.play}
+            className={`${barBtn} bg-violet-600 text-white disabled:opacity-50`}
+            title="An AI coach looks at both plays from the snap to contact (and your timing marks) and says how to get to the line faster"
+          >
+            <Sparkles size={14} /> {ai.working ? 'Asking…' : 'Ask AI'}
+          </button>
           <button type="button" onClick={swap} className={`${barBtn} bg-slate-100 dark:bg-slate-800`} title="Swap the left and right plays">
             <ArrowLeftRight size={14} /> Swap
           </button>
@@ -381,6 +483,83 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
           {pane('a', A)}
           {pane('b', B)}
         </div>
+
+        {ai.open && (
+          <section aria-label="AI coach" className="mt-4 rounded-xl border border-violet-300 dark:border-violet-500/40 bg-violet-50 dark:bg-violet-500/10 px-3 py-2.5 text-xs text-slate-800 dark:text-slate-100">
+            <div className="flex items-center gap-2">
+              <Sparkles size={15} className="text-violet-600 dark:text-violet-300 shrink-0" />
+              <h3 className="text-sm font-black">AI coach: getting to the line faster</h3>
+              <button type="button" onClick={() => setAi((x) => ({ ...x, open: false }))} aria-label="Close the AI coach" className="ml-auto w-8 h-8 inline-flex items-center justify-center rounded-lg hover:bg-violet-100 dark:hover:bg-violet-500/20">
+                <X size={15} />
+              </button>
+            </div>
+            {ai.working && <p className="mt-2 font-bold" role="status">{ai.status}</p>}
+            {ai.error && <p className="mt-2 font-bold text-rose-700 dark:text-rose-300" role="alert">{ai.error}</p>}
+            {ai.needKey && (
+              <div className="mt-2 space-y-1.5">
+                <p>
+                  The AI needs a Google Gemini key on this device (free at aistudio.google.com → Get API key), or the Ollama model on this computer (set in the Film Room&apos;s
+                  AI breakdown settings).
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  <input
+                    type="password"
+                    value={keyText}
+                    onChange={(e) => setKeyText(e.target.value)}
+                    placeholder="Paste the Gemini API key (AIza…)"
+                    aria-label="Gemini API key"
+                    className="h-9 min-w-0 flex-1 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-xs"
+                  />
+                  <button
+                    type="button"
+                    disabled={!/^AIza[0-9A-Za-z_-]{15,}/.test(keyText.trim())}
+                    onClick={() => {
+                      saveGeminiKey(keyText.trim());
+                      setKeyText('');
+                      void askAi();
+                    }}
+                    className="h-9 px-3 rounded-lg bg-violet-600 text-white font-bold disabled:opacity-50"
+                  >
+                    Save and ask
+                  </button>
+                </div>
+              </div>
+            )}
+            {ai.answer && <div className="mt-2 whitespace-pre-wrap leading-relaxed text-[13px] max-w-[75ch]" aria-label="AI answer">{ai.answer.replace(/\*\*/g, '')}</div>}
+            <label className="mt-3 block">
+              <span className="font-bold">Anything to tell the AI?</span>
+              <textarea
+                value={aiNote}
+                onChange={(e) => setAiNote(e.target.value)}
+                rows={2}
+                placeholder="e.g. Our fullback is #32; watch the QB's first step"
+                className="mt-1 w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 py-1.5 text-xs"
+              />
+            </label>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <button type="button" onClick={() => void askAi()} disabled={ai.working} className="h-9 px-3 rounded-lg bg-violet-600 text-white font-bold disabled:opacity-50">
+                {ai.answer || ai.error ? 'Ask again' : 'Ask'}
+              </button>
+              {ai.answer && (
+                <button type="button" onClick={() => void copyText(ai.answer, 'answer')} className="h-9 px-3 rounded-lg bg-white dark:bg-slate-900 border border-violet-300 dark:border-violet-500/40 font-bold inline-flex items-center gap-1">
+                  <Copy size={13} /> {copied === 'answer' ? 'Copied' : 'Copy the answer'}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void copyText(questionForVideos(), 'question')}
+                className="h-9 px-3 rounded-lg bg-white dark:bg-slate-900 border border-violet-300 dark:border-violet-500/40 font-bold inline-flex items-center gap-1"
+                title="The same question, to paste into ChatGPT, Claude or Gemini along with the two downloaded videos"
+              >
+                <Copy size={13} /> {copied === 'question' ? 'Copied' : 'Copy the question for another AI'}
+              </button>
+            </div>
+            <p className="mt-2 text-[11px] text-slate-600 dark:text-slate-300">
+              Sends 10 pictures of each play (just before the snap to contact) and your timing marks{compareAiEngine() === 'ollama' ? ' to the model on this computer' : ' to Google Gemini'}. Mark Snap and Contact first for the best answer. For another AI:
+              Download video on both plays, then paste the copied question with them.
+            </p>
+          </section>
+        )}
 
         <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
           <div className="px-3 pt-2.5 text-sm font-black">Timing</div>
