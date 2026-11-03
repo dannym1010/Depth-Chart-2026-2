@@ -1,6 +1,32 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { compareGames, compareNotes, formationList, formationNumbers, playFacts, sameFormation } from './compareData.ts';
+import { compareGames, compareNotes, formationList, formationNumbers, isPickable, playFacts, sameFormation, withFilmOnly } from './compareData.ts';
+import { playsFromClips } from './clipPlays.ts';
+
+describe('compare: games with no breakdown', () => {
+  it('lists film-only games with their clips as the plays', () => {
+    const games = compareGames({ games: [{ id: 'g1', name: 'Week 1 - Carmel', week: '1' }], plays: [{ id: 'p1', gameId: 'g1', playNumber: 1, odk: 'O' }] }, 'Mahopac', [], '1');
+    const weeks = [{ key: '3', label: 'Week 3', opponent: 'Fox Lane' }];
+    const film = [
+      { key: 'own_film-local-week3', source: 'own' as const, gameId: 'film-local-week3', name: 'Week 3 - Fox Lane', week: '3' },
+      { key: 'opp_w3_film-local-scout', source: 'opponent' as const, gameId: 'film-local-scout', name: 'Fox Lane vs Brewster', week: '3' },
+    ];
+    const clips = playsFromClips([{ kind: 'local', id: 'a', name: 'IMG_0001.MP4' }, { kind: 'local', id: 'b', name: 'IMG_0002.MP4' }], 'film-local-week3');
+    const all = withFilmOnly(games, film, weeks, 'Mahopac', { 'own_film-local-week3': clips });
+    assert.deepEqual(all.map((g) => [g.key, g.group, g.team, Boolean(g.filmOnly), g.plays.length]), [
+      ['own_g1', 'Our games', 'Mahopac', false, 1],
+      ['own_film-local-week3', 'Our games', 'Mahopac', true, 2],
+      ['opp_w3_film-local-scout', 'Week 3 · Fox Lane', 'Fox Lane', true, 0],
+    ]);
+    // A clip can be picked (untagged), a defensive or kick play can't.
+    assert.ok(all[1].plays.every(isPickable));
+    assert.equal(all[1].plays[0].playName, 'IMG_0001');
+    assert.ok(!isPickable({ odk: 'D', playType: 'RUN' } as any));
+    assert.ok(!isPickable({ odk: 'UNKNOWN', playType: 'SPECIAL' } as any));
+    // A game that has a breakdown isn't listed twice.
+    assert.equal(withFilmOnly(games, [{ key: 'own_g1', source: 'own', gameId: 'g1', name: 'x' }], [], 'Mahopac', {}).length, 1);
+  });
+});
 
 let n = 0;
 const play = (o: Record<string, unknown>) => ({

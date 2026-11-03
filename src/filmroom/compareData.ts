@@ -13,6 +13,45 @@ export interface CompareGame extends FilmGame {
   /** Where it is listed ("Our games", "Week 5 · Carmel"). */
   group: string;
   plays: Play[];
+  /** Film with no breakdown: its plays are its clips (filled in once its film is open). */
+  filmOnly?: boolean;
+}
+
+/**
+ * Games that are only film (a game folder with video and no breakdown), added after the games with one. Their plays
+ * are their clips, once a side opens the film (`clipPlays` by game key).
+ */
+export function withFilmOnly(
+  games: CompareGame[],
+  filmOnly: { key: string; source: 'own' | 'opponent'; gameId: string; name: string; week?: string }[],
+  weeks: CompareWeek[],
+  teamName: string,
+  clipPlays: Record<string, Play[]>
+): CompareGame[] {
+  const have = new Set(games.map((g) => g.key));
+  const extra = filmOnly
+    .filter((g) => !have.has(g.key))
+    .map((g): CompareGame => {
+      const w = weeks.find((x) => x.key === g.week);
+      return {
+        key: g.key,
+        source: g.source,
+        gameId: g.gameId,
+        name: g.name,
+        week: g.week,
+        filmOnly: true,
+        team: g.source === 'own' ? teamName : w?.opponent || g.name,
+        group: g.source === 'own' ? 'Our games' : w ? `${w.label}${w.opponent ? ` · ${w.opponent}` : ''}` : 'Other film',
+        plays: clipPlays[g.key] || [],
+      };
+    });
+  // Each film-only game right after the other games of its group.
+  const out = [...games];
+  for (const g of extra) {
+    const last = out.map((x) => x.group).lastIndexOf(g.group);
+    out.splice(last < 0 ? out.length : last + 1, 0, g);
+  }
+  return out;
 }
 
 export interface CompareWeek {
@@ -68,6 +107,8 @@ export const sameFormation = (a: Play, b: Play) => {
 
 /** A snap a team ran: offense, not a kick, an extra clip or a penalty with no play. */
 export const isSnap = (p: Play) => p.odk === 'O' && p.playType !== 'SPECIAL';
+/** A play to pick: a snap, or one nobody has tagged yet (a clip of film with no breakdown, a blank breakdown). */
+export const isPickable = (p: Play) => isSnap(p) || ((!p.odk || p.odk === 'UNKNOWN') && p.playType !== 'SPECIAL');
 
 /** The formations in a list of plays, most used first. */
 export function formationList(plays: Play[]): { formation: string; count: number }[] {

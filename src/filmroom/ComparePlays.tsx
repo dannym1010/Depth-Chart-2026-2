@@ -5,11 +5,13 @@ import { RefreshCw } from 'lucide-react';
 import { FilmPlayer } from './FilmPlayer';
 import { CompareView, type CompareFilmProps, type TimingStore } from './CompareView';
 import { loadTiming, saveTiming, timingKey, type Moments } from './compareTiming';
-import { compareGames, type CompareWeek } from './compareData';
+import { compareGames, withFilmOnly, type CompareWeek } from './compareData';
+import { playsFromClips } from './clipPlays';
+import type { Play } from '../hudlScout/types/football';
 import { matchClipsToPlays } from './clipMatching';
-import { liveViewClips, picksForView } from './dualView';
+import { countViewIndex, liveViewClips, picksForView } from './dualView';
 import { playTitle } from './playText';
-import type { FilmGameShared, FilmMark } from './types';
+import type { FilmClip, FilmGameShared, FilmMark } from './types';
 import { useClipUrl, useGameFilm } from './useGameFilm';
 import { useSharedGame } from './useSharedGame';
 
@@ -22,12 +24,27 @@ interface Props {
   /** This week's scouting as on screen (newer than filmWeeks' copy while saving). */
   opponentScout?: unknown;
   start?: { gameKey: string; playId?: string };
+  /** Game folders with film and no breakdown: their clips are picked instead of plays. */
+  filmOnlyGames?: { key: string; source: 'own' | 'opponent'; gameId: string; name: string; week?: string }[];
   viewOnly?: boolean;
   onClose: () => void;
 }
 
-export const ComparePlays: React.FC<Props> = ({ teamId, teamName, ownTeamScout, filmWeeks, currentWeek, opponentScout, start, viewOnly, onClose }) => {
-  const games = useMemo(() => compareGames(ownTeamScout, teamName, filmWeeks, currentWeek, opponentScout), [ownTeamScout, teamName, filmWeeks, currentWeek, opponentScout]);
+export const ComparePlays: React.FC<Props> = ({ teamId, teamName, ownTeamScout, filmWeeks, currentWeek, opponentScout, start, filmOnlyGames = [], viewOnly, onClose }) => {
+  // A film-only game's plays are its clips (in the count view's order), known once a side opens its film.
+  const [clipPlays, setClipPlays] = useState<Record<string, Play[]>>({});
+  const onClips = useCallback((gameKey: string, gameId: string, clips: FilmClip[]) => {
+    setClipPlays((all) => {
+      const next = playsFromClips(clips, gameId);
+      const cur = all[gameKey];
+      if (cur && cur.length === next.length && cur.every((p, i) => p.id === next[i].id)) return all;
+      return { ...all, [gameKey]: next };
+    });
+  }, []);
+  const games = useMemo(
+    () => withFilmOnly(compareGames(ownTeamScout, teamName, filmWeeks, currentWeek, opponentScout), filmOnlyGames, filmWeeks, teamName, clipPlays),
+    [ownTeamScout, teamName, filmWeeks, currentWeek, opponentScout, filmOnlyGames, clipPlays]
+  );
 
   // Timing marks live in each game's shared Film Room data, so every coach sees them on every device.
   const [shown, setShown] = useState<[string, string]>(['', '']);
@@ -81,13 +98,13 @@ export const ComparePlays: React.FC<Props> = ({ teamId, teamName, ownTeamScout, 
       timing={timing}
       onShown={onShown}
       // A side's film reloads when its game changes (each game has its own folder and line-up).
-      renderFilm={(p) => <CompareFilm key={`${p.side}:${p.game.key}`} {...p} teamId={teamId} teamName={teamName} viewOnly={viewOnly} />}
+      renderFilm={(p) => <CompareFilm key={`${p.side}:${p.game.key}`} {...p} teamId={teamId} teamName={teamName} viewOnly={viewOnly} onClips={onClips} />}
     />
   );
 };
 
-const CompareFilm: React.FC<CompareFilmProps & { teamId: string; teamName: string; viewOnly?: boolean }> = ({
-  game, play, apiRef, maxVideoHeight, hasPrev, hasNext, onPrev, onNext, teamId, teamName, viewOnly,
+const CompareFilm: React.FC<CompareFilmProps & { teamId: string; teamName: string; viewOnly?: boolean; onClips: (gameKey: string, gameId: string, clips: FilmClip[]) => void }> = ({
+  game, play, apiRef, maxVideoHeight, hasPrev, hasNext, onPrev, onNext, teamId, teamName, viewOnly, onClips,
 }) => {
   const { shared, update } = useSharedGame(teamId, game.key);
   const setDrive = useCallback((drive: FilmGameShared['drive']) => update((s) => ({ ...s, drive: drive || { folderId: '', editedAt: Date.now() } })), [update]);
@@ -114,6 +131,15 @@ const CompareFilm: React.FC<CompareFilmProps & { teamId: string; teamName: strin
   const clips = useMemo(() => (film.status === 'ready' ? liveViewClips(film.clips, shared.removedClips, view, multi) : []), [film, shared.removedClips, view, multi]);
   const clipFor = useMemo(() => matchClipsToPlays(clips, game.plays, picksForView(shared.clipPicks, view, multi)), [clips, game.plays, shared.clipPicks, view, multi]);
   const clip = play && clipFor.has(play.id) ? clips[clipFor.get(play.id)!] : undefined;
+  // Film only: its clips are the plays (the main camera's, as the Film Room counts them).
+  const countIdx = film.status === 'ready' ? countViewIndex(film.views) : 0;
+  const countClips = useMemo(
+    () => (film.status === 'ready' && game.filmOnly ? liveViewClips(film.lists[countIdx] || [], shared.removedClips, film.views[countIdx] || '', multi) : []),
+    [film, game.filmOnly, shared.removedClips, countIdx, multi]
+  );
+  useEffect(() => {
+    if (game.filmOnly && film.status === 'ready') onClips(game.key, game.gameId, countClips);
+  }, [game.filmOnly, game.key, game.gameId, film.status, countClips, onClips]);
   const clipUrl = useClipUrl(clip, localFiles);
 
   // Drawings are the Film Room's own; a drawing made here is saved on that play for the staff.
@@ -170,7 +196,7 @@ const CompareFilm: React.FC<CompareFilmProps & { teamId: string; teamName: strin
         </div>
       );
     if (film.status === 'none') return <span className="text-xs px-3 text-center">No film linked to {game.name}. Link it in the Film Room first.</span>;
-    if (!play) return <span className="text-xs px-3 text-center">Pick a play.</span>;
+    if (!play) return <span className="text-xs px-3 text-center">{game.filmOnly && !clips.length ? `No video files found in ${film.label}.` : 'Pick a play.'}</span>;
     if (clipUrl.loading) return <span className="text-xs">Loading clip…</span>;
     if (clipUrl.error) return <span className="text-xs text-rose-300 px-3 text-center">{clipUrl.error}</span>;
     if (!clip) return <span className="text-xs px-3 text-center">No clip for play #{play.playNumber}.</span>;

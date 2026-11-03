@@ -10,7 +10,7 @@ import type { Play } from '../hudlScout/types/football';
 import type { PlayerApi } from './FilmPlayer';
 import { probeSnap } from './snapProbe';
 import { compareSplits, loadTiming, MOMENTS, saveTiming, secs, timingKey, type MomentId, type Moments } from './compareTiming';
-import { compareNotes, formationList, formationNumbers, formationOf, isSnap, playFacts, playNameOf, type CompareGame, type FormationNumbers } from './compareData';
+import { compareNotes, formationList, formationNumbers, formationOf, isPickable, isSnap, playFacts, playNameOf, type CompareGame, type FormationNumbers } from './compareData';
 
 export type Side = 'a' | 'b';
 
@@ -63,8 +63,9 @@ const readSaved = (): { b?: Pick } => {
   }
 };
 
-/** The plays a side lists: offense snaps of its game, in its formation. */
-const listOf = (g: CompareGame | undefined, formation: string) => (g ? g.plays.filter((p) => isSnap(p) && (!formation || formationOf(p) === formation)) : []);
+/** The plays a side lists: its game's offense snaps in its formation; with every formation, untagged plays (clips) too. */
+const listOf = (g: CompareGame | undefined, formation: string) =>
+  g ? g.plays.filter((p) => (formation ? isSnap(p) && formationOf(p) === formation : isPickable(p))) : [];
 
 /** The other side's start: a game from the other team with the most snaps in that formation. */
 function otherStart(games: CompareGame[], from: CompareGame | undefined, formation: string): Pick | undefined {
@@ -314,6 +315,7 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
                 {list.map((g) => (
                   <option key={g.key} value={g.key}>
                     {g.source === 'own' ? g.name : `${g.team}: ${g.name}`}
+                    {g.filmOnly ? ' (film only: pick a clip)' : ''}
                   </option>
                 ))}
               </optgroup>
@@ -335,7 +337,7 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
           </select>
         </div>
         <select aria-label={`${s === 'a' ? 'Left' : 'Right'} play`} value={d.play?.id || ''} onChange={(e) => set((p) => ({ ...p, playId: e.target.value }))} className={field} disabled={!d.list.length}>
-          {!d.list.length && <option value="">{d.game ? 'No offense plays in this formation' : 'Pick a game'}</option>}
+          {!d.list.length && <option value="">{!d.game ? 'Pick a game' : d.game.filmOnly ? 'Opening the film… its clips show here' : 'No plays in this formation'}</option>}
           {d.list.map((p) => {
             const g = Number(p.gainLoss);
             return (

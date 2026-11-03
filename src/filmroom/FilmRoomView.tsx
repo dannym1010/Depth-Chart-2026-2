@@ -2376,6 +2376,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           currentWeek={currentWeek}
           opponentScout={opponentScout}
           start={game && play ? { gameKey: game.key, playId: play.id } : undefined}
+          filmOnlyGames={filmOnlyGames}
           viewOnly={locked}
           onClose={() => {
             setCompareOpen(false);
