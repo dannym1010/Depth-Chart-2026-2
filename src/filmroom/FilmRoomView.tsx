@@ -25,6 +25,7 @@ import { endProof, filledFrom, followOn } from './nextPlay';
 import { DriveChart } from './DriveChart';
 import { DriveSidebar } from './DriveSidebar';
 import { PlayerFinder } from './PlayerFinder';
+import { ComparePlays } from './ComparePlays';
 import { BreakdownPanel } from './BreakdownPanel';
 import type { FilmFolderGame, UnplacedFolder } from './folderRoutes';
 import { clearFilmCutup, peekFilmCutup, type FilmCutup } from '../utils/filmCutup';
@@ -970,6 +971,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const [linkOpen, setLinkOpen] = useState(false);
   // Player finder: every play one of our players was part of, all season.
   const [playersOpen, setPlayersOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
   // Opened from the play builder, the library starts closed so the builder has room beside the video.
   const [libraryDesk, setLibraryDesk] = useState(() => !builderSeed && safeJSONParse<boolean>('footballFilmroomLibrary', true));
   const [libraryPhone, setLibraryPhone] = useState(false);
@@ -1888,6 +1890,16 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
               <span>✨</span> Diagram Play
             </button>
           )}
+          {!family && (own.plays.length > 0 || opp.plays.length > 0) && (
+            <button
+              type="button"
+              onClick={() => setCompareOpen(true)}
+              className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+              title="Two plays side by side: ours and another team's from the same formation, with what each team gets from it"
+            >
+              <Columns2 size={14} /> Compare
+            </button>
+          )}
           {own.plays.length > 0 && (
             <button
               type="button"
@@ -2353,6 +2365,22 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             {libraryEl(() => setLibraryPhone(false))}
           </div>
         </div>
+      )}
+
+      {compareOpen && (
+        <ComparePlays
+          teamId={teamId}
+          teamName={teamName}
+          ownTeamScout={ownTeamScout}
+          filmWeeks={filmWeeks || []}
+          currentWeek={currentWeek}
+          opponentScout={opponentScout}
+          start={game && play ? { gameKey: game.key, playId: play.id } : undefined}
+          viewOnly={locked}
+          onClose={() => {
+            setCompareOpen(false);
+          }}
+        />
       )}
 
       <PlayerFinder

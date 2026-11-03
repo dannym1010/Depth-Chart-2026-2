@@ -1,0 +1,112 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { compareGames, compareNotes, formationList, formationNumbers, playFacts, sameFormation } from './compareData.ts';
+
+let n = 0;
+const play = (o: Record<string, unknown>) => ({
+  id: `p${++n}`,
+  playNumber: n,
+  odk: 'O',
+  quarter: 1,
+  down: 1,
+  distance: 10,
+  yardLine: 50,
+  rawYardLine: '-40',
+  yardLineSide: 'OWN',
+  fieldZone: 'own_territory',
+  hash: 'M',
+  playType: 'RUN',
+  formation: 'Wing T Rt',
+  backfield: '',
+  motion: '',
+  playName: '34 Sweep',
+  direction: 'R',
+  gainLoss: 4,
+  result: 'Rush',
+  personnel: '',
+  carrierOrTarget: '',
+  isExplosive: false,
+  isEfficient: true,
+  runSide: 'R',
+  ...o,
+});
+
+describe('compare plays', () => {
+  it('matches a formation by its name without the side', () => {
+    assert.ok(sameFormation(play({ formation: 'Wing-T Rt' }) as any, play({ formation: 'WING T LEFT' }) as any));
+    assert.ok(!sameFormation(play({ formation: 'Wing T' }) as any, play({ formation: 'Power I' }) as any));
+    assert.ok(!sameFormation(play({ formation: '-' }) as any, play({ formation: '-' }) as any));
+  });
+
+  it('lists formations of offense snaps only, most used first', () => {
+    const list = formationList([
+      play({ formation: 'Power I' }),
+      play({ formation: 'Wing T Lt' }),
+      play({ formation: 'Wing T Rt' }),
+      play({ formation: 'Shotgun', odk: 'D' }),
+      play({ formation: 'Punt', playType: 'SPECIAL' }),
+    ] as any);
+    assert.deepEqual(list, [
+      { formation: 'WING T', count: 2 },
+      { formation: 'POWER I', count: 1 },
+    ]);
+  });
+
+  it('adds up what a team gets from a formation', () => {
+    const nums = formationNumbers([
+      play({ gainLoss: 10, isExplosive: true, playName: '34 Sweep' }),
+      play({ gainLoss: -2, isEfficient: false, playName: '34 Sweep' }),
+      play({ gainLoss: 6, playType: 'PASS', playName: 'Waggle' }),
+      play({ gainLoss: 0, odk: 'D' }),
+    ] as any);
+    assert.equal(nums.snaps, 3);
+    assert.equal(nums.avg, 4.7);
+    assert.equal(nums.success, 67);
+    assert.equal(nums.runPct, 67);
+    assert.equal(nums.lost, 33);
+    assert.equal(nums.explosive, 33);
+    assert.deepEqual(nums.plays[0], { name: '34 Sweep', snaps: 2, avg: 4, success: 50 });
+  });
+
+  it('says where the other team does better', () => {
+    const ours = formationNumbers([2, 1, 3, -1].map((g) => play({ gainLoss: g, isEfficient: g > 2 })) as any);
+    const theirs = formationNumbers([
+      play({ gainLoss: 8, playName: 'Counter' }),
+      play({ gainLoss: 6, playName: 'Counter' }),
+      play({ gainLoss: 5, playName: '34 Sweep' }),
+      play({ gainLoss: 7, playName: '34 Sweep' }),
+    ] as any);
+    const notes = compareNotes(ours, theirs, 'Carmel');
+    assert.match(notes[0], /^Carmel gets 5\.2 more yards a snap/);
+    assert.ok(notes.some((x) => /^Carmel stays on schedule more often/.test(x)));
+    assert.ok(notes.some((x) => /^Carmel loses yards less often/.test(x)));
+    assert.ok(notes.some((x) => /Carmel's best from it: Counter \(2 snaps, \+7 a snap\), which we don't run from it/.test(x)));
+    // Too few snaps: nothing to say.
+    assert.deepEqual(compareNotes(formationNumbers([play({})] as any), theirs, 'Carmel'), []);
+  });
+
+  it('gives both plays the same rows', () => {
+    const a = playFacts(play({ motion: 'Jet' }) as any);
+    const b = playFacts(play({}) as any);
+    assert.deepEqual(a.map((r) => r.label), b.map((r) => r.label));
+    assert.equal(a.find((r) => r.label === 'Motion')?.value, 'Jet');
+    assert.equal(a.find((r) => r.label === 'Strength')?.value, 'Right');
+    assert.equal(a.find((r) => r.label === 'Gain')?.value, '+4');
+  });
+
+  it('lists our games and every week of scouting', () => {
+    const own = { games: [{ id: 'g1', name: 'Week 1 - Carmel', week: '1' }], plays: [play({ gameId: 'g1' })] };
+    const wk = (opp: string) => ({ games: [{ id: `s-${opp}`, name: `${opp} vs X` }], plays: [play({ gameId: `s-${opp}` })] });
+    const games = compareGames(own, 'Mahopac', [
+      { key: '1', label: 'Week 1', opponent: 'Carmel', hudlScout: wk('Old') },
+      { key: '2', label: 'Week 2', opponent: 'Lakeland', hudlScout: wk('Lakeland') },
+      { key: '3', label: 'Week 3', opponent: 'Empty' },
+    ], '1', wk('Carmel'));
+    assert.deepEqual(games.map((g) => [g.source, g.team, g.group, g.gameId]), [
+      ['own', 'Mahopac', 'Our games', 'g1'],
+      ['opponent', 'Carmel', 'Week 1 · Carmel', 's-Carmel'],
+      ['opponent', 'Lakeland', 'Week 2 · Lakeland', 's-Lakeland'],
+    ]);
+    assert.equal(games[1].key, 'opp_w1_s-Carmel');
+  });
+});
