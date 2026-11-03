@@ -1,9 +1,10 @@
 // Compare plays with the film: CompareView, each side's video found the way the film window finds it (the
 // game's folder or Google Drive link, lined up with its plays as in the Film Room).
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { FilmPlayer } from './FilmPlayer';
-import { CompareView, type CompareFilmProps } from './CompareView';
+import { CompareView, type CompareFilmProps, type TimingStore } from './CompareView';
+import { loadTiming, saveTiming, timingKey, type Moments } from './compareTiming';
 import { compareGames, type CompareWeek } from './compareData';
 import { matchClipsToPlays } from './clipMatching';
 import { liveViewClips, picksForView } from './dualView';
@@ -27,11 +28,58 @@ interface Props {
 
 export const ComparePlays: React.FC<Props> = ({ teamId, teamName, ownTeamScout, filmWeeks, currentWeek, opponentScout, start, viewOnly, onClose }) => {
   const games = useMemo(() => compareGames(ownTeamScout, teamName, filmWeeks, currentWeek, opponentScout), [ownTeamScout, teamName, filmWeeks, currentWeek, opponentScout]);
+
+  // Timing marks live in each game's shared Film Room data, so every coach sees them on every device.
+  const [shown, setShown] = useState<[string, string]>(['', '']);
+  const onShown = useCallback((keys: [string, string]) => setShown((k) => (k[0] === keys[0] && k[1] === keys[1] ? k : keys)), []);
+  const left = useSharedGame(teamId, shown[0] || undefined);
+  const right = useSharedGame(teamId, shown[1] || undefined);
+  const docOf = (gameKey: string) => (gameKey && gameKey === shown[0] ? left : gameKey && gameKey === shown[1] ? right : undefined);
+  const timing: TimingStore | undefined = viewOnly
+    ? undefined
+    : {
+        shared: true,
+        get: (gameKey, playId) => (docOf(gameKey)?.shared.timing?.[playId]?.moments || {}) as Moments,
+        set: (gameKey, playId, moments) =>
+          docOf(gameKey)?.update((s) => ({ ...s, timing: { ...(s.timing || {}), [playId]: { moments, editedAt: Date.now() } } })),
+      };
+  // Marks made on this device before they were shared: sent up once (a play with marks already shared keeps those).
+  const leftUpdate = left.update;
+  const rightUpdate = right.update;
+  useEffect(() => {
+    if (viewOnly) return;
+    const local = loadTiming();
+    let changed = false;
+    ([
+      [shown[0], leftUpdate],
+      [shown[1], rightUpdate],
+    ] as const).forEach(([gameKey, update], i) => {
+      if (!gameKey || (i === 1 && gameKey === shown[0])) return;
+      const prefix = timingKey(gameKey, '');
+      const mine = Object.entries(local).filter(([k, m]) => k.startsWith(prefix) && m && Object.keys(m).length);
+      if (!mine.length) return;
+      const editedAt = Date.now();
+      update((s) => {
+        const timing = { ...(s.timing || {}) };
+        for (const [k, moments] of mine) {
+          const playId = k.slice(prefix.length);
+          if (!timing[playId]) timing[playId] = { moments, editedAt };
+        }
+        return { ...s, timing };
+      });
+      mine.forEach(([k]) => delete local[k]);
+      changed = true;
+    });
+    if (changed) saveTiming(local);
+  }, [shown, leftUpdate, rightUpdate, viewOnly]);
+
   return (
     <CompareView
       games={games}
       start={start}
       onClose={onClose}
+      timing={timing}
+      onShown={onShown}
       // A side's film reloads when its game changes (each game has its own folder and line-up).
       renderFilm={(p) => <CompareFilm key={`${p.side}:${p.game.key}`} {...p} teamId={teamId} teamName={teamName} viewOnly={viewOnly} />}
     />

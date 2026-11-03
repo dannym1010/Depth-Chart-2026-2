@@ -38,6 +38,18 @@ interface Props {
   start?: { gameKey: string; playId?: string };
   renderFilm: (p: CompareFilmProps) => React.ReactNode;
   onClose: () => void;
+  /** Where the timing marks are kept (shared with every coach); without it, on this device only. */
+  timing?: TimingStore;
+  /** The two games on screen (left, right), so the store can open their shared data. */
+  onShown?: (keys: [string, string]) => void;
+}
+
+export interface TimingStore {
+  get: (gameKey: string, playId: string) => Moments;
+  /** The play's moments after a change (all of them; an empty set clears the play). */
+  set: (gameKey: string, playId: string, moments: Moments) => void;
+  /** Saved for the whole staff (else on this device only). */
+  shared: boolean;
 }
 
 const KEY = 'footballFilmroomCompare';
@@ -63,7 +75,7 @@ function otherStart(games: CompareGame[], from: CompareGame | undefined, formati
   return { gameKey: best.g.key, formation: has ? formation : '', playId: listOf(best.g, has ? formation : '')[0]?.id };
 }
 
-export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose }) => {
+export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose, timing, onShown }) => {
   const byKey = useMemo(() => new Map(games.map((g) => [g.key, g])), [games]);
   const [a, setA] = useState<Pick>(() => {
     const g = (start && byKey.get(start.gameKey)) || games[0];
@@ -94,21 +106,26 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
   const picks = { a, b };
   const setPick = { a: setA, b: setB };
 
-  // Timing: moments marked on each play (kept on this device).
-  const [timing, setTiming] = useState<Record<string, Moments>>(loadTiming);
-  const momentsOf = (gameKey: string, playId?: string): Moments => (playId ? timing[timingKey(gameKey, playId)] || {} : {});
-  const mark = (gameKey: string, playId: string, id: MomentId, t: number | null) =>
-    setTiming((all) => {
+  // Timing: moments marked on each play. Shared with the staff when the screen is given a store (`timing`), else
+  // kept on this device.
+  const [localTiming, setLocalTiming] = useState<Record<string, Moments>>(loadTiming);
+  useEffect(() => onShown?.([a.gameKey, b.gameKey]), [a.gameKey, b.gameKey, onShown]);
+  const momentsOf = (gameKey: string, playId?: string): Moments =>
+    !playId ? {} : timing ? timing.get(gameKey, playId) : localTiming[timingKey(gameKey, playId)] || {};
+  const mark = (gameKey: string, playId: string, id: MomentId, t: number | null) => {
+    const m: Moments = { ...momentsOf(gameKey, playId) };
+    if (t == null) delete m[id];
+    else m[id] = Math.round(t * 1000) / 1000;
+    if (timing) return timing.set(gameKey, playId, m);
+    setLocalTiming((all) => {
       const k = timingKey(gameKey, playId);
-      const m = { ...(all[k] || {}) };
-      if (t == null) delete m[id];
-      else m[id] = Math.round(t * 1000) / 1000;
       const next = { ...all };
       if (Object.keys(m).length) next[k] = m;
       else delete next[k];
       saveTiming(next);
       return next;
     });
+  };
 
   // Escape closes (when not typing).
   useEffect(() => {
@@ -398,7 +415,7 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
               first <b>Contact</b> and the <b>Whistle</b>. The times from snap to handoff, handoff to hole and so on show here for both plays, the quicker one in green.
             </p>
           )}
-          <p className="px-3 py-2 text-[11px] text-slate-500 dark:text-slate-400">Marks are saved on this device for each play. Once both snaps are marked, To the snap starts both videos on their marked snap.</p>
+          <p className="px-3 py-2 text-[11px] text-slate-500 dark:text-slate-400">{timing?.shared ? 'Marks are saved with each play for every coach, on every device.' : 'Marks are saved on this device for each play.'} Once both snaps are marked, To the snap starts both videos on their marked snap.</p>
         </div>
 
         {rows.length > 0 && (

@@ -112,9 +112,15 @@ export async function moveSharedNotes(teamId: string, fromKey: string, toKey: st
       .filter(([id]) => playIds.has(id))
       .map(([id, d]) => [playIds.get(id)!, { ...d, editedAt: now }])
   );
-  const moved = notes.length + Object.keys(drawings).length;
+  // Timing marks (Compare plays) go with their plays too.
+  const timing = Object.fromEntries(
+    Object.entries(from.timing || {})
+      .filter(([id, t]) => playIds.has(id) && t?.moments && Object.keys(t.moments).length)
+      .map(([id, t]) => [playIds.get(id)!, { ...t, editedAt: now }])
+  );
+  const moved = notes.length + Object.keys(drawings).length + Object.keys(timing).length;
   if (!moved) return 0;
-  const local = mergeShared(safeJSONParse(cacheKey(toId), emptyShared()), { ...emptyShared(), notes, drawings });
+  const local = mergeShared(safeJSONParse(cacheKey(toId), emptyShared()), { ...emptyShared(), notes, drawings, ...(Object.keys(timing).length ? { timing } : {}) });
   safeJSONSet(cacheKey(toId), local);
   if (online && !isReadOnlySession()) {
     const ref = db.collection('teamData').doc(toId);
@@ -150,7 +156,7 @@ export async function copySharedGame(teamId: string, fromKey: string, toKey: str
       console.warn('Reading Film Room notes to move:', err);
     }
   }
-  const empty = !from.notes.length && !Object.keys(from.drawings || {}).length && !from.drive && !from.folderPick && !from.clipPicks && !from.removedClips && !from.viewShift;
+  const empty = !from.notes.length && !Object.keys(from.drawings || {}).length && !from.drive && !from.folderPick && !from.clipPicks && !from.removedClips && !from.viewShift && !from.timing;
   if (empty) return false;
   const local = mergeShared(safeJSONParse(cacheKey(toId), emptyShared()), from);
   safeJSONSet(cacheKey(toId), local);

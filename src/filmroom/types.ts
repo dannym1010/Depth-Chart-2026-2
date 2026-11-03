@@ -87,6 +87,11 @@ export interface FilmGameShared {
    * between two views counts). Set by a coach nudging a view; `auto` = cleared (the snap lines them up again).
    */
   viewShift?: Record<string, { t: number; auto?: boolean; editedAt: number }>;
+  /**
+   * Play id -> moments a coach marked on its clip (Compare plays: snap, handoff, hole...; seconds into the clip),
+   * the newest change of a play winning. No moments = cleared.
+   */
+  timing?: Record<string, { moments?: Partial<Record<string, number>>; editedAt: number }>;
 }
 
 export const emptyShared = (): FilmGameShared => ({ notes: [], deletedNotes: {}, drawings: {} });

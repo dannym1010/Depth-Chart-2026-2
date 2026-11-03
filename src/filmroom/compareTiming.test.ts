@@ -1,6 +1,21 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { between, compareSplits } from './compareTiming.ts';
+import { mergeShared } from './sharedMerge.ts';
+
+describe('timing shared with the staff', () => {
+  it('keeps the newest marks of each play, and a clear sticks', () => {
+    const mine = { timing: { p1: { moments: { snap: 1, mesh: 1.8 }, editedAt: 20 }, p2: { moments: {}, editedAt: 30 } } };
+    const theirs = { timing: { p1: { moments: { snap: 1.1 }, editedAt: 10 }, p2: { moments: { snap: 2 }, editedAt: 25 }, p3: { moments: { hole: 3 }, editedAt: 5 } } };
+    const m = mergeShared(mine as any, theirs as any).timing!;
+    assert.deepEqual(m.p1.moments, { snap: 1, mesh: 1.8 });
+    assert.deepEqual(m.p2.moments, {});
+    assert.deepEqual(m.p3.moments, { hole: 3 });
+    // Either order gives the same.
+    assert.deepEqual(mergeShared(theirs as any, mine as any).timing, m);
+    assert.equal(mergeShared({} as any, {} as any).timing, undefined);
+  });
+});
 
 describe('timing two plays', () => {
   it('times from one moment to another', () => {

@@ -32,6 +32,11 @@ export function mergeShared(a?: Partial<FilmGameShared> | null, b?: Partial<Film
     const cur = viewShift[k];
     if (!cur || (Number(v?.editedAt) || 0) > (Number(cur.editedAt) || 0)) viewShift[k] = v;
   }
+  const timing: NonNullable<FilmGameShared['timing']> = { ...(x.timing || {}) };
+  for (const [playId, t] of Object.entries(y.timing || {})) {
+    const cur = timing[playId];
+    if (!cur || (Number(t?.editedAt) || 0) > (Number(cur.editedAt) || 0)) timing[playId] = t;
+  }
   const folderPick = newest(x.folderPick, y.folderPick);
   return {
     notes: [...notes].sort((m, n) => m.createdAt - n.createdAt),
@@ -42,6 +47,7 @@ export function mergeShared(a?: Partial<FilmGameShared> | null, b?: Partial<Film
     ...(Object.keys(clipPicks).length ? { clipPicks } : {}),
     ...(Object.keys(removedClips).length ? { removedClips } : {}),
     ...(Object.keys(viewShift).length ? { viewShift } : {}),
+    ...(Object.keys(timing).length ? { timing } : {}),
   };
 }
 
