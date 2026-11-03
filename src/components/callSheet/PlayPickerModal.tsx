@@ -226,6 +226,8 @@ export const PlayPickerModal: React.FC<PlayPickerModalProps> = ({
         ? {
             wristbandId: match.wristbandId,
             wristbandTitle: match.wristbandTitle,
+            colIdx: match.colIdx,
+            rowIdx: match.rowIdx,
             cardLabel: match.wristbandShort,
             slotNumber: match.slotLabel,
             numberBgColor: match.numberBgColor,

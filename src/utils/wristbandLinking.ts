@@ -1059,10 +1059,14 @@ export function syncWristbandToCallSheet(
 
     let isDirectSlotLink = false;
 
-    if (play.wristbandSlotMatch?.wristbandId) {
-      const wbId = play.wristbandSlotMatch.wristbandId;
-      const colIdx = play.wristbandSlotMatch.colIdx ?? 0;
-      const rowIdx = play.wristbandSlotMatch.rowIdx ?? 0;
+    // A link only counts when it says which column and row: a link without them (plays picked
+    // from the play list used to be saved that way) would point at the wristband's first play
+    // and rename this one to it. Those are matched by their name below instead.
+    const link = play.wristbandSlotMatch;
+    if (link?.wristbandId && link.colIdx != null && link.rowIdx != null) {
+      const wbId = link.wristbandId;
+      const colIdx = link.colIdx;
+      const rowIdx = link.rowIdx;
       matchedSlot = slotByWbColRow.get(`${wbId}_${colIdx}_${rowIdx}`);
       if (matchedSlot) {
         isDirectSlotLink = true;
@@ -1084,16 +1088,18 @@ export function syncWristbandToCallSheet(
       }
     }
 
-    if (!matchedSlot && play.wristbandNum && typeof play.wristbandNum === 'number') {
+    // A named play is found by its name, never by a wristband number it carries (an old number
+    // from the play list now belongs to a different play and would rename this one to it).
+    if (!matchedSlot && play.name && play.name.trim()) {
+      const norm = normalizePlayName(play.name);
+      matchedSlot = slotByName.get(norm);
+    }
+
+    if (!matchedSlot && !(play.name && play.name.trim()) && play.wristbandNum && typeof play.wristbandNum === 'number') {
       matchedSlot = slotByNumber.get(play.wristbandNum);
       if (matchedSlot) {
         isDirectSlotLink = true;
       }
-    }
-
-    if (!matchedSlot && play.name && play.name.trim()) {
-      const norm = normalizePlayName(play.name);
-      matchedSlot = slotByName.get(norm);
     }
 
     // Determine normalized formation
@@ -1135,10 +1141,11 @@ export function syncWristbandToCallSheet(
         wristbandRowColor: matchedSlot.rowHighlight || play.wristbandRowColor,
         wristbandSlotMatch: {
           ...play.wristbandSlotMatch,
-          wristbandId: play.wristbandSlotMatch?.wristbandId || matchedSlot.wbId || 'wb_1',
-          wristbandTitle: play.wristbandSlotMatch?.wristbandTitle || matchedSlot.wbTitle,
-          colIdx: play.wristbandSlotMatch?.colIdx ?? matchedSlot.colIdx ?? 0,
-          rowIdx: play.wristbandSlotMatch?.rowIdx ?? matchedSlot.rowIdx ?? 0,
+          // Found by name: link to the slot it was found in, not to an old, incomplete link.
+          wristbandId: (isDirectSlotLink ? play.wristbandSlotMatch?.wristbandId : matchedSlot.wbId) || matchedSlot.wbId || play.wristbandSlotMatch?.wristbandId || 'wb_1',
+          wristbandTitle: (isDirectSlotLink ? play.wristbandSlotMatch?.wristbandTitle : undefined) || matchedSlot.wbTitle,
+          colIdx: (isDirectSlotLink ? play.wristbandSlotMatch?.colIdx : undefined) ?? matchedSlot.colIdx ?? 0,
+          rowIdx: (isDirectSlotLink ? play.wristbandSlotMatch?.rowIdx : undefined) ?? matchedSlot.rowIdx ?? 0,
           color: matchedSlot.colColor,
           slotNumber: matchedSlot.slotLabel,
           numberBgColor: matchedSlot.colColor,

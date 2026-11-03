@@ -313,6 +313,8 @@ export const PlayBankSidebar: React.FC<PlayBankSidebarProps> = ({
         ? {
             wristbandId: match.wristbandId,
             wristbandTitle: match.wristbandTitle,
+            colIdx: match.colIdx,
+            rowIdx: match.rowIdx,
             cardLabel: match.wristbandShort,
             slotNumber: match.slotLabel,
             numberBgColor: match.numberBgColor,
@@ -351,6 +353,8 @@ export const PlayBankSidebar: React.FC<PlayBankSidebarProps> = ({
       wristbandSlotMatch: {
         wristbandId: item.wristbandId,
         wristbandTitle: item.wristbandTitle,
+        colIdx: item.colIdx,
+        rowIdx: item.rowIdx,
         cardLabel: item.wristbandTitle,
         slotNumber: item.slotLabel,
         numberBgColor: item.numberBgColor,

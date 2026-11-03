@@ -2545,6 +2545,33 @@ describe('wristband row keeps the coach tables in their 4-across layout', () => 
   });
 });
 
+describe('a play put in the script keeps its name through the wristband sync', () => {
+  it('is not renamed to the first wristband play or to an old wristband number', async () => {
+    const { syncWristbandToCallSheet, buildWristbandIndex, lookupWristbandPlay } = await import('./wristbandLinking.ts');
+    const { INITIAL_TWO_WRISTBANDS_DATA } = await import('../data/userGameDayPlays.ts');
+    const { DEFAULT_CALL_SHEET_DATA } = await import('../data/callSheetData.ts');
+    const wb = INITIAL_TWO_WRISTBANDS_DATA;
+    const first = wb.wristbands[0];
+    const name = first.columns[0].plays.map((p: any) => p.text).filter(Boolean)[4];
+    const firstName = first.columns[0].plays[0].text;
+    assert.ok(name && name !== firstName);
+    const match = lookupWristbandPlay(name, buildWristbandIndex(wb))!;
+    // Saved the old way, a link without column and row, and the new way with them.
+    const oldLink = { id: 'call_1', name, wristbandSlotMatch: { wristbandId: match.wristbandId, slotNumber: match.slotLabel } };
+    const newLink = { id: 'call_2', name, wristbandSlotMatch: { wristbandId: match.wristbandId, colIdx: match.colIdx, rowIdx: match.rowIdx } };
+    // Not on a wristband, but carries a wristband number from the play list.
+    const stale = { id: 'call_3', name: 'NOT ON ANY WRISTBAND', wristbandNum: 1 };
+    const cs = { ...DEFAULT_CALL_SHEET_DATA, offenseScript: [oldLink, newLink, stale, null] } as any;
+    const out = syncWristbandToCallSheet(wb, cs);
+    assert.deepEqual(out.offenseScript.map((p: any) => p?.name ?? null), [name, name, 'NOT ON ANY WRISTBAND', null]);
+    // The old link is fixed to point at the play's real slot.
+    assert.equal(out.offenseScript[0].wristbandSlotMatch.rowIdx, match.rowIdx);
+    assert.equal(out.offenseScript[0].wristbandLabel, match.slotLabel);
+    // Run again: still the same.
+    assert.deepEqual(syncWristbandToCallSheet(wb, out).offenseScript.map((p: any) => p?.name ?? null), [name, name, 'NOT ON ANY WRISTBAND', null]);
+  });
+});
+
 describe('Black / Blue / Gold unit stats (our-team play log)', () => {
   const play = (o: any) => ({
     id: o.id, playNumber: o.n, odk: o.odk || 'O', quarter: 1, down: o.down || 1, distance: o.dist || 10,
