@@ -7,6 +7,7 @@ import { ArrowLeftRight, Columns2, Pause, Play as PlayIcon, SkipBack, X } from '
 import type { Play } from '../hudlScout/types/football';
 import type { PlayerApi } from './FilmPlayer';
 import { probeSnap } from './snapProbe';
+import { compareSplits, loadTiming, MOMENTS, saveTiming, secs, timingKey, type MomentId, type Moments } from './compareTiming';
 import { compareNotes, formationList, formationNumbers, formationOf, isSnap, playFacts, playNameOf, type CompareGame, type FormationNumbers } from './compareData';
 
 export type Side = 'a' | 'b';
@@ -93,6 +94,22 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
   const picks = { a, b };
   const setPick = { a: setA, b: setB };
 
+  // Timing: moments marked on each play (kept on this device).
+  const [timing, setTiming] = useState<Record<string, Moments>>(loadTiming);
+  const momentsOf = (gameKey: string, playId?: string): Moments => (playId ? timing[timingKey(gameKey, playId)] || {} : {});
+  const mark = (gameKey: string, playId: string, id: MomentId, t: number | null) =>
+    setTiming((all) => {
+      const k = timingKey(gameKey, playId);
+      const m = { ...(all[k] || {}) };
+      if (t == null) delete m[id];
+      else m[id] = Math.round(t * 1000) / 1000;
+      const next = { ...all };
+      if (Object.keys(m).length) next[k] = m;
+      else delete next[k];
+      saveTiming(next);
+      return next;
+    });
+
   // Escape closes (when not typing).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -117,7 +134,7 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
     const teamPlays = game ? games.filter((g) => (game.source === 'own' ? g.source === 'own' : g.source === 'opponent' && g.week === game.week)).flatMap((g) => g.plays) : [];
     const f = pk.formation || (play ? formationOf(play) : '');
     const numbers = f && f !== '(no formation)' ? formationNumbers(teamPlays.filter((p) => formationOf(p) === f)) : undefined;
-    return { pk, game, list, play, at, numbers, formation: f, gamesInTeam: game ? new Set(teamPlays.map((p) => p.gameId)).size : 0 };
+    return { pk, game, list, play, at, numbers, formation: f, gamesInTeam: game ? new Set(teamPlays.map((p) => p.gameId)).size : 0, moments: momentsOf(pk.gameKey, play?.id) };
   };
   const A = sideData('a');
   const B = sideData('b');
@@ -135,7 +152,7 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
       else if (v) v.playbackRate = x;
     });
   };
-  /** Both back to just before the snap, paused, so they start together. */
+  /** Both back to just before the snap (the marked one, else the one found in the video), paused, so they start together. */
   const toSnap = async () => {
     setBusy(true);
     try {
@@ -145,8 +162,13 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
           const api = apis[s].current;
           const v = api?.video?.();
           const src = v?.currentSrc || v?.src;
-          if (!api || !src) return;
+          if (!api || !src || !v) return;
+          const marked = (s === 'a' ? A : B).moments.snap;
+          if (marked != null) return api.seek(Math.max(0, marked - 1));
+          // Finding the snap can take a few seconds: a video the coach moved or played meanwhile is left where it is.
+          const was = v.currentTime;
           const t = await probeSnap(src).catch(() => null);
+          if (api.video?.() !== v || (v.currentSrc || v.src) !== src || !v.paused || Math.abs(v.currentTime - was) > 0.05) return;
           api.seek(t == null ? 0 : Math.max(0, t - 1));
         })
       );
@@ -239,6 +261,44 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
         ) : (
           <div className="aspect-video max-w-full rounded-xl bg-slate-900 text-slate-300 text-xs flex items-center justify-center px-4 text-center">Pick a game with a breakdown to compare.</div>
         )}
+        {d.game && d.play && (
+          <div role="group" aria-label={`${s === 'a' ? 'Left' : 'Right'} timing`} className="flex flex-wrap items-center gap-1.5">
+            {MOMENTS.map((m) => {
+              const t = d.moments[m.id];
+              const fromSnap = t != null && d.moments.snap != null && m.id !== 'snap' ? t - d.moments.snap : undefined;
+              const gameKey = d.game!.key;
+              const playId = d.play!.id;
+              return (
+                <span key={m.id} className={`inline-flex items-stretch rounded-lg border overflow-hidden text-xs font-bold ${t != null ? 'border-indigo-500' : 'border-slate-300 dark:border-slate-600'}`}>
+                  <button
+                    type="button"
+                    aria-label={`Mark ${m.label}`}
+                    title={t != null ? `Mark ${m.label} again at the moment on screen` : `Pause on the ${m.label.toLowerCase()} (step a frame with ◀ ▶), then tap`}
+                    onClick={() => {
+                      const v = apis[s].current?.video?.();
+                      const now = v ? v.currentTime : apis[s].current?.time();
+                      if (now != null) mark(gameKey, playId, m.id, now);
+                    }}
+                    className={`h-9 pointer-coarse:h-10 px-2.5 ${t != null ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-950'}`}
+                  >
+                    {m.label}
+                    {t != null && <span className="ml-1 font-black tabular-nums">{fromSnap != null ? `+${fromSnap.toFixed(2)}` : m.id === 'snap' ? '✓' : t.toFixed(2)}</span>}
+                  </button>
+                  {t != null && (
+                    <>
+                      <button type="button" aria-label={`Go to the ${m.label}`} title={`Go to the ${m.label.toLowerCase()}`} onClick={() => apis[s].current?.seek(t)} className="h-9 pointer-coarse:h-10 px-1.5 bg-indigo-50 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-200">
+                        ↦
+                      </button>
+                      <button type="button" aria-label={`Clear the ${m.label}`} title="Clear" onClick={() => mark(gameKey, playId, m.id, null)} className="h-9 pointer-coarse:h-10 px-1.5 bg-white dark:bg-slate-950 text-slate-500">
+                        ×
+                      </button>
+                    </>
+                  )}
+                </span>
+              );
+            })}
+          </div>
+        )}
       </section>
     );
   };
@@ -252,6 +312,7 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
   const theirs = ours === A ? B : ours === B ? A : undefined;
   const notes = ours?.numbers && theirs?.numbers && theirs.game ? compareNotes(ours.numbers, theirs.numbers, theirs.game.team) : [];
   const sameF = A.formation && A.formation === B.formation;
+  const splits = compareSplits(A.moments, B.moments);
 
   const numberRows: { label: string; get: (n: FormationNumbers) => string; better?: (x: FormationNumbers, y: FormationNumbers) => number }[] = [
     { label: 'Snaps', get: (n) => String(n.snaps) },
@@ -302,6 +363,42 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-3">
           {pane('a', A)}
           {pane('b', B)}
+        </div>
+
+        <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+          <div className="px-3 pt-2.5 text-sm font-black">Timing</div>
+          {splits.length ? (
+            <table className="w-full text-xs mt-1" aria-label="Timing of the two plays">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
+                  <th className="py-2 px-3 w-36"></th>
+                  <th className="py-2 px-3">{nameA}{A.play ? ` · #${A.play.playNumber}` : ''}</th>
+                  <th className="py-2 px-3">{nameB}{B.play ? ` · #${B.play.playNumber}` : ''}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {splits.map((sp) => (
+                  <tr key={sp.id} className="border-b last:border-0 border-slate-100 dark:border-slate-800">
+                    <th scope="row" className="py-1.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">{sp.label}</th>
+                    {(['a', 'b'] as Side[]).map((k) => (
+                      <td key={k} className="py-1.5 px-3 font-black tabular-nums">
+                        <span className={sp.faster === k ? 'text-emerald-700 dark:text-emerald-400' : ''} data-faster={sp.faster === k || undefined}>
+                          {secs(sp[k])}
+                          {sp.faster === k && sp.diff != null ? ` ▲ ${sp.diff.toFixed(2)} s quicker` : ''}
+                        </span>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="px-3 pt-1 text-xs text-slate-600 dark:text-slate-300">
+              Under each video: pause on the snap (step a frame at a time with ◀ ▶) and tap <b>Snap</b>, then do the same for the <b>Handoff</b>, the back reaching the <b>Hole</b>,
+              first <b>Contact</b> and the <b>Whistle</b>. The times from snap to handoff, handoff to hole and so on show here for both plays, the quicker one in green.
+            </p>
+          )}
+          <p className="px-3 py-2 text-[11px] text-slate-500 dark:text-slate-400">Marks are saved on this device for each play. Once both snaps are marked, To the snap starts both videos on their marked snap.</p>
         </div>
 
         {rows.length > 0 && (
