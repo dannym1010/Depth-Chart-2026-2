@@ -15,6 +15,35 @@ export interface CompareGame extends FilmGame {
   plays: Play[];
   /** Film with no breakdown: its plays are its clips (filled in once its film is open). */
   filmOnly?: boolean;
+  /** The team with the ball on the film's D plays ('' = not known). */
+  otherTeam?: string;
+  /** `otherTeam` was guessed (from the game's name or the schedule), not set by a coach. */
+  otherGuessed?: boolean;
+}
+
+const words = (x: string) => ` ${String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `;
+/** A team's name as written in a game name: "Carmel_O" and "Week 3 - Carmel" are Carmel. */
+const cleanTeam = (x: string) =>
+  x
+    .replace(/\.(mp4|mov|xlsx?|csv)$/i, '')
+    .replace(/^\s*(week|wk)\s*\d+\s*[-:·]?\s*/i, '')
+    .replace(/[_\s-]+\(?[od]\)?\s*$/i, '')
+    .replace(/[_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/**
+ * Who has the ball on a film's D plays, from its name: the team in "A vs B" that isn't `team` (the O team).
+ * Our game: the week's opponent on the schedule first.
+ */
+export function guessOtherTeam(name: string, team: string, scheduled?: string): string {
+  if (scheduled) return scheduled;
+  const raw = String(name || '').split(/\s+(?:vs\.?|v\.?|versus|at|@)\s+|\s+-\s+/i);
+  if (raw.length < 2) return '';
+  const parts = raw.map(cleanTeam).filter(Boolean);
+  const t = words(team);
+  const notO = parts.filter((p) => !(t.trim() && (words(p).includes(t) || t.includes(words(p)))));
+  return notO.length === 1 ? notO[0] : '';
 }
 
 /**
@@ -76,7 +105,23 @@ function gamesOf(b: ScoutBundle, make: (g: ScoutBundle['games'][number]) => Omit
  */
 export function compareGames(ownSaved: unknown, teamName: string, weeks: CompareWeek[], currentWeek: string, currentScout?: unknown): CompareGame[] {
   const own = bundleFromSaved(ownSaved, teamName);
-  const out = gamesOf(own, (g) => ({ key: filmGameKey('own', g.id), source: 'own', gameId: g.id, name: g.name, week: g.week, team: teamName, group: 'Our games' }));
+  /** The D team: the coach's, else the guess. */
+  const other = (g: { name: string; otherTeam?: string }, team: string, scheduled?: string) => {
+    const set = String(g.otherTeam || '').trim();
+    if (set) return { otherTeam: set, otherGuessed: false };
+    const guess = guessOtherTeam(g.name, team, scheduled);
+    return guess ? { otherTeam: guess, otherGuessed: true } : {};
+  };
+  const out = gamesOf(own, (g) => ({
+    key: filmGameKey('own', g.id),
+    source: 'own',
+    gameId: g.id,
+    name: g.name,
+    week: g.week,
+    team: teamName,
+    group: 'Our games',
+    ...other(g, teamName, weeks.find((w) => g.week && w.key === g.week)?.opponent),
+  }));
   for (const w of weeks) {
     const saved = w.key === currentWeek && currentScout ? currentScout : w.hudlScout;
     if (!saved) continue;
@@ -92,6 +137,7 @@ export function compareGames(ownSaved: unknown, teamName: string, weeks: Compare
         team: opp,
         group: `${w.label}${w.opponent ? ` · ${w.opponent}` : ''}`,
         ...(g.filmFrom ? { filmFrom: g.filmFrom } : {}),
+        ...other(g, opp),
       }))
     );
   }
@@ -107,6 +153,15 @@ export const sameFormation = (a: Play, b: Play) => {
 
 /** A snap a team ran: offense, not a kick, an extra clip or a penalty with no play. */
 export const isSnap = (p: Play) => p.odk === 'O' && p.playType !== 'SPECIAL';
+/** A snap the other team ran on this film (our D, or the scouted team's D): theirs, as offense. */
+export const isDSnap = (p: Play) => p.odk === 'D' && p.playType !== 'SPECIAL';
+/** A D play as the other team's offense (Hudl's formation, gain and result are already theirs). */
+export const asOffense = (p: Play): Play => ({ ...p, odk: 'O' });
+/** One team across the film, by name ("Fox Lane", "FOX LANE " and "Fox-Lane" are one). */
+export const teamKey = (name: string, ownName: string) => {
+  const w = words(name).trim();
+  return w && w === words(ownName).trim() ? 'own' : `opp:${w.toUpperCase()}`;
+};
 /** A play to pick: a snap, or one nobody has tagged yet (a clip of film with no breakdown, a blank breakdown). */
 export const isPickable = (p: Play) => isSnap(p) || ((!p.odk || p.odk === 'UNKNOWN') && p.playType !== 'SPECIAL');
 

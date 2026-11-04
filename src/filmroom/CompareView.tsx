@@ -10,7 +10,7 @@ import type { Play } from '../hudlScout/types/football';
 import type { PlayerApi } from './FilmPlayer';
 import { probeSnap } from './snapProbe';
 import { compareSplits, loadTiming, MOMENTS, saveTiming, secs, timingKey, type MomentId, type Moments } from './compareTiming';
-import { compareNotes, formationList, formationNumbers, formationOf, isPickable, isSnap, playFacts, playNameOf, type CompareGame, type FormationNumbers } from './compareData';
+import { asOffense, compareNotes, formationList, formationNumbers, formationOf, isDSnap, isPickable, isSnap, playFacts, playNameOf, teamKey, type CompareGame, type FormationNumbers } from './compareData';
 
 export type Side = 'a' | 'b';
 
@@ -18,6 +18,8 @@ export interface CompareFilmProps {
   side: Side;
   game: CompareGame;
   play?: Play;
+  /** The team with the ball on the play ("Us" for ours). */
+  who: string;
   apiRef: React.MutableRefObject<PlayerApi | null>;
   /** Tallest the video may be (CSS length). */
   maxVideoHeight: string;
@@ -39,14 +41,21 @@ interface Pick {
   playId?: string;
 }
 
-/** A play in a side's list, with the game (film) it is from. */
+/** A play in a side's list, with the game (film) it is from; a D play is the other team's snap, shown as offense. */
 interface Item {
   game: CompareGame;
   play: Play;
+  side: 'O' | 'D';
 }
 
-/** One team across the film: us (every game of ours), or a scouted team by name (every week it was scouted). */
-export const teamKeyOf = (g: CompareGame) => (g.source === 'own' ? 'own' : `opp:${g.team.trim().toUpperCase()}`);
+/** Our team's name in the film (the own games'). */
+let ownName = '';
+/** The team with the ball on a film's O plays: us (every game of ours), or a scouted team by name (every week it was scouted). */
+export const teamKeyOf = (g: CompareGame) => (g.source === 'own' ? 'own' : teamKey(g.team, ownName));
+/** The team with the ball on its D plays, when known. */
+export const otherKeyOf = (g: CompareGame) => (g.otherTeam ? teamKey(g.otherTeam, ownName) : '');
+/** The film has the team's snaps: its O plays, or its D plays when the other team is it. */
+const hasTeam = (g: CompareGame, team: string) => Boolean(team) && (teamKeyOf(g) === team || (otherKeyOf(g) === team && g.plays.some(isDSnap)));
 
 interface Props {
   games: CompareGame[];
@@ -58,6 +67,8 @@ interface Props {
   timing?: TimingStore;
   /** The two games on screen (left, right), so the store can open their shared data. */
   onShown?: (keys: [string, string]) => void;
+  /** Set who has the ball on a film's D plays (for every coach); without it, the line can't be changed. */
+  onSetOtherTeam?: (game: CompareGame, name: string) => void;
 }
 
 export interface TimingStore {
@@ -81,16 +92,23 @@ const readSaved = (): { b?: Partial<Pick> } => {
 const playsOf = (g: CompareGame | undefined, formation: string) =>
   g ? g.plays.filter((p) => (formation ? isSnap(p) && formationOf(p) === formation : isPickable(p))) : [];
 
-/** The plays a side lists: from its game, or from every game of its team. */
+/** The other team's snaps on a game's film (its D plays), as their offense. */
+const dPlaysOf = (g: CompareGame, formation: string) =>
+  g.plays.filter((p) => isDSnap(p) && (!formation || formationOf(p) === formation)).map(asOffense);
+
+/** The plays a side lists: the team's snaps (O plays where it has the ball, D plays where the other team is it), from its game or every game. */
 function itemsOf(games: CompareGame[], byKey: Map<string, CompareGame>, pk: Pick): Item[] {
-  const from = pk.allGames ? games.filter((g) => teamKeyOf(g) === pk.team) : [byKey.get(pk.gameKey)].filter((g): g is CompareGame => Boolean(g));
-  return from.flatMap((g) => playsOf(g, pk.formation).map((play) => ({ game: g, play })));
+  const from = pk.allGames ? games.filter((g) => hasTeam(g, pk.team)) : [byKey.get(pk.gameKey)].filter((g): g is CompareGame => Boolean(g));
+  return from.flatMap((g) => [
+    ...(teamKeyOf(g) === pk.team ? playsOf(g, pk.formation).map((play): Item => ({ game: g, play, side: 'O' })) : []),
+    ...(otherKeyOf(g) === pk.team ? dPlaysOf(g, pk.formation).map((play): Item => ({ game: g, play, side: 'D' })) : []),
+  ]);
 }
 
 /** The other side's start: the other team with the most snaps in that formation, across all its film. */
 function otherStart(games: CompareGame[], byKey: Map<string, CompareGame>, from: CompareGame | undefined, formation: string): Pick | undefined {
   const fromTeam = from ? teamKeyOf(from) : '';
-  const teams = [...new Set(games.map(teamKeyOf))];
+  const teams = [...new Set(games.flatMap((g) => [teamKeyOf(g), otherKeyOf(g)]).filter(Boolean))];
   // Their play against ours: us when the left is a scouted team, else the scouted team that runs it most.
   const others = from && from.source !== 'own' && teams.includes('own') ? ['own'] : teams.filter((t) => t !== fromTeam);
   const pool = others.length ? others : teams;
@@ -101,10 +119,11 @@ function otherStart(games: CompareGame[], byKey: Map<string, CompareGame>, from:
   if (!best) return undefined;
   const pk: Pick = { team: best.team, allGames: true, gameKey: '', formation: best.n > 0 ? formation : '' };
   const first = itemsOf(games, byKey, pk)[0];
-  return { ...pk, gameKey: first?.game.key || games.find((g) => teamKeyOf(g) === best.team)?.key || '', playId: first?.play.id };
+  return { ...pk, gameKey: first?.game.key || games.find((g) => hasTeam(g, best.team))?.key || '', playId: first?.play.id };
 }
 
-export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose, timing, onShown }) => {
+export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose, timing, onShown, onSetOtherTeam }) => {
+  ownName = games.find((g) => g.source === 'own')?.team || ownName;
   const byKey = useMemo(() => new Map(games.map((g) => [g.key, g])), [games]);
   const [a, setA] = useState<Pick>(() => {
     const g = (start && byKey.get(start.gameKey)) || games[0];
@@ -119,9 +138,10 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
     const pa = ga?.plays.find((x) => x.id === a.playId);
     const f = pa ? formationOf(pa) : '';
     // The last team picked on the right, when it has this formation too; else the best match.
-    if (saved?.team && saved.team !== a.team && games.some((g) => teamKeyOf(g) === saved.team)) {
+    if (saved?.team && saved.team !== a.team && games.some((g) => hasTeam(g, saved.team!))) {
       const pk: Pick = { team: saved.team, allGames: saved.allGames !== false, gameKey: saved.gameKey || '', formation: f };
-      if (!pk.allGames && byKey.get(pk.gameKey) && teamKeyOf(byKey.get(pk.gameKey)!) !== pk.team) pk.allGames = true;
+      const sg = byKey.get(pk.gameKey);
+      if (!pk.allGames && (!sg || !hasTeam(sg, pk.team))) pk.allGames = true;
       const first = itemsOf(games, byKey, pk)[0];
       if (first) return { ...pk, gameKey: first.game.key, playId: first.play.id };
     }
@@ -174,9 +194,11 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
   }, [onClose]);
 
   const [onlyTimed, setOnlyTimed] = useState<Record<Side, boolean>>({ a: false, b: false });
+  /** The D team being typed on a side (null = not changing it). */
+  const [editOther, setEditOther] = useState<Record<Side, string | null>>({ a: null, b: null });
   const sideData = (s: Side) => {
     const pk = picks[s];
-    const teamGames = games.filter((g) => teamKeyOf(g) === pk.team);
+    const teamGames = games.filter((g) => hasTeam(g, pk.team));
     const all = itemsOf(games, byKey, pk);
     // Plays with times marked (snap, handoff...): marked in the list, and a side can show only those. (A play's marks
     // are known once its game is on screen.)
@@ -188,13 +210,18 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
     // The film on screen: the play's game; a game picked with nothing listed yet (film only) still opens its film.
     const game = item?.game || (!pk.allGames ? byKey.get(pk.gameKey) : undefined);
     const at = item ? list.indexOf(item) : -1;
-    // The team's numbers from the play's formation: every game of that team's film.
-    const teamPlays = teamGames.flatMap((g) => g.plays);
+    // The side's team by name ("Us" for ours).
+    const ours = pk.team === 'own';
+    const anyGame = game || teamGames[0];
+    const who = ours ? 'Us' : anyGame ? ((item ? item.side === 'D' : teamKeyOf(anyGame) !== pk.team) ? anyGame.otherTeam || '' : anyGame.team).trim() : '';
+    // The team's numbers from the play's formation: its snaps on every game of film (O and D plays).
+    const teamItems = itemsOf(games, byKey, { ...pk, allGames: true, formation: '' });
+    const teamPlays = teamItems.map((i) => i.play);
     const f = pk.formation || (play ? formationOf(play) : '');
     const numbers = f && f !== '(no formation)' ? formationNumbers(teamPlays.filter((p) => formationOf(p) === f)) : undefined;
-    // Formations to pick: from the listed games.
-    const formations = formationList((pk.allGames ? teamGames : game ? [game] : []).flatMap((g) => g.plays));
-    return { pk, teamGames, game, list, marked, timedCount, play, at, numbers, formations, formation: f, gamesInTeam: new Set(teamGames.filter((g) => g.plays.length).map((g) => g.key)).size, moments: momentsOf(game?.key || '', play?.id) };
+    // Formations to pick: the team's, from the listed games.
+    const formations = formationList(pk.allGames ? teamPlays : itemsOf(games, byKey, { ...pk, formation: '' }).map((i) => i.play));
+    return { pk, teamGames, game, item, ours, who, list, marked, timedCount, play, at, numbers, formations, formation: f, gamesInTeam: new Set(teamItems.map((i) => i.game.key)).size, moments: momentsOf(game?.key || '', play?.id) };
   };
   const A = sideData('a');
   const B = sideData('b');
@@ -252,7 +279,7 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = clipFileName(d.game.source === 'own' ? 'Us' : d.game.team, d.play.playNumber, playNameOf(d.play), blob.type);
+      link.download = clipFileName(d.who || 'Team', d.play.playNumber, playNameOf(d.play), blob.type);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -273,7 +300,7 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
   const [copied, setCopied] = useState('');
   const aiSide = (d: typeof A): AiSide | undefined =>
     d.game && d.play
-      ? { team: d.game.source === 'own' ? 'Us' : d.game.team, ours: d.game.source === 'own', title: [`#${d.play.playNumber}`, d.play.down ? `${d.play.down}&${d.play.distance ?? ''}` : '', d.play.formation, playNameOf(d.play)].filter(Boolean).join(' · '), facts: playFacts(d.play), moments: d.moments }
+      ? { team: d.who || 'Team', ours: d.ours, title: [`#${d.play.playNumber}`, d.play.down ? `${d.play.down}&${d.play.distance ?? ''}` : '', d.play.formation, playNameOf(d.play)].filter(Boolean).join(' · '), facts: playFacts(d.play), moments: d.moments }
       : undefined;
   const askAi = async () => {
     const sa = aiSide(A);
@@ -327,13 +354,15 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
   const videoMax = 'min(46dvh, calc((100vw - 3rem) / 2 * 9 / 16))';
   // Every team in the film: us first, then each scouted team (a team scouted more than one week is one team).
   const teams = useMemo(() => {
+    // A team also counts when it is only ever on the D plays (the team a scouted team played).
     const m = new Map<string, { key: string; label: string; games: number }>();
-    games.forEach((g) => {
-      const k = teamKeyOf(g);
-      const t = m.get(k) || { key: k, label: g.source === 'own' ? `Us (${g.team})` : g.team, games: 0 };
+    const add = (k: string, name: string) => {
+      const t = m.get(k) || { key: k, label: k === 'own' ? `Us (${ownName || name})` : name.trim(), games: 0 };
       t.games++;
       m.set(k, t);
-    });
+    };
+    games.forEach((g) => add(teamKeyOf(g), g.team));
+    games.forEach((g) => g.otherTeam && !g.filmOnly && g.plays.some(isDSnap) && add(otherKeyOf(g), g.otherTeam));
     return [...m.values()].sort((x, y) => (x.key === 'own' ? -1 : y.key === 'own' ? 1 : 0));
   }, [games]);
 
@@ -359,7 +388,7 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
             onChange={(e) => {
               const team = e.target.value;
               // Every game of the team's film; the formation kept when the team runs it.
-              const pk: Pick = { team, allGames: true, gameKey: games.find((g) => teamKeyOf(g) === team)?.key || '', formation: d.pk.formation };
+              const pk: Pick = { team, allGames: true, gameKey: games.find((g) => hasTeam(g, team))?.key || '', formation: d.pk.formation };
               if (pk.formation && !itemsOf(games, byKey, pk).length) pk.formation = '';
               set(firstOf(pk));
             }}
@@ -432,6 +461,62 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
             })}
           </select>
         </div>
+        {d.game && !d.game.filmOnly && (
+          <div className="-mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-slate-600 dark:text-slate-300" aria-label={`${side} film teams`}>
+            {editOther[s] == null ? (
+              <>
+                <span>
+                  This film: <b>O</b> = {d.game.source === 'own' ? 'Us' : d.game.team} · <b>D</b> ={' '}
+                  {d.game.otherTeam ? (
+                    <>
+                      {d.game.otherTeam}
+                      {d.game.otherGuessed ? ' (guessed)' : ''}
+                    </>
+                  ) : (
+                    <span className="text-amber-700 dark:text-amber-300 font-bold">not set, so its D plays aren&apos;t listed</span>
+                  )}
+                </span>
+                {onSetOtherTeam && (
+                  <button type="button" onClick={() => setEditOther((x) => ({ ...x, [s]: d.game!.otherTeam || '' }))} className="font-bold underline">
+                    {d.game.otherTeam ? 'Change' : 'Set the D team'}
+                  </button>
+                )}
+              </>
+            ) : (
+              <form
+                className="flex flex-wrap items-center gap-1.5"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const name = (editOther[s] || '').trim();
+                  if (name && d.game) {
+                    onSetOtherTeam?.(d.game, name);
+                    // A side showing the old D team follows it to the new name.
+                    if (d.pk.team === otherKeyOf(d.game)) set((p) => ({ ...p, team: teamKey(name, ownName) }));
+                  }
+                  setEditOther((x) => ({ ...x, [s]: null }));
+                }}
+              >
+                <label htmlFor={`other-${s}`}>
+                  Team with the ball on <b>{d.game.name}</b>&apos;s D plays:
+                </label>
+                <input
+                  id={`other-${s}`}
+                  list="compare-team-names"
+                  value={editOther[s] || ''}
+                  onChange={(e) => setEditOther((x) => ({ ...x, [s]: e.target.value }))}
+                  autoFocus
+                  className="h-8 w-40 min-w-0 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-xs"
+                />
+                <button type="submit" disabled={!(editOther[s] || '').trim()} className="h-8 px-2.5 rounded-lg bg-indigo-600 text-white font-bold disabled:opacity-50">
+                  Save
+                </button>
+                <button type="button" onClick={() => setEditOther((x) => ({ ...x, [s]: null }))} className="h-8 px-2 font-bold">
+                  Cancel
+                </button>
+              </form>
+            )}
+          </div>
+        )}
         {d.timedCount > 0 && (
           <label className="-mt-1 inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer self-start">
             <input type="checkbox" checked={onlyTimed[s]} onChange={(e) => setOnlyTimed((o) => ({ ...o, [s]: e.target.checked }))} />
@@ -443,6 +528,7 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
             side: s,
             game: d.game,
             play: d.play,
+            who: d.who,
             apiRef: apis[s],
             maxVideoHeight: videoMax,
             hasPrev: d.at > 0,
@@ -509,11 +595,11 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
   const factsA = A.play ? playFacts(A.play) : [];
   const factsB = B.play ? playFacts(B.play) : [];
   const rows = (factsA.length ? factsA : factsB).map((r, i) => ({ label: r.label, a: factsA[i]?.value || '', b: factsB[i]?.value || '' })).filter((r) => r.a || r.b);
-  const nameA = A.game?.source === 'own' ? 'Us' : A.game?.team || 'Left';
-  const nameB = B.game?.source === 'own' ? 'Us' : B.game?.team || 'Right';
-  const ours = A.game?.source === 'own' ? A : B.game?.source === 'own' ? B : undefined;
+  const nameA = A.who || 'Left';
+  const nameB = B.who || 'Right';
+  const ours = A.ours ? A : B.ours ? B : undefined;
   const theirs = ours === A ? B : ours === B ? A : undefined;
-  const notes = ours?.numbers && theirs?.numbers && theirs.game ? compareNotes(ours.numbers, theirs.numbers, theirs.game.team) : [];
+  const notes = ours?.numbers && theirs?.numbers && theirs.who && !theirs.ours ? compareNotes(ours.numbers, theirs.numbers, theirs.who) : [];
   const sameF = A.formation && A.formation === B.formation;
   const splits = compareSplits(A.moments, B.moments);
 
@@ -526,10 +612,16 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
     { label: 'Run', get: (n) => `${n.runPct}%` },
   ];
   const teamLabel = (d: typeof A) =>
-    d.game ? (d.game.source === 'own' ? 'Our season' : `${d.game.team}${d.gamesInTeam > 1 ? ` (${d.gamesInTeam} games of film)` : ''}`) : '';
+    d.game ? (d.ours ? 'Our season' : `${d.who}${d.gamesInTeam > 1 ? ` (${d.gamesInTeam} games of film)` : ''}`) : '';
 
   return (
     <div role="dialog" aria-label="Compare plays" className="fixed inset-0 z-50 flex flex-col bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100" data-film-area>
+      <datalist id="compare-team-names">
+        {teams.filter((t) => t.key !== 'own').map((t) => (
+          <option key={t.key} value={t.label} />
+        ))}
+        {ownName && <option value={ownName} />}
+      </datalist>
       <header
         className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
         style={{ paddingTop: 'calc(0.5rem + env(safe-area-inset-top, 0px))', paddingLeft: 'max(0.75rem, env(safe-area-inset-left, 0px))', paddingRight: 'max(0.75rem, env(safe-area-inset-right, 0px))' }}

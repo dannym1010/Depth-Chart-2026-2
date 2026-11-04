@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { compareGames, compareNotes, formationList, formationNumbers, isPickable, playFacts, sameFormation, withFilmOnly } from './compareData.ts';
+import { compareGames, compareNotes, guessOtherTeam, teamKey, formationList, formationNumbers, isPickable, playFacts, sameFormation, withFilmOnly } from './compareData.ts';
 import { playsFromClips } from './clipPlays.ts';
 
 describe('compare: games with no breakdown', () => {
@@ -134,5 +134,26 @@ describe('compare plays', () => {
       ['opponent', 'Lakeland', 'Week 2 · Lakeland', 's-Lakeland'],
     ]);
     assert.equal(games[1].key, 'opp_w1_s-Carmel');
+  });
+});
+
+describe("compare: who has the ball on a film's D plays", () => {
+  it('guesses the other team from the name', () => {
+    assert.equal(guessOtherTeam('Lakeland vs Fox Lane', 'Lakeland'), 'Fox Lane');
+    assert.equal(guessOtherTeam('Fox Lane vs Lakeland', 'LAKELAND'), 'Fox Lane');
+    assert.equal(guessOtherTeam('Carmel_O vs Shrub Oak', 'Shrub Oak'), 'Carmel');
+    assert.equal(guessOtherTeam('Brewster @ Somers', 'Somers'), 'Brewster');
+    assert.equal(guessOtherTeam('Week 1 - Carmel', 'Mahopac'), 'Carmel');
+    assert.equal(guessOtherTeam('Somers game film', 'Somers'), '');
+    assert.equal(guessOtherTeam('Lakeland vs Fox Lane', 'Carmel'), '');
+    // Ours: the week's opponent on the schedule.
+    assert.equal(guessOtherTeam('Game 3', 'Mahopac', 'Yorktown'), 'Yorktown');
+  });
+  it('a coach-set team wins over the guess; the same team spelled differently is one team', () => {
+    const scout = { games: [{ id: 's1', name: 'Lakeland vs Fox Lane', otherTeam: 'Brewster' }, { id: 's2', name: 'Lakeland vs Fox Lane 2' }], plays: [{ id: 'a', gameId: 's1', playNumber: 1, odk: 'D' }, { id: 'b', gameId: 's2', playNumber: 1, odk: 'D' }] };
+    const games = compareGames(undefined, 'Mahopac', [{ key: '2', label: 'Week 2', opponent: 'Lakeland', hudlScout: scout }], '2');
+    assert.deepEqual(games.map((g) => [g.otherTeam, g.otherGuessed]), [['Brewster', false], ['Fox Lane 2', true]]);
+    assert.equal(teamKey('Fox-Lane ', 'Mahopac'), teamKey('FOX LANE', 'Mahopac'));
+    assert.equal(teamKey('mahopac', 'Mahopac'), 'own');
   });
 });

@@ -615,6 +615,23 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     }
   };
 
+  // Who has the ball on a film's D plays (Compare lists them as that team's snaps), for every coach like a rename.
+  const setOtherTeam = (g: { source: 'own' | 'opponent'; gameId: string; week?: string }, name: string) => {
+    const n = name.trim();
+    if (locked || !n) return;
+    const now = Date.now();
+    const games = (list: ScoutGame[]) => list.map((x) => (x.id === g.gameId ? { ...x, otherTeam: n, editedAt: now } : x));
+    if (g.source === 'own') onUpdateOwnTeamScout({ ...own, games: games(own.games), updatedAt: now });
+    else {
+      const week = g.week || currentWeek;
+      const w = filmWeeks?.find((x) => x.key === week);
+      const saved = week === currentWeek ? opponentScout : w?.hudlScout;
+      const merged = { ...((saved as object) || {}), games: games(bundleFromSaved(saved, w?.opponent || opponentName || 'Opponent').games), updatedAt: now };
+      if (week === currentWeek) onUpdateScouting('hudlScout', merged);
+      else onSaveWeekScouting?.(week, merged);
+    }
+  };
+
   // Scouting film of another week used for this one: copied into that week's report, from either team's side.
   const [copyOpen, setCopyOpen] = useState(false);
   const [copyWeek, setCopyWeek] = useState('');
@@ -2388,6 +2405,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           start={game && play ? { gameKey: game.key, playId: play.id } : undefined}
           filmOnlyGames={filmOnlyGames}
           viewOnly={locked}
+          onSetOtherTeam={setOtherTeam}
           onClose={() => {
             setCompareOpen(false);
           }}

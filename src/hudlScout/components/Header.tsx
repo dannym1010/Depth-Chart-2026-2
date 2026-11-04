@@ -19,6 +19,8 @@ export interface ScoutGame {
   fromFilm?: boolean;
   /** Copied from another week's scouting: where its film is (that week's folder, that game). */
   filmFrom?: { week: string; name: string; opponent?: string };
+  /** The team with the ball on this film's D plays (set by a coach; else guessed from the name or the schedule). */
+  otherTeam?: string;
 }
 
 interface HeaderProps {

@@ -28,9 +28,11 @@ interface Props {
   filmOnlyGames?: { key: string; source: 'own' | 'opponent'; gameId: string; name: string; week?: string }[];
   viewOnly?: boolean;
   onClose: () => void;
+  /** Saves who has the ball on a film's D plays (on the game, for every coach). */
+  onSetOtherTeam?: (game: { source: 'own' | 'opponent'; gameId: string; week?: string }, name: string) => void;
 }
 
-export const ComparePlays: React.FC<Props> = ({ teamId, teamName, ownTeamScout, filmWeeks, currentWeek, opponentScout, start, filmOnlyGames = [], viewOnly, onClose }) => {
+export const ComparePlays: React.FC<Props> = ({ teamId, teamName, ownTeamScout, filmWeeks, currentWeek, opponentScout, start, filmOnlyGames = [], viewOnly, onClose, onSetOtherTeam }) => {
   // A film-only game's plays are its clips (in the count view's order), known once a side opens its film.
   const [clipPlays, setClipPlays] = useState<Record<string, Play[]>>({});
   const onClips = useCallback((gameKey: string, gameId: string, clips: FilmClip[]) => {
@@ -97,6 +99,7 @@ export const ComparePlays: React.FC<Props> = ({ teamId, teamName, ownTeamScout, 
       onClose={onClose}
       timing={timing}
       onShown={onShown}
+      onSetOtherTeam={viewOnly || !onSetOtherTeam ? undefined : (g, name) => onSetOtherTeam(g, name)}
       // A side's film reloads when its game changes (each game has its own folder and line-up).
       renderFilm={(p) => <CompareFilm key={`${p.side}:${p.game.key}`} {...p} teamId={teamId} teamName={teamName} viewOnly={viewOnly} onClips={onClips} />}
     />
@@ -104,7 +107,7 @@ export const ComparePlays: React.FC<Props> = ({ teamId, teamName, ownTeamScout, 
 };
 
 const CompareFilm: React.FC<CompareFilmProps & { teamId: string; teamName: string; viewOnly?: boolean; onClips: (gameKey: string, gameId: string, clips: FilmClip[]) => void }> = ({
-  game, play, apiRef, maxVideoHeight, hasPrev, hasNext, onPrev, onNext, teamId, teamName, viewOnly, onClips,
+  game, play, who, apiRef, maxVideoHeight, hasPrev, hasNext, onPrev, onNext, teamId, teamName, viewOnly, onClips,
 }) => {
   const { shared, update } = useSharedGame(teamId, game.key);
   const setDrive = useCallback((drive: FilmGameShared['drive']) => update((s) => ({ ...s, drive: drive || { folderId: '', editedAt: Date.now() } })), [update]);
@@ -207,7 +210,7 @@ const CompareFilm: React.FC<CompareFilmProps & { teamId: string; teamName: strin
     <FilmPlayer
       src={placeholder ? undefined : clipUrl.url}
       placeholder={placeholder}
-      title={play ? `${game.source === 'own' ? 'Us' : game.team} · ${playTitle(play)}` : ''}
+      title={play ? `${who} · ${playTitle(play)}` : ''}
       marks={marks}
       onMarksChange={saveMarks}
       hasPrev={hasPrev}
