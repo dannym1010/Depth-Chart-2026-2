@@ -1,4 +1,4 @@
-import { isDefenseRole, isThrownLine, lineStartsOn, type PlayNode, type PlayStroke } from './footballEngine';
+import { isDefenseRole, isThrownLine, lineStartsOn, shiftLegs, type PlayNode, type PlayStroke } from './footballEngine';
 import { defendPlay } from './defenseReads';
 
 export interface AnimatedTrail {
@@ -30,15 +30,27 @@ export const PLAY_SECONDS = 3.2;
 /** Pre-snap motion: seconds in motion, then set this long before the snap. */
 export const MOTION_SECONDS = 1;
 export const SET_SECONDS = 1;
+/** A pre-snap shift: seconds moving to the new spots (then set, like motion, before any motion or the snap). */
+export const SHIFT_SECONDS = 1;
 
-/** The play has pre-snap motion. */
+/** The play has pre-snap motion (a shift alone is not motion). */
 export function hasPreSnapMotion(strokes: PlayStroke[]): boolean {
-  return strokes.some((s) => s.points && s.points.length >= 2 && (s.motion || 0) >= 1);
+  return strokes.some((s) => s.points && s.points.length >= 2 && (s.motion || 0) >= 1 && (s.motion || 0) > shiftLegs(s));
 }
 
-/** How long the whole animation runs at full speed: the motion and the set before the snap, then the play. */
+/** The play has a pre-snap shift. */
+export function hasPreSnapShift(strokes: PlayStroke[]): boolean {
+  return strokes.some((s) => s.points && s.points.length >= 2 && shiftLegs(s) >= 1);
+}
+
+/** Seconds before the snap: the shift and its set, then the motion and its set (each when the play has one). */
+function preSnapSeconds(strokes: PlayStroke[]) {
+  return (hasPreSnapShift(strokes) ? SHIFT_SECONDS + SET_SECONDS : 0) + (hasPreSnapMotion(strokes) ? MOTION_SECONDS + SET_SECONDS : 0);
+}
+
+/** How long the whole animation runs at full speed: the shift, the motion and their sets before the snap, then the play. */
 export function playAnimationSeconds(strokes: PlayStroke[], extraStrokes: PlayStroke[] = []): number {
-  return PLAY_SECONDS + (hasPreSnapMotion([...strokes, ...extraStrokes]) ? MOTION_SECONDS + SET_SECONDS : 0);
+  return PLAY_SECONDS + preSnapSeconds([...strokes, ...extraStrokes]);
 }
 
 /** The closest point on a line to a spot: how far, the point, and the segment it's on. */
@@ -198,7 +210,8 @@ export function computeAnimatedPlayFrame(
     // Drop a join right on the motion's end (or the route's next point).
     const route = after.filter((p, i) => Math.hypot(p.x - (i ? after[i - 1].x : end.x), p.y - (i ? after[i - 1].y : end.y)) > 0.05);
     if (!route.length) continue;
-    roleStroke.set(n.role, { ...pick.st, points: [...st.points, ...route], motion: st.points.length - 1 });
+    const sh = shiftLegs(st);
+    roleStroke.set(n.role, { ...pick.st, points: [...st.points, ...route], motion: st.points.length - 1, ...(sh ? { shift: sh } : {}) });
     usedStrokes.add(pick.st);
   }
 
@@ -219,24 +232,38 @@ export function computeAnimatedPlayFrame(
     }
   }
 
-  // Pre-snap motion: the motion, then set a moment, then the snap (see playAnimationSeconds).
+  // Before the snap: the shift, set; then the motion, set; then the snap (see playAnimationSeconds).
+  const shift = hasPreSnapShift(allStrokes);
   const motion = hasPreSnapMotion(allStrokes);
-  const total = PLAY_SECONDS + MOTION_SECONDS + SET_SECONDS;
-  const motionEnd = motion ? MOTION_SECONDS / total : 0;
-  const snapStart = motion ? (MOTION_SECONDS + SET_SECONDS) / total : 0;
+  const total = PLAY_SECONDS + preSnapSeconds(allStrokes);
+  const shiftEnd = shift ? SHIFT_SECONDS / total : 0;
+  const motionStart = shift ? (SHIFT_SECONDS + SET_SECONDS) / total : 0;
+  const motionEnd = motion ? motionStart + MOTION_SECONDS / total : motionStart;
+  const snapStart = motion ? motionEnd + SET_SECONDS / total : motionStart;
 
+  let shiftT = 1;
   let motionT = 1;
   let postSnapT = 0;
   let phase: AnimatedPlayFrame['phase'] = 'pre_snap';
   let phaseLabel = 'Pre-Snap Alignment';
 
   if (p <= 0.005) {
+    shiftT = 0;
     motionT = 0;
     postSnapT = 0;
     phase = 'pre_snap';
     phaseLabel = 'Pre-Snap Alignment';
+  } else if (shift && p < shiftEnd) {
+    shiftT = easeInOutSine(p / shiftEnd);
+    motionT = 0;
+    phase = 'motion';
+    phaseLabel = 'Shift';
+  } else if (shift && p < motionStart) {
+    motionT = 0;
+    phase = 'motion';
+    phaseLabel = 'Set';
   } else if (motion && p < motionEnd) {
-    motionT = easeInOutSine(p / motionEnd);
+    motionT = easeInOutSine((p - motionStart) / (motionEnd - motionStart));
     postSnapT = 0;
     phase = 'motion';
     phaseLabel = 'Pre-Snap Motion';
@@ -291,7 +318,7 @@ export function computeAnimatedPlayFrame(
 
   // The offense: where each player is at a time after the snap (and how far through his pre-snap motion), with the
   // path behind him when asked. Worked out for any time, so our defense can read where the play is going.
-  const offenseAt = (postT: number, mT: number, trailsOut?: AnimatedTrail[]) => {
+  const offenseAt = (postT: number, mT: number, trailsOut?: AnimatedTrail[], sT = 1) => {
     const at = new Map<string, { x: number; y: number }>();
     for (const n of nodes) {
       if (isDefenseRole(n.role)) continue;
@@ -300,15 +327,29 @@ export function computeAnimatedPlayFrame(
       if (st && st.points.length >= 2) {
         const mIdx = st.motion && st.motion > 0 ? Math.min(st.motion, st.points.length - 1) : 0;
         if (mIdx > 0) {
-          const motionPts = [{ x: n.x, y: n.y }, ...st.points.slice(1, mIdx + 1)];
-          const mSample = samplePolyline(motionPts, mT);
-          if (mSample.traveled.length >= 2 && mT > 0) {
-            trailsOut?.push({
-              role: `${n.role}_motion`,
-              kind: 'motion',
-              points: mSample.traveled,
-              color: '#38bdf8',
-            });
+          // His shift first (to the spot he sets), then his motion from there.
+          const sIdx = shiftLegs(st);
+          let here = { x: n.x, y: n.y };
+          if (sIdx > 0) {
+            const sSample = samplePolyline([{ x: n.x, y: n.y }, ...st.points.slice(1, sIdx + 1)], sT);
+            if (sSample.traveled.length >= 2 && sT > 0) {
+              trailsOut?.push({ role: `${n.role}_shift`, kind: 'motion', points: sSample.traveled, color: '#2dd4bf' });
+            }
+            here = { x: sSample.x, y: sSample.y };
+          }
+          let mSample = { x: here.x, y: here.y };
+          if (mIdx > sIdx && sT >= 1) {
+            const motionPts = [here, ...st.points.slice(sIdx + 1, mIdx + 1)];
+            const s = samplePolyline(motionPts, mT);
+            if (s.traveled.length >= 2 && mT > 0) {
+              trailsOut?.push({
+                role: `${n.role}_motion`,
+                kind: 'motion',
+                points: s.traveled,
+                color: '#38bdf8',
+              });
+            }
+            mSample = { x: s.x, y: s.y };
           }
           if (postT <= 0 || mIdx >= st.points.length - 1) {
             at.set(n.role, { x: mSample.x, y: mSample.y });
@@ -407,7 +448,7 @@ export function computeAnimatedPlayFrame(
   };
 
   const trails: AnimatedTrail[] = [];
-  const animatedPos = offenseAt(postSnapT, motionT, trails);
+  const animatedPos = offenseAt(postSnapT, motionT, trails, shiftT);
 
   // Ball position calculation
   const centerNode = nodes.find((n) => n.role === 'C') || { role: 'C', x: 0, y: 0 };

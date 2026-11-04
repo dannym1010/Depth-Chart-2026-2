@@ -2107,6 +2107,11 @@ export interface PlayStroke {
   label?: string;
   /** Pre-snap motion: points 0..motion are the motion (a zigzag); the rest is the play (`kind`). */
   motion?: number;
+  /**
+   * A pre-snap shift: points 0..shift are where he moves and sets (shift <= motion; motion counts the shift
+   * too, so everything before the snap is 0..motion). Any motion after it goes from shift to motion.
+   */
+  shift?: number;
   /** Older lines drawn freehand: the whole line is a smooth curve (newer ones mark each `smooth` point). */
   curve?: boolean;
   /** Its own color (our defense's blitzes and coverage), instead of the kind's. */
@@ -2121,6 +2126,13 @@ export interface PlayStroke {
 
 /** Pre-snap motion is drawn as a zigzag in its own color. */
 export const MOTION_COLOR = '#7c3aed';
+/** A pre-snap shift: a dashed line in its own color to the spot he sets (an open circle). */
+export const SHIFT_COLOR = '#0d9488';
+/** How far into the line the shift goes (0: none), kept inside the pre-snap part. */
+export function shiftLegs(s: Pick<PlayStroke, 'shift' | 'motion' | 'points'>): number {
+  const m = Math.min(Math.max(0, Math.round(Number(s.motion) || 0)), Math.max(0, s.points.length - 1));
+  return Math.min(Math.max(0, Math.round(Number(s.shift) || 0)), m);
+}
 
 type SvgPt = { cx: number; cy: number };
 const fmt = (p: SvgPt) => `${p.cx.toFixed(1)},${p.cy.toFixed(1)}`;
@@ -2258,11 +2270,13 @@ export function strokePaths(s: PlayStroke) {
   const pts = s.points.map((p) => fieldToSvg(p.x, p.y));
   if (pts.length < 2) return null;
   const m = Math.min(Math.max(0, Math.round(Number(s.motion) || 0)), pts.length - 1);
-  const motionPts = m > 0 ? pts.slice(0, m + 1) : [];
+  const sh = shiftLegs(s);
+  const shiftPts = sh > 0 ? pts.slice(0, sh + 1) : [];
+  const motionPts = m > sh ? pts.slice(sh, m + 1) : [];
   const mainPts = pts.slice(m);
   const hasMain = mainPts.length >= 2;
   const color = s.color || STROKE_COLOR[s.kind];
-  const endPts = hasMain ? mainPts : motionPts;
+  const endPts = hasMain ? mainPts : motionPts.length >= 2 ? motionPts : shiftPts;
   // A zone: an oval around the end of the line (yards to picture units, either way from its center).
   const last = s.points[s.points.length - 1];
   const zone =
@@ -2278,13 +2292,22 @@ export function strokePaths(s: PlayStroke) {
     zone,
     /** Man coverage: the ring around his receiver (and the line is dotted, without an arrow). */
     man,
+    /** The shift: a dashed line to where he sets, and that spot (an open circle). */
+    shiftD: shiftPts.length >= 2 ? linePath(shiftPts, (k) => Boolean(s.points[k]?.smooth)) : '',
+    shiftSet: shiftPts.length >= 2 ? shiftPts[shiftPts.length - 1] : null,
     motionD: motionPts.length >= 2 ? zigzagPath(motionPts) : '',
     mainD: hasMain ? linePath(mainPts, (k) => Boolean(s.curve || s.points[m + k]?.smooth)) : '',
     color,
     dashed: hasMain && s.kind === 'pass',
     width: s.kind === 'block' ? 2.6 : 2.8,
-    /** The line ends in a T (a block) or an arrow, from a to b. */
-    cap: { t: hasMain && s.kind === 'block', color: hasMain ? color : MOTION_COLOR, a: endPts[endPts.length - 2], b: endPts[endPts.length - 1] },
+    /** The line ends in a T (a block) or an arrow, from a to b; none when it is only a shift (it ends in the set circle). */
+    cap: {
+      t: hasMain && s.kind === 'block',
+      none: !hasMain && motionPts.length < 2,
+      color: hasMain ? color : MOTION_COLOR,
+      a: endPts[endPts.length - 2],
+      b: endPts[endPts.length - 1],
+    },
   };
 }
 
@@ -2853,7 +2876,11 @@ function strokeSvg(strokes: PlayStroke[]) {
       if (!sp) return '';
       const { a, b } = sp.cap;
       const zone = sp.zone ? `<ellipse cx="${sp.zone.cx.toFixed(1)}" cy="${sp.zone.cy.toFixed(1)}" rx="${sp.zone.rx.toFixed(1)}" ry="${sp.zone.ry.toFixed(1)}" fill="${sp.color}" fill-opacity="0.12" stroke="${sp.color}" stroke-opacity="0.55" stroke-width="1.2"/>` : '';
-      const motion = sp.motionD ? `<path d="${sp.motionD}" fill="none" stroke="${MOTION_COLOR}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>` : '';
+      const shift = sp.shiftD
+        ? `<path d="${sp.shiftD}" fill="none" stroke="${SHIFT_COLOR}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2 5"/>` +
+          (sp.shiftSet ? `<circle cx="${sp.shiftSet.cx.toFixed(1)}" cy="${sp.shiftSet.cy.toFixed(1)}" r="5.5" fill="#ffffff" stroke="${SHIFT_COLOR}" stroke-width="2"/>` : '')
+        : '';
+      const motion = shift + (sp.motionD ? `<path d="${sp.motionD}" fill="none" stroke="${MOTION_COLOR}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>` : '');
       if (sp.man) {
         // Man: dots to the receiver and a ring around him.
         const ring = `<circle cx="${sp.man.cx.toFixed(1)}" cy="${sp.man.cy.toFixed(1)}" r="${MAN_RING}" fill="none" stroke="${sp.color}" stroke-width="2.2"/>`;
@@ -2862,7 +2889,7 @@ function strokeSvg(strokes: PlayStroke[]) {
       const main = sp.mainD
         ? `<path d="${sp.mainD}" fill="none" stroke="${sp.color}" stroke-width="${sp.width}" stroke-linecap="round" stroke-linejoin="round"${sp.dashed ? ' stroke-dasharray="5 4"' : ''}/>`
         : '';
-      const cap = sp.cap.t ? tBar(a.cx, a.cy, b.cx, b.cy, sp.color) : `<polygon points="${arrowHead(a.cx, a.cy, b.cx, b.cy)}" fill="${sp.cap.color}" />`;
+      const cap = sp.cap.none ? '' : sp.cap.t ? tBar(a.cx, a.cy, b.cx, b.cy, sp.color) : `<polygon points="${arrowHead(a.cx, a.cy, b.cx, b.cy)}" fill="${sp.cap.color}" />`;
       return `${zone}${motion}${main}${cap}`;
     })
     .join('');

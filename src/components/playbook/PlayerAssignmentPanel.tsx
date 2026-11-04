@@ -10,6 +10,7 @@ import {
   type DrawKind,
   type PlayNode,
   type PlayStroke,
+  shiftLegs,
 } from '../../utils/footballEngine';
 import {
   getActionsForPosition,
@@ -47,8 +48,11 @@ export function assignmentText(strokes: PlayStroke[], n: { x: number; y: number;
   if (!s) return '';
   const job = s.label || (s.kind === 'block' ? 'Block' : s.kind === 'pass' ? 'Route' : 'Run');
   if (!s.motion) return job;
-  // Motion only, or motion and then the play.
-  return s.motion >= s.points.length - 1 ? 'Motion' : `Motion, then ${job.charAt(0).toLowerCase()}${job.slice(1)}`;
+  // Shift, motion, then the play (each one he has).
+  const sh = shiftLegs(s);
+  const parts = [sh > 0 ? 'Shift' : '', s.motion > sh ? 'motion' : '', s.motion < s.points.length - 1 ? job.charAt(0).toLowerCase() + job.slice(1) : ''].filter(Boolean);
+  const text = parts.length > 1 ? `${parts.slice(0, -1).join(', ')}, then ${parts[parts.length - 1]}` : parts[0] || job;
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 type Ctx = { holesXs: Record<number, number>; qbNode?: { x: number; y: number } | null };

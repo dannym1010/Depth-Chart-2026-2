@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { assemblePlay, autoDrawPlay, PLAY_CONCEPTS } from './footballEngine.ts';
-import { computeAnimatedPlayFrame, DEFENSE_TRAIL, LINE_STEP, MOTION_SECONDS, PLAY_SECONDS, playAnimationSeconds, SET_SECONDS } from './playAnimation.ts';
+import { computeAnimatedPlayFrame, DEFENSE_TRAIL, LINE_STEP, MOTION_SECONDS, PLAY_SECONDS, playAnimationSeconds, SET_SECONDS, SHIFT_SECONDS } from './playAnimation.ts';
 import { passThrow, type PlayNode, type PlayStroke } from './footballEngine.ts';
 
 describe('running a play: the offensive line', () => {
@@ -49,6 +49,45 @@ describe('running a play: pre-snap motion', () => {
     assert.ok(mid.y > 1, `upfield after the snap: ${mid.y}`);
     const end = at(total);
     assert.deepEqual([end.x, end.y], [8, 9]);
+  });
+});
+
+describe('running a play: a pre-snap shift', () => {
+  const nodes = [
+    { role: 'C', x: 0, y: 0 },
+    { role: '1', x: 0, y: -1 },
+    { role: 'Z', x: 12, y: -1 },
+    { role: 'Y', x: 4, y: -1 },
+    { role: '3', x: 0, y: -5 },
+  ] as PlayNode[];
+  // Y shifts out to 8 and sets; Z goes in motion to 3 after it; Y then runs a route from where he set.
+  const yLine: PlayStroke = { kind: 'pass', points: [{ x: 4, y: -1 }, { x: 8, y: -1 }, { x: 8, y: 6 }], motion: 1, shift: 1 };
+  const zMotion: PlayStroke = { kind: 'pass', points: [{ x: 12, y: -1 }, { x: 3, y: -1 }], motion: 1 };
+  const total = PLAY_SECONDS + SHIFT_SECONDS + SET_SECONDS + MOTION_SECONDS + SET_SECONDS;
+  const frame = (seconds: number) => computeAnimatedPlayFrame(nodes, [yLine, zMotion], [], '3', seconds / total);
+  const who = (seconds: number, role: string) => frame(seconds).nodes.find((n) => n.role === role)!;
+
+  it('takes the shift and its set, then the motion and its set, then the play', () => {
+    assert.equal(playAnimationSeconds([yLine, zMotion]), total);
+    assert.equal(playAnimationSeconds([yLine]), PLAY_SECONDS + SHIFT_SECONDS + SET_SECONDS);
+  });
+  it('shifts first while the motion man waits, then everyone sets', () => {
+    const mid = SHIFT_SECONDS / 2;
+    assert.ok(who(mid, 'Y').x > 4 && who(mid, 'Y').x < 8, 'Y on his way');
+    assert.deepEqual([who(mid, 'Z').x, who(mid, 'Z').y], [12, -1]);
+    assert.equal(frame(mid).phaseLabel, 'Shift');
+    const set = SHIFT_SECONDS + SET_SECONDS / 2;
+    assert.deepEqual([who(set, 'Y').x, who(set, 'Y').y], [8, -1]);
+    assert.equal(frame(set).phaseLabel, 'Set');
+  });
+  it('then the motion, with the shifted man staying set', () => {
+    const t = SHIFT_SECONDS + SET_SECONDS + MOTION_SECONDS + SET_SECONDS / 2;
+    assert.deepEqual([who(t, 'Z').x, who(t, 'Z').y], [3, -1]);
+    assert.deepEqual([who(t, 'Y').x, who(t, 'Y').y], [8, -1]);
+  });
+  it('runs his route from where he set after the snap', () => {
+    const end = who(total, 'Y');
+    assert.deepEqual([end.x, end.y], [8, 6]);
   });
 });
 

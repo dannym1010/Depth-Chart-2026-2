@@ -16,6 +16,33 @@ describe('how lines are drawn', () => {
     assert.equal(sp.mainD, '');
     assert.equal(sp.cap.color, MOTION_COLOR);
   });
+  it('a shift is its own dashed line to where he sets, then motion and the play go on from there', () => {
+    const sp = strokePaths({ kind: 'pass', motion: 2, shift: 1, points: [{ x: 4, y: 0 }, { x: 8, y: 0 }, { x: 3, y: -1 }, { x: 3, y: 8 }] })!;
+    assert.ok(sp.shiftD.startsWith('M'));
+    const set = fieldToSvg(8, 0);
+    assert.deepEqual([sp.shiftSet!.cx, sp.shiftSet!.cy], [set.cx, set.cy]);
+    assert.ok(sp.motionD.startsWith(`M${set.cx.toFixed(1)},${set.cy.toFixed(1)}`), 'motion starts where he set');
+    assert.ok(sp.mainD);
+    assert.equal(sp.cap.none, false);
+  });
+  it('a shift alone ends at the set spot with no arrow; a plain motion has no shift', () => {
+    const sp = strokePaths({ kind: 'pass', motion: 1, shift: 1, points: [{ x: 4, y: 0 }, { x: 8, y: 0 }] })!;
+    assert.equal(sp.motionD, '');
+    assert.equal(sp.mainD, '');
+    assert.equal(sp.cap.none, true);
+    const m = strokePaths({ kind: 'pass', motion: 1, points: [{ x: 10, y: 0 }, { x: 2, y: -1 }] })!;
+    assert.equal(m.shiftD, '');
+    assert.equal(m.shiftSet, null);
+  });
+  it('says the shift in the player\'s job', () => {
+    const n = { x: 4, y: 0, role: 'Y' };
+    assert.equal(assignmentText([{ kind: 'pass', motion: 1, shift: 1, points: [{ x: 4, y: 0 }, { x: 8, y: 0 }] }], n), 'Shift');
+    assert.equal(assignmentText([{ kind: 'pass', motion: 1, shift: 1, points: [{ x: 4, y: 0 }, { x: 8, y: 0 }, { x: 8, y: 6 }] }], n), 'Shift, then route');
+    assert.equal(
+      assignmentText([{ kind: 'pass', motion: 2, shift: 1, points: [{ x: 4, y: 0 }, { x: 8, y: 0 }, { x: 3, y: -1 }, { x: 3, y: 6 }] }], n),
+      'Shift, motion, then route'
+    );
+  });
   it('a freehand line is a curve; a block ends in a T', () => {
     assert.match(strokePaths({ kind: 'run', curve: true, points: [{ x: 0, y: 0 }, { x: 2, y: 3 }, { x: 5, y: 4 }] })!.mainD, / C/);
     // The curve goes through each drawn point and ends on the last one.

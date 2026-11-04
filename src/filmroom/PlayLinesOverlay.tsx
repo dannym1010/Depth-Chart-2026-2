@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { buildProjectedFieldGrid, getQuadHomographies, HOMOGRAPHY_PRESETS, imageToField, type HomographyQuad, type ImagePoint } from '../utils/videoHomography';
-import { DEFENSE_COLOR, diagramLabel, isDefenseRole, lineStartsOn, passThrow, shownText, skillDiagramLabel, STROKE_COLOR, THROW_COLOR, type PlayNode, type PlayStroke } from '../utils/footballEngine';
+import { DEFENSE_COLOR, diagramLabel, isDefenseRole, lineStartsOn, passThrow, shiftLegs, shownText, skillDiagramLabel, STROKE_COLOR, THROW_COLOR, type PlayNode, type PlayStroke } from '../utils/footballEngine';
 import { arrowOnField, circleOnField, cutLine, dashLine, densify, lengthOf, pointBack, polygon, polyline, ribbon, tOnField, zigzagLine, type Px } from './linesArt';
 import { cameraFromFilm, cameraProjector, clipPolygon, filmProjector, lerpCam, MAX_PITCH, MIN_PITCH, VIEWS, visibleRuns, type Cam } from './fieldCamera';
 import { computeAnimatedPlayFrame, playAnimationSeconds } from '../utils/playAnimation';
@@ -542,6 +542,8 @@ function shapedPoints(pts: (Pt & { smooth?: boolean })[], smooth: (i: number) =>
 
 /** The builder's colors, brighter so they read on grass (our defense's lines keep their own). */
 const FILM_COLOR: Record<string, string> = { run: '#ff3349', pass: '#3b8cff', block: '#0f172a', motion: '#a259ff' };
+/** A pre-snap shift on film (teal, like the diagram's). */
+const SHIFT_FILM = '#14d2b8';
 const inkOf = (s: PlayStroke) => s.color || FILM_COLOR[s.kind] || STROKE_COLOR[s.kind];
 /** How wide each kind of line is on the turf, either side of its middle (yards). */
 const HALF: Record<string, number> = { run: 0.15, pass: 0.13, block: 0.14, motion: 0.09 };
@@ -909,12 +911,16 @@ const LinesDrawing: React.FC<{
     const block = s.kind === 'block';
     const W = HALF[s.kind] ?? 0.14;
     const m = Math.min(Math.max(0, Math.round(Number(s.motion) || 0)), s.points.length - 1);
-    const motionF: Pt[] = m > 0 ? s.points.slice(0, m + 1) : [];
+    // A shift first (dashed, to the open circle where he sets), then any motion (a zigzag), then the play.
+    const sh = shiftLegs(s);
+    const shiftF: Pt[] = sh > 0 ? s.points.slice(0, sh + 1) : [];
+    const motionF: Pt[] = m > sh ? s.points.slice(sh, m + 1) : [];
     const mainRaw = s.points.slice(m);
     const mainF: Pt[] = mainRaw.length >= 2 ? shapedPoints(mainRaw, (j) => Boolean(s.curve || mainRaw[j]?.smooth)) : [];
+    const shiftLen = lengthOf(shiftF);
     const motionLen = lengthOf(motionF);
     const mainLen = lengthOf(mainF);
-    const reach = (motionLen + mainLen) * f;
+    const reach = (shiftLen + motionLen + mainLen) * f;
     // The arrowhead lands as the line gets there.
     const head = linesSince === Infinity ? 1 : land((linesSince - order * STAGGER - GROW * 0.8) / 240);
     const endLine = mainF.length >= 2 ? mainF : motionF;
@@ -941,9 +947,27 @@ const LinesDrawing: React.FC<{
       const area = shape(Array.from({ length: 36 }, (_, j) => ({ x: last.x + s.zone!.rx * zf * Math.cos((j / 36) * 2 * Math.PI), y: last.y + s.zone!.ry * zf * Math.sin((j / 36) * 2 * Math.PI) })));
       body.push(<path key="z" d={area} fill={color} fillOpacity="0.16" stroke={color} strokeOpacity="0.7" strokeWidth={1.6 * k} strokeDasharray={`${6 * k} ${4 * k}`} />);
     }
+    // A pre-snap shift: dashes to where he sets, and an open circle there.
+    if (shiftF.length >= 2) {
+      const cut = cutLine(shiftF, Math.min(shiftLen, reach));
+      if (lengthOf(cut) > 0.05) {
+        glow.push(<path key="sg" d={rib(lay(cut, HALF.motion), (h) => h * 2.2 + 2 * k)} fill={SHIFT_FILM} />);
+        dashLine(cut, 0.6, 0.6).forEach((d, j) => {
+          const dash = lay(d, HALF.motion);
+          body.push(
+            <path key={`se${j}`} d={rib(dash, (h) => h + 1.2 * k, true)} fill="#ffffff" fillOpacity="0.92" />,
+            <path key={`sc${j}`} d={rib(dash, (h) => h, true)} fill={SHIFT_FILM} />
+          );
+        });
+      }
+      if (reach >= shiftLen) {
+        const set = shiftF[shiftF.length - 1];
+        body.push(<path key="ss" d={shape(circleOnField(set, 0.7))} fill="#ffffff" fillOpacity="0.85" stroke={SHIFT_FILM} strokeWidth={2.6 * k} />);
+      }
+    }
     // Pre-snap motion: a zigzag.
     if (motionF.length >= 2) {
-      const cut = cutLine(motionF, Math.min(motionLen, reach));
+      const cut = cutLine(motionF, Math.min(motionLen, Math.max(0, reach - shiftLen)));
       if (lengthOf(cut) > 0.05) {
         const zig = lay(zigzagLine(cut, 0.32, 1.1), HALF.motion);
         glow.push(<path key="m" d={rib(zig, (h) => h * 2.2 + 2 * k)} fill={FILM_COLOR.motion} />);
@@ -954,7 +978,7 @@ const LinesDrawing: React.FC<{
       }
     }
     // The route, run or block: under its arrowhead, the line stops inside it.
-    const mainReach = Math.max(0, reach - motionLen);
+    const mainReach = Math.max(0, reach - shiftLen - motionLen);
     if (mainF.length >= 2 && mainReach > 0.02) {
       const tuck = block || f < 1 ? 0 : ARROW * 0.55 * head;
       const cut = cutLine(mainF, Math.max(0.02, Math.min(mainLen, mainReach) - tuck));

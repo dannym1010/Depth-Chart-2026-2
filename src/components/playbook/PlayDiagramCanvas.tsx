@@ -10,6 +10,7 @@ import {
   skillDiagramLabel,
   strokePaths,
   MOTION_COLOR,
+  SHIFT_COLOR,
   svgToField,
   ballXOf,
   setFieldBall,
@@ -35,7 +36,7 @@ import type { DefenseWho } from './PlayerAssignmentPanel';
 
 const KIND_LABEL: Record<DrawKind, string> = { run: 'Run', pass: 'Route', block: 'Block' };
 /** Keyboard shortcuts for the tools (when the field has focus). */
-const TOOL_KEYS: Record<string, Tool> = { v: 'move', r: 'run', p: 'pass', b: 'block', m: 'motion' };
+const TOOL_KEYS: Record<string, Tool> = { v: 'move', r: 'run', p: 'pass', b: 'block', m: 'motion', s: 'shift' };
 
 type Pt = { x: number; y: number };
 
@@ -193,7 +194,7 @@ interface Props {
   playTrigger?: number;
 }
 
-type Tool = DrawKind | 'move' | 'motion';
+type Tool = DrawKind | 'move' | 'motion' | 'shift';
 type Drag =
   /** Moving a player: where he started, the lines then (his own move with him), and where he is now. */
   | { mode: 'player'; role: string; startCx: number; startCy: number; moved: boolean; from: Pt; startLines: PlayStroke[]; at: Pt | null }
@@ -523,8 +524,9 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       return;
     }
     const motion = line.motion ? kept.filter((j) => j <= line.motion!).length - 1 : 0;
-    const { motion: _m, ...rest } = line;
-    change(cur.map((x, j) => (j === i ? { ...rest, points: kept.map((k) => line.points[k]), ...(motion > 0 ? { motion } : {}) } : x)));
+    const shift = line.shift ? Math.min(motion, kept.filter((j) => j <= line.shift!).length - 1) : 0;
+    const { motion: _m, shift: _s, ...rest } = line;
+    change(cur.map((x, j) => (j === i ? { ...rest, points: kept.map((k) => line.points[k]), ...(motion > 0 ? { motion } : {}), ...(shift > 0 ? { shift } : {}) } : x)));
   };
   /** Pick a tool. Picking Route, Run or Block while a motion is being drawn keeps drawing that player's line. */
   const pickTool = (id: Tool) => {
@@ -535,6 +537,10 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   /** The legs just drawn take the tool's kind: motion only right off the player, before the play's line. */
   const withKind = (line: PlayStroke, anchor: number, t: Tool): PlayStroke => {
     const last = line.points.length - 1;
+    if (t === 'shift') {
+      const allShift = (line.shift || 0) >= anchor - 1 && (line.motion || 0) >= anchor - 1;
+      return allShift ? { ...line, shift: last, motion: last } : line;
+    }
     if (t === 'motion') {
       const allMotion = (line.motion || 0) >= anchor - 1;
       return allMotion ? { ...line, motion: last } : line;
@@ -708,7 +714,12 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
               })
           : undefined;
       const start = onOurs ? { x: near!.x, y: near!.y } : routeEnd ? { x: routeEnd.x, y: routeEnd.y } : here;
-      const line: PlayStroke = tool === 'motion' ? { kind: 'pass', points: [start, here], motion: 1 } : { kind: tool as DrawKind, points: [start, here] };
+      const line: PlayStroke =
+        tool === 'shift'
+          ? { kind: 'pass', points: [start, here], motion: 1, shift: 1 }
+          : tool === 'motion'
+            ? { kind: 'pass', points: [start, here], motion: 1 }
+            : { kind: tool as DrawKind, points: [start, here] };
       i = cur.length;
       change([...cur, line]);
       setOpen(i);
@@ -834,7 +845,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       if (!line) return;
       if (!d.moved) {
         // A tap: on a new line it only picks the start (click again for each break); otherwise it adds a break.
-        if (d.fresh) line = { ...line, points: line.points.slice(0, 1), ...(line.motion ? { motion: 0 } : {}) };
+        if (d.fresh) line = { ...line, points: line.points.slice(0, 1), ...(line.motion ? { motion: 0 } : {}), ...(line.shift ? { shift: 0 } : {}) };
       } else {
         // Straight where it was drawn straight, curved where it was drawn curved. A new line starts on the player;
         // a later leg starts where the press added its point.
@@ -983,6 +994,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       else if (id === 'pass') activeStyle = 'bg-blue-600 text-white border-blue-600 hover:bg-blue-500';
       else if (id === 'block') activeStyle = 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800';
       else if (id === 'motion') activeStyle = 'bg-violet-600 text-white border-violet-600 hover:bg-violet-500';
+      else if (id === 'shift') activeStyle = 'bg-teal-600 text-white border-teal-600 hover:bg-teal-500';
     }
     return (
       <button
@@ -1005,8 +1017,12 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
         ? 'Drag a dot to bend the line, drag the line to move it. Double-click the line to add a bend, a dot to take it out. Delete removes it.'
         : selectedPlayer && !isDefenseRole(selectedPlayer.role)
           ? `${selectedPlayer.role} is selected: double-click a defender to draw ${selectedPlayer.role} blocking that player.`
-          : 'Tap a player to pick the assignment. Drag a player to move the spot. Keys: V select · R run · P route · B block · M motion.'
-      : tool === 'motion'
+          : 'Tap a player to pick the assignment. Drag a player to move the spot. Keys: V select · R run · P route · B block · S shift · M motion.'
+      : tool === 'shift'
+        ? drawing
+          ? 'Keep clicking or dragging to where he sets. Then pick Motion, Route or Run to keep drawing from his new spot. Double-click or Enter to finish.'
+          : 'Shift: start on the player, then drag or click to the spot he moves to and sets before the snap.'
+        : tool === 'motion'
         ? drawing
           ? 'Keep clicking or dragging his motion. Then pick Route or Run to draw the play from where the motion ends. Double-click or Enter to finish.'
           : 'Motion: start on the player, then drag or click where he goes before the snap.'
@@ -1263,10 +1279,12 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             return (
               <g key={i}>
                 {sp.zone && <ellipse cx={sp.zone.cx} cy={sp.zone.cy} rx={sp.zone.rx} ry={sp.zone.ry} fill={sp.color} fillOpacity={0.12} stroke={sp.color} strokeOpacity={0.55} strokeWidth={1.2} />}
-                {isSel && [sp.motionD, sp.mainD].filter(Boolean).map((d, k) => (
+                {isSel && [sp.shiftD, sp.motionD, sp.mainD].filter(Boolean).map((d, k) => (
                   <path key={k} d={d} fill="none" stroke="#38bdf8" strokeOpacity="0.45" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round" />
                 ))}
+                {sp.shiftD && <path d={sp.shiftD} fill="none" stroke={SHIFT_COLOR} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="2 5" />}
                 {sp.motionD && <path d={sp.motionD} fill="none" stroke={MOTION_COLOR} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />}
+                {sp.shiftSet && <circle cx={sp.shiftSet.cx} cy={sp.shiftSet.cy} r="6" fill="#ffffff" stroke={SHIFT_COLOR} strokeWidth="2.2" />}
                 {sp.mainD && (
                   <path
                     d={sp.mainD}
@@ -1278,7 +1296,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
                     strokeDasharray={sp.dashed ? '6 4' : undefined}
                   />
                 )}
-                {sp.cap.t ? (
+                {sp.cap.none ? null : sp.cap.t ? (
                   <line x1={cap.x1} y1={cap.y1} x2={cap.x2} y2={cap.y2} stroke={sp.color} strokeWidth="3" strokeLinecap="round" />
                 ) : (
                   <polygon points={arrowPts(a.cx, a.cy, b.cx, b.cy)} fill={sp.cap.color} />
@@ -1305,7 +1323,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             const lastPt = strokes[openIdx].points[strokes[openIdx].points.length - 1];
             const a = fieldToSvg(lastPt.x, lastPt.y);
             const b = fieldToSvg(ghost.x, ghost.y);
-            const color = tool === 'motion' ? MOTION_COLOR : tool === 'move' ? '#94a3b8' : COLOR[tool];
+            const color = tool === 'motion' ? MOTION_COLOR : tool === 'shift' ? SHIFT_COLOR : tool === 'move' ? '#94a3b8' : COLOR[tool];
             return <line x1={a.cx} y1={a.cy} x2={b.cx} y2={b.cy} stroke={color} strokeOpacity="0.55" strokeWidth="2" strokeDasharray="3 4" pointerEvents="none" />;
           })() : null}
 
@@ -1502,6 +1520,17 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             <>
               <span className="text-xs font-black">⊥</span>
               <span className="hidden sm:inline">Block</span>
+            </>
+          )}
+          {toolBtn(
+            'shift',
+            'Draw a pre-snap shift: he moves to a new spot and sets. Then switch to Motion, Route or Run to keep drawing (S)',
+            <>
+              <svg width="16" height="14" viewBox="0 0 26 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                <path d="M3 12h13" strokeDasharray="2 4" />
+                <circle cx="20" cy="12" r="3.5" />
+              </svg>
+              <span className="hidden sm:inline">Shift</span>
             </>
           )}
           {toolBtn(
