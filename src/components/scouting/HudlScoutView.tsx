@@ -427,6 +427,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     const links: Record<string, { playCallId: string; playCall: string }> = {};
     const moved: ScoutOppPlay[] = [];
     const removed: string[] = [];
+    // Plays whose name changed to the Film Room's: one that joins another play's line goes into that line.
+    const renamedIds: string[] = [];
     const drawn = (scoutId: string) => (playDatabase || []).some((e) => e.id === `scout_${scoutId}` && e.builder);
     for (const g of oppBundle.games) {
       const film = oppBundle.plays.filter((pl) => (pl.gameId ? pl.gameId === g.id : g.id === firstGame));
@@ -435,6 +437,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       const retyped = kindFollowsClips(film, libs[g.id] || []);
       const typedLib = (libs[g.id] || []).map((c) => retyped.find((r) => r.id === c.id) || c);
       const renamed = followRenamedClips(film, typedLib, drawn);
+      for (const r of renamed) if ((libs[g.id] || []).find((c) => c.id === r.id)?.name.trim().toLowerCase() !== r.name.trim().toLowerCase()) renamedIds.push(r.id);
       moved.push(...renamed, ...retyped.filter((r) => !renamed.some((x) => x.id === r.id)));
       const mine = typedLib.map((c) => renamed.find((r) => r.id === c.id) || c);
       const cards = cardsFromTags(g.id, film, mine, oppBundle.deletedOppPlayIds || [], libraryNameOf);
@@ -483,7 +486,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         ...(Object.keys(links).length
           ? { plays: prev.plays.map((pl) => (links[pl.id] ? { ...pl, ...links[pl.id], editedAt: Date.now() } : pl)) }
           : {}),
-        practiceScript: rebuildScoutScript(playLibraries, prev.practiceScript, reportName, drawnScout),
+        practiceScript: rebuildScoutScript(playLibraries, prev.practiceScript, reportName, drawnScout, renamedIds),
         updatedAt: Date.now(),
       };
     });

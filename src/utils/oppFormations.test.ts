@@ -418,3 +418,26 @@ describe('the printed script says which plays were combined', async () => {
     assert.equal(html.split('class="combined"').length - 1, 1);
   });
 });
+
+describe('a play renamed in the Film Room goes into its line on the script', async () => {
+  const { rebuildScoutScript } = await import('./scoutOppPlays.ts');
+  const card = (id: string, name: string) => ({ id, gameId: 'g1', name, formation: '32', personnel: '32', kind: 'run' as const, down: '1st', notes: '', onReport: true, editedAt: 1 });
+  const line = (playId: string, name: string) => ({ playId, name, detail: '', period: '' });
+  it('joins the line that has that play, which stays where it is', () => {
+    // Before: 1. 32 Sweep (now renamed 32 Dive), 2. 21 Trap, 3. 21 Dive.
+    const prev = { title: '', builtAt: 0, lines: [line('a', '32 Sweep'), line('b', '21 Trap'), line('c', '21 Dive')], periods: [] };
+    const libs = { g1: [card('a', '32 Dive'), card('b', '21 Trap'), card('c', '21 Dive')] };
+    const plain = rebuildScoutScript(libs, prev, 'Carmel');
+    assert.deepEqual(plain.lines.map((l) => l.name), ['Dive', '21 Trap'], 'without knowing it was renamed, the Dive line jumps to the top');
+    const moved = rebuildScoutScript(libs, prev, 'Carmel', undefined, ['a']);
+    assert.deepEqual(moved.lines.map((l) => [l.name, l.playId, (l.also || []).join('')]), [
+      ['21 Trap', 'b', ''],
+      ['Dive', 'c', 'a'],
+    ]);
+  });
+  it('alone on its line, a renamed play keeps its spot', () => {
+    const prev = { title: '', builtAt: 0, lines: [line('a', '32 Sweep'), line('b', '21 Trap')], periods: [] };
+    const out = rebuildScoutScript({ g1: [card('a', '32 Dive'), card('b', '21 Trap')] }, prev, 'Carmel', undefined, ['a']);
+    assert.deepEqual(out.lines.map((l) => l.name), ['32 Dive', '21 Trap']);
+  });
+});

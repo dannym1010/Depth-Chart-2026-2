@@ -484,9 +484,28 @@ export function reportPlays(libraries?: Record<string, ScoutOppPlay[]>, gameIds?
 }
 
 /** The script again after the plays changed: same order, from the same films. */
-export function rebuildScoutScript(libraries: Record<string, ScoutOppPlay[]>, prev: ScoutPracticeScript | undefined, opponent: string, drawn?: (scoutId: string) => boolean): ScoutPracticeScript {
+export function rebuildScoutScript(
+  libraries: Record<string, ScoutOppPlay[]>,
+  prev: ScoutPracticeScript | undefined,
+  opponent: string,
+  drawn?: (scoutId: string) => boolean,
+  /** Plays renamed (in the Film Room): one that now joins another play's line goes into that line where it is. */
+  renamed: string[] = []
+): ScoutPracticeScript {
   const gameIds = prev?.gameIds;
-  const script = buildScoutScript(orderByIds(reportPlays(libraries, gameIds), (prev?.lines || []).map((l) => l.playId)), opponent, drawn);
+  const report = reportPlays(libraries, gameIds);
+  let order = (prev?.lines || []).map((l) => l.playId);
+  if (renamed.length) {
+    const moved = new Set(renamed);
+    const drop = new Set<string>();
+    for (const g of scriptGroups(orderByIds(report, order), drawn)) {
+      // The line it joined keeps its spot: the renamed play gives up its old one.
+      const stays = g.members.filter((m) => !moved.has(m.id));
+      if (stays.length && stays.length < g.members.length) g.members.filter((m) => moved.has(m.id)).forEach((m) => drop.add(m.id));
+    }
+    if (drop.size) order = order.filter((id) => !drop.has(id));
+  }
+  const script = buildScoutScript(orderByIds(report, order), opponent, drawn);
   return gameIds?.length ? { ...script, gameIds } : script;
 }
 
