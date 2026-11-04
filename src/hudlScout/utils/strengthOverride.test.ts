@@ -52,3 +52,18 @@ describe('changing a play from the play log', async () => {
     assert.equal(editPlayFields([base, other], 'p1', { hash: 'R' })[1], other);
   });
 });
+
+describe('a strength set in the log is not put back by the copy it changed', async () => {
+  const { editPlayFields } = await import('./playTags.ts');
+  const { pickScoutBundle } = await import('../../utils/scoutMerge.ts');
+  it('wins over a copy stamped by a device whose clock ran ahead', () => {
+    const ahead = Date.now() + 10 * 60 * 1000; // another device, 10 minutes ahead
+    const stored = { ...play({}), id: 'p1', gameId: 'g', editedAt: ahead } as Play;
+    const cloud = { games: [{ id: 'g', name: 'G', addedAt: 1 }], plays: [stored], updatedAt: Date.now() + 5000 };
+    const mine = { ...cloud, plays: editPlayFields([stored], 'p1', { strength: 'L' }), updatedAt: Date.now() };
+    assert.ok(mine.plays[0].editedAt! > ahead);
+    // The cloud's copy comes back (newer save) and the two merge: the edit stays.
+    const merged = pickScoutBundle(mine, cloud);
+    assert.equal(merged.plays[0].strength, 'L');
+  });
+});

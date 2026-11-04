@@ -442,6 +442,8 @@ function keepCoachWork(old: Play, fresh: Play): Play {
   if (old.callParts) next.callParts = old.callParts;
   if (old.callName) next.callName = old.callName;
   if (old.callEditedAt) next.callEditedAt = old.callEditedAt;
+  // The strength a coach set for the play (Left / Right / Balanced) stays.
+  if (old.strength) next.strength = old.strength;
   // A formation a coach typed ("21 R") beats a blank or Hudl word from the file.
   const oldForm = old.untaggedFormation ?? old.formation;
   const freshIsNumber = /^\d/.test(String(fresh.formation || '').trim());

@@ -10,7 +10,7 @@ import { PlaysTable } from '../hudlScout/components/PlaysTable';
 import { assignDrives, bundleFromSaved, copyScoutGame, folderCopies, mergeFolderCopies, removeScoutGame, type ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play, TeamUnit } from '../hudlScout/types/football';
 import type { ScoutGame } from '../hudlScout/components/Header';
-import { autoTagFromHudl, editPlayFields, setPlaysFormation, tagPlays } from '../hudlScout/utils/playTags';
+import { autoTagFromHudl, editPlayFields, editStamp, setPlaysFormation, tagPlays } from '../hudlScout/utils/playTags';
 import { tagPlayUnits } from '../hudlScout/utils/unitStats';
 import { isReadOnlySession, safeJSONParse, safeJSONSet } from '../services/storageService';
 import type { FilmPlayerRef, RosterPlayer } from '../types';
@@ -722,7 +722,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   }, [own.games.length, opp.games.length, locked]);
   // A patch from the play-name boxes, the players or the AI window, with its own stamps.
   const patched = (x: Play, patch: Partial<Play>): Play => {
-    const out = { ...x, ...patch, editedAt: Date.now(), ...('callParts' in patch ? { callEditedAt: Date.now() } : {}) };
+    const out = { ...x, ...patch, editedAt: editStamp(x), ...('callParts' in patch ? { callEditedAt: Math.max(Date.now(), (Number(x.callEditedAt) || 0) + 1) } : {}) };
     if ('strength' in patch && !patch.strength) delete out.strength;
     // Who had the ball also reads in the play log's players column.
     if ('rusher' in patch || 'passer' in patch || 'receiver' in patch) {

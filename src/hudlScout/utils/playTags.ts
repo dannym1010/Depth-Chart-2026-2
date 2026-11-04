@@ -240,11 +240,20 @@ export function callFitsFormation(entry: Pick<PlayDatabaseEntry, 'name' | 'forma
 }
 
 /** Set the formation on plays. It becomes the film's own formation, so removing a tag keeps it. */
+/**
+ * The time to stamp a coach's edit of a play with: now, and always after the copy it changed. Plays merge between
+ * devices by newest edit, so a copy stamped by a device whose clock runs ahead (or this one's running behind) would
+ * otherwise win over the edit and put the old value back a few seconds later.
+ */
+export function editStamp(p: Pick<Play, 'editedAt'>, now = Date.now()): number {
+  return Math.max(now, (Number(p.editedAt) || 0) + 1);
+}
+
 export function setPlaysFormation(plays: Play[], ids: string[], formation: string): Play[] {
   const idSet = new Set(ids);
   const value = tidyFormation(formation) || '-';
   return plays.map((p) =>
-    idSet.has(p.id) ? { ...p, formation: value, ...(p.playCallId ? { untaggedFormation: value } : {}), editedAt: Date.now() } : p
+    idSet.has(p.id) ? { ...p, formation: value, ...(p.playCallId ? { untaggedFormation: value } : {}), editedAt: editStamp(p) } : p
   );
 }
 
@@ -277,7 +286,7 @@ const PLAY_TYPE_TEXT: Record<string, string> = { RUN: 'Run', PASS: 'Pass', RPO: 
 export function editPlayFields(plays: Play[], id: string, edit: PlayFieldEdit, now = Date.now()): Play[] {
   return plays.map((p) => {
     if (p.id !== id) return p;
-    const next: Play = { ...p, editedAt: now };
+    const next: Play = { ...p, editedAt: editStamp(p, now) };
     if ('strength' in edit) {
       if (edit.strength) next.strength = edit.strength;
       else delete next.strength;
