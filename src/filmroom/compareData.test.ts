@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { compareGames, compareNotes, guessOtherTeam, teamKey, teamSnapsElsewhere, formationList, formationNumbers, isPickable, playFacts, sameFormation, withFilmOnly } from './compareData.ts';
+import { compareGames, compareNotes, countedOnTwin, filmTwins, guessOtherTeam, teamKey, teamSnapsElsewhere, formationList, formationNumbers, isPickable, playFacts, sameFormation, withFilmOnly } from './compareData.ts';
 import { playsFromClips } from './clipPlays.ts';
 
 describe('compare: games with no breakdown', () => {
@@ -169,5 +169,23 @@ describe('naming a play: the team\'s snaps on its other films', () => {
     assert.deepEqual(ids(), ['a', 'd', 'o2']);
     assert.deepEqual(ids(games.find((g) => g.gameId === 's1')!.key), ['d', 'o2']);
     assert.deepEqual(teamSnapsElsewhere(games, 'own', 'Mahopac').map((p) => p.id), ['o1']);
+  });
+});
+
+describe('the same video broken down twice (O and D switched)', () => {
+  it('the copy is a twin; its O plays count, the original D plays for that team are not counted twice', () => {
+    const w2 = { games: [{ id: 's1', name: 'Lakeland vs Fox Lane' }], plays: [{ id: 'a', gameId: 's1', playNumber: 1, odk: 'O' }, { id: 'b', gameId: 's1', playNumber: 2, odk: 'D' }] };
+    const w4 = { games: [{ id: 'c1', name: 'Game film', filmFrom: { week: '2', name: 'Lakeland vs Fox Lane', opponent: 'Lakeland' } }], plays: [{ id: 'a2', gameId: 'c1', playNumber: 1, odk: 'D' }, { id: 'b2', gameId: 'c1', playNumber: 2, odk: 'O' }] };
+    const games = compareGames(undefined, 'Mahopac', [{ key: '2', label: 'Week 2', opponent: 'Lakeland', hudlScout: w2 }, { key: '4', label: 'Week 4', opponent: 'Fox Lane', hudlScout: w4 }], '9');
+    const [orig, copy] = games;
+    // No "A vs B" in the copy's name: its D team comes from where it was copied from.
+    assert.equal(copy.otherTeam, 'Lakeland');
+    assert.deepEqual(filmTwins(games).get(copy.key)?.map((g) => g.key), [orig.key]);
+    const fox = teamKey('Fox Lane', 'Mahopac');
+    const lake = teamKey('Lakeland', 'Mahopac');
+    assert.equal(countedOnTwin(games, orig, 'D', fox, 'Mahopac'), true);
+    assert.equal(countedOnTwin(games, copy, 'O', fox, 'Mahopac'), false);
+    assert.equal(countedOnTwin(games, copy, 'D', lake, 'Mahopac'), true);
+    assert.equal(countedOnTwin(games, orig, 'O', lake, 'Mahopac'), false);
   });
 });

@@ -10,7 +10,7 @@ import type { Play } from '../hudlScout/types/football';
 import type { PlayerApi } from './FilmPlayer';
 import { probeSnap } from './snapProbe';
 import { compareSplits, loadTiming, MOMENTS, saveTiming, secs, timingKey, type MomentId, type Moments } from './compareTiming';
-import { asOffense, gameOtherKey, gameTeamKey, compareNotes, formationList, formationNumbers, formationOf, isDSnap, isPickable, isSnap, playFacts, playNameOf, teamKey, type CompareGame, type FormationNumbers } from './compareData';
+import { asOffense, countedOnTwin, gameOtherKey, gameTeamKey, compareNotes, formationList, formationNumbers, formationOf, isDSnap, isPickable, isSnap, playFacts, playNameOf, teamKey, type CompareGame, type FormationNumbers } from './compareData';
 
 export type Side = 'a' | 'b';
 
@@ -99,9 +99,11 @@ const dPlaysOf = (g: CompareGame, formation: string) =>
 /** The plays a side lists: the team's snaps (O plays where it has the ball, D plays where the other team is it), from its game or every game. */
 function itemsOf(games: CompareGame[], byKey: Map<string, CompareGame>, pk: Pick): Item[] {
   const from = pk.allGames ? games.filter((g) => hasTeam(g, pk.team)) : [byKey.get(pk.gameKey)].filter((g): g is CompareGame => Boolean(g));
+  // The same video broken down twice (O and D switched for the other team) counts once: from the team's own side.
+  const counted = (g: CompareGame, side: 'O' | 'D') => pk.allGames && countedOnTwin(games, g, side, pk.team, ownName);
   return from.flatMap((g) => [
-    ...(teamKeyOf(g) === pk.team ? playsOf(g, pk.formation).map((play): Item => ({ game: g, play, side: 'O' })) : []),
-    ...(otherKeyOf(g) === pk.team ? dPlaysOf(g, pk.formation).map((play): Item => ({ game: g, play, side: 'D' })) : []),
+    ...(teamKeyOf(g) === pk.team && !counted(g, 'O') ? playsOf(g, pk.formation).map((play): Item => ({ game: g, play, side: 'O' })) : []),
+    ...(otherKeyOf(g) === pk.team && !counted(g, 'D') ? dPlaysOf(g, pk.formation).map((play): Item => ({ game: g, play, side: 'D' })) : []),
   ]);
 }
 

@@ -106,10 +106,10 @@ function gamesOf(b: ScoutBundle, make: (g: ScoutBundle['games'][number]) => Omit
 export function compareGames(ownSaved: unknown, teamName: string, weeks: CompareWeek[], currentWeek: string, currentScout?: unknown): CompareGame[] {
   const own = bundleFromSaved(ownSaved, teamName);
   /** The D team: the coach's, else the guess. */
-  const other = (g: { name: string; otherTeam?: string }, team: string, scheduled?: string) => {
+  const other = (g: { name: string; otherTeam?: string }, team: string, scheduled?: string, fallback?: string) => {
     const set = String(g.otherTeam || '').trim();
     if (set) return { otherTeam: set, otherGuessed: false };
-    const guess = guessOtherTeam(g.name, team, scheduled);
+    const guess = guessOtherTeam(g.name, team, scheduled) || fallback || '';
     return guess ? { otherTeam: guess, otherGuessed: true } : {};
   };
   const out = gamesOf(own, (g) => ({
@@ -137,7 +137,8 @@ export function compareGames(ownSaved: unknown, teamName: string, weeks: Compare
         team: opp,
         group: `${w.label}${w.opponent ? ` · ${w.opponent}` : ''}`,
         ...(g.filmFrom ? { filmFrom: g.filmFrom } : {}),
-        ...other(g, opp),
+        // A film copied from another week's scouting: else its D team is (most likely) the team scouted there.
+        ...other(g, opp, undefined, g.filmFrom?.opponent && teamKey(g.filmFrom.opponent, teamName) !== teamKey(opp, teamName) ? g.filmFrom.opponent : undefined),
       }))
     );
   }
@@ -166,6 +167,45 @@ export const teamKey = (name: string, ownName: string) => {
 export const gameTeamKey = (g: CompareGame, ownName: string) => (g.source === 'own' ? 'own' : teamKey(g.team, ownName));
 /** The team with the ball on its D plays ('' = not known). */
 export const gameOtherKey = (g: CompareGame, ownName: string) => (g.otherTeam ? teamKey(g.otherTeam, ownName) : '');
+
+/** Which video a game's breakdown is of: the week and name it was copied from, else its own. */
+const filmId = (g: CompareGame) => (g.filmFrom ? `${g.filmFrom.week}|${words(g.filmFrom.name).trim()}` : `${g.week || ''}|${words(g.name).trim()}`);
+const twinCache = new WeakMap<CompareGame[], Map<string, CompareGame[]>>();
+/**
+ * The same video in more than one breakdown, by game key: a copy made for another week (often with O and D
+ * switched, so the other team's snaps are its O plays), or the same game brought in twice (same name, same
+ * number of plays).
+ */
+export function filmTwins(games: CompareGame[]): Map<string, CompareGame[]> {
+  const hit = twinCache.get(games);
+  if (hit) return hit;
+  const out = new Map<string, CompareGame[]>();
+  for (const a of games) {
+    if (a.filmOnly) continue;
+    const twins = games.filter(
+      (b) => b.key !== a.key && !b.filmOnly && (filmId(a) === filmId(b) || (words(a.name) === words(b.name) && a.plays.length > 0 && a.plays.length === b.plays.length))
+    );
+    if (twins.length) out.set(a.key, twins);
+  }
+  twinCache.set(games, out);
+  return out;
+}
+
+/**
+ * Whether a film's plays for a team are already counted on another breakdown of the same video: its D plays when
+ * a twin has that team on O (the breakdown from that team's side), or a side an earlier twin already gives.
+ */
+export function countedOnTwin(games: CompareGame[], g: CompareGame, side: 'O' | 'D', team: string, ownName: string): boolean {
+  const twins = filmTwins(games).get(g.key);
+  if (!twins) return false;
+  const at = games.indexOf(g);
+  return twins.some((h) => {
+    const hO = gameTeamKey(h, ownName) === team;
+    const hD = gameOtherKey(h, ownName) === team;
+    const earlier = games.indexOf(h) < at;
+    return side === 'D' ? hO || (hD && earlier) : hO && earlier;
+  });
+}
 
 /**
  * A team's snaps on every film but one (`except`): its O plays on its own film and its D plays where it had the
