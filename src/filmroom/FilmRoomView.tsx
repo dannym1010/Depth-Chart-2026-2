@@ -10,7 +10,7 @@ import { PlaysTable } from '../hudlScout/components/PlaysTable';
 import { assignDrives, bundleFromSaved, copyScoutGame, folderCopies, mergeFolderCopies, removeScoutGame, type ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play, TeamUnit } from '../hudlScout/types/football';
 import type { ScoutGame } from '../hudlScout/components/Header';
-import { autoTagFromHudl, setPlaysFormation, tagPlays } from '../hudlScout/utils/playTags';
+import { autoTagFromHudl, editPlayFields, setPlaysFormation, tagPlays } from '../hudlScout/utils/playTags';
 import { tagPlayUnits } from '../hudlScout/utils/unitStats';
 import { isReadOnlySession, safeJSONParse, safeJSONSet } from '../services/storageService';
 import type { FilmPlayerRef, RosterPlayer } from '../types';
@@ -1364,6 +1364,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       onTagPlays={onUpdatePlayDatabase && !locked ? (ids, entry) => editPlays((all) => tagPlays(all, ids, entry)) : undefined}
       onCreateCall={onUpdatePlayDatabase && !locked ? createCall : undefined}
       onSetFormation={locked ? undefined : (ids, formation) => editPlays((all) => setPlaysFormation(all, ids, formation))}
+      onEditPlay={locked ? undefined : (id, edit) => editPlays((all) => editPlayFields(all, id, edit))}
       onSetUnit={isOwn && !locked ? (id: string, unit: TeamUnit | undefined, scope) => editPlays((all) => tagPlayUnits(all, id, unit, scope)) : undefined}
       lineupFor={isOwn && roster ? lineupFor : undefined}
       roster={roster}

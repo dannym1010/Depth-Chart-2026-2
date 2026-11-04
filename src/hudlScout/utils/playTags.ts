@@ -248,6 +248,67 @@ export function setPlaysFormation(plays: Play[], ids: string[], formation: strin
   );
 }
 
+/** Fields a coach can change on a play from the play log. strength '' = back to what the formation says. */
+export interface PlayFieldEdit {
+  strength?: 'L' | 'R' | 'balanced' | '';
+  hash?: Play['hash'];
+  playType?: Play['playType'];
+  down?: number;
+  distance?: number;
+  gainLoss?: number;
+  result?: string;
+}
+
+// The Hudl columns those fields came from, kept the same so an export back to Hudl has the change.
+const HUDL_COLUMN: Record<string, RegExp> = {
+  down: /^(DN|DOWN)$/,
+  distance: /^(DIST|DISTANCE)$/,
+  hash: /^HASH$/,
+  playType: /^PLAY ?TYPE$/,
+  gainLoss: /^(GN\/LS|GAIN|GAIN\/LOSS|GN LS)$/,
+  result: /^RESULT$/,
+};
+const PLAY_TYPE_TEXT: Record<string, string> = { RUN: 'Run', PASS: 'Pass', RPO: 'RPO', SCREEN: 'Screen', SPECIAL: 'Special', PENALTY: 'Penalty', OTHER: 'Other' };
+
+/**
+ * Change fields on one play (from the play log): the strength (Left / Right / Balanced, or back to the formation's),
+ * hash, play type, down and distance, gain and result. Explosive and on-schedule follow the new gain, down and type.
+ */
+export function editPlayFields(plays: Play[], id: string, edit: PlayFieldEdit, now = Date.now()): Play[] {
+  return plays.map((p) => {
+    if (p.id !== id) return p;
+    const next: Play = { ...p, editedAt: now };
+    if ('strength' in edit) {
+      if (edit.strength) next.strength = edit.strength;
+      else delete next.strength;
+    }
+    if (edit.hash) next.hash = edit.hash;
+    if (edit.playType) next.playType = edit.playType;
+    if (edit.down != null && Number.isFinite(edit.down)) next.down = Math.max(0, Math.min(4, Math.round(edit.down)));
+    if (edit.distance != null && Number.isFinite(edit.distance)) next.distance = Math.max(0, Math.round(edit.distance));
+    if (edit.gainLoss != null && Number.isFinite(edit.gainLoss)) next.gainLoss = Math.round(edit.gainLoss);
+    if (edit.result != null) next.result = edit.result.trim().slice(0, 60);
+    const touched = ['hash', 'playType', 'down', 'distance', 'gainLoss', 'result'].filter((k) => (edit as Record<string, unknown>)[k] != null);
+    if (touched.some((k) => k !== 'hash')) {
+      const g = next.gainLoss;
+      next.isExplosive = (next.playType === 'RUN' && g >= 12) || ((next.playType === 'PASS' || next.playType === 'SCREEN') && g >= 16) || (/td/i.test(next.result) && g >= 10);
+      next.isEfficient =
+        next.down === 1 ? g >= 4 || g >= next.distance * 0.4 : next.down === 2 ? g >= next.distance * 0.5 : next.down >= 3 ? g >= next.distance : next.isEfficient;
+    }
+    if (p.hudlRow && touched.length) {
+      const row = { ...p.hudlRow };
+      for (const k of touched) {
+        const col = Object.keys(row).find((c) => HUDL_COLUMN[k].test(c.trim().toUpperCase()));
+        if (!col) continue;
+        const v = k === 'playType' ? PLAY_TYPE_TEXT[next.playType] || next.playType : String((next as unknown as Record<string, unknown>)[k] ?? '');
+        row[col] = v;
+      }
+      next.hudlRow = row;
+    }
+    return next;
+  });
+}
+
 /** Plays later in the same drive (same game, series and side) - for "copy to rest of drive". */
 export function restOfSeriesIds(plays: Play[], playId: string): string[] {
   const t = plays.find((p) => p.id === playId);

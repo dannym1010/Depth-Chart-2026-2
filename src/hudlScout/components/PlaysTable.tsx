@@ -3,10 +3,10 @@ import { createPortal } from 'react-dom';
 import { Play, TeamUnit } from '../types/football';
 import { TEAM_UNITS, playIsUnitTaggable } from '../utils/unitStats';
 import { isRecordedMotion } from '../utils/csvParser';
-import { callUsage, isNumberFormation, isTaggablePlay, restOfSeriesIds, tidyFormation, writeInsFromPlays } from '../utils/playTags';
+import { callUsage, isNumberFormation, isTaggablePlay, restOfSeriesIds, tidyFormation, writeInsFromPlays, type PlayFieldEdit } from '../utils/playTags';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { CallButton, FormationEditor, TagPlaysPanel } from '../../components/playbook/CallPicker';
-import { Search, ChevronDown, ChevronUp, ChevronRight, Zap, Flame, CheckCircle2, ListChecks, Users, Filter, X } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, ChevronRight, Zap, Flame, CheckCircle2, ListChecks, Users, Filter, X, Pencil } from 'lucide-react';
 import { PLAY_COLUMNS, columnByKey, filterOptions, filterPlays, sortPlays, strengthSideText, strengthText, type PlayColumnKey, type PlayFilters } from '../utils/playColumns';
 import { ColumnFilter } from './ColumnFilter';
 import type { FilmPlayerRef, RosterPlayer } from '../../types';
@@ -57,6 +57,8 @@ interface PlaysTableProps {
   /** Film Room: a one-line toolbar (no title block), with these controls at its start. */
   compact?: boolean;
   toolbarStart?: React.ReactNode;
+  /** Change a play's fields from the log (strength, hash, type, down and distance, gain, result). */
+  onEditPlay?: (playId: string, edit: PlayFieldEdit) => void;
 }
 
 /** Open a tagged play in the play builder, drawn from its name. */
@@ -142,7 +144,7 @@ const UnitPicker: React.FC<{
   );
 };
 
-export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge, compact, toolbarStart, writeInPlays, onDrawCall, drawUntagged, theirCalls, theirFormations, onFormationAction, viewKey }) => {
+export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge, compact, toolbarStart, writeInPlays, onDrawCall, drawUntagged, theirCalls, theirFormations, onFormationAction, viewKey, onEditPlay }) => {
   // How the coach left this log (search, sort, column filters, untagged only, page), for coming back to it.
   const remembered = useMemo(() => readLogView(viewKey), []); // eslint-disable-line react-hooks/exhaustive-deps
   const showDraw = (p: Play) => Boolean(onDrawCall && (p.playCallId || drawUntagged));
@@ -163,6 +165,21 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
     return [...seen.values()].sort((a, b) => Number(b.drawn) - Number(a.drawn) || b.count - a.count || a.name.localeCompare(b.name));
   }, [theirFormations, writeInPlays, plays]);
   const [openPlay, setOpenPlay] = useState<string | null>(null);
+  // The play whose fields are being changed (strength, hash, type, down and distance, gain, result).
+  const [editPlay, setEditPlay] = useState<string | null>(null);
+  const editButton = (play: Play) =>
+    onEditPlay ? (
+      <button
+        type="button"
+        onClick={() => setEditPlay((id) => (id === play.id ? null : play.id))}
+        aria-expanded={editPlay === play.id}
+        aria-label={`Edit play ${play.playNumber}`}
+        title="Change this play: strength, hash, type, down and distance, gain, result"
+        className={`ml-1 inline-flex items-center justify-center h-5 w-5 rounded align-middle cursor-pointer ${editPlay === play.id ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-white hover:bg-slate-800"}`}
+      >
+        <Pencil className="w-3 h-3" />
+      </button>
+    ) : null;
   const canLineup = Boolean(lineupFor && roster && onSetSub);
   // A play's panel: who was on the field (offense / defense), and tackles on kicks too.
   const canOpen = (p: Play) => canLineup && (playIsUnitTaggable(p) || (p.odk === 'K' && Boolean(onSetDefPlay)));
@@ -506,7 +523,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-400">
-                <span>#{play.playNumber}</span>
+                <span>#{play.playNumber}{editButton(play)}</span>
                 {rowBadge?.(play)}
                 {play.series != null && <span className="font-bold text-slate-300">Drive {play.series}</span>}
                 {play.odk !== 'UNKNOWN' && <span>{play.odk}</span>}
@@ -533,6 +550,11 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               {hasPlayers(play) && (
                 <div className="text-[11px]">
                   <BallPlayers play={play} inline />
+                </div>
+              )}
+              {onEditPlay && editPlay === play.id && (
+                <div className="pt-1">
+                  <PlayFieldsEditor play={play} onEdit={(e) => onEditPlay(play.id, e)} onClose={() => setEditPlay(null)} />
                 </div>
               )}
               {onSetFormation && play.odk === 'O' && (
@@ -633,6 +655,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     ) : (
                       play.playNumber
                     )}
+                    {editButton(play)}
                     {rowBadge && (compact ? <span className="ml-1.5">{rowBadge(play)}</span> : <div className="mt-0.5">{rowBadge(play)}</div>)}
                   </td>
                   <td className="py-2.5 px-2 text-center font-mono font-bold">
@@ -749,7 +772,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   </td>
                   <td className="py-2.5 px-2 text-slate-400 text-[11px]">{play.direction}</td>
                   <td className="py-2.5 px-2 text-center text-[11px] font-bold text-violet-400">{play.motion && play.motion !== '-' ? play.motion : ''}</td>
-                  <td className="py-2.5 px-2 text-[11px] font-bold"><SideTag play={play} /></td>
+                  <td className="py-2.5 px-2 text-[11px] font-bold">{onEditPlay ? <StrengthPicker play={play} onEdit={(e) => onEditPlay(play.id, e)} /> : <SideTag play={play} />}</td>
                   <td className="py-2.5 px-2 text-slate-300 text-[11px]">{play.result && play.result !== '-' ? play.result : ''}</td>
                   <td className="py-2.5 px-3 text-right font-mono font-bold">
                     <span className={isGain ? 'text-emerald-400' : isLoss ? 'text-rose-400' : 'text-slate-400'}>
@@ -776,6 +799,13 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     </div>
                   </td>
                 </tr>
+                {onEditPlay && editPlay === play.id && (
+                  <tr className="bg-indigo-950/30">
+                    <td colSpan={99} className="px-4 py-3">
+                      <PlayFieldsEditor play={play} onEdit={(e) => onEditPlay(play.id, e)} onClose={() => setEditPlay(null)} />
+                    </td>
+                  </tr>
+                )}
                 {isOpen && (
                   <tr className="bg-slate-950/60">
                     <td colSpan={99} className="px-4 py-3">
@@ -995,6 +1025,113 @@ const SideTag: React.FC<{ play: Play }> = ({ play }) => {
       <span style={{ color: STRENGTH_COLOR[t] }}>{t}</span>
       {went && <span className="ml-1 font-normal text-slate-500">· {went}</span>}
     </span>
+  );
+};
+
+/** The strength column as a picker: what the formation says (Auto), or Left / Right / Balanced set for this play. */
+const StrengthPicker: React.FC<{ play: Play; onEdit: (edit: PlayFieldEdit) => void }> = ({ play, onEdit }) => {
+  const auto = strengthSideText({ ...play, strength: undefined });
+  const t = strengthSideText(play);
+  const went = t && t !== 'Balanced' ? strengthText(play).toLowerCase() : '';
+  return (
+    <span className="inline-flex items-center gap-1">
+      <select
+        value={play.strength || ''}
+        onChange={(e) => onEdit({ strength: e.target.value as PlayFieldEdit['strength'] })}
+        aria-label={`Strength on play ${play.playNumber}`}
+        title={play.strength ? 'Set for this play (pick Auto to go back to what the formation says)' : 'From the formation: pick Left, Right or Balanced to set it for this play'}
+        className="h-6 rounded border border-slate-700 bg-slate-900 px-1 text-[11px] font-bold cursor-pointer"
+        style={{ color: STRENGTH_COLOR[t] || '#94a3b8' }}
+      >
+        <option value="">{auto ? `Auto: ${auto}` : 'Auto: -'}</option>
+        <option value="L">Left</option>
+        <option value="R">Right</option>
+        <option value="balanced">Balanced</option>
+      </select>
+      {went && <span className="font-normal text-slate-500">· {went}</span>}
+    </span>
+  );
+};
+
+/** Change a play's fields right in the log. Each change saves as it's made (numbers when you leave the box). */
+const PlayFieldsEditor: React.FC<{ play: Play; onEdit: (edit: PlayFieldEdit) => void; onClose: () => void }> = ({ play, onEdit, onClose }) => {
+  const box = 'h-8 rounded-md border border-slate-700 bg-slate-900 px-2 text-xs text-slate-100';
+  const lab = 'text-[10px] font-black uppercase tracking-wider text-slate-500';
+  const seg = (on: boolean) => `h-8 px-2.5 text-xs font-black cursor-pointer ${on ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`;
+  const num = (v: string) => (v.trim() === '' ? undefined : Number(v));
+  return (
+    <div className="flex flex-wrap items-end gap-3" role="group" aria-label={`Edit play ${play.playNumber}`}>
+      <label className="flex flex-col gap-1">
+        <span className={lab}>Strength</span>
+        <StrengthPicker play={play} onEdit={onEdit} />
+      </label>
+      <div className="flex flex-col gap-1">
+        <span className={lab}>Hash</span>
+        <div className="inline-flex rounded-md border border-slate-700 overflow-hidden">
+          {(['L', 'M', 'R'] as const).map((h) => (
+            <button key={h} type="button" aria-pressed={play.hash === h} onClick={() => onEdit({ hash: h })} className={seg(play.hash === h)}>
+              {h}
+            </button>
+          ))}
+        </div>
+      </div>
+      <label className="flex flex-col gap-1">
+        <span className={lab}>Type</span>
+        <select value={play.playType} onChange={(e) => onEdit({ playType: e.target.value as Play['playType'] })} className={box}>
+          {['RUN', 'PASS', 'RPO', 'SCREEN', 'SPECIAL', 'PENALTY', 'OTHER'].map((t) => (
+            <option key={t} value={t}>
+              {t.charAt(0) + t.slice(1).toLowerCase()}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className={lab}>Down</span>
+        <select value={play.down || 0} onChange={(e) => onEdit({ down: Number(e.target.value) })} className={box}>
+          <option value={0}>-</option>
+          {[1, 2, 3, 4].map((d) => (
+            <option key={d} value={d}>
+              {d}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className={lab}>Dist</span>
+        <input
+          key={`d${play.id}${play.distance}`}
+          type="number"
+          inputMode="numeric"
+          defaultValue={play.distance || ''}
+          onBlur={(e) => num(e.target.value) !== play.distance && num(e.target.value) != null && onEdit({ distance: num(e.target.value) })}
+          className={`${box} w-16`}
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className={lab}>Gain / loss</span>
+        <input
+          key={`g${play.id}${play.gainLoss}`}
+          type="number"
+          inputMode="numeric"
+          defaultValue={play.gainLoss}
+          onBlur={(e) => num(e.target.value) !== play.gainLoss && num(e.target.value) != null && onEdit({ gainLoss: num(e.target.value) })}
+          className={`${box} w-20`}
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className={lab}>Result</span>
+        <input
+          key={`r${play.id}${play.result}`}
+          defaultValue={play.result && play.result !== '-' ? play.result : ''}
+          placeholder="Rush, Complete, TD…"
+          onBlur={(e) => e.target.value.trim() !== (play.result || '').trim() && onEdit({ result: e.target.value })}
+          className={`${box} w-36`}
+        />
+      </label>
+      <button type="button" onClick={onClose} className="h-8 px-3 rounded-md border border-slate-600 text-xs font-black text-slate-200 hover:bg-slate-800 cursor-pointer">
+        Done
+      </button>
+    </div>
   );
 };
 

@@ -25,3 +25,30 @@ describe('a coach sets the strength on a play', () => {
     assert.equal(strengthSideText(play({ formation: '21' })), '');
   });
 });
+
+describe('changing a play from the play log', async () => {
+  const { editPlayFields } = await import('./playTags.ts');
+  const base = { ...play({}), id: 'p1', playType: 'RUN', down: 1, distance: 10, gainLoss: 2, result: 'Rush', hash: 'M', isExplosive: false, isEfficient: false, hudlRow: { 'PLAY #': '1', DN: '1', DIST: '10', 'GN/LS': '2', 'PLAY TYPE': 'Run', HASH: 'M' } } as Play;
+  it('balanced 32 set to Left, then back to what the formation says', () => {
+    const [left] = editPlayFields([base], 'p1', { strength: 'L' }, 5);
+    assert.equal(strengthSideText(left), 'Left');
+    assert.equal(left.editedAt, 5);
+    const [auto] = editPlayFields([left], 'p1', { strength: '' });
+    assert.equal(strengthSideText(auto), 'Balanced');
+    assert.ok(!('strength' in auto));
+  });
+  it('gain, down and type: the flags follow and the Hudl row has the change', () => {
+    const [p] = editPlayFields([base], 'p1', { gainLoss: 14, playType: 'RUN', hash: 'L' });
+    assert.equal(p.isExplosive, true);
+    assert.equal(p.isEfficient, true);
+    assert.equal(p.hudlRow!['GN/LS'], '14');
+    assert.equal(p.hudlRow!.HASH, 'L');
+    const [q] = editPlayFields([base], 'p1', { down: 3, distance: 5, gainLoss: 3, playType: 'PASS' });
+    assert.equal(q.isEfficient, false);
+    assert.equal(q.hudlRow!.DN, '3');
+    assert.equal(q.hudlRow!['PLAY TYPE'], 'Pass');
+    // Other plays are left alone.
+    const other = { ...base, id: 'p2' };
+    assert.equal(editPlayFields([base, other], 'p1', { hash: 'R' })[1], other);
+  });
+});

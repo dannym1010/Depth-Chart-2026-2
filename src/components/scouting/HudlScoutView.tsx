@@ -33,7 +33,7 @@ import { buildScoutScript, rebuildScoutScript, cardsFromTags, followRenamedClips
 import { leadOppPlay, oppPlayDiagram, playPoint, theirPlaysByFormation } from '../../utils/filmBackfields';
 import { theirCallEntries } from '../../utils/theirCalls';
 import type { ReportPlayType } from '../../hudlScout/components/CallSheetModal';
-import { autoTagFromHudl, setPlaysFormation, tagPlays } from '../../hudlScout/utils/playTags';
+import { autoTagFromHudl, editPlayFields, setPlaysFormation, tagPlays, type PlayFieldEdit } from '../../hudlScout/utils/playTags';
 import { newPlayEntry } from '../../utils/playbookImport';
 import { hudlExportCsv } from '../../hudlScout/utils/hudlExport';
 import { CallResultsCard } from '../playbook/CallResultsCard';
@@ -233,6 +233,9 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     const entry = scoutTarget === 'opponent' ? { ...base, category: 'Opponent plays', tags: ['Opponent'] } : base;
     onUpdatePlayDatabase?.([...(playDatabase || []), entry]);
     return entry;
+  };
+  const handleEditPlay = (id: string, edit: PlayFieldEdit) => {
+    setBundle((prev) => ({ ...prev, plays: editPlayFields(prev.plays, id, edit), updatedAt: Date.now() }));
   };
   const handleSetFormation = (ids: string[], formation: string) => {
     setBundle((prev) => ({ ...prev, plays: setPlaysFormation(prev.plays, ids, formation), updatedAt: Date.now() }));
@@ -1227,6 +1230,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                   onTagPlays={onUpdatePlayDatabase ? handleTagPlays : undefined}
                   onCreateCall={onUpdatePlayDatabase ? handleCreateCall : undefined}
                   onSetFormation={handleSetFormation}
+                  onEditPlay={handleEditPlay}
                   onDrawCall={
                     drawFromLog
                       ? (pl) => (pl.playCallId ? drawTagged(String(pl.playCallId), pl.gameId || oppBundle.games[0]?.id) : onDrawSnap?.(pl))
