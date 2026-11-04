@@ -26,6 +26,7 @@ import { DriveChart } from './DriveChart';
 import { DriveSidebar } from './DriveSidebar';
 import { PlayerFinder } from './PlayerFinder';
 import { ComparePlays } from './ComparePlays';
+import { compareGames, gameOtherKey, gameTeamKey, teamSnapsElsewhere } from './compareData';
 import { BreakdownPanel } from './BreakdownPanel';
 import type { FilmFolderGame, UnplacedFolder } from './folderRoutes';
 import { clearFilmCutup, peekFilmCutup, type FilmCutup } from '../utils/filmCutup';
@@ -465,6 +466,19 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     setView(i);
   };
   const play: Play | undefined = plays.find((p) => p.id === playId) || playOrder[0];
+  // Naming a play: the names already made for the team with the ball on it (the film's O team, or on a D play
+  // the team it played), on its other films of any week.
+  const allFilm = useMemo(() => compareGames(ownTeamScout, teamName, filmWeeks || [], currentWeek, opponentScout), [ownTeamScout, teamName, filmWeeks, currentWeek, opponentScout]);
+  const playIsD = play?.odk === 'D';
+  const hasPlay = Boolean(play);
+  const nameTeam = useMemo(() => {
+    const cg = hasPlay && game ? allFilm.find((g) => g.key === game.key) : undefined;
+    if (!cg) return undefined;
+    const key = playIsD ? gameOtherKey(cg, teamName) : gameTeamKey(cg, teamName);
+    if (!key) return undefined;
+    const name = String((playIsD ? cg.otherTeam : cg.team) || '').trim();
+    return { label: key === 'own' ? 'Our other games' : `${name} · other films`, plays: teamSnapsElsewhere(allFilm, key, teamName, cg.key) };
+  }, [allFilm, game, hasPlay, playIsD, teamName]);
   const idx = play ? playOrder.indexOf(play) : -1;
   const next = idx >= 0 ? playOrder[idx + 1] : playOrder[0];
   const prev = idx > 0 ? playOrder[idx - 1] : undefined;
@@ -1709,6 +1723,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     <BreakdownPanel
       play={play}
       suggestFrom={(isOwn ? own : opp).plays}
+      teamFrom={nameTeam}
       onSave={(p, row) => saveBreakdown(p, row)}
       next={next}
       nextSnap={nextSnap}

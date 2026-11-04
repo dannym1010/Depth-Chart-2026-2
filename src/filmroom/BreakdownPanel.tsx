@@ -14,6 +14,8 @@ interface Props {
   play?: Play;
   /** Every play of this team's games, for the formation / play / result suggestions. */
   suggestFrom: Play[];
+  /** The team with the ball on this play: its snaps on its other films (any week), whose names can be picked. */
+  teamFrom?: { label: string; plays: Play[] };
   onSave: (play: Play, row: BreakdownRow) => void;
   next?: Play;
   /** The next snap of this game (by play number), whatever order the list is in: where this play ended. */
@@ -74,6 +76,7 @@ const UNITS: { id: TeamUnit; label: string; dot: string }[] = [
 export const BreakdownPanel: React.FC<Props> = ({
   play,
   suggestFrom,
+  teamFrom,
   onSave,
   next,
   nextSnap,
@@ -99,8 +102,15 @@ export const BreakdownPanel: React.FC<Props> = ({
   useEffect(() => setDraft(saved), [saved]);
   const [showAiModal, setShowAiModal] = useState(false);
 
+  const side = play?.odk === 'D' ? 'D' : play?.odk === 'O' ? 'O' : '';
   const lists = useMemo(() => {
     const names = savedNames(suggestFrom);
+    // The names tagged on this film (the game being watched), for the same team: an O play's from the O plays,
+    // a D play's (the other team's offense) from the D plays. Not the play being named: it would match itself.
+    const filmNames = savedNames(
+      suggestFrom.filter((p) => p.id !== play?.id && (!play?.gameId || p.gameId === play.gameId) && (!side || (side === 'D' ? p.odk === 'D' : p.odk !== 'D')))
+    );
+    const onFilm = new Set(filmNames.map((n) => n.name.toLowerCase()));
     return {
       form: uniq(suggestFrom.map((p) => p.formation)),
       play: uniq(suggestFrom.map((p) => p.untaggedName || p.playName)),
@@ -108,11 +118,11 @@ export const BreakdownPanel: React.FC<Props> = ({
       // The play names coaches have made, once for both the Play name boxes and the AI window.
       names,
       nameText: names.map((n) => n.name),
-      // The names tagged on this film (the game being watched).
-      // (not the play being named: picking a part names it, and it would match itself)
-      filmNames: savedNames(suggestFrom.filter((p) => p.id !== play?.id && (!play?.gameId || p.gameId === play.gameId))),
+      filmNames,
+      // The same team's names from its other films (not already listed for this film).
+      teamNames: teamFrom ? savedNames(teamFrom.plays.filter((p) => p.id !== play?.id)).filter((n) => !onFilm.has(n.name.toLowerCase())) : [],
     };
-  }, [suggestFrom, play?.gameId, play?.id]);
+  }, [suggestFrom, play?.gameId, play?.id, side, teamFrom]);
 
   if (!play) return <p className="p-4 text-sm text-slate-500 dark:text-slate-400">Pick a play to break it down.</p>;
 
@@ -283,6 +293,8 @@ export const BreakdownPanel: React.FC<Props> = ({
           playBox={String(row['OFF PLAY'] || '')}
           saved={lists.names}
           filmNames={lists.filmNames}
+          teamNames={lists.teamNames}
+          teamLabel={teamFrom?.label}
           custom={customOptions(suggestFrom)}
         />
       )}

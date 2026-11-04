@@ -22,9 +22,12 @@ export const PlayNameFields: React.FC<{
   saved?: { name: string; parts: CallParts; count: number }[];
   /** Every name tagged on this film (most used first). */
   filmNames?: { name: string; parts: CallParts; count: number }[];
+  /** The same team's names from its other films (not on this film), and what to call that row. */
+  teamNames?: { name: string; parts: CallParts; count: number }[];
+  teamLabel?: string;
   /** Options a coach added before (on any play): offered on every play. */
   custom: ReturnType<typeof customOptions>;
-}> = ({ parts, name, readOnly, run, onChange, onUseName, playBox, saved = [], filmNames = [], custom }) => {
+}> = ({ parts, name, readOnly, run, onChange, onUseName, playBox, saved = [], filmNames = [], teamNames = [], teamLabel, custom }) => {
   const set = (patch: Partial<CallParts>) => onChange({ ...parts, ...patch });
   const pick = <K extends keyof CallParts>(key: K, v: CallParts[K]) => set({ [key]: parts[key] === v ? undefined : v } as Partial<CallParts>);
   const tags = parts.tags || [];
@@ -101,9 +104,9 @@ export const PlayNameFields: React.FC<{
         )}
       </div>
 
-      {/* This film's names, narrowing to the ones with every part picked so far (all games' names until this film has some) */}
-      {!readOnly && (filmNames.length > 0 || saved.length > 0) && (() => {
-        const pool = filmNames.length ? filmNames : saved;
+      {/* This film's names and the same team's from its other films, narrowing to the ones with every part picked
+          so far (all games' names until there are some) */}
+      {!readOnly && (filmNames.length > 0 || teamNames.length > 0 || saved.length > 0) && (() => {
         const picking = Object.values(parts).some((v) => (Array.isArray(v) ? v.length : v));
         // A name's parts, with any it didn't save (a name typed, or from the AI window) read from the name itself.
         const partsOf = (x: { name: string; parts: CallParts }): CallParts => {
@@ -111,15 +114,32 @@ export const PlayNameFields: React.FC<{
           for (const [k, v] of Object.entries(x.parts || {})) if (Array.isArray(v) ? v.length : v) (full as Record<string, unknown>)[k] = v;
           return full;
         };
-        const matching = picking ? pool.filter((x) => partsMatch(partsOf(x), parts)) : pool;
-        const where = filmNames.length ? 'On this film' : 'Recent';
-        return row(
-          picking ? `${where} · ${matching.length} match${matching.length === 1 ? '' : 'es'}` : where,
-          matching.length ? (
-            <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">{matching.map((x) => pill(x.name, x.name === name, () => onChange(x.parts)))}</div>
-          ) : (
-            <span className="text-[11px] text-slate-500 dark:text-slate-400">No named play has these yet: keep picking to make a new one.</span>
-          )
+        const pools: { where: string; pool: typeof saved }[] =
+          filmNames.length || teamNames.length
+            ? [
+                ...(filmNames.length ? [{ where: 'On this film', pool: filmNames }] : []),
+                ...(teamNames.length ? [{ where: teamLabel || 'Other films', pool: teamNames }] : []),
+              ]
+            : [{ where: 'Recent', pool: saved }];
+        const shown = pools.map((p) => ({ ...p, matching: picking ? p.pool.filter((x) => partsMatch(partsOf(x), parts)) : p.pool }));
+        const none = shown.every((p) => !p.matching.length);
+        return (
+          <>
+            {shown.map(({ where, matching }) =>
+              (matching.length > 0 || (none && where === shown[shown.length - 1].where)) && (
+                <React.Fragment key={where}>
+                  {row(
+                    picking ? `${where} · ${matching.length} match${matching.length === 1 ? '' : 'es'}` : where,
+                    matching.length ? (
+                      <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">{matching.map((x) => pill(x.name, x.name === name, () => onChange(x.parts)))}</div>
+                    ) : (
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400">No named play has these yet: keep picking to make a new one.</span>
+                    )
+                  )}
+                </React.Fragment>
+              )
+            )}
+          </>
         );
       })()}
 

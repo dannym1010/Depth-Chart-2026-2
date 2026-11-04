@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { compareGames, compareNotes, guessOtherTeam, teamKey, formationList, formationNumbers, isPickable, playFacts, sameFormation, withFilmOnly } from './compareData.ts';
+import { compareGames, compareNotes, guessOtherTeam, teamKey, teamSnapsElsewhere, formationList, formationNumbers, isPickable, playFacts, sameFormation, withFilmOnly } from './compareData.ts';
 import { playsFromClips } from './clipPlays.ts';
 
 describe('compare: games with no breakdown', () => {
@@ -155,5 +155,19 @@ describe("compare: who has the ball on a film's D plays", () => {
     assert.deepEqual(games.map((g) => [g.otherTeam, g.otherGuessed]), [['Brewster', false], ['Fox Lane 2', true]]);
     assert.equal(teamKey('Fox-Lane ', 'Mahopac'), teamKey('FOX LANE', 'Mahopac'));
     assert.equal(teamKey('mahopac', 'Mahopac'), 'own');
+  });
+});
+
+describe('naming a play: the team\'s snaps on its other films', () => {
+  it("O plays on its own film, D plays where it played that film's team; not this film, not kicks", () => {
+    const own = { games: [{ id: 'g1', name: 'Week 1 - Fox Lane', week: '1' }], plays: [{ id: 'o1', gameId: 'g1', playNumber: 1, odk: 'O', callName: 'Us Dive' }, { id: 'o2', gameId: 'g1', playNumber: 2, odk: 'D', callName: 'Fox Power' }] };
+    const w2 = { games: [{ id: 's1', name: 'Fox Lane vs Carmel' }], plays: [{ id: 'a', gameId: 's1', playNumber: 1, odk: 'O', callName: 'Fox Jet' }, { id: 'b', gameId: 's1', playNumber: 2, odk: 'D', callName: 'Carmel Trap' }, { id: 'k', gameId: 's1', playNumber: 3, odk: 'K' }] };
+    const w3 = { games: [{ id: 's2', name: 'Lakeland vs Fox Lane' }], plays: [{ id: 'c', gameId: 's2', playNumber: 1, odk: 'O', callName: 'Lake Counter' }, { id: 'd', gameId: 's2', playNumber: 2, odk: 'D', callName: 'Fox Sweep' }] };
+    const games = compareGames(own, 'Mahopac', [{ key: '1', label: 'Week 1', opponent: 'Fox Lane' }, { key: '2', label: 'Week 2', opponent: 'Fox Lane', hudlScout: w2 }, { key: '3', label: 'Week 3', opponent: 'Lakeland', hudlScout: w3 }], '9');
+    const fox = teamKey('Fox Lane', 'Mahopac');
+    const ids = (except?: string) => teamSnapsElsewhere(games, fox, 'Mahopac', except).map((p) => p.id).sort();
+    assert.deepEqual(ids(), ['a', 'd', 'o2']);
+    assert.deepEqual(ids(games.find((g) => g.gameId === 's1')!.key), ['d', 'o2']);
+    assert.deepEqual(teamSnapsElsewhere(games, 'own', 'Mahopac').map((p) => p.id), ['o1']);
   });
 });

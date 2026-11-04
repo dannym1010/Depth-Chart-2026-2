@@ -10,7 +10,7 @@ import type { Play } from '../hudlScout/types/football';
 import type { PlayerApi } from './FilmPlayer';
 import { probeSnap } from './snapProbe';
 import { compareSplits, loadTiming, MOMENTS, saveTiming, secs, timingKey, type MomentId, type Moments } from './compareTiming';
-import { asOffense, compareNotes, formationList, formationNumbers, formationOf, isDSnap, isPickable, isSnap, playFacts, playNameOf, teamKey, type CompareGame, type FormationNumbers } from './compareData';
+import { asOffense, gameOtherKey, gameTeamKey, compareNotes, formationList, formationNumbers, formationOf, isDSnap, isPickable, isSnap, playFacts, playNameOf, teamKey, type CompareGame, type FormationNumbers } from './compareData';
 
 export type Side = 'a' | 'b';
 
@@ -51,9 +51,9 @@ interface Item {
 /** Our team's name in the film (the own games'). */
 let ownName = '';
 /** The team with the ball on a film's O plays: us (every game of ours), or a scouted team by name (every week it was scouted). */
-export const teamKeyOf = (g: CompareGame) => (g.source === 'own' ? 'own' : teamKey(g.team, ownName));
+export const teamKeyOf = (g: CompareGame) => gameTeamKey(g, ownName);
 /** The team with the ball on its D plays, when known. */
-export const otherKeyOf = (g: CompareGame) => (g.otherTeam ? teamKey(g.otherTeam, ownName) : '');
+export const otherKeyOf = (g: CompareGame) => gameOtherKey(g, ownName);
 /** The film has the team's snaps: its O plays, or its D plays when the other team is it. */
 const hasTeam = (g: CompareGame, team: string) => Boolean(team) && (teamKeyOf(g) === team || (otherKeyOf(g) === team && g.plays.some(isDSnap)));
 

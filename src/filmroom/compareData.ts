@@ -162,6 +162,25 @@ export const teamKey = (name: string, ownName: string) => {
   const w = words(name).trim();
   return w && w === words(ownName).trim() ? 'own' : `opp:${w.toUpperCase()}`;
 };
+/** The team with the ball on a film's O plays: 'own', or a scouted team by name. */
+export const gameTeamKey = (g: CompareGame, ownName: string) => (g.source === 'own' ? 'own' : teamKey(g.team, ownName));
+/** The team with the ball on its D plays ('' = not known). */
+export const gameOtherKey = (g: CompareGame, ownName: string) => (g.otherTeam ? teamKey(g.otherTeam, ownName) : '');
+
+/**
+ * A team's snaps on every film but one (`except`): its O plays on its own film and its D plays where it had the
+ * ball against that film's team. For naming a play from the names already made for that team.
+ */
+export function teamSnapsElsewhere(games: CompareGame[], team: string, ownName: string, except?: string): Play[] {
+  if (!team) return [];
+  return games
+    .filter((g) => g.key !== except)
+    .flatMap((g) => [
+      ...(gameTeamKey(g, ownName) === team ? g.plays.filter((p) => p.odk !== 'D' && p.odk !== 'K') : []),
+      ...(gameOtherKey(g, ownName) === team ? g.plays.filter((p) => p.odk === 'D') : []),
+    ]);
+}
+
 /** A play to pick: a snap, or one nobody has tagged yet (a clip of film with no breakdown, a blank breakdown). */
 export const isPickable = (p: Play) => isSnap(p) || ((!p.odk || p.odk === 'UNKNOWN') && p.playType !== 'SPECIAL');
 
