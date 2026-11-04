@@ -7,7 +7,7 @@ import { callUsage, isNumberFormation, isTaggablePlay, restOfSeriesIds, tidyForm
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { CallButton, FormationEditor, TagPlaysPanel } from '../../components/playbook/CallPicker';
 import { Search, ChevronDown, ChevronUp, ChevronRight, Zap, Flame, CheckCircle2, ListChecks, Users, Filter, X, Pencil } from 'lucide-react';
-import { PLAY_COLUMNS, columnByKey, filterOptions, filterPlays, sortPlays, strengthSideText, strengthText, type PlayColumnKey, type PlayFilters } from '../utils/playColumns';
+import { PLAY_COLUMNS, columnByKey, filterOptions, filterPlays, sortPlays, strengthSideText, strengthText, strengthFieldText, wentFieldText, type PlayColumnKey, type PlayFilters } from '../utils/playColumns';
 import { ColumnFilter } from './ColumnFilter';
 import type { FilmPlayerRef, RosterPlayer } from '../../types';
 import { defAssists, type FilmLineup } from '../../utils/filmLineup';
@@ -545,6 +545,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                 {play.callName ? <> · <b className="text-indigo-300">{play.callName}</b></> : null}
                 {play.direction ? ` · ${play.direction}` : ''}
                 {strengthSideText(play) ? <> · <SideTag play={play} /></> : null}
+                {strengthFieldText(play) || wentFieldText(play) ? <> · <FieldTag play={play} /></> : null}
                 {!hasPlayers(play) && play.carrierOrTarget ? ` · ${play.carrierOrTarget}` : ''}
               </div>
               {hasPlayers(play) && (
@@ -616,6 +617,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               {headerCell('direction')}
               {headerCell('motion', 'text-center')}
               {headerCell('strength')}
+              {headerCell('field')}
               {headerCell('result')}
               {headerCell('gainLoss', 'text-right')}
               {headerCell('flags', 'text-center')}
@@ -773,6 +775,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   <td className="py-2.5 px-2 text-slate-400 text-[11px]">{play.direction}</td>
                   <td className="py-2.5 px-2 text-center text-[11px] font-bold text-violet-400">{play.motion && play.motion !== '-' ? play.motion : ''}</td>
                   <td className="py-2.5 px-2 text-[11px] font-bold">{onEditPlay ? <StrengthPicker play={play} onEdit={(e) => onEditPlay(play.id, e)} /> : <SideTag play={play} />}</td>
+                  <td className="py-2.5 px-2 text-[11px] font-bold whitespace-nowrap"><FieldTag play={play} /></td>
                   <td className="py-2.5 px-2 text-slate-300 text-[11px]">{play.result && play.result !== '-' ? play.result : ''}</td>
                   <td className="py-2.5 px-3 text-right font-mono font-bold">
                     <span className={isGain ? 'text-emerald-400' : isLoss ? 'text-rose-400' : 'text-slate-400'}>
@@ -1027,6 +1030,32 @@ const SideTag: React.FC<{ play: Play }> = ({ play }) => {
     </span>
   );
 };
+
+/** The strength and the play's direction against the hash: to the wide side (field) or the boundary. */
+const FIELD_COLOR: Record<string, string> = { 'Wide side': '#16a34a', Boundary: '#dc2626', Middle: '#94a3b8' };
+const FieldTag: React.FC<{ play: Play }> = ({ play }) => {
+  const str = strengthFieldText(play);
+  const went = wentFieldText(play);
+  if (!str && !went) return <span className="text-slate-500" title={play.hash === 'M' ? 'Ball in the middle: no wide side or boundary' : 'No hash, strength or direction'}>-</span>;
+  return (
+    <span title={[str ? `Strength set to the ${str.toLowerCase()}` : '', went ? `the play went to the ${went.toLowerCase()}` : ''].filter(Boolean).join('; ') + ` (ball on the ${play.hash === 'L' ? 'left' : 'right'} hash)`}>
+      {str && (
+        <>
+          <span className="font-normal text-slate-500">Str </span>
+          <span style={{ color: FIELD_COLOR[str] }}>{str === 'Wide side' ? 'Wide' : 'Bdry'}</span>
+        </>
+      )}
+      {str && went && <span className="font-normal text-slate-500"> · </span>}
+      {went && (
+        <>
+          <span className="font-normal text-slate-500">{isRunLike(play) ? 'Run ' : 'Went '}</span>
+          <span style={{ color: FIELD_COLOR[went] }}>{went === 'Wide side' ? 'Wide' : went === 'Boundary' ? 'Bdry' : 'Mid'}</span>
+        </>
+      )}
+    </span>
+  );
+};
+const isRunLike = (p: Play) => p.playType === 'RUN' || p.playType === 'RPO';
 
 /** The strength column as a picker: what the formation says (Auto), or Left / Right / Balanced set for this play. */
 const StrengthPicker: React.FC<{ play: Play; onEdit: (edit: PlayFieldEdit) => void }> = ({ play, onEdit }) => {

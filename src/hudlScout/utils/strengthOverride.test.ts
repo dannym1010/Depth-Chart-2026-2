@@ -67,3 +67,22 @@ describe('a strength set in the log is not put back by the copy it changed', asy
     assert.equal(merged.plays[0].strength, 'L');
   });
 });
+
+describe('strength and run direction to the wide side or the boundary', async () => {
+  const { strengthFieldText, wentFieldText, columnByKey } = await import('./playColumns.ts');
+  it('reads them against the hash', () => {
+    // Ball on the left hash: the wide side is to the right.
+    const p = play({ formation: '21 R', hash: 'L', runSide: 'L', direction: 'Left' });
+    assert.equal(strengthFieldText(p), 'Wide side');
+    assert.equal(wentFieldText(p), 'Boundary');
+    assert.deepEqual(columnByKey('field').filterValues(p), ['Strength: Wide side', 'Went: Boundary']);
+    // Right hash, strength set left by a coach, run to the left: both to the wide side.
+    const q = play({ formation: '21 R', strength: 'L', hash: 'R', runSide: 'L', direction: 'Left' });
+    assert.equal(strengthFieldText(q), 'Wide side');
+    assert.equal(wentFieldText(q), 'Wide side');
+    // Middle of the field: no wide side or boundary. A balanced set has no strength side.
+    assert.equal(wentFieldText(play({ hash: 'M' })), '');
+    assert.equal(strengthFieldText(play({ hash: 'L' })), '');
+    assert.equal(wentFieldText(play({ hash: 'R', runSide: 'M', direction: 'Middle' })), 'Middle');
+  });
+});

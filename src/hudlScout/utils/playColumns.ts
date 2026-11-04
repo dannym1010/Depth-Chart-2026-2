@@ -3,6 +3,7 @@ import type { Play } from '../types/football';
 import { TEAM_UNITS } from './unitStats';
 import { isRecordedMotion } from './csvParser';
 import { isBalancedPlay, playStrength, playStrengthSide } from './strength';
+import { playWent, towardField } from './fieldTendencies';
 
 export type PlayColumnKey =
   | 'playNumber'
@@ -20,6 +21,7 @@ export type PlayColumnKey =
   | 'direction'
   | 'motion'
   | 'strength'
+  | 'field'
   | 'result'
   | 'gainLoss'
   | 'flags';
@@ -57,6 +59,20 @@ export const strengthSideText = (p: Play) => {
   return s === 'L' ? 'Left' : s === 'R' ? 'Right' : '';
 };
 const STRENGTH_ORDER: Record<string, number> = { Left: 1, Right: 2, Balanced: 3 };
+
+const TOWARD_TEXT = { field: 'Wide side', boundary: 'Boundary', middle: 'Middle' } as const;
+/** Where the formation's strength is set from the hash: "Wide side" / "Boundary" ("" when balanced, no side or the ball in the middle). */
+export const strengthFieldText = (p: Play) => {
+  if (isBalancedPlay(p)) return '';
+  const t = towardField(p, playStrength(p));
+  return t && t !== 'middle' ? TOWARD_TEXT[t] : '';
+};
+/** Where the play went from the hash: "Wide side" / "Middle" / "Boundary" ("" with no direction or the ball in the middle). */
+export const wentFieldText = (p: Play) => {
+  const t = towardField(p, playWent(p));
+  return t ? TOWARD_TEXT[t] : '';
+};
+const FIELD_ORDER: Record<string, number> = { 'Wide side': 1, Middle: 2, Boundary: 3 };
 export const playFlags = (p: Play) =>
   [p.isExplosive ? 'Explosive' : '', p.isEfficient ? 'Efficient' : '', isRecordedMotion(p.motion) ? 'Motion' : ''].filter(Boolean);
 
@@ -79,6 +95,16 @@ export const PLAY_COLUMNS: PlayColumn[] = [
   // Strong / weak side: the play's direction vs the formation's side letter ("21 L" = strength left).
   { key: 'motion', label: 'MOTION', sortValue: (p) => clean(p.motion), filterValues: (p) => one(p.motion) },
   { key: 'strength', label: 'STRENGTH', sortValue: (p) => STRENGTH_ORDER[strengthSideText(p)] ?? 9, filterValues: (p) => [strengthSideText(p) || BLANK] },
+  // The strength and the play's direction against the hash: to the wide side (field) or the boundary.
+  {
+    key: 'field',
+    label: 'FIELD / BDRY',
+    sortValue: (p) => (FIELD_ORDER[strengthFieldText(p)] ?? 9) * 10 + (FIELD_ORDER[wentFieldText(p)] ?? 9),
+    filterValues: (p) => {
+      const out = [strengthFieldText(p) ? `Strength: ${strengthFieldText(p)}` : '', wentFieldText(p) ? `Went: ${wentFieldText(p)}` : ''].filter(Boolean);
+      return out.length ? out : [BLANK];
+    },
+  },
   { key: 'result', label: 'RESULT', sortValue: (p) => clean(p.result), filterValues: (p) => one(p.result) },
   { key: 'gainLoss', label: 'GN/LS', sortValue: (p) => Number(p.gainLoss) || 0, filterValues: (p) => [String(Number(p.gainLoss) || 0)] },
   { key: 'flags', label: 'FLAGS', sortValue: (p) => playFlags(p).join(' '), filterValues: (p) => (playFlags(p).length ? playFlags(p) : ['None']) },

@@ -283,6 +283,18 @@ export const FieldTendenciesCard: React.FC<{ plays: Play[]; voice: ReportVoice; 
   const fieldRuns = placedRuns('field');
   const boundaryRuns = placedRuns('boundary');
   const balancedPlays = scopePlays.filter((p) => strengthOf(p) === 'B');
+  // Every run (any formation): to the wide side, the middle or the boundary, from the hash it started on.
+  const runsWent = (k: 'field' | 'middle' | 'boundary') => scopePlays.filter((p) => isRunPlay(p) && towardField(p, playWent(p)) === k);
+  const runField = { field: runsWent('field'), middle: runsWent('middle'), boundary: runsWent('boundary') };
+  const runFieldTotal = runField.field.length + runField.middle.length + runField.boundary.length;
+  const runFieldSegs: Segment[] = fieldParts.map((fp) => ({
+    label: fp.label,
+    color: fp.color,
+    count: runField[fp.k].length,
+    pct: runFieldTotal ? Math.round((runField[fp.k].length / runFieldTotal) * 100) : 0,
+    plays: runField[fp.k],
+  }));
+  const avgOf = (list: Play[]) => (list.length ? Math.round((list.reduce((n, p) => n + (Number(p.gainLoss) || 0), 0) / list.length) * 10) / 10 : 0);
 
   const toStrengthWith = (pool: Play[]) => [
     { k: 'strong' as const, label: 'To the strength', color: STRONG, plays: pool.filter((p) => runSide(p) === 'strong') },
@@ -354,11 +366,19 @@ export const FieldTendenciesCard: React.FC<{ plays: Play[]; voice: ReportVoice; 
                 onWatchCutup={onWatchCutup}
               />
               <BarRow
+                title="Runs go to the"
+                segments={runFieldSegs}
+                total={runFieldTotal}
+                unit="run"
+                note={[runField.field.length ? `${avgOf(runField.field)} yds to the wide side` : '', runField.boundary.length ? `${avgOf(runField.boundary)} yds to the boundary` : ''].filter(Boolean).join(' · ')}
+                onWatchCutup={onWatchCutup}
+              />
+              <BarRow
                 title="Runs, strength to the wide side"
                 segments={seg(r.runsByPlacement.field, toStrengthWith(fieldRuns))}
                 total={r.runsByPlacement.field.total}
                 unit="run"
-                note={yds(r.runsByPlacement.fieldAvg, r.runsByPlacement.field)}
+                note={['To the strength = to the wide side, away = to the boundary', yds(r.runsByPlacement.fieldAvg, r.runsByPlacement.field)].filter(Boolean).join(' · ')}
                 allPlays={fieldRuns}
                 onWatchCutup={onWatchCutup}
               />
@@ -367,7 +387,7 @@ export const FieldTendenciesCard: React.FC<{ plays: Play[]; voice: ReportVoice; 
                 segments={seg(r.runsByPlacement.boundary, toStrengthWith(boundaryRuns))}
                 total={r.runsByPlacement.boundary.total}
                 unit="run"
-                note={yds(r.runsByPlacement.boundaryAvg, r.runsByPlacement.boundary)}
+                note={['To the strength = to the boundary, away = to the wide side', yds(r.runsByPlacement.boundaryAvg, r.runsByPlacement.boundary)].filter(Boolean).join(' · ')}
                 allPlays={boundaryRuns}
                 onWatchCutup={onWatchCutup}
               />
