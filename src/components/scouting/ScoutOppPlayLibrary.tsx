@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowDownWideNarrow, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, GripVertical, Image as ImageIcon, Layers, Pencil, Play as PlayIcon, Plus, Presentation, Printer, Shield, X } from 'lucide-react';
+import { ArrowDownWideNarrow, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, GripVertical, Image as ImageIcon, Layers, Merge, Pencil, Play as PlayIcon, Plus, Presentation, Printer, Shield, Split, X } from 'lucide-react';
 import type { ScoutShow, ScoutShowLine } from './ScoutPresentation';
 import type { ScoutGame } from '../../hudlScout/components/Header';
 import type { Play } from '../../hudlScout/types/football';
@@ -40,6 +40,11 @@ import {
   planLines,
   printOrder,
   scriptByFormation,
+  scriptLineKinds,
+  scriptWords,
+  snapFormationName,
+  splitFormation,
+  formationExtraWords,
   SCRIPT_PRINT_SIZES,
   type ScriptPrintSize,
 } from '../../utils/scoutOppPlays';
@@ -106,6 +111,39 @@ export const ScoutOppPlayLibrary: React.FC<{
   const script = scriptFor(allOnReport, scriptOrder);
   const onTheReport = script.lines.map((l) => allOnReport.find((p) => p.id === l.playId)).filter((p): p is ScoutOppPlay => Boolean(p));
   const alsoOf = (id: string) => (script.lines.find((l) => l.playId === id)?.also || []).map((x) => allOnReport.find((p) => p.id === x)).filter((p): p is ScoutOppPlay => Boolean(p));
+  // Plays separated on the script ("Thumper Zone" its own line, not with "Zone"), by how they're called.
+  const apartKeys = new Set(allOnReport.filter((p) => p.apart).map((p) => scriptWords(p.name).toLowerCase()));
+  const [scriptSplit, setScriptSplit] = useState('');
+  /**
+   * Separate (or put back) every play of theirs called this way, on every film. A separated one goes right
+   * under the line it came from.
+   */
+  const setApart = (key: string, on: boolean, after?: string) => {
+    const now = Date.now();
+    let changed = false;
+    const next: Record<string, ScoutOppPlay[]> = {};
+    for (const [gid, list] of Object.entries(libraries)) {
+      next[gid] = (list || []).map((p) => {
+        if (scriptWords(p.name).toLowerCase() !== key || Boolean(p.apart) === on) return p;
+        changed = true;
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { apart: _was, ...rest } = p;
+        return on ? { ...p, apart: true, editedAt: now } : { ...rest, editedAt: now };
+      });
+    }
+    if (!changed) return;
+    const order = script.lines.map((l) => l.playId);
+    if (after && order.includes(after)) {
+      // In the line's spot: what stays on it, then the play separated from it.
+      const members = [after, ...(script.lines.find((l) => l.playId === after)?.also || [])];
+      const moved = allOnReport.filter((p) => scriptWords(p.name).toLowerCase() === key).map((p) => p.id);
+      const here = [...members.filter((id) => !moved.includes(id)), ...moved];
+      const at = order.indexOf(after);
+      const ids = [...order.slice(0, at), ...here, ...order.slice(at + 1)];
+      write(next, [], [...new Set(ids)]);
+    } else write(next, [], order);
+    setScriptSplit('');
+  };
   const [draft, setDraft] = useState(emptyDraft);
   const shownFormations = (formations || []).filter((f) => f?.id && !f.deleted);
   const [formName, setFormName] = useState('');
@@ -479,16 +517,25 @@ export const ScoutOppPlayLibrary: React.FC<{
   };
   const formKey = (name: string) => name.trim().toLowerCase().replace(/\s+/g, ' ');
   const taggedFormations = useMemo(() => {
-    const byKey = new Map<string, { name: string; clips: { n: number; id: string; call: string; cardId?: string }[] }>();
+    const byKey = new Map<string, { name: string; clips: { n: number; id: string; call: string; cardId?: string }[]; words: Map<string, { word: string; clips: number[] }> }>();
     for (const p of film) {
       if (p.odk && p.odk !== 'O' && p.odk !== 'UNKNOWN') continue;
-      // The formation the play's name says ("11 Gun Rt Dive" → 11 GUN) comes first, like the rest of Their plays;
-      // else the formation tagged in Hudl.
-      const named = formationFromParts(p.callParts);
+      // The formation the play's name says ("11 Gun Rt Dive" → 11 GUN, or one split off it: "32 Thumper") comes
+      // first, like the rest of Their plays; else the formation tagged in Hudl.
+      const named = snapFormationName(p.callParts, formations);
       const name = named || String(p.formation || '').trim();
       if (!name || name === '-') continue;
       const key = formKey(name);
-      if (!byKey.has(key)) byKey.set(key, { name, clips: [] });
+      if (!byKey.has(key)) byKey.set(key, { name, clips: [], words: new Map() });
+      // The other words on its name ("Thumper"), to split the formation by (not on one split off already).
+      if (named && formKey(named) === formKey(formationFromParts(p.callParts))) {
+        for (const w of formationExtraWords(p.callParts)) {
+          const words = byKey.get(key)!.words;
+          const cur = words.get(w.toLowerCase());
+          if (cur) cur.clips.push(Number(p.playNumber) || 0);
+          else words.set(w.toLowerCase(), { word: w, clips: [Number(p.playNumber) || 0] });
+        }
+      }
       const call = String(p.callName || '').trim() || String(p.playCall || '').trim() || realCall(p);
       byKey.get(key)!.clips.push({
         n: Number(p.playNumber) || 0,
@@ -500,16 +547,20 @@ export const ScoutOppPlayLibrary: React.FC<{
     }
     for (const v of byKey.values()) v.clips.sort((a, b) => a.n - b.n);
     return byKey;
-  }, [film, cardOfSnap]);
+  }, [film, cardOfSnap, formations]);
   // Every formation: the ones drawn or named here, then the ones tagged on the film that aren't yet (not drawn).
   const formationCards = useMemo(() => {
     const removed = new Set((formations || []).filter((x) => x?.deleted).map((x) => formKey(x.name || '')));
-    const saved = shownFormations.map((x) => ({ f: x, clips: taggedFormations.get(formKey(x.name))?.clips || [] }));
+    const wordsOf = (v?: { words: Map<string, { word: string; clips: number[] }> }) => [...(v?.words.values() || [])].sort((a, b) => b.clips.length - a.clips.length);
+    const saved = shownFormations.map((x) => {
+      const t = taggedFormations.get(formKey(x.name));
+      return { f: x, clips: t?.clips || [], words: wordsOf(t) };
+    });
     const have = new Set(shownFormations.map((x) => formKey(x.name)));
     const fromFilm = [...taggedFormations.entries()]
       .filter(([key]) => !have.has(key) && !removed.has(key))
       .sort((a, b) => b[1].clips.length - a[1].clips.length)
-      .map(([, v]) => ({ f: { id: '', name: v.name, editedAt: 0 } as OppFormation, clips: v.clips }));
+      .map(([, v]) => ({ f: { id: '', name: v.name, editedAt: 0 } as OppFormation, clips: v.clips, words: wordsOf(v) }));
     const all = [...saved, ...fromFilm];
     return byMostRun ? all.map((x, i) => ({ x, i })).sort((a, b) => b.x.clips.length - a.x.clips.length || a.i - b.i).map(({ x }) => x) : all;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -576,6 +627,22 @@ export const ScoutOppPlayLibrary: React.FC<{
   };
   const removeFormation = (f: OppFormation) => {
     if (!onSaveFormations || !window.confirm(`Remove the formation ${f.name}? Plays already drawn from it stay.`)) return;
+    const now = Date.now();
+    onSaveFormations((formations || []).map((x) => (x.id === f.id ? { ...x, deleted: true, editedAt: now } : x)));
+    if (fromFormation === f.id) setFromFormation('');
+  };
+
+  // Separating a formation: the card whose words are showing.
+  const [splitting, setSplitting] = useState('');
+  /** Make the clips with this word on their name their own formation ("32" + "Thumper" = "32 Thumper"). */
+  const separateFormation = (f: OppFormation, w: { word: string; clips: number[] }) => {
+    if (!onSaveFormations) return;
+    onSaveFormations(splitFormation(formations || [], f.name, w.word, { gameId: f.gameId || gameId, clip: w.clips[0] }));
+    setSplitting('');
+  };
+  /** A formation split off one: its clips go back to that one (its drawing is kept if it's split off again). */
+  const joinFormation = (f: OppFormation) => {
+    if (!onSaveFormations) return;
     const now = Date.now();
     onSaveFormations((formations || []).map((x) => (x.id === f.id ? { ...x, deleted: true, editedAt: now } : x)));
     if (fromFormation === f.id) setFromFormation('');
@@ -823,9 +890,10 @@ export const ScoutOppPlayLibrary: React.FC<{
             </div>
             {formationCards.length > 0 && (
               <ul className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
-                {formationCards.map(({ f, clips }) => {
+                {formationCards.map(({ f, clips, words }) => {
                   const drawn = Boolean(f.builder);
                   const open = clips.filter((c) => !c.cardId).length;
+                  const cardKey = f.id || `film:${f.name}`;
                   return (
                     <li key={f.id || `film:${f.name}`} className={`rounded-lg border p-1.5 space-y-1 ${fromFormation && fromFormation === f.id ? 'border-indigo-400 ring-1 ring-indigo-300' : drawn ? 'border-slate-200 dark:border-slate-700' : 'border-dashed border-slate-300 dark:border-slate-600'}`}>
                       <button type="button" className="block w-full cursor-pointer" onClick={() => drawFormation(f, clips)} aria-label={`Draw ${f.name}`}>
@@ -880,6 +948,54 @@ export const ScoutOppPlayLibrary: React.FC<{
                             </button>
                           ))}
                         </div>
+                      )}
+                      {onSaveFormations && f.splitFrom && (
+                        <button
+                          type="button"
+                          onClick={() => joinFormation(f)}
+                          title={`Put these clips back in ${f.splitFrom} (the drawing is kept if you separate it again)`}
+                          className="w-full h-6 rounded-md border border-dashed border-slate-300 dark:border-slate-600 text-[10px] font-bold text-slate-600 dark:text-slate-300 inline-flex items-center justify-center gap-1 cursor-pointer hover:border-indigo-400"
+                        >
+                          <Merge className="w-3 h-3" /> Put back with {f.splitFrom}
+                        </button>
+                      )}
+                      {onSaveFormations && !f.splitFrom && words.length > 0 && (
+                        splitting === cardKey ? (
+                          <div className="rounded-md bg-slate-50 dark:bg-slate-800/60 p-1 space-y-1" role="group" aria-label={`Separate ${f.name}`}>
+                            <div className="flex items-center gap-1">
+                              <span className="flex-1 text-[10px] font-bold text-slate-600 dark:text-slate-300">Make its own formation:</span>
+                              <button type="button" aria-label="Cancel" onClick={() => setSplitting('')} className="text-slate-400 hover:text-slate-700 cursor-pointer">
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {words.map((w) => (
+                                <button
+                                  key={w.word}
+                                  type="button"
+                                  onClick={() => separateFormation(f, w)}
+                                  title={`Clips ${w.clips.join(', ')} become ${f.name} ${w.word}`}
+                                  className="h-6 px-1.5 rounded bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 text-[10px] font-black text-indigo-700 dark:text-indigo-300 cursor-pointer hover:bg-indigo-600 hover:text-white"
+                                >
+                                  {f.name} {w.word} <span className="opacity-60 font-bold">({w.clips.length})</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setSplitting(cardKey)}
+                            title={`Some clips say more than ${f.name} (${words.map((w) => w.word).join(', ')}): make them their own formation`}
+                            className="w-full h-6 rounded-md text-[10px] font-bold text-slate-500 hover:text-indigo-700 dark:hover:text-indigo-300 inline-flex items-center justify-center gap-1 cursor-pointer"
+                          >
+                            <Split className="w-3 h-3 shrink-0" />
+                            <span className="truncate">
+                              Separate ({words.slice(0, 2).map((w) => w.word).join(', ')}
+                              {words.length > 2 ? ', …' : ''})
+                            </span>
+                          </button>
+                        )
                       )}
                       <div className="flex items-center gap-1">
                         <button
@@ -1562,6 +1678,64 @@ export const ScoutOppPlayLibrary: React.FC<{
                       </button>
                     </div>
                   </div>
+                  {(() => {
+                    if (!play) return null;
+                    // Plays called different ways on one line ("Zone", "Thumper Zone"): separate them.
+                    const kinds = scriptLineKinds([play, ...alsoOf(play.id)]);
+                    const own = scriptWords(play.name).toLowerCase();
+                    const isApart = apartKeys.has(own);
+                    if (isApart && kinds.length === 1)
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setApart(own, false)}
+                          title="Put it back on one line with the same play concept"
+                          className="mt-0.5 ml-6 h-6 px-1.5 rounded-md text-[10px] font-bold text-slate-500 hover:text-indigo-700 dark:hover:text-indigo-300 inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <Merge className="w-3 h-3" /> Separated · put back together
+                        </button>
+                      );
+                    if (kinds.length < 2) return null;
+                    if (scriptSplit !== line.playId)
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setScriptSplit(line.playId)}
+                          title={`This line has ${kinds.map((k) => k.words).join(' and ')}: open it to make them separate plays`}
+                          className="mt-0.5 ml-6 h-6 px-1.5 rounded-md text-[10px] font-bold text-slate-500 hover:text-indigo-700 dark:hover:text-indigo-300 inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <Split className="w-3 h-3" /> {kinds.length} plays here ({kinds.map((k) => k.words).join(', ')}) · separate
+                        </button>
+                      );
+                    return (
+                      <div className="mt-1 ml-6 rounded-md bg-slate-50 dark:bg-slate-800/60 p-1.5 space-y-1" role="group" aria-label={`Separate ${line.name}`}>
+                        <div className="flex items-center gap-1">
+                          <span className="flex-1 text-[11px] font-bold text-slate-600 dark:text-slate-300">Make its own play on the script:</span>
+                          <button type="button" aria-label="Close" onClick={() => setScriptSplit('')} className="text-slate-400 hover:text-slate-700 cursor-pointer">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        {kinds.map((k) => {
+                          const names = [...new Set(k.ids.map((id) => allOnReport.find((p) => p.id === id)?.name.trim()).filter(Boolean))];
+                          return (
+                            <div key={k.words} className="flex items-center gap-1.5">
+                              <span className="min-w-0 flex-1 text-[11px] text-slate-700 dark:text-slate-200">
+                                <span className="font-black">{k.words}</span>
+                                <span className="text-slate-500"> · {names.join(', ')}</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setApart(k.words.toLowerCase(), true, line.playId)}
+                                className="shrink-0 h-6 px-2 rounded bg-indigo-600 text-white text-[10px] font-black cursor-pointer hover:bg-indigo-700"
+                              >
+                                Separate
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                   {scriptPics &&
                     (diagram ? (
                       <>

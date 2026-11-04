@@ -1,7 +1,7 @@
 import { printableDiagram } from './printDiagram';
 import type { PracticePeriod } from '../types';
 import type { PlayBuilderState } from '../types/callSheet';
-import type { Play } from '../hudlScout/types/football';
+import type { CallParts, Play } from '../hudlScout/types/football';
 import { isWholeCall, parsePlayCall } from './playCallParse';
 import { BACKFIELD_STRUCTURES, RUN_SCHEMES } from './footballEngine';
 import { formationFromParts, parseCall, TAGS } from '../filmroom/callName';
@@ -34,6 +34,11 @@ export interface ScoutOppPlay {
   sheetSkip?: boolean;
   /** On that page though it isn't on the report (a coach checked it there). */
   sheetShow?: boolean;
+  /**
+   * Its own line on the script, not combined with the same play concept ("Thumper Zone" apart from "Zone"). Every
+   * play called the same way (scriptWords) goes with it.
+   */
+  apart?: boolean;
 }
 
 /** Whether one of their plays prints on the call sheet's play page: on the report, or checked there; never when left off. */
@@ -73,6 +78,47 @@ export interface OppFormation {
   printSkip?: boolean;
   /** Their plays from it left off the printout (play ids). */
   printHidePlays?: string[];
+  /**
+   * Split off this base formation (its name is the base plus a word on the clips' names: "32 Thumper" from "32"),
+   * so those clips are this formation and not the base. Removing it puts them back.
+   */
+  splitFrom?: string;
+}
+
+/** The words on a clip's name besides its formation ("Thumper" in "32 Rt Thumper 44 Zone"), to split a formation by. */
+export function formationExtraWords(parts: CallParts | undefined): string[] {
+  return (parts?.tags || []).filter((t) => t && !/^(twins|trips)$/i.test(t));
+}
+
+/**
+ * Their formation a clip's name says ("32"), or the formation split off it by a word on the name ("32 Thumper")
+ * when a coach made one.
+ */
+export function snapFormationName(parts: CallParts | undefined, formations: OppFormation[] | undefined): string {
+  const base = formationFromParts(parts);
+  if (!base) return '';
+  const splits = (formations || []).filter((f) => f?.id && !f.deleted && f.splitFrom && formationKey(f.splitFrom) === formationKey(base));
+  if (!splits.length) return base;
+  for (const w of formationExtraWords(parts)) {
+    const hit = splits.find((f) => formationKey(f.name) === formationKey(`${base} ${w}`));
+    if (hit) return hit.name;
+  }
+  return base;
+}
+
+/**
+ * Split a word off a base formation ("32" + "Thumper" = "32 Thumper"): one removed before comes back (with its
+ * drawing), else a new one. Returns the whole list.
+ */
+export function splitFormation(list: OppFormation[], base: string, word: string, at: { gameId?: string; clip?: number }, now = Date.now()): OppFormation[] {
+  const name = `${base.trim()} ${word.trim()}`;
+  const old = list.find((f) => f?.id && formationKey(f.name) === formationKey(name));
+  if (old) {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { deleted: _gone, ...back } = old;
+    return list.map((f) => (f === old ? { ...back, splitFrom: base.trim(), editedAt: now } : f));
+  }
+  return [...list, { id: `form-${now}`, name, splitFrom: base.trim(), ...(at.gameId ? { gameId: at.gameId } : {}), ...(at.clip ? { clip: at.clip } : {}), editedAt: now }];
 }
 
 /**
@@ -303,7 +349,7 @@ export function cardForSnap(
     if (pick) return pick;
   } else if (linked) return linked;
   // The play's name says the formation and the play ("21 GUN Trips", "21 GUN Trips Bubble"); else its labels.
-  const form = formationFromParts(snap.callParts) || (snap.formation && snap.formation !== '-' ? snap.formation.trim() : '');
+  const form = snapFormationName(snap.callParts, formations) || (snap.formation && snap.formation !== '-' ? snap.formation.trim() : '');
   const f = (formations || []).find((x) => x?.id && !x.deleted && x.builder && formationKey(x.name) === formationKey(form));
   const call = String(snap.callName || '').trim() || String(snap.playCall || '').trim() || realCall(snap);
   return {
@@ -577,7 +623,7 @@ export function placeholdersFromNames(
       id,
       gameId,
       name,
-      formation: formationFromParts(sample.callParts),
+      formation: snapFormationName(sample.callParts, formations),
       personnel: String(sample.callParts?.personnel || ''),
       kind: kindFrom(sample),
       down: mostCommonDown(rows),
@@ -907,22 +953,49 @@ export function playConcept(card: Pick<ScoutOppPlay, 'id' | 'name'>): string {
  * name without the side. Its lead is the one drawn (else the first in the order); groups keep the order of
  * their first play. A play alone keeps its whole name.
  */
-export function scriptGroups(plays: ScoutOppPlay[], drawn: (scoutId: string) => boolean = () => false): { lead: ScoutOppPlay; members: ScoutOppPlay[]; name: string }[] {
-  const by = new Map<string, { members: ScoutOppPlay[]; concept: string }>();
+export function scriptGroups(plays: ScoutOppPlay[], drawn: (scoutId: string) => boolean = () => false): { lead: ScoutOppPlay; members: ScoutOppPlay[]; name: string; apart?: string }[] {
+  // Plays a coach separated: every play called the same way ("Thumper Zone") is its own line.
+  const apart = new Set(plays.filter((p) => p.apart).map((p) => scriptWords(p.name).toLowerCase()));
+  const by = new Map<string, { members: ScoutOppPlay[]; concept: string; apart?: string }>();
   for (const p of plays) {
-    const concept = playConcept(p);
-    const key = concept ? `concept:${concept.toLowerCase()}` : sidelessName(p.name).toLowerCase() || p.id;
+    const words = scriptWords(p.name);
+    const own = apart.has(words.toLowerCase());
+    const concept = own ? '' : playConcept(p);
+    const key = own ? `apart:${words.toLowerCase()}` : concept ? `concept:${concept.toLowerCase()}` : sidelessName(p.name).toLowerCase() || p.id;
     const cur = by.get(key);
     if (cur) cur.members.push(p);
-    else by.set(key, { members: [p], concept });
+    else by.set(key, { members: [p], concept, ...(own ? { apart: words } : {}) });
   }
-  return [...by.values()].map(({ members, concept }) => {
+  return [...by.values()].map(({ members, concept, apart: words }) => {
     const lead = members.find((m) => drawn(m.id)) || members[0];
     const names = new Set(members.map((m) => m.name.trim().toLowerCase()));
     const sideless = new Set(members.map((m) => sidelessName(m.name).toLowerCase()));
-    const name = names.size === 1 ? lead.name : sideless.size === 1 ? sidelessName(lead.name) : concept || sidelessName(lead.name);
-    return { lead, members, name };
+    const name = names.size === 1 ? lead.name : sideless.size === 1 ? sidelessName(lead.name) : words || concept || sidelessName(lead.name);
+    return { lead, members, name, ...(words ? { apart: words } : {}) };
   });
+}
+
+/**
+ * How a play is called, without its personnel, QB spot, side and back + hole: its tags and concept ("32 Rt
+ * Thumper 44 Zone" is "Thumper Zone", "21 Gun Lt 43 Zone" is "Zone"). Plays separated on the script go by this.
+ */
+export function scriptWords(name: string): string {
+  const c = parseCall(name);
+  const words = [...(c.tags || []), c.concept].filter(Boolean).join(' ');
+  return words || sidelessName(name);
+}
+
+/** The ways the plays on one script line are called ("Zone" ×3, "Thumper Zone" ×2), to separate them. */
+export function scriptLineKinds(members: Pick<ScoutOppPlay, 'id' | 'name'>[]): { words: string; ids: string[] }[] {
+  const by = new Map<string, { words: string; ids: string[] }>();
+  for (const m of members) {
+    const words = scriptWords(m.name);
+    const k = words.toLowerCase();
+    const cur = by.get(k);
+    if (cur) cur.ids.push(m.id);
+    else by.set(k, { words, ids: [m.id] });
+  }
+  return [...by.values()];
 }
 
 /**

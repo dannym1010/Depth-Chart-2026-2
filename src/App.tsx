@@ -168,8 +168,8 @@ import { mergeDeletedPlayIds, mergePlayBanks, stampPlayEdits } from './utils/pla
 import { blankCallSheetData, blankWristbandData } from './utils/blankSheets';
 import { missingPracticePlans } from './utils/autoPracticePlans';
 import { clearPlayBuilderSeed, consumeSeedHold, holdPlayBuilderSeed, mergeBuilderSave, savePlayBuilderSeed, type PlayBuilderSeed } from './utils/playBuilderSeed';
-import { builderFromFormation, cardForSnap, groupOppPlays, isScoutPlayEntry, mergeDrawnIntoTags, planLines, realCall, renameOppCall, linkSnapsToCall, snapsForCall, type FormationPlan, type OppFormation, type ScoutOppPlay } from './utils/scoutOppPlays';
-import { customOptions, formationFromParts } from './filmroom/callName';
+import { builderFromFormation, cardForSnap, groupOppPlays, isScoutPlayEntry, mergeDrawnIntoTags, planLines, realCall, renameOppCall, linkSnapsToCall, snapsForCall, snapFormationName, type FormationPlan, type OppFormation, type ScoutOppPlay } from './utils/scoutOppPlays';
+import { customOptions } from './filmroom/callName';
 import type { CallParts, Play as FilmPlay } from './hudlScout/types/football';
 import { setPlaysFormation } from './hudlScout/utils/playTags';
 import { backfieldOf, baseKeysForGame, formationDefense, formationOfPlay, openFormation, oppPlayDiagram, playWithDefense, redrawWithBackfield, spotsForGame, theirPlayNamesByFormation } from './utils/filmBackfields';
@@ -4810,7 +4810,8 @@ export default function App() {
     // Every play on the film tagged in this formation: the film window plays them all, the builder lists them.
     const key = (n: string) => String(n || '').trim().toLowerCase().replace(/\s+/g, ' ');
     const inFormation = ((hudl?.plays || []) as any[])
-      .filter((p) => p.gameId === gameId && (!p.odk || p.odk === 'O' || p.odk === 'UNKNOWN') && (key(p.formation) === key(formation.name) || key(formationFromParts(p.callParts)) === key(formation.name)))
+      // The formation the play's name says (a word split off it is its own: "32 Thumper"), else Hudl's tag.
+      .filter((p) => p.gameId === gameId && (!p.odk || p.odk === 'O' || p.odk === 'UNKNOWN') && key(snapFormationName(p.callParts, list) || p.formation) === key(formation.name))
       .sort((a, b) => (Number(a.playNumber) || 0) - (Number(b.playNumber) || 0));
     const drawnPlays = latestStateRef.current.playDatabase || [];
     // Which of their plays each clip is: tagged with it directly, else matched the way the script matches

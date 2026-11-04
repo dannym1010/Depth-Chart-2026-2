@@ -351,3 +351,38 @@ describe('scout script: from the games picked', () => {
     assert.equal(all.gameIds, undefined);
   });
 });
+
+describe('separating plays and formations that were put together', async () => {
+  const { buildScoutScript, scriptLineKinds, snapFormationName, splitFormation } = await import('./scoutOppPlays.ts');
+  const { parseCall } = await import('../filmroom/callName.ts');
+  const card = (id: string, name: string, extra: Record<string, unknown> = {}) => ({ id, gameId: 'g1', name, formation: '32', personnel: '32', kind: 'run' as const, down: '1st', notes: '', onReport: true, editedAt: 1, ...extra });
+  it('Zone and Thumper Zone are one line until one is separated', () => {
+    const plays = [card('a', '32 Rt 44 Zone'), card('b', '32 Thumper Zone'), card('c', '21 Gun Lt Thumper 43 Zone'), card('d', '32 Lt 43 Zone')];
+    const one = buildScoutScript(plays, 'Carmel');
+    assert.equal(one.lines.length, 1);
+    assert.deepEqual(scriptLineKinds(plays).map((k) => `${k.words}:${k.ids.join('')}`), ['Zone:ad', 'Thumper Zone:bc']);
+    // Thumper Zone separated on one card: every Thumper Zone (any personnel) goes with it.
+    const two = buildScoutScript(plays.map((p) => (p.id === 'b' ? { ...p, apart: true } : p)), 'Carmel');
+    assert.deepEqual(two.lines.map((l) => [l.playId, l.name, (l.also || []).join('')]), [
+      ['a', 'Zone', 'd'],
+      ['b', 'Thumper Zone', 'c'],
+    ]);
+  });
+  it('32 Thumper split off 32 gets the clips that say Thumper; removing it puts them back', () => {
+    const thumper = parseCall('32 Rt Thumper 44 Zone');
+    const plain = parseCall('32 Lt 43 Zone');
+    assert.equal(snapFormationName(thumper, []), '32');
+    const list = splitFormation([{ id: 'f32', name: '32', editedAt: 1 }], '32', 'Thumper', { gameId: 'g1', clip: 7 }, 5);
+    assert.equal(list[1].name, '32 Thumper');
+    assert.equal(list[1].splitFrom, '32');
+    assert.equal(snapFormationName(thumper, list), '32 Thumper');
+    assert.equal(snapFormationName(plain, list), '32');
+    const back = list.map((f) => (f.name === '32 Thumper' ? { ...f, deleted: true } : f));
+    assert.equal(snapFormationName(thumper, back), '32');
+    // Split again: the same one comes back (its drawing kept), not a second copy.
+    const again = splitFormation(back, '32', 'Thumper', {}, 9);
+    assert.equal(again.length, 2);
+    assert.equal(again[1].deleted, undefined);
+    assert.ok(!('deleted' in again[1]));
+  });
+});
