@@ -1456,11 +1456,18 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
           {!compact && !!seed?.snaps?.length && !!seed.gameId && (
             <button
               type="button"
-              onClick={() => openFilmWindow({ gameId: seed.gameId!, playIds: seed.snaps!.map((x) => x.id), label: seed.watchLabel || seed.name })}
+              onClick={() =>
+                openFilmWindow({
+                  gameId: seed.gameId!,
+                  playIds: seed.snaps!.map((x) => x.id),
+                  label: seed.watchLabel || seed.name,
+                  ...(seed.watchStartId ? { startId: seed.watchStartId } : {}),
+                })
+              }
               title="Watch their film of this play in a window while you work"
               className="h-11 px-3 rounded-xl border-2 border-indigo-500 text-sm font-black text-indigo-700 dark:text-indigo-300 inline-flex items-center gap-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 cursor-pointer shrink-0"
             >
-              <PlayIcon className="w-4 h-4" /> Watch film ({seed.snaps.length})
+              <PlayIcon className="w-4 h-4" /> {formationMode ? 'Watch their clips' : 'Watch film'} ({seed.snaps.length})
             </button>
           )}
           {!compact && !!seed?.snaps?.length && onWatchFilm && (

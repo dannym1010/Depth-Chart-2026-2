@@ -4848,12 +4848,15 @@ export default function App() {
       formationPlays,
       snaps,
       watchLabel: formation.name,
+      ...(startId ? { watchStartId: startId } : {}),
       builder: formation.builder,
       filmBases: spotsForGame(hudl?.backfieldBases, gameId),
       filmBaseKeys: baseKeysForGame(hudl?.backfieldBases, gameId),
     });
     holdPlayBuilderSeed();
-    if (gameId && snaps.length) openFilmWindow({ gameId, playIds: snaps.map((x) => x.id), label: formation.name, ...(startId ? { startId } : {}) });
+    // Drawing a formation: the builder only. Its clips play when the coach asks (Watch their clips, or a
+    // clip under "Their plays in this formation"); a clip left playing from another play stops.
+    closeFilmWindow();
     setActiveUnit('playbook');
   };
   /** Their play in the play builder (from Their plays, the play log or a clip), with its film in the film window. */

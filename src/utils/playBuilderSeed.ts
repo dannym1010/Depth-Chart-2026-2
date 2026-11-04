@@ -21,6 +21,8 @@ export interface PlayBuilderSeed {
   snaps?: { id: string; playNumber: number; gain?: number; result?: string }[];
   /** What the film window calls these snaps (the play type's name when several calls were combined). */
   watchLabel?: string;
+  /** The snap Watch starts on (a formation's own clip). */
+  watchStartId?: string;
   /** The builder's settings saved with that play, to pick up where it was left. */
   builder?: PlayBuilderState;
   /** This film's backfield shapes (Beast on this video), so the picture starts from them. */

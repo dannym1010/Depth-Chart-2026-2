@@ -340,6 +340,24 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
     return () => window.removeEventListener('resize', onResize);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [width]);
+  // Asked to show clips: the window comes out (not tucked away) and all of it is on this screen, even when
+  // its saved spot was on a bigger or second screen.
+  const asked = `${idsKey}|${request.startId || ''}`;
+  useEffect(() => {
+    setMini(false);
+    if (dock) return;
+    const fit = () => {
+      const r = boxRef.current?.getBoundingClientRect();
+      if (!r) return;
+      const maxX = Math.max(8, window.innerWidth - r.width - 8);
+      const maxY = Math.max(64, window.innerHeight - r.height - 8);
+      if (r.left >= 8 && r.top >= 8 && r.left <= maxX && r.top <= maxY) return;
+      setPos((p) => (p ? { x: Math.max(8, Math.min(p.x, maxX)), y: Math.max(64, Math.min(p.y, maxY)) } : null));
+    };
+    const raf = window.requestAnimationFrame(fit);
+    return () => window.cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asked]);
   const changeSize = (s: 's' | 'l') => {
     setSize(s);
     write(SIZE_KEY, s);

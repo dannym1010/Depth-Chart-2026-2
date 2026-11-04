@@ -479,7 +479,7 @@ export const ScoutOppPlayLibrary: React.FC<{
   };
   const formKey = (name: string) => name.trim().toLowerCase().replace(/\s+/g, ' ');
   const taggedFormations = useMemo(() => {
-    const byKey = new Map<string, { name: string; clips: { n: number; call: string; cardId?: string }[] }>();
+    const byKey = new Map<string, { name: string; clips: { n: number; id: string; call: string; cardId?: string }[] }>();
     for (const p of film) {
       if (p.odk && p.odk !== 'O' && p.odk !== 'UNKNOWN') continue;
       // The formation the play's name says ("11 Gun Rt Dive" → 11 GUN) comes first, like the rest of Their plays;
@@ -492,6 +492,7 @@ export const ScoutOppPlayLibrary: React.FC<{
       const call = String(p.callName || '').trim() || String(p.playCall || '').trim() || realCall(p);
       byKey.get(key)!.clips.push({
         n: Number(p.playNumber) || 0,
+        id: p.id,
         call: call === '-' ? '' : call,
         // Its play: tagged with it directly, else matched the way the script matches (call, clip typed in, tag).
         cardId: p.playCallId?.startsWith('scout_') ? p.playCallId.slice(6) : cardOfSnap.get(p.id),
@@ -817,7 +818,7 @@ export const ScoutOppPlayLibrary: React.FC<{
                 </div>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Formations tagged on this film show up here with their clips. Draw each base once (a clip of it plays while you line them up), then click a clip to make that play from it. Green clips already have a play.
+                Formations tagged on this film show up here with their clips. Click a formation to draw its base; ▶ plays its clips in the film window. Then click a clip number to make that play from it. Green clips already have a play.
               </p>
             </div>
             {formationCards.length > 0 && (
@@ -893,6 +894,17 @@ export const ScoutOppPlayLibrary: React.FC<{
                         >
                           <Plus className="w-3 h-3" /> Play
                         </button>
+                        {clips.length > 0 && gameId && (
+                          <button
+                            type="button"
+                            onClick={() => openFilmWindow({ gameId, playIds: clips.map((c) => c.id), label: f.name })}
+                            title={`Watch their ${clips.length} clip${clips.length === 1 ? '' : 's'} in ${f.name}`}
+                            aria-label={`Watch ${f.name} clips`}
+                            className="h-7 w-7 rounded-md border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 inline-flex items-center justify-center cursor-pointer hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+                          >
+                            <PlayIcon className="w-3 h-3" />
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => drawFormation(f, clips)}
