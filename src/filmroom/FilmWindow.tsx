@@ -128,8 +128,13 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
       gameId: activeGameId,
       name: gameInfo?.name || (source === 'own' ? `${teamName} film` : 'Scouting film'),
       week: source === 'own' ? gameInfo?.week : currentWeek,
+      // As the Film Room has it: film brought in from another week is found in that week's folder (not this week's
+      // game, which would show the same video for both games).
+      ...(gameInfo?.fromFilm ? { fromFilm: true } : {}),
+      ...(gameInfo?.filmFrom ? { filmFrom: gameInfo.filmFrom } : {}),
     }),
-    [source, activeGameId, currentWeek, gameInfo?.name, gameInfo?.week, teamName]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [source, activeGameId, currentWeek, gameInfo?.name, gameInfo?.week, teamName, gameInfo?.fromFilm, JSON.stringify(gameInfo?.filmFrom || null)]
   );
 
   // Every play of this film (the clips go with them in order).
