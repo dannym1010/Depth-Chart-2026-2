@@ -687,17 +687,26 @@ export function followRenamedClips(film: Play[], cards: ScoutOppPlay[], drawn: (
   const out: ScoutOppPlay[] = [];
   const now = Date.now();
   for (const c of cards) {
-    if (!c.id.startsWith('name-') || !c.clips?.length) continue;
+    // Its clips: the clip numbers on the card, and the clips tagged with it (any card, however it was made:
+    // from a play name, the play builder or Hudl's call; the Film Room's name for the play wins).
+    const own = (p: Play) => (!p.gameId || p.gameId === c.gameId) && p.odk !== 'K' && p.odk !== 'S' && p.odk !== 'D';
+    const nums = new Set((c.clips || []).map(Number));
+    for (const p of film) if (own(p) && p.playCallId === `scout_${c.id}`) nums.add(Number(p.playNumber) || 0);
+    if (!nums.size) continue;
     const key = c.name.trim().toLowerCase();
-    const named = c.clips
-      .map((n) => film.find((p) => (!p.gameId || p.gameId === c.gameId) && Number(p.playNumber) === Number(n) && p.odk !== 'K' && p.odk !== 'S' && p.odk !== 'D'))
-      .map((p) => ({ n: Number(p?.playNumber) || 0, name: String(p?.callName || '').trim(), parts: p?.callParts }));
+    const named = [...nums]
+      .map((n) => film.find((p) => own(p) && Number(p.playNumber) === Number(n)))
+      .filter((p): p is Play => Boolean(p))
+      .map((p) => ({ n: Number(p.playNumber) || 0, name: String(p.callName || '').trim(), parts: p.callParts }));
+    if (!named.length) continue;
     const moved = named.filter((x) => x.name && x.name.toLowerCase() !== key);
     if (!moved.length) continue;
     if (named.some((x) => x.name.toLowerCase() === key) || moved.length < named.length) {
       // Some clips still have its name: the renamed ones just leave it.
       const gone = new Set(moved.map((x) => x.n));
-      out.push({ ...c, clips: c.clips.filter((n) => !gone.has(Number(n))), editedAt: now });
+      const left = (c.clips || []).filter((n) => !gone.has(Number(n)));
+      // Only the clip numbers typed on the card change (a tagged clip leaves when it's tagged with its own name).
+      if (left.length !== (c.clips || []).length) out.push({ ...c, clips: left, editedAt: now });
       continue;
     }
     const count = new Map<string, { name: string; parts?: Play['callParts']; n: number }>();
@@ -712,7 +721,7 @@ export function followRenamedClips(film: Play[], cards: ScoutOppPlay[], drawn: (
     out.push({
       ...c,
       name: top.name,
-      clips: c.clips.filter((n) => keep.has(Number(n))),
+      ...(c.clips?.length ? { clips: c.clips.filter((n) => keep.has(Number(n))) } : {}),
       // A drawn play keeps the formation it was drawn in.
       ...(!drawn(c.id) && form ? { formation: form, personnel: String(top.parts?.personnel || c.personnel || '') } : {}),
       editedAt: now,

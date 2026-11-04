@@ -220,8 +220,8 @@ describe("a play name's card follows its clips when they're renamed", () => {
     assert.deepEqual(out.map((x) => [x.name, x.clips]), [['21 Gun Dive', [1]]]);
     // Names lost (blank): the card is how they come back, so it stays as it is.
     assert.equal(followRenamedClips([snap(1, ''), snap(2, '')], [c]).length, 0);
-    // A card a coach made (not from a play name) isn't touched.
-    assert.equal(followRenamedClips([snap(1, '21 Gun Trap')], [card('opp-4', '21 Gun Dive', [1])]).length, 0);
+    // A card a coach made (not from a play name) follows the Film Room's name too.
+    assert.deepEqual(followRenamedClips([snap(1, '21 Gun Trap')], [card('opp-4', '21 Gun Dive', [1])]).map((x) => x.name), ['21 Gun Trap']);
   });
 });
 

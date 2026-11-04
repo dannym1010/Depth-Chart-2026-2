@@ -386,3 +386,24 @@ describe('separating plays and formations that were put together', async () => {
     assert.ok(!('deleted' in again[1]));
   });
 });
+
+describe('a play on the script follows the name given in the Film Room', async () => {
+  const { followRenamedClips } = await import('./scoutOppPlays.ts');
+  const card = (id: string, name: string, extra: Record<string, unknown> = {}) => ({ id, gameId: 'g1', name, formation: '32', personnel: '32', kind: 'run' as const, down: '1st', notes: '', onReport: true, editedAt: 1, ...extra });
+  it('a card made in the play builder (or from Hudl) takes the Film Room name of its clips', () => {
+    const film7 = film(7, { odk: 'O', callName: '32 Dive', callParts: { personnel: '32', concept: 'Dive' } });
+    const [out] = followRenamedClips([film7], [card('opp-1', '32 Sweep', { clips: [7] })], () => true);
+    assert.equal(out.name, '32 Dive');
+    assert.deepEqual(out.clips, [7]);
+    assert.equal(out.formation, '32', 'a drawn play keeps its formation');
+    // Tagged with the card (no clip number typed): the same.
+    const tagged = film(9, { odk: 'O', playCallId: 'scout_film-2', callName: '21 Trap' });
+    const [t] = followRenamedClips([tagged], [card('film-2', '21 Dive')]);
+    assert.equal(t.name, '21 Trap');
+    assert.equal(t.clips, undefined);
+  });
+  it('a clip with no Film Room name, or still the same name, changes nothing', () => {
+    assert.equal(followRenamedClips([film(7, { odk: 'O' })], [card('opp-1', '32 Sweep', { clips: [7] })]).length, 0);
+    assert.equal(followRenamedClips([film(7, { odk: 'O', callName: '32 sweep' })], [card('opp-1', '32 Sweep', { clips: [7] })]).length, 0);
+  });
+});
