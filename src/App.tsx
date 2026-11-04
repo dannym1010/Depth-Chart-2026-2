@@ -4891,13 +4891,20 @@ export default function App() {
         { ...newPlayEntry(play.name, 'offense'), id: entryId, source: 'scout', teamId, notes: play.notes || '' },
       ]);
     }
-    const linked = linkSnapsToCall(hudl?.plays || [], {
-      gameId: play.gameId,
-      callName: play.name,
-      playEntryId: entryId,
-      playName: play.name,
-      clips: play.clips,
-    });
+    // A game's own plays: ones saved without a game are the first game's (never another game's clip 63).
+    const allSnaps: FilmPlay[] = hudl?.plays || [];
+    const firstGame = hudl?.games?.[0]?.id;
+    const onFilm = (gid?: string) => (p: FilmPlay) => (p.gameId ? p.gameId === gid : firstGame === gid);
+    const relinked = new Map(
+      linkSnapsToCall(allSnaps.filter(onFilm(play.gameId)), {
+        gameId: play.gameId,
+        callName: play.name,
+        playEntryId: entryId,
+        playName: play.name,
+        clips: play.clips,
+      }).map((p) => [p.id, p])
+    );
+    const linked = allSnaps.map((p) => (onFilm(play.gameId)(p) ? relinked.get(p.id) || p : p));
     const libs = hudl?.playLibraries || {};
     const cardSaved = Boolean(play.gameId && (libs[play.gameId] || []).some((c) => c.id === play.id));
     if (hudl && (!cardSaved || linked.some((p, i) => p !== (hudl.plays || [])[i]))) {
@@ -4910,7 +4917,7 @@ export default function App() {
     // The snaps of this play, or of every call in the play type when several were combined.
     const snapsById = new Map<string, { id: string; playNumber: number; gain?: number; result?: string }>();
     for (const member of group?.plays?.length ? group.plays : [play]) {
-      for (const snap of snapsForCall(linked, member.gameId, member.name, `scout_${member.id}`, member.fromPlayId, member.clips)) {
+      for (const snap of snapsForCall(linked.filter(onFilm(member.gameId)), member.gameId, member.name, `scout_${member.id}`, member.fromPlayId, member.clips)) {
         snapsById.set(snap.id, snap);
       }
     }
@@ -4975,10 +4982,13 @@ export default function App() {
   const scriptFilm = (card: ScoutOppPlay, group?: { label: string; plays: ScoutOppPlay[] }): FilmWindowRequest | null => {
     const week = currentWeekRef.current;
     const weekState = latestStateRef.current.weeklyData?.[getScopedWeekKey(activeTeamIdRef.current, week)] || latestStateRef.current.weeklyData?.[week];
-    const plays = weekState?.scouting?.hudlScout?.plays || [];
+    const plays: FilmPlay[] = weekState?.scouting?.hudlScout?.plays || [];
+    const firstGame = weekState?.scouting?.hudlScout?.games?.[0]?.id;
+    // A game's own plays (ones saved without a game are the first game's).
+    const onFilm = (gid?: string) => plays.filter((p) => (p.gameId ? p.gameId === gid : firstGame === gid));
     const snaps = new Map<string, number>();
     for (const member of group?.plays?.length ? group.plays : [card]) {
-      for (const snap of snapsForCall(plays, member.gameId, member.name, `scout_${member.id}`, member.fromPlayId, member.clips)) snaps.set(snap.id, snap.playNumber);
+      for (const snap of snapsForCall(onFilm(member.gameId), member.gameId, member.name, `scout_${member.id}`, member.fromPlayId, member.clips)) snaps.set(snap.id, snap.playNumber);
     }
     const playIds = [...snaps.entries()].sort((a, b) => a[1] - b[1]).map(([id]) => id);
     return card.gameId && playIds.length ? { gameId: card.gameId, playIds, label: group?.label || card.name } : null;
