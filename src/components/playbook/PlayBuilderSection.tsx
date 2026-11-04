@@ -394,6 +394,10 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   // (Draw it still draws from the call when asked). Our own plays draw themselves from the call until a line is drawn.
   const theirPlay = Boolean(seed?.scoutId) && !defenseMode;
   const [userDrew, setUserDrew] = useState(Boolean(saved?.strokes) || defenseMode || theirPlay);
+  // Their play: drawing their play (offense), or our defense against it (lines from our defenders: blitzes,
+  // stunts, drops). Opened from the script's "Our defense" it starts on our defense.
+  const [drawSide, setDrawSide] = useState<'offense' | 'defense'>(seed?.drawDefense ? 'defense' : 'offense');
+  const theirDefense = theirPlay && !formationMode && drawSide === 'defense';
 
   const locations = TE_LOCATIONS[personnelPick] || [];
   const wrCount = PERSONNEL_DEFINITIONS[personnelPick]?.wr || 0;
@@ -1619,6 +1623,39 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               {defaultButtons}
             </div>
           )}
+          {theirPlay && !formationMode && !staged && !fieldOnly && (
+            <div className={`space-y-1.5 ${theirDefense ? 'rounded-xl border border-emerald-300/70 dark:border-emerald-700/60 bg-emerald-50/60 dark:bg-emerald-950/20 px-2.5 py-1.5' : ''}`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Draw</span>
+                <div role="group" aria-label="What you draw" className="inline-flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden text-[11px] font-black">
+                  {(['offense', 'defense'] as const).map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      aria-pressed={drawSide === v}
+                      onClick={() => setDrawSide(v)}
+                      className={`h-7 px-2.5 cursor-pointer inline-flex items-center gap-1 ${
+                        drawSide === v ? (v === 'defense' ? 'bg-emerald-700 text-white' : 'bg-slate-900 text-white dark:bg-white dark:text-slate-900') : 'text-slate-600 dark:text-slate-300'
+                      }`}
+                    >
+                      {v === 'offense' ? 'Their play' : 'Our defense vs it'}
+                    </button>
+                  ))}
+                </div>
+                {theirDefense && dLook && <span className="text-[11px] font-black text-emerald-800 dark:text-emerald-300">{callName}{defenseOwn ? ' · drawn for this play' : ''}</span>}
+              </div>
+              {theirDefense && (
+                <>
+                  <div className="w-full">{defensePicker(true, true)}</div>
+                  <span className="block text-[11px] text-slate-500 dark:text-slate-400">
+                    {dLook
+                      ? 'Drag our defenders where they line up against this play. Pick Route, Run or Block and draw from a defender for blitzes, stunts and drops. Saved with this play, it stays over the defense on their formation.'
+                      : 'Pick our defense to line it up against this play.'}
+                  </span>
+                </>
+              )}
+            </div>
+          )}
           {dNodes.length > 0 && hasDepth && !fieldOnly && (
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">Who&apos;s in</span>
@@ -1713,7 +1750,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               }}
               nodes={diagramNodes}
               strokes={strokes}
-              drawFor={defenseMode || (formationMode && Boolean(dLook)) ? 'defense' : 'offense'}
+              drawFor={defenseMode || (formationMode && Boolean(dLook)) || (theirDefense && Boolean(dLook)) ? 'defense' : 'offense'}
               ballRole={String(ball)}
               formLabel=""
               playLabel={callLabel}
@@ -1722,10 +1759,13 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               onCoachNote={setCoachNote}
               onMove={(role, x, y) => {
                 setOverrides((prev) => ({ ...prev, [role]: { x, y } }));
+                // Our defense moved on their play: it's drawn for this play, so it stays over their formation's.
+                if (theirPlay && isDefenseRole(role)) setDefenseOwn(true);
               }}
               onStrokes={(next) => {
                 setUserDrew(true);
                 setStrokes(next);
+                if (theirDefense) setDefenseOwn(true);
               }}
               onReset={() => {
                 setOverrides({});

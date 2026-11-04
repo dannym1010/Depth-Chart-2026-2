@@ -43,6 +43,8 @@ export interface PlayBuilderSeed {
   formationId?: string;
   /** Their play: the other plays drawn under the same play call (merged when a drawn clip was tagged with it). */
   sameCall?: { scoutId: string; gameId: string; name: string; diagramUrl?: string }[];
+  /** Their play, opened to draw our defense against it (the defense side first). */
+  drawDefense?: boolean;
   /** Set when the play was started over from a formation, so the builder opens fresh on it. */
   restartAt?: number;
 }

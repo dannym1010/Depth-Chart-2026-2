@@ -71,7 +71,7 @@ export const ScoutOppPlayLibrary: React.FC<{
   deletedIds: string[];
   onAddFilm: (name: string) => void;
   playDatabase?: PlayDatabaseEntry[];
-  onDraw?: (play: ScoutOppPlay, group?: { label: string; plays: ScoutOppPlay[] }) => void;
+  onDraw?: (play: ScoutOppPlay, group?: { label: string; plays: ScoutOppPlay[] }, opts?: { defense?: boolean }) => void;
   /** Present the script: every play on it, in order, with what opens each one. */
   onPresent?: (show: ScoutShow) => void;
   /** This film's own backfield shapes. */
@@ -334,9 +334,15 @@ export const ScoutOppPlayLibrary: React.FC<{
       onPresent({ title: script.title, lines });
     } else setPrintNote('Every play is unchecked: check the ones to present.');
   };
-  const openScriptPlay = (p: ScoutOppPlay) => {
+  const openScriptPlay = (p: ScoutOppPlay, defense = false) => {
     const { snaps, group } = scriptFilm(p);
-    onDraw?.(p, snaps.length && group ? group : undefined);
+    onDraw?.(p, snaps.length && group ? group : undefined, defense ? { defense: true } : undefined);
+  };
+  /** Our defense drawn for this play itself (not just its formation's): its name, else ''. */
+  const ownDefense = (p: ScoutOppPlay) => {
+    const e = (playDatabase || []).find((x) => x.id === `scout_${p.id}`);
+    const b = e?.builder;
+    return b?.defenseOwn && b.defenseKey ? e?.vsDefense || b.defenseKey : '';
   };
   // The film of these calls (a play, or every call in a play type), in play order, in the film window.
   const watchFilm = (members: ScoutOppPlay[], label: string) => {
@@ -1660,6 +1666,24 @@ export const ScoutOppPlayLibrary: React.FC<{
                           className="shrink-0 h-7 px-1.5 rounded-md border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 text-[11px] font-black inline-flex items-center gap-0.5 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 cursor-pointer"
                         >
                           <PlayIcon className="w-3 h-3" /> {film.snaps.length}
+                        </button>
+                      );
+                    })()}
+                    {play && onDraw && (() => {
+                      const own = ownDefense(play);
+                      return (
+                        <button
+                          type="button"
+                          aria-label={`Draw our defense against ${line.name}`}
+                          title={own ? `Our defense against this play: ${own} (open to change it)` : 'Draw our defense against this play (how we line up, blitz and drop vs it)'}
+                          onClick={() => openScriptPlay(play, true)}
+                          className={`shrink-0 h-7 px-1.5 rounded-md border text-[11px] font-black inline-flex items-center gap-0.5 cursor-pointer ${
+                            own
+                              ? 'border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700'
+                              : 'border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
+                          }`}
+                        >
+                          <Shield className="w-3 h-3" /> D
                         </button>
                       );
                     })()}

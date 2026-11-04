@@ -4861,7 +4861,7 @@ export default function App() {
     setActiveUnit('playbook');
   };
   /** Their play in the play builder (from Their plays, the play log or a clip), with its film in the film window. */
-  const drawOppPlay = (asked: ScoutOppPlay, group?: { label: string; plays: ScoutOppPlay[] }, opts?: { fromFormation?: boolean; stay?: boolean }) => {
+  const drawOppPlay = (asked: ScoutOppPlay, group?: { label: string; plays: ScoutOppPlay[] }, opts?: { fromFormation?: boolean; stay?: boolean; defense?: boolean }) => {
     const teamId = activeTeamIdRef.current;
     const week = currentWeekRef.current;
     const scopedKey = getScopedWeekKey(teamId, week);
@@ -4953,6 +4953,8 @@ export default function App() {
         .filter(({ e }) => e?.builder)
         .map(({ c, e }) => ({ scoutId: c.id, gameId: c.gameId!, name: c.name, ...(e?.diagramUrl ? { diagramUrl: e.diagramUrl } : {}) })),
       ...(opts?.fromFormation ? { restartAt: Date.now() } : {}),
+      // From the script's "Our defense": the builder opens on drawing our defense against it.
+      ...(opts?.defense ? { drawDefense: true, restartAt: Date.now() } : {}),
     });
     holdPlayBuilderSeed();
     // Their film of this play opens in the film window while the coach works on it.
