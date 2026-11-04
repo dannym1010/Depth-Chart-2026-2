@@ -28,11 +28,25 @@ export interface CompareFilmProps {
 }
 
 interface Pick {
+  /** The team whose plays are listed (`teamKeyOf`). */
+  team: string;
+  /** Plays from every game of the team's film, not only `gameKey`'s. */
+  allGames: boolean;
+  /** The game picked, or the picked play's game. */
   gameKey: string;
   /** '' = every formation. */
   formation: string;
   playId?: string;
 }
+
+/** A play in a side's list, with the game (film) it is from. */
+interface Item {
+  game: CompareGame;
+  play: Play;
+}
+
+/** One team across the film: us (every game of ours), or a scouted team by name (every week it was scouted). */
+export const teamKeyOf = (g: CompareGame) => (g.source === 'own' ? 'own' : `opp:${g.team.trim().toUpperCase()}`);
 
 interface Props {
   games: CompareGame[];
@@ -55,7 +69,7 @@ export interface TimingStore {
 }
 
 const KEY = 'footballFilmroomCompare';
-const readSaved = (): { b?: Pick } => {
+const readSaved = (): { b?: Partial<Pick> } => {
   try {
     return JSON.parse(localStorage.getItem(KEY) || '{}') || {};
   } catch {
@@ -63,39 +77,55 @@ const readSaved = (): { b?: Pick } => {
   }
 };
 
-/** The plays a side lists: its game's offense snaps in its formation; with every formation, untagged plays (clips) too. */
-const listOf = (g: CompareGame | undefined, formation: string) =>
+/** A game's plays a side lists: offense snaps in the formation; with every formation, untagged plays (clips) too. */
+const playsOf = (g: CompareGame | undefined, formation: string) =>
   g ? g.plays.filter((p) => (formation ? isSnap(p) && formationOf(p) === formation : isPickable(p))) : [];
 
-/** The other side's start: a game from the other team with the most snaps in that formation. */
-function otherStart(games: CompareGame[], from: CompareGame | undefined, formation: string): Pick | undefined {
-  const others = games.filter((g) => g.source !== from?.source);
-  const pool = others.length ? others : games.filter((g) => g.key !== from?.key);
-  const scored = pool.map((g) => ({ g, n: listOf(g, formation).length })).sort((x, y) => y.n - x.n);
+/** The plays a side lists: from its game, or from every game of its team. */
+function itemsOf(games: CompareGame[], byKey: Map<string, CompareGame>, pk: Pick): Item[] {
+  const from = pk.allGames ? games.filter((g) => teamKeyOf(g) === pk.team) : [byKey.get(pk.gameKey)].filter((g): g is CompareGame => Boolean(g));
+  return from.flatMap((g) => playsOf(g, pk.formation).map((play) => ({ game: g, play })));
+}
+
+/** The other side's start: the other team with the most snaps in that formation, across all its film. */
+function otherStart(games: CompareGame[], byKey: Map<string, CompareGame>, from: CompareGame | undefined, formation: string): Pick | undefined {
+  const fromTeam = from ? teamKeyOf(from) : '';
+  const teams = [...new Set(games.map(teamKeyOf))];
+  // Their play against ours: us when the left is a scouted team, else the scouted team that runs it most.
+  const others = from && from.source !== 'own' && teams.includes('own') ? ['own'] : teams.filter((t) => t !== fromTeam);
+  const pool = others.length ? others : teams;
+  const scored = pool
+    .map((team) => ({ team, n: itemsOf(games, byKey, { team, allGames: true, gameKey: '', formation }).length }))
+    .sort((x, y) => y.n - x.n);
   const best = scored[0];
   if (!best) return undefined;
-  const has = best.n > 0;
-  return { gameKey: best.g.key, formation: has ? formation : '', playId: listOf(best.g, has ? formation : '')[0]?.id };
+  const pk: Pick = { team: best.team, allGames: true, gameKey: '', formation: best.n > 0 ? formation : '' };
+  const first = itemsOf(games, byKey, pk)[0];
+  return { ...pk, gameKey: first?.game.key || games.find((g) => teamKeyOf(g) === best.team)?.key || '', playId: first?.play.id };
 }
 
 export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose, timing, onShown }) => {
   const byKey = useMemo(() => new Map(games.map((g) => [g.key, g])), [games]);
   const [a, setA] = useState<Pick>(() => {
     const g = (start && byKey.get(start.gameKey)) || games[0];
-    const p = g?.plays.find((x) => x.id === start?.playId) || listOf(g, '')[0];
+    const p = g?.plays.find((x) => x.id === start?.playId) || playsOf(g, '')[0];
     const f = p ? formationOf(p) : '';
-    return { gameKey: g?.key || '', formation: f === '(no formation)' ? '' : f, playId: p?.id };
+    // The play on screen, in a list of all its team's plays from every game.
+    return { team: g ? teamKeyOf(g) : '', allGames: true, gameKey: g?.key || '', formation: f === '(no formation)' ? '' : f, playId: p?.id };
   });
   const [b, setB] = useState<Pick>(() => {
     const saved = readSaved().b;
     const ga = byKey.get(a.gameKey);
     const pa = ga?.plays.find((x) => x.id === a.playId);
     const f = pa ? formationOf(pa) : '';
-    // The last game picked on the right, when it has this formation too; else the best match.
-    if (saved && byKey.has(saved.gameKey) && saved.gameKey !== a.gameKey && listOf(byKey.get(saved.gameKey), f).length) {
-      return { gameKey: saved.gameKey, formation: f, playId: listOf(byKey.get(saved.gameKey), f)[0]?.id };
+    // The last team picked on the right, when it has this formation too; else the best match.
+    if (saved?.team && saved.team !== a.team && games.some((g) => teamKeyOf(g) === saved.team)) {
+      const pk: Pick = { team: saved.team, allGames: saved.allGames !== false, gameKey: saved.gameKey || '', formation: f };
+      if (!pk.allGames && byKey.get(pk.gameKey) && teamKeyOf(byKey.get(pk.gameKey)!) !== pk.team) pk.allGames = true;
+      const first = itemsOf(games, byKey, pk)[0];
+      if (first) return { ...pk, gameKey: first.game.key, playId: first.play.id };
     }
-    return otherStart(games, ga, f) || { gameKey: '', formation: '' };
+    return otherStart(games, byKey, ga, f) || { team: '', allGames: true, gameKey: '', formation: '' };
   });
   useEffect(() => {
     try {
@@ -112,7 +142,6 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
   // Timing: moments marked on each play. Shared with the staff when the screen is given a store (`timing`), else
   // kept on this device.
   const [localTiming, setLocalTiming] = useState<Record<string, Moments>>(loadTiming);
-  useEffect(() => onShown?.([a.gameKey, b.gameKey]), [a.gameKey, b.gameKey, onShown]);
   const momentsOf = (gameKey: string, playId?: string): Moments =>
     !playId ? {} : timing ? timing.get(gameKey, playId) : localTiming[timingKey(gameKey, playId)] || {};
   const mark = (gameKey: string, playId: string, id: MomentId, t: number | null) => {
@@ -147,22 +176,31 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
   const [onlyTimed, setOnlyTimed] = useState<Record<Side, boolean>>({ a: false, b: false });
   const sideData = (s: Side) => {
     const pk = picks[s];
-    const game = byKey.get(pk.gameKey);
-    const all = listOf(game, pk.formation);
-    // Plays with times marked (snap, handoff...): marked in the list, and a side can show only those.
-    const marked = (p: Play) => MOMENTS.filter((m) => momentsOf(pk.gameKey, p.id)[m.id] != null).length;
-    const timedCount = all.filter((p) => marked(p) > 0).length;
-    const list = onlyTimed[s] && timedCount ? all.filter((p) => marked(p) > 0) : all;
-    const play = list.find((p) => p.id === pk.playId) || list[0];
-    const at = play ? list.indexOf(play) : -1;
-    // The team's numbers from the play's formation: our whole season, or every game of that week's scouting.
-    const teamPlays = game ? games.filter((g) => (game.source === 'own' ? g.source === 'own' : g.source === 'opponent' && g.week === game.week)).flatMap((g) => g.plays) : [];
+    const teamGames = games.filter((g) => teamKeyOf(g) === pk.team);
+    const all = itemsOf(games, byKey, pk);
+    // Plays with times marked (snap, handoff...): marked in the list, and a side can show only those. (A play's marks
+    // are known once its game is on screen.)
+    const marked = (i: Item) => MOMENTS.filter((m) => momentsOf(i.game.key, i.play.id)[m.id] != null).length;
+    const timedCount = all.filter((i) => marked(i) > 0).length;
+    const list = onlyTimed[s] && timedCount ? all.filter((i) => marked(i) > 0) : all;
+    const item = list.find((i) => i.game.key === pk.gameKey && i.play.id === pk.playId) || list.find((i) => i.game.key === pk.gameKey) || list[0];
+    const play = item?.play;
+    // The film on screen: the play's game; a game picked with nothing listed yet (film only) still opens its film.
+    const game = item?.game || (!pk.allGames ? byKey.get(pk.gameKey) : undefined);
+    const at = item ? list.indexOf(item) : -1;
+    // The team's numbers from the play's formation: every game of that team's film.
+    const teamPlays = teamGames.flatMap((g) => g.plays);
     const f = pk.formation || (play ? formationOf(play) : '');
     const numbers = f && f !== '(no formation)' ? formationNumbers(teamPlays.filter((p) => formationOf(p) === f)) : undefined;
-    return { pk, game, list, marked, timedCount, play, at, numbers, formation: f, gamesInTeam: game ? new Set(teamPlays.map((p) => p.gameId)).size : 0, moments: momentsOf(pk.gameKey, play?.id) };
+    // Formations to pick: from the listed games.
+    const formations = formationList((pk.allGames ? teamGames : game ? [game] : []).flatMap((g) => g.plays));
+    return { pk, teamGames, game, list, marked, timedCount, play, at, numbers, formations, formation: f, gamesInTeam: new Set(teamGames.filter((g) => g.plays.length).map((g) => g.key)).size, moments: momentsOf(game?.key || '', play?.id) };
   };
   const A = sideData('a');
   const B = sideData('b');
+  const shownA = A.game?.key || '';
+  const shownB = B.game?.key || '';
+  useEffect(() => onShown?.([shownA, shownB]), [shownA, shownB, onShown]);
 
   // Both videos together.
   const [busy, setBusy] = useState(false);
@@ -287,10 +325,16 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
   };
 
   const videoMax = 'min(46dvh, calc((100vw - 3rem) / 2 * 9 / 16))';
-  const groups = useMemo(() => {
-    const m = new Map<string, CompareGame[]>();
-    games.forEach((g) => m.set(g.group, [...(m.get(g.group) || []), g]));
-    return [...m.entries()];
+  // Every team in the film: us first, then each scouted team (a team scouted more than one week is one team).
+  const teams = useMemo(() => {
+    const m = new Map<string, { key: string; label: string; games: number }>();
+    games.forEach((g) => {
+      const k = teamKeyOf(g);
+      const t = m.get(k) || { key: k, label: g.source === 'own' ? `Us (${g.team})` : g.team, games: 0 };
+      t.games++;
+      m.set(k, t);
+    });
+    return [...m.values()].sort((x, y) => (x.key === 'own' ? -1 : y.key === 'own' ? 1 : 0));
   }, [games]);
 
   const field = 'h-9 pointer-coarse:h-10 min-w-0 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 text-xs font-bold text-slate-800 dark:text-slate-100 px-2';
@@ -298,61 +342,96 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
 
   const pane = (s: Side, d: ReturnType<typeof sideData>) => {
     const set = setPick[s];
-    const formations = d.game ? formationList(d.game.plays) : [];
-    const go = (i: number) => d.list[i] && set((p) => ({ ...p, playId: d.list[i].id }));
+    const side = s === 'a' ? 'Left' : 'Right';
+    const go = (i: number) => d.list[i] && set((p) => ({ ...p, gameKey: d.list[i].game.key, playId: d.list[i].play.id }));
+    /** The play to show after a change: the first one listed. */
+    const firstOf = (pk: Pick): Pick => {
+      const first = itemsOf(games, byKey, pk)[0];
+      return first ? { ...pk, gameKey: first.game.key, playId: first.play.id } : { ...pk, playId: undefined };
+    };
+    const several = d.teamGames.length > 1;
     return (
       <section aria-label={s === 'a' ? 'Left play' : 'Right play'} className="min-w-0 flex flex-col gap-2">
-        <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] gap-1.5">
+        <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-1.5">
           <select
-            aria-label={`${s === 'a' ? 'Left' : 'Right'} game`}
-            value={d.pk.gameKey}
+            aria-label={`${side} team`}
+            value={d.pk.team}
             onChange={(e) => {
-              const g = byKey.get(e.target.value);
-              // Keep the formation when the new game has it.
-              const keep = d.pk.formation && listOf(g, d.pk.formation).length ? d.pk.formation : '';
-              set({ gameKey: e.target.value, formation: keep, playId: listOf(g, keep)[0]?.id });
+              const team = e.target.value;
+              // Every game of the team's film; the formation kept when the team runs it.
+              const pk: Pick = { team, allGames: true, gameKey: games.find((g) => teamKeyOf(g) === team)?.key || '', formation: d.pk.formation };
+              if (pk.formation && !itemsOf(games, byKey, pk).length) pk.formation = '';
+              set(firstOf(pk));
             }}
             className={field}
           >
-            {!d.game && <option value="">Pick a game</option>}
-            {groups.map(([label, list]) => (
-              <optgroup key={label} label={label}>
-                {list.map((g) => (
-                  <option key={g.key} value={g.key}>
-                    {g.source === 'own' ? g.name : `${g.team}: ${g.name}`}
-                    {g.filmOnly ? ' (film only: pick a clip)' : ''}
-                  </option>
-                ))}
-              </optgroup>
+            {!teams.some((t) => t.key === d.pk.team) && <option value="">Pick a team</option>}
+            {teams.map((t) => (
+              <option key={t.key} value={t.key}>
+                {t.label}
+              </option>
             ))}
           </select>
           <select
-            aria-label={`${s === 'a' ? 'Left' : 'Right'} formation`}
+            aria-label={`${side} game`}
+            value={d.pk.allGames ? '*' : d.pk.gameKey}
+            onChange={(e) => {
+              const v = e.target.value;
+              const pk: Pick = v === '*' ? { ...d.pk, allGames: true } : { ...d.pk, allGames: false, gameKey: v };
+              // Keep the formation when the film picked has it.
+              if (pk.formation && !itemsOf(games, byKey, pk).length) pk.formation = '';
+              set(v === '*' && d.play ? { ...pk, gameKey: d.game?.key || pk.gameKey, playId: d.play.id } : firstOf(pk));
+            }}
+            className={field}
+          >
+            <option value="*">{several ? `Every game (${d.teamGames.length})` : 'Every game'}</option>
+            {d.teamGames.map((g) => (
+              <option key={g.key} value={g.key}>
+                {g.source === 'own' ? g.name : `${g.group}: ${g.name}`}
+                {g.filmOnly ? ' (film only: pick a clip)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-1.5">
+          <select
+            aria-label={`${side} formation`}
             value={d.pk.formation}
-            onChange={(e) => set((p) => ({ ...p, formation: e.target.value, playId: listOf(d.game, e.target.value)[0]?.id }))}
+            onChange={(e) => set(firstOf({ ...d.pk, formation: e.target.value }))}
             className={field}
           >
             <option value="">Every formation</option>
-            {d.pk.formation && !formations.some((f) => f.formation === d.pk.formation) && <option value={d.pk.formation}>{d.pk.formation} (0)</option>}
-            {formations.map((f) => (
+            {d.pk.formation && !d.formations.some((f) => f.formation === d.pk.formation) && <option value={d.pk.formation}>{d.pk.formation} (0)</option>}
+            {d.formations.map((f) => (
               <option key={f.formation} value={f.formation}>
                 {f.formation} ({f.count})
               </option>
             ))}
           </select>
+          <select
+            aria-label={`${side} play`}
+            value={d.at >= 0 ? String(d.at) : ''}
+            onChange={(e) => go(Number(e.target.value))}
+            className={field}
+            disabled={!d.list.length}
+          >
+            {!d.list.length && (
+              <option value="">{!d.pk.team ? 'Pick a team' : d.game?.filmOnly ? 'Opening the film… its clips show here' : d.pk.allGames ? 'No plays in this formation (film-only games: pick the game)' : 'No plays in this formation'}</option>
+            )}
+            {d.list.map((it, i) => {
+              const p = it.play;
+              const g = Number(p.gainLoss);
+              // From every game: each play says which game it is from.
+              const from = d.pk.allGames && several ? it.game.name : '';
+              return (
+                <option key={`${it.game.key}|${p.id}`} value={String(i)}>
+                  {d.marked(it) ? `⏱${d.marked(it)} ` : ''}
+                  {[from, `#${p.playNumber}`, p.down ? `${p.down}&${p.distance ?? ''}` : '', d.pk.formation ? '' : p.formation, playNameOf(p), Number.isFinite(g) ? `${g > 0 ? '+' : ''}${g}` : ''].filter(Boolean).join(' · ')}
+                </option>
+              );
+            })}
+          </select>
         </div>
-        <select aria-label={`${s === 'a' ? 'Left' : 'Right'} play`} value={d.play?.id || ''} onChange={(e) => set((p) => ({ ...p, playId: e.target.value }))} className={field} disabled={!d.list.length}>
-          {!d.list.length && <option value="">{!d.game ? 'Pick a game' : d.game.filmOnly ? 'Opening the film… its clips show here' : 'No plays in this formation'}</option>}
-          {d.list.map((p) => {
-            const g = Number(p.gainLoss);
-            return (
-              <option key={p.id} value={p.id}>
-                {d.marked(p) ? `⏱${d.marked(p)} ` : ''}
-                {[`#${p.playNumber}`, p.down ? `${p.down}&${p.distance ?? ''}` : '', d.pk.formation ? '' : p.formation, playNameOf(p), Number.isFinite(g) ? `${g > 0 ? '+' : ''}${g}` : ''].filter(Boolean).join(' · ')}
-              </option>
-            );
-          })}
-        </select>
         {d.timedCount > 0 && (
           <label className="-mt-1 inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer self-start">
             <input type="checkbox" checked={onlyTimed[s]} onChange={(e) => setOnlyTimed((o) => ({ ...o, [s]: e.target.checked }))} />
@@ -372,7 +451,7 @@ export const CompareView: React.FC<Props> = ({ games, start, renderFilm, onClose
             onNext: () => go(d.at + 1),
           })
         ) : (
-          <div className="aspect-video max-w-full rounded-xl bg-slate-900 text-slate-300 text-xs flex items-center justify-center px-4 text-center">Pick a game with a breakdown to compare.</div>
+          <div className="aspect-video max-w-full rounded-xl bg-slate-900 text-slate-300 text-xs flex items-center justify-center px-4 text-center">{d.pk.team ? 'No plays to show. Pick another formation or one of its games.' : 'Pick a team to compare.'}</div>
         )}
         {d.game && d.play && (
           <div role="group" aria-label={`${s === 'a' ? 'Left' : 'Right'} timing`} className="flex flex-wrap items-center gap-1.5">
