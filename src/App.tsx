@@ -4880,7 +4880,10 @@ export default function App() {
             .flat()
             .filter((c) => c.id !== asked.id && c.name.trim().toLowerCase() === key && !(hudl?.deletedOppPlayIds || []).includes(c.id) && isDrawn(c))
             .sort((a, b) => Number(b.gameId === asked.gameId) - Number(a.gameId === asked.gameId))[0];
-    const play = twin || asked;
+    // The same call drawn on this film opens that drawing. Drawn on another film only: the play asked for opens (its
+    // game and its film), starting from that drawing.
+    const play = twin && twin.gameId === asked.gameId ? twin : asked;
+    const lent = twin && twin !== play ? mine.find((p) => p.id === `scout_${twin.id}`) : undefined;
     const entryId = `scout_${play.id}`;
     if (!mine.some((p) => p.id === entryId)) {
       handleUpdateTeamPlayDatabase([
@@ -4931,7 +4934,7 @@ export default function App() {
       builder:
         (() => {
           if (opts?.fromFormation) return undefined; // started over from the formation
-          const drawn = mine.find((p) => p.id === entryId);
+          const drawn = mine.find((p) => p.id === entryId)?.builder ? mine.find((p) => p.id === entryId) : lent;
           if (!drawn?.builder) return undefined;
           const d = formationDefense(formationOfPlay(play, hudl?.oppFormations), full);
           return d ? playWithDefense(drawn, play, d, hudl?.backfieldBases).builder : drawn.builder;
