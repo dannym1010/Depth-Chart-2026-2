@@ -431,7 +431,18 @@ export const ScoutOppPlayLibrary: React.FC<{
       // Its formation as tagged, else the one of theirs it was drawn from.
       const tagged = play?.formation && play.formation.trim() !== '-' ? play.formation : '';
       const formation = tagged || (play ? formationOfPlay(play, formations)?.name : '') || '';
-      return { name: line.name, detail, diagram: play ? diagramFor(play) : undefined, kind: play ? kindOf(play) : undefined, formation, n: i + 1 };
+      // The plays put together on this line (each name once; its film when the script mixes films).
+      const members = play ? [play, ...alsoOf(play.id)] : [];
+      const manyFilms = new Set(members.map((m) => m.gameId)).size > 1;
+      const filmName = (id: string) => films.find((g) => g.id === id)?.name || '';
+      const combined =
+        members.length > 1
+          ? [...new Map(members.map((m) => {
+              const label = manyFilms && filmName(m.gameId) ? `${m.name.trim()} (${filmName(m.gameId)})` : m.name.trim();
+              return [label.toLowerCase(), label] as const;
+            })).values()]
+          : [];
+      return { name: line.name, detail, diagram: play ? diagramFor(play) : undefined, kind: play ? kindOf(play) : undefined, formation, n: i + 1, ...(combined.length > 1 ? { combined } : {}) };
     });
     // In the script's order: a run of plays from one formation shares a heading; the formation shows on each play.
     const groups: { label: string; plays: typeof lines }[] = [];

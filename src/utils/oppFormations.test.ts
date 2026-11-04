@@ -407,3 +407,14 @@ describe('a play on the script follows the name given in the Film Room', async (
     assert.equal(followRenamedClips([film(7, { odk: 'O', callName: '32 sweep' })], [card('opp-1', '32 Sweep', { clips: [7] })]).length, 0);
   });
 });
+
+describe('the printed script says which plays were combined', async () => {
+  const { scoutScriptPrintHtml } = await import('./scoutOppPlays.ts');
+  it('a note on top of the play, only when plays were put together', () => {
+    const html = scoutScriptPrintHtml('Carmel scout script', [
+      { label: '32', plays: [{ name: 'Zone', detail: '', combined: ['32 Rt 44 Zone', '21 Gun Lt 43 Zone (Week 3)'] }, { name: '32 Dive', detail: '' }] },
+    ], { size: 'big' });
+    assert.ok(html.includes('<div class="combined"><b>Combined with:</b> 32 Rt 44 Zone · 21 Gun Lt 43 Zone (Week 3)</div><div class="head">'));
+    assert.equal(html.split('class="combined"').length - 1, 1);
+  });
+});

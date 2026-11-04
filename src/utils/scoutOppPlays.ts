@@ -1071,7 +1071,7 @@ export function scoutScriptPrintHtml(
   title: string,
   groups: {
     label: string;
-    plays: { name: string; detail: string; diagram?: string | null; kind?: string; n?: number; formation?: string; notes?: { title: string; lines: string[] }[] }[];
+    plays: { name: string; detail: string; diagram?: string | null; kind?: string; n?: number; formation?: string; notes?: { title: string; lines: string[] }[]; combined?: string[] }[];
   }[],
   /** Each group (a formation) starts its own page; how many plays to a page. */
   opts: { pagePerGroup?: boolean; size?: ScriptPrintSize } = {}
@@ -1098,7 +1098,10 @@ export function scoutScriptPrintHtml(
           const under = notes.length
             ? `<div class="notes">${notes.map((nb) => `<div class="note"><div class="note-title">${esc(nb.title)}</div>${nb.lines.map((l) => `<div class="note-line">${esc(l)}</div>`).join('')}</div>`).join('')}</div>`
             : '';
-          return `<article class="card"${edge}><div class="head"><div class="name">${num}${badge}${esc(p.name)}</div>${form}</div>${p.detail ? `<div class="detail">${esc(p.detail)}</div>` : ''}<div class="pic">${picture}</div>${under}</article>`;
+          // The other plays put together on this line, on top of it.
+          const combined = (p.combined || []).filter(Boolean);
+          const top = combined.length ? `<div class="combined"><b>Combined with:</b> ${combined.map(esc).join(' · ')}</div>` : '';
+          return `<article class="card"${edge}>${top}<div class="head"><div class="name">${num}${badge}${esc(p.name)}</div>${form}</div>${p.detail ? `<div class="detail">${esc(p.detail)}</div>` : ''}<div class="pic">${picture}</div>${under}</article>`;
         })
         .join('');
       const counts = g.plays.some((p) => p.kind)
@@ -1129,7 +1132,8 @@ export function scoutScriptPrintHtml(
     .pic { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; margin-top: 6px; }
     .pic img { width: 100%; height: 100%; object-fit: contain; margin: 0; }
     .note-title { font-size: 14px; }
-    .note-line { font-size: 20px; }`
+    .note-line { font-size: 20px; }
+    .combined { font-size: 15px; padding: 3px 8px; margin-bottom: 6px; }`
       : size === 'two'
         ? `
     @page { size: letter; margin: 0.35in; }
@@ -1144,7 +1148,8 @@ export function scoutScriptPrintHtml(
     .pic { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; margin-top: 4px; }
     .pic img { width: 100%; height: 100%; object-fit: contain; margin: 0; }
     .note-title { font-size: 11px; }
-    .note-line { font-size: 15px; }`
+    .note-line { font-size: 15px; }
+    .combined { font-size: 12px; padding: 2px 7px; margin-bottom: 4px; }`
         : `
     @page { size: letter; margin: 0.45in; }`;
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${esc(title)}</title><style>
@@ -1158,6 +1163,7 @@ export function scoutScriptPrintHtml(
     .num { display: inline-block; min-width: 1.4em; text-align: center; background: #111; color: #fff; border-radius: 6px; padding: 0 6px; margin-right: 10px; font-weight: 900; }
     .form { font-weight: 800; color: #333; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; }
     .detail { font-size: 11px; color: #444; margin-top: 2px; }
+    .combined { font-size: 9.5px; color: #78350f; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 5px; padding: 1px 6px; margin-bottom: 4px; flex: none; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     img { width: 100%; height: auto; margin-top: 6px; }
     .empty { margin-top: 8px; font-size: 11px; color: #666; border: 1px dashed #ccc; border-radius: 6px; padding: 16px 8px; text-align: center; }
     .page { break-before: page; }
