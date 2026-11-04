@@ -251,7 +251,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const setRootDrive = useCallback((drive: typeof shared.drive) => updateRoot((s) => ({ ...s, drive: drive || { folderId: '', editedAt: Date.now() } })), [updateRoot]);
   // Which folder holds this game in a week with several (one pick, for the whole staff).
   const setPick = useCallback((name: string) => update((s) => ({ ...s, folderPick: { name, editedAt: Date.now() } })), [update]);
-  const { film, chooseFolder, reconnect, pickFiles, pickFolderFiles, linkDrive, signInToDrive, unlink, localFiles, sources, sourcePref, playFromComputer, playFromDrive, playingFrom, setView, choose, getRootNodes } = useGameFilm({
+  const { film, chooseFolder, reconnect, pickFiles, pickFolderFiles, pickedViews, linkDrive, signInToDrive, unlink, localFiles, sources, sourcePref, playFromComputer, playFromDrive, playingFrom, setView, choose, getRootNodes } = useGameFilm({
     game,
     teamId,
     teamName,
@@ -2436,9 +2436,11 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
           driveLink={shared.drive?.link || root.shared.drive?.link}
           onClose={() => setLinkOpen(false)}
           onFolder={chooseFolder}
-          onFiles={pickFiles}
+          onFiles={(files) => pickFiles(files)}
           onPickedFolder={pickFolderFiles}
           onDrive={linkDrive}
+          onViewFiles={(files, view) => pickFiles(files, view)}
+          pickedViews={pickedViews}
         />
       )}
     </div>

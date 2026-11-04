@@ -165,7 +165,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
     [updateRoot]
   );
   const setPick = useCallback((name: string) => update((s) => ({ ...s, folderPick: { name, editedAt: Date.now() } })), [update]);
-  const { film, chooseFolder, reconnect, pickFiles, pickFolderFiles, linkDrive, signInToDrive, localFiles, sources, playFromComputer, playFromDrive, setView, choose } = useGameFilm({
+  const { film, chooseFolder, reconnect, pickFiles, pickFolderFiles, pickedViews, linkDrive, signInToDrive, localFiles, sources, playFromComputer, playFromDrive, setView, choose } = useGameFilm({
     game,
     teamId,
     teamName,
@@ -696,9 +696,11 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
           driveLink={shared.drive?.link || root.shared.drive?.link}
           onClose={() => setLinkOpen(false)}
           onFolder={chooseFolder}
-          onFiles={pickFiles}
+          onFiles={(files) => pickFiles(files)}
           onPickedFolder={pickFolderFiles}
           onDrive={linkDrive}
+          onViewFiles={(files, view) => pickFiles(files, view)}
+          pickedViews={pickedViews}
         />
       )}
     </>

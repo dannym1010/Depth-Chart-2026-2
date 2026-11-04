@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 
 import {
   clipsFromFiles, driveClipUrl, driveFolderName, driveFolderNode, driveSignIn, folderAccess, forgetFolder, isDriveSignedIn,
   listNodeClips, localFolderNode, parseDriveFolderId, pickedFolderNode, pickFolder, prepareDriveSignIn, recallFolder, rememberFolder,
-  takeDriveSignInProblem,
+  sortViewNames, takeDriveSignInProblem,
 } from './filmSources';
 import { gameViews, isFilmRoot, resolveGameFolder, type FolderNode } from './folderRoutes';
 import type { FilmClip, FilmGame, FilmGameShared } from './types';
@@ -266,17 +266,26 @@ export function useGameFilm(opts: {
     [rootId, rootLabel]
   );
   const [reloadTick, setReloadTick] = useState(0);
+  // Counts film picked by hand (clips or a tablet folder), so the game's own lookup doesn't replace it when it ends later.
+  const handPicks = useRef(0);
+  // The game whose film was picked by hand: a later lookup (the team's Drive link arriving from the cloud) leaves it.
+  const handPickedFor = useRef('');
   useEffect(() => {
     if (!folderKey) return setFilm({ status: 'none' });
+    if (handPickedFor.current && handPickedFor.current === folderKey) return;
+    handPickedFor.current = '';
     let cancelled = false;
+    // Film picked by hand while this was still looking (clips or a folder on a tablet): that stays on screen.
+    const pickAt = handPicks.current;
+    const stale = () => cancelled || handPicks.current !== pickAt;
     localFiles.current = new Map();
     (async () => {
       const handle = await recallFolder(folderKey);
-      if (cancelled) return;
+      if (stale()) return;
       if (handle) {
-        if (await folderAccess(handle)) return void (!cancelled && loadFolder(handle));
+        if (await folderAccess(handle)) return void (!stale() && loadFolder(handle));
         pending.current = folderKey;
-        if (!cancelled) setFilm({ status: 'reconnect', label: handle.name });
+        if (!stale()) setFilm({ status: 'reconnect', label: handle.name });
         return;
       }
       if (driveId) {
@@ -287,12 +296,12 @@ export function useGameFilm(opts: {
       // A film folder picked on this tablet this visit (its files were handed over): every game finds its own there.
       if (pickedRoot) {
         const r = await loadFromRoot(pickedRoot, Boolean(rootId));
-        if (cancelled || r === 'ok' || !rootId) return;
+        if (stale() || r === 'ok' || !rootId) return;
       }
       // The shared film folder: this computer's copy and / or the Google Drive one. The preferred copy
       // first ("auto" = this computer's, it's faster); a game it doesn't have yet comes from the other.
       const localRoot = await recallFolder(ROOT_KEY);
-      if (cancelled) return;
+      if (stale()) return;
       setHasLocalRoot(Boolean(localRoot));
       const order: ('local' | 'drive')[] = sourcePref === 'drive' ? ['drive', 'local'] : ['local', 'drive'];
       const available = order.filter((s) => (s === 'local' ? Boolean(localRoot) : Boolean(rootId)));
@@ -305,7 +314,7 @@ export function useGameFilm(opts: {
           // Chose this computer's copy: ask for the tap. Otherwise quietly use Google Drive meanwhile.
           if (sourcePref === 'local') {
             pending.current = ROOT_KEY;
-            if (!cancelled) setFilm({ status: 'reconnect', label: localRoot.name });
+            if (!stale()) setFilm({ status: 'reconnect', label: localRoot.name });
             return;
           }
           needsTap = true;
@@ -315,11 +324,11 @@ export function useGameFilm(opts: {
           needsSignin = true;
           continue;
         }
-        if (cancelled) return;
+        if (stale()) return;
         const result = await loadFromRoot(nodeOf(src), i < available.length - 1);
-        if (cancelled || result === 'ok' || i === available.length - 1) return;
+        if (stale() || result === 'ok' || i === available.length - 1) return;
       }
-      if (cancelled) return;
+      if (stale()) return;
       if (needsTap) {
         pending.current = ROOT_KEY;
         setFilm({ status: 'reconnect', label: localRoot.name });
@@ -335,6 +344,7 @@ export function useGameFilm(opts: {
 
   /** Choose a folder on this computer: one game's clips, or the shared film folder with every team. */
   const chooseFolder = useCallback(async () => {
+    handPickedFor.current = '';
     const handle = await pickFolder();
     if (!handle || !folderKey) return;
     if (isFilmRoot((await localFolderNode(handle).open()).dirs)) {
@@ -360,6 +370,7 @@ export function useGameFilm(opts: {
     if (!(await folderAccess(handle, true))) return;
     pending.current = '';
     setSourcePref('local');
+    handPickedFor.current = '';
     setReloadTick((t) => t + 1);
   }, [chooseFolder, setSourcePref]);
 
@@ -372,6 +383,7 @@ export function useGameFilm(opts: {
       return;
     }
     setSourcePref('drive');
+    handPickedFor.current = '';
     setReloadTick((t) => t + 1);
   }, [rootLabel, setSourcePref]);
 
@@ -390,6 +402,8 @@ export function useGameFilm(opts: {
    */
   const pickFolderFiles = useCallback(
     async (list: FileList | File[]) => {
+      handPicks.current++;
+      handPickedFor.current = folderKey;
       const node = pickedFolderNode(list);
       if (!node) return setFilm({ status: 'error', message: 'That folder has no files in it.' });
       if (isFilmRoot((await node.open()).dirs)) {
@@ -399,21 +413,69 @@ export function useGameFilm(opts: {
       }
       await openGameFolder(++loadId.current, node, node.name, {});
     },
-    [loadFromRoot, openGameFolder]
+    [folderKey, loadFromRoot, openGameFolder]
   );
 
-  /** Clip files picked from the device (phones, Safari): for this visit only. */
-  const pickFiles = useCallback((list: FileList | File[]) => {
-    const { clips, files } = clipsFromFiles(list);
-    viewClips.current = [clips];
-    loadId.current++;
-    localFiles.current = files;
-    setFilm(clips.length ? { status: 'ready', kind: 'files', label: `${clips.length} clip${clips.length === 1 ? '' : 's'} from this device`, clips, views: ['Clips'], view: 0, lists: [clips] } : { status: 'error', message: 'None of those files are videos.' });
-  }, []);
+  // Camera views picked one at a time on a tablet (its picker takes clips from one folder at a time), for this game.
+  const pickedViewsRef = useRef<{ key: string; views: { name: string; clips: FilmClip[]; files: LocalFiles }[] }>({ key: '', views: [] });
+  const [pickedViews, setPickedViews] = useState<{ name: string; count: number }[]>([]);
+  useEffect(() => {
+    if (pickedViewsRef.current.key !== folderKey) setPickedViews([]);
+  }, [folderKey]);
+
+  /**
+   * Clip files picked from the device (phones, Safari): for this visit only. With a camera view ("Main", "Field"),
+   * they're that camera's clips, added beside the views already picked for this game (picking a view again replaces it).
+   */
+  const pickFiles = useCallback(
+    (list: FileList | File[], viewName?: string) => {
+      handPicks.current++;
+      handPickedFor.current = folderKey;
+      const name = String(viewName || '').trim();
+      if (!name) {
+        pickedViewsRef.current = { key: '', views: [] };
+        setPickedViews([]);
+        const { clips, files } = clipsFromFiles(list);
+        viewClips.current = [clips];
+        loadId.current++;
+        localFiles.current = files;
+        setFilm(clips.length ? { status: 'ready', kind: 'files', label: `${clips.length} clip${clips.length === 1 ? '' : 's'} from this device`, clips, views: ['Clips'], view: 0, lists: [clips] } : { status: 'error', message: 'None of those files are videos.' });
+        return;
+      }
+      const { clips, files } = clipsFromFiles(list, name);
+      if (!clips.length) {
+        setFilm({ status: 'error', message: 'None of those files are videos.' });
+        return;
+      }
+      const before = pickedViewsRef.current.key === folderKey ? pickedViewsRef.current.views : [];
+      const views = sortViewNames([...before.filter((v) => v.name.toLowerCase() !== name.toLowerCase()), { name, clips, files }], (v) => v.name);
+      pickedViewsRef.current = { key: folderKey, views };
+      setPickedViews(views.map((v) => ({ name: v.name, count: v.clips.length })));
+      const all: LocalFiles = new Map();
+      views.forEach((v) => v.files.forEach((get, k) => all.set(k, get)));
+      loadId.current++;
+      localFiles.current = all;
+      viewClips.current = views.map((v) => v.clips);
+      const names = views.map((v) => v.name);
+      const want = rememberedView().toLowerCase();
+      const view = Math.max(0, names.findIndex((n) => n.toLowerCase() === want));
+      setFilm({
+        status: 'ready',
+        kind: 'files',
+        label: `${views.map((v) => `${v.name} ${v.clips.length}`).join(' · ')} clips from this device`,
+        clips: viewClips.current[view] || [],
+        views: names,
+        view,
+        lists: viewClips.current,
+      });
+    },
+    [folderKey]
+  );
 
   /** Link a Google Drive folder: the shared film folder (every game finds its own), or one game's clips. */
   const linkDrive = useCallback(
     async (link: string) => {
+      handPickedFor.current = '';
       const folderId = parseDriveFolderId(link);
       if (!folderId) throw new Error("That doesn't look like a Google Drive folder link.");
       await driveSignIn();
@@ -457,11 +519,14 @@ export function useGameFilm(opts: {
     else if (film.status === 'ready' && film.kind === 'drive') setDrive(undefined);
     else if (folderKey) await forgetFolder(folderKey);
     setFilm({ status: 'none' });
+    handPickedFor.current = '';
     setReloadTick((t) => t + 1); // the other copy (if any) takes over
   }, [film, folderKey, setDrive, setRootDrive]);
 
   return {
     film, chooseFolder, reconnect, pickFiles, pickFolderFiles, linkDrive, signInToDrive, unlink, localFiles,
+    /** Camera views picked one at a time on this device for this game (name, clip count). */
+    pickedViews,
     /** Copies of the shared film folder this device can use, and which one it prefers. */
     sources: { local: hasLocalRoot, drive: Boolean(rootId) },
     /** Camera view to watch, and which folder holds this game when its week has several. */

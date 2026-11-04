@@ -134,18 +134,28 @@ export function pickedFolderNode(list: FileList | File[]): FolderNode | null {
   return root.files.length || root.dirs.size ? node(root) : null;
 }
 
-/** Clip files picked from the device (this visit only). */
-export function clipsFromFiles(list: FileList | File[]): { clips: FilmClip[]; files: Map<string, () => Promise<File>> } {
+/**
+ * Clip files picked from the device (this visit only). Picked as one camera view ("Main", "Field"), they're keyed
+ * "<view>/<file>" like a view folder's clips, so two cameras with the same file names don't mix.
+ */
+export function clipsFromFiles(list: FileList | File[], viewKey?: string): { clips: FilmClip[]; files: Map<string, () => Promise<File>> } {
   const files = new Map<string, () => Promise<File>>();
   const clips: FilmClip[] = [];
   Array.from(list)
     .filter((f) => isVideoName(f.name, f.type))
     .sort((a, b) => naturalCompare(a.name, b.name))
     .forEach((f) => {
-      files.set(f.name, async () => f);
-      clips.push({ kind: 'local', id: f.name, name: f.name, sizeBytes: f.size });
+      const id = viewKey ? `${viewKey}/${f.name}` : f.name;
+      files.set(id, async () => f);
+      clips.push({ kind: 'local', id, name: f.name, sizeBytes: f.size });
     });
   return { clips, files };
+}
+
+/** Camera views in watching order: Main first (the main feed), then Sideline, then the rest by name. */
+export function sortViewNames<T>(views: T[], nameOf: (v: T) => string): T[] {
+  const rank = (n: string) => (/^\s*main\b/i.test(n) ? 2 : /side/i.test(n) ? 1 : 0);
+  return [...views].sort((a, b) => rank(nameOf(b)) - rank(nameOf(a)) || nameOf(a).localeCompare(nameOf(b), undefined, { numeric: true }));
 }
 
 // ---------------------------------------------------------------------------

@@ -13,7 +13,13 @@ interface LinkFilmDialogProps {
   /** A folder picked on a tablet (its files, for this visit). */
   onPickedFolder?: (files: FileList) => Promise<void>;
   onDrive: (link: string) => Promise<void>;
+  /** One camera's clips (the tablet picker takes one folder at a time): "Main", then "Field". */
+  onViewFiles?: (files: FileList, view: string) => void;
+  /** The cameras already picked for this game on this device. */
+  pickedViews?: { name: string; count: number }[];
 }
+
+const CAMERAS = ['Main', 'Field'];
 
 /** An iPad or iPhone (an iPad's browser says "Macintosh" but has a touch screen). */
 const appleTouch =
@@ -22,8 +28,10 @@ const appleTouch =
 
 const option = 'w-full flex items-start gap-3 text-left rounded-xl border border-slate-200 dark:border-slate-700 p-3 hover:border-indigo-400 hover:bg-indigo-50/50 dark:hover:bg-indigo-500/10 transition-colors disabled:opacity-50 disabled:pointer-events-none';
 
-export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveLink, onClose, onFolder, onFiles, onPickedFolder, onDrive }) => {
+export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveLink, onClose, onFolder, onFiles, onPickedFolder, onDrive, onViewFiles, pickedViews = [] }) => {
   const fileInput = useRef<HTMLInputElement>(null);
+  const viewInput = useRef<HTMLInputElement>(null);
+  const viewFor = useRef('');
   const folderInput = useRef<HTMLInputElement>(null);
   const folderFiles = Boolean(onPickedFolder) && canPickFolderFiles();
   const [link, setLink] = useState(driveLink || '');
@@ -168,6 +176,56 @@ export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveL
             <span className="block text-xs text-slate-500 dark:text-slate-400">Select all of them at once (phones and tablets too). For this visit only.</span>
           </span>
         </button>
+        {/* Two cameras: each camera's clips picked on their own (the tablet picker takes one folder at a time). */}
+        {onViewFiles && (
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 flex flex-col gap-2" role="group" aria-label="Pick each camera's clips">
+            <div>
+              <div className="text-sm font-bold text-slate-900 dark:text-white">Two cameras? Pick each one’s clips</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                Open the game’s <b>Main</b> folder and select all its clips, then do the same in <b>Field</b>. The Film Room shows both views.
+              </div>
+            </div>
+            <div className="flex gap-2">
+              {CAMERAS.map((cam) => {
+                const done = pickedViews.find((v) => v.name.toLowerCase() === cam.toLowerCase());
+                return (
+                  <button
+                    key={cam}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      viewFor.current = cam;
+                      viewInput.current?.click();
+                    }}
+                    className={`flex-1 h-10 rounded-lg text-sm font-bold border cursor-pointer ${
+                      done ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-100'
+                    }`}
+                  >
+                    {done ? `✓ ${cam} · ${done.count} clips` : `${cam} clips`}
+                  </button>
+                );
+              })}
+            </div>
+            {pickedViews.length >= 2 && (
+              <button type="button" onClick={onClose} className="h-9 rounded-lg bg-indigo-600 text-white text-sm font-bold cursor-pointer">
+                Done: watch both views
+              </button>
+            )}
+            <input
+              ref={viewInput}
+              type="file"
+              accept="video/*,.mp4,.MP4,.mov,.MOV,.m4v,.M4V"
+              multiple
+              className="hidden"
+              aria-label="Camera clips"
+              onChange={(e) => {
+                if (e.target.files?.length && viewFor.current) onViewFiles(e.target.files, viewFor.current);
+                e.target.value = '';
+              }}
+            />
+          </div>
+        )}
+
         {/* iPad / iPhone: the browser can't open a folder, and its picker offers the photo library first. */}
         {appleTouch && (
           <ol className="text-xs text-slate-600 dark:text-slate-300 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 list-decimal list-inside space-y-0.5">
