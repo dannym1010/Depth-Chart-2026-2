@@ -75,20 +75,34 @@ export const ScoutOppPlayLibrary: React.FC<{
   onAdjustBackfield?: (gameId: string, backfield: string) => void;
   /** The practice order of the plays on the report. */
   scriptOrder?: string[];
+  /** The films the script is made from (none = every film). */
+  scriptGames?: string[];
   /** Their formations (drawn once; their plays start from them). */
   formations?: OppFormation[];
   onEditFormation?: (req: { id?: string; name: string; gameId?: string; clip?: number }) => void;
   onSaveFormations?: (list: OppFormation[]) => void;
   /** The calls against their formations changed (they go on the call sheets). */
   onPlansChange?: (list: OppFormation[]) => void;
-}> = ({ games, libraries, filmPlays, opponent, selectedGameId, onSelectGame, onSave, deletedIds, onAddFilm, playDatabase, onDraw, onPresent, backfieldBases, onAdjustBackfield, scriptOrder, formations, onEditFormation, onSaveFormations, onPlansChange }) => {
+}> = ({ games, libraries, filmPlays, opponent, selectedGameId, onSelectGame, onSave, deletedIds, onAddFilm, playDatabase, onDraw, onPresent, backfieldBases, onAdjustBackfield, scriptOrder, scriptGames, formations, onEditFormation, onSaveFormations, onPlansChange }) => {
   const films = games.length ? games : [];
   const gameId = films.some((g) => g.id === selectedGameId) ? selectedGameId : films[0]?.id || '';
   const plays = libraries[gameId] || [];
   // The script: the same play left or right is one line (the drawn one leads); its other plays come along.
   const isDrawnPlay = (id: string) => (playDatabase || []).some((e) => e.id === `scout_${id}` && e.builder);
-  const allOnReport = reportPlays(libraries);
-  const scriptFor = (report: ScoutOppPlay[], ids?: string[]) => buildScoutScript(orderByIds(report, ids), opponent, isDrawnPlay);
+  // The films the script is made from: the ones picked (still here), else every film.
+  const scriptFilms = (scriptGames || []).filter((id) => films.some((g) => g.id === id));
+  const useFilms = scriptFilms.length && scriptFilms.length < films.length ? scriptFilms : [];
+  const allOnReport = reportPlays(libraries, useFilms);
+  const scriptFor = (report: ScoutOppPlay[], ids?: string[], gameIds: string[] = useFilms) => {
+    const built = buildScoutScript(orderByIds(report, ids), opponent, isDrawnPlay);
+    return gameIds.length ? { ...built, gameIds } : built;
+  };
+  /** Checked plays on films left out of the script. */
+  const leftOut = reportPlays(libraries).length - allOnReport.length;
+  const setScriptFilms = (ids: string[]) => {
+    const keep = ids.length && ids.length < films.length ? films.filter((g) => ids.includes(g.id)).map((g) => g.id) : [];
+    onSave(libraries, deletedIds, scriptFor(reportPlays(libraries, keep), script.lines.map((l) => l.playId), keep));
+  };
   const script = scriptFor(allOnReport, scriptOrder);
   const onTheReport = script.lines.map((l) => allOnReport.find((p) => p.id === l.playId)).filter((p): p is ScoutOppPlay => Boolean(p));
   const alsoOf = (id: string) => (script.lines.find((l) => l.playId === id)?.also || []).map((x) => allOnReport.find((p) => p.id === x)).filter((p): p is ScoutOppPlay => Boolean(p));
@@ -401,7 +415,7 @@ export const ScoutOppPlayLibrary: React.FC<{
   };
 
   const write = (next: Record<string, ScoutOppPlay[]>, extraDeleted: string[] = [], reportIds?: string[]) => {
-    onSave(next, [...deletedIds, ...extraDeleted], scriptFor(reportPlays(next), reportIds || script.lines.map((l) => l.playId)));
+    onSave(next, [...deletedIds, ...extraDeleted], scriptFor(reportPlays(next, useFilms), reportIds || script.lines.map((l) => l.playId)));
   };
 
   const reorderFilm = (from: number, to: number) => {
@@ -1344,6 +1358,44 @@ export const ScoutOppPlayLibrary: React.FC<{
             uncheck a play to leave it off the printout and the presentation.
           </p>
         </div>
+        {films.length > 1 && (
+          <div role="group" aria-label="Games in the script" className="space-y-1">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Games in the script</div>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                aria-pressed={!useFilms.length}
+                onClick={() => setScriptFilms([])}
+                className={`h-7 px-2.5 rounded-lg text-xs font-bold cursor-pointer ${!useFilms.length ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200'}`}
+              >
+                All games
+              </button>
+              {films.map((g) => {
+                const on = useFilms.includes(g.id);
+                const checked = reportPlays({ [g.id]: libraries[g.id] || [] }).length;
+                return (
+                  <button
+                    key={g.id}
+                    type="button"
+                    aria-pressed={on}
+                    title={on ? 'Tap to take this game out of the script' : 'Tap to build the script from this game (tap more to add them)'}
+                    onClick={() => setScriptFilms(on ? useFilms.filter((x) => x !== g.id) : [...useFilms, g.id])}
+                    className={`h-7 px-2.5 rounded-lg text-xs font-bold cursor-pointer ${on ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200'}`}
+                  >
+                    {on ? '✓ ' : ''}
+                    {g.name}
+                    <span className="ml-1 opacity-70">{checked}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {leftOut > 0 && (
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                {leftOut} checked play{leftOut === 1 ? '' : 's'} from the other games {leftOut === 1 ? 'is' : 'are'} left out. They stay checked and come back when you add their game.
+              </p>
+            )}
+          </div>
+        )}
         {script.lines.length > 1 && (
           <div className="flex flex-wrap items-center gap-2">
             <select

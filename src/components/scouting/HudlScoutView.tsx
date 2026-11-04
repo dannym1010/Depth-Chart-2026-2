@@ -29,7 +29,7 @@ import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { ScoutOppPlayLibrary } from './ScoutOppPlayLibrary';
 import { StatsTab } from '../../hudlScout/components/report/StatsTab';
 import type { ScoutShow } from './ScoutPresentation';
-import { buildScoutScript, cardsFromTags, followRenamedClips, kindFollowsClips, foldBlankTwins, mergeDrawnIntoTags, placeholdersFromNames, coachingPoint, onCallSheet, runOrPass, formationNotes, withFormationNotes, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, printOrder, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
+import { buildScoutScript, rebuildScoutScript, cardsFromTags, followRenamedClips, kindFollowsClips, foldBlankTwins, mergeDrawnIntoTags, placeholdersFromNames, coachingPoint, onCallSheet, runOrPass, formationNotes, withFormationNotes, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, printOrder, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
 import { leadOppPlay, oppPlayDiagram, playPoint, theirPlaysByFormation } from '../../utils/filmBackfields';
 import { theirCallEntries } from '../../utils/theirCalls';
 import type { ReportPlayType } from '../../hudlScout/components/CallSheetModal';
@@ -359,7 +359,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       ...prev,
       playLibraries,
       ...('point' in change
-        ? { practiceScript: buildScoutScript(orderByIds(reportPlays(playLibraries), (prev.practiceScript?.lines || []).map((l) => l.playId)), reportName, drawnScout) }
+        ? { practiceScript: rebuildScoutScript(playLibraries, prev.practiceScript, reportName, drawnScout) }
         : {}),
       updatedAt: now,
     };
@@ -480,7 +480,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         ...(Object.keys(links).length
           ? { plays: prev.plays.map((pl) => (links[pl.id] ? { ...pl, ...links[pl.id], editedAt: Date.now() } : pl)) }
           : {}),
-        practiceScript: buildScoutScript(orderByIds(reportPlays(playLibraries), (prev.practiceScript?.lines || []).map((l) => l.playId)), reportName, drawnScout),
+        practiceScript: rebuildScoutScript(playLibraries, prev.practiceScript, reportName, drawnScout),
         updatedAt: Date.now(),
       };
     });
@@ -1034,6 +1034,7 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
             onSaveFormations={(oppFormations) => setBundle((prev) => ({ ...prev, oppFormations, updatedAt: Date.now() }))}
             onPlansChange={onFormationPlans}
             scriptOrder={(bundle.practiceScript?.lines || []).map((l) => l.playId)}
+            scriptGames={bundle.practiceScript?.gameIds}
           />
         ) : plays.length === 0 ? (
           <Card>

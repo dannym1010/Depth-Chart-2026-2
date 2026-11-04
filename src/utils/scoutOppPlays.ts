@@ -204,6 +204,8 @@ export interface ScoutPracticeScript {
   builtAt: number;
   lines: ScoutScriptLine[];
   periods: PracticePeriod[];
+  /** The films (game ids) the script is made from; none = every film. */
+  gameIds?: string[];
 }
 
 const PERIODS: { id: string; label: string }[] = [
@@ -426,10 +428,20 @@ export function renameOppCall(
   return { plays: nextPlays, playLibraries };
 }
 
-export function reportPlays(libraries?: Record<string, ScoutOppPlay[]>): ScoutOppPlay[] {
-  return Object.values(libraries || {})
-    .flat()
-    .filter((p) => p.onReport && p.name.trim());
+/** The plays checked onto the report; with gameIds, only those from these films. */
+export function reportPlays(libraries?: Record<string, ScoutOppPlay[]>, gameIds?: string[]): ScoutOppPlay[] {
+  const only = gameIds?.length ? new Set(gameIds) : undefined;
+  return Object.entries(libraries || {})
+    .flatMap(([gid, list]) => list.map((p) => ({ p, gid })))
+    .filter(({ p, gid }) => p.onReport && p.name.trim() && (!only || only.has(p.gameId || gid)))
+    .map(({ p }) => p);
+}
+
+/** The script again after the plays changed: same order, from the same films. */
+export function rebuildScoutScript(libraries: Record<string, ScoutOppPlay[]>, prev: ScoutPracticeScript | undefined, opponent: string, drawn?: (scoutId: string) => boolean): ScoutPracticeScript {
+  const gameIds = prev?.gameIds;
+  const script = buildScoutScript(orderByIds(reportPlays(libraries, gameIds), (prev?.lines || []).map((l) => l.playId)), opponent, drawn);
+  return gameIds?.length ? { ...script, gameIds } : script;
 }
 
 function kindFrom(play: Play): ScoutOppPlay['kind'] {

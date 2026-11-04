@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { builderFromFormation, cardForSnap, planLines, realCall, linkSnapsToCall, mergeOppFormations, parseClips, snapsForCall, type OppFormation } from './scoutOppPlays.ts';
+import { builderFromFormation, rebuildScoutScript, reportPlays, cardForSnap, planLines, realCall, linkSnapsToCall, mergeOppFormations, parseClips, snapsForCall, type OppFormation } from './scoutOppPlays.ts';
 import { pickScoutBundle } from './scoutMerge.ts';
 import { theirCallEntries } from './theirCalls.ts';
 import { tagPlays } from '../hudlScout/utils/playTags.ts';
@@ -331,5 +331,23 @@ describe('each of their plays keeps its own spots', () => {
     const shared = { g1: { I_FORM: { spots: { 3: { x: 3, y: -5 } }, editedAt: 1, baseKey: e.builder!.baseKey } } } as any;
     const out = playWithDefense(own as any, card, { key: '53_C3', moves: {} }, shared);
     assert.deepEqual(out.builder!.filmSpots?.spots, { 3: { x: 0, y: -7 } });
+  });
+});
+
+describe('scout script: from the games picked', () => {
+  const card = (id: string, gameId: string, name: string) => ({ id, gameId, name, formation: 'Wing T', personnel: '21', kind: 'run' as const, down: '1st', notes: '', onReport: true, editedAt: 1 });
+  const libs = { g1: [card('a', 'g1', 'TOSS')], g2: [card('b', 'g2', 'TRAP')], g3: [card('c', 'g3', 'DIVE'), { ...card('d', 'g3', 'JET'), onReport: false }] };
+  it('only the checked plays of those games; none picked is every game', () => {
+    assert.deepEqual(reportPlays(libs).map((p) => p.id), ['a', 'b', 'c']);
+    assert.deepEqual(reportPlays(libs, ['g1', 'g3']).map((p) => p.id), ['a', 'c']);
+    assert.deepEqual(reportPlays(libs, []).map((p) => p.id), ['a', 'b', 'c']);
+  });
+  it('rebuilding keeps the games and the order', () => {
+    const first = rebuildScoutScript(libs, { title: '', builtAt: 0, lines: [{ playId: 'c', name: 'DIVE', detail: '', period: '' }, { playId: 'a', name: 'TOSS', detail: '', period: '' }], periods: [], gameIds: ['g1', 'g3'] }, 'Carmel');
+    assert.deepEqual(first.lines.map((l) => l.playId), ['c', 'a']);
+    assert.deepEqual(first.gameIds, ['g1', 'g3']);
+    const all = rebuildScoutScript(libs, { ...first, gameIds: undefined }, 'Carmel');
+    assert.deepEqual(all.lines.map((l) => l.playId), ['c', 'a', 'b']);
+    assert.equal(all.gameIds, undefined);
   });
 });
