@@ -2112,6 +2112,11 @@ export interface PlayStroke {
    * too, so everything before the snap is 0..motion). Any motion after it goes from shift to motion.
    */
   shift?: number;
+  /**
+   * The ball carrier's line: where on it the QB hands him the ball (a spot on the line). The ball changes hands when
+   * he gets there; none = just after the snap.
+   */
+  handoff?: { x: number; y: number };
   /** Older lines drawn freehand: the whole line is a smooth curve (newer ones mark each `smooth` point). */
   curve?: boolean;
   /** Its own color (our defense's blitzes and coverage), instead of the kind's. */

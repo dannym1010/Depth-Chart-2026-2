@@ -12,6 +12,7 @@ import {
   MOTION_COLOR,
   SHIFT_COLOR,
   svgToField,
+  lineStartsOn,
   ballXOf,
   setFieldBall,
   MAN_RING,
@@ -388,6 +389,46 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     return () => window.removeEventListener('keydown', onKey, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [animShown, isPlaying, animProgress, seconds]);
+  // The handoff spot on the ball carrier's run line: picked by tapping his line (the ball changes hands there).
+  const [pickHandoff, setPickHandoff] = useState(false);
+  const carrierNode = nodesProp.find((n) => n.role === ballRole);
+  const carrierIdx =
+    carrierNode && ballRole !== '1' && ballRole !== 'QB'
+      ? strokesProp.findIndex((st) => st.kind === 'run' && st.points.length >= 2 && lineStartsOn(st, carrierNode, nodesProp))
+      : -1;
+  const handoffSpot = carrierIdx >= 0 ? strokesProp[carrierIdx].handoff : undefined;
+  /** The closest spot on the carrier's line (after any motion) to where the coach tapped. */
+  const snapToCarrier = (pt: { x: number; y: number }) => {
+    const st = strokesProp[carrierIdx];
+    const m = st.motion && st.motion > 0 ? Math.min(st.motion, st.points.length - 1) : 0;
+    const pts = st.points.slice(m);
+    let best = { d: Infinity, x: pts[0].x, y: pts[0].y };
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      const l2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
+      const t = l2 > 1e-9 ? Math.max(0, Math.min(1, ((pt.x - a.x) * (b.x - a.x) + (pt.y - a.y) * (b.y - a.y)) / l2)) : 0;
+      const x = a.x + (b.x - a.x) * t;
+      const y = a.y + (b.y - a.y) * t;
+      const d = Math.hypot(pt.x - x, pt.y - y);
+      if (d < best.d) best = { d, x, y };
+    }
+    return { x: Math.round(best.x * 100) / 100, y: Math.round(best.y * 100) / 100 };
+  };
+  const setHandoff = (spot: { x: number; y: number } | undefined) => {
+    if (carrierIdx < 0) return;
+    onStrokes(
+      strokesProp.map((st, i) => {
+        if (i !== carrierIdx) return st;
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { handoff: _was, ...rest } = st;
+        return spot ? { ...rest, handoff: spot } : rest;
+      })
+    );
+  };
+  useEffect(() => {
+    if (carrierIdx < 0) setPickHandoff(false);
+  }, [carrierIdx]);
   const ctl = 'h-8 w-8 rounded-md bg-slate-800 hover:bg-slate-700 text-xs font-black text-slate-200 cursor-pointer inline-flex items-center justify-center';
   // The field is drawn around the ball (a formation on a hash keeps its spacing). From the spots before a
   // drag, so the field doesn't slide while the center is being moved.
@@ -723,6 +764,12 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
+    if (pickHandoff && carrierIdx >= 0) {
+      e.preventDefault();
+      setHandoff(snapToCarrier(pointFromEvent(e)));
+      setPickHandoff(false);
+      return;
+    }
     const svg = svgRef.current;
     if (!svg) return;
     if (locked) {
@@ -1266,6 +1313,32 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
               +
             </button>
           </div>
+          {carrierIdx >= 0 && (
+            <span className="inline-flex items-center gap-0.5">
+              <button
+                type="button"
+                aria-pressed={pickHandoff}
+                onClick={() => setPickHandoff((v) => !v)}
+                title={pickHandoff ? 'Tap the ball carrier\'s line where the QB hands it off (or click again to stop)' : handoffSpot ? 'Move the handoff: tap a spot on the ball carrier\'s line' : 'Pick where the handoff happens: tap a spot on the ball carrier\'s line'}
+                className={`h-7 px-2.5 rounded-lg border text-xs font-black inline-flex items-center gap-1 cursor-pointer shadow-xs transition-colors ${
+                  pickHandoff ? 'border-amber-300 bg-amber-600 text-white' : 'border-amber-400/50 bg-slate-900/85 backdrop-blur-sm text-amber-300 hover:bg-amber-600 hover:text-white'
+                }`}
+              >
+                🏈 {pickHandoff ? 'Tap his line' : 'Handoff'}
+              </button>
+              {handoffSpot && !pickHandoff && (
+                <button
+                  type="button"
+                  onClick={() => setHandoff(undefined)}
+                  title="Clear the handoff spot (handed off just after the snap)"
+                  aria-label="Clear the handoff spot"
+                  className="h-7 w-6 rounded-lg border border-white/20 bg-slate-900/85 text-[11px] font-black text-slate-300 hover:text-white cursor-pointer"
+                >
+                  ✕
+                </button>
+              )}
+            </span>
+          )}
           <button
             type="button"
             onClick={togglePlay}
@@ -1492,6 +1565,16 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
               const { cx, cy } = fieldToSvg(pt.x, pt.y);
               return <circle key={`v-${j}`} cx={cx} cy={cy} r="6.5" fill="#fff" stroke="#0284c7" strokeWidth="2" style={{ cursor: 'move' }} />;
             })}
+          {handoffSpot && animProgress <= 0.002 && (() => {
+            const p = fieldToSvg(handoffSpot.x, handoffSpot.y);
+            return (
+              <g pointerEvents="none" aria-label="Handoff spot">
+                <ellipse cx={p.cx} cy={p.cy} rx="8" ry="5" fill="#92400e" stroke="#fff" strokeWidth="1.5" />
+                <line x1={p.cx - 3} y1={p.cy} x2={p.cx + 3} y2={p.cy} stroke="#fff" strokeWidth="1.2" />
+                <text x={p.cx} y={p.cy - 9} textAnchor="middle" fontSize="9" fontWeight="800" fill="#92400e">HANDOFF</text>
+              </g>
+            );
+          })()}
         </svg>
       </div>
 

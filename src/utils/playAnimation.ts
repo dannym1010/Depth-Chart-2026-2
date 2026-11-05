@@ -322,6 +322,22 @@ export function computeAnimatedPlayFrame(
     ];
   };
 
+  // The handoff a coach put on the ball carrier's line: when he gets to that spot (he runs his line at an even pace
+  // after the snap), the QB is there and the ball changes hands. None: just after the snap, as before.
+  const handoff = (() => {
+    const st = carrierLine;
+    if (isPassPlay || !st?.handoff || !carrierNode || ballRole === '1' || ballRole === 'QB') return null;
+    const mIdx = st.motion && st.motion > 0 ? Math.min(st.motion, st.points.length - 1) : 0;
+    const post = mIdx > 0 ? [st.points[mIdx], ...st.points.slice(mIdx + 1)] : [{ x: carrierNode.x, y: carrierNode.y }, ...st.points.slice(1)];
+    if (post.length < 2) return null;
+    const lens = post.slice(1).map((q, i) => Math.hypot(q.x - post[i].x, q.y - post[i].y));
+    const whole = lens.reduce((a, b) => a + b, 0);
+    if (whole < 1e-3) return null;
+    const near = closestOnLine(post, st.handoff);
+    const along = lens.slice(0, near.seg).reduce((a, b) => a + b, 0) + Math.hypot(near.x - post[near.seg].x, near.y - post[near.seg].y);
+    return { at: { x: near.x, y: near.y }, t: Math.max(0.14, Math.min(0.9, along / whole)) };
+  })();
+
   // The offense: where each player is at a time after the snap (and how far through his pre-snap motion), with the
   // path behind him when asked. Worked out for any time, so our defense can read where the play is going.
   const offenseAt = (postT: number, mT: number, trailsOut?: AnimatedTrail[], sT = 1) => {
@@ -433,6 +449,20 @@ export function computeAnimatedPlayFrame(
             y: Math.round((n.y + 0.65 * blockT) * 100) / 100,
           });
         }
+      } else if ((n.role === '1' || n.role === 'QB') && handoff) {
+        // To the handoff spot (a step short of it, on his side), there when the carrier is; then he carries out his fake.
+        const dx = n.x - handoff.at.x;
+        const dy = n.y - handoff.at.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const mesh = d > 0.8 ? { x: handoff.at.x + (dx / d) * 0.8, y: handoff.at.y + (dy / d) * 0.8 } : { x: n.x, y: n.y };
+        if (postT <= handoff.t) {
+          const k = easeOutQuad(postT / handoff.t);
+          at.set(n.role, { x: Math.round((n.x + (mesh.x - n.x) * k) * 100) / 100, y: Math.round((n.y + (mesh.y - n.y) * k) * 100) / 100 });
+        } else {
+          const k = easeOutQuad((postT - handoff.t) / Math.max(0.05, 1 - handoff.t));
+          const away = mesh.x >= handoff.at.x ? 1 : -1;
+          at.set(n.role, { x: Math.round((mesh.x + away * 1.8 * k) * 100) / 100, y: Math.round((mesh.y - 0.6 * k) * 100) / 100 });
+        }
       } else if (n.role === '1' || n.role === 'QB') {
         // QB opens toward the ball carrier mesh point, then carries out boot fake (a pass: he drops straight back)
         const qbT = easeOutQuad(Math.min(1, postT * 1.5));
@@ -510,6 +540,16 @@ export function computeAnimatedPlayFrame(
       }
       return { x: targetPos.x, y: targetPos.y, inAir: false };
     }
+    // A handoff spot set: the QB has it until the carrier gets there, then it's his.
+    if (handoff) {
+      const give = Math.max(0.12, handoff.t - 0.05);
+      if (postT < give) return { x: qbNow.x, y: qbNow.y, inAir: false };
+      if (postT < handoff.t) {
+        const k = (postT - give) / Math.max(0.001, handoff.t - give);
+        return { x: qbNow.x + (carrierNow.x - qbNow.x) * k, y: qbNow.y + (carrierNow.y - qbNow.y) * k, inAir: false };
+      }
+      return { x: carrierNow.x, y: carrierNow.y, inAir: false };
+    }
     // Run play: mesh/handoff from QB to ball carrier between 0.12 and 0.24, then carrier carries it
     if (ballRole !== '1' && ballRole !== 'QB' && postT < 0.24) {
       const meshT = (postT - 0.12) / 0.12;
@@ -522,6 +562,10 @@ export function computeAnimatedPlayFrame(
     return { x: carrierNow.x, y: carrierNow.y, inAir: false };
   };
   const ball = ballAt(postSnapT, animatedPos);
+  if (handoff && postSnapT > 0 && postSnapT >= handoff.t - 0.06 && postSnapT <= handoff.t + 0.04) {
+    phase = 'snap';
+    phaseLabel = 'Handoff';
+  } else if (handoff && postSnapT > 0 && postSnapT < handoff.t) phaseLabel = 'Snap & Mesh';
 
   // Our defense reads the play (see defenseReads): a line drawn for a defender first, then the base 4-4 Cover 3's run
   // fits or pass drops, and pursuit.

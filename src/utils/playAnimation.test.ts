@@ -172,3 +172,43 @@ describe('running a play: the run after the catch', () => {
     assert.equal(cbPath?.color, DEFENSE_TRAIL, 'the corner did not run the receiver\'s line');
   });
 });
+
+describe('running a play: the handoff where the coach put it', () => {
+  const nodes: PlayNode[] = [
+    { role: 'C', x: 0, y: 0 } as PlayNode,
+    { role: '1', x: 0, y: -1 } as PlayNode,
+    { role: '3', x: 0, y: -5 } as PlayNode,
+  ];
+  // The back runs 10 yards right along the line of scrimmage area, then 10 up the field.
+  const line = (handoff?: { x: number; y: number }): PlayStroke => ({ kind: 'run', points: [{ x: 0, y: -5 }, { x: 10, y: -5 }, { x: 10, y: 5 }], ...(handoff ? { handoff } : {}) });
+  const post = (t: number, h?: { x: number; y: number }) => {
+    // No motion or shift: the snap starts the play, which runs at an eased pace; find the progress for a post-snap time.
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 40; i++) {
+      const mid = (lo + hi) / 2;
+      const f = -(Math.cos(Math.PI * mid) - 1) / 2;
+      if (f < t) lo = mid;
+      else hi = mid;
+    }
+    return computeAnimatedPlayFrame(nodes, [line(h)], [], '3', lo);
+  };
+  it('the QB keeps it until the back gets to the spot, there with him; then it is the back’s', () => {
+    // At (5,-5): a quarter of his line, so a quarter of the way through the play.
+    const before = post(0.2, { x: 5, y: -5.3 });
+    const qb = before.nodes.find((n) => n.role === '1')!;
+    assert.ok(Math.abs(before.ball.x - qb.x) < 0.01 && Math.abs(before.ball.y - qb.y) < 0.01, 'the QB still has it');
+    const atSpot = post(0.25, { x: 5, y: -5.3 });
+    const qb2 = atSpot.nodes.find((n) => n.role === '1')!;
+    assert.ok(Math.hypot(qb2.x - 5, qb2.y + 5) < 1.2, `the QB meets him there (${qb2.x}, ${qb2.y})`);
+    assert.equal(atSpot.phaseLabel, 'Handoff');
+    const after = post(0.4, { x: 5, y: -5.3 });
+    const back = after.nodes.find((n) => n.role === '3')!;
+    assert.ok(Math.abs(after.ball.x - back.x) < 0.01 && Math.abs(after.ball.y - back.y) < 0.01, 'the back has it');
+  });
+  it('no spot set: handed off just after the snap, as before', () => {
+    const f = post(0.3);
+    const back = f.nodes.find((n) => n.role === '3')!;
+    assert.ok(Math.abs(f.ball.x - back.x) < 0.01);
+  });
+});
