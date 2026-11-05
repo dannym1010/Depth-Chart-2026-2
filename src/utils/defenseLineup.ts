@@ -70,6 +70,75 @@ function boardsFor(front: DefenseFront, formations: FormationBoard[] | undefined
   return chosen ? [chosen, ...all.filter((f) => f !== chosen)] : all;
 }
 
+const digitsOf = (s: string) => (String(s || '').match(/^\s*(\d)\s*-?\s*(\d)(?:\s*-?\s*(\d))?/) || []).slice(1).filter(Boolean).join('');
+
+/**
+ * The depth chart that goes with one of our fronts: the one the coach picked, else a defense chart named
+ * like the front ("54 Defense" for a 5-4).
+ */
+export function chartForFront(frontName: string | undefined, formations: FormationBoard[] | undefined, picked?: string): FormationBoard | undefined {
+  if (picked) {
+    const chosen = (formations || []).find((f) => f.id === picked);
+    if (chosen) return chosen;
+  }
+  const want = digitsOf(frontName || '');
+  if (!want) return undefined;
+  return (formations || []).find((f) => f.unit === 'defense' && digitsOf(f.name) === want);
+}
+
+type Level = 'line' | 'back' | 'corner';
+const roleLevel = (role: string): Level => {
+  const r = role.toUpperCase();
+  if (/^CB[LR]?$|^C\d?$/.test(r)) return 'corner';
+  if (/^(E\d+|T\d+|NT|NG|NO|N|DT\d*|DE\d*|SDE|WDE)$/.test(r)) return 'line';
+  return 'back';
+};
+const spotLevel = (spot: string): Level => {
+  if (/^(CB|CORNER|LC$|RC$|C\d?$)/.test(spot)) return 'corner';
+  if (/^(SDE|WDE|DE|DT|NT|NG|NOSE|DL|END|TACKLE|TECH|E\d|T\d|N$|NO$)/.test(spot)) return 'line';
+  return 'back';
+};
+
+/**
+ * Each defender's spot on a depth chart: the spot with his name ("MIKE", "NT", "CB 1"), else the chart's
+ * spots left over at his level (line, linebackers and safeties, corners) in order across the chart, the
+ * way the defenders stand on the field (the chart is laid out with the strength to the right). A 5-4 made
+ * from the 5-3 has an FS; on a chart with a Rover and no FS he is the Rover.
+ */
+export function chartSpots(
+  nodes: { role: string; x: number }[],
+  board: FormationBoard,
+  front: DefenseFront,
+  strongLeft: boolean
+): Record<string, { spot: string; name: string }> {
+  const out: Record<string, { spot: string; name: string }> = {};
+  const free: { spot: string; name: string; level: Level }[] = [];
+  for (const row of board.rows || [])
+    for (const pos of row.positions || []) {
+      const name = String(pos?.name || pos?.tag || '').trim();
+      const spot = norm(name);
+      if (spot && !free.some((f) => f.spot === spot)) free.push({ spot, name, level: spotLevel(spot) });
+    }
+  const left: typeof nodes = [];
+  for (const n of nodes) {
+    const want = defenseSpotName(n.role, front, strongLeft) || norm(n.role);
+    const i = free.findIndex((f) => f.spot === want);
+    if (i >= 0) {
+      out[n.role] = { spot: free[i].spot, name: free[i].name };
+      free.splice(i, 1);
+    } else left.push(n);
+  }
+  const across = [...left].sort((a, b) => (strongLeft ? b.x - a.x : a.x - b.x));
+  for (const n of across) {
+    const lv = roleLevel(n.role);
+    const i = free.findIndex((f) => f.level === lv);
+    if (i < 0) continue;
+    out[n.role] = { spot: free[i].spot, name: free[i].name };
+    free.splice(i, 1);
+  }
+  return out;
+}
+
 /** The player at a spot for one unit, or null when the chart has nobody there. */
 export function defensePlayerAt(spot: string, unit: DefUnit, front: DefenseFront, src: DefenseRosterSource): NodePlayer | null {
   const depth = DEF_UNITS.find((u) => u.id === unit)?.depth ?? 0;
@@ -95,11 +164,13 @@ export function lineupForDefense(
     strongLeft: boolean;
     src: DefenseRosterSource;
     overrides?: Record<string, NodePlayer>;
+    /** Spots on the front's own chart (chartSpots), over the usual names. */
+    spots?: Record<string, { spot: string; name: string }>;
   }
 ): Record<string, NodePlayer> {
   const out: Record<string, NodePlayer> = {};
   for (const n of nodes) {
-    const spot = defenseSpotName(n.role, opts.front, opts.strongLeft);
+    const spot = opts.spots?.[n.role]?.spot || defenseSpotName(n.role, opts.front, opts.strongLeft);
     const chosen = opts.overrides?.[n.role];
     if (chosen) {
       out[n.role] = { ...chosen, pos: chosen.pos || spot };

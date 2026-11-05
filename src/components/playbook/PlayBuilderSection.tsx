@@ -76,7 +76,7 @@ import { pickedTechniques, rulesText } from '../../utils/defenseRules';
 import { DefenderRules } from './DefenderRules';
 import { defenseCallName, defenseCallStrokes, mirrorJob, mirrorPressure, pressureGaps } from '../../utils/defenseCalls';
 import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, defenseMirrored, lineUpOurDefense, samToWideSide, tightEndFlip } from '../../hudlScout/utils/ourDefense';
-import { DEF_UNITS, defenseBoards, defensePlayerAt, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
+import { DEF_UNITS, chartForFront, chartSpots, defenseBoards, defensePlayerAt, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
 import { rememberDefenseBoard, rememberDefenseUnit, rememberedDefenseBoard, rememberedDefenseUnit, useDefenseRosterSource } from '../../utils/defenseRosterStore';
 
 const SELECT =
@@ -439,16 +439,12 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     ? applyNodeOverrides(basePlay.nodes, overrides).map((n) => withLabel(overrides[n.role] ? n : { ...n, x: n.x + hashDx }))
     : [];
   const dLook = defenseKey ? looks[defenseKey] || null : null;
-  const defFront = frontOfLook(defenseKey);
+  const ownFront = defenseKey.startsWith('front_');
+  const defFront = ownFront && dLook ? (dLook.nodes.some((n) => n.role === 'NT') ? '53' : '44') : frontOfLook(defenseKey);
   // Our defense turns to the tight end's side (else the strength call: the coach's mirror).
   const flipDefense = tightEndFlip(offNodes, hashDx) ?? defenseMirror;
   const strongLeft = flipDefense ? true : dLook && (dLook.strength === 'Left' || dLook.strength === 'Right') ? dLook.strength === 'Left' : strength === 'Left';
   const tagging = Boolean(dLook) && defUnit !== 'off' && hasDepth;
-  const taggedWho = useMemo(
-    () => (dLook && tagging ? lineupForDefense(dLook.nodes, { unit: defUnit as DefUnit, front: defFront, strongLeft, src: rosterSrc, overrides: defWho }) : {}),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [defenseKey, tagging, defUnit, defFront, strongLeft, rosterSrc, defWho]
-  );
   // Our defense where it starts before any of its players are dragged: the whole look moves with the
   // ball to the hash first, then the line sets its techniques on the offense's line (no second shift).
   // Saved moves are kept for the defense drawn strength-left: measured the other way when it's mirrored.
@@ -459,14 +455,36 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [dLook, defenseKey, offNodes, hashDx, defRules, flipDefense]
   );
+  // The depth chart that goes with this front: the one picked in Names from, else (for a front of the
+  // coach's own) the defense chart named like it ("54 Defense" for a 5-4). Its spot names go on the
+  // defenders, and its players at those spots.
+  const frontChart = useMemo(
+    () => (dLook ? chartForFront(ownFront ? dLook.front : undefined, chartSrc.formations, rosterSrc.board) : undefined),
+    [dLook, ownFront, chartSrc.formations, rosterSrc.board]
+  );
+  const frontSpots = useMemo(
+    () => (frontChart && dLook ? chartSpots(applyNodeOverrides(standardDefense, overrides), frontChart, defFront, strongLeft) : undefined),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [frontChart, standardDefense, overrides, defFront, strongLeft]
+  );
+  const tagSrc = useMemo(() => (frontChart ? { ...rosterSrc, board: frontChart.id } : rosterSrc), [rosterSrc, frontChart]);
+  const spotOf = (role: string) => frontSpots?.[role]?.spot || defenseSpotName(role, defFront, strongLeft);
+  const taggedWho = useMemo(
+    () =>
+      dLook && tagging
+        ? lineupForDefense(dLook.nodes, { unit: defUnit as DefUnit, front: defFront, strongLeft, src: tagSrc, overrides: defWho, spots: frontSpots })
+        : {},
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [defenseKey, tagging, defUnit, defFront, strongLeft, tagSrc, defWho, frontSpots]
+  );
   const dNodes = useMemo(() => {
     if (!dLook) return [];
     // Moved with the ball to the hash, lined up on the offense, then the way the coach saved this defense.
     return applyNodeOverrides(standardDefense, overrides)
-      .map((n) => withLabel(n))
+      .map((n) => (frontSpots?.[n.role] && !labels[n.role] ? { ...n, label: frontSpots[n.role].name.slice(0, 6) } : withLabel(n)))
       .map((n) => (taggedWho[n.role] ? { ...n, player: taggedWho[n.role], ...(defShow === 'number' ? { show: 'number' as const } : {}) } : n));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dLook, standardDefense, overrides, labels, taggedWho, defShow]);
+  }, [dLook, standardDefense, overrides, labels, taggedWho, defShow, frontSpots]);
   const play = basePlay ? { ...basePlay, nodes: offNodes } : null;
   const containFor = (front: string) => {
     const sys = defenseSystem();
@@ -1725,7 +1743,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                     title="Which depth chart's players go on our defenders (Auto: the 4-4 chart first, then the 5-3 for its own spots)"
                     className="h-7 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
                   >
-                    <option value="">Auto (4-4 chart)</option>
+                    <option value="">{frontChart && ownFront ? `Auto (${frontChart.name})` : 'Auto (4-4 chart)'}</option>
                     {boardChoices.map((b) => (
                       <option key={b.id} value={b.id}>
                         {b.name}
@@ -1827,21 +1845,21 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                       tagging,
                       // Hover: who plays the spot in each unit; the unit on the field (with any hand pick) is marked.
                       everyUnit: (role) => {
-                        const spot = defenseSpotName(role, defFront, strongLeft);
+                        const spot = spotOf(role);
                         return DEF_UNITS.map((u) => ({
                           id: u.id as 'black' | 'gold' | 'blue',
                           unit: u.label,
-                          player: tagging && u.id === defUnit ? taggedWho[role] || null : defensePlayerAt(spot, u.id, defFront, rosterSrc),
+                          player: tagging && u.id === defUnit ? taggedWho[role] || null : defensePlayerAt(spot, u.id, defFront, tagSrc),
                           on: tagging && u.id === defUnit,
                         }));
                       },
                       current: (role) => ({
                         player: tagging ? taggedWho[role] || null : null,
-                        spot: taggedWho[role]?.pos || defenseSpotName(role, defFront, strongLeft),
+                        spot: taggedWho[role]?.pos || frontSpots?.[role]?.name || defenseSpotName(role, defFront, strongLeft),
                         unit: DEF_UNITS.find((x) => x.id === defUnit)?.label || '',
                       }),
                       overridden: (role) => Boolean(defWho[role]),
-                      options: (role) => whoOptions(defenseSpotName(role, defFront, strongLeft), defFront, rosterSrc),
+                      options: (role) => whoOptions(spotOf(role), defFront, tagSrc),
                       onPick: (role, p) =>
                         setDefWho((prev) => {
                           const next = { ...prev };

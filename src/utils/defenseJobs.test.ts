@@ -52,3 +52,42 @@ describe('names from the depth chart the coach picks', async () => {
     assert.deepEqual(defenseBoards(src.formations).map((b) => b.name), ['44 Defense', 'Goal Line']);
   });
 });
+
+describe('a front of our own takes its names and spots from its own chart', async () => {
+  const { chartForFront, chartSpots, lineupForDefense } = await import('./defenseLineup.ts');
+  const pos = (name: string) => ({ id: `p54-${name.replace(/\s/g, '')}`, name });
+  const b54 = {
+    id: 'f54',
+    name: '54 Defense',
+    unit: 'defense',
+    rows: [
+      { positions: [pos('CB 2'), null, pos('CB 1')] },
+      { positions: [pos('ROVER'), pos('WILL'), pos('MIKE'), pos('SAM')] },
+      { positions: [pos('DE 1'), pos('NT'), pos('DT'), pos('DT 1'), pos('DT 2')] },
+    ],
+  } as any;
+  const b44 = { id: 'f44', name: '44 Defense', unit: 'defense', rows: [{ positions: [{ id: 'p44-fs', name: 'FS' }] }] } as any;
+  // The 5-3 the 5-4 was made from, with the FS moved up to the linebackers.
+  const nodes = [
+    ['E9', -7.4], ['T3', -3.6], ['NT', 0], ['DT3', 3.6], ['E5', 7.4], ['WILL', -5.2], ['MIKE', 0], ['SAM', 5.2], ['CBL', -14], ['FS', 2], ['CBR', 14],
+  ].map(([role, x]) => ({ role, x, y: 2 })) as any[];
+  it('the chart named like the front', () => {
+    assert.equal(chartForFront('5-4', [b44, b54])?.id, 'f54');
+    assert.equal(chartForFront('5-4', [b44])?.id, undefined);
+    assert.equal(chartForFront('5-4', [b44, b54], 'f44')?.id, 'f44');
+  });
+  it('each defender on a spot of that chart: no FS on it, so he is the Rover', () => {
+    const spots = chartSpots(nodes, b54, '53', false);
+    const name = (r: string) => spots[r]?.name;
+    assert.equal(name('FS'), 'ROVER');
+    assert.equal(name('MIKE'), 'MIKE');
+    assert.equal(name('NT'), 'NT');
+    assert.equal(name('E9'), 'DE 1');
+    assert.equal(name('E5'), 'DT');
+    assert.equal(name('CBL'), 'CB 2');
+    assert.equal(name('CBR'), 'CB 1');
+    const src = { formations: [b44, b54], board: 'f54', depthChart: { 'p54-ROVER': [{ num: '40', name: 'Sokol' }], 'p44-fs': [{ num: '7', name: 'Silva' }] }, roster: [] } as any;
+    const who = lineupForDefense(nodes, { unit: 'black', front: '53', strongLeft: false, src, spots });
+    assert.equal(who.FS?.num, '40');
+  });
+});
