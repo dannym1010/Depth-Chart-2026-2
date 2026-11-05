@@ -167,3 +167,16 @@ describe('an export whose yard line column is all -25', async () => {
     assert.equal(ps[1].hudlRow?.['GN/LS'], '6');
   });
 });
+
+describe('a game copied with the sides switched (+25 on every play)', async () => {
+  const { editPlayFields } = await import('./playTags.ts');
+  const mk = (n: number) => play({ id: `s${n}`, gameId: 's', playNumber: n, odk: 'D', series: 1, rawYardLine: '+25', gainLoss: 0, playType: 'RUN', result: 'Rush' });
+  it('its one yard line is the blank; typed ones work out the gains, on any change', () => {
+    let ps = [mk(1), mk(2), mk(3)];
+    ps = editPlayFields(ps, 's1', { yardLine: '-20' });
+    ps = editPlayFields(ps, 's2', { yardLine: '-26' });
+    assert.deepEqual(ps.map((p) => p.gainLoss), [6, 0, 0]);
+    ps = editPlayFields(ps.map((p) => (p.id === 's1' ? { ...p, gainLoss: 0 } : p)), 's3', { motion: 'Jet' });
+    assert.equal(ps[0].gainLoss, 6);
+  });
+});

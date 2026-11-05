@@ -314,8 +314,7 @@ const PLAY_TYPE_TEXT: Record<string, string> = { RUN: 'Run', PASS: 'Pass', RPO: 
  */
 export function editPlayFields(plays: Play[], id: string, edit: PlayFieldEdit, now = Date.now()): Play[] {
   const edited = editOnePlay(plays, id, edit, now);
-  // A yard line typed (or a result: a touchdown's gain is the yards it had to go): the game's gains follow.
-  if (edit.yardLine == null && edit.result == null) return edited;
+  // Any change in a game with typed yard lines: its gains follow them (a touchdown gains the yards it had to go).
   const p = edited.find((x) => x.id === id);
   return p ? gainsFromYardLines(edited, p.gameId) : edited;
 }
@@ -375,8 +374,6 @@ function editOnePlay(plays: Play[], id: string, edit: PlayFieldEdit, now: number
   });
 }
 
-// Every yard line column the importer reads (Hudl rows keep only the columns that had something in them).
-const YARD_COL = /^(YARD ?LN|YARD LINE|YD ?LN|FIELD POS|BALL ON|YARD)$/;
 /** Yards to the goal line from a typed yard line: -25 = our 25 (75 to go), +35 / 35 = their 35, 50 = midfield. */
 export function yardsToGo(raw: string): number | null {
   const c = String(raw || '').trim().toUpperCase();
@@ -401,19 +398,18 @@ export function gainsFromYardLines(plays: Play[], gameId: string | undefined): P
   if (!typed) return plays;
   // Yard lines in the export: this game's gains came with them, so leave them be. Never changes a game that
   // came with yard lines; only one whose export had none, once the coach types them.
-  // An export with no yard lines has them all at -25 (or a yard line column of -25s): any other yard line
-  // the coach didn't type means the game came with its yard lines.
-  const blankYard = (v: string | undefined) => !String(v || '').trim() || yardsToGo(String(v)) === 75;
-  const withRows = game.some((p) => p.hudlRow && Object.keys(p.hudlRow).length);
-  const exportedYard = (p: Play) => {
-    const col = Object.keys(p.hudlRow || {}).find((k) => YARD_COL.test(k.trim().toUpperCase()));
-    if (col) return !blankYard(p.hudlRow![col]);
-    // Hudl rows without a yard line: one in the play was typed here before typing was marked.
-    return withRows ? false : !blankYard(p.rawYardLine);
+  // An export with no yard lines has one yard line on every play (-25, or +25 once copied with the sides
+  // switched, or blank). A game that came with its yard lines has them all over the field: leave it be.
+  const spot = (p: Play) => {
+    const g = yardsToGo(String(p.rawYardLine || ''));
+    return g == null ? '' : String(g);
   };
-  if (game.some((p) => !p.yardTyped && exportedYard(p))) return plays;
-  // Typed here (or before typing was marked); the -25s are the export's blanks.
-  const known = (p: Play) => (p.yardTyped || !blankYard(p.rawYardLine) ? yardsToGo(p.rawYardLine) : null);
+  const untyped = new Map<string, number>();
+  for (const p of game) if (!p.yardTyped) untyped.set(spot(p), (untyped.get(spot(p)) || 0) + 1);
+  if ([...untyped.keys()].filter(Boolean).length > 2) return plays;
+  // The export's blank: the yard line most of the untyped plays have.
+  const blank = [...untyped.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+  const known = (p: Play) => (p.yardTyped || (spot(p) && spot(p) !== blank) ? yardsToGo(p.rawYardLine) : null);
   const order = [...game].filter((p) => p.odk !== 'S' && p.odk !== 'UNKNOWN').sort((a, b) => a.playNumber - b.playNumber);
   const gains = new Map<string, number>();
   order.forEach((a, i) => {
