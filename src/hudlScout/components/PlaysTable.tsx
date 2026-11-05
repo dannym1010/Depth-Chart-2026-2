@@ -101,6 +101,29 @@ const FormationDrawButton: React.FC<{
 /** A click on a row that wasn't on one of its buttons or fields. */
 const isRowClick = (e: React.MouseEvent) => !(e.target as HTMLElement).closest('button, input, select, textarea, a, label, [role=dialog]');
 
+// The play log's columns: their order on this device, and how each lines up.
+const COLUMN_ORDER_KEY = 'playLogColumnOrder';
+const COLUMN_ALIGN: Partial<Record<PlayColumnKey, string>> = { playNumber: 'pl-3', odk: 'text-center', quarter: 'text-center', hash: 'text-center', motion: 'text-center', gainLoss: 'text-right', flags: 'text-center' };
+const readColumnOrder = (): string[] => {
+  try {
+    const v = JSON.parse(localStorage.getItem(COLUMN_ORDER_KEY) || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+};
+/** The saved order, with any column it doesn't have (a new one) where it is by default. */
+function columnOrder(saved: string[]): PlayColumnKey[] {
+  const all = PLAY_COLUMNS.map((c) => c.key);
+  const out = saved.filter((k): k is PlayColumnKey => all.includes(k as PlayColumnKey));
+  all.forEach((k, i) => {
+    if (out.includes(k)) return;
+    const prev = all.slice(0, i).reverse().find((p) => out.includes(p));
+    out.splice(prev ? out.indexOf(prev) + 1 : 0, 0, k);
+  });
+  return out;
+}
+
 const UNIT_SHORT: Record<TeamUnit, string> = { black: 'Blk', blue: 'Blu', gold: 'Gld' };
 
 const UnitPicker: React.FC<{
@@ -164,6 +187,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
     }
     return [...seen.values()].sort((a, b) => Number(b.drawn) - Number(a.drawn) || b.count - a.count || a.name.localeCompare(b.name));
   }, [theirFormations, writeInPlays, plays]);
+  const kickCalls = useMemo(() => kickCallChoices(writeInPlays || plays, rememberedList(KICK_CALLS_KEY)), [writeInPlays, plays]);
   const kickChoices = useMemo(() => kickResultChoices(writeInPlays || plays, rememberedKickResults()), [writeInPlays, plays]);
   const [openPlay, setOpenPlay] = useState<string | null>(null);
   // The play whose fields are being changed (strength, hash, type, down and distance, gain, result).
@@ -290,11 +314,52 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
 
   // The PLAY NAME column, once a coach has named a play (Film Room breakdown).
   const hasNames = plays.some((p) => p.callName);
+  // The columns in the coach's order (drag a header onto another, or the Columns menu); kept on this device.
+  const [colOrder, setColOrder] = useState<PlayColumnKey[]>(() => columnOrder(readColumnOrder()));
+  const saveOrder = (next: PlayColumnKey[]) => {
+    setColOrder(next);
+    try {
+      localStorage.setItem(COLUMN_ORDER_KEY, JSON.stringify(next));
+    } catch {
+      /* not kept on this device */
+    }
+  };
+  const shownCols = colOrder.filter((k) => (k !== 'unit' || onSetUnit) && (k !== 'callName' || hasNames));
+  const moveCol = (key: PlayColumnKey, to: PlayColumnKey | number) => {
+    const rest = colOrder.filter((k) => k !== key);
+    const at = typeof to === 'number' ? Math.max(0, Math.min(rest.length, to)) : rest.indexOf(to) + (colOrder.indexOf(key) < colOrder.indexOf(to) ? 1 : 0);
+    saveOrder([...rest.slice(0, at), key, ...rest.slice(at)]);
+  };
+  const [dragCol, setDragCol] = useState<PlayColumnKey | null>(null);
+  const [colMenu, setColMenu] = useState(false);
   const headerCell = (key: PlayColumnKey, extra = '') => {
     const col = columnByKey(key);
     const filtered = Boolean(filters[key]);
     return (
-      <th key={key} className={`py-2 px-2 ${extra}`}>
+      <th
+        key={key}
+        draggable
+        onDragStart={(e) => {
+          setDragCol(key);
+          e.dataTransfer.effectAllowed = 'move';
+          try {
+            e.dataTransfer.setData('text/plain', key);
+          } catch {
+            /* some browsers */
+          }
+        }}
+        onDragOver={(e) => {
+          if (dragCol && dragCol !== key) e.preventDefault();
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          if (dragCol && dragCol !== key) moveCol(dragCol, key);
+          setDragCol(null);
+        }}
+        onDragEnd={() => setDragCol(null)}
+        title="Drag to move this column"
+        className={`py-2 px-2 cursor-grab ${dragCol === key ? 'opacity-40' : ''} ${extra}`}
+      >
         <div className={`flex items-center gap-0.5 ${extra.includes('text-right') ? 'justify-end' : extra.includes('text-center') ? 'justify-center' : ''}`}>
           <button type="button" onClick={() => handleSort(key)} className="inline-flex items-center gap-1 uppercase cursor-pointer hover:text-white" title={`Sort by ${col.label}`}>
             <span>{col.label}</span>
@@ -409,6 +474,41 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
             Needs tags
           </label>
         )}
+        <div className="relative hidden md:block">
+          <button
+            type="button"
+            onClick={() => setColMenu((v) => !v)}
+            aria-expanded={colMenu}
+            title="Put the columns in your order"
+            className={`${compact ? 'h-7' : 'h-9'} px-2.5 rounded-lg border border-slate-700 text-xs font-bold text-slate-200 hover:bg-slate-800 cursor-pointer whitespace-nowrap`}
+          >
+            Columns
+          </button>
+          {colMenu && (
+            <div role="dialog" aria-label="Column order" className="absolute right-0 top-full mt-1 z-30 w-56 max-h-96 overflow-auto rounded-lg border border-slate-700 bg-slate-950 shadow-xl p-2">
+              <div className="text-[10px] font-black uppercase tracking-wider text-slate-500 px-1 pb-1">Column order (or drag the headers)</div>
+              {shownCols.map((k, i) => (
+                <div key={k} className="flex items-center gap-1 px-1 py-0.5 text-xs text-slate-200">
+                  <span className="flex-1 truncate">{columnByKey(k).label}</span>
+                  <button type="button" disabled={i === 0} onClick={() => moveCol(k, shownCols[i - 1])} aria-label={`Move ${columnByKey(k).label} left`} className="h-6 w-6 rounded hover:bg-slate-800 disabled:opacity-30 cursor-pointer">
+                    ↑
+                  </button>
+                  <button type="button" disabled={i === shownCols.length - 1} onClick={() => moveCol(k, shownCols[i + 1])} aria-label={`Move ${columnByKey(k).label} right`} className="h-6 w-6 rounded hover:bg-slate-800 disabled:opacity-30 cursor-pointer">
+                    ↓
+                  </button>
+                </div>
+              ))}
+              <div className="flex justify-between gap-2 pt-1.5 mt-1 border-t border-slate-800">
+                <button type="button" onClick={() => saveOrder(columnOrder([]))} className="h-7 px-2 rounded text-xs font-bold text-slate-400 hover:text-white cursor-pointer">
+                  Reset
+                </button>
+                <button type="button" onClick={() => setColMenu(false)} className="h-7 px-3 rounded bg-indigo-600 text-xs font-black text-white cursor-pointer">
+                  Done
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
         {/* Search input */}
         <div className="relative w-full sm:w-64">
           <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -603,25 +703,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
         <table className={`w-full text-left text-xs text-slate-300 ${compact ? '[&_td]:!py-0.5 [&_th]:!py-1.5 [&_td]:whitespace-nowrap [&_td_input]:!h-6 [&_td_button]:!h-6 [&_td_button]:!py-0' : ''}`}>
           <thead className="sticky top-0 z-10 bg-slate-950 text-slate-400 font-semibold border-b border-slate-800 uppercase tracking-wider text-[11px] select-none">
             <tr>
-              {headerCell('playNumber', 'pl-3')}
-              {headerCell('odk', 'text-center')}
-              {onSetUnit && headerCell('unit')}
-              {headerCell('quarter', 'text-center')}
-              {headerCell('downDist')}
-              {headerCell('yardLine')}
-              {headerCell('hash', 'text-center')}
-              {headerCell('formation')}
-              {headerCell('playCall')}
-              {hasNames && headerCell('callName')}
-              {headerCell('players')}
-              {headerCell('playType')}
-              {headerCell('direction')}
-              {headerCell('motion', 'text-center')}
-              {headerCell('strength')}
-              {headerCell('field')}
-              {headerCell('result')}
-              {headerCell('gainLoss', 'text-right')}
-              {headerCell('flags', 'text-center')}
+              {shownCols.map((k) => headerCell(k, COLUMN_ALIGN[k] || ''))}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -631,17 +713,9 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
 
               const isOpen = openPlay === play.id;
               const subCount = play.subs ? Object.keys(play.subs).length : 0;
-              return (
-                <React.Fragment key={play.id}>
-                <tr
-                  onClick={rowClick(play.id)}
-                  style={selectedStyle(play.id)}
-                  data-selected={play.id === selectedId || undefined}
-                  data-play-row={play.id}
-                  className={`hover:bg-slate-800/30 transition-colors ${selectable ? 'cursor-pointer' : ''} ${
-                    play.id !== selectedId && isOpen ? 'bg-slate-800/40' : ''
-                  }`}
-                >
+              const rowCells: Partial<Record<PlayColumnKey, React.ReactNode>> = {
+                    playNumber: (
+                      <React.Fragment key="playNumber">
                   <td className="py-2.5 px-3 font-mono font-bold text-slate-400">
                     {canOpen(play) ? (
                       <button
@@ -660,6 +734,10 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     )}
                     {rowBadge && (compact ? <span className="ml-1.5">{rowBadge(play)}</span> : <div className="mt-0.5">{rowBadge(play)}</div>)}
                   </td>
+                      </React.Fragment>
+                    ),
+                    odk: (
+                      <React.Fragment key="odk">
                   <td className="py-2.5 px-2 text-center font-mono font-bold">
                     {onEditPlay ? (
                       <CellSelect
@@ -696,11 +774,19 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     </span>
                     )}
                   </td>
+                      </React.Fragment>
+                    ),
+                    unit: (
+                      <React.Fragment key="unit">
                   {onSetUnit && (
                     <td className="py-2 px-2">
                       <UnitPicker play={play} onSetUnit={onSetUnit} />
                     </td>
                   )}
+                      </React.Fragment>
+                    ),
+                    quarter: (
+                      <React.Fragment key="quarter">
                   <td className="py-2.5 px-2 text-center text-slate-300 font-mono">
                     {onEditPlay ? (
                       <CellSelect value={String(play.quarter || 0)} label={`Quarter of play ${play.playNumber}`} options={QUARTER_OPTIONS} onPick={(v) => onEditPlay(play.id, { quarter: Number(v) })} />
@@ -716,6 +802,10 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                         <div className="text-[10px] font-sans font-bold text-slate-500 whitespace-nowrap">Drive {play.series}</div>
                       ))}
                   </td>
+                      </React.Fragment>
+                    ),
+                    downDist: (
+                      <React.Fragment key="downDist">
                   <td className="py-2.5 px-3 font-mono">
                     {onEditPlay ? (
                       <span className="inline-flex items-center font-bold text-slate-200 whitespace-nowrap">
@@ -736,6 +826,10 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     </span>
                     )}
                   </td>
+                      </React.Fragment>
+                    ),
+                    yardLine: (
+                      <React.Fragment key="yardLine">
                   <td className="py-2.5 px-3 font-mono text-slate-300">
                     {onEditPlay ? (
                       <CellInput
@@ -751,6 +845,10 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     </span>
                     )}
                   </td>
+                      </React.Fragment>
+                    ),
+                    hash: (
+                      <React.Fragment key="hash">
                   <td className="py-2.5 px-2 text-center font-mono font-bold">
                     {onEditPlay ? (
                       <CellSelect
@@ -770,6 +868,10 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     </span>
                     )}
                   </td>
+                      </React.Fragment>
+                    ),
+                    formation: (
+                      <React.Fragment key="formation">
                   <td className="py-2.5 px-3 text-slate-200 font-semibold">
                     <span className="inline-flex items-center gap-1">
                       {onSetFormation && (play.odk === 'O' || (onFormationAction && play.odk === 'UNKNOWN')) ? (
@@ -790,6 +892,10 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                       )}
                     </span>
                   </td>
+                      </React.Fragment>
+                    ),
+                    playCall: (
+                      <React.Fragment key="playCall">
                   <td className="py-2 px-3 font-medium text-slate-100">
                     {canTagCalls && isTaggablePlay(play) ? (
                       <div className={`flex items-start gap-0.5 ${compact ? 'flex-row items-center gap-1.5' : 'flex-col'}`}>
@@ -806,11 +912,32 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                         {play.playName && <span>{play.playName}</span>}
                         <DrawButton play={play} onDraw={onDrawCall!} />
                       </span>
+                    ) : onEditPlay && play.odk === 'K' ? (
+                      <PickOrTypeCell
+                        value={play.playName && play.playName !== '-' && play.playName.toLowerCase() !== String(play.result || '').toLowerCase() ? play.playName : ''}
+                        label={`Play call on play ${play.playNumber}`}
+                        choices={kickCalls}
+                        onSave={(v) => {
+                          rememberInList(KICK_CALLS_KEY, v);
+                          onEditPlay(play.id, { playName: v });
+                        }}
+                        className="text-amber-200 font-semibold"
+                      />
+                    ) : onEditPlay ? (
+                      <CellInput value={play.playName && play.playName !== '-' ? play.playName : ''} label={`Play call on play ${play.playNumber}`} placeholder="-" onSave={(v) => onEditPlay(play.id, { playName: v })} className="w-32" />
                     ) : (
                       play.playName
                     )}
                   </td>
+                      </React.Fragment>
+                    ),
+                    callName: (
+                      <React.Fragment key="callName">
                   {hasNames && <td className="py-2.5 px-3 text-xs font-bold text-indigo-300 whitespace-nowrap">{play.callName || ''}</td>}
+                      </React.Fragment>
+                    ),
+                    players: (
+                      <React.Fragment key="players">
                   <td className="py-2.5 px-3 text-slate-300 text-xs">
                     {hasPlayers(play) ? (
                       <BallPlayers play={play} inline={compact} />
@@ -826,6 +953,10 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                       play.carrierOrTarget || <span className="text-slate-400">-</span>
                     )}
                   </td>
+                      </React.Fragment>
+                    ),
+                    playType: (
+                      <React.Fragment key="playType">
                   <td className="py-2.5 px-2">
                     {onEditPlay ? (
                       <CellSelect
@@ -845,6 +976,10 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     </span>
                     )}
                   </td>
+                      </React.Fragment>
+                    ),
+                    direction: (
+                      <React.Fragment key="direction">
                   <td className="py-2.5 px-2 text-slate-400 text-[11px]">
                     {onEditPlay ? (
                       <CellSelect value={play.runSide || 'M'} label={`Which way play ${play.playNumber} went`} options={dirOptions(play)} onPick={(v) => onEditPlay(play.id, { runSide: v as Play['runSide'] })} />
@@ -852,6 +987,10 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                       play.direction
                     )}
                   </td>
+                      </React.Fragment>
+                    ),
+                    motion: (
+                      <React.Fragment key="motion">
                   <td className="py-2.5 px-2 text-center text-[11px] font-bold text-violet-400">
                     {onEditPlay ? (
                       <CellInput
@@ -867,8 +1006,20 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                       ''
                     )}
                   </td>
+                      </React.Fragment>
+                    ),
+                    strength: (
+                      <React.Fragment key="strength">
                   <td className="py-2.5 px-2 text-[11px] font-bold">{onEditPlay ? <StrengthPicker play={play} onEdit={(e) => onEditPlay(play.id, e)} /> : <SideTag play={play} />}</td>
+                      </React.Fragment>
+                    ),
+                    field: (
+                      <React.Fragment key="field">
                   <td className="py-2.5 px-2 text-[11px] font-bold whitespace-nowrap"><FieldTag play={play} /></td>
+                      </React.Fragment>
+                    ),
+                    result: (
+                      <React.Fragment key="result">
                   <td className="py-2.5 px-2 text-slate-300 text-[11px]">
                     {onEditPlay && play.odk === 'K' ? (
                       <KickResultCell play={play} choices={kickChoices} onSave={(v) => onEditPlay(play.id, { result: v })} />
@@ -886,6 +1037,10 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                       ''
                     )}
                   </td>
+                      </React.Fragment>
+                    ),
+                    gainLoss: (
+                      <React.Fragment key="gainLoss">
                   <td className="py-2.5 px-3 text-right font-mono font-bold">
                     {onEditPlay ? (
                       <CellInput
@@ -902,6 +1057,10 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     </span>
                     )}
                   </td>
+                      </React.Fragment>
+                    ),
+                    flags: (
+                      <React.Fragment key="flags">
                   <td className="py-2.5 px-3 text-center">
                     <div className="flex items-center justify-center gap-1.5">
                       {play.isExplosive && (
@@ -921,6 +1080,22 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                       )}
                     </div>
                   </td>
+
+                      </React.Fragment>
+                    ),
+              };
+              return (
+                <React.Fragment key={play.id}>
+                <tr
+                  onClick={rowClick(play.id)}
+                  style={selectedStyle(play.id)}
+                  data-selected={play.id === selectedId || undefined}
+                  data-play-row={play.id}
+                  className={`hover:bg-slate-800/30 transition-colors ${selectable ? 'cursor-pointer' : ''} ${
+                    play.id !== selectedId && isOpen ? 'bg-slate-800/40' : ''
+                  }`}
+                >
+                  {shownCols.map((k) => rowCells[k])}
                 </tr>
                 {isOpen && (
                   <tr className="bg-slate-950/60">
@@ -1271,6 +1446,76 @@ function kickResultChoices(plays: Play[], remembered: string[] = []): string[] {
   for (const t of [...remembered, ...KICK_RESULTS]) if (!out.some((x) => x.toLowerCase() === t.toLowerCase())) out.push(t);
   return out;
 }
+// Kick play calls: the usual ones, plus any named on a kick in this or any film (remembered on this device).
+const KICK_CALLS = ['Kickoff', 'Kick Return', 'Onside Kick', 'Onside Return', 'Squib', 'Punt', 'Punt Return', 'Punt Block', 'PAT', 'PAT Block', 'Field Goal', 'FG Block'];
+const KICK_CALLS_KEY = 'playLogKickCalls';
+/** The names to pick for a kick's play call: the ones used on kicks most first, then the usual ones. */
+function kickCallChoices(plays: Play[], remembered: string[] = []): string[] {
+  const count = new Map<string, { text: string; n: number }>();
+  for (const p of plays) {
+    const t = String(p.playName || '').trim();
+    if (p.odk !== 'K' || !t || t === '-' || t.toLowerCase() === String(p.result || '').trim().toLowerCase()) continue;
+    const k = t.toLowerCase();
+    const cur = count.get(k) || { text: t, n: 0 };
+    count.set(k, { ...cur, n: cur.n + 1 });
+  }
+  const out: string[] = [...count.values()].sort((a, b) => b.n - a.n || a.text.localeCompare(b.text)).map((x) => x.text);
+  for (const t of [...remembered, ...KICK_CALLS]) if (!out.some((x) => x.toLowerCase() === t.toLowerCase())) out.push(t);
+  return out;
+}
+const rememberedList = (key: string): string[] => {
+  try {
+    const v = JSON.parse(localStorage.getItem(key) || '[]');
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+const rememberInList = (key: string, r: string) => {
+  const t = r.trim();
+  if (!t) return;
+  try {
+    const list = rememberedList(key).filter((x) => x.toLowerCase() !== t.toLowerCase());
+    localStorage.setItem(key, JSON.stringify([t, ...list].slice(0, 40)));
+  } catch {
+    /* not kept on this device */
+  }
+};
+/** A kick's play call: picked from the list, or typed (Other…) and then on the list. */
+const PickOrTypeCell: React.FC<{ value: string; label: string; choices: string[]; onSave: (v: string) => void; className?: string }> = ({ value, label, choices, onSave, className = '' }) => {
+  const [typing, setTyping] = useState(false);
+  const list = value && !choices.some((c) => c.toLowerCase() === value.toLowerCase()) ? [value, ...choices] : choices;
+  if (typing)
+    return (
+      <input
+        autoFocus
+        placeholder="Type it"
+        aria-label={label}
+        onBlur={(e) => {
+          if (e.target.value.trim()) onSave(e.target.value.trim());
+          setTyping(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+          if (e.key === 'Escape') {
+            e.currentTarget.value = '';
+            e.currentTarget.blur();
+          }
+        }}
+        className={`${cellCtl} cursor-text w-28`}
+      />
+    );
+  return (
+    <CellSelect
+      value={list.find((c) => c.toLowerCase() === value.toLowerCase()) || ''}
+      label={label}
+      options={[{ value: '', text: '-' }, ...list.map((c) => ({ value: c, text: c })), { value: '__other', text: 'Other…' }]}
+      onPick={(v) => (v === '__other' ? setTyping(true) : onSave(v))}
+      className={className}
+    />
+  );
+};
+
 /** A kick's result: picked from the list, or typed (Other…) and then on the list. */
 const KickResultCell: React.FC<{ play: Play; choices: string[]; onSave: (v: string) => void }> = ({ play, choices, onSave }) => {
   const [typing, setTyping] = useState(false);

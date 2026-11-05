@@ -275,6 +275,8 @@ export interface PlayFieldEdit {
   runSide?: Play['runSide'];
   motion?: string;
   carrierOrTarget?: string;
+  /** The play's name (a kick's call: Kickoff, Punt, PAT…, or an untagged play's name). */
+  playName?: string;
 }
 
 // The Hudl columns those fields came from, kept the same so an export back to Hudl has the change.
@@ -290,6 +292,7 @@ const HUDL_COLUMN: Record<string, RegExp> = {
   yardLine: /^(YARD LN|YARD LINE|YARDLN|YDLN)$/,
   runSide: /^(PLAY DIR|DIR|DIRECTION)$/,
   motion: /^MOTION( DIR)?$/,
+  playName: /^(OFF PLAY|PLAY CALL|PLAY)$/,
 };
 const PLAY_TYPE_TEXT: Record<string, string> = { RUN: 'Run', PASS: 'Pass', RPO: 'RPO', SCREEN: 'Screen', SPECIAL: 'Special', PENALTY: 'Penalty', OTHER: 'Other' };
 
@@ -323,9 +326,10 @@ export function editPlayFields(plays: Play[], id: string, edit: PlayFieldEdit, n
     if (edit.runSide) next.runSide = edit.runSide;
     if (edit.motion != null) next.motion = edit.motion.trim().slice(0, 30) || '-';
     if (edit.carrierOrTarget != null) next.carrierOrTarget = edit.carrierOrTarget.trim().slice(0, 40);
+    if (edit.playName != null) next.playName = edit.playName.trim().slice(0, 60) || '-';
     // The direction column says left / right and wide side or boundary, from the hash.
     if (edit.runSide || edit.hash) next.direction = directionLabel(next.runSide, next.hash, p.direction || '');
-    const touched = ['hash', 'playType', 'down', 'distance', 'gainLoss', 'result', 'odk', 'quarter', 'yardLine', 'runSide', 'motion'].filter((k) => (edit as Record<string, unknown>)[k] != null);
+    const touched = ['hash', 'playType', 'down', 'distance', 'gainLoss', 'result', 'odk', 'quarter', 'yardLine', 'runSide', 'motion', 'playName'].filter((k) => (edit as Record<string, unknown>)[k] != null);
     if (touched.some((k) => ['playType', 'down', 'distance', 'gainLoss', 'result'].includes(k))) {
       const g = next.gainLoss;
       next.isExplosive = (next.playType === 'RUN' && g >= 12) || ((next.playType === 'PASS' || next.playType === 'SCREEN') && g >= 16) || (/td/i.test(next.result) && g >= 10);
