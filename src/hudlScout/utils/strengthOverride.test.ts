@@ -119,3 +119,25 @@ describe('a made-up play name follows the result', async () => {
     assert.equal(editPlayFields([tagged], 't', { result: 'TD' })[0].playName, 'Rush');
   });
 });
+
+describe('gains from the yard lines a coach types', async () => {
+  const { editPlayFields } = await import('./playTags.ts');
+  const row = { PLAY: '1' };
+  const mk = (n: number, odk: string, series: number, extra: Partial<Play> = {}) =>
+    play({ id: `g${n}`, gameId: 'g', playNumber: n, odk: odk as Play['odk'], series, rawYardLine: '-25', gainLoss: 0, hudlRow: row, playType: 'RUN', down: 1, distance: 10, result: 'Rush', ...extra });
+  const base = [mk(1, 'K', 0), mk(2, 'O', 1), mk(3, 'O', 1), mk(4, 'O', 1), mk(5, 'D', 2)];
+  it('each play gains to the next of its drive; a touchdown gains what it had to go; the drive end and kicks stay', () => {
+    let ps = editPlayFields(base, 'g2', { yardLine: '-30' });
+    ps = editPlayFields(ps, 'g3', { yardLine: '-42' });
+    ps = editPlayFields(ps, 'g4', { yardLine: '+15' });
+    ps = editPlayFields(ps, 'g5', { yardLine: '-35' });
+    assert.deepEqual(ps.map((p) => p.gainLoss), [0, 12, 43, 0, 0]);
+    ps = editPlayFields(ps, 'g4', { result: 'Rush, TD' });
+    assert.equal(ps[3].gainLoss, 15);
+  });
+  it('a game with yard lines in its export keeps its gains', () => {
+    const exp = base.map((p) => ({ ...p, hudlRow: { 'YARD LN': '-30' }, gainLoss: 4 }));
+    const ps = editPlayFields(exp, 'g2', { yardLine: '-30' });
+    assert.deepEqual(ps.map((p) => p.gainLoss), [4, 4, 4, 4, 4]);
+  });
+});
