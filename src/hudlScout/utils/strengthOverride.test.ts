@@ -153,3 +153,17 @@ describe('a game that came with yard lines is never changed', async () => {
     assert.deepEqual(editPlayFields(noRows, 'e1', { yardLine: '-40' }).map((p) => p.gainLoss), [5, 5, 5]);
   });
 });
+
+describe('an export whose yard line column is all -25', async () => {
+  const { editPlayFields } = await import('./playTags.ts');
+  const mk = (n: number, odk: string) =>
+    play({ id: `m${n}`, gameId: 'm', playNumber: n, odk: odk as Play['odk'], series: odk === 'O' ? 1 : undefined, rawYardLine: '-25', gainLoss: 0, playType: 'RUN', result: 'Rush', hudlRow: { 'YARD LN': '-25', 'GN/LS': '0' } });
+  it('counts as no yard lines: typed ones work out the gains', () => {
+    let ps = [mk(1, 'K'), mk(2, 'O'), mk(3, 'O'), mk(4, 'O')];
+    ps = editPlayFields(ps, 'm1', { yardLine: '-40' });
+    ps = editPlayFields(ps, 'm2', { yardLine: '-45' });
+    ps = editPlayFields(ps, 'm3', { yardLine: '49' });
+    assert.deepEqual(ps.map((p) => p.gainLoss), [0, 6, 0, 0]);
+    assert.equal(ps[1].hudlRow?.['GN/LS'], '6');
+  });
+});

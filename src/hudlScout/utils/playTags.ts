@@ -401,17 +401,19 @@ export function gainsFromYardLines(plays: Play[], gameId: string | undefined): P
   if (!typed) return plays;
   // Yard lines in the export: this game's gains came with them, so leave them be. Never changes a game that
   // came with yard lines; only one whose export had none, once the coach types them.
+  // An export with no yard lines has them all at -25 (or a yard line column of -25s): any other yard line
+  // the coach didn't type means the game came with its yard lines.
+  const blankYard = (v: string | undefined) => !String(v || '').trim() || yardsToGo(String(v)) === 75;
   const withRows = game.some((p) => p.hudlRow && Object.keys(p.hudlRow).length);
-  const exported = game.some((p) =>
-    p.yardTyped
-      ? false
-      : withRows
-        ? Object.entries(p.hudlRow || {}).some(([k, v]) => YARD_COL.test(k.trim().toUpperCase()) && String(v).trim())
-        : String(p.rawYardLine || '').trim() !== '' && String(p.rawYardLine).trim() !== '-25'
-  );
-  if (exported) return plays;
-  // Typed here, or (a game with its Hudl rows and no yard line in them) typed before this was marked.
-  const known = (p: Play) => (p.yardTyped || (withRows && String(p.rawYardLine || '').trim() !== '-25') ? yardsToGo(p.rawYardLine) : null);
+  const exportedYard = (p: Play) => {
+    const col = Object.keys(p.hudlRow || {}).find((k) => YARD_COL.test(k.trim().toUpperCase()));
+    if (col) return !blankYard(p.hudlRow![col]);
+    // Hudl rows without a yard line: one in the play was typed here before typing was marked.
+    return withRows ? false : !blankYard(p.rawYardLine);
+  };
+  if (game.some((p) => !p.yardTyped && exportedYard(p))) return plays;
+  // Typed here (or before typing was marked); the -25s are the export's blanks.
+  const known = (p: Play) => (p.yardTyped || !blankYard(p.rawYardLine) ? yardsToGo(p.rawYardLine) : null);
   const order = [...game].filter((p) => p.odk !== 'S' && p.odk !== 'UNKNOWN').sort((a, b) => a.playNumber - b.playNumber);
   const gains = new Map<string, number>();
   order.forEach((a, i) => {
