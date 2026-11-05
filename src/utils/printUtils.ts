@@ -10,6 +10,7 @@ import { calculatePlayerHours, getPlayerHoursBreakdown } from './hoursCalculatio
 import { formatWeekLabel } from './seasonWeekUtils';
 import { getWristbandStartNumber } from './wristbandLinking';
 import { CallSheetFullData, CallSheetSection, CallSheetPlay } from '../types/callSheet';
+import { bottomOrder } from './callSheetBottom';
 import type { FormationDownStats } from './scoutOppPlays';
 import { loadPrintPrefs, loadSharedPrintPrefs } from './printPrefs';
 import { formatClock, formatClockRange } from './timeFormat';
@@ -3119,10 +3120,9 @@ export function generateCallSheetPrintHTML(
     `;
   }
 
-  // Scripts Box
-  let scriptsHtml = '';
-  if (filter.scripts) {
-    const filledScripts = rawScripts
+  // Scripts Box (the opening script, and each extra script the coach added)
+  const scriptCard = (cardTitle: string, rows: (CallSheetPlay | null)[], headerColor?: string) => {
+    const filledScripts = rows
       .map((p, idx) => ({ play: p, num: idx + 1 }))
       .filter((item) => (hideEmptySlots ? item.play && item.play.name : true));
 
@@ -3154,18 +3154,20 @@ export function generateCallSheetPrintHTML(
       })
       .join('');
 
-    scriptsHtml = `
+    return `
       <div class="bottom-card scripts-card">
-        <div class="card-header scripts-header" style="padding: ${headerPadding};">
-          <span>SCRIPTS (OPENING 15)</span>
-          <span>${rawScripts.filter((p) => p && p.name).length}/${rawScripts.length || 15}</span>
+        <div class="card-header scripts-header" style="padding: ${headerPadding};${headerColor && !inkFriendly ? ` background: ${headerColor} !important;` : ''}">
+          <span>${cardTitle}</span>
+          <span>${rows.filter((p) => p && p.name).length}/${rows.length || 15}</span>
         </div>
         <div class="scripts-body" style="padding: 2px;">
           ${scriptItemsHtml || '<div class="text-muted p-1">No scripted plays</div>'}
         </div>
       </div>
     `;
-  }
+  };
+  const extraScripts = new Map(sections.filter((sec) => sec.group === 'script').map((sec) => [sec.id, sec]));
+  const scriptsHtml = filter.scripts ? scriptCard(extraScripts.size ? 'OPENING SCRIPT' : 'SCRIPTS (OPENING 15)', rawScripts) : '';
 
   // 2-Point Conversion Decision Matrix
   let twoPointHtml = '';
@@ -3266,30 +3268,34 @@ export function generateCallSheetPrintHTML(
     `;
   }
 
-  // Bottom section grid with dynamic columns
-  const activeBottomCount = (filter.scripts ? 1 : 0) + (filter.twoPoint ? 1 : 0) + (filter.timeouts ? 1 : 0);
-  let bottomGridTemplate = '4.5fr 4.5fr 3fr';
-  if (activeBottomCount === 2) {
-    if (filter.scripts && filter.twoPoint) {
-      bottomGridTemplate = '1.2fr 1fr';
-    } else if (filter.scripts && filter.timeouts) {
-      bottomGridTemplate = '1.6fr 1fr';
-    } else {
-      bottomGridTemplate = '1.4fr 1fr';
-    }
-  } else if (activeBottomCount === 1) {
-    bottomGridTemplate = '1fr';
-  }
+  // Bottom boxes in the sheet's order (boxes the coach took off the sheet don't print); width by kind.
+  const bottomCards = bottomOrder(callSheetData, activeUnit)
+    .map((key) => {
+      if (key === 'script') return { html: scriptsHtml, w: 4.5 };
+      if (key === 'twopoint') return { html: twoPointHtml, w: 4.5 };
+      if (key === 'timeouts') return { html: timeoutsHtml, w: 3 };
+      const sec = extraScripts.get(key);
+      if (!sec || !filter.scripts) return { html: '', w: 0 };
+      const rows = [...(sec.plays || [])];
+      while (rows.length < sec.slotsCount) rows.push(null);
+      return { html: scriptCard(String(sec.title || 'Script').toUpperCase(), rows, sec.headerBgColor), w: 4.5 };
+    })
+    .filter((c) => c.html);
+  // Up to 4 boxes on a line; more wrap onto the next.
+  const bottomLines: (typeof bottomCards)[] = [];
+  for (let i = 0; i < bottomCards.length; i += 4) bottomLines.push(bottomCards.slice(i, i + 4));
 
   let bottomSectionHtml = '';
-  if (filter.scripts || filter.twoPoint || filter.timeouts) {
+  if (bottomCards.length) {
     bottomSectionHtml = `
       <div class="section-group bottom-group">
-        <div class="bottom-grid" style="grid-template-columns: ${bottomGridTemplate};">
-          ${scriptsHtml}
-          ${twoPointHtml}
-          ${timeoutsHtml}
-        </div>
+        ${bottomLines
+          .map(
+            (line) => `<div class="bottom-grid" style="grid-template-columns: ${line.length === 1 ? '1fr' : line.map((c) => `${c.w}fr`).join(' ')};">
+          ${line.map((c) => c.html).join('')}
+        </div>`
+          )
+          .join('')}
       </div>
     `;
   }
@@ -3509,6 +3515,9 @@ export function generateCallSheetPrintHTML(
       gap: ${gridGap};
       page-break-inside: avoid;
       break-inside: avoid;
+    }
+    .bottom-grid + .bottom-grid {
+      margin-top: ${gridGap};
     }
     @media (max-width: 700px) {
       .bottom-grid {

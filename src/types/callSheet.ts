@@ -110,6 +110,11 @@ export interface CallSheetFullData {
   timeoutsCount?: number; // default 3 per half
   timeoutsHighlightEnabled?: boolean;
   timeouts: TimeoutsState;
+  /**
+   * The boxes along the bottom, in order, per unit: 'script' (the opening script), 'twopoint', 'timeouts', and the ids
+   * of extra script tables (sections with group 'script'). Missing = the three built-in boxes; a built-in left out is off.
+   */
+  bottomLayout?: { offense?: string[]; defense?: string[] };
   lastEdited?: number;
 }
 

@@ -25,6 +25,18 @@ import { CallSheetSectionBox } from './CallSheetSectionBox';
 import { ScriptsBox } from './ScriptsBox';
 import { TwoPointChartBox } from './TwoPointChartBox';
 import { TimeoutsTrackerBox } from './TimeoutsTrackerBox';
+import {
+  BOTTOM_BUILT_INS,
+  BOTTOM_LABELS,
+  addBuiltInBox,
+  addScriptSection,
+  bottomOrder,
+  isBuiltIn,
+  moveBottomBox,
+  moveRow,
+  placeBottomBox,
+  removeBottomBox,
+} from '../../utils/callSheetBottom';
 
 interface ComputerCallSheetViewProps {
   unit: 'offense' | 'defense';
@@ -58,6 +70,10 @@ interface ComputerCallSheetViewProps {
   onResetToDefault?: () => void;
   /** Offense: wristband tables alone on the top rows, N per row or stacked by card. */
   onWristbandRowsLayout?: (layout: 1 | 2 | 3 | 4 | 'stacked') => void;
+  /** Change the sheet (bottom boxes: order, remove, add scripts, script rows). */
+  onChangeSheet?: (change: (prev: CallSheetFullData) => CallSheetFullData) => void;
+  /** Pick plays in order for a script ('script' or an extra script's id); they fill its empty rows. */
+  onAddScriptPlays?: (sectionId: string) => void;
 }
 
 export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
@@ -84,6 +100,8 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
   onUpdateGroupTitle,
   onResetToDefault,
   onWristbandRowsLayout,
+  onChangeSheet,
+  onAddScriptPlays,
 }) => {
   const sections =
     unit === 'offense' ? callSheetData.offenseSections : callSheetData.defenseSections;
@@ -123,8 +141,9 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
   );
   const customSections = sections.filter(
     (s) =>
-      s.group === 'custom' ||
-      (!topSections.includes(s) && !rzSections.includes(s) && !tempoSections.includes(s))
+      s.group !== 'script' &&
+      (s.group === 'custom' ||
+        (!topSections.includes(s) && !rzSections.includes(s) && !tempoSections.includes(s)))
   );
 
   // Drag-and-drop state for table rearranging
@@ -135,6 +154,10 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
     position: 'before' | 'after' | 'row-end' | 'new-row';
   } | null>(null);
   const [emptyRowIndices, setEmptyRowIndices] = useState<number[]>([]);
+  // Bottom boxes (scripts, 2-pt matrix, timeouts): the one being dragged, where it would land, a delete to confirm.
+  const [dragBottom, setDragBottom] = useState<string | null>(null);
+  const [dropBefore, setDropBefore] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
 
   // Compute normalized situational sections with rowIndex and order
   const normalizedTopSections = useMemo(() => {
@@ -1580,45 +1603,242 @@ export const ComputerCallSheetView: React.FC<ComputerCallSheetViewProps> = ({
       {/* =========================================================================
           5. BOTTOM SECTION: SCRIPTS, 2-POINT CHART, & TIMEOUTS TRACKER
           ========================================================================= */}
-      <div className="grid grid-cols-1 md:grid-cols-12 print:grid-cols-12 gap-3 print:gap-2 items-start pt-2 callsheet-bottom-container callsheet-avoid-break print:overflow-visible">
-        {/* Scripts Column */}
-        <div className="md:col-span-4 lg:col-span-4 print:col-span-4 callsheet-scripts-box callsheet-avoid-break print:overflow-visible">
-          <ScriptsBox
-            scriptPlays={scriptPlays}
-            columnsCount={callSheetData.scriptColumnsCount || 1}
-            highlightEnabled={callSheetData.scriptHighlightEnabled || false}
-            onSlotClick={(slotIdx) => onSlotClick('script', slotIdx)}
-            onClearSlot={(slotIdx) => onClearSlot('script', slotIdx)}
-            onDropPlay={(slotIdx, play) => onDropPlayToSlot('script', slotIdx, play)}
-            onAddRow={onAddScriptRow}
-            onRemoveRow={onRemoveScriptRow}
-            onToggleColumns={onToggleScriptColumns}
-            onToggleHighlight={onToggleScriptHighlight}
-          />
-        </div>
+      {(() => {
+        const order = bottomOrder(callSheetData, unit);
+        const hidden = BOTTOM_BUILT_INS.filter((k) => !order.includes(k));
+        const extras = new Map(sections.filter((s) => s.group === 'script').map((s) => [s.id, s]));
+        const change = onChangeSheet;
+        const updateExtra = (sec: CallSheetSection, patch: Partial<CallSheetSection>) => onUpdateSection({ ...sec, ...patch });
+        const weight = (key: string) => (key === 'twopoint' ? 5 : key === 'timeouts' ? 3 : 4);
+        const className = (key: string) =>
+          key === 'twopoint' ? 'callsheet-twopoint-box' : key === 'timeouts' ? 'callsheet-timeouts-box' : 'callsheet-scripts-box';
+        const renderBox = (key: string) => {
+          if (key === 'script') {
+            return (
+              <ScriptsBox
+                scriptPlays={scriptPlays}
+                title={extras.size ? 'Opening Script' : 'Scripts'}
+                columnsCount={callSheetData.scriptColumnsCount || 1}
+                highlightEnabled={callSheetData.scriptHighlightEnabled || false}
+                onSlotClick={(slotIdx) => onSlotClick('script', slotIdx)}
+                onClearSlot={(slotIdx) => onClearSlot('script', slotIdx)}
+                onDropPlay={(slotIdx, play) => onDropPlayToSlot('script', slotIdx, play)}
+                onAddRow={onAddScriptRow}
+                onRemoveRow={onRemoveScriptRow}
+                onToggleColumns={onToggleScriptColumns}
+                onToggleHighlight={onToggleScriptHighlight}
+                onAddPlays={onAddScriptPlays ? () => onAddScriptPlays('script') : undefined}
+                onMoveRow={
+                  change
+                    ? (idx, dir) =>
+                        change((prev) => {
+                          const k = unit === 'offense' ? 'offenseScript' : 'defenseScript';
+                          return { ...prev, [k]: moveRow(prev[k] || [], idx, dir) };
+                        })
+                    : undefined
+                }
+                onClearAll={
+                  change
+                    ? () =>
+                        change((prev) => {
+                          const k = unit === 'offense' ? 'offenseScript' : 'defenseScript';
+                          return { ...prev, [k]: (prev[k] || []).map(() => null) };
+                        })
+                    : undefined
+                }
+              />
+            );
+          }
+          if (key === 'twopoint') {
+            return (
+              <TwoPointChartBox
+                rules={callSheetData.twoPointRules}
+                highlightEnabled={callSheetData.twoPointHighlightEnabled ?? true}
+                onUpdateRules={onUpdateTwoPointRules}
+                onToggleHighlight={onToggleTwoPointHighlight}
+              />
+            );
+          }
+          if (key === 'timeouts') {
+            return (
+              <TimeoutsTrackerBox
+                timeouts={callSheetData.timeouts}
+                highlightEnabled={callSheetData.timeoutsHighlightEnabled ?? false}
+                timeoutsCount={callSheetData.timeoutsCount || 3}
+                onChangeTimeouts={onChangeTimeouts}
+                onToggleHighlight={onToggleTimeoutsHighlight}
+                onChangeTimeoutsCount={onChangeTimeoutsCount}
+              />
+            );
+          }
+          const sec = extras.get(key);
+          if (!sec) return null;
+          const rows = sec.plays.length >= sec.slotsCount ? sec.plays : [...sec.plays, ...Array(sec.slotsCount - sec.plays.length).fill(null)];
+          return (
+            <ScriptsBox
+              scriptPlays={rows}
+              title={sec.title}
+              headerColor={sec.headerBgColor || '#7e22ce'}
+              sectionId={sec.id}
+              onRename={(title) => updateExtra(sec, { title })}
+              columnsCount={sec.columnsCount || 1}
+              highlightEnabled={sec.highlightEnabled || false}
+              onSlotClick={(slotIdx) => onSlotClick(sec.id, slotIdx)}
+              onClearSlot={(slotIdx) => onClearSlot(sec.id, slotIdx)}
+              onDropPlay={(slotIdx, play) => onDropPlayToSlot(sec.id, slotIdx, play)}
+              onAddRow={() => updateExtra(sec, { slotsCount: rows.length + 1, plays: [...rows, null] })}
+              onRemoveRow={() => rows.length > 1 && updateExtra(sec, { slotsCount: rows.length - 1, plays: rows.slice(0, -1) })}
+              onToggleColumns={(cols) => updateExtra(sec, { columnsCount: cols })}
+              onToggleHighlight={() => updateExtra(sec, { highlightEnabled: !sec.highlightEnabled })}
+              onAddPlays={onAddScriptPlays ? () => onAddScriptPlays(sec.id) : undefined}
+              onMoveRow={(idx, dir) => updateExtra(sec, { plays: moveRow(rows, idx, dir) })}
+              onClearAll={() => updateExtra(sec, { plays: rows.map(() => null) })}
+            />
+          );
+        };
+        const labelOf = (key: string) => (isBuiltIn(key) ? BOTTOM_LABELS[key] : extras.get(key)?.title || 'Script');
 
-        {/* 2-Point Conversion Decision Matrix */}
-        <div className="md:col-span-5 lg:col-span-5 print:col-span-5 callsheet-twopoint-box callsheet-avoid-break print:overflow-visible">
-          <TwoPointChartBox
-            rules={callSheetData.twoPointRules}
-            highlightEnabled={callSheetData.twoPointHighlightEnabled ?? true}
-            onUpdateRules={onUpdateTwoPointRules}
-            onToggleHighlight={onToggleTwoPointHighlight}
-          />
-        </div>
-
-        {/* Timeouts Left Tracker */}
-        <div className="md:col-span-3 lg:col-span-3 print:col-span-3 callsheet-timeouts-box callsheet-avoid-break print:overflow-visible">
-          <TimeoutsTrackerBox
-            timeouts={callSheetData.timeouts}
-            highlightEnabled={callSheetData.timeoutsHighlightEnabled ?? false}
-            timeoutsCount={callSheetData.timeoutsCount || 3}
-            onChangeTimeouts={onChangeTimeouts}
-            onToggleHighlight={onToggleTimeoutsHighlight}
-            onChangeTimeoutsCount={onChangeTimeoutsCount}
-          />
-        </div>
-      </div>
+        return (
+          <div className="space-y-1.5 pt-2 callsheet-bottom-container print:overflow-visible">
+            {change && (
+              <div className="flex items-center justify-between gap-2 flex-wrap px-1 print:hidden">
+                <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                  Scripts &amp; Game Management
+                </span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {hidden.map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => change((prev) => addBuiltInBox(prev, unit, k))}
+                      className="px-2 py-0.5 rounded border border-dashed border-slate-400 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                      title={`Put the ${BOTTOM_LABELS[k]} back on the sheet`}
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>{BOTTOM_LABELS[k]}</span>
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => change((prev) => addScriptSection(prev, unit))}
+                    className="px-2 py-0.5 rounded bg-purple-600/10 hover:bg-purple-600/20 text-purple-700 dark:text-purple-300 border border-purple-500/40 text-[10px] font-black flex items-center gap-1 cursor-pointer"
+                    title="Add another script (e.g. 2nd half, backed up, after a turnover)"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Add Script</span>
+                  </button>
+                </div>
+              </div>
+            )}
+            {order.length > 0 && (
+              <div className="flex flex-wrap gap-3 print:gap-2 items-start callsheet-avoid-break print:overflow-visible">
+                {order.map((key, i) => (
+                  <div
+                    key={key}
+                    className={`relative flex flex-col min-w-0 ${className(key)} callsheet-avoid-break print:overflow-visible ${
+                      dragBottom && dragBottom !== key && dropBefore === key ? 'outline-2 outline-dashed outline-indigo-500 outline-offset-2' : ''
+                    } ${dragBottom === key ? 'opacity-50' : ''}`}
+                    style={{ flex: `${weight(key)} 1 0`, minWidth: 220 }}
+                    onDragOver={(e) => {
+                      if (!dragBottom) return;
+                      e.preventDefault();
+                      if (dropBefore !== key) setDropBefore(key);
+                    }}
+                    onDrop={(e) => {
+                      if (!dragBottom || !change) return;
+                      e.preventDefault();
+                      const moving = dragBottom;
+                      setDragBottom(null);
+                      setDropBefore(null);
+                      if (moving !== key) {
+                        const from = order.indexOf(moving);
+                        // Dropped on a box to its right: goes after it; to its left: before it.
+                        const before = from < i ? order[i + 1] ?? null : key;
+                        change((prev) => placeBottomBox(prev, unit, moving, before));
+                      }
+                    }}
+                  >
+                    {change && (
+                      <div className="flex items-center justify-between gap-1 mb-0.5 print:hidden">
+                        <span
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.effectAllowed = 'move';
+                            e.dataTransfer.setData('text/plain', `bottom:${key}`);
+                            setDragBottom(key);
+                          }}
+                          onDragEnd={() => {
+                            setDragBottom(null);
+                            setDropBefore(null);
+                          }}
+                          className="flex items-center gap-0.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 cursor-grab active:cursor-grabbing select-none"
+                          title="Drag to move this box"
+                        >
+                          <GripVertical className="w-3 h-3" />
+                          <span className="truncate">{labelOf(key)}</span>
+                        </span>
+                        <span className="flex items-center gap-0.5 shrink-0">
+                          <button
+                            type="button"
+                            disabled={i === 0}
+                            onClick={() => change((prev) => moveBottomBox(prev, unit, key, -1))}
+                            aria-label={`Move ${labelOf(key)} left`}
+                            className="px-1 text-slate-500 hover:text-slate-900 dark:hover:text-white disabled:opacity-25 cursor-pointer disabled:cursor-default text-xs font-black"
+                          >
+                            ◀
+                          </button>
+                          <button
+                            type="button"
+                            disabled={i === order.length - 1}
+                            onClick={() => change((prev) => moveBottomBox(prev, unit, key, 1))}
+                            aria-label={`Move ${labelOf(key)} right`}
+                            className="px-1 text-slate-500 hover:text-slate-900 dark:hover:text-white disabled:opacity-25 cursor-pointer disabled:cursor-default text-xs font-black"
+                          >
+                            ▶
+                          </button>
+                          {confirmRemove === key ? (
+                            <span className="flex items-center gap-1 ml-1">
+                              <span className="text-[10px] font-bold text-rose-600 dark:text-rose-300">Delete with its plays?</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setConfirmRemove(null);
+                                  change((prev) => removeBottomBox(prev, unit, key));
+                                }}
+                                className="px-1.5 rounded bg-rose-600 text-white text-[10px] font-black cursor-pointer"
+                              >
+                                Delete
+                              </button>
+                              <button type="button" onClick={() => setConfirmRemove(null)} className="px-1.5 rounded bg-slate-200 dark:bg-slate-700 text-[10px] font-bold cursor-pointer">
+                                Keep
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const sec = extras.get(key);
+                                if (sec && sec.plays.some(Boolean)) setConfirmRemove(key);
+                                else change((prev) => removeBottomBox(prev, unit, key));
+                              }}
+                              aria-label={`Remove ${labelOf(key)}`}
+                              title={isBuiltIn(key) ? `Take the ${labelOf(key)} off the sheet (add it back from the buttons above)` : 'Delete this script'}
+                              className="p-0.5 rounded text-slate-500 hover:text-rose-600 hover:bg-rose-500/10 cursor-pointer"
+                            >
+                              {isBuiltIn(key) ? <X className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
+                        </span>
+                      </div>
+                    )}
+                    {renderBox(key)}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 };

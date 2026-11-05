@@ -56,6 +56,7 @@ import {
   countCallSheetPlays,
   countCallSheetSections,
 } from '../utils/callSheetStorage';
+import { fillEmptyRows, firstEmptyRow } from '../utils/callSheetBottom';
 import { ComputerCallSheetView } from './callSheet/ComputerCallSheetView';
 import { MobileCallSheetView } from './callSheet/MobileCallSheetView';
 import { PlayPickerModal } from './callSheet/PlayPickerModal';
@@ -415,6 +416,8 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
     sectionTitle: string;
     slotIndex: number;
     currentPlay: CallSheetPlay | null;
+    /** "Add plays" on a script: the picked plays fill its empty rows in order. */
+    append?: boolean;
   }>({
     isOpen: false,
     sectionId: '',
@@ -599,6 +602,52 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
         }
       }
       return next;
+    });
+  };
+
+  // "Add plays" on a script: open the picker (pick several, in order) for its first empty row.
+  const handleAddScriptPlays = (sectionId: string) => {
+    const sec =
+      sectionId === 'script'
+        ? null
+        : (activeUnit === 'offense' ? callSheetData.offenseSections : callSheetData.defenseSections).find((s) => s.id === sectionId);
+    const rows = sectionId === 'script' ? (activeUnit === 'offense' ? callSheetData.offenseScript : callSheetData.defenseScript) || [] : sec?.plays || [];
+    setPickerState({
+      isOpen: true,
+      sectionId,
+      sectionTitle: `Add plays to ${sec?.title || (activeUnit === 'offense' ? 'Offensive Opening Script' : 'Defensive Opening Script')}`,
+      slotIndex: firstEmptyRow(rows),
+      currentPlay: null,
+      append: true,
+    });
+  };
+
+  // The picked plays fill the script's empty rows in order (rows are added when it runs out).
+  const handleAppendPlays = (sectionId: string, playsToAdd: CallSheetPlay[]) => {
+    if (!playsToAdd.length) return;
+    const copies = playsToAdd.map((p, offset) => {
+      const copy: CallSheetPlay = { ...p, id: `play_${Date.now()}_${offset}_${Math.random().toString(36).substring(2, 6)}` };
+      delete (copy as any).sourceSectionId;
+      delete (copy as any).sourceSlotIndex;
+      if (copy.name && /\b21\b/.test(copy.name)) copy.formation = inferFormation(copy.name, activeUnit, copy.formation);
+      return cleanFirestoreData(copy) as CallSheetPlay;
+    });
+    applyCallSheetUpdate((prev) => {
+      if (sectionId === 'script') {
+        const key = activeUnit === 'offense' ? 'offenseScript' : 'defenseScript';
+        return { ...prev, [key]: fillEmptyRows(prev[key] || [], copies) };
+      }
+      const sectionsKey = activeUnit === 'offense' ? 'offenseSections' : 'defenseSections';
+      return {
+        ...prev,
+        [sectionsKey]: (prev[sectionsKey] || []).map((s) => {
+          if (s.id !== sectionId) return s;
+          const rows = [...(s.plays || [])];
+          while (rows.length < s.slotsCount) rows.push(null);
+          const plays = fillEmptyRows(rows, copies);
+          return { ...s, plays, slotsCount: Math.max(s.slotsCount, plays.length) };
+        }),
+      };
     });
   };
 
@@ -1466,6 +1515,8 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
               onUpdateGroupTitle={handleUpdateGroupTitle}
               onResetToDefault={handleReset}
               onWristbandRowsLayout={handleWristbandRowsLayout}
+              onChangeSheet={applyCallSheetUpdate}
+              onAddScriptPlays={handleAddScriptPlays}
             />
           ) : (
             <MobileCallSheetView
@@ -1526,12 +1577,15 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
         currentPlay={pickerState.currentPlay}
         databasePlays={playDatabase}
         wristbandData={normalizedWristbandData}
+        initialMultiSelect={pickerState.append ? true : undefined}
         onSelectPlay={(play) => {
-          handleAssignPlayToSlot(pickerState.sectionId, pickerState.slotIndex, play);
+          if (pickerState.append) handleAppendPlays(pickerState.sectionId, [play]);
+          else handleAssignPlayToSlot(pickerState.sectionId, pickerState.slotIndex, play);
           setPickerState((prev) => ({ ...prev, isOpen: false }));
         }}
         onSelectMultiplePlays={(plays) => {
-          handleAssignMultiplePlaysToSlots(pickerState.sectionId, pickerState.slotIndex, plays);
+          if (pickerState.append) handleAppendPlays(pickerState.sectionId, plays);
+          else handleAssignMultiplePlaysToSlots(pickerState.sectionId, pickerState.slotIndex, plays);
           setPickerState((prev) => ({ ...prev, isOpen: false }));
         }}
         onClearSlot={() => {

@@ -67,6 +67,8 @@ export const MobileCallSheetView: React.FC<MobileCallSheetViewProps> = ({
 
   // Filter sections based on mobile category
   const filteredSections = sections.filter((sec) => {
+    // Extra scripts show under the Script tab.
+    if (sec.group === 'script') return false;
     if (activeCategory === 'all') return true;
     if (activeCategory === '1st_down') return sec.id.includes('1_10') && !sec.id.includes('rz');
     if (activeCategory === '2nd_down') return sec.id.includes('2nd') && !sec.id.includes('rz');
@@ -246,6 +248,25 @@ export const MobileCallSheetView: React.FC<MobileCallSheetViewProps> = ({
               </div>
             ))}
           </div>
+          {sections
+            .filter((sec) => sec.group === 'script')
+            .map((sec) => (
+              <div key={sec.id} className="space-y-1.5 pt-2">
+                <h3 className="text-sm font-black text-purple-300 uppercase">
+                  📜 {sec.title} ({sec.plays.filter(Boolean).length}/{Math.max(sec.slotsCount, sec.plays.length)})
+                </h3>
+                {Array.from({ length: Math.max(sec.slotsCount, sec.plays.length) }, (_, idx) => sec.plays[idx] || null).map((play, idx) => (
+                  <div
+                    key={`${sec.id}-${idx}`}
+                    onClick={() => onSlotClick(sec.id, idx)}
+                    className="p-3 rounded-xl border flex items-center gap-2.5 cursor-pointer bg-slate-800/90 border-slate-700 text-slate-100 shadow-sm hover:border-purple-500"
+                  >
+                    <span className="text-[10px] font-mono text-slate-400 w-4 shrink-0">{idx + 1}.</span>
+                    <h4 className="text-xs font-black uppercase truncate text-slate-100">{play ? play.name : '(Empty Slot - Tap to Pick)'}</h4>
+                  </div>
+                ))}
+              </div>
+            ))}
         </div>
       )}
 
