@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { APP_BUILT, APP_COMMIT } from '../appVersion';
 import {
   Maximize,
   Download,
@@ -373,6 +374,12 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Status and account, pushed to the right */}
         <div className="ml-auto flex items-center gap-1.5 shrink-0">
+          <span
+            title={`Version ${APP_COMMIT}, built ${APP_BUILT.toLocaleString()}`}
+            className="px-1.5 py-0.5 rounded-md border border-slate-200 dark:border-slate-800 text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 whitespace-nowrap"
+          >
+            v {APP_COMMIT} · {APP_BUILT.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} {APP_BUILT.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+          </span>
           <button
             type="button"
             onClick={onForceSave}

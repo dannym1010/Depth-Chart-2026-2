@@ -2,10 +2,26 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
+import {execSync} from 'child_process';
+
+// The version shown at the top of the app: the commit it was built from (the host's, or git's) and when.
+const commit = (() => {
+  const fromHost = process.env.VERCEL_GIT_COMMIT_SHA || process.env.RENDER_GIT_COMMIT || process.env.COMMIT_SHA || process.env.GITHUB_SHA || '';
+  if (fromHost) return fromHost.slice(0, 7);
+  try {
+    return execSync('git rev-parse --short=7 HEAD', {stdio: ['ignore', 'pipe', 'ignore']}).toString().trim();
+  } catch {
+    return 'dev';
+  }
+})();
 
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
+    define: {
+      __APP_COMMIT__: JSON.stringify(commit),
+      __APP_BUILT_AT__: JSON.stringify(new Date().toISOString()),
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
