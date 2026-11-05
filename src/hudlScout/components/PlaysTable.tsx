@@ -164,6 +164,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
     }
     return [...seen.values()].sort((a, b) => Number(b.drawn) - Number(a.drawn) || b.count - a.count || a.name.localeCompare(b.name));
   }, [theirFormations, writeInPlays, plays]);
+  const kickChoices = useMemo(() => kickResultChoices(writeInPlays || plays, rememberedKickResults()), [writeInPlays, plays]);
   const [openPlay, setOpenPlay] = useState<string | null>(null);
   // The play whose fields are being changed (strength, hash, type, down and distance, gain, result).
   const [editPlay, setEditPlay] = useState<string | null>(null);
@@ -555,7 +556,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               )}
               {onEditPlay && editPlay === play.id && (
                 <div className="pt-1">
-                  <PlayFieldsEditor play={play} onEdit={(e) => onEditPlay(play.id, e)} onClose={() => setEditPlay(null)} />
+                  <PlayFieldsEditor play={play} kickChoices={kickChoices} onEdit={(e) => onEditPlay(play.id, e)} onClose={() => setEditPlay(null)} />
                 </div>
               )}
               {onSetFormation && play.odk === 'O' && (
@@ -869,7 +870,9 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   <td className="py-2.5 px-2 text-[11px] font-bold">{onEditPlay ? <StrengthPicker play={play} onEdit={(e) => onEditPlay(play.id, e)} /> : <SideTag play={play} />}</td>
                   <td className="py-2.5 px-2 text-[11px] font-bold whitespace-nowrap"><FieldTag play={play} /></td>
                   <td className="py-2.5 px-2 text-slate-300 text-[11px]">
-                    {onEditPlay ? (
+                    {onEditPlay && play.odk === 'K' ? (
+                      <KickResultCell play={play} choices={kickChoices} onSave={(v) => onEditPlay(play.id, { result: v })} />
+                    ) : onEditPlay ? (
                       <CellInput
                         value={play.result && play.result !== '-' ? play.result : ''}
                         label={`Result of play ${play.playNumber}`}
@@ -1233,6 +1236,81 @@ const HASH_OPTIONS = (['L', 'M', 'R'] as const).map((h) => ({ value: h, text: h 
 const TYPE_OPTIONS = ['RUN', 'PASS', 'RPO', 'SCREEN', 'SPECIAL', 'PENALTY', 'OTHER'].map((t) => ({ value: t, text: t }));
 const dirOptions = (play: Play) => (['L', 'M', 'R'] as const).map((d) => ({ value: d, text: directionLabel(d, play.hash, '') }));
 
+// Kick results: the usual ones, plus any typed on a kick in this or any film (remembered on this device).
+const KICK_RESULTS = ['Return', 'Good', 'No Good', 'Blocked', 'Fair Catch', 'Touchback', 'Out of Bounds', 'Downed', 'Onside', 'Muffed', 'Fumble', 'TD', 'Safety', 'Penalty', 'Timeout'];
+const KICK_RESULTS_KEY = 'playLogKickResults';
+const rememberedKickResults = (): string[] => {
+  try {
+    const v = JSON.parse(localStorage.getItem(KICK_RESULTS_KEY) || '[]');
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+const rememberKickResult = (r: string) => {
+  const t = r.trim();
+  if (!t) return;
+  try {
+    const list = rememberedKickResults().filter((x) => x.toLowerCase() !== t.toLowerCase());
+    localStorage.setItem(KICK_RESULTS_KEY, JSON.stringify([t, ...list].slice(0, 40)));
+  } catch {
+    /* not kept on this device */
+  }
+};
+/** The results to pick on a kick: the ones used on kicks most first, then the usual ones. */
+function kickResultChoices(plays: Play[], remembered: string[] = []): string[] {
+  const count = new Map<string, { text: string; n: number }>();
+  for (const p of plays) {
+    const t = String(p.result || '').trim();
+    if (p.odk !== 'K' || !t || t === '-') continue;
+    const k = t.toLowerCase();
+    const cur = count.get(k) || { text: t, n: 0 };
+    count.set(k, { ...cur, n: cur.n + 1 });
+  }
+  const out: string[] = [...count.values()].sort((a, b) => b.n - a.n || a.text.localeCompare(b.text)).map((x) => x.text);
+  for (const t of [...remembered, ...KICK_RESULTS]) if (!out.some((x) => x.toLowerCase() === t.toLowerCase())) out.push(t);
+  return out;
+}
+/** A kick's result: picked from the list, or typed (Other…) and then on the list. */
+const KickResultCell: React.FC<{ play: Play; choices: string[]; onSave: (v: string) => void }> = ({ play, choices, onSave }) => {
+  const [typing, setTyping] = useState(false);
+  const current = play.result && play.result !== '-' ? play.result : '';
+  const list = current && !choices.some((c) => c.toLowerCase() === current.toLowerCase()) ? [current, ...choices] : choices;
+  const save = (v: string) => {
+    rememberKickResult(v);
+    onSave(v);
+  };
+  if (typing)
+    return (
+      <input
+        autoFocus
+        placeholder="Type the result"
+        aria-label={`Result of play ${play.playNumber}`}
+        onBlur={(e) => {
+          if (e.target.value.trim()) save(e.target.value.trim());
+          setTyping(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+          if (e.key === 'Escape') {
+            e.currentTarget.value = '';
+            e.currentTarget.blur();
+          }
+        }}
+        className={`${cellCtl} cursor-text w-24`}
+      />
+    );
+  return (
+    <CellSelect
+      value={list.find((c) => c.toLowerCase() === current.toLowerCase()) || ''}
+      label={`Result of play ${play.playNumber}`}
+      options={[{ value: '', text: '-' }, ...list.map((c) => ({ value: c, text: c })), { value: '__other', text: 'Other…' }]}
+      onPick={(v) => (v === '__other' ? setTyping(true) : save(v))}
+      className="text-amber-200"
+    />
+  );
+};
+
 /** The strength column as a picker: what the formation says (Auto), or Left / Right / Balanced set for this play. */
 const StrengthPicker: React.FC<{ play: Play; onEdit: (edit: PlayFieldEdit) => void }> = ({ play, onEdit }) => {
   const auto = strengthSideText({ ...play, strength: undefined });
@@ -1259,7 +1337,7 @@ const StrengthPicker: React.FC<{ play: Play; onEdit: (edit: PlayFieldEdit) => vo
 };
 
 /** Change a play's fields right in the log. Each change saves as it's made (numbers when you leave the box). */
-const PlayFieldsEditor: React.FC<{ play: Play; onEdit: (edit: PlayFieldEdit) => void; onClose: () => void }> = ({ play, onEdit, onClose }) => {
+const PlayFieldsEditor: React.FC<{ play: Play; kickChoices?: string[]; onEdit: (edit: PlayFieldEdit) => void; onClose: () => void }> = ({ play, kickChoices, onEdit, onClose }) => {
   const box = 'h-8 rounded-md border border-slate-700 bg-slate-900 px-2 text-xs text-slate-100';
   const lab = 'text-[10px] font-black uppercase tracking-wider text-slate-500';
   const seg = (on: boolean) => `h-8 px-2.5 text-xs font-black cursor-pointer ${on ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`;
@@ -1328,10 +1406,22 @@ const PlayFieldsEditor: React.FC<{ play: Play; onEdit: (edit: PlayFieldEdit) => 
         <input
           key={`r${play.id}${play.result}`}
           defaultValue={play.result && play.result !== '-' ? play.result : ''}
-          placeholder="Rush, Complete, TD…"
-          onBlur={(e) => e.target.value.trim() !== (play.result || '').trim() && onEdit({ result: e.target.value })}
+          placeholder={play.odk === 'K' ? 'Return, Good, No Good…' : 'Rush, Complete, TD…'}
+          list={play.odk === 'K' && kickChoices ? `kick-results-${play.id}` : undefined}
+          onBlur={(e) => {
+            if (e.target.value.trim() === (play.result || '').trim()) return;
+            if (play.odk === 'K') rememberKickResult(e.target.value);
+            onEdit({ result: e.target.value });
+          }}
           className={`${box} w-36`}
         />
+        {play.odk === 'K' && kickChoices && (
+          <datalist id={`kick-results-${play.id}`}>
+            {kickChoices.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+        )}
       </label>
       <label className="flex flex-col gap-1">
         <span className={lab}>ODK</span>
