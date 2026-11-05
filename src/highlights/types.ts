@@ -18,6 +18,17 @@ export type HighlightCategory =
 
 export type SpotStyle = 'ring' | 'arrow' | 'glow' | 'tag';
 
+/** A circle or arrow on a kid over the running play, from one moment to another (seconds into the clip). */
+export interface HighlightMark {
+  id: string;
+  x: number;
+  y: number;
+  style: SpotStyle;
+  label?: string;
+  from: number;
+  to: number;
+}
+
 export interface Highlight {
   id: string;
   game: HighlightGame;
@@ -41,6 +52,8 @@ export interface Highlight {
   slow?: { from: number; to: number; speed: number };
   /** Hold one frame, with an optional spotlight on a kid (x, y: 0..1 of the picture). */
   freeze?: { at: number; seconds: number; spot?: { x: number; y: number; style: SpotStyle; label?: string } };
+  /** Circles / arrows on a kid while the play runs: where (0..1 of the picture) and when (clip seconds). */
+  marks?: HighlightMark[];
   title: string;
   categories: HighlightCategory[];
   /** Jersey numbers of the kids in it ("21"). */

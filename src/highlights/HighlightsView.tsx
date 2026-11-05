@@ -347,6 +347,17 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                   <input value={fText} onChange={(e) => setFText(e.target.value)} placeholder="Search" className={`${sel} w-28`} aria-label="Search" />
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                  {!ro && kept.length > 0 && (
+                    <label className="inline-flex items-center gap-1 font-bold text-slate-700 dark:text-slate-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={kept.every((h) => picked.has(h.id))}
+                        onChange={(e) => setPicked(e.target.checked ? new Set(kept.map((h) => h.id)) : new Set())}
+                        aria-label="Pick every clip shown"
+                      />
+                      All
+                    </label>
+                  )}
                   <span>
                     {kept.length} clip{kept.length === 1 ? '' : 's'} · {clock(keptSeconds)}
                   </span>
@@ -420,6 +431,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                           {h.replay ? ' · replay' : ''}
                           {h.slow ? ' · slow-mo' : ''}
                           {h.freeze ? ' · freeze' : ''}
+                          {h.marks?.length ? ` · ${h.marks.length} mark${h.marks.length === 1 ? '' : 's'}` : ''}
                         </span>
                       </span>
                       <span className="text-[11px] tabular-nums text-slate-500 shrink-0">{(h.end - h.start).toFixed(1)} s</span>
@@ -537,8 +549,13 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                 plays={plays}
                 roster={roster}
                 onClose={() => setOpenId(null)}
-                reels={myReels.map((r) => ({ id: r.id, name: r.name }))}
-                onAddToReel={(id) => update((d) => editReel(d, id, (r) => addToReel(r, [open.id])))}
+                reels={myReels.map((r) => ({ id: r.id, name: r.name, has: r.items.some((it) => it.highlightId === open.id) }))}
+                onAddToReel={(id) => {
+                  if (id === '__new') {
+                    const r = newReel({ name: `${open.title || 'New'} reel`, kind: 'custom', owner: me, ownerName: myName, highlightIds: [open.id] });
+                    update((d) => ({ ...d, reels: [...d.reels, r] }));
+                  } else update((d) => editReel(d, id, (r) => addToReel(r, [open.id])));
+                }}
               />
             </div>
           )}

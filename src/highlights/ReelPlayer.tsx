@@ -150,6 +150,9 @@ export const ReelPlayer: React.FC<Props> = ({ title, segments, access, settings,
     if (s.type === 'card') drawCard(ctx, fw, fh, s.card, settings, logo);
     else {
       if (s.type === 'freeze' && s.h.freeze?.spot) drawSpot(ctx, fw, fh, s.h.freeze.spot, settings);
+      // The circles / arrows on a kid, over the play itself (not its replay from another camera).
+      const t = videoRef.current?.currentTime ?? -1;
+      if (s.type === 'clip' && s.part !== 'replay') for (const m of s.h.marks || []) if (t >= m.from && t <= m.to) drawSpot(ctx, fw, fh, m, settings);
       if (s.type === 'clip' && s.part === 'replay') drawLowerThird(ctx, fw, fh, { title: 'Replay' }, settings, logo);
       else if (s.overlay) drawLowerThird(ctx, fw, fh, s.overlay, settings, logo);
     }

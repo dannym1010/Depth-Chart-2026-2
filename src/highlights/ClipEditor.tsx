@@ -2,22 +2,48 @@
 // part on a loop, "Start at snap", slow motion over part of it, a freeze frame with a spotlight on a kid (tap him on
 // the picture), a replay from another camera lined up with this one, and its title, kinds, kids, rating and note.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Crosshair, Pause, Play as PlayIcon, Repeat, Scissors, SkipBack, Star, Trash2, X } from 'lucide-react';
+import { Columns2, Crosshair, Pause, Play as PlayIcon, Repeat, Scissors, SkipBack, Star, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import type { Play } from '../hudlScout/types/football';
 import { probeSnap, snapTimeCache } from '../filmroom/snapProbe';
-import { savedOffset, snapOffset } from '../filmroom/dualView';
+import { savedOffset, snapOffset, syncTarget } from '../filmroom/dualView';
 import type { FilmGameShared } from '../filmroom/types';
 import { lineUp, type FilmAccess, type GameFilm } from './filmAccess';
 import { drawLowerThird, drawSpot } from './graphics';
 import { editHighlight, kidLabel, kidsText, removeHighlights, snapWindow, type Kid } from './highlightData';
-import type { Highlight, HighlightCategory, HighlightSettings, SpotStyle } from './types';
+import type { Highlight, HighlightCategory, HighlightMark, HighlightSettings, SpotStyle } from './types';
 import type { HighlightStore } from './useHighlights';
 import { useClipSrc } from './useClipSrc';
+import { useZoomPan } from './useZoomPan';
 
 export const CATEGORY_LABEL: Record<HighlightCategory, string> = {
   td: 'TD', big_run: 'Big run', catch: 'Catch', pass: 'Pass', sack: 'Sack', int: 'INT', fumble: 'Fumble', tfl: 'TFL', pbu: 'PBU', tackle: 'Tackle',
   block: 'Block', kick: 'Kick', celebration: 'Celebration', sideline: 'Sideline', huddle: 'Huddle', coin_toss: 'Coin toss', warmups: 'Warm-ups',
   crowd: 'Crowd', trophy: 'Trophy', other: 'Other',
+};
+
+/** −  2×  +  in the picture's corner (the level resets to 1× when tapped). */
+const ZoomButtons: React.FC<{ zp: ReturnType<typeof useZoomPan> }> = ({ zp }) => {
+  const b = 'h-7 w-7 inline-flex items-center justify-center rounded-md disabled:opacity-40';
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  return (
+    <div
+      className="absolute bottom-2 right-2 flex items-center gap-0.5 rounded-lg p-0.5"
+      style={{ background: 'rgba(0,0,0,.6)', color: '#fff' }}
+      onClick={stop}
+      onDoubleClick={stop}
+      onPointerDown={stop}
+    >
+      <button type="button" className={b} onClick={() => zp.zoomBy(-0.5)} disabled={zp.zoom <= 1} aria-label="Zoom out">
+        <ZoomOut size={14} />
+      </button>
+      <button type="button" className="h-7 px-1 text-[11px] font-bold tabular-nums" onClick={zp.reset} title="Back to the whole picture">
+        {zp.zoom.toFixed(1)}×
+      </button>
+      <button type="button" className={b} onClick={() => zp.zoomBy(0.5)} disabled={zp.zoom >= 6} aria-label="Zoom in">
+        <ZoomIn size={14} />
+      </button>
+    </div>
+  );
 };
 
 const fmt = (t: number) => `${Math.floor(Math.max(0, t) / 60)}:${(Math.max(0, t) % 60).toFixed(1).padStart(4, '0')}`;
@@ -33,7 +59,8 @@ interface Props {
   roster: Kid[];
   onClose: () => void;
   /** "Add to reel" choices. */
-  reels: { id: string; name: string }[];
+  reels: { id: string; name: string; has?: boolean }[];
+  /** A reel's id, or '__new' for a new reel. */
   onAddToReel: (reelId: string) => void;
 }
 
@@ -48,6 +75,10 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
   const [playing, setPlaying] = useState(false);
   const [loop, setLoop] = useState(true);
   const [placing, setPlacing] = useState(false);
+  // Circles / arrows on a kid: the style and how long the next one stays up, and whether a tap places one.
+  const [marking, setMarking] = useState(false);
+  const [markStyle, setMarkStyle] = useState<SpotStyle>('ring');
+  const [markSecs, setMarkSecs] = useState(2);
   const [busy, setBusy] = useState('');
   // Start / end while a handle is dragged (saved on letting go).
   const [draft, setDraft] = useState<{ start: number; end: number } | null>(null);
@@ -55,6 +86,12 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
   const end = draft?.end ?? h.end;
 
   const edit = useCallback((change: (x: Highlight) => Highlight) => !ro && store.update((d) => editHighlight(d, h.id, change)), [ro, store, h.id]);
+  const zp = useZoomPan();
+  const zp2 = useZoomPan();
+  // The other camera beside this one: its view, its clip of this play and how far its clock is from this clip's.
+  const [side, setSide] = useState<{ view: string; clip: string; offset: number; guessed: boolean } | null>(null);
+  const sideSrc = useClipSrc(access, side ? h.game : undefined, side?.view || '', side?.clip);
+  const sideRef = useRef<HTMLVideoElement>(null);
 
   // The video: a loop of the trimmed part.
   useEffect(() => {
@@ -72,11 +109,20 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
           else v.pause();
         }
       }
+      const o = sideRef.current;
+      if (o && side && o.readyState >= 1) {
+        const want = syncTarget(t, side.offset, o.duration);
+        if (Math.abs(o.currentTime - want.t) > (v.paused ? 0.02 : 0.15)) o.currentTime = want.t;
+        if (o.playbackRate !== v.playbackRate) o.playbackRate = v.playbackRate;
+        const run = !v.paused && !want.before && !want.after;
+        if (run && o.paused) void o.play().catch(() => undefined);
+        else if (!run && !o.paused) o.pause();
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [src.url, start, end, loop, h.slow]);
+  }, [src.url, start, end, loop, h.slow, side]);
 
   const onLoaded = () => {
     const v = videoRef.current!;
@@ -137,8 +183,9 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
     ctx.clearRect(0, 0, w, hh);
     const atFreeze = h.freeze && Math.abs(now - h.freeze.at) < 0.08;
     if (h.freeze?.spot && (atFreeze || placing)) drawSpot(ctx, w, hh, h.freeze.spot, settings);
+    for (const m of h.marks || []) if (now >= m.from && now <= m.to) drawSpot(ctx, w, hh, m, settings);
     if (now >= start && now <= end) drawLowerThird(ctx, w, hh, { title: h.title, sub: kids || undefined }, settings);
-  }, [now, h.freeze, h.title, kids, settings, start, end, placing]);
+  }, [now, h.freeze, h.marks, h.title, kids, settings, start, end, placing]);
 
   const findSnap = async () => {
     if (!src.url) return;
@@ -183,15 +230,32 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
 
   // A tap on the picture places the spotlight.
   const onPicture = (e: React.MouseEvent) => {
-    if (!placing || !h.freeze) return toggle();
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    if (zp.wasDrag()) return;
+    if (!marking && (!placing || !h.freeze)) return toggle();
     const v = videoRef.current!;
+    // The video's box on screen, zoom included (the picture sits in it with black bars around).
+    const r = v.getBoundingClientRect();
     // Where the picture really is inside the box (black bars around it).
     const s = Math.min(r.width / (v.videoWidth || 16), r.height / (v.videoHeight || 9));
     const pw = (v.videoWidth || 16) * s;
     const ph = (v.videoHeight || 9) * s;
     const x = (e.clientX - r.left - (r.width - pw) / 2) / pw;
     const y = (e.clientY - r.top - (r.height - ph) / 2) / ph;
+    if (marking) {
+      const at = videoRef.current?.currentTime ?? start;
+      const mark: HighlightMark = {
+        id: `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+        x: r2(Math.min(1, Math.max(0, x))),
+        y: r2(Math.min(1, Math.max(0, y))),
+        style: markStyle,
+        label: markStyle === 'tag' && h.kids[0] ? kidLabel(h.kids[0], roster, settings.names === 'none' ? 'number' : settings.names) : undefined,
+        from: r2(at),
+        to: r2(markSecs ? Math.min(end, at + markSecs) : end),
+      };
+      edit((x0) => ({ ...x0, marks: [...(x0.marks || []), mark] }));
+      setMarking(false);
+      return;
+    }
     edit((x0) => ({ ...x0, freeze: { ...x0.freeze!, spot: { style: x0.freeze?.spot?.style || 'ring', label: x0.freeze?.spot?.label, x: r2(Math.min(1, Math.max(0, x))), y: r2(Math.min(1, Math.max(0, y))) } } }));
     setPlacing(false);
   };
@@ -206,12 +270,21 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
     };
   }, [access, h.game]);
   const otherViews = (film?.views || []).filter((v) => v && v !== h.view);
+  const multiCam = h.kind === 'play' && Boolean(h.playId) && otherViews.length > 0;
+  // A new highlight: start without the side camera.
+  useEffect(() => setSide(null), [h.id]);
   const gamePlays = useMemo(() => plays.filter((p) => p.gameId === h.game.gameId), [plays, h.game.gameId]);
-  const replayFor = async (view: string) => {
-    if (!film || !h.playId) return;
+  /** This play's clip on another camera and how its clock sits against this clip's. */
+  const lineUpView = async (view: string): Promise<{ clip: string; offset: number; guessed: boolean } | null> => {
+    if (!film || !h.playId) return null;
     const c = lineUp(film, view, gamePlays, shared).clipOf.get(h.playId);
-    if (!c) return setBusy(`No ${view} clip for this play.`);
-    // Lined up the way a coach nudged it in the Film Room, else at the snap in both clips, else the clip starts.
+    if (!c) {
+      setBusy(`No ${view} clip for this play.`);
+      return null;
+    }
+    // A replay already set from that camera, else the way a coach nudged it in the Film Room, else the snap in both
+    // clips, else the clip starts.
+    if (h.replay && h.replay.view === view && h.replay.clip === c.name) return { clip: c.name, offset: r2(h.replay.start - h.start), guessed: false };
     let off = savedOffset(shared?.viewShift, h.playId, h.view, view);
     if (off === undefined && src.url) {
       setBusy('Lining up the cameras…');
@@ -225,7 +298,38 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
       }
     }
     setBusy(off === undefined ? `${view} lined up from the clip starts (nudge it if it's off).` : '');
-    const o = off ?? 0;
+    return { clip: c.name, offset: off ?? 0, guessed: off === undefined };
+  };
+  const showSide = async (view: string) => {
+    const l = await lineUpView(view);
+    if (l) setSide({ view, ...l });
+  };
+  // The side camera becomes this highlight's camera (trim, slow motion and freeze move with it; the old one can be the replay).
+  const useSideCamera = () => {
+    if (!side) return;
+    const o = side.offset;
+    const old = { view: h.view, clip: h.clip };
+    const shift = (t: number) => r2(Math.max(0, t + o));
+    edit((x) => ({
+      ...x,
+      view: side.view,
+      clip: side.clip,
+      clipLen: undefined,
+      start: shift(x.start),
+      end: shift(x.end),
+      slow: x.slow ? { ...x.slow, from: shift(x.slow.from), to: shift(x.slow.to) } : undefined,
+      freeze: x.freeze ? { ...x.freeze, at: shift(x.freeze.at) } : undefined,
+      marks: x.marks?.map((m) => ({ ...m, from: shift(m.from), to: shift(m.to) })),
+      replay: x.replay && x.replay.view === side.view ? { ...x.replay, view: old.view, clip: old.clip, start: r2(Math.max(0, x.start)), end: r2(x.end) } : x.replay,
+    }));
+    setSide({ view: old.view, clip: old.clip, offset: r2(-o), guessed: side.guessed });
+    if (h.marks?.length) setBusy(`Your circles / arrows were placed on ${old.view || 'the other camera'}: check where they sit on ${side.view}.`);
+  };
+  const replayFor = async (view: string) => {
+    const l = await lineUpView(view);
+    if (!l) return;
+    const c = { name: l.clip };
+    const o = l.offset;
     edit((x) => ({ ...x, replay: { view, clip: c.name, start: r2(Math.max(0, x.start + o)), end: r2(x.end + o), speed: settings.replaySpeed } }));
   };
 
@@ -246,18 +350,96 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
         </button>
       </div>
 
-      <div className="relative bg-black rounded-xl overflow-hidden" style={{ aspectRatio: '16 / 9' }} onClick={onPicture} data-film-area>
-        {src.url ? (
-          <video ref={videoRef} src={src.url} playsInline muted={settings.gameSound === 'off'} onLoadedMetadata={onLoaded} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} className="absolute inset-0 w-full h-full object-contain" />
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center p-3 text-center text-sm" style={{ color: '#cbd5e1' }}>
-            {src.loading ? 'Loading the clip…' : src.error || 'No clip'}
+      {multiCam && (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs" role="group" aria-label="Cameras">
+          <span className="font-black text-slate-700 dark:text-slate-200">Cameras</span>
+          <span className={chip(true)} title="This highlight's camera">{h.view || 'Film'}</span>
+          {otherViews.map((view) => (
+            <button
+              key={view}
+              type="button"
+              className={chip(side?.view === view)}
+              aria-pressed={side?.view === view}
+              onClick={() => (side?.view === view ? setSide(null) : void showSide(view))}
+              title={side?.view === view ? 'Hide this camera' : `Show ${view} next to ${h.view || 'this camera'}, in step with it`}
+            >
+              <Columns2 size={12} className="inline -mt-0.5" /> {view}
+            </button>
+          ))}
+          {side && !ro && (
+            <button type="button" className={small} onClick={useSideCamera} title={`Use ${side.view} for this highlight (the trim, slow motion and freeze move with it)`}>
+              Use {side.view} for the highlight
+            </button>
+          )}
+          {side && (
+            <span className="flex items-center gap-1 text-slate-500">
+              {side.guessed ? 'Lined up from the clip starts:' : 'In step'}
+              {[-1 / 30, 1 / 30].map((d) => (
+                <button key={d} type="button" className={small} onClick={() => setSide((s) => (s ? { ...s, offset: r2(s.offset + d), guessed: false } : s))} title={`Nudge ${side.view} a frame`}>
+                  {d > 0 ? '+1f' : '−1f'}
+                </button>
+              ))}
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className={side ? 'grid sm:grid-cols-2 gap-2' : ''}>
+        <div
+          ref={zp.boxRef}
+          {...zp.handlers}
+          className={`relative bg-black rounded-xl overflow-hidden ${zp.zoom > 1 ? 'touch-none cursor-grab active:cursor-grabbing' : 'touch-pan-y'}`}
+          style={{ aspectRatio: '16 / 9' }}
+          onClick={onPicture}
+          onDoubleClick={zp.reset}
+          title="Click: play / pause · Scroll or pinch: zoom · Drag: move around · Double-click: zoom out"
+          data-film-area
+        >
+          <div className="absolute inset-0" style={zp.style}>
+            {src.url ? (
+              <video ref={videoRef} src={src.url} playsInline muted={settings.gameSound === 'off'} onLoadedMetadata={onLoaded} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} className="absolute inset-0 w-full h-full object-contain" />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center p-3 text-center text-sm" style={{ color: '#cbd5e1' }}>
+                {src.loading ? 'Loading the clip…' : src.error || 'No clip'}
+              </div>
+            )}
+            <canvas ref={overRef} className="absolute inset-0 w-full h-full pointer-events-none" />
           </div>
-        )}
-        <canvas ref={overRef} className="absolute inset-0 w-full h-full pointer-events-none" />
-        {placing && (
-          <div className="absolute top-2 left-2 rounded-md px-2 py-1 text-xs font-bold" style={{ background: '#f59e0b', color: '#111827' }}>
-            Tap the kid to spotlight
+          {(placing || marking) && (
+            <div className="absolute top-2 left-2 rounded-md px-2 py-1 text-xs font-bold" style={{ background: '#f59e0b', color: '#111827' }}>
+              {marking ? `Tap the kid to ${markStyle === 'arrow' ? 'point at' : 'circle'} (zoom in first if he's small)` : 'Tap the kid to spotlight'}
+            </div>
+          )}
+          {side && (
+            <div className="absolute top-2 left-2 rounded px-1.5 py-0.5 text-[10px] font-black pointer-events-none" style={{ background: 'rgba(0,0,0,.6)', color: '#fff' }}>
+              {h.view || 'Film'}
+            </div>
+          )}
+          <ZoomButtons zp={zp} />
+        </div>
+        {side && (
+          <div
+            ref={zp2.boxRef}
+            {...zp2.handlers}
+            className={`relative bg-black rounded-xl overflow-hidden ${zp2.zoom > 1 ? 'touch-none cursor-grab active:cursor-grabbing' : 'touch-pan-y'}`}
+            style={{ aspectRatio: '16 / 9' }}
+            onClick={() => !zp2.wasDrag() && toggle()}
+            onDoubleClick={zp2.reset}
+            title="Click: play / pause · Scroll or pinch: zoom · Drag: move around · Double-click: zoom out"
+          >
+            <div className="absolute inset-0" style={zp2.style}>
+              {sideSrc.url ? (
+                <video ref={sideRef} src={sideSrc.url} playsInline muted className="absolute inset-0 w-full h-full object-contain" />
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center p-3 text-center text-sm" style={{ color: '#cbd5e1' }}>
+                  {sideSrc.loading ? 'Loading the clip…' : sideSrc.error || 'No clip'}
+                </div>
+              )}
+            </div>
+            <div className="absolute top-2 left-2 rounded px-1.5 py-0.5 text-[10px] font-black pointer-events-none" style={{ background: 'rgba(0,0,0,.6)', color: '#fff' }}>
+              {side.view}
+            </div>
+            <ZoomButtons zp={zp2} />
           </div>
         )}
       </div>
@@ -456,6 +638,79 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
         </div>
       )}
 
+      {/* Circles and arrows on a kid while the play runs */}
+      {!ro && (
+        <fieldset className="rounded-lg border border-slate-200 dark:border-slate-700 p-2 flex flex-col gap-1.5 min-w-0 text-xs">
+          <legend className="px-1 font-black text-slate-700 dark:text-slate-200">Circle or point at a player</legend>
+          <span className="flex flex-wrap items-center gap-1">
+            {(['ring', 'arrow', 'glow', 'tag'] as SpotStyle[]).map((st) => (
+              <button key={st} type="button" className={chip(markStyle === st)} aria-pressed={markStyle === st} onClick={() => setMarkStyle(st)}>
+                {st === 'ring' ? 'Circle' : st === 'arrow' ? 'Arrow' : st === 'glow' ? 'Glow' : 'Name tag'}
+              </button>
+            ))}
+            <select value={markSecs} onChange={(e) => setMarkSecs(Number(e.target.value))} className="h-7 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-1" aria-label="How long it stays up">
+              {[1, 2, 3, 5].map((s) => (
+                <option key={s} value={s}>for {s} s</option>
+              ))}
+              <option value={0}>to the end</option>
+            </select>
+            <button
+              type="button"
+              className={chip(marking)}
+              aria-pressed={marking}
+              onClick={() => {
+                videoRef.current?.pause();
+                setPlacing(false);
+                setMarking((m) => !m);
+              }}
+              title="Pause where it should show up, then tap the kid on the picture"
+            >
+              <Crosshair size={12} className="inline -mt-0.5" /> {marking ? 'Tap the kid… (cancel)' : 'Mark at the playhead'}
+            </button>
+          </span>
+          {(h.marks || []).length > 0 && (
+            <ul className="flex flex-col gap-1">
+              {(h.marks || []).map((m) => (
+                <li key={m.id} className="flex flex-wrap items-center gap-1">
+                  <button type="button" className={small} onClick={() => { videoRef.current?.pause(); seek(m.from); }} title="Go to it">
+                    {fmt(m.from)}–{fmt(m.to)}
+                  </button>
+                  <select
+                    value={m.style}
+                    onChange={(e) => edit((x) => ({ ...x, marks: (x.marks || []).map((k) => (k.id === m.id ? { ...k, style: e.target.value as SpotStyle } : k)) }))}
+                    className="h-7 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-1"
+                    aria-label="Mark style"
+                  >
+                    <option value="ring">Circle</option>
+                    <option value="arrow">Arrow</option>
+                    <option value="glow">Glow</option>
+                    <option value="tag">Name tag</option>
+                  </select>
+                  {m.style === 'tag' && (
+                    <input
+                      defaultValue={m.label || ''}
+                      placeholder="Name"
+                      onBlur={(e) => edit((x) => ({ ...x, marks: (x.marks || []).map((k) => (k.id === m.id ? { ...k, label: e.target.value } : k)) }))}
+                      className="h-7 w-24 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-1"
+                      aria-label="Name tag"
+                    />
+                  )}
+                  <button type="button" className={small} onClick={() => v && edit((x) => ({ ...x, marks: (x.marks || []).map((k) => (k.id === m.id ? { ...k, from: r2(Math.min(v.currentTime, k.to - 0.2)) } : k)) }))} title="Show it from the playhead">
+                    From here
+                  </button>
+                  <button type="button" className={small} onClick={() => v && edit((x) => ({ ...x, marks: (x.marks || []).map((k) => (k.id === m.id ? { ...k, to: r2(Math.max(v.currentTime, k.from + 0.2)) } : k)) }))} title="Hide it at the playhead">
+                    To here
+                  </button>
+                  <button type="button" className="text-rose-600 dark:text-rose-400 font-bold px-1" onClick={() => edit((x) => ({ ...x, marks: (x.marks || []).filter((k) => k.id !== m.id) }))} aria-label="Remove this mark">
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </fieldset>
+      )}
+
       {/* Title, kinds, kids, rating, note */}
       <div className="grid sm:grid-cols-2 gap-2 text-xs">
         <label className="flex flex-col gap-1 min-w-0">
@@ -522,18 +777,24 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
           onBlur={(e) => e.target.value !== (h.note || '') && edit((x) => ({ ...x, note: e.target.value }))}
           className="flex-1 min-w-40 h-8 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2"
         />
-        {!ro && reels.length > 0 && (
+        {!ro && (
           <select
             value=""
             onChange={(e) => e.target.value && onAddToReel(e.target.value)}
-            className="h-8 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-1 font-bold"
+            className="h-8 rounded-lg border border-indigo-400 bg-white dark:bg-slate-950 px-1 font-bold text-indigo-700 dark:text-indigo-300"
             aria-label="Add to a reel"
           >
             <option value="">Add to reel…</option>
+            <option value="__new">A new reel</option>
             {reels.map((r) => (
-              <option key={r.id} value={r.id}>{r.name}</option>
+              <option key={r.id} value={r.id} disabled={r.has}>
+                {r.name}{r.has ? ' (in it)' : ''}
+              </option>
             ))}
           </select>
+        )}
+        {reels.some((r) => r.has) && (
+          <span className="text-slate-500 truncate">In: {reels.filter((r) => r.has).map((r) => r.name).join(', ')}</span>
         )}
         {!ro && (
           <button
