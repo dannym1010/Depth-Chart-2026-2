@@ -16,6 +16,8 @@ export interface DefenseRosterSource {
   depthChart?: Record<string, PlacedPlayer[]>;
   formations?: FormationBoard[];
   roster?: RosterPlayer[];
+  /** The depth chart (formation board id) a coach picked to take the names from; it comes first. */
+  board?: string;
 }
 
 export type DefenseFront = '44' | '53';
@@ -55,22 +57,24 @@ const placedPlayer = (p: PlacedPlayer | undefined, roster: RosterPlayer[]): { nu
 /**
  * The boards to look in: the 44 Defense chart first (it is the one we use for every look), then the
  * look's own board for spots the 44 doesn't have (the 5-3's NT and DE 1 / DE 2), then the defensive
- * depth chart groups, then the rest.
+ * depth chart groups, then the rest. A chart the coach picked comes before all of them.
  */
-function boardsFor(front: DefenseFront, formations: FormationBoard[] | undefined): FormationBoard[] {
+function boardsFor(front: DefenseFront, formations: FormationBoard[] | undefined, picked?: string): FormationBoard[] {
   const defense = (formations || []).filter((f) => f.unit === 'defense');
   const groups = (formations || []).filter((f) => f.unit === 'groups' && /defens/i.test(f.name));
   const base = defense.filter((f) => /^\s*(44|4-4)\b/i.test(f.name));
   const own = front === '53' ? defense.filter((f) => /^\s*(53|5-3)\b/i.test(f.name)) : [];
   const first = [...base, ...own];
-  return [...first, ...groups, ...defense.filter((f) => !first.includes(f))];
+  const all = [...first, ...groups, ...defense.filter((f) => !first.includes(f))];
+  const chosen = picked ? (formations || []).find((f) => f.id === picked) : undefined;
+  return chosen ? [chosen, ...all.filter((f) => f !== chosen)] : all;
 }
 
 /** The player at a spot for one unit, or null when the chart has nobody there. */
 export function defensePlayerAt(spot: string, unit: DefUnit, front: DefenseFront, src: DefenseRosterSource): NodePlayer | null {
   const depth = DEF_UNITS.find((u) => u.id === unit)?.depth ?? 0;
   const roster = src.roster || [];
-  for (const board of boardsFor(front, src.formations)) {
+  for (const board of boardsFor(front, src.formations, src.board)) {
     for (const row of board.rows || []) {
       for (const pos of row.positions || []) {
         if (!pos || norm(pos.name || pos.tag || '') !== spot) continue;
@@ -116,6 +120,12 @@ export function whoOptions(spot: string, front: DefenseFront, src: DefenseRoster
     .sort((a, b) => (Number(a.num) || 0) - (Number(b.num) || 0))
     .map((r) => ({ num: String(r.num).trim(), name: (r.rosterName || r.lastName || '').trim() }));
   return { depth, roster };
+}
+
+/** The depth charts names can come from: the defense charts, then the defensive group charts. */
+export function defenseBoards(formations: FormationBoard[] | undefined): { id: string; name: string }[] {
+  const list = (formations || []).filter((f) => f && f.id && (f.unit === 'defense' || (f.unit === 'groups' && /defens/i.test(f.name))));
+  return list.map((f) => ({ id: f.id, name: f.name || 'Defense' }));
 }
 
 export const playerLabel = (p: Pick<NodePlayer, 'num' | 'name'>) => `#${p.num}${p.name ? ` ${p.name}` : ''}`;

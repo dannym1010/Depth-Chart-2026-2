@@ -42,3 +42,20 @@ export function rememberDefenseUnit(unit: string) {
     /* a per-device preference */
   }
 }
+
+const BOARD_KEY = 'playBuilderDefenseBoard';
+/** The depth chart this coach last picked for our defenders' names (a formation board id; '' = the usual order). */
+export function rememberedDefenseBoard(): string {
+  try {
+    return localStorage.getItem(BOARD_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+export function rememberDefenseBoard(id: string) {
+  try {
+    localStorage.setItem(BOARD_KEY, id);
+  } catch {
+    /* a per-device preference */
+  }
+}

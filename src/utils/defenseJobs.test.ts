@@ -37,3 +37,18 @@ describe('a pressure look names its rushers\' jobs', () => {
     assert.equal(standardDefenseJob('WILL', { front: '4-4', shell: 'Cover 0', notes: 'Both ILBs A-gap' }), 'Blitz A gap');
   });
 });
+
+describe('names from the depth chart the coach picks', async () => {
+  const { defensePlayerAt, defenseBoards } = await import('./defenseLineup.ts');
+  const board = (id: string, name: string, unit = 'defense') => ({ id, name, unit, rows: [{ positions: [{ id: `${id}-mike`, name: 'MIKE' }] }] }) as any;
+  const src = {
+    formations: [board('f44', '44 Defense'), board('fgl', 'Goal Line'), board('fo', 'Offense', 'offense')],
+    depthChart: { 'f44-mike': [{ num: '22', name: 'Ace' }], 'fgl-mike': [{ num: '7', name: 'Bo' }] },
+    roster: [],
+  } as any;
+  it('the 4-4 chart by default, the chart picked when there is one', () => {
+    assert.equal(defensePlayerAt('MIKE', 'black', '44', src)?.num, '22');
+    assert.equal(defensePlayerAt('MIKE', 'black', '44', { ...src, board: 'fgl' })?.num, '7');
+    assert.deepEqual(defenseBoards(src.formations).map((b) => b.name), ['44 Defense', 'Goal Line']);
+  });
+});

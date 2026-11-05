@@ -30,7 +30,12 @@ import {
   type PlayStroke,
 } from '../../utils/footballEngine';
 import { COLOR, PlayerAssignmentPanel, arrowPts, strokeFor, tBar } from './PlayerAssignmentPanel';
-import { computeAnimatedPlayFrame, playAnimationSeconds } from '../../utils/playAnimation';
+import { computeAnimatedPlayFrame, playAnimationSeconds, snapProgress } from '../../utils/playAnimation';
+
+/** Play movement speeds: full, and slow motion for going over it with the team. */
+const ANIM_SPEEDS = [0.1, 0.25, 0.5, 1];
+/** One step back or on: this much of the play, in seconds. */
+const ANIM_STEP_SECONDS = 0.1;
 import type { PlayerActionPreset } from '../../utils/playActionPresets';
 import type { DefenseWho } from './PlayerAssignmentPanel';
 
@@ -250,10 +255,44 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   const [draft, setDraft] = useState<PlayStroke[] | null>(null);
   const [dragPos, setDragPos] = useState<{ role: string; x: number; y: number } | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  // The movement bar stays up once opened (back to the start keeps it), until it is closed.
+  const [animOpen, setAnimOpen] = useState(false);
   const [animProgress, setAnimProgress] = useState<number>(0);
-  const [animSpeed, setAnimSpeed] = useState<0.5 | 1>(1);
+  // Slow motion for going over it with the team (remembered on this device), and stopping at the snap.
+  const [animSpeed, setAnimSpeedState] = useState<number>(() => {
+    try {
+      const v = Number(localStorage.getItem('playAnimSpeed'));
+      return ANIM_SPEEDS.includes(v) ? v : 1;
+    } catch {
+      return 1;
+    }
+  });
+  const setAnimSpeed = (v: number) => {
+    setAnimSpeedState(v);
+    try {
+      localStorage.setItem('playAnimSpeed', String(v));
+    } catch {
+      /* per device only */
+    }
+  };
+  const [stopAtSnap, setStopAtSnapState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('playAnimStopAtSnap') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const setStopAtSnap = (on: boolean) => {
+    setStopAtSnapState(on);
+    try {
+      localStorage.setItem('playAnimStopAtSnap', on ? '1' : '0');
+    } catch {
+      /* per device only */
+    }
+  };
   const strokes = draft ?? strokesProp;
   const seconds = playAnimationSeconds(strokes, extraStrokes || []);
+  const snapAt = snapProgress(strokes, extraStrokes || []);
   const nodes = useMemo(
     () => (dragPos ? nodesProp.map((n) => (n.role === dragPos.role ? { ...n, x: dragPos.x, y: dragPos.y } : n)) : nodesProp),
     [nodesProp, dragPos]
@@ -274,11 +313,15 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
 
   useEffect(() => {
     if (playTrigger > 0) {
+      setAnimOpen(true);
       setAnimProgress(0);
       setIsPlaying(true);
     }
   }, [playTrigger]);
 
+  // Where the movement is, for the loop (it decides there whether to stop: at the snap, or at the end).
+  const progressRef = useRef(animProgress);
+  progressRef.current = animProgress;
   useEffect(() => {
     if (!isPlaying) return;
     let rafId = 0;
@@ -286,19 +329,66 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     const tick = (now: number) => {
       const dt = (now - lastTs) / 1000;
       lastTs = now;
-      setAnimProgress((prev) => {
-        const next = prev + (dt * animSpeed) / seconds;
-        if (next >= 1) {
-          setIsPlaying(false);
-          return 1;
-        }
-        return next;
-      });
+      const prev = progressRef.current;
+      const next = prev + (dt * animSpeed) / seconds;
+      // Stop at the snap (once motion and shifts are set), to talk about the look before the play runs.
+      if (stopAtSnap && snapAt > 0.001 && prev < snapAt - 1e-6 && next >= snapAt) {
+        progressRef.current = snapAt;
+        setAnimProgress(snapAt);
+        setIsPlaying(false);
+        return;
+      }
+      if (next >= 1) {
+        progressRef.current = 1;
+        setAnimProgress(1);
+        setIsPlaying(false);
+        return;
+      }
+      progressRef.current = next;
+      setAnimProgress(next);
       rafId = requestAnimationFrame(tick);
     };
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [isPlaying, animSpeed, seconds]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying, animSpeed, seconds, stopAtSnap, snapAt]);
+  /** Play or pause; at the end it starts over. */
+  const togglePlay = () => {
+    setAnimOpen(true);
+    if (isPlaying) return setIsPlaying(false);
+    if (animProgress >= 0.99) setAnimProgress(0);
+    setIsPlaying(true);
+  };
+  /** A small step back or on (a tenth of a second of the play), paused, to show one moment at a time. */
+  const stepAnim = (dir: 1 | -1) => {
+    setIsPlaying(false);
+    setAnimProgress((p) => Math.max(0, Math.min(1, p + (dir * ANIM_STEP_SECONDS) / seconds)));
+  };
+  const animShown = animOpen || isPlaying || animProgress > 0.005;
+  // Keys while the movement is up: space plays / pauses, the arrows step, Home goes back to the start.
+  useEffect(() => {
+    if (!animShown) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      // Not while typing (a checkbox, the timeline or a button clicked on the bar still lets the keys work).
+      const typing = t?.closest('textarea, select, [contenteditable="true"], input:not([type="checkbox"]):not([type="range"]):not([type="radio"]):not([type="button"])');
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === ' ') togglePlay();
+      else if (e.key === 'ArrowRight') stepAnim(1);
+      else if (e.key === 'ArrowLeft') stepAnim(-1);
+      else if (e.key === 'Home') {
+        setIsPlaying(false);
+        setAnimProgress(0);
+      } else return;
+      e.preventDefault();
+      // Ahead of the presentation's keys (its arrows change the play): while the movement is up they step it.
+      e.stopPropagation();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [animShown, isPlaying, animProgress, seconds]);
+  const ctl = 'h-8 w-8 rounded-md bg-slate-800 hover:bg-slate-700 text-xs font-black text-slate-200 cursor-pointer inline-flex items-center justify-center';
   // The field is drawn around the ball (a formation on a hash keeps its spacing). From the spots before a
   // drag, so the field doesn't slide while the center is being moved.
   setFieldBall(ballXOf(nodesProp));
@@ -1178,15 +1268,8 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           </div>
           <button
             type="button"
-            onClick={() => {
-              if (isPlaying) {
-                setIsPlaying(false);
-              } else {
-                if (animProgress >= 0.99) setAnimProgress(0);
-                setIsPlaying(true);
-              }
-            }}
-            title="Animate offensive & defensive player movement on the diagram"
+            onClick={togglePlay}
+            title="Animate offensive & defensive player movement on the diagram (space plays / pauses, arrows step)"
             className={`h-7 px-2.5 rounded-lg border text-xs font-black inline-flex items-center gap-1 cursor-pointer shadow-xs transition-colors ${
               isPlaying
                 ? 'border-emerald-300 bg-emerald-600 text-white'
@@ -1413,7 +1496,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       </div>
 
       {/* Bottom Tool & Controls Bar */}
-      {(isPlaying || animProgress > 0.005) && (
+      {animShown && (
         <div
           className={
             bare
@@ -1421,61 +1504,75 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
               : 'flex flex-wrap items-center gap-2 px-3 py-1.5 border-t border-emerald-500/30 bg-slate-900 text-white'
           }
         >
-          <button
-            type="button"
-            onClick={() => {
-              if (isPlaying) {
-                setIsPlaying(false);
-              } else {
-                if (animProgress >= 0.99) setAnimProgress(0);
-                setIsPlaying(true);
-              }
-            }}
-            className="h-7 px-2.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black cursor-pointer"
-          >
-            {isPlaying ? '⏸ Pause' : '▶ Play'}
-          </button>
-          <span className="px-2 py-0.5 rounded bg-slate-800 border border-emerald-500/30 text-[10px] font-extrabold uppercase tracking-wider text-emerald-300 min-w-[125px] text-center">
+          {/* Back to the start, a step back, play / pause, a step on, to the snap: to go over it with the team. */}
+          <div className="inline-flex items-center gap-1">
+            <button type="button" onClick={() => { setIsPlaying(false); setAnimProgress(0); }} title="Back to the pre-snap alignment (Home)" aria-label="Back to the start" className={ctl}>⏮</button>
+            <button type="button" onClick={() => stepAnim(-1)} title="Step back (left arrow)" aria-label="Step back" className={ctl}>◀︎</button>
+            <button
+              type="button"
+              onClick={togglePlay}
+              title={isPlaying ? 'Pause (space)' : 'Play (space)'}
+              className="h-8 min-w-[4.5rem] px-2.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black cursor-pointer"
+            >
+              {isPlaying ? '⏸ Pause' : animProgress >= 0.99 ? '↻ Again' : '▶ Play'}
+            </button>
+            <button type="button" onClick={() => stepAnim(1)} title="Step on (right arrow)" aria-label="Step forward" className={ctl}>▶︎</button>
+            {snapAt > 0.001 && (
+              <button type="button" onClick={() => { setIsPlaying(false); setAnimProgress(snapAt); }} title="Jump to the snap (motion and shifts set)" className={`${ctl} w-auto px-2 text-[10px]`}>
+                Snap
+              </button>
+            )}
+          </div>
+          <span className="px-2 py-0.5 rounded bg-slate-800 border border-emerald-500/30 text-[10px] font-extrabold uppercase tracking-wider text-emerald-300 min-w-[110px] text-center">
             {animatedFrame.phaseLabel}
           </span>
           <input
             type="range"
             min={0}
-            max={100}
-            value={Math.round(animProgress * 100)}
+            max={1000}
+            value={Math.round(animProgress * 1000)}
             onChange={(e) => {
               setIsPlaying(false);
-              setAnimProgress(Number(e.target.value) / 100);
+              setAnimProgress(Number(e.target.value) / 1000);
             }}
             aria-label="Play movement timeline"
             className="h-1.5 flex-1 min-w-[100px] cursor-pointer accent-emerald-500"
           />
-          <span className="font-mono text-[10px] font-bold text-slate-300 tabular-nums w-8 text-right">
-            {Math.round(animProgress * 100)}%
+          <span className="font-mono text-[10px] font-bold text-slate-300 tabular-nums whitespace-nowrap">
+            {(animProgress * seconds).toFixed(1)}s / {seconds.toFixed(1)}s
           </span>
-          <div className="inline-flex rounded border border-slate-700 overflow-hidden text-[10px] font-extrabold">
-            {([0.5, 1] as const).map((spd) => (
+          <div role="group" aria-label="Speed" className="inline-flex rounded border border-slate-700 overflow-hidden text-[10px] font-extrabold">
+            {ANIM_SPEEDS.map((spd) => (
               <button
                 key={spd}
                 type="button"
+                aria-pressed={animSpeed === spd}
                 onClick={() => setAnimSpeed(spd)}
-                className={`px-1.5 py-0.5 cursor-pointer ${
-                  animSpeed === spd ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
-                }`}
+                title={spd < 1 ? `Slow motion: ${spd}× speed` : 'Full speed'}
+                className={`px-1.5 py-1 cursor-pointer ${animSpeed === spd ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
               >
-                {spd}x
+                {spd}×
               </button>
             ))}
           </div>
+          {snapAt > 0.001 && (
+            <label className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-300 cursor-pointer" title="Stop when the motion and shifts are set, before the snap (press Play to run the play)">
+              <input type="checkbox" checked={stopAtSnap} onChange={(e) => setStopAtSnap(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
+              Stop at snap
+            </label>
+          )}
           <button
             type="button"
             onClick={() => {
               setIsPlaying(false);
               setAnimProgress(0);
+              setAnimOpen(false);
             }}
-            className="h-6 px-2 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-bold text-slate-300 cursor-pointer"
+            title="Close the movement (back to the alignment)"
+            aria-label="Close the movement"
+            className="h-7 w-7 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer inline-flex items-center justify-center text-sm font-black"
           >
-            ↺ Pre-Snap
+            ✕
           </button>
         </div>
       )}

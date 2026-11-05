@@ -144,6 +144,8 @@ export interface PlayBuilderState {
   labels?: Record<string, string>;
   /** Which unit's depth chart tags our defenders (Black 1s, Gold 2s, Blue 3s), or 'off'. */
   defenseUnit?: 'black' | 'gold' | 'blue' | 'off';
+  /** The depth chart (formation board id) our defenders' names come from; none = the 44 Defense chart first. */
+  defenseBoard?: string;
   /** A defender the coach set by hand instead of the depth chart, by role. */
   defenseWho?: Record<string, { num: string; name: string; unit?: 'black' | 'gold' | 'blue'; pos?: string }>;
   /** Our call on top of the front: a blitz or stunt, and a coverage (drawn from the picks). */

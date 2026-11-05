@@ -53,6 +53,12 @@ export function playAnimationSeconds(strokes: PlayStroke[], extraStrokes: PlaySt
   return PLAY_SECONDS + preSnapSeconds([...strokes, ...extraStrokes]);
 }
 
+/** Where the snap is in the animation (0 to 1): after the shift, the motion and their sets; 0 when there are none. */
+export function snapProgress(strokes: PlayStroke[], extraStrokes: PlayStroke[] = []): number {
+  const all = [...strokes, ...extraStrokes];
+  return preSnapSeconds(all) / (PLAY_SECONDS + preSnapSeconds(all));
+}
+
 /** The closest point on a line to a spot: how far, the point, and the segment it's on. */
 function closestOnLine(points: { x: number; y: number }[], at: { x: number; y: number }) {
   let best = { d: Infinity, x: points[0].x, y: points[0].y, seg: 0 };

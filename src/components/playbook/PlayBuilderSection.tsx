@@ -76,8 +76,8 @@ import { pickedTechniques, rulesText } from '../../utils/defenseRules';
 import { DefenderRules } from './DefenderRules';
 import { defenseCallName, defenseCallStrokes, mirrorJob, mirrorPressure, pressureGaps } from '../../utils/defenseCalls';
 import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, defenseMirrored, lineUpOurDefense, samToWideSide, tightEndFlip } from '../../hudlScout/utils/ourDefense';
-import { DEF_UNITS, defensePlayerAt, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
-import { rememberDefenseUnit, rememberedDefenseUnit, useDefenseRosterSource } from '../../utils/defenseRosterStore';
+import { DEF_UNITS, defenseBoards, defensePlayerAt, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
+import { rememberDefenseBoard, rememberDefenseUnit, rememberedDefenseBoard, rememberedDefenseUnit, useDefenseRosterSource } from '../../utils/defenseRosterStore';
 
 const SELECT =
   'h-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 w-full';
@@ -358,7 +358,18 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [strokes, setStrokes] = useState<PlayStroke[]>((saved?.strokes as PlayStroke[]) || []);
   // Our defense tagged from the depth chart: which unit is in (Black 1s / Gold 2s / Blue 3s), and any
   // defender a coach set by hand.
-  const rosterSrc = useDefenseRosterSource();
+  const chartSrc = useDefenseRosterSource();
+  // The depth chart the names come from: one the coach picked (kept with the play, and remembered), else the usual order.
+  const [defBoard, setDefBoard] = useState<string>(() => saved?.defenseBoard ?? rememberedDefenseBoard());
+  const pickBoard = (id: string) => {
+    setDefBoard(id);
+    rememberDefenseBoard(id);
+  };
+  const boardChoices = useMemo(() => defenseBoards(chartSrc.formations), [chartSrc.formations]);
+  const rosterSrc = useMemo(
+    () => (defBoard && boardChoices.some((b) => b.id === defBoard) ? { ...chartSrc, board: defBoard } : chartSrc),
+    [chartSrc, defBoard, boardChoices]
+  );
   const hasDepth = Object.keys(rosterSrc.depthChart || {}).length > 0;
   const [defUnit, setDefUnit] = useState<DefUnit | 'off'>(() => saved?.defenseUnit || rememberedDefenseUnit());
   const [defWho, setDefWho] = useState<Record<string, NodePlayer>>(saved?.defenseWho || {});
@@ -858,6 +869,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       ...(Object.keys(defRules).length ? { defenseRules: defRules } : {}),
       defenseMirror,
       defenseUnit: defUnit,
+      ...(defBoard ? { defenseBoard: defBoard } : {}),
       ...(Object.keys(defWho).length ? { defenseWho: defWho } : {}),
       ...(Object.keys(taggedWho).length ? { defensePlayers: taggedWho } : {}),
       ...(userDrew || strokes.length > 0 ? { strokes } : {}),
@@ -1657,7 +1669,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
             </div>
           )}
           {dNodes.length > 0 && hasDepth && !fieldOnly && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">Who&apos;s in</span>
               <div role="group" aria-label="Which unit plays our defense" className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-[11px] font-black">
                 {(['off', 'black', 'gold', 'blue'] as const).map((u) => {
@@ -1702,6 +1714,25 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                     ))}
                   </div>
                 </div>
+              )}
+              {defUnit !== 'off' && boardChoices.length > 0 && (
+                <label className="inline-flex items-center gap-1.5">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">Names from</span>
+                  <select
+                    value={boardChoices.some((b) => b.id === defBoard) ? defBoard : ''}
+                    onChange={(e) => pickBoard(e.target.value)}
+                    aria-label="Depth chart the defenders' names come from"
+                    title="Which depth chart's players go on our defenders (Auto: the 4-4 chart first, then the 5-3 for its own spots)"
+                    className="h-7 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+                  >
+                    <option value="">Auto (4-4 chart)</option>
+                    {boardChoices.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               )}
               {defUnit !== 'off' && <span className="hidden lg:inline text-[11px] text-slate-400">Hover a defender to see who plays there</span>}
             </div>
