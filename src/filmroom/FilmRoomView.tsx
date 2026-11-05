@@ -1365,6 +1365,8 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       onCreateCall={onUpdatePlayDatabase && !locked ? createCall : undefined}
       onSetFormation={locked ? undefined : (ids, formation) => editPlays((all) => setPlaysFormation(all, ids, formation))}
       onEditPlay={locked ? undefined : (id, edit) => editPlays((all) => editPlayFields(all, id, edit))}
+      onEditPlays={locked ? undefined : editPlays}
+      games={(source === 'own' ? own : opp).games?.map((g) => ({ id: g.id, name: g.name }))}
       onSetUnit={isOwn && !locked ? (id: string, unit: TeamUnit | undefined, scope) => editPlays((all) => tagPlayUnits(all, id, unit, scope)) : undefined}
       lineupFor={isOwn && roster ? lineupFor : undefined}
       roster={roster}

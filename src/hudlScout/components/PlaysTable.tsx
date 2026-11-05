@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Play, TeamUnit } from '../types/football';
 import { TEAM_UNITS, playIsUnitTaggable } from '../utils/unitStats';
 import { directionLabel, isRecordedMotion } from '../utils/csvParser';
-import { callUsage, isNumberFormation, isTaggablePlay, restOfSeriesIds, tidyFormation, writeInsFromPlays, type PlayFieldEdit } from '../utils/playTags';
+import { fillFromYardLines, callUsage, isNumberFormation, isTaggablePlay, restOfSeriesIds, tidyFormation, writeInsFromPlays, type PlayFieldEdit } from '../utils/playTags';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { CallButton, FormationEditor, TagPlaysPanel } from '../../components/playbook/CallPicker';
 import { Search, ChevronDown, ChevronUp, ChevronRight, Zap, Flame, CheckCircle2, ListChecks, Users, Filter, X, Pencil } from 'lucide-react';
@@ -59,6 +59,9 @@ interface PlaysTableProps {
   toolbarStart?: React.ReactNode;
   /** Change a play's fields from the log (strength, hash, type, down and distance, gain, result). */
   onEditPlay?: (playId: string, edit: PlayFieldEdit) => void;
+  /** Change many plays at once (Fill from yard lines), and the games they're in (the first owns plays saved without one). */
+  onEditPlays?: (change: (all: Play[]) => Play[]) => void;
+  games?: { id: string; name: string }[];
 }
 
 /** Open a tagged play in the play builder, drawn from its name. */
@@ -167,7 +170,7 @@ const UnitPicker: React.FC<{
   );
 };
 
-export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge, compact, toolbarStart, writeInPlays, onDrawCall, drawUntagged, theirCalls, theirFormations, onFormationAction, viewKey, onEditPlay }) => {
+export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDatabase, onTagPlays, onCreateCall, onSetFormation, lineupFor, roster, onSetSub, onSetBall, onSetDefPlay, onRefreshFromHudl, selectedId, onSelectPlay, onOrderChange, rowBadge, compact, toolbarStart, writeInPlays, onDrawCall, drawUntagged, theirCalls, theirFormations, onFormationAction, viewKey, onEditPlay, onEditPlays, games }) => {
   // How the coach left this log (search, sort, column filters, untagged only, page), for coming back to it.
   const remembered = useMemo(() => readLogView(viewKey), []); // eslint-disable-line react-hooks/exhaustive-deps
   const showDraw = (p: Play) => Boolean(onDrawCall && (p.playCallId || drawUntagged));
@@ -332,6 +335,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
   };
   const [dragCol, setDragCol] = useState<PlayColumnKey | null>(null);
   const [colMenu, setColMenu] = useState(false);
+  const [fillOpen, setFillOpen] = useState(false);
   const headerCell = (key: PlayColumnKey, extra = '') => {
     const col = columnByKey(key);
     const filtered = Boolean(filters[key]);
@@ -473,6 +477,20 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
             />
             Needs tags
           </label>
+        )}
+        {onEditPlays && games && games.length > 0 && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setFillOpen((v) => !v)}
+              aria-expanded={fillOpen}
+              title="Work out gains and down & distance from the yard lines"
+              className={`${compact ? 'h-7' : 'h-9'} px-2.5 rounded-lg border border-slate-700 text-xs font-bold text-slate-200 hover:bg-slate-800 cursor-pointer whitespace-nowrap`}
+            >
+              Fill from yard lines
+            </button>
+            {fillOpen && <FillFromYardsPanel all={writeInPlays || plays} shown={plays} games={games} onApply={onEditPlays} onClose={() => setFillOpen(false)} />}
+          </div>
         )}
         <div className="relative hidden md:block">
           <button
@@ -1553,6 +1571,79 @@ const KickResultCell: React.FC<{ play: Play; choices: string[]; onSave: (v: stri
       onPick={(v) => (v === '__other' ? setTyping(true) : save(v))}
       className="text-amber-200"
     />
+  );
+};
+
+/**
+ * Fill from yard lines: each game in the log, what its yard lines would fill in (gains, down and distance),
+ * picked games only. A game that came with its yard lines starts unpicked (Hudl already has them).
+ */
+const FillFromYardsPanel: React.FC<{
+  all: Play[];
+  shown: Play[];
+  games: { id: string; name: string }[];
+  onApply: (change: (all: Play[]) => Play[]) => void;
+  onClose: () => void;
+}> = ({ all, shown, games, onApply, onClose }) => {
+  const first = games[0]?.id;
+  const inLog = games.filter((g) => shown.some((p) => (p.gameId || first) === g.id));
+  const [doGains, setDoGains] = useState(true);
+  const [doDowns, setDoDowns] = useState(true);
+  const previews = useMemo(
+    () => inLog.map((g) => ({ g, r: fillFromYardLines(all, g.id, { gains: doGains, downs: doDowns, firstGameId: first }) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [all, doGains, doDowns, first, inLog.map((g) => g.id).join('|')]
+  );
+  const [picked, setPicked] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(inLog.map((g) => [g.id, !fillFromYardLines(all, g.id, { gains: true, downs: true, firstGameId: first }).hadYards]))
+  );
+  const [done, setDone] = useState('');
+  const total = previews.filter((x) => picked[x.g.id]).reduce((n, x) => n + x.r.gains + x.r.downs, 0);
+  const apply = () => {
+    const ids = previews.filter((x) => picked[x.g.id]).map((x) => x.g.id);
+    onApply((every) => ids.reduce((ps, id) => fillFromYardLines(ps, id, { gains: doGains, downs: doDowns, firstGameId: first }).plays, every));
+    const g = previews.filter((x) => picked[x.g.id]).reduce((n, x) => n + x.r.gains, 0);
+    const d = previews.filter((x) => picked[x.g.id]).reduce((n, x) => n + x.r.downs, 0);
+    setDone(`Filled ${g} gain${g === 1 ? '' : 's'} and ${d} down${d === 1 ? '' : 's'} & distance${d === 1 ? '' : 's'}.`);
+  };
+  return (
+    <div role="dialog" aria-label="Fill from yard lines" className="absolute right-0 top-full mt-1 z-30 w-80 rounded-lg border border-slate-700 bg-slate-950 shadow-xl p-3 text-xs text-slate-200">
+      <div className="font-black text-slate-100">Fill from yard lines</div>
+      <p className="mt-1 text-[11px] text-slate-400">
+        Works out each play from the yard lines: the gain to the next play of its drive (a TD: the yards to go), and the down and distance (a drive starts 1st & 10; a penalty or timeout keeps the down). Kicks and a drive's last play keep their gain.
+      </p>
+      <div className="mt-2 flex gap-3">
+        <label className="inline-flex items-center gap-1.5 cursor-pointer">
+          <input type="checkbox" checked={doGains} onChange={(e) => setDoGains(e.target.checked)} /> Gains
+        </label>
+        <label className="inline-flex items-center gap-1.5 cursor-pointer">
+          <input type="checkbox" checked={doDowns} onChange={(e) => setDoDowns(e.target.checked)} /> Down &amp; distance
+        </label>
+      </div>
+      <div className="mt-2 flex flex-col gap-1.5">
+        {previews.map(({ g, r }) => (
+          <label key={g.id} className="flex items-start gap-2 rounded-md border border-slate-800 px-2 py-1.5 cursor-pointer hover:bg-slate-900">
+            <input type="checkbox" className="mt-0.5" checked={Boolean(picked[g.id])} onChange={(e) => setPicked((p) => ({ ...p, [g.id]: e.target.checked }))} />
+            <span className="flex-1 min-w-0">
+              <span className="block font-bold truncate">{g.name || 'Game'}</span>
+              <span className="block text-[11px] text-slate-400">
+                {r.gains || r.downs ? `Would change ${r.gains} gain${r.gains === 1 ? '' : 's'}, ${r.downs} down${r.downs === 1 ? '' : 's'} & distance` : 'Nothing to fill (type the yard lines first)'}
+                {r.hadYards ? ' · came with yard lines from Hudl' : ''}
+              </span>
+            </span>
+          </label>
+        ))}
+      </div>
+      {done && <div className="mt-2 text-[11px] font-bold text-emerald-400">{done}</div>}
+      <div className="mt-3 flex justify-end gap-2">
+        <button type="button" onClick={onClose} className="h-7 px-3 rounded border border-slate-600 font-bold text-slate-200 hover:bg-slate-800 cursor-pointer">
+          {done ? 'Close' : 'Cancel'}
+        </button>
+        <button type="button" disabled={!total || (!doGains && !doDowns)} onClick={apply} className="h-7 px-3 rounded bg-indigo-600 font-black text-white disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed">
+          Fill {total ? `(${total})` : ''}
+        </button>
+      </div>
+    </div>
   );
 };
 

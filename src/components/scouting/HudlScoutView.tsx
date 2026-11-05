@@ -1234,6 +1234,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
                   onCreateCall={onUpdatePlayDatabase ? handleCreateCall : undefined}
                   onSetFormation={handleSetFormation}
                   onEditPlay={handleEditPlay}
+                  onEditPlays={(change) => setBundle((prev) => ({ ...prev, plays: change(prev.plays), updatedAt: Date.now() }))}
+                  games={(scoutTarget === 'own' ? ownBundle : oppBundle).games.map((g) => ({ id: g.id, name: g.name }))}
                   onDrawCall={
                     drawFromLog
                       ? (pl) => (pl.playCallId ? drawTagged(String(pl.playCallId), pl.gameId || oppBundle.games[0]?.id) : onDrawSnap?.(pl))

@@ -313,13 +313,6 @@ const PLAY_TYPE_TEXT: Record<string, string> = { RUN: 'Run', PASS: 'Pass', RPO: 
  * hash, play type, down and distance, gain and result. Explosive and on-schedule follow the new gain, down and type.
  */
 export function editPlayFields(plays: Play[], id: string, edit: PlayFieldEdit, now = Date.now()): Play[] {
-  const edited = editOnePlay(plays, id, edit, now);
-  // Any change in a game with typed yard lines: its gains follow them (a touchdown gains the yards it had to go).
-  const p = edited.find((x) => x.id === id);
-  return p ? gainsFromYardLines(edited, p.gameId) : edited;
-}
-
-function editOnePlay(plays: Play[], id: string, edit: PlayFieldEdit, now: number): Play[] {
   return plays.map((p) => {
     if (p.id !== id) return p;
     const next: Play = { ...p, editedAt: editStamp(p, now) };
@@ -386,31 +379,41 @@ export function yardsToGo(raw: string): number | null {
 }
 const isTd = (p: Play) => /\b(td|touchdown)\b/i.test(p.result || '');
 
+export interface FillFromYards {
+  plays: Play[];
+  /** Plays whose gain / down and distance would change. */
+  gains: number;
+  downs: number;
+  /** The game came with yard lines on its plays (from the export), not just typed ones. */
+  hadYards: boolean;
+}
+
 /**
- * Gains worked out from the yard lines, for a game whose yard lines weren't in the Hudl export (they all came in
- * as -25) and that the coach typed: a play's gain is how far the ball moved to the next play of the same drive
- * (offense or defense, the same way Hudl counts it in our other games); a touchdown's gain is the yards it had to
- * go. Kicks and a drive's last play (the ball changes hands) keep theirs. Only yard lines the coach typed count.
+ * Gains and down and distance worked out from a game's yard lines (the Fill from yard lines button), the way
+ * Hudl counts them in our other games (checked on 7 of them: 389 of 390 gains, 403 of 409 downs):
+ *   - a play gains how far the ball moved to the next play of its drive (offense or defense); a touchdown gains
+ *     the yards it had to go. Kicks and a drive's last play (the ball changes hands) keep theirs.
+ *   - a drive starts 1st & 10 (& goal inside the 10); each play after is the next down, to go to the line to
+ *     gain; reaching it is a new 1st down. A penalty or a timeout doesn't use a down.
+ * A game whose export had no yard lines has one on every play (-25, +25 copied with the sides switched, or
+ * blank): those are blanks, and only the yard lines typed in count.
  */
-export function gainsFromYardLines(plays: Play[], gameId: string | undefined): Play[] {
-  const game = plays.filter((p) => p.gameId === gameId);
-  const typed = game.some((p) => p.yardTyped);
-  if (!typed) return plays;
-  // Yard lines in the export: this game's gains came with them, so leave them be. Never changes a game that
-  // came with yard lines; only one whose export had none, once the coach types them.
-  // An export with no yard lines has one yard line on every play (-25, or +25 once copied with the sides
-  // switched, or blank). A game that came with its yard lines has them all over the field: leave it be.
+export function fillFromYardLines(plays: Play[], gameId: string, opts: { gains: boolean; downs: boolean; firstGameId?: string }): FillFromYards {
+  const inGame = (p: Play) => (p.gameId || opts.firstGameId) === gameId;
+  const game = plays.filter(inGame);
   const spot = (p: Play) => {
     const g = yardsToGo(String(p.rawYardLine || ''));
     return g == null ? '' : String(g);
   };
   const untyped = new Map<string, number>();
   for (const p of game) if (!p.yardTyped) untyped.set(spot(p), (untyped.get(spot(p)) || 0) + 1);
-  if ([...untyped.keys()].filter(Boolean).length > 2) return plays;
-  // The export's blank: the yard line most of the untyped plays have.
-  const blank = [...untyped.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+  const hadYards = [...untyped.keys()].filter(Boolean).length > 2;
+  const blank = hadYards ? '\u0000' : ([...untyped.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '');
   const known = (p: Play) => (p.yardTyped || (spot(p) && spot(p) !== blank) ? yardsToGo(p.rawYardLine) : null);
   const order = [...game].filter((p) => p.odk !== 'S' && p.odk !== 'UNKNOWN').sort((a, b) => a.playNumber - b.playNumber);
+  const sameDrive = (a: Play | undefined, b: Play) =>
+    Boolean(a && (a.odk === 'O' || a.odk === 'D') && a.odk === b.odk && (a.series == null || b.series == null || a.series === b.series));
+
   const gains = new Map<string, number>();
   order.forEach((a, i) => {
     if (a.odk !== 'O' && a.odk !== 'D') return;
@@ -421,23 +424,84 @@ export function gainsFromYardLines(plays: Play[], gameId: string | undefined): P
       return;
     }
     const b = order[i + 1];
-    if (!b || b.odk !== a.odk || (a.series != null && b.series != null && a.series !== b.series)) return;
+    if (!b || !sameDrive(a, b)) return;
     const to = known(b);
     if (to != null) gains.set(a.id, from - to);
   });
-  if (!gains.size) return plays;
-  return plays.map((p) => {
-    const g = gains.get(p.id);
-    if (g == null || g === p.gainLoss) return p;
-    const next: Play = { ...p, gainLoss: g, editedAt: editStamp(p) };
-    next.isExplosive = (next.playType === 'RUN' && g >= 12) || ((next.playType === 'PASS' || next.playType === 'SCREEN') && g >= 16) || (isTd(next) && g >= 10);
-    next.isEfficient = next.down === 1 ? g >= 4 || g >= next.distance * 0.4 : next.down === 2 ? g >= next.distance * 0.5 : next.down >= 3 ? g >= next.distance : next.isEfficient;
+  const gainOf = (p: Play) => gains.get(p.id) ?? p.gainLoss;
+
+  const downs = new Map<string, { down: number; distance: number }>();
+  let prev: Play | undefined;
+  let prevAt: number | null = null;
+  let down = 0;
+  let target = 0;
+  let onTrack = false;
+  for (const p of order) {
+    if (p.odk !== 'O' && p.odk !== 'D') {
+      prev = undefined;
+      prevAt = null;
+      onTrack = false;
+      continue;
+    }
+    let at = known(p);
+    if (!sameDrive(prev, p)) {
+      onTrack = at != null;
+      if (at != null) {
+        down = 1;
+        target = at - 10;
+      }
+    } else if (onTrack) {
+      if (at == null && prevAt != null) at = prevAt - (Number(gainOf(prev!)) || 0);
+      if (at == null) onTrack = false;
+      else {
+        const noDown = /penalty|timeout/i.test(prev!.result || '') || prev!.playType === 'PENALTY';
+        if (at <= target) {
+          down = 1;
+          target = at - 10;
+        } else if (!noDown) down++;
+      }
+    }
+    if (onTrack && at != null && at > 0 && down <= 4) downs.set(p.id, { down, distance: target <= 0 ? at : at - target });
+    prev = p;
+    prevAt = at;
+  }
+
+  let gCount = 0;
+  let dCount = 0;
+  const out = plays.map((p) => {
+    if (!inGame(p)) return p;
+    const g = opts.gains ? gains.get(p.id) : undefined;
+    const d = opts.downs ? downs.get(p.id) : undefined;
+    const gainChanges = g != null && g !== p.gainLoss;
+    const downChanges = Boolean(d && (d.down !== p.down || d.distance !== p.distance));
+    if (!gainChanges && !downChanges) return p;
+    if (gainChanges) gCount++;
+    if (downChanges) dCount++;
+    const next: Play = { ...p, editedAt: editStamp(p) };
+    if (gainChanges) next.gainLoss = g!;
+    if (downChanges) {
+      next.down = d!.down;
+      next.distance = d!.distance;
+    }
+    const gn = next.gainLoss;
+    next.isExplosive = (next.playType === 'RUN' && gn >= 12) || ((next.playType === 'PASS' || next.playType === 'SCREEN') && gn >= 16) || (isTd(next) && gn >= 10);
+    next.isEfficient = next.down === 1 ? gn >= 4 || gn >= next.distance * 0.4 : next.down === 2 ? gn >= next.distance * 0.5 : next.down >= 3 ? gn >= next.distance : next.isEfficient;
     if (p.hudlRow) {
-      const col = Object.keys(p.hudlRow).find((c) => HUDL_COLUMN.gainLoss.test(c.trim().toUpperCase()));
-      if (col) next.hudlRow = { ...p.hudlRow, [col]: String(g) };
+      const row = { ...p.hudlRow };
+      const put = (k: 'gainLoss' | 'down' | 'distance', v: number) => {
+        const col = Object.keys(row).find((c) => HUDL_COLUMN[k].test(c.trim().toUpperCase()));
+        if (col) row[col] = String(v);
+      };
+      if (gainChanges) put('gainLoss', next.gainLoss);
+      if (downChanges) {
+        put('down', next.down);
+        put('distance', next.distance);
+      }
+      next.hudlRow = row;
     }
     return next;
   });
+  return { plays: gCount || dCount ? out : plays, gains: gCount, downs: dCount, hadYards };
 }
 
 /** Plays later in the same drive (same game, series and side) - for "copy to rest of drive". */
