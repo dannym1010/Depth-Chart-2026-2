@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { assemblePlay, autoDrawPlay, OUR_DEFENSE_LOOKS, PLAY_CONCEPTS, type PlayNode, type PlayStroke } from './footballEngine.ts';
+import { defenseCallStrokes } from './defenseCalls.ts';
 import { computeAnimatedPlayFrame } from './playAnimation.ts';
 import { defenseJobs } from './defenseReads.ts';
 
@@ -75,6 +76,31 @@ describe('our defense reads a run', () => {
     const ball = at(end, '3');
     const close = base44.filter((n) => Math.hypot(at(end, n.role).x - ball.x, at(end, n.role).y - ball.y) < 4);
     assert.ok(close.length >= 4, `${close.length} defenders around the ball`);
+  });
+
+  it('linebackers flow laterally at LB depth first, then trigger downhill — even when Cover 3 zone drops are shown', () => {
+    const offNodes = sweep.nodes.filter((n) => !base44.some((d) => d.role === n.role));
+    const c3Strokes = defenseCallStrokes(base44, offNodes, '', 'cover3');
+    const mikeStart = base44.find((n) => n.role === 'MIKE')!;
+    // During Phase 1 (Flow & Read, progress = 0.25): MIKE flows laterally to the right while staying near LB depth (not dropping back to y = 8)
+    const flowFrame = computeAnimatedPlayFrame(sweep.nodes, sweep.strokes, c3Strokes, '3', 0.25);
+    const mikeFlow = at(flowFrame, 'MIKE');
+    assert.ok(mikeFlow.x > mikeStart.x + 0.5, `MIKE flowed laterally toward the play (${mikeStart.x} -> ${mikeFlow.x})`);
+    assert.ok(mikeFlow.y <= mikeStart.y + 0.1 && mikeFlow.y >= 2.0, `MIKE stayed at linebacker flow depth (${mikeFlow.y}) instead of dropping into pass zone`);
+
+    // During Phase 2 (Downhill Attack, progress = 0.65): MIKE triggers downhill toward the line of scrimmage / hole
+    const attackFrame = computeAnimatedPlayFrame(sweep.nodes, sweep.strokes, c3Strokes, '3', 0.65);
+    const mikeAttack = at(attackFrame, 'MIKE');
+    assert.ok(mikeAttack.y < mikeFlow.y - 0.5, `MIKE attacked downhill after flowing (${mikeFlow.y} -> ${mikeAttack.y})`);
+  });
+
+  it('adjusts defender movement when coach changes Defender Rules (fit, action, flow, motion)', () => {
+    const defaultMid = computeAnimatedPlayFrame(sweep.nodes, sweep.strokes, [], '3', 0.45);
+    const foldMid = computeAnimatedPlayFrame(sweep.nodes, sweep.strokes, [], '3', 0.45, null, {
+      MIKE: { fit: 'A', action: 'spill', flow: 'downhill' },
+    });
+    // With downhill A-gap spill, MIKE attacks tighter inside and deeper downhill than a wide scrape
+    assert.ok(at(foldMid, 'MIKE').y < at(defaultMid, 'MIKE').y || at(foldMid, 'MIKE').x < at(defaultMid, 'MIKE').x);
   });
 });
 

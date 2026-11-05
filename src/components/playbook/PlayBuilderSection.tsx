@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Film, LayoutGrid, ListChecks, PanelRightClose, PanelRightOpen, Pencil, Play as PlayIcon, RotateCcw, Save, Search, Sparkles, Users, Wand2, Zap } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Film, LayoutGrid, ListChecks, PanelRightClose, PanelRightOpen, Pencil, Play as PlayIcon, RotateCcw, Save, Search, Shield, Sparkles, Users, Wand2, X, Zap } from 'lucide-react';
 import { autoSketchPlayFromVideo } from '../../services/geminiFilmService';
 import { usePresentStage } from '../scouting/presentStage';
 import type { PlayBuilderState, PlayDatabaseEntry, PlayType } from '../../types/callSheet';
@@ -72,7 +72,7 @@ const NO_OPTIONS = { personnel: [], tags: [], runConcepts: [], passConcepts: [] 
 import { DiagramImage } from './DiagramImage';
 import { DefenseCallPicker } from './DefenseCallPicker';
 import { defenseJob, defenseOrder, standardDefenseJob } from '../../utils/defenseJobs';
-import { pickedTechniques, rulesText } from '../../utils/defenseRules';
+import { applyRuleAlignments, pickedTechniques, rulesText } from '../../utils/defenseRules';
 import { DefenderRules } from './DefenderRules';
 import { defenseCallName, defenseCallStrokes, mirrorJob, mirrorPressure, pressureGaps } from '../../utils/defenseCalls';
 import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, defenseMirrored, lineUpOurDefense, samToWideSide, tightEndFlip } from '../../hudlScout/utils/ourDefense';
@@ -451,9 +451,17 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const flipSign = flipDefense ? -1 : 1;
   const lineUpDefense = (nodes: PlayNode[]) => samToWideSide(defenseAtHash(flipDefense ? nodes.map((n) => ({ ...n, x: -n.x })) : nodes, offNodes, hashDx), hashDx);
   const standardDefense = useMemo(
-    () => (dLook ? lineUpOurDefense(defenseKey, dLook.nodes, offNodes, { hashDx, flip: flipDefense, techs: pickedTechniques(defRules) }) : []),
+    () =>
+      dLook
+        ? applyRuleAlignments(
+            lineUpOurDefense(defenseKey, dLook.nodes, offNodes, { hashDx, flip: flipDefense, techs: pickedTechniques(defRules) }),
+            offNodes,
+            defRules,
+            strongLeft,
+          )
+        : [],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dLook, defenseKey, offNodes, hashDx, defRules, flipDefense]
+    [dLook, defenseKey, offNodes, hashDx, defRules, flipDefense, strongLeft]
   );
   // The depth chart that goes with this front: the one picked in Names from, else (for a front of the
   // coach's own) the defense chart named like it ("54 Defense" for a 5-4). Its spot names go on the
@@ -511,6 +519,80 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const rulesOf = (n: PlayNode) => rulesText(n.role, defRules[n.role], defAssign[n.role], n, ballX);
   const jobOf = (n: PlayNode) =>
     defenseJob(n, { typed: jobs[n.role], rules: rulesOf(n), strokes: [...strokes, ...callStrokes], look: dLook, contain: dLook ? containFor(dLook.front) : '', everyone: [...offNodes, ...dNodes] });
+  const pickedDefNode = pickedDef ? dNodes.find((n) => n.role === pickedDef) || null : null;
+  const renderDefenderRules = (n: PlayNode) => {
+    const standard = dLook ? standardDefenseJob(n.role, dLook, containFor(dLook.front)) : '';
+    return (
+      <DefenderRules
+        node={n}
+        picks={defRules[n.role] || {}}
+        assign={defAssign[n.role] || ''}
+        ball={ballX}
+        typed={jobs[n.role] || ''}
+        standard={standard}
+        onPick={(cat, opt) => {
+          setDefRules((prev) => {
+            const mine = { ...(prev[n.role] || {}) };
+            if (opt) mine[cat] = opt;
+            else delete mine[cat];
+            const next = { ...prev };
+            if (Object.keys(mine).length) next[n.role] = mine;
+            else delete next[n.role];
+            return next;
+          });
+          // A technique or alignment rule lines him up there on their formation, wherever he was dragged.
+          if (cat === 'tech' || cat === 'align') {
+            setOverrides((prev) => {
+              const next = { ...prev };
+              delete next[n.role];
+              return next;
+            });
+          }
+          if (theirPlay) setDefenseOwn(true);
+        }}
+        onPreset={(picks) => {
+          setDefRules((prev) => ({
+            ...prev,
+            [n.role]: { ...(prev[n.role] || {}), ...picks },
+          }));
+          if (picks.tech || picks.align) {
+            setOverrides((prev) => {
+              const next = { ...prev };
+              delete next[n.role];
+              return next;
+            });
+          }
+          if (theirPlay) setDefenseOwn(true);
+        }}
+        onAssign={(jobId) => {
+          setDefAssign((prev) => {
+            const next = { ...prev };
+            if (jobId) next[n.role] = jobId;
+            else delete next[n.role];
+            return next;
+          });
+          if (theirPlay) setDefenseOwn(true);
+        }}
+        onTyped={(text) => {
+          setJobs((prev) => {
+            const next = { ...prev };
+            if (text.trim()) next[n.role] = text;
+            else delete next[n.role];
+            return next;
+          });
+          if (theirPlay) setDefenseOwn(true);
+        }}
+        onReset={() => {
+          const without = <T,>(m: Record<string, T>) => Object.fromEntries(Object.entries(m).filter(([r]) => r !== n.role));
+          setDefRules(without);
+          setDefAssign(without);
+          setJobs(without);
+          if (defRules[n.role]?.tech || defRules[n.role]?.align) setOverrides(without);
+        }}
+        onRunPlay={() => setPlayAnimTrigger((t) => t + 1)}
+      />
+    );
+  };
   // "Save as my default": this defense starts lined up like this everywhere (moves from its standard spots).
   const saveAlignment = defenseAlignmentSaver();
   const myDefault = defenseKey ? defenseSystem().alignments?.[defenseKey] : undefined;
@@ -1639,6 +1721,94 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               </button>
             </div>
           )}
+          {present && !staged && fieldOnly && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-300/70 dark:border-emerald-700/60 bg-emerald-50/70 dark:bg-emerald-950/30 px-2.5 py-1.5 pr-44">
+              <div className="flex flex-wrap items-center gap-2 w-full">
+                <span className="inline-flex items-center gap-1 text-[11px] font-black uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
+                  <Shield className="w-3.5 h-3.5" /> Our Defense vs. Their Play{dLook ? `: ${callName}` : ''}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPlayAnimTrigger((n) => n + 1)}
+                  title="Animate our defense (LB read step, flow, and downhill attack) against this offensive play"
+                  className="h-7 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black inline-flex items-center gap-1 shadow-xs cursor-pointer"
+                >
+                  <PlayIcon className="w-3 h-3 fill-current" /> Run Defense vs. Play
+                </button>
+                {dNodes.length > 0 && hasDepth && (
+                  <div role="group" aria-label="Which unit plays our defense" className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-[11px] font-black">
+                    {(['off', 'black', 'gold', 'blue'] as const).map((u) => {
+                      const on = defUnit === u;
+                      const dot = u === 'black' ? '#0f172a' : u === 'gold' ? '#f59e0b' : u === 'blue' ? '#2563eb' : '';
+                      return (
+                        <button
+                          key={u}
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() => pickUnit(u)}
+                          className={`h-7 px-2 inline-flex items-center gap-1 cursor-pointer transition-colors ${
+                            on
+                              ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                              : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          {dot && <span className="h-2 w-2 rounded-full ring-1 ring-slate-300 dark:ring-slate-500" style={{ background: dot }} />}
+                          {u === 'off' ? 'Off' : DEF_UNITS.find((x) => x.id === u)!.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Tap any defender on the field to adjust his Flow &amp; Fit rules · Drag to move alignment
+                </span>
+              </div>
+              <div className="w-full">{defensePicker(true, true)}</div>
+            </div>
+          )}
+          {staged && stage.defenseHud && (
+            <div
+              data-stage-ui
+              className="fixed top-14 left-3 z-40 w-[min(94vw,680px)] rounded-2xl border border-emerald-500/40 bg-slate-950/92 text-white shadow-2xl backdrop-blur-md p-3 space-y-2"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-emerald-400">
+                  <Shield className="w-4 h-4" /> Our Defense vs. Their Play{dLook ? ` · ${callName}` : ''}
+                </span>
+                <div className="flex items-center gap-2">
+                  {dNodes.length > 0 && hasDepth && (
+                    <div role="group" aria-label="Which unit plays our defense" className="inline-flex rounded-lg border border-slate-700 overflow-hidden text-[11px] font-black">
+                      {(['off', 'black', 'gold', 'blue'] as const).map((u) => {
+                        const on = defUnit === u;
+                        return (
+                          <button
+                            key={u}
+                            type="button"
+                            aria-pressed={on}
+                            onClick={() => pickUnit(u)}
+                            className={`h-7 px-2 cursor-pointer ${on ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-300 hover:bg-slate-800'}`}
+                          >
+                            {u === 'off' ? 'Off' : DEF_UNITS.find((x) => x.id === u)!.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setPlayAnimTrigger((n) => n + 1)}
+                    className="h-7 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <PlayIcon className="w-3 h-3 fill-current" /> Run
+                  </button>
+                </div>
+              </div>
+              <div className="w-full">{defensePicker(true, true)}</div>
+              <p className="text-[11px] text-slate-300">
+                Tap any defender on the field to customize his Read Key, Flow Tempo (Flow &amp; Attack / Fast Scrape), Gap Fit &amp; Technique, or drag him into a new alignment.
+              </p>
+            </div>
+          )}
           {(formationMode || defenseMode) && !staged && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-300/70 dark:border-emerald-700/60 bg-emerald-50/60 dark:bg-emerald-950/20 px-2.5 py-1.5">
               <span className="w-full text-[11px] font-black uppercase tracking-wider text-emerald-800 dark:text-emerald-300">{defenseMode ? 'Our defensive call' : 'Our defense vs it'}{dLook ? `: ${callName}` : ''}</span>
@@ -1789,6 +1959,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
             <PlayDiagramCanvas
               playTrigger={playAnimTrigger}
               extraStrokes={callStrokes}
+              defenseRules={defRules}
               play={{
                 ...play,
                 metadata: {
@@ -1830,11 +2001,14 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               chrome="minimal"
               assignmentHost={host}
               onSelectPlayer={(n) => {
-                // A defender: his rules in the Jobs tab. Anyone else: the Players tab.
+                // A defender: his rules in the Jobs tab (or floating card when presenting). Anyone else: the Players tab.
                 if (n && isDefenseRole(n.role) && dLook) {
                   setPickedDef(n.role);
                   setTab('jobs');
-                } else if (n) setTab('players');
+                } else {
+                  setPickedDef(null);
+                  if (n) setTab('players');
+                }
               }}
               onBallCarrierChange={(role) => setBallCarrier(role)}
               onHoleChange={(h) => setHoleOverride(h)}
@@ -1879,6 +2053,51 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
           ) : (
             <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/50 p-6 min-h-[220px] flex items-center justify-center">
               <span className="text-xs font-bold text-slate-500">This formation and backfield do not add up to 11. Pick another backfield.</span>
+            </div>
+          )}
+          {present && panelHidden && pickedDefNode && dLook && (
+            <div
+              data-stage-ui
+              className={`${
+                staged ? 'fixed bottom-16 right-3 z-40' : 'absolute bottom-14 right-3 z-30'
+              } w-[min(92vw,390px)] max-h-[68dvh] overflow-y-auto rounded-2xl border-2 border-emerald-500/70 bg-white/96 dark:bg-slate-900/96 shadow-2xl backdrop-blur-md p-3 space-y-1`}
+            >
+              <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-slate-200 dark:border-slate-800">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="shrink-0 min-w-9 h-6 px-1.5 rounded bg-green-700 text-white text-xs font-black inline-flex items-center justify-center">
+                    {shownText(pickedDefNode, diagramLabel(pickedDefNode.role))}
+                  </span>
+                  <div className="min-w-0">
+                    {pickedDefNode.player && (
+                      <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 truncate">
+                        #{pickedDefNode.player.num} {pickedDefNode.player.name}
+                      </div>
+                    )}
+                    <div className="text-xs font-black text-slate-900 dark:text-white truncate">
+                      {jobOf(pickedDefNode) || `${pickedDefNode.role} Rules & Motion`}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setPlayAnimTrigger((n) => n + 1)}
+                    title="Run play with these defender rules"
+                    className="h-7 px-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <PlayIcon className="w-3 h-3 fill-current" /> Run
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Close defender rules"
+                    onClick={() => setPickedDef(null)}
+                    className="h-7 w-7 rounded-lg border border-slate-200 dark:border-slate-700 inline-flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              {renderDefenderRules(pickedDefNode)}
             </div>
           )}
           {baseNote && !staged && <p className="px-1 text-xs font-bold text-emerald-600 dark:text-emerald-400">{baseNote}</p>}
@@ -2241,7 +2460,6 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 {defenseOrder(dNodes).map((n) => {
                   const open = pickedDef === n.role;
                   const job = jobOf(n);
-                  const standard = dLook ? standardDefenseJob(n.role, dLook, containFor(dLook.front)) : '';
                   const who = n.player ? `#${n.player.num} ${n.player.name}`.trim() : '';
                   const own = Boolean(jobs[n.role] || defAssign[n.role] || Object.keys(defRules[n.role] || {}).length);
                   return (
@@ -2268,58 +2486,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                         </span>
                         <ChevronDown className={`w-4 h-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
                       </button>
-                      {open && (
-                        <DefenderRules
-                          node={n}
-                          picks={defRules[n.role] || {}}
-                          assign={defAssign[n.role] || ''}
-                          ball={ballX}
-                          typed={jobs[n.role] || ''}
-                          standard={standard}
-                          onPick={(cat, opt) => {
-                            setDefRules((prev) => {
-                              const mine = { ...(prev[n.role] || {}) };
-                              if (opt) mine[cat] = opt;
-                              else delete mine[cat];
-                              const next = { ...prev };
-                              if (Object.keys(mine).length) next[n.role] = mine;
-                              else delete next[n.role];
-                              return next;
-                            });
-                            // A technique lines him up there on their line, wherever he was dragged.
-                            if (cat === 'tech') {
-                              setOverrides((prev) => {
-                                const next = { ...prev };
-                                delete next[n.role];
-                                return next;
-                              });
-                            }
-                          }}
-                          onAssign={(jobId) =>
-                            setDefAssign((prev) => {
-                              const next = { ...prev };
-                              if (jobId) next[n.role] = jobId;
-                              else delete next[n.role];
-                              return next;
-                            })
-                          }
-                          onTyped={(text) =>
-                            setJobs((prev) => {
-                              const next = { ...prev };
-                              if (text.trim()) next[n.role] = text;
-                              else delete next[n.role];
-                              return next;
-                            })
-                          }
-                          onReset={() => {
-                            const without = <T,>(m: Record<string, T>) => Object.fromEntries(Object.entries(m).filter(([r]) => r !== n.role));
-                            setDefRules(without);
-                            setDefAssign(without);
-                            setJobs(without);
-                            if (defRules[n.role]?.tech) setOverrides(without);
-                          }}
-                        />
-                      )}
+                      {open && renderDefenderRules(n)}
                     </li>
                   );
                 })}

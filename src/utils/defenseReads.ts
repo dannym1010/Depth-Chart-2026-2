@@ -1,12 +1,19 @@
 // Our defense reading the play as it runs, the way the base 4-4 Cover 3 plays it (a 5-3 front reads the same way,
-// its ends with contain). At the snap the line fires off and the backers and the secondary read. On a run the contain
-// men set the edge and squeeze the ball inside, the ends squeeze and the tackles get into their gaps, the backer
-// nearest the hole fills it and the rest scrape over the top inside-out, the playside corner comes up late from
-// outside in and the free safety fills the alley; the backside stays home for the boot or the cutback, then chases
-// from depth. On a pass the line rushes (the edge men keep the QB inside), the backers drop to the curl-flats and the
-// hooks and carry what comes into them, the corners and the free safety take the deep thirds, and everyone breaks on
-// the ball once it's thrown. Each runs to his spot at his own speed, so the pursuit angles come out right. A defender
-// with a line drawn for him (a blitz, a stunt, a drop) runs it first, then plays the ball.
+// its ends with contain), with full support for per-defender rules (read key, flow tempo, gap fit, run action,
+// DL technique/play, and pre-snap motion adjustments).
+//
+// On a RUN:
+//   1. Phase 1 — Read & Lateral Flow (0 -> ~0.28): The line fires off into their gaps/blocks, while the linebackers
+//      read their keys (near back / guards / mesh) and shuffle laterally parallel to the line of scrimmage at
+//      linebacker depth, mirroring backfield flow and staying in gap leverage.
+//   2. Phase 2 — Trigger & Downhill Attack (~0.28 -> 1.0): Once the ball carrier declares, the primary filler
+//      triggers downhill through his gap to meet the runner in the hole, scrape backers flow over the top and
+//      attack inside-out, spill defenders wrong-arm the kickout block inside, the playside contain man sets the hard
+//      outside edge and squeezes, and backside defenders check cutback/boot first before folding inside-out.
+//
+// On a PASS:
+//   The line rushes (edge men cage the QB, interior pushes the pocket), backers and DBs execute their zone drops or
+//   man coverage assignments, pattern-matching receivers in their zones, and everyone breaks on the ball in flight.
 import type { PlayNode, PlayStroke } from './footballEngine';
 
 type P = { x: number; y: number };
@@ -65,8 +72,14 @@ export interface PlayRead {
   defense: PlayNode[];
   /** Their offense lined up. */
   offense: PlayNode[];
-  /** Lines drawn for defenders (a blitz, a stunt, a drop): run first. */
+  /** Lines drawn for defenders (a blitz, a stunt, a coach-drawn custom line): run first. */
   drawn: Map<string, PlayStroke>;
+  /** Coverage zone drops from the defensive call (followed on pass plays; read-and-reacted on run plays). */
+  zones?: Map<string, PlayStroke>;
+  /** Man coverage assignments (defender role -> offensive receiver role). */
+  manTargets?: Map<string, string>;
+  /** Per-defender rules picked by the coach (gap, fit, action, flow, key, play, rush, motion). */
+  rules?: Record<string, Record<string, string>>;
   /** Where the offense is at a time after the snap (0: the snap, 1: the end of the play). */
   offenseAt: (t: number) => Map<string, P>;
   pass: boolean;
@@ -103,6 +116,112 @@ function along(pts: P[], f: number): P {
   return pts[pts.length - 1];
 }
 
+/** Compute A, B, C, D gap X coordinates on each side from the offensive line alignment. */
+function computeGaps(off: PlayNode[]) {
+  const x = (r: string, d: number) => off.find((n) => n.role === r)?.x ?? d;
+  const C = x('C', 0);
+  const LG = x('LG', C - 2);
+  const RG = x('RG', C + 2);
+  const LT = x('LT', LG - 2);
+  const RT = x('RT', RG + 2);
+  const te = off.filter((n) => n.line && /^Y\d?$/.test(n.role));
+  const lte = te.filter((n) => n.x < C).sort((a, b) => a.x - b.x)[0]?.x;
+  const rte = te.filter((n) => n.x > C).sort((a, b) => b.x - a.x)[0]?.x;
+  return {
+    C,
+    left: {
+      A: (C + LG) / 2,
+      B: (LG + LT) / 2,
+      C: lte != null ? (LT + lte) / 2 : LT - 1.1,
+      D: lte != null ? lte - 1.2 : LT - 2.4,
+      alley: (lte ?? LT) - 3.6,
+      edge: (lte ?? LT) - 1.8,
+    },
+    right: {
+      A: (C + RG) / 2,
+      B: (RG + RT) / 2,
+      C: rte != null ? (RT + rte) / 2 : RT + 1.1,
+      D: rte != null ? rte + 1.2 : RT + 2.4,
+      alley: (rte ?? RT) + 3.6,
+      edge: (rte ?? RT) + 1.8,
+    },
+  };
+}
+
+/**
+ * Adjusts defender positions during pre-snap motion (`motionT` in [0, 1]).
+ * - Defenders with `motion: 'lock' | 'travel'` or man coverage on the motion man travel across with him.
+ * - Defenders with `motion: 'bump'` (or second-level backers by default when motion crosses) bump laterally.
+ * - Defenders with `motion: 'blitz_motion'` creep up to the line of scrimmage to fire at the snap.
+ */
+export function defendPreSnapMotion(
+  defense: PlayNode[],
+  offenseStart: PlayNode[],
+  offenseNow: Map<string, P>,
+  motionT: number,
+  rules: Record<string, Record<string, string>> = {},
+  manTargets: Map<string, string> = new Map()
+): Map<string, P> {
+  const out = new Map<string, P>();
+  for (const d of defense) out.set(d.role, { x: d.x, y: d.y });
+  if (motionT <= 0.001 || !defense.length) return out;
+
+  // Find which offensive player is in pre-snap motion
+  let motionRole: string | null = null;
+  let motionDx = 0;
+  let motionNow: P | null = null;
+  for (const o of offenseStart) {
+    const cur = offenseNow.get(o.role);
+    if (!cur) continue;
+    const dx = cur.x - o.x;
+    if (Math.abs(dx) > Math.abs(motionDx) && Math.abs(dx) > 0.4) {
+      motionRole = o.role;
+      motionDx = dx;
+      motionNow = cur;
+    }
+  }
+  if (!motionRole || !motionNow) return out;
+
+  const jobs = defenseJobs(defense);
+  for (const d of defense) {
+    const rule = rules[d.role] || {};
+    const mRule = rule.motion;
+    if (mRule === 'hold') continue;
+
+    const manTarget = manTargets.get(d.role);
+    if (mRule === 'lock' || mRule === 'travel' || manTarget === motionRole) {
+      // Travel across the formation with the motion player
+      out.set(d.role, {
+        x: round(d.x + motionDx * 0.92),
+        y: round(d.y),
+      });
+      continue;
+    }
+
+    if (mRule === 'blitz_motion') {
+      // Creep up to the line of scrimmage on motion
+      const targetY = Math.min(d.y, 1.85);
+      out.set(d.role, {
+        x: round(d.x + Math.sign(motionDx) * 0.5 * motionT),
+        y: round(d.y + (targetY - d.y) * motionT),
+      });
+      continue;
+    }
+
+    const job = jobs.get(d.role);
+    if (mRule === 'bump' || (!mRule && job && (job.job === 'inside' || job.job === 'outside' || job.job === 'safety'))) {
+      // Linebackers and safeties bump slightly with motion to balance strength
+      const bumpScale = mRule === 'bump' ? 1.4 : 0.75;
+      const shiftX = Math.max(-2.2, Math.min(2.2, Math.sign(motionDx) * Math.min(Math.abs(motionDx) * 0.18, bumpScale)));
+      out.set(d.role, {
+        x: round(d.x + shiftX),
+        y: round(d.y),
+      });
+    }
+  }
+  return out;
+}
+
 /** Where each defender is at time `t` after the snap, and the path he took to get there. */
 export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trails: Map<string, P[]> } {
   const T = Math.max(0, Math.min(1, t));
@@ -114,6 +233,9 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
   }
   if (T <= 0 || !r.defense.length) return { pos, trails };
   const jobs = defenseJobs(r.defense);
+  const rules = r.rules || {};
+  const zones = r.zones || new Map<string, PlayStroke>();
+  const manTargets = r.manTargets || new Map<string, string>();
 
   // The offense at every step of the play, worked out once.
   const grid: Map<string, P>[] = [];
@@ -152,6 +274,20 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
     }
   }
   const side = hole.x > 1.5 ? 1 : hole.x < -1.5 ? -1 : 0;
+  const gMap = computeGaps(r.offense);
+  const carrierStart = grid[0].get(carrier) || { x: gMap.C, y: -4 };
+
+  // Detect pulling guard direction if a guard pulls
+  let pullDir = 0;
+  for (const gRole of ['LG', 'RG']) {
+    const g0 = grid[0].get(gRole);
+    const g1 = where(gRole, 0.25);
+    if (g0 && g1 && Math.abs(g1.x - g0.x) > 1.2) {
+      pullDir = Math.sign(g1.x - g0.x);
+      break;
+    }
+  }
+
   // The edge on each side: the last man on the line (a tight end, a tackle).
   const qbStart = r.offense.find((n) => n.role === r.qb) || { x: 0, y: -1 };
   const onLine = r.offense.filter((n) => Math.abs(n.y) < 1.6 && Math.abs(n.x) < 9.5 && n.role !== r.qb);
@@ -160,10 +296,22 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
     return s * (out.length ? Math.max(...out) : 4);
   };
   const receivers = r.offense.filter((n) => !OL.includes(n.role) && n.role !== r.qb).map((n) => n.role);
-  // The backer who fills the hole: the inside backer nearest it (the rest scrape over the top).
-  const filler = r.defense
-    .filter((n) => jobs.get(n.role)?.job === 'inside' || jobs.get(n.role)?.job === 'safety')
-    .sort((a, b) => Math.abs(a.x - hole.x) - Math.abs(b.x - hole.x))[0]?.role;
+  // The backer who fills the hole: an inside backer with `action === 'fill'` or the inside backer nearest the hole.
+  const insideBackers = r.defense.filter((n) => jobs.get(n.role)?.job === 'inside' || jobs.get(n.role)?.job === 'safety');
+  const explicitFiller = insideBackers.find((n) => rules[n.role]?.action === 'fill')?.role;
+  const filler =
+    explicitFiller ||
+    insideBackers
+      .filter((n) => !['scrape', 'fold', 'cutback', 'contain', 'force'].includes(rules[n.role]?.action || ''))
+      .sort((a, b) => Math.abs(a.x - hole.x) - Math.abs(b.x - hole.x))[0]?.role;
+
+  /** Resolve a gap name ('A' | 'B' | 'C' | 'D' | 'alley' | 'edge') on a side ('left' | 'right') to field X. */
+  const gapX = (gapId: string | undefined, sideSign: number, fallbackX: number): number => {
+    if (!gapId) return fallbackX;
+    const tbl = sideSign < 0 ? gMap.left : gMap.right;
+    if (gapId in tbl) return tbl[gapId as keyof typeof tbl];
+    return fallbackX;
+  };
 
   /** The pursuit angle: the first spot ahead of the ball carrier he can get to in time (plus a leverage offset). */
   const chase = (me: P, v: number, now: number, off: P = { x: 0, y: 0 }, who = runner): P => {
@@ -192,7 +340,11 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
   };
 
   const goal = (d: Defender, start: P, me: P, now: number, v: number): P => {
-    const s = Math.sign(start.x) || 1;
+    const s = Math.sign(start.x - gMap.C) || 1;
+    const rule = rules[d.role] || {};
+    const zoneStroke = zones.get(d.role);
+    const manRole = manTargets.get(d.role);
+
     if (r.pass) {
       if (r.flight && now >= r.flight.release) {
         // The ball is in the air: break on the catch; caught, run the receiver down.
@@ -202,15 +354,47 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
         }
         return chase(me, v, now);
       }
-      if (now < 0.1) return d.line ? { x: start.x, y: start.y - 1 } : { x: start.x, y: start.y + (d.job === 'corner' || d.job === 'deep' ? 1 : 0.4) };
+      if (now < 0.1) {
+        return d.line
+          ? { x: start.x, y: start.y - 1 }
+          : { x: start.x, y: start.y + (d.job === 'corner' || d.job === 'deep' ? 1 : 0.4) };
+      }
       const q = where(r.qb, now);
       if (d.line) {
+        // Honor DL pass rush rules
+        if (rule.rush === 'spy') return { x: q.x, y: 0.4 };
+        if (rule.rush === 'screen') {
+          const back = where(r.carrier, now);
+          return { x: back.x * 0.7, y: Math.max(-0.5, back.y + 0.8) };
+        }
+        if (rule.rush === 'inside') return { x: q.x + s * 0.4, y: q.y + 0.2 };
+        if (rule.rush === 'bull') return { x: q.x + (start.x - q.x) * 0.18, y: q.y + 0.4 };
         // The rush: the edge men stay outside the QB, the rest push the pocket.
-        return d.edge || d.job === 'end' ? { x: q.x + s * 1.4, y: q.y + 0.3 } : { x: q.x + (start.x - q.x) * 0.25, y: q.y + 0.6 };
+        return d.edge || d.job === 'end' || rule.rush === 'contain' || rule.play === 'contain'
+          ? { x: q.x + s * 1.4, y: q.y + 0.3 }
+          : { x: q.x + (start.x - q.x) * 0.25, y: q.y + 0.6 };
+      }
+      // Man coverage assignment: stay in phase with assigned receiver
+      if (manRole && grid[0].has(manRole)) {
+        const rec = where(manRole, now);
+        const insideShade = Math.sign(gMap.C - rec.x) * 0.45;
+        return { x: rec.x + insideShade, y: rec.y + 0.85 };
+      }
+      // Spy the QB assignment
+      if (zoneStroke?.label === 'Spy the QB') {
+        return { x: q.x, y: Math.max(2.8, q.y + 4.2) };
+      }
+      // Explicit zone drop from the defensive call picker (Cover 2, Cover 3, Cover 4, or custom ZoneMap pick)
+      if (zoneStroke && zoneStroke.points.length >= 2) {
+        const endPt = zoneStroke.points[zoneStroke.points.length - 1];
+        const rx = Math.max(4.5, (zoneStroke.zone?.rx || 3) * 1.65);
+        const ry = Math.max(3.5, (zoneStroke.zone?.ry || 2) * 2.1);
+        const m = inZone(endPt, now, (q2) => Math.abs(q2.x - endPt.x) < rx && Math.abs(q2.y - endPt.y) < ry);
+        return m ? { x: endPt.x + (m.x - endPt.x) * 0.6, y: endPt.y + (m.y - endPt.y) * 0.5 } : endPt;
       }
       // The QB out of the pocket toward a man with contain: he takes him.
       if (d.edge && (q.x - qbStart.x) * s > 3) return { x: q.x + s * 0.8, y: q.y + 0.4 };
-      // Cover 3: four under (the outside backers in the curl-flats, the inside ones in the hooks), three deep.
+      // Cover 3 default: four under (the outside backers in the curl-flats, the inside ones in the hooks), three deep.
       if (d.job === 'outside') {
         const land = { x: s * Math.max(8, Math.abs(start.x) * 0.85), y: 5 };
         const m = inZone(land, now, (q2) => Math.abs(q2.x - land.x) < 6 && q2.y > -1 && q2.y < 9);
@@ -231,28 +415,88 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
       return m ? { x: m.x * 0.8, y: Math.max(10, m.y + 2.5) } : land;
     }
 
-    // A run.
-    if (now < 0.1) {
-      // The snap: the line fires off, the backers read-step toward the flow, the secondary checks.
-      if (d.line) return { x: start.x + side * 0.3, y: start.y - 1.1 };
-      if (d.job === 'corner') return { x: start.x, y: start.y + 0.8 };
-      if (d.job === 'deep') return { x: start.x, y: start.y + 0.5 };
-      return { x: start.x + side * 0.6, y: start.y - 0.2 };
-    }
+    // ========================================================================
+    // RUN PLAY READS:
+    //   1. Snap & Key Read (0 -> 0.10)
+    //   2. Lateral Flow at LB Depth (0.10 -> flowUntil)
+    //   3. Trigger & Downhill Attack into Assigned Fit (flowUntil -> 1.0)
+    // ========================================================================
     const c = where(carrier, now);
-    const playside = side !== 0 && s === side;
+    const flowDir = side || pullDir || Math.sign(c.x - carrierStart.x) || s;
+    const playside = side !== 0 ? s === side : s === flowDir;
     const mine = side === 0 || playside;
-    if (d.edge) {
+
+    if (now < 0.1) {
+      // The snap: the line fires off, the backers read-step toward their key/flow, the secondary checks pass/run.
+      if (d.line) {
+        const dlTargetX = rule.gap ? gapX(rule.gap, s, start.x + side * 0.3) : start.x + side * 0.3;
+        const depth = rule.play === 'penetrate' ? 1.45 : rule.play === 'twogap' ? 0.65 : 1.1;
+        return { x: start.x + (dlTargetX - start.x) * 0.5, y: start.y - depth };
+      }
+      if (d.job === 'corner') {
+        if (rule.run === 'crack_replace' || rule.run === 'force') return { x: start.x, y: start.y - 0.3 };
+        return { x: start.x, y: start.y + 0.8 };
+      }
+      if (d.job === 'deep') {
+        if (rule.run === 'fill' || rule.run === 'alley') return { x: start.x + flowDir * 0.4, y: start.y - 0.3 };
+        return { x: start.x, y: start.y + 0.5 };
+      }
+      // Linebacker read step: eyes on key, step toward flow while staying square at linebacker depth
+      const readStepY = rule.flow === 'downhill' ? -0.45 : rule.flow === 'slow' ? -0.05 : -0.2;
+      return { x: start.x + flowDir * 0.65, y: start.y + readStepY };
+    }
+
+    // Man coverage on a run play: locks onto receiver briefly before turning to pursue the ball carrier
+    if (manRole && grid[0].has(manRole) && now < 0.24 && (d.job === 'corner' || d.job === 'safety' || d.job === 'deep')) {
+      const rec = where(manRole, now);
+      return { x: rec.x, y: rec.y + 1.0 };
+    }
+
+    // D-Line Run Fits & Actions
+    if (d.line) {
+      const assignedGapX = rule.gap ? gapX(rule.gap, s, start.x) : start.x;
+      if (rule.play === 'penetrate') {
+        if (now < 0.28) return { x: assignedGapX, y: -1.1 };
+        return chase(me, v * 1.08, now);
+      }
+      if (rule.play === 'twogap') {
+        if (now < 0.28) return { x: assignedGapX, y: 0.2 };
+        return chase(me, v, now);
+      }
+      if (rule.play === 'squeeze') {
+        if (now < 0.3) return { x: assignedGapX - s * 1.4, y: -0.2 };
+        return chase(me, v, now, { x: -s * 0.3, y: 0 });
+      }
+      if (rule.play === 'spill' || rule.play === 'wrongarm') {
+        if (now < 0.32) return { x: assignedGapX - s * 1.1, y: -0.7 };
+        return chase(me, v, now, { x: -flowDir * 0.6, y: -0.2 });
+      }
+      if (rule.play === 'longstick') {
+        if (now < 0.3) return { x: start.x + flowDir * 2.4, y: -0.8 };
+        return chase(me, v, now);
+      }
+      if (rule.play === 'contain') {
+        const edge = { x: edgeOf(s) + s * 1.6, y: 0.7 };
+        if (mine && now < 0.34) return edge;
+        return chase(me, v, now, { x: s * 0.9, y: 0.4 });
+      }
+    }
+
+    // Edge / Contain Defender (OLB in 4-4, DE in 5-3, or any backer with `action === 'contain' | 'force'` and no override)
+    const isEdgeOverride = rule.action === 'contain' || rule.action === 'force' || rule.fit === 'edge';
+    const isNonEdgeOverride = Boolean(rule.action && !['contain', 'force'].includes(rule.action));
+    if ((d.edge && !isNonEdgeOverride) || isEdgeOverride) {
       if (mine) {
-        // Set the edge outside the last man on the line, then squeeze the ball inside from outside in.
+        // Phase 1 & 2 for Playside Force/Contain: flow out to set the hard edge outside EMOL, then squeeze inside-out.
         const edge = { x: edgeOf(s) + s * 1.6, y: 0.8 };
         if (now < 0.32 && c.y < 1 && Math.hypot(me.x - edge.x, me.y - edge.y) > 0.8) return edge;
         return chase(me, v, now, { x: s * 0.9, y: 0.4 });
       }
-      // Backside: stay home (the boot, the reverse, the cutback), then chase from depth.
+      // Backside contain: stay home for bootleg, reverse, and cutback, then trail from depth.
       if (now < 0.5) return { x: start.x * 0.85, y: Math.max(0.6, start.y - 1.2) };
       return chase(me, v, now, { x: 0, y: 2.5 });
     }
+
     switch (d.job) {
       case 'end':
         // Inside the contain man: squeeze down, then pursue (backside: flat down the line).
@@ -263,6 +507,19 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
         if (now < 0.24) return { x: start.x + side * 0.7, y: -0.7 };
         return chase(me, v, now);
       case 'corner':
+        if (rule.run === 'crack_replace' || rule.run === 'force' || rule.run === 'contain') {
+          if (playside) {
+            const forceSpot = { x: edgeOf(s) + s * 2.0, y: 1.1 };
+            if (now < 0.3) return forceSpot;
+            return chase(me, v, now, { x: s * 1.2, y: 0.5 });
+          }
+          if (now < 0.36) return { x: start.x - s * 1.2, y: start.y + 1.0 };
+          return chase(me, v, now, { x: 0, y: 2.5 });
+        }
+        if (rule.run === 'alley') {
+          if (now < 0.18) return { x: start.x - s * 0.8, y: start.y };
+          return chase(me, v, now, { x: s * 0.8, y: 0.8 });
+        }
         // Deep third first; the playside corner then comes up outside-in, the backside one takes the deep angle.
         if (playside) {
           if (now < 0.24) return { x: start.x, y: start.y + 1.4 };
@@ -271,16 +528,94 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
         if (now < 0.4) return { x: start.x - s * 1.2, y: start.y + 3 };
         return chase(me, v, now, { x: 0, y: 4 });
       case 'deep':
+        if (rule.run === 'fill') {
+          if (now < 0.22) return { x: hole.x * 0.6, y: Math.max(2.2, start.y - 2.5) };
+          return chase(me, v, now, { x: 0, y: 0.5 });
+        }
+        if (rule.run === 'cutback') {
+          if (now < 0.35) return { x: start.x - flowDir * 1.0, y: start.y + 0.5 };
+          return chase(me, v, now, { x: -flowDir * 1.2, y: 3.0 });
+        }
         // Read, then fill the alley inside-out (inside the corner, behind the backers).
         if (now < 0.2) return { x: start.x, y: start.y + 0.6 };
         return chase(me, v, now, { x: -side * 0.8, y: 2 });
-      default:
-        // The backer nearest the hole meets the ball carrier in it; the rest scrape over the top, inside-out.
-        if (d.role === filler) {
-          if (now < holeAt + 0.05) return { x: hole.x, y: Math.max(0.4, hole.y) + 0.4 };
-          return chase(me, v, now, { x: 0, y: 0.3 });
+      default: {
+        // ====================================================================
+        // LINEBACKERS (MIKE, WILL, SAM, ROV, ILB, OLB) & BOX SAFETIES:
+        // True 2-Phase "Flow Then Attack" Run Read!
+        // ====================================================================
+        const flowStyle = rule.flow || 'flow_attack';
+        const action = rule.action || (d.role === filler ? 'fill' : playside ? 'scrape' : 'fold');
+
+        // How long the linebacker shuffles/flows laterally at LB depth before triggering downhill
+        const baseFlowEnd = Math.min(0.32, Math.max(0.22, holeAt * 0.68));
+        const flowUntil =
+          flowStyle === 'downhill'
+            ? 0.16
+            : flowStyle === 'fast'
+              ? 0.24
+              : flowStyle === 'scrape'
+                ? 0.35
+                : flowStyle === 'slow' || action === 'fold' || action === 'cutback'
+                  ? 0.36
+                  : baseFlowEnd;
+
+        // Determine the linebacker's target gap X
+        const defaultFitX =
+          d.role === filler || action === 'fill'
+            ? hole.x
+            : action === 'fold' || action === 'cutback'
+              ? hole.x - flowDir * 1.8
+              : action === 'spill' || action === 'wrongarm'
+                ? hole.x - flowDir * 0.8
+                : hole.x + flowDir * 1.1;
+        const targetGapX = rule.fit ? gapX(rule.fit, flowDir || s, defaultFitX) : defaultFitX;
+
+        // PHASE 1: Read & Lateral Flow parallel to the Line of Scrimmage (staying square at LB depth)
+        if (now < flowUntil) {
+          // Track carrier/pull horizontal movement while keeping inside-out gap spacing
+          const carrierFlowX = c.x + (targetGapX - hole.x) * 0.65;
+          const lateralAimX =
+            action === 'fold' || action === 'cutback'
+              ? start.x + flowDir * 1.6
+              : carrierFlowX * 0.6 + targetGapX * 0.4;
+          // Stay near linebacker depth (~3.0 - 3.6 yds), stepping slightly forward as he flows laterally
+          const flowDepthY = Math.max(2.5, start.y - 0.65);
+          return { x: lateralAimX, y: flowDepthY };
         }
-        return chase(me, v, now, { x: -side * 0.8, y: 1.1 });
+
+        // PHASE 2: Trigger & Attack Downhill into the Gap / Ball Carrier!
+        if (action === 'spill' || action === 'wrongarm') {
+          // Attack downhill into the inside hip of the gap/puller to bounce the ball outside
+          if (now < flowUntil + 0.16) {
+            return { x: targetGapX - flowDir * 0.85, y: -0.2 };
+          }
+          return chase(me, v, now, { x: -flowDir * 0.5, y: 0.1 });
+        }
+
+        if (action === 'fold' || action === 'cutback') {
+          // Backside fold: check cutback window behind the center/guard, then pursue inside-out
+          if (now < flowUntil + 0.14) {
+            return { x: targetGapX, y: 1.1 };
+          }
+          return chase(me, v, now, { x: -flowDir * 0.7, y: 0.9 });
+        }
+
+        if (action === 'scrape') {
+          // Scrape over the top of the trash and attack the off-tackle / alley window inside-out
+          if (now < flowUntil + 0.12) {
+            return { x: targetGapX, y: Math.max(0.6, hole.y + 0.6) };
+          }
+          return chase(me, v, now, { x: -flowDir * 0.5, y: 0.7 });
+        }
+
+        // Primary Filler / Plug (`action === 'fill'` or `d.role === filler`):
+        // Trigger straight downhill through the target gap to meet the ball carrier in the hole!
+        if (now < Math.max(flowUntil + 0.14, holeAt + 0.05)) {
+          return { x: targetGapX, y: Math.max(0.2, Math.min(1.0, hole.y + 0.3)) };
+        }
+        return chase(me, v, now, { x: 0, y: 0.25 });
+      }
     }
   };
 
@@ -292,11 +627,19 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
       const d = jobs.get(n.role)!;
       const me = pos.get(n.role)!;
       const drawn = r.drawn.get(n.role);
+      const rule = rules[n.role] || {};
       let next: P;
-      if (drawn && drawn.points.length >= 2 && now <= DRAWN) next = along([{ x: n.x, y: n.y }, ...drawn.points.slice(1)], now / DRAWN);
-      else {
-        // Up to speed in the first steps off the snap.
-        const v = base * SPEED[d.job] * Math.min(1, 0.35 + now / 0.12);
+      if (drawn && drawn.points.length >= 2 && now <= DRAWN) {
+        next = along([{ x: n.x, y: n.y }, ...drawn.points.slice(1)], now / DRAWN);
+      } else {
+        // Adjust speed slightly for fast-flow or downhill-penetrating rules
+        const speedMult =
+          rule.flow === 'fast' || rule.play === 'penetrate'
+            ? 1.1
+            : rule.flow === 'slow'
+              ? 0.92
+              : 1;
+        const v = base * SPEED[d.job] * speedMult * Math.min(1, 0.35 + now / 0.12);
         const g = goal(d, n, me, now, v);
         const dx = g.x - me.x;
         const dy = g.y - me.y;

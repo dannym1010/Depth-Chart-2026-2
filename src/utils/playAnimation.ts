@@ -1,5 +1,5 @@
 import { isDefenseRole, isThrownLine, lineStartsOn, shiftLegs, type PlayNode, type PlayStroke } from './footballEngine';
-import { defendPlay } from './defenseReads';
+import { defendPlay, defendPreSnapMotion } from './defenseReads';
 
 export interface AnimatedTrail {
   role: string;
@@ -147,9 +147,11 @@ export function computeAnimatedPlayFrame(
   extraStrokes: PlayStroke[] = [],
   ballRole = '3',
   progress = 0,
-  targetHole?: number | null
+  targetHole?: number | null,
+  defenseRules?: Record<string, Record<string, string>>
 ): AnimatedPlayFrame {
   const p = Math.max(0, Math.min(1, progress));
+  const extraSet = new Set(extraStrokes);
   const drawn = [...strokes, ...extraStrokes].filter((s) => s.points && s.points.length >= 2);
   // A run line starting where a route ends (no player there): that receiver's run after the catch, one line with
   // his route; the catch is at the end of the route.
@@ -285,8 +287,18 @@ export function computeAnimatedPlayFrame(
     phaseLabel = postSnapT < 0.18 ? 'Snap & Mesh' : 'Play Execution';
   }
 
-  // Determine overall play type (run vs pass) and target horizontal flow
-  const hasPassRoutes = allStrokes.filter((s) => s.kind === 'pass' && !(s.motion && s.motion >= s.points.length - 1)).length >= 2;
+  // Determine overall play type (run vs pass) and target horizontal flow.
+  // Exclude defensive coverage zone/man lines when counting offensive pass routes.
+  const hasPassRoutes =
+    allStrokes.filter(
+      (s) =>
+        s.kind === 'pass' &&
+        !s.zone &&
+        !s.man &&
+        !extraSet.has(s) &&
+        !(s.motion && s.motion >= s.points.length - 1) &&
+        !nodes.some((n) => isDefenseRole(n.role) && lineStartsOn(s, n, nodes))
+    ).length >= 2;
   // The ball carrier runs a route, or a back's run line marked as a pass (not the QB): it's thrown to him.
   const carrierLine = roleStroke.get(ballRole);
   const throwTo = ballRole !== '1' && ballRole !== 'QB' && Boolean(carrierLine && isThrownLine(carrierLine));
@@ -494,10 +506,10 @@ export function computeAnimatedPlayFrame(
   let caught = 0.78;
   let passTarget: string | undefined;
   if (isPassPlay) {
-    // Find primary pass route target
+    // Find primary offensive pass route target
     const passStrokeEntry =
-      Array.from(roleStroke.entries()).find(([r, s]) => r === ballRole && s.kind === 'pass') ||
-      Array.from(roleStroke.entries()).find(([, s]) => s.kind === 'pass');
+      Array.from(roleStroke.entries()).find(([r, s]) => !isDefenseRole(r) && r === ballRole && s.kind === 'pass') ||
+      Array.from(roleStroke.entries()).find(([r, s]) => !isDefenseRole(r) && s.kind === 'pass');
     passTarget = throwTo ? ballRole : passStrokeEntry?.[0];
     // Thrown, then caught: at the end of a route with a run after the catch, or the end of the first leg of a back's
     // line; he runs with it after.
@@ -565,27 +577,97 @@ export function computeAnimatedPlayFrame(
   if (handoff && postSnapT > 0 && postSnapT >= handoff.t - 0.06 && postSnapT <= handoff.t + 0.04) {
     phase = 'snap';
     phaseLabel = 'Handoff';
-  } else if (handoff && postSnapT > 0 && postSnapT < handoff.t) phaseLabel = 'Snap & Mesh';
+  } else if (handoff && postSnapT > 0 && postSnapT < handoff.t) {
+    phaseLabel = 'Snap & Mesh';
+  } else if (postSnapT > 0) {
+    if (isPassPlay) {
+      phaseLabel = postSnapT < 0.18 ? 'Snap & Drop' : postSnapT < 0.45 ? 'Route Stem & Read' : 'Ball in Air / Break';
+    } else {
+      phaseLabel = postSnapT < 0.14 ? 'Snap & Read Step' : postSnapT < 0.34 ? 'LB Flow & Gap Read' : 'Downhill Attack & Fit';
+    }
+  }
 
-  // Our defense reads the play (see defenseReads): a line drawn for a defender first, then the base 4-4 Cover 3's run
-  // fits or pass drops, and pursuit.
+  // Our defense reads the play (see defenseReads): a blitz/stunt or coach-drawn line first, then run fits
+  // (flow then attack) or pass drops/man coverage, and pursuit.
   const defense = nodes.filter((n) => isDefenseRole(n.role));
   if (defense.length) {
     const drawnFor = new Map<string, PlayStroke>();
+    const zones = new Map<string, PlayStroke>();
+    const manTargets = new Map<string, string>();
     for (const n of defense) {
       const st = roleStroke.get(n.role);
-      if (st && st.points.length >= 2) drawnFor.set(n.role, st);
+      if (!st || st.points.length < 2) continue;
+      if (st.man) {
+        const target = offense.find((o) => Math.hypot(o.x - st.man!.x, o.y - st.man!.y) < 0.85);
+        if (target) manTargets.set(n.role, target.role);
+      } else if (st.zone) {
+        zones.set(n.role, st);
+      } else {
+        drawnFor.set(n.role, st);
+      }
     }
-    const read = defendPlay(
-      { defense, offense, drawn: drawnFor, offenseAt: (t) => offenseAt(t, 1), pass: isPassPlay, carrier: ballRole, qb: qbNode.role, flight },
-      postSnapT
-    );
-    for (const n of defense) {
-      const at = read.pos.get(n.role);
-      if (at) animatedPos.set(n.role, at);
-      const path = read.trails.get(n.role);
-      if (postSnapT > 0 && path && path.length >= 2) {
-        trails.push({ role: n.role, kind: drawnFor.get(n.role)?.kind || 'run', points: path, color: drawnFor.has(n.role) ? '#e11d48' : DEFENSE_TRAIL });
+
+    // Pre-snap motion adjustments for defenders (traveling with man or bumping with motion)
+    let defenseAtSnap = defense;
+    if (motion && motionT > 0) {
+      const motionPositions = defendPreSnapMotion(
+        defense,
+        offense,
+        offenseAt(0, motionT, undefined, shiftT),
+        motionT,
+        defenseRules,
+        manTargets
+      );
+      if (postSnapT <= 0) {
+        for (const n of defense) {
+          const mp = motionPositions.get(n.role);
+          if (mp) animatedPos.set(n.role, mp);
+        }
+      } else {
+        const snapMotionPos = defendPreSnapMotion(
+          defense,
+          offense,
+          offenseAt(0, 1, undefined, 1),
+          1,
+          defenseRules,
+          manTargets
+        );
+        defenseAtSnap = defense.map((n) => {
+          const sp = snapMotionPos.get(n.role);
+          return sp ? { ...n, x: sp.x, y: sp.y } : n;
+        });
+      }
+    }
+
+    if (postSnapT > 0) {
+      const read = defendPlay(
+        {
+          defense: defenseAtSnap,
+          offense,
+          drawn: drawnFor,
+          zones,
+          manTargets,
+          rules: defenseRules,
+          offenseAt: (t) => offenseAt(t, 1),
+          pass: isPassPlay,
+          carrier: ballRole,
+          qb: qbNode.role,
+          flight,
+        },
+        postSnapT
+      );
+      for (const n of defense) {
+        const at = read.pos.get(n.role);
+        if (at) animatedPos.set(n.role, at);
+        const path = read.trails.get(n.role);
+        if (path && path.length >= 2) {
+          trails.push({
+            role: n.role,
+            kind: drawnFor.get(n.role)?.kind || 'run',
+            points: path,
+            color: drawnFor.has(n.role) ? '#e11d48' : DEFENSE_TRAIL,
+          });
+        }
       }
     }
   }

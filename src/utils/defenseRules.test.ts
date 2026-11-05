@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { RULE_LIBRARY, defenseGroup, pickedTechniques, resolveRuleJob, rulesText } from './defenseRules.ts';
+import { RULE_LIBRARY, RULE_PRESETS, applyRuleAlignments, defenseGroup, pickedTechniques, resolveRuleJob, rulesText } from './defenseRules.ts';
 import { applyTechniques, diagramLabel, shownText } from './footballEngine.ts';
 import { defenseJob } from './defenseJobs.ts';
 
@@ -62,5 +62,26 @@ describe("each defender's rules", () => {
     const n = { role: 'MIKE', x: -1.8, y: 4 } as any;
     assert.equal(defenseJob(n, { strokes: [], rules: 'A gap fit · Spill', look: { front: '4-4', shell: 'Cover 3' } }), 'A gap fit · Spill');
     assert.equal(defenseJob(n, { strokes: [], typed: 'Mine', rules: 'A gap fit' }), 'Mine');
+  });
+
+  it('applies backer and DB alignment rules to pre-snap field coordinates and supports coaching presets', () => {
+    const def = [
+      { role: 'SAM', x: -6.5, y: 4.0 },
+      { role: 'MIKE', x: -1.8, y: 4.0 },
+      { role: 'CBL', x: -13.0, y: 6.5 },
+      { role: 'FS', x: 0, y: 10.5 },
+    ] as any[];
+    const aligned = applyRuleAlignments(def, off, {
+      SAM: { align: 'line' },
+      MIKE: { align: 'tight' },
+      CBL: { align: 'press' },
+      FS: { align: 'rolled' },
+    });
+    const at = (r: string) => aligned.find((n) => n.role === r)!;
+    assert.equal(at('SAM').y, 1.85);
+    assert.equal(at('MIKE').y, 2.9);
+    assert.equal(at('CBL').y, 1.85);
+    assert.equal(at('FS').y, 4.4);
+    assert.ok(RULE_PRESETS.backer.some((p) => p.id === 'flow_fill'));
   });
 });

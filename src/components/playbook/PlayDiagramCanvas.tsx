@@ -196,6 +196,8 @@ interface Props {
   drawFor?: 'offense' | 'defense';
   /** Lines drawn from our defensive call (blitz, stunt, coverage): shown under the coach's own, not editable. */
   extraStrokes?: PlayStroke[];
+  /** Per-defender rules (gap fit, run action, flow tempo, read key, etc.) that govern defensive movement. */
+  defenseRules?: Record<string, Record<string, string>>;
   /** Incrementing trigger to start playing player movement animation */
   playTrigger?: number;
 }
@@ -247,6 +249,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   defenseWho,
   drawFor = 'offense',
   extraStrokes,
+  defenseRules,
   playTrigger = 0,
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -307,8 +310,9 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
         ballRole,
         animProgress,
         typeof play.metadata?.targetHole === 'number' ? play.metadata.targetHole : null,
+        defenseRules,
       ),
-    [nodes, strokes, extraStrokes, ballRole, animProgress, play.metadata?.targetHole],
+    [nodes, strokes, extraStrokes, ballRole, animProgress, play.metadata?.targetHole, defenseRules],
   );
   const displayNodes = animProgress > 0.002 ? animatedFrame.nodes : nodes;
 
@@ -773,7 +777,16 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     const svg = svgRef.current;
     if (!svg) return;
     if (locked) {
-      // Nothing moves; zoomed in, one finger (or the mouse) drags the view around. A second finger is a pinch.
+      // Allow tapping or dragging a player even on the presentation stage so the coach can adjust alignment & rules live.
+      const p = pointFromEvent(e);
+      const n = hitNode(nodes, p.cx, p.cy);
+      if (n && e.isPrimary) {
+        svg.setPointerCapture(e.pointerId);
+        if (linesFollow) remember();
+        drag.current = { mode: 'player', role: n.role, startCx: p.cx, startCy: p.cy, moved: false, from: { x: n.x, y: n.y }, startLines: strokesRef.current, at: null };
+        return;
+      }
+      // Zoomed in, one finger (or the mouse) drags the view around. A second finger is a pinch.
       if (viewRef.current.zoom > 1 && e.isPrimary) {
         svg.setPointerCapture(e.pointerId);
         const v = zoomView(zoom, center, w, h);
@@ -1075,7 +1088,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       const text = shownText(n, diagramLabel(n.role));
       const bw = Math.max(23, text.length * 7 + 8);
       return (
-        <g key={n.role} style={{ cursor }}>
+        <g key={n.role} data-player-node={n.role} style={{ cursor }}>
           {isSelected && (
             <rect x={cx - bw / 2 - 4} y={cy - 14} width={bw + 8} height={28} rx={6} fill="none" stroke="#6366f1" strokeWidth={2.5} strokeDasharray="4 3" />
           )}
@@ -1090,7 +1103,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       const text = custom || 'C';
       const bw = Math.max(18, text.length * 6.5 + 6);
       return (
-        <g key={n.role} style={{ cursor }}>
+        <g key={n.role} data-player-node={n.role} style={{ cursor }}>
           {isSelected && (
             <rect x={cx - bw / 2 - 4} y={cy - 13} width={bw + 8} height={26} rx={5} fill="none" stroke="#6366f1" strokeWidth={2.5} strokeDasharray="4 3" />
           )}
@@ -1112,7 +1125,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     const ink = isBall ? '#ffffff' : '#0f172a';
     const stroke = isBall ? '#ffffff' : '#0f172a';
     return (
-      <g key={n.role} style={{ cursor }}>
+      <g key={n.role} data-player-node={n.role} style={{ cursor }}>
         {isSelected && <circle cx={cx} cy={cy} r={r + 5} fill="none" stroke="#6366f1" strokeWidth={2.5} strokeDasharray="4 3" />}
         {isBall && <circle cx={cx} cy={cy} r="14" fill="none" stroke="#fb923c" strokeWidth="2.5" strokeOpacity="0.85" />}
         <circle cx={cx} cy={cy} r={r} fill={fill} stroke={stroke} strokeWidth={isBall ? 2.4 : 1.8} />
@@ -1581,13 +1594,14 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       {/* Bottom Tool & Controls Bar */}
       {animShown && (
         <div
+          data-stage-ui
           className={
             bare
-              ? 'absolute right-3 bottom-3 z-10 w-[min(34rem,calc(100%-1.5rem))] flex flex-wrap items-center gap-2 px-3 py-2 rounded-2xl ring-1 ring-white/15 bg-slate-950/85 backdrop-blur-md text-white shadow-2xl'
+              ? 'absolute right-3 bottom-3 z-10 w-[min(38rem,calc(100%-1.5rem))] flex flex-wrap items-center gap-2 px-3 py-2 rounded-2xl ring-1 ring-white/15 bg-slate-950/85 backdrop-blur-md text-white shadow-2xl'
               : 'flex flex-wrap items-center gap-2 px-3 py-1.5 border-t border-emerald-500/30 bg-slate-900 text-white'
           }
         >
-          {/* Back to the start, a step back, play / pause, a step on, to the snap: to go over it with the team. */}
+          {/* Back to the start, a step back, play / pause, a step on, to the snap / flow / attack: to go over it with the team. */}
           <div className="inline-flex items-center gap-1">
             <button type="button" onClick={() => { setIsPlaying(false); setAnimProgress(0); }} title="Back to the pre-snap alignment (Home)" aria-label="Back to the start" className={ctl}>⏮</button>
             <button type="button" onClick={() => stepAnim(-1)} title="Step back (left arrow)" aria-label="Step back" className={ctl}>◀︎</button>
@@ -1605,6 +1619,28 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
                 Snap
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => {
+                setIsPlaying(false);
+                setAnimProgress(snapAt + (1 - snapAt) * 0.25);
+              }}
+              title="Jump to Phase 1: Linebackers reading keys & flowing laterally with the backfield"
+              className={`${ctl} w-auto px-2 text-[10px] border border-emerald-500/40 text-emerald-300`}
+            >
+              Flow
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsPlaying(false);
+                setAnimProgress(snapAt + (1 - snapAt) * 0.52);
+              }}
+              title="Jump to Phase 2: Linebackers triggering downhill to attack their gap fit"
+              className={`${ctl} w-auto px-2 text-[10px] border border-amber-500/40 text-amber-300`}
+            >
+              Attack
+            </button>
           </div>
           <span className="px-2 py-0.5 rounded bg-slate-800 border border-emerald-500/30 text-[10px] font-extrabold uppercase tracking-wider text-emerald-300 min-w-[110px] text-center">
             {animatedFrame.phaseLabel}

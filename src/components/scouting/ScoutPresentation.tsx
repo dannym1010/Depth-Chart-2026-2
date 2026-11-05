@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ChevronLeft, ChevronRight, Eraser, Expand, Film, LayoutGrid, ListOrdered, Minimize2, PenLine, PenTool, Play, Presentation, Sparkles, Undo2, X,
+  ChevronLeft, ChevronRight, Eraser, Expand, Film, LayoutGrid, ListOrdered, Minimize2, PenLine, PenTool, Play, Presentation, Shield, Sparkles, Undo2, X,
 } from 'lucide-react';
 import { setFilmWindowDock, useFilmWindowRequest } from '../../filmroom/filmWindowStore';
 import type { ScoutOppPlay } from '../../utils/scoutOppPlays';
@@ -114,11 +114,12 @@ export const ScoutPresentation: React.FC<{
   const [inkCount, setInkCount] = useState(0);
   const ink = useRef<InkApi | null>(null);
   const [run, setRun] = useState(0);
+  const [defenseHud, setDefenseHud] = useState(false);
   const [flash, setFlash] = useState(false);
   const [hint, setHint] = useState('');
   // The floating controls: always out of full screen; in it, until the coach stops touching the screen. Drawing,
   // the draw tools stay.
-  const controls = !full || shown || gridOpen;
+  const controls = !full || shown || gridOpen || defenseHud;
   const tools = controls || inkOn;
 
   const hideTimer = useRef(0);
@@ -274,9 +275,9 @@ export const ScoutPresentation: React.FC<{
         y: e.clientY,
         t: performance.now(),
         ink: false,
-        // Not on something that drags (the film zoomed in, a player of the film's play lines).
-        swipe: e.pointerType === 'touch' && !t.closest('[data-zoomed], [data-film-stage] svg, input'),
-        ui: Boolean(t.closest('button, a, input, select, textarea, [role="button"]')),
+        // Not on something that drags (the film zoomed in, a player on the field or film's play lines).
+        swipe: e.pointerType === 'touch' && !t.closest('[data-zoomed], [data-player-node], [data-film-stage] svg, input'),
+        ui: Boolean(t.closest('button, a, input, select, textarea, [role="button"], [data-player-node]')),
         film: Boolean(t.closest('[data-film-stage]')),
         mouse: e.pointerType === 'mouse',
       };
@@ -365,7 +366,10 @@ export const ScoutPresentation: React.FC<{
     if (gridOpen) gridRef.current?.querySelector('[aria-current="true"]')?.scrollIntoView({ block: 'center' });
   }, [gridOpen]);
 
-  const stage = useMemo(() => ({ on: full, run }), [full, run]);
+  const stage = useMemo(
+    () => ({ on: full, run, defenseHud, toggleDefenseHud: () => setDefenseHud((v) => !v) }),
+    [full, run, defenseHud]
+  );
 
   // Finger-sized on a touch screen (an iPad).
   const navBtn = 'h-9 pointer-coarse:h-11 px-3 rounded-lg text-sm font-black inline-flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-default';
@@ -549,10 +553,22 @@ export const ScoutPresentation: React.FC<{
               </button>
             </div>
             {view === 'diagram' && (
-              <button type="button" onClick={() => setRun((n) => n + 1)} className={stageBtn()} title="Run the play: the players move through it">
-                <Play className="w-4 h-4 fill-current" />
-                <span className="max-md:hidden">Run</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  aria-pressed={defenseHud}
+                  onClick={() => setDefenseHud((v) => !v)}
+                  className={stageBtn(defenseHud)}
+                  title="Adjust our defense vs. their play (Front, Blitz, Coverage, Unit & Defender Rules)"
+                >
+                  <Shield className="w-4 h-4" />
+                  <span className="max-md:hidden">Defense</span>
+                </button>
+                <button type="button" onClick={() => setRun((n) => n + 1)} className={stageBtn()} title="Run the play: the players move through it">
+                  <Play className="w-4 h-4 fill-current" />
+                  <span className="max-md:hidden">Run</span>
+                </button>
+              </>
             )}
             <button
               type="button"
