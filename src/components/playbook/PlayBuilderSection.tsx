@@ -73,6 +73,7 @@ import { DiagramImage } from './DiagramImage';
 import { DefenseCallPicker } from './DefenseCallPicker';
 import { defenseJob, defenseOrder, standardDefenseJob } from '../../utils/defenseJobs';
 import { applyRuleAlignments, pickedTechniques, rulesText } from '../../utils/defenseRules';
+import { computeGapIntegrity } from '../../utils/defenseReads';
 import { DefenderRules } from './DefenderRules';
 import { defenseCallName, defenseCallStrokes, mirrorJob, mirrorPressure, pressureGaps } from '../../utils/defenseCalls';
 import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, defenseMirrored, lineUpOurDefense, samToWideSide, tightEndFlip } from '../../hudlScout/utils/ourDefense';
@@ -260,6 +261,9 @@ function startFromSeed(seed?: PlayBuilderSeed | null) {
 // builder anew).
 let presentPanelOpen = false;
 let presentEditing = false;
+let presentShowGapFits = false;
+let presentSpotlightRole: string | null = null;
+let presentQuizMode = false;
 // Presentation's full screen: the field as tall as the screen allows, a little room around it.
 const STAGE_FIELD_HEIGHT = 'calc(100dvh - 1.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))';
 
@@ -304,6 +308,24 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     setEditingState(on);
     if (present) presentEditing = on;
   };
+  const [showGapFits, setShowGapFitsState] = useState(() => (present ? presentShowGapFits : false));
+  const setShowGapFits = (on: boolean) => {
+    setShowGapFitsState(on);
+    if (present) presentShowGapFits = on;
+  };
+  const [spotlightRole, setSpotlightRoleState] = useState<string | null>(() => (present ? presentSpotlightRole : null));
+  const setSpotlightRole = (role: string | null) => {
+    setSpotlightRoleState(role);
+    setQuizRevealed(false);
+    if (present) presentSpotlightRole = role;
+  };
+  const [quizMode, setQuizModeState] = useState(() => (present ? presentQuizMode : false));
+  const setQuizMode = (on: boolean) => {
+    setQuizModeState(on);
+    setQuizRevealed(false);
+    if (present) presentQuizMode = on;
+  };
+  const [quizRevealed, setQuizRevealed] = useState(false);
   const fieldOnly = Boolean(present) && (!editing || staged);
   const [situations, setSituations] = useState<string[]>(saved?.situations || []);
   const looks = teamDefenseLooks(defenseSystem());
@@ -520,6 +542,27 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const jobOf = (n: PlayNode) =>
     defenseJob(n, { typed: jobs[n.role], rules: rulesOf(n), strokes: [...strokes, ...callStrokes], look: dLook, contain: dLook ? containFor(dLook.front) : '', everyone: [...offNodes, ...dNodes] });
   const pickedDefNode = pickedDef ? dNodes.find((n) => n.role === pickedDef) || null : null;
+  const orderedDefenders = useMemo(() => defenseOrder(dNodes), [dNodes]);
+  const spotlightNode = spotlightRole ? dNodes.find((n) => n.role === spotlightRole) || null : null;
+  const cycleSpotlight = (dir: 1 | -1) => {
+    if (!orderedDefenders.length) return;
+    const idx = orderedDefenders.findIndex((n) => n.role === spotlightRole);
+    const nextIdx = idx < 0 ? 0 : (idx + dir + orderedDefenders.length) % orderedDefenders.length;
+    setSpotlightRole(orderedDefenders[nextIdx].role);
+  };
+  const targetHoleX = useMemo(() => {
+    const hNum = typeof holeOverride === 'number' ? holeOverride : play?.metadata?.targetHole;
+    if (typeof hNum !== 'number' || !HOLE_SYSTEM[hNum]) return null;
+    const sideSign = hNum % 2 === 1 ? -1 : 1;
+    const mag = hNum <= 2 ? 1.2 : hNum <= 4 ? 3.0 : hNum <= 6 ? 4.8 : 6.8;
+    return ballX + sideSign * mag;
+  }, [holeOverride, play?.metadata?.targetHole, ballX]);
+  const gapIntegritySlots = useMemo(
+    () => (dLook && dNodes.length && offNodes.length ? computeGapIntegrity(dNodes, offNodes, defRules, [...strokes, ...callStrokes], targetHoleX) : []),
+    [dLook, dNodes, offNodes, defRules, strokes, callStrokes, targetHoleX]
+  );
+  const openGaps = useMemo(() => gapIntegritySlots.filter((g) => g.status === 'open'), [gapIntegritySlots]);
+  const overloadedGaps = useMemo(() => gapIntegritySlots.filter((g) => g.status === 'overloaded'), [gapIntegritySlots]);
   const renderDefenderRules = (n: PlayNode) => {
     const standard = dLook ? standardDefenseJob(n.role, dLook, containFor(dLook.front)) : '';
     return (
@@ -1735,6 +1778,63 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 >
                   <PlayIcon className="w-3 h-3 fill-current" /> Run Defense vs. Play
                 </button>
+                {dLook && (
+                  <button
+                    type="button"
+                    aria-pressed={showGapFits}
+                    onClick={() => setShowGapFits(!showGapFits)}
+                    title="Show or hide live defensive gap fits (A, B, C, D/Edge) and unaccounted-gap warnings on the line of scrimmage"
+                    className={`h-7 px-2.5 rounded-lg border text-[11px] font-black inline-flex items-center gap-1 cursor-pointer transition-colors ${
+                      showGapFits
+                        ? openGaps.length > 0
+                          ? 'bg-rose-600 border-rose-600 text-white'
+                          : 'bg-emerald-700 border-emerald-700 text-white'
+                        : 'bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-emerald-500'
+                    }`}
+                  >
+                    {openGaps.length > 0 ? `⚠ Gap Fits (${openGaps.length} Open)` : '✓ Gap Fits'}
+                  </button>
+                )}
+                {dLook && orderedDefenders.length > 0 && (
+                  <div className="inline-flex items-center gap-1">
+                    <select
+                      aria-label="Spotlight defender for walkthrough"
+                      value={spotlightRole || ''}
+                      onChange={(e) => setSpotlightRole(e.target.value || null)}
+                      title="Highlight one defender across every play in the presentation for walkthroughs or player quizzes"
+                      className={`h-7 rounded-lg border px-2 text-[11px] font-black cursor-pointer ${
+                        spotlightRole
+                          ? 'border-amber-500 bg-amber-500/20 text-amber-900 dark:text-amber-200'
+                          : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200'
+                      }`}
+                    >
+                      <option value="">★ Spotlight Player: Off</option>
+                      {orderedDefenders.map((n) => {
+                        const who = n.player ? ` — #${n.player.num} ${n.player.name}` : '';
+                        return (
+                          <option key={n.role} value={n.role}>
+                            ★ {diagramLabel(n.role)}{who}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    {spotlightRole && (
+                      <button
+                        type="button"
+                        aria-pressed={quizMode}
+                        onClick={() => setQuizMode(!quizMode)}
+                        title="Quiz Mode: hides the spotlighted player's assignment until you click Reveal & Run"
+                        className={`h-7 px-2 rounded-lg border text-[11px] font-black cursor-pointer ${
+                          quizMode
+                            ? 'bg-amber-600 border-amber-600 text-white'
+                            : 'bg-white dark:bg-slate-950 border-amber-400 text-amber-800 dark:text-amber-300'
+                        }`}
+                      >
+                        ❓ Quiz {quizMode ? 'On' : 'Off'}
+                      </button>
+                    )}
+                  </div>
+                )}
                 {dNodes.length > 0 && hasDepth && (
                   <div role="group" aria-label="Which unit plays our defense" className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-[11px] font-black">
                     {(['off', 'black', 'gold', 'blue'] as const).map((u) => {
@@ -1764,6 +1864,25 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 </span>
               </div>
               <div className="w-full">{defensePicker(true, true)}</div>
+              {showGapFits && gapIntegritySlots.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] font-bold">
+                  {openGaps.length === 0 ? (
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white font-black">
+                      ✓ Gap Integrity Sound — All {gapIntegritySlots.length} Gaps Accounted For
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-md bg-rose-600 text-white font-black">
+                      ⚠ Unaccounted Gap{openGaps.length > 1 ? 's' : ''}:{' '}
+                      {openGaps.map((g) => `${g.side === 'left' ? 'Left' : 'Right'} ${g.label}${g.isPointOfAttack ? ' (POINT OF ATTACK!)' : ''}`).join(' · ')}
+                    </span>
+                  )}
+                  {overloadedGaps.length > 0 && (
+                    <span className="px-2 py-0.5 rounded-md bg-amber-500/90 text-slate-950 font-black">
+                      2× Stacked in {overloadedGaps.map((g) => `${g.side === 'left' ? 'Left' : 'Right'} ${g.gap} (${g.defenders.map((d) => diagramLabel(d.role)).join('+')})`).join(', ')}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           )}
           {staged && stage.defenseHud && (
@@ -1775,7 +1894,48 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 <span className="inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-emerald-400">
                   <Shield className="w-4 h-4" /> Our Defense vs. Their Play{dLook ? ` · ${callName}` : ''}
                 </span>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {dLook && (
+                    <button
+                      type="button"
+                      aria-pressed={showGapFits}
+                      onClick={() => setShowGapFits(!showGapFits)}
+                      className={`h-7 px-2 rounded-lg text-[11px] font-black cursor-pointer ${
+                        showGapFits ? (openGaps.length > 0 ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white') : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                      }`}
+                    >
+                      {openGaps.length > 0 ? `⚠ Gaps (${openGaps.length} Open)` : '✓ Gap Fits'}
+                    </button>
+                  )}
+                  {dLook && orderedDefenders.length > 0 && (
+                    <>
+                      <select
+                        aria-label="Spotlight defender for walkthrough"
+                        value={spotlightRole || ''}
+                        onChange={(e) => setSpotlightRole(e.target.value || null)}
+                        className="h-7 rounded-lg border border-slate-700 bg-slate-900 px-2 text-[11px] font-black text-amber-300 cursor-pointer"
+                      >
+                        <option value="">★ Spotlight: Off</option>
+                        {orderedDefenders.map((n) => (
+                          <option key={n.role} value={n.role}>
+                            ★ {diagramLabel(n.role)}{n.player ? ` (#${n.player.num} ${n.player.name})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      {spotlightRole && (
+                        <button
+                          type="button"
+                          aria-pressed={quizMode}
+                          onClick={() => setQuizMode(!quizMode)}
+                          className={`h-7 px-2 rounded-lg text-[11px] font-black cursor-pointer ${
+                            quizMode ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-amber-300'
+                          }`}
+                        >
+                          ❓ Quiz
+                        </button>
+                      )}
+                    </>
+                  )}
                   {dNodes.length > 0 && hasDepth && (
                     <div role="group" aria-label="Which unit plays our defense" className="inline-flex rounded-lg border border-slate-700 overflow-hidden text-[11px] font-black">
                       {(['off', 'black', 'gold', 'blue'] as const).map((u) => {
@@ -1807,6 +1967,104 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               <p className="text-[11px] text-slate-300">
                 Tap any defender on the field to customize his Read Key, Flow Tempo (Flow &amp; Attack / Fast Scrape), Gap Fit &amp; Technique, or drag him into a new alignment.
               </p>
+            </div>
+          )}
+          {spotlightNode && dLook && (
+            <div
+              data-stage-ui
+              className={`${
+                staged
+                  ? 'fixed top-16 left-1/2 -translate-x-1/2 z-30 w-[min(92vw,600px)]'
+                  : 'rounded-xl'
+              } flex flex-wrap items-center justify-between gap-2 rounded-xl border-2 border-amber-400/90 bg-slate-900/95 text-white px-3 py-2 shadow-xl`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <span className="shrink-0 px-2 py-1 rounded-lg bg-amber-500 text-slate-950 text-xs font-black">
+                  ★ {shownText(spotlightNode, diagramLabel(spotlightNode.role))}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black text-amber-300 truncate">
+                      {spotlightNode.player ? `#${spotlightNode.player.num} ${spotlightNode.player.name} (${diagramLabel(spotlightNode.role)})` : `${diagramLabel(spotlightNode.role)} Walkthrough Spotlight`}
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-400">vs. {callLabel}</span>
+                  </div>
+                  {quizMode && !quizRevealed ? (
+                    <div className="text-xs sm:text-sm font-black text-white mt-0.5">
+                      ❓ Quiz: What is your Read Key, Flow &amp; Gap Fit on this play?
+                    </div>
+                  ) : (
+                    <div className="text-xs sm:text-sm font-black text-emerald-300 mt-0.5 truncate">
+                      {jobOf(spotlightNode) || standardDefenseJob(spotlightNode.role, dLook, containFor(dLook.front))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {quizMode && !quizRevealed ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setQuizRevealed(true)}
+                      className="h-7 px-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-black cursor-pointer"
+                    >
+                      👁 Reveal Answer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQuizRevealed(true);
+                        setPlayAnimTrigger((n) => n + 1);
+                      }}
+                      className="h-7 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <PlayIcon className="w-3 h-3 fill-current" /> Reveal &amp; Run
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setPlayAnimTrigger((n) => n + 1)}
+                    className="h-7 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <PlayIcon className="w-3 h-3 fill-current" /> Run Play
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setQuizMode(!quizMode)}
+                  title="Toggle Quiz Mode (hide assignment until revealed)"
+                  className={`h-7 px-2 rounded-lg text-[11px] font-black cursor-pointer ${
+                    quizMode ? 'bg-amber-500/30 border border-amber-400 text-amber-200' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  ❓ Quiz
+                </button>
+                <button
+                  type="button"
+                  onClick={() => cycleSpotlight(-1)}
+                  title="Previous defender"
+                  className="h-7 px-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-black cursor-pointer"
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  onClick={() => cycleSpotlight(1)}
+                  title="Next defender"
+                  className="h-7 px-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-black cursor-pointer"
+                >
+                  ›
+                </button>
+                <button
+                  type="button"
+                  aria-label="Turn off spotlight"
+                  onClick={() => setSpotlightRole(null)}
+                  className="h-7 w-7 rounded-lg bg-slate-800 hover:bg-slate-700 inline-flex items-center justify-center text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           )}
           {(formationMode || defenseMode) && !staged && (
@@ -1960,6 +2218,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               playTrigger={playAnimTrigger}
               extraStrokes={callStrokes}
               defenseRules={defRules}
+              gapFits={showGapFits ? gapIntegritySlots : undefined}
+              spotlightRole={spotlightRole}
               play={{
                 ...play,
                 metadata: {
@@ -2079,6 +2339,19 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    aria-pressed={spotlightRole === pickedDefNode.role}
+                    onClick={() => setSpotlightRole(spotlightRole === pickedDefNode.role ? null : pickedDefNode.role)}
+                    title="Spotlight this defender across plays for walkthroughs & quizzes"
+                    className={`h-7 px-2 rounded-lg text-[11px] font-black inline-flex items-center gap-1 cursor-pointer ${
+                      spotlightRole === pickedDefNode.role
+                        ? 'bg-amber-500 text-slate-950'
+                        : 'border border-amber-400/70 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+                    }`}
+                  >
+                    ★ Spotlight
+                  </button>
                   <button
                     type="button"
                     onClick={() => setPlayAnimTrigger((n) => n + 1)}
@@ -2450,8 +2723,47 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
           {tab === 'jobs' && (defenseMode || Boolean(dLook)) && (
             <div className="p-3.5 space-y-3">
               <div>
-                <div className="text-sm font-black text-slate-900 dark:text-white">{dLook ? lookName : 'Pick a front'}</div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-sm font-black text-slate-900 dark:text-white">{dLook ? lookName : 'Pick a front'}</div>
+                  {dLook && (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        aria-pressed={showGapFits}
+                        onClick={() => setShowGapFits(!showGapFits)}
+                        className={`h-7 px-2 rounded-lg border text-[11px] font-black cursor-pointer ${
+                          showGapFits
+                            ? openGaps.length > 0
+                              ? 'bg-rose-600 border-rose-600 text-white'
+                              : 'bg-emerald-600 border-emerald-600 text-white'
+                            : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-emerald-500'
+                        }`}
+                      >
+                        {openGaps.length > 0 ? `⚠ Gap Fits (${openGaps.length} Open)` : '✓ Gap Fits'}
+                      </button>
+                      {pickedDef && (
+                        <button
+                          type="button"
+                          aria-pressed={spotlightRole === pickedDef}
+                          onClick={() => setSpotlightRole(spotlightRole === pickedDef ? null : pickedDef)}
+                          className={`h-7 px-2 rounded-lg border text-[11px] font-black cursor-pointer ${
+                            spotlightRole === pickedDef
+                              ? 'bg-amber-500 border-amber-500 text-slate-950'
+                              : 'border-amber-400/70 text-amber-700 dark:text-amber-300'
+                          }`}
+                        >
+                          ★ Spotlight
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
                 {dLook && <div className="text-xs text-slate-500 dark:text-slate-400">{dLook.notes}</div>}
+                {showGapFits && openGaps.length > 0 && (
+                  <div className="mt-1.5 px-2 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-[11px] font-black text-rose-700 dark:text-rose-300">
+                    ⚠ Unaccounted: {openGaps.map((g) => `${g.side === 'left' ? 'Left' : 'Right'} ${g.label}`).join(', ')}
+                  </div>
+                )}
                 <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
                   Tap a defender (here or on the field) to set his rules. A technique moves him; a drop, blitz or slant draws his line.
                 </p>

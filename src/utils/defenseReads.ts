@@ -288,6 +288,30 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
     }
   }
 
+  // Detect backfield misdirection / counter fake (jab step opposite the hole, fake back going opposite, or guard pulling opposite back action)
+  const mainDir = side || pullDir || Math.sign(hole.x - carrierStart.x);
+  let fakeDir = 0;
+  const cEarly = where(carrier, 0.14);
+  if (mainDir !== 0 && (cEarly.x - carrierStart.x) * mainDir < -0.35) {
+    // Carrier took a counter jab-step opposite the hole
+    fakeDir = -mainDir;
+  } else if (mainDir !== 0) {
+    // Check if another back (2, 3, 4) runs a fake opposite the point of attack
+    for (const bRole of ['2', '3', '4']) {
+      if (bRole === carrier || !grid[0].has(bRole)) continue;
+      const b0 = grid[0].get(bRole)!;
+      const b1 = where(bRole, 0.22);
+      if (Math.abs(b1.x - b0.x) > 0.7 && (b1.x - b0.x) * mainDir < -0.4) {
+        fakeDir = -mainDir;
+        break;
+      }
+    }
+    // On a pulling guard play (Counter / Trap / Buck), backfield counter action threatens opposite the pull
+    if (!fakeDir && pullDir !== 0) {
+      fakeDir = -pullDir;
+    }
+  }
+
   // The edge on each side: the last man on the line (a tight end, a tackle).
   const qbStart = r.offense.find((n) => n.role === r.qb) || { x: 0, y: -1 };
   const onLine = r.offense.filter((n) => Math.abs(n.y) < 1.6 && Math.abs(n.x) < 9.5 && n.role !== r.qb);
@@ -441,9 +465,10 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
         if (rule.run === 'fill' || rule.run === 'alley') return { x: start.x + flowDir * 0.4, y: start.y - 0.3 };
         return { x: start.x, y: start.y + 0.5 };
       }
-      // Linebacker read step: eyes on key, step toward flow while staying square at linebacker depth
+      // Linebacker read step: eyes on key, step toward flow (or bite on fake if reading Near Back on misdirection!)
       const readStepY = rule.flow === 'downhill' ? -0.45 : rule.flow === 'slow' ? -0.05 : -0.2;
-      return { x: start.x + flowDir * 0.65, y: start.y + readStepY };
+      const initialKeyDir = (rule.key === 'back' || rule.key === 'qb') && fakeDir !== 0 ? fakeDir : flowDir;
+      return { x: start.x + initialKeyDir * 0.65, y: start.y + readStepY };
     }
 
     // Man coverage on a run play: locks onto receiver briefly before turning to pursue the ball carrier
@@ -542,14 +567,25 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
       default: {
         // ====================================================================
         // LINEBACKERS (MIKE, WILL, SAM, ROV, ILB, OLB) & BOX SAFETIES:
-        // True 2-Phase "Flow Then Attack" Run Read!
+        // True 2-Phase "Flow Then Attack" Run Read + Read-Key Eye Discipline!
         // ====================================================================
         const flowStyle = rule.flow || 'flow_attack';
+        const readKey = rule.key || '';
         const action = rule.action || (d.role === filler ? 'fill' : playside ? 'scrape' : 'fold');
+
+        // Eye Discipline Simulation:
+        // - If Read Key is `back` ('Near Back') or `qb` on a Counter / Pull / Misdirection play (`fakeDir !== 0`),
+        //   the linebacker bites on the backfield eye-candy for two false steps (`now < 0.34`) before recovering late!
+        // - If Read Key is `guard` ('Near Guard') or `guard_back` ('Guard -> Near Back'),
+        //   he immediately keys the guard/puller, ignores the fake, and triggers downhill faster!
+        if ((readKey === 'back' || readKey === 'qb') && fakeDir !== 0 && now < 0.34) {
+          const falseStepDepthY = Math.max(2.6, start.y - 0.35);
+          return { x: start.x + fakeDir * 2.5, y: falseStepDepthY };
+        }
 
         // How long the linebacker shuffles/flows laterally at LB depth before triggering downhill
         const baseFlowEnd = Math.min(0.32, Math.max(0.22, holeAt * 0.68));
-        const flowUntil =
+        const rawFlowUntil =
           flowStyle === 'downhill'
             ? 0.16
             : flowStyle === 'fast'
@@ -559,6 +595,10 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
                 : flowStyle === 'slow' || action === 'fold' || action === 'cutback'
                   ? 0.36
                   : baseFlowEnd;
+        const flowUntil =
+          readKey === 'guard' || readKey === 'guard_back'
+            ? rawFlowUntil * 0.82
+            : rawFlowUntil;
 
         // Determine the linebacker's target gap X
         const defaultFitX =
@@ -569,7 +609,8 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
               : action === 'spill' || action === 'wrongarm'
                 ? hole.x - flowDir * 0.8
                 : hole.x + flowDir * 1.1;
-        const targetGapX = rule.fit ? gapX(rule.fit, flowDir || s, defaultFitX) : defaultFitX;
+        const emolTightShift = readKey === 'emol' ? -s * 0.55 : 0;
+        const targetGapX = (rule.fit ? gapX(rule.fit, flowDir || s, defaultFitX) : defaultFitX) + emolTightShift;
 
         // PHASE 1: Read & Lateral Flow parallel to the Line of Scrimmage (staying square at LB depth)
         if (now < flowUntil) {
@@ -654,3 +695,184 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
   for (const [role, p] of pos) pos.set(role, { x: round(p.x), y: round(p.y) });
   return { pos, trails };
 }
+
+export interface GapFitSlot {
+  id: string;
+  side: 'left' | 'right';
+  gap: 'A' | 'B' | 'C' | 'D';
+  label: string;
+  x: number;
+  y: number;
+  defenders: { role: string; fromX: number; fromY: number; source: 'rule' | 'blitz' | 'align' }[];
+  status: 'accounted' | 'open' | 'overloaded';
+  isPointOfAttack: boolean;
+}
+
+/**
+ * Evaluates live defensive gap integrity across the offensive front (`A`, `B`, `C`, and `D` when a TE/Wing surface exists).
+ * Used in Presentation Mode & Play Builder to highlight accounted gaps (green), unaccounted/open gaps (red),
+ * and overloaded/double-fit gaps (amber), plus which gap the offensive play is attacking.
+ */
+export function computeGapIntegrity(
+  defense: PlayNode[],
+  offense: PlayNode[],
+  rules: Record<string, Record<string, string>> = {},
+  strokes: PlayStroke[] = [],
+  targetHoleX?: number | null
+): GapFitSlot[] {
+  if (!defense.length || !offense.length) return [];
+  const gMap = computeGaps(offense);
+  const C = gMap.C;
+  const LT = offense.find((n) => n.role === 'LT')?.x ?? C - 4;
+  const RT = offense.find((n) => n.role === 'RT')?.x ?? C + 4;
+  const hasLeftTE = offense.some((n) => n.x < LT - 0.5 && n.x > LT - 4.2 && Math.abs(n.y) < 2.2);
+  const hasRightTE = offense.some((n) => n.x > RT + 0.5 && n.x < RT + 4.2 && Math.abs(n.y) < 2.2);
+
+  const slots: GapFitSlot[] = [
+    ...(hasLeftTE
+      ? [{ id: 'DL', side: 'left' as const, gap: 'D' as const, label: 'D / Edge', x: round(gMap.left.D), y: 0.35, defenders: [], status: 'open' as const, isPointOfAttack: false }]
+      : []),
+    { id: 'CL', side: 'left', gap: 'C', label: hasLeftTE ? 'C' : 'C / Edge', x: round(gMap.left.C), y: 0.35, defenders: [], status: 'open', isPointOfAttack: false },
+    { id: 'BL', side: 'left', gap: 'B', label: 'B', x: round(gMap.left.B), y: 0.35, defenders: [], status: 'open', isPointOfAttack: false },
+    { id: 'AL', side: 'left', gap: 'A', label: 'A', x: round(gMap.left.A), y: 0.35, defenders: [], status: 'open', isPointOfAttack: false },
+    { id: 'AR', side: 'right', gap: 'A', label: 'A', x: round(gMap.right.A), y: 0.35, defenders: [], status: 'open', isPointOfAttack: false },
+    { id: 'BR', side: 'right', gap: 'B', label: 'B', x: round(gMap.right.B), y: 0.35, defenders: [], status: 'open', isPointOfAttack: false },
+    { id: 'CR', side: 'right', gap: 'C', label: hasRightTE ? 'C' : 'C / Edge', x: round(gMap.right.C), y: 0.35, defenders: [], status: 'open', isPointOfAttack: false },
+    ...(hasRightTE
+      ? [{ id: 'DR', side: 'right' as const, gap: 'D' as const, label: 'D / Edge', x: round(gMap.right.D), y: 0.35, defenders: [], status: 'open' as const, isPointOfAttack: false }]
+      : []),
+  ];
+
+  if (targetHoleX != null && Number.isFinite(targetHoleX)) {
+    let best = slots[0];
+    let bd = Infinity;
+    for (const s of slots) {
+      const d = Math.abs(s.x - targetHoleX);
+      if (d < bd) {
+        bd = d;
+        best = s;
+      }
+    }
+    if (best) best.isPointOfAttack = true;
+  }
+
+  const jobs = defenseJobs(defense);
+  const nearestSlot = (x: number, sideFilter?: 'left' | 'right'): GapFitSlot => {
+    const pool = sideFilter ? slots.filter((s) => s.side === sideFilter) : slots;
+    let best = pool[0] || slots[0];
+    let bd = Infinity;
+    for (const s of pool) {
+      const d = Math.abs(s.x - x);
+      if (d < bd) {
+        bd = d;
+        best = s;
+      }
+    }
+    return best;
+  };
+  const slotBySideAndGap = (side: 'left' | 'right', gap: string): GapFitSlot => {
+    if (gap === 'edge' || gap === 'alley' || gap === 'D') {
+      const dSlot = slots.find((s) => s.side === side && s.gap === 'D');
+      if (dSlot) return dSlot;
+      return slots.find((s) => s.side === side && s.gap === 'C') || nearestSlot(side === 'left' ? -4 : 4, side);
+    }
+    return slots.find((s) => s.side === side && s.gap === gap) || nearestSlot(side === 'left' ? -2 : 2, side);
+  };
+
+  // First pass: D-Linemen, Blitzers, and Explicit Rule Picks
+  const pendingBackers: PlayNode[] = [];
+  for (const d of defense) {
+    const job = jobs.get(d.role);
+    if (!job) continue;
+    const rule = rules[d.role] || {};
+    const side: 'left' | 'right' = d.x < C - 0.1 ? 'left' : d.x > C + 0.1 ? 'right' : targetHoleX != null && targetHoleX < C ? 'left' : 'right';
+
+    // 1. Check if this defender has a blitz/stunt stroke attacking the LOS
+    const blitz = strokes.find((st) => {
+      if (st.zone || st.man || !st.points || st.points.length < 2) return false;
+      const p0 = st.points[0];
+      const pEnd = st.points[st.points.length - 1];
+      return Math.hypot(p0.x - d.x, p0.y - d.y) < 1.25 && pEnd.y <= 1.25;
+    });
+    if (blitz) {
+      const pEnd = blitz.points[blitz.points.length - 1];
+      const slot = nearestSlot(pEnd.x);
+      slot.defenders.push({ role: d.role, fromX: d.x, fromY: d.y, source: 'blitz' });
+      continue;
+    }
+
+    // 2. Explicit gap / fit rule picked by coach
+    if (job.line) {
+      if (rule.gap) {
+        const slot = slotBySideAndGap(side, rule.gap);
+        slot.defenders.push({ role: d.role, fromX: d.x, fromY: d.y, source: 'rule' });
+        continue;
+      }
+      if (rule.play === 'contain') {
+        const slot = slotBySideAndGap(side, 'edge');
+        slot.defenders.push({ role: d.role, fromX: d.x, fromY: d.y, source: 'rule' });
+        continue;
+      }
+      // Standard DL alignment fit: closest open gap on his side (or closest gap if all on his side are taken)
+      const openDlOnSide = slots
+        .filter((s) => (Math.abs(d.x - C) < 0.8 || s.side === side) && s.defenders.length === 0)
+        .sort((a, b) => Math.abs(a.x - d.x) - Math.abs(b.x - d.x))[0];
+      const primary = openDlOnSide || nearestSlot(d.x, Math.abs(d.x - C) < 0.8 ? undefined : side);
+      primary.defenders.push({ role: d.role, fromX: d.x, fromY: d.y, source: 'align' });
+      if (rule.play === 'twogap') {
+        const second = slots
+          .filter((s) => s.id !== primary.id)
+          .sort((a, b) => Math.abs(a.x - d.x) - Math.abs(b.x - d.x))[0];
+        if (second && Math.abs(second.x - d.x) < 2.4) {
+          second.defenders.push({ role: d.role, fromX: d.x, fromY: d.y, source: 'rule' });
+        }
+      }
+      continue;
+    }
+
+    // 3. Linebackers & Safeties with explicit `fit` or `action === 'contain' | 'force'` or DB with `run === 'force' | 'alley' | 'contain'`
+    if (rule.fit) {
+      const slot = slotBySideAndGap(side, rule.fit);
+      slot.defenders.push({ role: d.role, fromX: d.x, fromY: d.y, source: 'rule' });
+      continue;
+    }
+    if (rule.action === 'contain' || rule.action === 'force' || rule.run === 'force' || rule.run === 'contain' || rule.run === 'crack_replace') {
+      const slot = slotBySideAndGap(side, 'edge');
+      slot.defenders.push({ role: d.role, fromX: d.x, fromY: d.y, source: 'rule' });
+      continue;
+    }
+
+    // Defer standard LB / Box Safety gap assignment to second pass so they naturally fill open gaps not taken by DL
+    if (job.job === 'inside' || job.job === 'outside' || (job.job === 'safety' && d.y < 6.5) || (job.job === 'deep' && rule.run === 'fill')) {
+      pendingBackers.push(d);
+    }
+  }
+
+  // Second pass: Standard Linebackers fill the open gaps on their side (or edge if outside backer)
+  for (const d of pendingBackers) {
+    const job = jobs.get(d.role)!;
+    const side: 'left' | 'right' = d.x < C - 0.2 ? 'left' : d.x > C + 0.2 ? 'right' : slots.find((s) => s.side === 'left' && !s.defenders.length) ? 'left' : 'right';
+    if (job.edge || job.job === 'outside') {
+      const edgeSlot = slotBySideAndGap(side, 'edge');
+      if (!edgeSlot.defenders.length) {
+        edgeSlot.defenders.push({ role: d.role, fromX: d.x, fromY: d.y, source: 'align' });
+        continue;
+      }
+    }
+    // Find nearest open gap on his side, else nearest open gap anywhere on the front, else nearest gap on his side
+    const openOnSide = slots.filter((s) => s.side === side && s.defenders.length === 0).sort((a, b) => Math.abs(a.x - d.x) - Math.abs(b.x - d.x))[0];
+    const openAny = slots.filter((s) => s.defenders.length === 0).sort((a, b) => Math.abs(a.x - d.x) - Math.abs(b.x - d.x))[0];
+    const picked = openOnSide || openAny || nearestSlot(d.x, side);
+    picked.defenders.push({ role: d.role, fromX: d.x, fromY: d.y, source: 'align' });
+  }
+
+  const anyOpen = slots.some((s) => s.defenders.length === 0);
+  for (const s of slots) {
+    if (s.defenders.length === 0) s.status = 'open';
+    else if (s.defenders.length >= 2 && anyOpen) s.status = 'overloaded';
+    else s.status = 'accounted';
+  }
+
+  return slots;
+}
+

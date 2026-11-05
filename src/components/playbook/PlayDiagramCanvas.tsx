@@ -32,6 +32,7 @@ import {
 } from '../../utils/footballEngine';
 import { COLOR, PlayerAssignmentPanel, arrowPts, strokeFor, tBar } from './PlayerAssignmentPanel';
 import { computeAnimatedPlayFrame, playAnimationSeconds, snapProgress } from '../../utils/playAnimation';
+import type { GapFitSlot } from '../../utils/defenseReads';
 
 /** Play movement speeds: full, and slow motion for going over it with the team. */
 const ANIM_SPEEDS = [0.1, 0.25, 0.5, 1];
@@ -198,6 +199,10 @@ interface Props {
   extraStrokes?: PlayStroke[];
   /** Per-defender rules (gap fit, run action, flow tempo, read key, etc.) that govern defensive movement. */
   defenseRules?: Record<string, Record<string, string>>;
+  /** Live defensive gap-integrity slots to render on the line of scrimmage when "Show Gap Fits" is active. */
+  gapFits?: GapFitSlot[];
+  /** Defender/player role highlighted in Walkthrough Spotlight / Quiz mode. */
+  spotlightRole?: string | null;
   /** Incrementing trigger to start playing player movement animation */
   playTrigger?: number;
 }
@@ -250,6 +255,8 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   drawFor = 'offense',
   extraStrokes,
   defenseRules,
+  gapFits,
+  spotlightRole,
   playTrigger = 0,
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -1087,12 +1094,39 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     if (isDefenseRole(n.role)) {
       const text = shownText(n, diagramLabel(n.role));
       const bw = Math.max(23, text.length * 7 + 8);
+      const isSpotlight = spotlightRole === n.role;
       return (
         <g key={n.role} data-player-node={n.role} style={{ cursor }}>
+          {isSpotlight && (
+            <>
+              <rect
+                x={cx - bw / 2 - 8}
+                y={cy - 18}
+                width={bw + 16}
+                height={36}
+                rx={9}
+                fill="#facc15"
+                fillOpacity={0.26}
+                stroke="#f59e0b"
+                strokeWidth={3}
+              />
+              <rect
+                x={cx - bw / 2 - 4}
+                y={cy - 14}
+                width={bw + 8}
+                height={28}
+                rx={6}
+                fill="none"
+                stroke="#fef08a"
+                strokeWidth={2}
+                strokeDasharray="4 2"
+              />
+            </>
+          )}
           {isSelected && (
             <rect x={cx - bw / 2 - 4} y={cy - 14} width={bw + 8} height={28} rx={6} fill="none" stroke="#6366f1" strokeWidth={2.5} strokeDasharray="4 3" />
           )}
-          <rect x={cx - bw / 2} y={cy - 10.5} width={bw} height={20} rx={4} fill={DEFENSE_COLOR} stroke="#ffffff" strokeWidth={1.8} />
+          <rect x={cx - bw / 2} y={cy - 10.5} width={bw} height={20} rx={4} fill={isSpotlight ? '#b45309' : DEFENSE_COLOR} stroke={isSpotlight ? '#fde047' : '#ffffff'} strokeWidth={isSpotlight ? 2.4 : 1.8} />
           <text x={cx} y={cy + 3.6} textAnchor="middle" fill="#ffffff" fontSize={10.5} fontFamily={font} fontWeight="900">
             {text}
           </text>
@@ -1531,10 +1565,80 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             );
           })()}
 
+          {/* Live Gap-Integrity & Unaccounted-Gap Warning Overlay */}
+          {gapFits && gapFits.length > 0 && animProgress <= 0.05 && (
+            <g key="gap-integrity-overlay" pointerEvents="none">
+              {gapFits.map((slot) => {
+                const { cx, cy } = fieldToSvg(slot.x, slot.y);
+                const isOpen = slot.status === 'open';
+                const isOver = slot.status === 'overloaded';
+                const color = isOpen ? '#dc2626' : isOver ? '#d97706' : '#059669';
+                const who = slot.defenders.map((d) => diagramLabel(d.role)).join('+');
+                const pillText = isOpen ? `⚠ ${slot.gap} OPEN` : isOver ? `2× ${slot.gap}:${who}` : `✓ ${slot.gap}:${who}`;
+                const pw = Math.max(38, pillText.length * 5.3 + 10);
+                return (
+                  <g key={slot.id}>
+                    {slot.defenders.map((d, idx) => {
+                      const from = fieldToSvg(d.fromX, d.fromY);
+                      return (
+                        <line
+                          key={`${slot.id}-${d.role}-${idx}`}
+                          x1={from.cx}
+                          y1={from.cy}
+                          x2={cx}
+                          y2={cy}
+                          stroke={color}
+                          strokeWidth={2}
+                          strokeOpacity={0.75}
+                          strokeDasharray="4 3"
+                        />
+                      );
+                    })}
+                    {isOpen && slot.isPointOfAttack && (
+                      <rect
+                        x={cx - pw / 2 - 4}
+                        y={cy - 13}
+                        width={pw + 8}
+                        height={24}
+                        rx={7}
+                        fill="none"
+                        stroke="#ef4444"
+                        strokeWidth={2.5}
+                        strokeDasharray="3 2"
+                      />
+                    )}
+                    <rect
+                      x={cx - pw / 2}
+                      y={cy - 9.5}
+                      width={pw}
+                      height={17}
+                      rx={5}
+                      fill={color}
+                      stroke="#ffffff"
+                      strokeWidth={1.4}
+                    />
+                    <text
+                      x={cx}
+                      y={cy + 2.5}
+                      textAnchor="middle"
+                      fill="#ffffff"
+                      fontSize="8.5"
+                      fontWeight="900"
+                    >
+                      {pillText}
+                    </text>
+                  </g>
+                );
+              })}
+            </g>
+          )}
+
           {/* Players: Offense in clean circles/squares, Defense in Cardinal Red badges */}
           {animProgress > 0.005 &&
             animatedFrame.trails.map((tr, idx) => {
               if (tr.points.length < 2) return null;
+              const isSpotTrail = spotlightRole === tr.role;
+              const trailColor = isSpotTrail ? '#f59e0b' : tr.color;
               const d = tr.points
                 .map((pt, j) => {
                   const { cx, cy } = fieldToSvg(pt.x, pt.y);
@@ -1547,16 +1651,27 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
               const b = fieldToSvg(last.x, last.y);
               return (
                 <g key={`anim-trail-${tr.role}-${idx}`} pointerEvents="none">
+                  {isSpotTrail && (
+                    <path
+                      d={d}
+                      fill="none"
+                      stroke="#fef08a"
+                      strokeWidth={7}
+                      strokeOpacity={0.55}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  )}
                   <path
                     d={d}
                     fill="none"
-                    stroke={tr.color}
-                    strokeWidth={3.6}
+                    stroke={trailColor}
+                    strokeWidth={isSpotTrail ? 4.4 : 3.6}
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeDasharray={tr.kind === 'motion' ? '5 4' : undefined}
                   />
-                  <polygon points={arrowPts(a.cx, a.cy, b.cx, b.cy)} fill={tr.color} />
+                  <polygon points={arrowPts(a.cx, a.cy, b.cx, b.cy)} fill={trailColor} />
                 </g>
               );
             })}

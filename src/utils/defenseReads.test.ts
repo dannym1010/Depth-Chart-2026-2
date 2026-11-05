@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { assemblePlay, autoDrawPlay, OUR_DEFENSE_LOOKS, PLAY_CONCEPTS, type PlayNode, type PlayStroke } from './footballEngine.ts';
 import { defenseCallStrokes } from './defenseCalls.ts';
 import { computeAnimatedPlayFrame } from './playAnimation.ts';
-import { defenseJobs } from './defenseReads.ts';
+import { computeGapIntegrity, defenseJobs } from './defenseReads.ts';
 
 const base44 = OUR_DEFENSE_LOOKS['44_C3_LIZ'].nodes;
 const at = (frame: ReturnType<typeof computeAnimatedPlayFrame>, role: string) => frame.nodes.find((n) => n.role === role)!;
@@ -101,6 +101,39 @@ describe('our defense reads a run', () => {
     });
     // With downhill A-gap spill, MIKE attacks tighter inside and deeper downhill than a wide scrape
     assert.ok(at(foldMid, 'MIKE').y < at(defaultMid, 'MIKE').y || at(foldMid, 'MIKE').x < at(defaultMid, 'MIKE').x);
+  });
+
+  it('simulates read-key eye discipline: Near Back bites on counter/pull misdirection while Near Guard flows immediately with the pull', () => {
+    const startMike = base44.find((n) => n.role === 'MIKE')!;
+    const readBack = computeAnimatedPlayFrame(sweep.nodes, sweep.strokes, [], '3', 0.22, null, {
+      MIKE: { key: 'back' },
+    });
+    const readGuard = computeAnimatedPlayFrame(sweep.nodes, sweep.strokes, [], '3', 0.22, null, {
+      MIKE: { key: 'guard' },
+    });
+    // On Buck Sweep right (guards pull right), reading Near Back takes false steps left (< startMike.x),
+    // while reading Near Guard immediately flows right (> startMike.x)!
+    assert.ok(at(readBack, 'MIKE').x < startMike.x, 'MIKE reading Near Back bites on backfield counter action');
+    assert.ok(at(readGuard, 'MIKE').x > startMike.x + 0.5, 'MIKE reading Near Guard immediately flows right with pulling guards');
+  });
+
+  it('evaluates live defensive gap integrity and flags open vs overloaded gaps', () => {
+    const offOnly = sweep.nodes.filter((n) => !base44.some((d) => d.role === n.role));
+    const baseSlots = computeGapIntegrity(base44, offOnly, {}, []);
+    assert.ok(baseSlots.length >= 6);
+    assert.equal(baseSlots.filter((s) => s.status === 'open').length, 0, 'balanced 4-4 accounts for every gap');
+
+    // Force every left-side defender into the A gap so Left B or C becomes open
+    const overloadedRules = {
+      T3: { gap: 'A' },
+      E9: { gap: 'A' },
+      SAM: { fit: 'A' },
+      MIKE: { fit: 'A' },
+      ROV: { fit: 'A' },
+    };
+    const badSlots = computeGapIntegrity(base44, offOnly, overloadedRules, [], -4.5);
+    assert.ok(badSlots.some((s) => s.status === 'open'), 'flags unaccounted gap when defenders stack in A gap');
+    assert.ok(badSlots.some((s) => s.status === 'overloaded'), 'flags overloaded gap when multiple defenders stack in A gap');
   });
 });
 
