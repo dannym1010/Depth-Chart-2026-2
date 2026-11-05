@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Play, TeamUnit } from '../types/football';
 import { TEAM_UNITS, playIsUnitTaggable } from '../utils/unitStats';
-import { isRecordedMotion } from '../utils/csvParser';
+import { directionLabel, isRecordedMotion } from '../utils/csvParser';
 import { callUsage, isNumberFormation, isTaggablePlay, restOfSeriesIds, tidyFormation, writeInsFromPlays, type PlayFieldEdit } from '../utils/playTags';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { CallButton, FormationEditor, TagPlaysPanel } from '../../components/playbook/CallPicker';
@@ -657,10 +657,18 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     ) : (
                       play.playNumber
                     )}
-                    {editButton(play)}
                     {rowBadge && (compact ? <span className="ml-1.5">{rowBadge(play)}</span> : <div className="mt-0.5">{rowBadge(play)}</div>)}
                   </td>
                   <td className="py-2.5 px-2 text-center font-mono font-bold">
+                    {onEditPlay ? (
+                      <CellSelect
+                        value={play.odk}
+                        label={`Offense, defense or kick on play ${play.playNumber} (S: not a play)`}
+                        options={ODK_OPTIONS}
+                        onPick={(v) => onEditPlay(play.id, { odk: v as Play['odk'] })}
+                        className={`text-[11px] font-bold ${play.odk === 'O' ? 'text-emerald-300' : play.odk === 'D' ? 'text-sky-300' : play.odk === 'K' ? 'text-amber-300' : 'text-slate-400'}`}
+                      />
+                    ) : (
                     <span
                       className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold ${
                         play.odk === 'O'
@@ -685,6 +693,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     >
                       {play.odk === 'UNKNOWN' ? '–' : play.odk}
                     </span>
+                    )}
                   </td>
                   {onSetUnit && (
                     <td className="py-2 px-2">
@@ -692,7 +701,13 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     </td>
                   )}
                   <td className="py-2.5 px-2 text-center text-slate-300 font-mono">
-                    {play.quarter > 0 ? `Q${play.quarter}` : ''}
+                    {onEditPlay ? (
+                      <CellSelect value={String(play.quarter || 0)} label={`Quarter of play ${play.playNumber}`} options={QUARTER_OPTIONS} onPick={(v) => onEditPlay(play.id, { quarter: Number(v) })} />
+                    ) : play.quarter > 0 ? (
+                      `Q${play.quarter}`
+                    ) : (
+                      ''
+                    )}
                     {play.series != null &&
                       (compact ? (
                         <span className="ml-1 text-[10px] font-sans font-bold text-slate-500" title={`Drive ${play.series}`}>D{play.series}</span>
@@ -701,16 +716,50 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                       ))}
                   </td>
                   <td className="py-2.5 px-3 font-mono">
+                    {onEditPlay ? (
+                      <span className="inline-flex items-center font-bold text-slate-200 whitespace-nowrap">
+                        <CellSelect value={String(play.down || 0)} label={`Down on play ${play.playNumber}`} options={DOWN_OPTIONS} onPick={(v) => onEditPlay(play.id, { down: Number(v) })} />
+                        <span className="text-slate-500 px-0.5">&</span>
+                        <CellInput
+                          value={play.distance ? String(play.distance) : ''}
+                          numeric
+                          label={`Distance on play ${play.playNumber}`}
+                          placeholder="-"
+                          onSave={(v) => onEditPlay(play.id, { distance: Number(v) })}
+                          className="w-8"
+                        />
+                      </span>
+                    ) : (
                     <span className="font-bold text-slate-200">
                       {play.down === 0 ? (play.odk === 'K' ? 'Kick' : '') : `${play.down} & ${play.distance}`}
                     </span>
+                    )}
                   </td>
                   <td className="py-2.5 px-3 font-mono text-slate-300">
+                    {onEditPlay ? (
+                      <CellInput
+                        value={play.rawYardLine || (play.yardLine ? `${play.yardLineSide} ${play.yardLine}` : '')}
+                        label={`Yard line on play ${play.playNumber} (-25 = our 25, +35 = their 35)`}
+                        placeholder="-25"
+                        onSave={(v) => onEditPlay(play.id, { yardLine: v })}
+                        className={`w-16 ${play.yardLineSide === 'OPP' ? 'text-rose-300' : 'text-slate-300'}`}
+                      />
+                    ) : (
                     <span className={play.yardLineSide === 'OPP' ? 'text-rose-300' : 'text-slate-300'}>
                       {play.rawYardLine || (play.yardLine ? `${play.yardLineSide} ${play.yardLine}` : '')}
                     </span>
+                    )}
                   </td>
                   <td className="py-2.5 px-2 text-center font-mono font-bold">
+                    {onEditPlay ? (
+                      <CellSelect
+                        value={play.hash}
+                        label={`Hash on play ${play.playNumber}`}
+                        options={HASH_OPTIONS}
+                        onPick={(v) => onEditPlay(play.id, { hash: v as Play['hash'] })}
+                        className={play.hash === 'L' ? 'text-emerald-400' : play.hash === 'R' ? 'text-purple-400' : 'text-sky-400'}
+                      />
+                    ) : (
                     <span
                       className={
                         play.hash === 'L' ? 'text-emerald-400' : play.hash === 'R' ? 'text-purple-400' : 'text-sky-400'
@@ -718,6 +767,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     >
                       {play.hash}
                     </span>
+                    )}
                   </td>
                   <td className="py-2.5 px-3 text-slate-200 font-semibold">
                     <span className="inline-flex items-center gap-1">
@@ -761,9 +811,30 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   </td>
                   {hasNames && <td className="py-2.5 px-3 text-xs font-bold text-indigo-300 whitespace-nowrap">{play.callName || ''}</td>}
                   <td className="py-2.5 px-3 text-slate-300 text-xs">
-                    {hasPlayers(play) ? <BallPlayers play={play} inline={compact} /> : play.carrierOrTarget || <span className="text-slate-400">-</span>}
+                    {hasPlayers(play) ? (
+                      <BallPlayers play={play} inline={compact} />
+                    ) : onEditPlay ? (
+                      <CellInput
+                        value={play.carrierOrTarget || ''}
+                        label={`Ball carrier or target on play ${play.playNumber}`}
+                        placeholder="-"
+                        onSave={(v) => onEditPlay(play.id, { carrierOrTarget: v })}
+                        className="w-24"
+                      />
+                    ) : (
+                      play.carrierOrTarget || <span className="text-slate-400">-</span>
+                    )}
                   </td>
                   <td className="py-2.5 px-2">
+                    {onEditPlay ? (
+                      <CellSelect
+                        value={play.playType}
+                        label={`Play type on play ${play.playNumber}`}
+                        options={TYPE_OPTIONS}
+                        onPick={(v) => onEditPlay(play.id, { playType: v as Play['playType'] })}
+                        className={`text-[10px] font-mono font-bold ${play.playType === 'RUN' ? 'text-emerald-400' : play.playType === 'PASS' ? 'text-sky-400' : 'text-amber-400'}`}
+                      />
+                    ) : (
                     <span
                       className={`text-[10px] font-mono font-bold ${
                         play.playType === 'RUN' ? 'text-emerald-400' : play.playType === 'PASS' ? 'text-sky-400' : 'text-amber-400'
@@ -771,16 +842,62 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     >
                       {play.playType}
                     </span>
+                    )}
                   </td>
-                  <td className="py-2.5 px-2 text-slate-400 text-[11px]">{play.direction}</td>
-                  <td className="py-2.5 px-2 text-center text-[11px] font-bold text-violet-400">{play.motion && play.motion !== '-' ? play.motion : ''}</td>
+                  <td className="py-2.5 px-2 text-slate-400 text-[11px]">
+                    {onEditPlay ? (
+                      <CellSelect value={play.runSide || 'M'} label={`Which way play ${play.playNumber} went`} options={dirOptions(play)} onPick={(v) => onEditPlay(play.id, { runSide: v as Play['runSide'] })} />
+                    ) : (
+                      play.direction
+                    )}
+                  </td>
+                  <td className="py-2.5 px-2 text-center text-[11px] font-bold text-violet-400">
+                    {onEditPlay ? (
+                      <CellInput
+                        value={play.motion && play.motion !== '-' ? play.motion : ''}
+                        label={`Motion on play ${play.playNumber}`}
+                        placeholder="-"
+                        onSave={(v) => onEditPlay(play.id, { motion: v })}
+                        className="w-16 text-center"
+                      />
+                    ) : play.motion && play.motion !== '-' ? (
+                      play.motion
+                    ) : (
+                      ''
+                    )}
+                  </td>
                   <td className="py-2.5 px-2 text-[11px] font-bold">{onEditPlay ? <StrengthPicker play={play} onEdit={(e) => onEditPlay(play.id, e)} /> : <SideTag play={play} />}</td>
                   <td className="py-2.5 px-2 text-[11px] font-bold whitespace-nowrap"><FieldTag play={play} /></td>
-                  <td className="py-2.5 px-2 text-slate-300 text-[11px]">{play.result && play.result !== '-' ? play.result : ''}</td>
+                  <td className="py-2.5 px-2 text-slate-300 text-[11px]">
+                    {onEditPlay ? (
+                      <CellInput
+                        value={play.result && play.result !== '-' ? play.result : ''}
+                        label={`Result of play ${play.playNumber}`}
+                        placeholder="-"
+                        onSave={(v) => onEditPlay(play.id, { result: v })}
+                        className="w-24"
+                      />
+                    ) : play.result && play.result !== '-' ? (
+                      play.result
+                    ) : (
+                      ''
+                    )}
+                  </td>
                   <td className="py-2.5 px-3 text-right font-mono font-bold">
+                    {onEditPlay ? (
+                      <CellInput
+                        value={play.odk === 'UNKNOWN' && !play.gainLoss ? '' : play.gainLoss > 0 ? `+${play.gainLoss}` : String(play.gainLoss)}
+                        numeric
+                        label={`Gain or loss on play ${play.playNumber}`}
+                        placeholder="0"
+                        onSave={(v) => onEditPlay(play.id, { gainLoss: Number(v) })}
+                        className={`w-10 text-right ${isGain ? 'text-emerald-400' : isLoss ? 'text-rose-400' : 'text-slate-400'}`}
+                      />
+                    ) : (
                     <span className={isGain ? 'text-emerald-400' : isLoss ? 'text-rose-400' : 'text-slate-400'}>
                       {play.odk === 'UNKNOWN' && !play.gainLoss ? '' : play.gainLoss > 0 ? `+${play.gainLoss}` : play.gainLoss}
                     </span>
+                    )}
                   </td>
                   <td className="py-2.5 px-3 text-center">
                     <div className="flex items-center justify-center gap-1.5">
@@ -802,13 +919,6 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     </div>
                   </td>
                 </tr>
-                {onEditPlay && editPlay === play.id && (
-                  <tr className="bg-indigo-950/30">
-                    <td colSpan={99} className="px-4 py-3">
-                      <PlayFieldsEditor play={play} onEdit={(e) => onEditPlay(play.id, e)} onClose={() => setEditPlay(null)} />
-                    </td>
-                  </tr>
-                )}
                 {isOpen && (
                   <tr className="bg-slate-950/60">
                     <td colSpan={99} className="px-4 py-3">
@@ -1057,6 +1167,72 @@ const FieldTag: React.FC<{ play: Play }> = ({ play }) => {
 };
 const isRunLike = (p: Play) => p.playType === 'RUN' || p.playType === 'RPO';
 
+/** A field changed right in its cell: looks like the text until hovered or picked. */
+const cellCtl = 'h-6 rounded border border-transparent hover:border-slate-600 focus:border-indigo-500 focus:outline-none bg-transparent px-0.5 cursor-pointer';
+const CellSelect: React.FC<{
+  value: string;
+  label: string;
+  options: { value: string; text: string }[];
+  onPick: (v: string) => void;
+  className?: string;
+}> = ({ value, label, options, onPick, className = '' }) => (
+  <select value={value} onChange={(e) => onPick(e.target.value)} aria-label={label} title={label} className={`${cellCtl} ${className}`}>
+    {options.map((o) => (
+      <option key={o.value} value={o.value} className="bg-slate-900 text-slate-100">
+        {o.text}
+      </option>
+    ))}
+  </select>
+);
+/** A typed field in its cell: saves when you leave the box or press Enter (Esc puts it back). */
+const CellInput: React.FC<{
+  value: string;
+  label: string;
+  onSave: (v: string) => void;
+  numeric?: boolean;
+  placeholder?: string;
+  className?: string;
+}> = ({ value, label, onSave, numeric, placeholder, className = '' }) => (
+  <input
+    key={value}
+    defaultValue={value}
+    aria-label={label}
+    title={label}
+    placeholder={placeholder}
+    inputMode={numeric ? 'numeric' : undefined}
+    onBlur={(e) => {
+      const v = e.target.value.trim();
+      if (v === value.trim()) return;
+      if (numeric && (v === '' || !Number.isFinite(Number(v)))) {
+        e.target.value = value;
+        return;
+      }
+      onSave(v);
+    }}
+    onKeyDown={(e) => {
+      const el = e.currentTarget;
+      if (e.key === 'Enter') el.blur();
+      if (e.key === 'Escape') {
+        el.value = value;
+        el.blur();
+      }
+    }}
+    className={`${cellCtl} cursor-text placeholder:text-slate-600 ${className}`}
+  />
+);
+const ODK_OPTIONS = [
+  { value: 'O', text: 'O' },
+  { value: 'D', text: 'D' },
+  { value: 'K', text: 'K' },
+  { value: 'S', text: 'S' },
+  { value: 'UNKNOWN', text: '–' },
+];
+const QUARTER_OPTIONS = [{ value: '0', text: '-' }, ...[1, 2, 3, 4].map((q) => ({ value: String(q), text: `Q${q}` })), { value: '5', text: 'OT' }];
+const DOWN_OPTIONS = [{ value: '0', text: '-' }, ...[1, 2, 3, 4].map((d) => ({ value: String(d), text: String(d) }))];
+const HASH_OPTIONS = (['L', 'M', 'R'] as const).map((h) => ({ value: h, text: h }));
+const TYPE_OPTIONS = ['RUN', 'PASS', 'RPO', 'SCREEN', 'SPECIAL', 'PENALTY', 'OTHER'].map((t) => ({ value: t, text: t }));
+const dirOptions = (play: Play) => (['L', 'M', 'R'] as const).map((d) => ({ value: d, text: directionLabel(d, play.hash, '') }));
+
 /** The strength column as a picker: what the formation says (Auto), or Left / Right / Balanced set for this play. */
 const StrengthPicker: React.FC<{ play: Play; onEdit: (edit: PlayFieldEdit) => void }> = ({ play, onEdit }) => {
   const auto = strengthSideText({ ...play, strength: undefined });
@@ -1155,6 +1331,64 @@ const PlayFieldsEditor: React.FC<{ play: Play; onEdit: (edit: PlayFieldEdit) => 
           placeholder="Rush, Complete, TD…"
           onBlur={(e) => e.target.value.trim() !== (play.result || '').trim() && onEdit({ result: e.target.value })}
           className={`${box} w-36`}
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className={lab}>ODK</span>
+        <select value={play.odk} onChange={(e) => onEdit({ odk: e.target.value as Play['odk'] })} className={box}>
+          {ODK_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.text}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className={lab}>Qtr</span>
+        <select value={String(play.quarter || 0)} onChange={(e) => onEdit({ quarter: Number(e.target.value) })} className={box}>
+          {QUARTER_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.text}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className={lab}>Yard line</span>
+        <input
+          key={`y${play.id}${play.rawYardLine}`}
+          defaultValue={play.rawYardLine || ''}
+          placeholder="-25"
+          onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== (play.rawYardLine || '') && onEdit({ yardLine: e.target.value })}
+          className={`${box} w-20`}
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className={lab}>Direction</span>
+        <select value={play.runSide || 'M'} onChange={(e) => onEdit({ runSide: e.target.value as Play['runSide'] })} className={box}>
+          {dirOptions(play).map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.text}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className={lab}>Motion</span>
+        <input
+          key={`m${play.id}${play.motion}`}
+          defaultValue={play.motion && play.motion !== '-' ? play.motion : ''}
+          onBlur={(e) => e.target.value.trim() !== (play.motion && play.motion !== '-' ? play.motion : '') && onEdit({ motion: e.target.value })}
+          className={`${box} w-24`}
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className={lab}>Carrier / target</span>
+        <input
+          key={`c${play.id}${play.carrierOrTarget}`}
+          defaultValue={play.carrierOrTarget || ''}
+          onBlur={(e) => e.target.value.trim() !== (play.carrierOrTarget || '') && onEdit({ carrierOrTarget: e.target.value })}
+          className={`${box} w-28`}
         />
       </label>
       <button type="button" onClick={onClose} className="h-8 px-3 rounded-md border border-slate-600 text-xs font-black text-slate-200 hover:bg-slate-800 cursor-pointer">

@@ -5,6 +5,7 @@ import type { Play } from '../types/football';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { formationOfCall, playNameKey } from '../../utils/playbookImport';
 import { isWholeCall } from '../../utils/playCallParse';
+import { directionLabel, parseYardLine } from './csvParser';
 
 export type CallUnit = 'offense' | 'defense';
 
@@ -266,6 +267,14 @@ export interface PlayFieldEdit {
   distance?: number;
   gainLoss?: number;
   result?: string;
+  odk?: Play['odk'];
+  quarter?: number;
+  /** Where the ball was, as typed ("-25", "+35", "OPP 40", "50"). */
+  yardLine?: string;
+  /** Which way the play went: L / M / R (the direction column follows the hash). */
+  runSide?: Play['runSide'];
+  motion?: string;
+  carrierOrTarget?: string;
 }
 
 // The Hudl columns those fields came from, kept the same so an export back to Hudl has the change.
@@ -276,6 +285,11 @@ const HUDL_COLUMN: Record<string, RegExp> = {
   playType: /^PLAY ?TYPE$/,
   gainLoss: /^(GN\/LS|GAIN|GAIN\/LOSS|GN LS)$/,
   result: /^RESULT$/,
+  odk: /^(ODK|O\/D\/K)$/,
+  quarter: /^(QTR|QUARTER)$/,
+  yardLine: /^(YARD LN|YARD LINE|YARDLN|YDLN)$/,
+  runSide: /^(PLAY DIR|DIR|DIRECTION)$/,
+  motion: /^MOTION( DIR)?$/,
 };
 const PLAY_TYPE_TEXT: Record<string, string> = { RUN: 'Run', PASS: 'Pass', RPO: 'RPO', SCREEN: 'Screen', SPECIAL: 'Special', PENALTY: 'Penalty', OTHER: 'Other' };
 
@@ -297,8 +311,22 @@ export function editPlayFields(plays: Play[], id: string, edit: PlayFieldEdit, n
     if (edit.distance != null && Number.isFinite(edit.distance)) next.distance = Math.max(0, Math.round(edit.distance));
     if (edit.gainLoss != null && Number.isFinite(edit.gainLoss)) next.gainLoss = Math.round(edit.gainLoss);
     if (edit.result != null) next.result = edit.result.trim().slice(0, 60);
-    const touched = ['hash', 'playType', 'down', 'distance', 'gainLoss', 'result'].filter((k) => (edit as Record<string, unknown>)[k] != null);
-    if (touched.some((k) => k !== 'hash')) {
+    if (edit.odk) next.odk = edit.odk;
+    if (edit.quarter != null && Number.isFinite(edit.quarter)) next.quarter = Math.max(0, Math.min(5, Math.round(edit.quarter)));
+    if (edit.yardLine != null && edit.yardLine.trim()) {
+      const y = parseYardLine(edit.yardLine.trim());
+      next.rawYardLine = edit.yardLine.trim().slice(0, 12);
+      next.yardLine = y.normalizedYd;
+      next.yardLineSide = y.side;
+      next.fieldZone = y.zone;
+    }
+    if (edit.runSide) next.runSide = edit.runSide;
+    if (edit.motion != null) next.motion = edit.motion.trim().slice(0, 30) || '-';
+    if (edit.carrierOrTarget != null) next.carrierOrTarget = edit.carrierOrTarget.trim().slice(0, 40);
+    // The direction column says left / right and wide side or boundary, from the hash.
+    if (edit.runSide || edit.hash) next.direction = directionLabel(next.runSide, next.hash, p.direction || '');
+    const touched = ['hash', 'playType', 'down', 'distance', 'gainLoss', 'result', 'odk', 'quarter', 'yardLine', 'runSide', 'motion'].filter((k) => (edit as Record<string, unknown>)[k] != null);
+    if (touched.some((k) => ['playType', 'down', 'distance', 'gainLoss', 'result'].includes(k))) {
       const g = next.gainLoss;
       next.isExplosive = (next.playType === 'RUN' && g >= 12) || ((next.playType === 'PASS' || next.playType === 'SCREEN') && g >= 16) || (/td/i.test(next.result) && g >= 10);
       next.isEfficient =
@@ -309,7 +337,7 @@ export function editPlayFields(plays: Play[], id: string, edit: PlayFieldEdit, n
       for (const k of touched) {
         const col = Object.keys(row).find((c) => HUDL_COLUMN[k].test(c.trim().toUpperCase()));
         if (!col) continue;
-        const v = k === 'playType' ? PLAY_TYPE_TEXT[next.playType] || next.playType : String((next as unknown as Record<string, unknown>)[k] ?? '');
+        const v = k === 'playType' ? PLAY_TYPE_TEXT[next.playType] || next.playType : k === 'yardLine' ? next.rawYardLine : String((next as unknown as Record<string, unknown>)[k] ?? '');
         row[col] = v;
       }
       next.hudlRow = row;

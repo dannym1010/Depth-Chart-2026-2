@@ -86,3 +86,24 @@ describe('strength and run direction to the wide side or the boundary', async ()
     assert.equal(wentFieldText(play({ hash: 'R', runSide: 'M', direction: 'Middle' })), 'Middle');
   });
 });
+
+describe('every field of a play changes from its row', async () => {
+  const { editPlayFields } = await import('./playTags.ts');
+  const base = play({ id: 'p1', odk: 'O', quarter: 1, hash: 'L', runSide: 'R', direction: 'Right (Wide / Field)', rawYardLine: '-25', yardLine: 75, yardLineSide: 'OWN', motion: '-', carrierOrTarget: '', hudlRow: { ODK: 'O', QTR: '1', 'YARD LN': '-25', 'PLAY DIR': 'R', MOTION: '' } });
+  it('ODK, quarter, yard line, direction, motion and carrier', () => {
+    const [p] = editPlayFields([base], 'p1', { odk: 'D', quarter: 3, yardLine: '+35', runSide: 'L', motion: 'Jet', carrierOrTarget: '#22' });
+    assert.equal(p.odk, 'D');
+    assert.equal(p.quarter, 3);
+    assert.equal(p.rawYardLine, '+35');
+    assert.equal(p.yardLineSide, 'OPP');
+    assert.equal(p.runSide, 'L');
+    assert.equal(p.direction, 'Left (Boundary)');
+    assert.equal(p.motion, 'Jet');
+    assert.equal(p.carrierOrTarget, '#22');
+    assert.deepEqual(p.hudlRow, { ODK: 'D', QTR: '3', 'YARD LN': '+35', 'PLAY DIR': 'L', MOTION: 'Jet' });
+  });
+  it('a new hash turns the direction to the wide side or boundary', () => {
+    const [p] = editPlayFields([base], 'p1', { hash: 'R' });
+    assert.equal(p.direction, 'Right (Boundary)');
+  });
+});
