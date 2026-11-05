@@ -107,3 +107,15 @@ describe('every field of a play changes from its row', async () => {
     assert.equal(p.direction, 'Right (Boundary)');
   });
 });
+
+describe('a made-up play name follows the result', async () => {
+  const { editPlayFields } = await import('./playTags.ts');
+  it('Rush becomes Return on a kick; a real call stays', () => {
+    const k = play({ id: 'k', odk: 'K', playName: 'Rush', result: 'Gain', playType: 'RUN' });
+    assert.equal(editPlayFields([k], 'k', { result: 'Return' })[0].playName, 'Return');
+    const named = play({ id: 'n', odk: 'K', playName: 'Kickoff', result: 'Return' });
+    assert.equal(editPlayFields([named], 'n', { result: 'Touchback' })[0].playName, 'Kickoff');
+    const tagged = play({ id: 't', odk: 'O', playName: 'Rush', playCallId: 'c1', result: 'Rush' });
+    assert.equal(editPlayFields([tagged], 't', { result: 'TD' })[0].playName, 'Rush');
+  });
+});

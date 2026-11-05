@@ -258,6 +258,18 @@ export function setPlaysFormation(plays: Play[], ids: string[], formation: strin
   );
 }
 
+/**
+ * A name the import made up for a play with no call (its result, or Rush / Pass / Play), not a real call:
+ * it follows the result when the coach changes it.
+ */
+export function isMadeUpName(p: Pick<Play, 'playName' | 'result' | 'playCallId' | 'hudlCall'>): boolean {
+  if (p.playCallId || p.hudlCall) return false;
+  const n = String(p.playName || '').trim();
+  if (!n || n === '-') return true;
+  if (n.toLowerCase() === String(p.result || '').trim().toLowerCase()) return true;
+  return /^(rush|pass|complete|incomplete|play|special teams play|gain|loss)$/i.test(n);
+}
+
 /** Fields a coach can change on a play from the play log. strength '' = back to what the formation says. */
 export interface PlayFieldEdit {
   strength?: 'L' | 'R' | 'balanced' | '';
@@ -313,7 +325,11 @@ export function editPlayFields(plays: Play[], id: string, edit: PlayFieldEdit, n
     if (edit.down != null && Number.isFinite(edit.down)) next.down = Math.max(0, Math.min(4, Math.round(edit.down)));
     if (edit.distance != null && Number.isFinite(edit.distance)) next.distance = Math.max(0, Math.round(edit.distance));
     if (edit.gainLoss != null && Number.isFinite(edit.gainLoss)) next.gainLoss = Math.round(edit.gainLoss);
-    if (edit.result != null) next.result = edit.result.trim().slice(0, 60);
+    if (edit.result != null) {
+      next.result = edit.result.trim().slice(0, 60);
+      // A made-up name (Rush, or the old result) follows the new result; a real call stays.
+      if (edit.playName == null && isMadeUpName(p) && next.result) next.playName = next.result;
+    }
     if (edit.odk) next.odk = edit.odk;
     if (edit.quarter != null && Number.isFinite(edit.quarter)) next.quarter = Math.max(0, Math.min(5, Math.round(edit.quarter)));
     if (edit.yardLine != null && edit.yardLine.trim()) {

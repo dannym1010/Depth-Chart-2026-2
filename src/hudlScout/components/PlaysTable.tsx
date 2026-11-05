@@ -914,7 +914,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                       </span>
                     ) : onEditPlay && play.odk === 'K' ? (
                       <PickOrTypeCell
-                        value={play.playName && play.playName !== '-' && play.playName.toLowerCase() !== String(play.result || '').toLowerCase() ? play.playName : ''}
+                        value={play.playName && play.playName !== '-' ? play.playName : ''}
                         label={`Play call on play ${play.playNumber}`}
                         choices={kickCalls}
                         onSave={(v) => {
