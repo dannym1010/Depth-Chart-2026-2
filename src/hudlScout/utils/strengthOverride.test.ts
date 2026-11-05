@@ -141,3 +141,15 @@ describe('gains from the yard lines a coach types', async () => {
     assert.deepEqual(ps.map((p) => p.gainLoss), [4, 4, 4, 4, 4]);
   });
 });
+
+describe('a game that came with yard lines is never changed', async () => {
+  const { editPlayFields } = await import('./playTags.ts');
+  const mk = (n: number, extra: Partial<Play>) =>
+    play({ id: `e${n}`, gameId: 'e', playNumber: n, odk: 'O', series: 1, rawYardLine: `-${20 + n * 5}`, gainLoss: 5, playType: 'RUN', result: 'Rush', ...extra });
+  it('yard lines under another column name, or a game with no Hudl rows', () => {
+    const fieldPos = [1, 2, 3].map((n) => mk(n, { hudlRow: { 'FIELD POS': `-${20 + n * 5}` } }));
+    assert.deepEqual(editPlayFields(fieldPos, 'e1', { yardLine: '-40' }).map((p) => p.gainLoss), [5, 5, 5]);
+    const noRows = [1, 2, 3].map((n) => mk(n, {}));
+    assert.deepEqual(editPlayFields(noRows, 'e1', { yardLine: '-40' }).map((p) => p.gainLoss), [5, 5, 5]);
+  });
+});

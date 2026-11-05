@@ -375,7 +375,8 @@ function editOnePlay(plays: Play[], id: string, edit: PlayFieldEdit, now: number
   });
 }
 
-const YARD_COL = /^(YARD LN|YARD LINE|YARDLN|YDLN)$/;
+// Every yard line column the importer reads (Hudl rows keep only the columns that had something in them).
+const YARD_COL = /^(YARD ?LN|YARD LINE|YD ?LN|FIELD POS|BALL ON|YARD)$/;
 /** Yards to the goal line from a typed yard line: -25 = our 25 (75 to go), +35 / 35 = their 35, 50 = midfield. */
 export function yardsToGo(raw: string): number | null {
   const c = String(raw || '').trim().toUpperCase();
@@ -398,7 +399,8 @@ export function gainsFromYardLines(plays: Play[], gameId: string | undefined): P
   const game = plays.filter((p) => p.gameId === gameId);
   const typed = game.some((p) => p.yardTyped);
   if (!typed) return plays;
-  // Yard lines in the export: this game's gains came with them, so leave them be.
+  // Yard lines in the export: this game's gains came with them, so leave them be. Never changes a game that
+  // came with yard lines; only one whose export had none, once the coach types them.
   const withRows = game.some((p) => p.hudlRow && Object.keys(p.hudlRow).length);
   const exported = game.some((p) =>
     p.yardTyped
