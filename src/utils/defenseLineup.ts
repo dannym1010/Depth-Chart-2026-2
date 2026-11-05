@@ -110,21 +110,22 @@ export function chartSpots(
   board: FormationBoard,
   front: DefenseFront,
   strongLeft: boolean
-): Record<string, { spot: string; name: string }> {
-  const out: Record<string, { spot: string; name: string }> = {};
-  const free: { spot: string; name: string; level: Level }[] = [];
+): Record<string, ChartSpot> {
+  const out: Record<string, ChartSpot> = {};
+  // Every box on the chart is its own spot (a chart can have two "DT" boxes).
+  const free: (ChartSpot & { level: Level })[] = [];
   for (const row of board.rows || [])
     for (const pos of row.positions || []) {
       const name = String(pos?.name || pos?.tag || '').trim();
       const spot = norm(name);
-      if (spot && !free.some((f) => f.spot === spot)) free.push({ spot, name, level: spotLevel(spot) });
+      if (pos?.id && spot) free.push({ id: pos.id, spot, name, level: spotLevel(spot) });
     }
   const left: typeof nodes = [];
   for (const n of nodes) {
     const want = defenseSpotName(n.role, front, strongLeft) || norm(n.role);
     const i = free.findIndex((f) => f.spot === want);
     if (i >= 0) {
-      out[n.role] = { spot: free[i].spot, name: free[i].name };
+      out[n.role] = { id: free[i].id, spot: free[i].spot, name: free[i].name };
       free.splice(i, 1);
     } else left.push(n);
   }
@@ -133,10 +134,25 @@ export function chartSpots(
     const lv = roleLevel(n.role);
     const i = free.findIndex((f) => f.level === lv);
     if (i < 0) continue;
-    out[n.role] = { spot: free[i].spot, name: free[i].name };
+    out[n.role] = { id: free[i].id, spot: free[i].spot, name: free[i].name };
     free.splice(i, 1);
   }
   return out;
+}
+
+export interface ChartSpot {
+  /** The box on the chart (its position id). */
+  id: string;
+  spot: string;
+  name: string;
+}
+
+/** The player in one box of a chart for one unit (only that chart: the team the coach picked). */
+export function playerInBox(box: ChartSpot | undefined, unit: DefUnit, src: DefenseRosterSource): NodePlayer | null {
+  if (!box) return null;
+  const depth = DEF_UNITS.find((u) => u.id === unit)?.depth ?? 0;
+  const who = placedPlayer(src.depthChart?.[box.id]?.[depth], src.roster || []);
+  return who ? { ...who, unit, pos: box.name } : null;
 }
 
 /** The player at a spot for one unit, or null when the chart has nobody there. */
@@ -165,7 +181,7 @@ export function lineupForDefense(
     src: DefenseRosterSource;
     overrides?: Record<string, NodePlayer>;
     /** Spots on the front's own chart (chartSpots), over the usual names. */
-    spots?: Record<string, { spot: string; name: string }>;
+    spots?: Record<string, ChartSpot>;
   }
 ): Record<string, NodePlayer> {
   const out: Record<string, NodePlayer> = {};
@@ -176,6 +192,12 @@ export function lineupForDefense(
       out[n.role] = { ...chosen, pos: chosen.pos || spot };
       continue;
     }
+    // On the front's own chart: only its box (a defender with no box there has nobody).
+    if (opts.spots) {
+      const who = playerInBox(opts.spots[n.role], opts.unit, opts.src);
+      if (who) out[n.role] = who;
+      continue;
+    }
     if (!spot) continue;
     const who = defensePlayerAt(spot, opts.unit, opts.front, opts.src);
     if (who) out[n.role] = who;
@@ -184,8 +206,8 @@ export function lineupForDefense(
 }
 
 /** The choices for one defender: each unit's player at that spot, and everyone on the roster. */
-export function whoOptions(spot: string, front: DefenseFront, src: DefenseRosterSource): { depth: NodePlayer[]; roster: NodePlayer[] } {
-  const depth = DEF_UNITS.map((u) => defensePlayerAt(spot, u.id, front, src)).filter(Boolean) as NodePlayer[];
+export function whoOptions(spot: string, front: DefenseFront, src: DefenseRosterSource, box?: ChartSpot | null): { depth: NodePlayer[]; roster: NodePlayer[] } {
+  const depth = DEF_UNITS.map((u) => (box !== undefined ? playerInBox(box || undefined, u.id, src) : defensePlayerAt(spot, u.id, front, src))).filter(Boolean) as NodePlayer[];
   const roster = [...(src.roster || [])]
     .filter((r) => r.num)
     .sort((a, b) => (Number(a.num) || 0) - (Number(b.num) || 0))

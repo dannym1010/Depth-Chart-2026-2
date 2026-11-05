@@ -76,7 +76,7 @@ import { pickedTechniques, rulesText } from '../../utils/defenseRules';
 import { DefenderRules } from './DefenderRules';
 import { defenseCallName, defenseCallStrokes, mirrorJob, mirrorPressure, pressureGaps } from '../../utils/defenseCalls';
 import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, defenseMirrored, lineUpOurDefense, samToWideSide, tightEndFlip } from '../../hudlScout/utils/ourDefense';
-import { DEF_UNITS, chartForFront, chartSpots, defenseBoards, defensePlayerAt, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
+import { DEF_UNITS, chartForFront, chartSpots, defenseBoards, playerInBox, defensePlayerAt, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
 import { rememberDefenseBoard, rememberDefenseUnit, rememberedDefenseBoard, rememberedDefenseUnit, useDefenseRosterSource } from '../../utils/defenseRosterStore';
 
 const SELECT =
@@ -1849,7 +1849,12 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                         return DEF_UNITS.map((u) => ({
                           id: u.id as 'black' | 'gold' | 'blue',
                           unit: u.label,
-                          player: tagging && u.id === defUnit ? taggedWho[role] || null : defensePlayerAt(spot, u.id, defFront, tagSrc),
+                          player:
+                            tagging && u.id === defUnit
+                              ? taggedWho[role] || null
+                              : frontSpots
+                                ? playerInBox(frontSpots[role], u.id, tagSrc)
+                                : defensePlayerAt(spot, u.id, defFront, tagSrc),
                           on: tagging && u.id === defUnit,
                         }));
                       },
@@ -1859,7 +1864,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                         unit: DEF_UNITS.find((x) => x.id === defUnit)?.label || '',
                       }),
                       overridden: (role) => Boolean(defWho[role]),
-                      options: (role) => whoOptions(spotOf(role), defFront, tagSrc),
+                      options: (role) => whoOptions(spotOf(role), defFront, tagSrc, frontSpots ? frontSpots[role] || null : undefined),
                       onPick: (role, p) =>
                         setDefWho((prev) => {
                           const next = { ...prev };

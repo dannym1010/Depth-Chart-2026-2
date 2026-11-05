@@ -91,3 +91,31 @@ describe('a front of our own takes its names and spots from its own chart', asyn
     assert.equal(who.FS?.num, '40');
   });
 });
+
+describe('a front chart with boxes of the same name', async () => {
+  const { chartSpots, lineupForDefense } = await import('./defenseLineup.ts');
+  const box = (id: string, name: string) => ({ id, name });
+  const b54 = {
+    id: 'f54',
+    name: '54 Defense',
+    unit: 'defense',
+    rows: [{ positions: [box('de-a', 'DE'), box('dt-a', 'DT'), box('ng', 'NG'), box('dt-b', 'DT'), box('de-b', 'DE')] }],
+  } as any;
+  const b53 = { id: 'f53', name: '53 Defense', unit: 'defense', rows: [{ positions: [box('x-dt1', 'DT 1')] }] } as any;
+  const nodes = [['E9', -7.4], ['T3', -3.6], ['NT', 0], ['DT3', 3.6], ['E5', 7.4], ['FS', 0]].map(([role, x]) => ({ role, x, y: 2 })) as any[];
+  const src = {
+    formations: [b53, b54],
+    board: 'f54',
+    depthChart: {
+      'de-a': [{ num: '17' }], 'dt-a': [{ num: '52' }], ng: [{ num: '50' }], 'dt-b': [{ num: '15' }], 'de-b': [{ num: '13' }],
+      'x-dt1': [{ num: '56', name: 'Russell' }],
+    },
+    roster: [],
+  } as any;
+  it('every lineman gets his own box, and nobody comes from another chart', () => {
+    const spots = chartSpots(nodes, b54, '53', false);
+    const who = lineupForDefense(nodes, { unit: 'black', front: '53', strongLeft: false, src, spots });
+    assert.deepEqual(['E9', 'T3', 'NT', 'DT3', 'E5'].map((r) => who[r]?.num), ['17', '52', '50', '15', '13']);
+    assert.equal(who.FS, undefined);
+  });
+});
