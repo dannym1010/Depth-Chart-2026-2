@@ -336,6 +336,17 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
   const [dragCol, setDragCol] = useState<PlayColumnKey | null>(null);
   const [colMenu, setColMenu] = useState(false);
   const [fillOpen, setFillOpen] = useState(false);
+  // The games for Fill from yard lines: the ones given (the first owns plays saved without a game), then any
+  // other game the plays are in; with none given, the plays' own games ("This film" for plays without one).
+  const fillGames = useMemo(() => {
+    const list = [...(games || [])];
+    const first = list[0]?.id || 'this-film';
+    for (const p of writeInPlays || plays) {
+      const id = p.gameId || first;
+      if (!list.some((g) => g.id === id)) list.push({ id, name: id === 'this-film' ? 'This film' : `Game ${list.length + 1}` });
+    }
+    return list;
+  }, [games, writeInPlays, plays]);
   const headerCell = (key: PlayColumnKey, extra = '') => {
     const col = columnByKey(key);
     const filtered = Boolean(filters[key]);
@@ -478,7 +489,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
             Needs tags
           </label>
         )}
-        {onEditPlays && games && games.length > 0 && (
+        {onEditPlays && fillGames.length > 0 && (
           <div className="relative">
             <button
               type="button"
@@ -489,7 +500,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
             >
               Fill from yard lines
             </button>
-            {fillOpen && <FillFromYardsPanel all={writeInPlays || plays} shown={plays} games={games} onApply={onEditPlays} onClose={() => setFillOpen(false)} />}
+            {fillOpen && <FillFromYardsPanel all={writeInPlays || plays} shown={plays} games={fillGames} onApply={onEditPlays} onClose={() => setFillOpen(false)} />}
           </div>
         )}
         <div className="relative hidden md:block">
