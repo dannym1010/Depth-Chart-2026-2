@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ChevronLeft, ChevronRight, Eraser, Expand, Film, LayoutGrid, ListOrdered, Minimize2, PenLine, PenTool, Play, Presentation, Shield, Sparkles, Star, Undo2, X,
+  AlertTriangle, ChevronLeft, ChevronRight, Columns2, Eraser, Expand, Film, LayoutGrid, ListOrdered, Minimize2, PenLine, PenTool, Play, Presentation, Printer, Repeat, Shield, Sparkles, Star, Timer, Undo2, X,
 } from 'lucide-react';
 import { setFilmWindowDock, useFilmWindowRequest } from '../../filmroom/filmWindowStore';
 import type { ScoutOppPlay } from '../../utils/scoutOppPlays';
@@ -27,7 +27,7 @@ export interface ScoutShow {
   starredOnly?: boolean;
 }
 
-type View = 'diagram' | 'film';
+type View = 'diagram' | 'split' | 'film';
 const VIEW_KEY = 'footballPresentView';
 const SCRIPT_KEY = 'footballPresentScript';
 const HINT_KEY = 'footballPresentHint';
@@ -69,7 +69,7 @@ const browserFullScreen = (): Element | null => {
 
 /**
  * Presentation mode: the scout script down the side and the play open beside it, as its diagram (the play builder,
- * every tool) or its film (the film player, play lines too) in the same place. Going from play to play stays here
+ * every tool), split diagram + film side-by-side, or its film in the same place. Going from play to play stays here
  * and keeps the view; nothing switches to another page. Page Up / Page Down (a presentation clicker) go to the play
  * before or after.
  *
@@ -86,8 +86,10 @@ export const ScoutPresentation: React.FC<{
   children: React.ReactNode;
 }> = ({ show, index, onIndex, onExit, children }) => {
   const line = show.lines[index];
-  const last = show.lines.length - 1;
-  const [view, setViewState] = useState<View>(() => (saved(VIEW_KEY) === 'film' ? 'film' : 'diagram'));
+  const [view, setViewState] = useState<View>(() => {
+    const v = saved(VIEW_KEY);
+    return v === 'film' || v === 'split' ? v : 'diagram';
+  });
   const setView = (v: View) => {
     setViewState(v);
     save(VIEW_KEY, v);
@@ -98,7 +100,7 @@ export const ScoutPresentation: React.FC<{
     setScriptState(!script);
     save(SCRIPT_KEY, script ? 'off' : 'on');
   };
-  // The film plays here (Film view) instead of in the floating window; the diagram stays open underneath, so its
+  // The film plays here (Film or Split view) instead of in the floating window; the diagram stays open underneath, so its
   // play lines and edits carry on.
   const film = useFilmWindowRequest();
   const [dockEl, setDockEl] = useState<HTMLDivElement | null>(null);
@@ -110,13 +112,19 @@ export const ScoutPresentation: React.FC<{
   const askedBrowser = useRef(false);
   const [shown, setShown] = useState(true);
   const [gridOpen, setGridOpen] = useState(false);
+  const [studySheetOpen, setStudySheetOpen] = useState(false);
   const [inkOn, setInkOn] = useState(false);
   const [inkColor, setInkColor] = useState(INK_COLORS[0]);
   const [inkMode, setInkMode] = useState<InkMode>('pen');
   const [inkCount, setInkCount] = useState(0);
   const ink = useRef<InkApi | null>(null);
   const [run, setRun] = useState(0);
+  const [startRunTrigger, setStartRunTrigger] = useState(0);
   const [defenseHud, setDefenseHud] = useState(false);
+  const [showTendencyBanner, setShowTendencyBanner] = useState(true);
+  const [loopPlay, setLoopPlay] = useState(false);
+  const [autoAdvanceLoop, setAutoAdvanceLoop] = useState(false);
+  const [drillCountdown, setDrillCountdown] = useState<number | null>(null);
   const [skipNotes, setSkipNotesState] = useState<boolean>(() => readSkipNotesPref());
   const setSkipNotes = useCallback((skip: boolean) => {
     setSkipNotesState(skip);
@@ -147,7 +155,7 @@ export const ScoutPresentation: React.FC<{
   const [hint, setHint] = useState('');
   // The floating controls: always out of full screen; in it, until the coach stops touching the screen. Drawing,
   // the draw tools stay.
-  const controls = !full || shown || gridOpen || defenseHud;
+  const controls = !full || shown || gridOpen || defenseHud || studySheetOpen;
   const tools = controls || inkOn;
 
   const hideTimer = useRef(0);
@@ -163,7 +171,8 @@ export const ScoutPresentation: React.FC<{
   useEffect(() => () => window.clearTimeout(hideTimer.current), []);
 
   useEffect(() => {
-    setFilmWindowDock(dockEl ? { el: dockEl, shown: view === 'film', stage: full, controlsHidden: full && !controls } : null);
+    const filmVisible = view === 'film' || view === 'split';
+    setFilmWindowDock(dockEl ? { el: dockEl, shown: filmVisible, stage: full && view === 'film', controlsHidden: full && !controls } : null);
   }, [dockEl, view, full, controls]);
   useEffect(() => () => setFilmWindowDock(null), []);
   const go = (i: number) => i >= 0 && i < show.lines.length && i !== index && onIndex(i);
@@ -179,6 +188,80 @@ export const ScoutPresentation: React.FC<{
     const target = dir > 0 ? nextPlayIndex : prevPlayIndex;
     if (target >= 0) go(target);
   };
+
+  // Sync Run Both (Split View): starts diagram Play Movement AND plays the docked video clip simultaneously
+  const syncRunBoth = useCallback(() => {
+    setStartRunTrigger((n) => n + 1);
+    const vid = dockEl?.querySelector('video') || document.querySelector('video');
+    if (vid) {
+      try {
+        vid.play().catch(() => undefined);
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [dockEl]);
+
+  // 3-Second Pre-Snap Recognition Drill countdown
+  const startRecognitionDrill = useCallback(() => {
+    setDrillCountdown(3);
+  }, []);
+  useEffect(() => {
+    if (drillCountdown === null) return;
+    if (drillCountdown <= 0) {
+      setDrillCountdown(null);
+      setStartRunTrigger((n) => n + 1);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setDrillCountdown((c) => (c !== null ? c - 1 : null));
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [drillCountdown]);
+  useEffect(() => {
+    setDrillCountdown(null);
+  }, [index]);
+
+  // Opponent Tendency & Key Alert computed from current play card & script formation stats
+  const tendencyAlert = useMemo(() => {
+    if (!line?.card) return null;
+    const c = line.card;
+    const form = (c.formation || '').trim();
+    const sameForm = form
+      ? show.lines.filter((l) => (l.card?.formation || '').trim().toLowerCase() === form.toLowerCase())
+      : [line];
+    const runCount = sameForm.filter((l) => (l.card?.kind || 'run') === 'run').length;
+    const runPct = sameForm.length > 0 ? Math.round((runCount / sameForm.length) * 100) : 0;
+    const clipCount = (line.group ? line.group.plays.flatMap((p) => p.clips || []) : c.clips || []).length;
+    const isPass = c.kind === 'pass' || c.kind === 'screen' || c.kind === 'rpo';
+    const callout = isPass
+      ? 'PASS / RPO ALERT — Check Coverage & Pass Drops!'
+      : runPct >= 75
+        ? `HEAVY RUN TENDENCY (${runPct}% Run) — Set Hard Edge & Trigger Downhill!`
+        : 'BALANCED LOOK — Read Guard / Near Back Key First!';
+    return {
+      formation: form || 'Base Formation',
+      personnel: c.personnel ? `${c.personnel} Personnel` : '',
+      kind: (c.kind || 'run').toUpperCase(),
+      down: c.down ? `${c.down} Down` : '',
+      sameFormCount: sameForm.length,
+      runPct,
+      clipCount,
+      notes: c.notes || line.detail || '',
+      callout,
+      isPass,
+    };
+  }, [line, show.lines]);
+
+  // Auto-advance callback when `loopPlay` and `autoAdvanceLoop` are both enabled
+  const handleLoopCycleEnd = useCallback(() => {
+    if (!autoAdvanceLoop || activeIndices.length <= 1) return;
+    const nextIdx = posInActive >= 0 && posInActive < activeIndices.length - 1 ? activeIndices[posInActive + 1] : activeIndices[0];
+    if (nextIdx !== index) {
+      onIndex(nextIdx);
+      window.setTimeout(() => setStartRunTrigger((n) => n + 1), 120);
+    }
+  }, [autoAdvanceLoop, activeIndices, posInActive, index, onIndex]);
 
   const enterFull = () => {
     setFull(true);
@@ -407,8 +490,20 @@ export const ScoutPresentation: React.FC<{
   }, [gridOpen]);
 
   const stage = useMemo(
-    () => ({ on: full, run, defenseHud, toggleDefenseHud: () => setDefenseHud((v) => !v), skipNotes, setSkipNotes }),
-    [full, run, defenseHud, skipNotes, setSkipNotes]
+    () => ({
+      on: full,
+      run,
+      startRunTrigger,
+      defenseHud,
+      toggleDefenseHud: () => setDefenseHud((v) => !v),
+      skipNotes,
+      setSkipNotes,
+      loopPlay,
+      setLoopPlay,
+      onLoopCycleEnd: handleLoopCycleEnd,
+      hideOffenseRoutes: drillCountdown !== null && drillCountdown > 0,
+    }),
+    [full, run, startRunTrigger, defenseHud, skipNotes, setSkipNotes, loopPlay, handleLoopCycleEnd, drillCountdown]
   );
 
   // Finger-sized on a touch screen (an iPad).
@@ -501,6 +596,15 @@ export const ScoutPresentation: React.FC<{
         </button>
         <button
           type="button"
+          onClick={() => setStudySheetOpen(true)}
+          title="Open Printable / Shareable 1-Page Player Study Sheet for Starred Plays"
+          className={`${navBtn} !px-2.5 border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950 text-xs`}
+        >
+          <Printer className="w-3.5 h-3.5" />
+          <span className="max-md:hidden">Study Sheet</span>
+        </button>
+        <button
+          type="button"
           aria-pressed={!skipNotes}
           onClick={() => setSkipNotes(!skipNotes)}
           title={
@@ -516,14 +620,88 @@ export const ScoutPresentation: React.FC<{
         >
           <span>{skipNotes ? '⏭ Play Through (No Notes)' : '📌 Stop & Show Notes'}</span>
         </button>
+        <button
+          type="button"
+          aria-pressed={loopPlay}
+          onClick={() => {
+            const nextLoop = !loopPlay;
+            setLoopPlay(nextLoop);
+            if (nextLoop) setStartRunTrigger((n) => n + 1);
+          }}
+          title="Walkthrough Huddle Loop: plays continuously, pauses 2s at each note, and loops"
+          className={`${navBtn} !px-2.5 border text-xs ${
+            loopPlay
+              ? 'border-emerald-500 bg-emerald-600 text-white'
+              : 'border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-emerald-400'
+          }`}
+        >
+          <Repeat className="w-3.5 h-3.5" />
+          <span>{loopPlay ? 'Loop ON' : 'Loop'}</span>
+        </button>
+        {loopPlay && activeIndices.length > 1 && (
+          <button
+            type="button"
+            aria-pressed={autoAdvanceLoop}
+            onClick={() => setAutoAdvanceLoop((v) => !v)}
+            title="When Loop is ON, automatically advance to the next play on the script after each loop"
+            className={`${navBtn} !px-2 border text-xs ${
+              autoAdvanceLoop
+                ? 'border-amber-400 bg-amber-500 text-slate-950'
+                : 'border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+            }`}
+          >
+            <span>Auto-Next</span>
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={startRecognitionDrill}
+          title="3-Second Pre-Snap Recognition Drill: hides routes & play name for 3 seconds while players call out Strength & Formation, then snaps automatically!"
+          className={`${navBtn} !px-2.5 border text-xs ${
+            drillCountdown !== null
+              ? 'border-rose-500 bg-rose-600 text-white animate-pulse'
+              : 'border-amber-400/70 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 hover:bg-amber-100'
+          }`}
+        >
+          <Timer className="w-3.5 h-3.5" />
+          <span>{drillCountdown !== null ? `⏱ ${drillCountdown}s…` : '3s Drill'}</span>
+        </button>
+        <button
+          type="button"
+          aria-pressed={showTendencyBanner}
+          onClick={() => setShowTendencyBanner((v) => !v)}
+          title="Show/Hide Opponent Formation Tendency & Key Alert Banner"
+          className={`${navBtn} !px-2 border text-xs ${
+            showTendencyBanner
+              ? 'border-rose-400/70 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300'
+              : 'border-slate-300 dark:border-slate-700 text-slate-500'
+          }`}
+        >
+          <AlertTriangle className="w-3.5 h-3.5" />
+          <span className="max-xl:hidden">Tendency</span>
+        </button>
         <div className="flex items-center gap-0.5 p-1 rounded-lg bg-slate-100 dark:bg-slate-800" role="group" aria-label="Show">
           <button type="button" className={viewBtn('diagram')} aria-pressed={view === 'diagram'} onClick={() => setView('diagram')} title="The play's diagram, with every tool">
             <PenTool className="w-3.5 h-3.5" /> Diagram
+          </button>
+          <button type="button" className={viewBtn('split')} aria-pressed={view === 'split'} onClick={() => setView('split')} title="Side-by-Side Split: Play Diagram on the left + Game Film on the right">
+            <Columns2 className="w-3.5 h-3.5" /> Split
           </button>
           <button type="button" className={viewBtn('film')} aria-pressed={view === 'film'} onClick={() => setView('film')} title="The play's film, in the same place">
             <Film className="w-3.5 h-3.5" /> Film
           </button>
         </div>
+        {view === 'split' && (
+          <button
+            type="button"
+            onClick={syncRunBoth}
+            title="Start the Play Diagram movement and the Game Film clip at the exact same time"
+            className={`${navBtn} !px-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs`}
+          >
+            <Play className="w-3.5 h-3.5 fill-current" />
+            <span>Sync Run Both</span>
+          </button>
+        )}
         <button
           type="button"
           className={`${navBtn} border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950`}
@@ -548,6 +726,43 @@ export const ScoutPresentation: React.FC<{
         </div>
       </header>
       )}
+
+      {/* Opponent Tendency & Key Alert Banner */}
+      {!full && showTendencyBanner && tendencyAlert && (
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-gradient-to-r from-rose-950 via-slate-900 to-indigo-950 text-white border-b border-rose-500/30 text-xs">
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
+            <span className="px-2 py-0.5 rounded-md bg-rose-600 text-white font-black uppercase tracking-wider text-[10px]">
+              🚨 Tendency Alert
+            </span>
+            <span className="font-black text-amber-300">
+              {tendencyAlert.formation}
+              {tendencyAlert.personnel ? ` (${tendencyAlert.personnel})` : ''}
+            </span>
+            <span className="px-1.5 py-0.5 rounded bg-white/10 font-bold text-slate-200 text-[11px]">
+              {tendencyAlert.runPct}% Run ({tendencyAlert.sameFormCount} play{tendencyAlert.sameFormCount === 1 ? '' : 's'} in this look)
+            </span>
+            {tendencyAlert.clipCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded bg-indigo-500/25 border border-indigo-400/40 font-bold text-indigo-200 text-[11px]">
+                🎬 {tendencyAlert.clipCount}× in film
+              </span>
+            )}
+            {tendencyAlert.down && (
+              <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200 font-bold text-[11px]">
+                {tendencyAlert.down}
+              </span>
+            )}
+            {tendencyAlert.notes && (
+              <span className="text-slate-300 font-semibold truncate max-w-md">
+                · {tendencyAlert.notes}
+              </span>
+            )}
+          </div>
+          <div className="font-black text-emerald-300 text-[11px] uppercase tracking-wide">
+            🗣 {tendencyAlert.callout}
+          </div>
+        </div>
+      )}
+
       <div className={full ? 'relative flex-1 min-h-0' : `flex-1 min-h-0 grid ${script ? 'lg:grid-cols-[12rem_minmax(0,1fr)] xl:grid-cols-[13.5rem_minmax(0,1fr)]' : ''}`}>
         {!full && (
         <nav className={`hidden ${script ? 'lg:flex lg:flex-col' : ''} overflow-y-auto overscroll-contain border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900`} aria-label="Scout script">
@@ -607,21 +822,72 @@ export const ScoutPresentation: React.FC<{
         </nav>
         )}
         {/* Full screen, nothing here scrolls or zooms the page under a finger: the swipes and the pencil are the play's. */}
-        <main ref={mainRef} className={full ? 'absolute inset-0 touch-none' : 'relative min-w-0 min-h-0'} aria-label={line ? line.name : undefined}>
+        <main
+          ref={mainRef}
+          className={`${full ? 'absolute inset-0 touch-none' : 'relative min-w-0 min-h-0'} ${
+            view === 'split' ? 'grid grid-cols-1 lg:grid-cols-2 gap-2 p-2 overflow-y-auto' : ''
+          }`}
+          aria-label={line ? line.name : undefined}
+        >
+          {/* 3-Second Pre-Snap Recognition Drill Countdown Overlay */}
+          {drillCountdown !== null && drillCountdown > 0 && (
+            <div
+              data-stage-ui
+              className="absolute inset-x-4 top-14 z-30 max-w-2xl mx-auto rounded-2xl border-2 border-amber-400 bg-slate-950/95 backdrop-blur-xl text-white px-5 py-4 shadow-2xl flex items-center justify-between gap-4"
+            >
+              <div className="space-y-1">
+                <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-md bg-amber-400 text-slate-950 text-xs font-black uppercase tracking-wider">
+                  ⏱ Pre-Snap Recognition Drill
+                </div>
+                <div className="text-base sm:text-lg font-black text-white">
+                  🗣 CALL IT OUT! 1) Strength (LIZ / RIP) · 2) Formation · 3) Run or Pass Alert!
+                </div>
+                <div className="text-xs font-bold text-amber-200">
+                  Routes and play call are hidden until the snap — read the formation &amp; backfield!
+                </div>
+              </div>
+              <div className="shrink-0 w-16 h-16 rounded-2xl bg-rose-600 border-2 border-white flex flex-col items-center justify-center shadow-lg">
+                <span className="text-3xl font-black tabular-nums leading-none">{drillCountdown}</span>
+                <span className="text-[9px] font-black uppercase tracking-wider mt-0.5">SEC</span>
+              </div>
+            </div>
+          )}
+
           <PresentStageContext.Provider value={stage}>
-            <div className={`h-full ${full ? 'flex items-center justify-center overflow-hidden' : 'overflow-y-auto'} ${view === 'diagram' ? '' : 'hidden'}`}>{children}</div>
+            <div
+              className={`h-full ${
+                view === 'split'
+                  ? 'min-h-[22rem] overflow-y-auto rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900'
+                  : full
+                    ? 'flex items-center justify-center overflow-hidden'
+                    : 'overflow-y-auto'
+              } ${view === 'diagram' || view === 'split' ? '' : 'hidden'}`}
+            >
+              {children}
+            </div>
           </PresentStageContext.Provider>
-          <div ref={setDockEl} className={`absolute inset-0 ${view === 'film' && film ? '' : 'hidden'}`} />
-          {view === 'film' && !film && (
-            <div className={`h-full flex flex-col items-center justify-center gap-3 p-6 text-center ${full ? 'text-slate-400' : 'text-slate-500'}`}>
+          <div
+            ref={setDockEl}
+            className={`${
+              view === 'split'
+                ? 'relative min-h-[22rem] h-full rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700 bg-black'
+                : 'absolute inset-0'
+            } ${(view === 'film' || view === 'split') && film ? '' : 'hidden'}`}
+          />
+          {(view === 'film' || view === 'split') && !film && (
+            <div
+              className={`h-full flex flex-col items-center justify-center gap-3 p-6 text-center ${
+                view === 'split' ? 'rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-900/40' : ''
+              } ${full ? 'text-slate-400' : 'text-slate-500'}`}
+            >
               <Film className="w-8 h-8 text-slate-400" />
-              <span className="text-sm font-bold">No film for this play.</span>
+              <span className="text-sm font-bold">No film clip linked to this play.</span>
               <button
                 type="button"
                 className={`${navBtn} border ${full ? 'border-white/25 text-white' : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200'}`}
                 onClick={() => setView('diagram')}
               >
-                <PenTool className="w-4 h-4" /> Show the diagram
+                <PenTool className="w-4 h-4" /> Show diagram only
               </button>
             </div>
           )}
@@ -660,14 +926,22 @@ export const ScoutPresentation: React.FC<{
             </span>
             <span className="min-w-0">
               <span className="block text-lg font-black leading-tight truncate">
-                {line && isStarred(line) ? '★ ' : ''}{line?.name}
+                {drillCountdown !== null && drillCountdown > 0
+                  ? '❓ CALL OUT FORMATION & STRENGTH!'
+                  : `${line && isStarred(line) ? '★ ' : ''}${line?.name || ''}`}
               </span>
-              {line?.detail && <span className="block mt-0.5 text-xs font-semibold text-slate-300 truncate">{line.detail}</span>}
+              {tendencyAlert && showTendencyBanner ? (
+                <span className="block mt-0.5 text-xs font-bold text-amber-300 truncate">
+                  🚨 {tendencyAlert.formation} ({tendencyAlert.runPct}% Run) · {tendencyAlert.callout}
+                </span>
+              ) : (
+                line?.detail && <span className="block mt-0.5 text-xs font-semibold text-slate-300 truncate">{line.detail}</span>
+              )}
             </span>
             <LayoutGrid className="shrink-0 w-4 h-4 text-white/60" />
           </button>
 
-          {/* Diagram or film, run the play, draw, leave full screen. */}
+          {/* Diagram, Split, or Film, run the play, 3s drill, loop, draw, leave full screen. */}
           <div
             data-stage-ui
             className={`absolute z-30 flex items-center gap-1 p-1 rounded-2xl ${GLASS} ${fade(tools)} ${tools ? 'translate-y-0' : '-translate-y-2'}`}
@@ -699,13 +973,46 @@ export const ScoutPresentation: React.FC<{
                 <PenTool className="w-4 h-4" />
                 <span className="max-sm:hidden">Diagram</span>
               </button>
+              <button type="button" aria-pressed={view === 'split'} onClick={() => setView('split')} className={segBtn(view === 'split')} title="Side-by-Side Split: Diagram + Film">
+                <Columns2 className="w-4 h-4" />
+                <span className="max-sm:hidden">Split</span>
+              </button>
               <button type="button" aria-pressed={view === 'film'} onClick={() => setView('film')} className={segBtn(view === 'film')} title="The play's film">
                 <Film className="w-4 h-4" />
                 <span className="max-sm:hidden">Film</span>
               </button>
             </div>
-            {view === 'diagram' && (
+            {view === 'split' && (
+              <button type="button" onClick={syncRunBoth} className={stageBtn(true)} title="Sync Run Diagram + Film together">
+                <Play className="w-4 h-4 fill-current" />
+                <span className="max-md:hidden">Sync Both</span>
+              </button>
+            )}
+            {(view === 'diagram' || view === 'split') && (
               <>
+                <button
+                  type="button"
+                  onClick={startRecognitionDrill}
+                  className={stageBtn(drillCountdown !== null)}
+                  title="3-Second Pre-Snap Recognition Drill"
+                >
+                  <Timer className="w-4 h-4" />
+                  <span className="max-lg:hidden">{drillCountdown !== null ? `${drillCountdown}s` : '3s Drill'}</span>
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={loopPlay}
+                  onClick={() => {
+                    const nextLoop = !loopPlay;
+                    setLoopPlay(nextLoop);
+                    if (nextLoop) setStartRunTrigger((n) => n + 1);
+                  }}
+                  className={stageBtn(loopPlay)}
+                  title="Walkthrough Huddle Loop"
+                >
+                  <Repeat className="w-4 h-4" />
+                  <span className="max-lg:hidden">Loop</span>
+                </button>
                 <button
                   type="button"
                   aria-pressed={!skipNotes}
@@ -849,6 +1156,17 @@ export const ScoutPresentation: React.FC<{
                   <Star className={`w-4 h-4 ${starredOnly ? 'fill-amber-500 text-amber-500' : 'text-amber-400'}`} />
                   <span>★ Starred Only ({starredIndices.length})</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGridOpen(false);
+                    setStudySheetOpen(true);
+                  }}
+                  className={stageBtn()}
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>🖨 Study Sheet</span>
+                </button>
                 <button type="button" onClick={() => setGridOpen(false)} className={`ml-auto ${stageBtn()}`} aria-label="Close" title="Close (Esc)">
                   <X className="w-5 h-5" />
                 </button>
@@ -908,6 +1226,121 @@ export const ScoutPresentation: React.FC<{
           )}
         </>
       )}
+
+      {/* Printable / Shareable 1-Page Player Study Sheet Modal for Starred Plays */}
+      {studySheetOpen && (() => {
+        const sheetIndices = starredIndices.length > 0 ? starredIndices : show.lines.map((_, i) => i);
+        return (
+          <div
+            data-stage-ui
+            role="dialog"
+            aria-label="Player Study Sheet"
+            className="fixed inset-0 z-50 flex flex-col bg-slate-950/90 backdrop-blur-xl text-slate-900 overflow-y-auto p-4 sm:p-6 print:p-0 print:bg-white"
+          >
+            <div className="max-w-5xl w-full mx-auto bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden print:shadow-none print:border-none print:rounded-none">
+              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 bg-slate-900 text-white print:bg-white print:text-slate-900 print:border-b-2 print:border-slate-900">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded bg-amber-400 text-slate-950 text-xs font-black uppercase">
+                      ★ Player Study Sheet
+                    </span>
+                    <h2 className="text-base sm:text-lg font-black">{show.title}</h2>
+                  </div>
+                  <p className="text-xs text-slate-300 print:text-slate-600 mt-0.5">
+                    {starredIndices.length > 0
+                      ? `Showing ${sheetIndices.length} ★ Starred Play${sheetIndices.length === 1 ? '' : 's'} — Pre-Snap Keys, Pursuit Angles & Coaching Notes`
+                      : `Showing all ${sheetIndices.length} Script Plays (Star specific plays to filter this sheet)`}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 print:hidden">
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                  >
+                    <Printer className="w-4 h-4" /> Print / Save PDF
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStudySheetOpen(false)}
+                    className="h-9 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-black inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" /> Close
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4 print:grid-cols-2 print:gap-3 print:p-3">
+                {sheetIndices.map((idx, cardNum) => {
+                  const l = show.lines[idx];
+                  const c = l.card;
+                  const isPass = c?.kind === 'pass' || c?.kind === 'screen' || c?.kind === 'rpo';
+                  return (
+                    <div
+                      key={l.playId}
+                      className="rounded-xl border-2 border-slate-200 p-3 flex flex-col gap-2 break-inside-avoid bg-slate-50/50 print:bg-white"
+                    >
+                      <div className="flex items-start justify-between gap-2 border-b border-slate-200 pb-1.5">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="px-2 py-0.5 rounded-md bg-indigo-600 text-white text-xs font-black tabular-nums">
+                              #{cardNum + 1}
+                            </span>
+                            <span className="text-sm font-black text-slate-900 truncate">{l.name}</span>
+                          </div>
+                          {l.detail && <div className="text-[11px] font-bold text-slate-500 mt-0.5">{l.detail}</div>}
+                        </div>
+                        <span
+                          className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                            isPass ? 'bg-sky-100 text-sky-800 border border-sky-300' : 'bg-amber-100 text-amber-900 border border-amber-300'
+                          }`}
+                        >
+                          {c?.kind ? c.kind.toUpperCase() : 'RUN'}
+                        </span>
+                      </div>
+
+                      {l.diagram && (
+                        <DiagramImage
+                          url={l.diagram}
+                          alt={l.name}
+                          className="w-full aspect-[760/520] object-contain rounded-lg border border-slate-200 bg-white"
+                        />
+                      )}
+
+                      <div className="space-y-1 text-xs">
+                        <div className="flex flex-wrap items-center gap-1.5 font-bold text-slate-700">
+                          {c?.formation && (
+                            <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-800 text-[11px] font-black">
+                              Formation: {c.formation}
+                            </span>
+                          )}
+                          {c?.personnel && (
+                            <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-800 text-[11px] font-bold">
+                              {c.personnel} Pers
+                            </span>
+                          )}
+                          {c?.down && (
+                            <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 text-[11px] font-bold">
+                              {c.down} Down
+                            </span>
+                          )}
+                        </div>
+                        <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 text-[11px] font-extrabold text-emerald-900">
+                          🗣 Defensive Key:{' '}
+                          {c?.notes ||
+                            (isPass
+                              ? 'Communicate coverage, get depth on pass drops, break on the throw!'
+                              : 'Call strength (LIZ/RIP), set the hard outside edge, and fit gaps inside-out!')}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

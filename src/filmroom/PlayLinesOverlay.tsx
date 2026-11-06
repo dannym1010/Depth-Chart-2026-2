@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { buildProjectedFieldGrid, getQuadHomographies, HOMOGRAPHY_PRESETS, imageToField, type HomographyQuad, type ImagePoint } from '../utils/videoHomography';
+import { buildProjectedFieldGrid, getQuadHomographies, HOMOGRAPHY_PRESETS, imageToField, type HomographyQuad, type ImagePoint, type UnitFilmTransform } from '../utils/videoHomography';
 import { DEFENSE_COLOR, diagramLabel, isDefenseRole, lineStartsOn, passThrow, shiftLegs, shownText, skillDiagramLabel, STROKE_COLOR, THROW_COLOR, type PlayNode, type PlayStroke } from '../utils/footballEngine';
 import { arrowOnField, circleOnField, cutLine, dashLine, densify, lengthOf, pointBack, polygon, polyline, ribbon, tOnField, zigzagLine, type Px } from './linesArt';
 import { cameraFromFilm, cameraProjector, clipPolygon, filmProjector, lerpCam, MAX_PITCH, MIN_PITCH, VIEWS, visibleRuns, type Cam } from './fieldCamera';
@@ -24,6 +24,8 @@ export interface PlayLinesControl {
   on: boolean;
   toggle: () => void;
   layer: (state: { playing: boolean; zoom: number }) => React.ReactNode;
+  /** CSS filter applied to the underlying video when play lines are shown so routes/assignments stand out clearly. */
+  videoFilter?: (state: { playing: boolean }) => string | undefined;
   /** Its buttons: in the player's control bar, just above the Play lines button (inline: in its row, without the play's name). */
   bar: (state: { playing: boolean; inline?: boolean }) => React.ReactNode;
   /** What's happening (the phase, how to line up the field...): over the top right of the video. */
@@ -44,8 +46,10 @@ const SIDES: [Side, string][] = [
   ['defense', 'Defense'],
   ['both', 'Both'],
 ];
+type AlignTarget = 'field' | 'offense' | 'defense' | 'players';
 const SIDE_KEY = 'mahopac_film_lines_side';
 const CLEAN_KEY = 'mahopac_film_lines_clean';
+const SHADE_KEY = 'mahopac_film_lines_shade';
 const showsDefense = (side: Side) => side !== 'offense';
 const showsOffense = (side: Side) => side !== 'defense';
 /** Our defense's lines (blitzes, coverage) carry their own color; the offense's don't. */
@@ -101,25 +105,169 @@ export function stretchQuad(q: HomographyQuad, width: number, depth: number): Ho
   };
 }
 
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+function hasUnitTransform(ut?: UnitFilmTransform): boolean {
+  if (!ut) return false;
+  return Boolean(
+    (ut.dx && Math.abs(ut.dx) > 0.01) ||
+      (ut.dy && Math.abs(ut.dy) > 0.01) ||
+      (ut.scaleX !== undefined && Math.abs(ut.scaleX - 1) > 0.01) ||
+      (ut.scaleY !== undefined && Math.abs(ut.scaleY - 1) > 0.01)
+  );
+}
+
+function transformUnitPoint(x: number, y: number, def: boolean, ut?: UnitFilmTransform): { x: number; y: number } {
+  if (!ut) return { x, y };
+  const sx = ut.scaleX ?? 1;
+  const sy = ut.scaleY ?? 1;
+  const dx = ut.dx ?? 0;
+  const dy = ut.dy ?? 0;
+  const baseY = def ? 1.2 : 0;
+  return {
+    x: r2(x * sx + dx),
+    y: r2(baseY + (y - baseY) * sy + dy),
+  };
+}
+
+/** Shift the full Offense or full Defense unit (and any individually-moved players on that side) by (ddx, ddy) yards. */
+export function shiftUnitQuad(
+  baseQ: HomographyQuad,
+  unit: 'offense' | 'defense',
+  ddx: number,
+  ddy: number,
+): HomographyQuad {
+  const key = unit === 'defense' ? 'defenseTransform' : 'offenseTransform';
+  const prev = baseQ[key] || {};
+  const nextUt: UnitFilmTransform = {
+    ...prev,
+    dx: r2((prev.dx ?? 0) + ddx),
+    dy: r2((prev.dy ?? 0) + ddy),
+  };
+  const defSide = unit === 'defense';
+  const nextMoved: Record<string, { x: number; y: number }> = { ...(baseQ.moved || {}) };
+  for (const [role, pt] of Object.entries(nextMoved)) {
+    if (isDefenseRole(role) === defSide) {
+      nextMoved[role] = { x: r2(pt.x + ddx), y: r2(pt.y + ddy) };
+    }
+  }
+  return {
+    ...baseQ,
+    [key]: nextUt,
+    ...(Object.keys(nextMoved).length ? { moved: nextMoved } : {}),
+  };
+}
+
+/** Scale the full Offense or full Defense unit's width and/or depth independently. */
+export function scaleUnitQuad(
+  baseQ: HomographyQuad,
+  unit: 'offense' | 'defense',
+  multX: number,
+  multY: number,
+): HomographyQuad {
+  const key = unit === 'defense' ? 'defenseTransform' : 'offenseTransform';
+  const prev = baseQ[key] || {};
+  const sx = Math.max(0.35, Math.min(2.6, r2((prev.scaleX ?? 1) * multX)));
+  const sy = Math.max(0.35, Math.min(2.6, r2((prev.scaleY ?? 1) * multY)));
+  const dx = prev.dx ?? 0;
+  const dy = prev.dy ?? 0;
+  const defSide = unit === 'defense';
+  const anchorY = (defSide ? 1.2 : 0) + dy;
+  const nextMoved: Record<string, { x: number; y: number }> = { ...(baseQ.moved || {}) };
+  for (const [role, pt] of Object.entries(nextMoved)) {
+    if (isDefenseRole(role) === defSide) {
+      nextMoved[role] = {
+        x: r2(dx + (pt.x - dx) * multX),
+        y: r2(anchorY + (pt.y - anchorY) * multY),
+      };
+    }
+  }
+  return {
+    ...baseQ,
+    [key]: { ...prev, scaleX: sx, scaleY: sy },
+    ...(Object.keys(nextMoved).length ? { moved: nextMoved } : {}),
+  };
+}
+
+/** Reset the full Offense or full Defense unit transform (and that unit's moved players) back to diagram spots. */
+export function resetUnitQuad(baseQ: HomographyQuad, unit: 'offense' | 'defense'): HomographyQuad {
+  const defSide = unit === 'defense';
+  const next: HomographyQuad = { ...baseQ };
+  if (defSide) delete next.defenseTransform;
+  else delete next.offenseTransform;
+  if (next.moved) {
+    const kept = Object.fromEntries(Object.entries(next.moved).filter(([role]) => isDefenseRole(role) !== defSide));
+    if (Object.keys(kept).length) next.moved = kept;
+    else delete next.moved;
+  }
+  return next;
+}
+
+/** Reset individual moved players for Offense only, Defense only, or All, while keeping full-unit transforms. */
+export function resetMovedPlayersQuad(baseQ: HomographyQuad, target: 'offense' | 'defense' | 'all'): HomographyQuad {
+  const next: HomographyQuad = { ...baseQ };
+  if (!next.moved) return next;
+  if (target === 'all') {
+    delete next.moved;
+    return next;
+  }
+  const defSide = target === 'defense';
+  const kept = Object.fromEntries(Object.entries(next.moved).filter(([role]) => isDefenseRole(role) !== defSide));
+  if (Object.keys(kept).length) next.moved = kept;
+  else delete next.moved;
+  return next;
+}
+
 /**
- * The play as it lines up on this film: players moved on the film where the coach put them, each one's lines
- * moving with him. The diagram itself isn't changed.
+ * The play as it lines up on this film: full Offense / full Defense unit alignment and individual players moved
+ * on the film where the coach put them, each one's lines moving with him. The diagram itself isn't changed.
  */
 function onFilm(lines: VideoLines): VideoLines {
-  const moved = lines.quad.moved;
-  if (!moved || !Object.keys(moved).length) return lines;
+  const { moved, offenseTransform, defenseTransform } = lines.quad;
+  const hasMoved = Boolean(moved && Object.keys(moved).length);
+  const hasOff = hasUnitTransform(offenseTransform);
+  const hasDef = hasUnitTransform(defenseTransform);
+  if (!hasMoved && !hasOff && !hasDef) return lines;
+
   const shift = new Map<string, { dx: number; dy: number }>();
-  for (const n of lines.nodes) {
-    const m = moved[n.role];
-    if (m) shift.set(n.role, { dx: m.x - n.x, dy: m.y - n.y });
-  }
-  const strokes = lines.strokes.map((st) => {
-    const owner = lines.nodes.find((n) => shift.has(n.role) && lineStartsOn(st, n, lines.nodes));
-    if (!owner) return st;
-    const { dx, dy } = shift.get(owner.role)!;
-    return { ...st, points: st.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })) };
+  const nextNodes = lines.nodes.map((n) => {
+    const def = isDefenseRole(n.role);
+    const ut = def ? defenseTransform : offenseTransform;
+    const m = moved?.[n.role];
+    const pos = m ? m : transformUnitPoint(n.x, n.y, def, ut);
+    if (Math.abs(pos.x - n.x) > 0.001 || Math.abs(pos.y - n.y) > 0.001) {
+      shift.set(n.role, { dx: pos.x - n.x, dy: pos.y - n.y });
+      return { ...n, x: pos.x, y: pos.y };
+    }
+    return n;
   });
-  return { ...lines, nodes: lines.nodes.map((n) => (moved[n.role] ? { ...n, ...moved[n.role] } : n)), strokes };
+
+  const strokes = lines.strokes.map((st) => {
+    const owner = lines.nodes.find((n) => lineStartsOn(st, n, lines.nodes));
+    if (owner && shift.has(owner.role)) {
+      const { dx, dy } = shift.get(owner.role)!;
+      return {
+        ...st,
+        points: st.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })),
+        ...(st.man ? { man: { x: st.man.x + dx, y: st.man.y + dy } } : {}),
+      };
+    }
+    if (!owner) {
+      const ut = isDefenseStroke(st) ? defenseTransform : offenseTransform;
+      const dx = ut?.dx ?? 0;
+      const dy = ut?.dy ?? 0;
+      if (Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001) {
+        return {
+          ...st,
+          points: st.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })),
+          ...(st.man ? { man: { x: st.man.x + dx, y: st.man.y + dy } } : {}),
+        };
+      }
+    }
+    return st;
+  });
+
+  return { ...lines, nodes: nextNodes, strokes };
 }
 /**
  * The lineup a quarter turn clockwise about its middle, on a 16:9 picture (for film shot from another angle).
@@ -159,6 +307,7 @@ export function usePlayLines(opts: {
   const { lines, video, filmKey, onTurnOn, waiting, situation } = opts;
   const [on, setOn] = useState(false);
   const [lineUp, setLineUp] = useState(false);
+  const [alignTarget, setAlignTarget] = useState<AlignTarget>('field');
   // Whose lines show: the coach's last pick.
   const [side, setSide] = useState<Side>(() => {
     const saved = safeJSONParse<Side | null>(SIDE_KEY, null);
@@ -180,6 +329,12 @@ export function usePlayLines(opts: {
   const [focus, setFocus] = useState<string | null>(null);
   // The clean field (a drawn field instead of the video), and its camera: null is the film's own angle.
   const [clean, setClean] = useState(() => safeJSONParse<boolean>(CLEAN_KEY, false) === true);
+  // Shade and blur the video behind the play lines so routes, blocks and assignments pop clearly off the grass.
+  const [shade, setShade] = useState(() => safeJSONParse<boolean>(SHADE_KEY, true) !== false);
+  const pickShade = (v: boolean) => {
+    setShade(v);
+    safeJSONSet(SHADE_KEY, v);
+  };
   const [cam, setCam] = useState<Cam | null>(null);
   const camRef = useRef(cam);
   camRef.current = cam;
@@ -251,13 +406,13 @@ export function usePlayLines(opts: {
   }, [lines?.name]);
 
   // The coach's change to the lineup: this play's own from now on, and the film's latest for the plays after it.
-  // Players moved on the film are this play's own (saved with its lineup), not the film's for the plays after it.
+  // Players and full-unit Offense/Defense shifts on the film are this play's own, not the film's for the plays after it.
   const shown = useMemo(() => {
     if (!lines) return null;
     const setQuad = (q: HomographyQuad) => {
       const { fromFilm: _picked, ...own } = q;
       lines.setQuad(own);
-      const { moved: _players, ...field } = own;
+      const { moved: _players, offenseTransform: _off, defenseTransform: _def, ...field } = own;
       safeJSONSet(lineupKey, field);
     };
     return {
@@ -267,7 +422,12 @@ export function usePlayLines(opts: {
       moveNode: (role: string, x: number, y: number) => setQuad({ ...lines.quad, moved: { ...lines.quad.moved, [role]: { x, y } } }),
     };
   }, [lines, lineupKey]);
-  const filmMoves = Object.keys(lines?.quad.moved || {}).length;
+  const movedEntries = Object.entries(lines?.quad.moved || {});
+  const filmMoves = movedEntries.length;
+  const offMoves = movedEntries.filter(([r]) => !isDefenseRole(r)).length;
+  const defMoves = movedEntries.filter(([r]) => isDefenseRole(r)).length;
+  const hasOffUnit = hasUnitTransform(lines?.quad.offenseTransform);
+  const hasDefUnit = hasUnitTransform(lines?.quad.defenseTransform);
   const frame = useMemo(
     () => (shown ? computeAnimatedPlayFrame(shown.nodes, shown.strokes, [], shown.ballRole, progress) : null),
     [shown, progress]
@@ -286,6 +446,12 @@ export function usePlayLines(opts: {
       }
       setOn((v) => !v);
     },
+    videoFilter: ({ playing }) => {
+      if (!on || !shown || playing || clean || lineUp || !shade) return undefined;
+      return showLines || moving || focus !== null
+        ? 'blur(3.5px) brightness(0.48) saturate(0.82)'
+        : 'blur(1.8px) brightness(0.64) saturate(0.9)';
+    },
     layer: ({ playing, zoom }) =>
       shown && frame && !playing ? (
         <LinesDrawing
@@ -295,12 +461,14 @@ export function usePlayLines(opts: {
           side={side}
           showLines={showLines}
           lineUp={lineUp}
+          alignTarget={alignTarget}
           corners={corners}
           zoom={zoom}
           situation={situation}
           focus={focus}
           onFocus={setFocus}
           clean={clean}
+          shade={shade}
           cam={cam}
           onCam={(c) => {
             cancelAnimationFrame(flight.current);
@@ -358,8 +526,13 @@ export function usePlayLines(opts: {
                   Reset
                 </button>
               )}
-              <button type="button" className={`${btn} ${lineUp ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`} onClick={() => setLineUp((v) => !v)} title="Show the yard lines: move, turn and size them to fit the field on the film">
-                Line up field
+              <button
+                type="button"
+                className={`${btn} ${lineUp ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`}
+                onClick={() => setLineUp((v) => !v)}
+                title="Align the field, the full Offense, the full Defense, or individual players independently on the video"
+              >
+                Align / Line up
               </button>
               <button
                 type="button"
@@ -370,6 +543,17 @@ export function usePlayLines(opts: {
               >
                 Clean field
               </button>
+              {!clean && (
+                <button
+                  type="button"
+                  aria-pressed={shade}
+                  className={`${btn} ${shade ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`}
+                  onClick={() => pickShade(!shade)}
+                  title="Shade and blur the video behind the play lines so routes and assignments are easier to see"
+                >
+                  Shade video
+                </button>
+              )}
               <span className="inline-flex rounded-lg overflow-hidden border border-white/15" role="group" aria-label="Show">
                 {SIDES.map(([id, label]) => (
                   <button key={id} type="button" aria-pressed={side === id} className={`h-8 px-2 text-xs font-bold cursor-pointer ${side === id ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`} onClick={() => pickSide(id)}>
@@ -381,63 +565,237 @@ export function usePlayLines(opts: {
           )}
         </div>
         {lines && lineUp && !playing && shown && (
-          // Lining up: move, turn and size the field (the corners only when asked for).
+          // Independent alignment for Field, Full Offense, Full Defense, and Individual Players.
           <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl" style={panel}>
-              <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">Turn</span>
-              <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad(turnQuad(shown.quad, -5, 1))} title="Turn left a little" aria-label="Turn left">
-                ⟲
-              </button>
-              <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad(turnQuad(shown.quad, 5, 1))} title="Turn right a little" aria-label="Turn right">
-                ⟳
-              </button>
-              <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad(rotateQuad(shown.quad))} title="A quarter turn (film shot from the side)">
-                90°
-              </button>
-              <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">Size</span>
-              <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(turnQuad(shown.quad, 0, 1 / 1.08))} title="Smaller" aria-label="Smaller">
-                −
-              </button>
-              <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(turnQuad(shown.quad, 0, 1.08))} title="Bigger" aria-label="Bigger">
-                +
-              </button>
-              <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">Width</span>
-              <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(stretchQuad(shown.quad, 1 / 1.08, 1))} title="Narrower: the line squeezed in" aria-label="Narrower">
-                −
-              </button>
-              <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(stretchQuad(shown.quad, 1.08, 1))} title="Wider: the line spread out" aria-label="Wider">
-                +
-              </button>
-              <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">Depth</span>
-              <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(stretchQuad(shown.quad, 1, 1 / 1.1))} title="Shallower: the backfield and the defense closer to the line" aria-label="Shallower">
-                −
-              </button>
-              <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(stretchQuad(shown.quad, 1, 1.1))} title="Deeper: the backfield and the defense farther from the line" aria-label="Deeper">
-                +
-              </button>
-              <button type="button" className={`${btn} ${corners ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`} onClick={() => setCorners((v) => !v)} title="Drag each corner for an exact fit">
-                Corners
-              </button>
-              <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad({ ...FILM_START, moved: shown.quad.moved })} title="Back to the starting lineup">
-                Reset
-              </button>
+            <span className="inline-flex rounded-lg overflow-hidden border border-white/15 mr-1" role="group" aria-label="Align target">
+              {(
+                [
+                  ['field', 'Field'],
+                  ['offense', 'Full Offense'],
+                  ['defense', 'Full Defense'],
+                  ['players', 'Players'],
+                ] as [AlignTarget, string][]
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={alignTarget === id}
+                  onClick={() => {
+                    setAlignTarget(id);
+                    if (id === 'offense' && side === 'defense') pickSide('both');
+                    if (id === 'defense' && side === 'offense') pickSide('both');
+                  }}
+                  className={`h-8 px-2 text-xs font-bold cursor-pointer ${
+                    alignTarget === id
+                      ? id === 'offense'
+                        ? 'bg-orange-600 text-white'
+                        : id === 'defense'
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-indigo-600 text-white'
+                      : 'hover:bg-white/10'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </span>
+
+            {alignTarget === 'field' && (
+              <>
+                <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">Turn</span>
+                <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad(turnQuad(shown.quad, -5, 1))} title="Turn left a little" aria-label="Turn left">
+                  ⟲
+                </button>
+                <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad(turnQuad(shown.quad, 5, 1))} title="Turn right a little" aria-label="Turn right">
+                  ⟳
+                </button>
+                <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad(rotateQuad(shown.quad))} title="A quarter turn (film shot from the side)">
+                  90°
+                </button>
+                <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">Size</span>
+                <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(turnQuad(shown.quad, 0, 1 / 1.08))} title="Smaller" aria-label="Smaller">
+                  −
+                </button>
+                <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(turnQuad(shown.quad, 0, 1.08))} title="Bigger" aria-label="Bigger">
+                  +
+                </button>
+                <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">Width</span>
+                <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(stretchQuad(shown.quad, 1 / 1.08, 1))} title="Narrower: the line squeezed in" aria-label="Narrower">
+                  −
+                </button>
+                <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(stretchQuad(shown.quad, 1.08, 1))} title="Wider: the line spread out" aria-label="Wider">
+                  +
+                </button>
+                <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">Depth</span>
+                <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(stretchQuad(shown.quad, 1, 1 / 1.1))} title="Shallower: the backfield and the defense closer to the line" aria-label="Shallower">
+                  −
+                </button>
+                <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(stretchQuad(shown.quad, 1, 1.1))} title="Deeper: the backfield and the defense farther from the line" aria-label="Deeper">
+                  +
+                </button>
+                <button type="button" className={`${btn} ${corners ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`} onClick={() => setCorners((v) => !v)} title="Drag each corner for an exact fit">
+                  Corners
+                </button>
+                <button
+                  type="button"
+                  className={`${btn} hover:bg-white/10`}
+                  onClick={() =>
+                    shown.setQuad({
+                      ...FILM_START,
+                      moved: shown.quad.moved,
+                      offenseTransform: shown.quad.offenseTransform,
+                      defenseTransform: shown.quad.defenseTransform,
+                    })
+                  }
+                  title="Reset field perspective while keeping Offense, Defense, and Player alignments"
+                >
+                  Reset field
+                </button>
+              </>
+            )}
+
+            {(alignTarget === 'offense' || alignTarget === 'defense') && (() => {
+              const unit = alignTarget;
+              const unitLabel = unit === 'offense' ? 'Offense' : 'Defense';
+              return (
+                <>
+                  <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">Move {unitLabel}</span>
+                  <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad(shiftUnitQuad(shown.quad, unit, -0.6, 0))} title={`Move full ${unitLabel} left`}>
+                    ←
+                  </button>
+                  <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad(shiftUnitQuad(shown.quad, unit, 0.6, 0))} title={`Move full ${unitLabel} right`}>
+                    →
+                  </button>
+                  <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad(shiftUnitQuad(shown.quad, unit, 0, 0.5))} title={`Move full ${unitLabel} deeper downfield`}>
+                    ↑
+                  </button>
+                  <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad(shiftUnitQuad(shown.quad, unit, 0, -0.5))} title={`Move full ${unitLabel} toward backfield`}>
+                    ↓
+                  </button>
+                  <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">Size</span>
+                  <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(scaleUnitQuad(shown.quad, unit, 1 / 1.08, 1 / 1.08))} title={`Shrink full ${unitLabel} independently`}>
+                    −
+                  </button>
+                  <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(scaleUnitQuad(shown.quad, unit, 1.08, 1.08))} title={`Expand full ${unitLabel} independently`}>
+                    +
+                  </button>
+                  <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">Width</span>
+                  <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(scaleUnitQuad(shown.quad, unit, 1 / 1.08, 1))} title={`Narrow full ${unitLabel} width independently`}>
+                    −
+                  </button>
+                  <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(scaleUnitQuad(shown.quad, unit, 1.08, 1))} title={`Widen full ${unitLabel} width independently`}>
+                    +
+                  </button>
+                  <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">Depth</span>
+                  <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(scaleUnitQuad(shown.quad, unit, 1, 1 / 1.1))} title={`Shallow full ${unitLabel} depth independently`}>
+                    −
+                  </button>
+                  <button type="button" className={`${btn} hover:bg-white/10 text-base`} onClick={() => shown.setQuad(scaleUnitQuad(shown.quad, unit, 1, 1.1))} title={`Deepen full ${unitLabel} depth independently`}>
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    className={`${btn} hover:bg-white/10`}
+                    onClick={() => shown.setQuad(resetUnitQuad(shown.quad, unit))}
+                    title={`Reset full ${unitLabel} back to diagram spots without changing the other unit`}
+                  >
+                    Reset {unitLabel}
+                  </button>
+                </>
+              );
+            })()}
+
+            {alignTarget === 'players' && (
+              <>
+                <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-85">
+                  Drag any player ring on the video to move just that player ({offMoves} O · {defMoves} D moved)
+                </span>
+                {offMoves > 0 && (
+                  <button
+                    type="button"
+                    className={`${btn} hover:bg-white/10`}
+                    onClick={() => shown.setQuad(resetMovedPlayersQuad(shown.quad, 'offense'))}
+                    title="Reset individually moved Offense players (keeps Full Offense & Defense alignment)"
+                  >
+                    Reset O players
+                  </button>
+                )}
+                {defMoves > 0 && (
+                  <button
+                    type="button"
+                    className={`${btn} hover:bg-white/10`}
+                    onClick={() => shown.setQuad(resetMovedPlayersQuad(shown.quad, 'defense'))}
+                    title="Reset individually moved Defense players (keeps Full Defense & Offense alignment)"
+                  >
+                    Reset D players
+                  </button>
+                )}
+                {filmMoves > 0 && (
+                  <button
+                    type="button"
+                    className={`${btn} hover:bg-white/10`}
+                    onClick={() => shown.setQuad(resetMovedPlayersQuad(shown.quad, 'all'))}
+                    title="Reset all individually moved players"
+                  >
+                    Reset all players
+                  </button>
+                )}
+              </>
+            )}
           </div>
         )}
-        {lines && filmMoves > 0 && !lineUp && !playing && shown && (
+        {lines && (filmMoves > 0 || hasOffUnit || hasDefUnit) && !lineUp && !playing && shown && (
           <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl" style={panel}>
             <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">
-              {filmMoves} player{filmMoves === 1 ? '' : 's'} moved on this film (the diagram is unchanged)
+              {[
+                filmMoves > 0 ? `${filmMoves} player${filmMoves === 1 ? '' : 's'}` : '',
+                hasOffUnit ? 'Full Offense' : '',
+                hasDefUnit ? 'Full Defense' : '',
+              ]
+                .filter(Boolean)
+                .join(' · ')}{' '}
+              aligned on this film
             </span>
-            <button
-              type="button"
-              className={`${btn} hover:bg-white/10`}
-              onClick={() => {
-                const { moved: _players, ...field } = shown.quad;
-                shown.setQuad(field);
-              }}
-              title="Put the players back where they are in the diagram"
-            >
-              Reset players
-            </button>
+            {offMoves > 0 && (
+              <button
+                type="button"
+                className={`${btn} hover:bg-white/10`}
+                onClick={() => shown.setQuad(resetMovedPlayersQuad(shown.quad, 'offense'))}
+                title="Reset individually moved Offense players"
+              >
+                Reset O players
+              </button>
+            )}
+            {defMoves > 0 && (
+              <button
+                type="button"
+                className={`${btn} hover:bg-white/10`}
+                onClick={() => shown.setQuad(resetMovedPlayersQuad(shown.quad, 'defense'))}
+                title="Reset individually moved Defense players"
+              >
+                Reset D players
+              </button>
+            )}
+            {hasOffUnit && (
+              <button
+                type="button"
+                className={`${btn} hover:bg-white/10`}
+                onClick={() => shown.setQuad(resetUnitQuad(shown.quad, 'offense'))}
+                title="Reset Full Offense alignment"
+              >
+                Reset Offense
+              </button>
+            )}
+            {hasDefUnit && (
+              <button
+                type="button"
+                className={`${btn} hover:bg-white/10`}
+                onClick={() => shown.setQuad(resetUnitQuad(shown.quad, 'defense'))}
+                title="Reset Full Defense alignment"
+              >
+                Reset Defense
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -450,16 +808,31 @@ export function usePlayLines(opts: {
           </div>
         )}
         {lines && lineUp && !playing && shown && (
-            <div className="max-w-xs rounded-lg px-2.5 py-1.5 text-[11px] leading-snug" style={panel}>
-              Drag the field to move it. Turn and size it until the <b style={{ color: '#f59e0b' }}>orange</b> line sits on the ball and the yard lines match the film.
-              {corners && (
-                <>
-                  {' '}
-                  Corners: <b style={{ color: '#f59e0b' }}>orange</b> on the line of scrimmage, <b style={{ color: '#38bdf8' }}>blue</b> 5 yards behind it.
-                </>
-              )}{' '}
-              Saved with this play; the next play on this film starts from it.
-            </div>
+          <div className="max-w-xs rounded-lg px-2.5 py-1.5 text-[11px] leading-snug" style={panel}>
+            {alignTarget === 'offense' ? (
+              <>
+                Drag the <b style={{ color: '#fb923c' }}>✢ OFFENSE</b> handle (or anywhere on the field) to move the entire Offense together, or drag any individual player ring.
+              </>
+            ) : alignTarget === 'defense' ? (
+              <>
+                Drag the <b style={{ color: '#4ade80' }}>✢ DEFENSE</b> handle (or anywhere on the field) to move the entire Defense together, or drag any individual player ring.
+              </>
+            ) : alignTarget === 'players' ? (
+              <>
+                Drag any individual Offense or Defense player ring on the video to align just that player and his route/assignment.
+              </>
+            ) : (
+              <>
+                Drag the field to move it, or grab <b style={{ color: '#fb923c' }}>✢ OFFENSE</b>, <b style={{ color: '#4ade80' }}>✢ DEFENSE</b>, or any player ring to align them independently.
+                {corners && (
+                  <>
+                    {' '}
+                    Corners: <b style={{ color: '#f59e0b' }}>orange</b> on the line of scrimmage, <b style={{ color: '#38bdf8' }}>blue</b> 5 yards behind it.
+                  </>
+                )}
+              </>
+            )}
+          </div>
         )}
         {lines && side === 'defense' && !lines.nodes.some((n) => isDefenseRole(n.role)) && (
           <div className="max-w-xs rounded-lg px-2.5 py-1.5 text-[11px] leading-snug" style={panel}>
@@ -627,6 +1000,7 @@ const LinesDrawing: React.FC<{
   /** The play's lines (off: just the players lined up, and their trails when the play runs). */
   showLines: boolean;
   lineUp: boolean;
+  alignTarget: AlignTarget;
   /** Lining up: the 4 corners to drag one at a time. */
   corners: boolean;
   zoom: number;
@@ -637,12 +1011,14 @@ const LinesDrawing: React.FC<{
   onFocus: (role: string | null) => void;
   /** The clean field: a drawn field instead of the video, the play on it. */
   clean: boolean;
+  /** Shade and blur the video behind the play lines so the lines stand out clearly. */
+  shade: boolean;
   /** Its camera, turned to any angle (null: the film's own). */
   cam: Cam | null;
   onCam: (cam: Cam | null) => void;
   /** Fly the camera to an angle (or back to the film's). */
   onView: (to: Cam | 'film') => void;
-}> = ({ video, lines, frame, side, showLines, lineUp, corners, zoom, situation, focus, onFocus, clean, cam, onCam, onView }) => {
+}> = ({ video, lines, frame, side, showLines, lineUp, alignTarget, corners, zoom, situation, focus, onFocus, clean, shade, cam, onCam, onView }) => {
   const boxRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const uid = `pl${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
@@ -652,7 +1028,7 @@ const LinesDrawing: React.FC<{
   const fingers = useRef(new Map<number, { x: number; y: number }>());
   const orbit = useRef<{ x: number; y: number; cam: Cam; pinch?: number } | null>(null);
   const drag = useRef<{
-    corner: Corner | 'all' | 'player';
+    corner: Corner | 'all' | 'offense' | 'defense' | 'player';
     role?: string;
     from: ImagePoint;
     quad: HomographyQuad;
@@ -745,7 +1121,7 @@ const LinesDrawing: React.FC<{
     if (!rect?.width || !rect.height) return null;
     return { u: (e.clientX - rect.left) / rect.width, v: (e.clientY - rect.top) / rect.height };
   };
-  const startDrag = (corner: Corner | 'all') => (e: React.PointerEvent) => {
+  const startDrag = (corner: Corner | 'all' | 'offense' | 'defense') => (e: React.PointerEvent) => {
     e.stopPropagation();
     const from = toUV(e);
     if (!from) return;
@@ -862,14 +1238,20 @@ const LinesDrawing: React.FC<{
       }
       const f = imageToField(quad, at);
       lines.moveNode?.(d.role!, Math.round(f.x * 10) / 10, Math.round(f.y * 10) / 10);
+    } else if (d.corner === 'offense' || d.corner === 'defense') {
+      const fFrom = imageToField(d.quad, d.from);
+      const fAt = imageToField(d.quad, at);
+      const ddx = Math.max(-25, Math.min(25, fAt.x - fFrom.x));
+      const ddy = Math.max(-25, Math.min(25, fAt.y - fFrom.y));
+      lines.setQuad(shiftUnitQuad(d.quad, d.corner, ddx, ddy));
     } else if (d.corner === 'all') {
       const du = at.u - d.from.u, dv = at.v - d.from.v;
       const move = (p: ImagePoint) => ({ u: clamp(p.u + du), v: clamp(p.v + dv) });
       lines.setQuad({ ...d.quad, losLeft: move(d.quad.losLeft), losRight: move(d.quad.losRight), backLeft: move(d.quad.backLeft), backRight: move(d.quad.backRight), preset: 'custom' });
     } else lines.setQuad({ ...d.quad, [d.corner]: { u: clamp(at.u), v: clamp(at.v) }, preset: 'custom' });
   };
-  // Players can be tapped (and dragged) while the play isn't running and the field isn't being lined up.
-  const tapOK = !frame && !lineUp;
+  // Players can be tapped and dragged individually at any time while the play isn't running (even while Align / Line up is open).
+  const tapOK = !frame;
   const grab = (n: PlayNode) =>
     tapOK
       ? {
@@ -1243,6 +1625,23 @@ const LinesDrawing: React.FC<{
 
   return (
     <div ref={boxRef} className="absolute inset-0 z-10 pointer-events-none">
+      {cw > 0 && !clean && !lineUp && shade && (
+        <div
+          className="absolute pointer-events-none transition-all duration-200"
+          style={{
+            left,
+            top,
+            width: cw,
+            height: ch,
+            background:
+              showLines || moving || focus !== null
+                ? 'radial-gradient(ellipse at center, rgba(2,6,23,0.34) 0%, rgba(2,6,23,0.56) 100%)'
+                : 'radial-gradient(ellipse at center, rgba(2,6,23,0.18) 0%, rgba(2,6,23,0.34) 100%)',
+            backdropFilter: showLines || moving || focus !== null ? 'blur(3.5px)' : 'blur(1.8px)',
+            WebkitBackdropFilter: showLines || moving || focus !== null ? 'blur(3.5px)' : 'blur(1.8px)',
+          }}
+        />
+      )}
       {cw > 0 && (
         <svg
           ref={svgRef}
@@ -1253,7 +1652,26 @@ const LinesDrawing: React.FC<{
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
           {...(lineUp
-            ? { onPointerDown: startDrag('all'), onClick: (e: React.MouseEvent) => e.stopPropagation(), style: { left, top, width: cw, height: ch, pointerEvents: 'auto' as const, cursor: 'move', touchAction: 'none' as const } }
+            ? {
+                onPointerDown:
+                  alignTarget === 'offense'
+                    ? startDrag('offense')
+                    : alignTarget === 'defense'
+                      ? startDrag('defense')
+                      : alignTarget === 'field'
+                        ? startDrag('all')
+                        : undefined,
+                onClick: (e: React.MouseEvent) => e.stopPropagation(),
+                style: {
+                  left,
+                  top,
+                  width: cw,
+                  height: ch,
+                  pointerEvents: (alignTarget === 'players' ? 'none' : 'auto') as 'none' | 'auto',
+                  cursor: alignTarget === 'players' ? 'default' : 'move',
+                  touchAction: 'none' as const,
+                },
+              }
             : clean
               ? {
                   // The clean field: drag to turn it, double-tap for the film's own angle.
@@ -1308,32 +1726,119 @@ const LinesDrawing: React.FC<{
           <g pointerEvents="none">{trails}</g>
           {shownNodes.map(playerArt)}
           {ballArt}
-          {lineUp && (
-            <>
-              {corners && CORNERS.map(({ key, color }) => (
-                <circle
-                  key={key}
-                  cx={quad[key].u * cw}
-                  cy={quad[key].v * ch}
-                  r={handle}
-                  fill={color}
-                  stroke="#fff"
-                  strokeWidth={2.5 / z}
-                  style={{ cursor: 'grab', pointerEvents: 'auto' }}
-                  onPointerDown={startDrag(key)}
-                />
-              ))}
-              <g style={{ cursor: 'move', pointerEvents: 'auto' }} onPointerDown={startDrag('all')}>
-                <circle cx={center.u * cw} cy={center.v * ch} r={handle * 1.2} fill="rgba(15,23,42,0.75)" stroke="#fff" strokeWidth={2 / z} />
-                <path
-                  d={`M${center.u * cw - handle * 0.6} ${center.v * ch}h${handle * 1.2}M${center.u * cw} ${center.v * ch - handle * 0.6}v${handle * 1.2}`}
-                  stroke="#fff"
-                  strokeWidth={2 / z}
-                  strokeLinecap="round"
-                />
-              </g>
-            </>
-          )}
+          {lineUp && (() => {
+            const offSpot: Pt = {
+              x: quad.offenseTransform?.dx ?? 0,
+              y: -3.2 + (quad.offenseTransform?.dy ?? 0),
+            };
+            const defSpot: Pt = {
+              x: quad.defenseTransform?.dx ?? 0,
+              y: 3.4 + (quad.defenseTransform?.dy ?? 0),
+            };
+            const offPx = seen(offSpot) ? px(offSpot) : null;
+            const hasDef = lines.nodes.some((n) => isDefenseRole(n.role));
+            const defPx = hasDef && seen(defSpot) ? px(defSpot) : null;
+            return (
+              <>
+                {corners && CORNERS.map(({ key, color }) => (
+                  <circle
+                    key={key}
+                    cx={quad[key].u * cw}
+                    cy={quad[key].v * ch}
+                    r={handle}
+                    fill={color}
+                    stroke="#fff"
+                    strokeWidth={2.5 / z}
+                    style={{ cursor: 'grab', pointerEvents: 'auto' }}
+                    onPointerDown={startDrag(key)}
+                  />
+                ))}
+                {/* Field handle */}
+                <g
+                  style={{ cursor: 'move', pointerEvents: 'auto' }}
+                  onPointerDown={startDrag('all')}
+                >
+                  <title>Drag to move the Field perspective</title>
+                  <circle
+                    cx={center.u * cw}
+                    cy={center.v * ch}
+                    r={handle * 1.15}
+                    fill={alignTarget === 'field' ? '#4f46e5' : 'rgba(15,23,42,0.82)'}
+                    stroke="#fff"
+                    strokeWidth={2 / z}
+                  />
+                  <path
+                    d={`M${center.u * cw - handle * 0.55} ${center.v * ch}h${handle * 1.1}M${center.u * cw} ${center.v * ch - handle * 0.55}v${handle * 1.1}`}
+                    stroke="#fff"
+                    strokeWidth={2 / z}
+                    strokeLinecap="round"
+                  />
+                </g>
+                {/* Independent Full Offense drag handle */}
+                {showsOffense(side) && offPx && (
+                  <g
+                    transform={`translate(${offPx[0].toFixed(1)} ${offPx[1].toFixed(1)})`}
+                    style={{ cursor: 'move', pointerEvents: 'auto' }}
+                    onPointerDown={startDrag('offense')}
+                  >
+                    <title>Drag to move the Full Offense independently</title>
+                    <rect
+                      x={-38 * k}
+                      y={-11 * k}
+                      width={76 * k}
+                      height={22 * k}
+                      rx={11 * k}
+                      fill="#ea580c"
+                      stroke="#ffffff"
+                      strokeWidth={(alignTarget === 'offense' ? 2.6 : 1.6) * k}
+                    />
+                    <text
+                      x={0}
+                      y={3.8 * k}
+                      textAnchor="middle"
+                      fill="#ffffff"
+                      fontSize={9.5 * k}
+                      fontWeight={900}
+                      fontFamily={FONT}
+                    >
+                      ✢ OFFENSE
+                    </text>
+                  </g>
+                )}
+                {/* Independent Full Defense drag handle */}
+                {showsDefense(side) && defPx && (
+                  <g
+                    transform={`translate(${defPx[0].toFixed(1)} ${defPx[1].toFixed(1)})`}
+                    style={{ cursor: 'move', pointerEvents: 'auto' }}
+                    onPointerDown={startDrag('defense')}
+                  >
+                    <title>Drag to move the Full Defense independently</title>
+                    <rect
+                      x={-38 * k}
+                      y={-11 * k}
+                      width={76 * k}
+                      height={22 * k}
+                      rx={11 * k}
+                      fill="#16a34a"
+                      stroke="#ffffff"
+                      strokeWidth={(alignTarget === 'defense' ? 2.6 : 1.6) * k}
+                    />
+                    <text
+                      x={0}
+                      y={3.8 * k}
+                      textAnchor="middle"
+                      fill="#ffffff"
+                      fontSize={9.5 * k}
+                      fontWeight={900}
+                      fontFamily={FONT}
+                    >
+                      ✢ DEFENSE
+                    </text>
+                  </g>
+                )}
+              </>
+            );
+          })()}
         </svg>
       )}
     </div>

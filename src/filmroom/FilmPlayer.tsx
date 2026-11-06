@@ -1112,6 +1112,10 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
               ref={videoRef}
               src={src}
               className="absolute inset-0 w-full h-full object-contain"
+              style={{
+                filter: playLines?.on && !drawing ? playLines.videoFilter?.({ playing }) : undefined,
+                transition: 'filter 220ms ease',
+              }}
               playsInline
               crossOrigin="anonymous"
               muted={muted}

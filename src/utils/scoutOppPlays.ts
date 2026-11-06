@@ -32,6 +32,8 @@ export interface ScoutOppPlay {
   printSkip?: boolean;
   /** Starred by the coach to feature/filter in Presentation Mode. */
   starred?: boolean;
+  /** Specific clip numbers (film play numbers) starred inside the Scout Script. */
+  starredClips?: number[];
   /** Left off the defense call sheet's "their plays vs. our defense" page. */
   sheetSkip?: boolean;
   /** On that page though it isn't on the report (a coach checked it there). */

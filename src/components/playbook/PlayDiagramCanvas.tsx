@@ -233,6 +233,25 @@ interface Props {
   onSkipNotesChange?: (skip: boolean) => void;
   /** Incrementing trigger to open player movement animation menu */
   playTrigger?: number;
+  /** Incrementing trigger that opens Play Movement AND starts motion immediately (for Sync Split, 3s Drill, Auto-Loop). */
+  startRunTrigger?: number;
+  /** Continuous Walkthrough Huddle Loop mode: auto-resumes after 2.2s at pauses and loops at the end of the play. */
+  loopPlay?: boolean;
+  /** Toggle continuous Loop mode. */
+  onLoopPlayChange?: (loop: boolean) => void;
+  /** Fired when a play finishes at progress = 1 while `loopPlay` is active. */
+  onLoopCycleEnd?: () => void;
+  /** When true (during 3-Second Recognition Drill), hides post-snap offensive routes so players only see pre-snap alignment. */
+  hideOffenseRoutes?: boolean;
+  /** Active Kid Quiz target spot on the field when a defender is spotlighted in Quiz mode. */
+  quizTargetSpot?: { x: number; y: number; label: string } | null;
+  /** Callback when a player taps the field to answer where their spotlighted defender goes in Kid Quiz mode. */
+  onQuizAttempt?: (result: {
+    correct: boolean;
+    distYards: number;
+    tapped: { x: number; y: number };
+    target: { x: number; y: number; label: string };
+  }) => void;
 }
 
 type Tool = DrawKind | 'move' | 'motion' | 'shift';
@@ -293,6 +312,13 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   skipNotes: skipNotesProp,
   onSkipNotesChange,
   playTrigger = 0,
+  startRunTrigger = 0,
+  loopPlay: loopPlayProp,
+  onLoopPlayChange,
+  onLoopCycleEnd,
+  hideOffenseRoutes = false,
+  quizTargetSpot,
+  onQuizAttempt,
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const drag = useRef<Drag>(null);
@@ -428,6 +454,31 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     }
   }, [playTrigger]);
 
+  useEffect(() => {
+    if (startRunTrigger > 0) {
+      setAnimOpen(true);
+      setAnimProgress(0);
+      setIsPlaying(true);
+    }
+  }, [startRunTrigger]);
+
+  const [localLoopPlay, setLocalLoopPlay] = useState<boolean>(false);
+  const loopPlay = loopPlayProp !== undefined ? loopPlayProp : localLoopPlay;
+  const setLoopPlay = (next: boolean) => {
+    setLocalLoopPlay(next);
+    onLoopPlayChange?.(next);
+  };
+
+  const [quizTapResult, setQuizTapResult] = useState<{
+    correct: boolean;
+    distYards: number;
+    tapped: { x: number; y: number };
+    target: { x: number; y: number; label: string };
+  } | null>(null);
+  useEffect(() => {
+    setQuizTapResult(null);
+  }, [spotlightRole, quizTargetSpot?.label]);
+
   const [localSkipNotes, setLocalSkipNotes] = useState<boolean>(() => readSkipNotesPref());
   const skipNotes = skipNotesProp !== undefined ? skipNotesProp : localSkipNotes;
   const setSkipNotes = (next: boolean) => {
@@ -483,8 +534,10 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   progressRef.current = animProgress;
   const readAtPoint = animatedFrame.handoffProgress ?? animatedFrame.readProgress ?? snapAt + (1 - snapAt) * 0.2;
   const fitAtPoint = animatedFrame.fitProgress ?? snapAt + (1 - snapAt) * 0.36;
+  const autoPausedByLoopRef = useRef<'checkpoint' | 'end' | null>(null);
   useEffect(() => {
     if (!isPlaying) return;
+    autoPausedByLoopRef.current = null;
     let rafId = 0;
     let lastTs = performance.now();
     const tick = (now: number) => {
@@ -503,6 +556,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
         if (hitAuto !== undefined) {
           progressRef.current = hitAuto;
           setAnimProgress(hitAuto);
+          autoPausedByLoopRef.current = 'checkpoint';
           setIsPlaying(false);
           return;
         }
@@ -520,6 +574,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           if (probe.tackleProgress !== undefined && prev < probe.tackleProgress - 1e-5 && next >= probe.tackleProgress) {
             progressRef.current = probe.tackleProgress;
             setAnimProgress(probe.tackleProgress);
+            autoPausedByLoopRef.current = 'checkpoint';
             setIsPlaying(false);
             return;
           }
@@ -537,6 +592,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           progressRef.current = hitCp.progress;
           setAnimProgress(hitCp.progress);
           setEditingCheckpointId(hitCp.id);
+          autoPausedByLoopRef.current = 'checkpoint';
           setIsPlaying(false);
           return;
         }
@@ -544,6 +600,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       if (next >= 1) {
         progressRef.current = 1;
         setAnimProgress(1);
+        autoPausedByLoopRef.current = 'end';
         setIsPlaying(false);
         return;
       }
@@ -555,6 +612,28 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     return () => cancelAnimationFrame(rafId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying, animSpeed, seconds, stopAtSnap, stopAtRead, stopAtFit, stopAtTackle, snapAt, readAtPoint, fitAtPoint, skipNotes, sortedCheckpoints]);
+
+  // Continuous Walkthrough Huddle Loop mode: auto-resumes after 2.2s at pauses and restarts (or advances playlist) after 1.8s at the end
+  useEffect(() => {
+    if (!loopPlay || isPlaying || pursuitDrawMode) return;
+    const reason = autoPausedByLoopRef.current;
+    if (!reason) return;
+    const delayMs = reason === 'checkpoint' ? 2200 : 1800;
+    const timer = window.setTimeout(() => {
+      autoPausedByLoopRef.current = null;
+      if (reason === 'checkpoint') {
+        setEditingCheckpointId(null);
+        setIsPlaying(true);
+      } else if (reason === 'end') {
+        if (onLoopCycleEnd) {
+          onLoopCycleEnd();
+        }
+        setAnimProgress(0);
+        setIsPlaying(true);
+      }
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [loopPlay, isPlaying, pursuitDrawMode, animProgress, onLoopCycleEnd]);
   /** Play or pause; at the end it starts over. */
   const togglePlay = () => {
     setAnimOpen(true);
@@ -974,6 +1053,26 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     }
     const svg = svgRef.current;
     if (!svg) return;
+    if (quizTargetSpot && e.isPrimary && !pursuitDrawMode) {
+      const p = pointFromEvent(e);
+      const near = hitNode(nodes, p.cx, p.cy, 16);
+      // If tapping empty field or gap area (not dragging another defender), score the Kid Quiz tap!
+      if (!near || near.role === spotlightRole) {
+        e.preventDefault();
+        e.stopPropagation();
+        const distYards = Math.round(Math.hypot(p.x - quizTargetSpot.x, p.y - quizTargetSpot.y) * 10) / 10;
+        const correct = distYards <= 2.8;
+        const res = {
+          correct,
+          distYards,
+          tapped: { x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100 },
+          target: quizTargetSpot,
+        };
+        setQuizTapResult(res);
+        onQuizAttempt?.(res);
+        return;
+      }
+    }
     if (pursuitDrawMode && e.isPrimary) {
       e.preventDefault();
       e.stopPropagation();
@@ -1738,16 +1837,17 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             const { a, b } = sp.cap;
             const cap = tBar(a.cx, a.cy, b.cx, b.cy);
             const isSel = i === sel;
+            const hideMainPostSnap = hideOffenseRoutes && !st.zone && !st.man;
             return (
               <g key={i}>
-                {sp.zone && <ellipse cx={sp.zone.cx} cy={sp.zone.cy} rx={sp.zone.rx} ry={sp.zone.ry} fill={sp.color} fillOpacity={0.12} stroke={sp.color} strokeOpacity={0.55} strokeWidth={1.2} />}
-                {isSel && [sp.shiftD, sp.motionD, sp.mainD].filter(Boolean).map((d, k) => (
+                {!hideMainPostSnap && sp.zone && <ellipse cx={sp.zone.cx} cy={sp.zone.cy} rx={sp.zone.rx} ry={sp.zone.ry} fill={sp.color} fillOpacity={0.12} stroke={sp.color} strokeOpacity={0.55} strokeWidth={1.2} />}
+                {isSel && [sp.shiftD, sp.motionD, !hideMainPostSnap ? sp.mainD : ''].filter(Boolean).map((d, k) => (
                   <path key={k} d={d} fill="none" stroke="#38bdf8" strokeOpacity="0.45" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round" />
                 ))}
                 {sp.shiftD && <path d={sp.shiftD} fill="none" stroke={SHIFT_COLOR} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="2 5" />}
                 {sp.motionD && <path d={sp.motionD} fill="none" stroke={MOTION_COLOR} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />}
                 {sp.shiftSet && <circle cx={sp.shiftSet.cx} cy={sp.shiftSet.cy} r="6" fill="#ffffff" stroke={SHIFT_COLOR} strokeWidth="2.2" />}
-                {sp.mainD && (
+                {!hideMainPostSnap && sp.mainD && (
                   <path
                     d={sp.mainD}
                     fill="none"
@@ -1758,7 +1858,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
                     strokeDasharray={sp.dashed ? '6 4' : undefined}
                   />
                 )}
-                {sp.cap.none ? null : sp.cap.t ? (
+                {hideMainPostSnap || sp.cap.none ? null : sp.cap.t ? (
                   <line x1={cap.x1} y1={cap.y1} x2={cap.x2} y2={cap.y2} stroke={sp.color} strokeWidth="3" strokeLinecap="round" />
                 ) : (
                   <polygon points={arrowPts(a.cx, a.cy, b.cx, b.cy)} fill={sp.cap.color} />
@@ -1767,7 +1867,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             );
           })}
           {/* A pass to the ball carrier: the ball's dotted line from the QB to the catch, and the ball there (the real one flies when the play runs). */}
-          {animProgress <= 0.002 && (() => {
+          {!hideOffenseRoutes && animProgress <= 0.002 && (() => {
             const t = passThrow(nodes, strokes, ballRole);
             if (!t) return null;
             const a = fieldToSvg(t.from.x, t.from.y);
@@ -2125,6 +2225,48 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
               })}
             </g>
           )}
+
+          {/* Kid Quiz Tap Feedback Marker on the Field */}
+          {quizTapResult && (() => {
+            const tapSvg = fieldToSvg(quizTapResult.tapped.x, quizTapResult.tapped.y);
+            const tgtSvg = fieldToSvg(quizTapResult.target.x, quizTapResult.target.y);
+            const col = quizTapResult.correct ? '#16a34a' : '#f59e0b';
+            const badgeText = quizTapResult.correct
+              ? `✅ Nailed It! (${quizTapResult.target.label})`
+              : `🎯 Target: ${quizTapResult.target.label}`;
+            const bw = Math.max(76, badgeText.length * 5.2 + 12);
+            return (
+              <g key="quiz-tap-feedback" pointerEvents="none">
+                {!quizTapResult.correct && (
+                  <line
+                    x1={tapSvg.cx}
+                    y1={tapSvg.cy}
+                    x2={tgtSvg.cx}
+                    y2={tgtSvg.cy}
+                    stroke="#f59e0b"
+                    strokeWidth={2.5}
+                    strokeDasharray="4 3"
+                  />
+                )}
+                <circle
+                  cx={tgtSvg.cx}
+                  cy={tgtSvg.cy}
+                  r={18}
+                  fill={col}
+                  fillOpacity={0.22}
+                  stroke={col}
+                  strokeWidth={2.6}
+                  strokeDasharray="4 2"
+                />
+                <g transform={`translate(${tgtSvg.cx}, ${tgtSvg.cy - 22})`}>
+                  <rect x={-bw / 2} y={-9} width={bw} height={17} rx={5} fill={col} stroke="#ffffff" strokeWidth={1.4} />
+                  <text x={0} y={2.5} textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="900">
+                    {badgeText}
+                  </text>
+                </g>
+              </g>
+            );
+          })()}
 
           {/* Selected line bend vertices */}
           {sel != null &&
@@ -2515,6 +2657,26 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
                 }`}
               >
                 {skipNotes ? '⏭ Play Through (No Notes)' : '📌 Stop & Show Notes'}
+              </button>
+              <button
+                type="button"
+                aria-pressed={loopPlay}
+                onClick={() => {
+                  const nextLoop = !loopPlay;
+                  setLoopPlay(nextLoop);
+                  if (nextLoop && !isPlaying) {
+                    if (animProgress >= 0.99) setAnimProgress(0);
+                    setIsPlaying(true);
+                  }
+                }}
+                title="Walkthrough Huddle Loop: plays continuously, pauses 2s at each note/teaching stop, and loops automatically"
+                className={`h-8 px-2.5 rounded-md border text-[10px] font-black cursor-pointer inline-flex items-center gap-1 ${
+                  loopPlay
+                    ? 'border-emerald-400 bg-emerald-600/30 text-emerald-200'
+                    : 'border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                🔁 {loopPlay ? 'Loop ON' : 'Loop'}
               </button>
               {prevDefense && (
                 <button

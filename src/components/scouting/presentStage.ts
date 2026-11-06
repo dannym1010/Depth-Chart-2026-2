@@ -1,8 +1,10 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 
 const STARRED_STORAGE_KEY = 'footballPresentStarredPlays';
+const STARRED_CLIPS_STORAGE_KEY = 'footballPresentStarredClips';
 const SKIP_NOTES_STORAGE_KEY = 'footballPresentSkipNotes';
 const STARRED_EVENT = 'football-present-starred-change';
+const STARRED_CLIPS_EVENT = 'football-present-starred-clips-change';
 
 export function readStarredPlayIds(): Set<string> {
   try {
@@ -55,6 +57,62 @@ export function useStarredPlays(): [Set<string>, (playId: string) => void] {
   return [starred, toggle];
 }
 
+export function clipStarKey(gameId: string, playNumber: number | string): string {
+  return `${gameId || 'game'}:#${playNumber}`;
+}
+
+export function readStarredClipKeys(): Set<string> {
+  try {
+    const raw = localStorage.getItem(STARRED_CLIPS_STORAGE_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? new Set(arr.filter((x): x is string => typeof x === 'string')) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+export function writeStarredClipKeys(keys: Iterable<string>): Set<string> {
+  const next = new Set(keys);
+  try {
+    localStorage.setItem(STARRED_CLIPS_STORAGE_KEY, JSON.stringify([...next]));
+  } catch {
+    /* per device only */
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(STARRED_CLIPS_EVENT));
+  }
+  return next;
+}
+
+export function toggleStarredClipKey(key: string): boolean {
+  const cur = readStarredClipKeys();
+  const nextOn = !cur.has(key);
+  if (nextOn) cur.add(key);
+  else cur.delete(key);
+  writeStarredClipKeys(cur);
+  return nextOn;
+}
+
+export function useStarredClips(): [Set<string>, (key: string) => boolean] {
+  const [starredClips, setStarredClips] = useState<Set<string>>(() => readStarredClipKeys());
+  useEffect(() => {
+    const sync = () => setStarredClips(readStarredClipKeys());
+    window.addEventListener(STARRED_CLIPS_EVENT, sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener(STARRED_CLIPS_EVENT, sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, []);
+  const toggle = (key: string) => {
+    const nextOn = toggleStarredClipKey(key);
+    setStarredClips(readStarredClipKeys());
+    return nextOn;
+  };
+  return [starredClips, toggle];
+}
+
 export function readSkipNotesPref(): boolean {
   try {
     return localStorage.getItem(SKIP_NOTES_STORAGE_KEY) === '1';
@@ -80,10 +138,19 @@ export function writeSkipNotesPref(skip: boolean): void {
 export interface PresentStage {
   on: boolean;
   run: number;
+  /** Incrementing trigger that opens Play Movement AND immediately starts playing motion (used by Sync Split, 3s Drill, and Auto-Loop). */
+  startRunTrigger?: number;
   defenseHud?: boolean;
   toggleDefenseHud?: () => void;
   skipNotes?: boolean;
   setSkipNotes?: (skip: boolean) => void;
+  /** Continuous Walkthrough Huddle Loop mode: auto-resumes after 2s at note checkpoints and loops at the end of the play. */
+  loopPlay?: boolean;
+  setLoopPlay?: (loop: boolean) => void;
+  /** Callback fired when a play finishes a cycle while `loopPlay` is active (allows Present Mode to auto-advance through starred plays). */
+  onLoopCycleEnd?: () => void;
+  /** When true (during the 3-Second Pre-Snap Recognition Drill countdown), hides offensive routes & play call so players only see the pre-snap formation. */
+  hideOffenseRoutes?: boolean;
 }
 
 export const PresentStageContext = createContext<PresentStage>({ on: false, run: 0 });

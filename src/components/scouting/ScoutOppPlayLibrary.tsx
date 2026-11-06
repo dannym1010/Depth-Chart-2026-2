@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ArrowDownWideNarrow, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, GripVertical, Image as ImageIcon, Layers, Merge, Pencil, Play as PlayIcon, Plus, Presentation, Printer, Shield, Split, Star, X } from 'lucide-react';
 import type { ScoutShow, ScoutShowLine } from './ScoutPresentation';
-import { useStarredPlays } from './presentStage';
+import { clipStarKey, useStarredClips, useStarredPlays } from './presentStage';
 import type { ScoutGame } from '../../hudlScout/components/Header';
 import type { Play } from '../../hudlScout/types/football';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
@@ -322,7 +322,21 @@ export const ScoutOppPlayLibrary: React.FC<{
   };
   // Presentation mode: the checked plays on the script, in order, each with the plays combined with it (its film too).
   const [starredIds, toggleStarPlay] = useStarredPlays();
+  const [starredClipKeys, toggleStarClipKey] = useStarredClips();
   const isPlayStarred = (playId: string, card?: ScoutOppPlay) => starredIds.has(playId) || Boolean(card?.starred);
+  const isClipStarred = (gid: string, playNumber: number, snapId?: string, card?: ScoutOppPlay) =>
+    starredClipKeys.has(clipStarKey(gid, playNumber)) ||
+    (snapId ? starredClipKeys.has(snapId) : false) ||
+    Boolean(card?.starredClips?.includes(playNumber));
+  const toggleClipStar = (card: ScoutOppPlay, playNumber: number, snapId?: string) => {
+    const key = clipStarKey(card.gameId, playNumber);
+    const nextOn = !isClipStarred(card.gameId, playNumber, snapId, card);
+    if (starredClipKeys.has(key) !== nextOn) toggleStarClipKey(key);
+    if (snapId && starredClipKeys.has(snapId) !== nextOn) toggleStarClipKey(snapId);
+    const prev = card.starredClips || [];
+    const nextClips = nextOn ? [...new Set([...prev, playNumber])].sort((a, b) => a - b) : prev.filter((n) => n !== playNumber);
+    patchAnyFilm(card.id, { starredClips: nextClips });
+  };
   const starredScriptCount = script.lines.filter((l) => {
     const card = onTheReport.find((p) => p.id === l.playId);
     return card && !card.printSkip && isPlayStarred(l.playId, card);
@@ -1704,16 +1718,30 @@ export const ScoutOppPlayLibrary: React.FC<{
                     {(() => {
                       const film = play ? scriptFilm(play) : null;
                       if (!play || !film?.snaps.length) return null;
+                      const starredSnaps = film.snaps.filter((s) => isClipStarred(play.gameId, s.playNumber, s.id, play));
                       return (
-                        <button
-                          type="button"
-                          title={`Watch their film of this play (${film.snaps.length} clip${film.snaps.length === 1 ? '' : 's'})`}
-                          aria-label={`Watch ${line.name}`}
-                          onClick={() => openFilmWindow({ gameId: play.gameId, playIds: film.snaps.map((x) => x.id), label: film.group?.label || line.name })}
-                          className="shrink-0 h-7 px-1.5 rounded-md border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 text-[11px] font-black inline-flex items-center gap-0.5 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 cursor-pointer"
-                        >
-                          <PlayIcon className="w-3 h-3" /> {film.snaps.length}
-                        </button>
+                        <div className="shrink-0 inline-flex items-center gap-1">
+                          {starredSnaps.length > 0 && (
+                            <button
+                              type="button"
+                              title={`Watch ★ Starred clips only (${starredSnaps.length} of ${film.snaps.length})`}
+                              aria-label={`Watch starred clips of ${line.name}`}
+                              onClick={() => openFilmWindow({ gameId: play.gameId, playIds: starredSnaps.map((x) => x.id), label: `★ ${film.group?.label || line.name}` })}
+                              className="shrink-0 h-7 px-1.5 rounded-md border border-amber-400 bg-amber-400/20 text-amber-800 dark:text-amber-300 text-[11px] font-black inline-flex items-center gap-0.5 hover:bg-amber-400/30 cursor-pointer"
+                            >
+                              <PlayIcon className="w-3 h-3" /> <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-500" /> {starredSnaps.length}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            title={`Watch their film of this play (${film.snaps.length} clip${film.snaps.length === 1 ? '' : 's'})`}
+                            aria-label={`Watch ${line.name}`}
+                            onClick={() => openFilmWindow({ gameId: play.gameId, playIds: film.snaps.map((x) => x.id), startId: starredSnaps[0]?.id, label: film.group?.label || line.name })}
+                            className="shrink-0 h-7 px-1.5 rounded-md border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 text-[11px] font-black inline-flex items-center gap-0.5 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 cursor-pointer"
+                          >
+                            <PlayIcon className="w-3 h-3" /> {film.snaps.length}
+                          </button>
+                        </div>
                       );
                     })()}
                     {play && onDraw && (() => {
@@ -1749,6 +1777,53 @@ export const ScoutOppPlayLibrary: React.FC<{
                       </button>
                     </div>
                   </div>
+                  {(() => {
+                    const film = play ? scriptFilm(play) : null;
+                    if (!play || !film?.snaps.length) return null;
+                    return (
+                      <div className="mt-1 ml-6 flex flex-wrap items-center gap-1" role="group" aria-label={`Clips for ${line.name}`}>
+                        <span className="text-[10px] font-bold text-slate-400 mr-0.5">Clips:</span>
+                        {film.snaps.map((snap) => {
+                          const clipStarred = isClipStarred(play.gameId, snap.playNumber, snap.id, play);
+                          return (
+                            <div
+                              key={snap.id}
+                              className={`inline-flex items-center rounded-md border text-[10px] font-bold overflow-hidden ${
+                                clipStarred
+                                  ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200'
+                                  : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-300'
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => toggleClipStar(play, snap.playNumber, snap.id)}
+                                aria-label={clipStarred ? `Unstar clip #${snap.playNumber}` : `Star clip #${snap.playNumber}`}
+                                title={clipStarred ? `★ Starred clip #${snap.playNumber} (click to unstar)` : `Star clip #${snap.playNumber} to highlight it in Scout Script & Film`}
+                                className="px-1 py-0.5 hover:bg-amber-200/40 dark:hover:bg-amber-800/30 cursor-pointer inline-flex items-center"
+                              >
+                                <Star className={`w-3 h-3 ${clipStarred ? 'fill-amber-400 text-amber-500' : 'text-slate-300 dark:text-slate-500 hover:text-amber-400'}`} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openFilmWindow({
+                                    gameId: play.gameId,
+                                    playIds: film.snaps.map((x) => x.id),
+                                    startId: snap.id,
+                                    label: film.group?.label || line.name,
+                                  })
+                                }
+                                title={`Watch starting at clip #${snap.playNumber}`}
+                                className="px-1.5 py-0.5 hover:bg-indigo-100/60 dark:hover:bg-indigo-900/40 cursor-pointer tabular-nums"
+                              >
+                                #{snap.playNumber}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                   {(() => {
                     if (!play) return null;
                     // Plays called different ways on one line ("Zone", "Thumper Zone"): separate them.

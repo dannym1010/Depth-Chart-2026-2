@@ -44,6 +44,7 @@ import {
   shownText,
 } from '../../utils/footballEngine';
 import { PlayDiagramCanvas } from './PlayDiagramCanvas';
+import { computeAnimatedPlayFrame } from '../../utils/playAnimation';
 import { VideoHomographyOverlay } from './VideoHomographyOverlay';
 import type { VideoLines } from '../../filmroom/PlayLinesOverlay';
 import { publishPlayLines } from '../../filmroom/playLinesStore';
@@ -314,15 +315,23 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     if (present) presentShowGapFits = on;
   };
   const [spotlightRole, setSpotlightRoleState] = useState<string | null>(() => (present ? presentSpotlightRole : null));
+  const [quizFeedback, setQuizFeedback] = useState<{
+    correct: boolean;
+    distYards: number;
+    targetLabel: string;
+  } | null>(null);
+  const [localStartRunTrigger, setLocalStartRunTrigger] = useState(0);
   const setSpotlightRole = (role: string | null) => {
     setSpotlightRoleState(role);
     setQuizRevealed(false);
+    setQuizFeedback(null);
     if (present) presentSpotlightRole = role;
   };
   const [quizMode, setQuizModeState] = useState(() => (present ? presentQuizMode : false));
   const setQuizMode = (on: boolean) => {
     setQuizModeState(on);
     setQuizRevealed(false);
+    setQuizFeedback(null);
     if (present) presentQuizMode = on;
   };
   const [quizRevealed, setQuizRevealed] = useState(false);
@@ -564,6 +573,34 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   );
   const openGaps = useMemo(() => gapIntegritySlots.filter((g) => g.status === 'open'), [gapIntegritySlots]);
   const overloadedGaps = useMemo(() => gapIntegritySlots.filter((g) => g.status === 'overloaded'), [gapIntegritySlots]);
+  const quizTargetSpot = useMemo(() => {
+    if (!quizMode || !spotlightNode || !dLook) return null;
+    const assignedGap = gapIntegritySlots.find((s) => s.defenders.some((d) => d.role === spotlightNode.role));
+    if (assignedGap && runMode) {
+      return {
+        x: assignedGap.x,
+        y: assignedGap.y,
+        label: `${assignedGap.side === 'left' ? 'Left' : 'Right'} ${assignedGap.gap}-Gap`,
+      };
+    }
+    const midFrame = computeAnimatedPlayFrame(
+      [...offNodes, ...dNodes],
+      strokes,
+      callStrokes,
+      String(ballCarrier || '3'),
+      0.52,
+      typeof holeOverride === 'number' ? holeOverride : play?.metadata?.targetHole ?? null,
+      defRules,
+    );
+    const targetNode = midFrame.nodes.find((n) => n.role === spotlightNode.role);
+    if (!targetNode) return null;
+    return {
+      x: targetNode.x,
+      y: targetNode.y,
+      label: jobOf(spotlightNode) || diagramLabel(spotlightNode.role),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quizMode, spotlightNode, dLook, gapIntegritySlots, runMode, offNodes, dNodes, strokes, callStrokes, ballCarrier, holeOverride, play?.metadata?.targetHole, defRules]);
   const renderDefenderRules = (n: PlayNode) => {
     const standard = dLook ? standardDefenseJob(n.role, dLook, containFor(dLook.front)) : '';
     return (
@@ -2011,12 +2048,30 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                     <span className="text-[10px] font-bold text-slate-400">vs. {callLabel}</span>
                   </div>
                   {quizMode && !quizRevealed ? (
-                    <div className="text-xs sm:text-sm font-black text-white mt-0.5">
-                      ❓ Quiz: What is your Read Key, Flow &amp; Gap Fit on this play?
+                    <div className="space-y-0.5 mt-0.5">
+                      <div className="text-xs sm:text-sm font-black text-white">
+                        🎯 Kid Quiz: Tap the field where{' '}
+                        {spotlightNode.player ? `#${spotlightNode.player.num} ${spotlightNode.player.name}` : diagramLabel(spotlightNode.role)}{' '}
+                        fits or drops on this play!
+                      </div>
+                      {quizFeedback && (
+                        <div className={`text-xs font-black ${quizFeedback.correct ? 'text-emerald-300' : 'text-amber-300'}`}>
+                          {quizFeedback.correct
+                            ? `✅ Nailed It! (${quizFeedback.targetLabel} · ${quizFeedback.distYards} yds)`
+                            : `🎯 Almost! (${quizFeedback.distYards} yds from ${quizFeedback.targetLabel}) — tap the target ring or click Reveal`}
+                        </div>
+                      )}
                     </div>
                   ) : (
-                    <div className="text-xs sm:text-sm font-black text-emerald-300 mt-0.5 truncate">
-                      {jobOf(spotlightNode) || standardDefenseJob(spotlightNode.role, dLook, containFor(dLook.front))}
+                    <div className="space-y-0.5 mt-0.5">
+                      {quizFeedback?.correct && (
+                        <div className="text-[11px] font-black text-emerald-300">
+                          ✅ Correct Tap: {quizFeedback.targetLabel}!
+                        </div>
+                      )}
+                      <div className="text-xs sm:text-sm font-black text-emerald-300 truncate">
+                        {jobOf(spotlightNode) || standardDefenseJob(spotlightNode.role, dLook, containFor(dLook.front))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -2035,7 +2090,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                       type="button"
                       onClick={() => {
                         setQuizRevealed(true);
-                        setPlayAnimTrigger((n) => n + 1);
+                        setLocalStartRunTrigger((n) => n + 1);
                       }}
                       className="h-7 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black inline-flex items-center gap-1 cursor-pointer"
                     >
@@ -2045,7 +2100,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                 ) : (
                   <button
                     type="button"
-                    onClick={() => setPlayAnimTrigger((n) => n + 1)}
+                    onClick={() => setLocalStartRunTrigger((n) => n + 1)}
                     className="h-7 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black inline-flex items-center gap-1 cursor-pointer"
                   >
                     <PlayIcon className="w-3 h-3 fill-current" /> Run Play
@@ -2237,6 +2292,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
           {play ? (
             <PlayDiagramCanvas
               playTrigger={playAnimTrigger}
+              startRunTrigger={(stage.startRunTrigger || 0) + localStartRunTrigger}
               extraStrokes={callStrokes}
               defenseRules={defRules}
               gapFits={showGapFits ? gapIntegritySlots : undefined}
@@ -2247,6 +2303,22 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               onCheckpointsChange={setCoachingCheckpoints}
               skipNotes={stage.skipNotes}
               onSkipNotesChange={stage.setSkipNotes}
+              loopPlay={stage.loopPlay}
+              onLoopPlayChange={stage.setLoopPlay}
+              onLoopCycleEnd={stage.onLoopCycleEnd}
+              hideOffenseRoutes={stage.hideOffenseRoutes}
+              quizTargetSpot={quizMode && !quizRevealed ? quizTargetSpot : null}
+              onQuizAttempt={(res) => {
+                setQuizFeedback({
+                  correct: res.correct,
+                  distYards: res.distYards,
+                  targetLabel: res.target.label,
+                });
+                if (res.correct) {
+                  setQuizRevealed(true);
+                  setLocalStartRunTrigger((n) => n + 1);
+                }
+              }}
               defensePresetBar={
                 !formationMode ? (
                   <>

@@ -5,7 +5,8 @@
 // shared drawings and notes.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Expand, ExternalLink, Film, Maximize2, Minimize2, Minus, Plus, RefreshCw, Shrink, X } from 'lucide-react';
+import { Expand, ExternalLink, Film, Maximize2, Minimize2, Minus, Plus, RefreshCw, Shrink, Star, X } from 'lucide-react';
+import { clipStarKey, useStarredClips } from '../components/scouting/presentStage';
 import { bundleFromSaved } from '../hudlScout/scoutBundle';
 import type { Play } from '../hudlScout/types/football';
 import { FilmPlayer, type PlayerApi } from './FilmPlayer';
@@ -102,15 +103,46 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
   const bundle = source === 'own' ? ownBundle : oppBundle;
 
   const idsKey = request.playIds.join('|');
-  const watch = useMemo(() => {
+  const [starredClips, toggleStarClip] = useStarredClips();
+  const [onlyStarred, setOnlyStarred] = useState(false);
+  const allWatch = useMemo(() => {
     const byId = new Map(bundle.plays.map((p) => [p.id, p]));
     return request.playIds.map((id) => byId.get(id)).filter(Boolean) as Play[];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bundle.plays, idsKey]);
+  const isSnapStarred = useCallback(
+    (p: Play) => {
+      const gid = p.gameId || request.gameId;
+      return starredClips.has(clipStarKey(gid, Number(p.playNumber) || 0)) || starredClips.has(p.id);
+    },
+    [starredClips, request.gameId]
+  );
+  const toggleSnapStar = useCallback(
+    (p: Play) => {
+      const gid = p.gameId || request.gameId;
+      const key = clipStarKey(gid, Number(p.playNumber) || 0);
+      const nextOn = !isSnapStarred(p);
+      if (starredClips.has(key) !== nextOn) toggleStarClip(key);
+      if (starredClips.has(p.id) !== nextOn) toggleStarClip(p.id);
+    },
+    [isSnapStarred, starredClips, toggleStarClip, request.gameId]
+  );
+  const starredInCutup = useMemo(() => allWatch.filter((p) => isSnapStarred(p)), [allWatch, isSnapStarred]);
+  const watch = useMemo(
+    () => (onlyStarred && starredInCutup.length > 0 ? starredInCutup : allWatch),
+    [onlyStarred, starredInCutup, allWatch]
+  );
 
   const [index, setIndex] = useState(0);
   useEffect(() => {
-    const at = request.startId ? watch.findIndex((p) => p.id === request.startId) : 0;
+    setOnlyStarred(false);
+  }, [idsKey]);
+  useEffect(() => {
+    const at = request.startId
+      ? watch.findIndex((p) => p.id === request.startId)
+      : starredInCutup.length > 0
+        ? watch.findIndex((p) => isSnapStarred(p))
+        : 0;
     setIndex(Math.max(0, at));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey, request.startId, watch.length]);
@@ -632,13 +664,23 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
                     const here = p === play;
                     const has = clipFor.has(p.id);
                     const g = gain(p);
+                    const starred = isSnapStarred(p);
                     return (
-                      <li key={p.id}>
+                      <li key={p.id} className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => toggleSnapStar(p)}
+                          aria-label={starred ? `Unstar clip #${p.playNumber}` : `Star clip #${p.playNumber}`}
+                          title={starred ? '★ Starred clip (click to unstar)' : 'Star this clip'}
+                          className="w-9 h-12 rounded-xl flex items-center justify-center shrink-0 bg-slate-900 hover:bg-slate-800 cursor-pointer"
+                        >
+                          <Star size={16} className={starred ? 'fill-amber-400 text-amber-400' : 'text-slate-600 hover:text-amber-300'} />
+                        </button>
                         <button
                           type="button"
                           onClick={() => setIndex(i)}
                           aria-current={here || undefined}
-                          className={`w-full min-h-12 flex items-center gap-3 px-3 py-2 rounded-xl text-left cursor-pointer ${
+                          className={`flex-1 min-h-12 flex items-center gap-3 px-3 py-2 rounded-xl text-left cursor-pointer ${
                             here ? 'bg-indigo-600 text-white' : has ? 'bg-slate-900 text-slate-100 active:bg-slate-800' : 'bg-slate-900/50 text-slate-500'
                           }`}
                         >
@@ -659,7 +701,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
                 </ul>
               </div>
             )}
-            {!(fill && !isShort) && !stage && (watch.length > 1 || views.length > 1) && (
+            {!(fill && !isShort) && !stage && (allWatch.length > 0 || views.length > 1) && (
               <div className="flex items-center gap-1.5 px-2 py-1.5 border-t border-slate-200 dark:border-slate-700 overflow-x-auto">
                 {views.length > 1 && (
                   <select
@@ -678,24 +720,59 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
                     ))}
                   </select>
                 )}
-                {watch.map((p, i) => (
+                {starredInCutup.length > 0 && allWatch.length > 1 && (
                   <button
-                    key={p.id}
                     type="button"
-                    onClick={() => setIndex(i)}
-                    title={playTitle(p)}
-                    className={`h-7 pointer-coarse:h-9 px-2 rounded-md text-[11px] pointer-coarse:text-xs font-bold shrink-0 cursor-pointer border ${
-                      p === play
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : clipFor.has(p.id)
-                          ? 'bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-600 hover:border-indigo-400'
-                          : 'bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700'
+                    onClick={() => {
+                      setOnlyStarred((v) => !v);
+                      setIndex(0);
+                    }}
+                    title={onlyStarred ? 'Showing ★ Starred clips only (click to show all clips)' : 'Filter to ★ Starred clips only'}
+                    className={`h-7 px-2 rounded-md text-[11px] font-black shrink-0 cursor-pointer border inline-flex items-center gap-1 ${
+                      onlyStarred
+                        ? 'bg-amber-400 text-slate-950 border-amber-500'
+                        : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700'
                     }`}
                   >
-                    #{p.playNumber}
-                    {gain(p) && <span className="ml-1 opacity-80">{gain(p)}</span>}
+                    <Star size={11} className="fill-amber-400 text-amber-500" /> {onlyStarred ? `★ ${starredInCutup.length}/${allWatch.length}` : `★ ${starredInCutup.length}`}
                   </button>
-                ))}
+                )}
+                {watch.map((p, i) => {
+                  const starred = isSnapStarred(p);
+                  return (
+                    <div
+                      key={p.id}
+                      className={`h-7 pointer-coarse:h-9 rounded-md text-[11px] pointer-coarse:text-xs font-bold shrink-0 border inline-flex items-center overflow-hidden ${
+                        p === play
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : starred
+                            ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border-amber-400'
+                            : clipFor.has(p.id)
+                              ? 'bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-600 hover:border-indigo-400'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleSnapStar(p)}
+                        aria-label={starred ? `Unstar clip #${p.playNumber}` : `Star clip #${p.playNumber}`}
+                        title={starred ? `★ Starred clip #${p.playNumber} (click to unstar)` : `Star clip #${p.playNumber}`}
+                        className="h-full px-1 inline-flex items-center hover:bg-black/10 cursor-pointer"
+                      >
+                        <Star size={11} className={starred ? 'fill-amber-400 text-amber-400' : p === play ? 'text-white/60 hover:text-amber-300' : 'text-slate-300 dark:text-slate-600 hover:text-amber-400'} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIndex(i)}
+                        title={playTitle(p)}
+                        className="h-full px-1.5 inline-flex items-center cursor-pointer"
+                      >
+                        #{p.playNumber}
+                        {gain(p) && <span className="ml-1 opacity-80">{gain(p)}</span>}
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
             {/* A setting, not something to do while watching: left off a phone's small window and a filled short screen. */}

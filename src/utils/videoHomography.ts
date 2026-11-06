@@ -18,6 +18,17 @@ export interface ImagePoint {
   v: number;
 }
 
+export interface UnitFilmTransform {
+  /** Shift the whole unit horizontally across the field in yards */
+  dx?: number;
+  /** Shift the whole unit vertically (depth) in yards */
+  dy?: number;
+  /** Scale the unit's horizontal width (default 1) */
+  scaleX?: number;
+  /** Scale the unit's vertical depth (default 1) */
+  scaleY?: number;
+}
+
 /**
  * 4-corner perspective calibration quad in normalized video coordinates [0..1].
  * Maps to the reference rectangle on the football field:
@@ -41,6 +52,10 @@ export interface HomographyQuad {
   fromFilm?: boolean;
   /** Players moved on the film only (yards): where they line up in this clip. The play's diagram stays as drawn. */
   moved?: Record<string, { x: number; y: number }>;
+  /** Full-unit alignment for the Offense on this film (independent of Defense and Field). */
+  offenseTransform?: UnitFilmTransform;
+  /** Full-unit alignment for the Defense on this film (independent of Offense and Field). */
+  defenseTransform?: UnitFilmTransform;
 }
 
 export const HOMOGRAPHY_PRESETS: Record<
