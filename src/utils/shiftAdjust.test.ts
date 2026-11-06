@@ -95,3 +95,20 @@ describe("our defense adjusting to their shift", () => {
     assert.equal(after.men.length, 8);
   });
 });
+
+describe('our spots after their shift stay on the field', () => {
+  it('a receiver shifting across the formation: the corner over him stays (the other side picks him up)', () => {
+    const wide = [...off, { role: 'Z', x: 14, y: 0, line: true } as PlayNode];
+    const d = [...def.filter((n) => n.role !== 'CBR'), { role: 'CBR', x: 14.4, y: 4.3 } as PlayNode];
+    const across: PlayStroke = { kind: 'pass', points: [{ x: 14, y: 0 }, { x: 14, y: -1 }, { x: -9, y: -1 }], motion: 2, shift: 2 };
+    const spots = shiftDefenseSpots([...wide, ...d], [across])!;
+    assert.equal(spots.CBR.x, 14.4);
+    // On his own side, he goes with him (8 yards at most).
+    const out: PlayStroke = { kind: 'pass', points: [{ x: 14, y: 0 }, { x: 24, y: 0 }], motion: 1, shift: 1 };
+    assert.equal(shiftDefenseSpots([...wide, ...d], [out])!.CBR.x, 22.4);
+  });
+  it('a spot saved past the sideline comes back onto the field', () => {
+    const spots = shiftDefenseSpots([...off, ...def], [shift], { CBL: { x: -40, y: -3 } })!;
+    assert.deepEqual(spots.CBL, { x: -25, y: 0.6 });
+  });
+});

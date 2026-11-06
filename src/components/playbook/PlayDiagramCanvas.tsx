@@ -1488,7 +1488,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     if (d.mode === 'shift') {
       if (!d.moved && Math.hypot(p.cx - d.startCx, p.cy - d.startCy) <= 4) return;
       d.moved = true;
-      d.at = { x: Math.max(-26, Math.min(26, p.x)), y: Math.max(0.6, Math.min(20, p.y)) };
+      d.at = { x: Math.max(-25, Math.min(25, p.x)), y: Math.max(0.6, Math.min(20, p.y)) };
       setShiftDrag({ role: d.role, x: d.at.x, y: d.at.y });
       return;
     }

@@ -5,6 +5,8 @@
 // on a player who shifted goes with him; the rest stay.
 import { isDefenseRole, lineStartsOn, shiftLegs, type PlayNode, type PlayStroke } from './footballEngine';
 
+/** Just inside the sidelines (the field is 53⅓ yards wide): no spot after a shift goes past this. */
+export const FIELD_EDGE = 25;
 /** Linemen side by side are at most this far apart (a split end isn't part of the line). */
 const LINE_SPLIT = 2.7;
 
@@ -73,13 +75,17 @@ export function defenseAfterShift(defense: PlayNode[], before: PlayNode[], after
       const x = Math.round((now.men[t].x + (d.x - was.men[k].x)) * 100) / 100;
       return x === d.x ? d : { ...d, x };
     }
-    // Lined up on a player who shifted (over a tight end or a slot): he goes with him.
+    // Lined up on a player who shifted (over a tight end or a slot): he goes with him, on his side of the ball and
+    // up to 8 yards. A man shifting across the formation is picked up by the defense on the side he goes to.
     const near = [...offBefore]
       .filter((o) => Math.abs(o.x - d.x) <= 2.5)
       .sort((a, b) => Math.hypot(a.x - d.x, a.y - d.y) - Math.hypot(b.x - d.x, b.y - d.y))[0];
     const moved = near && after.find((o) => o.role === near.role);
     if (!moved || Math.abs(moved.x - near.x) < 0.3) return d;
-    return { ...d, x: Math.round((d.x + moved.x - near.x) * 100) / 100 };
+    const ball = was.men[was.mid]?.x ?? 0;
+    if (Math.sign(moved.x - ball) !== Math.sign(near.x - ball)) return d;
+    const dx = Math.max(-8, Math.min(8, moved.x - near.x));
+    return { ...d, x: Math.round((d.x + dx) * 100) / 100 };
   });
 }
 
@@ -94,5 +100,10 @@ export function shiftDefenseSpots(
   const defense = nodes.filter((n) => isDefenseRole(n.role));
   if (!defense.length) return undefined;
   const after = defenseAfterShift(defense, offense, offenseAfterShift(nodes, strokes));
-  return Object.fromEntries(after.map((n) => [n.role, coachSpots[n.role] ? { x: coachSpots[n.role].x, y: coachSpots[n.role].y } : { x: n.x, y: n.y }]));
+  // Always on the field (a spot saved off it, or carried past the sideline, comes back where it can be dragged).
+  const onField = (p: { x: number; y: number }) => ({
+    x: Math.round(Math.max(-FIELD_EDGE, Math.min(FIELD_EDGE, p.x)) * 100) / 100,
+    y: Math.round(Math.max(0.6, Math.min(20, p.y)) * 100) / 100,
+  });
+  return Object.fromEntries(after.map((n) => [n.role, onField(coachSpots[n.role] || n)]));
 }
