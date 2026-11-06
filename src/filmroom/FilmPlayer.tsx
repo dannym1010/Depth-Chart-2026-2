@@ -74,6 +74,11 @@ interface FilmPlayerProps {
    * or go to the next play by itself; the other player leads.
    */
   follower?: boolean;
+  /**
+   * A new play's film waits for the coach to press play (presenting: the film is ready, not already running). Going
+   * on to the next clip while it plays keeps playing.
+   */
+  holdStart?: boolean;
 }
 
 // Bigger on a touch screen (a finger needs about 40px).
@@ -90,12 +95,17 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   stage = false,
   controlsHidden = false,
   follower = false,
+  holdStart = false,
 }) => {
   const followerRef = useRef(follower);
   followerRef.current = follower;
   const rootRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
+  // Holding the start: whether the clip before was playing (or ran to its end), so the next one carries on.
+  const playingRef = useRef(false);
+  playingRef.current = playing;
+  const endedRef = useRef(false);
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [speed, setSpeed] = useState(1);
@@ -340,7 +350,9 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
       const cachedSnap = fastCut ? snapTimeCache.get(src) : undefined;
       const initialStart = startAt > 0 ? startAt : cachedSnap && cachedSnap > 2 ? Math.max(0, cachedSnap - 2.0) : 0;
       if (initialStart > 0) v.currentTime = initialStart;
-      v.play().catch(() => setPlaying(false));
+      const keepGoing = playingRef.current || endedRef.current;
+      endedRef.current = false;
+      if (!holdStart || keepGoing) v.play().catch(() => setPlaying(false));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src]);
@@ -664,7 +676,10 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
 
   const onEnded = () => {
     triggeredFreezesRef.current.clear();
-    if (!loop && autoNext && hasNext && !follower) onNext();
+    if (!loop && autoNext && hasNext && !follower) {
+      endedRef.current = true;
+      onNext();
+    }
   };
 
   // Handle time updates: Fast Cutup end-of-play trim + Freeze-Frame telestration auto-pause

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle, ChevronLeft, ChevronRight, Columns2, Eraser, Expand, Film, LayoutGrid, ListOrdered, Minimize2, PenLine, PenTool, Play, Presentation, Printer, Repeat, Shield, Sparkles, Star, Timer, Undo2, X,
+  AlertTriangle, Check, ChevronLeft, ChevronRight, Columns2, Ellipsis, Eraser, Expand, Film, Flag, LayoutGrid, ListOrdered, Minimize2, PenLine, PenTool, Play, Presentation, Printer, Repeat, RotateCcw, Shield, Sparkles, Star, Timer, Undo2, X,
 } from 'lucide-react';
 import { setFilmWindowDock, useFilmWindowRequest } from '../../filmroom/filmWindowStore';
 import type { ScoutOppPlay } from '../../utils/scoutOppPlays';
@@ -31,6 +31,11 @@ type View = 'diagram' | 'split' | 'film';
 const VIEW_KEY = 'footballPresentView';
 const SCRIPT_KEY = 'footballPresentScript';
 const HINT_KEY = 'footballPresentHint';
+const BANNER_KEY = 'footballPresentTendency';
+/** The start screen (pick where and how to start), the plays, or the end of the script. */
+type Phase = 'cover' | 'show' | 'end';
+/** How many clips of their film go with a play on the script. */
+const clipsOf = (l: ScoutShowLine) => (l.group ? l.group.plays.flatMap((p) => p.clips || []) : l.card?.clips || []).length;
 const saved = (key: string) => {
   try {
     return localStorage.getItem(key);
@@ -121,7 +126,16 @@ export const ScoutPresentation: React.FC<{
   const [run, setRun] = useState(0);
   const [startRunTrigger, setStartRunTrigger] = useState(0);
   const [defenseHud, setDefenseHud] = useState(false);
-  const [showTendencyBanner, setShowTendencyBanner] = useState(true);
+  // Presenting starts on a start screen, not in the first play (and its film): the coach picks where and how.
+  const [phase, setPhase] = useState<Phase>('cover');
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [showTendencyBanner, setShowTendencyBannerState] = useState(() => saved(BANNER_KEY) !== 'off');
+  const setShowTendencyBanner = (next: boolean | ((v: boolean) => boolean)) =>
+    setShowTendencyBannerState((v) => {
+      const on = typeof next === 'function' ? next(v) : next;
+      save(BANNER_KEY, on ? 'on' : 'off');
+      return on;
+    });
   const [loopPlay, setLoopPlay] = useState(false);
   const [autoAdvanceLoop, setAutoAdvanceLoop] = useState(false);
   const [drillCountdown, setDrillCountdown] = useState<number | null>(null);
@@ -185,8 +199,25 @@ export const ScoutPresentation: React.FC<{
         ? activeIndices[0]
         : -1;
   const goStep = (dir: 1 | -1) => {
+    if (phase === 'cover') {
+      if (dir > 0) startAt(activeIndices.includes(index) ? index : activeIndices[0] ?? 0);
+      return;
+    }
+    if (phase === 'end') {
+      if (dir < 0) setPhase('show');
+      return;
+    }
     const target = dir > 0 ? nextPlayIndex : prevPlayIndex;
     if (target >= 0) go(target);
+    // Past the last play: the end of the script.
+    else if (dir > 0) setPhase('end');
+  };
+  /** From the start screen (or the end): to a play, full screen or not. */
+  const startAt = (i: number, fullScreen = false) => {
+    setPhase('show');
+    setGridOpen(false);
+    go(i);
+    if (fullScreen && !full) enterFull();
   };
 
   // Sync Run Both (Split View): starts diagram Play Movement AND plays the docked video clip simultaneously
@@ -295,6 +326,7 @@ export const ScoutPresentation: React.FC<{
   const leaveFull = useCallback(() => {
     setFull(false);
     setGridOpen(false);
+    setMoreOpen(false);
     setInkOn(false);
     setHint('');
     if (askedBrowser.current) {
@@ -335,6 +367,25 @@ export const ScoutPresentation: React.FC<{
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       const typing = Boolean(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable));
+      // The start screen and the end: Enter or → starts (or goes on), ← goes back, Esc leaves.
+      if (phase !== 'show') {
+        if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+        // Enter on a button presses that button.
+        if (e.key === 'Enter' && t?.closest('button')) return;
+        if (e.key === 'Enter' || e.key === 'ArrowRight' || e.key === 'PageDown') goStep(1);
+        else if (e.key === 'ArrowLeft' || e.key === 'PageUp') goStep(-1);
+        else if (e.key === 'Escape') {
+          if (phase === 'end') setPhase('show');
+          else onExit();
+        } else return;
+        e.preventDefault();
+        return;
+      }
+      if (e.key === 'Escape' && moreOpen) {
+        setMoreOpen(false);
+        e.preventDefault();
+        return;
+      }
       if (e.key === 'PageDown') goStep(1);
       else if (e.key === 'PageUp') goStep(-1);
       else if (!full || typing || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -357,8 +408,9 @@ export const ScoutPresentation: React.FC<{
   // Full screen, a finger or the pencil on the play. Listened for here, before the field or the film gets it (the
   // film is drawn into this place from elsewhere in the app, so only the page's own events reach it from here):
   // drawing takes the press away from them; a swipe changes the play; a tap shows or hides the controls.
-  const live = useRef({ index, inkOn, gridOpen, shown, go, goStep, poke, tuck });
-  live.current = { index, inkOn, gridOpen, shown, go, goStep, poke, tuck };
+  const closeMore = () => setMoreOpen(false);
+  const live = useRef({ index, inkOn, gridOpen, shown, go, goStep, poke, tuck, moreOpen, closeMore });
+  live.current = { index, inkOn, gridOpen, shown, go, goStep, poke, tuck, moreOpen, closeMore };
   useEffect(() => {
     const el = rootRef.current;
     if (!full || !el) return;
@@ -370,6 +422,13 @@ export const ScoutPresentation: React.FC<{
       const t = e.target instanceof Element ? e.target : null;
       if (!t || t.closest('[data-stage-ui]')) {
         L.poke();
+        return;
+      }
+      // A press anywhere else closes the "…" menu (and does nothing more).
+      if (L.moreOpen) {
+        L.closeMore();
+        e.stopPropagation();
+        e.preventDefault();
         return;
       }
       if (L.gridOpen) return;
@@ -506,8 +565,31 @@ export const ScoutPresentation: React.FC<{
     [full, run, startRunTrigger, defenseHud, skipNotes, setSkipNotes, loopPlay, handleLoopCycleEnd, drillCountdown]
   );
 
+  // A line in the More menu: an action, or an on / off (a check box on the right).
+  const menuItem = (icon: React.ReactNode, label: string, onClick: () => void, opts: { checked?: boolean; disabled?: boolean; hint?: string } = {}) => (
+    <button
+      type="button"
+      role={opts.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+      aria-checked={opts.checked}
+      disabled={opts.disabled}
+      onClick={onClick}
+      className="w-full flex items-start gap-2.5 px-2.5 py-2 pointer-coarse:py-2.5 rounded-lg text-left text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-40 disabled:cursor-default"
+    >
+      <span className="mt-0.5 shrink-0 text-slate-500 dark:text-slate-400">{icon}</span>
+      <span className="flex-1 min-w-0">
+        <span className="block">{label}</span>
+        {opts.hint && <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400">{opts.hint}</span>}
+      </span>
+      {opts.checked !== undefined && (
+        <span className={`mt-0.5 shrink-0 w-5 h-5 rounded-md inline-flex items-center justify-center ${opts.checked ? 'bg-indigo-600 text-white' : 'border border-slate-300 dark:border-slate-600'}`}>
+          {opts.checked && <Check className="w-3.5 h-3.5" />}
+        </span>
+      )}
+    </button>
+  );
+
   // Finger-sized on a touch screen (an iPad).
-  const navBtn = 'h-9 pointer-coarse:h-11 px-3 rounded-lg text-sm font-black inline-flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-default';
+  const navBtn ='h-9 pointer-coarse:h-11 px-3 rounded-lg text-sm font-black inline-flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-default';
   const viewBtn = (v: View) =>
     `h-7 pointer-coarse:h-9 px-3 rounded-md text-xs pointer-coarse:text-sm font-black inline-flex items-center gap-1.5 cursor-pointer ${
       view === v ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -539,7 +621,7 @@ export const ScoutPresentation: React.FC<{
         {/* Standing up, the menu names the play: the header stays one row. */}
         <span className="hidden lg:inline-flex items-center gap-2 min-w-0">
           <Presentation className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-          <span className="text-sm font-black text-slate-900 dark:text-white truncate">{show.title}</span>
+          <span className="text-sm font-black text-slate-900 dark:text-white truncate max-w-[14rem]">{show.title}</span>
         </span>
         {/* On a phone, an iPad standing up, or with the side list hidden: the script as a menu. */}
         <select
@@ -557,12 +639,57 @@ export const ScoutPresentation: React.FC<{
             );
           })}
         </select>
+
+        {/* The play before / after (Page Up / Page Down, a clicker): after the last play, the end of the script. */}
+        <div className="flex items-center gap-1">
+          <button type="button" className={`${navBtn} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200`} disabled={prevPlayIndex < 0} onClick={() => goStep(-1)} title="The play before (Page Up)">
+            <ChevronLeft className="w-4 h-4" /> <span className="max-sm:hidden">Prev</span>
+          </button>
+          <span className="text-xs font-bold tabular-nums text-slate-500 px-1 whitespace-nowrap">
+            {starredOnly && posInActive >= 0 ? `★ ${posInActive + 1} / ${activeIndices.length}` : `${index + 1} / ${show.lines.length}`}
+          </span>
+          <button type="button" className={`${navBtn} bg-indigo-600 text-white hover:bg-indigo-500`} onClick={() => goStep(1)} title={nextPlayIndex < 0 ? 'The end of the script (Page Down)' : 'The next play (Page Down)'}>
+            {nextPlayIndex < 0 ? (
+              <>
+                <span className="max-sm:hidden">Finish</span> <Flag className="w-4 h-4" />
+              </>
+            ) : (
+              <>
+                <span className="max-sm:hidden">Next</span> <ChevronRight className="w-4 h-4" />
+              </>
+            )}
+          </button>
+        </div>
+
+        <div className="flex items-center gap-0.5 p-1 rounded-lg bg-slate-100 dark:bg-slate-800" role="group" aria-label="Show">
+          <button type="button" className={viewBtn('diagram')} aria-pressed={view === 'diagram'} onClick={() => setView('diagram')} title="The play's diagram, with every tool">
+            <PenTool className="w-3.5 h-3.5" /> <span className="max-sm:hidden">Diagram</span>
+          </button>
+          <button type="button" className={viewBtn('split')} aria-pressed={view === 'split'} onClick={() => setView('split')} title="The diagram and the film side by side">
+            <Columns2 className="w-3.5 h-3.5" /> <span className="max-sm:hidden">Split</span>
+          </button>
+          <button type="button" className={viewBtn('film')} aria-pressed={view === 'film'} onClick={() => setView('film')} title="The play's film, in the same place (it waits for you to press play)">
+            <Film className="w-3.5 h-3.5" /> <span className="max-sm:hidden">Film</span>
+          </button>
+        </div>
+        {view === 'split' && (
+          <button
+            type="button"
+            onClick={syncRunBoth}
+            title="Start the diagram's movement and the film at the same time"
+            className={`${navBtn} !px-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs`}
+          >
+            <Play className="w-3.5 h-3.5 fill-current" />
+            <span className="max-md:hidden">Run both</span>
+          </button>
+        )}
         {line && (
           <button
             type="button"
             aria-pressed={isStarred(line)}
             onClick={() => toggleStar(line.playId)}
-            title={isStarred(line) ? 'Starred for presentation (click to unstar)' : 'Star this play to show in presentation'}
+            title={isStarred(line) ? 'Starred (click to unstar)' : 'Star this play'}
+            aria-label={isStarred(line) ? 'Unstar this play' : 'Star this play'}
             className={`${navBtn} !px-2.5 border ${
               isStarred(line)
                 ? 'border-amber-400 bg-amber-500/15 text-amber-600 dark:text-amber-300'
@@ -570,155 +697,77 @@ export const ScoutPresentation: React.FC<{
             }`}
           >
             <Star className={`w-4 h-4 ${isStarred(line) ? 'fill-amber-400 text-amber-500' : ''}`} />
-            <span className="max-sm:hidden">{isStarred(line) ? 'Starred' : 'Star'}</span>
           </button>
         )}
         <button
           type="button"
-          aria-pressed={starredOnly}
-          disabled={starredIndices.length === 0 && !starredOnly}
-          onClick={() => setStarredOnly((v) => !v)}
-          title={
-            starredIndices.length === 0
-              ? 'Star plays on the script first, then click here to step through only your starred plays'
-              : starredOnly
-                ? 'Showing only starred plays (click to show all plays)'
-                : `Show only your ${starredIndices.length} starred play${starredIndices.length === 1 ? '' : 's'}`
-          }
-          className={`${navBtn} !px-2.5 border ${
-            starredOnly
-              ? 'border-amber-500 bg-amber-500 text-slate-950 shadow-xs'
-              : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-amber-400'
-          }`}
+          onClick={() => setGridOpen(true)}
+          title="Every play on the script, with its picture: tap one to go to it"
+          className={`${navBtn} !px-2.5 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800`}
         >
-          <Star className={`w-3.5 h-3.5 ${starredOnly ? 'fill-slate-950' : 'text-amber-500'}`} />
-          <span>★ Only ({starredIndices.length})</span>
+          <LayoutGrid className="w-4 h-4" /> <span className="max-md:hidden">All plays</span>
         </button>
-        <button
-          type="button"
-          onClick={() => setStudySheetOpen(true)}
-          title="Open Printable / Shareable 1-Page Player Study Sheet for Starred Plays"
-          className={`${navBtn} !px-2.5 border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950 text-xs`}
-        >
-          <Printer className="w-3.5 h-3.5" />
-          <span className="max-md:hidden">Study Sheet</span>
-        </button>
-        <button
-          type="button"
-          aria-pressed={!skipNotes}
-          onClick={() => setSkipNotes(!skipNotes)}
-          title={
-            skipNotes
-              ? 'Play Through Mode: Play Movement runs without stopping or showing notes/pursuit angles (click to re-enable note stops)'
-              : 'Stop & Show Notes Mode: Play Movement pauses at each note/pursuit checkpoint (click to play straight through without notes)'
-          }
-          className={`${navBtn} !px-2.5 border text-xs ${
-            !skipNotes
-              ? 'border-emerald-500/60 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-              : 'border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-          }`}
-        >
-          <span>{skipNotes ? '⏭ Play Through (No Notes)' : '📌 Stop & Show Notes'}</span>
-        </button>
-        <button
-          type="button"
-          aria-pressed={loopPlay}
-          onClick={() => {
-            const nextLoop = !loopPlay;
-            setLoopPlay(nextLoop);
-            if (nextLoop) setStartRunTrigger((n) => n + 1);
-          }}
-          title="Walkthrough Huddle Loop: plays continuously, pauses 2s at each note, and loops"
-          className={`${navBtn} !px-2.5 border text-xs ${
-            loopPlay
-              ? 'border-emerald-500 bg-emerald-600 text-white'
-              : 'border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-emerald-400'
-          }`}
-        >
-          <Repeat className="w-3.5 h-3.5" />
-          <span>{loopPlay ? 'Loop ON' : 'Loop'}</span>
-        </button>
-        {loopPlay && activeIndices.length > 1 && (
+
+        {/* Everything else, out of the way until it's wanted. */}
+        <div className="relative">
           <button
             type="button"
-            aria-pressed={autoAdvanceLoop}
-            onClick={() => setAutoAdvanceLoop((v) => !v)}
-            title="When Loop is ON, automatically advance to the next play on the script after each loop"
-            className={`${navBtn} !px-2 border text-xs ${
-              autoAdvanceLoop
-                ? 'border-amber-400 bg-amber-500 text-slate-950'
-                : 'border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-            }`}
+            aria-expanded={moreOpen}
+            aria-haspopup="menu"
+            onClick={() => setMoreOpen((v) => !v)}
+            className={`${navBtn} !px-2.5 border ${moreOpen ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300' : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+            title="More: starred only, notes, loop, the 3-second drill, the tendency banner, the study sheet"
           >
-            <span>Auto-Next</span>
+            <Ellipsis className="w-4 h-4" /> <span className="max-md:hidden">More</span>
+            {(starredOnly || loopPlay || !skipNotes) && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" aria-hidden="true" />}
           </button>
-        )}
-        <button
-          type="button"
-          onClick={startRecognitionDrill}
-          title="3-Second Pre-Snap Recognition Drill: hides routes & play name for 3 seconds while players call out Strength & Formation, then snaps automatically!"
-          className={`${navBtn} !px-2.5 border text-xs ${
-            drillCountdown !== null
-              ? 'border-rose-500 bg-rose-600 text-white animate-pulse'
-              : 'border-amber-400/70 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 hover:bg-amber-100'
-          }`}
-        >
-          <Timer className="w-3.5 h-3.5" />
-          <span>{drillCountdown !== null ? `⏱ ${drillCountdown}s…` : '3s Drill'}</span>
-        </button>
-        <button
-          type="button"
-          aria-pressed={showTendencyBanner}
-          onClick={() => setShowTendencyBanner((v) => !v)}
-          title="Show/Hide Opponent Formation Tendency & Key Alert Banner"
-          className={`${navBtn} !px-2 border text-xs ${
-            showTendencyBanner
-              ? 'border-rose-400/70 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300'
-              : 'border-slate-300 dark:border-slate-700 text-slate-500'
-          }`}
-        >
-          <AlertTriangle className="w-3.5 h-3.5" />
-          <span className="max-xl:hidden">Tendency</span>
-        </button>
-        <div className="flex items-center gap-0.5 p-1 rounded-lg bg-slate-100 dark:bg-slate-800" role="group" aria-label="Show">
-          <button type="button" className={viewBtn('diagram')} aria-pressed={view === 'diagram'} onClick={() => setView('diagram')} title="The play's diagram, with every tool">
-            <PenTool className="w-3.5 h-3.5" /> Diagram
-          </button>
-          <button type="button" className={viewBtn('split')} aria-pressed={view === 'split'} onClick={() => setView('split')} title="Side-by-Side Split: Play Diagram on the left + Game Film on the right">
-            <Columns2 className="w-3.5 h-3.5" /> Split
-          </button>
-          <button type="button" className={viewBtn('film')} aria-pressed={view === 'film'} onClick={() => setView('film')} title="The play's film, in the same place">
-            <Film className="w-3.5 h-3.5" /> Film
-          </button>
+          {moreOpen && (
+            <>
+              <button type="button" aria-label="Close the menu" className="fixed inset-0 z-40 cursor-default" onClick={() => setMoreOpen(false)} />
+              <div role="menu" className="absolute right-0 top-full mt-1.5 z-50 w-72 max-w-[calc(100vw-1.5rem)] rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl p-1.5 text-slate-800 dark:text-slate-100">
+                <p className="px-2.5 pt-1 pb-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400">Which plays</p>
+                {menuItem(
+                  <Star className="w-4 h-4 text-amber-500" />,
+                  `Starred plays only (${starredIndices.length})`,
+                  () => setStarredOnly((v) => !v),
+                  { checked: starredOnly, disabled: starredIndices.length === 0 && !starredOnly, hint: starredIndices.length === 0 ? 'Star plays first' : undefined }
+                )}
+                <p className="px-2.5 pt-2.5 pb-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400">Running a play</p>
+                {menuItem(<span className="w-4 text-center">📌</span>, 'Stop at the coaching notes', () => setSkipNotes(!skipNotes), { checked: !skipNotes, hint: 'Off: it plays straight through' })}
+                {menuItem(<Repeat className="w-4 h-4" />, 'Loop the play', () => {
+                  const nextLoop = !loopPlay;
+                  setLoopPlay(nextLoop);
+                  if (nextLoop) setStartRunTrigger((n) => n + 1);
+                }, { checked: loopPlay, hint: 'Plays over and over, a pause at each note' })}
+                {loopPlay && activeIndices.length > 1 && menuItem(<ChevronRight className="w-4 h-4" />, 'Then the next play', () => setAutoAdvanceLoop((v) => !v), { checked: autoAdvanceLoop })}
+                {menuItem(<Timer className="w-4 h-4" />, '3-second drill', () => {
+                  setMoreOpen(false);
+                  startRecognitionDrill();
+                }, { hint: 'Routes hidden 3 s while they call the formation, then the snap' })}
+                <p className="px-2.5 pt-2.5 pb-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400">On screen</p>
+                {menuItem(<AlertTriangle className="w-4 h-4 text-rose-500" />, 'Tendency banner', () => setShowTendencyBanner((v) => !v), { checked: showTendencyBanner, hint: 'Their formation, how often they run from it, the key' })}
+                <div className="my-1.5 h-px bg-slate-200 dark:bg-slate-700" />
+                {menuItem(<Printer className="w-4 h-4" />, 'Player study sheet', () => {
+                  setMoreOpen(false);
+                  setStudySheetOpen(true);
+                })}
+                {menuItem(<RotateCcw className="w-4 h-4" />, 'Back to the start screen', () => {
+                  setMoreOpen(false);
+                  setPhase('cover');
+                })}
+              </div>
+            </>
+          )}
         </div>
-        {view === 'split' && (
+
+        <div className="ml-auto flex items-center gap-1.5">
           <button
             type="button"
-            onClick={syncRunBoth}
-            title="Start the Play Diagram movement and the Game Film clip at the exact same time"
-            className={`${navBtn} !px-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs`}
+            className={`${navBtn} bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90`}
+            onClick={enterFull}
+            title="Full screen: the play edge to edge, the controls out of the way (a tap brings them back)"
           >
-            <Play className="w-3.5 h-3.5 fill-current" />
-            <span>Sync Run Both</span>
-          </button>
-        )}
-        <button
-          type="button"
-          className={`${navBtn} border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950`}
-          onClick={enterFull}
-          title="Full screen: the play edge to edge, the controls out of the way (a tap brings them back)"
-        >
-          <Expand className="w-4 h-4" /> <span className="max-sm:hidden">Full screen</span>
-        </button>
-        <div className="ml-auto flex items-center gap-1.5">
-          <button type="button" className={`${navBtn} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200`} disabled={prevPlayIndex < 0} onClick={() => goStep(-1)} title="The play before (Page Up)">
-            <ChevronLeft className="w-4 h-4" /> <span className="max-sm:hidden">Prev</span>
-          </button>
-          <span className="text-xs font-bold tabular-nums text-slate-500 px-1">
-            {starredOnly && posInActive >= 0 ? `★ ${posInActive + 1} / ${activeIndices.length}` : `${index + 1} / ${show.lines.length}`}
-          </span>
-          <button type="button" className={`${navBtn} bg-indigo-600 text-white hover:bg-indigo-500`} disabled={nextPlayIndex < 0} onClick={() => goStep(1)} title="The next play (Page Down)">
-            <span className="max-sm:hidden">Next</span> <ChevronRight className="w-4 h-4" />
+            <Expand className="w-4 h-4" /> <span className="max-sm:hidden">Full screen</span>
           </button>
           <button type="button" className={`${navBtn} text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800`} onClick={onExit} title="Leave presentation mode">
             <X className="w-4 h-4" /> <span className="max-sm:hidden">Exit</span>
@@ -941,39 +990,18 @@ export const ScoutPresentation: React.FC<{
             <LayoutGrid className="shrink-0 w-4 h-4 text-white/60" />
           </button>
 
-          {/* Diagram, Split, or Film, run the play, 3s drill, loop, draw, leave full screen. */}
+          {/* Diagram, Split or Film; run the play; our defense; draw; the rest under "…"; leave full screen. */}
           <div
             data-stage-ui
-            className={`absolute z-30 flex items-center gap-1 p-1 rounded-2xl ${GLASS} ${fade(tools)} ${tools ? 'translate-y-0' : '-translate-y-2'}`}
+            className={`absolute z-30 flex items-center gap-1 p-1 rounded-2xl ${GLASS} ${fade(tools || moreOpen)} ${tools || moreOpen ? 'translate-y-0' : '-translate-y-2'}`}
             style={{ top: TOP, right: RIGHT }}
           >
-            {line && (
-              <button
-                type="button"
-                aria-pressed={isStarred(line)}
-                onClick={() => toggleStar(line.playId)}
-                className={stageBtn(isStarred(line))}
-                title={isStarred(line) ? 'Starred play (tap to unstar)' : 'Star this play to show'}
-              >
-                <Star className={`w-4 h-4 ${isStarred(line) ? 'fill-amber-400 text-amber-500' : ''}`} />
-              </button>
-            )}
-            <button
-              type="button"
-              aria-pressed={starredOnly}
-              disabled={starredIndices.length === 0 && !starredOnly}
-              onClick={() => setStarredOnly((v) => !v)}
-              className={stageBtn(starredOnly)}
-              title={starredOnly ? 'Showing only starred plays (tap for all plays)' : `Filter to ${starredIndices.length} starred plays`}
-            >
-              <span>★ {starredIndices.length}</span>
-            </button>
             <div role="group" aria-label="Show" className="flex items-center gap-0.5 p-0.5 rounded-xl bg-white/10">
               <button type="button" aria-pressed={view === 'diagram'} onClick={() => setView('diagram')} className={segBtn(view === 'diagram')} title="The play's diagram">
                 <PenTool className="w-4 h-4" />
                 <span className="max-sm:hidden">Diagram</span>
               </button>
-              <button type="button" aria-pressed={view === 'split'} onClick={() => setView('split')} className={segBtn(view === 'split')} title="Side-by-Side Split: Diagram + Film">
+              <button type="button" aria-pressed={view === 'split'} onClick={() => setView('split')} className={segBtn(view === 'split')} title="The diagram and the film side by side">
                 <Columns2 className="w-4 h-4" />
                 <span className="max-sm:hidden">Split</span>
               </button>
@@ -983,58 +1011,26 @@ export const ScoutPresentation: React.FC<{
               </button>
             </div>
             {view === 'split' && (
-              <button type="button" onClick={syncRunBoth} className={stageBtn(true)} title="Sync Run Diagram + Film together">
+              <button type="button" onClick={syncRunBoth} className={stageBtn(true)} title="Run the diagram and the film together">
                 <Play className="w-4 h-4 fill-current" />
-                <span className="max-md:hidden">Sync Both</span>
+                <span className="max-md:hidden">Run both</span>
               </button>
             )}
             {(view === 'diagram' || view === 'split') && (
               <>
-                <button
-                  type="button"
-                  onClick={startRecognitionDrill}
-                  className={stageBtn(drillCountdown !== null)}
-                  title="3-Second Pre-Snap Recognition Drill"
-                >
-                  <Timer className="w-4 h-4" />
-                  <span className="max-lg:hidden">{drillCountdown !== null ? `${drillCountdown}s` : '3s Drill'}</span>
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={loopPlay}
-                  onClick={() => {
-                    const nextLoop = !loopPlay;
-                    setLoopPlay(nextLoop);
-                    if (nextLoop) setStartRunTrigger((n) => n + 1);
-                  }}
-                  className={stageBtn(loopPlay)}
-                  title="Walkthrough Huddle Loop"
-                >
-                  <Repeat className="w-4 h-4" />
-                  <span className="max-lg:hidden">Loop</span>
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={!skipNotes}
-                  onClick={() => setSkipNotes(!skipNotes)}
-                  className={stageBtn(!skipNotes)}
-                  title={skipNotes ? 'Play Through Mode: No stops or notes (tap to stop at notes)' : 'Stop & Show Notes ON (tap to play through without stopping)'}
-                >
-                  <span className="text-xs">{skipNotes ? '⏭ No Notes' : '📌 Notes'}</span>
+                <button type="button" onClick={() => setRun((n) => n + 1)} className={stageBtn()} title="Run the play (the movement bar)">
+                  <Play className="w-4 h-4 fill-current" />
+                  <span className="max-md:hidden">Run</span>
                 </button>
                 <button
                   type="button"
                   aria-pressed={defenseHud}
                   onClick={() => setDefenseHud((v) => !v)}
                   className={stageBtn(defenseHud)}
-                  title="Adjust our defense vs. their play (Front, Blitz, Coverage, Unit & Defender Rules)"
+                  title="Our defense against their play: front, blitz, coverage, rules"
                 >
                   <Shield className="w-4 h-4" />
                   <span className="max-md:hidden">Defense</span>
-                </button>
-                <button type="button" onClick={() => setRun((n) => n + 1)} className={stageBtn()} title="Open Play Movement menu">
-                  <Play className="w-4 h-4 fill-current" />
-                  <span className="max-md:hidden">Movement</span>
                 </button>
               </>
             )}
@@ -1048,6 +1044,49 @@ export const ScoutPresentation: React.FC<{
               <PenLine className="w-4 h-4" />
               <span className="max-md:hidden">Draw</span>
             </button>
+            <div className="relative">
+              <button
+                type="button"
+                aria-expanded={moreOpen}
+                aria-haspopup="menu"
+                onClick={() => {
+                  setMoreOpen((v) => !v);
+                  poke();
+                }}
+                className={stageBtn(moreOpen)}
+                title="More: star, starred only, notes, loop, the 3-second drill"
+                aria-label="More"
+              >
+                <Ellipsis className="w-5 h-5" />
+              </button>
+              {moreOpen && (
+                <div role="menu" className="absolute right-0 top-full mt-2 z-50 w-72 max-w-[calc(100vw-1.5rem)] rounded-xl bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 shadow-2xl ring-1 ring-black/10 p-1.5">
+                  {line && menuItem(<Star className="w-4 h-4 text-amber-500" />, isStarred(line) ? 'Starred' : 'Star this play', () => toggleStar(line.playId), { checked: isStarred(line) })}
+                  {menuItem(<Star className="w-4 h-4 text-amber-500" />, `Starred plays only (${starredIndices.length})`, () => setStarredOnly((v) => !v), {
+                    checked: starredOnly,
+                    disabled: starredIndices.length === 0 && !starredOnly,
+                  })}
+                  <div className="my-1.5 h-px bg-slate-200 dark:bg-slate-700" />
+                  {menuItem(<span className="w-4 text-center">📌</span>, 'Stop at the coaching notes', () => setSkipNotes(!skipNotes), { checked: !skipNotes })}
+                  {menuItem(<Repeat className="w-4 h-4" />, 'Loop the play', () => {
+                    const nextLoop = !loopPlay;
+                    setLoopPlay(nextLoop);
+                    if (nextLoop) setStartRunTrigger((n) => n + 1);
+                  }, { checked: loopPlay })}
+                  {loopPlay && activeIndices.length > 1 && menuItem(<ChevronRight className="w-4 h-4" />, 'Then the next play', () => setAutoAdvanceLoop((v) => !v), { checked: autoAdvanceLoop })}
+                  {menuItem(<Timer className="w-4 h-4" />, '3-second drill', () => {
+                    setMoreOpen(false);
+                    startRecognitionDrill();
+                  }, { hint: 'Routes hidden 3 s while they call the formation' })}
+                  {menuItem(<AlertTriangle className="w-4 h-4 text-rose-500" />, 'Tendency line under the name', () => setShowTendencyBanner((v) => !v), { checked: showTendencyBanner })}
+                  <div className="my-1.5 h-px bg-slate-200 dark:bg-slate-700" />
+                  {menuItem(<LayoutGrid className="w-4 h-4" />, 'Every play', () => {
+                    setMoreOpen(false);
+                    setGridOpen(true);
+                  })}
+                </div>
+              )}
+            </div>
             <button type="button" onClick={leaveFull} className={stageBtn()} title="Leave full screen (Esc)" aria-label="Leave full screen">
               <Minimize2 className="w-4 h-4" />
             </button>
@@ -1111,25 +1150,27 @@ export const ScoutPresentation: React.FC<{
               <ChevronLeft className="w-7 h-7" />
             </button>
           )}
-          {nextPlayIndex >= 0 && (
-            <button
-              type="button"
-              data-stage-ui
-              onClick={() => goStep(1)}
-              aria-label="The next play"
-              title="The next play (→, Page Down)"
-              className={`absolute z-30 top-1/2 -translate-y-1/2 w-14 h-14 rounded-full inline-flex items-center justify-center cursor-pointer active:scale-95 ${GLASS} ${fade(controls)}`}
-              style={{ right: RIGHT }}
-            >
-              <ChevronRight className="w-7 h-7" />
-            </button>
-          )}
+          {/* After the last play: the end of the script. */}
+          <button
+            type="button"
+            data-stage-ui
+            onClick={() => goStep(1)}
+            aria-label={nextPlayIndex >= 0 ? 'The next play' : 'The end of the script'}
+            title={nextPlayIndex >= 0 ? 'The next play (→, Page Down)' : 'The end of the script (→, Page Down)'}
+            className={`absolute z-30 top-1/2 -translate-y-1/2 w-14 h-14 rounded-full inline-flex items-center justify-center cursor-pointer active:scale-95 ${GLASS} ${fade(controls)}`}
+            style={{ right: RIGHT }}
+          >
+            {nextPlayIndex >= 0 ? <ChevronRight className="w-7 h-7" /> : <Flag className="w-6 h-6" />}
+          </button>
 
           {hint && (
             <div className="pointer-events-none absolute inset-x-0 z-30 flex justify-center px-4" style={{ bottom: 'calc(6.5rem + env(safe-area-inset-bottom, 0px))' }}>
               <div className={`max-w-xl rounded-2xl px-4 py-3 text-center text-sm font-bold ${GLASS}`}>{hint}</div>
             </div>
           )}
+
+        </>
+      )}
 
           {/* Every play on the script, with its picture: tap one to go to it. */}
           {gridOpen && (
@@ -1224,7 +1265,207 @@ export const ScoutPresentation: React.FC<{
               </div>
             </div>
           )}
-        </>
+
+      {/* The start screen: the script at a glance. Pick what shows first (diagram, split, film), all plays or just the
+          starred ones, and where to start; nothing plays until the coach starts. */}
+      {phase === 'cover' && (() => {
+        const withFilm = show.lines.filter((l) => clipsOf(l) > 0).length;
+        const first = activeIndices[0] ?? 0;
+        const touch = typeof window !== 'undefined' && Boolean(window.matchMedia?.('(pointer: coarse)').matches);
+        const pick = (on: boolean) => `h-10 pointer-coarse:h-11 px-3.5 rounded-lg inline-flex items-center gap-1.5 text-sm font-black cursor-pointer transition-colors ${on ? 'bg-white text-slate-900 shadow' : 'text-white/75 hover:text-white'}`;
+        return (
+          <div
+            data-stage-ui
+            role="dialog"
+            aria-label={`${show.title}: start`}
+            className="absolute inset-0 z-50 flex flex-col overflow-y-auto overscroll-contain text-white"
+            style={{
+              background: 'radial-gradient(ellipse at top, #1e1b4b 0%, #0b1020 55%, #05070d 100%)',
+              paddingTop: 'env(safe-area-inset-top, 0px)',
+              paddingLeft: 'env(safe-area-inset-left, 0px)',
+              paddingRight: 'env(safe-area-inset-right, 0px)',
+              paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+            }}
+          >
+            <div className="w-full max-w-6xl mx-auto px-4 sm:px-8 pt-5 sm:pt-8 pb-10 flex flex-col gap-6">
+              <div className="flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-indigo-300">Scout script · presentation</p>
+                  <h1 className="mt-1 text-2xl sm:text-4xl font-black leading-tight text-balance">{show.title}</h1>
+                  <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm font-bold text-slate-300">
+                    <span>{show.lines.length} play{show.lines.length === 1 ? '' : 's'}</span>
+                    <span className="text-amber-300">★ {starredIndices.length} starred</span>
+                    <span className="text-sky-300">
+                      <Film className="inline w-3.5 h-3.5 -mt-0.5" /> {withFilm} with film
+                    </span>
+                  </p>
+                </div>
+                <button type="button" onClick={onExit} className="shrink-0 h-11 px-3 rounded-xl inline-flex items-center gap-1.5 text-sm font-black text-white/80 hover:bg-white/10 cursor-pointer" title="Leave (Esc)">
+                  <X className="w-5 h-5" /> <span className="max-sm:hidden">Exit</span>
+                </button>
+              </div>
+
+              {/* How to start. */}
+              <div className="rounded-2xl bg-white/[0.06] ring-1 ring-white/10 p-4 sm:p-5 flex flex-col gap-4">
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">Show first</span>
+                    <div role="group" aria-label="Show first" className="flex items-center gap-0.5 p-1 rounded-xl bg-white/10">
+                      <button type="button" aria-pressed={view === 'diagram'} onClick={() => setView('diagram')} className={pick(view === 'diagram')}>
+                        <PenTool className="w-4 h-4" /> Diagram
+                      </button>
+                      <button type="button" aria-pressed={view === 'split'} onClick={() => setView('split')} className={pick(view === 'split')}>
+                        <Columns2 className="w-4 h-4" /> Split
+                      </button>
+                      <button type="button" aria-pressed={view === 'film'} onClick={() => setView('film')} className={pick(view === 'film')}>
+                        <Film className="w-4 h-4" /> Film
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">Plays</span>
+                    <div role="group" aria-label="Plays" className="flex items-center gap-0.5 p-1 rounded-xl bg-white/10">
+                      <button type="button" aria-pressed={!starredOnly} onClick={() => setStarredOnly(false)} className={pick(!starredOnly)}>
+                        All {show.lines.length}
+                      </button>
+                      <button type="button" aria-pressed={starredOnly} disabled={starredIndices.length === 0} onClick={() => setStarredOnly(true)} className={`${pick(starredOnly)} disabled:opacity-35 disabled:cursor-default`} title={starredIndices.length ? undefined : 'Star plays (here or on the script) to show just those'}>
+                        <Star className={`w-4 h-4 ${starredOnly ? 'fill-amber-400 text-amber-500' : 'text-amber-300'}`} /> Starred {starredIndices.length}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => startAt(first, touch)}
+                    className="h-12 px-6 rounded-xl inline-flex items-center gap-2 text-base font-black bg-indigo-500 hover:bg-indigo-400 text-white shadow-lg shadow-indigo-950/60 cursor-pointer"
+                    autoFocus
+                  >
+                    <Play className="w-5 h-5 fill-current" /> Start{starredOnly ? ' the starred plays' : ''}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => startAt(first, !touch)}
+                    className="h-12 px-4 rounded-xl inline-flex items-center gap-2 text-sm font-black bg-white/10 hover:bg-white/15 text-white cursor-pointer"
+                  >
+                    {touch ? <ListOrdered className="w-4 h-4" /> : <Expand className="w-4 h-4" />}
+                    {touch ? 'Start with the script beside it' : 'Start full screen'}
+                  </button>
+                  <span className="text-xs font-semibold text-slate-400 basis-full sm:basis-auto">
+                    {touch ? 'Swipe for the next play · tap to show the controls · draw with Apple Pencil' : 'Enter starts · ← → or a clicker (Page Up / Down) change the play'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Every play: tap one to start there. */}
+              <div className="flex flex-col gap-3">
+                <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">Or start at a play</span>
+                <ol className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+                  {activeIndices.map((i) => {
+                    const l = show.lines[i];
+                    const starred = isStarred(l);
+                    const clips = clipsOf(l);
+                    return (
+                      <li key={l.playId} className="relative">
+                        <button
+                          type="button"
+                          onClick={() => startAt(i, touch)}
+                          className="w-full h-full text-left rounded-2xl p-2 bg-white/[0.06] ring-1 ring-white/10 hover:bg-white/10 hover:ring-indigo-400/60 transition cursor-pointer active:scale-[0.98]"
+                        >
+                          {l.diagram ? (
+                            <DiagramImage url={l.diagram} alt={l.name} loading="lazy" className="w-full aspect-[760/520] object-contain rounded-xl bg-white" />
+                          ) : (
+                            <span className="w-full aspect-[760/520] rounded-xl bg-white/5 flex items-center justify-center text-slate-500">
+                              <PenTool className="w-6 h-6" />
+                            </span>
+                          )}
+                          <span className="mt-2 flex items-start gap-2 px-1">
+                            <span className="shrink-0 min-w-7 h-7 px-1.5 rounded-lg bg-white/10 inline-flex items-center justify-center text-sm font-black tabular-nums">{i + 1}</span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-sm font-black leading-tight break-words">{l.name}</span>
+                              {l.detail && <span className="block mt-0.5 text-xs text-slate-400 leading-snug line-clamp-2">{l.detail}</span>}
+                            </span>
+                            {clips > 0 && (
+                              <span className="shrink-0 mt-0.5 inline-flex items-center gap-0.5 text-[11px] font-black text-sky-300" title={`${clips} clip${clips === 1 ? '' : 's'} of their film`}>
+                                <Film className="w-3 h-3" /> {clips}
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={starred ? `Unstar ${l.name}` : `Star ${l.name}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleStar(l.playId);
+                          }}
+                          className={`absolute top-4 right-4 w-9 h-9 rounded-full inline-flex items-center justify-center shadow-lg cursor-pointer ${
+                            starred ? 'bg-amber-400 text-slate-950' : 'bg-slate-900/80 text-white/80 hover:text-amber-300'
+                          }`}
+                        >
+                          <Star className={`w-4 h-4 ${starred ? 'fill-slate-950' : ''}`} />
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* The end of the script: go again, just the starred plays, back to the last play, or leave. */}
+      {phase === 'end' && (
+        <div
+          data-stage-ui
+          role="dialog"
+          aria-label="End of the script"
+          className="absolute inset-0 z-50 flex items-center justify-center p-6 text-white"
+          style={{ background: 'radial-gradient(ellipse at center, #1e1b4b 0%, #05070d 80%)' }}
+        >
+          <div className="w-full max-w-md flex flex-col items-center text-center gap-5">
+            <span className="w-16 h-16 rounded-2xl bg-indigo-500 inline-flex items-center justify-center shadow-xl shadow-indigo-950/60">
+              <Flag className="w-8 h-8" />
+            </span>
+            <div>
+              <h2 className="text-2xl sm:text-3xl font-black">That&apos;s the script</h2>
+              <p className="mt-1 text-sm font-bold text-slate-300">
+                {starredOnly ? `${activeIndices.length} starred play${activeIndices.length === 1 ? '' : 's'}` : `${show.lines.length} play${show.lines.length === 1 ? '' : 's'}`} · {show.title}
+              </p>
+            </div>
+            <div className="w-full flex flex-col gap-2">
+              <button type="button" autoFocus onClick={() => startAt(activeIndices[0] ?? 0)} className="h-12 rounded-xl inline-flex items-center justify-center gap-2 text-base font-black bg-indigo-500 hover:bg-indigo-400 cursor-pointer">
+                <RotateCcw className="w-5 h-5" /> From the top
+              </button>
+              {!starredOnly && starredIndices.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStarredOnly(true);
+                    startAt(starredIndices[0]);
+                  }}
+                  className="h-12 rounded-xl inline-flex items-center justify-center gap-2 text-sm font-black bg-white/10 hover:bg-white/15 cursor-pointer"
+                >
+                  <Star className="w-4 h-4 fill-amber-400 text-amber-400" /> Just the {starredIndices.length} starred
+                </button>
+              )}
+              <button type="button" onClick={() => setPhase('show')} className="h-12 rounded-xl inline-flex items-center justify-center gap-2 text-sm font-black bg-white/10 hover:bg-white/15 cursor-pointer">
+                <ChevronLeft className="w-4 h-4" /> Back to the last play
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (full) leaveFull();
+                  onExit();
+                }}
+                className="h-12 rounded-xl inline-flex items-center justify-center gap-2 text-sm font-black text-white/80 hover:bg-white/10 cursor-pointer"
+              >
+                <X className="w-4 h-4" /> Exit
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Printable / Shareable 1-Page Player Study Sheet Modal for Starred Plays */}

@@ -636,6 +636,7 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
               shortcuts={focused && (!dock || dock.shown)}
               stage={stage}
               controlsHidden={Boolean(stage && dock?.controlsHidden)}
+              holdStart={Boolean(dock)}
             />
             {/* Filling a tall screen: each snap as a line to read and tap (the chips are for the small window). */}
             {fill && !isShort && watch.length > 0 && (
