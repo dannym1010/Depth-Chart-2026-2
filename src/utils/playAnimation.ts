@@ -60,6 +60,10 @@ const OL_ROLES = ['LT', 'LG', 'C', 'RG', 'RT'];
 export const DEFENSE_TRAIL = '#16a34a';
 /** Yards a lineman who isn't pulling moves: a short step into his block. */
 export const LINE_STEP = 0.75;
+/** With no defense drawn, a base (not pulling, not climbing) lineman's step into his block, at most. */
+export const BASE_BLOCK_STEP = 1.2;
+/** The defense's read trails (defenseReads) keep a point every this much of the play after the snap. */
+const TRAIL_EVERY = 0.05;
 
 /** Seconds the play runs after the snap (at full speed). */
 export const PLAY_SECONDS = 3.2;
@@ -164,7 +168,7 @@ export function samplePolyline(
       const localT = segLen > 1e-5 ? (targetDist - accum) / segLen : 1;
       const x = points[i].x + (points[i + 1].x - points[i].x) * localT;
       const y = points[i].y + (points[i + 1].y - points[i].y) * localT;
-      const tip = { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 };
+      const tip = { x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 };
       traveled.push(tip);
       return { x: tip.x, y: tip.y, traveled };
     }
@@ -525,10 +529,14 @@ export function computeAnimatedPlayFrame(
             continue;
           }
           let pts = [{ x: n.x, y: n.y }, ...st.points.slice(1)];
-          // A lineman who isn't pulling only steps into his block (the first yard or so of his line).
-          if (OL_ROLES.includes(n.role) && !isPullLine(st, n)) {
+          // When no defense is on the field, a base lineman who isn't pulling or climbing to the 2nd level steps
+          // into his block (~1.25 yds); when defenders are on the field, he runs his full block path to engage them.
+          const hasDefOnField = nodes.some((dn) => isDefenseRole(dn.role));
+          const endPt = pts[pts.length - 1];
+          if (!hasDefOnField && OL_ROLES.includes(n.role) && !isPullLine(st, n) && endPt.y < 1.6) {
             const total = pts.slice(1).reduce((sum, p, i) => sum + Math.hypot(p.x - pts[i].x, p.y - pts[i].y), 0);
-            if (total > LINE_STEP) pts = samplePolyline(pts, LINE_STEP / total).traveled;
+            const stepCap = Math.max(LINE_STEP, BASE_BLOCK_STEP);
+            if (total > stepCap) pts = samplePolyline(pts, stepCap / total).traveled;
           }
           // Blockers engage quickly in the first 55% of the play
           const effectiveT = st.kind === 'block' ? easeOutQuad(Math.min(1, postT * 1.65)) : postT;
@@ -800,6 +808,364 @@ export function computeAnimatedPlayFrame(
             points: path,
             color: drawnFor.has(n.role) ? '#e11d48' : DEFENSE_TRAIL,
           });
+        }
+      }
+
+      // ======================================================================
+      // OFFENSE BLOCKS DEFENSE: Physical Assignment & Block Engagement Engine
+      // Matches offensive blockers (drawn block strokes, pulling guards, lead
+      // backs, climbing linemen, pass-pro OL, and stalk blockers) to target
+      // defenders, steers blockers to intercept their man, and physically
+      // locks/seals/kicks out the defender upon contact.
+      // ======================================================================
+      const r3 = (v: number) => Math.round(v * 1000) / 1000;
+      const poaSample = offenseAt(0.28, 1).get(ballRole);
+      const poaX = poaSample ? poaSample.x : fallbackAimX;
+      const defStartMap = new Map(defenseAtSnap.map((d) => [d.role, d]));
+
+      type BlockStyle = 'pull' | 'lead' | 'climb' | 'pass_pro' | 'stalk' | 'base';
+      interface BlockAssignment {
+        offNode: PlayNode;
+        defRole: string;
+        style: BlockStyle;
+        blockPts: { x: number; y: number }[];
+        drawnVec: { x: number; y: number };
+        priority: number;
+      }
+
+      const candidateBlockers = offense
+        .filter((o) => {
+          if (o.role === ballRole || o.role === qbNode.role) return false;
+          const st = roleStroke.get(o.role);
+          if (st && (st.kind === 'run' || st.kind === 'pass') && (st.motion || 0) < st.points.length - 1) {
+            return false;
+          }
+          return Boolean(st?.kind === 'block' || OL_ROLES.includes(o.role) || o.line || (!isPassPlay && !st));
+        })
+        .map((o) => {
+          const st = roleStroke.get(o.role);
+          const isOl = OL_ROLES.includes(o.role);
+          const isPull = Boolean(isOl && st && isPullLine(st, o));
+          const hasBlockStroke = st?.kind === 'block';
+          const mIdx = st?.motion && st.motion > 0 ? Math.min(st.motion, st.points.length - 1) : 0;
+          const pts =
+            hasBlockStroke && st
+              ? [mIdx > 0 ? st.points[mIdx] : { x: o.x, y: o.y }, ...st.points.slice(mIdx + 1)]
+              : [{ x: o.x, y: o.y }];
+          const endPt = pts[pts.length - 1];
+          const style: BlockStyle = isPull
+            ? 'pull'
+            : hasBlockStroke && !isOl && (/^[2-4]$/.test(o.role) || o.y < -0.5)
+              ? 'lead'
+              : hasBlockStroke && endPt.y >= 1.75
+                ? 'climb'
+                : isPassPlay && isOl
+                  ? 'pass_pro'
+                  : !isOl && !o.line
+                    ? 'stalk'
+                    : 'base';
+          const priority =
+            style === 'pull'
+              ? 5
+              : style === 'lead'
+                ? 4
+                : hasBlockStroke
+                  ? 3
+                  : isOl
+                    ? 2
+                    : 1;
+          return { o, st, pts, endPt, style, priority, hasBlockStroke };
+        })
+        .sort((a, b) => b.priority - a.priority || Math.abs(a.o.x - poaX) - Math.abs(b.o.x - poaX));
+
+      const claimedDefs = new Set<string>();
+      const assignments: BlockAssignment[] = [];
+
+      for (const b of candidateBlockers) {
+        const { o, pts, endPt, style, priority, hasBlockStroke } = b;
+        let bestDef: { role: string; score: number } | undefined;
+
+        for (const d of defenseAtSnap) {
+          // Do not block deep safeties unless a drawn block explicitly targets them deep
+          if (d.role === 'FS' && (!hasBlockStroke || endPt.y < 5.5)) continue;
+          const alreadyClaimed = claimedDefs.has(d.role);
+
+          if (hasBlockStroke && pts.length >= 2) {
+            const dToEnd = Math.hypot(d.x - endPt.x, d.y - endPt.y);
+            const onSeg = closestOnLine(pts, d);
+            const effDist = Math.min(dToEnd, onSeg.d + 0.35);
+            const maxReach = style === 'pull' || style === 'lead' ? 4.4 : style === 'climb' ? 3.6 : 2.9;
+            if (effDist > maxReach) continue;
+            // Allow double-team only when both drawn blocks terminate right on the same interior defender
+            if (alreadyClaimed && dToEnd > 0.9) continue;
+            const score = effDist + (alreadyClaimed ? 1.5 : 0);
+            if (!bestDef || score < bestDef.score) {
+              bestDef = { role: d.role, score };
+            }
+          } else if (style === 'pass_pro') {
+            if (alreadyClaimed || d.y > 3.6) continue;
+            const dx = Math.abs(d.x - o.x);
+            if (dx > 3.2) continue;
+            const score = dx + Math.max(0, d.y - 1.2) * 0.6;
+            if (!bestDef || score < bestDef.score) {
+              bestDef = { role: d.role, score };
+            }
+          } else if (style === 'stalk') {
+            if (alreadyClaimed || d.y > 7.5) continue;
+            const dx = Math.abs(d.x - o.x);
+            if (dx > 4.2 || d.x * o.x < -1) continue;
+            const score = dx + Math.abs(d.y - o.y) * 0.35;
+            if (!bestDef || score < bestDef.score) {
+              bestDef = { role: d.role, score };
+            }
+          } else {
+            // Un-drawn OL / TE on a run play: block on-line DL first, else climb to uncovered box LB
+            if (alreadyClaimed) continue;
+            const dx = Math.abs(d.x - o.x);
+            const isDl = d.y <= 2.1;
+            if (isDl && dx <= 2.4) {
+              const score = dx + Math.abs(d.y - 1.1) * 0.3;
+              if (!bestDef || score < bestDef.score) {
+                bestDef = { role: d.role, score };
+              }
+            } else if (!isDl && d.y <= 4.8 && dx <= 3.2) {
+              const score = dx + 1.4 + (d.y - 2.0) * 0.35;
+              if (!bestDef || score < bestDef.score) {
+                bestDef = { role: d.role, score };
+              }
+            }
+          }
+        }
+
+        if (bestDef) {
+          claimedDefs.add(bestDef.role);
+          const dNode = defStartMap.get(bestDef.role)!;
+          const finalStyle: BlockStyle =
+            !hasBlockStroke && dNode.y > 2.1 && style === 'base' ? 'climb' : style;
+          const first = pts[0];
+          const last = pts[pts.length - 1];
+          const vx = pts.length >= 2 ? last.x - first.x : dNode.x - o.x;
+          const vy = pts.length >= 2 ? last.y - first.y : dNode.y - o.y;
+          const vm = Math.hypot(vx, vy) || 1;
+          assignments.push({
+            offNode: o,
+            defRole: bestDef.role,
+            style: finalStyle,
+            blockPts:
+              pts.length >= 2
+                ? pts
+                : [
+                    { x: o.x, y: o.y },
+                    { x: dNode.x, y: Math.max(0.2, dNode.y - 0.35) },
+                  ],
+            drawnVec: { x: vx / vm, y: vy / vm },
+            priority,
+          });
+        }
+      }
+
+      // Helper to sample a defender's unblocked trail at normalized post-snap time `tau` in [0, postSnapT]
+      const rawDefTrails = new Map<string, { x: number; y: number }[]>();
+      for (const n of defense) {
+        const path = read.trails.get(n.role);
+        if (path && path.length >= 1) rawDefTrails.set(n.role, path);
+      }
+      // By time, not by distance: point k of a read trail is at TRAIL_EVERY · k after the snap (the last one at
+      // postSnapT), so a defender who waits, then runs, is where he really is at `tau` (and the same on every frame).
+      const sampleDefRaw = (defRole: string, tau: number): { x: number; y: number } => {
+        const pts = rawDefTrails.get(defRole);
+        const start = defStartMap.get(defRole) || { x: 0, y: 1.1 };
+        if (!pts || pts.length < 2 || postSnapT <= 1e-4) return pts?.[0] || { x: start.x, y: start.y };
+        const last = pts.length - 1;
+        const timeOf = (k: number) => (k >= last ? postSnapT : Math.min(postSnapT, k * TRAIL_EVERY));
+        const t = Math.max(0, Math.min(postSnapT, tau));
+        let k = Math.min(last - 1, Math.floor(t / TRAIL_EVERY));
+        while (k > 0 && timeOf(k) > t) k--;
+        const t0 = timeOf(k);
+        const t1 = timeOf(k + 1);
+        const f = t1 - t0 > 1e-9 ? Math.max(0, Math.min(1, (t - t0) / (t1 - t0))) : 1;
+        return { x: pts[k].x + (pts[k + 1].x - pts[k].x) * f, y: pts[k].y + (pts[k + 1].y - pts[k].y) * f };
+      };
+
+      // Simulate coupled blocker-defender engagement from 0 -> postSnapT
+      for (const asgn of assignments) {
+        const { offNode, defRole, style, blockPts, drawnVec } = asgn;
+        const dStart = defStartMap.get(defRole);
+        if (!dStart) continue;
+
+        // Second-level linebackers complete their Phase 1 lateral read/flow before a climbing OL or lead back can lock them up
+        const isSecondLevelDef = dStart.y >= 2.15;
+        const minEngageT =
+          style === 'pull'
+            ? 0.24
+            : style === 'lead' || style === 'climb' || isSecondLevelDef
+              ? 0.29
+              : style === 'stalk'
+                ? 0.18
+                : 0.12;
+        const seekStartT = style === 'pull' ? 0.18 : 0.03;
+        const blockSpeedMult =
+          style === 'pull'
+            ? 1.38
+            : style === 'lead' || style === 'climb'
+              ? 1.48
+              : style === 'stalk'
+                ? 1.25
+                : 1.72;
+
+        // Worked out every half TRAIL_EVERY; the trails keep a point every TRAIL_EVERY (and at postSnapT) like the
+        // defense's own, which the tackle check reads by that spacing.
+        const SUB = TRAIL_EVERY / 2;
+        const steps = Math.max(1, Math.ceil(postSnapT / SUB - 1e-9));
+        const newOffTrail: { x: number; y: number }[] = [{ x: offNode.x, y: offNode.y }];
+        const newDefTrail: { x: number; y: number }[] = [{ x: dStart.x, y: dStart.y }];
+
+        let engageT: number | null = null;
+        let contactSpot: { x: number; y: number } | null = null;
+
+        // Determine block leverage / drive direction once engaged
+        const sealSign =
+          style === 'pull'
+            ? Math.sign(drawnVec.x) || Math.sign(dStart.x - poaX) || 1
+            : Math.abs(drawnVec.x) > 0.38
+              ? Math.sign(drawnVec.x)
+              : Math.sign(dStart.x - poaX) || (poaX >= 0 ? -1 : 1);
+
+        const pushDir = (() => {
+          if (style === 'pass_pro') {
+            return { x: sealSign * 0.35, y: 0.2 };
+          }
+          if (style === 'pull') {
+            // Kickout block drives the edge/force defender wide outside the running lane
+            return { x: sealSign * 0.9, y: 0.42 };
+          }
+          if (style === 'lead') {
+            // Lead/Iso block meets the filling LB in the hole and drives him back and to the leveraged side
+            return { x: sealSign * 0.55, y: 0.72 };
+          }
+          if (style === 'climb' || style === 'stalk') {
+            return { x: sealSign * 0.65, y: 0.55 };
+          }
+          // Base / Down / Reach OL block: honor the drawn block angle and seal away from the hole
+          const bx = drawnVec.x * 0.65 + sealSign * 0.35;
+          const by = Math.max(0.25, drawnVec.y * 0.75);
+          const bm = Math.hypot(bx, by) || 1;
+          return { x: bx / bm, y: by / bm };
+        })();
+
+        for (let s = 1; s <= steps; s++) {
+          const tau = Math.min(postSnapT, s * SUB);
+          const keep = s % 2 === 0 || s === steps;
+          const dRaw = sampleDefRaw(defRole, tau);
+
+          // Planned blocker position at `tau` before contact
+          let oPlanned: { x: number; y: number };
+          if (style === 'pass_pro' && blockPts.length < 2) {
+            const setT = easeOutQuad(Math.min(1, tau * 2.0));
+            const pocketDepth = offNode.role === 'C' ? -0.65 : offNode.role === 'LG' || offNode.role === 'RG' ? -0.9 : -1.25;
+            oPlanned = {
+              x: offNode.x + (dRaw.x - offNode.x) * 0.42 * setT,
+              y: offNode.y + pocketDepth * setT,
+            };
+          } else {
+            const effT = easeOutQuad(Math.min(1, tau * blockSpeedMult));
+            const samp = samplePolyline(blockPts, effT);
+            oPlanned = { x: samp.x, y: samp.y };
+            // Steer blocker toward the moving defender so he tracks & intercepts his assignment
+            if (tau >= seekStartT) {
+              const steer = Math.min(0.78, ((tau - seekStartT) / Math.max(0.12, minEngageT + 0.18 - seekStartT)) * 0.72);
+              const standOffY = style === 'pass_pro' ? -0.45 : -0.38;
+              const aimX = dRaw.x - pushDir.x * 0.35;
+              const aimY = dRaw.y + standOffY;
+              oPlanned = {
+                x: oPlanned.x + (aimX - oPlanned.x) * steer,
+                y: oPlanned.y + (aimY - oPlanned.y) * steer,
+              };
+            }
+          }
+
+          if (engageT === null) {
+            const distNow = Math.hypot(dRaw.x - oPlanned.x, dRaw.y - oPlanned.y);
+            const canEngage =
+              tau >= minEngageT &&
+              (distNow <= (style === 'pull' || style === 'lead' ? 1.25 : 1.05) ||
+                (tau >= minEngageT + 0.08 && distNow <= 1.55));
+            if (canEngage) {
+              engageT = tau;
+              // Contact point sits between the blocker and defender (ensuring DL has fired off the ball from y=1.1)
+              const contactY =
+                !isSecondLevelDef && style === 'base'
+                  ? Math.min(dStart.y - 0.32, Math.max(0.22, (oPlanned.y + dRaw.y) * 0.5))
+                  : (oPlanned.y + dRaw.y) * 0.5;
+              contactSpot = {
+                x: oPlanned.x * 0.45 + dRaw.x * 0.55,
+                y: contactY,
+              };
+            }
+          }
+
+          if (engageT !== null && contactSpot) {
+            const dtEngage = Math.max(0, tau - engageT);
+            const driveFrac = easeOutQuad(Math.min(1, dtEngage / 0.42));
+            const maxDriveYds =
+              style === 'pull'
+                ? 1.15
+                : style === 'lead'
+                  ? 0.85
+                  : style === 'pass_pro'
+                    ? 0.25
+                    : 0.65;
+            const drivenSpot = {
+              x: contactSpot.x + pushDir.x * maxDriveYds * driveFrac,
+              y: contactSpot.y + pushDir.y * maxDriveYds * driveFrac,
+            };
+
+            // Hold the block cleanly through the core of the play; allow gradual late shed after 0.78 on run plays
+            // so defenders can still rally toward the ball carrier at the very end of the play.
+            const holdUntil = style === 'pass_pro' ? 0.92 : style === 'pull' || style === 'lead' ? 0.82 : 0.76;
+            const shedFrac =
+              !isPassPlay && tau > holdUntil
+                ? easeOutQuad(Math.min(1, (tau - holdUntil) / Math.max(0.08, 1 - holdUntil))) * 0.62
+                : 0;
+
+            const dBlocked = {
+              x: r3(drivenSpot.x * (1 - shedFrac) + dRaw.x * shedFrac),
+              y: r3(drivenSpot.y * (1 - shedFrac) + dRaw.y * shedFrac),
+            };
+            // Keep the offensive blocker chest-to-chest on the inside/leverage hip of the defender (~0.48 yds separation)
+            const chestDist = 0.48;
+            const pm = Math.hypot(pushDir.x, pushDir.y) || 1;
+            const oBlocked = {
+              x: r3(dBlocked.x - (pushDir.x / pm) * chestDist),
+              y: r3(dBlocked.y - (pushDir.y / pm) * chestDist),
+            };
+
+            if (keep) {
+              newDefTrail.push(dBlocked);
+              newOffTrail.push(oBlocked);
+            }
+          } else if (keep) {
+            newDefTrail.push({ x: r3(dRaw.x), y: r3(dRaw.y) });
+            newOffTrail.push({ x: r3(oPlanned.x), y: r3(oPlanned.y) });
+          }
+        }
+
+        const finalOff = newOffTrail[newOffTrail.length - 1];
+        const finalDef = newDefTrail[newDefTrail.length - 1];
+        animatedPos.set(offNode.role, finalOff);
+        animatedPos.set(defRole, finalDef);
+
+        const offTrailIdx = trails.findIndex((tr) => tr.role === offNode.role);
+        const offColor = roleStroke.get(offNode.role)?.kind === 'run' ? '#ef4444' : '#475569';
+        if (offTrailIdx >= 0) {
+          trails[offTrailIdx] = { ...trails[offTrailIdx], points: newOffTrail };
+        } else if (newOffTrail.length >= 2) {
+          trails.push({ role: offNode.role, kind: 'block', points: newOffTrail, color: offColor });
+        }
+
+        const defTrailIdx = trails.findIndex((tr) => tr.role === defRole);
+        if (defTrailIdx >= 0) {
+          trails[defTrailIdx] = { ...trails[defTrailIdx], points: newDefTrail };
         }
       }
     }

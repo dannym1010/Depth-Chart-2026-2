@@ -50,6 +50,16 @@ type AlignTarget = 'field' | 'offense' | 'defense' | 'players';
 const SIDE_KEY = 'mahopac_film_lines_side';
 const CLEAN_KEY = 'mahopac_film_lines_clean';
 const SHADE_KEY = 'mahopac_film_lines_shade';
+const SPEED_KEY = 'mahopac_film_lines_speed';
+/** Run play speeds: slow motion down to a tenth, for going over it with the team. */
+const LINE_SPEEDS: [number, string][] = [
+  [0.1, '0.1×'],
+  [0.25, '¼×'],
+  [0.5, '½×'],
+  [1, '1×'],
+];
+/** One step back or on: this much of the play, in seconds. */
+const LINE_STEP_SECONDS = 0.1;
 const showsDefense = (side: Side) => side !== 'offense';
 const showsOffense = (side: Side) => side !== 'defense';
 /** Our defense's lines (blitzes, coverage) carry their own color; the offense's don't. */
@@ -319,8 +329,17 @@ export function usePlayLines(opts: {
   };
   const [progress, setProgress] = useState(0);
   const [running, setRunning] = useState(false);
-  // Half speed unless the coach picks full speed.
-  const [slow, setSlow] = useState(true);
+  // Half speed unless the coach picks another (remembered on this device).
+  const [speed, setSpeedState] = useState(() => {
+    const v = safeJSONParse<number>(SPEED_KEY, 0.5);
+    return LINE_SPEEDS.some(([s]) => s === v) ? v : 0.5;
+  });
+  const setSpeed = (v: number) => {
+    setSpeedState(v);
+    safeJSONSet(SPEED_KEY, v);
+  };
+  // The movement bar (start, step, play / pause, the scrubber, speed): up from Run play until it's closed.
+  const [moveBar, setMoveBar] = useState(false);
   // Turned on, it shows the players lined up; the lines come on with a click.
   const [showLines, setShowLines] = useState(false);
   // Lining up: the 4 corners to drag, only when the coach wants an exact fit.
@@ -389,7 +408,8 @@ export function usePlayLines(opts: {
       const dt = (now - last) / 1000;
       last = now;
       setProgress((p) => {
-        const next = Math.min(1, p + (dt * (slow ? 0.5 : 1)) / seconds);
+        // A long frame (the tab in the background) moves on one frame's worth, not a jump.
+        const next = Math.min(1, p + (Math.min(dt, 0.05) * speed) / seconds);
         if (next >= 1) setRunning(false);
         return next;
       });
@@ -397,7 +417,17 @@ export function usePlayLines(opts: {
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [running, slow, seconds]);
+  }, [running, speed, seconds]);
+  const runPlay = () => {
+    setMoveBar(true);
+    // From where it is, or from the start once it has finished.
+    setProgress((p) => (p >= 1 ? 0 : p));
+    setRunning(true);
+  };
+  const stepPlay = (dir: -1 | 1) => {
+    setRunning(false);
+    setProgress((p) => Math.max(0, Math.min(1, p + (dir * LINE_STEP_SECONDS) / seconds)));
+  };
   // Another play: back to the start.
   useEffect(() => {
     setRunning(false);
@@ -504,28 +534,12 @@ export function usePlayLines(opts: {
                 disabled={playing}
                 onClick={() => {
                   setProgress(0);
-                  setRunning(true);
+                  runPlay();
                 }}
-                title="Play the motion, the snap and everyone along their lines on this frame"
+                title="Play the motion, the snap and everyone along their lines on this frame (step, slow motion and the scrubber are on the bar at the bottom)"
               >
                 ▶ Run play
               </button>
-              <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => setSlow((s) => !s)} title={slow ? 'Running at half speed: tap for full speed' : 'Running at full speed: tap for half speed'}>
-                {slow ? '½×' : '1×'}
-              </button>
-              {moving && (
-                <button
-                  type="button"
-                  className={`${btn} hover:bg-white/10`}
-                  onClick={() => {
-                    setRunning(false);
-                    setProgress(0);
-                  }}
-                  title="Back to the lineup before the snap"
-                >
-                  Reset
-                </button>
-              )}
               <button
                 type="button"
                 className={`${btn} ${lineUp ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`}
@@ -801,6 +815,81 @@ export function usePlayLines(opts: {
       </div>
     ),
     controls: ({ playing }) => (
+      <>
+      {lines && moveBar && !playing && !lineUp && (
+        // The movement bar, pinned to the bottom right like the film's own: back to the start, a step back, play /
+        // pause, a step on, the scrubber, and slow motion down to a tenth.
+        <div
+          className="absolute right-2 bottom-2 left-2 sm:left-auto z-20 flex flex-wrap items-center justify-end gap-1 p-1 rounded-xl pointer-events-auto text-white"
+          style={panel}
+          role="group"
+          aria-label="Play movement"
+          {...keep}
+        >
+          <span className="h-8 px-2 inline-flex items-center text-[11px] font-bold tabular-nums whitespace-nowrap" aria-live="polite">
+            {moving && frame ? frame.phaseLabel : 'Lined up'}
+          </span>
+          <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => { setRunning(false); setProgress(0); }} title="Back to the lineup before the snap" aria-label="Back to the start">
+            ⏮
+          </button>
+          <button type="button" className={`${btn} hover:bg-white/10`} disabled={progress <= 0} onClick={() => stepPlay(-1)} title={`A step back (${LINE_STEP_SECONDS} s of the play)`} aria-label="A step back">
+            ◀❙
+          </button>
+          <button
+            type="button"
+            className={btn}
+            style={{ background: '#f59e0b', color: '#111827', minWidth: '2.5rem' }}
+            onClick={() => (running ? setRunning(false) : runPlay())}
+            title={running ? 'Pause' : progress >= 1 ? 'Run it again' : 'Play from here'}
+            aria-label={running ? 'Pause' : 'Play'}
+          >
+            {running ? '❚❚' : progress >= 1 ? '↻' : '▶'}
+          </button>
+          <button type="button" className={`${btn} hover:bg-white/10`} disabled={progress >= 1} onClick={() => stepPlay(1)} title={`A step on (${LINE_STEP_SECONDS} s of the play)`} aria-label="A step on">
+            ❙▶
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={1000}
+            value={Math.round(progress * 1000)}
+            onChange={(e) => {
+              setRunning(false);
+              setProgress(Number(e.target.value) / 1000);
+            }}
+            className="w-28 sm:w-40 accent-amber-500 cursor-pointer"
+            aria-label="Where in the play"
+            title="Drag through the play"
+          />
+          <span className="inline-flex rounded-lg overflow-hidden border border-white/15" role="group" aria-label="Speed">
+            {LINE_SPEEDS.map(([s, label]) => (
+              <button
+                key={s}
+                type="button"
+                aria-pressed={speed === s}
+                className={`h-8 px-1.5 text-[11px] font-bold cursor-pointer ${speed === s ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`}
+                onClick={() => setSpeed(s)}
+                title={s < 1 ? `Slow motion: ${label} speed` : 'Full speed'}
+              >
+                {label}
+              </button>
+            ))}
+          </span>
+          <button
+            type="button"
+            className={`${btn} hover:bg-white/10`}
+            onClick={() => {
+              setRunning(false);
+              setProgress(0);
+              setMoveBar(false);
+            }}
+            title="Close the movement bar (back to the lineup)"
+            aria-label="Close the movement bar"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       <div className="absolute right-2 top-11 z-20 flex flex-col items-end gap-1.5 pointer-events-auto" {...keep}>
         {!lines && (
           <div className="max-w-xs rounded-lg px-2.5 py-1.5 text-[11px] leading-snug" style={panel}>
@@ -844,11 +933,6 @@ export function usePlayLines(opts: {
             Pause the video to see the play's lines.
           </div>
         )}
-        {lines && moving && !playing && frame && (
-          <div className="rounded-lg px-2.5 py-1 text-[11px] font-bold" style={panel}>
-            {frame.phaseLabel}
-          </div>
-        )}
         {lines && clean && !lineUp && !playing && (
           // The clean field's angles: the film's own, or one tap to another (dragging turns it any way).
           <div className="flex flex-col items-end gap-1">
@@ -876,6 +960,7 @@ export function usePlayLines(opts: {
           </div>
         )}
       </div>
+      </>
     ),
   };
 }

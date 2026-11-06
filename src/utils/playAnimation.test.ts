@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { assemblePlay, autoDrawPlay, PLAY_CONCEPTS } from './footballEngine.ts';
-import { computeAnimatedPlayFrame, DEFENSE_TRAIL, LINE_STEP, MOTION_SECONDS, PLAY_SECONDS, playAnimationSeconds, SET_SECONDS, SHIFT_SECONDS } from './playAnimation.ts';
+import { assemblePlay, autoDrawPlay, OUR_DEFENSE_LOOKS, PLAY_CONCEPTS } from './footballEngine.ts';
+import { BASE_BLOCK_STEP, computeAnimatedPlayFrame, DEFENSE_TRAIL, LINE_STEP, MOTION_SECONDS, PLAY_SECONDS, playAnimationSeconds, SET_SECONDS, SHIFT_SECONDS } from './playAnimation.ts';
 import { passThrow, type PlayNode, type PlayStroke } from './footballEngine.ts';
 
 describe('running a play: the offensive line', () => {
@@ -17,7 +17,48 @@ describe('running a play: the offensive line', () => {
     };
     // Buck sweep: both guards pull.
     assert.ok(moved('LG') > 2 && moved('RG') > 2, `guards ${moved('LG')} ${moved('RG')}`);
-    for (const role of ['LT', 'C', 'RT']) assert.ok(moved(role) <= LINE_STEP + 0.01, `${role} ${moved(role)}`);
+    for (const role of ['LT', 'C', 'RT']) assert.ok(moved(role) <= Math.max(LINE_STEP, BASE_BLOCK_STEP) + 0.01, `${role} ${moved(role)}`);
+  });
+});
+
+describe('running a play: the offense blocks our defense', () => {
+  const base44 = OUR_DEFENSE_LOOKS['44_C3_LIZ'].nodes;
+  const run = (name: string) => {
+    const c = PLAY_CONCEPTS[name];
+    const play = assemblePlay('21_BEAST', 'WING_T', name, 'Right');
+    const strokes = autoDrawPlay({ nodes: play.nodes, hole: c.hole, primaryBack: c.primaryBack, concept: c.concept, scheme: c.scheme, tags: [], family: 'run' as never });
+    return (t: number) => computeAnimatedPlayFrame([...play.nodes, ...base44] as PlayNode[], strokes, [], String(c.primaryBack), t, c.hole);
+  };
+  const engaged = (f: ReturnType<typeof computeAnimatedPlayFrame>) => {
+    const isDef = (r: string) => base44.some((d) => d.role === r);
+    const off = f.nodes.filter((n) => !isDef(n.role));
+    return f.nodes.filter((d) => isDef(d.role) && off.some((o) => Math.hypot(o.x - d.x, o.y - d.y) <= 0.55)).map((d) => d.role);
+  };
+
+  it('blockers get to their man and stay on him (buck sweep vs the 4-4)', () => {
+    const at = run('31_BUCK');
+    const mid = engaged(at(0.55));
+    assert.ok(mid.length >= 4, `engaged at mid-play: ${mid}`);
+    // The same blocks a moment later: blocks hold, they don't come and go.
+    const later = engaged(at(0.62));
+    assert.ok(mid.filter((r) => later.includes(r)).length >= 3, `${mid} then ${later}`);
+  });
+
+  it("a blocked defender's path keeps the defense's spacing (the tackle check reads it by time)", () => {
+    const f = run('24_DIVE')(0.8);
+    const lens = new Set(f.trails.filter((tr) => base44.some((d) => d.role === tr.role)).map((tr) => tr.points.length));
+    assert.equal(lens.size, 1, `trail lengths ${[...lens]}`);
+  });
+
+  it('the same moment looks the same whatever frame it is reached from', () => {
+    const at = run('31_BUCK');
+    // A defender's spot at 0.5 shows in the 0.9 frame's trail at the same index (time-based, not stretched).
+    const half = at(0.5);
+    const full = at(0.9);
+    const def = half.trails.find((tr) => tr.role === 'T1')!;
+    const defFull = full.trails.find((tr) => tr.role === 'T1')!;
+    const i = def.points.length - 1;
+    assert.ok(Math.hypot(def.points[i].x - defFull.points[i].x, def.points[i].y - defFull.points[i].y) < 0.05);
   });
 });
 
