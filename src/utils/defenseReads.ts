@@ -369,12 +369,12 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
     return { x: c.x + off.x, y: c.y + off.y };
   };
   /** The receiver nearest a zone's landmark that's in the zone, if any. */
-  const inZone = (land: P, now: number, fits: (q: P) => boolean): P | null => {
+  const inZone = (land: P, now: number, fits: (q: P, role: string) => boolean): P | null => {
     let best: P | null = null;
     let bd = Infinity;
     for (const role of receivers) {
       const q = where(role, now);
-      if (!fits(q)) continue;
+      if (!fits(q, role)) continue;
       const d = Math.hypot(q.x - land.x, q.y - land.y);
       if (d < bd) {
         bd = d;
@@ -432,6 +432,18 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
       // Explicit zone drop from the defensive call picker (Cover 2, Cover 3, Cover 4, or custom ZoneMap pick)
       if (zoneStroke && zoneStroke.points.length >= 2) {
         const endPt = zoneStroke.points[zoneStroke.points.length - 1];
+        if (/^flat/i.test(zoneStroke.label || '')) {
+          // The flat: stay short and wide. A route going deep (#1 on a vertical, a curl) is the corner's or the
+          // hook's; he takes whoever comes to the flat (the out, the arrow, the back in the flat), else sits there.
+          const fs = Math.sign(endPt.x - gMap.C) || s;
+          const m = inZone(endPt, now, (q2, role) => {
+            if (Math.abs(q2.x - endPt.x) > 7 || q2.y > endPt.y + 2 || q2.y < -1.5) return false;
+            // Where his route goes: not deep, and not back inside.
+            const later = where(role, Math.min(1, now + 0.2));
+            return later.y < endPt.y + 3 && (later.x - gMap.C) * fs > (endPt.x - gMap.C) * fs - 7;
+          });
+          return m ? { x: m.x - fs * 0.3, y: Math.min(endPt.y, Math.max(m.y + 1, 1.5)) } : endPt;
+        }
         const rx = Math.max(4.5, (zoneStroke.zone?.rx || 3) * 1.65);
         const ry = Math.max(3.5, (zoneStroke.zone?.ry || 2) * 2.1);
         const m = inZone(endPt, now, (q2) => Math.abs(q2.x - endPt.x) < rx && Math.abs(q2.y - endPt.y) < ry);

@@ -172,6 +172,29 @@ describe('our defense reads a pass', () => {
     }
   });
 
+  it('Sam and Rover in the flat stay in the flat: #1 going vertical is the corner\'s, they take the flat route', () => {
+    const off = verticals.nodes.filter((n) => !base44.some((d) => d.role === n.role));
+    // #1 (X) goes vertical, the tight end (H) runs to the flat, the ball goes deep to the other side.
+    const strokes: PlayStroke[] = [
+      { kind: 'pass', points: [{ x: -13, y: -0.5 }, { x: -13, y: 16 }] },
+      { kind: 'pass', points: [{ x: -6, y: -0.8 }, { x: -8, y: 2.5 }, { x: -15, y: 3 }] },
+      { kind: 'pass', points: [{ x: 13, y: -0.5 }, { x: 13, y: 20 }, { x: 10, y: 17 }] },
+    ];
+    const call = defenseCallStrokes(base44, off, '', 'cover3', { SAM: 'zone:flatL', ROV: 'zone:flatL' });
+    let checked = 0;
+    for (let p = 0.3; p < 0.6; p += 0.02) {
+      const f = computeAnimatedPlayFrame([...off, ...base44], strokes, call, 'Z', p);
+      if (f.ball.inAir) break;
+      const x1 = at(f, 'X');
+      if (x1.y < 6) continue;
+      for (const role of ['SAM', 'ROV']) {
+        assert.ok(at(f, role).y < 5.5, `${role} stayed short at ${p.toFixed(2)} (${at(f, role).y} deep, #1 at ${x1.y})`);
+      }
+      checked++;
+    }
+    assert.ok(checked > 0, 'looked at the play with #1 past the flat');
+  });
+
   it('they break on the ball once it is thrown', () => {
     const end = computeAnimatedPlayFrame(verticals.nodes, verticals.strokes, [], 'Z', 1);
     const z = at(end, 'Z');
