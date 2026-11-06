@@ -3,7 +3,7 @@ import { buildProjectedFieldGrid, getQuadHomographies, HOMOGRAPHY_PRESETS, image
 import { DEFENSE_COLOR, diagramLabel, isDefenseRole, lineStartsOn, passThrow, shiftLegs, shownText, skillDiagramLabel, STROKE_COLOR, THROW_COLOR, type PlayNode, type PlayStroke } from '../utils/footballEngine';
 import { arrowOnField, circleOnField, cutLine, dashLine, densify, lengthOf, pointBack, polygon, polyline, ribbon, tOnField, zigzagLine, type Px } from './linesArt';
 import { cameraFromFilm, cameraProjector, clipPolygon, filmProjector, lerpCam, MAX_PITCH, MIN_PITCH, VIEWS, visibleRuns, type Cam, type Projector } from './fieldCamera';
-import { computeAnimatedPlayFrame, DEFENSE_TRAIL, playAnimationSeconds } from '../utils/playAnimation';
+import { computeAnimatedPlayFrame, DEFENSE_TRAIL, playAnimationSeconds, shiftAdjusts, snapProgress } from '../utils/playAnimation';
 import { computeGapIntegrity, type GapFitSlot } from '../utils/defenseReads';
 import { defenseCallStrokes, joinPressure, pressureParts, PRESSURES } from '../utils/defenseCalls';
 import { safeJSONParse, safeJSONSet } from '../services/storageService';
@@ -32,6 +32,9 @@ export interface VideoLines {
   pressure?: string;
   coverage?: string;
   defenseAssign?: Record<string, string>;
+  /** Their shift: where our defenders set after it (diagram yards). The play pauses when their shift is set, our
+   *  defense slides there, and it pauses again before the snap. */
+  shiftDefense?: Record<string, { x: number; y: number }>;
 }
 
 /** What the Film Player needs: the button, the lines (inside the zoom, so they stay on the field) and the controls (outside it). */
@@ -299,7 +302,17 @@ function onFilm(lines: VideoLines): VideoLines {
     return st;
   });
 
-  return { ...lines, nodes: nextNodes, strokes };
+  // Our spots after their shift move as far as each defender was moved on this film.
+  const shiftDefense = lines.shiftDefense
+    ? Object.fromEntries(
+        Object.entries(lines.shiftDefense).map(([role, p]) => {
+          const d = shift.get(role);
+          return [role, d ? { x: p.x + d.dx, y: p.y + d.dy } : p];
+        })
+      )
+    : undefined;
+
+  return { ...lines, nodes: nextNodes, strokes, shiftDefense };
 }
 /**
  * The lineup a quarter turn clockwise about its middle, on a 16:9 picture (for film shot from another angle).
@@ -452,17 +465,26 @@ export function usePlayLines(opts: {
   }, [on, lines, lineupKey]);
 
   // Run play: 0 -> 1 over the play's length (longer with motion: the motion, then set), then it stays on the last frame.
-  const seconds = playAnimationSeconds(lines?.strokes || []);
+  // Its length and its stops (their shift set, our defense set after it) are worked out below, from the play shown.
+  const timing = useRef<{ seconds: number; stops: number[] }>({ seconds: playAnimationSeconds([]), stops: [] });
   useEffect(() => {
     if (!running) return;
     let raf = 0;
     let last = performance.now();
     const step = (now: number) => {
-      const dt = (now - last) / 1000;
+      // Never backwards (the first frame can be stamped before the effect ran): it would stop again where it just left.
+      const dt = Math.max(0, (now - last) / 1000);
       last = now;
+      const { seconds, stops } = timing.current;
       setProgress((p) => {
         // A long frame (the tab in the background) moves on one frame's worth, not a jump.
         const next = Math.min(1, p + (Math.min(dt, 0.05) * speed) / seconds);
+        // Their shift: it stops when it's set (where does our defense go?) and again when our defense is set.
+        const stop = stops.find((s) => p < s - 1e-5 && next >= s);
+        if (stop !== undefined) {
+          setRunning(false);
+          return stop;
+        }
         if (next >= 1) setRunning(false);
         return next;
       });
@@ -470,7 +492,7 @@ export function usePlayLines(opts: {
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [running, speed, seconds]);
+  }, [running, speed]);
   const runPlay = () => {
     setMoveBar(true);
     // From where it is, or from the start once it has finished.
@@ -479,7 +501,7 @@ export function usePlayLines(opts: {
   };
   const stepPlay = (dir: -1 | 1) => {
     setRunning(false);
-    setProgress((p) => Math.max(0, Math.min(1, p + (dir * LINE_STEP_SECONDS) / seconds)));
+    setProgress((p) => Math.max(0, Math.min(1, p + (dir * LINE_STEP_SECONDS) / timing.current.seconds)));
   };
   // Another play: back to the start.
   useEffect(() => {
@@ -534,9 +556,31 @@ export function usePlayLines(opts: {
   const defMoves = movedEntries.filter(([r]) => isDefenseRole(r)).length;
   const hasOffUnit = hasUnitTransform(lines?.quad.offenseTransform);
   const hasDefUnit = hasUnitTransform(lines?.quad.defenseTransform);
+  // The offense's lines, and our defense's call apart (as the builder runs it): when our defenders slide over
+  // after their shift, their blitz and drop lines go with them.
+  const split = useMemo(
+    () => ({ off: shown ? shown.strokes.filter((s) => !isDefenseStroke(s)) : [], def: shown ? shown.strokes.filter(isDefenseStroke) : [] }),
+    [shown]
+  );
+  const frameAt = (p: number) =>
+    computeAnimatedPlayFrame(shown!.nodes, split.off, split.def, shown!.ballRole, p, shown!.hole, shown!.defenseRules, undefined, shown!.shiftDefense);
+  // Their shift and our defense adjusting to it: the play pauses when it's set and again when we're set.
+  const adjusts = Boolean(shown && shiftAdjusts(shown.nodes, shown.strokes, shown.shiftDefense));
+  const shiftStops = useMemo(() => {
+    if (!shown || !adjusts) return null;
+    const f = frameAt(0);
+    return f.shiftSetProgress !== undefined && f.defenseSetProgress !== undefined ? { shift: f.shiftSetProgress, set: f.defenseSetProgress } : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown, split, adjusts]);
+  const seconds = playAnimationSeconds(split.off, split.def, adjusts ? 'shift' : false);
+  const snapAt = snapProgress(split.off, split.def, adjusts ? 'shift' : false);
+  timing.current = { seconds, stops: shiftStops ? [shiftStops.shift, shiftStops.set] : [] };
+  const atShiftSet = Boolean(shiftStops && !running && Math.abs(progress - shiftStops.shift) < 0.004);
+  const atDefenseSet = Boolean(shiftStops && !running && progress >= shiftStops.set - 0.004 && progress < snapAt - 0.002);
   const frame = useMemo(
-    () => (shown ? computeAnimatedPlayFrame(shown.nodes, shown.strokes, [], shown.ballRole, progress, shown.hole, shown.defenseRules) : null),
-    [shown, progress]
+    () => (shown ? frameAt(progress) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [shown, split, progress]
   );
   const moving = progress > 0.002;
   const hasDefense = Boolean(shown?.nodes.some((n) => isDefenseRole(n.role)));
@@ -552,7 +596,7 @@ export function usePlayLines(opts: {
     if (!shown || !defArrows || !hasDefense) return [];
     const own = shown.strokes.filter(isDefenseStroke);
     const hasOwn = (n: PlayNode) => own.some((s) => lineStartsOn(s, n, shown.nodes));
-    const end = computeAnimatedPlayFrame(shown.nodes, shown.strokes, [], shown.ballRole, 1, shown.hole, shown.defenseRules);
+    const end = frameAt(1);
     // The defense's paths keep a point every 0.05 of the play after the snap.
     const upTo = Math.round(DEF_ARROW_UNTIL / 0.05);
     const reads: PlayStroke[] = [];
@@ -560,14 +604,16 @@ export function usePlayLines(opts: {
       if (!isDefenseRole(n.role) || hasOwn(n)) continue;
       const tr = end.trails.find((t) => t.role === n.role);
       if (!tr || tr.points.length < 2) continue;
-      // Every other point is plenty for an arrow (and keeps it smooth).
+      // Every other point is plenty for an arrow (and keeps it smooth). After their shift, from his new spot.
       const cut = tr.points.slice(0, upTo + 1);
-      const pts = [{ x: n.x, y: n.y }, ...cut.slice(1).filter((_, i, a) => i % 2 === 1 || i === a.length - 1)];
+      const from = (adjusts && shown.shiftDefense?.[n.role]) || n;
+      const pts = [{ x: from.x, y: from.y }, ...cut.slice(1).filter((_, i, a) => i % 2 === 1 || i === a.length - 1)];
       if (lengthOf(pts) < 0.9) continue;
       reads.push({ kind: 'run', points: pts.map((p) => ({ x: p.x, y: p.y })), color: DEFENSE_TRAIL });
     }
     return [...own, ...reads];
-  }, [shown, defArrows, hasDefense]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown, split, adjusts, defArrows, hasDefense]);
   const focusNode = focus ? lines?.nodes.find((n) => n.role === focus) : undefined;
   // Flipped left and right on this film: the arrows still move the unit the way they point on the picture.
   const flipSign = lines?.quad.flipX ? -1 : 1;
@@ -1045,6 +1091,25 @@ export function usePlayLines(opts: {
     ),
     controls: ({ playing }) => (
       <>
+      {lines && moveBar && !playing && !lineUp && (atShiftSet || atDefenseSet) && (
+        // Their shift: stopped when it's set (where do we go?), and when our defense is set on it.
+        <div
+          className="absolute left-2 top-11 z-20 max-w-[min(22rem,calc(100%-1rem))] rounded-xl px-3 py-2 pointer-events-auto border border-teal-400/50"
+          style={panel}
+          role="status"
+          {...keep}
+        >
+          <div className="text-[11px] font-black uppercase tracking-wider text-teal-300">{atShiftSet ? 'They shifted' : 'Our defense is set'}</div>
+          <div className="text-sm font-bold leading-snug">
+            {atShiftSet ? 'Where does our defense go? Continue to show it slide over.' : 'Lined up on their new formation. Continue to the snap.'}
+          </div>
+          <div className="mt-1.5 flex justify-end">
+            <button type="button" onClick={runPlay} className="h-8 px-3 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-xs font-black cursor-pointer">
+              {atShiftSet ? '▶ Show our adjustment' : '▶ Continue'}
+            </button>
+          </div>
+        </div>
+      )}
       {lines && moveBar && !playing && !lineUp && (
         // The movement bar, pinned to the bottom right like the film's own: back to the start, a step back, play /
         // pause, a step on, the scrubber, and slow motion down to a tenth.
@@ -1079,6 +1144,27 @@ export function usePlayLines(opts: {
           <button type="button" className={idle} disabled={progress >= 1} onClick={() => stepPlay(1)} title={`A step on (${LINE_STEP_SECONDS} s of the play)`} aria-label="A step on">
             <ChevronRight size={18} />
           </button>
+          {shiftStops &&
+            (
+              [
+                [shiftStops.shift, 'Shift', 'Their shift set: our defense still where it lined up'],
+                [shiftStops.set, 'D set', 'Our defense set after their shift'],
+              ] as [number, string, string][]
+            ).map(([at, label, title]) => (
+              <button
+                key={label}
+                type="button"
+                className={`${idle} text-[11px] font-black`}
+                style={{ color: '#5eead4' }}
+                onClick={() => {
+                  setRunning(false);
+                  setProgress(at);
+                }}
+                title={title}
+              >
+                {label}
+              </button>
+            ))}
           {!presenting && (
             <input
               type="range"

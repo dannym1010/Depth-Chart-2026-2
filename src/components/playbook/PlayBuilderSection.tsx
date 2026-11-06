@@ -1484,7 +1484,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   // The play on the film (play lines): to the Film Room that opened it, or for a film window beside it. Sent again
   // only when something in it changes.
   const allLines = [...strokes, ...callStrokes];
-  const videoLinesKey = JSON.stringify([diagramNodes, allLines, ball, homographyQuad, callLabel, defRules, hole, targetHoleX, pressure, coverage, defAssign]);
+  const videoLinesKey = JSON.stringify([diagramNodes, allLines, ball, homographyQuad, callLabel, defRules, hole, targetHoleX, pressure, coverage, defAssign, shiftDefense]);
   const linesOwner = useRef({});
   useEffect(() => {
     const lines: VideoLines = {
@@ -1507,6 +1507,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       pressure,
       coverage,
       defenseAssign: defAssign,
+      // Their shift: where our defenders set after it, so the film's play pauses and our defense slides there too.
+      shiftDefense,
     };
     if (onVideoLines) onVideoLines(lines);
     else publishPlayLines(linesOwner.current, lines);
