@@ -3,8 +3,12 @@ import { buildProjectedFieldGrid, getQuadHomographies, HOMOGRAPHY_PRESETS, image
 import { DEFENSE_COLOR, diagramLabel, isDefenseRole, lineStartsOn, passThrow, shiftLegs, shownText, skillDiagramLabel, STROKE_COLOR, THROW_COLOR, type PlayNode, type PlayStroke } from '../utils/footballEngine';
 import { arrowOnField, circleOnField, cutLine, dashLine, densify, lengthOf, pointBack, polygon, polyline, ribbon, tOnField, zigzagLine, type Px } from './linesArt';
 import { cameraFromFilm, cameraProjector, clipPolygon, filmProjector, lerpCam, MAX_PITCH, MIN_PITCH, VIEWS, visibleRuns, type Cam } from './fieldCamera';
-import { computeAnimatedPlayFrame, playAnimationSeconds } from '../utils/playAnimation';
+import { computeAnimatedPlayFrame, DEFENSE_TRAIL, playAnimationSeconds } from '../utils/playAnimation';
+import { computeGapIntegrity, type GapFitSlot } from '../utils/defenseReads';
+import { defenseCallStrokes, joinPressure, pressureParts, PRESSURES } from '../utils/defenseCalls';
 import { safeJSONParse, safeJSONSet } from '../services/storageService';
+import { ChevronLeft, ChevronRight, Columns3, Contrast, Eye, EyeOff, Map as MapIcon, Move, MoveUpRight, Pause, Play, RotateCcw, SkipBack, X } from 'lucide-react';
+import { AMBER, btn as BTN, divider, idle, INK, on as onBtn, overVideo, playButton, playButtonStyle, tray, trayItem, trayPicked, trayStyle } from './controlStyles';
 
 /** The selected play as the Play Builder draws it, to lay over the film. */
 export interface VideoLines {
@@ -17,6 +21,17 @@ export interface VideoLines {
   /** A player dragged on the film, to his spot on the field (yards): kept in the lineup, on this film only. */
   moveNode?: (role: string, x: number, y: number) => void;
   name: string;
+  /** Our defenders' rules picked in the builder (gap, flow, technique...), by role: their reads and gap fits. */
+  defenseRules?: Record<string, Record<string, string>>;
+  /** The hole the play goes to (its number), and where it is across the field (yards): the gap it attacks. */
+  hole?: number | null;
+  holeX?: number | null;
+  /** The play's lines without our defense's call, and the call (blitz+stunt ids, coverage, single jobs): so another
+   *  blitz or stunt can be picked over the film. */
+  baseStrokes?: PlayStroke[];
+  pressure?: string;
+  coverage?: string;
+  defenseAssign?: Record<string, string>;
 }
 
 /** What the Film Player needs: the button, the lines (inside the zoom, so they stay on the field) and the controls (outside it). */
@@ -51,6 +66,13 @@ const SIDE_KEY = 'mahopac_film_lines_side';
 const CLEAN_KEY = 'mahopac_film_lines_clean';
 const SHADE_KEY = 'mahopac_film_lines_shade';
 const SPEED_KEY = 'mahopac_film_lines_speed';
+const GAPS_KEY = 'mahopac_film_lines_gaps';
+const DARROWS_KEY = 'mahopac_film_lines_darrows';
+const MODE_KEY = 'mahopac_film_lines_mode';
+/** Edit: every control (lining up, the clean field, the shade...). Present: just what's needed in front of the team. */
+type LinesMode = 'edit' | 'present';
+/** The defense's arrows: each defender's path through this much of the play after the snap (his read and fit). */
+const DEF_ARROW_UNTIL = 0.6;
 /** Run play speeds: slow motion down to a tenth, for going over it with the team. */
 const LINE_SPEEDS: [number, string][] = [
   [0.1, '0.1×'],
@@ -72,7 +94,7 @@ const keep = {
   onClick: (e: React.MouseEvent) => e.stopPropagation(),
   onDoubleClick: (e: React.MouseEvent) => e.stopPropagation(),
 };
-const panel = { background: 'rgba(15,23,42,0.85)', color: '#e2e8f0' };
+const panel = overVideo;
 // A lineup nobody has fitted to a film yet: one of the stock camera angles (the builder starts plays on the sideline one).
 const STOCK = Object.values(HOMOGRAPHY_PRESETS)
   .filter((p) => p.quad.preset !== 'custom')
@@ -354,6 +376,37 @@ export function usePlayLines(opts: {
     setShade(v);
     safeJSONSet(SHADE_KEY, v);
   };
+  // Our defense's gaps (who fits which, open or doubled) and each defender's arrow (his read and fit), like the
+  // builder's: remembered on this device. Either one brings the defense on screen.
+  const [showGaps, setShowGaps] = useState(() => safeJSONParse<boolean>(GAPS_KEY, false) === true);
+  const [defArrows, setDefArrows] = useState(() => safeJSONParse<boolean>(DARROWS_KEY, false) === true);
+  const pickGaps = (v: boolean) => {
+    setShowGaps(v);
+    safeJSONSet(GAPS_KEY, v);
+    if (v && side === 'offense') pickSide('both');
+  };
+  const pickDefArrows = (v: boolean) => {
+    setDefArrows(v);
+    safeJSONSet(DARROWS_KEY, v);
+    if (v && side === 'offense') pickSide('both');
+  };
+  // Another blitz and / or stunt over the film (null: the play's own call); its lines draw and it runs with Run play.
+  const [callBlitz, setCallBlitz] = useState<string | null>(null);
+  const [callStunt, setCallStunt] = useState<string | null>(null);
+  const pickCall = (part: 'blitz' | 'stunt', id: string | null) => {
+    (part === 'blitz' ? setCallBlitz : setCallStunt)(id);
+    if (side === 'offense') pickSide('both');
+  };
+  const [mode, setModeState] = useState<LinesMode>(() => (safeJSONParse<LinesMode>(MODE_KEY, 'edit') === 'present' ? 'present' : 'edit'));
+  const pickMode = (m: LinesMode) => {
+    setModeState(m);
+    safeJSONSet(MODE_KEY, m);
+    if (m === 'present') {
+      setLineUp(false);
+      setCorners(false);
+    }
+  };
+  const presenting = mode === 'present';
   const [cam, setCam] = useState<Cam | null>(null);
   const camRef = useRef(cam);
   camRef.current = cam;
@@ -433,6 +486,8 @@ export function usePlayLines(opts: {
     setRunning(false);
     setProgress(0);
     setFocus(null);
+    setCallBlitz(null);
+    setCallStunt(null);
   }, [lines?.name]);
 
   // The coach's change to the lineup: this play's own from now on, and the film's latest for the plays after it.
@@ -445,13 +500,34 @@ export function usePlayLines(opts: {
       const { moved: _players, offenseTransform: _off, defenseTransform: _def, ...field } = own;
       safeJSONSet(lineupKey, field);
     };
+    // Another blitz or stunt picked over the film: the play's lines with that call drawn instead of its own (from
+    // the diagram's spots, so it moves with the players lined up on the film).
+    const own = pressureParts(lines.pressure);
+    const blitz = callBlitz ?? own.blitz;
+    const stunt = callStunt ?? own.stunt;
+    const recalled = (callBlitz !== null || callStunt !== null) && lines.baseStrokes;
+    const src: VideoLines = recalled
+      ? {
+          ...lines,
+          strokes: [
+            ...lines.baseStrokes!,
+            ...defenseCallStrokes(
+              lines.nodes.filter((n) => isDefenseRole(n.role)),
+              lines.nodes.filter((n) => !isDefenseRole(n.role)),
+              joinPressure(blitz, stunt),
+              lines.coverage,
+              lines.defenseAssign
+            ),
+          ],
+        }
+      : lines;
     return {
-      ...onFilm(lines),
+      ...onFilm(src),
       setQuad,
       // A player dragged on the film: where he lines up in this clip. The diagram keeps him where he's drawn.
       moveNode: (role: string, x: number, y: number) => setQuad({ ...lines.quad, moved: { ...lines.quad.moved, [role]: { x, y } } }),
     };
-  }, [lines, lineupKey]);
+  }, [lines, lineupKey, callBlitz, callStunt]);
   const movedEntries = Object.entries(lines?.quad.moved || {});
   const filmMoves = movedEntries.length;
   const offMoves = movedEntries.filter(([r]) => !isDefenseRole(r)).length;
@@ -459,12 +535,41 @@ export function usePlayLines(opts: {
   const hasOffUnit = hasUnitTransform(lines?.quad.offenseTransform);
   const hasDefUnit = hasUnitTransform(lines?.quad.defenseTransform);
   const frame = useMemo(
-    () => (shown ? computeAnimatedPlayFrame(shown.nodes, shown.strokes, [], shown.ballRole, progress) : null),
+    () => (shown ? computeAnimatedPlayFrame(shown.nodes, shown.strokes, [], shown.ballRole, progress, shown.hole, shown.defenseRules) : null),
     [shown, progress]
   );
   const moving = progress > 0.002;
+  const hasDefense = Boolean(shown?.nodes.some((n) => isDefenseRole(n.role)));
+  // The gaps, as the builder works them out: from where our defenders line up on this film.
+  const gaps = useMemo<GapFitSlot[]>(() => {
+    if (!shown || !showGaps || !hasDefense) return [];
+    const def = shown.nodes.filter((n) => isDefenseRole(n.role));
+    const off = shown.nodes.filter((n) => !isDefenseRole(n.role));
+    return computeGapIntegrity(def, off, shown.defenseRules || {}, shown.strokes, shown.holeX);
+  }, [shown, showGaps, hasDefense]);
+  // Each defender's arrow: his own drawn line (a blitz, a drop, man), else where he goes reading this play.
+  const defenseArrows = useMemo<PlayStroke[]>(() => {
+    if (!shown || !defArrows || !hasDefense) return [];
+    const own = shown.strokes.filter(isDefenseStroke);
+    const hasOwn = (n: PlayNode) => own.some((s) => lineStartsOn(s, n, shown.nodes));
+    const end = computeAnimatedPlayFrame(shown.nodes, shown.strokes, [], shown.ballRole, 1, shown.hole, shown.defenseRules);
+    // The defense's paths keep a point every 0.05 of the play after the snap.
+    const upTo = Math.round(DEF_ARROW_UNTIL / 0.05);
+    const reads: PlayStroke[] = [];
+    for (const n of shown.nodes) {
+      if (!isDefenseRole(n.role) || hasOwn(n)) continue;
+      const tr = end.trails.find((t) => t.role === n.role);
+      if (!tr || tr.points.length < 2) continue;
+      // Every other point is plenty for an arrow (and keeps it smooth).
+      const cut = tr.points.slice(0, upTo + 1);
+      const pts = [{ x: n.x, y: n.y }, ...cut.slice(1).filter((_, i, a) => i % 2 === 1 || i === a.length - 1)];
+      if (lengthOf(pts) < 0.9) continue;
+      reads.push({ kind: 'run', points: pts.map((p) => ({ x: p.x, y: p.y })), color: DEFENSE_TRAIL });
+    }
+    return [...own, ...reads];
+  }, [shown, defArrows, hasDefense]);
   const focusNode = focus ? lines?.nodes.find((n) => n.role === focus) : undefined;
-  const btn = 'h-8 px-2.5 rounded-lg text-xs font-bold cursor-pointer';
+  const btn = BTN;
 
   return {
     on,
@@ -486,7 +591,9 @@ export function usePlayLines(opts: {
       shown && frame && !playing ? (
         <LinesDrawing
           video={video}
-          lines={shown}
+          lines={defenseArrows.length ? { ...shown, strokes: [...shown.strokes.filter((s) => !defenseArrows.includes(s)), ...defenseArrows] } : shown}
+          always={defenseArrows}
+          gaps={moving ? [] : gaps}
           frame={moving ? frame : null}
           side={side}
           showLines={showLines}
@@ -508,29 +615,43 @@ export function usePlayLines(opts: {
         />
       ) : null,
     bar: ({ playing, inline }) => (
-      <div className={`pointer-events-auto flex flex-col items-start gap-1 ${inline ? '' : 'px-2 pt-1.5'}`} {...keep}>
-        <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl" style={panel}>
+      <div className={`pointer-events-auto flex flex-col items-start gap-1 ${inline ? '' : 'px-2 pt-1.5'}`} style={{ color: INK }} {...keep}>
+        {/* The same look as the player's own controls: plain buttons on the bar, the picked one indigo. */}
+        <div className="flex flex-wrap items-center gap-1">
           {!(inline && lines) && (
-            <span className="h-8 px-2 inline-flex items-center text-xs font-black truncate max-w-[12rem]" title={lines?.name}>
+            <span className="h-9 px-2 inline-flex items-center text-xs font-black truncate max-w-[12rem]" title={lines?.name}>
               {lines?.name || 'Play lines'}
             </span>
           )}
           {lines && (
             <>
+              <span className={tray} style={trayStyle} role="group" aria-label="Edit or present">
+                {(
+                  [
+                    ['edit', 'Edit', 'Every control: line it up on the film, the clean field, the shade'],
+                    ['present', 'Present', 'Just what you need in front of the team: the lines, the run, the gaps and arrows, the blitz'],
+                  ] as [LinesMode, string, string][]
+                ).map(([id, label, title]) => (
+                  <button key={id} type="button" aria-pressed={mode === id} className={trayItem(mode === id)} style={mode === id ? trayPicked : undefined} onClick={() => pickMode(id)} title={title}>
+                    {label}
+                  </button>
+                ))}
+              </span>
+              <span className={divider} />
               <button
                 type="button"
-                className={btn}
-                style={showLines ? { background: '#4f46e5', color: '#ffffff' } : { background: '#ffffff', color: '#111827' }}
+                className={showLines ? onBtn : idle}
                 aria-pressed={showLines}
                 onClick={() => setShowLines((v) => !v)}
                 title="The play's routes, runs, blocks and motion (tap a player for just his job)"
               >
-                {showLines ? 'Hide lines' : 'Show lines'}
+                {showLines ? <EyeOff size={15} /> : <Eye size={15} />}
+                <span className={presenting ? 'hidden md:inline' : 'hidden sm:inline'}>{showLines ? 'Hide lines' : 'Show lines'}</span>
               </button>
               <button
                 type="button"
                 className={btn}
-                style={{ background: '#f59e0b', color: '#111827' }}
+                style={AMBER}
                 disabled={playing}
                 onClick={() => {
                   setProgress(0);
@@ -538,43 +659,126 @@ export function usePlayLines(opts: {
                 }}
                 title="Play the motion, the snap and everyone along their lines on this frame (step, slow motion and the scrubber are on the bar at the bottom)"
               >
-                ▶ Run play
+                <Play size={14} />
+                <span className="hidden sm:inline">Run play</span>
               </button>
-              <button
-                type="button"
-                className={`${btn} ${lineUp ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`}
-                onClick={() => setLineUp((v) => !v)}
-                title="Align the field, the full Offense, the full Defense, or individual players independently on the video"
-              >
-                Align / Line up
-              </button>
-              <button
-                type="button"
-                aria-pressed={clean}
-                className={`${btn} ${clean ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`}
-                onClick={() => pickClean(!clean)}
-                title="The play on a drawn field instead of the video, at the film's angle: drag to turn it any way"
-              >
-                Clean field
-              </button>
-              {!clean && (
-                <button
-                  type="button"
-                  aria-pressed={shade}
-                  className={`${btn} ${shade ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`}
-                  onClick={() => pickShade(!shade)}
-                  title="Shade and blur the video behind the play lines so routes and assignments are easier to see"
-                >
-                  Shade video
-                </button>
-              )}
-              <span className="inline-flex rounded-lg overflow-hidden border border-white/15" role="group" aria-label="Show">
-                {SIDES.map(([id, label]) => (
-                  <button key={id} type="button" aria-pressed={side === id} className={`h-8 px-2 text-xs font-bold cursor-pointer ${side === id ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`} onClick={() => pickSide(id)}>
-                    {label}
+              {hasDefense && (
+                <>
+                  <span className={divider} />
+                  <button
+                    type="button"
+                    className={showGaps ? onBtn : idle}
+                    aria-pressed={showGaps}
+                    onClick={() => pickGaps(!showGaps)}
+                    title="Our defense's gaps: who fits each one (green), open (red), two in one (amber)"
+                  >
+                    <Columns3 size={15} />
+                    <span className="hidden sm:inline">Gaps</span>
                   </button>
-                ))}
-              </span>
+                  <button
+                    type="button"
+                    className={defArrows ? onBtn : idle}
+                    aria-pressed={defArrows}
+                    onClick={() => pickDefArrows(!defArrows)}
+                    title="Each defender's arrow: his blitz, stunt or drop, else where he goes reading this play"
+                  >
+                    <MoveUpRight size={15} />
+                    <span className="hidden sm:inline">D arrows</span>
+                  </button>
+                  {lines.baseStrokes && (
+                    <>
+                      {(['blitz', 'stunt'] as const).map((part) => {
+                        const ownId = pressureParts(lines.pressure)[part];
+                        const picked = part === 'blitz' ? callBlitz : callStunt;
+                        const value = picked ?? '__play';
+                        const group = part === 'blitz' ? 'Blitz' : 'Stunt';
+                        const ownLabel = PRESSURES.find((p) => p.id === ownId)?.short;
+                        return (
+                          <select
+                            key={part}
+                            value={value}
+                            onChange={(e) => pickCall(part, e.target.value === '__play' ? null : e.target.value)}
+                            className={`${picked !== null ? onBtn : idle} cursor-pointer appearance-none text-center max-w-[9rem]`}
+                            style={picked !== null ? undefined : { background: 'rgba(255,255,255,0.1)', color: INK }}
+                            aria-label={group}
+                            title={`Run this play against another ${part} (it draws, and moves with Run play). The play's own: ${ownLabel || 'none'}`}
+                          >
+                            <option value="__play" style={{ background: '#0f172a', color: INK }}>
+                              {group}: {ownLabel || 'none'}
+                            </option>
+                            <option value="" style={{ background: '#0f172a', color: INK }}>
+                              No {part}
+                            </option>
+                            {PRESSURES.filter((p) => p.group === group).map((p) => (
+                              <option key={p.id} value={p.id} style={{ background: '#0f172a', color: INK }} title={p.label}>
+                                {p.short}
+                              </option>
+                            ))}
+                          </select>
+                        );
+                      })}
+                      {(callBlitz !== null || callStunt !== null) && (
+                        <button
+                          type="button"
+                          className={idle}
+                          onClick={() => {
+                            setCallBlitz(null);
+                            setCallStunt(null);
+                          }}
+                          title="Back to the play's own call"
+                          aria-label="Back to the play's own call"
+                        >
+                          <RotateCcw size={14} />
+                        </button>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+              {!presenting && (
+                <>
+                  <span className={divider} />
+                  <span className={tray} style={trayStyle} role="group" aria-label="Show">
+                    {SIDES.map(([id, label]) => (
+                      <button key={id} type="button" aria-pressed={side === id} className={trayItem(side === id)} style={side === id ? trayPicked : undefined} onClick={() => pickSide(id)}>
+                        {label}
+                      </button>
+                    ))}
+                  </span>
+                  <button
+                    type="button"
+                    className={lineUp ? onBtn : idle}
+                    aria-pressed={lineUp}
+                    onClick={() => setLineUp((v) => !v)}
+                    title="Align the field, the full Offense, the full Defense, or individual players independently on the video"
+                  >
+                    <Move size={15} />
+                    <span className="hidden sm:inline">Line up</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={clean}
+                    className={clean ? onBtn : idle}
+                    onClick={() => pickClean(!clean)}
+                    title="The play on a drawn field instead of the video, at the film's angle: drag to turn it any way"
+                  >
+                    <MapIcon size={15} />
+                    <span className="hidden sm:inline">Clean field</span>
+                  </button>
+                  {!clean && (
+                    <button
+                      type="button"
+                      aria-pressed={shade}
+                      className={shade ? onBtn : idle}
+                      onClick={() => pickShade(!shade)}
+                      title="Shade and blur the video behind the play lines so routes and assignments are easier to see"
+                    >
+                      <Contrast size={15} />
+                      <span className="hidden sm:inline">Shade</span>
+                    </button>
+                  )}
+                </>
+              )}
             </>
           )}
         </div>
@@ -758,7 +962,7 @@ export function usePlayLines(opts: {
             )}
           </div>
         )}
-        {lines && (filmMoves > 0 || hasOffUnit || hasDefUnit) && !lineUp && !playing && shown && (
+        {lines && !presenting && (filmMoves > 0 || hasOffUnit || hasDefUnit) && !lineUp && !playing && shown && (
           <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl" style={panel}>
             <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">
               {[
@@ -820,54 +1024,59 @@ export function usePlayLines(opts: {
         // The movement bar, pinned to the bottom right like the film's own: back to the start, a step back, play /
         // pause, a step on, the scrubber, and slow motion down to a tenth.
         <div
-          className="absolute right-2 bottom-2 left-2 sm:left-auto z-20 flex flex-wrap items-center justify-end gap-1 p-1 rounded-xl pointer-events-auto text-white"
+          className="absolute right-2 bottom-2 left-2 sm:left-auto z-20 flex flex-wrap items-center justify-end gap-1 p-1.5 rounded-xl pointer-events-auto"
           style={panel}
           role="group"
           aria-label="Play movement"
           {...keep}
         >
-          <span className="h-8 px-2 inline-flex items-center text-[11px] font-bold tabular-nums whitespace-nowrap" aria-live="polite">
-            {moving && frame ? frame.phaseLabel : 'Lined up'}
-          </span>
-          <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => { setRunning(false); setProgress(0); }} title="Back to the lineup before the snap" aria-label="Back to the start">
-            ⏮
+          {!presenting && (
+            <span className="h-9 px-2 inline-flex items-center text-[11px] font-bold tabular-nums whitespace-nowrap" aria-live="polite">
+              {moving && frame ? frame.phaseLabel : 'Lined up'}
+            </span>
+          )}
+          <button type="button" className={idle} onClick={() => { setRunning(false); setProgress(0); }} title="Back to the lineup before the snap" aria-label="Back to the start">
+            <SkipBack size={16} />
           </button>
-          <button type="button" className={`${btn} hover:bg-white/10`} disabled={progress <= 0} onClick={() => stepPlay(-1)} title={`A step back (${LINE_STEP_SECONDS} s of the play)`} aria-label="A step back">
-            ◀❙
+          <button type="button" className={idle} disabled={progress <= 0} onClick={() => stepPlay(-1)} title={`A step back (${LINE_STEP_SECONDS} s of the play)`} aria-label="A step back">
+            <ChevronLeft size={18} />
           </button>
           <button
             type="button"
-            className={btn}
-            style={{ background: '#f59e0b', color: '#111827', minWidth: '2.5rem' }}
+            className={playButton}
+            style={playButtonStyle}
             onClick={() => (running ? setRunning(false) : runPlay())}
             title={running ? 'Pause' : progress >= 1 ? 'Run it again' : 'Play from here'}
             aria-label={running ? 'Pause' : 'Play'}
           >
-            {running ? '❚❚' : progress >= 1 ? '↻' : '▶'}
+            {running ? <Pause size={20} /> : progress >= 1 ? <RotateCcw size={18} /> : <Play size={20} className="translate-x-px" />}
           </button>
-          <button type="button" className={`${btn} hover:bg-white/10`} disabled={progress >= 1} onClick={() => stepPlay(1)} title={`A step on (${LINE_STEP_SECONDS} s of the play)`} aria-label="A step on">
-            ❙▶
+          <button type="button" className={idle} disabled={progress >= 1} onClick={() => stepPlay(1)} title={`A step on (${LINE_STEP_SECONDS} s of the play)`} aria-label="A step on">
+            <ChevronRight size={18} />
           </button>
-          <input
-            type="range"
-            min={0}
-            max={1000}
-            value={Math.round(progress * 1000)}
-            onChange={(e) => {
-              setRunning(false);
-              setProgress(Number(e.target.value) / 1000);
-            }}
-            className="w-28 sm:w-40 accent-amber-500 cursor-pointer"
-            aria-label="Where in the play"
-            title="Drag through the play"
-          />
-          <span className="inline-flex rounded-lg overflow-hidden border border-white/15" role="group" aria-label="Speed">
+          {!presenting && (
+            <input
+              type="range"
+              min={0}
+              max={1000}
+              value={Math.round(progress * 1000)}
+              onChange={(e) => {
+                setRunning(false);
+                setProgress(Number(e.target.value) / 1000);
+              }}
+              className="w-28 sm:w-40 accent-indigo-500 cursor-pointer"
+              aria-label="Where in the play"
+              title="Drag through the play"
+            />
+          )}
+          <span className={`ml-1 ${tray}`} style={trayStyle} role="group" aria-label="Speed">
             {LINE_SPEEDS.map(([s, label]) => (
               <button
                 key={s}
                 type="button"
                 aria-pressed={speed === s}
-                className={`h-8 px-1.5 text-[11px] font-bold cursor-pointer ${speed === s ? 'bg-indigo-600 text-white' : 'hover:bg-white/10'}`}
+                className={trayItem(speed === s)}
+                style={speed === s ? trayPicked : undefined}
                 onClick={() => setSpeed(s)}
                 title={s < 1 ? `Slow motion: ${label} speed` : 'Full speed'}
               >
@@ -877,7 +1086,7 @@ export function usePlayLines(opts: {
           </span>
           <button
             type="button"
-            className={`${btn} hover:bg-white/10`}
+            className={idle}
             onClick={() => {
               setRunning(false);
               setProgress(0);
@@ -886,7 +1095,7 @@ export function usePlayLines(opts: {
             title="Close the movement bar (back to the lineup)"
             aria-label="Close the movement bar"
           >
-            ✕
+            <X size={16} />
           </button>
         </div>
       )}
@@ -1103,7 +1312,11 @@ const LinesDrawing: React.FC<{
   onCam: (cam: Cam | null) => void;
   /** Fly the camera to an angle (or back to the film's). */
   onView: (to: Cam | 'film') => void;
-}> = ({ video, lines, frame, side, showLines, lineUp, alignTarget, corners, zoom, situation, focus, onFocus, clean, shade, cam, onCam, onView }) => {
+  /** Lines shown even with the play's lines hidden (the defense's arrows). */
+  always?: PlayStroke[];
+  /** Our defense's gaps: who fits each, open or doubled. */
+  gaps?: GapFitSlot[];
+}> = ({ video, lines, frame, side, showLines, lineUp, alignTarget, corners, zoom, situation, focus, onFocus, clean, shade, cam, onCam, onView, always = [], gaps = [] }) => {
   const boxRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const uid = `pl${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
@@ -1193,12 +1406,12 @@ const LinesDrawing: React.FC<{
   const drawn = lines.strokes
     .filter((s) => s.points?.length >= 2 && showing(isDefenseStroke(s)))
     .map((s) => ({ s, owner: ownerOf(s) }))
-    .filter(({ owner }) => showLines || (focus !== null && owner === focus))
+    .filter(({ s, owner }) => showLines || (focus !== null && owner === focus) || (focus === null && always.includes(s)))
     .sort((a, b) => Number(isDefenseStroke(a.s)) - Number(isDefenseStroke(b.s)) || Number(!a.s.motion) - Number(!b.s.motion) || a.s.points[0].x - b.s.points[0].x);
   const shownNodes = (frame ? frame.nodes : lines.nodes).filter((n) => showing(isDefenseRole(n.role)));
   // Coming in: the rings and the TV lines when the picture stops on a play; the lines when they're shown.
   const layerSince = useSince(lines.name, 1100, reduce);
-  const linesSince = useSince(showLines || focus ? `${lines.name}|${side}|${focus ?? ''}|${showLines ? 1 : 0}` : '', 3400, reduce);
+  const linesSince = useSince(showLines || focus || always.length ? `${lines.name}|${side}|${focus ?? ''}|${showLines ? 1 : 0}|${always.length}` : '', 3400, reduce);
   const settled = linesSince >= drawn.length * STAGGER + GROW + 300;
 
   const toUV = (e: React.PointerEvent): ImagePoint | null => {
@@ -1665,6 +1878,58 @@ const LinesDrawing: React.FC<{
     );
   }
 
+  // Our defense's gaps, the builder's way: a pill in each gap (✓ who fits it, ⚠ open, 2× doubled) and a dashed line
+  // from each defender to his gap, laid on the turf; the gap the play attacks is ringed when it's open.
+  let gapArt: React.ReactNode = null;
+  if (gaps.length && showing(true) && !moving && !lineUp) {
+    const fade = layerSince === Infinity ? 1 : clamp01((layerSince - 300) / 400);
+    gapArt = (
+      <g pointerEvents="none" opacity={fade}>
+        {[...gaps].sort((a, b) => a.x - b.x).map((slot, gi) => {
+          const spot = { x: slot.x, y: slot.y };
+          if (!seen(spot)) return null;
+          const isOpen = slot.status === 'open';
+          const isOver = slot.status === 'overloaded';
+          const color = isOpen ? '#dc2626' : isOver ? '#d97706' : '#059669';
+          const who = slot.defenders.map((d) => diagramLabel(d.role)).join('+');
+          const text = isOpen ? `⚠ ${slot.gap} OPEN` : isOver ? `2× ${slot.gap} ${who}` : `✓ ${slot.gap} ${who}`;
+          const fs = 9 * k;
+          const tw = text.length * fs * 0.62 + 10 * k;
+          const th = fs + 6 * k;
+          // Gaps are a yard or so apart: every other pill sits a row higher, with a tick down to its gap.
+          const [cx, gy] = px(spot);
+          const lift = gi % 2 === 1 ? th + 4 * k : 0;
+          const cy = gy - lift;
+          return (
+            <g key={slot.id} opacity={focus !== null && !slot.defenders.some((d) => d.role === focus) ? 0.3 : 1}>
+              {slot.defenders.map((d, i) => {
+                const from = { x: d.fromX, y: d.fromY };
+                const run = visibleRuns(densify([from, spot], 0.75), proj.depth, proj.near)[0];
+                if (!run || run.length < 2) return null;
+                const path = polyline(run.map(px));
+                return (
+                  <g key={`${d.role}${i}`}>
+                    <path d={path} fill="none" stroke="#ffffff" strokeOpacity="0.7" strokeWidth={3.6 * k} strokeLinecap="round" strokeDasharray={`${5 * k} ${4 * k}`} />
+                    <path d={path} fill="none" stroke={color} strokeWidth={2.2 * k} strokeLinecap="round" strokeDasharray={`${5 * k} ${4 * k}`} />
+                  </g>
+                );
+              })}
+              <path d={shape(circleOnField(spot, 0.32))} fill={color} fillOpacity="0.85" stroke="#ffffff" strokeWidth={1.2 * k} />
+              {lift > 0 && <line x1={cx} y1={gy - 2 * k} x2={cx} y2={cy - 6 * k} stroke={color} strokeWidth={1.6 * k} />}
+              {isOpen && slot.isPointOfAttack && (
+                <rect x={cx - tw / 2 - 3 * k} y={cy - th - 9 * k} width={tw + 6 * k} height={th + 6 * k} rx={6 * k} fill="none" stroke="#ef4444" strokeWidth={2.2 * k} strokeDasharray={`${3 * k} ${2 * k}`} />
+              )}
+              <rect x={cx - tw / 2} y={cy - th - 6 * k} width={tw} height={th} rx={th / 2} fill={color} stroke="#ffffff" strokeWidth={1.2 * k} />
+              <text x={cx} y={cy - th / 2 - 6 * k + fs * 0.36} textAnchor="middle" fill="#ffffff" fontSize={fs} fontWeight={900} fontFamily={FONT}>
+                {text}
+              </text>
+            </g>
+          );
+        })}
+      </g>
+    );
+  }
+
   /** A player: a ring at his feet (his color) with his tag under it; they land one by one when the picture stops. */
   const playerArt = (n: PlayNode, i: number) => {
     const def = isDefenseRole(n.role);
@@ -1809,6 +2074,7 @@ const LinesDrawing: React.FC<{
           <g pointerEvents="none">{bodies}</g>
           {throwArt}
           <g pointerEvents="none">{trails}</g>
+          {gapArt}
           {shownNodes.map(playerArt)}
           {ballArt}
           {lineUp && (() => {

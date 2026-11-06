@@ -1472,7 +1472,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   // The play on the film (play lines): to the Film Room that opened it, or for a film window beside it. Sent again
   // only when something in it changes.
   const allLines = [...strokes, ...callStrokes];
-  const videoLinesKey = JSON.stringify([diagramNodes, allLines, ball, homographyQuad, callLabel]);
+  const videoLinesKey = JSON.stringify([diagramNodes, allLines, ball, homographyQuad, callLabel, defRules, hole, targetHoleX, pressure, coverage, defAssign]);
   const linesOwner = useRef({});
   useEffect(() => {
     const lines: VideoLines = {
@@ -1487,6 +1487,14 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       },
       // Players dragged on the film ride in the lineup (quad.moved), so the diagram stays as drawn.
       name: callLabel.trim(),
+      // For the gaps, the defense's reads, and another blitz or stunt picked over the film.
+      defenseRules: defRules,
+      hole: typeof hole === 'number' ? hole : null,
+      holeX: targetHoleX,
+      baseStrokes: strokes,
+      pressure,
+      coverage,
+      defenseAssign: defAssign,
     };
     if (onVideoLines) onVideoLines(lines);
     else publishPlayLines(linesOwner.current, lines);

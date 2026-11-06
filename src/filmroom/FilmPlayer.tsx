@@ -15,6 +15,8 @@ import type { FilmMark } from './types';
 import type { PlayLinesControl } from './PlayLinesOverlay';
 import { INK_COLORS, StageInk, type InkApi, type InkMode } from '../components/scouting/StageInk';
 import { useWakeLock } from '../utils/wakeLock';
+// The player's control look (shared with Play lines): fixed colors, the player is always dark.
+import { AMBER, btn, DIM, idle, INK, on } from './controlStyles';
 
 const FRAME = 1 / 30;
 const SPEEDS = [0.25, 0.5, 1, 2];
@@ -75,14 +77,6 @@ interface FilmPlayerProps {
 }
 
 // Bigger on a touch screen (a finger needs about 40px).
-const btn = 'inline-flex items-center justify-center gap-1 h-9 min-w-9 pointer-coarse:h-10 pointer-coarse:min-w-10 px-2 rounded-lg text-xs font-bold transition-colors disabled:opacity-40';
-// The player is always dark, so its colors are fixed here: the app's light and dark themes recolor
-// the gray text shades (which made controls vanish on the black bar in dark mode).
-const INK = '#e2e8f0';
-const DIM = '#94a3b8';
-const AMBER = { background: '#f59e0b', color: '#111827' };
-const idle = `${btn} hover:bg-white/10`; // text color comes from the player (INK)
-const on = `${btn} bg-indigo-600 text-white`;
 
 export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   src, placeholder, title, marks, onMarksChange, hasPrev, hasNext, onPrev, onNext, onStopwatch, onVoiceNote, apiRef,
