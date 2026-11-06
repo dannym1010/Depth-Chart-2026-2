@@ -368,3 +368,43 @@ describe('running a play: collision markers, QB vision cone, and auto-pause chec
     assert.equal(fOption.visionCone?.targetRole, 'DE');
   });
 });
+
+describe('running a play: a reverse (the QB hands it to the back, the back to the receiver coming around)', () => {
+  const offense: PlayNode[] = [
+    { role: 'C', x: 0, y: 0 },
+    { role: 'LG', x: -2, y: 0 },
+    { role: 'RG', x: 2, y: 0 },
+    { role: 'LT', x: -4, y: 0 },
+    { role: 'RT', x: 4, y: 0 },
+    { role: '1', x: 0, y: -1.5 },
+    { role: '3', x: 0, y: -5 },
+    { role: 'Z', x: 12, y: -0.5 },
+  ] as PlayNode[];
+  // The back sweeps right (the QB hands it to him on the way); the Z comes back across behind him, then up the left.
+  const back: PlayStroke = { kind: 'run', points: [{ x: 0, y: -5 }, { x: 3, y: -4.4 }, { x: 6, y: -3.6 }, { x: 9, y: -1 }, { x: 11, y: 2 }], handoff: { x: 2, y: -4.6 } };
+  const z: PlayStroke = { kind: 'run', points: [{ x: 12, y: -0.5 }, { x: 8, y: -4 }, { x: 2, y: -4.5 }, { x: -6, y: -3 }, { x: -9, y: 1 }, { x: -10, y: 8 }] };
+  const nodes = [...offense, ...OUR_DEFENSE_LOOKS['44_C3_LIZ'].nodes];
+  const frame = (p: number) => computeAnimatedPlayFrame(nodes, [back, z], [], 'Z', p);
+  const at = (f: ReturnType<typeof frame>, role: string) => f.nodes.find((n) => n.role === role)!;
+
+  it('the ball goes from the QB to the back, then to the Z where they meet', () => {
+    const f0 = frame(0.3);
+    const exchange = f0.reverseProgress!;
+    assert.ok(f0.handoffProgress! < exchange, 'the back gets it before the reverse');
+    const withBack = frame((f0.handoffProgress! + exchange) / 2);
+    assert.ok(Math.hypot(withBack.ball.x - at(withBack, '3').x, withBack.ball.y - at(withBack, '3').y) < 0.2, 'the back has it');
+    const meet = frame(exchange);
+    assert.ok(Math.hypot(at(meet, '3').x - at(meet, 'Z').x, at(meet, '3').y - at(meet, 'Z').y) < 1.5, `they meet (${at(meet, '3').x},${at(meet, '3').y} / ${at(meet, 'Z').x},${at(meet, 'Z').y})`);
+    const after = frame(Math.min(0.99, exchange + 0.1));
+    assert.ok(Math.hypot(after.ball.x - at(after, 'Z').x, after.ball.y - at(after, 'Z').y) < 0.2, 'then the Z has it');
+  });
+
+  it('the defense flows with the back first, then chases the reverse', () => {
+    const f0 = frame(0.3);
+    const before = frame(f0.reverseProgress! - 0.02);
+    const mike = OUR_DEFENSE_LOOKS['44_C3_LIZ'].nodes.find((n) => n.role === 'MIKE')!;
+    assert.ok(at(before, 'MIKE').x > mike.x + 0.3, `the Mike flows to the back's side (${mike.x} -> ${at(before, 'MIKE').x})`);
+    const end = frame(1);
+    assert.ok(at(end, 'MIKE').x < at(before, 'MIKE').x, 'then he turns back after the reverse');
+  });
+});

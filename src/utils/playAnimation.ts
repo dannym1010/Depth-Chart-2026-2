@@ -40,6 +40,10 @@ export interface AnimatedPlayFrame {
   handoffProgress?: number;
   /** Field coordinates of the active handoff spot, if set. */
   handoffAt?: { x: number; y: number };
+  /** A reverse: when (0 to 1) and where the back hands it to the ball carrier, and who the back is. */
+  reverseProgress?: number;
+  reverseAt?: { x: number; y: number };
+  reverseFrom?: string;
   /** Normalized progress [0, 1] where the defensive preset stem/shift finishes before the snap, if active. */
   stemProgress?: number;
   /** Their shift is set and our defense hasn't moved yet (when our defense adjusts to the shift). */
@@ -492,19 +496,73 @@ function frameAt(
 
   // The handoff a coach put on the ball carrier's line: when he gets to that spot (he runs his line at an even pace
   // after the snap), the QB is there and the ball changes hands. None: just after the snap, as before.
-  const handoff = (() => {
-    const st = carrierLine;
-    if (isPassPlay || !st?.handoff || !carrierNode || ballRole === '1' || ballRole === 'QB') return null;
+  // A runner's line after the snap (from where his motion ends), and how far along it (0 to 1) is nearest a spot.
+  const postLine = (role: string) => {
+    const st = roleStroke.get(role);
+    const node = nodes.find((n) => n.role === role);
+    if (!st || !node || st.kind !== 'run' || st.points.length < 2) return null;
     const mIdx = st.motion && st.motion > 0 ? Math.min(st.motion, st.points.length - 1) : 0;
-    const post = mIdx > 0 ? [st.points[mIdx], ...st.points.slice(mIdx + 1)] : [{ x: carrierNode.x, y: carrierNode.y }, ...st.points.slice(1)];
+    const post = mIdx > 0 ? [st.points[mIdx], ...st.points.slice(mIdx + 1)] : [{ x: node.x, y: node.y }, ...st.points.slice(1)];
     if (post.length < 2) return null;
     const lens = post.slice(1).map((q, i) => Math.hypot(q.x - post[i].x, q.y - post[i].y));
     const whole = lens.reduce((a, b) => a + b, 0);
     if (whole < 1e-3) return null;
-    const near = closestOnLine(post, st.handoff);
-    const along = lens.slice(0, near.seg).reduce((a, b) => a + b, 0) + Math.hypot(near.x - post[near.seg].x, near.y - post[near.seg].y);
-    return { at: { x: near.x, y: near.y }, t: Math.max(0.14, Math.min(0.9, along / whole)) };
+    const alongTo = (spot: { x: number; y: number }) => {
+      const near = closestOnLine(post, spot);
+      const along = lens.slice(0, near.seg).reduce((a, b) => a + b, 0) + Math.hypot(near.x - post[near.seg].x, near.y - post[near.seg].y);
+      return { at: { x: near.x, y: near.y }, u: along / whole };
+    };
+    return { st, post, alongTo };
+  };
+  // The handoffs: each runner whose run line has a handoff spot gets the ball there, in the order they get there,
+  // the ball carrier last. One: the QB hands it to him. Two (a reverse): the QB hands it to the first (the back),
+  // who hands it to the ball carrier (the receiver coming around) where the coach put that spot.
+  const handoffs = (() => {
+    if (isPassPlay || !carrierNode || ballRole === '1' || ballRole === 'QB') return [];
+    const out: { role: string; at: { x: number; y: number }; t: number }[] = [];
+    for (const n of nodes) {
+      if (isDefenseRole(n.role) || n.role === '1' || n.role === 'QB' || OL_ROLES.includes(n.role)) continue;
+      const line = postLine(n.role);
+      if (!line?.st.handoff) continue;
+      const { at, u } = line.alongTo(line.st.handoff);
+      out.push({ role: n.role, at, t: Math.max(0.14, Math.min(0.9, u)) });
+    }
+    out.sort((a, b) => a.t - b.t);
+    // The ball ends with the ball carrier: a handoff after his is nobody's (dropped), and the first two count.
+    const mine = out.findIndex((h) => h.role === ballRole);
+    const chain = mine >= 0 ? out.slice(0, mine + 1).slice(-2) : out.slice(0, 1);
+    // The back's spot marked but not the receiver's: the reverse is where the two come closest after it.
+    if (chain.length === 1 && chain[0].role !== ballRole) {
+      const giver = postLine(chain[0].role);
+      const taker = postLine(ballRole);
+      if (!giver || !taker) return [];
+      let best: { t: number; d: number; at: { x: number; y: number } } | null = null;
+      for (let t = chain[0].t + 0.05; t <= 0.9; t += 0.01) {
+        const g = samplePolyline(giver.post, t);
+        const r = samplePolyline(taker.post, t);
+        const d = Math.hypot(g.x - r.x, g.y - r.y);
+        if (!best || d < best.d) best = { t, d, at: { x: r.x, y: r.y } };
+      }
+      if (!best) return [];
+      chain.push({ role: ballRole, at: best.at, t: best.t });
+    }
+    return chain;
   })();
+  // The QB's handoff (to the first runner), and the reverse (the first runner to the ball carrier), if there is one.
+  const handoff = handoffs[0] || null;
+  const reverse = handoffs.length >= 2 ? { giver: handoffs[0].role, at: handoffs[1].at, t: handoffs[1].t } : null;
+  // The back on a reverse runs his line so he's at the reverse spot when the receiver is (he got the ball on time).
+  const reversePace = (() => {
+    if (!reverse || !handoff) return null;
+    const line = postLine(reverse.giver);
+    if (!line) return null;
+    const u1 = handoff.t;
+    const u2 = line.alongTo(reverse.at).u;
+    if (u2 <= u1 + 0.02 || reverse.t <= u1) return null;
+    return (t: number) =>
+      t <= u1 ? t : t <= reverse.t ? u1 + ((u2 - u1) * (t - u1)) / (reverse.t - u1) : u2 + ((1 - u2) * (t - reverse.t)) / Math.max(0.05, 1 - reverse.t);
+  })();
+  const paceOf = (role: string, t: number) => (reversePace && role === reverse?.giver ? reversePace(t) : t);
 
   // The offense: where each player is at a time after the snap (and how far through his pre-snap motion), with the
   // path behind him when asked. Worked out for any time, so our defense can read where the play is going.
@@ -598,7 +656,7 @@ function frameAt(
             continue;
           }
           const postPts = [st.points[mIdx], ...st.points.slice(mIdx + 1)];
-          const postSample = samplePolyline(postPts, postT);
+          const postSample = samplePolyline(postPts, paceOf(n.role, postT));
           if (postSample.traveled.length >= 2) {
             trailsOut?.push({
               role: n.role,
@@ -624,7 +682,7 @@ function frameAt(
             if (total > stepCap) pts = samplePolyline(pts, stepCap / total).traveled;
           }
           // Blockers engage quickly in the first 55% of the play
-          const effectiveT = st.kind === 'block' ? easeOutQuad(Math.min(1, postT * 1.65)) : postT;
+          const effectiveT = st.kind === 'block' ? easeOutQuad(Math.min(1, postT * 1.65)) : paceOf(n.role, postT);
           const sample = samplePolyline(pts, effectiveT);
           if (sample.traveled.length >= 2) {
             trailsOut?.push({
@@ -767,6 +825,11 @@ function frameAt(
     // A handoff spot set: 1 (the QB) brings the ball all the way to `handoff.at`, and when the carrier meets him there it changes hands.
     if (handoff) {
       if (postT < handoff.t) return { x: qbNow.x, y: qbNow.y, inAir: false };
+      // A reverse: the back has it until he hands it to the receiver coming around.
+      if (reverse && postT < reverse.t) {
+        const back = at.get(reverse.giver) || carrierNow;
+        return { x: back.x, y: back.y, inAir: false };
+      }
       return { x: carrierNow.x, y: carrierNow.y, inAir: false };
     }
     // Run play: mesh/handoff from QB to ball carrier between 0.12 and 0.24, then carrier carries it
@@ -781,7 +844,11 @@ function frameAt(
     return { x: carrierNow.x, y: carrierNow.y, inAir: false };
   };
   const ball = ballAt(postSnapT, animatedPos);
-  if (handoff && postSnapT > 0 && postSnapT >= handoff.t - 0.06 && postSnapT <= handoff.t + 0.04) {
+  if (reverse && postSnapT > 0 && postSnapT >= reverse.t - 0.06 && postSnapT <= reverse.t + 0.04) {
+    phaseLabel = 'Reverse handoff';
+  } else if (reverse && postSnapT > handoff!.t + 0.04 && postSnapT < reverse.t) {
+    phaseLabel = 'Back with the ball · reverse coming';
+  } else if (handoff && postSnapT > 0 && postSnapT >= handoff.t - 0.06 && postSnapT <= handoff.t + 0.04) {
     phase = 'snap';
     phaseLabel = 'Handoff';
   } else if (handoff && postSnapT > 0 && postSnapT < handoff.t) {
@@ -874,11 +941,20 @@ function frameAt(
           zones,
           manTargets,
           rules: defenseRules,
-          offenseAt: (t) => offenseAt(t, 1),
+          // A reverse: the ball's path too (the back has it, then the receiver), as '__ball'.
+          offenseAt: (t) => {
+            const at = offenseAt(t, 1);
+            if (reverse) {
+              const b = ballAt(t, at);
+              at.set('__ball', { x: b.x, y: b.y });
+            }
+            return at;
+          },
           pass: isPassPlay,
           carrier: ballRole,
           qb: qbNode.role,
           flight,
+          ...(reverse ? { reverse: { giver: reverse.giver, t: reverse.t } } : {}),
         },
         postSnapT
       );
@@ -1592,6 +1668,7 @@ function frameAt(
       ...(ball.air !== undefined ? { air: Math.round(ball.air * 1000) / 1000 } : {}),
     },
     ...(handoffProgress !== undefined ? { handoffProgress, handoffAt: handoff!.at } : {}),
+    ...(reverse ? { reverseProgress: snapStart + (1 - snapStart) * invEaseInOutSine(reverse.t), reverseAt: reverse.at, reverseFrom: reverse.giver } : {}),
     ...(stemProgress !== undefined ? { stemProgress } : {}),
     ...(adjust ? { shiftSetProgress: stemStart, defenseSetProgress: stemEnd } : {}),
     ...(stuntProgress !== undefined ? { stuntProgress } : {}),

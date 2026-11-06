@@ -821,10 +821,23 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     carrierNode && ballRole !== '1' && ballRole !== 'QB'
       ? strokesProp.findIndex((st) => st.kind === 'run' && st.points.length >= 2 && lineStartsOn(st, carrierNode, nodesProp))
       : -1;
-  const handoffSpot = carrierIdx >= 0 ? strokesProp[carrierIdx].handoff : undefined;
-  /** The closest spot on the carrier's line (after any motion) to where the coach tapped. */
-  const snapToCarrier = (pt: { x: number; y: number }) => {
-    const st = strokesProp[carrierIdx];
+  // Every runner's run line (backs and receivers; not the QB or the line): a handoff spot can go on any of them.
+  // Two (a reverse): the QB hands it to the first, he hands it to the ball carrier.
+  const runnerLines = strokesProp
+    .map((st, i) => ({
+      st,
+      i,
+      node:
+        st.kind === 'run' && st.points.length >= 2
+          ? nodesProp.find((n) => !isDefenseRole(n.role) && n.role !== '1' && n.role !== 'QB' && !['LT', 'LG', 'C', 'RG', 'RT'].includes(n.role) && lineStartsOn(st, n, nodesProp))
+          : undefined,
+    }))
+    .filter((r): r is { st: PlayStroke; i: number; node: PlayNode } => Boolean(r.node));
+  const handoffSpots = runnerLines.filter((r) => r.st.handoff).map((r) => ({ i: r.i, role: r.node.role, at: r.st.handoff! }));
+  const handoffSpot = handoffSpots.length ? handoffSpots[0].at : undefined;
+  /** The closest spot on a line (after any motion) to where the coach tapped. */
+  const snapToLine = (idx: number, pt: { x: number; y: number }) => {
+    const st = strokesProp[idx];
     const m = st.motion && st.motion > 0 ? Math.min(st.motion, st.points.length - 1) : 0;
     const pts = st.points.slice(m);
     let best = { d: Infinity, x: pts[0].x, y: pts[0].y };
@@ -838,19 +851,26 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       const d = Math.hypot(pt.x - x, pt.y - y);
       if (d < best.d) best = { d, x, y };
     }
-    return { x: Math.round(best.x * 100) / 100, y: Math.round(best.y * 100) / 100 };
+    return { x: Math.round(best.x * 100) / 100, y: Math.round(best.y * 100) / 100, d: best.d };
   };
-  const setHandoff = (spot: { x: number; y: number } | undefined) => {
-    if (carrierIdx < 0) return;
+  /** A tap while picking: on the runner's line nearest it, his handoff spot (the ball comes to him there). */
+  const pickHandoffAt = (pt: { x: number; y: number }) => {
+    const best = runnerLines
+      .map((r) => ({ i: r.i, spot: snapToLine(r.i, pt) }))
+      .sort((a, b) => a.spot.d - b.spot.d)[0];
+    if (!best || best.spot.d > 3) return;
+    onStrokes(strokesProp.map((st, i) => (i === best.i ? { ...st, handoff: { x: best.spot.x, y: best.spot.y } } : st)));
+  };
+  /** Clear every handoff spot (the QB hands it off just after the snap again). */
+  const clearHandoffs = () =>
     onStrokes(
-      strokesProp.map((st, i) => {
-        if (i !== carrierIdx) return st;
+      strokesProp.map((st) => {
+        if (!st.handoff) return st;
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { handoff: _was, ...rest } = st;
-        return spot ? { ...rest, handoff: spot } : rest;
+        return rest;
       })
     );
-  };
   useEffect(() => {
     if (carrierIdx < 0) setPickHandoff(false);
   }, [carrierIdx]);
@@ -1194,7 +1214,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   const onPointerDown = (e: React.PointerEvent) => {
     if (pickHandoff && carrierIdx >= 0) {
       e.preventDefault();
-      setHandoff(snapToCarrier(pointFromEvent(e)));
+      pickHandoffAt(pointFromEvent(e));
       setPickHandoff(false);
       return;
     }
@@ -1917,7 +1937,11 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
                 type="button"
                 aria-pressed={pickHandoff}
                 onClick={() => setPickHandoff((v) => !v)}
-                title={pickHandoff ? 'Tap the ball carrier\'s line where the QB hands it off (or click again to stop)' : handoffSpot ? 'Move the handoff: tap a spot on the ball carrier\'s line' : 'Pick where the handoff happens: tap a spot on the ball carrier\'s line'}
+                title={
+                  pickHandoff
+                    ? 'Tap a runner\'s line where he gets the ball (or click again to stop)'
+                    : 'Where the ball changes hands: tap a runner\'s line. A reverse: tap the back\'s line where the QB hands it to him, then Handoff again and the receiver\'s line where the back hands it to him (or leave that one: it\'s where they meet).'
+                }
                 className={`h-7 px-2.5 rounded-lg border text-xs font-black inline-flex items-center gap-1 cursor-pointer shadow-xs transition-colors ${
                   pickHandoff ? 'border-amber-300 bg-amber-600 text-white' : 'border-amber-400/50 bg-slate-900/85 backdrop-blur-sm text-amber-300 hover:bg-amber-600 hover:text-white'
                 }`}
@@ -1927,9 +1951,9 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
               {handoffSpot && !pickHandoff && (
                 <button
                   type="button"
-                  onClick={() => setHandoff(undefined)}
-                  title="Clear the handoff spot (handed off just after the snap)"
-                  aria-label="Clear the handoff spot"
+                  onClick={clearHandoffs}
+                  title="Clear the handoff spots (handed off just after the snap)"
+                  aria-label="Clear the handoff spots"
                   className="h-7 w-6 rounded-lg border border-white/20 bg-slate-900/85 text-[11px] font-black text-slate-300 hover:text-white cursor-pointer"
                 >
                   ✕
@@ -2581,22 +2605,42 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
               const { cx, cy } = fieldToSvg(pt.x, pt.y);
               return <circle key={`v-${j}`} cx={cx} cy={cy} r="6.5" fill="#fff" stroke="#0284c7" strokeWidth="2" style={{ cursor: 'move' }} />;
             })}
-          {handoffSpot && (() => {
-            const p = fieldToSvg(handoffSpot.x, handoffSpot.y);
-            const atExchange =
-              animProgress > 0.002 &&
-              animatedFrame.handoffProgress !== undefined &&
-              Math.abs(animProgress - animatedFrame.handoffProgress) < 0.06;
-            return (
-              <g pointerEvents="none" aria-label="Handoff spot" opacity={animProgress > 0.002 && !atExchange ? 0.72 : 1}>
-                {atExchange && (
-                  <circle cx={p.cx} cy={p.cy} r="14" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeDasharray="3 2" />
-                )}
-                <ellipse cx={p.cx} cy={p.cy} rx="8" ry="5" fill={atExchange ? '#f59e0b' : '#92400e'} stroke="#fff" strokeWidth="1.5" />
-                <line x1={p.cx - 3} y1={p.cy} x2={p.cx + 3} y2={p.cy} stroke="#fff" strokeWidth="1.2" />
-                <text x={p.cx} y={p.cy - 9} textAnchor="middle" fontSize="9" fontWeight="800" fill="#92400e">HANDOFF</text>
-              </g>
-            );
+          {/* The handoffs: the QB's (HANDOFF) and, on a reverse, the back's to the receiver (REVERSE; where they
+              meet when the coach didn't mark it). */}
+          {(() => {
+            const fr = animatedFrame;
+            const spots: { key: string; at: { x: number; y: number }; label: string; when?: number; auto?: boolean }[] = [];
+            if (fr.handoffAt) spots.push({ key: 'h', at: fr.handoffAt, label: 'HANDOFF', when: fr.handoffProgress });
+            if (fr.reverseAt) {
+              const marked = handoffSpots.some((s) => s.role === ballRole);
+              spots.push({ key: 'r', at: fr.reverseAt, label: 'REVERSE', when: fr.reverseProgress, auto: !marked });
+            }
+            // A spot marked that doesn't count (a pass, or after the ball carrier's): still shown where it was put.
+            if (!spots.length && handoffSpot) spots.push({ key: 'h', at: handoffSpot, label: 'HANDOFF' });
+            return spots.map((s) => {
+              const p = fieldToSvg(s.at.x, s.at.y);
+              const atExchange = animProgress > 0.002 && s.when !== undefined && Math.abs(animProgress - s.when) < 0.06;
+              const ink = s.key === 'r' ? '#7c2d12' : '#92400e';
+              return (
+                <g key={s.key} pointerEvents="none" aria-label={`${s.label} spot`} opacity={animProgress > 0.002 && !atExchange ? 0.72 : s.auto ? 0.85 : 1}>
+                  {atExchange && <circle cx={p.cx} cy={p.cy} r="14" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeDasharray="3 2" />}
+                  <ellipse
+                    cx={p.cx}
+                    cy={p.cy}
+                    rx="8"
+                    ry="5"
+                    fill={atExchange ? '#f59e0b' : s.auto ? 'none' : ink}
+                    stroke={s.auto ? ink : '#fff'}
+                    strokeWidth="1.5"
+                    strokeDasharray={s.auto ? '2 2' : undefined}
+                  />
+                  {!s.auto && <line x1={p.cx - 3} y1={p.cy} x2={p.cx + 3} y2={p.cy} stroke="#fff" strokeWidth="1.2" />}
+                  <text x={p.cx} y={p.cy - 9} textAnchor="middle" fontSize="9" fontWeight="800" fill={ink}>
+                    {s.label}
+                  </text>
+                </g>
+              );
+            });
           })()}
           {/* Pursuit Angle Lines for the active coaching checkpoint (and live draft while drawing) */}
           {((!skipNotes && activeCheckpoint) || pursuitDrawMode || editingCheckpointId) && (() => {

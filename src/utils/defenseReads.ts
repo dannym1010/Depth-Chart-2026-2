@@ -119,6 +119,11 @@ export interface PlayRead {
   qb: string;
   /** A pass: who it's thrown to, when it leaves the QB's hand and when it's caught. */
   flight: { to: string; release: number; caught: number } | null;
+  /**
+   * A reverse: the back who gets it first (and hands it to the ball carrier at `t`). The defense reads his action
+   * (flows with him) and chases the ball ('__ball' in `offenseAt`) wherever it goes.
+   */
+  reverse?: { giver: string; t: number };
 }
 
 /** One step of the play (the play is 1). */
@@ -304,9 +309,11 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
     if (!b) return a;
     return { x: a.x + (b.x - a.x) * (f - i), y: a.y + (b.y - a.y) * (f - i) };
   };
-  const carrier = grid[0].has(r.carrier) ? r.carrier : r.qb;
+  // A reverse: what the defense reads is the back's action (he has the ball first); it chases the ball.
+  const fakeBack = r.reverse && grid[0].has(r.reverse.giver) && grid[0].has('__ball') ? r.reverse.giver : null;
+  const carrier = fakeBack || (grid[0].has(r.carrier) ? r.carrier : r.qb);
   // After a catch, the man with the ball is the receiver.
-  const runner = r.pass && r.flight && grid[0].has(r.flight.to) ? r.flight.to : carrier;
+  const runner = fakeBack ? '__ball' : r.pass && r.flight && grid[0].has(r.flight.to) ? r.flight.to : carrier;
 
   // As fast as the ball carrier runs, give or take (a youth play is 11 to 22 yards of running).
   let ran = 0;
@@ -515,7 +522,8 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
     //   2. Lateral Flow at LB Depth (0.10 -> flowUntil)
     //   3. Trigger & Downhill Attack into Assigned Fit (flowUntil -> 1.0)
     // ========================================================================
-    const c = where(carrier, now);
+    // The ball (a reverse: the back, then the receiver he hands it to).
+    const c = where(fakeBack ? runner : carrier, now);
     const flowDir = side || pullDir || Math.sign(c.x - carrierStart.x) || s;
     const playside = side !== 0 ? s === side : s === flowDir;
     const mine = side === 0 || playside;
