@@ -2106,11 +2106,13 @@ const LinesDrawing: React.FC<{
   // Our defense's gaps, the builder's way: the gap's letter in a pill (green filled, red open, amber doubled) and a
   // dashed line from each defender to his gap, laid on the turf; the gap the play attacks is ringed when it's open.
   let gapArt: React.ReactNode = null;
+  // The gaps' letters, drawn over the players (the lanes and lines go under them), so a ring never hides one.
+  let gapPills: React.ReactNode = null;
   // (While the play runs it's given none, except stopped on their shift: the gaps where everyone is then.)
   if (gaps.length && showing(true) && !lineUp) {
     const fade = layerSince === Infinity ? 1 : clamp01((layerSince - 300) / 400);
-    const fs = 10 * k;
-    const th = fs + 6 * k;
+    const fs = 14 * k;
+    const th = fs + 8 * k;
     const tw = th;
     // Only a pill that would sit on its neighbor moves up a row (with a tick down to its gap).
     let lastX = -Infinity;
@@ -2125,37 +2127,58 @@ const LinesDrawing: React.FC<{
         lastLifted = lifted;
         return { slot, cx, gy, lift: lifted ? th + 4 * k : 0 };
       });
+    const colorOf = (slot: GapFitSlot) => (slot.status === 'open' ? '#ef4444' : slot.status === 'overloaded' ? '#f59e0b' : '#22c55e');
+    const dim = (slot: GapFitSlot) => (focus !== null && !slot.defenders.some((d) => d.role === focus) ? 0.25 : 1);
+    // Under the players: each gap a lane on the turf (from just behind their line to our side of it), and a solid line
+    // from each defender who fits it into his gap.
     gapArt = (
       <g pointerEvents="none" opacity={fade}>
-        {placed.map(({ slot, cx, gy, lift }) => {
-          const spot = { x: slot.x, y: slot.y };
-          const isOpen = slot.status === 'open';
-          const isOver = slot.status === 'overloaded';
-          const color = isOpen ? '#dc2626' : isOver ? '#d97706' : '#059669';
-          const text = slot.gap;
-          const cy = gy - lift;
+        {placed.map(({ slot }) => {
+          const color = colorOf(slot);
+          const lane = [
+            { x: slot.x - 0.38, y: -0.6 },
+            { x: slot.x + 0.38, y: -0.6 },
+            { x: slot.x + 0.38, y: 1.1 },
+            { x: slot.x - 0.38, y: 1.1 },
+          ];
+          const laneOk = lane.every(seen);
           return (
-            <g key={slot.id} opacity={focus !== null && !slot.defenders.some((d) => d.role === focus) ? 0.3 : 1}>
+            <g key={slot.id} opacity={dim(slot)}>
+              {laneOk && <path d={polygon(lane.map(px))} fill={color} fillOpacity="0.38" stroke={color} strokeWidth={1.4 * k} strokeOpacity="0.9" />}
               {slot.defenders.map((d, i) => {
                 const from = { x: d.fromX, y: d.fromY };
-                const run = visibleRuns(densify([from, spot], 0.75), proj.depth, proj.near)[0];
+                const run = visibleRuns(densify([from, { x: slot.x, y: 0.9 }], 0.75), proj.depth, proj.near)[0];
                 if (!run || run.length < 2) return null;
                 const path = polyline(run.map(px));
                 return (
                   <g key={`${d.role}${i}`}>
-                    <path d={path} fill="none" stroke="#ffffff" strokeOpacity="0.7" strokeWidth={3.6 * k} strokeLinecap="round" strokeDasharray={`${5 * k} ${4 * k}`} />
-                    <path d={path} fill="none" stroke={color} strokeWidth={2.2 * k} strokeLinecap="round" strokeDasharray={`${5 * k} ${4 * k}`} />
+                    <path d={path} fill="none" stroke="#0f172a" strokeOpacity="0.75" strokeWidth={6 * k} strokeLinecap="round" />
+                    <path d={path} fill="none" stroke="#ffffff" strokeWidth={4.4 * k} strokeLinecap="round" />
+                    <path d={path} fill="none" stroke={color} strokeWidth={2.8 * k} strokeLinecap="round" />
                   </g>
                 );
               })}
-              <path d={shape(circleOnField(spot, 0.32))} fill={color} fillOpacity="0.85" stroke="#ffffff" strokeWidth={1.2 * k} />
-              {lift > 0 && <line x1={cx} y1={gy - 2 * k} x2={cx} y2={cy - 6 * k} stroke={color} strokeWidth={1.6 * k} />}
-              {isOpen && slot.isPointOfAttack && (
-                <rect x={cx - tw / 2 - 3 * k} y={cy - th - 9 * k} width={tw + 6 * k} height={th + 6 * k} rx={6 * k} fill="none" stroke="#ef4444" strokeWidth={2.2 * k} strokeDasharray={`${3 * k} ${2 * k}`} />
+            </g>
+          );
+        })}
+      </g>
+    );
+    // Over the players: the gap's letter, big, on a dark-edged pill at the front of its lane.
+    gapPills = (
+      <g pointerEvents="none" opacity={fade}>
+        {placed.map(({ slot, cx, gy, lift }) => {
+          const color = colorOf(slot);
+          const cy = gy - lift;
+          return (
+            <g key={slot.id} opacity={dim(slot)}>
+              {lift > 0 && <line x1={cx} y1={gy - 2 * k} x2={cx} y2={cy - 6 * k} stroke={color} strokeWidth={2 * k} />}
+              {slot.status === 'open' && slot.isPointOfAttack && (
+                <rect x={cx - tw / 2 - 4 * k} y={cy - th - 10 * k} width={tw + 8 * k} height={th + 8 * k} rx={8 * k} fill="none" stroke="#ef4444" strokeWidth={2.6 * k} strokeDasharray={`${3 * k} ${2 * k}`} />
               )}
-              <rect x={cx - tw / 2} y={cy - th - 6 * k} width={tw} height={th} rx={th / 2} fill={color} stroke="#ffffff" strokeWidth={1.2 * k} />
-              <text x={cx} y={cy - th / 2 - 6 * k + fs * 0.36} textAnchor="middle" fill="#ffffff" fontSize={fs} fontWeight={900} fontFamily={FONT}>
-                {text}
+              <rect x={cx - tw / 2} y={cy - th - 6 * k} width={tw} height={th} rx={th / 2} fill={color} stroke="#0f172a" strokeWidth={3.4 * k} />
+              <rect x={cx - tw / 2} y={cy - th - 6 * k} width={tw} height={th} rx={th / 2} fill="none" stroke="#ffffff" strokeWidth={1.6 * k} />
+              <text x={cx} y={cy - th / 2 - 6 * k + fs * 0.36} textAnchor="middle" fill="#ffffff" stroke="#0f172a" strokeWidth={2.4 * k} paintOrder="stroke" fontSize={fs} fontWeight={900} fontFamily={FONT}>
+                {slot.gap}
               </text>
             </g>
           );
@@ -2310,6 +2333,7 @@ const LinesDrawing: React.FC<{
           <g pointerEvents="none">{trails}</g>
           {gapArt}
           {shownNodes.map(playerArt)}
+          {gapPills}
           {ballArt}
           {lineUp && (() => {
             const offSpot: Pt = {
