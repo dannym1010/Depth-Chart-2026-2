@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   addToReel, autoTitle, categoriesOf, chapters, defaultSettings, editHighlight, emptyHighlights, extraPlace, gameOrder, highlightFromExtra,
   highlightFromPlay, highlightSegments, kidCoverage, kidLabel, mergeHighlights, newReel, opponentOf, orderedHighlights, reelTimeline, removeHighlights,
-  seasonOf, segmentSeconds, setSettings, snapWindow, statLines, suggestFromPlays, timelineSeconds,
+  reasonsFor, recommendPlays, seasonOf, segmentSeconds, setSettings, snapWindow, statLines, suggestFromPlays, timelineSeconds,
 } from './highlightData.ts';
 import { buildPlan, fileUrl, joinPath, toCsv, toEdl, toFcpxml, toOtio, toXmeml } from './exporters.ts';
 import type { Highlight } from './types.ts';
@@ -40,6 +40,40 @@ describe('highlights from plays', () => {
     assert.deepEqual(suggestFromPlays(plays, new Set()).map((x) => x.play.id), ['p2', 'p4', 'p1']);
     assert.deepEqual(suggestFromPlays(plays, new Set(['p2'])).map((x) => x.play.id), ['p4', 'p1']);
     assert.deepEqual(suggestFromPlays(plays, new Set(), 10).length, 3);
+  });
+
+  it('recommends every kind of moment, with why', () => {
+    const labels = (p: any) => reasonsFor(p).map((r) => `${r.group}:${r.label}`);
+    assert.deepEqual(labels(play(1, { gainLoss: 45, result: 'Rush, TD' })), ['scores:Touchdown', 'big:45-yd run']);
+    assert.deepEqual(labels(play(2, { odk: 'D', gainLoss: -3, defPlay: { maker: '#52' } })), ['backfield:TFL (-3)']);
+    assert.deepEqual(labels(play(3, { odk: 'D', down: 4, distance: 2, gainLoss: 1, defPlay: { maker: '#52' } })), ['downs:4th-down stop']);
+    assert.deepEqual(labels(play(4, { down: 3, distance: 4, gainLoss: 6 })), ['downs:3rd-down conversion']);
+    assert.deepEqual(labels(play(5, { result: '2 pt conversion good', gainLoss: 3 })), ['scores:2-pt try good']);
+    assert.deepEqual(labels(play(6, { odk: 'D', gainLoss: 0, defPlay: { maker: '#7', events: ['int'] } })), ['turnovers:Interception']);
+    assert.deepEqual(labels(play(7, { odk: 'D', gainLoss: -6, defPlay: { maker: '#52', events: ['sack'] } })), ['backfield:Sack (-6)']);
+    assert.deepEqual(labels(play(8, { gainLoss: 4 })), []);
+    // Titled by the stop, not their yards.
+    assert.equal(autoTitle(play(3, { odk: 'D', down: 4, distance: 2, gainLoss: 1, defPlay: { maker: '#52' } })), '4th-down stop');
+    assert.equal(autoTitle(play(2, { odk: 'D', gainLoss: -3, defPlay: { maker: '#52' } })), 'Tackle for loss');
+    assert.equal(autoTitle(play(5, { result: '2 pt conversion good', gainLoss: 3 })), '2-pt conversion');
+    // Their long gain isn't ours.
+    assert.deepEqual(labels(play(9, { odk: 'D', gainLoss: 30 })), []);
+  });
+
+  it('ranks touchdowns first and helps the kids short of clips', () => {
+    const plays = [
+      play(1, { gainLoss: 6, rusher: '#21' }),
+      play(2, { gainLoss: 60, result: 'Rush, TD', rusher: '#7' }),
+      play(3, { odk: 'D', gainLoss: -2, defPlay: { maker: '#52' } }),
+      play(4, { gainLoss: 2, rusher: '#21' }),
+    ];
+    assert.deepEqual(recommendPlays(plays, new Set()).map((r) => r.play.id), ['p2', 'p3']);
+    // #21 has no clips yet (3 wanted): his 6-yard run is recommended, not his 2-yarder.
+    const kidCounts = new Map([['7', 4], ['52', 3]]);
+    const recs = recommendPlays(plays, new Set(['p2']), { kidCounts, minPerKid: 3 });
+    assert.deepEqual(recs.map((r) => r.play.id), ['p3', 'p1']);
+    assert.deepEqual(recs[1].groups, ['kids']);
+    assert.equal(recs[1].reasons[0].label, '#21 needs clips (0 of 3)');
   });
 
   it('trims around the snap, inside the clip', () => {

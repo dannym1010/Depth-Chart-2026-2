@@ -13,7 +13,7 @@ import { ClipEditor, CATEGORY_LABEL } from './ClipEditor';
 import { clipLength, lineUp, type AccessState, type FilmAccess } from './filmAccess';
 import {
   addHighlights, addToReel, editHighlight, editReel, extraPlace, gameOrder, highlightFromExtra, highlightFromPlay, kidCoverage, kidHighlights, kidLabel, kidsText,
-  mergeHighlights, newReel, removeHighlights, removeReel, seasonPicks, snapWindow, suggestFromPlays, clock, reelsFor, type Kid,
+  mergeHighlights, newReel, recommendPlays, REC_GROUPS, removeHighlights, removeReel, seasonPicks, snapWindow, clock, reelsFor, type Kid, type RecGroup,
 } from './highlightData';
 import { ReelEditor } from './ReelEditor';
 import { AUTO_JSON_KEY, SettingsPanel } from './SettingsPanel';
@@ -38,6 +38,16 @@ export interface HighlightsViewProps {
 }
 
 type Tab = 'clips' | 'reels' | 'kids' | 'settings';
+/** Each kind of recommended play's color (its chip and its badges). */
+const REC_COLOR: Record<RecGroup, string> = {
+  scores: '#dc2626',
+  turnovers: '#7c3aed',
+  backfield: '#ea580c',
+  big: '#2563eb',
+  downs: '#0d9488',
+  specials: '#ca8a04',
+  kids: '#db2777',
+};
 type ClipsView = 'kept' | 'suggested' | 'extras';
 
 export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season, store, access, loadShared, games, plays, roster, me, myName }) => {
@@ -170,9 +180,34 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
 
   // Suggestions and extras, one game at a time.
   const [sGame, setSGame] = useState('');
+  // Recommended: one game, or every game of the season ('*').
+  const everyGame = sGame === '*' && clipsView === 'suggested';
   const game = sortedGames.find((g) => g.key === sGame) || sortedGames[sortedGames.length - 1];
-  const takenPlays = useMemo(() => new Set(data.highlights.filter((h) => h.game.key === game?.key && h.playId).map((h) => h.playId!)), [data.highlights, game?.key]);
-  const suggestions = useMemo(() => (game ? suggestFromPlays(playsOf(game), takenPlays, settings.bigGain) : []), [game, playsOf, takenPlays, settings.bigGain]);
+  const [recGroup, setRecGroup] = useState<RecGroup | ''>('');
+  // How many clips each kid is in already (the banquet's "every kid in N"): kids short of it get their plays recommended.
+  const kidCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const h of data.highlights) for (const k of h.kids) m.set(String(Number(k)), (m.get(String(Number(k))) || 0) + 1);
+    return m;
+  }, [data.highlights]);
+  const recommendations = useMemo(() => {
+    const list = everyGame ? sortedGames : game ? [game] : [];
+    return list.flatMap((g) => {
+      const taken = new Set(data.highlights.filter((h) => h.game.key === g.key && h.playId).map((h) => h.playId!));
+      return recommendPlays(playsOf(g), taken, { bigGain: settings.bigGain, kidCounts, minPerKid: settings.minPerKid }).map((r) => ({ ...r, game: g }));
+    }).sort((a, b) => b.weight - a.weight);
+  }, [everyGame, sortedGames, game, data.highlights, playsOf, settings.bigGain, settings.minPerKid, kidCounts]);
+  const recShown = recGroup ? recommendations.filter((r) => r.groups.includes(recGroup)) : recommendations;
+  /** Keep recommended plays, a game at a time. */
+  const keepRecs = async (list: typeof recommendations) => {
+    const byGame = new Map<string, { g: HighlightGame; plays: Play[] }>();
+    for (const r of list) {
+      const e = byGame.get(r.game.key) || { g: r.game, plays: [] };
+      e.plays.push(r.play);
+      byGame.set(r.game.key, e);
+    }
+    for (const { g, plays: ps } of byGame.values()) await keepPlays(g, ps);
+  };
   const [extras, setExtras] = useState<{ view: string; name: string; len?: number; seq: number; where: string; marked: boolean }[] | null>(null);
   useEffect(() => {
     if (tab !== 'clips' || clipsView !== 'extras' || !game) return;
@@ -312,10 +347,18 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
             <div className="flex flex-wrap items-center gap-2">
               <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden" role="group" aria-label="Clips">
                 {sub('kept', `Kept (${data.highlights.length})`)}
-                {sub('suggested', 'Suggested')}
+                {sub('suggested', 'Recommended')}
                 {sub('extras', 'Field extras')}
               </div>
-              {clipsView !== 'kept' && gameSelect(game?.key || '', setSGame)}
+              {clipsView === 'extras' && gameSelect(game?.key || '', setSGame)}
+              {clipsView === 'suggested' && (
+                <select value={everyGame ? '*' : game?.key || ''} onChange={(e) => setSGame(e.target.value)} className={sel} aria-label="Game">
+                  <option value="*">Every game this season</option>
+                  {sortedGames.map((g) => (
+                    <option key={g.key} value={g.key}>{g.name}</option>
+                  ))}
+                </select>
+              )}
             </div>
 
             {clipsView === 'kept' && (
@@ -446,39 +489,81 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
               </>
             )}
 
-            {clipsView === 'suggested' && game && (
+            {clipsView === 'suggested' && (everyGame || game) && (
               <>
+                {/* What kind: every recommendation, or one kind (TDs, turnovers, sacks & TFLs...), with how many. */}
+                <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Kind of play">
+                  <button
+                    type="button"
+                    aria-pressed={!recGroup}
+                    onClick={() => setRecGroup('')}
+                    className={`h-7 px-2.5 rounded-full text-[11px] font-bold border ${!recGroup ? 'bg-slate-900 text-white border-slate-900 dark:bg-white dark:text-slate-900 dark:border-white' : 'border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300'}`}
+                  >
+                    All {recommendations.length}
+                  </button>
+                  {REC_GROUPS.map((g) => {
+                    const n = recommendations.filter((r) => r.groups.includes(g.id)).length;
+                    if (!n && recGroup !== g.id) return null;
+                    const on = recGroup === g.id;
+                    return (
+                      <button
+                        key={g.id}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => setRecGroup(on ? '' : g.id)}
+                        title={g.hint}
+                        className={`h-7 px-2.5 rounded-full text-[11px] font-bold border inline-flex items-center gap-1 ${on ? 'text-white border-transparent' : 'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200'}`}
+                        style={on ? { background: REC_COLOR[g.id] } : undefined}
+                      >
+                        <span className="w-2 h-2 rounded-full" style={{ background: on ? '#fff' : REC_COLOR[g.id] }} aria-hidden="true" />
+                        {g.label} {n}
+                      </button>
+                    );
+                  })}
+                </div>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                   <span>
-                    {suggestions.length} play{suggestions.length === 1 ? '' : 's'} from the breakdown: touchdowns, turnovers, sacks, gains of {settings.bigGain}+ yards.
+                    {recShown.length} play{recShown.length === 1 ? '' : 's'} from the breakdown, best first
+                    {recGroup ? ` · ${REC_GROUPS.find((g) => g.id === recGroup)?.hint}` : ` · big gains are ${settings.bigGain}+ yards`}.
                   </span>
-                  {!ro && suggestions.length > 0 && (
-                    <button type="button" onClick={() => void keepPlays(game, suggestions.map((s) => s.play))} className="h-7 px-3 rounded-lg bg-indigo-600 text-white font-bold inline-flex items-center gap-1">
-                      <Wand2 size={12} /> Keep all {suggestions.length}
+                  {!ro && recShown.length > 0 && (
+                    <button type="button" onClick={() => void keepRecs(recShown)} className="h-7 px-3 rounded-lg bg-indigo-600 text-white font-bold inline-flex items-center gap-1">
+                      <Wand2 size={12} /> Keep all {recShown.length}
                     </button>
                   )}
                 </div>
                 <ul className="flex flex-col divide-y divide-slate-100 dark:divide-slate-800 max-h-[62vh] overflow-auto">
-                  {suggestions.map((s) => (
-                    <li key={s.play.id} className="flex items-center gap-2 py-1.5">
+                  {recShown.map((r) => (
+                    <li key={`${r.game.key}/${r.play.id}`} className="flex items-center gap-2 py-1.5">
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
-                          #{s.play.playNumber} · {s.title}
+                          #{r.play.playNumber} · {r.title}
                         </span>
-                        <span className="block text-[11px] text-slate-500 truncate">
-                          {s.categories.map((c) => CATEGORY_LABEL[c]).join(', ')}
-                          {s.kids.length ? ` · ${kidsText(s.kids, roster, 'first')}` : ''}
-                          {s.play.quarter ? ` · Q${s.play.quarter}` : ''}
+                        <span className="flex flex-wrap items-center gap-1 mt-0.5">
+                          {r.reasons.map((x, i) => (
+                            <span key={i} className="px-1.5 py-px rounded-md text-[10px] font-black text-white" style={{ background: REC_COLOR[x.group] }}>
+                              {x.label}
+                            </span>
+                          ))}
+                          <span className="text-[11px] text-slate-500 truncate">
+                            {r.kids.length ? kidsText(r.kids, roster, 'first') : ''}
+                            {r.play.quarter ? `${r.kids.length ? ' · ' : ''}Q${r.play.quarter}` : ''}
+                            {everyGame ? ` · ${r.game.name}` : ''}
+                          </span>
                         </span>
                       </span>
                       {!ro && (
-                        <button type="button" onClick={() => void keepPlays(game, [s.play])} className="h-7 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold">
+                        <button type="button" onClick={() => void keepPlays(r.game, [r.play])} className="h-7 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold">
                           Keep
                         </button>
                       )}
                     </li>
                   ))}
-                  {!suggestions.length && <li className="py-6 text-center text-sm text-slate-500">No big plays left to suggest in this game (or its breakdown isn't filled in yet).</li>}
+                  {!recShown.length && (
+                    <li className="py-6 text-center text-sm text-slate-500">
+                      {recommendations.length ? 'None of that kind left.' : 'Nothing left to recommend here (or the breakdown isn’t filled in yet: results, down and distance, who made the play).'}
+                    </li>
+                  )}
                 </ul>
               </>
             )}

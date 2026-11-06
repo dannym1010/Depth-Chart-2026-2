@@ -123,6 +123,8 @@ export function categoriesOf(p: Play, bigGain = 15): HighlightCategory[] {
     else if (e === 'tfl') out.push('tfl');
     else if (e === 'pbu') out.push('pbu');
   }
+  // Our defense stopping them behind the line (a tackler named), even when the TFL box wasn't ticked.
+  if (p.odk === 'D' && gain < 0 && (p.defPlay?.maker || p.defPlay?.events?.length) && !out.includes('sack')) out.push('tfl');
   if (isKick(p)) {
     if (gain >= bigGain || scored(p)) out.push('kick');
   } else if (p.odk === 'O' || p.odk === 'UNKNOWN') {
@@ -149,6 +151,14 @@ export function autoTitle(p: Play): string {
   if (cats.includes('tfl')) return 'Tackle for loss';
   if (cats.includes('pbu')) return 'Pass breakup';
   if (isKick(p)) return gain > 0 ? `${yds(gain)} return` : 'Kick';
+  if (pointTry(p) && tryGood(p) && p.odk !== 'D') return '2-pt conversion';
+  // Our defense: the yards are theirs, so the stop is the story.
+  if (p.odk === 'D') {
+    const down = Number(p.down) || 0;
+    if (pointTry(p)) return 'Stopped the 2-pt try';
+    if ((down === 3 || down === 4) && gain < (Number(p.distance) || 0)) return `${down === 4 ? '4th' : '3rd'}-down stop`;
+    return p.defPlay?.maker ? 'Tackle' : p.playName || 'Defense';
+  }
   if (gain > 0) return `${yds(gain)} ${isPass(p) && completed(p) ? 'catch' : isPass(p) ? 'pass' : 'run'}`;
   return p.playName || 'Big play';
 }
@@ -174,6 +184,119 @@ export function suggestFromPlays(plays: Play[], taken: Set<string>, bigGain = 15
     })
     .filter((s) => s.categories.length)
     .sort((a, b) => b.weight - a.weight || a.play.playNumber - b.play.playNumber);
+}
+
+// ---- Recommended plays: every kind of moment worth a highlight, with why ----
+
+/** The kinds of moments, as the coach filters them. */
+export type RecGroup = 'scores' | 'turnovers' | 'backfield' | 'big' | 'downs' | 'specials' | 'kids';
+export const REC_GROUPS: { id: RecGroup; label: string; hint: string }[] = [
+  { id: 'scores', label: 'TDs & points', hint: 'Touchdowns, 2-point tries, safeties' },
+  { id: 'turnovers', label: 'Turnovers', hint: 'Interceptions, forced fumbles, recoveries, pass breakups' },
+  { id: 'backfield', label: 'Sacks & TFLs', hint: 'Sacks and tackles for a loss' },
+  { id: 'big', label: 'Big gains', hint: 'Long runs and catches' },
+  { id: 'downs', label: 'Big downs', hint: '3rd and 4th down: converted on offense, stopped on defense' },
+  { id: 'specials', label: 'Kicks & returns', hint: 'Long returns and kick scores' },
+  { id: 'kids', label: 'Kids who need clips', hint: 'Their best plays, for kids with fewer clips than the banquet asks for' },
+];
+
+export interface RecReason {
+  group: RecGroup;
+  /** "4th-down stop", "TFL (-3)", "#21 needs clips (1 of 3)". */
+  label: string;
+  weight: number;
+}
+
+export interface Recommendation extends Suggestion {
+  reasons: RecReason[];
+  groups: RecGroup[];
+}
+
+const pointTry = (p: Play) => /\b(2|two)[- ]?(pt|point)s?\b|\bconversion\b|\bpat\b|\bxp\b|extra point/i.test(`${p.result || ''} ${p.playName || ''} ${p.rawPlayType || ''}`);
+const tryGood = (p: Play) => /\bgood\b|\bsuccess|\bscore|\btd\b|touchdown|\bmade\b/i.test(String(p.result || ''));
+
+/** Why a play is worth a highlight (none: it isn't). */
+export function reasonsFor(p: Play, bigGain = 15): RecReason[] {
+  const out: RecReason[] = [];
+  const add = (group: RecGroup, label: string, weight: number) => out.push({ group, label, weight });
+  const gain = Number(p.gainLoss) || 0;
+  const ev = p.defPlay?.events || [];
+  const offense = p.odk === 'O' || p.odk === 'UNKNOWN';
+  const defense = p.odk === 'D';
+  const result = String(p.result || '');
+
+  // Points.
+  if (pointTry(p) && (scored(p) || tryGood(p)) && !defense) add('scores', '2-pt try good', 6);
+  else if (scored(p)) add('scores', isKick(p) ? 'Return TD' : ev.includes('int') ? 'Pick-six' : ev.includes('fr') ? 'Scoop & score' : 'Touchdown', 10);
+  if (/\bsafety\b/i.test(result)) add('scores', 'Safety', 8);
+  if (defense && pointTry(p) && !tryGood(p)) add('downs', 'Stopped the try', 5);
+
+  // Turnovers and breakups (our defense).
+  if (ev.includes('int')) add('turnovers', 'Interception', 8);
+  if (ev.includes('ff')) add('turnovers', 'Forced fumble', 7);
+  if (ev.includes('fr')) add('turnovers', 'Fumble recovery', 7);
+  if (ev.includes('pbu')) add('turnovers', 'Pass breakup', 3);
+
+  // Behind the line.
+  if (ev.includes('sack')) add('backfield', gain < 0 ? `Sack (${gain})` : 'Sack', 6);
+  else if (ev.includes('tfl') || (defense && gain < 0 && (p.defPlay?.maker || ev.length))) add('backfield', `TFL${gain < 0 ? ` (${gain})` : ''}`, 4 + Math.min(3, -gain / 3));
+
+  // Big gains (ours).
+  if (isKick(p)) {
+    if (gain >= bigGain && !scored(p)) add('specials', `${yds(gain)} return`, 4 + gain / 20);
+  } else if (offense && (gain >= bigGain || p.isExplosive) && gain > 0) {
+    add('big', `${yds(gain)} ${isPass(p) && completed(p) ? 'catch' : isPass(p) ? 'pass' : 'run'}`, 4 + gain / 20);
+  }
+
+  // Big downs: 3rd and 4th down, moved the chains on offense, held on defense.
+  const down = Number(p.down) || 0;
+  const togo = Number(p.distance) || 0;
+  if ((down === 3 || down === 4) && togo > 0 && !isKick(p) && !pointTry(p)) {
+    if (offense && (gain >= togo || scored(p))) add('downs', `${down === 4 ? '4th' : '3rd'}-down conversion`, down === 4 ? 6 : 2.5);
+    if (defense && gain < togo && !scored(p) && (p.defPlay?.maker || ev.length || gain <= 0)) add('downs', `${down === 4 ? '4th' : '3rd'}-down stop`, down === 4 ? 6 : 2.5);
+  }
+  return out;
+}
+
+/**
+ * Every play of a game (or the season) worth a highlight, best first, with why: touchdowns and 2-point tries,
+ * turnovers, sacks and TFLs, big gains, 3rd and 4th downs, returns. Plays already kept are left out. With the kids'
+ * clip counts, a kid short of the banquet's number gets his best plays recommended too (and they rank higher).
+ */
+export function recommendPlays(
+  plays: Play[],
+  taken: Set<string>,
+  opts: { bigGain?: number; kidCounts?: Map<string, number>; minPerKid?: number } = {}
+): Recommendation[] {
+  const bigGain = opts.bigGain ?? 15;
+  const need = opts.minPerKid ?? 0;
+  const short = (k: string) => opts.kidCounts && need > 0 && (opts.kidCounts.get(String(Number(k))) || 0) < need;
+  const out: Recommendation[] = [];
+  for (const p of plays) {
+    if (p.odk === 'S' || taken.has(p.id)) continue;
+    const reasons = reasonsFor(p, bigGain);
+    const kids = kidsOnPlay(p);
+    // A kid who needs clips: his solid plays count too (a tackle, a good run or catch), not only the big ones.
+    const gain = Number(p.gainLoss) || 0;
+    const solid = reasons.length > 0 || (p.odk === 'D' ? Boolean(p.defPlay?.maker) && gain <= 3 : gain >= 5);
+    const needy = solid ? kids.filter(short) : [];
+    if (needy.length === 1) {
+      const have = opts.kidCounts?.get(String(Number(needy[0]))) || 0;
+      reasons.push({ group: 'kids', label: `#${Number(needy[0])} needs clips (${have} of ${need})`, weight: 3 });
+    } else if (needy.length > 1) reasons.push({ group: 'kids', label: `Needs clips: ${needy.map((k) => `#${Number(k)}`).join(', ')}`, weight: 3 + needy.length });
+    if (!reasons.length) continue;
+    const groups = [...new Set(reasons.map((r) => r.group))];
+    out.push({
+      play: p,
+      categories: categoriesOf(p, bigGain),
+      kids,
+      title: autoTitle(p),
+      weight: reasons.reduce((n, r) => n + r.weight, 0),
+      reasons,
+      groups,
+    });
+  }
+  return out.sort((a, b) => b.weight - a.weight || a.play.playNumber - b.play.playNumber);
 }
 
 /** A highlight made from a play, trimmed around its snap when the snap is known (else the whole clip). */
