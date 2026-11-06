@@ -1932,9 +1932,8 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
                 const isOpen = slot.status === 'open';
                 const isOver = slot.status === 'overloaded';
                 const color = isOpen ? '#dc2626' : isOver ? '#d97706' : '#059669';
-                const who = slot.defenders.map((d) => diagramLabel(d.role)).join('+');
-                const pillText = isOpen ? `⚠ ${slot.gap} OPEN` : isOver ? `2× ${slot.gap}:${who}` : `✓ ${slot.gap}:${who}`;
-                const pw = Math.max(38, pillText.length * 5.3 + 10);
+                const pillText = slot.gap;
+                const pw = 18;
                 return (
                   <g key={slot.id}>
                     {slot.defenders.map((d, idx) => {
@@ -1971,17 +1970,17 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
                       y={cy - 9.5}
                       width={pw}
                       height={17}
-                      rx={5}
+                      rx={8.5}
                       fill={color}
                       stroke="#ffffff"
                       strokeWidth={1.4}
                     />
                     <text
                       x={cx}
-                      y={cy + 2.5}
+                      y={cy + 3}
                       textAnchor="middle"
                       fill="#ffffff"
-                      fontSize="8.5"
+                      fontSize="10"
                       fontWeight="900"
                     >
                       {pillText}

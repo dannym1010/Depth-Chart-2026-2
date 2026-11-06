@@ -10,8 +10,8 @@ export const PRESSURES: { id: string; label: string; short: string; group: 'Blit
   { id: 'edge_l', label: 'Edge fire left', short: 'Edge L', group: 'Blitz' },
   { id: 'edge_r', label: 'Edge fire right', short: 'Edge R', group: 'Blitz' },
   { id: 'edge_both', label: 'Edge fire both', short: 'Edge both', group: 'Blitz' },
-  { id: 'blow_sting', label: 'Blow Sting D: Sam & Rover blitz the D gap, the end on each side takes C', short: 'Blow Sting D', group: 'Blitz' },
-  { id: 'blow_sting_c', label: 'Blow Sting C: Sam & Rover blitz the C gap, the end on each side takes D', short: 'Blow Sting C', group: 'Blitz' },
+  { id: 'blow_sting', label: 'Blow Sting D: both DEs, Sam & Rover blitz (Sam & Rover the D gap, the DEs C)', short: 'Blow Sting D', group: 'Blitz' },
+  { id: 'blow_sting_c', label: 'Blow Sting C: both DEs, Sam & Rover blitz (Sam & Rover the C gap, the DEs D)', short: 'Blow Sting C', group: 'Blitz' },
   { id: 'sting_strong_d', label: 'Strong Blow Sting D: the strong-side backer blitzes D, the end takes C', short: 'Sting Strong D', group: 'Blitz' },
   { id: 'sting_strong_c', label: 'Strong Blow Sting C: the strong-side backer blitzes C, the end takes D', short: 'Sting Strong C', group: 'Blitz' },
   { id: 'sting_weak_d', label: 'Weak Blow Sting D: the weak-side backer blitzes D, the end takes C', short: 'Sting Weak D', group: 'Blitz' },
@@ -25,8 +25,7 @@ export const PRESSURES: { id: string; label: string; short: string; group: 'Blit
   { id: 'slant_r', label: 'Slant right (whole line)', short: 'Slant R', group: 'Stunt' },
   { id: 'pinch', label: 'Pinch (line crashes inside)', short: 'Pinch', group: 'Stunt' },
   { id: 'fan', label: 'Fan (line slants outside)', short: 'Fan', group: 'Stunt' },
-  { id: 'cross_tt', label: 'Cross LIZ: left tackle goes first, right tackle loops behind', short: 'Cross LIZ', group: 'Stunt' },
-  { id: 'cross_tt_r', label: 'Cross RIP: right tackle goes first, left tackle loops behind', short: 'Cross RIP', group: 'Stunt' },
+  { id: 'cross_tt', label: 'Cross (strong side): the nose goes first to the B gap, the 3-tech loops behind him to A', short: 'Cross', group: 'Stunt' },
   { id: 'cross_et_l', label: 'E-T cross left (end in, tackle loops out)', short: 'E-T cross L', group: 'Stunt' },
   { id: 'cross_et_r', label: 'E-T cross right (end in, tackle loops out)', short: 'E-T cross R', group: 'Stunt' },
   { id: 'twist_l', label: 'E-T twist left (tackle out, end loops in)', short: 'Twist L', group: 'Stunt' },
@@ -34,8 +33,10 @@ export const PRESSURES: { id: string; label: string; short: string; group: 'Blit
 ];
 
 /** A call's blitz and stunt (either can be blank): "edge_l+cross_tt". */
+/** Calls saved under an old name: the one call they are now. */
+const OLD_PRESSURE: Record<string, string> = { cross_tt_r: 'cross_tt' };
 export const pressureParts = (pressure?: string) => {
-  const ids = String(pressure || '').split('+').filter(Boolean);
+  const ids = String(pressure || '').split('+').filter(Boolean).map((id) => OLD_PRESSURE[id] || id);
   const group = (g: 'Blitz' | 'Stunt') => ids.find((id) => PRESSURES.find((p) => p.id === id)?.group === g) || '';
   return { blitz: group('Blitz'), stunt: group('Stunt') };
 };
@@ -46,8 +47,6 @@ const MIRROR_PRESSURE: Record<string, string> = {
   edge_r: 'edge_l',
   slant_l: 'slant_r',
   slant_r: 'slant_l',
-  cross_tt: 'cross_tt_r',
-  cross_tt_r: 'cross_tt',
   cross_et_l: 'cross_et_r',
   cross_et_r: 'cross_et_l',
   twist_l: 'twist_r',
@@ -263,12 +262,14 @@ function pressurePaths(id: string, def: PlayNode[], off: PlayNode[]): { strokes:
       const own = blitzers.filter(onSide).sort(outer);
       blitzers = own.length ? own.slice(0, 1) : lbs.filter(onSide).sort(outer).slice(0, 1);
     }
+    // Blow Sting (both sides) sends both ends too, even on a side where neither Sam nor Rover lines up: that
+    // end runs the other gap like the rest.
     const usedEnds = new Set<string>();
     for (const side of (only ? [only] : ['left', 'right']) as ('left' | 'right')[]) {
       const mine = blitzers.filter((n) => (side === 'left' ? n.x < g.C : n.x >= g.C)).sort((a, b) => (side === 'left' ? a.x - b.x : b.x - a.x));
-      if (!mine.length) continue;
+      if (!mine.length && only) continue;
       const end = line.filter((n) => (side === 'left' ? n.x < g.C : n.x >= g.C) && !usedEnds.has(n.role)).sort((a, b) => (side === 'left' ? a.x - b.x : b.x - a.x))[0];
-      add(rush(mine[0], g[side][called], `Sting ${called} gap`), mine[0].role);
+      if (mine[0]) add(rush(mine[0], g[side][called], `Sting ${called} gap`), mine[0].role);
       if (mine[1]) add(rush(mine[1], g[side][other], `Sting ${other} gap`), mine[1].role);
       if (end) {
         usedEnds.add(end.role);
@@ -317,16 +318,26 @@ function pressurePaths(id: string, def: PlayNode[], off: PlayNode[]): { strokes:
     }
   }
   if (id === 'cross_tt' || id === 'cross_tt_r') {
-    // The two tackles nearest the ball trade A gaps. LIZ: the left one goes first and the right one loops
-    // behind him; RIP: the right one goes first.
-    const tackles = [...line].sort((a, b) => Math.abs(a.x - g.C) - Math.abs(b.x - g.C)).slice(0, 2).sort((a, b) => a.x - b.x);
-    if (tackles.length === 2) {
-      const [l, r] = tackles;
-      const rip = id === 'cross_tt_r';
-      const first = rip ? r : l;
-      const second = rip ? l : r;
-      add({ kind: 'run', color: BLITZ_COLOR, label: 'Cross: go first', points: [pt(first.x, first.y), pt(rip ? g.left.A : g.right.A, -1.4)] }, first.role);
-      add({ kind: 'run', color: BLITZ_COLOR, label: 'Cross: loop behind', points: [pt(second.x, second.y), pt(g.C, second.y + 1), pt(rip ? g.right.A : g.left.A, -1.4)] }, second.role);
+    // Strong side cross (the old LIZ / RIP picks are the same call): the nose (the tackle nearest the ball)
+    // goes first, across the 3-tech's face into the strong B gap; the 3-tech loops behind him into the
+    // strong A gap. Strong side = the 3-tech's side (the front's strength); with a tackle on each side
+    // (a 5-man front), their strength picks him.
+    const tackles = line.filter((n) => !/^D?E/i.test(n.role)).sort((a, b) => Math.abs(a.x - g.C) - Math.abs(b.x - g.C));
+    const nose = tackles[0];
+    const others = tackles.slice(1);
+    const sideOf = (n: PlayNode): 'left' | 'right' => (n.x < g.C ? 'left' : 'right');
+    const strength = strongSide(off, g.C);
+    const sides = new Set(others.map(sideOf));
+    const dt = sides.size === 1 ? others[0] : others.find((n) => sideOf(n) === strength) || others[0];
+    if (nose && dt) {
+      const side = sideOf(dt);
+      add({ kind: 'run', color: BLITZ_COLOR, label: 'Cross: nose goes first', points: [pt(nose.x, nose.y), pt(g[side].B, -1.4)] }, nose.role);
+      add({
+        kind: 'run',
+        color: BLITZ_COLOR,
+        label: 'Cross: loop behind',
+        points: [pt(dt.x, dt.y), pt((dt.x + g[side].A) / 2, dt.y + 1), pt(g[side].A, -1.4)],
+      }, dt.role);
     }
   }
   if (id === 'twist_l' || id === 'twist_r') {
@@ -585,6 +596,6 @@ export function defenseCallStrokes(
 
 /** "4-4 · Edge fire left · Cover 3" */
 export function defenseCallName(front: string, pressure?: string, coverage?: string): string {
-  const parts = String(pressure || '').split('+').filter(Boolean).map((id) => PRESSURES.find((x) => x.id === id)?.short || '');
+  const parts = String(pressure || '').split('+').filter(Boolean).map((id) => PRESSURES.find((x) => x.id === (OLD_PRESSURE[id] || id))?.short || '');
   return [front, ...parts, COVERAGES.find((x) => x.id === coverage)?.short].filter(Boolean).join(' · ');
 }

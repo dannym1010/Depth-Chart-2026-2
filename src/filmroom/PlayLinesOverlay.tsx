@@ -1917,27 +1917,35 @@ const LinesDrawing: React.FC<{
     );
   }
 
-  // Our defense's gaps, the builder's way: a pill in each gap (✓ who fits it, ⚠ open, 2× doubled) and a dashed line
-  // from each defender to his gap, laid on the turf; the gap the play attacks is ringed when it's open.
+  // Our defense's gaps, the builder's way: the gap's letter in a pill (green filled, red open, amber doubled) and a
+  // dashed line from each defender to his gap, laid on the turf; the gap the play attacks is ringed when it's open.
   let gapArt: React.ReactNode = null;
   if (gaps.length && showing(true) && !moving && !lineUp) {
     const fade = layerSince === Infinity ? 1 : clamp01((layerSince - 300) / 400);
+    const fs = 10 * k;
+    const th = fs + 6 * k;
+    const tw = th;
+    // Only a pill that would sit on its neighbor moves up a row (with a tick down to its gap).
+    let lastX = -Infinity;
+    let lastLifted = true;
+    const placed = [...gaps]
+      .sort((a, b) => a.x - b.x)
+      .filter((slot) => seen({ x: slot.x, y: slot.y }))
+      .map((slot) => {
+        const [cx, gy] = px({ x: slot.x, y: slot.y });
+        const lifted = !lastLifted && cx - lastX < tw + 3 * k;
+        if (!lifted) lastX = cx;
+        lastLifted = lifted;
+        return { slot, cx, gy, lift: lifted ? th + 4 * k : 0 };
+      });
     gapArt = (
       <g pointerEvents="none" opacity={fade}>
-        {[...gaps].sort((a, b) => a.x - b.x).map((slot, gi) => {
+        {placed.map(({ slot, cx, gy, lift }) => {
           const spot = { x: slot.x, y: slot.y };
-          if (!seen(spot)) return null;
           const isOpen = slot.status === 'open';
           const isOver = slot.status === 'overloaded';
           const color = isOpen ? '#dc2626' : isOver ? '#d97706' : '#059669';
-          const who = slot.defenders.map((d) => diagramLabel(d.role)).join('+');
-          const text = isOpen ? `⚠ ${slot.gap} OPEN` : isOver ? `2× ${slot.gap} ${who}` : `✓ ${slot.gap} ${who}`;
-          const fs = 9 * k;
-          const tw = text.length * fs * 0.62 + 10 * k;
-          const th = fs + 6 * k;
-          // Gaps are a yard or so apart: every other pill sits a row higher, with a tick down to its gap.
-          const [cx, gy] = px(spot);
-          const lift = gi % 2 === 1 ? th + 4 * k : 0;
+          const text = slot.gap;
           const cy = gy - lift;
           return (
             <g key={slot.id} opacity={focus !== null && !slot.defenders.some((d) => d.role === focus) ? 0.3 : 1}>

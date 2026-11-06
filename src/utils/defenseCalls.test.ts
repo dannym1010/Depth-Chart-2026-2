@@ -76,7 +76,9 @@ describe('our defensive call drawn on the field', () => {
   it('every new front has eleven', () => {
     for (const k of ['62', '43', '52', '353']) assert.equal(OUR_DEFENSE_LOOKS[k].nodes.length, 11, k);
     assert.equal(defenseCallName('4-4', 'edge_l', 'cover3'), '4-4 · Edge L · Cover 3');
-    assert.equal(defenseCallName('4-4', 'edge_l+cross_tt', 'cover3'), '4-4 · Edge L · Cross LIZ · Cover 3');
+    assert.equal(defenseCallName('4-4', 'edge_l+cross_tt', 'cover3'), '4-4 · Edge L · Cross · Cover 3');
+    // A call saved as the old Cross RIP reads as the one Cross.
+    assert.equal(defenseCallName('4-4', 'cross_tt_r', ''), '4-4 · Cross');
   });
 });
 
@@ -99,9 +101,16 @@ describe("more calls, and a player's own job", () => {
     assert.ok(end(e5).x > end(rov).x);
   });
 
-  it('Blow Sting with Sam and Rover on one side: the outer takes the call, the inner the other gap, the end pinches', () => {
-    const s = defenseCallStrokes(front('44_C3_LIZ'), off, 'blow_sting');
-    assert.deepEqual(s.map((x) => x.label).sort(), ['End B gap', 'Sting C gap', 'Sting D gap']);
+  it('Blow Sting with Sam and Rover on one side: the outer takes the call, the inner the other gap, that end pinches, and the other DE still blitzes', () => {
+    const d = front('44_C3_LIZ');
+    const s = defenseCallStrokes(d, off, 'blow_sting');
+    assert.deepEqual(s.map((x) => x.label).sort(), ['End B gap', 'End C gap', 'Sting C gap', 'Sting D gap']);
+    // Both DEs are in it.
+    const starts = s.map((x) => x.points[0]);
+    for (const role of ['E9', 'E5', 'SAM', 'ROV']) {
+      const n = d.find((m) => m.role === role)!;
+      assert.ok(starts.some((p) => Math.abs(p.x - n.x) < 0.05 && Math.abs(p.y - n.y) < 0.05), `${role} blitzes`);
+    }
   });
 
   it('Will B gap and Mike B gap go through the B gap on their side', () => {
@@ -113,10 +122,11 @@ describe("more calls, and a player's own job", () => {
     assert.equal(end(m[0]).x, -3);
   });
 
-  it('crosses: the tackles trade A gaps; on an E-T cross the end goes inside and the tackle loops outside', () => {
+  it('crosses: the nose and 3-tech cross on the strong side; on an E-T cross the end goes inside and the tackle loops outside', () => {
     const tt = defenseCallStrokes(front('44_C3_LIZ'), off, 'cross_tt');
     assert.equal(tt.length, 2);
-    assert.deepEqual(tt.map((x) => end(x).x).sort((a, b) => a - b), [-1, 1]);
+    // Strong left: B gap (-3) and A gap (-1).
+    assert.deepEqual(tt.map((x) => end(x).x).sort((a, b) => a - b), [-3, -1]);
     assert.ok(tt.some((x) => x.points.length === 3), 'one loops behind');
     const et = defenseCallStrokes(front('44_C3_LIZ'), off, 'cross_et_r');
     const endMan = et.find((x) => /slant inside/.test(x.label!))!;
@@ -168,17 +178,34 @@ describe('stunts with a blitz, and a lineman on his own', () => {
   });
 });
 
-describe('tackle cross: who goes first', () => {
-  it('LIZ: the left tackle goes first; RIP: the right one, and the other loops behind', () => {
+describe('cross: the nose goes first to the strong side', () => {
+  const first = (s: any[]) => s.find((x) => /goes first/.test(x.label));
+  const loop = (s: any[]) => s.find((x) => /loop behind/.test(x.label));
+  it('LIZ front: the nose (T1) crosses to the strong B gap, the 3-tech (T3) loops behind him to the strong A', () => {
     const d = front('44_C3_LIZ');
-    const first = (s: any[]) => s.find((x) => /go first/.test(x.label));
-    const loop = (s: any[]) => s.find((x) => /loop behind/.test(x.label));
-    const liz = defenseCallStrokes(d, off, 'cross_tt');
-    const rip = defenseCallStrokes(d, off, 'cross_tt_r');
-    assert.ok(first(liz).points[0].x < 0 && end(first(liz)).x > 0);
-    assert.ok(first(rip).points[0].x > 0 && end(first(rip)).x < 0);
-    assert.equal(loop(rip).points.length, 3);
-    assert.ok(loop(rip).points[0].x < 0 && end(loop(rip)).x > 0);
+    const t1 = d.find((n) => n.role === 'T1')!;
+    const t3 = d.find((n) => n.role === 'T3')!;
+    const s = defenseCallStrokes(d, off, 'cross_tt');
+    assert.equal(first(s).points[0].x, t1.x);
+    assert.equal(end(first(s)).x, -3);
+    assert.equal(loop(s).points[0].x, t3.x);
+    assert.equal(end(loop(s)).x, -1);
+    // He loops behind (deeper than where he started).
+    assert.ok(loop(s).points[1].y > t3.y);
+    // The old Cross RIP is the same call.
+    assert.deepEqual(defenseCallStrokes(d, off, 'cross_tt_r'), s);
+  });
+  it('the front flipped to the right: the cross goes right', () => {
+    const d = front('44_C3_LIZ').map((n) => ({ ...n, x: -n.x }));
+    const s = defenseCallStrokes(d, off, 'cross_tt');
+    assert.equal(end(first(s)).x, 3);
+    assert.equal(end(loop(s)).x, 1);
+  });
+  it('a 5-man front: the nose and the tackle on their strong side', () => {
+    const s = defenseCallStrokes(front('53_C3'), off, 'cross_tt');
+    const nt = front('53_C3').find((n) => n.role === 'NT')!;
+    assert.equal(first(s).points[0].x, nt.x);
+    assert.equal(s.length, 2);
   });
 });
 
@@ -272,7 +299,8 @@ describe('our defense flips to their strength', () => {
   it('calls and jobs named by side switch sides', async () => {
     const { mirrorJob, mirrorPressure } = await import('./defenseCalls.ts');
     assert.equal(mirrorPressure('edge_l+slant_r'), 'edge_r+slant_l');
-    assert.equal(mirrorPressure('cross_tt'), 'cross_tt_r');
+    // The cross follows the front's strength, so it stays the same call.
+    assert.equal(mirrorPressure('cross_tt'), 'cross_tt');
     assert.equal(mirrorPressure('blow_sting'), 'blow_sting');
     assert.equal(mirrorJob('zone:flatL'), 'zone:flatR');
     assert.equal(mirrorJob('zone:deep4OR'), 'zone:deep4OL');
