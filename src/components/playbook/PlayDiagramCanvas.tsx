@@ -36,6 +36,67 @@ import type { GapFitSlot } from '../../utils/defenseReads';
 import type { PlayNoteCheckpoint, PursuitLine } from '../../types/callSheet';
 import { readSkipNotesPref, writeSkipNotesPref } from '../scouting/presentStage';
 
+/** How far a player's mark reaches from his spot, in the drawing (a defender's box is wider for his name). */
+function markRadius(n: PlayNode): number {
+  if (isDefenseRole(n.role)) return Math.max(23, shownText(n, diagramLabel(n.role)).length * 7 + 8) / 2;
+  return n.role === 'C' ? 10 : 11;
+}
+
+/**
+ * Players drawn on top of each other (a pile at the ball, a block) pushed apart just enough to read every one,
+ * never more than a couple of yards; the ball carrier keeps his spot.
+ */
+function spreadPile(nodes: PlayNode[], anchorRole: string): PlayNode[] {
+  const pts = nodes.map((n) => {
+    const p = fieldToSvg(n.x, n.y);
+    return { n, x: p.cx, y: p.cy, ox: p.cx, oy: p.cy, r: markRadius(n), fixed: n.role === anchorRole };
+  });
+  const MAX = 34;
+  for (let it = 0; it < 30; it++) {
+    let moved = false;
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        const a = pts[i];
+        const b = pts[j];
+        if (a.fixed && b.fixed) continue;
+        let dx = b.x - a.x;
+        let dy = (b.y - a.y) * 1.35;
+        let d = Math.hypot(dx, dy);
+        const min = a.r + b.r + 1;
+        if (d >= min) continue;
+        if (d < 0.01) {
+          // Right on top of each other: split them sideways.
+          dx = j % 2 ? 1 : -1;
+          dy = 0;
+          d = 1;
+        }
+        const push = min - d;
+        const ux = dx / d;
+        const uy = dy / d / 1.35;
+        const wa = a.fixed ? 0 : b.fixed ? 1 : 0.5;
+        const wb = 1 - wa;
+        a.x -= ux * push * wa;
+        a.y -= uy * push * wa;
+        b.x += ux * push * wb;
+        b.y += uy * push * wb;
+        moved = true;
+      }
+    }
+    // Never far from where he really is.
+    for (const p of pts) {
+      const ox = p.x - p.ox;
+      const oy = p.y - p.oy;
+      const off = Math.hypot(ox, oy);
+      if (off > MAX) {
+        p.x = p.ox + (ox / off) * MAX;
+        p.y = p.oy + (oy / off) * MAX;
+      }
+    }
+    if (!moved) break;
+  }
+  return pts.map((p) => (Math.abs(p.x - p.ox) < 0.05 && Math.abs(p.y - p.oy) < 0.05 ? p.n : { ...p.n, ...svgToField(p.x, p.y) }));
+}
+
 const PURSUIT_COLORS = [
   { hex: '#06b6d4', label: 'Cyan' },
   { hex: '#f59e0b', label: 'Gold' },
@@ -445,6 +506,14 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     );
   }, [showGhostDefense, prevDefense, nodes, strokes, ballRole, animProgress, play.metadata?.targetHole]);
   const displayNodes = animProgress > 0.002 ? animatedFrame.nodes : nodes;
+  /** The play is running (or stopped part way): the plan fades and the movement draws. */
+  const moving = animProgress > 0.005;
+  // Where each player is drawn: when the play runs, a pile at the ball is spread just enough that every player
+  // can be read (the ball carrier stays on the ball).
+  const drawnNodes = useMemo(() => (moving ? spreadPile(displayNodes, ballRole) : displayNodes), [moving, displayNodes, ballRole]);
+  const drawnAt = useMemo(() => new Map(drawnNodes.map((n) => [n.role, fieldToSvg(n.x, n.y)])), [drawnNodes]);
+  // The tackle (once it happens): who made it and where the ball is.
+  const tackle = moving ? animatedFrame.collisions?.find((c) => c.kind === 'tackle' && !/Cut Away/.test(c.label)) : undefined;
 
   useEffect(() => {
     if (playTrigger > 0) {
@@ -1807,6 +1876,8 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           onDoubleClick={onDoubleClick}
         >
           <g dangerouslySetInnerHTML={{ __html: FIELD_BG }} />
+          {/* Once the play runs, the drawn plan stays as a faint ghost under the real movement. */}
+          <g opacity={moving ? 0.2 : 1} style={{ transition: 'opacity 300ms' }}>
           {/* Our defensive call's lines (blitz, stunt, coverage drops and zones), under everything the coach drew */}
           {(extraStrokes || []).map((st, i) => {
             const sp = strokePaths(st);
@@ -1866,6 +1937,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
               </g>
             );
           })}
+          </g>
           {/* A pass to the ball carrier: the ball's dotted line from the QB to the catch, and the ball there (the real one flies when the play runs). */}
           {!hideOffenseRoutes && animProgress <= 0.002 && (() => {
             const t = passThrow(nodes, strokes, ballRole);
@@ -2122,48 +2194,116 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           })()}
 
           {/* Players: Offense in clean circles/squares, Defense in Cardinal Red badges */}
-          {animProgress > 0.005 &&
-            animatedFrame.trails.map((tr, idx) => {
-              if (tr.points.length < 2) return null;
-              const isSpotTrail = spotlightRole === tr.role;
-              const trailColor = isSpotTrail ? '#f59e0b' : tr.color;
-              const d = tr.points
-                .map((pt, j) => {
-                  const { cx, cy } = fieldToSvg(pt.x, pt.y);
-                  return `${j === 0 ? 'M' : 'L'}${cx},${cy}`;
-                })
-                .join(' ');
-              const last = tr.points[tr.points.length - 1];
-              const prev = tr.points[tr.points.length - 2];
-              const a = fieldToSvg(prev.x, prev.y);
-              const b = fieldToSvg(last.x, last.y);
-              return (
-                <g key={`anim-trail-${tr.role}-${idx}`} pointerEvents="none">
-                  {isSpotTrail && (
+          {/* Where the ball ended up: a yellow line across the field at the spot, with the gain and the tackler. */}
+          {(tackle || (animProgress >= 0.99 && !animatedFrame.ball.inAir)) && (() => {
+            const carrier = animatedFrame.nodes.find((n) => n.role === ballRole);
+            if (!carrier) return null;
+            const y = fieldToSvg(0, carrier.y).cy;
+            const at = fieldToSvg(carrier.x, carrier.y).cx;
+            const gain = tackle?.gainYards ?? Math.round(carrier.y * 10) / 10;
+            const gainText = `${gain >= 0 ? '+' : ''}${gain.toFixed(1)} yds`;
+            const by = tackle ? drawnNodes.find((n) => n.role === tackle.defRole) : undefined;
+            const byText = tackle ? `Tackle · ${by ? shownText(by, diagramLabel(by.role)) : tackle.defRole}` : 'End of play';
+            const vb = zoomView(zoom, center, w, h);
+            // The tag goes on the open side of the field, away from the pile.
+            const left = at > vb.x + vb.vw / 2;
+            const tagW = Math.round(gainText.length * 9.2 + byText.length * 6.6 + 34);
+            const tx = left ? vb.x + 18 : vb.x + vb.vw - 18 - tagW;
+            return (
+              <g key="ball-spot" pointerEvents="none">
+                <line x1={vb.x} y1={y} x2={vb.x + vb.vw} y2={y} stroke="#facc15" strokeWidth={5} strokeOpacity={0.85} />
+                <line x1={vb.x} y1={y} x2={vb.x + vb.vw} y2={y} stroke="#fef08a" strokeWidth={1.4} />
+                <g transform={`translate(${tx}, ${y - 34})`}>
+                  <rect width={tagW} height={28} rx={8} fill="#0f172a" fillOpacity={0.92} stroke="#facc15" strokeWidth={2} />
+                  <text x={12} y={19} fill={gain >= 0 ? '#86efac' : '#fca5a5'} fontSize="15" fontWeight="900" fontFamily="system-ui, sans-serif">
+                    {gainText}
+                  </text>
+                  <text x={tagW - 10} y={18.5} textAnchor="end" fill="#ffffff" fontSize="11" fontWeight="800" fontFamily="system-ui, sans-serif">
+                    {byText}
+                  </text>
+                </g>
+              </g>
+            );
+          })()}
+          {/* Where everyone went: the ball carrier and the tackler bold, everyone else light, so the play reads. */}
+          {moving &&
+            (() => {
+              const key = new Set([ballRole, tackle?.defRole, spotlightRole].filter(Boolean) as string[]);
+              const ordered = [...animatedFrame.trails].sort((a, b) => Number(key.has(a.role)) - Number(key.has(b.role)));
+              return ordered.map((tr, idx) => {
+                // The line runs to where his mark is drawn (a pile is spread out a little).
+                const end = drawnNodes.find((n) => n.role === tr.role);
+                const pts = end ? [...tr.points, { x: end.x, y: end.y }] : tr.points;
+                if (pts.length < 2) return null;
+                const isSpotTrail = spotlightRole === tr.role;
+                const isCarrier = tr.role === ballRole;
+                const isTackler = tr.role === tackle?.defRole;
+                const bold = key.has(tr.role);
+                const trailColor = isSpotTrail ? '#f59e0b' : isCarrier ? '#ea580c' : isTackler ? '#dc2626' : tr.color;
+                const d = pts
+                  .map((pt, j) => {
+                    const { cx, cy } = fieldToSvg(pt.x, pt.y);
+                    return `${j === 0 ? 'M' : 'L'}${cx},${cy}`;
+                  })
+                  .join(' ');
+                const last = pts[pts.length - 1];
+                // The arrow points along his last real step.
+                let prev = pts[pts.length - 2];
+                for (let k = pts.length - 2; k >= 0; k--) {
+                  if (Math.hypot(pts[k].x - last.x, pts[k].y - last.y) > 0.25) {
+                    prev = pts[k];
+                    break;
+                  }
+                }
+                const a = fieldToSvg(prev.x, prev.y);
+                const b = fieldToSvg(last.x, last.y);
+                return (
+                  <g key={`anim-trail-${tr.role}-${idx}`} pointerEvents="none" opacity={bold ? 1 : 0.38}>
+                    {bold && <path d={d} fill="none" stroke="#ffffff" strokeWidth={isCarrier ? 8.5 : 7} strokeOpacity={0.9} strokeLinecap="round" strokeLinejoin="round" />}
+                    {isSpotTrail && (
+                      <path d={d} fill="none" stroke="#fef08a" strokeWidth={9} strokeOpacity={0.55} strokeLinecap="round" strokeLinejoin="round" />
+                    )}
                     <path
                       d={d}
                       fill="none"
-                      stroke="#fef08a"
-                      strokeWidth={7}
-                      strokeOpacity={0.55}
+                      stroke={trailColor}
+                      strokeWidth={isCarrier ? 5 : bold ? 4 : 2.6}
                       strokeLinecap="round"
                       strokeLinejoin="round"
+                      strokeDasharray={tr.kind === 'motion' ? '5 4' : undefined}
                     />
-                  )}
-                  <path
-                    d={d}
-                    fill="none"
-                    stroke={trailColor}
-                    strokeWidth={isSpotTrail ? 4.4 : 3.6}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeDasharray={tr.kind === 'motion' ? '5 4' : undefined}
-                  />
-                  <polygon points={arrowPts(a.cx, a.cy, b.cx, b.cy)} fill={trailColor} />
-                </g>
-              );
-            })}
-          {displayNodes.map(glyph)}
+                    {!bold ? null : <polygon points={arrowPts(a.cx, a.cy, b.cx, b.cy)} fill={trailColor} />}
+                  </g>
+                );
+              });
+            })()}
+          {/* A block: the blocker and his man joined (no labels over the pile). */}
+          {moving &&
+            (animatedFrame.collisions || [])
+              .filter((c) => c.kind === 'block')
+              .map((c) => {
+                const a = drawnAt.get(c.offRole);
+                const b = drawnAt.get(c.defRole);
+                if (!a || !b) return null;
+                return (
+                  <g key={`block-${c.offRole}-${c.defRole}`} pointerEvents="none">
+                    <line x1={a.cx} y1={a.cy} x2={b.cx} y2={b.cy} stroke="#ffffff" strokeWidth={9} strokeLinecap="round" strokeOpacity={0.9} />
+                    <line x1={a.cx} y1={a.cy} x2={b.cx} y2={b.cy} stroke="#f97316" strokeWidth={5} strokeLinecap="round" />
+                  </g>
+                );
+              })}
+          {tackle && (() => {
+            const a = drawnAt.get(ballRole);
+            const b = drawnAt.get(tackle.defRole);
+            if (!a || !b) return null;
+            return (
+              <g key="tackle-link" pointerEvents="none">
+                <line x1={a.cx} y1={a.cy} x2={b.cx} y2={b.cy} stroke="#ffffff" strokeWidth={10} strokeLinecap="round" />
+                <line x1={a.cx} y1={a.cy} x2={b.cx} y2={b.cy} stroke="#dc2626" strokeWidth={6} strokeLinecap="round" />
+              </g>
+            );
+          })()}
+          {drawnNodes.map(glyph)}
           {animProgress > 0.005 && (() => {
             const { cx, cy } = fieldToSvg(animatedFrame.ball.x, animatedFrame.ball.y);
             const inAir = animatedFrame.ball.inAir;
@@ -2176,44 +2316,35 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           })()}
 
           {/* Contact / Tackle & Block Collision Markers (💥 Block / 🛑 Tackle) */}
-          {animProgress > 0.005 && animatedFrame.collisions && animatedFrame.collisions.length > 0 && (
+          {/* The runner slipping a tackle: said once, above him. (Blocks and the tackle are drawn as links and the spot line.) */}
+          {moving && (animatedFrame.collisions || []).some((c) => c.kind === 'tackle' && /Cut Away/.test(c.label)) && (
             <g key="collision-markers" pointerEvents="none">
-              {animatedFrame.collisions.map((col, idx) => {
-                const { cx, cy } = fieldToSvg(col.x, col.y);
-                const isTackle = col.kind === 'tackle';
-                const badgeBg = isTackle ? '#dc2626' : '#ea580c';
-                const ringStroke = isTackle ? '#fef08a' : '#fed7aa';
-                const pw = Math.max(64, col.label.length * 5.2 + 12);
-                const yOffset = isTackle ? -22 : -18;
+              {(animatedFrame.collisions || []).filter((c) => c.kind === 'tackle' && /Cut Away/.test(c.label)).slice(0, 1).map((col, idx) => {
+                const at = drawnAt.get(col.offRole) || fieldToSvg(col.x, col.y);
+                const cx = at.cx;
+                const cy = at.cy;
+                const badgeBg = '#7c3aed';
+                const pw = Math.max(64, col.label.length * 6 + 14);
+                const yOffset = -30;
                 return (
                   <g key={`col-${col.kind}-${col.offRole}-${col.defRole}-${idx}`}>
-                    <circle
-                      cx={cx}
-                      cy={cy}
-                      r={isTackle ? 16 : 12}
-                      fill={badgeBg}
-                      fillOpacity={0.22}
-                      stroke={ringStroke}
-                      strokeWidth={isTackle ? 2.6 : 2}
-                      strokeDasharray={isTackle ? '3 2' : '2 2'}
-                    />
                     <g transform={`translate(${cx}, ${cy + yOffset})`}>
                       <rect
                         x={-pw / 2}
                         y={-9}
                         width={pw}
-                        height={16}
-                        rx={5}
+                        height={20}
+                        rx={10}
                         fill={badgeBg}
                         stroke="#ffffff"
-                        strokeWidth={1.3}
+                        strokeWidth={1.5}
                       />
                       <text
                         x={0}
-                        y={2.5}
+                        y={4.5}
                         textAnchor="middle"
                         fill="#ffffff"
-                        fontSize="8"
+                        fontSize="10"
                         fontWeight="900"
                       >
                         {col.label}
