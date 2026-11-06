@@ -1509,6 +1509,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       defenseAssign: defAssign,
       // Their shift: where our defenders set after it, so the film's play pauses and our defense slides there too.
       shiftDefense,
+      setShiftSpot: (role, x, y) => setShiftSpots((prev) => ({ ...prev, [role]: { x, y } })),
+      ...(Object.keys(shiftSpots).length ? { resetShiftSpots: () => setShiftSpots({}) } : {}),
     };
     if (onVideoLines) onVideoLines(lines);
     else publishPlayLines(linesOwner.current, lines);

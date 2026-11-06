@@ -35,6 +35,10 @@ export interface VideoLines {
   /** Their shift: where our defenders set after it (diagram yards). The play pauses when their shift is set, our
    *  defense slides there, and it pauses again before the snap. */
   shiftDefense?: Record<string, { x: number; y: number }>;
+  /** A defender dragged while it's stopped on their shift: his spot after it (diagram yards), saved with the play. */
+  setShiftSpot?: (role: string, x: number, y: number) => void;
+  /** Back to the auto spots after their shift; only when the coach has set some. */
+  resetShiftSpots?: () => void;
 }
 
 /** What the Film Player needs: the button, the lines (inside the zoom, so they stay on the field) and the controls (outside it). */
@@ -577,6 +581,19 @@ export function usePlayLines(opts: {
   timing.current = { seconds, stops: shiftStops ? [shiftStops.shift, shiftStops.set] : [] };
   const atShiftSet = Boolean(shiftStops && !running && Math.abs(progress - shiftStops.shift) < 0.004);
   const atDefenseSet = Boolean(shiftStops && !running && progress >= shiftStops.set - 0.004 && progress < snapAt - 0.002);
+  // Stopped on their shift: dragging a defender sets where he goes after it (saved with the play). His spot before
+  // the shift stays, so the play still starts there. From their shift set it goes on to ours, to show him there.
+  const shiftMove =
+    (atShiftSet || atDefenseSet) && lines?.setShiftSpot && shown
+      ? (role: string, x: number, y: number) => {
+          const was = lines.nodes.find((n) => n.role === role);
+          const now = shown.nodes.find((n) => n.role === role);
+          const dx = was && now ? now.x - was.x : 0;
+          const dy = was && now ? now.y - was.y : 0;
+          lines.setShiftSpot!(role, Math.round((x - dx) * 100) / 100, Math.round((y - dy) * 100) / 100);
+          if (atShiftSet && shiftStops) setProgress(shiftStops.set);
+        }
+      : undefined;
   const frame = useMemo(
     () => (shown ? frameAt(progress) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -644,6 +661,7 @@ export function usePlayLines(opts: {
           always={defenseArrows}
           gaps={moving ? [] : gaps}
           frame={moving ? frame : null}
+          shiftMove={shiftMove}
           side={side}
           showLines={showLines}
           lineUp={lineUp}
@@ -1101,9 +1119,25 @@ export function usePlayLines(opts: {
         >
           <div className="text-[11px] font-black uppercase tracking-wider text-teal-300">{atShiftSet ? 'They shifted' : 'Our defense is set'}</div>
           <div className="text-sm font-bold leading-snug">
-            {atShiftSet ? 'Where does our defense go? Continue to show it slide over.' : 'Lined up on their new formation. Continue to the snap.'}
+            {atShiftSet
+              ? shiftMove
+                ? 'Where does our defense go? Drag a defender to his new spot, or show it slide over.'
+                : 'Where does our defense go? Continue to show it slide over.'
+              : shiftMove
+                ? 'Drag any defender to where he lines up after the shift (the play still starts from his spot before it). Continue to the snap.'
+                : 'Lined up on their new formation. Continue to the snap.'}
           </div>
-          <div className="mt-1.5 flex justify-end">
+          <div className="mt-1.5 flex flex-wrap justify-end gap-1.5">
+            {atDefenseSet && lines.resetShiftSpots && (
+              <button
+                type="button"
+                onClick={lines.resetShiftSpots}
+                className="h-8 px-3 rounded-lg bg-white/10 hover:bg-white/20 ring-1 ring-white/30 text-white text-xs font-black cursor-pointer"
+                title="Back to the spots worked out from their formation"
+              >
+                ↺ Auto spots
+              </button>
+            )}
             <button type="button" onClick={runPlay} className="h-8 px-3 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-xs font-black cursor-pointer">
               {atShiftSet ? '▶ Show our adjustment' : '▶ Continue'}
             </button>
@@ -1427,7 +1461,9 @@ const LinesDrawing: React.FC<{
   always?: PlayStroke[];
   /** Our defense's gaps: who fits each, open or doubled. */
   gaps?: GapFitSlot[];
-}> = ({ video, lines, frame, side, showLines, lineUp, alignTarget, corners, zoom, situation, focus, onFocus, clean, shade, cam, onCam, onView, always = [], gaps = [] }) => {
+  /** Stopped on their shift: a defender dragged goes here (his spot after the shift, on the field), not to his lineup. */
+  shiftMove?: (role: string, x: number, y: number) => void;
+}> = ({ video, lines, frame, side, showLines, lineUp, alignTarget, corners, zoom, situation, focus, onFocus, clean, shade, cam, onCam, onView, always = [], gaps = [], shiftMove }) => {
   const boxRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const uid = `pl${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
@@ -1445,6 +1481,8 @@ const LinesDrawing: React.FC<{
     x?: number;
     y?: number;
     active?: boolean;
+    /** A defender dragged while it's stopped on their shift: his spot after it. */
+    shift?: boolean;
   } | null>(null);
 
   // The video's picture inside the player (letterboxed when it isn't 16:9).
@@ -1655,12 +1693,14 @@ const LinesDrawing: React.FC<{
     const clamp = (n: number) => Math.round(Math.max(-0.2, Math.min(1.2, n)) * 1000) / 1000;
     if (d.corner === 'player') {
       // A drag, not a tap, moves him: his spot on the field, to a tenth of a yard.
+      // Stopped on their shift, a defender goes to his spot after it; else to where he lines up on this film.
+      const move = d.shift ? shiftMove : lines.moveNode;
       if (!d.active) {
-        if (!lines.moveNode || free || Math.hypot(e.clientX - (d.x ?? e.clientX), e.clientY - (d.y ?? e.clientY)) < 6) return;
+        if (!move || free || Math.hypot(e.clientX - (d.x ?? e.clientX), e.clientY - (d.y ?? e.clientY)) < 6) return;
         d.active = true;
       }
       const f = pickedOnField(quad, at);
-      lines.moveNode?.(d.role!, Math.round(f.x * 10) / 10, Math.round(f.y * 10) / 10);
+      move?.(d.role!, Math.round(f.x * 10) / 10, Math.round(f.y * 10) / 10);
     } else if (d.corner === 'offense' || d.corner === 'defense') {
       const fFrom = pickedOnField(d.quad, d.from);
       const fAt = pickedOnField(d.quad, at);
@@ -1675,10 +1715,13 @@ const LinesDrawing: React.FC<{
   };
   // Players can be tapped and dragged individually at any time while the play isn't running (even while Align / Line up is open).
   const tapOK = !frame;
+  // Stopped on their shift: our defenders can be dragged to their spots after it.
+  const shiftGrab = (n: PlayNode) => !tapOK && Boolean(shiftMove) && isDefenseRole(n.role);
+  const grabbable = (n: PlayNode) => tapOK || shiftGrab(n);
   const grab = (n: PlayNode) =>
-    tapOK
+    grabbable(n)
       ? {
-          style: { pointerEvents: 'auto' as const, cursor: lines.moveNode ? 'grab' : 'pointer', touchAction: 'none' as const },
+          style: { pointerEvents: 'auto' as const, cursor: lines.moveNode || shiftGrab(n) ? 'grab' : 'pointer', touchAction: 'none' as const },
           onPointerDown: (e: React.PointerEvent) => {
             e.stopPropagation();
             const from = toUV(e);
@@ -1688,7 +1731,7 @@ const LinesDrawing: React.FC<{
             } catch {
               // No capture (an old browser): the drag still follows over the picture.
             }
-            drag.current = { corner: 'player', role: n.role, from, quad, x: e.clientX, y: e.clientY, active: false };
+            drag.current = { corner: 'player', role: n.role, from, quad, x: e.clientX, y: e.clientY, active: false, shift: shiftGrab(n) };
           },
           onClick: (e: React.MouseEvent) => e.stopPropagation(),
         }
@@ -2088,7 +2131,7 @@ const LinesDrawing: React.FC<{
     const ty = low + 2.5 * k;
     return (
       <g key={n.role} opacity={(focus !== null && !focused ? 0.45 : 1) * clamp01(pin * 1.5)} {...grab(n)}>
-        {tapOK && <circle cx={cx} cy={cy} r={Math.max(touch ? 22 / z : 12 / z, (low - cy) * 1.3)} fill="transparent" />}
+        {grabbable(n) && <circle cx={cx} cy={cy} r={Math.max(touch ? 22 / z : 12 / z, (low - cy) * 1.3)} fill="transparent" />}
         <path d={polygon(ring)} fill={tint} fillOpacity="0.22" stroke={tint} strokeWidth={(focused ? 3.2 : 2.2) * k} />
         {(carrier || focused) && !reduce && (
           <g transform={`translate(${cx.toFixed(1)} ${cy.toFixed(1)})`} pointerEvents="none">

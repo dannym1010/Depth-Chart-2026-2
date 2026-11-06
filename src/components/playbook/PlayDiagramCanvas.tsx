@@ -1192,12 +1192,16 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       setDraftPursuitPoints(pts);
       return;
     }
-    if (atDefenseSet && onShiftDefenseMove && e.isPrimary) {
+    // Stopped on their shift (before or after ours): dragging a defender sets where he goes after their shift. His
+    // spot before it stays, so the play still starts from there and he slides over after their shift.
+    if ((atShiftSet || atDefenseSet) && onShiftDefenseMove && e.isPrimary) {
       const p = pointFromEvent(e);
       const n = hitNode(drawnNodes.filter((x) => isDefenseRole(x.role)), p.cx, p.cy);
       if (n) {
         e.preventDefault();
         svg.setPointerCapture(e.pointerId);
+        // From their shift set: on to our defense set, so he's shown where he goes.
+        if (atShiftSet && defenseSetAt !== undefined) setAnimProgress(defenseSetAt);
         drag.current = { mode: 'shift', role: n.role, startCx: p.cx, startCy: p.cy, moved: false, at: null };
         return;
       }
@@ -2555,9 +2559,11 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
                 <div className="text-[11px] font-black uppercase tracking-wider text-teal-300">{atShiftSet ? 'They shifted' : 'Our defense is set'}</div>
                 <div className="text-sm font-bold leading-snug">
                   {atShiftSet
-                    ? 'Where does our defense go? Continue to show it slide over.'
+                    ? onShiftDefenseMove
+                      ? 'Where does our defense go? Drag a defender to his new spot, or show it slide over.'
+                      : 'Where does our defense go? Continue to show it slide over.'
                     : onShiftDefenseMove
-                      ? 'Drag any defender to where he lines up after the shift.'
+                      ? 'Drag any defender to where he lines up after the shift. The play still starts from his spot before it.'
                       : 'Lined up on their new formation.'}
                 </div>
               </div>
