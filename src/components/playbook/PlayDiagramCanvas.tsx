@@ -31,7 +31,7 @@ import {
   type PlayStroke,
 } from '../../utils/footballEngine';
 import { COLOR, PlayerAssignmentPanel, arrowPts, strokeFor, tBar } from './PlayerAssignmentPanel';
-import { computeAnimatedPlayFrame, hasDefensiveStem, playAnimationSeconds, snapProgress } from '../../utils/playAnimation';
+import { computeAnimatedPlayFrame, hasDefensiveStem, playAnimationSeconds, shiftAdjusts, snapProgress } from '../../utils/playAnimation';
 import type { GapFitSlot } from '../../utils/defenseReads';
 import type { PlayNoteCheckpoint, PursuitLine } from '../../types/callSheet';
 import { readSkipNotesPref, writeSkipNotesPref } from '../scouting/presentStage';
@@ -282,6 +282,13 @@ interface Props {
     extraStrokes: PlayStroke[];
     defenseRules?: Record<string, Record<string, string>>;
   } | null;
+  /** Where our defenders set after their shift (by role): the play pauses after the shift, then they slide there. */
+  shiftDefense?: Record<string, { x: number; y: number }>;
+  /** The coach dragged a defender while the defense is set after the shift: his spot after the shift. */
+  onShiftDefenseMove?: (role: string, x: number, y: number) => void;
+  /** Back to the automatic spots after the shift (shown when the coach has moved some). */
+  onShiftDefenseReset?: () => void;
+  shiftDefenseEdited?: boolean;
   /** Optional defensive preset switcher bar rendered right inside the Play Movement menu. */
   defensePresetBar?: React.ReactNode;
   /** Timeline checkpoints where Play Movement pauses to display a coaching note and/or pursuit angle lines. */
@@ -319,6 +326,8 @@ type Tool = DrawKind | 'move' | 'motion' | 'shift';
 type Drag =
   /** Moving a player: where he started, the lines then (his own move with him), and where he is now. */
   | { mode: 'player'; role: string; startCx: number; startCy: number; moved: boolean; from: Pt; startLines: PlayStroke[]; at: Pt | null }
+  /** Moving one of our defenders to his spot after their shift (the play paused with our defense set). */
+  | { mode: 'shift'; role: string; startCx: number; startCy: number; moved: boolean; at: Pt | null }
   | { mode: 'vertex'; index: number; vertex: number }
   | { mode: 'line'; index: number; from: Pt; start: Pt[] }
   /** Zoomed in: dragging empty field moves the view. */
@@ -363,6 +372,10 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   drawFor = 'offense',
   extraStrokes,
   defenseRules,
+  shiftDefense,
+  onShiftDefenseMove,
+  onShiftDefenseReset,
+  shiftDefenseEdited,
   gapFits,
   spotlightRole,
   stemFrom,
@@ -474,9 +487,16 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     () => (dragPos ? nodesProp.map((n) => (n.role === dragPos.role ? { ...n, x: dragPos.x, y: dragPos.y } : n)) : nodesProp),
     [nodesProp, dragPos]
   );
-  const hasStem = useMemo(() => hasDefensiveStem(nodes, stemFrom), [nodes, stemFrom]);
-  const seconds = playAnimationSeconds(strokes, extraStrokes || [], hasStem);
-  const snapAt = snapProgress(strokes, extraStrokes || [], hasStem);
+  // A defender being dragged to his spot after the shift shows there as he goes.
+  const [shiftDrag, setShiftDrag] = useState<{ role: string; x: number; y: number } | null>(null);
+  const liveShift = useMemo(
+    () => (shiftDefense && shiftDrag ? { ...shiftDefense, [shiftDrag.role]: { x: shiftDrag.x, y: shiftDrag.y } } : shiftDefense),
+    [shiftDefense, shiftDrag]
+  );
+  const adjustsToShift = useMemo(() => shiftAdjusts(nodes, [...strokes, ...(extraStrokes || [])], liveShift), [nodes, strokes, extraStrokes, liveShift]);
+  const hasStem = useMemo(() => hasDefensiveStem(nodes, stemFrom) || adjustsToShift, [nodes, stemFrom, adjustsToShift]);
+  const seconds = playAnimationSeconds(strokes, extraStrokes || [], adjustsToShift ? 'shift' : hasStem);
+  const snapAt = snapProgress(strokes, extraStrokes || [], adjustsToShift ? 'shift' : hasStem);
   const animatedFrame = useMemo(
     () =>
       computeAnimatedPlayFrame(
@@ -488,8 +508,9 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
         typeof play.metadata?.targetHole === 'number' ? play.metadata.targetHole : null,
         defenseRules,
         stemFrom,
+        liveShift,
       ),
-    [nodes, strokes, extraStrokes, ballRole, animProgress, play.metadata?.targetHole, defenseRules, stemFrom],
+    [nodes, strokes, extraStrokes, ballRole, animProgress, play.metadata?.targetHole, defenseRules, stemFrom, liveShift],
   );
   const ghostFrame = useMemo(() => {
     if (!showGhostDefense || !prevDefense) return null;
@@ -601,6 +622,11 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   // Where the movement is, for the loop (it decides there whether to stop: at auto-pause checkpoints, coaching note checkpoints, or the end).
   const progressRef = useRef(animProgress);
   progressRef.current = animProgress;
+  const shiftSetAt = animatedFrame.shiftSetProgress;
+  const defenseSetAt = animatedFrame.defenseSetProgress;
+  /** Stopped with their shift set (our defense still where it was), or with our defense set after it. */
+  const atShiftSet = !isPlaying && shiftSetAt !== undefined && Math.abs(animProgress - shiftSetAt) < 0.004;
+  const atDefenseSet = !isPlaying && defenseSetAt !== undefined && animProgress >= defenseSetAt - 0.004 && animProgress < snapAt - 0.002;
   const readAtPoint = animatedFrame.handoffProgress ?? animatedFrame.readProgress ?? snapAt + (1 - snapAt) * 0.2;
   const fitAtPoint = animatedFrame.fitProgress ?? snapAt + (1 - snapAt) * 0.36;
   const autoPausedByLoopRef = useRef<'checkpoint' | 'end' | null>(null);
@@ -610,10 +636,20 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     let rafId = 0;
     let lastTs = performance.now();
     const tick = (now: number) => {
-      const dt = (now - lastTs) / 1000;
+      // The first frame can be stamped a hair before the start: never step backward.
+      const dt = Math.max(0, (now - lastTs) / 1000);
       lastTs = now;
       const prev = progressRef.current;
       const next = prev + (dt * animSpeed) / seconds;
+      // Their shift: stop when it's set (where does our defense go?), and again when our defense is set.
+      const shiftStop = [shiftSetAt, defenseSetAt].find((pt) => pt !== undefined && prev < pt - 1e-5 && next >= pt);
+      if (shiftStop !== undefined) {
+        progressRef.current = shiftStop;
+        setAnimProgress(shiftStop);
+        autoPausedByLoopRef.current = 'checkpoint';
+        setIsPlaying(false);
+        return;
+      }
       // Multi-checkpoint Auto-Pause (Snap · Handoff / Read · Gap Fit · Tackle)
       if (!skipNotes) {
         const autoStops: number[] = [];
@@ -639,6 +675,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             typeof play.metadata?.targetHole === 'number' ? play.metadata.targetHole : null,
             defenseRules,
             stemFrom,
+            liveShift,
           );
           if (probe.tackleProgress !== undefined && prev < probe.tackleProgress - 1e-5 && next >= probe.tackleProgress) {
             progressRef.current = probe.tackleProgress;
@@ -680,7 +717,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPlaying, animSpeed, seconds, stopAtSnap, stopAtRead, stopAtFit, stopAtTackle, snapAt, readAtPoint, fitAtPoint, skipNotes, sortedCheckpoints]);
+  }, [isPlaying, animSpeed, seconds, stopAtSnap, stopAtRead, stopAtFit, stopAtTackle, snapAt, readAtPoint, fitAtPoint, skipNotes, sortedCheckpoints, shiftSetAt, defenseSetAt]);
 
   // Continuous Walkthrough Huddle Loop mode: auto-resumes after 2.2s at pauses and restarts (or advances playlist) after 1.8s at the end
   useEffect(() => {
@@ -1155,6 +1192,16 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       setDraftPursuitPoints(pts);
       return;
     }
+    if (atDefenseSet && onShiftDefenseMove && e.isPrimary) {
+      const p = pointFromEvent(e);
+      const n = hitNode(drawnNodes.filter((x) => isDefenseRole(x.role)), p.cx, p.cy);
+      if (n) {
+        e.preventDefault();
+        svg.setPointerCapture(e.pointerId);
+        drag.current = { mode: 'shift', role: n.role, startCx: p.cx, startCy: p.cy, moved: false, at: null };
+        return;
+      }
+    }
     if (locked) {
       // Allow tapping or dragging a player even on the presentation stage so the coach can adjust alignment & rules live.
       const p = pointFromEvent(e);
@@ -1318,6 +1365,13 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       schedule();
       return;
     }
+    if (d.mode === 'shift') {
+      if (!d.moved && Math.hypot(p.cx - d.startCx, p.cy - d.startCy) <= 4) return;
+      d.moved = true;
+      d.at = { x: Math.max(-26, Math.min(26, p.x)), y: Math.max(0.6, Math.min(20, p.y)) };
+      setShiftDrag({ role: d.role, x: d.at.x, y: d.at.y });
+      return;
+    }
     if (d.mode === 'pan') {
       const box = svgRef.current.getBoundingClientRect();
       const v = zoomView(zoom, d.from, w, h);
@@ -1392,6 +1446,11 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     setDraft(null);
     setDragPos(null);
     if (d.mode === 'pan') return;
+    if (d.mode === 'shift') {
+      setShiftDrag(null);
+      if (d.moved && d.at) onShiftDefenseMove?.(d.role, Math.round(d.at.x * 100) / 100, Math.round(d.at.y * 100) / 100);
+      return;
+    }
     const cur = strokesRef.current;
     if (d.mode === 'player' && d.moved && d.at) {
       onMove(d.role, d.at.x, d.at.y);
@@ -2228,7 +2287,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           {/* Where everyone went: the ball carrier and the tackler bold, everyone else light, so the play reads. */}
           {moving &&
             (() => {
-              const key = new Set([ballRole, tackle?.defRole, spotlightRole].filter(Boolean) as string[]);
+              const key = new Set([ballRole, tackle?.defRole, spotlightRole, ...(animatedFrame.phase === 'post_snap' ? [] : animatedFrame.trails.filter((t) => /_(stem|shift)$/.test(t.role)).map((t) => t.role))].filter(Boolean) as string[]);
               const ordered = [...animatedFrame.trails].sort((a, b) => Number(key.has(a.role)) - Number(key.has(b.role)));
               return ordered.map((tr, idx) => {
                 // The line runs to where his mark is drawn (a pile is spread out a little).
@@ -2484,6 +2543,46 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           })()}
         </svg>
 
+        {/* Their shift: stopped when it's set (where do we go?), and when our defense is set on it. */}
+        {(atShiftSet || atDefenseSet) && !pursuitDrawMode && (
+          <div
+            data-stage-ui
+            role="status"
+            className="absolute left-3 right-3 top-12 z-20 max-w-xl mx-auto rounded-2xl border-2 border-teal-400/90 bg-slate-950/92 backdrop-blur-md text-white px-3.5 py-2.5 shadow-2xl"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[11px] font-black uppercase tracking-wider text-teal-300">{atShiftSet ? 'They shifted' : 'Our defense is set'}</div>
+                <div className="text-sm font-bold leading-snug">
+                  {atShiftSet
+                    ? 'Where does our defense go? Continue to show it slide over.'
+                    : onShiftDefenseMove
+                      ? 'Drag any defender to where he lines up after the shift.'
+                      : 'Lined up on their new formation.'}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {atDefenseSet && shiftDefenseEdited && onShiftDefenseReset && (
+                  <button
+                    type="button"
+                    onClick={onShiftDefenseReset}
+                    title="Back to the automatic spots: the line counted from the middle man of their line"
+                    className="h-8 px-3 rounded-lg bg-white/10 hover:bg-white/20 ring-1 ring-white/30 text-white text-xs font-bold cursor-pointer"
+                  >
+                    ↺ Auto spots
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={togglePlay}
+                  className="h-8 px-3 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-xs font-black cursor-pointer"
+                >
+                  {atShiftSet ? '▶ Show our adjustment' : '▶ Continue'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Coaching Note & Pursuit Angle Checkpoint Overlay Card (shown when paused at a checkpoint or while editing/drawing pursuit angles) */}
         {((!skipNotes && !isPlaying && activeCheckpoint && (activeCheckpoint.note.trim().length > 0 || activeCheckpoint.pursuitLines.length > 0)) ||
           pursuitDrawMode ||
@@ -2674,6 +2773,32 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
                   className={`${ctl} w-auto px-2 text-[10px] border border-rose-500/40 text-rose-300`}
                 >
                   🛡 Def Preset
+                </button>
+              )}
+              {shiftSetAt !== undefined && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsPlaying(false);
+                    setAnimProgress(shiftSetAt);
+                  }}
+                  title="Their shift set: our defense still where it lined up"
+                  className={`${ctl} w-auto px-2 text-[10px] border border-teal-500/40 text-teal-200`}
+                >
+                  Shift
+                </button>
+              )}
+              {defenseSetAt !== undefined && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsPlaying(false);
+                    setAnimProgress(defenseSetAt);
+                  }}
+                  title="Our defense set after their shift (drag a defender to move his spot)"
+                  className={`${ctl} w-auto px-2 text-[10px] border border-teal-500/40 text-teal-200`}
+                >
+                  D set
                 </button>
               )}
               {snapAt > 0.001 && (

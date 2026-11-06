@@ -40,6 +40,10 @@ export interface AnimatedPlayFrame {
   handoffAt?: { x: number; y: number };
   /** Normalized progress [0, 1] where the defensive preset stem/shift finishes before the snap, if active. */
   stemProgress?: number;
+  /** Their shift is set and our defense hasn't moved yet (when our defense adjusts to the shift). */
+  shiftSetProgress?: number;
+  /** Our defense is set on their formation after the shift. */
+  defenseSetProgress?: number;
   /** Normalized progress [0, 1] where defensive stunts/blitzes fire across the LOS, if active. */
   stuntProgress?: number;
   /** Normalized progress [0, 1] for the QB read / mesh checkpoint. */
@@ -92,21 +96,24 @@ export function hasDefensiveStem(nodes: PlayNode[], stemFrom?: Record<string, { 
 }
 
 /** Seconds before the snap: the shift and its set, then the motion and its set (each when the play has one). */
-function preSnapSeconds(strokes: PlayStroke[], defStem = false) {
+function preSnapSeconds(strokes: PlayStroke[], defStem: boolean | 'shift' = false) {
   return (
     (defStem ? DEF_STEM_SECONDS : 0) +
+    // Our defense adjusting to their shift sets, too, before the snap.
+    (defStem === 'shift' ? SET_SECONDS : 0) +
     (hasPreSnapShift(strokes) ? SHIFT_SECONDS + SET_SECONDS : 0) +
     (hasPreSnapMotion(strokes) ? MOTION_SECONDS + SET_SECONDS : 0)
   );
 }
 
 /** How long the whole animation runs at full speed: the shift, the motion and their sets before the snap, then the play. */
-export function playAnimationSeconds(strokes: PlayStroke[], extraStrokes: PlayStroke[] = [], defStem = false): number {
+/** `defStem`: a defensive stem before the play, or 'shift' when our defense adjusts to their shift. */
+export function playAnimationSeconds(strokes: PlayStroke[], extraStrokes: PlayStroke[] = [], defStem: boolean | 'shift' = false): number {
   return PLAY_SECONDS + preSnapSeconds([...strokes, ...extraStrokes], defStem);
 }
 
 /** Where the snap is in the animation (0 to 1): after the shift, the motion and their sets; 0 when there are none. */
-export function snapProgress(strokes: PlayStroke[], extraStrokes: PlayStroke[] = [], defStem = false): number {
+export function snapProgress(strokes: PlayStroke[], extraStrokes: PlayStroke[] = [], defStem: boolean | 'shift' = false): number {
   const all = [...strokes, ...extraStrokes];
   const pre = preSnapSeconds(all, defStem);
   return pre / (PLAY_SECONDS + pre);
@@ -196,9 +203,18 @@ function invEaseInOutSine(y: number): number {
   return Math.acos(1 - 2 * c) / Math.PI;
 }
 
+/** Our defense moves to new spots after their shift (some defender more than a step). */
+export function shiftAdjusts(nodes: PlayNode[], strokes: PlayStroke[], shiftDefense?: Record<string, { x: number; y: number }>): boolean {
+  if (!shiftDefense || !hasPreSnapShift(strokes)) return false;
+  return nodes.some((n) => isDefenseRole(n.role) && shiftDefense[n.role] && Math.hypot(n.x - shiftDefense[n.role].x, n.y - shiftDefense[n.role].y) > 0.35);
+}
+
 /**
  * Computes the animated positions of all offensive & defensive players, progressive trails,
  * and the football position at normalized progress in [0, 1].
+ *
+ * `shiftDefense`: where our defenders set after their shift. Then the play goes: their shift, set, our defense
+ * slides to those spots, then any motion and the snap (the defense plays the snap from its new spots).
  */
 export function computeAnimatedPlayFrame(
   nodes: PlayNode[],
@@ -208,7 +224,46 @@ export function computeAnimatedPlayFrame(
   progress = 0,
   targetHole?: number | null,
   defenseRules?: Record<string, Record<string, string>>,
-  stemFrom?: Record<string, { x: number; y: number }>
+  stemFrom?: Record<string, { x: number; y: number }>,
+  shiftDefense?: Record<string, { x: number; y: number }>
+): AnimatedPlayFrame {
+  if (!shiftAdjusts(nodes, [...strokes, ...extraStrokes], shiftDefense)) {
+    return frameAt(nodes, strokes, extraStrokes, ballRole, progress, targetHole, defenseRules, stemFrom, false);
+  }
+  // The defense plays from its spots after the shift; it starts where it lined up and slides over after the
+  // shift is set. Its drawn lines go with it: a rush moves with him, a drop starts from his new spot.
+  const from: Record<string, { x: number; y: number }> = {};
+  const moved = nodes.map((n) => {
+    const to = isDefenseRole(n.role) ? shiftDefense![n.role] : undefined;
+    if (!to) return n;
+    from[n.role] = { x: n.x, y: n.y };
+    return { ...n, x: to.x, y: to.y };
+  });
+  const defense = nodes.filter((n) => isDefenseRole(n.role));
+  const movedExtra = extraStrokes.map((st) => {
+    const owner = defense.find((n) => lineStartsOn(st, n, defense));
+    const to = owner && shiftDefense![owner.role];
+    if (!owner || !to) return st;
+    const dx = to.x - owner.x;
+    const dy = to.y - owner.y;
+    if (Math.abs(dx) < 1e-3 && Math.abs(dy) < 1e-3) return st;
+    if (st.zone || st.man) return { ...st, points: st.points.map((q, i) => (i === 0 ? { ...q, x: q.x + dx, y: q.y + dy } : q)) };
+    return { ...st, points: st.points.map((q) => ({ ...q, x: q.x + dx, y: q.y + dy })) };
+  });
+  return frameAt(moved, strokes, movedExtra, ballRole, progress, targetHole, defenseRules, from, true);
+}
+
+function frameAt(
+  nodes: PlayNode[],
+  strokes: PlayStroke[],
+  extraStrokes: PlayStroke[],
+  ballRole: string,
+  progress: number,
+  targetHole: number | null | undefined,
+  defenseRules: Record<string, Record<string, string>> | undefined,
+  stemFrom: Record<string, { x: number; y: number }> | undefined,
+  /** The stem is our defense adjusting to their shift: it comes after the shift is set. */
+  stemAfterShift: boolean
 ): AnimatedPlayFrame {
   const p = Math.max(0, Math.min(1, progress));
   const extraSet = new Set(extraStrokes);
@@ -304,10 +359,14 @@ export function computeAnimatedPlayFrame(
   const defStem = hasDefensiveStem(nodes, stemFrom);
   const shift = hasPreSnapShift(allStrokes);
   const motion = hasPreSnapMotion(allStrokes);
-  const total = PLAY_SECONDS + preSnapSeconds(allStrokes, defStem);
-  const stemEnd = defStem ? DEF_STEM_SECONDS / total : 0;
-  const shiftEnd = shift ? stemEnd + SHIFT_SECONDS / total : stemEnd;
-  const motionStart = shift ? stemEnd + (SHIFT_SECONDS + SET_SECONDS) / total : stemEnd;
+  // Adjusting to the shift: their shift and set first, then our defense moves and sets.
+  const adjust = stemAfterShift && defStem && shift;
+  const total = PLAY_SECONDS + preSnapSeconds(allStrokes, adjust ? 'shift' : defStem);
+  const stemStart = adjust ? (SHIFT_SECONDS + SET_SECONDS) / total : 0;
+  const stemEnd = defStem ? stemStart + DEF_STEM_SECONDS / total : 0;
+  const shiftFrom = adjust ? 0 : stemEnd;
+  const shiftEnd = shift ? shiftFrom + SHIFT_SECONDS / total : stemEnd;
+  const motionStart = adjust ? stemEnd + SET_SECONDS / total : shift ? stemEnd + (SHIFT_SECONDS + SET_SECONDS) / total : stemEnd;
   const motionEnd = motion ? motionStart + MOTION_SECONDS / total : motionStart;
   const snapStart = motion ? motionEnd + SET_SECONDS / total : motionStart;
 
@@ -324,7 +383,27 @@ export function computeAnimatedPlayFrame(
     motionT = 0;
     postSnapT = 0;
     phase = 'pre_snap';
-    phaseLabel = defStem ? 'Base Defense Look' : 'Pre-Snap Alignment';
+    phaseLabel = defStem && !adjust ? 'Base Defense Look' : 'Pre-Snap Alignment';
+  } else if (adjust && p < shiftEnd) {
+    stemT = 0;
+    shiftT = easeInOutSine(p / shiftEnd);
+    motionT = 0;
+    phase = 'motion';
+    phaseLabel = 'Their shift';
+  } else if (adjust && p < stemStart) {
+    stemT = 0;
+    motionT = 0;
+    phase = 'motion';
+    phaseLabel = 'Shift set';
+  } else if (adjust && p < stemEnd) {
+    stemT = easeInOutSine((p - stemStart) / (stemEnd - stemStart));
+    motionT = 0;
+    phase = 'motion';
+    phaseLabel = 'Our defense adjusts';
+  } else if (adjust && p < motionStart) {
+    motionT = 0;
+    phase = 'motion';
+    phaseLabel = 'Defense set';
   } else if (defStem && p < stemEnd) {
     stemT = easeInOutSine(p / stemEnd);
     shiftT = 0;
@@ -333,7 +412,7 @@ export function computeAnimatedPlayFrame(
     phase = 'motion';
     phaseLabel = 'Def Preset / Stem';
   } else if (shift && p < shiftEnd) {
-    shiftT = easeInOutSine((p - stemEnd) / (shiftEnd - stemEnd));
+    shiftT = easeInOutSine((p - shiftFrom) / (shiftEnd - shiftFrom));
     motionT = 0;
     phase = 'motion';
     phaseLabel = 'Shift';
@@ -730,7 +809,7 @@ export function computeAnimatedPlayFrame(
     }
 
     // Pre-snap defensive stem when the coach switched to a different defensive formation / stunt / blitz preset
-    if (defStem && stemFrom && postSnapT <= 0 && stemT < 1) {
+    if (defStem && stemFrom && postSnapT <= 0 && (stemT < 1 || adjust)) {
       for (const n of defense) {
         const from = stemFrom[n.role];
         if (!from) continue;
@@ -1454,7 +1533,7 @@ export function computeAnimatedPlayFrame(
     return st && !st.zone && !st.man && st.points.length >= 2;
   });
   const handoffProgress = handoff ? snapStart + (1 - snapStart) * invEaseInOutSine(handoff.t) : undefined;
-  const stemProgress = defStem ? stemEnd : undefined;
+  const stemProgress = defStem && !adjust ? stemEnd : undefined;
   const stuntProgress = hasStuntOrBlitz ? snapStart + (1 - snapStart) * invEaseInOutSine(0.22) : undefined;
   const readProgress = isPassPlay
     ? snapStart + (1 - snapStart) * invEaseInOutSine(Math.min(0.28, release * 0.6))
@@ -1478,6 +1557,7 @@ export function computeAnimatedPlayFrame(
     },
     ...(handoffProgress !== undefined ? { handoffProgress, handoffAt: handoff!.at } : {}),
     ...(stemProgress !== undefined ? { stemProgress } : {}),
+    ...(adjust ? { shiftSetProgress: stemStart, defenseSetProgress: stemEnd } : {}),
     ...(stuntProgress !== undefined ? { stuntProgress } : {}),
     readProgress,
     ...(fitProgress !== undefined ? { fitProgress } : {}),

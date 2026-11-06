@@ -75,6 +75,7 @@ import { DefenseCallPicker } from './DefenseCallPicker';
 import { defenseJob, defenseOrder, standardDefenseJob } from '../../utils/defenseJobs';
 import { RULE_PRESETS, applyRuleAlignments, defenseGroup, pickedTechniques, rulesText } from '../../utils/defenseRules';
 import { computeGapIntegrity } from '../../utils/defenseReads';
+import { shiftDefenseSpots } from '../../utils/shiftAdjust';
 import { DefenderRules } from './DefenderRules';
 import { COVERAGES, PRESSURES, defenseCallName, defenseCallStrokes, joinPressure, mirrorJob, mirrorPressure, pressureGaps, pressureParts } from '../../utils/defenseCalls';
 import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, defenseMirrored, lineUpOurDefense, samToWideSide, tightEndFlip } from '../../hudlScout/utils/ourDefense';
@@ -354,6 +355,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   /** Everyone the coach placed and every line drawn, moved the same way (the rest follow on their own). */
   const moveAll = (f: (x: number) => number) => {
     setOverrides((prev) => Object.fromEntries(Object.entries(prev).map(([role, p]) => [role, { ...p, x: Math.round(f(p.x) * 100) / 100 }])));
+    setShiftSpots((prev) => Object.fromEntries(Object.entries(prev).map(([role, p]) => [role, { ...p, x: Math.round(f(p.x) * 100) / 100 }])));
     setStrokes((prev) => prev.map((st) => ({ ...st, points: st.points.map((p) => ({ ...p, x: Math.round(f(p.x) * 100) / 100 })) })));
   };
   const pickStrength = (s: 'Left' | 'Right') => {
@@ -379,6 +381,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [committedName, setCommittedName] = useState(saved?.name || opened.name);
   const [putDefInName, setPutDefInName] = useState(Boolean(saved?.putDefInName));
   const [overrides, setOverrides] = useState<Record<string, { x: number; y: number }>>(saved?.overrides || {});
+  /** Where the coach put defenders after their shift (by role); the rest go to the automatic spots. */
+  const [shiftSpots, setShiftSpots] = useState<Record<string, { x: number; y: number }>>(saved?.shiftDefense || {});
   const [filmBases, setFilmBases] = useState<Record<string, BackfieldSpots>>(seed?.filmBases || {});
   const [filmBaseKeys, setFilmBaseKeys] = useState<Record<string, string>>(seed?.filmBaseKeys || {});
   // This play's own spots (kept with it); another backfield picked on it starts from the film's shared one.
@@ -530,6 +534,13 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     const sys = defenseSystem();
     return String(sys.base || '').startsWith(front) ? sys.baseContain : sys.checkContain;
   };
+  // Their shift: where our defenders set after it (the line counted from the middle man of their line, then
+  // the coach's own spots). The play pauses after the shift and our defense slides there.
+  const shiftDefense = useMemo(
+    () => (dNodes.length ? shiftDefenseSpots([...offNodes, ...dNodes], strokes, shiftSpots) : undefined),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dNodes, offNodes, strokes, shiftSpots]
+  );
   // The blitz / stunt and coverage drawn on the defenders where they stand against this offense.
   const callStrokes = useMemo(() => (dLook ? defenseCallStrokes(dNodes, offNodes, pressure, coverage, defAssign) : []), [dLook, dNodes, offNodes, pressure, coverage, defAssign]);
   // For the picker: the gap the blitz / stunt sends each defender through, and who each one has in man.
@@ -1059,6 +1070,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       defenseKey,
       putDefInName,
       overrides,
+      ...(Object.keys(shiftSpots).length ? { shiftDefense: shiftSpots } : {}),
       ...(Object.keys(labels).length ? { labels } : {}),
       ...(Object.keys(jobs).length ? { jobs } : {}),
       ...(defShow === 'number' ? { defenseShow: 'number' as const } : {}),
@@ -2306,6 +2318,10 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               gapFits={showGapFits ? gapIntegritySlots : undefined}
               spotlightRole={spotlightRole}
               stemFrom={stemFrom}
+              shiftDefense={shiftDefense}
+              onShiftDefenseMove={(role, x, y) => setShiftSpots((prev) => ({ ...prev, [role]: { x, y } }))}
+              onShiftDefenseReset={() => setShiftSpots({})}
+              shiftDefenseEdited={Object.keys(shiftSpots).length > 0}
               prevDefense={prevDefense}
               checkpoints={coachingCheckpoints}
               onCheckpointsChange={setCoachingCheckpoints}

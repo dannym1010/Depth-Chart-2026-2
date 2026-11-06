@@ -154,6 +154,8 @@ export interface PlayBuilderState {
   defenseKey: string;
   putDefInName: boolean;
   overrides: Record<string, { x: number; y: number }>;
+  /** Our defenders' spots after their shift that the coach set (by role); the rest line up automatically. */
+  shiftDefense?: Record<string, { x: number; y: number }>;
   /**
    * Their play (or formation) on a film: the backs' and receivers' spots it was drawn with, kept with it so a
    * change to another play (or to the film's shared backfield) doesn't move this one. Strong side right, no hash.
