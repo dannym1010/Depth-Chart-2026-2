@@ -19,6 +19,8 @@ export interface PlayCollisionMarker {
 }
 
 export interface QbVisionCone {
+  /** Who reads (the QB). */
+  fromRole?: string;
   from: { x: number; y: number };
   to: { x: number; y: number };
   targetRole: string;
@@ -1488,6 +1490,7 @@ function frameAt(
         const scanEndT = release * 0.64;
         if (postSnapT < splitT) {
           visionCone = {
+            fromRole: qbNode.role,
             from: { x: qbNow.x, y: qbNow.y },
             to: { x: firstReadPos.x, y: firstReadPos.y },
             targetRole: firstReadNode.role,
@@ -1497,6 +1500,7 @@ function frameAt(
         } else if (postSnapT < scanEndT) {
           const k = (postSnapT - splitT) / Math.max(0.04, scanEndT - splitT);
           visionCone = {
+            fromRole: qbNode.role,
             from: { x: qbNow.x, y: qbNow.y },
             to: {
               x: Math.round((firstReadPos.x + (primaryPos.x - firstReadPos.x) * k) * 100) / 100,
@@ -1508,6 +1512,7 @@ function frameAt(
           };
         } else {
           visionCone = {
+            fromRole: qbNode.role,
             from: { x: qbNow.x, y: qbNow.y },
             to: { x: primaryPos.x, y: primaryPos.y },
             targetRole: primaryRole,
@@ -1517,7 +1522,8 @@ function frameAt(
         }
       } else if (primaryRole && primaryPos) {
         visionCone = {
-          from: { x: qbNow.x, y: qbNow.y },
+          fromRole: qbNode.role,
+            from: { x: qbNow.x, y: qbNow.y },
           to: { x: primaryPos.x, y: primaryPos.y },
           targetRole: primaryRole,
           label: `👁 QB Read (${primaryRole})`,
@@ -1541,6 +1547,7 @@ function frameAt(
         if (conflictDef) {
           const defPos = animatedPos.get(conflictDef.role) || { x: conflictDef.x, y: conflictDef.y };
           visionCone = {
+            fromRole: qbNode.role,
             from: { x: qbNow.x, y: qbNow.y },
             to: { x: defPos.x, y: defPos.y },
             targetRole: conflictDef.role,

@@ -330,6 +330,8 @@ type Drag =
   | { mode: 'player'; role: string; startCx: number; startCy: number; moved: boolean; from: Pt; startLines: PlayStroke[]; at: Pt | null }
   /** Moving one of our defenders to his spot after their shift (the play paused with our defense set). */
   | { mode: 'shift'; role: string; startCx: number; startCy: number; moved: boolean; at: Pt | null }
+  /** A player tapped while the play is moving: picks him (his read, his job); it never moves him. */
+  | { mode: 'tap'; role: string }
   | { mode: 'vertex'; index: number; vertex: number }
   | { mode: 'line'; index: number; from: Pt; start: Pt[] }
   /** Zoomed in: dragging empty field moves the view. */
@@ -1214,6 +1216,17 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
         return;
       }
     }
+    // The play moving (or stopped partway): a tap on a player where he is now picks him (the QB: his read shows).
+    if (moving && e.isPrimary && !pursuitDrawMode && (tool === 'move' || locked)) {
+      const p = pointFromEvent(e);
+      const n = hitNode(drawnNodes, p.cx, p.cy);
+      if (n) {
+        e.preventDefault();
+        svg.setPointerCapture(e.pointerId);
+        drag.current = { mode: 'tap', role: n.role };
+        return;
+      }
+    }
     if (locked) {
       // Allow tapping or dragging a player even on the presentation stage so the coach can adjust alignment & rules live.
       const p = pointFromEvent(e);
@@ -1377,6 +1390,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       schedule();
       return;
     }
+    if (d.mode === 'tap') return;
     if (d.mode === 'shift') {
       if (!d.moved && Math.hypot(p.cx - d.startCx, p.cy - d.startCy) <= 4) return;
       d.moved = true;
@@ -1458,6 +1472,10 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     setDraft(null);
     setDragPos(null);
     if (d.mode === 'pan') return;
+    if (d.mode === 'tap') {
+      selectPlayer(selectedRole === d.role ? null : d.role);
+      return;
+    }
     if (d.mode === 'shift') {
       setShiftDrag(null);
       if (d.moved && d.at) onShiftDefenseMove?.(d.role, Math.round(d.at.x * 100) / 100, Math.round(d.at.y * 100) / 100);
@@ -2201,7 +2219,12 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           })()}
 
           {/* QB Read / Progression Vision Cone (Option, RPO, and Pass Plays) */}
-          {animProgress > 0.005 && animatedFrame.visionCone && (() => {
+          {/* Off until the coach taps the QB (or the man he reads): then his read shows as the play runs. */}
+          {animProgress > 0.005 &&
+            animatedFrame.visionCone &&
+            selectedRole &&
+            (selectedRole === animatedFrame.visionCone.fromRole || selectedRole === animatedFrame.visionCone.targetRole) &&
+            (() => {
             const vc = animatedFrame.visionCone;
             const from = fieldToSvg(vc.from.x, vc.from.y);
             const to = fieldToSvg(vc.to.x, vc.to.y);
