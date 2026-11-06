@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { RULE_LIBRARY, RULE_PRESETS, applyRuleAlignments, defenseGroup, pickedTechniques, resolveRuleJob, rulesText } from './defenseRules.ts';
+import { CATEGORY_TIPS, RULE_LIBRARY, RULE_PRESETS, ruleTip, applyRuleAlignments, defenseGroup, pickedTechniques, resolveRuleJob, rulesText } from './defenseRules.ts';
 import { applyTechniques, diagramLabel, shownText } from './footballEngine.ts';
 import { defenseJob } from './defenseJobs.ts';
 
@@ -24,6 +24,19 @@ describe("each defender's rules", () => {
     assert.ok(RULE_LIBRARY.line.some((c) => c.id === 'tech'));
     assert.ok(!RULE_LIBRARY.back.some((c) => c.id === 'tech'));
     assert.ok(RULE_LIBRARY.backer.some((c) => c.id === 'fit'));
+  });
+
+  it('every pick and heading explains itself on hover', () => {
+    const missing: string[] = [];
+    for (const [group, cats] of Object.entries(RULE_LIBRARY)) {
+      for (const cat of cats) {
+        if (!CATEGORY_TIPS[cat.id]) missing.push(`${group} heading ${cat.id}`);
+        for (const o of cat.options) if (!ruleTip(group as any, cat.id, o.id)) missing.push(`${group} ${cat.id}.${o.id}`);
+      }
+    }
+    assert.deepEqual(missing, []);
+    assert.match(ruleTip('back', 'run', 'force'), /edge/);
+    assert.match(ruleTip('backer', 'blitz', 'C'), /C gap/);
   });
 
   it('a picked technique lines him up there on their line, on his side, and he shows it (T2i)', () => {

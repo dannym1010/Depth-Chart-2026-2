@@ -1,10 +1,103 @@
 // One defender's rules, opened from the Jobs list (or by tapping him on the field): the terms that fit his
 // position, a row each, plus 1-click coaching packages. A technique or alignment moves him; a drop, blitz or
 // slant draws his line; read key, flow tempo, run fit and run action drive how he moves when the play runs.
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Play, RotateCcw, Sparkles } from 'lucide-react';
-import { RULE_LIBRARY, RULE_PRESETS, defenseGroup, drawnPick, resolveRuleJob, techniqueOf, type RulePreset } from '../../utils/defenseRules';
+import {
+  CATEGORY_TIPS,
+  RULE_LIBRARY,
+  RULE_PRESETS,
+  defenseGroup,
+  drawnPick,
+  resolveRuleJob,
+  ruleTip,
+  techniqueOf,
+  type RulePreset,
+} from '../../utils/defenseRules';
 import { ZoneMap } from './DefenseCallPicker';
+
+interface Tip {
+  title: string;
+  text: string;
+  x: number;
+  y: number;
+  below: boolean;
+}
+
+/**
+ * A note that pops up while the mouse is over a pick and goes away when it leaves. On a touch screen a tap
+ * shows it for a few seconds (the tap still picks).
+ */
+function useHoverTip() {
+  const [tip, setTip] = useState<Tip | null>(null);
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!tip) return;
+    const hide = () => setTip(null);
+    window.addEventListener('scroll', hide, true);
+    window.addEventListener('resize', hide);
+    return () => {
+      window.removeEventListener('scroll', hide, true);
+      window.removeEventListener('resize', hide);
+    };
+  }, [tip]);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+
+  const show = (el: HTMLElement, title: string, text: string) => {
+    const r = el.getBoundingClientRect();
+    const below = r.top < 110;
+    setTip({ title, text, x: r.left + r.width / 2, y: below ? r.bottom + 8 : r.top - 8, below });
+  };
+  /** Spread onto anything that should explain itself. */
+  const tipProps = (title: string, text: string) =>
+    text
+      ? {
+          'aria-description': text,
+          onPointerEnter: (e: React.PointerEvent<HTMLElement>) => {
+            if (e.pointerType !== 'touch') show(e.currentTarget, title, text);
+          },
+          onPointerLeave: (e: React.PointerEvent<HTMLElement>) => {
+            if (e.pointerType !== 'touch') setTip(null);
+          },
+          onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
+            if (e.pointerType !== 'touch') return;
+            show(e.currentTarget, title, text);
+            window.clearTimeout(timer.current);
+            timer.current = window.setTimeout(() => setTip(null), 3000);
+          },
+          onFocus: (e: React.FocusEvent<HTMLElement>) => {
+            if (e.currentTarget.matches(':focus-visible')) show(e.currentTarget, title, text);
+          },
+          onBlur: () => setTip(null),
+        }
+      : {};
+
+  const W = 260;
+  const node =
+    tip &&
+    createPortal(
+      <div
+        role="tooltip"
+        style={{
+          position: 'fixed',
+          left: Math.min(Math.max(tip.x, W / 2 + 8), window.innerWidth - W / 2 - 8),
+          top: tip.y,
+          width: 'max-content',
+          maxWidth: W,
+          transform: `translate(-50%, ${tip.below ? '0' : '-100%'})`,
+          zIndex: 2147483000,
+          pointerEvents: 'none',
+        }}
+        className="rounded-lg bg-slate-950 text-white ring-1 ring-white/15 shadow-xl px-2.5 py-1.5 text-xs leading-snug"
+      >
+        <div className="font-bold">{tip.title}</div>
+        <div className="text-slate-200">{tip.text}</div>
+      </div>,
+      document.body
+    );
+  return { tipProps, tipNode: node };
+}
 
 interface Props {
   node: { role: string; x: number };
@@ -51,6 +144,7 @@ export const DefenderRules: React.FC<Props> = ({
   const group = defenseGroup(node.role);
   const presets = RULE_PRESETS[group] || [];
   const [zones, setZones] = useState(false);
+  const { tipProps, tipNode } = useHoverTip();
   const anything = Object.keys(picks).length > 0 || Boolean(assign) || Boolean(typed);
 
   const isPresetActive = (p: RulePreset) =>
@@ -97,7 +191,7 @@ export const DefenderRules: React.FC<Props> = ({
                   key={p.id}
                   type="button"
                   aria-pressed={active}
-                  title={p.summary}
+                  {...tipProps(p.label, p.summary)}
                   onClick={() => applyPreset(p)}
                   className={`h-7 px-2.5 rounded-full text-xs font-bold transition-colors cursor-pointer whitespace-nowrap border ${
                     active
@@ -119,17 +213,26 @@ export const DefenderRules: React.FC<Props> = ({
         const hint = cat.id === 'tech' && !current ? techniqueOf(node.role) : '';
         return (
           <div key={cat.id}>
-            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">{cat.label}</div>
+            <div className="mb-1">
+              <span
+                className="text-[10px] font-bold uppercase tracking-wider text-slate-400 cursor-help"
+                {...tipProps(cat.label, CATEGORY_TIPS[cat.id] || '')}
+              >
+                {cat.label}
+              </span>
+            </div>
             <div className="flex flex-wrap gap-1.5">
               {cat.options.map((o) => {
                 const on = current === o.id;
+                const meaning = ruleTip(group, cat.id, o.id);
+                const tipTitle = cat.id === 'blitz' ? `Blitz the ${o.label}` : o.label;
                 return (
                   <button
                     key={o.id}
                     type="button"
                     aria-pressed={on}
                     className={chip(on, hint === o.id)}
-                    title={hint === o.id ? 'Where this front lines him up' : undefined}
+                    {...tipProps(tipTitle, hint === o.id ? `${meaning} (Where this front lines him up.)`.trim() : meaning)}
                     onClick={() => {
                       if (cat.draws) onAssign(on || !o.job ? '' : resolveRuleJob(o.job, node, ball));
                       else onPick(cat.id, on ? '' : o.id);
@@ -141,7 +244,13 @@ export const DefenderRules: React.FC<Props> = ({
               })}
               {/* Backers and DBs: any zone on the field. */}
               {(cat.id === 'pass' || cat.id === 'cover') && (
-                <button type="button" aria-pressed={zones} className={chip(zones)} onClick={() => setZones((z) => !z)}>
+                <button
+                  type="button"
+                  aria-pressed={zones}
+                  className={chip(zones)}
+                  {...tipProps('Other zone', 'Pick any zone on the field map for his drop.')}
+                  onClick={() => setZones((z) => !z)}
+                >
                   Other zone…
                 </button>
               )}
@@ -180,6 +289,7 @@ export const DefenderRules: React.FC<Props> = ({
           )}
         </div>
       )}
+      {tipNode}
     </div>
   );
 };
