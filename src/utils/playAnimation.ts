@@ -550,6 +550,20 @@ function frameAt(
   })();
   // The QB's handoff (to the first runner), and the reverse (the first runner to the ball carrier), if there is one.
   const handoff = handoffs[0] || null;
+  // A toss (the coach's Toss on the first handoff): the QB pitches it to the spot (a step toward it, the ball in the
+  // air) instead of carrying it there.
+  const qbStart = nodes.find((n) => n.role === '1' || n.role === 'QB');
+  const toss = Boolean(handoff && qbStart && postLine(handoff.role)?.st.toss && Math.hypot(handoff.at.x - qbStart.x, handoff.at.y - qbStart.y) > 1.2);
+  const TOSS_FLIGHT = 0.1;
+  /** Where the QB meets the ball carrier: the handoff spot, or (a toss) a step toward it. */
+  const qbMeet = (() => {
+    if (!handoff || !qbStart) return null;
+    if (!toss) return handoff.at;
+    const dx = handoff.at.x - qbStart.x;
+    const dy = handoff.at.y - qbStart.y;
+    const d = Math.hypot(dx, dy) || 1;
+    return { x: qbStart.x + (dx / d) * 1.1, y: qbStart.y + (dy / d) * 1.1 };
+  })();
   const reverse = handoffs.length >= 2 ? { giver: handoffs[0].role, at: handoffs[1].at, t: handoffs[1].t } : null;
   // The back on a reverse runs his line so he's at the reverse spot when the receiver is (he got the ball on time).
   const reversePace = (() => {
@@ -580,7 +594,7 @@ function frameAt(
           at.set(n.role, { x: n.x, y: n.y });
           continue;
         }
-        const target = { x: handoff.at.x, y: handoff.at.y };
+        const target = { x: qbMeet!.x, y: qbMeet!.y };
         if (postT <= handoff.t) {
           const k = postT / handoff.t;
           const curX = Math.round((n.x + (target.x - n.x) * k) * 100) / 100;
@@ -733,16 +747,16 @@ function frameAt(
         }
       } else if ((n.role === '1' || n.role === 'QB') && handoff) {
         // To the handoff spot (a step short of it, on his side), there when the carrier is; then he carries out his fake.
-        const dx = n.x - handoff.at.x;
-        const dy = n.y - handoff.at.y;
+        const dx = n.x - qbMeet!.x;
+        const dy = n.y - qbMeet!.y;
         const d = Math.hypot(dx, dy) || 1;
-        const mesh = d > 0.8 ? { x: handoff.at.x + (dx / d) * 0.8, y: handoff.at.y + (dy / d) * 0.8 } : { x: n.x, y: n.y };
+        const mesh = toss ? qbMeet! : d > 0.8 ? { x: qbMeet!.x + (dx / d) * 0.8, y: qbMeet!.y + (dy / d) * 0.8 } : { x: n.x, y: n.y };
         if (postT <= handoff.t) {
           const k = easeOutQuad(postT / handoff.t);
           at.set(n.role, { x: Math.round((n.x + (mesh.x - n.x) * k) * 100) / 100, y: Math.round((n.y + (mesh.y - n.y) * k) * 100) / 100 });
         } else {
           const k = easeOutQuad((postT - handoff.t) / Math.max(0.05, 1 - handoff.t));
-          const away = mesh.x >= handoff.at.x ? 1 : -1;
+          const away = mesh.x >= qbMeet!.x ? 1 : -1;
           at.set(n.role, { x: Math.round((mesh.x + away * 1.8 * k) * 100) / 100, y: Math.round((mesh.y - 0.6 * k) * 100) / 100 });
         }
       } else if (n.role === '1' || n.role === 'QB') {
@@ -824,6 +838,12 @@ function frameAt(
     }
     // A handoff spot set: 1 (the QB) brings the ball all the way to `handoff.at`, and when the carrier meets him there it changes hands.
     if (handoff) {
+      // A toss: pitched from the QB to the runner, getting there as he gets to the spot.
+      if (toss && postT < handoff.t && postT >= handoff.t - TOSS_FLIGHT) {
+        const to = at.get(handoffs[0].role) || handoff.at;
+        const k = (postT - (handoff.t - TOSS_FLIGHT)) / TOSS_FLIGHT;
+        return { x: qbNow.x + (to.x - qbNow.x) * k, y: qbNow.y + (to.y - qbNow.y) * k, inAir: true, air: k };
+      }
       if (postT < handoff.t) return { x: qbNow.x, y: qbNow.y, inAir: false };
       // A reverse: the back has it until he hands it to the receiver coming around.
       if (reverse && postT < reverse.t) {
@@ -850,7 +870,7 @@ function frameAt(
     phaseLabel = 'Back with the ball · reverse coming';
   } else if (handoff && postSnapT > 0 && postSnapT >= handoff.t - 0.06 && postSnapT <= handoff.t + 0.04) {
     phase = 'snap';
-    phaseLabel = 'Handoff';
+    phaseLabel = toss ? 'Toss' : 'Handoff';
   } else if (handoff && postSnapT > 0 && postSnapT < handoff.t) {
     phaseLabel = 'Snap & Mesh';
   } else if (postSnapT > 0) {

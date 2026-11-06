@@ -42,9 +42,21 @@ export function strokeFor(strokes: PlayStroke[], n: { x: number; y: number; role
   return strokes.find((s) => s.points.length > 0 && lineStartsOn(s, n, everyone)) || null;
 }
 
+/**
+ * His whole line to read (not to edit): a shift or motion with the run or route drawn on from where it ends, as one
+ * line (its kind is the play's: a shift then a run is a run).
+ */
+export function wholeLineFor(strokes: PlayStroke[], n: { x: number; y: number; role?: string }, everyone?: { x: number; y: number; role?: string }[]) {
+  const s = strokeFor(strokes, n, everyone);
+  if (!s || s.points.length < 2 || (s.motion || 0) < s.points.length - 1) return s;
+  const end = s.points[s.points.length - 1];
+  const after = strokes.find((r) => r !== s && r.points.length >= 2 && Math.hypot(r.points[0].x - end.x, r.points[0].y - end.y) < 1.2);
+  return after ? { ...after, points: [...s.points, ...after.points.slice(1)], motion: s.motion, ...(s.shift ? { shift: s.shift } : {}) } : s;
+}
+
 /** What the player is doing, in words: the picked assignment, or just the kind of line on the diagram. */
 export function assignmentText(strokes: PlayStroke[], n: { x: number; y: number; role?: string }, everyone?: { x: number; y: number; role?: string }[]) {
-  const s = strokeFor(strokes, n, everyone);
+  const s = wholeLineFor(strokes, n, everyone);
   if (!s) return '';
   const job = s.label || (s.kind === 'block' ? 'Block' : s.kind === 'pass' ? 'Route' : 'Run');
   if (!s.motion) return job;
@@ -249,7 +261,7 @@ export const PlayerAssignmentPanel: React.FC<Props> = ({
   }
 
   const meta = getPositionMeta(player.role, player.line);
-  const current = strokeFor(strokes, player, nodes);
+  const current = wholeLineFor(strokes, player, nodes);
   const step = (dir: 1 | -1) => {
     const i = nodes.findIndex((n) => n.role === player.role);
     const next = nodes[(i + dir + nodes.length) % nodes.length];

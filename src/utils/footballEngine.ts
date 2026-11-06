@@ -2117,6 +2117,8 @@ export interface PlayStroke {
    * he gets there; none = just after the snap.
    */
   handoff?: { x: number; y: number };
+  /** The handoff is a toss: the QB pitches it to the spot (a step toward it, the ball in the air). */
+  toss?: boolean;
   /** Older lines drawn freehand: the whole line is a smooth curve (newer ones mark each `smooth` point). */
   curve?: boolean;
   /** Its own color (our defense's blitzes and coverage), instead of the kind's. */

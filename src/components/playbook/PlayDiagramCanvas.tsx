@@ -817,9 +817,20 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   // The handoff spot on the ball carrier's run line: picked by tapping his line (the ball changes hands there).
   const [pickHandoff, setPickHandoff] = useState(false);
   const carrierNode = nodesProp.find((n) => n.role === ballRole);
+  /** His line: it starts on him, or where his shift / motion ends (a run drawn on from the end of it). */
+  const isHisLine = (st: PlayStroke, n: PlayNode) =>
+    lineStartsOn(st, n, nodesProp) ||
+    strokesProp.some(
+      (m) =>
+        m !== st &&
+        m.points.length >= 2 &&
+        (m.motion || 0) >= m.points.length - 1 &&
+        lineStartsOn(m, n, nodesProp) &&
+        Math.hypot(m.points[m.points.length - 1].x - st.points[0].x, m.points[m.points.length - 1].y - st.points[0].y) < 1.2
+    );
   const carrierIdx =
     carrierNode && ballRole !== '1' && ballRole !== 'QB'
-      ? strokesProp.findIndex((st) => st.kind === 'run' && st.points.length >= 2 && lineStartsOn(st, carrierNode, nodesProp))
+      ? strokesProp.findIndex((st) => st.kind === 'run' && st.points.length >= 2 && isHisLine(st, carrierNode))
       : -1;
   // Every runner's run line (backs and receivers; not the QB or the line): a handoff spot can go on any of them.
   // Two (a reverse): the QB hands it to the first, he hands it to the ball carrier.
@@ -829,7 +840,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       i,
       node:
         st.kind === 'run' && st.points.length >= 2
-          ? nodesProp.find((n) => !isDefenseRole(n.role) && n.role !== '1' && n.role !== 'QB' && !['LT', 'LG', 'C', 'RG', 'RT'].includes(n.role) && lineStartsOn(st, n, nodesProp))
+          ? nodesProp.find((n) => !isDefenseRole(n.role) && n.role !== '1' && n.role !== 'QB' && !['LT', 'LG', 'C', 'RG', 'RT'].includes(n.role) && isHisLine(st, n))
           : undefined,
     }))
     .filter((r): r is { st: PlayStroke; i: number; node: PlayNode } => Boolean(r.node));
@@ -1363,6 +1374,25 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       change([...cur, { kind: 'run', points: [{ x: end.x, y: end.y }, here] }]);
       setOpen(i);
       drag.current = { mode: 'draw', index: i, anchor: 1, fresh: false, downCx: p.cx, downCy: p.cy, moved: false };
+      setSelected(i);
+      return;
+    }
+    // A run, route or block started where a player's shift or motion ends: that player's line goes on from there
+    // (one line: shift, then the play).
+    const preSnapEnd =
+      (i == null || !cur[i]) && !onOurs && (tool === 'run' || tool === 'pass' || tool === 'block')
+        ? cur.findIndex((s) => {
+            if (s.points.length < 2 || (s.motion || 0) < s.points.length - 1) return false;
+            const e = fieldToSvg(s.points[s.points.length - 1].x, s.points[s.points.length - 1].y);
+            return Math.hypot(e.cx - p.cx, e.cy - p.cy) <= 20;
+          })
+        : -1;
+    if (preSnapEnd >= 0) {
+      const base = cur[preSnapEnd];
+      i = preSnapEnd;
+      change(cur.map((x, j) => (j === i ? { ...x, kind: tool as DrawKind, points: [...x.points, here] } : x)));
+      setOpen(i);
+      drag.current = { mode: 'draw', index: i, anchor: base.points.length, fresh: false, downCx: p.cx, downCy: p.cy, moved: false };
       setSelected(i);
       return;
     }
@@ -1948,6 +1978,33 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
               >
                 🏈 {pickHandoff ? 'Tap his line' : 'Handoff'}
               </button>
+              {handoffSpot && !pickHandoff && (() => {
+                // The QB's handoff (on a reverse, the one to the back, not the ball carrier's): a toss or not.
+                const first = handoffSpots.find((s) => s.role !== ballRole) || handoffSpots[0];
+                const on = Boolean(strokesProp[first.i]?.toss);
+                return (
+                  <button
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() =>
+                      onStrokes(
+                        strokesProp.map((st, i) => {
+                          if (i !== first.i) return st;
+                          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                          const { toss: _t, ...rest } = st;
+                          return on ? rest : { ...rest, toss: true };
+                        })
+                      )
+                    }
+                    title={on ? 'A toss: the QB pitches it to him. Click for a handoff.' : 'Make it a toss: the QB pitches it to him (the ball in the air) instead of handing it off'}
+                    className={`h-7 px-2 rounded-lg border text-[11px] font-black cursor-pointer ${
+                      on ? 'border-amber-300 bg-amber-600 text-white' : 'border-amber-400/50 bg-slate-900/85 text-amber-300 hover:bg-amber-600 hover:text-white'
+                    }`}
+                  >
+                    Toss
+                  </button>
+                );
+              })()}
               {handoffSpot && !pickHandoff && (
                 <button
                   type="button"
@@ -2610,7 +2667,8 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           {(() => {
             const fr = animatedFrame;
             const spots: { key: string; at: { x: number; y: number }; label: string; when?: number; auto?: boolean }[] = [];
-            if (fr.handoffAt) spots.push({ key: 'h', at: fr.handoffAt, label: 'HANDOFF', when: fr.handoffProgress });
+            const tossed = handoffSpots.some((s) => strokesProp[s.i]?.toss);
+            if (fr.handoffAt) spots.push({ key: 'h', at: fr.handoffAt, label: tossed ? 'TOSS' : 'HANDOFF', when: fr.handoffProgress });
             if (fr.reverseAt) {
               const marked = handoffSpots.some((s) => s.role === ballRole);
               spots.push({ key: 'r', at: fr.reverseAt, label: 'REVERSE', when: fr.reverseProgress, auto: !marked });
