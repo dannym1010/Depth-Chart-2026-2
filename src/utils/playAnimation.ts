@@ -1,5 +1,5 @@
 import { isDefenseRole, isThrownLine, lineStartsOn, shiftLegs, type PlayNode, type PlayStroke } from './footballEngine';
-import { defendPlay, defendPreSnapMotion } from './defenseReads';
+import { defendPlay, defenseJobs, defendPreSnapMotion, drawnTiming } from './defenseReads';
 
 export interface AnimatedTrail {
   role: string;
@@ -901,6 +901,16 @@ function frameAt(
       const poaSample = offenseAt(0.28, 1).get(ballRole);
       const poaX = poaSample ? poaSample.x : fallbackAimX;
       const defStartMap = new Map(defenseAtSnap.map((d) => [d.role, d]));
+      // Our contain men (Sam and Rover in the 4-4): blocked, they fight to keep the ball inside them; once the ball
+      // carrier starts to get outside one, he sheds and takes his outside angle.
+      const defJobs = defenseJobs(defenseAtSnap);
+      const centerX = offense.find((o) => o.role === 'C')?.x ?? 0;
+      const carrierAtTau = new Map<number, { x: number; y: number } | undefined>();
+      const carrierAt = (tau: number) => {
+        const k = Math.round(tau * 1000);
+        if (!carrierAtTau.has(k)) carrierAtTau.set(k, offenseAt(tau, 1).get(ballRole));
+        return carrierAtTau.get(k);
+      };
 
       type BlockStyle = 'pull' | 'lead' | 'climb' | 'pass_pro' | 'stalk' | 'base';
       interface BlockAssignment {
@@ -1074,7 +1084,7 @@ function frameAt(
 
         // Second-level linebackers complete their Phase 1 lateral read/flow before a climbing OL or lead back can lock them up
         const isSecondLevelDef = dStart.y >= 2.15;
-        const minEngageT =
+        let minEngageT =
           style === 'pull'
             ? 0.24
             : style === 'lead' || style === 'climb' || isSecondLevelDef
@@ -1082,6 +1092,12 @@ function frameAt(
               : style === 'stalk'
                 ? 0.18
                 : 0.12;
+        // A stunting lineman finishes his move before anyone can lock him up (the stunt shows, then the block).
+        const stunt = drawnFor.get(defRole);
+        if (stunt && /^(D[ET]|NT|E\d|T\d)/i.test(defRole)) {
+          const tm = drawnTiming(defRole, stunt);
+          minEngageT = Math.max(minEngageT, tm.wait + tm.run * 0.9);
+        }
         const seekStartT = style === 'pull' ? 0.18 : 0.03;
         const blockSpeedMult =
           style === 'pull'
@@ -1101,6 +1117,9 @@ function frameAt(
 
         let engageT: number | null = null;
         let contactSpot: { x: number; y: number } | null = null;
+        const containMan = !isPassPlay && Boolean(defJobs.get(defRole)?.edge);
+        const containSide = Math.sign(dStart.x - centerX) || 1;
+        let containShedAt: number | null = null;
 
         // Determine block leverage / drive direction once engaged
         const sealSign =
@@ -1207,9 +1226,15 @@ function frameAt(
                 ? easeOutQuad(Math.min(1, (tau - holdUntil) / Math.max(0.08, 1 - holdUntil))) * 0.62
                 : 0;
 
+            if (containMan && containShedAt === null) {
+              const c = carrierAt(tau);
+              if (c && c.y > -2.5 && (c.x - drivenSpot.x) * containSide > -0.6) containShedAt = tau;
+            }
+            const containShed = containShedAt !== null ? easeOutQuad(Math.min(1, (tau - containShedAt) / 0.12)) : 0;
+            const off = Math.max(shedFrac, containShed);
             const dBlocked = {
-              x: r3(drivenSpot.x * (1 - shedFrac) + dRaw.x * shedFrac),
-              y: r3(drivenSpot.y * (1 - shedFrac) + dRaw.y * shedFrac),
+              x: r3(drivenSpot.x * (1 - off) + dRaw.x * off),
+              y: r3(drivenSpot.y * (1 - off) + dRaw.y * off),
             };
             // Keep the offensive blocker chest-to-chest on the inside/leverage hip of the defender (~0.48 yds separation)
             const chestDist = 0.48;

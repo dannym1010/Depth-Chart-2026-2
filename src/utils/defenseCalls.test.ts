@@ -125,9 +125,9 @@ describe("more calls, and a player's own job", () => {
   it('crosses: the nose and 3-tech cross on the strong side; on an E-T cross the end goes inside and the tackle loops outside', () => {
     const tt = defenseCallStrokes(front('44_C3_LIZ'), off, 'cross_tt');
     assert.equal(tt.length, 2);
-    // Strong left: B gap (-3) and A gap (-1).
-    assert.deepEqual(tt.map((x) => end(x).x).sort((a, b) => a - b), [-3, -1]);
-    assert.ok(tt.some((x) => x.points.length === 3), 'one loops behind');
+    // Their strength is right (the tight end): B gap (3) and A gap (1).
+    assert.deepEqual(tt.map((x) => end(x).x).sort((a, b) => a - b), [1, 3]);
+    assert.ok(tt.some((x) => x.points.length === 4), 'one loops behind');
     const et = defenseCallStrokes(front('44_C3_LIZ'), off, 'cross_et_r');
     const endMan = et.find((x) => /slant inside/.test(x.label!))!;
     const tackle = et.find((x) => /loop outside/.test(x.label!))!;
@@ -181,25 +181,43 @@ describe('stunts with a blitz, and a lineman on his own', () => {
 describe('cross: the nose goes first to the strong side', () => {
   const first = (s: any[]) => s.find((x) => /goes first/.test(x.label));
   const loop = (s: any[]) => s.find((x) => /loop behind/.test(x.label));
-  it('LIZ front: the nose (T1) crosses to the strong B gap, the 3-tech (T3) loops behind him to the strong A', () => {
+  // Balanced (no tight end, a receiver each side): the strong side is where our 3-tech lines up.
+  const balanced = off.filter((n) => n.role !== 'Y');
+  it('LIZ front, balanced: the nose (T1) crosses to the B gap on the 3-tech side, the 3-tech (T3) loops behind him to the A', () => {
     const d = front('44_C3_LIZ');
     const t1 = d.find((n) => n.role === 'T1')!;
     const t3 = d.find((n) => n.role === 'T3')!;
-    const s = defenseCallStrokes(d, off, 'cross_tt');
+    const s = defenseCallStrokes(d, balanced, 'cross_tt');
     assert.equal(first(s).points[0].x, t1.x);
     assert.equal(end(first(s)).x, -3);
     assert.equal(loop(s).points[0].x, t3.x);
     assert.equal(end(loop(s)).x, -1);
-    // He loops behind (deeper than where he started).
-    assert.ok(loop(s).points[1].y > t3.y);
+    // He waits for the nose, then loops behind him (deeper than both start).
+    assert.ok(loop(s).wait! > 0 && !first(s).wait);
+    assert.ok(loop(s).points[1].y > t3.y && loop(s).points[2].y > t1.y);
     // The old Cross RIP is the same call.
-    assert.deepEqual(defenseCallStrokes(d, off, 'cross_tt_r'), s);
+    assert.deepEqual(defenseCallStrokes(d, balanced, 'cross_tt_r'), s);
   });
-  it('the front flipped to the right: the cross goes right', () => {
-    const d = front('44_C3_LIZ').map((n) => ({ ...n, x: -n.x }));
-    const s = defenseCallStrokes(d, off, 'cross_tt');
+  it('their strength decides the side: the tight end on the right, the cross goes right', () => {
+    const s = defenseCallStrokes(front('44_C3_LIZ'), off, 'cross_tt');
     assert.equal(end(first(s)).x, 3);
     assert.equal(end(loop(s)).x, 1);
+  });
+  it('in the play the nose goes first and the 3-tech gets behind him, both through their gaps', async () => {
+    const { computeAnimatedPlayFrame } = await import('./playAnimation.ts');
+    const d = front('44_C3_LIZ');
+    const call = defenseCallStrokes(d, off, 'cross_tt');
+    const nodes = [...off, ...d] as any[];
+    // `t`: how far into the play after the snap (the timeline eases in and out).
+    const at = (t: number, role: string) => computeAnimatedPlayFrame(nodes, [], call, '3', Math.acos(1 - 2 * t) / Math.PI).nodes.find((n) => n.role === role)!;
+    // Early: the nose is on his way, the 3-tech hasn't gone yet.
+    const t1 = d.find((n) => n.role === 'T1')!;
+    const t3 = d.find((n) => n.role === 'T3')!;
+    assert.ok(Math.abs(at(0.06, 'T1').x - t1.x) > 0.3, 'nose moving');
+    assert.ok(Math.abs(at(0.03, 'T3').x - t3.x) < 0.05, '3-tech waiting');
+    // Then they cross: the nose ends past the 3-tech's start, the 3-tech inside him.
+    assert.ok(at(0.3, 'T1').x > 2.6, `nose at ${at(0.3, 'T1').x}`);
+    assert.ok(at(0.36, 'T3').x < at(0.36, 'T1').x);
   });
   it('a 5-man front: the nose and the tackle on their strong side', () => {
     const s = defenseCallStrokes(front('53_C3'), off, 'cross_tt');

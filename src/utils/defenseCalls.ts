@@ -208,6 +208,18 @@ export function strongSide(off: PlayNode[], center = 0): 'left' | 'right' {
   return rl > rr ? 'left' : 'right';
 }
 
+/** Their strength when it shows: more tight ends on a side, else more receivers; null when balanced. */
+function offenseStrength(off: PlayNode[], center = 0): 'left' | 'right' | null {
+  const te = off.filter((n) => n.line && /^Y\d?$/.test(n.role));
+  const l = te.filter((n) => n.x < center).length;
+  const r = te.filter((n) => n.x > center).length;
+  if (l !== r) return l > r ? 'left' : 'right';
+  const rec = off.filter((n) => ELIGIBLE.test(n.role) && !/^[1-4]$/.test(n.role));
+  const rl = rec.filter((n) => n.x < center).length;
+  const rr = rec.filter((n) => n.x > center).length;
+  return rl === rr ? null : rl > rr ? 'left' : 'right';
+}
+
 /** The blitz or stunt's paths. Returns who rushes (so they don't drop into coverage). */
 function pressurePaths(id: string, def: PlayNode[], off: PlayNode[]): { strokes: PlayStroke[]; rushers: Set<string> } {
   const g = gaps(off);
@@ -326,17 +338,26 @@ function pressurePaths(id: string, def: PlayNode[], off: PlayNode[]): { strokes:
     const nose = tackles[0];
     const others = tackles.slice(1);
     const sideOf = (n: PlayNode): 'left' | 'right' => (n.x < g.C ? 'left' : 'right');
-    const strength = strongSide(off, g.C);
-    const sides = new Set(others.map(sideOf));
-    const dt = sides.size === 1 ? others[0] : others.find((n) => sideOf(n) === strength) || others[0];
-    if (nose && dt) {
-      const side = sideOf(dt);
+    // Their strength (tight ends, else receivers); balanced, the side our 3-tech lines up on.
+    const strength = offenseStrength(off, g.C) || (others[0] ? sideOf(others[0]) : null);
+    const dt = others.find((n) => sideOf(n) === strength) || others[0];
+    if (nose && dt && strength) {
+      const side = strength;
+      const out = side === 'left' ? -1 : 1;
+      const A = g[side].A;
       add({ kind: 'run', color: BLITZ_COLOR, label: 'Cross: nose goes first', points: [pt(nose.x, nose.y), pt(g[side].B, -1.4)] }, nose.role);
+      // The 3-tech waits a count, steps back and comes around behind the nose, then up through the A gap.
       add({
         kind: 'run',
         color: BLITZ_COLOR,
         label: 'Cross: loop behind',
-        points: [pt(dt.x, dt.y), pt((dt.x + g[side].A) / 2, dt.y + 1), pt(g[side].A, -1.4)],
+        wait: 0.1,
+        points: [
+          pt(dt.x, dt.y),
+          { ...pt(dt.x - out * 0.15, dt.y + 1.05), smooth: true },
+          { ...pt(A + out * 0.35, dt.y + 0.95), smooth: true },
+          pt(A, -1.4),
+        ],
       }, dt.role);
     }
   }

@@ -35,16 +35,33 @@ const verticals = (() => {
 })();
 
 describe('our 4-4 Cover 3: who does what', () => {
-  it('the outside backers have contain; the ends play inside them', () => {
-    const jobs = defenseJobs(base44);
+  it('Sam and Rover have contain; the ends play inside them', () => {
+    // Rover on the other side from the Sam (the way he lines up on the tight end).
+    const jobs = defenseJobs(base44.map((n) => (n.role === 'ROV' ? { ...n, x: 8.1 } : n)));
     assert.deepEqual([jobs.get('SAM')?.job, jobs.get('SAM')?.edge], ['outside', true]);
-    assert.deepEqual([jobs.get('WILL')?.job, jobs.get('WILL')?.edge], ['outside', true]);
+    assert.deepEqual([jobs.get('ROV')?.job, jobs.get('ROV')?.edge], ['outside', true]);
+    assert.deepEqual([jobs.get('WILL')?.job, jobs.get('WILL')?.edge], ['inside', false]);
     assert.equal(jobs.get('MIKE')?.job, 'inside');
-    assert.equal(jobs.get('ROV')?.job, 'inside');
     assert.deepEqual([jobs.get('E9')?.job, jobs.get('E9')?.edge], ['end', false]);
+    assert.deepEqual([jobs.get('E5')?.job, jobs.get('E5')?.edge], ['end', false]);
     assert.equal(jobs.get('T3')?.job, 'tackle');
     assert.equal(jobs.get('CBL')?.job, 'corner');
     assert.equal(jobs.get('FS')?.job, 'deep');
+  });
+
+  it('Sam and Rover on one side: the outer one has contain there, the end has it on the other side (never the Will)', () => {
+    const jobs = defenseJobs(base44);
+    assert.equal(jobs.get('SAM')?.edge, true);
+    assert.equal(jobs.get('ROV')?.edge, false);
+    assert.equal(jobs.get('WILL')?.edge, false);
+    assert.equal(jobs.get('E5')?.edge, true);
+    assert.equal(jobs.get('E9')?.edge, false);
+  });
+
+  it('on a hash it is the same: sides count from our line, not the middle of the field', () => {
+    const onHash = defenseJobs(base44.map((n) => ({ ...n, x: n.x + 4.2 })));
+    const middle = defenseJobs(base44);
+    for (const [role, j] of middle) assert.deepEqual(onHash.get(role), j, role);
   });
 
   it('in the 5-3 the ends have contain', () => {
@@ -63,11 +80,16 @@ describe('our defense reads a run', () => {
     }
   });
 
-  it('the playside contain man stays outside the ball carrier; the backside one stays home a moment', () => {
-    const mid = computeAnimatedPlayFrame(sweep.nodes, sweep.strokes, [], '3', 0.55);
-    const ball = at(mid, '3');
-    assert.ok(at(mid, 'WILL').x > ball.x - 0.5, 'the Will keeps outside leverage on the sweep to his side');
-    const early = computeAnimatedPlayFrame(sweep.nodes, sweep.strokes, [], '3', 0.35);
+  it('the playside contain man (Rover) keeps the ball inside him, even kicked out; the backside one (Sam) stays home a moment', () => {
+    // Rover on the tight end's side, the way our 4-4 lines up.
+    const nodes = sweep.nodes.map((n) => (n.role === 'ROV' ? { ...n, x: 8.1 } : n));
+    for (const p of [0.55, 0.65, 0.75]) {
+      const f = computeAnimatedPlayFrame(nodes, sweep.strokes, [], '3', p);
+      const ball = at(f, '3');
+      if (ball.y < -1) continue;
+      assert.ok(at(f, 'ROV').x > ball.x - 0.6, `Rover outside the ball at ${p} (${at(f, 'ROV').x} vs ${ball.x})`);
+    }
+    const early = computeAnimatedPlayFrame(nodes, sweep.strokes, [], '3', 0.35);
     assert.ok(at(early, 'SAM').x < -6, 'the Sam stays home for the boot and the cutback');
   });
 
@@ -88,10 +110,12 @@ describe('our defense reads a run', () => {
     assert.ok(mikeFlow.x > mikeStart.x + 0.5, `MIKE flowed laterally toward the play (${mikeStart.x} -> ${mikeFlow.x})`);
     assert.ok(mikeFlow.y <= mikeStart.y + 0.1 && mikeFlow.y >= 2.0, `MIKE stayed at linebacker flow depth (${mikeFlow.y}) instead of dropping into pass zone`);
 
-    // During Phase 2 (Downhill Attack, progress = 0.65): MIKE triggers downhill toward the line of scrimmage / hole
+    // During Phase 2 (Downhill Attack, progress = 0.65): the inside backer nearest the play (the Will, on the
+    // sweep to his side) triggers downhill toward the line of scrimmage / hole.
+    const willFlow = at(flowFrame, 'WILL');
     const attackFrame = computeAnimatedPlayFrame(sweep.nodes, sweep.strokes, c3Strokes, '3', 0.65);
-    const mikeAttack = at(attackFrame, 'MIKE');
-    assert.ok(mikeAttack.y < mikeFlow.y - 0.5, `MIKE attacked downhill after flowing (${mikeFlow.y} -> ${mikeAttack.y})`);
+    const willAttack = at(attackFrame, 'WILL');
+    assert.ok(willAttack.y < willFlow.y - 0.5, `WILL attacked downhill after flowing (${willFlow.y} -> ${willAttack.y})`);
   });
 
   it('adjusts defender movement when coach changes Defender Rules (fit, action, flow, motion)', () => {

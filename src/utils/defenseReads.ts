@@ -42,10 +42,20 @@ export function defenseJobs(defense: PlayNode[]): Map<string, Defender> {
   const line = defense.filter((n) => LINE.test(n.role));
   const backers = defense.filter((n) => BACKER.test(n.role));
   const backerEdge = backers.length >= 4;
+  // Sides are measured from the middle of our line (it lines up on the ball, on any hash).
+  const xs = line.map((n) => n.x).sort((a, b) => a - b);
+  const mid = xs.length ? (xs[0] + xs[xs.length - 1]) / 2 : 0;
   // The outermost on a side (-1 left, 1 right).
-  const outer = (list: PlayNode[], side: number) => list.filter((n) => n.x * side > 0.3).sort((a, b) => side * (b.x - a.x))[0];
+  const outer = (list: PlayNode[], side: number) => list.filter((n) => (n.x - mid) * side > 0.3).sort((a, b) => side * (b.x - a.x))[0];
   const ends = new Set([outer(line, -1), outer(line, 1)].filter(Boolean));
-  const outsides = new Set([outer(backers, -1), outer(backers, 1)].filter(Boolean));
+  // The 4-4: Sam and Rover are the contain men, wherever they line up (both on one side, the outer one has it, and
+  // the end has it on the other side). Without them, the outermost backer on each side.
+  const named = backers.filter((n) => /^(SAM|ROV)/.test(n.role));
+  const pool = named.length ? named : backers;
+  const containers = new Set([outer(pool, -1), outer(pool, 1)].filter(Boolean) as PlayNode[]);
+  // The outside backers (curl-flat on a pass): Sam and Rover, or the outermost on each side.
+  const outsides = named.length ? new Set(named) : containers;
+  const sidesHeld = new Set([...containers].map((n) => Math.sign(n.x - mid)));
   return new Map(
     defense.map((n) => {
       const onLine = line.includes(n);
@@ -62,7 +72,9 @@ export function defenseJobs(defense: PlayNode[]): Map<string, Defender> {
             : n.role === 'FS'
               ? 'deep'
               : 'safety';
-      return [n.role, { role: n.role, job, edge: backerEdge ? job === 'outside' : job === 'end', line: onLine }];
+      // With four backers the contain men have it, and an end where no contain man lines up; else the ends.
+      const edge = backerEdge ? containers.has(n) || (job === 'end' && !sidesHeld.has(Math.sign(n.x - mid))) : job === 'end';
+      return [n.role, { role: n.role, job, edge, line: onLine }];
     })
   );
 }
@@ -94,6 +106,14 @@ export interface PlayRead {
 const STEP = 1 / 60;
 /** A line drawn for a defender is run in this much of the play; then he plays the ball. */
 const DRAWN = 0.6;
+/** A lineman's stunt is quick: his line is run in this much of the play. */
+const STUNT = 0.3;
+
+/** When a defender runs his drawn line: how long he waits after the snap, then how much of the play it takes. */
+export function drawnTiming(role: string, st: Pick<PlayStroke, 'wait'>): { wait: number; run: number } {
+  const lineman = /^(D[ET]|NT|E\d|T\d)/i.test(role);
+  return { wait: Math.max(0, st.wait || 0), run: lineman ? STUNT : DRAWN };
+}
 /** How fast each job runs, against the ball carrier: the line a step slower, the secondary a step faster. */
 const SPEED: Record<Job, number> = { tackle: 0.75, end: 0.85, outside: 1, inside: 0.95, corner: 1.05, deep: 1.05, safety: 1 };
 
@@ -273,8 +293,9 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
       break;
     }
   }
-  const side = hole.x > 1.5 ? 1 : hole.x < -1.5 ? -1 : 0;
   const gMap = computeGaps(r.offense);
+  // From the ball (on a hash, the middle of the field isn't the middle of their line).
+  const side = hole.x - gMap.C > 1.5 ? 1 : hole.x - gMap.C < -1.5 ? -1 : 0;
   const carrierStart = grid[0].get(carrier) || { x: gMap.C, y: -4 };
 
   // Detect pulling guard direction if a guard pulls
@@ -314,10 +335,10 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
 
   // The edge on each side: the last man on the line (a tight end, a tackle).
   const qbStart = r.offense.find((n) => n.role === r.qb) || { x: 0, y: -1 };
-  const onLine = r.offense.filter((n) => Math.abs(n.y) < 1.6 && Math.abs(n.x) < 9.5 && n.role !== r.qb);
+  const onLine = r.offense.filter((n) => Math.abs(n.y) < 1.6 && Math.abs(n.x - gMap.C) < 9.5 && n.role !== r.qb);
   const edgeOf = (s: number) => {
-    const out = onLine.map((n) => n.x * s).filter((v) => v > 0);
-    return s * (out.length ? Math.max(...out) : 4);
+    const out = onLine.map((n) => (n.x - gMap.C) * s).filter((v) => v > 0);
+    return gMap.C + s * (out.length ? Math.max(...out) : 4);
   };
   const receivers = r.offense.filter((n) => !OL.includes(n.role) && n.role !== r.qb).map((n) => n.role);
   // The backer who fills the hole: an inside backer with `action === 'fill'` or the inside backer nearest the hole.
@@ -420,23 +441,23 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
       if (d.edge && (q.x - qbStart.x) * s > 3) return { x: q.x + s * 0.8, y: q.y + 0.4 };
       // Cover 3 default: four under (the outside backers in the curl-flats, the inside ones in the hooks), three deep.
       if (d.job === 'outside') {
-        const land = { x: s * Math.max(8, Math.abs(start.x) * 0.85), y: 5 };
+        const land = { x: gMap.C + s * Math.max(8, Math.abs(start.x - gMap.C) * 0.85), y: 5 };
         const m = inZone(land, now, (q2) => Math.abs(q2.x - land.x) < 6 && q2.y > -1 && q2.y < 9);
         return m ? { x: land.x + (m.x - land.x) * 0.6, y: land.y + (m.y - land.y) * 0.5 } : land;
       }
       if (d.job === 'inside' || d.job === 'safety') {
-        const land = { x: Math.abs(start.x) < 2 ? start.x * 0.5 : s * 3.5, y: 6.5 };
+        const land = { x: gMap.C + (Math.abs(start.x - gMap.C) < 2 ? (start.x - gMap.C) * 0.5 : s * 3.5), y: 6.5 };
         const m = inZone(land, now, (q2) => Math.abs(q2.x - land.x) < 5 && q2.y > 2 && q2.y < 11);
         return m ? { x: land.x + (m.x - land.x) * 0.55, y: land.y + (m.y - land.y) * 0.4 } : land;
       }
       if (d.job === 'corner') {
         const land = { x: start.x + s * 0.5, y: 12 };
-        const m = inZone(land, now, (q2) => q2.y > 6 && q2.x * s > Math.abs(start.x) * 0.45);
+        const m = inZone(land, now, (q2) => q2.y > 6 && (q2.x - gMap.C) * s > Math.abs(start.x - gMap.C) * 0.45);
         return m ? { x: m.x + s * 0.6, y: Math.max(9, m.y + 2) } : land;
       }
-      const land = { x: start.x * 0.3, y: 13 };
-      const m = inZone(land, now, (q2) => q2.y > 7 && Math.abs(q2.x) < 8);
-      return m ? { x: m.x * 0.8, y: Math.max(10, m.y + 2.5) } : land;
+      const land = { x: gMap.C + (start.x - gMap.C) * 0.3, y: 13 };
+      const m = inZone(land, now, (q2) => q2.y > 7 && Math.abs(q2.x - gMap.C) < 8);
+      return m ? { x: gMap.C + (m.x - gMap.C) * 0.8, y: Math.max(10, m.y + 2.5) } : land;
     }
 
     // ========================================================================
@@ -517,8 +538,9 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
         if (now < 0.32 && c.y < 1 && Math.hypot(me.x - edge.x, me.y - edge.y) > 0.8) return edge;
         return chase(me, v, now, { x: s * 0.9, y: 0.4 });
       }
-      // Backside contain: stay home for bootleg, reverse, and cutback, then trail from depth.
-      if (now < 0.5) return { x: start.x * 0.85, y: Math.max(0.6, start.y - 1.2) };
+      // Backside contain: stay home for bootleg, reverse, and cutback (keep his width, come down to the line),
+      // then trail from depth.
+      if (now < 0.5) return { x: Math.abs(start.x - gMap.C) > Math.abs(edgeOf(s) - gMap.C) + 1 ? edgeOf(s) + s * 1.2 : start.x, y: Math.max(0.6, start.y - 1.2) };
       return chase(me, v, now, { x: 0, y: 2.5 });
     }
 
@@ -670,8 +692,9 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
       const drawn = r.drawn.get(n.role);
       const rule = rules[n.role] || {};
       let next: P;
-      if (drawn && drawn.points.length >= 2 && now <= DRAWN) {
-        next = along([{ x: n.x, y: n.y }, ...drawn.points.slice(1)], now / DRAWN);
+      const timing = drawn ? drawnTiming(n.role, drawn) : null;
+      if (drawn && timing && drawn.points.length >= 2 && now <= timing.wait + timing.run) {
+        next = now <= timing.wait ? { x: n.x, y: n.y } : along([{ x: n.x, y: n.y }, ...drawn.points.slice(1)], (now - timing.wait) / timing.run);
       } else {
         // Adjust speed slightly for fast-flow or downhill-penetrating rules
         const speedMult =

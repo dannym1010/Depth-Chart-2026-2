@@ -2127,6 +2127,8 @@ export interface PlayStroke {
   man?: { x: number; y: number };
   /** A run or block line the ball is thrown to (a pass to a back or tight end), not handed off: caught at the end of its first leg. */
   thrown?: boolean;
+  /** Our defender's stunt line: he waits this much of the play after the snap before he goes (the looper behind the man going first). */
+  wait?: number;
 }
 
 /** Pre-snap motion is drawn as a zigzag in its own color. */
