@@ -1929,6 +1929,25 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             </div>
           );
         })()}
+        {/* Presenting (no tool bar): the Gaps button on its own. */}
+        {bare && onToggleGaps && (
+          <div data-stage-ui className="absolute top-2.5 left-2.5 z-10">
+            <button
+              type="button"
+              aria-pressed={Boolean(gapsOn)}
+              onClick={() => {
+                setPickedGap(null);
+                onToggleGaps();
+              }}
+              title={gapsOn ? 'Hide the gaps' : 'Show who fits each gap'}
+              className={`h-8 px-3 rounded-lg border text-xs font-black inline-flex items-center gap-1 cursor-pointer shadow-xs ${
+                gapsOn ? 'border-sky-300 bg-sky-600 text-white' : 'border-sky-400/50 bg-slate-900/85 backdrop-blur-sm text-sky-300 hover:bg-sky-600 hover:text-white'
+              }`}
+            >
+              ▥ Gaps
+            </button>
+          </div>
+        )}
         {!bare && (
         <div className="absolute top-2.5 left-2.5 z-10 flex items-center gap-1.5">
           <div role="group" aria-label="Zoom" className="inline-flex items-center rounded-lg border border-white/20 bg-slate-900/80 backdrop-blur-sm text-white shadow-xs overflow-hidden">

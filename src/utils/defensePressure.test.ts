@@ -11,7 +11,8 @@ const linesOf = (strokes: ReturnType<typeof defenseCallStrokes>, role: string) =
 
 describe('adjusting a blitz per player', () => {
   it('reads who Blow Sting sends through which gap', () => {
-    assert.deepEqual(pressureGaps('blow_sting', def, off), { SAM: 'D', ROV: 'C', E9: 'B', E5: 'C' });
+    // Sam and Rover both on the left: Sam (outer) D, Rover C, that end pinches to B; the other end D with contain.
+    assert.deepEqual(pressureGaps('blow_sting', def, off), { SAM: 'D', ROV: 'C', E9: 'B', E5: 'D' });
   });
   it('moves one blitzer to another gap, adds a blitzer, and takes one out of the rush', () => {
     const plain = defenseCallStrokes(def, off, 'blow_sting', 'cover3');

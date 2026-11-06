@@ -295,3 +295,17 @@ describe('our defense reads a pass', () => {
     assert.ok(Math.hypot(at(end, 'CBR').x - z.x, at(end, 'CBR').y - z.y) < 4, 'the corner on his side is on the receiver');
   });
 });
+
+describe('Blow Sting: the DEs have contain while Sam and Rover blitz', () => {
+  it('on a sweep at him, the DE (not the blitzing Rover) keeps the ball inside him', async () => {
+    const { defenseCallStrokes: calls } = await import('./defenseCalls.ts');
+    const nodes = sweep.nodes.map((n) => (n.role === 'ROV' ? { ...n, x: 8.1 } : n));
+    const def = nodes.filter((n) => isDefenseRole(n.role));
+    const off = nodes.filter((n) => !isDefenseRole(n.role));
+    const call = calls(def, off, 'blow_sting');
+    const plain = computeAnimatedPlayFrame(nodes, sweep.strokes, [], '3', 0.6);
+    const sting = computeAnimatedPlayFrame(nodes, sweep.strokes, call, '3', 0.6);
+    // The DE on the sweep side ends wider (contain) than he does without the call.
+    assert.ok(at(sting, 'E5').x > at(plain, 'E5').x, `E5 ${at(plain, 'E5').x} -> ${at(sting, 'E5').x}`);
+  });
+});

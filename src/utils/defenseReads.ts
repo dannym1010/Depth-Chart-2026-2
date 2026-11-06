@@ -294,6 +294,21 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
   if (T <= 0 || !r.defense.length) return { pos, trails };
   const rules = r.rules || {};
   const jobs = defenseJobs(r.defense, rules);
+  // A contain man sent on a blitz (Blow Sting: Sam and Rover in the C gap): the end on his side has contain.
+  {
+    const ball = r.offense.find((n) => n.role === 'C')?.x ?? 0;
+    for (const n of r.defense) {
+      const j = jobs.get(n.role);
+      if (!j?.edge || j.line || !r.drawn.has(n.role)) continue;
+      const s = Math.sign(n.x - ball) || 1;
+      const end = r.defense
+        .filter((m) => jobs.get(m.role)?.line && (m.x - ball) * s > 0)
+        .sort((a, b) => (b.x - a.x) * s)[0];
+      if (!end) continue;
+      jobs.set(n.role, { ...j, edge: false });
+      jobs.set(end.role, { ...jobs.get(end.role)!, edge: true });
+    }
+  }
   const zones = r.zones || new Map<string, PlayStroke>();
   const manTargets = r.manTargets || new Map<string, string>();
 

@@ -83,28 +83,27 @@ describe('our defensive call drawn on the field', () => {
 });
 
 describe("more calls, and a player's own job", () => {
-  it('Blow Sting: Sam and Rover take the called gap, and the end on each side the other one', () => {
+  it('Blow Sting: Sam and Rover blitz the C gap, the DE on each side takes D with contain', () => {
     // Rover on the right side (the way coaches line him up when he's the other outside backer).
     const d = front('44_C3_LIZ').map((n) => (n.role === 'ROV' ? { ...n, x: 9 } : n));
     const D = defenseCallStrokes(d, off, 'blow_sting');
     const label = (role: string, s: any[]) => s.find((x) => { const n = d.find((m) => m.role === role)!; return Math.abs(x.points[0].x - n.x) < 0.05 && Math.abs(x.points[0].y - n.y) < 0.05; })?.label;
-    assert.equal(label('SAM', D), 'Sting D gap');
-    assert.equal(label('ROV', D), 'Sting D gap');
-    assert.equal(label('E9', D), 'End C gap');
-    assert.equal(label('E5', D), 'End C gap');
-    const C = defenseCallStrokes(d, off, 'blow_sting_c');
-    assert.equal(label('ROV', C), 'Sting C gap');
-    assert.equal(label('E5', C), 'End D gap');
-    // The end goes outside the Rover when Rover takes C.
-    const rov = C.find((x) => x.label === 'Sting C gap' && x.points[0].x > 0)!;
-    const e5 = C.find((x) => x.label === 'End D gap' && x.points[0].x > 0)!;
+    assert.equal(label('SAM', D), 'Sting C gap');
+    assert.equal(label('ROV', D), 'Sting C gap');
+    assert.equal(label('E9', D), 'End D gap · contain');
+    assert.equal(label('E5', D), 'End D gap · contain');
+    // The old Blow Sting C is the same call.
+    assert.deepEqual(defenseCallStrokes(d, off, 'blow_sting_c'), D);
+    // The end goes outside the Rover.
+    const rov = D.find((x) => x.label === 'Sting C gap' && x.points[0].x > 0)!;
+    const e5 = D.find((x) => /End D gap/.test(x.label) && x.points[0].x > 0)!;
     assert.ok(end(e5).x > end(rov).x);
   });
 
-  it('Blow Sting with Sam and Rover on one side: the outer takes the call, the inner the other gap, that end pinches, and the other DE still blitzes', () => {
+  it('Blow Sting with Sam and Rover on one side: the outer D, the inner C (no crossing), that end pinches, and the other DE takes D with contain', () => {
     const d = front('44_C3_LIZ');
     const s = defenseCallStrokes(d, off, 'blow_sting');
-    assert.deepEqual(s.map((x) => x.label).sort(), ['End B gap', 'End C gap', 'Sting C gap', 'Sting D gap']);
+    assert.deepEqual(s.map((x) => x.label).sort(), ['End B gap', 'End D gap · contain', 'Sting C gap', 'Sting D gap']);
     // Both DEs are in it.
     const starts = s.map((x) => x.points[0]);
     for (const role of ['E9', 'E5', 'SAM', 'ROV']) {
@@ -122,11 +121,11 @@ describe("more calls, and a player's own job", () => {
     assert.equal(end(m[0]).x, -3);
   });
 
-  it('crosses: the nose and 3-tech cross on the strong side; on an E-T cross the end goes inside and the tackle loops outside', () => {
+  it("crosses: the nose and the DT cross on the Sam's side; on an E-T cross the end goes inside and the tackle loops outside", () => {
     const tt = defenseCallStrokes(front('44_C3_LIZ'), off, 'cross_tt');
     assert.equal(tt.length, 2);
-    // Their strength is right (the tight end): B gap (3) and A gap (1).
-    assert.deepEqual(tt.map((x) => end(x).x).sort((a, b) => a - b), [1, 3]);
+    // The Sam is on the left (the LIZ): B gap (-3) and A gap (-1).
+    assert.deepEqual(tt.map((x) => end(x).x).sort((a, b) => a - b), [-3, -1]);
     assert.ok(tt.some((x) => x.points.length === 4), 'one loops behind');
     const et = defenseCallStrokes(front('44_C3_LIZ'), off, 'cross_et_r');
     const endMan = et.find((x) => /slant inside/.test(x.label!))!;
@@ -198,10 +197,13 @@ describe('cross: the nose goes first to the strong side', () => {
     // The old Cross RIP is the same call.
     assert.deepEqual(defenseCallStrokes(d, balanced, 'cross_tt_r'), s);
   });
-  it('their strength decides the side: the tight end on the right, the cross goes right', () => {
-    const s = defenseCallStrokes(front('44_C3_LIZ'), off, 'cross_tt');
+  it("the Sam's side is the strong side, whatever their formation: the Sam on the right, the cross goes right", () => {
+    const d = front('44_C3_LIZ').map((n) => (n.role === 'SAM' ? { ...n, x: 11 } : n));
+    const s = defenseCallStrokes(d, off, 'cross_tt');
     assert.equal(end(first(s)).x, 3);
     assert.equal(end(loop(s)).x, 1);
+    // The Sam on the left: left, even with their tight end on the right.
+    assert.equal(end(first(defenseCallStrokes(front('44_C3_LIZ'), off, 'cross_tt'))).x, -3);
   });
   it('in the play the nose goes first and the 3-tech gets behind him, both through their gaps', async () => {
     const { computeAnimatedPlayFrame } = await import('./playAnimation.ts');
@@ -216,8 +218,9 @@ describe('cross: the nose goes first to the strong side', () => {
     assert.ok(Math.abs(at(0.06, 'T1').x - t1.x) > 0.3, 'nose moving');
     assert.ok(Math.abs(at(0.03, 'T3').x - t3.x) < 0.05, '3-tech waiting');
     // Then they cross: the nose ends past the 3-tech's start, the 3-tech inside him.
-    assert.ok(at(0.3, 'T1').x > 2.6, `nose at ${at(0.3, 'T1').x}`);
-    assert.ok(at(0.36, 'T3').x < at(0.36, 'T1').x);
+    // (To the Sam's side, the left: the nose comes from the right across the 3-tech's face.)
+    assert.ok(at(0.3, 'T1').x < -2.6, `nose at ${at(0.3, 'T1').x}`);
+    assert.ok(at(0.36, 'T3').x > at(0.36, 'T1').x);
   });
   it('a 5-man front: the nose and the tackle on their strong side', () => {
     const s = defenseCallStrokes(front('53_C3'), off, 'cross_tt');
@@ -239,7 +242,7 @@ describe('strong and weak Blow Sting', () => {
     const weak = defenseCallStrokes(d, off, 'sting_weak_c');
     assert.equal(weak.length, 2);
     assert.equal(on('SAM', weak), 'Sting C gap');
-    assert.equal(on('E9', weak), 'End D gap');
+    assert.equal(on('E9', weak), 'End D gap · contain');
   });
 });
 
