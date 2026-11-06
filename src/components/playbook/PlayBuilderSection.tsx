@@ -691,6 +691,16 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
             </button>
           ))}
         </div>
+        {shiftSpots[n.role] && (
+          <button
+            type="button"
+            onClick={() => setShiftSpots((prev) => Object.fromEntries(Object.entries(prev).filter(([r]) => r !== n.role)))}
+            title="Back to where he goes on his own after their shift (the spot you dragged him to is dropped)"
+            className="h-7 px-2.5 rounded-lg border border-teal-500/60 text-xs font-black text-teal-800 dark:text-teal-200 hover:bg-teal-50 dark:hover:bg-teal-950/40 cursor-pointer"
+          >
+            ↺ Reset his spot after the shift
+          </button>
+        )}
         {afterShift ? (
           <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
             {changedAfter ? 'Changed after their shift.' : 'Same as before the shift until you change one.'} Drag him at the stop to move his spot.
