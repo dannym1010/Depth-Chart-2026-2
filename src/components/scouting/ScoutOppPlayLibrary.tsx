@@ -1613,9 +1613,11 @@ export const ScoutOppPlayLibrary: React.FC<{
                   key={line.playId}
                   data-script-id={line.playId}
                   style={look ? { borderLeft: `5px solid ${look.color}` } : undefined}
-                  className={`rounded-lg border ${scriptPics ? 'p-2' : 'px-1.5 py-1'} ${dragging ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 shadow-md' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900'}`}
+                  className={`@container rounded-lg border ${scriptPics ? 'p-2' : 'px-1.5 py-1'} ${dragging ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 shadow-md' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900'}`}
                 >
-                  <div className="flex items-center gap-1.5">
+                  {/* A narrow card (the script beside the film): the play's name on a line of its own across the top, its
+                      buttons under it; wide, all on one line. */}
+                  <div className="flex flex-wrap @md:flex-nowrap items-center gap-x-1.5 gap-y-1">
                     <button
                       type="button"
                       aria-label={`Drag ${line.name}`}
@@ -1692,7 +1694,7 @@ export const ScoutOppPlayLibrary: React.FC<{
                     />
                     <button
                       type="button"
-                      className="min-w-0 flex-1 text-left cursor-pointer disabled:cursor-default"
+                      className="min-w-0 order-first basis-full @md:order-none @md:basis-0 @md:flex-1 text-left cursor-pointer disabled:cursor-default"
                       disabled={!play || !onDraw}
                       onClick={() => play && openScriptPlay(play)}
                       title={onDraw && play ? 'Open in play builder' : undefined}
@@ -1762,8 +1764,8 @@ export const ScoutOppPlayLibrary: React.FC<{
                         </button>
                       );
                     })()}
-                    <div className="flex items-center shrink-0 text-slate-400">
-                      <button type="button" aria-label={`Move ${line.name} to the top`} title="To the top" disabled={index === 0} onClick={() => moveScriptTo(line.playId, 0)} className="p-0.5 disabled:opacity-20 cursor-pointer hover:text-slate-700">
+                    <div className="ml-auto flex items-center shrink-0 text-slate-400">
+                      <button type="button" aria-label={`Move ${line.name} to the top`} title="To the top" disabled={index === 0} onClick={() => moveScriptTo(line.playId, 0)} className="p-0.5 @max-xs:hidden disabled:opacity-20 cursor-pointer hover:text-slate-700">
                         <ChevronsUp className="w-4 h-4" />
                       </button>
                       <button type="button" aria-label={`Move ${line.name} up in the script`} disabled={index === 0} onClick={() => reorderScript(index, index - 1)} className="p-0.5 disabled:opacity-20 cursor-pointer hover:text-slate-700">
@@ -1772,7 +1774,7 @@ export const ScoutOppPlayLibrary: React.FC<{
                       <button type="button" aria-label={`Move ${line.name} down in the script`} disabled={index === shown.length - 1} onClick={() => reorderScript(index, index + 1)} className="p-0.5 disabled:opacity-20 cursor-pointer hover:text-slate-700">
                         <ChevronDown className="w-4 h-4" />
                       </button>
-                      <button type="button" aria-label={`Move ${line.name} to the bottom`} title="To the bottom" disabled={index === shown.length - 1} onClick={() => moveScriptTo(line.playId, shown.length - 1)} className="p-0.5 disabled:opacity-20 cursor-pointer hover:text-slate-700">
+                      <button type="button" aria-label={`Move ${line.name} to the bottom`} title="To the bottom" disabled={index === shown.length - 1} onClick={() => moveScriptTo(line.playId, shown.length - 1)} className="p-0.5 @max-xs:hidden disabled:opacity-20 cursor-pointer hover:text-slate-700">
                         <ChevronsDown className="w-4 h-4" />
                       </button>
                     </div>
