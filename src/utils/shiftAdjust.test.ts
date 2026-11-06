@@ -77,4 +77,21 @@ describe("our defense adjusting to their shift", () => {
     const plain = computeAnimatedPlayFrame(nodes, [shift], [], '3', 0.5);
     assert.equal(plain.shiftSetProgress, undefined);
   });
+
+  it('any shift stops the play, even one nobody has to move for (a back moving over)', () => {
+    const nodes = [...off, ...def];
+    const backOver: PlayStroke = { kind: 'pass', points: [{ x: 0, y: -4 }, { x: -2, y: -4 }], motion: 1, shift: 1 };
+    const spots = shiftDefenseSpots(nodes, [backOver])!;
+    for (const d of def) assert.ok(Math.hypot(spots[d.role].x - d.x, spots[d.role].y - d.y) < 0.01, d.role);
+    const f = computeAnimatedPlayFrame(nodes, [backOver], [], '3', 0.01, null, undefined, undefined, spots);
+    assert.ok(f.shiftSetProgress !== undefined && f.defenseSetProgress !== undefined);
+  });
+
+  it('a wing who steps up onto the line is part of it', () => {
+    const wing = { role: 'W', x: 8, y: -1 } as PlayNode;
+    const up: PlayStroke = { kind: 'pass', points: [{ x: 8, y: -1 }, { x: 8, y: 0 }], motion: 1, shift: 1 };
+    const after = countedLine(offenseAfterShift([...off, wing], [up]));
+    assert.ok(after.men.some((n) => n.role === 'W'));
+    assert.equal(after.men.length, 8);
+  });
 });

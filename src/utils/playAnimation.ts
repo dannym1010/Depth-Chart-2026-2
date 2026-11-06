@@ -203,10 +203,13 @@ function invEaseInOutSine(y: number): number {
   return Math.acos(1 - 2 * c) / Math.PI;
 }
 
-/** Our defense moves to new spots after their shift (some defender more than a step). */
+/**
+ * Their shift with our defense on the field: the play stops when it's set and again when ours is, every time
+ * (even when nobody has to move, so the coach can show it, or drag a defender to where he goes).
+ */
 export function shiftAdjusts(nodes: PlayNode[], strokes: PlayStroke[], shiftDefense?: Record<string, { x: number; y: number }>): boolean {
   if (!shiftDefense || !hasPreSnapShift(strokes)) return false;
-  return nodes.some((n) => isDefenseRole(n.role) && shiftDefense[n.role] && Math.hypot(n.x - shiftDefense[n.role].x, n.y - shiftDefense[n.role].y) > 0.35);
+  return nodes.some((n) => isDefenseRole(n.role) && shiftDefense[n.role]);
 }
 
 /**
@@ -356,7 +359,8 @@ function frameAt(
   }
 
   // Before the snap: any defensive preset stem, then the shift, set; then the motion, set; then the snap.
-  const defStem = hasDefensiveStem(nodes, stemFrom);
+  // Adjusting to their shift is a stem even when nobody has to move (it still stops for the coach to show it).
+  const defStem = (stemAfterShift && Boolean(stemFrom)) || hasDefensiveStem(nodes, stemFrom);
   const shift = hasPreSnapShift(allStrokes);
   const motion = hasPreSnapMotion(allStrokes);
   // Adjusting to the shift: their shift and set first, then our defense moves and sets.

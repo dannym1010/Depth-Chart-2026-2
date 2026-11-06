@@ -5,7 +5,6 @@
 // on a player who shifted goes with him; the rest stay.
 import { isDefenseRole, lineStartsOn, shiftLegs, type PlayNode, type PlayStroke } from './footballEngine';
 
-const OL = ['LT', 'LG', 'C', 'RG', 'RT'];
 /** Linemen side by side are at most this far apart (a split end isn't part of the line). */
 const LINE_SPLIT = 2.7;
 
@@ -35,7 +34,8 @@ export function countedLine(offense: PlayNode[]): { men: PlayNode[]; mid: number
   while (lo > 0 && onLos[lo].x - onLos[lo - 1].x <= LINE_SPLIT) lo--;
   let hi = ci;
   while (hi < onLos.length - 1 && onLos[hi + 1].x - onLos[hi].x <= LINE_SPLIT) hi++;
-  const men = onLos.slice(lo, hi + 1).filter((n) => OL.includes(n.role) || n.line || /^Y\d?$/.test(n.role));
+  // Anyone on the line next to it counts (a wing who steps up beside the tight end is on their line now).
+  const men = onLos.slice(lo, hi + 1);
   const c = men.indexOf(center);
   const left = c;
   const right = men.length - 1 - c;
