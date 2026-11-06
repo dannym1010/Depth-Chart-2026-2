@@ -35,6 +35,8 @@ export interface VideoLines {
   /** Their shift: where our defenders set after it (diagram yards). The play pauses when their shift is set, our
    *  defense slides there, and it pauses again before the snap. */
   shiftDefense?: Record<string, { x: number; y: number }>;
+  /** Our defenders' rules after their shift (the play runs with these when it adjusts to the shift). */
+  rulesAfterShift?: Record<string, Record<string, string>>;
   /** A defender dragged while it's stopped on their shift: his spot after it (diagram yards), saved with the play. */
   setShiftSpot?: (role: string, x: number, y: number) => void;
   /** Back to the auto spots after their shift; only when the coach has set some. */
@@ -566,10 +568,21 @@ export function usePlayLines(opts: {
     () => ({ off: shown ? shown.strokes.filter((s) => !isDefenseStroke(s)) : [], def: shown ? shown.strokes.filter(isDefenseStroke) : [] }),
     [shown]
   );
-  const frameAt = (p: number) =>
-    computeAnimatedPlayFrame(shown!.nodes, split.off, split.def, shown!.ballRole, p, shown!.hole, shown!.defenseRules, undefined, shown!.shiftDefense);
   // Their shift and our defense adjusting to it: the play pauses when it's set and again when we're set.
   const adjusts = Boolean(shown && shiftAdjusts(shown.nodes, shown.strokes, shown.shiftDefense));
+  // After their shift our defenders play the snap with their rules for after it.
+  const frameAt = (p: number) =>
+    computeAnimatedPlayFrame(
+      shown!.nodes,
+      split.off,
+      split.def,
+      shown!.ballRole,
+      p,
+      shown!.hole,
+      (adjusts && shown!.rulesAfterShift) || shown!.defenseRules,
+      undefined,
+      shown!.shiftDefense
+    );
   const shiftStops = useMemo(() => {
     if (!shown || !adjusts) return null;
     const f = frameAt(0);

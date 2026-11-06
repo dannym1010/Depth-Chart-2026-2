@@ -75,7 +75,7 @@ import { DefenseCallPicker } from './DefenseCallPicker';
 import { defenseJob, defenseOrder, standardDefenseJob } from '../../utils/defenseJobs';
 import { RULE_PRESETS, applyRuleAlignments, defenseGroup, pickedTechniques, rulesText } from '../../utils/defenseRules';
 import { computeGapIntegrity } from '../../utils/defenseReads';
-import { shiftDefenseSpots } from '../../utils/shiftAdjust';
+import { offenseAfterShift, shiftDefenseSpots } from '../../utils/shiftAdjust';
 import { DefenderRules } from './DefenderRules';
 import { COVERAGES, PRESSURES, defenseCallName, defenseCallStrokes, joinPressure, mirrorJob, mirrorPressure, pressureGaps, pressureParts } from '../../utils/defenseCalls';
 import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, defenseMirrored, lineUpOurDefense, samToWideSide, tightEndFlip } from '../../hudlScout/utils/ourDefense';
@@ -427,6 +427,9 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   // Our defensive plays: each defender's job as the coach typed it.
   const [jobs, setJobs] = useState<Record<string, string>>(saved?.jobs || {});
   const [defRules, setDefRules] = useState<Record<string, Record<string, string>>>(saved?.defenseRules || {});
+  // Their shift: each defender's rules after it (his whole set), and which set the rules panel is changing.
+  const [shiftRules, setShiftRules] = useState<Record<string, Record<string, string>>>(saved?.shiftRules || {});
+  const [rulesPhase, setRulesPhase] = useState<'before' | 'after'>('before');
   const [coachingCheckpoints, setCoachingCheckpoints] = useState<PlayNoteCheckpoint[]>(saved?.coachingCheckpoints || []);
   const withLabel = <T extends { role: string }>(n: T): T => (labels[n.role] ? { ...n, label: labels[n.role] } : n);
   const renamePlayer = (role: string, label: string) =>
@@ -541,6 +544,14 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [dNodes, offNodes, strokes, shiftSpots]
   );
+  // The rules the play runs with: after their shift, each defender's rules for after it (the rest keep theirs).
+  // Rules only matter once the ball is snapped, which is after the shift.
+  const playRules = useMemo(
+    () => (shiftDefense && Object.keys(shiftRules).length ? { ...defRules, ...shiftRules } : defRules),
+    [shiftDefense, defRules, shiftRules]
+  );
+  // The rules panel on the set for after their shift (only with a shift drawn).
+  const afterShift = Boolean(shiftDefense) && rulesPhase === 'after';
   // The blitz / stunt and coverage drawn on the defenders where they stand against this offense.
   const callStrokes = useMemo(() => (dLook ? defenseCallStrokes(dNodes, offNodes, pressure, coverage, defAssign) : []), [dLook, dNodes, offNodes, pressure, coverage, defAssign]);
   // For the picker: the gap the blitz / stunt sends each defender through, and who each one has in man.
@@ -578,10 +589,16 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     const mag = hNum <= 2 ? 1.2 : hNum <= 4 ? 3.0 : hNum <= 6 ? 4.8 : 6.8;
     return ballX + sideSign * mag;
   }, [holeOverride, play?.metadata?.targetHole, ballX]);
-  const gapIntegritySlots = useMemo(
-    () => (dLook && dNodes.length && offNodes.length ? computeGapIntegrity(dNodes, offNodes, defRules, [...strokes, ...callStrokes], targetHoleX) : []),
-    [dLook, dNodes, offNodes, defRules, strokes, callStrokes, targetHoleX]
-  );
+  // The gaps: as we line up, or (the rules panel on after their shift) on their formation after it, from our spots
+  // after it, with the rules for after it.
+  const gapIntegritySlots = useMemo(() => {
+    if (!dLook || !dNodes.length || !offNodes.length) return [];
+    if (afterShift && shiftDefense) {
+      const ours = dNodes.map((n) => (shiftDefense[n.role] ? { ...n, ...shiftDefense[n.role] } : n));
+      return computeGapIntegrity(ours, offenseAfterShift(offNodes, strokes), playRules, [...strokes, ...callStrokes], targetHoleX);
+    }
+    return computeGapIntegrity(dNodes, offNodes, defRules, [...strokes, ...callStrokes], targetHoleX);
+  }, [dLook, dNodes, offNodes, defRules, strokes, callStrokes, targetHoleX, afterShift, shiftDefense, playRules]);
   const openGaps = useMemo(() => gapIntegritySlots.filter((g) => g.status === 'open'), [gapIntegritySlots]);
   const overloadedGaps = useMemo(() => gapIntegritySlots.filter((g) => g.status === 'overloaded'), [gapIntegritySlots]);
   const quizTargetSpot = useMemo(() => {
@@ -601,7 +618,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       String(ballCarrier || '3'),
       0.52,
       typeof holeOverride === 'number' ? holeOverride : play?.metadata?.targetHole ?? null,
-      defRules,
+      playRules,
     );
     const targetNode = midFrame.nodes.find((n) => n.role === spotlightNode.role);
     if (!targetNode) return null;
@@ -611,10 +628,93 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       label: jobOf(spotlightNode) || diagramLabel(spotlightNode.role),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quizMode, spotlightNode, dLook, gapIntegritySlots, runMode, offNodes, dNodes, strokes, callStrokes, ballCarrier, holeOverride, play?.metadata?.targetHole, defRules]);
+  }, [quizMode, spotlightNode, dLook, gapIntegritySlots, runMode, offNodes, dNodes, strokes, callStrokes, ballCarrier, holeOverride, play?.metadata?.targetHole, defRules, playRules]);
+  /** His rules after their shift: change one pick (his set starts as a copy of his rules before it). */
+  const pickAfterShift = (role: string, picks: Record<string, string | ''>) =>
+    setShiftRules((prev) => {
+      const mine = { ...(prev[role] ?? defRules[role] ?? {}) };
+      for (const [cat, opt] of Object.entries(picks)) {
+        // His spot after the shift is dragged at the stop, so no technique or alignment here.
+        if (cat === 'tech' || cat === 'align') continue;
+        if (opt) mine[cat] = opt;
+        else delete mine[cat];
+      }
+      return { ...prev, [role]: mine };
+    });
   const renderDefenderRules = (n: PlayNode) => {
     const standard = dLook ? standardDefenseJob(n.role, dLook, containFor(dLook.front)) : '';
+    const changedAfter = Boolean(shiftRules[n.role]) && JSON.stringify(shiftRules[n.role]) !== JSON.stringify(defRules[n.role] || {});
+    const phaseSwitch = shiftDefense ? (
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <div className="flex rounded-lg border border-teal-500/60 overflow-hidden text-xs font-black" role="group" aria-label="Rules before or after their shift">
+          {(
+            [
+              ['before', 'Before shift', 'His rules as we line up (and when they don’t shift)'],
+              ['after', 'After shift', 'His rules once their shift is set: these are the ones he plays the snap with'],
+            ] as const
+          ).map(([id, label, title]) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={rulesPhase === id}
+              title={title}
+              onClick={() => setRulesPhase(id)}
+              className={`h-7 px-2.5 cursor-pointer ${rulesPhase === id ? 'bg-teal-600 text-white' : 'text-teal-800 dark:text-teal-200 hover:bg-teal-50 dark:hover:bg-teal-950/40'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {afterShift ? (
+          <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+            {changedAfter ? 'Changed after their shift.' : 'Same as before the shift until you change one.'} Drag him at the stop to move his spot.
+          </span>
+        ) : (
+          changedAfter && <span className="text-[11px] font-semibold text-teal-700 dark:text-teal-300">He changes his rules after their shift.</span>
+        )}
+      </div>
+    ) : null;
+    if (afterShift) {
+      return (
+        <>
+          {phaseSwitch}
+          <DefenderRules
+            node={n}
+            picks={shiftRules[n.role] ?? defRules[n.role] ?? {}}
+            assign={defAssign[n.role] || ''}
+            ball={ballX}
+            typed={jobs[n.role] || ''}
+            standard={standard}
+            hide={['tech', 'align']}
+            onPick={(cat, opt) => pickAfterShift(n.role, { [cat]: opt })}
+            onPreset={(picks) => pickAfterShift(n.role, picks)}
+            onAssign={(jobId) =>
+              setDefAssign((prev) => {
+                const next = { ...prev };
+                if (jobId) next[n.role] = jobId;
+                else delete next[n.role];
+                return next;
+              })
+            }
+            onTyped={(text) =>
+              setJobs((prev) => {
+                const next = { ...prev };
+                if (text.trim()) next[n.role] = text;
+                else delete next[n.role];
+                return next;
+              })
+            }
+            // Back to his rules from before the shift.
+            onReset={() => setShiftRules((prev) => Object.fromEntries(Object.entries(prev).filter(([r]) => r !== n.role)))}
+            resetLabel="Same as before the shift"
+            onRunPlay={() => setPlayAnimTrigger((t) => t + 1)}
+          />
+        </>
+      );
+    }
     return (
+      <>
+      {phaseSwitch}
       <DefenderRules
         node={n}
         picks={defRules[n.role] || {}}
@@ -683,6 +783,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
         }}
         onRunPlay={() => setPlayAnimTrigger((t) => t + 1)}
       />
+      </>
     );
   };
   // "Save as my default": this defense starts lined up like this everywhere (moves from its standard spots).
@@ -1071,6 +1172,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       putDefInName,
       overrides,
       ...(Object.keys(shiftSpots).length ? { shiftDefense: shiftSpots } : {}),
+      ...(Object.keys(shiftRules).length ? { shiftRules } : {}),
       ...(Object.keys(labels).length ? { labels } : {}),
       ...(Object.keys(jobs).length ? { jobs } : {}),
       ...(defShow === 'number' ? { defenseShow: 'number' as const } : {}),
@@ -1484,7 +1586,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   // The play on the film (play lines): to the Film Room that opened it, or for a film window beside it. Sent again
   // only when something in it changes.
   const allLines = [...strokes, ...callStrokes];
-  const videoLinesKey = JSON.stringify([diagramNodes, allLines, ball, homographyQuad, callLabel, defRules, hole, targetHoleX, pressure, coverage, defAssign, shiftDefense]);
+  const videoLinesKey = JSON.stringify([diagramNodes, allLines, ball, homographyQuad, callLabel, defRules, hole, targetHoleX, pressure, coverage, defAssign, shiftDefense, playRules]);
   const linesOwner = useRef({});
   useEffect(() => {
     const lines: VideoLines = {
@@ -1509,6 +1611,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       defenseAssign: defAssign,
       // Their shift: where our defenders set after it, so the film's play pauses and our defense slides there too.
       shiftDefense,
+      // The rules the play runs with (after their shift, each defender's rules for after it).
+      ...(playRules !== defRules ? { rulesAfterShift: playRules } : {}),
       setShiftSpot: (role, x, y) => setShiftSpots((prev) => ({ ...prev, [role]: { x, y } })),
       ...(Object.keys(shiftSpots).length ? { resetShiftSpots: () => setShiftSpots({}) } : {}),
     };
@@ -2318,7 +2422,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               playTrigger={playAnimTrigger}
               startRunTrigger={(stage.startRunTrigger || 0) + localStartRunTrigger}
               extraStrokes={callStrokes}
-              defenseRules={defRules}
+              defenseRules={playRules}
               gapFits={showGapFits ? gapIntegritySlots : undefined}
               spotlightRole={spotlightRole}
               stemFrom={stemFrom}
@@ -2326,6 +2430,10 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               onShiftDefenseMove={(role, x, y) => setShiftSpots((prev) => ({ ...prev, [role]: { x, y } }))}
               onShiftDefenseReset={() => setShiftSpots({})}
               shiftDefenseEdited={Object.keys(shiftSpots).length > 0}
+              // Stopped on their shift: the rules panel shows the rules after it (where they're changed for the snap).
+              onShiftStop={(stopped) => {
+                if (stopped) setRulesPhase('after');
+              }}
               prevDefense={prevDefense}
               checkpoints={coachingCheckpoints}
               onCheckpointsChange={setCoachingCheckpoints}

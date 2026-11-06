@@ -156,6 +156,8 @@ export interface PlayBuilderState {
   overrides: Record<string, { x: number; y: number }>;
   /** Our defenders' spots after their shift that the coach set (by role); the rest line up automatically. */
   shiftDefense?: Record<string, { x: number; y: number }>;
+  /** Our defenders' rules after their shift, by role (his whole set; a role not here keeps his rules from before it). */
+  shiftRules?: Record<string, Record<string, string>>;
   /**
    * Their play (or formation) on a film: the backs' and receivers' spots it was drawn with, kept with it so a
    * change to another play (or to the film's shared backfield) doesn't move this one. Strong side right, no hash.

@@ -64,6 +64,27 @@ describe('our 4-4 Cover 3: who does what', () => {
     for (const [role, j] of middle) assert.deepEqual(onHash.get(role), j, role);
   });
 
+  it("a defender's own rules decide contain: a Sam set to the C gap gives it up, an end set to Contain edge takes it", () => {
+    const jobs = defenseJobs(base44, { SAM: { fit: 'C' }, E9: { play: 'contain' } });
+    assert.equal(jobs.get('SAM')?.edge, false);
+    assert.equal(jobs.get('E9')?.edge, true);
+    // Untouched: the front's.
+    assert.equal(jobs.get('E5')?.edge, true);
+    // Force / contain picks give it, other run actions take it away.
+    assert.equal(defenseJobs(base44, { WILL: { action: 'contain' } }).get('WILL')?.edge, true);
+    assert.equal(defenseJobs(base44, { SAM: { action: 'scrape' } }).get('SAM')?.edge, false);
+  });
+
+  it('the play follows them: Rover on the C gap fits inside, the end on contain keeps the sweep inside him', () => {
+    const nodes = sweep.nodes.map((n) => (n.role === 'ROV' ? { ...n, x: 8.1 } : n));
+    const rules = { ROV: { fit: 'C' }, E5: { play: 'contain' } };
+    const plain = computeAnimatedPlayFrame(nodes, sweep.strokes, [], '3', 0.4);
+    const ruled = computeAnimatedPlayFrame(nodes, sweep.strokes, [], '3', 0.4, null, rules);
+    // Rover comes inside (toward the C gap) instead of setting the edge; the end goes outside.
+    assert.ok(at(ruled, 'ROV').x < at(plain, 'ROV').x - 0.5, `Rover inside (${at(plain, 'ROV').x} -> ${at(ruled, 'ROV').x})`);
+    assert.ok(at(ruled, 'E5').x > at(plain, 'E5').x + 0.5, `the end outside (${at(plain, 'E5').x} -> ${at(ruled, 'E5').x})`);
+  });
+
   it('in the 5-3 the ends have contain', () => {
     const jobs = defenseJobs(OUR_DEFENSE_LOOKS['53_C3'] ? OUR_DEFENSE_LOOKS['53_C3'].nodes : Object.values(OUR_DEFENSE_LOOKS).find((l) => l.front === '5-3')!.nodes);
     assert.deepEqual([jobs.get('E9')?.job, jobs.get('E9')?.edge], ['end', true]);

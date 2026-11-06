@@ -35,10 +35,22 @@ const BACKER = /^(SAM|MIKE|WILL|ROV|OLB|ILB|LB)/;
 const OL = ['LT', 'LG', 'C', 'RG', 'RT'];
 
 /**
- * Who does what. The base 4-4 has four backers and its outside backers have contain; with fewer backers (the 5-3)
- * the ends have it.
+ * Contain from a defender's own rules: yes (Contain edge, Contain, Force, the outside edge), no (a gap, or another
+ * job), or not said (undefined: the front decides).
  */
-export function defenseJobs(defense: PlayNode[]): Map<string, Defender> {
+export function ruleContain(rule: Record<string, string> = {}): boolean | undefined {
+  if (rule.play === 'contain' || rule.action === 'contain' || rule.action === 'force' || rule.fit === 'edge') return true;
+  if (rule.gap || (rule.fit && rule.fit !== 'alley') || rule.action) return false;
+  if (rule.play && ['penetrate', 'squeeze', 'spill', 'twogap', 'wrongarm'].includes(rule.play)) return false;
+  return undefined;
+}
+
+/**
+ * Who does what. The base 4-4 has four backers and its outside backers have contain; with fewer backers (the 5-3)
+ * the ends have it. A defender's own rules win: a Sam set to the C gap doesn't have contain, an end set to
+ * Contain edge does.
+ */
+export function defenseJobs(defense: PlayNode[], rules: Record<string, Record<string, string>> = {}): Map<string, Defender> {
   const line = defense.filter((n) => LINE.test(n.role));
   const backers = defense.filter((n) => BACKER.test(n.role));
   const backerEdge = backers.length >= 4;
@@ -73,7 +85,10 @@ export function defenseJobs(defense: PlayNode[]): Map<string, Defender> {
               ? 'deep'
               : 'safety';
       // With four backers the contain men have it, and an end where no contain man lines up; else the ends.
-      const edge = backerEdge ? containers.has(n) || (job === 'end' && !sidesHeld.has(Math.sign(n.x - mid))) : job === 'end';
+      const fromFront = backerEdge ? containers.has(n) || (job === 'end' && !sidesHeld.has(Math.sign(n.x - mid))) : job === 'end';
+      // The DBs' run support (force, alley) is their own; only the line and the backers take contain from rules.
+      const fromRules = job === 'corner' || job === 'deep' || job === 'safety' ? undefined : ruleContain(rules[n.role]);
+      const edge = fromRules ?? fromFront;
       return [n.role, { role: n.role, job, edge, line: onLine }];
     })
   );
@@ -202,7 +217,7 @@ export function defendPreSnapMotion(
   }
   if (!motionRole || !motionNow) return out;
 
-  const jobs = defenseJobs(defense);
+  const jobs = defenseJobs(defense, rules);
   for (const d of defense) {
     const rule = rules[d.role] || {};
     const mRule = rule.motion;
@@ -252,8 +267,8 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
     trails.set(n.role, [{ x: n.x, y: n.y }]);
   }
   if (T <= 0 || !r.defense.length) return { pos, trails };
-  const jobs = defenseJobs(r.defense);
   const rules = r.rules || {};
+  const jobs = defenseJobs(r.defense, rules);
   const zones = r.zones || new Map<string, PlayStroke>();
   const manTargets = r.manTargets || new Map<string, string>();
 
@@ -791,7 +806,7 @@ export function computeGapIntegrity(
     if (best) best.isPointOfAttack = true;
   }
 
-  const jobs = defenseJobs(defense);
+  const jobs = defenseJobs(defense, rules);
   const nearestSlot = (x: number, sideFilter?: 'left' | 'right'): GapFitSlot => {
     const pool = sideFilter ? slots.filter((s) => s.side === sideFilter) : slots;
     let best = pool[0] || slots[0];

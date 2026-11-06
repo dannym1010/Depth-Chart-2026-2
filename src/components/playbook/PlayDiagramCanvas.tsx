@@ -289,6 +289,8 @@ interface Props {
   /** Back to the automatic spots after the shift (shown when the coach has moved some). */
   onShiftDefenseReset?: () => void;
   shiftDefenseEdited?: boolean;
+  /** Stopped on their shift (true), or not (false): the builder puts the rules panel on the rules after it. */
+  onShiftStop?: (stopped: boolean) => void;
   /** Optional defensive preset switcher bar rendered right inside the Play Movement menu. */
   defensePresetBar?: React.ReactNode;
   /** Timeline checkpoints where Play Movement pauses to display a coaching note and/or pursuit angle lines. */
@@ -376,6 +378,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   onShiftDefenseMove,
   onShiftDefenseReset,
   shiftDefenseEdited,
+  onShiftStop,
   gapFits,
   spotlightRole,
   stemFrom,
@@ -627,6 +630,11 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   /** Stopped with their shift set (our defense still where it was), or with our defense set after it. */
   const atShiftSet = !isPlaying && shiftSetAt !== undefined && Math.abs(animProgress - shiftSetAt) < 0.004;
   const atDefenseSet = !isPlaying && defenseSetAt !== undefined && animProgress >= defenseSetAt - 0.004 && animProgress < snapAt - 0.002;
+  const atShiftStop = atShiftSet || atDefenseSet;
+  useEffect(() => {
+    onShiftStop?.(atShiftStop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [atShiftStop]);
   const readAtPoint = animatedFrame.handoffProgress ?? animatedFrame.readProgress ?? snapAt + (1 - snapAt) * 0.2;
   const fitAtPoint = animatedFrame.fitProgress ?? snapAt + (1 - snapAt) * 0.36;
   const autoPausedByLoopRef = useRef<'checkpoint' | 'end' | null>(null);
@@ -1453,6 +1461,8 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     if (d.mode === 'shift') {
       setShiftDrag(null);
       if (d.moved && d.at) onShiftDefenseMove?.(d.role, Math.round(d.at.x * 100) / 100, Math.round(d.at.y * 100) / 100);
+      // A tap: his rules (after their shift).
+      else selectPlayer(d.role);
       return;
     }
     const cur = strokesRef.current;
@@ -2563,7 +2573,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
                       ? 'Where does our defense go? Drag a defender to his new spot, or show it slide over.'
                       : 'Where does our defense go? Continue to show it slide over.'
                     : onShiftDefenseMove
-                      ? 'Drag any defender to where he lines up after the shift. The play still starts from his spot before it.'
+                      ? 'Drag any defender to where he lines up after the shift, or tap him to change his rules after it (gap, contain...). The play still starts from his spot before it.'
                       : 'Lined up on their new formation.'}
                 </div>
               </div>

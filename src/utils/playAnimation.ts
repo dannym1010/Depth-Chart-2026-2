@@ -907,7 +907,7 @@ function frameAt(
       const defStartMap = new Map(defenseAtSnap.map((d) => [d.role, d]));
       // Our contain men (Sam and Rover in the 4-4): blocked, they fight to keep the ball inside them; once the ball
       // carrier starts to get outside one, he sheds and takes his outside angle.
-      const defJobs = defenseJobs(defenseAtSnap);
+      const defJobs = defenseJobs(defenseAtSnap, defenseRules || {});
       const centerX = offense.find((o) => o.role === 'C')?.x ?? 0;
       const carrierAtTau = new Map<number, { x: number; y: number } | undefined>();
       const carrierAt = (tau: number) => {

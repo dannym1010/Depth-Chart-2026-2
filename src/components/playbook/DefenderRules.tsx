@@ -116,6 +116,10 @@ interface Props {
   onPreset?: (picks: Record<string, string>, job?: string) => void;
   /** Optional callback to immediately run the play animation to preview this defender's adjustment. */
   onRunPlay?: () => void;
+  /** Categories not shown (after their shift: his technique and alignment, since he's dragged to his spot). */
+  hide?: string[];
+  /** The reset link's words (default: back to the front's job). */
+  resetLabel?: string;
 }
 
 const chip = (on: boolean, hint = false) =>
@@ -140,6 +144,8 @@ export const DefenderRules: React.FC<Props> = ({
   onReset,
   onPreset,
   onRunPlay,
+  hide = [],
+  resetLabel,
 }) => {
   const group = defenseGroup(node.role);
   const presets = RULE_PRESETS[group] || [];
@@ -207,7 +213,7 @@ export const DefenderRules: React.FC<Props> = ({
         </div>
       )}
 
-      {RULE_LIBRARY[group].map((cat) => {
+      {RULE_LIBRARY[group].filter((cat) => !hide.includes(cat.id)).map((cat) => {
         const current = cat.draws ? drawnPick(cat, assign, node, ball) : picks[cat.id] || '';
         // His technique by name shows as a hint until one is picked.
         const hint = cat.id === 'tech' && !current ? techniqueOf(node.role) : '';
@@ -276,7 +282,7 @@ export const DefenderRules: React.FC<Props> = ({
       {anything && (
         <div className="flex items-center justify-between pt-1">
           <button type="button" onClick={onReset} className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer">
-            <RotateCcw className="w-3 h-3" /> Back to the front&apos;s job
+            <RotateCcw className="w-3 h-3" /> {resetLabel || <>Back to the front&apos;s job</>}
           </button>
           {onRunPlay && (
             <button
