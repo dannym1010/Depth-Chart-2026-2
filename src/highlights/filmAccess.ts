@@ -1,7 +1,7 @@
 // Film for Highlights: any of our games, opened from the shared film folder ("Mahopac Film"), this computer's copy
 // first, else the team's Google Drive copy. Reels mix games, so this opens games one after another (kept for the
 // visit) instead of one game at a time the way the Film Room does. Clips are found by camera view and file name.
-import { driveClipUrl, driveFolderNode, folderAccess, isDriveSignedIn, driveSignIn, listNodeClips, localFolderNode, recallFolder } from '../filmroom/filmSources';
+import { driveClipUrl, driveFolderNode, folderAccess, isDriveSignedIn, driveSignIn, listNodeClips, localFolderNode, prepareDriveSignIn, recallFolder } from '../filmroom/filmSources';
 import { gameViews, resolveGameFolder, type FolderNode } from '../filmroom/folderRoutes';
 import { matchClipsToPlays } from '../filmroom/clipMatching';
 import { hiddenNames, liveViewClips, picksForView } from '../filmroom/dualView';
@@ -71,10 +71,15 @@ export function lineUp(film: GameFilm, view: string, plays: { id: string; playNu
   return { all, clipOf, hidden: hiddenNames(all, shared?.removedClips, view, multi) };
 }
 
+/** The film is in the team Drive and this device isn't signed in: a Sign in with Google button goes with it. */
+export const NEEDS_SIGN_IN = 'Sign in with Google to play the film (it’s in the team Drive).';
+
 /** The film folder on this computer and / or the team's Google Drive copy (Drive folder id from the program doc). */
 export function realFilmAccess(opts: { teamName: string; rootDriveId?: string; rootDriveName?: string }): FilmAccess {
   const games = new Map<string, Promise<GameFilm & { files: Map<string, () => Promise<File>> }>>();
   const localRoot = () => recallFolder('root');
+  // Google's sign-in script ready before the coach taps Sign in (Safari only opens its window right in the tap).
+  if (opts.rootDriveId) prepareDriveSignIn();
 
   const state = async (): Promise<AccessState> => {
     const local = await localRoot();
@@ -95,7 +100,11 @@ export function realFilmAccess(opts: { teamName: string; rootDriveId?: string; r
 
   const load = async (game: HighlightGame) => {
     const list = await roots();
-    if (!list.length) throw new Error('The film folder needs a click to open (or a Google sign-in).');
+    if (!list.length) {
+      // No copy on this device to open (an iPad), or it needs a click: the team Drive, signed in.
+      if (opts.rootDriveId && !(await localRoot())) throw new Error(NEEDS_SIGN_IN);
+      throw new Error('The film folder needs a click to open (or a Google sign-in).');
+    }
     let why = '';
     for (const { node, from } of list) {
       const found = await resolveGameFolder(node, { source: 'own', week: game.week, name: game.name, gameId: game.gameId }, opts.teamName);
@@ -145,6 +154,14 @@ export function realFilmAccess(opts: { teamName: string; rootDriveId?: string; r
   return {
     state,
     connect: async () => {
+      // A device that can't open a folder of its own (an iPad): straight to Google's sign-in, nothing waited on first
+      // (Safari blocks the sign-in window if anything comes before it in the tap).
+      const canOpenFolders = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+      if (opts.rootDriveId && !canOpenFolders) {
+        await driveSignIn();
+        games.clear();
+        return 'ready';
+      }
       const local = await localRoot();
       if (local && (await folderAccess(local, true))) {
         games.clear();

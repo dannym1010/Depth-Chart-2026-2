@@ -3,7 +3,7 @@
 // has a song. Full screen for a team meeting or the banquet (a TV hooked to the computer shows it too).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Maximize2, Pause, Play as PlayIcon, RotateCcw, X } from 'lucide-react';
-import type { FilmAccess } from './filmAccess';
+import { NEEDS_SIGN_IN, type FilmAccess } from './filmAccess';
 import { drawCard, drawLowerThird, drawSpot } from './graphics';
 import { clock, segmentSeconds, timelineSeconds, type Segment } from './highlightData';
 import type { HighlightSettings } from './types';
@@ -33,7 +33,10 @@ export const ReelPlayer: React.FC<Props> = ({ title, segments, access, settings,
   const musicRef = useRef<HTMLAudioElement>(null);
   const seg = segments[i];
   const film = seg && seg.type !== 'card' ? seg : undefined;
-  const src = useClipSrc(access, film?.h.game, film?.view || '', film?.clip);
+  // Bumped after a sign-in, so the clip is asked for again.
+  const [retry, setRetry] = useState(0);
+  const [signInProblem, setSignInProblem] = useState('');
+  const src = useClipSrc(access, film?.h.game, film?.view || '', film?.clip, retry);
   const starts = useMemo(() => {
     let t = 0;
     return segments.map((s) => {
@@ -221,11 +224,31 @@ export const ReelPlayer: React.FC<Props> = ({ title, segments, access, settings,
         {waiting && (
           <div className="absolute inset-0 flex items-center justify-center text-sm p-4 text-center" style={{ color: DIM }}>
             {src.error ? (
-              <span>
-                {src.error}{' '}
-                <button type="button" className="underline font-bold" style={{ color: INK }} onClick={(e) => { e.stopPropagation(); go(i + 1); }}>
-                  Skip it
-                </button>
+              <span className="pointer-events-auto flex flex-col items-center gap-2">
+                <span>{signInProblem || src.error}</span>
+                <span className="flex flex-wrap items-center justify-center gap-2">
+                  {(src.error === NEEDS_SIGN_IN || /sign.?in/i.test(src.error)) && (
+                    <button
+                      type="button"
+                      className="h-9 px-4 rounded-lg font-black text-slate-900"
+                      style={{ background: '#fbbf24' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // Right in the tap: Google's sign-in (an iPad's Safari blocks it after any wait).
+                        setSignInProblem('');
+                        access
+                          .connect()
+                          .then(() => setRetry((n) => n + 1))
+                          .catch((err: any) => setSignInProblem(err?.message || String(err)));
+                      }}
+                    >
+                      Sign in with Google
+                    </button>
+                  )}
+                  <button type="button" className="underline font-bold" style={{ color: INK }} onClick={(e) => { e.stopPropagation(); go(i + 1); }}>
+                    Skip it
+                  </button>
+                </span>
               </span>
             ) : (
               'Loading the film…'
