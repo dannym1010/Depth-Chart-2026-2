@@ -206,9 +206,124 @@ describe('running a play: the handoff where the coach put it', () => {
     const back = after.nodes.find((n) => n.role === '3')!;
     assert.ok(Math.abs(after.ball.x - back.x) < 0.01 && Math.abs(after.ball.y - back.y) < 0.01, 'the back has it');
   });
+  it('even when 1 (QB) has a drawn bootleg/fake line, 1 brings the ball to the handoff spot first and then carries out his fake', () => {
+    const qbFake: PlayStroke = { kind: 'run', points: [{ x: 0, y: -1 }, { x: -6, y: -4 }, { x: -8, y: 2 }] };
+    const rbRun = line({ x: 5, y: -5 });
+    // At handoffProgress, 1 and the ball are both at the handoff spot (5, -5), not off on the left bootleg (-6, -4).
+    const probe = computeAnimatedPlayFrame(nodes, [rbRun, qbFake], [], '3', 0.1);
+    assert.ok(probe.handoffProgress !== undefined, 'handoffProgress is computed');
+    const atHandoff = computeAnimatedPlayFrame(nodes, [rbRun, qbFake], [], '3', probe.handoffProgress!);
+    const qb = atHandoff.nodes.find((n) => n.role === '1')!;
+    assert.ok(Math.hypot(qb.x - 5, qb.y - -5) < 0.25, `1 brought the ball to the handoff spot (${qb.x}, ${qb.y})`);
+    assert.ok(Math.hypot(atHandoff.ball.x - 5, atHandoff.ball.y - -5) < 0.25, `ball is at the handoff spot (${atHandoff.ball.x}, ${atHandoff.ball.y})`);
+  });
+  it('includes a defensive preset stem spot and stunt/blitz spot when switching defensive presets or calling a stunt/blitz', () => {
+    const defNodes: PlayNode[] = [
+      ...nodes,
+      { role: 'MIKE', x: 2, y: 4.5 } as PlayNode,
+      { role: 'DT_L', x: -1.5, y: 0.8 } as PlayNode,
+    ];
+    const stemFrom = { MIKE: { x: -2, y: 4.5 }, DT_L: { x: -3, y: 0.8 } };
+    const stuntStroke: PlayStroke = { kind: 'run', points: [{ x: -1.5, y: 0.8 }, { x: -0.5, y: -1.5 }] };
+    const fStart = computeAnimatedPlayFrame(defNodes, [line()], [stuntStroke], '3', 0.05, null, undefined, stemFrom);
+    assert.ok(fStart.stemProgress !== undefined, 'stemProgress is defined when defense stems from previous preset');
+    assert.ok(fStart.stuntProgress !== undefined, 'stuntProgress is defined when a stunt/blitz is active');
+    const mikeEarly = fStart.nodes.find((n) => n.role === 'MIKE')!;
+    assert.ok(mikeEarly.x > -2 && mikeEarly.x < 2, `MIKE is stemming from -2 toward +2 (${mikeEarly.x})`);
+  });
   it('no spot set: handed off just after the snap, as before', () => {
     const f = post(0.3);
     const back = f.nodes.find((n) => n.role === '3')!;
     assert.ok(Math.abs(f.ball.x - back.x) < 0.01);
+  });
+});
+
+describe('running a play: collision markers, QB vision cone, and auto-pause checkpoints', () => {
+  it('emits block and tackle collision markers when blockers and tacklers engage, and slows the carrier unless he cuts away', () => {
+    const nodes: PlayNode[] = [
+      { role: 'C', x: 0, y: 0 },
+      { role: 'RG', x: 1.5, y: 0 },
+      { role: '1', x: 0, y: -1.5 },
+      { role: '3', x: 0, y: -4.5 },
+      { role: 'T1', x: 1.5, y: 1.0 },
+      { role: 'MIKE', x: 1.5, y: 3.5 },
+      { role: 'DE', x: 4.5, y: 1.0 },
+    ];
+    const straightRun: PlayStroke[] = [
+      {
+        kind: 'run',
+        points: [
+          { x: 0, y: -4.5 },
+          { x: 1.5, y: 0 },
+          { x: 1.5, y: 8 },
+        ],
+      },
+    ];
+    // At mid/late play, MIKE or T1 meets the runner in the hole -> tackle collision & tackleProgress
+    const fEnd = computeAnimatedPlayFrame(nodes, straightRun, [], '3', 0.9);
+    assert.ok(fEnd.tackleProgress !== undefined, 'tackleProgress should be recorded when a defender closes on the runner');
+    assert.ok(fEnd.fitProgress !== undefined, 'fitProgress should be defined when defense is on the field');
+    assert.ok(fEnd.readProgress !== undefined, 'readProgress should be defined');
+    assert.ok(
+      fEnd.collisions?.some((c) => c.kind === 'tackle' && c.label.includes('Tackle')),
+      'should emit a 🛑 Tackle collision marker when defender engages the runner',
+    );
+  });
+
+  it('shows a QB Read / Progression Vision Cone scanning 1st-to-2nd receiver on pass plays and conflict edge defender on run/option plays', () => {
+    const passNodes: PlayNode[] = [
+      { role: 'C', x: 0, y: 0 },
+      { role: '1', x: 0, y: -2 },
+      { role: 'X1', x: -10, y: 0 },
+      { role: 'Z1', x: 10, y: 0 },
+    ];
+    const passStrokes: PlayStroke[] = [
+      {
+        kind: 'pass',
+        points: [
+          { x: -10, y: 0 },
+          { x: -10, y: 6 },
+        ],
+      },
+      {
+        kind: 'pass',
+        points: [
+          { x: 10, y: 0 },
+          { x: 10, y: 10 },
+        ],
+      },
+    ];
+    // Early in drop: 1st Read (X1)
+    const fEarly = computeAnimatedPlayFrame(passNodes, passStrokes, [], 'Z1', 0.25);
+    assert.ok(fEarly.visionCone, 'visionCone should be active early in the pass drop');
+    assert.equal(fEarly.visionCone?.targetRole, 'X1');
+    assert.ok(fEarly.visionCone?.label.includes('1st Read'), `expected 1st Read label, got ${fEarly.visionCone?.label}`);
+
+    // Later in drop before release: 2nd Read (Z1)
+    const fLateDrop = computeAnimatedPlayFrame(passNodes, passStrokes, [], 'Z1', 0.42);
+    assert.ok(fLateDrop.visionCone, 'visionCone should be active before pass release');
+    assert.equal(fLateDrop.visionCone?.targetRole, 'Z1');
+    assert.ok(fLateDrop.visionCone?.label.includes('2nd Read'), `expected 2nd Read label, got ${fLateDrop.visionCone?.label}`);
+
+    // Option / Mesh run play with a conflict DE
+    const optNodes: PlayNode[] = [
+      { role: 'C', x: 0, y: 0 },
+      { role: '1', x: 0, y: -1.5 },
+      { role: '3', x: -1.5, y: -4 },
+      { role: 'DE', x: 4.5, y: 1.0 },
+    ];
+    const optStrokes: PlayStroke[] = [
+      {
+        kind: 'run',
+        points: [
+          { x: -1.5, y: -4 },
+          { x: 3, y: 6 },
+        ],
+      },
+    ];
+    const fOption = computeAnimatedPlayFrame(optNodes, optStrokes, [], '3', 0.28);
+    assert.ok(fOption.visionCone, 'visionCone should point to conflict DE on option/mesh read');
+    assert.equal(fOption.visionCone?.kind, 'option_read');
+    assert.equal(fOption.visionCone?.targetRole, 'DE');
   });
 });

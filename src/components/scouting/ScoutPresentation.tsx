@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ChevronLeft, ChevronRight, Eraser, Expand, Film, LayoutGrid, ListOrdered, Minimize2, PenLine, PenTool, Play, Presentation, Shield, Sparkles, Undo2, X,
+  ChevronLeft, ChevronRight, Eraser, Expand, Film, LayoutGrid, ListOrdered, Minimize2, PenLine, PenTool, Play, Presentation, Shield, Sparkles, Star, Undo2, X,
 } from 'lucide-react';
 import { setFilmWindowDock, useFilmWindowRequest } from '../../filmroom/filmWindowStore';
 import type { ScoutOppPlay } from '../../utils/scoutOppPlays';
 import { DiagramImage } from '../playbook/DiagramImage';
-import { PresentStageContext } from './presentStage';
+import { PresentStageContext, readSkipNotesPref, useStarredPlays, writeSkipNotesPref } from './presentStage';
 import { INK_COLORS, StageInk, type InkApi, type InkMode } from './StageInk';
 import { useWakeLock } from '../../utils/wakeLock';
 
@@ -23,6 +23,8 @@ export interface ScoutShowLine {
 export interface ScoutShow {
   title: string;
   lines: ScoutShowLine[];
+  /** Start presentation filtered to starred plays only. */
+  starredOnly?: boolean;
 }
 
 type View = 'diagram' | 'film';
@@ -115,6 +117,32 @@ export const ScoutPresentation: React.FC<{
   const ink = useRef<InkApi | null>(null);
   const [run, setRun] = useState(0);
   const [defenseHud, setDefenseHud] = useState(false);
+  const [skipNotes, setSkipNotesState] = useState<boolean>(() => readSkipNotesPref());
+  const setSkipNotes = useCallback((skip: boolean) => {
+    setSkipNotesState(skip);
+    writeSkipNotesPref(skip);
+  }, []);
+  const [starredIds, toggleStar] = useStarredPlays();
+  const isStarred = useCallback(
+    (l: ScoutShowLine) => starredIds.has(l.playId) || Boolean(l.card?.starred),
+    [starredIds],
+  );
+  const starredIndices = useMemo(
+    () => show.lines.map((l, i) => (isStarred(l) ? i : -1)).filter((i) => i >= 0),
+    [show.lines, isStarred],
+  );
+  const [starredOnly, setStarredOnly] = useState<boolean>(() => Boolean(show.starredOnly));
+  const activeIndices = useMemo(
+    () => (starredOnly && starredIndices.length > 0 ? starredIndices : show.lines.map((_, i) => i)),
+    [starredOnly, starredIndices, show.lines],
+  );
+  useEffect(() => {
+    if (starredOnly && starredIndices.length === 0) {
+      setStarredOnly(false);
+    } else if (starredOnly && starredIndices.length > 0 && !starredIndices.includes(index)) {
+      onIndex(starredIndices[0]);
+    }
+  }, [starredOnly, starredIndices, index, onIndex]);
   const [flash, setFlash] = useState(false);
   const [hint, setHint] = useState('');
   // The floating controls: always out of full screen; in it, until the coach stops touching the screen. Drawing,
@@ -139,6 +167,18 @@ export const ScoutPresentation: React.FC<{
   }, [dockEl, view, full, controls]);
   useEffect(() => () => setFilmWindowDock(null), []);
   const go = (i: number) => i >= 0 && i < show.lines.length && i !== index && onIndex(i);
+  const posInActive = activeIndices.indexOf(index);
+  const prevPlayIndex = posInActive > 0 ? activeIndices[posInActive - 1] : index > 0 && !starredOnly ? index - 1 : -1;
+  const nextPlayIndex =
+    posInActive >= 0 && posInActive < activeIndices.length - 1
+      ? activeIndices[posInActive + 1]
+      : posInActive < 0 && activeIndices.length > 0
+        ? activeIndices[0]
+        : -1;
+  const goStep = (dir: 1 | -1) => {
+    const target = dir > 0 ? nextPlayIndex : prevPlayIndex;
+    if (target >= 0) go(target);
+  };
 
   const enterFull = () => {
     setFull(true);
@@ -212,8 +252,8 @@ export const ScoutPresentation: React.FC<{
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       const typing = Boolean(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable));
-      if (e.key === 'PageDown') go(index + 1);
-      else if (e.key === 'PageUp') go(index - 1);
+      if (e.key === 'PageDown') goStep(1);
+      else if (e.key === 'PageUp') goStep(-1);
       else if (!full || typing || e.metaKey || e.ctrlKey || e.altKey) return;
       else if (e.key === 'Escape') {
         if (gridOpen) setGridOpen(false);
@@ -221,8 +261,8 @@ export const ScoutPresentation: React.FC<{
         else leaveFull();
       }
       // The film's own arrow keys step frames; on the diagram they change the play.
-      else if (view === 'diagram' && !gridOpen && e.key === 'ArrowRight') go(index + 1);
-      else if (view === 'diagram' && !gridOpen && e.key === 'ArrowLeft') go(index - 1);
+      else if (view === 'diagram' && !gridOpen && e.key === 'ArrowRight') goStep(1);
+      else if (view === 'diagram' && !gridOpen && e.key === 'ArrowLeft') goStep(-1);
       else return;
       e.preventDefault();
       if (full) poke();
@@ -234,8 +274,8 @@ export const ScoutPresentation: React.FC<{
   // Full screen, a finger or the pencil on the play. Listened for here, before the field or the film gets it (the
   // film is drawn into this place from elsewhere in the app, so only the page's own events reach it from here):
   // drawing takes the press away from them; a swipe changes the play; a tap shows or hides the controls.
-  const live = useRef({ index, inkOn, gridOpen, shown, go, poke, tuck });
-  live.current = { index, inkOn, gridOpen, shown, go, poke, tuck };
+  const live = useRef({ index, inkOn, gridOpen, shown, go, goStep, poke, tuck });
+  live.current = { index, inkOn, gridOpen, shown, go, goStep, poke, tuck };
   useEffect(() => {
     const el = rootRef.current;
     if (!full || !el) return;
@@ -302,7 +342,7 @@ export const ScoutPresentation: React.FC<{
       const dx = e.clientX - p.x;
       const dy = e.clientY - p.y;
       if (p.swipe && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5 && performance.now() - p.t < 800) {
-        L.go(L.index + (dx < 0 ? 1 : -1));
+        L.goStep(dx < 0 ? 1 : -1);
         return;
       }
       if (Math.hypot(dx, dy) > 10) return;
@@ -367,8 +407,8 @@ export const ScoutPresentation: React.FC<{
   }, [gridOpen]);
 
   const stage = useMemo(
-    () => ({ on: full, run, defenseHud, toggleDefenseHud: () => setDefenseHud((v) => !v) }),
-    [full, run, defenseHud]
+    () => ({ on: full, run, defenseHud, toggleDefenseHud: () => setDefenseHud((v) => !v), skipNotes, setSkipNotes }),
+    [full, run, defenseHud, skipNotes, setSkipNotes]
   );
 
   // Finger-sized on a touch screen (an iPad).
@@ -413,12 +453,69 @@ export const ScoutPresentation: React.FC<{
           onChange={(e) => go(Number(e.target.value))}
           className={`${script ? 'lg:hidden' : ''} h-9 pointer-coarse:h-11 min-w-0 max-w-[16rem] flex-1 sm:flex-none rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white px-2 text-sm font-bold`}
         >
-          {show.lines.map((l, i) => (
-            <option key={l.playId} value={i}>
-              {i + 1}. {l.name}
-            </option>
-          ))}
+          {activeIndices.map((i) => {
+            const l = show.lines[i];
+            return (
+              <option key={l.playId} value={i}>
+                {isStarred(l) ? '★ ' : ''}{i + 1}. {l.name}
+              </option>
+            );
+          })}
         </select>
+        {line && (
+          <button
+            type="button"
+            aria-pressed={isStarred(line)}
+            onClick={() => toggleStar(line.playId)}
+            title={isStarred(line) ? 'Starred for presentation (click to unstar)' : 'Star this play to show in presentation'}
+            className={`${navBtn} !px-2.5 border ${
+              isStarred(line)
+                ? 'border-amber-400 bg-amber-500/15 text-amber-600 dark:text-amber-300'
+                : 'border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-amber-400'
+            }`}
+          >
+            <Star className={`w-4 h-4 ${isStarred(line) ? 'fill-amber-400 text-amber-500' : ''}`} />
+            <span className="max-sm:hidden">{isStarred(line) ? 'Starred' : 'Star'}</span>
+          </button>
+        )}
+        <button
+          type="button"
+          aria-pressed={starredOnly}
+          disabled={starredIndices.length === 0 && !starredOnly}
+          onClick={() => setStarredOnly((v) => !v)}
+          title={
+            starredIndices.length === 0
+              ? 'Star plays on the script first, then click here to step through only your starred plays'
+              : starredOnly
+                ? 'Showing only starred plays (click to show all plays)'
+                : `Show only your ${starredIndices.length} starred play${starredIndices.length === 1 ? '' : 's'}`
+          }
+          className={`${navBtn} !px-2.5 border ${
+            starredOnly
+              ? 'border-amber-500 bg-amber-500 text-slate-950 shadow-xs'
+              : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-amber-400'
+          }`}
+        >
+          <Star className={`w-3.5 h-3.5 ${starredOnly ? 'fill-slate-950' : 'text-amber-500'}`} />
+          <span>★ Only ({starredIndices.length})</span>
+        </button>
+        <button
+          type="button"
+          aria-pressed={!skipNotes}
+          onClick={() => setSkipNotes(!skipNotes)}
+          title={
+            skipNotes
+              ? 'Play Through Mode: Play Movement runs without stopping or showing notes/pursuit angles (click to re-enable note stops)'
+              : 'Stop & Show Notes Mode: Play Movement pauses at each note/pursuit checkpoint (click to play straight through without notes)'
+          }
+          className={`${navBtn} !px-2.5 border text-xs ${
+            !skipNotes
+              ? 'border-emerald-500/60 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+              : 'border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+          }`}
+        >
+          <span>{skipNotes ? '⏭ Play Through (No Notes)' : '📌 Stop & Show Notes'}</span>
+        </button>
         <div className="flex items-center gap-0.5 p-1 rounded-lg bg-slate-100 dark:bg-slate-800" role="group" aria-label="Show">
           <button type="button" className={viewBtn('diagram')} aria-pressed={view === 'diagram'} onClick={() => setView('diagram')} title="The play's diagram, with every tool">
             <PenTool className="w-3.5 h-3.5" /> Diagram
@@ -436,13 +533,13 @@ export const ScoutPresentation: React.FC<{
           <Expand className="w-4 h-4" /> <span className="max-sm:hidden">Full screen</span>
         </button>
         <div className="ml-auto flex items-center gap-1.5">
-          <button type="button" className={`${navBtn} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200`} disabled={index === 0} onClick={() => go(index - 1)} title="The play before (Page Up)">
+          <button type="button" className={`${navBtn} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200`} disabled={prevPlayIndex < 0} onClick={() => goStep(-1)} title="The play before (Page Up)">
             <ChevronLeft className="w-4 h-4" /> <span className="max-sm:hidden">Prev</span>
           </button>
           <span className="text-xs font-bold tabular-nums text-slate-500 px-1">
-            {index + 1} / {show.lines.length}
+            {starredOnly && posInActive >= 0 ? `★ ${posInActive + 1} / ${activeIndices.length}` : `${index + 1} / ${show.lines.length}`}
           </span>
-          <button type="button" className={`${navBtn} bg-indigo-600 text-white hover:bg-indigo-500`} disabled={index === last} onClick={() => go(index + 1)} title="The next play (Page Down)">
+          <button type="button" className={`${navBtn} bg-indigo-600 text-white hover:bg-indigo-500`} disabled={nextPlayIndex < 0} onClick={() => goStep(1)} title="The next play (Page Down)">
             <span className="max-sm:hidden">Next</span> <ChevronRight className="w-4 h-4" />
           </button>
           <button type="button" className={`${navBtn} text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800`} onClick={onExit} title="Leave presentation mode">
@@ -451,29 +548,61 @@ export const ScoutPresentation: React.FC<{
         </div>
       </header>
       )}
-      <div className={full ? 'relative flex-1 min-h-0' : `flex-1 min-h-0 grid ${script ? 'lg:grid-cols-[10.5rem_minmax(0,1fr)] xl:grid-cols-[12rem_minmax(0,1fr)]' : ''}`}>
+      <div className={full ? 'relative flex-1 min-h-0' : `flex-1 min-h-0 grid ${script ? 'lg:grid-cols-[12rem_minmax(0,1fr)] xl:grid-cols-[13.5rem_minmax(0,1fr)]' : ''}`}>
         {!full && (
-        <nav className={`hidden ${script ? 'lg:block' : ''} overflow-y-auto overscroll-contain border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900`} aria-label="Scout script">
-          <ol className="p-1.5 space-y-0.5">
-            {show.lines.map((l, i) => (
-              <li key={l.playId}>
-                <button
-                  type="button"
-                  onClick={() => go(i)}
-                  aria-current={i === index ? 'true' : undefined}
-                  ref={i === index ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
-                  className={`w-full text-left flex gap-1.5 rounded-lg px-1.5 py-1 pointer-coarse:py-2 cursor-pointer ${
-                    i === index ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  <span className={`w-5 shrink-0 text-right text-[11px] font-black tabular-nums pt-0.5 ${i === index ? 'text-indigo-100' : 'text-slate-400'}`}>{i + 1}</span>
-                  <span className="min-w-0">
-                    <span className="block text-[13px] font-black leading-tight break-words">{l.name}</span>
-                    {l.detail && <span className={`block text-[10px] leading-snug mt-0.5 ${i === index ? 'text-indigo-100' : 'text-slate-500'}`}>{l.detail}</span>}
-                  </span>
-                </button>
-              </li>
-            ))}
+        <nav className={`hidden ${script ? 'lg:flex lg:flex-col' : ''} overflow-y-auto overscroll-contain border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900`} aria-label="Scout script">
+          <div className="flex items-center justify-between gap-1 px-2 py-1.5 border-b border-slate-200 dark:border-slate-800 text-[11px] font-black">
+            <button
+              type="button"
+              onClick={() => setStarredOnly(false)}
+              className={`flex-1 py-1 rounded-md cursor-pointer ${!starredOnly ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+            >
+              All ({show.lines.length})
+            </button>
+            <button
+              type="button"
+              disabled={starredIndices.length === 0 && !starredOnly}
+              onClick={() => setStarredOnly((v) => !v)}
+              className={`flex-1 py-1 rounded-md cursor-pointer disabled:opacity-40 ${starredOnly ? 'bg-amber-500 text-slate-950' : 'text-amber-600 dark:text-amber-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+            >
+              ★ Starred ({starredIndices.length})
+            </button>
+          </div>
+          <ol className="p-1.5 space-y-0.5 flex-1 overflow-y-auto">
+            {activeIndices.map((i) => {
+              const l = show.lines[i];
+              const starred = isStarred(l);
+              return (
+                <li key={l.playId} className="flex items-start gap-0.5">
+                  <button
+                    type="button"
+                    aria-label={starred ? `Unstar ${l.name}` : `Star ${l.name}`}
+                    title={starred ? 'Starred to show (click to unstar)' : 'Star this play to show in presentation'}
+                    onClick={() => toggleStar(l.playId)}
+                    className={`mt-1 p-1 rounded-md cursor-pointer transition-colors ${
+                      starred ? 'text-amber-400 hover:text-amber-300' : 'text-slate-300 dark:text-slate-600 hover:text-amber-400'
+                    }`}
+                  >
+                    <Star className={`w-3.5 h-3.5 ${starred ? 'fill-amber-400' : ''}`} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => go(i)}
+                    aria-current={i === index ? 'true' : undefined}
+                    ref={i === index ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
+                    className={`flex-1 min-w-0 text-left flex gap-1.5 rounded-lg px-1.5 py-1 pointer-coarse:py-2 cursor-pointer ${
+                      i === index ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    <span className={`w-4 shrink-0 text-right text-[11px] font-black tabular-nums pt-0.5 ${i === index ? 'text-indigo-100' : 'text-slate-400'}`}>{i + 1}</span>
+                    <span className="min-w-0">
+                      <span className="block text-[13px] font-black leading-tight break-words">{l.name}</span>
+                      {l.detail && <span className={`block text-[10px] leading-snug mt-0.5 ${i === index ? 'text-indigo-100' : 'text-slate-500'}`}>{l.detail}</span>}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
           </ol>
         </nav>
         )}
@@ -509,8 +638,8 @@ export const ScoutPresentation: React.FC<{
             className={`pointer-events-none absolute inset-x-0 top-0 z-30 flex gap-[3px] ${fade(controls)}`}
             style={{ paddingTop: 'calc(0.375rem + env(safe-area-inset-top, 0px))', paddingLeft: LEFT, paddingRight: RIGHT }}
           >
-            {show.lines.map((l, i) => (
-              <span key={l.playId} className={`h-1 flex-1 rounded-full shadow-sm ${i < index ? 'bg-indigo-300' : i === index ? 'bg-indigo-500' : 'bg-slate-400/60'}`} />
+            {activeIndices.map((i) => (
+              <span key={show.lines[i].playId} className={`h-1 flex-1 rounded-full shadow-sm ${i < index ? 'bg-indigo-300' : i === index ? 'bg-indigo-500' : 'bg-slate-400/60'}`} />
             ))}
           </div>
 
@@ -520,17 +649,19 @@ export const ScoutPresentation: React.FC<{
             data-stage-ui
             onClick={() => setGridOpen(true)}
             title="Every play on the script"
-            className={`absolute z-30 flex items-center gap-3 max-w-[calc(100%-1.5rem)] md:max-w-[min(34rem,calc(100%-26rem))] rounded-2xl p-2 pr-3 text-left cursor-pointer ${GLASS} ${fade(controls || flash)} ${
+            className={`absolute z-30 flex items-center gap-3 max-w-[calc(100%-1.5rem)] md:max-w-[min(34rem,calc(100%-30rem))] rounded-2xl p-2 pr-3 text-left cursor-pointer ${GLASS} ${fade(controls || flash)} ${
               controls || flash ? 'translate-y-0' : '-translate-y-2'
             }`}
             style={{ top: TOP, left: LEFT }}
           >
             <span className="shrink-0 w-12 h-12 rounded-xl bg-indigo-500 flex flex-col items-center justify-center leading-none shadow-lg shadow-indigo-950/50">
-              <span className="text-xl font-black tabular-nums">{index + 1}</span>
-              <span className="mt-0.5 text-[10px] font-bold text-indigo-100 tabular-nums">of {show.lines.length}</span>
+              <span className="text-xl font-black tabular-nums">{starredOnly && posInActive >= 0 ? posInActive + 1 : index + 1}</span>
+              <span className="mt-0.5 text-[10px] font-bold text-indigo-100 tabular-nums">of {starredOnly ? activeIndices.length : show.lines.length}</span>
             </span>
             <span className="min-w-0">
-              <span className="block text-lg font-black leading-tight truncate">{line?.name}</span>
+              <span className="block text-lg font-black leading-tight truncate">
+                {line && isStarred(line) ? '★ ' : ''}{line?.name}
+              </span>
               {line?.detail && <span className="block mt-0.5 text-xs font-semibold text-slate-300 truncate">{line.detail}</span>}
             </span>
             <LayoutGrid className="shrink-0 w-4 h-4 text-white/60" />
@@ -542,6 +673,27 @@ export const ScoutPresentation: React.FC<{
             className={`absolute z-30 flex items-center gap-1 p-1 rounded-2xl ${GLASS} ${fade(tools)} ${tools ? 'translate-y-0' : '-translate-y-2'}`}
             style={{ top: TOP, right: RIGHT }}
           >
+            {line && (
+              <button
+                type="button"
+                aria-pressed={isStarred(line)}
+                onClick={() => toggleStar(line.playId)}
+                className={stageBtn(isStarred(line))}
+                title={isStarred(line) ? 'Starred play (tap to unstar)' : 'Star this play to show'}
+              >
+                <Star className={`w-4 h-4 ${isStarred(line) ? 'fill-amber-400 text-amber-500' : ''}`} />
+              </button>
+            )}
+            <button
+              type="button"
+              aria-pressed={starredOnly}
+              disabled={starredIndices.length === 0 && !starredOnly}
+              onClick={() => setStarredOnly((v) => !v)}
+              className={stageBtn(starredOnly)}
+              title={starredOnly ? 'Showing only starred plays (tap for all plays)' : `Filter to ${starredIndices.length} starred plays`}
+            >
+              <span>★ {starredIndices.length}</span>
+            </button>
             <div role="group" aria-label="Show" className="flex items-center gap-0.5 p-0.5 rounded-xl bg-white/10">
               <button type="button" aria-pressed={view === 'diagram'} onClick={() => setView('diagram')} className={segBtn(view === 'diagram')} title="The play's diagram">
                 <PenTool className="w-4 h-4" />
@@ -556,6 +708,15 @@ export const ScoutPresentation: React.FC<{
               <>
                 <button
                   type="button"
+                  aria-pressed={!skipNotes}
+                  onClick={() => setSkipNotes(!skipNotes)}
+                  className={stageBtn(!skipNotes)}
+                  title={skipNotes ? 'Play Through Mode: No stops or notes (tap to stop at notes)' : 'Stop & Show Notes ON (tap to play through without stopping)'}
+                >
+                  <span className="text-xs">{skipNotes ? '⏭ No Notes' : '📌 Notes'}</span>
+                </button>
+                <button
+                  type="button"
                   aria-pressed={defenseHud}
                   onClick={() => setDefenseHud((v) => !v)}
                   className={stageBtn(defenseHud)}
@@ -564,9 +725,9 @@ export const ScoutPresentation: React.FC<{
                   <Shield className="w-4 h-4" />
                   <span className="max-md:hidden">Defense</span>
                 </button>
-                <button type="button" onClick={() => setRun((n) => n + 1)} className={stageBtn()} title="Run the play: the players move through it">
+                <button type="button" onClick={() => setRun((n) => n + 1)} className={stageBtn()} title="Open Play Movement menu">
                   <Play className="w-4 h-4 fill-current" />
-                  <span className="max-md:hidden">Run</span>
+                  <span className="max-md:hidden">Movement</span>
                 </button>
               </>
             )}
@@ -630,11 +791,11 @@ export const ScoutPresentation: React.FC<{
           )}
 
           {/* The play before and the next one, at the edges where thumbs rest holding an iPad. */}
-          {index > 0 && (
+          {prevPlayIndex >= 0 && (
             <button
               type="button"
               data-stage-ui
-              onClick={() => go(index - 1)}
+              onClick={() => goStep(-1)}
               aria-label="The play before"
               title="The play before (←, Page Up)"
               className={`absolute z-30 top-1/2 -translate-y-1/2 w-14 h-14 rounded-full inline-flex items-center justify-center cursor-pointer active:scale-95 ${GLASS} ${fade(controls)}`}
@@ -643,11 +804,11 @@ export const ScoutPresentation: React.FC<{
               <ChevronLeft className="w-7 h-7" />
             </button>
           )}
-          {index < last && (
+          {nextPlayIndex >= 0 && (
             <button
               type="button"
               data-stage-ui
-              onClick={() => go(index + 1)}
+              onClick={() => goStep(1)}
               aria-label="The next play"
               title="The next play (→, Page Down)"
               className={`absolute z-30 top-1/2 -translate-y-1/2 w-14 h-14 rounded-full inline-flex items-center justify-center cursor-pointer active:scale-95 ${GLASS} ${fade(controls)}`}
@@ -672,46 +833,75 @@ export const ScoutPresentation: React.FC<{
               className="absolute inset-0 z-40 flex flex-col bg-slate-950/85 backdrop-blur-2xl text-white"
               style={{ paddingTop: 'env(safe-area-inset-top, 0px)', paddingLeft: 'env(safe-area-inset-left, 0px)', paddingRight: 'env(safe-area-inset-right, 0px)' }}
             >
-              <div className="flex items-center gap-3 px-5 pt-4 pb-3">
+              <div className="flex flex-wrap items-center gap-3 px-5 pt-4 pb-3">
                 <LayoutGrid className="w-5 h-5 text-indigo-300 shrink-0" />
                 <span className="min-w-0 truncate text-lg font-black">{show.title}</span>
-                <span className="shrink-0 text-sm font-bold text-slate-400">{show.lines.length} plays</span>
+                <span className="shrink-0 text-sm font-bold text-slate-400">
+                  {starredOnly ? `${activeIndices.length} starred of ${show.lines.length} plays` : `${show.lines.length} plays`}
+                </span>
+                <button
+                  type="button"
+                  aria-pressed={starredOnly}
+                  disabled={starredIndices.length === 0 && !starredOnly}
+                  onClick={() => setStarredOnly((v) => !v)}
+                  className={stageBtn(starredOnly)}
+                >
+                  <Star className={`w-4 h-4 ${starredOnly ? 'fill-amber-500 text-amber-500' : 'text-amber-400'}`} />
+                  <span>★ Starred Only ({starredIndices.length})</span>
+                </button>
                 <button type="button" onClick={() => setGridOpen(false)} className={`ml-auto ${stageBtn()}`} aria-label="Close" title="Close (Esc)">
                   <X className="w-5 h-5" />
                 </button>
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5" style={{ paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))' }}>
                 <ol ref={gridRef} className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
-                  {show.lines.map((l, i) => (
-                    <li key={l.playId}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          go(i);
-                          setGridOpen(false);
-                        }}
-                        aria-current={i === index ? 'true' : undefined}
-                        className={`w-full h-full text-left rounded-2xl p-2 cursor-pointer transition active:scale-[0.98] ${
-                          i === index ? 'bg-indigo-500/25 ring-2 ring-indigo-400' : 'bg-white/[0.06] ring-1 ring-white/10 hover:bg-white/10'
-                        }`}
-                      >
-                        {l.diagram && <DiagramImage url={l.diagram} alt={l.name} loading="lazy" className="w-full aspect-[760/520] object-contain rounded-xl bg-white" />}
-                        <span className="mt-2 flex items-start gap-2 px-1">
-                          <span
-                            className={`shrink-0 min-w-7 h-7 px-1.5 rounded-lg inline-flex items-center justify-center text-sm font-black tabular-nums ${
-                              i === index ? 'bg-indigo-500 text-white' : 'bg-white/10 text-white'
-                            }`}
-                          >
-                            {i + 1}
+                  {activeIndices.map((i) => {
+                    const l = show.lines[i];
+                    const starred = isStarred(l);
+                    return (
+                      <li key={l.playId} className="relative">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            go(i);
+                            setGridOpen(false);
+                          }}
+                          aria-current={i === index ? 'true' : undefined}
+                          className={`w-full h-full text-left rounded-2xl p-2 cursor-pointer transition active:scale-[0.98] ${
+                            i === index ? 'bg-indigo-500/25 ring-2 ring-indigo-400' : 'bg-white/[0.06] ring-1 ring-white/10 hover:bg-white/10'
+                          }`}
+                        >
+                          {l.diagram && <DiagramImage url={l.diagram} alt={l.name} loading="lazy" className="w-full aspect-[760/520] object-contain rounded-xl bg-white" />}
+                          <span className="mt-2 flex items-start gap-2 px-1">
+                            <span
+                              className={`shrink-0 min-w-7 h-7 px-1.5 rounded-lg inline-flex items-center justify-center text-sm font-black tabular-nums ${
+                                i === index ? 'bg-indigo-500 text-white' : 'bg-white/10 text-white'
+                              }`}
+                            >
+                              {i + 1}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-sm font-black leading-tight break-words">{l.name}</span>
+                              {l.detail && <span className="block mt-0.5 text-xs text-slate-400 leading-snug line-clamp-2">{l.detail}</span>}
+                            </span>
                           </span>
-                          <span className="min-w-0">
-                            <span className="block text-sm font-black leading-tight break-words">{l.name}</span>
-                            {l.detail && <span className="block mt-0.5 text-xs text-slate-400 leading-snug line-clamp-2">{l.detail}</span>}
-                          </span>
-                        </span>
-                      </button>
-                    </li>
-                  ))}
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={starred ? `Unstar ${l.name}` : `Star ${l.name}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleStar(l.playId);
+                          }}
+                          className={`absolute top-4 right-4 w-9 h-9 rounded-full inline-flex items-center justify-center shadow-lg cursor-pointer ${
+                            starred ? 'bg-amber-400 text-slate-950' : 'bg-slate-900/80 text-white/80 hover:text-amber-300'
+                          }`}
+                        >
+                          <Star className={`w-4 h-4 ${starred ? 'fill-slate-950' : ''}`} />
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ol>
               </div>
             </div>

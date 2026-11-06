@@ -31,8 +31,17 @@ import {
   type PlayStroke,
 } from '../../utils/footballEngine';
 import { COLOR, PlayerAssignmentPanel, arrowPts, strokeFor, tBar } from './PlayerAssignmentPanel';
-import { computeAnimatedPlayFrame, playAnimationSeconds, snapProgress } from '../../utils/playAnimation';
+import { computeAnimatedPlayFrame, hasDefensiveStem, playAnimationSeconds, snapProgress } from '../../utils/playAnimation';
 import type { GapFitSlot } from '../../utils/defenseReads';
+import type { PlayNoteCheckpoint, PursuitLine } from '../../types/callSheet';
+import { readSkipNotesPref, writeSkipNotesPref } from '../scouting/presentStage';
+
+const PURSUIT_COLORS = [
+  { hex: '#06b6d4', label: 'Cyan' },
+  { hex: '#f59e0b', label: 'Gold' },
+  { hex: '#10b981', label: 'Green' },
+  { hex: '#ec4899', label: 'Pink' },
+];
 
 /** Play movement speeds: full, and slow motion for going over it with the team. */
 const ANIM_SPEEDS = [0.1, 0.25, 0.5, 1];
@@ -203,7 +212,26 @@ interface Props {
   gapFits?: GapFitSlot[];
   /** Defender/player role highlighted in Walkthrough Spotlight / Quiz mode. */
   spotlightRole?: string | null;
-  /** Incrementing trigger to start playing player movement animation */
+  /** Previous defensive positions when switching to a different defensive preset/front/stunt, for pre-snap stem animation. */
+  stemFrom?: Record<string, { x: number; y: number }>;
+  /** Previous defensive front/stunt/coverage snapshot when switching defenses, so the coach can toggle ghost comparison trails. */
+  prevDefense?: {
+    label: string;
+    nodes: PlayNode[];
+    extraStrokes: PlayStroke[];
+    defenseRules?: Record<string, Record<string, string>>;
+  } | null;
+  /** Optional defensive preset switcher bar rendered right inside the Play Movement menu. */
+  defensePresetBar?: React.ReactNode;
+  /** Timeline checkpoints where Play Movement pauses to display a coaching note and/or pursuit angle lines. */
+  checkpoints?: PlayNoteCheckpoint[];
+  /** Save updated coaching note / pursuit angle checkpoints. */
+  onCheckpointsChange?: (next: PlayNoteCheckpoint[]) => void;
+  /** When true, Play Movement runs straight through without pausing at note checkpoints or showing notes. */
+  skipNotes?: boolean;
+  /** Toggle whether Play Movement skips note pauses. */
+  onSkipNotesChange?: (skip: boolean) => void;
+  /** Incrementing trigger to open player movement animation menu */
   playTrigger?: number;
 }
 
@@ -257,6 +285,13 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   defenseRules,
   gapFits,
   spotlightRole,
+  stemFrom,
+  prevDefense,
+  defensePresetBar,
+  checkpoints = [],
+  onCheckpointsChange,
+  skipNotes: skipNotesProp,
+  onSkipNotesChange,
   playTrigger = 0,
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -301,13 +336,60 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       /* per device only */
     }
   };
+  const [stopAtRead, setStopAtReadState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('playAnimStopAtRead') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const setStopAtRead = (on: boolean) => {
+    setStopAtReadState(on);
+    try {
+      localStorage.setItem('playAnimStopAtRead', on ? '1' : '0');
+    } catch {
+      /* per device only */
+    }
+  };
+  const [stopAtFit, setStopAtFitState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('playAnimStopAtFit') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const setStopAtFit = (on: boolean) => {
+    setStopAtFitState(on);
+    try {
+      localStorage.setItem('playAnimStopAtFit', on ? '1' : '0');
+    } catch {
+      /* per device only */
+    }
+  };
+  const [stopAtTackle, setStopAtTackleState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('playAnimStopAtTackle') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const setStopAtTackle = (on: boolean) => {
+    setStopAtTackleState(on);
+    try {
+      localStorage.setItem('playAnimStopAtTackle', on ? '1' : '0');
+    } catch {
+      /* per device only */
+    }
+  };
+  const [showGhostDefense, setShowGhostDefense] = useState<boolean>(false);
   const strokes = draft ?? strokesProp;
-  const seconds = playAnimationSeconds(strokes, extraStrokes || []);
-  const snapAt = snapProgress(strokes, extraStrokes || []);
   const nodes = useMemo(
     () => (dragPos ? nodesProp.map((n) => (n.role === dragPos.role ? { ...n, x: dragPos.x, y: dragPos.y } : n)) : nodesProp),
     [nodesProp, dragPos]
   );
+  const hasStem = useMemo(() => hasDefensiveStem(nodes, stemFrom), [nodes, stemFrom]);
+  const seconds = playAnimationSeconds(strokes, extraStrokes || [], hasStem);
+  const snapAt = snapProgress(strokes, extraStrokes || [], hasStem);
   const animatedFrame = useMemo(
     () =>
       computeAnimatedPlayFrame(
@@ -318,22 +400,89 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
         animProgress,
         typeof play.metadata?.targetHole === 'number' ? play.metadata.targetHole : null,
         defenseRules,
+        stemFrom,
       ),
-    [nodes, strokes, extraStrokes, ballRole, animProgress, play.metadata?.targetHole, defenseRules],
+    [nodes, strokes, extraStrokes, ballRole, animProgress, play.metadata?.targetHole, defenseRules, stemFrom],
   );
+  const ghostFrame = useMemo(() => {
+    if (!showGhostDefense || !prevDefense) return null;
+    const offNodes = nodes.filter((n) => !isDefenseRole(n.role));
+    const prevDefNodes = prevDefense.nodes.filter((n) => isDefenseRole(n.role));
+    return computeAnimatedPlayFrame(
+      [...offNodes, ...prevDefNodes],
+      strokes,
+      prevDefense.extraStrokes || [],
+      ballRole,
+      animProgress,
+      typeof play.metadata?.targetHole === 'number' ? play.metadata.targetHole : null,
+      prevDefense.defenseRules,
+    );
+  }, [showGhostDefense, prevDefense, nodes, strokes, ballRole, animProgress, play.metadata?.targetHole]);
   const displayNodes = animProgress > 0.002 ? animatedFrame.nodes : nodes;
 
   useEffect(() => {
     if (playTrigger > 0) {
       setAnimOpen(true);
       setAnimProgress(0);
-      setIsPlaying(true);
+      setIsPlaying(false);
     }
   }, [playTrigger]);
 
-  // Where the movement is, for the loop (it decides there whether to stop: at the snap, or at the end).
+  const [localSkipNotes, setLocalSkipNotes] = useState<boolean>(() => readSkipNotesPref());
+  const skipNotes = skipNotesProp !== undefined ? skipNotesProp : localSkipNotes;
+  const setSkipNotes = (next: boolean) => {
+    setLocalSkipNotes(next);
+    writeSkipNotesPref(next);
+    onSkipNotesChange?.(next);
+  };
+  const [editingCheckpointId, setEditingCheckpointId] = useState<string | null>(null);
+  const [pursuitDrawMode, setPursuitDrawMode] = useState<boolean>(false);
+  const [pursuitColor, setPursuitColor] = useState<string>(PURSUIT_COLORS[0].hex);
+  const [draftPursuitPoints, setDraftPursuitPoints] = useState<{ x: number; y: number }[] | null>(null);
+  const pursuitDrawingRef = useRef<{ points: { x: number; y: number }[]; checkpointId: string } | null>(null);
+  const sortedCheckpoints = useMemo(
+    () => [...checkpoints].sort((a, b) => a.progress - b.progress),
+    [checkpoints],
+  );
+  const activeCheckpoint = useMemo(
+    () =>
+      sortedCheckpoints.find((cp) => cp.id === editingCheckpointId && Math.abs(cp.progress - animProgress) <= 0.03) ||
+      sortedCheckpoints.find((cp) => Math.abs(cp.progress - animProgress) <= 0.022) ||
+      null,
+    [sortedCheckpoints, editingCheckpointId, animProgress],
+  );
+  const ensureCheckpointAtCurrent = (): PlayNoteCheckpoint => {
+    const existing = sortedCheckpoints.find((cp) => Math.abs(cp.progress - animProgress) <= 0.025);
+    if (existing) {
+      setEditingCheckpointId(existing.id);
+      return existing;
+    }
+    const created: PlayNoteCheckpoint = {
+      id: `cp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      progress: Math.round(animProgress * 1000) / 1000,
+      note: '',
+      pursuitLines: [],
+    };
+    onCheckpointsChange?.([...checkpoints, created]);
+    setEditingCheckpointId(created.id);
+    return created;
+  };
+  const updateCheckpoint = (id: string, patch: Partial<PlayNoteCheckpoint>) => {
+    onCheckpointsChange?.(checkpoints.map((cp) => (cp.id === id ? { ...cp, ...patch } : cp)));
+  };
+  const deleteCheckpoint = (id: string) => {
+    onCheckpointsChange?.(checkpoints.filter((cp) => cp.id !== id));
+    if (editingCheckpointId === id) {
+      setEditingCheckpointId(null);
+      setPursuitDrawMode(false);
+    }
+  };
+
+  // Where the movement is, for the loop (it decides there whether to stop: at auto-pause checkpoints, coaching note checkpoints, or the end).
   const progressRef = useRef(animProgress);
   progressRef.current = animProgress;
+  const readAtPoint = animatedFrame.handoffProgress ?? animatedFrame.readProgress ?? snapAt + (1 - snapAt) * 0.2;
+  const fitAtPoint = animatedFrame.fitProgress ?? snapAt + (1 - snapAt) * 0.36;
   useEffect(() => {
     if (!isPlaying) return;
     let rafId = 0;
@@ -343,12 +492,54 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       lastTs = now;
       const prev = progressRef.current;
       const next = prev + (dt * animSpeed) / seconds;
-      // Stop at the snap (once motion and shifts are set), to talk about the look before the play runs.
-      if (stopAtSnap && snapAt > 0.001 && prev < snapAt - 1e-6 && next >= snapAt) {
-        progressRef.current = snapAt;
-        setAnimProgress(snapAt);
-        setIsPlaying(false);
-        return;
+      // Multi-checkpoint Auto-Pause (Snap · Handoff / Read · Gap Fit · Tackle)
+      if (!skipNotes) {
+        const autoStops: number[] = [];
+        if (stopAtSnap && snapAt > 0.001) autoStops.push(snapAt);
+        if (stopAtRead && readAtPoint > 0.001) autoStops.push(readAtPoint);
+        if (stopAtFit && fitAtPoint > 0.001) autoStops.push(fitAtPoint);
+        autoStops.sort((a, b) => a - b);
+        const hitAuto = autoStops.find((pt) => prev < pt - 1e-5 && next >= pt);
+        if (hitAuto !== undefined) {
+          progressRef.current = hitAuto;
+          setAnimProgress(hitAuto);
+          setIsPlaying(false);
+          return;
+        }
+        if (stopAtTackle && next > snapAt + 0.05) {
+          const probe = computeAnimatedPlayFrame(
+            nodes,
+            strokes,
+            extraStrokes || [],
+            ballRole,
+            Math.min(1, next),
+            typeof play.metadata?.targetHole === 'number' ? play.metadata.targetHole : null,
+            defenseRules,
+            stemFrom,
+          );
+          if (probe.tackleProgress !== undefined && prev < probe.tackleProgress - 1e-5 && next >= probe.tackleProgress) {
+            progressRef.current = probe.tackleProgress;
+            setAnimProgress(probe.tackleProgress);
+            setIsPlaying(false);
+            return;
+          }
+        }
+      }
+      // Pause at the next coaching note / pursuit angle checkpoint unless "Play Through (No Notes)" is active.
+      if (!skipNotes && sortedCheckpoints.length > 0) {
+        const hitCp = sortedCheckpoints.find(
+          (cp) =>
+            (cp.note.trim().length > 0 || cp.pursuitLines.length > 0) &&
+            prev < cp.progress - 1e-5 &&
+            next >= cp.progress,
+        );
+        if (hitCp) {
+          progressRef.current = hitCp.progress;
+          setAnimProgress(hitCp.progress);
+          setEditingCheckpointId(hitCp.id);
+          setIsPlaying(false);
+          return;
+        }
       }
       if (next >= 1) {
         progressRef.current = 1;
@@ -363,7 +554,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPlaying, animSpeed, seconds, stopAtSnap, snapAt]);
+  }, [isPlaying, animSpeed, seconds, stopAtSnap, stopAtRead, stopAtFit, stopAtTackle, snapAt, readAtPoint, fitAtPoint, skipNotes, sortedCheckpoints]);
   /** Play or pause; at the end it starts over. */
   const togglePlay = () => {
     setAnimOpen(true);
@@ -783,6 +974,19 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     }
     const svg = svgRef.current;
     if (!svg) return;
+    if (pursuitDrawMode && e.isPrimary) {
+      e.preventDefault();
+      e.stopPropagation();
+      svg.setPointerCapture(e.pointerId);
+      const p = pointFromEvent(e);
+      const near = hitNode(displayNodes, p.cx, p.cy, 22);
+      const startPt = near ? { x: Math.round(near.x * 100) / 100, y: Math.round(near.y * 100) / 100 } : { x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100 };
+      const cp = ensureCheckpointAtCurrent();
+      const pts = [startPt, { x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100 }];
+      pursuitDrawingRef.current = { points: pts, checkpointId: cp.id };
+      setDraftPursuitPoints(pts);
+      return;
+    }
     if (locked) {
       // Allow tapping or dragging a player even on the presentation stage so the coach can adjust alignment & rules live.
       const p = pointFromEvent(e);
@@ -901,6 +1105,19 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
+    if (pursuitDrawingRef.current && svgRef.current) {
+      const p = pointFromEvent(e);
+      const curPts = pursuitDrawingRef.current.points;
+      const last = curPts[curPts.length - 1];
+      if (last) {
+        const ls = fieldToSvg(last.x, last.y);
+        if (Math.hypot(p.cx - ls.cx, p.cy - ls.cy) < 5) return;
+      }
+      const nextPts = [...curPts, { x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100 }];
+      pursuitDrawingRef.current.points = nextPts;
+      setDraftPursuitPoints(nextPts);
+      return;
+    }
     const d = drag.current;
     if (!d) updateHover(e);
     if (!d && openRef.current != null && e.pointerType !== 'touch') {
@@ -968,6 +1185,37 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   };
 
   const endDrag = () => {
+    if (pursuitDrawingRef.current) {
+      const { points: rawPts, checkpointId } = pursuitDrawingRef.current;
+      pursuitDrawingRef.current = null;
+      setDraftPursuitPoints(null);
+      if (rawPts.length >= 2) {
+        const first = rawPts[0];
+        const last = rawPts[rawPts.length - 1];
+        if (Math.hypot(last.x - first.x, last.y - first.y) > 0.6) {
+          const shaped = shapeDrawnLeg(rawPts).map((pt) => ({
+            x: Math.round(pt.x * 100) / 100,
+            y: Math.round(pt.y * 100) / 100,
+          }));
+          const newLine: PursuitLine = { points: shaped, color: pursuitColor };
+          const targetCp = checkpoints.find((c) => c.id === checkpointId);
+          if (targetCp) {
+            updateCheckpoint(checkpointId, { pursuitLines: [...targetCp.pursuitLines, newLine] });
+          } else {
+            onCheckpointsChange?.([
+              ...checkpoints,
+              {
+                id: checkpointId,
+                progress: Math.round(animProgress * 1000) / 1000,
+                note: '',
+                pursuitLines: [newLine],
+              },
+            ]);
+          }
+        }
+      }
+      return;
+    }
     const d = drag.current;
     drag.current = null;
     if (!d) return;
@@ -1388,15 +1636,25 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           )}
           <button
             type="button"
-            onClick={togglePlay}
-            title="Animate offensive & defensive player movement on the diagram (space plays / pauses, arrows step)"
+            onClick={() => {
+              if (!animShown) {
+                setAnimOpen(true);
+                setIsPlaying(false);
+              } else if (isPlaying) {
+                setIsPlaying(false);
+              } else {
+                setAnimOpen(false);
+                setAnimProgress(0);
+              }
+            }}
+            title="Open the Play Movement menu (press Start inside the menu to run the play)"
             className={`h-7 px-2.5 rounded-lg border text-xs font-black inline-flex items-center gap-1 cursor-pointer shadow-xs transition-colors ${
-              isPlaying
+              animShown
                 ? 'border-emerald-300 bg-emerald-600 text-white'
                 : 'border-emerald-400/50 bg-slate-900/85 backdrop-blur-sm text-emerald-300 hover:bg-emerald-600 hover:text-white'
             }`}
           >
-            {isPlaying ? '⏸ Pause' : animProgress > 0.01 && animProgress < 0.99 ? '▶ Resume' : '▶ Play Movement'}
+            {isPlaying ? '⏸ Pause' : animShown ? '🎛 Movement Open' : '▶ Play Movement'}
           </button>
           {animProgress > 0.005 && (
             <button
@@ -1436,11 +1694,12 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
 
         <svg
           ref={svgRef}
+          data-stage-ui={pursuitDrawMode ? '' : undefined}
           viewBox={(() => {
             const v = zoomView(zoom, center, w, h);
             return `${v.x} ${v.y} ${v.vw} ${v.vh}`;
           })()}
-          className={`bg-[#f0f0f0] touch-none select-none ${dense ? 'max-h-64 w-auto max-w-full mx-auto' : 'w-full h-auto'} ${tool === 'move' ? (zoom > 1 ? 'cursor-grab' : 'cursor-default') : 'cursor-crosshair'}`}
+          className={`bg-[#f0f0f0] touch-none select-none ${dense ? 'max-h-64 w-auto max-w-full mx-auto' : 'w-full h-auto'} ${pursuitDrawMode ? 'cursor-crosshair' : tool === 'move' ? (zoom > 1 ? 'cursor-grab' : 'cursor-default') : 'cursor-crosshair'}`}
           data-zoomed={zoom > 1 ? '' : undefined}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -1633,6 +1892,136 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             </g>
           )}
 
+          {/* Ghost "Compare Two Defenses" Trail & Markers when toggled on */}
+          {showGhostDefense && prevDefense && (() => {
+            const ghostDefNodes = (ghostFrame ? ghostFrame.nodes : prevDefense.nodes).filter((n) => isDefenseRole(n.role));
+            const ghostDefTrails = ghostFrame ? ghostFrame.trails.filter((tr) => isDefenseRole(tr.role)) : [];
+            return (
+              <g key="ghost-defense-overlay" pointerEvents="none" opacity={0.44}>
+                {ghostDefTrails.map((tr, idx) => {
+                  if (tr.points.length < 2) return null;
+                  const d = tr.points
+                    .map((pt, j) => {
+                      const { cx, cy } = fieldToSvg(pt.x, pt.y);
+                      return `${j === 0 ? 'M' : 'L'}${cx},${cy}`;
+                    })
+                    .join(' ');
+                  const last = tr.points[tr.points.length - 1];
+                  const prev = tr.points[tr.points.length - 2];
+                  const a = fieldToSvg(prev.x, prev.y);
+                  const b = fieldToSvg(last.x, last.y);
+                  return (
+                    <g key={`ghost-trail-${tr.role}-${idx}`}>
+                      <path
+                        d={d}
+                        fill="none"
+                        stroke="#64748b"
+                        strokeWidth={3.2}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeDasharray="4 4"
+                      />
+                      <polygon points={arrowPts(a.cx, a.cy, b.cx, b.cy)} fill="#64748b" />
+                    </g>
+                  );
+                })}
+                {ghostDefNodes.map((gn) => {
+                  const { cx, cy } = fieldToSvg(gn.x, gn.y);
+                  const txt = diagramLabel(gn.role);
+                  return (
+                    <g key={`ghost-node-${gn.role}`}>
+                      <circle
+                        cx={cx}
+                        cy={cy}
+                        r={12.5}
+                        fill="#f8fafc"
+                        stroke="#475569"
+                        strokeWidth={2}
+                        strokeDasharray="3 2"
+                      />
+                      <text
+                        x={cx}
+                        y={cy + 3.5}
+                        textAnchor="middle"
+                        fill="#334155"
+                        fontSize="8.5"
+                        fontWeight="900"
+                      >
+                        {txt}
+                      </text>
+                    </g>
+                  );
+                })}
+              </g>
+            );
+          })()}
+
+          {/* QB Read / Progression Vision Cone (Option, RPO, and Pass Plays) */}
+          {animProgress > 0.005 && animatedFrame.visionCone && (() => {
+            const vc = animatedFrame.visionCone;
+            const from = fieldToSvg(vc.from.x, vc.from.y);
+            const to = fieldToSvg(vc.to.x, vc.to.y);
+            const dx = to.cx - from.cx;
+            const dy = to.cy - from.cy;
+            const dist = Math.hypot(dx, dy) || 1;
+            const px = -dy / dist;
+            const py = dx / dist;
+            const halfW = Math.min(24, Math.max(12, dist * 0.2));
+            const p1x = to.cx + px * halfW;
+            const p1y = to.cy + py * halfW;
+            const p2x = to.cx - px * halfW;
+            const p2y = to.cy - py * halfW;
+            const coneColor = vc.kind === 'option_read' ? '#f59e0b' : '#0ea5e9';
+            const labelW = Math.max(66, vc.label.length * 5.2 + 12);
+            const midCx = (from.cx + to.cx) / 2;
+            const midCy = (from.cy + to.cy) / 2;
+            return (
+              <g key="qb-vision-cone" pointerEvents="none">
+                <polygon
+                  points={`${from.cx},${from.cy} ${p1x},${p1y} ${p2x},${p2y}`}
+                  fill={coneColor}
+                  fillOpacity={0.2}
+                  stroke={coneColor}
+                  strokeOpacity={0.6}
+                  strokeWidth={1.5}
+                  strokeDasharray="4 3"
+                />
+                <circle
+                  cx={to.cx}
+                  cy={to.cy}
+                  r={17}
+                  fill="none"
+                  stroke={coneColor}
+                  strokeWidth={2.4}
+                  strokeDasharray="4 2"
+                />
+                <g transform={`translate(${midCx}, ${midCy - 12})`}>
+                  <rect
+                    x={-labelW / 2}
+                    y={-9}
+                    width={labelW}
+                    height={16}
+                    rx={5}
+                    fill="#0f172a"
+                    fillOpacity={0.9}
+                    stroke={coneColor}
+                    strokeWidth={1.3}
+                  />
+                  <text
+                    x={0}
+                    y={2.5}
+                    textAnchor="middle"
+                    fill="#ffffff"
+                    fontSize="8"
+                    fontWeight="900"
+                  >
+                    {vc.label}
+                  </text>
+                </g>
+              </g>
+            );
+          })()}
+
           {/* Players: Offense in clean circles/squares, Defense in Cardinal Red badges */}
           {animProgress > 0.005 &&
             animatedFrame.trails.map((tr, idx) => {
@@ -1687,23 +2076,291 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             );
           })()}
 
+          {/* Contact / Tackle & Block Collision Markers (💥 Block / 🛑 Tackle) */}
+          {animProgress > 0.005 && animatedFrame.collisions && animatedFrame.collisions.length > 0 && (
+            <g key="collision-markers" pointerEvents="none">
+              {animatedFrame.collisions.map((col, idx) => {
+                const { cx, cy } = fieldToSvg(col.x, col.y);
+                const isTackle = col.kind === 'tackle';
+                const badgeBg = isTackle ? '#dc2626' : '#ea580c';
+                const ringStroke = isTackle ? '#fef08a' : '#fed7aa';
+                const pw = Math.max(64, col.label.length * 5.2 + 12);
+                const yOffset = isTackle ? -22 : -18;
+                return (
+                  <g key={`col-${col.kind}-${col.offRole}-${col.defRole}-${idx}`}>
+                    <circle
+                      cx={cx}
+                      cy={cy}
+                      r={isTackle ? 16 : 12}
+                      fill={badgeBg}
+                      fillOpacity={0.22}
+                      stroke={ringStroke}
+                      strokeWidth={isTackle ? 2.6 : 2}
+                      strokeDasharray={isTackle ? '3 2' : '2 2'}
+                    />
+                    <g transform={`translate(${cx}, ${cy + yOffset})`}>
+                      <rect
+                        x={-pw / 2}
+                        y={-9}
+                        width={pw}
+                        height={16}
+                        rx={5}
+                        fill={badgeBg}
+                        stroke="#ffffff"
+                        strokeWidth={1.3}
+                      />
+                      <text
+                        x={0}
+                        y={2.5}
+                        textAnchor="middle"
+                        fill="#ffffff"
+                        fontSize="8"
+                        fontWeight="900"
+                      >
+                        {col.label}
+                      </text>
+                    </g>
+                  </g>
+                );
+              })}
+            </g>
+          )}
+
           {/* Selected line bend vertices */}
           {sel != null &&
             strokes[sel].points.map((pt, j) => {
               const { cx, cy } = fieldToSvg(pt.x, pt.y);
               return <circle key={`v-${j}`} cx={cx} cy={cy} r="6.5" fill="#fff" stroke="#0284c7" strokeWidth="2" style={{ cursor: 'move' }} />;
             })}
-          {handoffSpot && animProgress <= 0.002 && (() => {
+          {handoffSpot && (() => {
             const p = fieldToSvg(handoffSpot.x, handoffSpot.y);
+            const atExchange =
+              animProgress > 0.002 &&
+              animatedFrame.handoffProgress !== undefined &&
+              Math.abs(animProgress - animatedFrame.handoffProgress) < 0.06;
             return (
-              <g pointerEvents="none" aria-label="Handoff spot">
-                <ellipse cx={p.cx} cy={p.cy} rx="8" ry="5" fill="#92400e" stroke="#fff" strokeWidth="1.5" />
+              <g pointerEvents="none" aria-label="Handoff spot" opacity={animProgress > 0.002 && !atExchange ? 0.72 : 1}>
+                {atExchange && (
+                  <circle cx={p.cx} cy={p.cy} r="14" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeDasharray="3 2" />
+                )}
+                <ellipse cx={p.cx} cy={p.cy} rx="8" ry="5" fill={atExchange ? '#f59e0b' : '#92400e'} stroke="#fff" strokeWidth="1.5" />
                 <line x1={p.cx - 3} y1={p.cy} x2={p.cx + 3} y2={p.cy} stroke="#fff" strokeWidth="1.2" />
                 <text x={p.cx} y={p.cy - 9} textAnchor="middle" fontSize="9" fontWeight="800" fill="#92400e">HANDOFF</text>
               </g>
             );
           })()}
+          {/* Pursuit Angle Lines for the active coaching checkpoint (and live draft while drawing) */}
+          {((!skipNotes && activeCheckpoint) || pursuitDrawMode || editingCheckpointId) && (() => {
+            const linesToRender: PursuitLine[] = [
+              ...(activeCheckpoint ? activeCheckpoint.pursuitLines : []),
+              ...(draftPursuitPoints && draftPursuitPoints.length >= 2 ? [{ points: draftPursuitPoints, color: pursuitColor }] : []),
+            ];
+            if (!linesToRender.length) return null;
+            return (
+              <g key="pursuit-angle-lines" pointerEvents="none">
+                {linesToRender.map((pl, idx) => {
+                  if (pl.points.length < 2) return null;
+                  const col = pl.color || '#06b6d4';
+                  const d = pl.points
+                    .map((pt, j) => {
+                      const { cx, cy } = fieldToSvg(pt.x, pt.y);
+                      return `${j === 0 ? 'M' : 'L'}${cx},${cy}`;
+                    })
+                    .join(' ');
+                  const first = fieldToSvg(pl.points[0].x, pl.points[0].y);
+                  const last = pl.points[pl.points.length - 1];
+                  const prev = pl.points[pl.points.length - 2];
+                  const a = fieldToSvg(prev.x, prev.y);
+                  const b = fieldToSvg(last.x, last.y);
+                  const midPt = pl.points[Math.floor(pl.points.length / 2)];
+                  const midSvg = fieldToSvg(midPt.x, midPt.y);
+                  return (
+                    <g key={`pursuit-${idx}`}>
+                      <path
+                        d={d}
+                        fill="none"
+                        stroke="#ffffff"
+                        strokeWidth={7}
+                        strokeOpacity={0.65}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      <path
+                        d={d}
+                        fill="none"
+                        stroke={col}
+                        strokeWidth={4}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeDasharray="8 5"
+                      />
+                      <circle cx={first.cx} cy={first.cy} r={5} fill={col} stroke="#ffffff" strokeWidth={1.6} />
+                      <polygon points={arrowPts(a.cx, a.cy, b.cx, b.cy)} fill={col} />
+                      {idx === 0 && (
+                        <g transform={`translate(${midSvg.cx}, ${midSvg.cy - 10})`}>
+                          <rect x={-26} y={-8} width={52} height={14} rx={4} fill={col} stroke="#ffffff" strokeWidth={1.2} />
+                          <text x={0} y={2} textAnchor="middle" fill="#0f172a" fontSize="7.5" fontWeight="900">
+                            PURSUIT
+                          </text>
+                        </g>
+                      )}
+                    </g>
+                  );
+                })}
+              </g>
+            );
+          })()}
         </svg>
+
+        {/* Coaching Note & Pursuit Angle Checkpoint Overlay Card (shown when paused at a checkpoint or while editing/drawing pursuit angles) */}
+        {((!skipNotes && !isPlaying && activeCheckpoint && (activeCheckpoint.note.trim().length > 0 || activeCheckpoint.pursuitLines.length > 0)) ||
+          pursuitDrawMode ||
+          (activeCheckpoint && editingCheckpointId === activeCheckpoint.id)) && (
+          <div
+            data-stage-ui
+            className="absolute left-3 right-3 top-12 z-20 max-w-xl mx-auto rounded-2xl border-2 border-amber-400/90 bg-slate-950/92 backdrop-blur-md text-white px-3.5 py-2.5 shadow-2xl space-y-2"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="inline-flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded-md bg-amber-400 text-slate-950 text-[11px] font-black uppercase tracking-wider">
+                  📌 Coaching Point{' '}
+                  {activeCheckpoint
+                    ? `${sortedCheckpoints.findIndex((c) => c.id === activeCheckpoint.id) + 1} of ${sortedCheckpoints.length}`
+                    : ''}
+                </span>
+                <span className="text-[11px] font-bold text-amber-200 tabular-nums">
+                  @ {(animProgress * seconds).toFixed(1)}s · {animatedFrame.phaseLabel}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPursuitDrawMode(false);
+                    setEditingCheckpointId(null);
+                    togglePlay();
+                  }}
+                  title="Resume play movement until the next coaching note checkpoint (Space)"
+                  className="h-7 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black inline-flex items-center gap-1 cursor-pointer shadow-xs"
+                >
+                  {animProgress >= 0.99 ? '↻ Replay' : '▶ Continue Play'}
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={pursuitDrawMode}
+                  onClick={() => {
+                    if (!activeCheckpoint) ensureCheckpointAtCurrent();
+                    setPursuitDrawMode((v) => !v);
+                  }}
+                  title="Draw pursuit angle arrows directly on the field for this moment"
+                  className={`h-7 px-2.5 rounded-lg border text-[11px] font-black cursor-pointer transition-colors ${
+                    pursuitDrawMode
+                      ? 'border-cyan-300 bg-cyan-500 text-slate-950'
+                      : 'border-cyan-400/50 bg-slate-900 text-cyan-300 hover:bg-slate-800'
+                  }`}
+                >
+                  📐 {pursuitDrawMode ? 'Drawing Pursuit (Drag Field)…' : 'Draw Pursuit Angle'}
+                </button>
+                {activeCheckpoint && (
+                  <button
+                    type="button"
+                    onClick={() => deleteCheckpoint(activeCheckpoint.id)}
+                    title="Delete this coaching note & pursuit stop"
+                    className="h-7 px-2 rounded-lg border border-rose-500/40 bg-rose-950/60 text-rose-300 hover:bg-rose-900 text-[11px] font-bold cursor-pointer"
+                  >
+                    🗑 Delete
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPursuitDrawMode(false);
+                    setEditingCheckpointId(null);
+                  }}
+                  title="Hide editor"
+                  className="h-7 w-7 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 inline-flex items-center justify-center text-xs font-black cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            {activeCheckpoint && (
+              <div className="space-y-1.5">
+                {activeCheckpoint.note.trim() && editingCheckpointId !== activeCheckpoint.id && !pursuitDrawMode ? (
+                  <div
+                    onClick={() => setEditingCheckpointId(activeCheckpoint.id)}
+                    title="Click to edit coaching note"
+                    className="text-sm sm:text-base font-extrabold text-amber-100 bg-slate-900/80 rounded-xl px-3 py-2 border border-amber-400/30 cursor-pointer"
+                  >
+                    {activeCheckpoint.note}
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    value={activeCheckpoint.note}
+                    onChange={(e) => updateCheckpoint(activeCheckpoint.id, { note: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        setEditingCheckpointId(null);
+                        setPursuitDrawMode(false);
+                      }
+                    }}
+                    placeholder="Type coaching note to show when the play pauses here (e.g. 'Will & Mike: take flat pursuit angle to cut off sweep')…"
+                    className="w-full h-9 rounded-xl border border-amber-400/50 bg-slate-900 px-3 text-xs sm:text-sm font-bold text-white placeholder:text-slate-400 outline-none focus:border-amber-300"
+                  />
+                )}
+                {(pursuitDrawMode || activeCheckpoint.pursuitLines.length > 0) && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5 text-[11px]">
+                    <div className="inline-flex items-center gap-1.5">
+                      <span className="font-bold text-cyan-300">Pursuit Line Color:</span>
+                      {PURSUIT_COLORS.map((c) => (
+                        <button
+                          key={c.hex}
+                          type="button"
+                          onClick={() => {
+                            setPursuitColor(c.hex);
+                            setPursuitDrawMode(true);
+                          }}
+                          title={`Draw ${c.label} pursuit angle`}
+                          className={`h-5 w-5 rounded-full cursor-pointer transition-transform ${
+                            pursuitColor === c.hex ? 'ring-2 ring-white scale-110' : 'opacity-75 hover:opacity-100'
+                          }`}
+                          style={{ background: c.hex }}
+                        />
+                      ))}
+                      <span className="text-slate-400 ml-1">
+                        Drag from any defender on the field to draw their pursuit angle arrow
+                      </span>
+                    </div>
+                    {activeCheckpoint.pursuitLines.length > 0 && (
+                      <div className="inline-flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateCheckpoint(activeCheckpoint.id, {
+                              pursuitLines: activeCheckpoint.pursuitLines.slice(0, -1),
+                            })
+                          }
+                          className="h-6 px-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold cursor-pointer"
+                        >
+                          Undo Line
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateCheckpoint(activeCheckpoint.id, { pursuitLines: [] })}
+                          className="h-6 px-2 rounded bg-slate-800 hover:bg-slate-700 text-rose-300 font-bold cursor-pointer"
+                        >
+                          Clear Lines ({activeCheckpoint.pursuitLines.length})
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Bottom Tool & Controls Bar */}
@@ -1712,102 +2369,292 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           data-stage-ui
           className={
             bare
-              ? 'absolute right-3 bottom-3 z-10 w-[min(38rem,calc(100%-1.5rem))] flex flex-wrap items-center gap-2 px-3 py-2 rounded-2xl ring-1 ring-white/15 bg-slate-950/85 backdrop-blur-md text-white shadow-2xl'
-              : 'flex flex-wrap items-center gap-2 px-3 py-1.5 border-t border-emerald-500/30 bg-slate-900 text-white'
+              ? 'absolute right-3 bottom-3 z-10 w-[min(50rem,calc(100%-1.5rem))] flex flex-col gap-1.5 px-3 py-2 rounded-2xl ring-1 ring-white/15 bg-slate-950/90 backdrop-blur-md text-white shadow-2xl'
+              : 'flex flex-col gap-1.5 px-3 py-2 border-t border-emerald-500/30 bg-slate-900 text-white'
           }
         >
-          {/* Back to the start, a step back, play / pause, a step on, to the snap / flow / attack: to go over it with the team. */}
-          <div className="inline-flex items-center gap-1">
-            <button type="button" onClick={() => { setIsPlaying(false); setAnimProgress(0); }} title="Back to the pre-snap alignment (Home)" aria-label="Back to the start" className={ctl}>⏮</button>
-            <button type="button" onClick={() => stepAnim(-1)} title="Step back (left arrow)" aria-label="Step back" className={ctl}>◀︎</button>
-            <button
-              type="button"
-              onClick={togglePlay}
-              title={isPlaying ? 'Pause (space)' : 'Play (space)'}
-              className="h-8 min-w-[4.5rem] px-2.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black cursor-pointer"
-            >
-              {isPlaying ? '⏸ Pause' : animProgress >= 0.99 ? '↻ Again' : '▶ Play'}
-            </button>
-            <button type="button" onClick={() => stepAnim(1)} title="Step on (right arrow)" aria-label="Step forward" className={ctl}>▶︎</button>
-            {snapAt > 0.001 && (
-              <button type="button" onClick={() => { setIsPlaying(false); setAnimProgress(snapAt); }} title="Jump to the snap (motion and shifts set)" className={`${ctl} w-auto px-2 text-[10px]`}>
-                Snap
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                setIsPlaying(false);
-                setAnimProgress(snapAt + (1 - snapAt) * 0.25);
-              }}
-              title="Jump to Phase 1: Linebackers reading keys & flowing laterally with the backfield"
-              className={`${ctl} w-auto px-2 text-[10px] border border-emerald-500/40 text-emerald-300`}
-            >
-              Flow
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setIsPlaying(false);
-                setAnimProgress(snapAt + (1 - snapAt) * 0.52);
-              }}
-              title="Jump to Phase 2: Linebackers triggering downhill to attack their gap fit"
-              className={`${ctl} w-auto px-2 text-[10px] border border-amber-500/40 text-amber-300`}
-            >
-              Attack
-            </button>
-          </div>
-          <span className="px-2 py-0.5 rounded bg-slate-800 border border-emerald-500/30 text-[10px] font-extrabold uppercase tracking-wider text-emerald-300 min-w-[110px] text-center">
-            {animatedFrame.phaseLabel}
-          </span>
-          <input
-            type="range"
-            min={0}
-            max={1000}
-            value={Math.round(animProgress * 1000)}
-            onChange={(e) => {
-              setIsPlaying(false);
-              setAnimProgress(Number(e.target.value) / 1000);
-            }}
-            aria-label="Play movement timeline"
-            className="h-1.5 flex-1 min-w-[100px] cursor-pointer accent-emerald-500"
-          />
-          <span className="font-mono text-[10px] font-bold text-slate-300 tabular-nums whitespace-nowrap">
-            {(animProgress * seconds).toFixed(1)}s / {seconds.toFixed(1)}s
-          </span>
-          <div role="group" aria-label="Speed" className="inline-flex rounded border border-slate-700 overflow-hidden text-[10px] font-extrabold">
-            {ANIM_SPEEDS.map((spd) => (
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Back to the start, a step back, start / pause, a step on, and key phase spots: to go over it with the team. */}
+            <div className="inline-flex flex-wrap items-center gap-1">
+              <button type="button" onClick={() => { setIsPlaying(false); setAnimProgress(0); }} title="Back to the pre-snap alignment (Home)" aria-label="Back to the start" className={ctl}>⏮</button>
+              <button type="button" onClick={() => stepAnim(-1)} title="Step back (left arrow)" aria-label="Step back" className={ctl}>◀︎</button>
               <button
-                key={spd}
                 type="button"
-                aria-pressed={animSpeed === spd}
-                onClick={() => setAnimSpeed(spd)}
-                title={spd < 1 ? `Slow motion: ${spd}× speed` : 'Full speed'}
-                className={`px-1.5 py-1 cursor-pointer ${animSpeed === spd ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                onClick={() => {
+                  setPursuitDrawMode(false);
+                  setEditingCheckpointId(null);
+                  togglePlay();
+                }}
+                title={isPlaying ? 'Pause movement (space)' : 'Start / Continue movement (space)'}
+                className="h-8 min-w-[5rem] px-3 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black cursor-pointer shadow-xs"
               >
-                {spd}×
+                {isPlaying ? '⏸ Pause' : animProgress >= 0.99 ? '↻ Again' : animProgress > 0.005 ? '▶ Continue' : '▶ Start'}
               </button>
-            ))}
+              <button type="button" onClick={() => stepAnim(1)} title="Step on (right arrow)" aria-label="Step forward" className={ctl}>▶︎</button>
+              {animatedFrame.stemProgress !== undefined && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsPlaying(false);
+                    setAnimProgress(animatedFrame.stemProgress!);
+                  }}
+                  title="Jump to Defensive Preset / Formation Stem before the snap"
+                  className={`${ctl} w-auto px-2 text-[10px] border border-rose-500/40 text-rose-300`}
+                >
+                  🛡 Def Preset
+                </button>
+              )}
+              {snapAt > 0.001 && (
+                <button type="button" onClick={() => { setIsPlaying(false); setAnimProgress(snapAt); }} title="Jump to the snap (motion and defensive shifts set)" className={`${ctl} w-auto px-2 text-[10px]`}>
+                  Snap
+                </button>
+              )}
+              {animatedFrame.handoffProgress !== undefined && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsPlaying(false);
+                    setAnimProgress(animatedFrame.handoffProgress!);
+                  }}
+                  title="Jump to the Handoff spot where 1 (QB) hands the ball to the runner"
+                  className={`${ctl} w-auto px-2 text-[10px] border border-amber-400/50 text-amber-300`}
+                >
+                  🏈 Handoff
+                </button>
+              )}
+              {animatedFrame.stuntProgress !== undefined && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsPlaying(false);
+                    setAnimProgress(animatedFrame.stuntProgress!);
+                  }}
+                  title="Jump to the Defensive Stunt / Blitz firing through the line"
+                  className={`${ctl} w-auto px-2 text-[10px] border border-red-500/40 text-red-300`}
+                >
+                  ⚡ Stunt / Blitz
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPlaying(false);
+                  setAnimProgress(snapAt + (1 - snapAt) * 0.25);
+                }}
+                title="Jump to Phase 1: Linebackers reading keys & flowing laterally with the backfield"
+                className={`${ctl} w-auto px-2 text-[10px] border border-emerald-500/40 text-emerald-300`}
+              >
+                Flow
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPlaying(false);
+                  setAnimProgress(snapAt + (1 - snapAt) * 0.52);
+                }}
+                title="Jump to Phase 2: Linebackers triggering downhill to attack their gap fit"
+                className={`${ctl} w-auto px-2 text-[10px] border border-amber-500/40 text-amber-300`}
+              >
+                Attack
+              </button>
+              {sortedCheckpoints.map((cp, idx) => {
+                const isHere = activeCheckpoint?.id === cp.id;
+                return (
+                  <button
+                    key={cp.id}
+                    type="button"
+                    onClick={() => {
+                      setIsPlaying(false);
+                      setAnimProgress(cp.progress);
+                      setEditingCheckpointId(cp.id);
+                    }}
+                    title={cp.note ? `Note ${idx + 1}: ${cp.note}` : `Coaching Stop ${idx + 1} (${(cp.progress * seconds).toFixed(1)}s)`}
+                    className={`${ctl} w-auto px-2 text-[10px] border ${
+                      isHere
+                        ? 'border-amber-300 bg-amber-500 text-slate-950'
+                        : 'border-amber-400/50 text-amber-300'
+                    }`}
+                  >
+                    📌 Note {idx + 1}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPlaying(false);
+                  const cp = ensureCheckpointAtCurrent();
+                  setEditingCheckpointId(cp.id);
+                  setPursuitDrawMode(true);
+                }}
+                title="Add a Coaching Note and/or draw Pursuit Angle arrows at this point in the play (pauses here during presentation)"
+                className="h-8 px-2.5 rounded-md border border-cyan-400/60 bg-cyan-950/70 hover:bg-cyan-900 text-cyan-200 text-[10px] font-black cursor-pointer inline-flex items-center gap-1"
+              >
+                📐 + Note / Pursuit
+              </button>
+              <button
+                type="button"
+                aria-pressed={!skipNotes}
+                onClick={() => {
+                  const nextSkip = !skipNotes;
+                  setSkipNotes(nextSkip);
+                  if (nextSkip) {
+                    setPursuitDrawMode(false);
+                    setEditingCheckpointId(null);
+                  }
+                }}
+                title={
+                  skipNotes
+                    ? 'Play Through Mode ON: Play Movement will NOT stop at notes or show pursuit overlays (click to re-enable note stops)'
+                    : 'Stop & Show Notes ON: Play Movement pauses at each note/pursuit checkpoint (click to play through without stopping)'
+                }
+                className={`h-8 px-2.5 rounded-md border text-[10px] font-black cursor-pointer inline-flex items-center gap-1 ${
+                  !skipNotes
+                    ? 'border-amber-400/60 bg-amber-500/20 text-amber-200 hover:bg-amber-500/30'
+                    : 'border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                {skipNotes ? '⏭ Play Through (No Notes)' : '📌 Stop & Show Notes'}
+              </button>
+              {prevDefense && (
+                <button
+                  type="button"
+                  aria-pressed={showGhostDefense}
+                  onClick={() => setShowGhostDefense((v) => !v)}
+                  title={`Overlay faint ghost trails of the previous defensive look (${prevDefense.label}) so players can compare why the front/stunt adjustment closed the lane`}
+                  className={`h-8 px-2.5 rounded-md border text-[10px] font-black cursor-pointer inline-flex items-center gap-1 ${
+                    showGhostDefense
+                      ? 'border-violet-400 bg-violet-600/30 text-violet-200'
+                      : 'border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  👻 {showGhostDefense ? `Ghost: ${prevDefense.label}` : `Compare: ${prevDefense.label}`}
+                </button>
+              )}
+            </div>
+            <span className="px-2 py-0.5 rounded bg-slate-800 border border-emerald-500/30 text-[10px] font-extrabold uppercase tracking-wider text-emerald-300 min-w-[110px] text-center">
+              {animatedFrame.phaseLabel}
+            </span>
+            {animProgress > snapAt + 0.01 && (() => {
+              const gainYds = Math.round(animatedFrame.ball.y * 10) / 10;
+              const isPos = gainYds > 0.2;
+              const isNeg = gainYds < -0.2;
+              return (
+                <span
+                  title="Live ball spot relative to the Line of Scrimmage"
+                  className={`px-1.5 py-0.5 rounded border text-[10px] font-black tabular-nums whitespace-nowrap ${
+                    isPos
+                      ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
+                      : isNeg
+                        ? 'bg-rose-950/80 border-rose-500/40 text-rose-300'
+                        : 'bg-slate-800 border-slate-600 text-slate-300'
+                  }`}
+                >
+                  🏈 {gainYds > 0 ? `+${gainYds.toFixed(1)} yds` : gainYds < 0 ? `${gainYds.toFixed(1)} yds` : 'LOS'}
+                </span>
+              );
+            })()}
+            <input
+              type="range"
+              min={0}
+              max={1000}
+              value={Math.round(animProgress * 1000)}
+              onChange={(e) => {
+                setIsPlaying(false);
+                setAnimProgress(Number(e.target.value) / 1000);
+              }}
+              aria-label="Play movement timeline"
+              className="h-1.5 flex-1 min-w-[100px] cursor-pointer accent-emerald-500"
+            />
+            <span className="font-mono text-[10px] font-bold text-slate-300 tabular-nums whitespace-nowrap">
+              {(animProgress * seconds).toFixed(1)}s / {seconds.toFixed(1)}s
+            </span>
+            <div role="group" aria-label="Speed" className="inline-flex rounded border border-slate-700 overflow-hidden text-[10px] font-extrabold">
+              {ANIM_SPEEDS.map((spd) => (
+                <button
+                  key={spd}
+                  type="button"
+                  aria-pressed={animSpeed === spd}
+                  onClick={() => setAnimSpeed(spd)}
+                  title={spd < 1 ? `Slow motion: ${spd}× speed` : 'Full speed'}
+                  className={`px-1.5 py-1 cursor-pointer ${animSpeed === spd ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                >
+                  {spd}×
+                </button>
+              ))}
+            </div>
+            <div
+              role="group"
+              aria-label="Auto-Pause Checkpoints"
+              className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-950/70 px-1.5 py-0.5 text-[10px] font-bold"
+            >
+              <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">⏸ Auto-Pause:</span>
+              {snapAt > 0.001 && (
+                <button
+                  type="button"
+                  aria-pressed={stopAtSnap}
+                  onClick={() => setStopAtSnap(!stopAtSnap)}
+                  title="Auto-pause at the Snap (once pre-snap shifts and motion are set)"
+                  className={`px-1.5 py-0.5 rounded cursor-pointer font-black transition-colors ${
+                    stopAtSnap ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Snap
+                </button>
+              )}
+              <button
+                type="button"
+                aria-pressed={stopAtRead}
+                onClick={() => setStopAtRead(!stopAtRead)}
+                title="Auto-pause at the Handoff / QB Read key checkpoint"
+                className={`px-1.5 py-0.5 rounded cursor-pointer font-black transition-colors ${
+                  stopAtRead ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Handoff / Read
+              </button>
+              <button
+                type="button"
+                aria-pressed={stopAtFit}
+                onClick={() => setStopAtFit(!stopAtFit)}
+                title="Auto-pause at the Linebacker Gap Fit / Downhill Trigger checkpoint"
+                className={`px-1.5 py-0.5 rounded cursor-pointer font-black transition-colors ${
+                  stopAtFit ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Gap Fit
+              </button>
+              <button
+                type="button"
+                aria-pressed={stopAtTackle}
+                onClick={() => setStopAtTackle(!stopAtTackle)}
+                title="Auto-pause when a defender first makes Tackle contact with the ball carrier"
+                className={`px-1.5 py-0.5 rounded cursor-pointer font-black transition-colors ${
+                  stopAtTackle ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Tackle
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setIsPlaying(false);
+                setAnimProgress(0);
+                setAnimOpen(false);
+              }}
+              title="Close the movement menu (back to the alignment)"
+              aria-label="Close the movement"
+              className="h-7 w-7 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer inline-flex items-center justify-center text-sm font-black"
+            >
+              ✕
+            </button>
           </div>
-          {snapAt > 0.001 && (
-            <label className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-300 cursor-pointer" title="Stop when the motion and shifts are set, before the snap (press Play to run the play)">
-              <input type="checkbox" checked={stopAtSnap} onChange={(e) => setStopAtSnap(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
-              Stop at snap
-            </label>
+          {defensePresetBar && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-white/10">
+              {defensePresetBar}
+            </div>
           )}
-          <button
-            type="button"
-            onClick={() => {
-              setIsPlaying(false);
-              setAnimProgress(0);
-              setAnimOpen(false);
-            }}
-            title="Close the movement (back to the alignment)"
-            aria-label="Close the movement"
-            className="h-7 w-7 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer inline-flex items-center justify-center text-sm font-black"
-          >
-            ✕
-          </button>
         </div>
       )}
       {tools && (

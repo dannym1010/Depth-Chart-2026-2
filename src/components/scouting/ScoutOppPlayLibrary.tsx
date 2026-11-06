@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowDownWideNarrow, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, GripVertical, Image as ImageIcon, Layers, Merge, Pencil, Play as PlayIcon, Plus, Presentation, Printer, Shield, Split, X } from 'lucide-react';
+import { ArrowDownWideNarrow, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, GripVertical, Image as ImageIcon, Layers, Merge, Pencil, Play as PlayIcon, Plus, Presentation, Printer, Shield, Split, Star, X } from 'lucide-react';
 import type { ScoutShow, ScoutShowLine } from './ScoutPresentation';
+import { useStarredPlays } from './presentStage';
 import type { ScoutGame } from '../../hudlScout/components/Header';
 import type { Play } from '../../hudlScout/types/football';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
@@ -320,7 +321,13 @@ export const ScoutOppPlayLibrary: React.FC<{
     return t === 'pass' || t === 'play_action' ? 'pass' : t === 'screen' ? 'screen' : t === 'rpo' ? 'rpo' : 'run';
   };
   // Presentation mode: the checked plays on the script, in order, each with the plays combined with it (its film too).
-  const present = () => {
+  const [starredIds, toggleStarPlay] = useStarredPlays();
+  const isPlayStarred = (playId: string, card?: ScoutOppPlay) => starredIds.has(playId) || Boolean(card?.starred);
+  const starredScriptCount = script.lines.filter((l) => {
+    const card = onTheReport.find((p) => p.id === l.playId);
+    return card && !card.printSkip && isPlayStarred(l.playId, card);
+  }).length;
+  const present = (starredOnly = false) => {
     if (!onPresent) return;
     const lines: ScoutShowLine[] = [];
     for (const line of script.lines) {
@@ -331,7 +338,7 @@ export const ScoutOppPlayLibrary: React.FC<{
     }
     if (lines.length) {
       setPrintNote('');
-      onPresent({ title: script.title, lines });
+      onPresent({ title: script.title, lines, ...(starredOnly ? { starredOnly: true } : {}) });
     } else setPrintNote('Every play is unchecked: check the ones to present.');
   };
   const openScriptPlay = (p: ScoutOppPlay, defense = false) => {
@@ -1484,17 +1491,29 @@ export const ScoutOppPlayLibrary: React.FC<{
       </section>
       <section className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 space-y-3 lg:sticky lg:top-3 h-fit">
         <div>
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-black">{script.title}</h2>
             {onPresent && onDraw && script.lines.length > 0 && (
-              <button
-                type="button"
-                onClick={present}
-                className="h-8 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black inline-flex items-center gap-1.5 cursor-pointer shrink-0"
-                title="Go through the checked plays one by one: each play's diagram and film on one screen"
-              >
-                <Presentation className="w-3.5 h-3.5" /> Present
-              </button>
+              <div className="flex items-center gap-1.5">
+                {starredScriptCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => present(true)}
+                    className="h-8 px-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black inline-flex items-center gap-1 cursor-pointer shrink-0 shadow-xs"
+                    title="Present only the starred plays on the script"
+                  >
+                    <Star className="w-3.5 h-3.5 fill-slate-950" /> Present Starred ({starredScriptCount})
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => present(false)}
+                  className="h-8 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black inline-flex items-center gap-1.5 cursor-pointer shrink-0"
+                  title="Go through the checked plays one by one: each play's diagram and film on one screen"
+                >
+                  <Presentation className="w-3.5 h-3.5" /> Present
+                </button>
+              </div>
             )}
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
@@ -1623,6 +1642,23 @@ export const ScoutOppPlayLibrary: React.FC<{
                       title={play?.printSkip ? 'Left off the printout and the presentation (still on the script)' : 'Prints and presents (uncheck to leave it off)'}
                       className="h-4 w-4 shrink-0 cursor-pointer"
                     />
+                    <button
+                      type="button"
+                      aria-label={isPlayStarred(line.playId, play) ? `Unstar ${line.name}` : `Star ${line.name} for presentation`}
+                      title={isPlayStarred(line.playId, play) ? 'Starred to show in presentation (click to unstar)' : 'Star this play to feature in presentation'}
+                      onClick={() => {
+                        const next = !isPlayStarred(line.playId, play);
+                        toggleStarPlay(line.playId);
+                        if (play) patchAnyFilm(play.id, { starred: next ? true : undefined });
+                      }}
+                      className={`p-0.5 rounded shrink-0 cursor-pointer transition-colors ${
+                        isPlayStarred(line.playId, play)
+                          ? 'text-amber-400 hover:text-amber-300'
+                          : 'text-slate-300 dark:text-slate-600 hover:text-amber-400'
+                      }`}
+                    >
+                      <Star className={`w-4 h-4 ${isPlayStarred(line.playId, play) ? 'fill-amber-400' : ''}`} />
+                    </button>
                     <input
                       key={`${line.playId}-${index}`}
                       aria-label={`Spot for ${line.name}`}

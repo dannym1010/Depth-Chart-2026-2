@@ -120,6 +120,22 @@ export interface CallSheetFullData {
 
 export type CallSheetData = CallSheetFullData;
 
+export interface PursuitLine {
+  points: { x: number; y: number }[];
+  color?: string;
+  label?: string;
+}
+
+export interface PlayNoteCheckpoint {
+  id: string;
+  /** Timeline progress (0..1) where Play Movement pauses to show this note and pursuit angles */
+  progress: number;
+  /** Coaching note displayed when paused at this checkpoint */
+  note: string;
+  /** Pursuit angle arrows drawn on the field at this checkpoint */
+  pursuitLines: PursuitLine[];
+}
+
 /** Everything the play builder needs to re-open a play: the look, the play, the moved spots and the lines drawn. */
 export interface PlayBuilderState {
   personnel: number;
@@ -183,6 +199,8 @@ export interface PlayBuilderState {
   homographyFrameUrl?: string | null;
   /** Whether the 3D Homography overlay was open on this play */
   showHomography?: boolean;
+  /** Timeline checkpoints where Play Movement pauses to display a coaching note and/or pursuit angle lines */
+  coachingCheckpoints?: PlayNoteCheckpoint[];
 }
 
 export interface PlayDatabaseEntry {

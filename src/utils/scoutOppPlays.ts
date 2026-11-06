@@ -30,6 +30,8 @@ export interface ScoutOppPlay {
   formationId?: string;
   /** Kept on the script but left off the printed script. */
   printSkip?: boolean;
+  /** Starred by the coach to feature/filter in Presentation Mode. */
+  starred?: boolean;
   /** Left off the defense call sheet's "their plays vs. our defense" page. */
   sheetSkip?: boolean;
   /** On that page though it isn't on the report (a coach checked it there). */

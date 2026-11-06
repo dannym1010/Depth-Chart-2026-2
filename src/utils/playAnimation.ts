@@ -8,6 +8,24 @@ export interface AnimatedTrail {
   color: string;
 }
 
+export interface PlayCollisionMarker {
+  kind: 'block' | 'tackle';
+  x: number;
+  y: number;
+  offRole: string;
+  defRole: string;
+  label: string;
+  gainYards?: number;
+}
+
+export interface QbVisionCone {
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+  targetRole: string;
+  label: string;
+  kind: 'pass_read' | 'option_read';
+}
+
 export interface AnimatedPlayFrame {
   progress: number;
   phase: 'pre_snap' | 'motion' | 'snap' | 'post_snap';
@@ -16,6 +34,24 @@ export interface AnimatedPlayFrame {
   trails: AnimatedTrail[];
   /** `air`: a thrown ball, how far through its flight it is (0 to 1). */
   ball: { x: number; y: number; inAir: boolean; air?: number };
+  /** Normalized progress [0, 1] where the QB hands the ball off at the picked handoff spot, if set. */
+  handoffProgress?: number;
+  /** Field coordinates of the active handoff spot, if set. */
+  handoffAt?: { x: number; y: number };
+  /** Normalized progress [0, 1] where the defensive preset stem/shift finishes before the snap, if active. */
+  stemProgress?: number;
+  /** Normalized progress [0, 1] where defensive stunts/blitzes fire across the LOS, if active. */
+  stuntProgress?: number;
+  /** Normalized progress [0, 1] for the QB read / mesh checkpoint. */
+  readProgress?: number;
+  /** Normalized progress [0, 1] for the linebacker gap-fit checkpoint. */
+  fitProgress?: number;
+  /** Normalized progress [0, 1] where a defender first makes tackle contact (within 0.85 yds) with the ball carrier. */
+  tackleProgress?: number;
+  /** Active block or tackle collision markers at this frame. */
+  collisions?: PlayCollisionMarker[];
+  /** QB directional vision cone on option, RPO, or pass plays before the throw/pitch. */
+  visionCone?: QbVisionCone;
 }
 
 /** The offensive line. */
@@ -32,6 +68,8 @@ export const MOTION_SECONDS = 1;
 export const SET_SECONDS = 1;
 /** A pre-snap shift: seconds moving to the new spots (then set, like motion, before any motion or the snap). */
 export const SHIFT_SECONDS = 1;
+/** A pre-snap defensive stem when changing to a different defensive formation / stunt / blitz preset. */
+export const DEF_STEM_SECONDS = 0.85;
 
 /** The play has pre-snap motion (a shift alone is not motion). */
 export function hasPreSnapMotion(strokes: PlayStroke[]): boolean {
@@ -43,20 +81,31 @@ export function hasPreSnapShift(strokes: PlayStroke[]): boolean {
   return strokes.some((s) => s.points && s.points.length >= 2 && shiftLegs(s) >= 1);
 }
 
+/** Whether `stemFrom` has any defender shifting more than 0.35 yards into the new defensive preset. */
+export function hasDefensiveStem(nodes: PlayNode[], stemFrom?: Record<string, { x: number; y: number }>): boolean {
+  if (!stemFrom) return false;
+  return nodes.some((n) => isDefenseRole(n.role) && stemFrom[n.role] && Math.hypot(n.x - stemFrom[n.role].x, n.y - stemFrom[n.role].y) > 0.35);
+}
+
 /** Seconds before the snap: the shift and its set, then the motion and its set (each when the play has one). */
-function preSnapSeconds(strokes: PlayStroke[]) {
-  return (hasPreSnapShift(strokes) ? SHIFT_SECONDS + SET_SECONDS : 0) + (hasPreSnapMotion(strokes) ? MOTION_SECONDS + SET_SECONDS : 0);
+function preSnapSeconds(strokes: PlayStroke[], defStem = false) {
+  return (
+    (defStem ? DEF_STEM_SECONDS : 0) +
+    (hasPreSnapShift(strokes) ? SHIFT_SECONDS + SET_SECONDS : 0) +
+    (hasPreSnapMotion(strokes) ? MOTION_SECONDS + SET_SECONDS : 0)
+  );
 }
 
 /** How long the whole animation runs at full speed: the shift, the motion and their sets before the snap, then the play. */
-export function playAnimationSeconds(strokes: PlayStroke[], extraStrokes: PlayStroke[] = []): number {
-  return PLAY_SECONDS + preSnapSeconds([...strokes, ...extraStrokes]);
+export function playAnimationSeconds(strokes: PlayStroke[], extraStrokes: PlayStroke[] = [], defStem = false): number {
+  return PLAY_SECONDS + preSnapSeconds([...strokes, ...extraStrokes], defStem);
 }
 
 /** Where the snap is in the animation (0 to 1): after the shift, the motion and their sets; 0 when there are none. */
-export function snapProgress(strokes: PlayStroke[], extraStrokes: PlayStroke[] = []): number {
+export function snapProgress(strokes: PlayStroke[], extraStrokes: PlayStroke[] = [], defStem = false): number {
   const all = [...strokes, ...extraStrokes];
-  return preSnapSeconds(all) / (PLAY_SECONDS + preSnapSeconds(all));
+  const pre = preSnapSeconds(all, defStem);
+  return pre / (PLAY_SECONDS + pre);
 }
 
 /** The closest point on a line to a spot: how far, the point, and the segment it's on. */
@@ -137,6 +186,12 @@ function easeInOutSine(t: number): number {
   return -(Math.cos(Math.PI * c) - 1) / 2;
 }
 
+/** Invert `easeInOutSine(u) = y` for `y` in `[0, 1]` to find the timeline progress for a given post-snap fraction. */
+function invEaseInOutSine(y: number): number {
+  const c = Math.max(0, Math.min(1, y));
+  return Math.acos(1 - 2 * c) / Math.PI;
+}
+
 /**
  * Computes the animated positions of all offensive & defensive players, progressive trails,
  * and the football position at normalized progress in [0, 1].
@@ -148,7 +203,8 @@ export function computeAnimatedPlayFrame(
   ballRole = '3',
   progress = 0,
   targetHole?: number | null,
-  defenseRules?: Record<string, Record<string, string>>
+  defenseRules?: Record<string, Record<string, string>>,
+  stemFrom?: Record<string, { x: number; y: number }>
 ): AnimatedPlayFrame {
   const p = Math.max(0, Math.min(1, progress));
   const extraSet = new Set(extraStrokes);
@@ -240,15 +296,18 @@ export function computeAnimatedPlayFrame(
     }
   }
 
-  // Before the snap: the shift, set; then the motion, set; then the snap (see playAnimationSeconds).
+  // Before the snap: any defensive preset stem, then the shift, set; then the motion, set; then the snap.
+  const defStem = hasDefensiveStem(nodes, stemFrom);
   const shift = hasPreSnapShift(allStrokes);
   const motion = hasPreSnapMotion(allStrokes);
-  const total = PLAY_SECONDS + preSnapSeconds(allStrokes);
-  const shiftEnd = shift ? SHIFT_SECONDS / total : 0;
-  const motionStart = shift ? (SHIFT_SECONDS + SET_SECONDS) / total : 0;
+  const total = PLAY_SECONDS + preSnapSeconds(allStrokes, defStem);
+  const stemEnd = defStem ? DEF_STEM_SECONDS / total : 0;
+  const shiftEnd = shift ? stemEnd + SHIFT_SECONDS / total : stemEnd;
+  const motionStart = shift ? stemEnd + (SHIFT_SECONDS + SET_SECONDS) / total : stemEnd;
   const motionEnd = motion ? motionStart + MOTION_SECONDS / total : motionStart;
   const snapStart = motion ? motionEnd + SET_SECONDS / total : motionStart;
 
+  let stemT = 1;
   let shiftT = 1;
   let motionT = 1;
   let postSnapT = 0;
@@ -256,13 +315,21 @@ export function computeAnimatedPlayFrame(
   let phaseLabel = 'Pre-Snap Alignment';
 
   if (p <= 0.005) {
+    stemT = 0;
     shiftT = 0;
     motionT = 0;
     postSnapT = 0;
     phase = 'pre_snap';
-    phaseLabel = 'Pre-Snap Alignment';
+    phaseLabel = defStem ? 'Base Defense Look' : 'Pre-Snap Alignment';
+  } else if (defStem && p < stemEnd) {
+    stemT = easeInOutSine(p / stemEnd);
+    shiftT = 0;
+    motionT = 0;
+    postSnapT = 0;
+    phase = 'motion';
+    phaseLabel = 'Def Preset / Stem';
   } else if (shift && p < shiftEnd) {
-    shiftT = easeInOutSine(p / shiftEnd);
+    shiftT = easeInOutSine((p - stemEnd) / (shiftEnd - stemEnd));
     motionT = 0;
     phase = 'motion';
     phaseLabel = 'Shift';
@@ -357,6 +424,58 @@ export function computeAnimatedPlayFrame(
     for (const n of nodes) {
       if (isDefenseRole(n.role)) continue;
       const st = roleStroke.get(n.role);
+
+      // When a handoff spot is set on the ball carrier's line, 1 (the QB) brings the ball directly to that
+      // handoff spot (arriving at `postT === handoff.t`), even if 1 also has an auto-drawn or custom fake line!
+      // After delivering the ball at `handoff.at`, 1 carries out his play-fake/bootleg from `handoff.at`.
+      if ((n.role === '1' || n.role === 'QB') && handoff) {
+        if (postT <= 0) {
+          at.set(n.role, { x: n.x, y: n.y });
+          continue;
+        }
+        const target = { x: handoff.at.x, y: handoff.at.y };
+        if (postT <= handoff.t) {
+          const k = postT / handoff.t;
+          const curX = Math.round((n.x + (target.x - n.x) * k) * 100) / 100;
+          const curY = Math.round((n.y + (target.y - n.y) * k) * 100) / 100;
+          if (trailsOut && Math.hypot(curX - n.x, curY - n.y) > 0.05) {
+            trailsOut.push({
+              role: n.role,
+              kind: 'run',
+              points: [{ x: n.x, y: n.y }, { x: curX, y: curY }],
+              color: '#f59e0b',
+            });
+          }
+          at.set(n.role, { x: curX, y: curY });
+        } else {
+          const k = easeOutQuad((postT - handoff.t) / Math.max(0.05, 1 - handoff.t));
+          let endFake = {
+            x: target.x + (n.x >= target.x ? 1 : -1) * 1.8,
+            y: target.y - 0.6,
+          };
+          if (st && st.points.length >= 2) {
+            const firstPt = st.points[0];
+            const lastPt = st.points[st.points.length - 1];
+            const dx = lastPt.x - firstPt.x;
+            const dy = lastPt.y - firstPt.y;
+            if (Math.hypot(dx, dy) > 0.5) {
+              endFake = { x: target.x + dx * 0.6, y: target.y + dy * 0.6 };
+            }
+          }
+          const curX = Math.round((target.x + (endFake.x - target.x) * k) * 100) / 100;
+          const curY = Math.round((target.y + (endFake.y - target.y) * k) * 100) / 100;
+          if (trailsOut) {
+            trailsOut.push({
+              role: n.role,
+              kind: 'run',
+              points: [{ x: n.x, y: n.y }, target, { x: curX, y: curY }],
+              color: '#f59e0b',
+            });
+          }
+          at.set(n.role, { x: curX, y: curY });
+        }
+        continue;
+      }
 
       if (st && st.points.length >= 2) {
         const mIdx = st.motion && st.motion > 0 ? Math.min(st.motion, st.points.length - 1) : 0;
@@ -552,14 +671,9 @@ export function computeAnimatedPlayFrame(
       }
       return { x: targetPos.x, y: targetPos.y, inAir: false };
     }
-    // A handoff spot set: the QB has it until the carrier gets there, then it's his.
+    // A handoff spot set: 1 (the QB) brings the ball all the way to `handoff.at`, and when the carrier meets him there it changes hands.
     if (handoff) {
-      const give = Math.max(0.12, handoff.t - 0.05);
-      if (postT < give) return { x: qbNow.x, y: qbNow.y, inAir: false };
-      if (postT < handoff.t) {
-        const k = (postT - give) / Math.max(0.001, handoff.t - give);
-        return { x: qbNow.x + (carrierNow.x - qbNow.x) * k, y: qbNow.y + (carrierNow.y - qbNow.y) * k, inAir: false };
-      }
+      if (postT < handoff.t) return { x: qbNow.x, y: qbNow.y, inAir: false };
       return { x: carrierNow.x, y: carrierNow.y, inAir: false };
     }
     // Run play: mesh/handoff from QB to ball carrier between 0.12 and 0.24, then carrier carries it
@@ -604,6 +718,25 @@ export function computeAnimatedPlayFrame(
         zones.set(n.role, st);
       } else {
         drawnFor.set(n.role, st);
+      }
+    }
+
+    // Pre-snap defensive stem when the coach switched to a different defensive formation / stunt / blitz preset
+    if (defStem && stemFrom && postSnapT <= 0 && stemT < 1) {
+      for (const n of defense) {
+        const from = stemFrom[n.role];
+        if (!from) continue;
+        const curX = Math.round((from.x + (n.x - from.x) * stemT) * 100) / 100;
+        const curY = Math.round((from.y + (n.y - from.y) * stemT) * 100) / 100;
+        animatedPos.set(n.role, { x: curX, y: curY });
+        if (stemT > 0.05 && Math.hypot(curX - from.x, curY - from.y) > 0.15) {
+          trails.push({
+            role: `${n.role}_stem`,
+            kind: 'motion',
+            points: [from, { x: curX, y: curY }],
+            color: '#10b981',
+          });
+        }
       }
     }
 
@@ -672,10 +805,298 @@ export function computeAnimatedPlayFrame(
     }
   }
 
+  // Helper: check if the ball carrier's drawn route has a sharp cut (>= 26 deg) at or after `afterT`
+  const carrierCutsAwayAfter = (afterT: number): boolean => {
+    if (!carrierLine || !carrierNode || carrierLine.points.length < 3) return false;
+    const rawPts = [{ x: carrierNode.x, y: carrierNode.y }, ...carrierLine.points.slice(1)];
+    const pts = rawPts.slice(carrierLine.motion || 0);
+    if (pts.length < 3) return false;
+    let totalLen = 0;
+    const segLens: number[] = [];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const d = Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y);
+      segLens.push(d);
+      totalLen += d;
+    }
+    if (totalLen < 0.5) return false;
+    let acc = 0;
+    for (let i = 1; i < pts.length - 1; i++) {
+      acc += segLens[i - 1];
+      const frac = acc / totalLen;
+      if (frac < afterT - 0.1) continue;
+      const v1x = pts[i].x - pts[i - 1].x;
+      const v1y = pts[i].y - pts[i - 1].y;
+      const v2x = pts[i + 1].x - pts[i].x;
+      const v2y = pts[i + 1].y - pts[i].y;
+      const m1 = Math.hypot(v1x, v1y);
+      const m2 = Math.hypot(v2x, v2y);
+      if (m1 > 0.2 && m2 > 0.2) {
+        const cosA = (v1x * v2x + v1y * v2y) / (m1 * m2);
+        if (cosA <= Math.cos((26 * Math.PI) / 180)) return true;
+      }
+    }
+    return false;
+  };
+
+  // Detect Block & Tackle Collision Markers + Ball Carrier Contact Slowdown (when defenders are present)
+  const collisions: PlayCollisionMarker[] = [];
+  let tackleProgress: number | undefined;
+  if (defense.length > 0 && postSnapT > 0.08) {
+    const carrierHasBallPostT = isPassPlay
+      ? caught
+      : handoff
+        ? handoff.t
+        : ballRole === '1' || ballRole === 'QB'
+          ? 0.14
+          : 0.22;
+
+    // 1. Check for tackle contact along defender trails up to postSnapT
+    let firstTacklePostT: number | undefined;
+    let primaryTackler: string | undefined;
+    if (postSnapT >= carrierHasBallPostT) {
+      const defTrails = new Map<string, { x: number; y: number }[]>();
+      for (const tr of trails) {
+        if (isDefenseRole(tr.role)) defTrails.set(tr.role, tr.points);
+      }
+      const maxIdx = Math.max(0, ...defense.map((n) => (defTrails.get(n.role)?.length || 1) - 1));
+      for (let idx = 1; idx <= maxIdx; idx++) {
+        const sampleT = idx < maxIdx ? Math.min(postSnapT, idx * 0.05) : postSnapT;
+        if (sampleT < carrierHasBallPostT) continue;
+        const offSample = offenseAt(sampleT, 1);
+        const cSample = offSample.get(ballRole);
+        if (!cSample) continue;
+        for (const d of defense) {
+          const dPts = defTrails.get(d.role);
+          const dPt = dPts?.[Math.min(idx, dPts.length - 1)];
+          if (!dPt) continue;
+          if (Math.hypot(dPt.x - cSample.x, dPt.y - cSample.y) <= 0.85) {
+            firstTacklePostT = sampleT;
+            primaryTackler = d.role;
+            break;
+          }
+        }
+        if (firstTacklePostT !== undefined) break;
+      }
+    }
+
+    if (firstTacklePostT !== undefined && primaryTackler) {
+      tackleProgress = snapStart + (1 - snapStart) * invEaseInOutSine(firstTacklePostT);
+      const cutsAway = carrierCutsAwayAfter(firstTacklePostT);
+      if (!cutsAway && postSnapT > firstTacklePostT && !ball.inAir) {
+        // Slow down the ball carrier after tackle contact (yards-after-contact churn)
+        const slowedPostT = firstTacklePostT + (postSnapT - firstTacklePostT) * 0.35;
+        const slowedTrails: AnimatedTrail[] = [];
+        const slowedOff = offenseAt(slowedPostT, 1, slowedTrails);
+        const slowedCarrierPos = slowedOff.get(ballRole);
+        if (slowedCarrierPos) {
+          animatedPos.set(ballRole, slowedCarrierPos);
+          ball.x = slowedCarrierPos.x;
+          ball.y = slowedCarrierPos.y;
+          const slowedTrail = slowedTrails.find((tr) => tr.role === ballRole);
+          const existingIdx = trails.findIndex((tr) => tr.role === ballRole);
+          if (slowedTrail && existingIdx >= 0) {
+            trails[existingIdx] = slowedTrail;
+          }
+          // Keep the primary tackler engaged on the ball carrier's hip
+          const tacklerNow = animatedPos.get(primaryTackler);
+          if (tacklerNow) {
+            const dx = tacklerNow.x - slowedCarrierPos.x;
+            const dy = tacklerNow.y - slowedCarrierPos.y;
+            const dist = Math.hypot(dx, dy) || 1;
+            if (dist > 0.45) {
+              animatedPos.set(primaryTackler, {
+                x: Math.round((slowedCarrierPos.x + (dx / dist) * 0.42) * 100) / 100,
+                y: Math.round((slowedCarrierPos.y + (dy / dist) * 0.42) * 100) / 100,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Check active tackle marker at current frame
+    if (postSnapT >= carrierHasBallPostT && !ball.inAir) {
+      const carrierNow = animatedPos.get(ballRole);
+      if (carrierNow) {
+        let closestDef: { role: string; x: number; y: number; d: number } | undefined;
+        for (const d of defense) {
+          const dPos = animatedPos.get(d.role);
+          if (!dPos) continue;
+          const dist = Math.hypot(dPos.x - carrierNow.x, dPos.y - carrierNow.y);
+          if (dist <= 0.88 && (!closestDef || dist < closestDef.d)) {
+            closestDef = { role: d.role, x: dPos.x, y: dPos.y, d: dist };
+          }
+        }
+        if (closestDef) {
+          const gain = Math.round(carrierNow.y * 10) / 10;
+          const cutsAway = firstTacklePostT !== undefined && carrierCutsAwayAfter(firstTacklePostT);
+          collisions.push({
+            kind: 'tackle',
+            x: Math.round(((carrierNow.x + closestDef.x) / 2) * 100) / 100,
+            y: Math.round(((carrierNow.y + closestDef.y) / 2) * 100) / 100,
+            offRole: ballRole,
+            defRole: closestDef.role,
+            gainYards: gain,
+            label: cutsAway
+              ? `⚡ Cut Away (${ballRole} vs ${closestDef.role})`
+              : `🛑 Tackle (${gain >= 0 ? '+' : ''}${gain.toFixed(1)} yds)`,
+          });
+          if (!cutsAway && postSnapT >= (firstTacklePostT ?? postSnapT)) {
+            phaseLabel = `Tackle Contact (${gain >= 0 ? '+' : ''}${gain.toFixed(1)} yds)`;
+          }
+        }
+      }
+    }
+
+    // 2. Check for Block Engagements (pulling guards, lead blockers, offensive line)
+    const usedDef = new Set<string>(collisions.map((c) => c.defRole));
+    const blockCandidates: (PlayCollisionMarker & { priority: number })[] = [];
+    for (const o of offense) {
+      if (o.role === ballRole || o.role === qbNode.role) continue;
+      const oStroke = roleStroke.get(o.role);
+      const isOl = OL_ROLES.includes(o.role);
+      const isPuller = isOl && oStroke ? isPullLine(oStroke, o) : false;
+      const isExplicitBlocker = oStroke?.kind === 'block' || isPuller;
+      if (!isOl && !isExplicitBlocker) continue;
+      const oPos = animatedPos.get(o.role);
+      if (!oPos) continue;
+      const maxBlockDist = isExplicitBlocker ? 1.15 : 0.95;
+      let bestDef: { role: string; x: number; y: number; d: number } | undefined;
+      for (const d of defense) {
+        if (usedDef.has(d.role)) continue;
+        const dPos = animatedPos.get(d.role);
+        if (!dPos) continue;
+        const dist = Math.hypot(dPos.x - oPos.x, dPos.y - oPos.y);
+        if (dist <= maxBlockDist && (!bestDef || dist < bestDef.d)) {
+          bestDef = { role: d.role, x: dPos.x, y: dPos.y, d: dist };
+        }
+      }
+      if (bestDef) {
+        usedDef.add(bestDef.role);
+        blockCandidates.push({
+          kind: 'block',
+          x: Math.round(((oPos.x + bestDef.x) / 2) * 100) / 100,
+          y: Math.round(((oPos.y + bestDef.y) / 2) * 100) / 100,
+          offRole: o.role,
+          defRole: bestDef.role,
+          label: isPuller
+            ? `💥 Pull Block (${o.role}×${bestDef.role})`
+            : isExplicitBlocker && !isOl
+              ? `💥 Lead Block (${o.role}×${bestDef.role})`
+              : `💥 Block (${o.role}×${bestDef.role})`,
+          priority: isPuller ? 3 : isExplicitBlocker ? 2 : 1,
+        });
+      }
+    }
+    blockCandidates
+      .sort((a, b) => b.priority - a.priority)
+      .slice(0, 3)
+      .forEach(({ priority: _p, ...marker }) => collisions.push(marker));
+  }
+
+  // QB Read / Progression Vision Cone (Option, RPO & Pass Plays)
+  let visionCone: QbVisionCone | undefined;
+  const qbNow = animatedPos.get(qbNode.role) || { x: qbNode.x, y: qbNode.y };
+  if (postSnapT >= 0.04) {
+    if (isPassPlay && postSnapT < release) {
+      const routeRunners = offense.filter(
+        (o) => o.role !== qbNode.role && !OL_ROLES.includes(o.role) && roleStroke.has(o.role)
+      );
+      const primaryRole = passTarget || routeRunners[0]?.role;
+      const firstReadNode =
+        routeRunners.find((o) => o.role !== primaryRole && roleStroke.get(o.role)?.kind === 'pass') ||
+        routeRunners.find((o) => o.role !== primaryRole);
+      const primaryPos = primaryRole ? animatedPos.get(primaryRole) : undefined;
+      const firstReadPos = firstReadNode ? animatedPos.get(firstReadNode.role) : undefined;
+
+      if (firstReadNode && firstReadPos && primaryPos && primaryRole && release >= 0.28) {
+        const splitT = release * 0.48;
+        const scanEndT = release * 0.64;
+        if (postSnapT < splitT) {
+          visionCone = {
+            from: { x: qbNow.x, y: qbNow.y },
+            to: { x: firstReadPos.x, y: firstReadPos.y },
+            targetRole: firstReadNode.role,
+            label: `👁 1st Read (${firstReadNode.role})`,
+            kind: 'pass_read',
+          };
+        } else if (postSnapT < scanEndT) {
+          const k = (postSnapT - splitT) / Math.max(0.04, scanEndT - splitT);
+          visionCone = {
+            from: { x: qbNow.x, y: qbNow.y },
+            to: {
+              x: Math.round((firstReadPos.x + (primaryPos.x - firstReadPos.x) * k) * 100) / 100,
+              y: Math.round((firstReadPos.y + (primaryPos.y - firstReadPos.y) * k) * 100) / 100,
+            },
+            targetRole: primaryRole,
+            label: `👁 Progression (${firstReadNode.role} → ${primaryRole})`,
+            kind: 'pass_read',
+          };
+        } else {
+          visionCone = {
+            from: { x: qbNow.x, y: qbNow.y },
+            to: { x: primaryPos.x, y: primaryPos.y },
+            targetRole: primaryRole,
+            label: `👁 2nd Read (${primaryRole})`,
+            kind: 'pass_read',
+          };
+        }
+      } else if (primaryRole && primaryPos) {
+        visionCone = {
+          from: { x: qbNow.x, y: qbNow.y },
+          to: { x: primaryPos.x, y: primaryPos.y },
+          targetRole: primaryRole,
+          label: `👁 QB Read (${primaryRole})`,
+          kind: 'pass_read',
+        };
+      }
+    } else if (!isPassPlay) {
+      const readWindowEnd = handoff ? handoff.t + 0.06 : 0.34;
+      const hasOptionOrMesh = Boolean(handoff) || ballRole === qbNode.role || roleStroke.has(qbNode.role) || defense.length > 0;
+      if (hasOptionOrMesh && postSnapT <= readWindowEnd) {
+        const playSide = fallbackAimX >= 0 ? 1 : -1;
+        // Find the conflict edge defender (DE / OLB / SAM / WILL) on the play side
+        const edgeCandidates = defense.filter(
+          (d) => /^(DE|E\d|SAM|WILL|OLB|ROV)/.test(d.role) || (Math.abs(d.x) >= 2.2 && d.y <= 4.5)
+        );
+        const conflictDef =
+          edgeCandidates
+            .filter((d) => d.x * playSide > 0)
+            .sort((a, b) => playSide * (b.x - a.x))[0] ||
+          edgeCandidates[0];
+        if (conflictDef) {
+          const defPos = animatedPos.get(conflictDef.role) || { x: conflictDef.x, y: conflictDef.y };
+          visionCone = {
+            from: { x: qbNow.x, y: qbNow.y },
+            to: { x: defPos.x, y: defPos.y },
+            targetRole: conflictDef.role,
+            label: `👁 Read Key (${conflictDef.role})`,
+            kind: 'option_read',
+          };
+        }
+      }
+    }
+  }
+
   const animatedNodes = nodes.map((n) => {
     const pos = animatedPos.get(n.role);
     return pos ? { ...n, x: pos.x, y: pos.y } : n;
   });
+
+  const hasStuntOrBlitz = defense.some((n) => {
+    const st = roleStroke.get(n.role);
+    return st && !st.zone && !st.man && st.points.length >= 2;
+  });
+  const handoffProgress = handoff ? snapStart + (1 - snapStart) * invEaseInOutSine(handoff.t) : undefined;
+  const stemProgress = defStem ? stemEnd : undefined;
+  const stuntProgress = hasStuntOrBlitz ? snapStart + (1 - snapStart) * invEaseInOutSine(0.22) : undefined;
+  const readProgress = isPassPlay
+    ? snapStart + (1 - snapStart) * invEaseInOutSine(Math.min(0.28, release * 0.6))
+    : handoffProgress ?? snapStart + (1 - snapStart) * invEaseInOutSine(0.2);
+  const fitProgress = defense.length > 0 ? snapStart + (1 - snapStart) * invEaseInOutSine(isPassPlay ? 0.45 : 0.36) : undefined;
+  if (hasStuntOrBlitz && postSnapT > 0.12 && postSnapT < 0.28 && (!handoff || Math.abs(postSnapT - handoff.t) > 0.05)) {
+    phaseLabel = 'Stunt / Blitz Fire';
+  }
 
   return {
     progress: p,
@@ -689,5 +1110,13 @@ export function computeAnimatedPlayFrame(
       inAir: ball.inAir,
       ...(ball.air !== undefined ? { air: Math.round(ball.air * 1000) / 1000 } : {}),
     },
+    ...(handoffProgress !== undefined ? { handoffProgress, handoffAt: handoff!.at } : {}),
+    ...(stemProgress !== undefined ? { stemProgress } : {}),
+    ...(stuntProgress !== undefined ? { stuntProgress } : {}),
+    readProgress,
+    ...(fitProgress !== undefined ? { fitProgress } : {}),
+    ...(tackleProgress !== undefined ? { tackleProgress } : {}),
+    ...(collisions.length > 0 ? { collisions } : {}),
+    ...(visionCone ? { visionCone } : {}),
   };
 }

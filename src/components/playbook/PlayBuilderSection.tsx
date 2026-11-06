@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Film, LayoutGrid, ListChecks, PanelRightClose, PanelRightOpen, Pencil, Play as PlayIcon, RotateCcw, Save, Search, Shield, Sparkles, Users, Wand2, X, Zap } from 'lucide-react';
 import { autoSketchPlayFromVideo } from '../../services/geminiFilmService';
 import { usePresentStage } from '../scouting/presentStage';
-import type { PlayBuilderState, PlayDatabaseEntry, PlayType } from '../../types/callSheet';
+import type { PlayBuilderState, PlayDatabaseEntry, PlayNoteCheckpoint, PlayType } from '../../types/callSheet';
 import { defenseSystem, type DefenseSystem } from '../../hudlScout/utils/ourDefense';
 import { inferPlayType, newPlayEntry } from '../../utils/playbookImport';
 import {
@@ -72,10 +72,10 @@ const NO_OPTIONS = { personnel: [], tags: [], runConcepts: [], passConcepts: [] 
 import { DiagramImage } from './DiagramImage';
 import { DefenseCallPicker } from './DefenseCallPicker';
 import { defenseJob, defenseOrder, standardDefenseJob } from '../../utils/defenseJobs';
-import { applyRuleAlignments, pickedTechniques, rulesText } from '../../utils/defenseRules';
+import { RULE_PRESETS, applyRuleAlignments, defenseGroup, pickedTechniques, rulesText } from '../../utils/defenseRules';
 import { computeGapIntegrity } from '../../utils/defenseReads';
 import { DefenderRules } from './DefenderRules';
-import { defenseCallName, defenseCallStrokes, mirrorJob, mirrorPressure, pressureGaps } from '../../utils/defenseCalls';
+import { COVERAGES, PRESSURES, defenseCallName, defenseCallStrokes, joinPressure, mirrorJob, mirrorPressure, pressureGaps, pressureParts } from '../../utils/defenseCalls';
 import { baseLookKey, defenseAlignmentSaver, defenseFrontSaver, defenseMirrored, lineUpOurDefense, samToWideSide, tightEndFlip } from '../../hudlScout/utils/ourDefense';
 import { DEF_UNITS, chartForFront, chartSpots, defenseBoards, playerInBox, defensePlayerAt, defenseSpotName, frontOfLook, lineupForDefense, whoOptions, type DefUnit } from '../../utils/defenseLineup';
 import { rememberDefenseBoard, rememberDefenseUnit, rememberedDefenseBoard, rememberedDefenseUnit, useDefenseRosterSource } from '../../utils/defenseRosterStore';
@@ -414,6 +414,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   // Our defensive plays: each defender's job as the coach typed it.
   const [jobs, setJobs] = useState<Record<string, string>>(saved?.jobs || {});
   const [defRules, setDefRules] = useState<Record<string, Record<string, string>>>(saved?.defenseRules || {});
+  const [coachingCheckpoints, setCoachingCheckpoints] = useState<PlayNoteCheckpoint[]>(saved?.coachingCheckpoints || []);
   const withLabel = <T extends { role: string }>(n: T): T => (labels[n.role] ? { ...n, label: labels[n.role] } : n);
   const renamePlayer = (role: string, label: string) =>
     setLabels((prev) => {
@@ -709,10 +710,29 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     frontSaver.remove(defenseKey);
     setDefenseKey(baseLookKey(defenseKey));
   };
+  const [stemFrom, setStemFrom] = useState<Record<string, { x: number; y: number }> | undefined>(undefined);
+  const [prevDefense, setPrevDefense] = useState<{
+    label: string;
+    nodes: PlayNode[];
+    extraStrokes: PlayStroke[];
+    defenseRules?: Record<string, Record<string, string>>;
+  } | null>(null);
+  const captureStemFrom = () => {
+    if (dNodes.length > 0) {
+      setStemFrom(Object.fromEntries(dNodes.map((n) => [n.role, { x: n.x, y: n.y }])));
+      setPrevDefense({
+        label: callName || lookName || 'Prev Def',
+        nodes: dNodes.map((n) => ({ ...n })),
+        extraStrokes: callStrokes.map((s) => ({ ...s, points: s.points.map((p) => ({ ...p })) })),
+        defenseRules: JSON.parse(JSON.stringify(defRules || {})),
+      });
+    }
+  };
   const pickFront = (chip: string, own: boolean) => {
     // A mirrored defense is already turned to their strength: the 4-4 drawn to the left is its RIP.
     const key = chip === '44' ? (strength === 'Right' && !defenseMirror ? '44_C3_RIP' : '44_C3_LIZ') : chip;
     if (key !== defenseKey) {
+      captureStemFrom();
       // The new front lines everyone up its way (spots dragged for the last one don't carry over).
       setOverrides((prev) => Object.fromEntries(Object.entries(prev).filter(([role]) => !isDefenseRole(role))));
     }
@@ -1022,6 +1042,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       ...(homographyQuad ? { homographyQuad } : {}),
       ...(homographyFrameUrl ? { homographyFrameUrl } : {}),
       ...(showHomography ? { showHomography: true } : {}),
+      ...(coachingCheckpoints.length ? { coachingCheckpoints } : {}),
       name: nameIn,
   });
   const stateKey = JSON.stringify(currentState());
@@ -1128,7 +1149,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       savedKey.current = stateKeyRef.current;
       return;
     }
-    if (!seed?.playEntryId && !userDrew && !videoEdited.current) return;
+    if (!seed?.playEntryId && !userDrew && !videoEdited.current && coachingCheckpoints.length === 0) return;
     saveNow(true);
   };
   useEffect(() => () => saveOnLeave.current(), []);
@@ -2220,6 +2241,131 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               defenseRules={defRules}
               gapFits={showGapFits ? gapIntegritySlots : undefined}
               spotlightRole={spotlightRole}
+              stemFrom={stemFrom}
+              prevDefense={prevDefense}
+              checkpoints={coachingCheckpoints}
+              onCheckpointsChange={setCoachingCheckpoints}
+              skipNotes={stage.skipNotes}
+              onSkipNotesChange={stage.setSkipNotes}
+              defensePresetBar={
+                !formationMode ? (
+                  <>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 mr-0.5">
+                      🛡 Def Preset:
+                    </span>
+                    <div role="group" aria-label="Defensive Formation Preset" className="inline-flex flex-wrap items-center gap-1">
+                      {[...FRONT_CHOICES.map((f) => ({ id: f.chip, label: f.label })), ...ownFronts.map(([k, d]) => ({ id: k, label: d.name }))].map((f) => {
+                        const activeFront = defenseKey.startsWith('front_') ? defenseKey : frontChipOf(defenseKey);
+                        const on = activeFront === f.id;
+                        return (
+                          <button
+                            key={f.id}
+                            type="button"
+                            aria-pressed={on}
+                            onClick={() => pickFront(f.id, true)}
+                            title={`Switch defensive formation to ${f.label}`}
+                            className={`h-6 px-2 rounded text-[10px] font-black cursor-pointer transition-colors ${
+                              on
+                                ? 'bg-emerald-600 text-white shadow-xs'
+                                : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'
+                            }`}
+                          >
+                            {f.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {dLook && (
+                      <>
+                        <select
+                          aria-label="Line Stunt Preset"
+                          value={pressureParts(pressure).stunt}
+                          onChange={(e) => {
+                            captureStemFrom();
+                            const nextStunt = e.target.value;
+                            const curBlitz = pressureParts(pressure).blitz;
+                            setPressure(joinPressure(curBlitz, nextStunt));
+                            setDefenseOwn(true);
+                          }}
+                          title="Pick a Defensive Line Stunt (Pinch, Twist, Slant)"
+                          className="h-6 rounded border border-slate-700 bg-slate-800 px-1.5 text-[10px] font-extrabold text-amber-300 cursor-pointer"
+                        >
+                          <option value="">⚡ Stunt: Base</option>
+                          {PRESSURES.filter((p) => p.group === 'Stunt').map((p) => (
+                            <option key={p.id} value={p.id}>
+                              ⚡ Stunt: {p.label}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          aria-label="Blitz Preset"
+                          value={pressureParts(pressure).blitz}
+                          onChange={(e) => {
+                            captureStemFrom();
+                            const nextBlitz = e.target.value;
+                            const curStunt = pressureParts(pressure).stunt;
+                            setPressure(joinPressure(nextBlitz, curStunt));
+                            setDefenseOwn(true);
+                          }}
+                          title="Pick a Linebacker / Edge Blitz package"
+                          className="h-6 rounded border border-slate-700 bg-slate-800 px-1.5 text-[10px] font-extrabold text-rose-300 cursor-pointer"
+                        >
+                          <option value="">🔥 Blitz: None</option>
+                          {PRESSURES.filter((p) => p.group === 'Blitz').map((p) => (
+                            <option key={p.id} value={p.id}>
+                              🔥 Blitz: {p.label}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          aria-label="Coverage Preset"
+                          value={coverage || 'cover3'}
+                          onChange={(e) => {
+                            setCoverage(e.target.value);
+                            setDefenseOwn(true);
+                          }}
+                          title="Pick Coverage Shell"
+                          className="h-6 rounded border border-slate-700 bg-slate-800 px-1.5 text-[10px] font-extrabold text-sky-300 cursor-pointer"
+                        >
+                          {COVERAGES.filter((c) => c.id !== '').map((c) => (
+                            <option key={c.id} value={c.id}>
+                              ☂ {c.label}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          aria-label="LB Flow & Rules Preset"
+                          value=""
+                          onChange={(e) => {
+                            const preset = RULE_PRESETS.backer.find((p) => p.id === e.target.value);
+                            if (!preset) return;
+                            captureStemFrom();
+                            setDefRules((prev) => {
+                              const next = { ...prev };
+                              for (const dn of dNodes) {
+                                if (defenseGroup(dn.role) === 'backer') {
+                                  next[dn.role] = { ...(next[dn.role] || {}), ...preset.picks };
+                                }
+                              }
+                              return next;
+                            });
+                            setDefenseOwn(true);
+                          }}
+                          title="Apply a Linebacker Flow & Fit Preset across all linebackers"
+                          className="h-6 rounded border border-slate-700 bg-slate-800 px-1.5 text-[10px] font-extrabold text-emerald-300 cursor-pointer"
+                        >
+                          <option value="">⚙ LB Flow Preset…</option>
+                          {RULE_PRESETS.backer.map((preset) => (
+                            <option key={preset.id} value={preset.id}>
+                              {preset.label} — {preset.summary}
+                            </option>
+                          ))}
+                        </select>
+                      </>
+                    )}
+                  </>
+                ) : undefined
+              }
               play={{
                 ...play,
                 metadata: {
