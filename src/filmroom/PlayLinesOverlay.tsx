@@ -2,12 +2,12 @@ import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { buildProjectedFieldGrid, getQuadHomographies, HOMOGRAPHY_PRESETS, imageToField, type HomographyQuad, type ImagePoint, type UnitFilmTransform } from '../utils/videoHomography';
 import { DEFENSE_COLOR, diagramLabel, isDefenseRole, lineStartsOn, passThrow, shiftLegs, shownText, skillDiagramLabel, STROKE_COLOR, THROW_COLOR, type PlayNode, type PlayStroke } from '../utils/footballEngine';
 import { arrowOnField, circleOnField, cutLine, dashLine, densify, lengthOf, pointBack, polygon, polyline, ribbon, tOnField, zigzagLine, type Px } from './linesArt';
-import { cameraFromFilm, cameraProjector, clipPolygon, filmProjector, lerpCam, MAX_PITCH, MIN_PITCH, VIEWS, visibleRuns, type Cam } from './fieldCamera';
+import { cameraFromFilm, cameraProjector, clipPolygon, filmProjector, lerpCam, MAX_PITCH, MIN_PITCH, VIEWS, visibleRuns, type Cam, type Projector } from './fieldCamera';
 import { computeAnimatedPlayFrame, DEFENSE_TRAIL, playAnimationSeconds } from '../utils/playAnimation';
 import { computeGapIntegrity, type GapFitSlot } from '../utils/defenseReads';
 import { defenseCallStrokes, joinPressure, pressureParts, PRESSURES } from '../utils/defenseCalls';
 import { safeJSONParse, safeJSONSet } from '../services/storageService';
-import { ChevronLeft, ChevronRight, Columns3, Contrast, Eye, EyeOff, Map as MapIcon, Move, MoveUpRight, Pause, Play, RotateCcw, SkipBack, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Columns3, Contrast, Eye, EyeOff, FlipHorizontal2, FlipVertical2, Map as MapIcon, Move, MoveUpRight, Pause, Play, RotateCcw, SkipBack, X } from 'lucide-react';
 import { AMBER, btn as BTN, divider, idle, INK, on as onBtn, overVideo, playButton, playButtonStyle, tray, trayItem, trayPicked, trayStyle } from './controlStyles';
 
 /** The selected play as the Play Builder draws it, to lay over the film. */
@@ -569,6 +569,9 @@ export function usePlayLines(opts: {
     return [...own, ...reads];
   }, [shown, defArrows, hasDefense]);
   const focusNode = focus ? lines?.nodes.find((n) => n.role === focus) : undefined;
+  // Flipped left and right on this film: the arrows still move the unit the way they point on the picture.
+  const flipSign = lines?.quad.flipX ? -1 : 1;
+  const flipPlay = (axis: "flipX" | "flipY") => shown && shown.setQuad({ ...shown.quad, [axis]: shown.quad[axis] ? undefined : true });
   const btn = BTN;
 
   return {
@@ -757,6 +760,28 @@ export function usePlayLines(opts: {
                   </button>
                   <button
                     type="button"
+                    className={shown?.quad.flipX ? onBtn : idle}
+                    aria-pressed={Boolean(shown?.quad.flipX)}
+                    onClick={() => flipPlay('flipX')}
+                    title="Flip left and right: every player (offense and defense) and his line swaps sides"
+                    aria-label="Flip left and right"
+                  >
+                    <FlipHorizontal2 size={15} />
+                    <span className="hidden md:inline">Flip ↔</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={shown?.quad.flipY ? onBtn : idle}
+                    aria-pressed={Boolean(shown?.quad.flipY)}
+                    onClick={() => flipPlay('flipY')}
+                    title="Flip top and bottom: the offense and the defense swap ends (the offense going the other way on this film)"
+                    aria-label="Flip top and bottom"
+                  >
+                    <FlipVertical2 size={15} />
+                    <span className="hidden md:inline">Flip ↕</span>
+                  </button>
+                  <button
+                    type="button"
                     aria-pressed={clean}
                     className={clean ? onBtn : idle}
                     onClick={() => pickClean(!clean)}
@@ -878,10 +903,10 @@ export function usePlayLines(opts: {
               return (
                 <>
                   <span className="h-8 px-1.5 inline-flex items-center text-[11px] font-bold opacity-80">Move {unitLabel}</span>
-                  <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad(shiftUnitQuad(shown.quad, unit, -0.6, 0))} title={`Move full ${unitLabel} left`}>
+                  <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad(shiftUnitQuad(shown.quad, unit, -0.6 * flipSign, 0))} title={`Move full ${unitLabel} left`}>
                     ←
                   </button>
-                  <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad(shiftUnitQuad(shown.quad, unit, 0.6, 0))} title={`Move full ${unitLabel} right`}>
+                  <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad(shiftUnitQuad(shown.quad, unit, 0.6 * flipSign, 0))} title={`Move full ${unitLabel} right`}>
                     →
                   </button>
                   <button type="button" className={`${btn} hover:bg-white/10`} onClick={() => shown.setQuad(shiftUnitQuad(shown.quad, unit, 0, 0.5))} title={`Move full ${unitLabel} deeper downfield`}>
@@ -1372,7 +1397,21 @@ const LinesDrawing: React.FC<{
   const z = Math.max(1, zoom);
   // The camera: the film's own (its lineup), or the clean field's turned to any angle. Lining up uses the film's.
   const free = clean && !lineUp && cam ? cam : null;
-  const proj = useMemo(() => (free ? cameraProjector(free, cw, ch) : filmProjector(H, cw, ch)), [free, H, cw, ch]);
+  // Flipped on this film (left / right, offense / defense ends): every field point is mirrored on its way to the
+  // picture, so the play, its lines, the ball, the gaps and the line to gain all turn together.
+  const fx = quad.flipX ? -1 : 1;
+  const fy = quad.flipY ? -1 : 1;
+  const proj = useMemo<Projector>(() => {
+    const base = free ? cameraProjector(free, cw, ch) : filmProjector(H, cw, ch);
+    if (fx === 1 && fy === 1) return base;
+    const mirror = (p: Pt) => ({ x: fx * p.x, y: fy * p.y });
+    return { near: base.near, to: (p, h) => base.to(mirror(p), h), depth: (p) => base.depth(mirror(p)) };
+  }, [free, H, cw, ch, fx, fy]);
+  /** A spot picked on the picture, back on the play's own field (undoing the flip). */
+  const pickedOnField = (q: HomographyQuad, at: ImagePoint) => {
+    const f = imageToField(q, at);
+    return { x: fx * f.x, y: fy * f.y };
+  };
   /** In front of the camera (on the picture). */
   const seen = (p: Pt) => proj.depth(p) >= proj.near;
   const px = (p: Pt): Px => proj.to(p) ?? [-1e4, -1e4];
@@ -1534,11 +1573,11 @@ const LinesDrawing: React.FC<{
         if (!lines.moveNode || free || Math.hypot(e.clientX - (d.x ?? e.clientX), e.clientY - (d.y ?? e.clientY)) < 6) return;
         d.active = true;
       }
-      const f = imageToField(quad, at);
+      const f = pickedOnField(quad, at);
       lines.moveNode?.(d.role!, Math.round(f.x * 10) / 10, Math.round(f.y * 10) / 10);
     } else if (d.corner === 'offense' || d.corner === 'defense') {
-      const fFrom = imageToField(d.quad, d.from);
-      const fAt = imageToField(d.quad, at);
+      const fFrom = pickedOnField(d.quad, d.from);
+      const fAt = pickedOnField(d.quad, at);
       const ddx = Math.max(-25, Math.min(25, fAt.x - fFrom.x));
       const ddy = Math.max(-25, Math.min(25, fAt.y - fFrom.y));
       lines.setQuad(shiftUnitQuad(d.quad, d.corner, ddx, ddy));

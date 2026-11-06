@@ -56,6 +56,12 @@ export interface HomographyQuad {
   offenseTransform?: UnitFilmTransform;
   /** Full-unit alignment for the Defense on this film (independent of Offense and Field). */
   defenseTransform?: UnitFilmTransform;
+  /**
+   * The play drawn mirrored on this film: left and right swapped (flipX), and / or the offense and the defense
+   * swapped top to bottom (flipY: the offense going the other way). Only the drawing; the play itself is unchanged.
+   */
+  flipX?: boolean;
+  flipY?: boolean;
 }
 
 export const HOMOGRAPHY_PRESETS: Record<
