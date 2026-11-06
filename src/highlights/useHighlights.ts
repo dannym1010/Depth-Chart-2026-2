@@ -2,7 +2,7 @@
 // coaches saved (like playlists). "This computer only" keeps them here and nowhere else (this browser's storage,
 // plus highlights.json in the local library when one is picked).
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { cleanFirestoreData, getFirebaseServices, isFirestoreQuotaPaused, isReadOnlySession, safeJSONParse, safeJSONSet } from '../services/storageService';
+import { getFirebaseServices, isFirestoreQuotaPaused, isReadOnlySession, safeJSONParse, safeJSONSet, withoutUndefined } from '../services/storageService';
 import { bigGet, bigSet } from '../utils/bigLocalStore';
 import { sharedDocId } from '../filmroom/sharedMerge';
 import { emptyHighlights, mergeHighlights } from './highlightData';
@@ -23,6 +23,8 @@ export interface HighlightStore {
   update: (change: (d: HighlightsData) => HighlightsData) => void;
   localOnly: boolean;
   setLocalOnly: (on: boolean) => void;
+  /** Why the last cloud save failed ('' when it worked): shown so a coach knows it is only on this device. */
+  saveError?: string;
   /** Read-only session (a player or family account, or the app can't save). */
   readOnly: boolean;
 }
@@ -83,6 +85,8 @@ export function useHighlights(teamId: string, season: string): HighlightStore {
 
   const saveTimer = useRef<any>(null);
   const readOnly = isReadOnlySession();
+  // Why the last save to the cloud didn't happen (shown on the Highlights page), or '' when it did.
+  const [saveError, setSaveError] = useState('');
   const update = useCallback(
     (change: (d: HighlightsData) => HighlightsData) => {
       if (isReadOnlySession()) return;
@@ -91,18 +95,23 @@ export function useHighlights(teamId: string, season: string): HighlightStore {
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(async () => {
         const { db } = getFirebaseServices();
-        if (!db || isFirestoreQuotaPaused()) return;
+        if (!db) return setSaveError('Not connected to the cloud: kept on this device only.');
+        if (isFirestoreQuotaPaused()) return setSaveError('Cloud saves are paused (the daily limit): kept on this device until they resume.');
         const docRef = db.collection('teamData').doc(docId);
         try {
           const saved: HighlightsData = await db.runTransaction(async (tx: any) => {
             const snap = await tx.get(docRef);
             const merged = mergeHighlights(snap?.exists ? snap.data() : undefined, ref.current);
-            tx.set(docRef, cleanFirestoreData({ ...merged, teamId, season, updatedAt: Date.now() }));
+            // Not cleanFirestoreData: it blanks an object it has seen before, and every highlight from one game
+            // shares its game, so all but the first lost their game in the cloud copy.
+            tx.set(docRef, withoutUndefined({ ...merged, teamId, season, updatedAt: Date.now() }));
             return merged;
           });
           adopt(saved);
-        } catch (err) {
+          setSaveError('');
+        } catch (err: any) {
           console.warn('Could not save highlights:', err);
+          setSaveError(`Couldn't save to the cloud: ${err?.message || String(err)}`);
         }
       }, 600);
     },
@@ -121,5 +130,5 @@ export function useHighlights(teamId: string, season: string): HighlightStore {
     [teamId]
   );
 
-  return { data, update, localOnly, setLocalOnly, readOnly };
+  return { data, update, localOnly, setLocalOnly, readOnly, saveError };
 }

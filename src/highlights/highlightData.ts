@@ -41,8 +41,19 @@ export function mergeHighlights(a?: Partial<HighlightsData> | null, b?: Partial<
   const deletedReels = mergeTombstones(x.deletedReels, y.deletedReels);
   const sx = { ...defaultSettings(), ...(x.settings || {}) };
   const sy = { ...defaultSettings(), ...(y.settings || {}) };
+  // A highlight's game, from whichever copy still has it (a cloud copy once lost it: the save blanked a game shared
+  // by two highlights), else from another highlight of the same play, else marked unknown (never missing).
+  const gameOf = new Map<string, HighlightGame>();
+  const byPlay = new Map<string, HighlightGame>();
+  for (const h of [...(x.highlights || []), ...(y.highlights || [])]) {
+    if (!h?.game?.key) continue;
+    gameOf.set(h.id, h.game);
+    if (h.playId) byPlay.set(h.playId, h.game);
+  }
+  const withGame = (h: Highlight): Highlight =>
+    h.game?.key ? h : { ...h, game: gameOf.get(h.id) || (h.playId && byPlay.get(h.playId)) || { key: '', gameId: '', name: 'Game not known' } };
   return {
-    highlights: mergeById(x.highlights, y.highlights, deletedHighlights).sort((m, n) => m.createdAt - n.createdAt),
+    highlights: mergeById(x.highlights, y.highlights, deletedHighlights).map(withGame).sort((m, n) => m.createdAt - n.createdAt),
     deletedHighlights,
     reels: mergeById(x.reels, y.reels, deletedReels).sort((m, n) => m.createdAt - n.createdAt),
     deletedReels,

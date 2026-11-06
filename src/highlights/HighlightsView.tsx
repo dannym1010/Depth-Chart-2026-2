@@ -57,6 +57,18 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
   const order = useMemo(() => gameOrder(games), [games]);
   const sortedGames = useMemo(() => games.slice().sort((a, b) => (order.get(a.key) ?? 0) - (order.get(b.key) ?? 0)), [games, order]);
   const [tab, setTab] = useState<Tab>('clips');
+  // Highlights whose game was lost (an old save blanked it): their game again, from their play.
+  useEffect(() => {
+    if (ro) return;
+    const fix = new Map<string, HighlightGame>();
+    for (const h of data.highlights) {
+      if (h.game?.key || !h.playId) continue;
+      const p = plays.find((q) => q.id === h.playId);
+      const g = p && games.find((x) => x.gameId === p.gameId);
+      if (g) fix.set(h.id, { key: g.key, gameId: g.gameId, name: g.name, ...(g.week ? { week: g.week } : {}) });
+    }
+    if (fix.size) update((d) => ({ ...d, highlights: d.highlights.map((h) => (fix.has(h.id) ? { ...h, game: fix.get(h.id)!, editedAt: Date.now() } : h)) }));
+  }, [data.highlights, plays, games, ro, update]);
   const [clipsView, setClipsView] = useState<ClipsView>('kept');
   const [openId, setOpenId] = useState<string | null>(null);
   const [status, setStatus] = useState('');
@@ -334,6 +346,11 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
         </div>
       </div>
       {filmBar}
+      {store.saveError && (
+        <div role="alert" className="text-xs font-bold text-rose-700 dark:text-rose-300 rounded-lg border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 px-2.5 py-1.5">
+          {store.saveError}
+        </div>
+      )}
       {status && (
         <div role="status" className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-2">
           {status}

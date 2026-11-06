@@ -248,3 +248,20 @@ describe('exports', () => {
     assert.equal(toCsv(plan).split('\r\n').length, plan.v1.length + 1);
   });
 });
+
+describe('highlights saved to the cloud keep their game', () => {
+  it('a highlight whose game was lost gets it back from the other copy, and is never left without one', async () => {
+    const { mergeHighlights, emptyHighlights } = await import('./highlightData.ts');
+    const { withoutUndefined } = await import('../services/storageService.ts');
+    const game = { key: 'own_g1', gameId: 'g1', name: 'Week 3' };
+    const mk = (i: number, g: any) => ({ id: `hl_${i}`, game: g, kind: 'play', playId: `p${i}`, seq: i, view: '', clip: `c${i}`, start: 0, end: 5, title: 't', categories: ['other'], kids: [], rating: 1, createdBy: 'me', createdAt: i, editedAt: i }) as any;
+    const local = { ...emptyHighlights(), highlights: [mk(1, game), mk(2, game), mk(3, game)] };
+    // Saved now: every highlight keeps its game (they all share one object).
+    const saved = JSON.parse(JSON.stringify(withoutUndefined(local)));
+    assert.deepEqual(saved.highlights.map((h: any) => h.game.key), ['own_g1', 'own_g1', 'own_g1']);
+    // An old cloud copy that lost them: the device's copy puts them back; with no copy, "Game not known".
+    const broken = { ...local, highlights: [mk(1, game), mk(2, null), mk(3, null)] };
+    assert.deepEqual(mergeHighlights(local, broken).highlights.map((h) => h.game.key), ['own_g1', 'own_g1', 'own_g1']);
+    assert.deepEqual(mergeHighlights(broken, undefined).highlights.map((h) => h.game.name), ['Week 3', 'Game not known', 'Game not known']);
+  });
+});
