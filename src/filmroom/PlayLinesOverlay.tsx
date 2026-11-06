@@ -4,7 +4,7 @@ import { DEFENSE_COLOR, diagramLabel, isDefenseRole, lineStartsOn, passThrow, sh
 import { arrowOnField, circleOnField, cutLine, dashLine, densify, lengthOf, pointBack, polygon, polyline, ribbon, tOnField, zigzagLine, type Px } from './linesArt';
 import { cameraFromFilm, cameraProjector, clipPolygon, filmProjector, lerpCam, MAX_PITCH, MIN_PITCH, VIEWS, visibleRuns, type Cam, type Projector } from './fieldCamera';
 import { computeAnimatedPlayFrame, DEFENSE_TRAIL, playAnimationSeconds, shiftAdjusts, snapProgress } from '../utils/playAnimation';
-import { computeGapIntegrity, type GapFitSlot } from '../utils/defenseReads';
+import { computeGapIntegrity, placeGapSlots, type GapFitSlot } from '../utils/defenseReads';
 import { defenseCallStrokes, joinPressure, pressureParts, PRESSURES } from '../utils/defenseCalls';
 import { safeJSONParse, safeJSONSet } from '../services/storageService';
 import { ChevronLeft, ChevronRight, Columns3, Contrast, Eye, EyeOff, FlipHorizontal2, FlipVertical2, Map as MapIcon, Move, MoveUpRight, Pause, Play, RotateCcw, SkipBack, X } from 'lucide-react';
@@ -551,6 +551,8 @@ export function usePlayLines(opts: {
       : lines;
     return {
       ...onFilm(src),
+      // The play as drawn (before anyone is lined up on the film): who fits which gap comes from here.
+      drawn: src,
       setQuad,
       // A player dragged on the film: where he lines up in this clip. The diagram keeps him where he's drawn.
       moveNode: (role: string, x: number, y: number) => setQuad({ ...lines.quad, moved: { ...lines.quad.moved, [role]: { x, y } } }),
@@ -614,13 +616,55 @@ export function usePlayLines(opts: {
   );
   const moving = progress > 0.002;
   const hasDefense = Boolean(shown?.nodes.some((n) => isDefenseRole(n.role)));
-  // The gaps, as the builder works them out: from where our defenders line up on this film.
+  // The gaps, exactly as the builder works them out from the play as drawn (its spots and rules), then drawn where
+  // the players are lined up on this film. Nudging a player to match the video never changes who has which gap.
   const gaps = useMemo<GapFitSlot[]>(() => {
     if (!shown || !showGaps || !hasDefense) return [];
-    const def = shown.nodes.filter((n) => isDefenseRole(n.role));
-    const off = shown.nodes.filter((n) => !isDefenseRole(n.role));
-    return computeGapIntegrity(def, off, shown.defenseRules || {}, shown.strokes, shown.holeX);
+    const { drawn } = shown;
+    const slots = computeGapIntegrity(
+      drawn.nodes.filter((n) => isDefenseRole(n.role)),
+      drawn.nodes.filter((n) => !isDefenseRole(n.role)),
+      drawn.defenseRules || {},
+      drawn.strokes,
+      drawn.holeX
+    );
+    return placeGapSlots(
+      slots,
+      shown.nodes.filter((n) => !isDefenseRole(n.role)),
+      shown.nodes.filter((n) => isDefenseRole(n.role))
+    );
   }, [shown, showGaps, hasDefense]);
+  // Stopped on their shift with the gaps on: the gaps where everyone is now (their shift set: their new gaps against
+  // where we still are; our defense set: who fits which after our adjustment). Worked out on the play as drawn at
+  // this moment, with the rules after their shift, then drawn where the players are on this film.
+  const stopGaps = useMemo<GapFitSlot[] | null>(() => {
+    if (!shown || !showGaps || !hasDefense || !(atShiftSet || atDefenseSet) || !frame) return null;
+    const { drawn } = shown;
+    const rules = (adjusts && drawn.rulesAfterShift) || drawn.defenseRules || {};
+    const there = computeAnimatedPlayFrame(
+      drawn.nodes,
+      drawn.strokes.filter((s) => !isDefenseStroke(s)),
+      drawn.strokes.filter(isDefenseStroke),
+      drawn.ballRole,
+      progress,
+      drawn.hole,
+      rules,
+      undefined,
+      drawn.shiftDefense
+    );
+    const slots = computeGapIntegrity(
+      there.nodes.filter((n) => isDefenseRole(n.role)),
+      there.nodes.filter((n) => !isDefenseRole(n.role)),
+      rules,
+      [],
+      drawn.holeX
+    );
+    return placeGapSlots(
+      slots,
+      frame.nodes.filter((n) => !isDefenseRole(n.role)),
+      frame.nodes.filter((n) => isDefenseRole(n.role))
+    );
+  }, [shown, showGaps, hasDefense, atShiftSet, atDefenseSet, frame, progress, adjusts]);
   // Each defender's arrow: his own drawn line (a blitz, a drop, man), else where he goes reading this play.
   const defenseArrows = useMemo<PlayStroke[]>(() => {
     if (!shown || !defArrows || !hasDefense) return [];
@@ -672,7 +716,7 @@ export function usePlayLines(opts: {
           video={video}
           lines={defenseArrows.length ? { ...shown, strokes: [...shown.strokes.filter((s) => !defenseArrows.includes(s)), ...defenseArrows] } : shown}
           always={defenseArrows}
-          gaps={moving ? [] : gaps}
+          gaps={stopGaps || (moving ? [] : gaps)}
           frame={moving ? frame : null}
           shiftMove={shiftMove}
           side={side}
@@ -2062,7 +2106,8 @@ const LinesDrawing: React.FC<{
   // Our defense's gaps, the builder's way: the gap's letter in a pill (green filled, red open, amber doubled) and a
   // dashed line from each defender to his gap, laid on the turf; the gap the play attacks is ringed when it's open.
   let gapArt: React.ReactNode = null;
-  if (gaps.length && showing(true) && !moving && !lineUp) {
+  // (While the play runs it's given none, except stopped on their shift: the gaps where everyone is then.)
+  if (gaps.length && showing(true) && !lineUp) {
     const fade = layerSince === Infinity ? 1 : clamp01((layerSince - 300) / 400);
     const fs = 10 * k;
     const th = fs + 6 * k;

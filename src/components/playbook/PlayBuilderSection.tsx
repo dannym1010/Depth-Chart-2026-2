@@ -638,9 +638,35 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
         if (cat === 'tech' || cat === 'align') continue;
         if (opt) mine[cat] = opt;
         else delete mine[cat];
+        // A gap picked in the panel is on his side of the ball (the field's Gaps says when it's across).
+        if ((cat === 'gap' || cat === 'fit') && !('gapSide' in picks)) delete mine.gapSide;
       }
       return { ...prev, [role]: mine };
     });
+  /**
+   * A gap tapped on the field, then the defender who fits it: his rule, so the panel, the gaps and the play all
+   * agree. A lineman's Gap, anyone else's Run fit; a contain pick that would overrule it comes off. `over`: the
+   * gap is across the center from where he lines up. After their shift (the panel on After shift): his rules after it.
+   */
+  const assignGap = (role: string, gap: 'A' | 'B' | 'C' | 'D', over: boolean) => {
+    const line = defenseGroup(role) === 'line';
+    const current = (afterShift ? shiftRules[role] ?? defRules[role] : defRules[role]) || {};
+    const change: Record<string, string> = { [line ? 'gap' : 'fit']: gap, gapSide: over ? 'over' : '' };
+    if (line && current.play === 'contain') change.play = '';
+    if (!line && ['contain', 'force'].includes(current.action || '')) change.action = '';
+    if (!line && current.fit === 'edge') change.fit = gap;
+    if (afterShift) pickAfterShift(role, change);
+    else
+      setDefRules((prev) => {
+        const mine = { ...(prev[role] || {}) };
+        for (const [k, v] of Object.entries(change)) {
+          if (v) mine[k] = v;
+          else delete mine[k];
+        }
+        return { ...prev, [role]: mine };
+      });
+    if (theirPlay) setDefenseOwn(true);
+  };
   const renderDefenderRules = (n: PlayNode) => {
     const standard = dLook ? standardDefenseJob(n.role, dLook, containFor(dLook.front)) : '';
     const changedAfter = Boolean(shiftRules[n.role]) && JSON.stringify(shiftRules[n.role]) !== JSON.stringify(defRules[n.role] || {});
@@ -727,6 +753,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
             const mine = { ...(prev[n.role] || {}) };
             if (opt) mine[cat] = opt;
             else delete mine[cat];
+            // A gap picked here is on his side of the ball (the field's Gaps says when it's across).
+            if (cat === 'gap' || cat === 'fit') delete mine.gapSide;
             const next = { ...prev };
             if (Object.keys(mine).length) next[n.role] = mine;
             else delete next[n.role];
@@ -2424,6 +2452,10 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               extraStrokes={callStrokes}
               defenseRules={playRules}
               gapFits={showGapFits ? gapIntegritySlots : undefined}
+              // The Gaps button on the field; tap a gap, then the defender who fits it.
+              gapsOn={showGapFits}
+              onToggleGaps={dLook ? () => setShowGapFits(!showGapFits) : undefined}
+              onAssignGap={dLook && canEdit ? assignGap : undefined}
               spotlightRole={spotlightRole}
               stemFrom={stemFrom}
               shiftDefense={shiftDefense}

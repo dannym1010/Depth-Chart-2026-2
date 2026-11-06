@@ -1,9 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { assemblePlay, autoDrawPlay, OUR_DEFENSE_LOOKS, PLAY_CONCEPTS, type PlayNode, type PlayStroke } from './footballEngine.ts';
+import { assemblePlay, autoDrawPlay, isDefenseRole, OUR_DEFENSE_LOOKS, PLAY_CONCEPTS, type PlayNode, type PlayStroke } from './footballEngine.ts';
 import { defenseCallStrokes } from './defenseCalls.ts';
 import { computeAnimatedPlayFrame } from './playAnimation.ts';
-import { computeGapIntegrity, defenseJobs } from './defenseReads.ts';
+import { computeGapIntegrity, defenseJobs, placeGapSlots } from './defenseReads.ts';
 
 const base44 = OUR_DEFENSE_LOOKS['44_C3_LIZ'].nodes;
 const at = (frame: ReturnType<typeof computeAnimatedPlayFrame>, role: string) => frame.nodes.find((n) => n.role === role)!;
@@ -163,7 +163,9 @@ describe('our defense reads a run', () => {
   });
 
   it('evaluates live defensive gap integrity and flags open vs overloaded gaps', () => {
-    const offOnly = sweep.nodes.filter((n) => !base44.some((d) => d.role === n.role));
+    // A balanced line (no tight ends): the 4-4 drawn for it fits every gap. (Against the Beast, an unbalanced line,
+    // it is short a man on the four-man side, as it should be.)
+    const offOnly = verticals.nodes.filter((n) => !base44.some((d) => d.role === n.role));
     const baseSlots = computeGapIntegrity(base44, offOnly, {}, []);
     assert.ok(baseSlots.length >= 6);
     assert.equal(baseSlots.filter((s) => s.status === 'open').length, 0, 'balanced 4-4 accounts for every gap');
@@ -179,6 +181,77 @@ describe('our defense reads a run', () => {
     const badSlots = computeGapIntegrity(base44, offOnly, overloadedRules, [], -4.5);
     assert.ok(badSlots.some((s) => s.status === 'open'), 'flags unaccounted gap when defenders stack in A gap');
     assert.ok(badSlots.some((s) => s.status === 'overloaded'), 'flags overloaded gap when multiple defenders stack in A gap');
+  });
+});
+
+describe('gap fits: who has which gap', () => {
+  // Double tight (a tight end each side), and a 5-4 built from the 5-3: its free safety walked up as a fourth
+  // backer (named WILL on the depth chart), the 5-3's WILL out wide as the Rover.
+  const off = assemblePlay('22_DOUBLE_TIGHT', 'I_FORM', '34_DIVE', 'Right').nodes;
+  const fiveFour: PlayNode[] = [
+    { role: 'E9', x: -5.96, y: 1.4 },
+    { role: 'T3', x: -3.0, y: 1.4 },
+    { role: 'NT', x: -0.1, y: 1.4 },
+    { role: 'DT3', x: 3.06, y: 1.4 },
+    { role: 'E5', x: 5.98, y: 1.4 },
+    { role: 'WILL', x: -7.6, y: 3.6 },
+    { role: 'MIKE', x: -2.07, y: 4.2 },
+    { role: 'FS', x: 2.27, y: 4.2 },
+    { role: 'SAM', x: 7.68, y: 3.9 },
+    { role: 'CBL', x: -9.5, y: 6 },
+    { role: 'CBR', x: 9.5, y: 5.8 },
+  ] as PlayNode[];
+  const fits = (def: PlayNode[], rules = {}) =>
+    Object.fromEntries(computeGapIntegrity(def, off, rules).map((s) => [s.id, s.defenders.map((d) => d.role).sort().join('+')]));
+
+  it('each man fits the gap he lines up on (the 5-4: the ends C, the tackles B, the nose and the inside backers the A gaps, the outside backers D)', () => {
+    assert.deepEqual(fits(fiveFour), { DL: 'WILL', CL: 'E9', BL: 'T3', AL: 'MIKE+NT', AR: 'FS+NT', BR: 'DT3', CR: 'E5', DR: 'SAM' });
+  });
+
+  it('an unbalanced line: the gaps count out from the center where their men stand (not by their names)', () => {
+    // The Beast: both tackles and the tight end on the right, the left guard alone on the left.
+    const beast = sweep.nodes.filter((n) => !isDefenseRole(n.role));
+    const slots = computeGapIntegrity(base44, beast);
+    const x = (id: string) => slots.find((s) => s.id === id)?.x;
+    assert.deepEqual(slots.map((s) => s.id), ['CL', 'BL', 'AL', 'AR', 'BR', 'CR', 'DR']);
+    assert.ok(x('BL')! < -2 && x('CL')! < x('BL')!, 'the short side: past the guard');
+    assert.ok(x('CR')! > 4 && x('CR')! < 6.2 && x('DR')! > 6.2, 'the long side: between the tackles, then outside the tight end');
+  });
+
+  it('a free safety walked down into the box is a backer', () => {
+    assert.equal(defenseJobs(fiveFour).get('FS')?.job, 'inside');
+    assert.equal(defenseJobs(base44).get('FS')?.job, 'deep');
+  });
+
+  it('the same however the defense is listed (nobody takes a gap just by being counted first)', () => {
+    const want = fits(fiveFour);
+    for (let k = 0; k < 6; k++) {
+      const shuffled = [...fiveFour].sort((a, b) => ((a.x * 7 + k) % 3) - ((b.x * 7 + k) % 3));
+      assert.deepEqual(fits(shuffled), want);
+    }
+  });
+
+  it('a gap picked wins; across the ball when the field says so', () => {
+    assert.equal(fits(fiveFour, { MIKE: { fit: 'B' } }).BL.split('+').includes('MIKE'), true);
+    const over = fits(fiveFour, { MIKE: { fit: 'A', gapSide: 'over' } });
+    assert.ok(over.AR.split('+').includes('MIKE'), JSON.stringify(over));
+    assert.ok(!over.AL.split('+').includes('MIKE'));
+  });
+
+  it('on the film the same men keep the same gaps wherever they are nudged to fit the video', () => {
+    const slots = computeGapIntegrity(fiveFour, off);
+    const nudged = fiveFour.map((n) => ({ ...n, x: n.x + (n.role === 'DT3' ? 1.4 : 0.3) }));
+    const placed = placeGapSlots(slots, off.map((n) => ({ ...n, x: n.x * 1.1 })), nudged);
+    assert.deepEqual(placed.map((s) => s.defenders.map((d) => d.role)), slots.map((s) => s.defenders.map((d) => d.role)));
+    assert.equal(placed.find((s) => s.id === 'BR')!.defenders[0].fromX, nudged.find((n) => n.role === 'DT3')!.x);
+  });
+
+  it('a lineman with his gap picked goes there on the snap', () => {
+    const nodes = [...sweep.nodes.filter((n) => !isDefenseRole(n.role)), ...base44];
+    const start = base44.find((n) => n.role === 'T3')!;
+    const f = computeAnimatedPlayFrame(nodes, sweep.strokes, [], '3', 0.3, null, { T3: { gap: 'C' } });
+    const plain = computeAnimatedPlayFrame(nodes, sweep.strokes, [], '3', 0.3);
+    assert.ok(at(f, 'T3').x < at(plain, 'T3').x - 0.5, `T3 went out to the C gap (${start.x}: ${at(plain, 'T3').x} -> ${at(f, 'T3').x})`);
   });
 });
 

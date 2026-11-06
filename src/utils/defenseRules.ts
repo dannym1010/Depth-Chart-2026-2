@@ -454,7 +454,13 @@ export function rulesText(role: string, picks: Record<string, string> = {}, assi
     }
     const opt = cat.options.find((o) => o.id === picks[cat.id]);
     if (!opt) continue;
-    parts.push(cat.id === 'tech' ? `${opt.id} technique` : cat.id === 'fit' ? `${opt.label} fit` : opt.label);
+    // A gap assigned across the center from him (on the field's Gaps): "the other A gap".
+    const across = (cat.id === 'gap' || cat.id === 'fit') && picks.gapSide === 'over' ? ' (across the ball)' : '';
+    parts.push(cat.id === 'tech' ? `${opt.id} technique` : cat.id === 'fit' ? `${opt.label} fit${across}` : `${opt.label}${across}`);
+  }
+  // A defensive back given a gap on the field (a safety walked down into the box): it shows too.
+  if (picks.fit && !RULE_LIBRARY[group].some((c) => c.id === 'fit')) {
+    parts.push(`${picks.fit} gap fit${picks.gapSide === 'over' ? ' (across the ball)' : ''}`);
   }
   // A drawn job that isn't in his library (given before, from the call menu): its name.
   if (!drawn && assign) parts.push(jobLabel(assign));

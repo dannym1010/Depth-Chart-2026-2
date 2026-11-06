@@ -52,11 +52,15 @@ export function ruleContain(rule: Record<string, string> = {}): boolean | undefi
  */
 export function defenseJobs(defense: PlayNode[], rules: Record<string, Record<string, string>> = {}): Map<string, Defender> {
   const line = defense.filter((n) => LINE.test(n.role));
-  const backers = defense.filter((n) => BACKER.test(n.role));
-  const backerEdge = backers.length >= 4;
   // Sides are measured from the middle of our line (it lines up on the ball, on any hash).
   const xs = line.map((n) => n.x).sort((a, b) => a - b);
   const mid = xs.length ? (xs[0] + xs[xs.length - 1]) / 2 : 0;
+  // A backer is where he lines up: a safety or corner walked down into the box (a front made from the 5-3 with its
+  // free safety moved up as a fourth backer) plays like one.
+  const inBox = (n: PlayNode) => xs.length > 0 && n.y < 5.5 && n.x > xs[0] - 3 && n.x < xs[xs.length - 1] + 3;
+  const backers = defense.filter((n) => BACKER.test(n.role) || (/^(FS|SS|CB)/.test(n.role) && inBox(n)));
+  const backerSet = new Set(backers);
+  const backerEdge = backers.length >= 4;
   // The outermost on a side (-1 left, 1 right).
   const outer = (list: PlayNode[], side: number) => list.filter((n) => (n.x - mid) * side > 0.3).sort((a, b) => side * (b.x - a.x))[0];
   const ends = new Set([outer(line, -1), outer(line, 1)].filter(Boolean));
@@ -75,7 +79,7 @@ export function defenseJobs(defense: PlayNode[], rules: Record<string, Record<st
         ? ends.has(n)
           ? 'end'
           : 'tackle'
-        : BACKER.test(n.role)
+        : backerSet.has(n)
           ? outsides.has(n)
             ? 'outside'
             : 'inside'
@@ -151,36 +155,52 @@ function along(pts: P[], f: number): P {
   return pts[pts.length - 1];
 }
 
-/** Compute A, B, C, D gap X coordinates on each side from the offensive line alignment. */
-function computeGaps(off: PlayNode[]) {
-  const x = (r: string, d: number) => off.find((n) => n.role === r)?.x ?? d;
-  const C = x('C', 0);
-  const LG = x('LG', C - 2);
-  const RG = x('RG', C + 2);
-  const LT = x('LT', LG - 2);
-  const RT = x('RT', RG + 2);
-  const te = off.filter((n) => n.line && /^Y\d?$/.test(n.role));
-  const lte = te.filter((n) => n.x < C).sort((a, b) => a.x - b.x)[0]?.x;
-  const rte = te.filter((n) => n.x > C).sort((a, b) => b.x - a.x)[0]?.x;
-  return {
-    C,
-    left: {
-      A: (C + LG) / 2,
-      B: (LG + LT) / 2,
-      C: lte != null ? (LT + lte) / 2 : LT - 1.1,
-      D: lte != null ? lte - 1.2 : LT - 2.4,
-      alley: (lte ?? LT) - 3.6,
-      edge: (lte ?? LT) - 1.8,
-    },
-    right: {
-      A: (C + RG) / 2,
-      B: (RG + RT) / 2,
-      C: rte != null ? (RT + rte) / 2 : RT + 1.1,
-      D: rte != null ? rte + 1.2 : RT + 2.4,
-      alley: (rte ?? RT) + 3.6,
-      edge: (rte ?? RT) + 1.8,
-    },
+/** Next to each other on the line: at most this far apart (a split end isn't part of their line). */
+const LINE_GAP = 3.2;
+
+/**
+ * Their line, from where they stand (not what they're called): the center, then each side's men going out from
+ * him, everyone on the line of scrimmage within a split of the man inside him (linemen, tight ends, a wing who
+ * stepped up; not a back, not a split end). An unbalanced line (both tackles on one side) counts right.
+ */
+function lineSides(off: PlayNode[]): { C: number; left: number[]; right: number[] } {
+  const center = off.find((n) => n.role === 'C');
+  const C = center?.x ?? 0;
+  if (!center) return { C, left: [], right: [] };
+  const onLine = off.filter((n) => n !== center && !/^[1-4]$/.test(n.role) && (OL.includes(n.role) || Math.abs(n.y - center.y) < 0.8));
+  const side = (s: number) => {
+    const out: number[] = [];
+    let last = C;
+    for (const x of onLine.map((n) => n.x).filter((x) => (x - C) * s > 0.3).sort((a, b) => (a - b) * s)) {
+      if (Math.abs(x - last) > LINE_GAP) break;
+      out.push(x);
+      last = x;
+    }
+    return out;
   };
+  return { C, left: side(-1), right: side(1) };
+}
+
+/**
+ * Compute A, B, C, D gap X coordinates on each side from where their line stands: each gap between two men going
+ * out from the center, then past the last man the next gap a step outside him and the one after that wider.
+ */
+function computeGaps(off: PlayNode[]) {
+  const { C, left, right } = lineSides(off);
+  const side = (men: number[], s: number) => {
+    // No line drawn (just a center): the standard splits.
+    const list = men.length ? men : [C + s * 2, C + s * 4];
+    const at = (k: number) => {
+      if (k < list.length) return (k === 0 ? (C + list[0]) / 2 : (list[k - 1] + list[k]) / 2);
+      const last = list[list.length - 1];
+      const past = k - list.length;
+      // One gap past him (a tight end's D, a tackle's C): a step outside; each one after that wider.
+      return last + s * (list.length >= 3 && past === 0 ? 1.2 : 1.1 + 1.3 * past);
+    };
+    const last = list[list.length - 1];
+    return { A: at(0), B: at(1), C: at(2), D: at(3), alley: last + s * 3.6, edge: last + s * 1.8 };
+  };
+  return { C, left: side(left, -1), right: side(right, 1) };
 }
 
 /**
@@ -402,6 +422,8 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
   const goal = (d: Defender, start: P, me: P, now: number, v: number): P => {
     const s = Math.sign(start.x - gMap.C) || 1;
     const rule = rules[d.role] || {};
+    // The side of his picked gap: his own, or across the center ("over").
+    const gs = rule.gapSide === 'over' ? -s : s;
     const zoneStroke = zones.get(d.role);
     const manRole = manTargets.get(d.role);
 
@@ -501,7 +523,7 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
     if (now < 0.1) {
       // The snap: the line fires off, the backers read-step toward their key/flow, the secondary checks pass/run.
       if (d.line) {
-        const dlTargetX = rule.gap ? gapX(rule.gap, s, start.x + side * 0.3) : start.x + side * 0.3;
+        const dlTargetX = rule.gap ? gapX(rule.gap, gs, start.x + side * 0.3) : start.x + side * 0.3;
         const depth = rule.play === 'penetrate' ? 1.45 : rule.play === 'twogap' ? 0.65 : 1.1;
         return { x: start.x + (dlTargetX - start.x) * 0.5, y: start.y - depth };
       }
@@ -527,7 +549,7 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
 
     // D-Line Run Fits & Actions
     if (d.line) {
-      const assignedGapX = rule.gap ? gapX(rule.gap, s, start.x) : start.x;
+      const assignedGapX = rule.gap ? gapX(rule.gap, gs, start.x) : start.x;
       if (rule.play === 'penetrate') {
         if (now < 0.28) return { x: assignedGapX, y: -1.1 };
         return chase(me, v * 1.08, now);
@@ -573,12 +595,14 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
 
     switch (d.job) {
       case 'end':
-        // Inside the contain man: squeeze down, then pursue (backside: flat down the line).
+        // His gap picked: into it first. Else inside the contain man: squeeze down, then pursue (backside: flat
+        // down the line).
+        if (rule.gap && now < 0.26) return { x: gapX(rule.gap, gs, start.x), y: -0.4 };
         if (mine && now < 0.28) return { x: start.x - s * 1.3, y: -0.3 };
         return chase(me, v, now, playside ? { x: s * 0.4, y: 0 } : { x: 0, y: -0.4 });
       case 'tackle':
-        // Into his gap, then to the ball.
-        if (now < 0.24) return { x: start.x + side * 0.7, y: -0.7 };
+        // Into his gap (the one picked, else the way the play goes), then to the ball.
+        if (now < 0.24) return { x: rule.gap ? gapX(rule.gap, gs, start.x) : start.x + side * 0.7, y: -0.7 };
         return chase(me, v, now);
       case 'corner':
         if (rule.run === 'crack_replace' || rule.run === 'force' || rule.run === 'contain') {
@@ -659,7 +683,7 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
                 ? hole.x - flowDir * 0.8
                 : hole.x + flowDir * 1.1;
         const emolTightShift = readKey === 'emol' ? -s * 0.55 : 0;
-        const targetGapX = (rule.fit ? gapX(rule.fit, flowDir || s, defaultFitX) : defaultFitX) + emolTightShift;
+        const targetGapX = (rule.fit ? gapX(rule.fit, gs, defaultFitX) : defaultFitX) + emolTightShift;
 
         // PHASE 1: Read & Lateral Flow parallel to the Line of Scrimmage (staying square at LB depth)
         if (now < flowUntil) {
@@ -746,6 +770,23 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
   return { pos, trails };
 }
 
+/**
+ * The same gap fits drawn on another lineup of the same players (the play lined up on a film): each gap where it
+ * is between their linemen there, each defender where he stands there. Who fits which gap doesn't change.
+ */
+export function placeGapSlots(slots: GapFitSlot[], offense: PlayNode[], defense: PlayNode[]): GapFitSlot[] {
+  if (!slots.length || !offense.some((n) => n.role === 'C')) return slots;
+  const g = computeGaps(offense);
+  return slots.map((s) => ({
+    ...s,
+    x: round(g[s.side][s.gap]),
+    defenders: s.defenders.map((d) => {
+      const n = defense.find((o) => o.role === d.role);
+      return n ? { ...d, fromX: n.x, fromY: n.y } : d;
+    }),
+  }));
+}
+
 export interface GapFitSlot {
   id: string;
   side: 'left' | 'right';
@@ -773,10 +814,17 @@ export function computeGapIntegrity(
   if (!defense.length || !offense.length) return [];
   const gMap = computeGaps(offense);
   const C = gMap.C;
-  const LT = offense.find((n) => n.role === 'LT')?.x ?? C - 4;
-  const RT = offense.find((n) => n.role === 'RT')?.x ?? C + 4;
-  const hasLeftTE = offense.some((n) => n.x < LT - 0.5 && n.x > LT - 4.2 && Math.abs(n.y) < 2.2);
-  const hasRightTE = offense.some((n) => n.x > RT + 0.5 && n.x < RT + 4.2 && Math.abs(n.y) < 2.2);
+  // Their line where it stands: a D gap on a side with three men (a tight end, or the unbalanced side).
+  const sides = lineSides(offense);
+  const hasLeftTE = sides.left.length >= 3;
+  const hasRightTE = sides.right.length >= 3;
+  // Their line, left to right, and how close to a man is head-up on him.
+  const onLineX = new Set([sides.C, ...sides.left, ...sides.right]);
+  const center = offense.find((o) => o.role === 'C');
+  const lineMen = offense.filter((n) => n === center || (!/^[1-4]$/.test(n.role) && onLineX.has(n.x) && n.role !== 'C'));
+  const splits = lineMen.map((n) => n.x).sort((a, b) => a - b);
+  const split = splits.length > 1 ? (splits[splits.length - 1] - splits[0]) / (splits.length - 1) : 2;
+  const headUp = split * 0.28;
 
   const slots: GapFitSlot[] = [
     ...(hasLeftTE
@@ -835,7 +883,9 @@ export function computeGapIntegrity(
     const job = jobs.get(d.role);
     if (!job) continue;
     const rule = rules[d.role] || {};
-    const side: 'left' | 'right' = d.x < C - 0.1 ? 'left' : d.x > C + 0.1 ? 'right' : targetHoleX != null && targetHoleX < C ? 'left' : 'right';
+    // His side of the ball (head-up on it: the right). A gap picked "over" is the one across the center from him.
+    const ownSide: 'left' | 'right' = d.x < C - 0.1 ? 'left' : 'right';
+    const side: 'left' | 'right' = rule.gapSide === 'over' ? (ownSide === 'left' ? 'right' : 'left') : ownSide;
 
     // 1. Check if this defender has a blitz/stunt stroke attacking the LOS
     const blitz = strokes.find((st) => {
@@ -859,15 +909,29 @@ export function computeGapIntegrity(
         continue;
       }
       if (rule.play === 'contain') {
-        const slot = slotBySideAndGap(side, 'edge');
+        const slot = slotBySideAndGap(ownSide, 'edge');
         slot.defenders.push({ role: d.role, fromX: d.x, fromY: d.y, source: 'rule' });
         continue;
       }
-      // Standard DL alignment fit: closest open gap on his side (or closest gap if all on his side are taken)
-      const openDlOnSide = slots
-        .filter((s) => (Math.abs(d.x - C) < 0.8 || s.side === side) && s.defenders.length === 0)
-        .sort((a, b) => Math.abs(a.x - d.x) - Math.abs(b.x - d.x))[0];
-      const primary = openDlOnSide || nearestSlot(d.x, Math.abs(d.x - C) < 0.8 ? undefined : side);
+      // No gap picked: the gap he lines up in, by his alignment alone (never "whatever's still open", so it doesn't
+      // depend on who was counted first). In a gap or shaded on a man: that gap. Head-up on a man: the gap inside
+      // him; head-up on the center (a 0 technique): both A gaps.
+      const man = lineMen.slice().sort((a, b) => Math.abs(a.x - d.x) - Math.abs(b.x - d.x))[0];
+      let primary: GapFitSlot;
+      if (man && Math.abs(man.x - d.x) <= headUp && man.role === 'C') {
+        const al = slots.find((s) => s.id === 'AL')!;
+        const ar = slots.find((s) => s.id === 'AR')!;
+        al.defenders.push({ role: d.role, fromX: d.x, fromY: d.y, source: 'align' });
+        ar.defenders.push({ role: d.role, fromX: d.x, fromY: d.y, source: 'align' });
+        continue;
+      } else if (man && Math.abs(man.x - d.x) <= headUp) {
+        const manSide: 'left' | 'right' = man.x < C ? 'left' : 'right';
+        primary = slots
+          .filter((s) => s.side === manSide && Math.abs(s.x - C) < Math.abs(man.x - C))
+          .sort((a, b) => Math.abs(a.x - man.x) - Math.abs(b.x - man.x))[0] || nearestSlot(d.x, ownSide);
+      } else {
+        primary = nearestSlot(d.x, Math.abs(d.x - C) < 0.3 ? undefined : ownSide);
+      }
       primary.defenders.push({ role: d.role, fromX: d.x, fromY: d.y, source: 'align' });
       if (rule.play === 'twogap') {
         const second = slots
@@ -887,7 +951,7 @@ export function computeGapIntegrity(
       continue;
     }
     if (rule.action === 'contain' || rule.action === 'force' || rule.run === 'force' || rule.run === 'contain' || rule.run === 'crack_replace') {
-      const slot = slotBySideAndGap(side, 'edge');
+      const slot = slotBySideAndGap(ownSide, 'edge');
       slot.defenders.push({ role: d.role, fromX: d.x, fromY: d.y, source: 'rule' });
       continue;
     }
@@ -898,21 +962,52 @@ export function computeGapIntegrity(
     }
   }
 
-  // Second pass: Standard Linebackers fill the open gaps on their side (or edge if outside backer)
-  for (const d of pendingBackers) {
+  // Second pass: the backers with no gap picked. The contain men (and outside backers) take the edge on their side
+  // first; then each inside backer the open gap on his side nearest him (never one across the field). With none
+  // open on his side, he doubles the gap toward the ball he lines up over (backers fit inside-out).
+  const sideOf = (d: PlayNode): 'left' | 'right' =>
+    d.x < C - 0.2 ? 'left' : d.x > C + 0.2 ? 'right' : slots.find((s) => s.side === 'left' && !s.defenders.length) ? 'left' : 'right';
+  const outsideFirst = [...pendingBackers].sort((a, b) => {
+    const ea = jobs.get(a.role)!, eb = jobs.get(b.role)!;
+    return Number(eb.edge || eb.job === 'outside') - Number(ea.edge || ea.job === 'outside') || Math.abs(b.x - C) - Math.abs(a.x - C);
+  });
+  const placed = new Set<string>();
+  for (const d of outsideFirst) {
     const job = jobs.get(d.role)!;
-    const side: 'left' | 'right' = d.x < C - 0.2 ? 'left' : d.x > C + 0.2 ? 'right' : slots.find((s) => s.side === 'left' && !s.defenders.length) ? 'left' : 'right';
-    if (job.edge || job.job === 'outside') {
-      const edgeSlot = slotBySideAndGap(side, 'edge');
-      if (!edgeSlot.defenders.length) {
-        edgeSlot.defenders.push({ role: d.role, fromX: d.x, fromY: d.y, source: 'align' });
-        continue;
+    if (!(job.edge || job.job === 'outside')) continue;
+    const edgeSlot = slotBySideAndGap(sideOf(d), 'edge');
+    if (!edgeSlot.defenders.length) {
+      edgeSlot.defenders.push({ role: d.role, fromX: d.x, fromY: d.y, source: 'align' });
+      placed.add(d.role);
+    }
+  }
+  // The open gaps, each to the backer on its side nearest it: the closest pair first, then the next.
+  for (;;) {
+    let best: { d: PlayNode; s: GapFitSlot; dist: number } | null = null;
+    for (const d of outsideFirst) {
+      if (placed.has(d.role)) continue;
+      for (const s of slots) {
+        if (s.defenders.length || s.side !== sideOf(d)) continue;
+        const dist = Math.abs(s.x - d.x);
+        if (!best || dist < best.dist) best = { d, s, dist };
       }
     }
-    // Find nearest open gap on his side, else nearest open gap anywhere on the front, else nearest gap on his side
-    const openOnSide = slots.filter((s) => s.side === side && s.defenders.length === 0).sort((a, b) => Math.abs(a.x - d.x) - Math.abs(b.x - d.x))[0];
-    const openAny = slots.filter((s) => s.defenders.length === 0).sort((a, b) => Math.abs(a.x - d.x) - Math.abs(b.x - d.x))[0];
-    const picked = openOnSide || openAny || nearestSlot(d.x, side);
+    if (!best) break;
+    best.s.defenders.push({ role: best.d.role, fromX: best.d.x, fromY: best.d.y, source: 'align' });
+    placed.add(best.d.role);
+  }
+  for (const d of outsideFirst) {
+    if (placed.has(d.role)) continue;
+    const side = sideOf(d);
+    const mine = slots.filter((s) => s.side === side);
+    const open = mine.filter((s) => s.defenders.length === 0).sort((a, b) => Math.abs(a.x - d.x) - Math.abs(b.x - d.x))[0];
+    const fewest = Math.min(...mine.map((s) => s.defenders.length));
+    const inside = mine
+      .filter((s) => s.defenders.length === fewest)
+      .sort((a, b) => Math.abs(a.x - d.x) - Math.abs(b.x - d.x) || Math.abs(a.x - C) - Math.abs(b.x - C));
+    // Of the two gaps either side of where he stands, the one nearer the ball.
+    const near = inside.filter((s) => Math.abs(s.x - d.x) <= split * 0.75).sort((a, b) => Math.abs(a.x - C) - Math.abs(b.x - C))[0];
+    const picked = open || near || inside[0] || nearestSlot(d.x, side);
     picked.defenders.push({ role: d.role, fromX: d.x, fromY: d.y, source: 'align' });
   }
 

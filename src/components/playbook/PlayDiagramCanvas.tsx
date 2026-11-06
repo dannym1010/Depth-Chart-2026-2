@@ -32,7 +32,7 @@ import {
 } from '../../utils/footballEngine';
 import { COLOR, PlayerAssignmentPanel, arrowPts, strokeFor, tBar } from './PlayerAssignmentPanel';
 import { computeAnimatedPlayFrame, hasDefensiveStem, playAnimationSeconds, shiftAdjusts, snapProgress } from '../../utils/playAnimation';
-import type { GapFitSlot } from '../../utils/defenseReads';
+import { computeGapIntegrity, type GapFitSlot } from '../../utils/defenseReads';
 import type { PlayNoteCheckpoint, PursuitLine } from '../../types/callSheet';
 import { readSkipNotesPref, writeSkipNotesPref } from '../scouting/presentStage';
 
@@ -289,6 +289,11 @@ interface Props {
   /** Back to the automatic spots after the shift (shown when the coach has moved some). */
   onShiftDefenseReset?: () => void;
   shiftDefenseEdited?: boolean;
+  /** The Gaps button on the field: shows who fits each gap (`gapFits`); off when not given. */
+  gapsOn?: boolean;
+  onToggleGaps?: () => void;
+  /** Gaps shown: tap a gap, then the defender who fits it. `over`: the gap is across the center from him. */
+  onAssignGap?: (role: string, gap: 'A' | 'B' | 'C' | 'D', over: boolean) => void;
   /** Stopped on their shift (true), or not (false): the builder puts the rules panel on the rules after it. */
   onShiftStop?: (stopped: boolean) => void;
   /** Optional defensive preset switcher bar rendered right inside the Play Movement menu. */
@@ -381,6 +386,9 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   onShiftDefenseReset,
   shiftDefenseEdited,
   onShiftStop,
+  gapsOn,
+  onToggleGaps,
+  onAssignGap,
   gapFits,
   spotlightRole,
   stemFrom,
@@ -633,6 +641,26 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   const atShiftSet = !isPlaying && shiftSetAt !== undefined && Math.abs(animProgress - shiftSetAt) < 0.004;
   const atDefenseSet = !isPlaying && defenseSetAt !== undefined && animProgress >= defenseSetAt - 0.004 && animProgress < snapAt - 0.002;
   const atShiftStop = atShiftSet || atDefenseSet;
+  // Gaps on: stopped on their shift, the gaps where everyone is now. Their shift set: their new gaps against where
+  // we still are (what the shift opened up); our defense set: who fits which after our adjustment. Our blitz /
+  // stunt lines go with each defender (they start from his spot as the play runs).
+  const stopGaps = useMemo<GapFitSlot[] | null>(() => {
+    if (!gapFits || !atShiftStop) return null;
+    const def = animatedFrame.nodes.filter((n) => isDefenseRole(n.role));
+    const off = animatedFrame.nodes.filter((n) => !isDefenseRole(n.role));
+    const defense0 = nodes.filter((n) => isDefenseRole(n.role));
+    const lines = [...strokes, ...(extraStrokes || [])].map((st) => {
+      const owner = defense0.find((n) => lineStartsOn(st, n, defense0));
+      const now = owner && def.find((n) => n.role === owner.role);
+      if (!owner || !now) return st;
+      const dx = now.x - owner.x;
+      const dy = now.y - owner.y;
+      return { ...st, points: st.points.map((q) => ({ ...q, x: q.x + dx, y: q.y + dy })) };
+    });
+    return computeGapIntegrity(def, off, defenseRules || {}, lines);
+  }, [gapFits, atShiftStop, animatedFrame, nodes, strokes, extraStrokes, defenseRules]);
+  // The gaps drawn: on their shift, those; else the builder's (as we line up).
+  const gapsShown = stopGaps || gapFits;
   useEffect(() => {
     onShiftStop?.(atShiftStop);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -974,6 +1002,9 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   };
   const [selected, setSelected] = useState<number | null>(null);
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  // The gap tapped (its id: "BR" = the right B gap), waiting for the defender who fits it.
+  const [pickedGap, setPickedGap] = useState<string | null>(null);
+  const pickedSlot = pickedGap && gapsShown ? gapsShown.find((s) => s.id === pickedGap) || null : null;
   const selectedPlayer = selectedRole ? nodes.find((n) => n.role === selectedRole) || null : null;
   const [previewAction, setPreviewAction] = useState<PlayerActionPreset | null>(null);
   const fieldRef = useRef<HTMLDivElement | null>(null);
@@ -1188,6 +1219,19 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
         onQuizAttempt?.(res);
         return;
       }
+    }
+    // A gap picked: the defender tapped fits it (anywhere else: never mind).
+    if (pickedSlot && onAssignGap && e.isPrimary) {
+      e.preventDefault();
+      const p = pointFromEvent(e);
+      const n = hitNode(nodes.filter((x) => isDefenseRole(x.role)), p.cx, p.cy, 18);
+      if (n) {
+        const ball = nodes.find((o) => o.role === 'C')?.x ?? 0;
+        const hisSide = n.x < ball - 0.1 ? 'left' : 'right';
+        onAssignGap(n.role, pickedSlot.gap, hisSide !== pickedSlot.side);
+      }
+      setPickedGap(null);
+      return;
     }
     if (pursuitDrawMode && e.isPrimary) {
       e.preventDefault();
@@ -1893,6 +1937,22 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
               )}
             </span>
           )}
+          {onToggleGaps && (
+            <button
+              type="button"
+              aria-pressed={Boolean(gapsOn)}
+              onClick={() => {
+                setPickedGap(null);
+                onToggleGaps();
+              }}
+              title={gapsOn ? 'Hide the gaps' : 'Show who fits each gap (green: one man, red: open, amber: two). Tap a gap, then the defender who fits it, to assign it.'}
+              className={`h-7 px-2.5 rounded-lg border text-xs font-black inline-flex items-center gap-1 cursor-pointer shadow-xs transition-colors ${
+                gapsOn ? 'border-sky-300 bg-sky-600 text-white' : 'border-sky-400/50 bg-slate-900/85 backdrop-blur-sm text-sky-300 hover:bg-sky-600 hover:text-white'
+              }`}
+            >
+              ▥ Gaps
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -2088,17 +2148,38 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           })()}
 
           {/* Live Gap-Integrity & Unaccounted-Gap Warning Overlay */}
-          {gapFits && gapFits.length > 0 && animProgress <= 0.05 && (
+          {gapsShown && gapsShown.length > 0 && (animProgress <= 0.05 || stopGaps) && (
             <g key="gap-integrity-overlay" pointerEvents="none">
-              {gapFits.map((slot) => {
+              {gapsShown.map((slot) => {
                 const { cx, cy } = fieldToSvg(slot.x, slot.y);
                 const isOpen = slot.status === 'open';
                 const isOver = slot.status === 'overloaded';
                 const color = isOpen ? '#dc2626' : isOver ? '#d97706' : '#059669';
                 const pillText = slot.gap;
                 const pw = 18;
+                const picked = pickedGap === slot.id;
                 return (
                   <g key={slot.id}>
+                    {/* Tap a gap, then the defender who fits it. */}
+                    {onAssignGap && (
+                      <rect
+                        x={cx - 16}
+                        y={cy - 16}
+                        width={32}
+                        height={30}
+                        fill="transparent"
+                        pointerEvents="all"
+                        style={{ cursor: 'pointer' }}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          setPickedGap(picked ? null : slot.id);
+                        }}
+                      >
+                        <title>{`${slot.side === 'left' ? 'Left' : 'Right'} ${slot.gap} gap: tap, then tap the defender who fits it`}</title>
+                      </rect>
+                    )}
+                    {picked && <circle cx={cx} cy={cy} r={17} fill="none" stroke="#38bdf8" strokeWidth={3} />}
                     {slot.defenders.map((d, idx) => {
                       const from = fieldToSvg(d.fromX, d.fromY);
                       return (
@@ -2581,6 +2662,20 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
         </svg>
 
         {/* Their shift: stopped when it's set (where do we go?), and when our defense is set on it. */}
+        {pickedSlot && (
+          <div
+            data-stage-ui
+            role="status"
+            className="absolute left-3 right-3 top-12 z-20 max-w-md mx-auto rounded-2xl border-2 border-sky-400/90 bg-slate-950/92 backdrop-blur-md text-white px-3.5 py-2 shadow-2xl flex items-center justify-between gap-2"
+          >
+            <span className="text-sm font-bold">
+              {pickedSlot.side === 'left' ? 'Left' : 'Right'} {pickedSlot.gap} gap: tap the defender who fits it.
+            </span>
+            <button type="button" onClick={() => setPickedGap(null)} className="h-7 px-2.5 rounded-lg bg-white/10 hover:bg-white/20 ring-1 ring-white/30 text-xs font-black cursor-pointer">
+              Cancel
+            </button>
+          </div>
+        )}
         {(atShiftSet || atDefenseSet) && !pursuitDrawMode && (
           <div
             data-stage-ui
