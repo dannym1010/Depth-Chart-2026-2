@@ -569,35 +569,22 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
 
     if (r.pass) {
       if (r.flight && now >= r.flight.release) {
-        if (d.line && !zoneStroke && !manRole) {
-          const c = where(r.flight.to, r.flight.caught);
-          return now < r.flight.caught ? { x: c.x, y: c.y - 1 } : chase(me, v, now);
-        }
-        // If this defender is a flat/outside dropper and has a receiver in his flat (and the ball wasn't thrown to
-        // that flat receiver), stay locked on the flat receiver through the end of the play so flat coverage is clear!
-        const cTarget = where(r.flight.to, Math.min(now, r.flight.caught));
-        const distToTarget = Math.hypot(cTarget.x - me.x, cTarget.y - me.y);
-        if (isFlatOrOutsideDropper) {
+        // If SAM / ROV (or a flat dropper) has a receiver in his flat and the ball wasn't thrown to that flat receiver,
+        // stay locked on the flat receiver so flat coverage is maintained!
+        if (!d.line && isFlatOrOutsideDropper) {
+          const cCatch = where(r.flight.to, r.flight.caught);
           const fs = zoneStroke?.points?.length ? Math.sign(zoneStroke.points[zoneStroke.points.length - 1].x - gMap.C) || s : s;
           const flatCov = matchFlatThreat(fs, { x: gMap.C + fs * 12, y: 4.5 }, now, 9.5);
-          if (flatCov && Math.hypot(cTarget.x - flatCov.x, cTarget.y - flatCov.y) > 2.8) {
+          if (flatCov && Math.hypot(cCatch.x - flatCov.x, cCatch.y - flatCov.y) > 2.8) {
             return flatCov;
           }
         }
-        if (manRole && manRole !== r.flight.to && distToTarget > 4.5) {
-          const rec = where(manRole, now);
-          const insideShade = Math.sign(gMap.C - rec.x) * 0.45;
-          return { x: rec.x + insideShade, y: rec.y + 0.85 };
-        }
+        // The ball is in the air: break on the catch; caught, run the receiver down.
         if (now < r.flight.caught) {
-          // While ball is in flight, only break on the throw if it's thrown into this defender's area or man
-          if (manRole === r.flight.to || distToTarget <= 5.5) {
-            const c = where(r.flight.to, r.flight.caught);
-            return d.line ? { x: c.x, y: c.y - 1 } : c;
-          }
-        } else if (distToTarget <= 7.5 || !isFlatOrOutsideDropper) {
-          return chase(me, v, now);
+          const c = where(r.flight.to, r.flight.caught);
+          return d.line ? { x: c.x, y: c.y - 1 } : c;
         }
+        return chase(me, v, now);
       }
       if (now < 0.1) {
         return d.line && !zoneStroke && !manRole
