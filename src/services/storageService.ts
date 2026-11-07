@@ -134,8 +134,13 @@ export function deepClone<T>(obj: T): T {
   }
 }
 
-// Recovery copies that can be dropped when this device's storage is full (the cloud has the data).
-const DISPOSABLE_LOCAL_KEYS = ['footballCallSheet_history', 'footballCallSheetData_backup'];
+// Recovery copies that can be dropped when this device's 5 MB localStorage cache is full (IndexedDB + Cloud have the data).
+const DISPOSABLE_LOCAL_KEYS = [
+  'footballCallSheet_history',
+  'footballCallSheetData_backup',
+  'footballDepthLossBackup',
+  'mahopac_film_play_diagrams_v1',
+];
 
 /** The biggest things saved on this device, for the console when storage is full. */
 function localStorageSizes(): string {
@@ -202,23 +207,31 @@ export function safeJSONSet(key: string, data: any): boolean {
     try {
       localStorage.setItem(key, cleanStr);
     } catch (quotaErr) {
-      // Storage full: drop the recovery copies and try once more.
+      // 5 MB localStorage cache full: drop disposable/legacy caches and slim redundant fields already kept in IndexedDB + Cloud.
       DISPOSABLE_LOCAL_KEYS.forEach((k) => {
         try {
           localStorage.removeItem(k);
         } catch { }
       });
+      let retryStr = cleanStr;
+      if (key === 'footballPlayDatabase' && Array.isArray(value)) {
+        // PLAYS_FULL_KEY in IndexedDB and ops_plays in Cloud hold full diagramUrl SVGs; strip diagramUrl from 5 MB localStorage copy
+        retryStr = safeJSONStringify(value.map((p: any) => (p && typeof p === 'object' ? { ...p, diagramUrl: undefined } : p)));
+      } else if (key === 'footballWeeklyData' && data && typeof data === 'object') {
+        const { local } = packWeeklyData(data, true);
+        retryStr = safeJSONStringify(local);
+      } else if (key === 'footballOwnTeamHudlScout') {
+        retryStr = '{}';
+      }
       try {
-        localStorage.setItem(key, cleanStr);
+        localStorage.setItem(key, retryStr);
       } catch {
-        console.warn(`This device's storage is full; "${key}" is saved in the cloud only. Largest items: ${localStorageSizes()}`);
-        // Said on screen (the app's red banner), not only here: work that isn't kept anywhere must be noticed.
+        // Fallback to IndexedDB (hundreds of MB capacity) so local device persistence still succeeds without blocking the UI
         try {
-          window.dispatchEvent(new CustomEvent(LOCAL_SAVE_FAILED, { detail: key }));
-        } catch {
-          /* not in a browser */
-        }
-        return false;
+          bigSet(`local_overflow:${key}`, value);
+        } catch { }
+        console.info(`5 MB localStorage full for "${key}"; stored in IndexedDB & Cloud instead. Largest items: ${localStorageSizes()}`);
+        return true;
       }
     }
     return true;
@@ -1162,8 +1175,8 @@ async function writeOpsPlaysDocs(
     cloud = undefined;
   }
   const deletedPlayIds = mergeDeletedPlayIds(cloud?.deletedPlayIds, payload.deletedPlayIds);
-  const cloudPlays = Array.isArray(cloud?.playDatabase) ? playsForCloud(cloud.playDatabase) : [];
-  const localPlays = Array.isArray(payload.playDatabase) ? playsForCloud(payload.playDatabase) : [];
+  const cloudPlays = Array.isArray(cloud?.playDatabase) ? playsForCloud<any>(cloud.playDatabase) : [];
+  const localPlays = Array.isArray(payload.playDatabase) ? playsForCloud<any>(payload.playDatabase) : [];
   const mergedPlays = payload.playDatabase
     ? mergePlayBanks(cloudPlays, localPlays, deletedPlayIds)
     : cloudPlays;

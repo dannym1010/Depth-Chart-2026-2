@@ -1592,7 +1592,20 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const livePlayDiagramsRef = useRef<Record<string, PlayBuilderState>>((() => {
     try {
       const raw = localStorage.getItem('mahopac_film_play_diagrams_v1');
-      return raw ? JSON.parse(raw) : {};
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      // Free up localStorage immediately if any legacy base64 video frame URLs were stored in it
+      if (parsed && typeof parsed === 'object' && Object.values(parsed).some((v: any) => v?.homographyFrameUrl)) {
+        const slimmed = Object.fromEntries(
+          Object.entries(parsed).map(([k, v]: [string, any]) => [k, v && typeof v === 'object' ? { ...v, homographyFrameUrl: undefined } : v])
+        );
+        try {
+          localStorage.setItem('mahopac_film_play_diagrams_v1', JSON.stringify(slimmed));
+        } catch {
+          localStorage.removeItem('mahopac_film_play_diagrams_v1');
+        }
+      }
+      return parsed;
     } catch {
       return {};
     }
@@ -1640,17 +1653,13 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
         const nextState = { ...state, name };
         livePlayDiagramsRef.current[livePlayKey] = nextState;
         try {
-          localStorage.setItem('mahopac_film_play_diagrams_v1', JSON.stringify(livePlayDiagramsRef.current));
+          // Never store base64 video stills in 5 MB localStorage; PlayDatabase (IndexedDB + Cloud) stores the play
+          const compactMap = Object.fromEntries(
+            Object.entries(livePlayDiagramsRef.current).map(([k, v]) => [k, { ...v, homographyFrameUrl: undefined }]),
+          );
+          localStorage.setItem('mahopac_film_play_diagrams_v1', JSON.stringify(compactMap));
         } catch {
-          try {
-            // If base64 frame URLs exceed localStorage quota, persist diagram state without frame data URLs
-            const compactMap = Object.fromEntries(
-              Object.entries(livePlayDiagramsRef.current).map(([k, v]) => [k, { ...v, homographyFrameUrl: undefined }]),
-            );
-            localStorage.setItem('mahopac_film_play_diagrams_v1', JSON.stringify(compactMap));
-          } catch {
-            // ignore storage quota errors
-          }
+          // Ignore localStorage quota; play is saved in PlayDatabase (IndexedDB + Cloud)
         }
         // The play as it is on screen, including a name they typed, goes back to the builder with Back.
         if (!seedRef.current) return;

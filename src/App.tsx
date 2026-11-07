@@ -965,20 +965,28 @@ export default function App() {
   const userRoleRef = useRef<UserRole>('admin');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isPendingApproval, setIsPendingApproval] = useState(false);
-  // Work that isn't saved somewhere it lasts (the cloud failing, or this device's storage full): a red banner across
-  // the top with a backup button, and the browser asks before the tab is closed.
+  // Work that isn't saved to the cloud after repeated retries: a banner across the top with a backup button.
   const [saveAlarm, setSaveAlarm] = useState<{ kind: 'cloud' | 'device'; text: string } | null>(null);
   useEffect(() => {
-    const onFull = (e: Event) => {
-      const key = String((e as CustomEvent).detail || '');
-      setSaveAlarm({
-        kind: 'device',
-        text: `This computer's storage is full, so ${key === 'footballPlayDatabase' ? 'your plays' : 'some of your work'} couldn't be saved on it. Export a backup now and don't close this tab.`,
-      });
-    };
-    window.addEventListener(LOCAL_SAVE_FAILED, onFull);
-    return () => window.removeEventListener(LOCAL_SAVE_FAILED, onFull);
-  }, []);
+    setSaveAlarm((a) => (a?.kind === 'device' ? null : a));
+    // Reclaim any legacy 5 MB localStorage space used by old base64 Film Room frame stills
+    try {
+      const raw = localStorage.getItem('mahopac_film_play_diagrams_v1');
+      if (raw && raw.includes('homographyFrameUrl')) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          const slimmed = Object.fromEntries(
+            Object.entries(parsed).map(([k, v]: [string, any]) => [k, v && typeof v === 'object' ? { ...v, homographyFrameUrl: undefined } : v])
+          );
+          localStorage.setItem('mahopac_film_play_diagrams_v1', JSON.stringify(slimmed));
+        }
+      }
+    } catch {
+      try {
+        localStorage.removeItem('mahopac_film_play_diagrams_v1');
+      } catch { }
+    }
+  }, [saveAlarm?.kind]);
   const [syncStatus, setSyncStatus] = useState<{ text: string; color: string }>({
     text: 'Local Storage Mode',
     color: '#22c55e',
@@ -9175,7 +9183,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
       )}
 
       {/* Work not saved anywhere it lasts: said across the top of every screen, with a way out. */}
-      {saveAlarm && (
+      {saveAlarm && saveAlarm.kind === 'cloud' && (
         <div role="alert" className="fixed top-0 inset-x-0 z-[300] bg-rose-700 text-white shadow-2xl" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
           <div className="max-w-5xl mx-auto px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-2">
             <span className="font-black text-sm flex-1 min-w-[16rem]">⚠️ {saveAlarm.text}</span>
@@ -9189,6 +9197,14 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
             )}
             <button type="button" onClick={() => openScoutVersions()} className="h-8 px-3 rounded-lg bg-rose-900 ring-1 ring-white/40 text-xs font-black cursor-pointer">
               Saved versions
+            </button>
+            <button
+              type="button"
+              onClick={() => setSaveAlarm(null)}
+              className="h-8 px-2.5 rounded-lg bg-rose-900/80 hover:bg-rose-950 ring-1 ring-white/30 text-xs font-black cursor-pointer"
+              title="Dismiss alert"
+            >
+              ✕
             </button>
           </div>
         </div>
