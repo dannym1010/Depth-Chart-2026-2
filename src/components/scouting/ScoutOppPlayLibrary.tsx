@@ -171,6 +171,24 @@ export const ScoutOppPlayLibrary: React.FC<{
   const [filmName, setFilmName] = useState('');
   const [printNote, setPrintNote] = useState('');
   const [drag, setDrag] = useState<{ list: 'film' | 'script'; index: number } | null>(null);
+  type LeftSectionTab = 'plays' | 'formations' | 'calls' | 'backfields' | 'all';
+  const [leftTab, setLeftTabState] = useState<LeftSectionTab>(() => {
+    try {
+      const v = localStorage.getItem('scoutOppLeftTab') as LeftSectionTab | null;
+      return v && ['plays', 'formations', 'calls', 'backfields', 'all'].includes(v) ? v : 'plays';
+    } catch {
+      return 'plays';
+    }
+  });
+  const setLeftTab = (t: LeftSectionTab) => {
+    setLeftTabState(t);
+    try {
+      localStorage.setItem('scoutOppLeftTab', t);
+    } catch {
+      /* per-device preference */
+    }
+  };
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   // The script: short rows to arrange fast, or with each play's picture (remembered on this device).
   const [scriptPics, setScriptPics] = useState(() => {
     try {
@@ -903,7 +921,35 @@ export const ScoutOppPlayLibrary: React.FC<{
             </button>
           )}
         </div>
-        {gameId && onEditFormation && (
+        {gameId && (
+          <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700" role="tablist" aria-label="Their plays sections">
+            {(
+              [
+                ['plays', `🏈 Their plays (${plays.length})`],
+                ...(onEditFormation ? ([['formations', `📐 Formations (${formationCards.length})`]] as [LeftSectionTab, string][]) : []),
+                ...(onSaveFormations && formationCards.length > 0 ? ([['calls', '🛡️ Calls vs Formations']] as [LeftSectionTab, string][]) : []),
+                ...(onAdjustBackfield ? ([['backfields', `⚙️ Backfields (${filmBackfields.length})`]] as [LeftSectionTab, string][]) : []),
+                ['all', '📋 Show All'],
+              ] as [LeftSectionTab, string][]
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={leftTab === id}
+                onClick={() => setLeftTab(id)}
+                className={`h-8 px-3 rounded-lg text-xs font-black cursor-pointer transition-colors ${
+                  leftTab === id
+                    ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-xs border border-slate-200/80 dark:border-slate-700'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+        {gameId && onEditFormation && (leftTab === 'formations' || leftTab === 'all') && (
           <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2">
             <div>
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1040,6 +1086,7 @@ export const ScoutOppPlayLibrary: React.FC<{
                           type="button"
                           onClick={() => {
                             setFromFormation(f.id);
+                            if (leftTab !== 'all') setLeftTab('plays');
                             window.setTimeout(() => clipInput.current?.focus(), 0);
                           }}
                           disabled={!drawn}
@@ -1221,7 +1268,7 @@ export const ScoutOppPlayLibrary: React.FC<{
             </div>
           </div>
         )}
-        {gameId && onSaveFormations && formationCards.length > 0 && (
+        {gameId && onSaveFormations && formationCards.length > 0 && (leftTab === 'calls' || leftTab === 'all') && (
           <div className="rounded-xl border border-emerald-300/70 dark:border-emerald-800 p-3 space-y-2">
             <div>
               <div className="text-[11px] font-bold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">Our calls vs their formations</div>
@@ -1239,7 +1286,7 @@ export const ScoutOppPlayLibrary: React.FC<{
             />
           </div>
         )}
-        {gameId && (
+        {gameId && (leftTab === 'plays' || leftTab === 'all') && (
           <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-end">
             {onEditFormation && <div className="col-span-2 sm:col-span-6 -mb-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">2 · Their plays</div>}
             {shownFormations.length > 0 ? (
@@ -1302,7 +1349,7 @@ export const ScoutOppPlayLibrary: React.FC<{
             </button>
           </div>
         )}
-        {gameId && onAdjustBackfield && (
+        {gameId && onAdjustBackfield && (leftTab === 'backfields' || leftTab === 'all') && (
           <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2">
             <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Base backfields for this film</div>
             <p className="text-xs text-slate-500 dark:text-slate-400">Adjusting one changes every play on this film that lines up in it.</p>
@@ -1321,7 +1368,7 @@ export const ScoutOppPlayLibrary: React.FC<{
           </div>
         )}
         {!gameId && <p className="text-sm text-slate-500">Add a film library, or upload this week's scouting film, then put their plays here.</p>}
-        {combine && gameId && (
+        {combine && gameId && (leftTab === 'plays' || leftTab === 'all') && (
           <div className="space-y-2">
             <ul className="space-y-2">
               {shownGroups.map((g) => {
@@ -1425,7 +1472,7 @@ export const ScoutOppPlayLibrary: React.FC<{
             {printNote && <p className="text-xs font-bold text-amber-700 dark:text-amber-300">{printNote}</p>}
           </div>
         )}
-        <ul className={combine ? 'hidden' : 'space-y-1.5'}>
+        <ul className={combine || (leftTab !== 'plays' && leftTab !== 'all') ? 'hidden' : 'space-y-1.5'}>
           {shownPlays.map((p) => { const index = plays.indexOf(p); return (
             <li
               key={p.id}
@@ -1716,6 +1763,44 @@ export const ScoutOppPlayLibrary: React.FC<{
                           </div>
                         ) : null;
                       })()}
+                      {play && (() => {
+                        const dbEntry = (playDatabase || []).find((x) => x.id === `scout_${play.id}`);
+                        const customDrawn = Boolean(dbEntry?.builder);
+                        const defLabel = ownDefense(play) || (formationDefense(formationOfPlay(play, formations), playDatabase || []) ? 'Form D' : '');
+                        const hasLines = Boolean(dbEntry?.builder?.homographyQuad);
+                        return (
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            <span
+                              className={`inline-flex items-center px-1.5 py-px rounded text-[9.5px] font-black ${
+                                customDrawn
+                                  ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                              }`}
+                              title={customDrawn ? 'Custom drawn in Play Builder' : 'Auto-generated diagram from play name (click to custom draw)'}
+                            >
+                              {customDrawn ? '✓ Drawn' : 'Auto'}
+                            </span>
+                            <span
+                              className={`inline-flex items-center px-1.5 py-px rounded text-[9.5px] font-black ${
+                                defLabel
+                                  ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30'
+                                  : 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                              }`}
+                              title={defLabel ? `Defense set: ${defLabel}` : 'No custom defense set against this play yet'}
+                            >
+                              {defLabel ? `🛡 ${defLabel}` : '⚠ Set D'}
+                            </span>
+                            {hasLines && (
+                              <span
+                                className="inline-flex items-center px-1.5 py-px rounded text-[9.5px] font-black bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30"
+                                title="Play Lines aligned on video"
+                              >
+                                📏 Lines
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </button>
                     {(() => {
                       const film = play ? scriptFilm(play) : null;
@@ -1779,6 +1864,40 @@ export const ScoutOppPlayLibrary: React.FC<{
                       </button>
                     </div>
                   </div>
+                  {play && (
+                    <div className="mt-1 ml-6">
+                      {editingNoteId === play.id ? (
+                        <input
+                          type="text"
+                          autoFocus
+                          defaultValue={play.notes || ''}
+                          placeholder="Key coaching point (e.g. Watch #22 pulling guard — MLB scrape)..."
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                            if (e.key === 'Escape') setEditingNoteId(null);
+                          }}
+                          onBlur={(e) => {
+                            const val = e.target.value.trim();
+                            if (val !== (play.notes || '').trim()) {
+                              patchAnyFilm(play.id, { notes: val || undefined });
+                            }
+                            setEditingNoteId(null);
+                          }}
+                          className="w-full h-7 rounded-md border border-indigo-400 bg-white dark:bg-slate-950 px-2 text-[11px] font-semibold text-slate-800 dark:text-slate-100"
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setEditingNoteId(play.id)}
+                          title="Click to add or edit the coaching point for this play"
+                          className="text-left text-[11px] font-semibold text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300 cursor-pointer inline-flex items-center gap-1"
+                        >
+                          <Pencil className="w-2.5 h-2.5 shrink-0 opacity-70" />
+                          <span>{play.notes ? `📌 ${play.notes}` : '+ Add coaching point'}</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {(() => {
                     const film = play ? scriptFilm(play) : null;
                     if (!play || !film?.snaps.length) return null;
