@@ -76,6 +76,8 @@ interface FilmRoomViewProps {
   onUpdateScouting: (field: string, val: unknown) => void;
   /** Play Bank, for tagging each play with the play that was run. */
   playDatabase?: PlayDatabaseEntry[];
+  /** Full team Play Bank (including scout_* plays), for restoring drawn clip diagrams across computers. */
+  allTeamPlays?: PlayDatabaseEntry[];
   onUpdatePlayDatabase?: (next: PlayDatabaseEntry[]) => void;
   /** Our film: roster, each week's depth chart and the season's weeks, for who was on the field. */
   roster?: RosterPlayer[];
@@ -118,7 +120,7 @@ const newId = () => `fn_${Date.now().toString(36)}${Math.random().toString(36).s
 
 export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   teamId, teamName, currentWeek, weekLabel, opponentName, opponentScout, ownTeamScout, authorName, onOpenHudlGame,
-  onUpdateOwnTeamScout, onUpdateScouting, playDatabase, onUpdatePlayDatabase, roster, weekBoards, weekOptions,
+  onUpdateOwnTeamScout, onUpdateScouting, playDatabase, allTeamPlays, onUpdatePlayDatabase, roster, weekBoards, weekOptions,
   filmWeeks, onSelectWeek, onSaveWeekScouting, onMoveWeek, onBackToPlay, builderCanEdit, onSaveBuilderPlay, onRenameScoutPlay, onSaveFilmBackfield, onDrawSnap, onDrawFormation,
   isProgramAdmin = false,
   viewOnly = false,
@@ -1596,27 +1598,34 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     }
   })());
   const livePlayKey = `${game?.gameId || game?.key || 'game'}__${play?.id || play?.playNumber || 'clip'}`;
-  const savedPlayState = livePlayDiagramsRef.current[livePlayKey];
+  const clipPlayEntryId = builderSeed?.playEntryId || play?.playCallId || (play ? `scout_clip_${livePlayKey}` : undefined);
+  const cloudClipPlay = useMemo(
+    () => (clipPlayEntryId ? (allTeamPlays || playDatabase || []).find((p) => p?.id === clipPlayEntryId) : undefined),
+    [allTeamPlays, playDatabase, clipPlayEntryId]
+  );
+  const savedPlayState = cloudClipPlay?.builder || livePlayDiagramsRef.current[livePlayKey];
 
   const activeBuilderSeed: PlayBuilderSeed | null =
     builderSeed
       ? {
           ...builderSeed,
+          playEntryId: clipPlayEntryId,
           odk: play?.odk || builderSeed.odk,
           builder: savedPlayState || builderSeed.builder,
         }
       : play && !locked
         ? {
-            name: savedPlayState?.name || play.callName || play.playName || `Play #${play.playNumber}`,
+            name: savedPlayState?.name || cloudClipPlay?.name || play.callName || play.playName || `Play #${play.playNumber}`,
             formation: play.formation,
             kind: play.playType,
             gameId: game?.gameId || game?.key,
+            playEntryId: clipPlayEntryId,
             odk: play.odk,
             snaps: [{ id: play.id, playNumber: play.playNumber, gain: play.gainLoss, result: play.result }],
             builder: savedPlayState,
           }
         : !locked
-          ? { name: game?.name ? `${game.name} Clip` : 'Film Clip', gameId: game?.gameId, builder: savedPlayState }
+          ? { name: game?.name ? `${game.name} Clip` : 'Film Clip', gameId: game?.gameId, playEntryId: clipPlayEntryId, builder: savedPlayState }
           : null;
   const builderEl = activeBuilderSeed ? (
     <PlayBuilderSection
@@ -1670,21 +1679,26 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             }
           : undefined
       }
-      onAdd={(entry) => {
+      onAdd={(entry, opts) => {
         if (onSaveBuilderPlay) {
-          const saved = onSaveBuilderPlay(entry, seedRef.current);
+          const targetSeed = seedRef.current || activeBuilderSeed;
+          const saved = onSaveBuilderPlay(entry, targetSeed);
           if (saved && seedRef.current) {
             seedRef.current = { ...seedRef.current, name: saved.name, builder: saved.builder };
             savePlayBuilderSeed(seedRef.current);
           }
-          setBuilderSaved(`Saved ${saved?.name || entry.name}`);
-          window.setTimeout(() => setBuilderSaved(''), 2500);
+          if (!opts?.auto) {
+            setBuilderSaved(`Saved ${saved?.name || entry.name}`);
+            window.setTimeout(() => setBuilderSaved(''), 2500);
+          }
           return;
         }
         if (onUpdatePlayDatabase) {
           onUpdatePlayDatabase([...(playDatabase || []), entry]);
-          setBuilderSaved(`Saved ${entry.name}`);
-          window.setTimeout(() => setBuilderSaved(''), 2500);
+          if (!opts?.auto) {
+            setBuilderSaved(`Saved ${entry.name}`);
+            window.setTimeout(() => setBuilderSaved(''), 2500);
+          }
         }
       }}
     />

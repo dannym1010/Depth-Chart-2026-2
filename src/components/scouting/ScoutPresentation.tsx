@@ -88,8 +88,9 @@ export const ScoutPresentation: React.FC<{
   index: number;
   onIndex: (index: number) => void;
   onExit: () => void;
+  onToggleStarPlay?: (card: ScoutOppPlay, starred: boolean) => void;
   children: React.ReactNode;
-}> = ({ show, index, onIndex, onExit, children }) => {
+}> = ({ show, index, onIndex, onExit, onToggleStarPlay, children }) => {
   const line = show.lines[index];
   const [view, setViewState] = useState<View>(() => {
     const v = saved(VIEW_KEY);
@@ -145,9 +146,21 @@ export const ScoutPresentation: React.FC<{
     writeSkipNotesPref(skip);
   }, []);
   const [starredIds, toggleStar] = useStarredPlays();
+  const [starTick, setStarTick] = useState(0);
   const isStarred = useCallback(
-    (l: ScoutShowLine) => starredIds.has(l.playId) || Boolean(l.card?.starred),
-    [starredIds],
+    (l: ScoutShowLine) => (l.card?.starred !== undefined ? Boolean(l.card.starred) : starredIds.has(l.playId)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [starredIds, starTick],
+  );
+  const handleToggleStar = useCallback(
+    (l: ScoutShowLine) => {
+      const next = !isStarred(l);
+      if (l.card) l.card.starred = next;
+      if (starredIds.has(l.playId) !== next) toggleStar(l.playId);
+      setStarTick((n) => n + 1);
+      if (l.card) onToggleStarPlay?.(l.card, next);
+    },
+    [isStarred, starredIds, toggleStar, onToggleStarPlay],
   );
   const starredIndices = useMemo(
     () => show.lines.map((l, i) => (isStarred(l) ? i : -1)).filter((i) => i >= 0),
@@ -687,7 +700,7 @@ export const ScoutPresentation: React.FC<{
           <button
             type="button"
             aria-pressed={isStarred(line)}
-            onClick={() => toggleStar(line.playId)}
+            onClick={() => handleToggleStar(line)}
             title={isStarred(line) ? 'Starred (click to unstar)' : 'Star this play'}
             aria-label={isStarred(line) ? 'Unstar this play' : 'Star this play'}
             className={`${navBtn} !px-2.5 border ${
@@ -842,7 +855,7 @@ export const ScoutPresentation: React.FC<{
                     type="button"
                     aria-label={starred ? `Unstar ${l.name}` : `Star ${l.name}`}
                     title={starred ? 'Starred to show (click to unstar)' : 'Star this play to show in presentation'}
-                    onClick={() => toggleStar(l.playId)}
+                    onClick={() => handleToggleStar(l)}
                     className={`mt-1 p-1 rounded-md cursor-pointer transition-colors ${
                       starred ? 'text-amber-400 hover:text-amber-300' : 'text-slate-300 dark:text-slate-600 hover:text-amber-400'
                     }`}
@@ -1061,7 +1074,7 @@ export const ScoutPresentation: React.FC<{
               </button>
               {moreOpen && (
                 <div role="menu" className="absolute right-0 top-full mt-2 z-50 w-72 max-w-[calc(100vw-1.5rem)] rounded-xl bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 shadow-2xl ring-1 ring-black/10 p-1.5">
-                  {line && menuItem(<Star className="w-4 h-4 text-amber-500" />, isStarred(line) ? 'Starred' : 'Star this play', () => toggleStar(line.playId), { checked: isStarred(line) })}
+                  {line && menuItem(<Star className="w-4 h-4 text-amber-500" />, isStarred(line) ? 'Starred' : 'Star this play', () => handleToggleStar(line), { checked: isStarred(line) })}
                   {menuItem(<Star className="w-4 h-4 text-amber-500" />, `Starred plays only (${starredIndices.length})`, () => setStarredOnly((v) => !v), {
                     checked: starredOnly,
                     disabled: starredIndices.length === 0 && !starredOnly,
@@ -1250,7 +1263,7 @@ export const ScoutPresentation: React.FC<{
                           aria-label={starred ? `Unstar ${l.name}` : `Star ${l.name}`}
                           onClick={(e) => {
                             e.stopPropagation();
-                            toggleStar(l.playId);
+                            handleToggleStar(l);
                           }}
                           className={`absolute top-4 right-4 w-9 h-9 rounded-full inline-flex items-center justify-center shadow-lg cursor-pointer ${
                             starred ? 'bg-amber-400 text-slate-950' : 'bg-slate-900/80 text-white/80 hover:text-amber-300'
@@ -1397,7 +1410,7 @@ export const ScoutPresentation: React.FC<{
                           aria-label={starred ? `Unstar ${l.name}` : `Star ${l.name}`}
                           onClick={(e) => {
                             e.stopPropagation();
-                            toggleStar(l.playId);
+                            handleToggleStar(l);
                           }}
                           className={`absolute top-4 right-4 w-9 h-9 rounded-full inline-flex items-center justify-center shadow-lg cursor-pointer ${
                             starred ? 'bg-amber-400 text-slate-950' : 'bg-slate-900/80 text-white/80 hover:text-amber-300'

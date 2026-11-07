@@ -15,6 +15,7 @@ import { recordScoutSaves } from '../utils/scoutHistory';
 import { OWN_HUDL_KEY, PLAYS_FULL_KEY, PLAYS_HISTORY_KEY, WEEKLY_HUDL_KEY, bigSet, bigStoreReady, packWeeklyData, unpackWeeklyData } from '../utils/bigLocalStore';
 import { mergeAttendanceLogs, mergeRosters, mergeStaffLists, mergeTombstones } from '../utils/recordMerge';
 import { mergeTeamCoaches } from '../utils/coachNamesMerge';
+import { mergeDeletedPlayIds, mergeFormations, mergePlayBanks } from '../utils/playBankMerge';
 import {
   INITIAL_DEFAULT_FORMATIONS,
   DEFAULT_CASCADING_DRILLS,
@@ -205,7 +206,7 @@ export function safeJSONSet(key: string, data: any): boolean {
       DISPOSABLE_LOCAL_KEYS.forEach((k) => {
         try {
           localStorage.removeItem(k);
-        } catch {}
+        } catch { }
       });
       try {
         localStorage.setItem(key, cleanStr);
@@ -259,7 +260,7 @@ function sanitizeTemplatePeriods(periods: any[]): PracticePeriod[] {
  */
 export function normalizePracticeTemplates(raw: any): Record<string, PracticePeriod[]> {
   const result: Record<string, PracticePeriod[]> = {};
-  
+
   // Seed defaults first
   Object.entries(DEFAULT_PRACTICE_TEMPLATES).forEach(([k, v]) => {
     result[k] = sanitizeTemplatePeriods(v);
@@ -518,7 +519,7 @@ export function noteFirestoreError(err?: any) {
     firestoreQuotaPausedUntil = nextQuotaResetMs();
     try {
       sessionStorage.setItem('footballFirestoreQuotaPauseUntil', String(firestoreQuotaPausedUntil));
-    } catch {}
+    } catch { }
     console.warn(
       'Firestore quota exceeded; pausing cloud sync until the daily quota resets so the app stops retrying.'
     );
@@ -835,9 +836,9 @@ export function hudlCloudWeek(week?: string): string {
  * so tags show up without reloading. The callback runs a moment later, after all the pieces are written.
  */
 export function subscribeHudlScoutCloud(teamId: string, week: string, onChange: () => void): () => void {
-  if (isFirestoreQuotaPaused()) return () => {};
+  if (isFirestoreQuotaPaused()) return () => { };
   const { db } = getFirebaseServices();
-  if (!db || typeof db.collection !== 'function') return () => {};
+  if (!db || typeof db.collection !== 'function') return () => { };
   const wk = hudlCloudWeek(week);
   let timer: any = null;
   const kick = () => {
@@ -1042,6 +1043,7 @@ export type SharedBoardCloudUpdate = {
   masterPlayLibrary?: any;
   playDatabase?: any[];
   deletedPlayIds?: any[];
+  onPlaysMerged?: (plays: any[], deleted: string[]) => void;
   playsUpdatedAt?: number;
   guideTree?: any;
   guideOrder?: any;
@@ -1094,6 +1096,136 @@ function opsMeta(extra: Record<string, any> = {}) {
   };
 }
 
+const OPS_PLAYS_CHUNK_CHARS = 650_000;
+
+function splitOpsPlaysChunks(plays: any[]): any[][] {
+  const list = Array.isArray(plays) ? plays : [];
+  const chunks: any[][] = [];
+  let current: any[] = [];
+  let size = 0;
+  for (const play of list) {
+    let playSize = 256;
+    try {
+      playSize = JSON.stringify(play).length + 1;
+    } catch { }
+    if (current.length && size + playSize > OPS_PLAYS_CHUNK_CHARS) {
+      chunks.push(current);
+      current = [];
+      size = 0;
+    }
+    current.push(play);
+    size += playSize;
+  }
+  if (current.length) chunks.push(current);
+  return chunks;
+}
+
+async function readOpsPlaysDocs(col: any, inlineDocData?: any): Promise<any | undefined> {
+  let meta = inlineDocData;
+  if (!meta) {
+    const snap = await col.doc('ops_plays').get();
+    if (!snap?.exists) return undefined;
+    meta = snap.data() || {};
+  }
+  const chunkCount = Math.max(0, Number(meta.chunkCount) || 0);
+  if (chunkCount <= 0) {
+    return meta;
+  }
+  const chunkSnaps = await Promise.all(
+    Array.from({ length: chunkCount }, (_, i) => col.doc(`ops_plays_c${i}`).get())
+  );
+  const playDatabase: any[] = [];
+  for (const chunk of chunkSnaps) {
+    if (chunk?.exists && Array.isArray(chunk.data()?.playDatabase)) {
+      playDatabase.push(...chunk.data().playDatabase);
+    }
+  }
+  if (playDatabase.length === 0 && Array.isArray(meta.playDatabase) && meta.playDatabase.length > 0) {
+    playDatabase.push(...meta.playDatabase);
+  }
+  return { ...meta, playDatabase };
+}
+
+async function writeOpsPlaysDocs(
+  col: any,
+  payload: {
+    masterPlayLibrary?: any;
+    playDatabase?: any[];
+    deletedPlayIds?: any[];
+    onPlaysMerged?: (plays: any[], deleted: string[]) => void;
+  }
+): Promise<void> {
+  let cloud: any;
+  try {
+    cloud = await readOpsPlaysDocs(col);
+  } catch {
+    cloud = undefined;
+  }
+  const deletedPlayIds = mergeDeletedPlayIds(cloud?.deletedPlayIds, payload.deletedPlayIds);
+  const cloudPlays = Array.isArray(cloud?.playDatabase) ? playsForCloud(cloud.playDatabase) : [];
+  const localPlays = Array.isArray(payload.playDatabase) ? playsForCloud(payload.playDatabase) : [];
+  const mergedPlays = payload.playDatabase
+    ? mergePlayBanks(cloudPlays, localPlays, deletedPlayIds)
+    : cloudPlays;
+  const masterPlayLibrary = payload.masterPlayLibrary ?? cloud?.masterPlayLibrary;
+
+  try {
+    payload.onPlaysMerged?.(mergedPlays, deletedPlayIds);
+  } catch { }
+
+  const chunks = splitOpsPlaysChunks(mergedPlays);
+  const prevChunkCount = Math.max(0, Number(cloud?.chunkCount) || 0);
+
+  if (chunks.length <= 1) {
+    await col.doc('ops_plays').set(
+      opsMeta({
+        masterPlayLibrary,
+        playDatabase: mergedPlays,
+        deletedPlayIds,
+        chunkCount: 0,
+        playCount: mergedPlays.length,
+      })
+    );
+    if (prevChunkCount > 0) {
+      await Promise.all(
+        Array.from({ length: prevChunkCount }, (_, i) =>
+          col.doc(`ops_plays_c${i}`).delete().catch(() => null)
+        )
+      );
+    }
+    return;
+  }
+
+  // Write overflow chunks BEFORE updating ops_plays metadata so live snapshot listeners see complete chunks.
+  await Promise.all(
+    chunks.map((chunkPlays, index) =>
+      col.doc(`ops_plays_c${index}`).set(
+        opsMeta({
+          playDatabase: chunkPlays,
+          index,
+          parentId: 'ops_plays',
+        })
+      )
+    )
+  );
+  await col.doc('ops_plays').set(
+    opsMeta({
+      masterPlayLibrary,
+      playDatabase: [],
+      deletedPlayIds,
+      chunkCount: chunks.length,
+      playCount: mergedPlays.length,
+    })
+  );
+  if (prevChunkCount > chunks.length) {
+    await Promise.all(
+      Array.from({ length: prevChunkCount - chunks.length }, (_, idx) =>
+        col.doc(`ops_plays_c${chunks.length + idx}`).delete().catch(() => null)
+      )
+    );
+  }
+}
+
 export async function saveSharedBoardCloud(payload: {
   scheduleEvents?: any[];
   deletedScheduleEventIds?: string[];
@@ -1125,6 +1257,7 @@ export async function saveSharedBoardCloud(payload: {
   masterPlayLibrary?: any;
   playDatabase?: any[];
   deletedPlayIds?: any[];
+  onPlaysMerged?: (plays: any[], deleted: string[]) => void;
   guideTree?: any;
   guideOrder?: any;
   pffGradeCriteria?: any;
@@ -1134,6 +1267,7 @@ export async function saveSharedBoardCloud(payload: {
   teamSavedCoachesMeta?: any;
   /** Gets every team's practice coach names as saved (merged with other coaches' changes in the cloud). */
   onCoachesMerged?: (lists: any, meta: any) => void;
+  onFormationsMerged?: (formations: any[], deleted: string[]) => void;
   defaultFormations?: any[];
   deletedFormationIds?: any[];
   modules?: Array<
@@ -1272,14 +1406,12 @@ export async function saveSharedBoardCloud(payload: {
     }
     if (want('plays') && (payload.masterPlayLibrary || payload.playDatabase)) {
       writes.push(
-        col.doc('ops_plays').set(
-          opsMeta({
-            masterPlayLibrary: payload.masterPlayLibrary,
-            // Small pictures: this document can't pass Firestore's 1 MB.
-            playDatabase: Array.isArray(payload.playDatabase) ? playsForCloud(payload.playDatabase) : payload.playDatabase,
-            deletedPlayIds: payload.deletedPlayIds || [],
-          })
-        )
+        writeOpsPlaysDocs(col, {
+          masterPlayLibrary: payload.masterPlayLibrary,
+          playDatabase: payload.playDatabase,
+          deletedPlayIds: payload.deletedPlayIds,
+          onPlaysMerged: payload.onPlaysMerged,
+        })
       );
     }
     if (want('guides') && (payload.guideTree || payload.guideOrder)) {
@@ -1318,12 +1450,29 @@ export async function saveSharedBoardCloud(payload: {
       );
     }
     if (want('formations') && (payload.defaultFormations || payload.deletedFormationIds)) {
+      const ref = col.doc('ops_formations');
       writes.push(
-        col.doc('ops_formations').set(
-          opsMeta({
-            defaultFormations: payload.defaultFormations,
-            deletedFormationIds: payload.deletedFormationIds || [],
-          })
+        db.runTransaction(async (tx: any) => {
+          const snap = await tx.get(ref);
+          const cur = snap?.exists ? snap.data() || {} : {};
+          const deletedFormationIds = mergeDeletedPlayIds(cur.deletedFormationIds, payload.deletedFormationIds);
+          const defaultFormations = mergeFormations(
+            Array.isArray(cur.defaultFormations) ? cur.defaultFormations : [],
+            Array.isArray(payload.defaultFormations) ? payload.defaultFormations : [],
+            deletedFormationIds
+          );
+          tx.set(
+            ref,
+            cleanFirestoreData(
+              opsMeta({
+                defaultFormations,
+                deletedFormationIds,
+              })
+            )
+          );
+          return { defaultFormations, deletedFormationIds };
+        }).then((m: { defaultFormations: any[]; deletedFormationIds: string[] }) =>
+          payload.onFormationsMerged?.(m.defaultFormations, m.deletedFormationIds)
         )
       );
     }
@@ -1391,9 +1540,9 @@ export function subscribePffWeekCloud(
   week: string,
   onChange: (data: { pffReviews?: any; filmSession?: any; pprPlayCounts?: any }) => void
 ): () => void {
-  if (isFirestoreQuotaPaused() || !teamId || !week) return () => {};
+  if (isFirestoreQuotaPaused() || !teamId || !week) return () => { };
   const { db } = getFirebaseServices();
-  if (!db || typeof db.collection !== 'function') return () => {};
+  if (!db || typeof db.collection !== 'function') return () => { };
   const unsub = db
     .collection('teamData')
     .doc(opsWeekDocId(teamId, week))
@@ -1413,7 +1562,7 @@ export function subscribePffWeekCloud(
   return () => {
     try {
       unsub();
-    } catch {}
+    } catch { }
   };
 }
 
@@ -1625,7 +1774,8 @@ export async function fetchSharedBoardCloud(
     const drills = dataOf(7);
     const callSheet = dataOf(8);
     const wristband = dataOf(9);
-    const plays = dataOf(10);
+    const rawPlays = dataOf(10);
+    const plays = rawPlays && Number(rawPlays.chunkCount) > 0 ? await readOpsPlaysDocs(col, rawPlays) : rawPlays;
     const guides = dataOf(11);
     const pff = dataOf(12);
     const coaches = dataOf(13);
@@ -1695,10 +1845,10 @@ export function subscribeSharedBoardCloud(
 ): () => void {
   if (isFirestoreQuotaPaused()) {
     void disableFirestoreNetwork();
-    return () => {};
+    return () => { };
   }
   const { db } = getFirebaseServices();
-  if (!db || typeof db.collection !== 'function') return () => {};
+  if (!db || typeof db.collection !== 'function') return () => { };
 
   const listen = (docId: string, mapFn: (data: any) => SharedBoardCloudUpdate, onMissing?: () => void) =>
     db.collection('teamData').doc(docId).onSnapshot(
@@ -1767,12 +1917,41 @@ export function subscribeSharedBoardCloud(
       wristbandData: data.wristbandData,
       wristbandUpdatedAt: data.updatedAt,
     })),
-    listen('ops_plays', (data) => ({
-      masterPlayLibrary: data.masterPlayLibrary,
-      playDatabase: data.playDatabase,
-      deletedPlayIds: data.deletedPlayIds,
-      playsUpdatedAt: data.updatedAt,
-    })),
+    db.collection('teamData').doc('ops_plays').onSnapshot(
+      (snap: any) => {
+        if (!snap?.exists) return;
+        const data = snap.data();
+        if (!data) return;
+        if (snap.metadata?.hasPendingWrites && data.writerClientId === CLIENT_ID) return;
+        if (Number(data.chunkCount) > 0) {
+          readOpsPlaysDocs(db.collection('teamData'), data)
+            .then((full) => {
+              if (!full) return;
+              onUpdate({
+                masterPlayLibrary: full.masterPlayLibrary,
+                playDatabase: full.playDatabase,
+                deletedPlayIds: full.deletedPlayIds,
+                playsUpdatedAt: full.updatedAt,
+                writerClientId: full.writerClientId,
+              });
+            })
+            .catch((err) => console.warn('subscribeSharedBoardCloud ops_plays chunks error:', err));
+          return;
+        }
+        onUpdate({
+          masterPlayLibrary: data.masterPlayLibrary,
+          playDatabase: data.playDatabase,
+          deletedPlayIds: data.deletedPlayIds,
+          playsUpdatedAt: data.updatedAt,
+          writerClientId: data.writerClientId,
+        });
+      },
+      (err: any) => {
+        noteFirestoreError(err);
+        console.warn('subscribeSharedBoardCloud ops_plays error:', err);
+        onError?.(describeCloudError(err));
+      }
+    ),
     listen('ops_guides', (data) => ({
       guideTree: data.guideTree,
       guideOrder: data.guideOrder,
@@ -1800,7 +1979,7 @@ export function subscribeSharedBoardCloud(
     unsubs.forEach((unsub) => {
       try {
         unsub();
-      } catch {}
+      } catch { }
     });
   };
 }
@@ -1811,7 +1990,7 @@ export function subscribeServerEvents(onMessage: (eventData: any) => void): () =
     typeof EventSource === 'undefined' ||
     !isLocalOpsHost()
   ) {
-    return () => {};
+    return () => { };
   }
 
   let eventSource: EventSource | null = null;
@@ -1825,7 +2004,7 @@ export function subscribeServerEvents(onMessage: (eventData: any) => void): () =
       if (eventSource) {
         try {
           eventSource.close();
-        } catch {}
+        } catch { }
         eventSource = null;
       }
 
@@ -1851,7 +2030,7 @@ export function subscribeServerEvents(onMessage: (eventData: any) => void): () =
         if (eventSource) {
           try {
             eventSource.close();
-          } catch {}
+          } catch { }
           eventSource = null;
         }
 
@@ -1880,7 +2059,7 @@ export function subscribeServerEvents(onMessage: (eventData: any) => void): () =
     if (eventSource) {
       try {
         eventSource.close();
-      } catch {}
+      } catch { }
       eventSource = null;
     }
   };
@@ -1931,7 +2110,9 @@ export function cleanFirestoreData(data: any, seen: WeakSet<object> = new WeakSe
   }
 
   if (Array.isArray(data)) {
-    return data.map((item) => (item === undefined ? null : cleanFirestoreData(item, seen)));
+    const out = data.map((item) => (item === undefined ? null : cleanFirestoreData(item, seen)));
+    seen.delete(data);
+    return out;
   }
 
   const cleaned: Record<string, any> = {};
@@ -1940,6 +2121,7 @@ export function cleanFirestoreData(data: any, seen: WeakSet<object> = new WeakSe
       cleaned[key] = cleanFirestoreData(value, seen);
     }
   }
+  seen.delete(data);
   return cleaned;
 }
 
@@ -2024,7 +2206,7 @@ export function parseCSV(text: string): string[][] {
   const lines: string[][] = [];
   let row: string[] = [''];
   let inQuotes = false;
-  
+
   for (let i = 0; i < text.length; i++) {
     const char = text[i];
     const next = text[i + 1];
@@ -2095,7 +2277,7 @@ export async function fetchServerLocks(): Promise<any[]> {
     } else if (res.status === 404) {
       isServerApiAvailable = false;
     }
-  } catch {}
+  } catch { }
   return [];
 }
 
@@ -2119,7 +2301,7 @@ export async function acquireServerLock(params: {
     } else if (res.status === 404) {
       isServerApiAvailable = false;
     }
-  } catch {}
+  } catch { }
   return { success: false };
 }
 
@@ -2138,7 +2320,7 @@ export async function releaseServerLock(params: {
       body: safeJSONStringify(params),
     });
     return res.ok;
-  } catch {}
+  } catch { }
   return false;
 }
 
@@ -2156,7 +2338,7 @@ export async function heartbeatServerLock(params: {
       body: safeJSONStringify(params),
     });
     return res.ok;
-  } catch {}
+  } catch { }
   return false;
 }
 
@@ -2204,7 +2386,7 @@ async function readCloudPresence(): Promise<ActiveUserSession[]> {
     const del = typeof window !== 'undefined' ? window.firebase?.firestore?.FieldValue?.delete?.() : undefined;
     if (staleIds.length && del) {
       // Tidy up coaches who closed the app without saying goodbye.
-      ref.update(Object.fromEntries(staleIds.map((id) => [`users.${id}`, del]))).catch(() => {});
+      ref.update(Object.fromEntries(staleIds.map((id) => [`users.${id}`, del]))).catch(() => { });
     }
     return active;
   } catch (err) {
@@ -2222,7 +2404,7 @@ export async function fetchActiveUsers(): Promise<ActiveUserSession[]> {
       const data = await res.json();
       return Array.isArray(data.users) ? data.users : [];
     }
-  } catch {}
+  } catch { }
   return [];
 }
 
@@ -2273,7 +2455,7 @@ export async function registerPresence(params: {
       const data = await res.json();
       return Array.isArray(data.users) ? data.users : [];
     }
-  } catch {}
+  } catch { }
   return [];
 }
 
@@ -2300,6 +2482,6 @@ export async function leavePresence(email?: string): Promise<boolean> {
       }),
     });
     return res.ok;
-  } catch {}
+  } catch { }
   return false;
 }

@@ -104,10 +104,12 @@ const PURSUIT_COLORS = [
   { hex: '#ec4899', label: 'Pink' },
 ];
 
-/** Play movement speeds: full, and slow motion for going over it with the team. */
-const ANIM_SPEEDS = [0.1, 0.25, 0.5, 1];
-/** One step back or on: this much of the play, in seconds. */
-const ANIM_STEP_SECONDS = 0.1;
+/** Play movement speeds: full, and ultra-slow motion for going over blocking fits and reads with the team. */
+const ANIM_SPEEDS = [0.05, 0.1, 0.25, 0.5, 0.75, 1];
+/** One full step back or on: this much of the play, in seconds. */
+const ANIM_STEP_SECONDS = 0.15;
+/** Fine frame-by-frame step back or on: this much of the play, in seconds. */
+const ANIM_FINE_STEP_SECONDS = 0.04;
 import type { PlayerActionPreset } from '../../utils/playActionPresets';
 import type { DefenseWho } from './PlayerAssignmentPanel';
 
@@ -785,10 +787,10 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     if (animProgress >= 0.99) setAnimProgress(0);
     setIsPlaying(true);
   };
-  /** A small step back or on (a tenth of a second of the play), paused, to show one moment at a time. */
-  const stepAnim = (dir: 1 | -1) => {
+  /** A step back or on (full step or fine frame micro-step), paused, to show one moment at a time. */
+  const stepAnim = (secondsDelta: number) => {
     setIsPlaying(false);
-    setAnimProgress((p) => Math.max(0, Math.min(1, p + (dir * ANIM_STEP_SECONDS) / seconds)));
+    setAnimProgress((p) => Math.max(0, Math.min(1, p + secondsDelta / seconds)));
   };
   const animShown = animOpen || isPlaying || animProgress > 0.005;
   // Keys while the movement is up: space plays / pauses, the arrows step, Home goes back to the start.
@@ -800,8 +802,10 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
       const typing = t?.closest('textarea, select, [contenteditable="true"], input:not([type="checkbox"]):not([type="range"]):not([type="radio"]):not([type="button"])');
       if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === ' ') togglePlay();
-      else if (e.key === 'ArrowRight') stepAnim(1);
-      else if (e.key === 'ArrowLeft') stepAnim(-1);
+      else if (e.key === 'ArrowRight') stepAnim(e.shiftKey ? ANIM_FINE_STEP_SECONDS : ANIM_STEP_SECONDS);
+      else if (e.key === 'ArrowLeft') stepAnim(e.shiftKey ? -ANIM_FINE_STEP_SECONDS : -ANIM_STEP_SECONDS);
+      else if (e.key === '.' || e.key === ']') stepAnim(ANIM_FINE_STEP_SECONDS);
+      else if (e.key === ',' || e.key === '[') stepAnim(-ANIM_FINE_STEP_SECONDS);
       else if (e.key === 'Home') {
         setIsPlaying(false);
         setAnimProgress(0);
@@ -2554,7 +2558,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
                 );
               });
             })()}
-          {/* A block: the blocker and his man joined (no labels over the pile). */}
+          {/* A block: the blocker and his man joined with a perpendicular blocking shield. */}
           {moving &&
             (animatedFrame.collisions || [])
               .filter((c) => c.kind === 'block')
@@ -2562,10 +2566,14 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
                 const a = drawnAt.get(c.offRole);
                 const b = drawnAt.get(c.defRole);
                 if (!a || !b) return null;
+                const midX = (a.cx + b.cx) / 2;
+                const midY = (a.cy + b.cy) / 2;
+                const shield = tBar(a.cx, a.cy, midX, midY);
                 return (
                   <g key={`block-${c.offRole}-${c.defRole}`} pointerEvents="none">
                     <line x1={a.cx} y1={a.cy} x2={b.cx} y2={b.cy} stroke="#ffffff" strokeWidth={9} strokeLinecap="round" strokeOpacity={0.9} />
                     <line x1={a.cx} y1={a.cy} x2={b.cx} y2={b.cy} stroke="#f97316" strokeWidth={5} strokeLinecap="round" />
+                    <line x1={shield.x1} y1={shield.y1} x2={shield.x2} y2={shield.y2} stroke="#fbbf24" strokeWidth={3.6} strokeLinecap="round" />
                   </g>
                 );
               })}
@@ -3003,7 +3011,8 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
             {/* Back to the start, a step back, start / pause, a step on, and key phase spots: to go over it with the team. */}
             <div className="inline-flex flex-wrap items-center gap-1">
               <button type="button" onClick={() => { setIsPlaying(false); setAnimProgress(0); }} title="Back to the pre-snap alignment (Home)" aria-label="Back to the start" className={ctl}>⏮</button>
-              <button type="button" onClick={() => stepAnim(-1)} title="Step back (left arrow)" aria-label="Step back" className={ctl}>◀︎</button>
+              <button type="button" onClick={() => stepAnim(-ANIM_STEP_SECONDS)} title={`Full step back (-${ANIM_STEP_SECONDS}s, Left Arrow)`} aria-label="Full step back" className={ctl}>«</button>
+              <button type="button" onClick={() => stepAnim(-ANIM_FINE_STEP_SECONDS)} title={`Fine frame step back (-${ANIM_FINE_STEP_SECONDS}s, Shift+Left or ,)`} aria-label="Fine step back" className={ctl}>◀︎</button>
               <button
                 type="button"
                 onClick={() => {
@@ -3016,7 +3025,8 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
               >
                 {isPlaying ? '⏸ Pause' : animProgress >= 0.99 ? '↻ Again' : animProgress > 0.005 ? '▶ Continue' : '▶ Start'}
               </button>
-              <button type="button" onClick={() => stepAnim(1)} title="Step on (right arrow)" aria-label="Step forward" className={ctl}>▶︎</button>
+              <button type="button" onClick={() => stepAnim(ANIM_FINE_STEP_SECONDS)} title={`Fine frame step forward (+${ANIM_FINE_STEP_SECONDS}s, Shift+Right or .)`} aria-label="Fine step forward" className={ctl}>▶︎</button>
+              <button type="button" onClick={() => stepAnim(ANIM_STEP_SECONDS)} title={`Full step forward (+${ANIM_STEP_SECONDS}s, Right Arrow)`} aria-label="Full step forward" className={ctl}>»</button>
               {animatedFrame.stemProgress !== undefined && (
                 <button
                   type="button"

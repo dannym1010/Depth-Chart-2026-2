@@ -2566,6 +2566,21 @@ export default function App() {
       masterPlayLibrary: currentState.masterPlayLibrary,
       playDatabase: currentState.playDatabase,
       deletedPlayIds: currentState.deletedPlayIds,
+      onPlaysMerged: (mergedPlays, mergedDeleted) => {
+        const deletedAll = mergeDeletedPlayIds(latestStateRef.current.deletedPlayIds, mergedDeleted);
+        if (deletedAll.length !== (latestStateRef.current.deletedPlayIds || []).length) {
+          setDeletedPlayIds(deletedAll);
+          latestStateRef.current.deletedPlayIds = deletedAll;
+          safeJSONSet('footballDeletedPlayIds', deletedAll);
+        }
+        const combined = mergePlayBanks(latestStateRef.current.playDatabase, mergedPlays, deletedAll);
+        if (combined !== latestStateRef.current.playDatabase) {
+          const small = compactPlayDiagrams(combined);
+          setPlayDatabase(small);
+          latestStateRef.current.playDatabase = small;
+          safeJSONSet('footballPlayDatabase', small);
+        }
+      },
       guideTree: currentState.guideTree,
       guideOrder: currentState.guideOrder,
       pffGradeCriteria: currentState.pffGradeCriteria,
@@ -4632,8 +4647,12 @@ export default function App() {
   const handleUpdatePlayDatabase = (edited: PlayDatabaseEntry[]) => {
     lastLocalEditTimeRef.current = Date.now();
     // Stamp what this coach changed, so it wins over older copies when Play Banks merge.
-    // Pictures kept small: the plays go to the cloud as one document, which can't pass 1 MB.
-    const newDb = compactPlayDiagrams(stampPlayEdits(latestStateRef.current.playDatabase || [], edited));
+    // Merge with latestStateRef.current.playDatabase (respecting deletedPlayIds) so an unmounting builder's
+    // saveOnLeave with a render-closure playDatabase can never drop a play just added to latestStateRef.
+    const cur = latestStateRef.current.playDatabase || [];
+    const stamped = stampPlayEdits(cur, edited);
+    const merged = mergePlayBanks(cur, stamped, latestStateRef.current.deletedPlayIds || []);
+    const newDb = compactPlayDiagrams(merged);
     setPlayDatabase(newDb);
     latestStateRef.current.playDatabase = newDb;
     safeJSONSet('footballPlayDatabase', newDb);
@@ -8268,6 +8287,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 onUpdateOwnTeamScout={persistOwnTeamHudlScout}
                 onUpdateScouting={persistWeekScouting}
                 playDatabase={ourPlayDatabase}
+                allTeamPlays={teamPlayDatabase}
                 onUpdatePlayDatabase={handleUpdateOurPlays}
                 roster={activeTeamRoster}
                 weekBoards={weekBoardsFor}
@@ -8412,8 +8432,8 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   const mine = (latestStateRef.current.playDatabase || []).filter((p) => p && sameTeamId(playTeamOf(p), teamId));
                   const gone = new Set(ids.filter((id) => mine.some((p) => p.id === id)));
                   if (!gone.size) return;
-                  handleUpdateTeamPlayDatabase(mine.filter((p) => !gone.has(p.id)));
                   handleUpdateDeletedPlayIds(Array.from(new Set([...(latestStateRef.current.deletedPlayIds || []), ...gone])));
+                  handleUpdateTeamPlayDatabase(mine.filter((p) => !gone.has(p.id)));
                 }}
                 onAdjustBackfield={openFilmBackfield}
                 onEditFormation={openOppFormation}
@@ -9204,7 +9224,30 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
       )}
 
       {presenting && (
-        <ScoutPresentation show={presenting} index={presentIndex} onIndex={(i) => presentLine(presenting, i)} onExit={stopPresenting}>
+        <ScoutPresentation
+          show={presenting}
+          index={presentIndex}
+          onIndex={(i) => presentLine(presenting, i)}
+          onExit={stopPresenting}
+          onToggleStarPlay={(card, starred) => {
+            const { hudl, put } = weekHudl();
+            if (!hudl || !card?.id) return;
+            const now = Date.now();
+            const libs = (hudl.playLibraries || {}) as Record<string, ScoutOppPlay[]>;
+            const nextLibs: Record<string, ScoutOppPlay[]> = {};
+            let changed = false;
+            for (const [gid, list] of Object.entries(libs)) {
+              nextLibs[gid] = (list || []).map((c) => {
+                if (c.id !== card.id) return c;
+                changed = true;
+                return { ...c, starred, editedAt: now };
+              });
+            }
+            if (changed) {
+              put({ ...hudl, playLibraries: nextLibs, updatedAt: now });
+            }
+          }}
+        >
           {renderPlayLibrary(true)}
         </ScoutPresentation>
       )}

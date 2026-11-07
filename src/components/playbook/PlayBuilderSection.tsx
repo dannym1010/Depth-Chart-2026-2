@@ -1310,12 +1310,22 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const stateKeyRef = useRef(stateKey);
   stateKeyRef.current = stateKey;
   const savedKey = useRef(stateKey);
+  const draftEntryIdRef = useRef<string | null>(seed?.playEntryId || null);
+  if (seed?.playEntryId && draftEntryIdRef.current !== seed.playEntryId) {
+    draftEntryIdRef.current = seed.playEntryId;
+  }
   const [, setSaveTick] = useState(0);
+  // Changed on the film (a player moved, the field lined up): kept like a drawing.
+  const videoEdited = useRef(false);
+  const userDrewRef = useRef(userDrew);
+  userDrewRef.current = userDrew;
   useEffect(() => {
     const t = window.setTimeout(() => {
-      savedKey.current = stateKeyRef.current;
-      setSaveTick((n) => n + 1);
-    }, 400);
+      if (!userDrewRef.current && !videoEdited.current) {
+        savedKey.current = stateKeyRef.current;
+        setSaveTick((n) => n + 1);
+      }
+    }, 60);
     return () => window.clearTimeout(t);
   }, []);
   const unsaved = stateKey !== savedKey.current;
@@ -1324,10 +1334,8 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     savedKey.current = stateKeyRef.current;
     setSaveTick((n) => n + 1);
   };
-  // Changed on the film (a player moved, the field lined up): kept like a drawing.
-  const videoEdited = useRef(false);
   /**
-   * Leaving the play (another page, Back, Previous / Next) saves it when it changed. A new play is only
+   * Leaving the play (another page, Back, Previous / Next) or live editing saves it when it changed. A new play is only
    * added when something was drawn for it (or changed on the film).
    */
   const saveOnLeave = useRef<() => void>(() => {});
@@ -1338,18 +1346,46 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       savedKey.current = stateKeyRef.current;
       return;
     }
-    if (!seed?.playEntryId && !userDrew && !videoEdited.current && coachingCheckpoints.length === 0) return;
+    if (!seed?.playEntryId && !draftEntryIdRef.current && !userDrew && !videoEdited.current && coachingCheckpoints.length === 0 && !defenseOwn) return;
     saveNow(true);
   };
   useEffect(() => () => saveOnLeave.current(), []);
+  // Live debounced auto-save for plays and play lines so edits reach playDatabase & Firestore while the coach works
+  useEffect(() => {
+    if (formationMode || !canEdit || !unsaved) return;
+    if (!seed?.playEntryId && !draftEntryIdRef.current && !userDrew && !videoEdited.current && coachingCheckpoints.length === 0 && !defenseOwn) return;
+    const t = window.setTimeout(() => {
+      saveOnLeave.current();
+    }, 600);
+    return () => window.clearTimeout(t);
+  }, [stateKey, formationMode, canEdit, unsaved, seed?.playEntryId, userDrew, coachingCheckpoints.length, defenseOwn]);
+  // Flush immediately if the coach closes the laptop lid, switches apps on iPad, or refreshes/closes the tab
+  useEffect(() => {
+    const flush = () => saveOnLeave.current();
+    const onVis = () => {
+      if (document.visibilityState === 'hidden') saveOnLeave.current();
+    };
+    window.addEventListener('beforeunload', flush);
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('beforeunload', flush);
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, []);
   const step = (go?: () => void) => {
     if (!go) return;
     saveOnLeave.current();
     go();
   };
   const saveOffense = (auto = false) => {
-    // Saved by itself (leaving the play, Previous / Next) or by the button.
-    const add = (e: PlayDatabaseEntry) => onAdd(e, { auto });
+    // Saved by itself (leaving the play, Previous / Next, live auto-save) or by the button.
+    const add = (e: PlayDatabaseEntry) => {
+      const targetId = seed?.playEntryId || draftEntryIdRef.current || e.id;
+      draftEntryIdRef.current = targetId;
+      onAdd({ ...e, id: targetId }, { auto });
+    };
     if (formationMode) {
       saveFormation(true);
       return;
@@ -1651,8 +1687,18 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
       shiftDefense,
       // The rules the play runs with (after their shift, each defender's rules for after it).
       ...(playRules !== defRules ? { rulesAfterShift: playRules } : {}),
-      setShiftSpot: (role, x, y) => setShiftSpots((prev) => ({ ...prev, [role]: { x, y } })),
-      ...(Object.keys(shiftSpots).length ? { resetShiftSpots: () => setShiftSpots({}) } : {}),
+      setShiftSpot: (role, x, y) => {
+        videoEdited.current = true;
+        setShiftSpots((prev) => ({ ...prev, [role]: { x, y } }));
+      },
+      ...(Object.keys(shiftSpots).length
+        ? {
+            resetShiftSpots: () => {
+              videoEdited.current = true;
+              setShiftSpots({});
+            },
+          }
+        : {}),
     };
     if (onVideoLines) onVideoLines(lines);
     else publishPlayLines(linesOwner.current, lines);

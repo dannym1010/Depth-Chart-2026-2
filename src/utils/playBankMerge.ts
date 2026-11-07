@@ -80,3 +80,32 @@ export function mergeDeletedPlayIds(local: string[] | undefined, remote: string[
   const all = new Set([...(local || []), ...(remote || [])].filter(Boolean));
   return [...all];
 }
+
+/** Merge formation boards across devices by id and edit timestamp, respecting deletedFormationIds. */
+export function mergeFormations<T extends { id?: string; updatedAt?: number; editedAt?: number }>(
+  local: T[] | undefined,
+  remote: T[] | undefined,
+  deletedIds: Iterable<string> = []
+): T[] {
+  const mine = Array.isArray(local) ? local.filter((f) => f && f.id) : [];
+  const theirs = Array.isArray(remote) ? remote.filter((f) => f && f.id) : [];
+  const gone = new Set(deletedIds);
+  const mineById = new Map(mine.map((f) => [f.id!, f]));
+  const out: T[] = [];
+  const seen = new Set<string>();
+  const fTime = (f: T) => Number(f.updatedAt || f.editedAt || 0) || 0;
+  for (const r of theirs) {
+    const id = r.id!;
+    if (gone.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    const l = mineById.get(id);
+    out.push(l && fTime(l) > fTime(r) ? l : r);
+  }
+  for (const l of mine) {
+    const id = l.id!;
+    if (gone.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    out.push(l);
+  }
+  return out;
+}

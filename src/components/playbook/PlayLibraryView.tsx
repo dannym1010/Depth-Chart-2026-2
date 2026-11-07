@@ -287,17 +287,17 @@ export const PlayLibraryView: React.FC<Props> = ({
     onUpdatePlayDatabase(playDatabase.map((p) => (p.id === id ? { ...p, ...patch } : p)));
 
   const remove = (ids: string[]) => {
-    const prevDb = playDatabase;
+    const prevDb = latestPlays.current;
     const prevDeleted = deletedPlayIds;
     const gone = new Set(ids);
-    const names = playDatabase.filter((p) => gone.has(p.id)).map((p) => p.name);
-    onUpdatePlayDatabase(playDatabase.filter((p) => !gone.has(p.id)));
+    const names = prevDb.filter((p) => gone.has(p.id)).map((p) => p.name);
     onUpdateDeletedPlayIds(Array.from(new Set([...deletedPlayIds, ...ids])));
+    onUpdatePlayDatabase(prevDb.filter((p) => !gone.has(p.id)));
     setSelected({});
     setOpenId(null);
     showToast(names.length === 1 ? `Deleted ${names[0]}` : `Deleted ${names.length} plays`, () => {
-      onUpdatePlayDatabase(prevDb);
       onUpdateDeletedPlayIds(prevDeleted);
+      onUpdatePlayDatabase(prevDb);
       setToast(null);
     });
   };
@@ -498,16 +498,23 @@ export const PlayLibraryView: React.FC<Props> = ({
           if (builderSeed) savePlayBuilderSeed({ ...builderSeed, builder: state });
         }}
         onAdd={(entry, opts) => {
-          const { plays: next, saved, linked } = mergeBuilderSave(playDatabase, entry, builderSeed);
+          const { plays: next, saved, linked } = mergeBuilderSave(latestPlays.current, entry, builderSeed);
+          latestPlays.current = next;
           onUpdatePlayDatabase(next);
           if (linked) {
             // Keep the builder on this play, so the next Save updates it again (not another play opened since).
             setBuilderSeed((s) => (s && s.playEntryId === saved.id ? { ...s, name: saved.name, builder: saved.builder } : s));
-            showToast(`Saved ${saved.name}`);
+            if (!opts?.auto) showToast(`Saved ${saved.name}`);
             return;
           }
           if (opts?.auto) {
-            showToast(`Added ${entry.name}`);
+            setBuilderSeed((s) =>
+              s
+                ? !s.playEntryId
+                  ? { ...s, playEntryId: saved.id, name: saved.name, builder: saved.builder }
+                  : s
+                : { name: saved.name, playEntryId: saved.id, builder: saved.builder }
+            );
             return;
           }
           setSection('Play builder');

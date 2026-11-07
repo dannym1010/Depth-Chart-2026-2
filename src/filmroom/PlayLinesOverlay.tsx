@@ -7,7 +7,7 @@ import { computeAnimatedPlayFrame, DEFENSE_TRAIL, playAnimationSeconds, shiftAdj
 import { computeGapIntegrity, placeGapSlots, type GapFitSlot } from '../utils/defenseReads';
 import { defenseCallStrokes, joinPressure, pressureParts, PRESSURES } from '../utils/defenseCalls';
 import { safeJSONParse, safeJSONSet } from '../services/storageService';
-import { ChevronLeft, ChevronRight, Columns3, Contrast, Eye, EyeOff, FlipHorizontal2, FlipVertical2, Map as MapIcon, Move, MoveUpRight, Pause, Play, RotateCcw, SkipBack, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Columns3, Contrast, Eye, EyeOff, FlipHorizontal2, FlipVertical2, Map as MapIcon, Move, MoveUpRight, Pause, Play, RotateCcw, SkipBack, X } from 'lucide-react';
 import { AMBER, btn as BTN, divider, idle, INK, on as onBtn, overVideo, playButton, playButtonStyle, tray, trayItem, trayPicked, trayStyle } from './controlStyles';
 
 /** The selected play as the Play Builder draws it, to lay over the film. */
@@ -78,19 +78,24 @@ const SPEED_KEY = 'mahopac_film_lines_speed';
 const GAPS_KEY = 'mahopac_film_lines_gaps';
 const DARROWS_KEY = 'mahopac_film_lines_darrows';
 const MODE_KEY = 'mahopac_film_lines_mode';
+const AUTOSTOP_KEY = 'mahopac_film_lines_autostop';
 /** Edit: every control (lining up, the clean field, the shade...). Present: just what's needed in front of the team. */
 type LinesMode = 'edit' | 'present';
 /** The defense's arrows: each defender's path through this much of the play after the snap (his read and fit). */
 const DEF_ARROW_UNTIL = 0.6;
-/** Run play speeds: slow motion down to a tenth, for going over it with the team. */
+/** Run play speeds: ultra-slow motion down to 0.05×, for going over blocking fits and reads with the team. */
 const LINE_SPEEDS: [number, string][] = [
+  [0.05, '0.05×'],
   [0.1, '0.1×'],
   [0.25, '¼×'],
   [0.5, '½×'],
+  [0.75, '¾×'],
   [1, '1×'],
 ];
-/** One step back or on: this much of the play, in seconds. */
-const LINE_STEP_SECONDS = 0.1;
+/** One full step back or on: this much of the play, in seconds. */
+const LINE_STEP_SECONDS = 0.15;
+/** Fine frame-by-frame micro-step back or on: this much of the play, in seconds. */
+const LINE_FINE_STEP_SECONDS = 0.04;
 const showsDefense = (side: Side) => side !== 'offense';
 const showsOffense = (side: Side) => side !== 'defense';
 /** Our defense's lines (blitzes, coverage) carry their own color; the offense's don't. */
@@ -499,16 +504,39 @@ export function usePlayLines(opts: {
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
   }, [running, speed]);
+  const [autoStop, setAutoStopState] = useState(() => safeJSONParse<boolean>(AUTOSTOP_KEY, false) === true);
+  const pickAutoStop = (v: boolean) => {
+    setAutoStopState(v);
+    safeJSONSet(AUTOSTOP_KEY, v);
+  };
   const runPlay = () => {
     setMoveBar(true);
     // From where it is, or from the start once it has finished.
     setProgress((p) => (p >= 1 ? 0 : p));
     setRunning(true);
   };
-  const stepPlay = (dir: -1 | 1) => {
+  const stepPlay = (secondsDelta: number) => {
+    setMoveBar(true);
     setRunning(false);
-    setProgress((p) => Math.max(0, Math.min(1, p + (dir * LINE_STEP_SECONDS) / timing.current.seconds)));
+    setProgress((p) => Math.max(0, Math.min(1, p + secondsDelta / timing.current.seconds)));
   };
+  useEffect(() => {
+    if (!on || !moveBar || lineUp) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest('textarea, select, [contenteditable="true"], input:not([type="checkbox"]):not([type="range"]):not([type="radio"]):not([type="button"])')) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === ',' || e.key === '[') {
+        e.preventDefault();
+        stepPlay(-LINE_FINE_STEP_SECONDS);
+      } else if (e.key === '.' || e.key === ']') {
+        e.preventDefault();
+        stepPlay(LINE_FINE_STEP_SECONDS);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [on, moveBar, lineUp]);
   // Another play: back to the start.
   useEffect(() => {
     setRunning(false);
@@ -593,7 +621,20 @@ export function usePlayLines(opts: {
   }, [shown, split, adjusts]);
   const seconds = playAnimationSeconds(split.off, split.def, adjusts ? 'shift' : false);
   const snapAt = snapProgress(split.off, split.def, adjusts ? 'shift' : false);
-  timing.current = { seconds, stops: shiftStops ? [shiftStops.shift, shiftStops.set] : [] };
+  const frame = useMemo(
+    () => (shown ? frameAt(progress) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [shown, split, progress]
+  );
+  const readAt = frame?.handoffProgress ?? frame?.readProgress ?? snapAt + (1 - snapAt) * 0.22;
+  const fitAt = frame?.fitProgress ?? snapAt + (1 - snapAt) * 0.44;
+  timing.current = {
+    seconds,
+    stops: [
+      ...(shiftStops ? [shiftStops.shift, shiftStops.set] : []),
+      ...(autoStop ? [snapAt > 0.005 ? snapAt : 0, readAt, fitAt].filter((s) => s > 0.005 && s < 0.98) : []),
+    ].sort((a, b) => a - b),
+  };
   const atShiftSet = Boolean(shiftStops && !running && Math.abs(progress - shiftStops.shift) < 0.004);
   const atDefenseSet = Boolean(shiftStops && !running && progress >= shiftStops.set - 0.004 && progress < snapAt - 0.002);
   // Stopped on their shift: dragging a defender sets where he goes after it (saved with the play). His spot before
@@ -609,11 +650,6 @@ export function usePlayLines(opts: {
           if (atShiftSet && shiftStops) setProgress(shiftStops.set);
         }
       : undefined;
-  const frame = useMemo(
-    () => (shown ? frameAt(progress) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [shown, split, progress]
-  );
   const moving = progress > 0.002;
   const hasDefense = Boolean(shown?.nodes.some((n) => isDefenseRole(n.role)));
   // The gaps, exactly as the builder works them out from the play as drawn (its spots and rules), then drawn where
@@ -785,6 +821,24 @@ export function usePlayLines(opts: {
               >
                 <Play size={14} />
                 <span className="hidden sm:inline">Run play</span>
+              </button>
+              <button
+                type="button"
+                className={moveBar && !running ? onBtn : idle}
+                disabled={playing}
+                onClick={() => {
+                  if (!moveBar) {
+                    setMoveBar(true);
+                    setRunning(false);
+                    if (progress <= 0) stepPlay(LINE_STEP_SECONDS);
+                  } else {
+                    stepPlay(LINE_STEP_SECONDS);
+                  }
+                }}
+                title="Open step controls and step forward through the play lines"
+              >
+                <ChevronRight size={15} />
+                <span className="hidden sm:inline">Step</span>
               </button>
               {hasDefense && (
                 <>
@@ -1202,8 +1256,8 @@ export function usePlayLines(opts: {
         </div>
       )}
       {lines && moveBar && !playing && !lineUp && (
-        // The movement bar, pinned to the bottom right like the film's own: back to the start, a step back, play /
-        // pause, a step on, the scrubber, and slow motion down to a tenth.
+        // The movement bar, pinned to the bottom right like the film's own: back to the start, full & fine step controls,
+        // play / pause, phase jump buttons (Snap, Read, Fit), scrubber, and ultra-slow motion down to 0.05×.
         <div
           className="absolute right-2 bottom-2 left-2 sm:left-auto z-20 flex flex-wrap items-center justify-end gap-1 p-1.5 rounded-xl pointer-events-auto"
           style={panel}
@@ -1211,15 +1265,16 @@ export function usePlayLines(opts: {
           aria-label="Play movement"
           {...keep}
         >
-          {!presenting && (
-            <span className="h-9 px-2 inline-flex items-center text-[11px] font-bold tabular-nums whitespace-nowrap" aria-live="polite">
-              {moving && frame ? frame.phaseLabel : 'Lined up'}
-            </span>
-          )}
+          <span className="h-9 px-2 inline-flex items-center text-[11px] font-bold tabular-nums whitespace-nowrap" aria-live="polite">
+            {moving && frame ? `${frame.phaseLabel} · ${(progress * seconds).toFixed(2)}s` : 'Lined up · 0.00s'}
+          </span>
           <button type="button" className={idle} onClick={() => { setRunning(false); setProgress(0); }} title="Back to the lineup before the snap" aria-label="Back to the start">
             <SkipBack size={16} />
           </button>
-          <button type="button" className={idle} disabled={progress <= 0} onClick={() => stepPlay(-1)} title={`A step back (${LINE_STEP_SECONDS} s of the play)`} aria-label="A step back">
+          <button type="button" className={idle} disabled={progress <= 0} onClick={() => stepPlay(-LINE_STEP_SECONDS)} title={`Full step back (-${LINE_STEP_SECONDS}s)`} aria-label="Full step back">
+            <ChevronsLeft size={17} />
+          </button>
+          <button type="button" className={idle} disabled={progress <= 0} onClick={() => stepPlay(-LINE_FINE_STEP_SECONDS)} title={`Fine frame step back (-${LINE_FINE_STEP_SECONDS}s, key: ,)`} aria-label="Fine step back">
             <ChevronLeft size={18} />
           </button>
           <button
@@ -1232,8 +1287,11 @@ export function usePlayLines(opts: {
           >
             {running ? <Pause size={20} /> : progress >= 1 ? <RotateCcw size={18} /> : <Play size={20} className="translate-x-px" />}
           </button>
-          <button type="button" className={idle} disabled={progress >= 1} onClick={() => stepPlay(1)} title={`A step on (${LINE_STEP_SECONDS} s of the play)`} aria-label="A step on">
+          <button type="button" className={idle} disabled={progress >= 1} onClick={() => stepPlay(LINE_FINE_STEP_SECONDS)} title={`Fine frame step forward (+${LINE_FINE_STEP_SECONDS}s, key: .)`} aria-label="Fine step forward">
             <ChevronRight size={18} />
+          </button>
+          <button type="button" className={idle} disabled={progress >= 1} onClick={() => stepPlay(LINE_STEP_SECONDS)} title={`Full step forward (+${LINE_STEP_SECONDS}s)`} aria-label="Full step forward">
+            <ChevronsRight size={17} />
           </button>
           {shiftStops &&
             (
@@ -1256,21 +1314,52 @@ export function usePlayLines(opts: {
                 {label}
               </button>
             ))}
-          {!presenting && (
-            <input
-              type="range"
-              min={0}
-              max={1000}
-              value={Math.round(progress * 1000)}
-              onChange={(e) => {
-                setRunning(false);
-                setProgress(Number(e.target.value) / 1000);
-              }}
-              className="w-28 sm:w-40 accent-indigo-500 cursor-pointer"
-              aria-label="Where in the play"
-              title="Drag through the play"
-            />
-          )}
+          {(
+            [
+              [snapAt > 0.005 ? snapAt : 0.02, 'Snap', 'Jump to the snap', '#a5b4fc'],
+              [readAt, 'Read', 'Jump to the handoff / QB & LB read point', '#fcd34d'],
+              [fitAt, 'Fit', 'Jump to the offensive block & defensive gap fit point', '#fb923c'],
+            ] as [number, string, string, string][]
+          ).map(([at, label, title, color]) => {
+            const near = Math.abs(progress - at) < 0.035;
+            return (
+              <button
+                key={label}
+                type="button"
+                className={`${near ? onBtn : idle} text-[11px] font-black`}
+                style={near ? undefined : { color }}
+                onClick={() => {
+                  setRunning(false);
+                  setProgress(at);
+                }}
+                title={title}
+              >
+                {label}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            aria-pressed={autoStop}
+            className={`${autoStop ? onBtn : idle} text-[11px] font-black`}
+            onClick={() => pickAutoStop(!autoStop)}
+            title="Auto-pause at Snap, Read, and Block Fit checkpoints when running the play"
+          >
+            ⏸ Stops
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={1000}
+            value={Math.round(progress * 1000)}
+            onChange={(e) => {
+              setRunning(false);
+              setProgress(Number(e.target.value) / 1000);
+            }}
+            className="w-28 sm:w-36 accent-indigo-500 cursor-pointer"
+            aria-label="Where in the play"
+            title="Drag through the play"
+          />
           <span className={`ml-1 ${tray}`} style={trayStyle} role="group" aria-label="Speed">
             {LINE_SPEEDS.map(([s, label]) => (
               <button
@@ -2187,6 +2276,102 @@ const LinesDrawing: React.FC<{
     );
   }
 
+  // Active blocking engagements and tackles while the play is running on the film.
+  let collisionArt: React.ReactNode = null;
+  let collisionPills: React.ReactNode = null;
+  if (frame?.collisions?.length && !lineUp) {
+    const activeCols = frame.collisions.filter(
+      (c) => focus === null || focus === c.offRole || focus === c.defRole
+    );
+    collisionArt = (
+      <g pointerEvents="none">
+        {activeCols.map((c, idx) => {
+          const offNode = shownNodes.find((n) => n.role === c.offRole);
+          const defNode = shownNodes.find((n) => n.role === c.defRole);
+          const isTackle = c.kind === 'tackle';
+          const colColor = isTackle ? '#ef4444' : '#f59e0b';
+          const contactPt = { x: c.x, y: c.y };
+          const ringPts = circleOnField(contactPt, isTackle ? 0.72 : 0.52);
+          const ringOk = ringPts.every(seen);
+          const linkOk = Boolean(offNode && defNode && seen(offNode) && seen(defNode));
+          const [ax, ay] = linkOk ? px(offNode!) : [0, 0];
+          const [bx, by] = linkOk ? px(defNode!) : [0, 0];
+          const tPts = !isTackle && offNode && seen(contactPt) ? tOnField(contactPt, offNode, 0.56) : null;
+          const tOk = Boolean(tPts && tPts.every(seen));
+          return (
+            <g key={`col-${c.kind}-${c.offRole}-${c.defRole}-${idx}`}>
+              {ringOk && (
+                <path
+                  d={polygon(ringPts.map(px))}
+                  fill={colColor}
+                  fillOpacity={isTackle ? '0.28' : '0.2'}
+                  stroke={colColor}
+                  strokeWidth={(isTackle ? 2.6 : 1.8) * k}
+                />
+              )}
+              {linkOk && (
+                <>
+                  <line x1={ax} y1={ay} x2={bx} y2={by} stroke="#ffffff" strokeOpacity="0.9" strokeWidth={(isTackle ? 6.5 : 5.2) * k} strokeLinecap="round" />
+                  <line x1={ax} y1={ay} x2={bx} y2={by} stroke={colColor} strokeWidth={(isTackle ? 4.2 : 3.4) * k} strokeLinecap="round" />
+                </>
+              )}
+              {tOk && (
+                <path
+                  d={polyline(tPts!.map(px))}
+                  fill="none"
+                  stroke="#fef08a"
+                  strokeWidth={3 * k}
+                  strokeLinecap="round"
+                />
+              )}
+            </g>
+          );
+        })}
+      </g>
+    );
+    collisionPills = (
+      <g pointerEvents="none">
+        {activeCols
+          .filter((c) => seen({ x: c.x, y: c.y }))
+          .map((c, idx) => {
+            const [cx, cy] = px({ x: c.x, y: c.y });
+            const isTackle = c.kind === 'tackle';
+            const badgeText = isTackle ? `🛑 ${c.label}` : `💥 ${c.label}`;
+            const fs = (isTackle ? 9.5 : 8.2) * k;
+            const tw = badgeText.length * fs * 0.58 + 10 * k;
+            const th = fs + 5 * k;
+            const by = cy - (isTackle ? 22 : 17) * k;
+            return (
+              <g key={`pill-${c.kind}-${c.offRole}-${c.defRole}-${idx}`}>
+                <rect
+                  x={cx - tw / 2}
+                  y={by - th / 2}
+                  width={tw}
+                  height={th}
+                  rx={th / 2}
+                  fill={isTackle ? '#7f1d1d' : '#78350f'}
+                  fillOpacity="0.92"
+                  stroke={isTackle ? '#ef4444' : '#f59e0b'}
+                  strokeWidth={1.5 * k}
+                />
+                <text
+                  x={cx}
+                  y={by + fs * 0.35}
+                  textAnchor="middle"
+                  fill="#ffffff"
+                  fontSize={fs}
+                  fontWeight={900}
+                  fontFamily={FONT}
+                >
+                  {badgeText}
+                </text>
+              </g>
+            );
+          })}
+      </g>
+    );
+  }
+
   /** A player: a ring at his feet (his color) with his tag under it; they land one by one when the picture stops. */
   const playerArt = (n: PlayNode, i: number) => {
     const def = isDefenseRole(n.role);
@@ -2195,6 +2380,7 @@ const LinesDrawing: React.FC<{
     const lineman = !def && !skill && !isBack;
     const carrier = !def && !lineman && n.role === lines.ballRole;
     const focused = focus === n.role;
+    const engagedBlock = !def && Boolean(frame?.collisions?.some((c) => c.kind === 'block' && c.offRole === n.role));
     const pin = layerSince === Infinity ? 1 : land((layerSince - i * 22) / 380);
     if (pin <= 0) return null;
     const around = circleOnField(n, (lineman ? 0.5 : 0.68) * pin);
@@ -2202,9 +2388,9 @@ const LinesDrawing: React.FC<{
     const ring = around.map(px);
     const [cx, cy] = px(n);
     const low = Math.max(...ring.map((q) => q[1]));
-    const tint = focused ? '#a5b4fc' : def ? '#4ade80' : carrier ? '#fb923c' : '#ffffff';
-    const chip = focused ? '#4f46e5' : def ? DEFENSE_COLOR : carrier ? '#ea580c' : '#ffffff';
-    const ink = focused || def || carrier ? '#ffffff' : '#0f172a';
+    const tint = focused ? '#a5b4fc' : def ? '#4ade80' : carrier ? '#fb923c' : engagedBlock ? '#fbbf24' : '#ffffff';
+    const chip = focused ? '#4f46e5' : def ? DEFENSE_COLOR : carrier ? '#ea580c' : engagedBlock ? '#d97706' : '#ffffff';
+    const ink = focused || def || carrier || engagedBlock ? '#ffffff' : '#0f172a';
     const text = tagOf(n);
     const fs = (lineman ? 8.5 : 10) * k;
     const tw = Math.max(fs * 1.7, text.length * fs * 0.64 + 7 * k);
@@ -2332,8 +2518,10 @@ const LinesDrawing: React.FC<{
           {throwArt}
           <g pointerEvents="none">{trails}</g>
           {gapArt}
+          {collisionArt}
           {shownNodes.map(playerArt)}
           {gapPills}
+          {collisionPills}
           {ballArt}
           {lineUp && (() => {
             const offSpot: Pt = {
