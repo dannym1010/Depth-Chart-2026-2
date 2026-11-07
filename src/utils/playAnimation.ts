@@ -449,20 +449,44 @@ function frameAt(
 
   // Determine overall play type (run vs pass) and target horizontal flow.
   // Exclude defensive coverage zone/man lines when counting offensive pass routes.
-  const hasPassRoutes =
-    allStrokes.filter(
-      (s) =>
-        s.kind === 'pass' &&
-        !s.zone &&
-        !s.man &&
-        !extraSet.has(s) &&
-        !(s.motion && s.motion >= s.points.length - 1) &&
-        !nodes.some((n) => isDefenseRole(n.role) && lineStartsOn(s, n, nodes))
-    ).length >= 2;
+  const offensivePassStrokes = allStrokes.filter(
+    (s) =>
+      s.kind === 'pass' &&
+      !s.zone &&
+      !s.man &&
+      !extraSet.has(s) &&
+      !(s.motion && s.motion >= s.points.length - 1) &&
+      !nodes.some((n) => isDefenseRole(n.role) && lineStartsOn(s, n, nodes))
+  );
+  const routedRoles = new Set<string>();
+  for (const [rRole, st] of roleStroke.entries()) {
+    if (isDefenseRole(rRole) || OL_ROLES.includes(rRole) || rRole === '1' || rRole === 'QB') continue;
+    if ((st.kind === 'pass' || isThrownLine(st)) && (st.motion || 0) < st.points.length - 1) {
+      routedRoles.add(rRole);
+    }
+  }
+  const hasRunnerStroke = Array.from(roleStroke.entries()).some(
+    ([rRole, st]) =>
+      !isDefenseRole(rRole) &&
+      !OL_ROLES.includes(rRole) &&
+      rRole !== '1' &&
+      rRole !== 'QB' &&
+      st.kind === 'run' &&
+      !isThrownLine(st) &&
+      (st.motion || 0) < st.points.length - 1
+  );
+  const qbStroke = roleStroke.get('1') || roleStroke.get('QB');
+  const qbRunsDownfield = Boolean(
+    qbStroke &&
+      qbStroke.kind === 'run' &&
+      (qbStroke.motion || 0) < qbStroke.points.length - 1 &&
+      Math.max(...qbStroke.points.slice(qbStroke.motion || 0).map((pt) => pt.y)) > 1.2
+  );
   // The ball carrier runs a route, or a back's run line marked as a pass (not the QB): it's thrown to him.
   const carrierLine = roleStroke.get(ballRole);
   const throwTo = ballRole !== '1' && ballRole !== 'QB' && Boolean(carrierLine && isThrownLine(carrierLine));
-  const isPassPlay = throwTo || (hasPassRoutes && !roleStroke.get(ballRole)?.kind?.includes('run'));
+  const isPassPlay =
+    throwTo || (offensivePassStrokes.length >= 1 && !hasRunnerStroke && !qbRunsDownfield);
 
   const holeXMap: Record<number, number> = {
     9: -9.5,
@@ -717,7 +741,7 @@ function frameAt(
         continue;
       }
 
-      if (n.role === ballRole) {
+      if (n.role === ballRole && (!isPassPlay || n.role === '1' || n.role === 'QB')) {
         const synthPts = getSyntheticCarrierPoints(n);
         const sample = samplePolyline(synthPts, postT);
         if (sample.traveled.length >= 2) {
@@ -768,12 +792,22 @@ function frameAt(
           y: Math.round((n.y - 1.2 * qbT) * 100) / 100,
         });
       } else {
-        // Other skill / TE players step downfield into stalk block or clear-out route
+        // Other skill / TE players without a drawn stroke:
+        // On a pass play, un-drawn backs/TEs stay in pass protection so they don't drift into the flat zone landmark
         const skillT = easeOutQuad(postT);
-        at.set(n.role, {
-          x: n.x,
-          y: Math.round((n.y + (isPassPlay ? 4.2 : 2.2) * skillT) * 100) / 100,
-        });
+        if (isPassPlay && (n.line || n.y < -1.2 || /^[2-4]$/.test(n.role))) {
+          const proStepY = n.line ? -0.6 : 0.45;
+          at.set(n.role, {
+            x: n.x,
+            y: Math.round((n.y + proStepY * skillT) * 100) / 100,
+          });
+        } else {
+          const releaseY = isPassPlay ? (routedRoles.size > 0 ? 1.2 : 4.2) : 2.2;
+          at.set(n.role, {
+            x: n.x,
+            y: Math.round((n.y + releaseY * skillT) * 100) / 100,
+          });
+        }
       }
     }
     return at;
@@ -960,6 +994,7 @@ function frameAt(
           drawn: drawnFor,
           zones,
           manTargets,
+          routed: routedRoles,
           rules: defenseRules,
           // A reverse: the ball's path too (the back has it, then the receiver), as '__ball'.
           offenseAt: (t) => {
@@ -1050,7 +1085,7 @@ function frameAt(
               ? 'lead'
               : hasBlockStroke && endPt.y >= 1.75
                 ? 'climb'
-                : isPassPlay && isOl
+                : isPassPlay && (isOl || o.line)
                   ? 'pass_pro'
                   : !isOl && !o.line
                     ? 'stalk'
@@ -1081,7 +1116,15 @@ function frameAt(
           if (d.role === 'FS' && (!hasBlockStroke || endPt.y < 5.5)) continue;
           const alreadyClaimed = claimedDefs.has(d.role);
 
+          const defBlitz = drawnFor.get(d.role);
+          const isBlitzingDef = Boolean(
+            defBlitz &&
+              defBlitz.points.length >= 2 &&
+              defBlitz.points[defBlitz.points.length - 1].y <= 1.5
+          );
+
           if (hasBlockStroke && pts.length >= 2) {
+            if (isPassPlay && d.y >= 2.2 && !isBlitzingDef && endPt.y <= 1.8) continue;
             const dToEnd = Math.hypot(d.x - endPt.x, d.y - endPt.y);
             const onSeg = closestOnLine(pts, d);
             const effDist = Math.min(dToEnd, onSeg.d + 0.35);
@@ -1094,7 +1137,7 @@ function frameAt(
               bestDef = { role: d.role, score };
             }
           } else if (style === 'pass_pro') {
-            if (alreadyClaimed || d.y > 3.6) continue;
+            if (alreadyClaimed || (d.y > 2.15 && !isBlitzingDef)) continue;
             const dx = Math.abs(d.x - o.x);
             if (dx > 3.2) continue;
             const score = dx + Math.max(0, d.y - 1.2) * 0.6;

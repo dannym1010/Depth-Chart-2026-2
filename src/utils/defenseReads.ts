@@ -109,6 +109,8 @@ export interface PlayRead {
   zones?: Map<string, PlayStroke>;
   /** Man coverage assignments (defender role -> offensive receiver role). */
   manTargets?: Map<string, string>;
+  /** Offensive roles that have an explicit post-snap route/stroke drawn. */
+  routed?: Set<string>;
   /** Per-defender rules picked by the coach (gap, fit, action, flow, key, play, rush, motion). */
   rules?: Record<string, Record<string, string>>;
   /** Where the offense is at a time after the snap (0: the snap, 1: the end of the play). */
@@ -331,13 +333,26 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
   const runner = fakeBack ? '__ball' : r.pass && r.flight && grid[0].has(r.flight.to) ? r.flight.to : carrier;
 
   // As fast as the ball carrier runs, give or take (a youth play is 11 to 22 yards of running).
+  // On pass plays, also measure route distance so flat / zone droppers have the speed to match fast flat routes.
   let ran = 0;
   for (let i = 1; i < grid.length; i++) {
     const a = grid[i - 1].get(runner);
     const b = grid[i].get(runner);
     if (a && b) ran += Math.hypot(b.x - a.x, b.y - a.y);
   }
-  const base = Math.max(11, Math.min(22, ran));
+  if (r.pass) {
+    for (const o of r.offense) {
+      if (OL.includes(o.role) || o.role === r.qb) continue;
+      let dRoute = 0;
+      for (let i = 1; i < grid.length; i++) {
+        const a = grid[i - 1].get(o.role);
+        const b = grid[i].get(o.role);
+        if (a && b) dRoute += Math.hypot(b.x - a.x, b.y - a.y);
+      }
+      if (dRoute > ran) ran = dRoute;
+    }
+  }
+  const base = Math.max(r.pass ? 15.5 : 11, Math.min(22, ran));
 
   // Where the run hits the line of scrimmage, and when; the playside (+1 right, -1 left, 0 straight ahead).
   let hole = where(carrier, 1);
@@ -425,20 +440,119 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
     const c = where(who, now + 45 * STEP);
     return { x: c.x + off.x, y: c.y + off.y };
   };
-  /** The receiver nearest a zone's landmark that's in the zone, if any. */
+  /** The receiver nearest a zone's landmark that's in the zone, if any (prioritizing receivers with drawn routes). */
   const inZone = (land: P, now: number, fits: (q: P, role: string) => boolean): P | null => {
-    let best: P | null = null;
-    let bd = Infinity;
+    let bestRouted: P | null = null;
+    let bdRouted = Infinity;
+    let bestAny: P | null = null;
+    let bdAny = Infinity;
     for (const role of receivers) {
       const q = where(role, now);
       if (!fits(q, role)) continue;
       const d = Math.hypot(q.x - land.x, q.y - land.y);
-      if (d < bd) {
-        bd = d;
-        best = q;
+      if (r.routed?.has(role) && d < bdRouted) {
+        bdRouted = d;
+        bestRouted = q;
+      }
+      if (d < bdAny) {
+        bdAny = d;
+        bestAny = q;
       }
     }
-    return best;
+    return bestRouted || bestAny;
+  };
+
+  /**
+   * Pattern-match flat / curl-flat coverage for SAM, ROV, and outside flat droppers:
+   * Identifies any eligible receiver (RB swing/shoot, TE flat/arrow/out, Slot bubble/out/wheel, or WR hitch/out/flat)
+   * threatening the flat on `sideSign` (-1 left, +1 right) and returns tight coverage leverage right on that receiver.
+   */
+  const matchFlatThreat = (
+    sideSign: number,
+    land: P,
+    now: number,
+    maxDepth = 9.5,
+    requireExplicitRoute = false
+  ): P | null => {
+    const hasRoutedOnPlay = Boolean(r.routed && r.routed.size > 0);
+    if (requireExplicitRoute && !hasRoutedOnPlay) return null;
+
+    const isActivelyRouted = (role: string): boolean => {
+      if (role === carrier && !r.pass) return false;
+      if (hasRoutedOnPlay) return Boolean(r.routed!.has(role));
+      if (requireExplicitRoute) return false;
+      const q0 = grid[0].get(role) || where(role, 0);
+      const qEnd = where(role, 0.88);
+      return Math.hypot(qEnd.x - q0.x, qEnd.y - q0.y) > 0.85;
+    };
+
+    // Check if there is a dedicated underneath/flat route on this side so we ignore deep vertical clear-outs (#1 Go)
+    const hasDedicatedFlatOnSide = receivers.some((role) => {
+      if (!isActivelyRouted(role)) return false;
+      const q0 = grid[0].get(role) || where(role, 0);
+      const qEnd = where(role, 0.88);
+      const relEnd = (qEnd.x - gMap.C) * sideSign;
+      const outMove = (qEnd.x - q0.x) * sideSign;
+      return qEnd.y <= 9.8 && relEnd >= 3.0 && (outMove > 0.8 || Math.abs(q0.x - gMap.C) >= 4.5);
+    });
+
+    let bestRole: string | null = null;
+    let bestScore = -Infinity;
+
+    for (const role of receivers) {
+      if (!isActivelyRouted(role)) continue;
+      const q0 = grid[0].get(role) || where(role, 0);
+      const q = where(role, now);
+      const qLater = where(role, Math.min(1, now + 0.18));
+      const qEnd = where(role, 0.88);
+
+      const relXNow = (q.x - gMap.C) * sideSign;
+      const relXLater = (qLater.x - gMap.C) * sideSign;
+      const relXEnd = (qEnd.x - gMap.C) * sideSign;
+      const outwardVel = (qLater.x - q.x) * sideSign;
+      const totalOutward = (qEnd.x - q0.x) * sideSign;
+
+      // Must be on this side of the formation or actively releasing from the backfield/interior toward this flat
+      if (relXNow < 0.2 && !(outwardVel > 0.3 && relXEnd >= 2.8)) continue;
+      if (relXEnd < 2.2 && relXLater < 2.5) continue;
+
+      // Ignore routes breaking hard inside across the formation (slants, shallow crosses going away)
+      if (outwardVel < -0.85 && relXEnd < relXNow - 1.4) continue;
+
+      // Must be within flat / curl-flat depth
+      if (q.y < -4.8 || q.y > maxDepth) continue;
+
+      // On RPO / run plays, only match a receiver who is genuinely releasing into the flat/outward
+      if (requireExplicitRoute && totalOutward < 1.2 && relXEnd < 6.0) continue;
+
+      // Deep vertical stem check: if this receiver is running deep (> 10.5 yds) without breaking to the flat,
+      // skip immediately if another receiver is coming to the flat, or pass off to the deep 1/3 corner past 6.5 yds.
+      const isDeepVertical = qEnd.y > 10.5 && qLater.y - q.y > 0.9 && outwardVel < 0.9;
+      if (isDeepVertical) {
+        if (hasDedicatedFlatOnSide || q.y > 6.5 || requireExplicitRoute) continue;
+      }
+
+      // Score: prioritize routes staying in the flat/underneath and breaking toward the sideline
+      let score = 0;
+      if (qEnd.y <= 9.0) score += 25;
+      if (qEnd.y <= 5.5) score += 12;
+      if (totalOutward > 1.2 || outwardVel > 0.35) score += 18;
+      score += Math.min(14, relXNow * 0.7 + relXLater * 0.4);
+      score -= Math.hypot(q.x - land.x, q.y - land.y) * 0.45;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestRole = role;
+      }
+    }
+
+    if (!bestRole) return null;
+    const m = where(bestRole, now);
+    const mLead = where(bestRole, Math.min(1, now + 0.14));
+    const aimX = m.x + (mLead.x - m.x) * 0.45;
+    const aimY = m.y + (mLead.y - m.y) * 0.45;
+    // Tight inside/top-shoulder coverage leverage right on the flat receiver
+    return { x: aimX - sideSign * 0.4, y: Math.max(-2.5, aimY + 0.5) };
   };
 
   const goal = (d: Defender, start: P, me: P, now: number, v: number): P => {
@@ -448,23 +562,50 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
     const gs = rule.gapSide === 'over' ? -s : s;
     const zoneStroke = zones.get(d.role);
     const manRole = manTargets.get(d.role);
+    const isFlatOrOutsideDropper =
+      /^flat/i.test(zoneStroke?.label || '') ||
+      rule.pass === 'flat' ||
+      (d.job === 'outside' && !manRole && (!zoneStroke || /^(flat|curl)/i.test(zoneStroke.label || '')));
 
     if (r.pass) {
       if (r.flight && now >= r.flight.release) {
-        // The ball is in the air: break on the catch; caught, run the receiver down.
-        if (now < r.flight.caught) {
+        if (d.line && !zoneStroke && !manRole) {
           const c = where(r.flight.to, r.flight.caught);
-          return d.line ? { x: c.x, y: c.y - 1 } : c;
+          return now < r.flight.caught ? { x: c.x, y: c.y - 1 } : chase(me, v, now);
         }
-        return chase(me, v, now);
+        // If this defender is a flat/outside dropper and has a receiver in his flat (and the ball wasn't thrown to
+        // that flat receiver), stay locked on the flat receiver through the end of the play so flat coverage is clear!
+        const cTarget = where(r.flight.to, Math.min(now, r.flight.caught));
+        const distToTarget = Math.hypot(cTarget.x - me.x, cTarget.y - me.y);
+        if (isFlatOrOutsideDropper) {
+          const fs = zoneStroke?.points?.length ? Math.sign(zoneStroke.points[zoneStroke.points.length - 1].x - gMap.C) || s : s;
+          const flatCov = matchFlatThreat(fs, { x: gMap.C + fs * 12, y: 4.5 }, now, 9.5);
+          if (flatCov && Math.hypot(cTarget.x - flatCov.x, cTarget.y - flatCov.y) > 2.8) {
+            return flatCov;
+          }
+        }
+        if (manRole && manRole !== r.flight.to && distToTarget > 4.5) {
+          const rec = where(manRole, now);
+          const insideShade = Math.sign(gMap.C - rec.x) * 0.45;
+          return { x: rec.x + insideShade, y: rec.y + 0.85 };
+        }
+        if (now < r.flight.caught) {
+          // While ball is in flight, only break on the throw if it's thrown into this defender's area or man
+          if (manRole === r.flight.to || distToTarget <= 5.5) {
+            const c = where(r.flight.to, r.flight.caught);
+            return d.line ? { x: c.x, y: c.y - 1 } : c;
+          }
+        } else if (distToTarget <= 7.5 || !isFlatOrOutsideDropper) {
+          return chase(me, v, now);
+        }
       }
       if (now < 0.1) {
-        return d.line
+        return d.line && !zoneStroke && !manRole
           ? { x: start.x, y: start.y - 1 }
           : { x: start.x, y: start.y + (d.job === 'corner' || d.job === 'deep' ? 1 : 0.4) };
       }
       const q = where(r.qb, now);
-      if (d.line) {
+      if (d.line && !zoneStroke && !manRole) {
         // Honor DL pass rush rules
         if (rule.rush === 'spy') return { x: q.x, y: 0.4 };
         if (rule.rush === 'screen') {
@@ -485,50 +626,50 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
         return { x: rec.x + insideShade, y: rec.y + 0.85 };
       }
       // Spy the QB assignment
-      if (zoneStroke?.label === 'Spy the QB') {
+      if (zoneStroke?.label === 'Spy the QB' || rule.pass === 'spy') {
         return { x: q.x, y: Math.max(2.8, q.y + 4.2) };
       }
       // Explicit zone drop from the defensive call picker (Cover 2, Cover 3, Cover 4, or custom ZoneMap pick)
       if (zoneStroke && zoneStroke.points.length >= 2) {
         const endPt = zoneStroke.points[zoneStroke.points.length - 1];
-        if (/^flat/i.test(zoneStroke.label || '')) {
-          // The flat: stay short and wide. A route going deep (#1 on a vertical, a curl) is the corner's or the
-          // hook's; he takes whoever comes to the flat (the out, the arrow, the back in the flat), else sits there.
-          const fs = Math.sign(endPt.x - gMap.C) || s;
-          const m = inZone(endPt, now, (q2, role) => {
-            if (Math.abs(q2.x - endPt.x) > 7 || q2.y > endPt.y + 2 || q2.y < -1.5) return false;
-            // Where his route goes: not deep, and not back inside.
-            const later = where(role, Math.min(1, now + 0.2));
-            return later.y < endPt.y + 3 && (later.x - gMap.C) * fs > (endPt.x - gMap.C) * fs - 7;
-          });
-          return m ? { x: m.x - fs * 0.3, y: Math.min(endPt.y, Math.max(m.y + 1, 1.5)) } : endPt;
+        const fs = Math.sign(endPt.x - gMap.C) || s;
+        if (/^flat/i.test(zoneStroke.label || '') || (d.job === 'outside' && /^curl/i.test(zoneStroke.label || ''))) {
+          // Flat / Curl-Flat defender (SAM, ROV, OLB, or Cover 2 squat corner):
+          // Match and cover any player releasing into or sitting in the flat on his side.
+          const maxD = /^curl/i.test(zoneStroke.label || '') ? 10.0 : 9.2;
+          const flatMatch = matchFlatThreat(fs, endPt, now, maxD);
+          if (flatMatch) return flatMatch;
+          return endPt;
         }
         const rx = Math.max(4.5, (zoneStroke.zone?.rx || 3) * 1.65);
         const ry = Math.max(3.5, (zoneStroke.zone?.ry || 2) * 2.1);
         const m = inZone(endPt, now, (q2) => Math.abs(q2.x - endPt.x) < rx && Math.abs(q2.y - endPt.y) < ry);
-        return m ? { x: endPt.x + (m.x - endPt.x) * 0.6, y: endPt.y + (m.y - endPt.y) * 0.5 } : endPt;
+        return m ? { x: endPt.x + (m.x - endPt.x) * 0.85, y: endPt.y + (m.y - endPt.y) * 0.82 } : endPt;
+      }
+      // Default Cover 3 outside backer (SAM / ROV) or explicit rule.pass === 'flat' | 'curl'
+      if (d.job === 'outside' || rule.pass === 'flat' || rule.pass === 'curl') {
+        const land = { x: gMap.C + s * Math.max(11, Math.abs(start.x - gMap.C) * 1.25), y: 4.5 };
+        const flatMatch = matchFlatThreat(s, land, now, 9.5);
+        if (flatMatch) return flatMatch;
+        // If no flat threat and the QB scrambles outside the pocket toward an edge contain backer, step up on QB
+        if (d.edge && (q.x - qbStart.x) * s > 3.2) return { x: q.x + s * 0.8, y: q.y + 0.4 };
+        return land;
       }
       // The QB out of the pocket toward a man with contain: he takes him.
       if (d.edge && (q.x - qbStart.x) * s > 3) return { x: q.x + s * 0.8, y: q.y + 0.4 };
-      // Cover 3 default: four under (the outside backers in the curl-flats, the inside ones in the hooks), three deep.
-      if (d.job === 'outside') {
-        const land = { x: gMap.C + s * Math.max(8, Math.abs(start.x - gMap.C) * 0.85), y: 5 };
-        const m = inZone(land, now, (q2) => Math.abs(q2.x - land.x) < 6 && q2.y > -1 && q2.y < 9);
-        return m ? { x: land.x + (m.x - land.x) * 0.6, y: land.y + (m.y - land.y) * 0.5 } : land;
-      }
       if (d.job === 'inside' || d.job === 'safety') {
         const land = { x: gMap.C + (Math.abs(start.x - gMap.C) < 2 ? (start.x - gMap.C) * 0.5 : s * 3.5), y: 6.5 };
-        const m = inZone(land, now, (q2) => Math.abs(q2.x - land.x) < 5 && q2.y > 2 && q2.y < 11);
-        return m ? { x: land.x + (m.x - land.x) * 0.55, y: land.y + (m.y - land.y) * 0.4 } : land;
+        const m = inZone(land, now, (q2) => Math.abs(q2.x - land.x) < 5.5 && q2.y > 1.5 && q2.y < 11);
+        return m ? { x: land.x + (m.x - land.x) * 0.82, y: land.y + (m.y - land.y) * 0.78 } : land;
       }
       if (d.job === 'corner') {
         const land = { x: start.x + s * 0.5, y: 12 };
         const m = inZone(land, now, (q2) => q2.y > 6 && (q2.x - gMap.C) * s > Math.abs(start.x - gMap.C) * 0.45);
-        return m ? { x: m.x + s * 0.6, y: Math.max(9, m.y + 2) } : land;
+        return m ? { x: m.x + s * 0.5, y: Math.max(8.5, m.y + 1.2) } : land;
       }
       const land = { x: gMap.C + (start.x - gMap.C) * 0.3, y: 13 };
       const m = inZone(land, now, (q2) => q2.y > 7 && Math.abs(q2.x - gMap.C) < 8);
-      return m ? { x: gMap.C + (m.x - gMap.C) * 0.8, y: Math.max(10, m.y + 2.5) } : land;
+      return m ? { x: gMap.C + (m.x - gMap.C) * 0.85, y: Math.max(9.5, m.y + 1.5) } : land;
     }
 
     // ========================================================================
@@ -542,6 +683,18 @@ export function defendPlay(r: PlayRead, t: number): { pos: Map<string, P>; trail
     const flowDir = side || pullDir || Math.sign(c.x - carrierStart.x) || s;
     const playside = side !== 0 ? s === side : s === flowDir;
     const mine = side === 0 || playside;
+
+    // On RPO / play-action / run plays with an explicit flat route, if SAM/ROV has an explicit Flat zone assignment
+    // (or is backside OLB with a receiver releasing into his flat), cover the player in the flat!
+    if (
+      now >= 0.1 &&
+      !d.line &&
+      (/^flat/i.test(zoneStroke?.label || '') || rule.pass === 'flat' || (d.job === 'outside' && !mine))
+    ) {
+      const fs = zoneStroke?.points?.length ? Math.sign(zoneStroke.points[zoneStroke.points.length - 1].x - gMap.C) || s : s;
+      const rpoFlat = matchFlatThreat(fs, { x: gMap.C + fs * 12, y: 4.0 }, now, 8.5, true);
+      if (rpoFlat) return rpoFlat;
+    }
 
     if (now < 0.1) {
       // The snap: the line fires off, the backers read-step toward their key/flow, the secondary checks pass/run.
