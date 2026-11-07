@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Upload, Printer, Plus, X, SlidersHorizontal } from 'lucide-react';
+import { Upload, Printer, Plus, X, SlidersHorizontal, Presentation, Star, Sparkles } from 'lucide-react';
 import { MoreMenu } from '../../components/common/MoreMenu';
 import { openScoutVersions } from '../../components/ScoutSafetyNet';
 
@@ -51,6 +51,11 @@ interface HeaderProps {
   /** Our own film: which week each game was played. */
   weekOptions?: { key: string; label: string }[];
   onSetGameWeek?: (gameId: string, week: string) => void;
+  /** Opponent Scout Script count and 1-click Present / Auto-build from any tab. */
+  scriptCount?: number;
+  starredScriptCount?: number;
+  onPresentScript?: (starredOnly?: boolean) => void;
+  onAutoBuildScript?: () => void;
 }
 
 const segBtn = (on: boolean) =>
@@ -85,6 +90,10 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleFilters,
   weekOptions,
   onSetGameWeek,
+  scriptCount = 0,
+  starredScriptCount = 0,
+  onPresentScript,
+  onAutoBuildScript,
 }) => {
   const own = scoutTarget === 'own';
   // On a phone the tab row scrolls sideways: keep the open tab (e.g. Play log) in view.
@@ -168,8 +177,44 @@ export const Header: React.FC<HeaderProps> = ({
             <Printer className="w-4 h-4" />
             Call sheet
           </button>
+          {!own && scriptCount > 0 && onPresentScript && (
+            <div className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => onPresentScript(false)}
+                className="min-h-[36px] flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-black rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm cursor-pointer"
+                title="Launch full-screen Presentation Mode for this opponent's Scout Script"
+              >
+                <Presentation className="w-4 h-4" />
+                Present ({scriptCount})
+              </button>
+              {starredScriptCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => onPresentScript(true)}
+                  className="min-h-[36px] flex items-center gap-1 px-2.5 py-1.5 text-xs font-black rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-sm cursor-pointer"
+                  title={`Present only starred plays (${starredScriptCount})`}
+                >
+                  <Star className="w-3.5 h-3.5 fill-current" />
+                  {starredScriptCount}
+                </button>
+              )}
+            </div>
+          )}
+          {!own && scriptCount === 0 && totalPlays > 0 && onAutoBuildScript && (
+            <button
+              type="button"
+              onClick={onAutoBuildScript}
+              className="min-h-[36px] flex items-center gap-1.5 px-3 py-1.5 text-xs font-black rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-sm cursor-pointer"
+              title="Automatically pull top opponent plays from film and build the Scout Script"
+            >
+              <Sparkles className="w-4 h-4" />
+              Auto-build Script
+            </button>
+          )}
           <MoreMenu
             items={[
+              { label: 'Auto-build Scout Script from film', onClick: () => onAutoBuildScript?.(), hidden: own || totalPlays === 0 || !onAutoBuildScript },
               { label: 'Export play log for Hudl', onClick: () => onExportForHudl?.(), hidden: games.length === 0 || !onExportForHudl },
               { label: 'Saved versions of the reports', onClick: openScoutVersions },
               { label: 'Remove all uploads', onClick: onClearUploads, danger: true, hidden: games.length === 0 },

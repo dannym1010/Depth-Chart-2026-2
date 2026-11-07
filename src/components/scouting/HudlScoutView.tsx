@@ -28,8 +28,9 @@ import { ScoutingData, UserRole, StaffCoach, ScheduleEvent } from '../../types';
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { ScoutOppPlayLibrary } from './ScoutOppPlayLibrary';
 import { StatsTab } from '../../hudlScout/components/report/StatsTab';
-import type { ScoutShow } from './ScoutPresentation';
-import { buildScoutScript, rebuildScoutScript, cardsFromTags, followRenamedClips, kindFollowsClips, foldBlankTwins, mergeDrawnIntoTags, placeholdersFromNames, coachingPoint, onCallSheet, runOrPass, formationNotes, withFormationNotes, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, printOrder, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
+import type { ScoutShow, ScoutShowLine } from './ScoutPresentation';
+import { useStarredPlays } from './presentStage';
+import { buildScoutScript, rebuildScoutScript, cardsFromTags, followRenamedClips, kindFollowsClips, foldBlankTwins, mergeDrawnIntoTags, placeholdersFromNames, playsFromFilm, coachingPoint, onCallSheet, runOrPass, formationNotes, withFormationNotes, groupOppPlays, isScoutPlayEntry, orderByIds, planLines, printOrder, reportPlays, snapsForCall, tagCardName, type OppFormation, type ScoutOppPlay } from '../../utils/scoutOppPlays';
 import { leadOppPlay, oppPlayDiagram, playPoint, theirPlaysByFormation } from '../../utils/filmBackfields';
 import { theirCallEntries } from '../../utils/theirCalls';
 import type { ReportPlayType } from '../../hudlScout/components/CallSheetModal';
@@ -868,6 +869,122 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
     });
   };
 
+  // Header-level Scout Script count & 1-click Present / Auto-build from any Opponent tab.
+  const [starredPlayIds] = useStarredPlays();
+  const headerShow = useMemo(() => {
+    if (scoutTarget !== 'opponent') return { title: '', lines: [] as ScoutShowLine[], starredCount: 0 };
+    const films = oppBundle.games || [];
+    const scriptGames = oppBundle.practiceScript?.gameIds;
+    const scriptOrder = (oppBundle.practiceScript?.lines || []).map((l) => l.playId);
+    const scriptFilms = (scriptGames || []).filter((id) => films.some((g) => g.id === id));
+    const useFilms = scriptFilms.length && scriptFilms.length < films.length ? scriptFilms : [];
+    const allOnReport = reportPlays(oppBundle.playLibraries, useFilms);
+    const isDrawn = (id: string) => (playDatabase || []).some((e) => e.id === `scout_${id}` && e.builder);
+    const script = buildScoutScript(orderByIds(allOnReport, scriptOrder), reportName, isDrawn);
+    const onTheReport = script.lines.map((l) => allOnReport.find((p) => p.id === l.playId)).filter((p): p is ScoutOppPlay => Boolean(p));
+    const alsoOf = (id: string) => (script.lines.find((l) => l.playId === id)?.also || []).map((x) => allOnReport.find((p) => p.id === x)).filter((p): p is ScoutOppPlay => Boolean(p));
+    const allTypes = groupOppPlays(Object.values(oppBundle.playLibraries || {}).flat());
+    const filmOf = (gid: string) => oppBundle.plays.filter((fp) => (fp.gameId ? fp.gameId === gid : films[0]?.id === gid));
+    const scriptFilm = (p: ScoutOppPlay) => {
+      const own = snapsForCall(filmOf(p.gameId), p.gameId, p.name, `scout_${p.id}`, p.fromPlayId, p.clips);
+      const also = alsoOf(p.id).filter((m) => m.gameId === p.gameId);
+      if (also.length) {
+        const byId = new Map(own.map((s) => [s.id, s]));
+        for (const m of also) for (const snap of snapsForCall(filmOf(m.gameId), m.gameId, m.name, `scout_${m.id}`, m.fromPlayId, m.clips)) byId.set(snap.id, snap);
+        const snaps = [...byId.values()].sort((a, b) => a.playNumber - b.playNumber);
+        return { snaps, group: { label: script.lines.find((l) => l.playId === p.id)?.name || p.name, plays: [p, ...also] } };
+      }
+      if (own.length) return { snaps: own, group: undefined };
+      const g = allTypes.find((t) => t.plays.some((x) => x.id === p.id));
+      if (!g || g.plays.length < 2) return { snaps: own, group: undefined };
+      const byId = new Map<string, { id: string; playNumber: number }>();
+      for (const m of g.plays) for (const snap of snapsForCall(filmOf(m.gameId), m.gameId, m.name, `scout_${m.id}`, m.fromPlayId, m.clips)) byId.set(snap.id, snap);
+      return { snaps: [...byId.values()].sort((a, b) => a.playNumber - b.playNumber), group: { label: g.label, plays: g.plays } };
+    };
+    const lines: ScoutShowLine[] = [];
+    let starredCount = 0;
+    for (const line of script.lines) {
+      const card = onTheReport.find((p) => p.id === line.playId);
+      if (!card || card.printSkip) continue;
+      if (starredPlayIds.has(line.playId) || card.starred) starredCount++;
+      const { snaps, group } = scriptFilm(card);
+      lines.push({
+        playId: line.playId,
+        name: line.name,
+        detail: line.detail,
+        card,
+        diagram: oppPlayDiagram(card, playDatabase, oppBundle.backfieldBases, oppBundle.oppFormations),
+        ...(snaps.length && group ? { group } : {}),
+      });
+    }
+    return { title: script.title, lines, starredCount };
+  }, [scoutTarget, oppBundle.games, oppBundle.practiceScript, oppBundle.playLibraries, oppBundle.plays, oppBundle.backfieldBases, oppBundle.oppFormations, playDatabase, reportName, starredPlayIds]);
+
+  const handlePresentFromHeader = (starredOnly = false) => {
+    if (!onPresentScript || !headerShow.lines.length) return;
+    onPresentScript({ title: headerShow.title, lines: headerShow.lines, ...(starredOnly ? { starredOnly: true } : {}) });
+  };
+
+  const handleAutoBuildScript = () => {
+    const firstGame = oppBundle.games[0]?.id || 'film-1';
+    const gamesList = oppBundle.games.length
+      ? oppBundle.games
+      : [{ id: firstGame, name: reportName, playCount: oppBundle.plays.length, addedAt: Date.now() }];
+    const libs: Record<string, ScoutOppPlay[]> = { ...(oppBundle.playLibraries || {}) };
+    const newlyAdded: ScoutOppPlay[] = [];
+    const newForms: OppFormation[] = [];
+    const links: Record<string, { playCallId: string; playCall: string }> = {};
+    for (const g of gamesList) {
+      const film = oppBundle.plays.filter((pl) => (pl.gameId ? pl.gameId === g.id : g.id === firstGame));
+      const existing = libs[g.id] || [];
+      const fromTags = cardsFromTags(g.id, film, existing, oppBundle.deletedOppPlayIds || [], libraryNameOf);
+      const named = placeholdersFromNames(
+        g.id,
+        film,
+        [...existing, ...fromTags],
+        oppBundle.deletedOppPlayIds || [],
+        [...(oppBundle.oppFormations || []), ...newForms]
+      );
+      const fromHudl = playsFromFilm(g.id, film, [...existing, ...fromTags, ...named.cards]);
+      const combined = [...existing, ...fromTags, ...named.cards, ...fromHudl];
+      libs[g.id] = combined;
+      newlyAdded.push(...fromTags, ...named.cards, ...fromHudl);
+      newForms.push(...named.formations);
+      Object.assign(links, named.links);
+    }
+    // Ensure top plays are checked onto the report if none were checked yet (e.g. plays run 1x each).
+    if (reportPlays(libs).length === 0) {
+      const now = Date.now();
+      for (const gid of Object.keys(libs)) {
+        libs[gid] = (libs[gid] || []).map((c, idx) => (idx < 12 ? { ...c, onReport: true, editedAt: now } : c));
+      }
+    }
+    const checkedCount = reportPlays(libs).length;
+    setOppBundle((prev) => {
+      const forms = prev.oppFormations || [];
+      const oppFormations = [...forms, ...newForms.filter((f) => !forms.some((x) => x?.id === f.id))];
+      const practiceScript = rebuildScoutScript(libs, prev.practiceScript, reportName, drawnScout);
+      return {
+        ...prev,
+        games: prev.games.length ? prev.games : gamesList,
+        playLibraries: libs,
+        ...(newForms.length ? { oppFormations } : {}),
+        ...(Object.keys(links).length
+          ? { plays: prev.plays.map((pl) => (links[pl.id] ? { ...pl, ...links[pl.id], editedAt: Date.now() } : pl)) }
+          : {}),
+        practiceScript,
+        updatedAt: Date.now(),
+      };
+    });
+    if (newlyAdded.length) onAddTaggedPlays?.(newlyAdded);
+    setActiveTab('theirplays');
+    setUploadNote(
+      checkedCount > 0
+        ? `Auto-built Scout Script with ${checkedCount} opponent play${checkedCount === 1 ? '' : 's'} from film.`
+        : 'Opened Their plays — tag or add opponent plays to build the Scout Script.'
+    );
+  };
+
   return (
     <div className="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col font-sans">
       <Header
@@ -898,6 +1015,10 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
         onToggleFilters={() => setFiltersOpen((o) => !o)}
         weekOptions={weekOptions}
         onSetGameWeek={handleSetGameWeek}
+        scriptCount={headerShow.lines.length}
+        starredScriptCount={headerShow.starredCount}
+        onPresentScript={onPresentScript ? handlePresentFromHeader : undefined}
+        onAutoBuildScript={scoutTarget === 'opponent' ? handleAutoBuildScript : undefined}
       />
 
       {/* The reports library: every week's scouting report and our games */}

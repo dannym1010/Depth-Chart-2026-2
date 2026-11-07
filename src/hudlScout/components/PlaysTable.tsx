@@ -403,6 +403,27 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
   }, [page, totalPages, filteredPlays.length]);
   const paginatedPlays = filteredPlays.slice((page - 1) * pageSize, page * pageSize);
 
+  // 1-click speed-tag: find the most recent tagged play on the same unit (above this row or earlier in the game).
+  const prevSameCallEntry = (idx: number, play: Play): PlayDatabaseEntry | undefined => {
+    if (!canTagCalls || !callDb || play.playCallId) return undefined;
+    for (let j = idx - 1; j >= 0; j--) {
+      const prev = paginatedPlays[j];
+      if (prev && prev.odk === play.odk && prev.playCallId) {
+        const hit = callDb.find((e) => e.id === prev.playCallId);
+        if (hit) return hit;
+      }
+    }
+    const fullIdx = plays.findIndex((p) => p.id === play.id);
+    for (let j = fullIdx - 1; j >= 0; j--) {
+      const prev = plays[j];
+      if (prev && prev.odk === play.odk && prev.playCallId) {
+        const hit = callDb.find((e) => e.id === prev.playCallId);
+        if (hit) return hit;
+      }
+    }
+    return undefined;
+  };
+
   useEffect(() => {
     onOrderChange?.(filteredPlays.map((p) => p.id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -636,9 +657,10 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
 
       {/* Phone cards */}
       <div className="md:hidden divide-y divide-slate-800">
-        {paginatedPlays.map((play) => {
+        {paginatedPlays.map((play, idx) => {
           const isGain = play.gainLoss > 0;
           const isLoss = play.gainLoss < 0;
+          const sameEntry = prevSameCallEntry(idx, play);
           return (
             <div
               key={play.id}
@@ -696,7 +718,22 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
               {((onSetUnit && playIsUnitTaggable(play)) || (canTagCalls && isTaggablePlay(play))) && (
                 <div className="pt-1 flex flex-wrap items-center gap-2">
                   {canTagCalls && isTaggablePlay(play) && (
-                    <CallButton play={play.callName && play.playCallId ? { ...play, playCall: play.callName } : play} db={callDb!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
+                    <>
+                      <CallButton play={play.callName && play.playCallId ? { ...play, playCall: play.callName } : play} db={callDb!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
+                      {sameEntry && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onTagPlays!([play.id], sameEntry);
+                          }}
+                          title={`Tag same as above: ${sameEntry.name}`}
+                          className="h-7 px-2 rounded-md border border-indigo-500/40 bg-indigo-950/60 hover:bg-indigo-900/80 text-indigo-200 text-[10px] font-black whitespace-nowrap cursor-pointer"
+                        >
+                          ↑ Same
+                        </button>
+                      )}
+                    </>
                   )}
                   {showDraw(play) && <DrawButton play={play} onDraw={onDrawCall!} />}
                   {onSetUnit && playIsUnitTaggable(play) && <UnitPicker play={play} onSetUnit={onSetUnit} />}
@@ -736,9 +773,10 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/60 font-medium">
-            {paginatedPlays.map((play) => {
+            {paginatedPlays.map((play, idx) => {
               const isGain = play.gainLoss > 0;
               const isLoss = play.gainLoss < 0;
+              const sameEntry = prevSameCallEntry(idx, play);
 
               const isOpen = openPlay === play.id;
               const subCount = play.subs ? Object.keys(play.subs).length : 0;
@@ -930,6 +968,19 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                       <div className={`flex items-start gap-0.5 ${compact ? 'flex-row items-center gap-1.5' : 'flex-col'}`}>
                         <span className="inline-flex items-center gap-1">
                           <CallButton play={play.callName && play.playCallId ? { ...play, playCall: play.callName } : play} db={callDb!} usage={usage} onTag={onTagPlays!} onCreate={onCreateCall} />
+                          {sameEntry && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onTagPlays!([play.id], sameEntry);
+                              }}
+                              title={`Tag same as above: ${sameEntry.name}`}
+                              className="h-6 px-1.5 rounded border border-indigo-500/40 bg-indigo-950/60 hover:bg-indigo-900/80 text-indigo-200 text-[10px] font-black whitespace-nowrap cursor-pointer"
+                            >
+                              ↑ Same
+                            </button>
+                          )}
                           {showDraw(play) && <DrawButton play={play} onDraw={onDrawCall!} />}
                         </span>
                         {play.playCallId && play.untaggedName && play.untaggedName !== play.playCall && realCall({ playName: play.untaggedName, result: play.result }) && (
