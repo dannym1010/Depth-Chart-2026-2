@@ -20,8 +20,8 @@ export interface FilmGame {
 
 /** A film clip found for a game (one file = one play). */
 export interface FilmClip {
-  /** Where it came from: a local file, or a Google Drive file id. */
-  kind: 'local' | 'drive';
+  /** Where it came from: a local file, a Google Drive file id, or (url) the team film server's address for it (it streams). */
+  kind: 'local' | 'drive' | 'url';
   id: string;
   name: string;
   sizeBytes?: number;

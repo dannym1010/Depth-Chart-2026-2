@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Cloud, FolderOpen, Smartphone, X } from 'lucide-react';
 import { canOpenFolders, canPickFolderFiles, driveReady, driveSignIn, prepareDriveSignIn } from './filmSources';
+import { FilmServerSetup } from './FilmServerSetup';
 import { DriveFolderPicker } from './DriveFolderPicker';
 
 interface LinkFilmDialogProps {
@@ -17,6 +18,8 @@ interface LinkFilmDialogProps {
   onViewFiles?: (files: FileList, view: string) => void;
   /** The cameras already picked for this game on this device. */
   pickedViews?: { name: string; count: number }[];
+  /** The team film server was set up, changed or turned off on this device: look for the film again. */
+  onServerChanged?: () => void;
 }
 
 const CAMERAS = ['Main', 'Field'];
@@ -28,7 +31,7 @@ const appleTouch =
 
 const option = 'w-full flex items-start gap-3 text-left rounded-xl border border-slate-200 dark:border-slate-700 p-3 hover:border-indigo-400 hover:bg-indigo-50/50 dark:hover:bg-indigo-500/10 transition-colors disabled:opacity-50 disabled:pointer-events-none';
 
-export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveLink, onClose, onFolder, onFiles, onPickedFolder, onDrive, onViewFiles, pickedViews = [] }) => {
+export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveLink, onClose, onFolder, onFiles, onPickedFolder, onDrive, onViewFiles, pickedViews = [], onServerChanged }) => {
   const fileInput = useRef<HTMLInputElement>(null);
   const viewInput = useRef<HTMLInputElement>(null);
   const viewFor = useRef('');
@@ -138,6 +141,9 @@ export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveL
             </span>
           </button>
         )}
+
+        {/* The team film server: the drive at home streamed (any device, nothing copied). */}
+        <FilmServerSetup onChanged={() => onServerChanged?.()} />
 
         {/* iPad (iPadOS 18.4+): pick the film folder itself; every game finds its own in it until the page reloads. */}
         {folderFiles && (

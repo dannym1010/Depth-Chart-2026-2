@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import {
   clipsFromFiles, driveClipUrl, driveFolderName, driveFolderNode, driveSignIn, folderAccess, forgetFolder, isDriveSignedIn,
-  listNodeClips, localFolderNode, parseDriveFolderId, pickedFilmRoot, pickedFolderNode, pickFolder, prepareDriveSignIn, recallFolder, rememberFolder, setPickedFilmRoot,
+  filmServer, listNodeClips, localFolderNode, parseDriveFolderId, pickedFilmRoot, pickedFolderNode, serverFolderNode, pickFolder, prepareDriveSignIn, recallFolder, rememberFolder, setPickedFilmRoot,
   sortViewNames, takeDriveSignInProblem,
 } from './filmSources';
 import { gameViews, isFilmRoot, resolveGameFolder, type FolderNode } from './folderRoutes';
@@ -297,6 +297,13 @@ export function useGameFilm(opts: {
         const r = await loadFromRoot(pickedRoot, Boolean(rootId));
         if (stale() || r === 'ok' || !rootId) return;
       }
+      // The team film server (the drive at home, streamed): first when this device has one; a game it doesn't have
+      // comes from the other copies.
+      const server = filmServer();
+      if (server) {
+        const r = await loadFromRoot(serverFolderNode(server, '', 'Film server'), Boolean(rootId) || Boolean(await recallFolder(ROOT_KEY)));
+        if (stale() || r === 'ok') return;
+      }
       // The shared film folder: this computer's copy and / or the Google Drive one. The preferred copy
       // first ("auto" = this computer's, it's faster); a game it doesn't have yet comes from the other.
       const localRoot = await recallFolder(ROOT_KEY);
@@ -539,6 +546,11 @@ export function useGameFilm(opts: {
     setSourcePref,
     playFromComputer,
     playFromDrive,
+    /** Look for this game's film again (a film server was just set up or changed). */
+    reloadFilm: () => {
+      handPickedFor.current = '';
+      setReloadTick((t) => t + 1);
+    },
     /** Which copy of the team film folder the game is playing from now. */
     playingFrom: film.status === 'ready' && film.viaRoot ? (film.kind === 'drive' ? ('drive' as const) : ('local' as const)) : undefined,
   };
@@ -556,6 +568,8 @@ export function useClipUrl(clip: FilmClip | undefined, localFiles: MutableRefObj
       try {
         let url: string;
         if (clip.kind === 'drive') url = await driveClipUrl(clip.id);
+        // The film server: its address streams (nothing downloaded first).
+        else if (clip.kind === 'url') url = clip.id;
         else {
           const get = localFiles.current.get(clip.id);
           if (!get) throw new Error('That clip is no longer available. Link the film again.');

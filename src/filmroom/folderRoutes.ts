@@ -126,6 +126,8 @@ export interface FolderNode extends FolderLike {
   handle?: any;
   /** A folder picked on a tablet (its files handed over for this visit): the video files right in it. */
   picked?: File[];
+  /** A folder on the team film server: its path there. */
+  serverPath?: string;
 }
 
 /** Camera-view folder names ("Main", "Field", "Sideline", "End Zone", "Wide", "Tight", "All-22", ...). */

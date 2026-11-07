@@ -1,7 +1,7 @@
 // Film for Highlights: any of our games, opened from the shared film folder ("Mahopac Film"), this computer's copy
 // first, else the team's Google Drive copy. Reels mix games, so this opens games one after another (kept for the
 // visit) instead of one game at a time the way the Film Room does. Clips are found by camera view and file name.
-import { driveClipUrl, driveFolderNode, folderAccess, isDriveSignedIn, driveSignIn, listNodeClips, localFolderNode, pickedFilmRoot, prepareDriveSignIn, recallFolder } from '../filmroom/filmSources';
+import { driveClipUrl, driveFolderNode, folderAccess, isDriveSignedIn, driveSignIn, listNodeClips, localFolderNode, filmServer, pickedFilmRoot, prepareDriveSignIn, recallFolder, serverFolderNode } from '../filmroom/filmSources';
 import { gameViews, resolveGameFolder, type FolderNode } from '../filmroom/folderRoutes';
 import { matchClipsToPlays } from '../filmroom/clipMatching';
 import { hiddenNames, liveViewClips, picksForView } from '../filmroom/dualView';
@@ -83,7 +83,7 @@ export function realFilmAccess(opts: { teamName: string; rootDriveId?: string; r
 
   const state = async (): Promise<AccessState> => {
     // The film folder picked on this tablet this visit (a drive, or a network share / NAS in the Files app).
-    if (pickedFilmRoot()) return 'ready';
+    if (pickedFilmRoot() || filmServer()) return 'ready';
     const local = await localRoot();
     if (local && (await folderAccess(local))) return 'ready';
     if (opts.rootDriveId && isDriveSignedIn()) return 'ready';
@@ -96,6 +96,9 @@ export function realFilmAccess(opts: { teamName: string; rootDriveId?: string; r
     const out: { node: FolderNode; from: 'local' | 'drive' }[] = [];
     const picked = pickedFilmRoot();
     if (picked) out.push({ node: picked, from: 'local' });
+    // The team film server (the drive at home, streamed).
+    const server = filmServer();
+    if (server) out.push({ node: serverFolderNode(server, '', 'Film server'), from: 'local' });
     const local = await localRoot();
     if (local && (await folderAccess(local))) out.push({ node: localFolderNode(local), from: 'local' });
     if (opts.rootDriveId && isDriveSignedIn()) out.push({ node: driveFolderNode(opts.rootDriveId, opts.rootDriveName || 'Team film folder'), from: 'drive' });
@@ -181,6 +184,10 @@ export function realFilmAccess(opts: { teamName: string; rootDriveId?: string; r
     openGame,
     file: async (game, view, clip) => {
       const { film, c } = await clipOf(game, view, clip);
+      if (c.kind === 'url') {
+        const blob = await (await fetch(c.id)).blob();
+        return new File([blob], c.name, { type: blob.type || 'video/mp4' });
+      }
       if (c.kind === 'drive') {
         const blob = await (await fetch(await driveClipUrl(c.id))).blob();
         return new File([blob], c.name, { type: blob.type || 'video/mp4' });
@@ -192,6 +199,7 @@ export function realFilmAccess(opts: { teamName: string; rootDriveId?: string; r
     url: async (game, view, clip) => {
       const { film, c } = await clipOf(game, view, clip);
       if (c.kind === 'drive') return { url: await driveClipUrl(c.id), release: () => undefined };
+      if (c.kind === 'url') return { url: c.id, release: () => undefined };
       const get = film.files.get(c.id);
       if (!get) throw new Error(`${clip} can't be read.`);
       const url = URL.createObjectURL(await get());

@@ -10,6 +10,7 @@ import { countViewIndex } from '../filmroom/dualView';
 import type { FilmGameShared } from '../filmroom/types';
 import { canPickFolderFiles, pickedFolderNode, setPickedFilmRoot } from '../filmroom/filmSources';
 import { isFilmRoot } from '../filmroom/folderRoutes';
+import { FilmServerSetup } from '../filmroom/FilmServerSetup';
 import { playsForPlayer } from '../filmroom/playerPlays';
 import { ClipEditor, CATEGORY_LABEL } from './ClipEditor';
 import { clipLength, lineUp, type AccessState, type FilmAccess } from './filmAccess';
@@ -330,6 +331,10 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
             {access_ === 'ask' ? 'Open the film folder' : 'Sign in with Google'}
           </button>
         )}
+        {/* The team film server: the drive at home, streamed. */}
+        <div className="w-full">
+          <FilmServerSetup compact onChanged={() => void access.state().then(setAccess)} />
+        </div>
         {/* A tablet: the film folder from the Files app (a drive plugged in, or a network share / NAS). */}
         {canPickFolderFiles() && (
           <>

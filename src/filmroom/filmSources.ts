@@ -134,6 +134,70 @@ export function pickedFolderNode(list: FileList | File[]): FolderNode | null {
   return root.files.length || root.dirs.size ? node(root) : null;
 }
 
+// ---------------------------------------------------------------------------
+// The team film server (tools/film-server): the film folder on a drive at home, streamed to any device like Google
+// Drive (each clip as it plays, nothing copied). Its https address (Tailscale) and key are kept on this device.
+// ---------------------------------------------------------------------------
+
+const SERVER_KEY = 'mahopac_film_server';
+export interface FilmServer {
+  url: string;
+  key: string;
+}
+/** The team film server this device uses, if one is set up. */
+export function filmServer(): FilmServer | null {
+  try {
+    const s = JSON.parse(localStorage.getItem(SERVER_KEY) || 'null');
+    return s && typeof s.url === 'string' && s.url && typeof s.key === 'string' ? s : null;
+  } catch {
+    return null;
+  }
+}
+export function setFilmServer(s: FilmServer | null) {
+  try {
+    if (s) localStorage.setItem(SERVER_KEY, JSON.stringify({ url: s.url.trim().replace(/\/+$/, ''), key: s.key.trim() }));
+    else localStorage.removeItem(SERVER_KEY);
+  } catch {
+    /* storage blocked: this visit only */
+  }
+}
+const serverUrl = (s: FilmServer, what: 'ping' | 'list' | 'file', path = '') =>
+  `${s.url.replace(/\/+$/, '')}/${what}?key=${encodeURIComponent(s.key)}${what === 'ping' ? '' : `&path=${encodeURIComponent(path)}`}`;
+async function serverGet(s: FilmServer, what: 'ping' | 'list', path = ''): Promise<any> {
+  let res: Response;
+  try {
+    res = await fetch(serverUrl(s, what, path), { cache: 'no-store' });
+  } catch {
+    throw new Error('The film server didn’t answer. Is the computer on, the film server running, and Tailscale on on this device?');
+  }
+  if (res.status === 403) throw new Error('The film server’s key doesn’t match (copy it again from the film server window).');
+  if (!res.ok) throw new Error(`Film server error ${res.status}.`);
+  return res.json();
+}
+/** Check an address and key (Save in Link film): the film folder's name when it works. */
+export async function testFilmServer(s: FilmServer): Promise<string> {
+  const r = await serverGet(s, 'ping');
+  return String(r?.name || 'Film folder');
+}
+/** A folder on the film server the film-folder finder can look inside ('' = the film folder itself). */
+export function serverFolderNode(s: FilmServer, path: string, name: string): FolderNode {
+  return {
+    name,
+    serverPath: path,
+    open: async () => {
+      const r = await serverGet(s, 'list', path);
+      const join = (n: string) => (path ? `${path}/${n}` : n);
+      return {
+        dirs: (r.dirs || []).map((d: string) => serverFolderNode(s, join(d), d)),
+        videos: (r.files || []).filter((f: any) => isVideoName(f.name)).length,
+        sheets: (r.files || [])
+          .filter((f: any) => isBreakdownName(f.name))
+          .map((f: any) => ({ name: f.name, get: () => fetch(serverUrl(s, 'file', join(f.name))).then((x) => x.blob()) })),
+      };
+    },
+  };
+}
+
 // The team film folder picked on a tablet this visit (a drive plugged in, or a network share / NAS opened in the
 // Files app): the Film Room, its film window and Highlights all find their games in it until the page is reloaded.
 let pickedRootNode: FolderNode | null = null;
@@ -457,6 +521,16 @@ export async function listNodeClips(node: FolderNode, viewKey: string): Promise<
       const id = `${viewKey}/${name}`;
       files.set(id, () => entry.getFile());
       clips.push({ kind: 'local', id, name });
+    }
+  } else if (node.serverPath !== undefined) {
+    // The film server: each clip is its address there, and plays as it streams.
+    const s = filmServer();
+    if (s) {
+      const r = await serverGet(s, 'list', node.serverPath);
+      for (const f of r.files || []) {
+        if (!isVideoName(f.name)) continue;
+        clips.push({ kind: 'url', id: serverUrl(s, 'file', node.serverPath ? `${node.serverPath}/${f.name}` : f.name), name: f.name, sizeBytes: Number(f.size) || undefined });
+      }
     }
   } else if (node.picked) {
     for (const f of node.picked) {
