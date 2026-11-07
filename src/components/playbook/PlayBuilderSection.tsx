@@ -309,7 +309,12 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const [presentDefOpen, setPresentDefOpen] = useState(false);
   const setEditing = (on: boolean) => {
     setEditingState(on);
-    if (present) presentEditing = on;
+    if (present) {
+      presentEditing = on;
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('football-present-focus', { detail: { side: on ? 'diagram' : 'reset' } }));
+      }
+    }
   };
   const [showGapFits, setShowGapFitsState] = useState(() => (present ? presentShowGapFits : false));
   const setShowGapFits = (on: boolean) => {
@@ -327,7 +332,12 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
     setSpotlightRoleState(role);
     setQuizRevealed(false);
     setQuizFeedback(null);
-    if (present) presentSpotlightRole = role;
+    if (present) {
+      presentSpotlightRole = role;
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('football-present-spotlight', { detail: { role } }));
+      }
+    }
   };
   const [quizMode, setQuizModeState] = useState(() => (present ? presentQuizMode : false));
   const setQuizMode = (on: boolean) => {

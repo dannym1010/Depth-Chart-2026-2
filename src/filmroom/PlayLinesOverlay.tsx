@@ -353,6 +353,9 @@ export function usePlayLines(opts: {
   lines: VideoLines | null;
   video: () => HTMLVideoElement | null;
   filmKey: string;
+  /** Optional active clip ID and sibling clip IDs in the current cutup so alignment can be fine-tuned per clip or copied to all clips of the play. */
+  clipId?: string;
+  siblingClipIds?: string[];
   /** Turning on: open whatever draws the play (the Film Room's diagram panel). */
   onTurnOn?: () => void;
   /** Shown when there's no play to draw yet. */
@@ -360,9 +363,20 @@ export function usePlayLines(opts: {
   /** The snap's down and distance (the line to gain, in yellow), and its spot and hash (the clean field's markings). */
   situation?: { down?: number; toGo?: number; yardLine?: number; hash?: 'L' | 'M' | 'R' };
 }): PlayLinesControl {
-  const { lines, video, filmKey, onTurnOn, waiting, situation } = opts;
+  const { lines, video, filmKey, clipId, siblingClipIds, onTurnOn, waiting, situation } = opts;
   const [on, setOn] = useState(false);
-  const [lineUp, setLineUp] = useState(false);
+  const [lineUp, setLineUpState] = useState(false);
+  const setLineUp = (next: boolean | ((v: boolean) => boolean)) => {
+    setLineUpState((prev) => {
+      const val = typeof next === 'function' ? next(prev) : next;
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('football-present-focus', { detail: { side: val ? 'film' : 'reset' } }));
+      }
+      return val;
+    });
+  };
+  const [copiedClipsToast, setCopiedClipsToast] = useState(false);
+  const [clipQuadTick, setClipQuadTick] = useState(0);
   const [alignTarget, setAlignTarget] = useState<AlignTarget>('field');
   // Whose lines show: the coach's last pick.
   const [side, setSide] = useState<Side>(() => {
@@ -546,13 +560,55 @@ export function usePlayLines(opts: {
     setCallStunt(null);
   }, [lines?.name]);
 
+  // Spotlight sync from Presentation Mode's ★ Spotlight picker: highlights that defender on the video Play Lines too.
+  useEffect(() => {
+    const onSpotlight = (e: Event) => {
+      const role = (e as CustomEvent<{ role: string | null }>).detail?.role ?? null;
+      setFocus(role);
+      if (role && isDefenseRole(role) && side === 'offense') {
+        pickSide('both');
+      }
+    };
+    window.addEventListener('football-present-spotlight', onSpotlight);
+    return () => window.removeEventListener('football-present-spotlight', onSpotlight);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [side]);
+
+  // Split-View Master Sync: when 🔗 Sync is active in Presentation Mode, video scrub/step drives the Play Lines progress.
+  useEffect(() => {
+    const onSync = (e: Event) => {
+      const detail = (e as CustomEvent<{ progress?: number; deltaSeconds?: number; playing?: boolean }>).detail;
+      if (!detail || !on) return;
+      setMoveBar(true);
+      if (typeof detail.playing === 'boolean') {
+        setRunning(detail.playing);
+      }
+      if (typeof detail.deltaSeconds === 'number') {
+        setRunning(false);
+        setProgress((p) => Math.max(0, Math.min(1, p + detail.deltaSeconds! / timing.current.seconds)));
+      } else if (typeof detail.progress === 'number') {
+        setProgress(Math.max(0, Math.min(1, detail.progress)));
+      }
+    };
+    window.addEventListener('football-present-video-sync', onSync);
+    return () => window.removeEventListener('football-present-video-sync', onSync);
+  }, [on]);
+
   // The coach's change to the lineup: this play's own from now on, and the film's latest for the plays after it.
-  // Players and full-unit Offense/Defense shifts on the film are this play's own, not the film's for the plays after it.
+  // When viewing a specific clip (`clipId`), per-clip fine-tuning is stored under `mahopac_clip_quad_${clipId}`,
+  // and `copyAlignmentToAllClips` copies the current clip's alignment to the play's base quad and all sibling clips.
   const shown = useMemo(() => {
     if (!lines) return null;
+    const clipOverrideKey = clipId ? `mahopac_clip_quad_${clipId}` : '';
+    const clipOverride = clipOverrideKey ? safeJSONParse<HomographyQuad | null>(clipOverrideKey, null) : null;
+    const activeQuad: HomographyQuad = clipOverride && !notLinedUp(clipOverride) ? clipOverride : lines.quad;
     const setQuad = (q: HomographyQuad) => {
       const { fromFilm: _picked, ...own } = q;
       lines.setQuad(own);
+      if (clipOverrideKey) {
+        safeJSONSet(clipOverrideKey, own);
+        setClipQuadTick((n) => n + 1);
+      }
       const { moved: _players, offenseTransform: _off, defenseTransform: _def, ...field } = own;
       safeJSONSet(lineupKey, field);
     };
@@ -565,6 +621,7 @@ export function usePlayLines(opts: {
     const src: VideoLines = recalled
       ? {
           ...lines,
+          quad: activeQuad,
           strokes: [
             ...lines.baseStrokes!,
             ...defenseCallStrokes(
@@ -576,22 +633,36 @@ export function usePlayLines(opts: {
             ),
           ],
         }
-      : lines;
+      : { ...lines, quad: activeQuad };
     return {
       ...onFilm(src),
       // The play as drawn (before anyone is lined up on the film): who fits which gap comes from here.
       drawn: src,
       setQuad,
       // A player dragged on the film: where he lines up in this clip. The diagram keeps him where he's drawn.
-      moveNode: (role: string, x: number, y: number) => setQuad({ ...lines.quad, moved: { ...lines.quad.moved, [role]: { x, y } } }),
+      moveNode: (role: string, x: number, y: number) => setQuad({ ...activeQuad, moved: { ...activeQuad.moved, [role]: { x, y } } }),
     };
-  }, [lines, lineupKey, callBlitz, callStunt]);
-  const movedEntries = Object.entries(lines?.quad.moved || {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lines, lineupKey, callBlitz, callStunt, clipId, clipQuadTick]);
+  const copyAlignmentToAllClips = () => {
+    if (!shown || !lines) return;
+    const { fromFilm: _picked, ...own } = shown.quad;
+    lines.setQuad(own);
+    for (const cid of siblingClipIds || []) {
+      if (cid) safeJSONSet(`mahopac_clip_quad_${cid}`, own);
+    }
+    const { moved: _players, offenseTransform: _off, defenseTransform: _def, ...field } = own;
+    safeJSONSet(lineupKey, field);
+    setClipQuadTick((n) => n + 1);
+    setCopiedClipsToast(true);
+    window.setTimeout(() => setCopiedClipsToast(false), 2000);
+  };
+  const movedEntries = Object.entries(shown?.quad.moved || {});
   const filmMoves = movedEntries.length;
   const offMoves = movedEntries.filter(([r]) => !isDefenseRole(r)).length;
   const defMoves = movedEntries.filter(([r]) => isDefenseRole(r)).length;
-  const hasOffUnit = hasUnitTransform(lines?.quad.offenseTransform);
-  const hasDefUnit = hasUnitTransform(lines?.quad.defenseTransform);
+  const hasOffUnit = hasUnitTransform(shown?.quad.offenseTransform);
+  const hasDefUnit = hasUnitTransform(shown?.quad.defenseTransform);
   // The offense's lines, and our defense's call apart (as the builder runs it): when our defenders slide over
   // after their shift, their blitz and drop lines go with them.
   const split = useMemo(
@@ -1160,6 +1231,16 @@ export function usePlayLines(opts: {
                 )}
               </>
             )}
+            {siblingClipIds && siblingClipIds.length > 1 && (
+              <button
+                type="button"
+                className={`${btn} ${copiedClipsToast ? 'bg-emerald-600 text-white' : 'bg-white/10 hover:bg-white/20 text-amber-300'}`}
+                onClick={copyAlignmentToAllClips}
+                title={`Copy this Field / Offense / Defense alignment to all ${siblingClipIds.length} clips of this play`}
+              >
+                {copiedClipsToast ? '✓ Copied to all clips' : `📌 Copy to all (${siblingClipIds.length})`}
+              </button>
+            )}
             <button
               type="button"
               className={`${idle} ml-auto`}
@@ -1443,6 +1524,16 @@ export function usePlayLines(opts: {
                   </>
                 )}
               </>
+            )}
+            {siblingClipIds && siblingClipIds.length > 1 && (
+              <button
+                type="button"
+                className={`${btn} ${copiedClipsToast ? 'bg-emerald-600 text-white' : 'bg-white/10 hover:bg-white/20 text-amber-300'}`}
+                onClick={copyAlignmentToAllClips}
+                title={`Copy this Field / Offense / Defense alignment to all ${siblingClipIds.length} clips of this play`}
+              >
+                {copiedClipsToast ? '✓ Copied to all clips' : `📌 Copy to all (${siblingClipIds.length})`}
+              </button>
             )}
             <button
               type="button"

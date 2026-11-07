@@ -129,6 +129,33 @@ export const ScoutPresentation: React.FC<{
   const [phase, setPhase] = useState<Phase>('cover');
   const [moreOpen, setMoreOpen] = useState(false);
   const [splitRatio, setSplitRatio] = useState<'50-50' | '65-35' | '35-65'>('50-50');
+  const [syncLocked, setSyncLocked] = useState(true);
+  const savedScriptBeforeFocus = useRef<boolean | null>(null);
+
+  // Auto-focus Split View when clicking Edit on the Diagram or Line up on the Film
+  useEffect(() => {
+    const onFocus = (e: Event) => {
+      const side = (e as CustomEvent<{ side: 'diagram' | 'film' | 'reset' }>).detail?.side;
+      if (!side) return;
+      if (side === 'diagram') {
+        setSplitRatio('65-35');
+        if (script) {
+          savedScriptBeforeFocus.current = true;
+          setScriptState(false);
+        }
+      } else if (side === 'film') {
+        setSplitRatio('35-65');
+      } else if (side === 'reset') {
+        setSplitRatio('50-50');
+        if (savedScriptBeforeFocus.current) {
+          savedScriptBeforeFocus.current = null;
+          setScriptState(true);
+        }
+      }
+    };
+    window.addEventListener('football-present-focus', onFocus);
+    return () => window.removeEventListener('football-present-focus', onFocus);
+  }, [script]);
   const [showTendencyBanner, setShowTendencyBannerState] = useState(() => saved(BANNER_KEY) !== 'off');
   const setShowTendencyBanner = (next: boolean | ((v: boolean) => boolean)) =>
     setShowTendencyBannerState((v) => {
@@ -244,6 +271,37 @@ export const ScoutPresentation: React.FC<{
       }
     }
   }, [dockEl]);
+
+  // Master Video -> Diagram & Play Lines Scrub Sync in Split View when `syncLocked` is enabled
+  useEffect(() => {
+    if (!syncLocked || view !== 'split' || !dockEl) return;
+    let lastTime: number | null = null;
+    const onSeekingOrStep = (e: Event) => {
+      const vid = (e.target as HTMLElement)?.tagName === 'VIDEO' ? (e.target as HTMLVideoElement) : dockEl.querySelector('video');
+      if (!vid || !vid.paused) return;
+      const t = vid.currentTime || 0;
+      if (lastTime !== null && Math.abs(t - lastTime) > 0.005 && Math.abs(t - lastTime) < 1.2) {
+        window.dispatchEvent(new CustomEvent('football-present-video-sync', { detail: { deltaSeconds: t - lastTime, playing: false } }));
+      }
+      lastTime = t;
+    };
+    const onTimeUpdate = (e: Event) => {
+      const vid = (e.target as HTMLElement)?.tagName === 'VIDEO' ? (e.target as HTMLVideoElement) : dockEl.querySelector('video');
+      if (!vid) return;
+      lastTime = vid.currentTime || 0;
+    };
+    const onPause = () => {
+      window.dispatchEvent(new CustomEvent('football-present-video-sync', { detail: { playing: false } }));
+    };
+    dockEl.addEventListener('seeked', onSeekingOrStep, true);
+    dockEl.addEventListener('timeupdate', onTimeUpdate, true);
+    dockEl.addEventListener('pause', onPause, true);
+    return () => {
+      dockEl.removeEventListener('seeked', onSeekingOrStep, true);
+      dockEl.removeEventListener('timeupdate', onTimeUpdate, true);
+      dockEl.removeEventListener('pause', onPause, true);
+    };
+  }, [syncLocked, view, dockEl]);
 
   // 3-Second Pre-Snap Recognition Drill countdown
   const startRecognitionDrill = useCallback(() => {
@@ -693,6 +751,19 @@ export const ScoutPresentation: React.FC<{
               >
                 <Play className="w-3.5 h-3.5 fill-current" />
                 <span className="max-md:hidden">Run both</span>
+              </button>
+              <button
+                type="button"
+                aria-pressed={syncLocked}
+                onClick={() => setSyncLocked((v) => !v)}
+                title={syncLocked ? '🔗 Sync ON: stepping (-1f/+1f) or pausing the video also steps/pauses the diagram & Play Lines' : 'Turn on 🔗 Sync so video frame-steps also step the diagram & Play Lines'}
+                className={`${navBtn} !px-2 border text-xs ${
+                  syncLocked
+                    ? 'border-emerald-400 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                    : 'border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400'
+                }`}
+              >
+                🔗 <span className="max-xl:hidden">Sync</span>
               </button>
               <div className="hidden lg:inline-flex items-center gap-0.5 p-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-black" role="group" aria-label="Split width ratio">
                 <button

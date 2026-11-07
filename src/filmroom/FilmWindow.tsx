@@ -255,6 +255,8 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
     lines: usePublishedPlayLines(),
     video: () => apiRef.current?.video?.() || null,
     filmKey: request.gameId,
+    clipId: play?.id,
+    siblingClipIds: allWatch.map((p) => p.id),
     waiting: 'Open the play (tap it in the play script, or Draw it) and its lines show here.',
     // The snap's down and distance (the line to gain), and its spot and hash (the clean field's markings).
     situation: play
@@ -702,8 +704,8 @@ const FilmWindow: React.FC<HostProps & { request: FilmWindowRequest; dock?: Film
                 </ul>
               </div>
             )}
-            {!(fill && !isShort) && !stage && (allWatch.length > 0 || views.length > 1) && (
-              <div className="flex items-center gap-1.5 px-2 py-1.5 border-t border-slate-200 dark:border-slate-700 overflow-x-auto">
+            {!(fill && !isShort) && (!stage || (!dock?.controlsHidden && (allWatch.length > 1 || views.length > 1))) && (allWatch.length > 0 || views.length > 1) && (
+              <div className={`flex items-center gap-1.5 px-2 py-1.5 border-t overflow-x-auto ${stage ? 'bg-slate-950/90 border-white/10 text-white' : 'border-slate-200 dark:border-slate-700'}`}>
                 {views.length > 1 && (
                   <select
                     aria-label="Camera view"

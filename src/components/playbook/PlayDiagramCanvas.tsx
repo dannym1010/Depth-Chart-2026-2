@@ -794,6 +794,25 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
   };
   const animShown = animOpen || isPlaying || animProgress > 0.005;
   const [animMoreOpen, setAnimMoreOpen] = useState(false);
+  // Split-View Master Sync: when 🔗 Sync is active in Presentation Mode, video scrub/step drives the diagram progress.
+  useEffect(() => {
+    const onSync = (e: Event) => {
+      const detail = (e as CustomEvent<{ progress?: number; deltaSeconds?: number; playing?: boolean }>).detail;
+      if (!detail) return;
+      setAnimOpen(true);
+      if (typeof detail.playing === 'boolean') {
+        setIsPlaying(detail.playing);
+      }
+      if (typeof detail.deltaSeconds === 'number') {
+        setIsPlaying(false);
+        setAnimProgress((p) => Math.max(0, Math.min(1, p + detail.deltaSeconds! / seconds)));
+      } else if (typeof detail.progress === 'number') {
+        setAnimProgress(Math.max(0, Math.min(1, detail.progress)));
+      }
+    };
+    window.addEventListener('football-present-video-sync', onSync);
+    return () => window.removeEventListener('football-present-video-sync', onSync);
+  }, [seconds]);
   // Keys while the movement is up: space plays / pauses, the arrows step, Home goes back to the start.
   useEffect(() => {
     if (!animShown) return;
