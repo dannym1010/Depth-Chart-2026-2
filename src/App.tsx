@@ -90,6 +90,7 @@ import {
   isFirestoreQuotaPaused,
   noteFirestoreError,
   lastCloudSaveError,
+  LOCAL_SAVE_FAILED,
   isReadOnlySession as isCloudReadOnly,
   cloudModulesForScope,
   subscribeServerEvents,
@@ -182,7 +183,7 @@ import { diffCoachNames, mergeTeamCoaches, noteCoachNames, type CoachNameMeta } 
 import { mergeAttendanceLogs, mergeRosters, mergeStaffLists, mergeTombstones, removedIds, staffKey, stampEdits, stampStaffEdits, type Tombstones } from './utils/recordMerge';
 import { syncEntireRosterWithLogs } from './utils/hoursCalculation';
 import { appRoleFor, canManageCoach, coachTeamIds, hasNoTeamYet, isProgramAdminCoach, isProgramAdminEmail, sameTeamId } from './utils/staffAccess';
-import { OWN_HUDL_KEY, WEEKLY_HUDL_KEY, bigGet, bigStoreAvailable, markBigStoreReady } from './utils/bigLocalStore';
+import { OWN_HUDL_KEY, PLAYS_FULL_KEY, WEEKLY_HUDL_KEY, bigGet, bigStoreAvailable, markBigStoreReady } from './utils/bigLocalStore';
 import { syncWristbandToCallSheet } from './utils/wristbandLinking';
 import { saveCallSheetSnapshot, countCallSheetPlays } from './utils/callSheetStorage';
 import { ScoutingView } from './components/ScoutingView';
@@ -190,7 +191,7 @@ import { ScoutPresentation, type ScoutShow } from './components/scouting/ScoutPr
 import { FilmRoomView } from './filmroom/FilmRoomView';
 import { HighlightsSection } from './highlights/HighlightsSection';
 import { FilmWindowHost } from './filmroom/FilmWindow';
-import { ScoutSafetyNet } from './components/ScoutSafetyNet';
+import { openScoutVersions, ScoutSafetyNet } from './components/ScoutSafetyNet';
 import { closeFilmWindow, filmWindowAutoOpen, openFilmWindow, setFilmWindowUpcoming, type FilmWindowRequest } from './filmroom/filmWindowStore';
 import { setDefenseRosterSource } from './utils/defenseRosterStore';
 import { setReadOnlySession, setAccessPublisher, syncAccessDoc, requestSignup, listenSignups, clearSignup } from './services/storageService';
@@ -964,6 +965,20 @@ export default function App() {
   const userRoleRef = useRef<UserRole>('admin');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isPendingApproval, setIsPendingApproval] = useState(false);
+  // Work that isn't saved somewhere it lasts (the cloud failing, or this device's storage full): a red banner across
+  // the top with a backup button, and the browser asks before the tab is closed.
+  const [saveAlarm, setSaveAlarm] = useState<{ kind: 'cloud' | 'device'; text: string } | null>(null);
+  useEffect(() => {
+    const onFull = (e: Event) => {
+      const key = String((e as CustomEvent).detail || '');
+      setSaveAlarm({
+        kind: 'device',
+        text: `This computer's storage is full, so ${key === 'footballPlayDatabase' ? 'your plays' : 'some of your work'} couldn't be saved on it. Export a backup now and don't close this tab.`,
+      });
+    };
+    window.addEventListener(LOCAL_SAVE_FAILED, onFull);
+    return () => window.removeEventListener(LOCAL_SAVE_FAILED, onFull);
+  }, []);
   const [syncStatus, setSyncStatus] = useState<{ text: string; color: string }>({
     text: 'Local Storage Mode',
     color: '#22c55e',
@@ -2592,10 +2607,25 @@ export default function App() {
       return [];
     }
   };
+  // Closing or reloading the tab with work not saved anywhere it lasts: the browser asks first.
+  const saveAlarmRef = useRef(saveAlarm);
+  saveAlarmRef.current = saveAlarm;
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => {
+      if (!saveAlarmRef.current && !readUnsynced().length) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const noteCloudResult = (ok: boolean, scope: string, extraMeta?: Record<string, any>) => {
     const r = cloudRetryRef.current;
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     if (ok) {
+      // The red banner was for the cloud: it's caught up (a full device storage keeps its own banner).
+      setSaveAlarm((a) => (a?.kind === 'cloud' ? null : a));
       r.tries = 0;
       if (r.timer) clearTimeout(r.timer);
       r.timer = null;
@@ -2625,6 +2655,10 @@ export default function App() {
     const wait = Math.min(60_000, 3_000 * 2 ** Math.min(r.tries - 1, 5));
     const reason = lastCloudSaveError() || 'the cloud did not answer';
     setSyncStatus({ text: `⚠️ Not in the cloud yet (${reason}). Trying again…`, color: '#ef4444' });
+    // A second failure in a row (or any failure saving plays): the red banner across the top, not just the pill.
+    if (r.tries >= 2 || scope.split('+').includes('plays')) {
+      setSaveAlarm({ kind: 'cloud', text: `Your changes are NOT saved to the cloud (${reason}). Other computers won't see them, and they're only on this computer.` });
+    }
     if (r.timer) clearTimeout(r.timer);
     r.timer = setTimeout(() => {
       r.timer = null;
@@ -2892,6 +2926,19 @@ export default function App() {
 
   // Hudl film saved on this device lives in IndexedDB (localStorage is too small): read it back once
   // at start, then let saves move film there.
+  // The Play Library kept whole in the device's larger database (video stills too, and a copy that fit when the
+  // small storage was full): merged in, play by play.
+  useEffect(() => {
+    void bigGet<PlayDatabaseEntry[]>(PLAYS_FULL_KEY).then((full) => {
+      if (!Array.isArray(full) || !full.length) return;
+      const cur = latestStateRef.current.playDatabase || [];
+      const merged = mergePlayBanks(cur, full, latestStateRef.current.deletedPlayIds || []);
+      if (merged === cur) return;
+      latestStateRef.current.playDatabase = merged;
+      setPlayDatabase(merged);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     let alive = true;
     void (async () => {
@@ -9107,11 +9154,42 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
         </div>
       )}
 
+      {/* Work not saved anywhere it lasts: said across the top of every screen, with a way out. */}
+      {saveAlarm && (
+        <div role="alert" className="fixed top-0 inset-x-0 z-[300] bg-rose-700 text-white shadow-2xl" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+          <div className="max-w-5xl mx-auto px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span className="font-black text-sm flex-1 min-w-[16rem]">⚠️ {saveAlarm.text}</span>
+            <button type="button" onClick={handleExportFullBackup} className="h-8 px-3 rounded-lg bg-white text-rose-800 text-xs font-black cursor-pointer">
+              Export a backup now
+            </button>
+            {saveAlarm.kind === 'cloud' && (
+              <button type="button" onClick={() => void handleForceSave()} className="h-8 px-3 rounded-lg bg-rose-900 ring-1 ring-white/40 text-xs font-black cursor-pointer">
+                Try saving again
+              </button>
+            )}
+            <button type="button" onClick={() => openScoutVersions()} className="h-8 px-3 rounded-lg bg-rose-900 ring-1 ring-white/40 text-xs font-black cursor-pointer">
+              Saved versions
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Hudl Scout safety net: an alarm with Undo when a save loses play names or plays, and saved versions */}
       {!isCloudReadOnly() && (
         <ScoutSafetyNet
           onRestore={(key, bundle) => {
             const sameTeam = (t: string) => t === activeTeamId || (t.replace('-', '_') === 'team_10u' && activeTeamId.replace('-', '_') === 'team_10u');
+            if (key.startsWith('plays:')) {
+              // The Play Library as it was: its plays put back over the ones now (others kept), stamped now so they
+              // win everywhere. A play deleted since comes back too.
+              const back: PlayDatabaseEntry[] = Array.isArray(bundle?.plays) ? bundle.plays : [];
+              if (!back.length) return 'That version has no plays.';
+              const ids = new Set(back.map((p) => p.id));
+              const now = latestStateRef.current.playDatabase || [];
+              handleUpdateDeletedPlayIds((deletedPlayIds || []).filter((id) => !ids.has(id)));
+              handleUpdatePlayDatabase([...now.filter((p) => !ids.has(p.id)), ...back]);
+              return true;
+            }
             if (key.startsWith('own:')) {
               if (!sameTeam(key.slice(4))) return 'Switch to that team first, then put it back.';
               persistOwnTeamHudlScout(bundle);

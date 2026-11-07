@@ -12,7 +12,7 @@ import {
 } from '../types';
 import { pickScoutBundle } from '../utils/scoutMerge';
 import { recordScoutSaves } from '../utils/scoutHistory';
-import { OWN_HUDL_KEY, WEEKLY_HUDL_KEY, bigSet, bigStoreReady, packWeeklyData, unpackWeeklyData } from '../utils/bigLocalStore';
+import { OWN_HUDL_KEY, PLAYS_FULL_KEY, PLAYS_HISTORY_KEY, WEEKLY_HUDL_KEY, bigSet, bigStoreReady, packWeeklyData, unpackWeeklyData } from '../utils/bigLocalStore';
 import { mergeAttendanceLogs, mergeRosters, mergeStaffLists, mergeTombstones } from '../utils/recordMerge';
 import { mergeTeamCoaches } from '../utils/coachNamesMerge';
 import {
@@ -150,6 +150,9 @@ function localStorageSizes(): string {
   }
 }
 
+/** A save on this device failed (its storage is full): the event's detail is the key. */
+export const LOCAL_SAVE_FAILED = 'local-save-failed';
+
 export function safeJSONSet(key: string, data: any): boolean {
   try {
     if (isWindowOrDomObject(data)) {
@@ -183,6 +186,16 @@ export function safeJSONSet(key: string, data: any): boolean {
     } else if (key === 'footballOwnTeamHudlScout' && bigStoreReady()) {
       bigSet(OWN_HUDL_KEY, data);
       value = {};
+    } else if (key === 'footballPlayDatabase' && Array.isArray(data)) {
+      // The plays whole (video stills too) in the device's larger database, and without the stills here, so the
+      // copy here always fits (a few stills filled this storage, and the plays were saved nowhere).
+      bigSet(PLAYS_FULL_KEY, data);
+      value = playsForCloud(data);
+      try {
+        recordScoutSaves({ [PLAYS_HISTORY_KEY]: { kind: 'playbook', plays: value } });
+      } catch (err) {
+        console.warn('Play Library safety net:', err);
+      }
     }
     const cleanStr = safeJSONStringify(value);
     try {
@@ -198,6 +211,12 @@ export function safeJSONSet(key: string, data: any): boolean {
         localStorage.setItem(key, cleanStr);
       } catch {
         console.warn(`This device's storage is full; "${key}" is saved in the cloud only. Largest items: ${localStorageSizes()}`);
+        // Said on screen (the app's red banner), not only here: work that isn't kept anywhere must be noticed.
+        try {
+          window.dispatchEvent(new CustomEvent(LOCAL_SAVE_FAILED, { detail: key }));
+        } catch {
+          /* not in a browser */
+        }
         return false;
       }
     }

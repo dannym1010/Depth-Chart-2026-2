@@ -18,6 +18,12 @@ export function stampPlayEdits(prev: PlayDatabaseEntry[], next: PlayDatabaseEntr
   });
 }
 
+/** A play somebody drew (a diagram or the builder's drawing), not just a name. */
+export function isDrawn(p: PlayDatabaseEntry): boolean {
+  const b = (p as any)?.builder;
+  return Boolean((p as any)?.diagramUrl || (b && typeof b === 'object' && Object.keys(b).length > 2));
+}
+
 /**
  * The cloud copy of a play has no video still (it stays on the device that took it; see playsForCloud): taking
  * the cloud copy keeps this device's still.
@@ -48,6 +54,16 @@ export function mergePlayBanks(
     if (gone.has(r.id) || seen.has(r.id)) continue;
     seen.add(r.id);
     const l = mineById.get(r.id);
+    // A drawn play is never replaced by a blank copy of it (one opened on another device before the drawing got
+    // there gets a newer stamp, and used to wipe the drawing), whatever the times say.
+    if (l && isDrawn(l) && !isDrawn(r)) {
+      out.push(l);
+      continue;
+    }
+    if (l && !isDrawn(l) && isDrawn(r)) {
+      out.push(r);
+      continue;
+    }
     out.push(l && editTime(l) > editTime(r) ? l : l ? keepStill(r, l) : r);
   }
   for (const l of mine) {

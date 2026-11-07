@@ -35,11 +35,20 @@ const INDEX_KEY = 'scoutVersions:index';
 
 export function scoutStats(bundle: any): { plays: number; named: number } {
   const plays = Array.isArray(bundle?.plays) ? bundle.plays : [];
+  // The Play Library: "named" is how many are drawn (a drawing gone is the work lost).
+  if (bundle?.kind === 'playbook') return { plays: plays.length, named: plays.filter(drawnPlay).length };
   return { plays: plays.length, named: plays.filter((p: any) => String(p?.callName || '').trim()).length };
 }
 
+/** A Play Library play somebody drew (a diagram or the builder's drawing). */
+const drawnPlay = (p: any) => Boolean(p?.diagramUrl || (p?.builder && typeof p.builder === 'object' && Object.keys(p.builder).length > 2));
+/** What a Play Library save looks like, to tell one from the next (each play's id, edit time and drawing). */
+const playbookSig = (bundle: any) =>
+  (Array.isArray(bundle?.plays) ? bundle.plays : []).map((p: any) => `${p?.id}:${p?.editedAt || 0}:${drawnPlay(p) ? 1 : 0}`).join(',');
+
 /** "Week 9", "Playoffs", "Our film" for a report key. */
 export function scoutKeyLabel(key: string): string {
+  if (key.startsWith('plays:')) return 'Play Library (your drawn plays)';
   if (key.startsWith('own:')) return 'Our own film';
   const wk = key.includes('__week_') ? key.split('__week_').pop() || key : key;
   if (/^\d+$/.test(wk)) return `Week ${wk} scouting`;
@@ -94,7 +103,7 @@ export function recordScoutSaves(reports: Record<string, any>) {
   for (const [key, bundle] of Object.entries(reports || {})) {
     if (!bundle || typeof bundle !== 'object') continue;
     const stats = scoutStats(bundle);
-    const sig = `${scoutFingerprint(bundle)}|${stats.named}`;
+    const sig = bundle.kind === 'playbook' ? playbookSig(bundle) : `${scoutFingerprint(bundle)}|${stats.named}`;
     const prev = last.get(key);
     if (prev && prev.sig === sig) continue;
     last.set(key, { sig, stats, bundle });
@@ -132,6 +141,8 @@ export async function listScoutVersions(): Promise<{ key: string; label: string;
 export function restoredBundle(v: ScoutVersion): any {
   const now = Date.now();
   const b = copy(v.bundle);
+  // The Play Library: its plays stamped now, so they win over the copies that lost the drawings.
+  if (b?.kind === 'playbook') return { ...b, plays: (Array.isArray(b.plays) ? b.plays : []).map((p: any) => ({ ...p, editedAt: now })) };
   const gameIds = (Array.isArray(b.games) ? b.games : []).map((g: any) => String(g?.id || '')).filter(Boolean);
   return {
     ...b,

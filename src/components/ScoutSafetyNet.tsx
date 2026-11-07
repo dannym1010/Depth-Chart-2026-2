@@ -98,7 +98,7 @@ export const ScoutSafetyNet: React.FC<Props> = ({ onRestore }) => {
             <div className="flex items-start gap-2">
               <History size={20} className="text-indigo-500 shrink-0 mt-0.5" />
               <div className="flex-1">
-                <h2 className="text-base font-black text-slate-900 dark:text-white">Saved versions of your Hudl Scout reports</h2>
+                <h2 className="text-base font-black text-slate-900 dark:text-white">Saved versions of your Play Library and Hudl Scout reports</h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   Kept on this device as you work (every 10 minutes, and always just before play names or plays disappear). Putting one back
                   saves it for every coach.

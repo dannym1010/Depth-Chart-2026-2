@@ -7,6 +7,10 @@ const DB_NAME = 'mahopac-football';
 const STORE = 'kv';
 export const WEEKLY_HUDL_KEY = 'weeklyHudlScout';
 export const OWN_HUDL_KEY = 'ownTeamHudlScout';
+/** The Play Library whole (video stills too); localStorage keeps it without the stills. */
+export const PLAYS_FULL_KEY = 'footballPlayDatabase:full';
+/** The Play Library's versions in the safety net (scoutHistory). */
+export const PLAYS_HISTORY_KEY = 'plays:library';
 
 let dbPromise: Promise<IDBDatabase | null> | null = null;
 function openDb(): Promise<IDBDatabase | null> {
