@@ -1160,6 +1160,15 @@ export function usePlayLines(opts: {
                 )}
               </>
             )}
+            <button
+              type="button"
+              className={`${idle} ml-auto`}
+              onClick={() => setLineUp(false)}
+              title="Done aligning"
+              aria-label="Done aligning"
+            >
+              <X size={15} />
+            </button>
           </div>
         )}
         {lines && !presenting && (filmMoves > 0 || hasOffUnit || hasDefUnit) && !lineUp && !playing && shown && (
@@ -1356,11 +1365,25 @@ export function usePlayLines(opts: {
               setRunning(false);
               setProgress(Number(e.target.value) / 1000);
             }}
-            className="w-28 sm:w-36 accent-indigo-500 cursor-pointer"
+            className="w-24 sm:w-32 accent-indigo-500 cursor-pointer"
             aria-label="Where in the play"
             title="Drag through the play"
           />
-          <span className={`ml-1 ${tray}`} style={trayStyle} role="group" aria-label="Speed">
+          <select
+            aria-label="Play lines speed"
+            value={speed}
+            onChange={(e) => setSpeed(Number(e.target.value))}
+            title="Playback speed (slow motion down to 0.05×)"
+            className="xl:hidden h-8 rounded-lg px-1.5 text-xs font-black cursor-pointer border border-white/15"
+            style={{ background: '#0f172a', color: INK }}
+          >
+            {LINE_SPEEDS.map(([s, label]) => (
+              <option key={s} value={s} style={{ background: '#0f172a', color: INK }}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <span className={`hidden xl:inline-flex ml-1 ${tray}`} style={trayStyle} role="group" aria-label="Speed">
             {LINE_SPEEDS.map(([s, label]) => (
               <button
                 key={s}
@@ -1421,6 +1444,15 @@ export function usePlayLines(opts: {
                 )}
               </>
             )}
+            <button
+              type="button"
+              className={`${idle} ml-auto`}
+              onClick={() => setLineUp(false)}
+              title="Done aligning"
+              aria-label="Done aligning"
+            >
+              <X size={15} />
+            </button>
           </div>
         )}
         {lines && side === 'defense' && !lines.nodes.some((n) => isDefenseRole(n.role)) && (

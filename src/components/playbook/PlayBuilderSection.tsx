@@ -306,6 +306,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
   const panelHidden = Boolean(present) && (!panelOpen || staged);
   // Presenting, the field alone: the call, the summary and the drawing tools come back with Edit.
   const [editing, setEditingState] = useState(() => !present || presentEditing);
+  const [presentDefOpen, setPresentDefOpen] = useState(false);
   const setEditing = (on: boolean) => {
     setEditingState(on);
     if (present) presentEditing = on;
@@ -2004,57 +2005,115 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
         </div>
       </div>
 
-      <div className={compact || panelHidden ? 'space-y-3' : `grid grid-cols-1 ${present ? 'lg:grid-cols-[minmax(0,1fr)_340px]' : 'lg:grid-cols-[minmax(0,1fr)_380px]'} gap-4 items-start`}>
+      <div className={compact || present || panelHidden ? 'relative space-y-2' : 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-4 items-start'}>
         {/* The field */}
         <div className="relative space-y-2 min-w-0">
           {present && !staged && (
-            // Presenting: the field alone; these bring back the editing tools and the Formation / Play / Jobs panel.
-            <div className="absolute top-2 right-2 z-20 flex gap-1.5">
-              <button
-                type="button"
-                aria-pressed={editing}
-                onClick={() => setEditing(!editing)}
-                title={editing ? 'Hide the call and the drawing tools' : 'Show the call, Save and the drawing tools (Route, Run, Block, Motion)'}
-                className={`h-9 pointer-coarse:h-11 px-3 rounded-lg text-xs font-black inline-flex items-center gap-1.5 shadow-sm border cursor-pointer ${
-                  editing ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white/95 dark:bg-slate-900/95 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200'
-                }`}
-              >
-                <Pencil className="w-3.5 h-3.5" /> {editing ? 'Done' : 'Edit'}
-              </button>
-              <button
-                type="button"
-                aria-pressed={panelOpen}
-                onClick={() => setPanelOpen(!panelOpen)}
-                title={panelOpen ? 'Hide Formation / Play / Jobs: the field gets the whole width' : 'Show Formation / Play / Jobs / Players beside the field'}
-                className={`h-9 pointer-coarse:h-11 px-3 rounded-lg text-xs font-black inline-flex items-center gap-1.5 shadow-sm border cursor-pointer ${
-                  panelOpen ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white/95 dark:bg-slate-900/95 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200'
-                }`}
-              >
-                {panelOpen ? <PanelRightClose className="w-3.5 h-3.5" /> : <PanelRightOpen className="w-3.5 h-3.5" />} Formation · Play · Jobs
-              </button>
-            </div>
-          )}
-          {present && !staged && fieldOnly && (
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-300/70 dark:border-emerald-700/60 bg-emerald-50/70 dark:bg-emerald-950/30 px-2.5 py-1.5 pr-44">
-              <div className="flex flex-wrap items-center gap-2 w-full">
-                <span className="inline-flex items-center gap-1 text-[11px] font-black uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
-                  <Shield className="w-3.5 h-3.5" /> Our Defense vs. Their Play{dLook ? `: ${callName}` : ''}
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900/90 px-2.5 py-1.5 space-y-1.5">
+              {/* Row 1: Unified Single-Row Presentation Control Bar (Defense + Walkthrough + Edit/Builder Toggles) */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="inline-flex items-center gap-1 text-[11px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400 mr-0.5">
+                  <Shield className="w-3.5 h-3.5" />
+                  <span className="hidden xl:inline">Our D:</span>
                 </span>
+                {/* Compact Front Selector */}
+                <select
+                  aria-label="Our defensive front"
+                  value={defenseKey ? (defenseKey.startsWith('front_') ? defenseKey : frontChipOf(defenseKey)) : ''}
+                  onChange={(e) => pickFront(e.target.value, true)}
+                  title="Switch our defensive front against this play"
+                  className="h-8 rounded-lg border border-emerald-500/50 bg-white dark:bg-slate-950 px-2 text-xs font-black text-emerald-800 dark:text-emerald-300 cursor-pointer"
+                >
+                  <option value="">No Defense</option>
+                  {[...FRONT_CHOICES.map((f) => ({ id: f.chip, label: f.label })), ...ownFronts.map(([k, d]) => ({ id: k, label: d.name }))].map((f) => (
+                    <option key={f.id} value={f.id}>
+                      🛡 {f.label}
+                    </option>
+                  ))}
+                  {otherLooks.map(([k, d]) => (
+                    <option key={k} value={k}>
+                      🛡 {d.name}
+                    </option>
+                  ))}
+                </select>
+                {dLook && (
+                  <>
+                    {/* Compact Stunt / Blitz / Coverage Selects */}
+                    <select
+                      aria-label="Line Stunt"
+                      value={pressureParts(pressure).stunt}
+                      onChange={(e) => {
+                        captureStemFrom();
+                        setPressure(joinPressure(pressureParts(pressure).blitz, e.target.value));
+                        setDefenseOwn(true);
+                      }}
+                      title="Defensive Line Stunt"
+                      className="h-8 max-w-[7.5rem] rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+                    >
+                      <option value="">⚡ Stunt: Base</option>
+                      {PRESSURES.filter((p) => p.group === 'Stunt').map((p) => (
+                        <option key={p.id} value={p.id}>
+                          ⚡ {p.short}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      aria-label="Blitz Call"
+                      value={pressureParts(pressure).blitz}
+                      onChange={(e) => {
+                        captureStemFrom();
+                        setPressure(joinPressure(e.target.value, pressureParts(pressure).stunt));
+                        setDefenseOwn(true);
+                      }}
+                      title="Linebacker / Edge Blitz"
+                      className="h-8 max-w-[7.5rem] rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+                    >
+                      <option value="">🔥 Blitz: None</option>
+                      {PRESSURES.filter((p) => p.group === 'Blitz').map((p) => (
+                        <option key={p.id} value={p.id}>
+                          🔥 {p.short}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      aria-label="Coverage Shell"
+                      value={coverage || 'cover3'}
+                      onChange={(e) => {
+                        setCoverage(e.target.value);
+                        setDefenseOwn(true);
+                      }}
+                      title="Coverage Shell"
+                      className="h-8 max-w-[7rem] rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+                    >
+                      {COVERAGES.filter((c) => c.id !== '').map((c) => (
+                        <option key={c.id} value={c.id}>
+                          ☂ {c.label}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                )}
+
                 <button
                   type="button"
                   onClick={() => setPlayAnimTrigger((n) => n + 1)}
                   title="Animate our defense (LB read step, flow, and downhill attack) against this offensive play"
-                  className="h-7 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black inline-flex items-center gap-1 shadow-xs cursor-pointer"
+                  className="h-8 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black inline-flex items-center gap-1 shadow-xs cursor-pointer"
                 >
-                  <PlayIcon className="w-3 h-3 fill-current" /> Run Defense vs. Play
+                  <PlayIcon className="w-3.5 h-3.5 fill-current" /> <span>Run</span>
                 </button>
+
                 {dLook && (
                   <button
                     type="button"
                     aria-pressed={showGapFits}
                     onClick={() => setShowGapFits(!showGapFits)}
-                    title="Show or hide live defensive gap fits (A, B, C, D/Edge) and unaccounted-gap warnings on the line of scrimmage"
-                    className={`h-7 px-2.5 rounded-lg border text-[11px] font-black inline-flex items-center gap-1 cursor-pointer transition-colors ${
+                    title={
+                      openGaps.length > 0
+                        ? `Unaccounted Gaps: ${openGaps.map((g) => `${g.side === 'left' ? 'L' : 'R'} ${g.label}`).join(', ')}`
+                        : 'Show or hide live defensive gap fits (A, B, C, D/Edge) on the line of scrimmage'
+                    }
+                    className={`h-8 px-2.5 rounded-lg border text-xs font-black inline-flex items-center gap-1 cursor-pointer transition-colors ${
                       showGapFits
                         ? openGaps.length > 0
                           ? 'bg-rose-600 border-rose-600 text-white'
@@ -2062,9 +2121,10 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                         : 'bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-emerald-500'
                     }`}
                   >
-                    {openGaps.length > 0 ? `⚠ Gap Fits (${openGaps.length} Open)` : '✓ Gap Fits'}
+                    {openGaps.length > 0 ? `⚠ ${openGaps.length} Open` : '✓ Gaps'}
                   </button>
                 )}
+
                 {dLook && orderedDefenders.length > 0 && (
                   <div className="inline-flex items-center gap-1">
                     <select
@@ -2072,15 +2132,15 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                       value={spotlightRole || ''}
                       onChange={(e) => setSpotlightRole(e.target.value || null)}
                       title="Highlight one defender across every play in the presentation for walkthroughs or player quizzes"
-                      className={`h-7 rounded-lg border px-2 text-[11px] font-black cursor-pointer ${
+                      className={`h-8 max-w-[9.5rem] rounded-lg border px-2 text-xs font-black cursor-pointer ${
                         spotlightRole
                           ? 'border-amber-500 bg-amber-500/20 text-amber-900 dark:text-amber-200'
                           : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200'
                       }`}
                     >
-                      <option value="">★ Spotlight Player: Off</option>
+                      <option value="">★ Spotlight: Off</option>
                       {orderedDefenders.map((n) => {
-                        const who = n.player ? ` — #${n.player.num} ${n.player.name}` : '';
+                        const who = n.player ? ` (#${n.player.num} ${n.player.name})` : '';
                         return (
                           <option key={n.role} value={n.role}>
                             ★ {diagramLabel(n.role)}{who}
@@ -2094,62 +2154,124 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
                         aria-pressed={quizMode}
                         onClick={() => setQuizMode(!quizMode)}
                         title="Quiz Mode: hides the spotlighted player's assignment until you click Reveal & Run"
-                        className={`h-7 px-2 rounded-lg border text-[11px] font-black cursor-pointer ${
+                        className={`h-8 px-2 rounded-lg border text-xs font-black cursor-pointer ${
                           quizMode
                             ? 'bg-amber-600 border-amber-600 text-white'
                             : 'bg-white dark:bg-slate-950 border-amber-400 text-amber-800 dark:text-amber-300'
                         }`}
                       >
-                        ❓ Quiz {quizMode ? 'On' : 'Off'}
+                        ❓ Quiz
                       </button>
                     )}
                   </div>
                 )}
+
                 {dNodes.length > 0 && hasDepth && (
-                  <div role="group" aria-label="Which unit plays our defense" className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-[11px] font-black">
-                    {(['off', 'black', 'gold', 'blue'] as const).map((u) => {
-                      const on = defUnit === u;
-                      const dot = u === 'black' ? '#0f172a' : u === 'gold' ? '#f59e0b' : u === 'blue' ? '#2563eb' : '';
-                      return (
+                  <select
+                    aria-label="Which unit plays our defense"
+                    value={defUnit}
+                    onChange={(e) => pickUnit(e.target.value as 'off' | 'black' | 'gold' | 'blue')}
+                    title="Show depth chart player names/numbers on defenders"
+                    className="h-8 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 text-xs font-black text-slate-700 dark:text-slate-200 cursor-pointer"
+                  >
+                    <option value="off">Unit: Pos</option>
+                    {DEF_UNITS.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        Unit: {u.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                <button
+                  type="button"
+                  aria-expanded={presentDefOpen}
+                  onClick={() => setPresentDefOpen((v) => !v)}
+                  title="Expand individual defender assignments & gap details"
+                  className={`h-8 px-2 rounded-lg border text-xs font-bold cursor-pointer ${
+                    presentDefOpen
+                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300'
+                      : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  {presentDefOpen ? '▴ Less' : '▾ Call'}
+                </button>
+
+                {/* Right-aligned Edit & Builder Drawer Toggles — never overlap the field */}
+                <div className="ml-auto inline-flex items-center gap-1.5">
+                  {editing && theirPlay && !formationMode && (
+                    <div role="group" aria-label="Draw target" className="inline-flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden text-[11px] font-black">
+                      {(['offense', 'defense'] as const).map((v) => (
                         <button
-                          key={u}
+                          key={v}
                           type="button"
-                          aria-pressed={on}
-                          onClick={() => pickUnit(u)}
-                          className={`h-7 px-2 inline-flex items-center gap-1 cursor-pointer transition-colors ${
-                            on
-                              ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
-                              : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                          aria-pressed={drawSide === v}
+                          onClick={() => setDrawSide(v)}
+                          className={`h-8 px-2 cursor-pointer ${
+                            drawSide === v
+                              ? v === 'defense'
+                                ? 'bg-emerald-700 text-white'
+                                : 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                              : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300'
                           }`}
                         >
-                          {dot && <span className="h-2 w-2 rounded-full ring-1 ring-slate-300 dark:ring-slate-500" style={{ background: dot }} />}
-                          {u === 'off' ? 'Off' : DEF_UNITS.find((x) => x.id === u)!.label}
+                          {v === 'offense' ? 'Draw O' : 'Draw D'}
                         </button>
-                      );
-                    })}
-                  </div>
-                )}
-                <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Tap any defender on the field to adjust his Flow &amp; Fit rules · Drag to move alignment
-                </span>
-              </div>
-              <div className="w-full">{defensePicker(true, true)}</div>
-              {showGapFits && gapIntegritySlots.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] font-bold">
-                  {openGaps.length === 0 ? (
-                    <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white font-black">
-                      ✓ Gap Integrity Sound — All {gapIntegritySlots.length} Gaps Accounted For
-                    </span>
-                  ) : (
-                    <span className="px-2 py-0.5 rounded-md bg-rose-600 text-white font-black">
-                      ⚠ Unaccounted Gap{openGaps.length > 1 ? 's' : ''}:{' '}
-                      {openGaps.map((g) => `${g.side === 'left' ? 'Left' : 'Right'} ${g.label}${g.isPointOfAttack ? ' (POINT OF ATTACK!)' : ''}`).join(' · ')}
-                    </span>
+                      ))}
+                    </div>
                   )}
-                  {overloadedGaps.length > 0 && (
-                    <span className="px-2 py-0.5 rounded-md bg-amber-500/90 text-slate-950 font-black">
-                      2× Stacked in {overloadedGaps.map((g) => `${g.side === 'left' ? 'Left' : 'Right'} ${g.gap} (${g.defenders.map((d) => diagramLabel(d.role)).join('+')})`).join(', ')}
-                    </span>
+                  <button
+                    type="button"
+                    aria-pressed={editing}
+                    onClick={() => setEditing(!editing)}
+                    title={editing ? 'Hide the call and drawing tools' : 'Edit play name, routes, blocks, or motion right here'}
+                    className={`h-8 px-2.5 rounded-lg text-xs font-black inline-flex items-center gap-1 border cursor-pointer ${
+                      editing
+                        ? 'bg-indigo-600 border-indigo-600 text-white'
+                        : 'bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    <Pencil className="w-3.5 h-3.5" /> {editing ? 'Done' : 'Edit'}
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={panelOpen}
+                    onClick={() => setPanelOpen(!panelOpen)}
+                    title={panelOpen ? 'Close Formation / Play / Jobs drawer' : 'Open Formation / Play / Jobs / Players drawer'}
+                    className={`h-8 px-2.5 rounded-lg text-xs font-black inline-flex items-center gap-1 border cursor-pointer ${
+                      panelOpen
+                        ? 'bg-indigo-600 border-indigo-600 text-white'
+                        : 'bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    {panelOpen ? <PanelRightClose className="w-3.5 h-3.5" /> : <PanelRightOpen className="w-3.5 h-3.5" />}
+                    <span className="hidden sm:inline">Builder</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Optional Collapsible Full Defense Call Picker & Gap Breakdown */}
+              {presentDefOpen && (
+                <div className="pt-1.5 border-t border-slate-200 dark:border-slate-800 space-y-1.5">
+                  <div className="w-full">{defensePicker(true, true)}</div>
+                  {showGapFits && gapIntegritySlots.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
+                      {openGaps.length === 0 ? (
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white font-black">
+                          ✓ Gap Integrity Sound — All {gapIntegritySlots.length} Gaps Accounted For
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-md bg-rose-600 text-white font-black">
+                          ⚠ Unaccounted Gap{openGaps.length > 1 ? 's' : ''}:{' '}
+                          {openGaps.map((g) => `${g.side === 'left' ? 'Left' : 'Right'} ${g.label}${g.isPointOfAttack ? ' (POINT OF ATTACK!)' : ''}`).join(' · ')}
+                        </span>
+                      )}
+                      {overloadedGaps.length > 0 && (
+                        <span className="px-2 py-0.5 rounded-md bg-amber-500/90 text-slate-950 font-black">
+                          2× Stacked in {overloadedGaps.map((g) => `${g.side === 'left' ? 'Left' : 'Right'} ${g.gap} (${g.defenders.map((d) => diagramLabel(d.role)).join('+')})`).join(', ')}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
@@ -2369,7 +2491,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               {defaultButtons}
             </div>
           )}
-          {theirPlay && !formationMode && !staged && !fieldOnly && (
+          {theirPlay && !formationMode && !staged && !fieldOnly && !present && (
             <div className={`space-y-1.5 ${theirDefense ? 'rounded-xl border border-emerald-300/70 dark:border-emerald-700/60 bg-emerald-50/60 dark:bg-emerald-950/20 px-2.5 py-1.5' : ''}`}>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Draw</span>
@@ -2402,7 +2524,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               )}
             </div>
           )}
-          {dNodes.length > 0 && hasDepth && !fieldOnly && (
+          {dNodes.length > 0 && hasDepth && !fieldOnly && !present && (
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">Who&apos;s in</span>
               <div role="group" aria-label="Which unit plays our defense" className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-[11px] font-black">
@@ -2471,7 +2593,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               {defUnit !== 'off' && <span className="hidden lg:inline text-[11px] text-slate-400">Hover a defender to see who plays there</span>}
             </div>
           )}
-          <div className={`${fieldOnly ? 'hidden' : 'hidden sm:flex'} flex-wrap gap-1.5`}>
+          <div className={`${fieldOnly || present ? 'hidden' : 'hidden sm:flex'} flex-wrap gap-1.5`}>
             {summary.map((s) => (
               <button
                 key={s.text}
@@ -2695,7 +2817,7 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
               }}
               linesFollow={userDrew}
               dense={compact}
-              maxFieldHeight={staged ? STAGE_FIELD_HEIGHT : present ? (fieldOnly ? 'calc(100dvh - 6.5rem)' : 'calc(100dvh - 17.5rem)') : undefined}
+              maxFieldHeight={staged ? STAGE_FIELD_HEIGHT : present ? (fieldOnly ? 'calc(100dvh - 8.5rem)' : 'calc(100dvh - 14rem)') : undefined}
               tools={!fieldOnly}
               bare={staged}
               locked={staged}
@@ -2888,24 +3010,45 @@ export const PlayBuilderSection: React.FC<Props> = ({ canEdit, onAdd, seed, onBa
 
         {/* One panel, one job at a time */}
         {/* Hidden (presenting), it stays mounted: a tapped player's options still have their place. */}
-        <div className={`rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden ${compact ? '' : 'lg:sticky lg:top-3'} ${panelHidden ? 'hidden' : ''}`}>
-          <div className="grid grid-cols-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
-            {tabs.filter((t) => (t.id === 'jobs' ? (defenseMode || Boolean(dLook)) : !(formationMode || defenseMode) || t.id !== 'play')).map((t) => (
+        <div
+          className={`rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden ${
+            present
+              ? 'absolute right-2 top-11 z-30 w-[min(94vw,350px)] max-h-[calc(100dvh-9rem)] overflow-y-auto shadow-2xl ring-1 ring-slate-900/15 dark:ring-white/15'
+              : compact
+                ? ''
+                : 'lg:sticky lg:top-3'
+          } ${panelHidden ? 'hidden' : ''}`}
+        >
+          <div className="flex items-stretch border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
+            <div className="flex-1 grid grid-cols-4">
+              {tabs.filter((t) => (t.id === 'jobs' ? (defenseMode || Boolean(dLook)) : !(formationMode || defenseMode) || t.id !== 'play')).map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setTab(t.id)}
+                  aria-pressed={tab === t.id}
+                  className={`h-11 flex flex-col items-center justify-center gap-0.5 text-[11px] font-black cursor-pointer border-b-2 transition-colors ${
+                    tab === t.id
+                      ? 'border-indigo-600 text-indigo-700 dark:text-indigo-300 bg-white dark:bg-slate-900'
+                      : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  {t.icon}
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            {present && (
               <button
-                key={t.id}
                 type="button"
-                onClick={() => setTab(t.id)}
-                aria-pressed={tab === t.id}
-                className={`h-12 flex flex-col items-center justify-center gap-0.5 text-[11px] font-black cursor-pointer border-b-2 transition-colors ${
-                  tab === t.id
-                    ? 'border-indigo-600 text-indigo-700 dark:text-indigo-300 bg-white dark:bg-slate-900'
-                    : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-                }`}
+                onClick={() => setPanelOpen(false)}
+                title="Close Builder Drawer"
+                aria-label="Close Builder Drawer"
+                className="px-2.5 text-slate-400 hover:text-slate-700 dark:hover:text-white border-l border-slate-200 dark:border-slate-800 cursor-pointer"
               >
-                {t.icon}
-                {t.label}
+                <X className="w-4 h-4" />
               </button>
-            ))}
+            )}
           </div>
 
           {tab === 'formation' && (

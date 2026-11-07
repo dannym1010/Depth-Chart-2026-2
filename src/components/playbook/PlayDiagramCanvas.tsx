@@ -793,6 +793,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
     setAnimProgress((p) => Math.max(0, Math.min(1, p + secondsDelta / seconds)));
   };
   const animShown = animOpen || isPlaying || animProgress > 0.005;
+  const [animMoreOpen, setAnimMoreOpen] = useState(false);
   // Keys while the movement is up: space plays / pauses, the arrows step, Home goes back to the start.
   useEffect(() => {
     if (!animShown) return;
@@ -3003,13 +3004,13 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
           data-stage-ui
           className={
             bare
-              ? 'absolute right-3 bottom-3 z-10 w-[min(50rem,calc(100%-1.5rem))] flex flex-col gap-1.5 px-3 py-2 rounded-2xl ring-1 ring-white/15 bg-slate-950/90 backdrop-blur-md text-white shadow-2xl'
-              : 'flex flex-col gap-1.5 px-3 py-2 border-t border-emerald-500/30 bg-slate-900 text-white'
+              ? 'absolute right-3 bottom-3 z-10 w-[min(54rem,calc(100%-1.5rem))] flex flex-col gap-1.5 px-3 py-2 rounded-2xl ring-1 ring-white/15 bg-slate-950/92 backdrop-blur-md text-white shadow-2xl'
+              : 'flex flex-col gap-1.5 px-2.5 py-1.5 border-t border-emerald-500/30 bg-slate-900 text-white'
           }
         >
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Back to the start, a step back, start / pause, a step on, and key phase spots: to go over it with the team. */}
-            <div className="inline-flex flex-wrap items-center gap-1">
+          {/* Row 1: Clean single-line primary transport, phase jumps, scrubber, speed, and collapsible Stops & Presets toggle */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <div className="inline-flex items-center gap-0.5 shrink-0">
               <button type="button" onClick={() => { setIsPlaying(false); setAnimProgress(0); }} title="Back to the pre-snap alignment (Home)" aria-label="Back to the start" className={ctl}>⏮</button>
               <button type="button" onClick={() => stepAnim(-ANIM_STEP_SECONDS)} title={`Full step back (-${ANIM_STEP_SECONDS}s, Left Arrow)`} aria-label="Full step back" className={ctl}>«</button>
               <button type="button" onClick={() => stepAnim(-ANIM_FINE_STEP_SECONDS)} title={`Fine frame step back (-${ANIM_FINE_STEP_SECONDS}s, Shift+Left or ,)`} aria-label="Fine step back" className={ctl}>◀︎</button>
@@ -3021,25 +3022,16 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
                   togglePlay();
                 }}
                 title={isPlaying ? 'Pause movement (space)' : 'Start / Continue movement (space)'}
-                className="h-8 min-w-[5rem] px-3 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black cursor-pointer shadow-xs"
+                className="h-8 min-w-[4.5rem] px-2.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black cursor-pointer shadow-xs"
               >
-                {isPlaying ? '⏸ Pause' : animProgress >= 0.99 ? '↻ Again' : animProgress > 0.005 ? '▶ Continue' : '▶ Start'}
+                {isPlaying ? '⏸ Pause' : animProgress >= 0.99 ? '↻ Again' : animProgress > 0.005 ? '▶ Cont' : '▶ Start'}
               </button>
               <button type="button" onClick={() => stepAnim(ANIM_FINE_STEP_SECONDS)} title={`Fine frame step forward (+${ANIM_FINE_STEP_SECONDS}s, Shift+Right or .)`} aria-label="Fine step forward" className={ctl}>▶︎</button>
               <button type="button" onClick={() => stepAnim(ANIM_STEP_SECONDS)} title={`Full step forward (+${ANIM_STEP_SECONDS}s, Right Arrow)`} aria-label="Full step forward" className={ctl}>»</button>
-              {animatedFrame.stemProgress !== undefined && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsPlaying(false);
-                    setAnimProgress(animatedFrame.stemProgress!);
-                  }}
-                  title="Jump to Defensive Preset / Formation Stem before the snap"
-                  className={`${ctl} w-auto px-2 text-[10px] border border-rose-500/40 text-rose-300`}
-                >
-                  🛡 Def Preset
-                </button>
-              )}
+            </div>
+
+            {/* Compact Phase Jump Pills */}
+            <div className="inline-flex items-center gap-0.5 shrink-0">
               {shiftSetAt !== undefined && (
                 <button
                   type="button"
@@ -3048,7 +3040,7 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
                     setAnimProgress(shiftSetAt);
                   }}
                   title="Their shift set: our defense still where it lined up"
-                  className={`${ctl} w-auto px-2 text-[10px] border border-teal-500/40 text-teal-200`}
+                  className={`${ctl} w-auto px-1.5 text-[10px] border border-teal-500/40 text-teal-200`}
                 >
                   Shift
                 </button>
@@ -3060,53 +3052,27 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
                     setIsPlaying(false);
                     setAnimProgress(defenseSetAt);
                   }}
-                  title="Our defense set after their shift (drag a defender to move his spot)"
-                  className={`${ctl} w-auto px-2 text-[10px] border border-teal-500/40 text-teal-200`}
+                  title="Our defense set after their shift"
+                  className={`${ctl} w-auto px-1.5 text-[10px] border border-teal-500/40 text-teal-200`}
                 >
                   D set
                 </button>
               )}
               {snapAt > 0.001 && (
-                <button type="button" onClick={() => { setIsPlaying(false); setAnimProgress(snapAt); }} title="Jump to the snap (motion and defensive shifts set)" className={`${ctl} w-auto px-2 text-[10px]`}>
+                <button type="button" onClick={() => { setIsPlaying(false); setAnimProgress(snapAt); }} title="Jump to the snap" className={`${ctl} w-auto px-1.5 text-[10px]`}>
                   Snap
-                </button>
-              )}
-              {animatedFrame.handoffProgress !== undefined && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsPlaying(false);
-                    setAnimProgress(animatedFrame.handoffProgress!);
-                  }}
-                  title="Jump to the Handoff spot where 1 (QB) hands the ball to the runner"
-                  className={`${ctl} w-auto px-2 text-[10px] border border-amber-400/50 text-amber-300`}
-                >
-                  🏈 Handoff
-                </button>
-              )}
-              {animatedFrame.stuntProgress !== undefined && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsPlaying(false);
-                    setAnimProgress(animatedFrame.stuntProgress!);
-                  }}
-                  title="Jump to the Defensive Stunt / Blitz firing through the line"
-                  className={`${ctl} w-auto px-2 text-[10px] border border-red-500/40 text-red-300`}
-                >
-                  ⚡ Stunt / Blitz
                 </button>
               )}
               <button
                 type="button"
                 onClick={() => {
                   setIsPlaying(false);
-                  setAnimProgress(snapAt + (1 - snapAt) * 0.25);
+                  setAnimProgress(animatedFrame.handoffProgress ?? snapAt + (1 - snapAt) * 0.25);
                 }}
-                title="Jump to Phase 1: Linebackers reading keys & flowing laterally with the backfield"
-                className={`${ctl} w-auto px-2 text-[10px] border border-emerald-500/40 text-emerald-300`}
+                title="Jump to Handoff / LB Read & Flow"
+                className={`${ctl} w-auto px-1.5 text-[10px] border border-emerald-500/40 text-emerald-300`}
               >
-                Flow
+                Read
               </button>
               <button
                 type="button"
@@ -3114,10 +3080,10 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
                   setIsPlaying(false);
                   setAnimProgress(snapAt + (1 - snapAt) * 0.52);
                 }}
-                title="Jump to Phase 2: Linebackers triggering downhill to attack their gap fit"
-                className={`${ctl} w-auto px-2 text-[10px] border border-amber-500/40 text-amber-300`}
+                title="Jump to Offensive Block & Defensive Gap Fit"
+                className={`${ctl} w-auto px-1.5 text-[10px] border border-amber-500/40 text-amber-300`}
               >
-                Attack
+                Fit
               </button>
               {sortedCheckpoints.map((cp, idx) => {
                 const isHere = activeCheckpoint?.id === cp.id;
@@ -3131,53 +3097,86 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
                       setEditingCheckpointId(cp.id);
                     }}
                     title={cp.note ? `Note ${idx + 1}: ${cp.note}` : `Coaching Stop ${idx + 1} (${(cp.progress * seconds).toFixed(1)}s)`}
-                    className={`${ctl} w-auto px-2 text-[10px] border ${
-                      isHere
-                        ? 'border-amber-300 bg-amber-500 text-slate-950'
-                        : 'border-amber-400/50 text-amber-300'
+                    className={`${ctl} w-auto px-1.5 text-[10px] border ${
+                      isHere ? 'border-amber-300 bg-amber-500 text-slate-950' : 'border-amber-400/50 text-amber-300'
                     }`}
                   >
-                    📌 Note {idx + 1}
+                    📌{idx + 1}
                   </button>
                 );
               })}
-              <button
-                type="button"
-                onClick={() => {
+            </div>
+
+            {/* Scrubber + Phase & Yardage Readout */}
+            <div className="flex-1 min-w-[9rem] flex items-center gap-1.5">
+              <span className="hidden sm:inline-block px-1.5 py-0.5 rounded bg-slate-800 border border-emerald-500/30 text-[10px] font-extrabold uppercase tracking-wider text-emerald-300 truncate max-w-[8.5rem]">
+                {animatedFrame.phaseLabel}
+              </span>
+              {animProgress > snapAt + 0.01 && (() => {
+                const gainYds = Math.round(animatedFrame.ball.y * 10) / 10;
+                const isPos = gainYds > 0.2;
+                const isNeg = gainYds < -0.2;
+                return (
+                  <span
+                    title="Live ball spot relative to the Line of Scrimmage"
+                    className={`px-1.5 py-0.5 rounded border text-[10px] font-black tabular-nums whitespace-nowrap ${
+                      isPos
+                        ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
+                        : isNeg
+                          ? 'bg-rose-950/80 border-rose-500/40 text-rose-300'
+                          : 'bg-slate-800 border-slate-600 text-slate-300'
+                    }`}
+                  >
+                    {gainYds > 0 ? `+${gainYds.toFixed(1)}y` : gainYds < 0 ? `${gainYds.toFixed(1)}y` : 'LOS'}
+                  </span>
+                );
+              })()}
+              <input
+                type="range"
+                min={0}
+                max={1000}
+                value={Math.round(animProgress * 1000)}
+                onChange={(e) => {
                   setIsPlaying(false);
-                  const cp = ensureCheckpointAtCurrent();
-                  setEditingCheckpointId(cp.id);
-                  setPursuitDrawMode(true);
+                  setAnimProgress(Number(e.target.value) / 1000);
                 }}
-                title="Add a Coaching Note and/or draw Pursuit Angle arrows at this point in the play (pauses here during presentation)"
-                className="h-8 px-2.5 rounded-md border border-cyan-400/60 bg-cyan-950/70 hover:bg-cyan-900 text-cyan-200 text-[10px] font-black cursor-pointer inline-flex items-center gap-1"
+                aria-label="Play movement timeline"
+                className="h-1.5 flex-1 min-w-[70px] cursor-pointer accent-emerald-500"
+              />
+              <span className="font-mono text-[10px] font-bold text-slate-300 tabular-nums whitespace-nowrap">
+                {(animProgress * seconds).toFixed(1)}s
+              </span>
+            </div>
+
+            {/* Speed + Loop + Collapsible Options Toggle + Close */}
+            <div className="inline-flex items-center gap-1 shrink-0 ml-auto">
+              <select
+                aria-label="Movement speed"
+                value={animSpeed}
+                onChange={(e) => setAnimSpeed(Number(e.target.value))}
+                title="Playback speed (slow motion down to 0.05×)"
+                className="2xl:hidden h-8 rounded-md border border-slate-700 bg-slate-800 px-1.5 text-[11px] font-extrabold text-white cursor-pointer"
               >
-                📐 + Note / Pursuit
-              </button>
-              <button
-                type="button"
-                aria-pressed={!skipNotes}
-                onClick={() => {
-                  const nextSkip = !skipNotes;
-                  setSkipNotes(nextSkip);
-                  if (nextSkip) {
-                    setPursuitDrawMode(false);
-                    setEditingCheckpointId(null);
-                  }
-                }}
-                title={
-                  skipNotes
-                    ? 'Play Through Mode ON: Play Movement will NOT stop at notes or show pursuit overlays (click to re-enable note stops)'
-                    : 'Stop & Show Notes ON: Play Movement pauses at each note/pursuit checkpoint (click to play through without stopping)'
-                }
-                className={`h-8 px-2.5 rounded-md border text-[10px] font-black cursor-pointer inline-flex items-center gap-1 ${
-                  !skipNotes
-                    ? 'border-amber-400/60 bg-amber-500/20 text-amber-200 hover:bg-amber-500/30'
-                    : 'border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                {skipNotes ? '⏭ Play Through (No Notes)' : '📌 Stop & Show Notes'}
-              </button>
+                {ANIM_SPEEDS.map((spd) => (
+                  <option key={spd} value={spd}>
+                    {spd}×
+                  </option>
+                ))}
+              </select>
+              <div role="group" aria-label="Speed" className="hidden 2xl:inline-flex rounded border border-slate-700 overflow-hidden text-[10px] font-extrabold">
+                {ANIM_SPEEDS.map((spd) => (
+                  <button
+                    key={spd}
+                    type="button"
+                    aria-pressed={animSpeed === spd}
+                    onClick={() => setAnimSpeed(spd)}
+                    title={spd < 1 ? `Slow motion: ${spd}× speed` : 'Full speed'}
+                    className={`px-1.5 py-1 cursor-pointer ${animSpeed === spd ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                  >
+                    {spd}×
+                  </button>
+                ))}
+              </div>
               <button
                 type="button"
                 aria-pressed={loopPlay}
@@ -3190,151 +3189,149 @@ export const PlayDiagramCanvas: React.FC<Props> = ({
                   }
                 }}
                 title="Walkthrough Huddle Loop: plays continuously, pauses 2s at each note/teaching stop, and loops automatically"
-                className={`h-8 px-2.5 rounded-md border text-[10px] font-black cursor-pointer inline-flex items-center gap-1 ${
+                className={`h-8 px-2 rounded-md border text-[10px] font-black cursor-pointer inline-flex items-center gap-1 ${
                   loopPlay
                     ? 'border-emerald-400 bg-emerald-600/30 text-emerald-200'
-                    : 'border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
                 }`}
               >
-                🔁 {loopPlay ? 'Loop ON' : 'Loop'}
+                🔁 <span className="hidden sm:inline">{loopPlay ? 'Loop' : 'Loop'}</span>
               </button>
-              {prevDefense && (
+              <button
+                type="button"
+                aria-expanded={animMoreOpen}
+                onClick={() => setAnimMoreOpen((v) => !v)}
+                title="Show or hide Coaching Notes, Auto-Pause Checkpoints, and Defense Presets"
+                className={`h-8 px-2 rounded-md border text-[10px] font-black cursor-pointer inline-flex items-center gap-1 ${
+                  animMoreOpen || stopAtSnap || stopAtRead || stopAtFit || stopAtTackle
+                    ? 'border-indigo-400 bg-indigo-600/30 text-indigo-200'
+                    : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                ⚙ <span className="hidden md:inline">Options</span> {animMoreOpen ? '▴' : '▾'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPlaying(false);
+                  setAnimProgress(0);
+                  setAnimOpen(false);
+                }}
+                title="Close the movement menu (back to the alignment)"
+                aria-label="Close the movement"
+                className="h-8 w-7 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer inline-flex items-center justify-center text-sm font-black"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
+          {/* Row 2: Collapsible Coaching Stops, Notes/Pursuit, Auto-Pause & Defense Presets Drawer */}
+          {animMoreOpen && (
+            <div className="flex flex-col gap-1.5 pt-1.5 border-t border-white/10">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
-                  aria-pressed={showGhostDefense}
-                  onClick={() => setShowGhostDefense((v) => !v)}
-                  title={`Overlay faint ghost trails of the previous defensive look (${prevDefense.label}) so players can compare why the front/stunt adjustment closed the lane`}
-                  className={`h-8 px-2.5 rounded-md border text-[10px] font-black cursor-pointer inline-flex items-center gap-1 ${
-                    showGhostDefense
-                      ? 'border-violet-400 bg-violet-600/30 text-violet-200'
+                  onClick={() => {
+                    setIsPlaying(false);
+                    const cp = ensureCheckpointAtCurrent();
+                    setEditingCheckpointId(cp.id);
+                    setPursuitDrawMode(true);
+                  }}
+                  title="Add a Coaching Note and/or draw Pursuit Angle arrows at this point in the play"
+                  className="h-7 px-2.5 rounded-md border border-cyan-400/60 bg-cyan-950/70 hover:bg-cyan-900 text-cyan-200 text-[10px] font-black cursor-pointer inline-flex items-center gap-1"
+                >
+                  📐 + Note / Pursuit
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={!skipNotes}
+                  onClick={() => {
+                    const nextSkip = !skipNotes;
+                    setSkipNotes(nextSkip);
+                    if (nextSkip) {
+                      setPursuitDrawMode(false);
+                      setEditingCheckpointId(null);
+                    }
+                  }}
+                  title={skipNotes ? 'Play Through Mode ON (click to stop at notes)' : 'Stop & Show Notes ON'}
+                  className={`h-7 px-2 rounded-md border text-[10px] font-black cursor-pointer inline-flex items-center gap-1 ${
+                    !skipNotes
+                      ? 'border-amber-400/60 bg-amber-500/20 text-amber-200 hover:bg-amber-500/30'
                       : 'border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700'
                   }`}
                 >
-                  👻 {showGhostDefense ? `Ghost: ${prevDefense.label}` : `Compare: ${prevDefense.label}`}
+                  {skipNotes ? '⏭ Play Through' : '📌 Stop at Notes'}
                 </button>
+                <div
+                  role="group"
+                  aria-label="Auto-Pause Checkpoints"
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-950/70 px-1.5 py-0.5 text-[10px] font-bold"
+                >
+                  <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">⏸ Auto-Pause:</span>
+                  {snapAt > 0.001 && (
+                    <button
+                      type="button"
+                      aria-pressed={stopAtSnap}
+                      onClick={() => setStopAtSnap(!stopAtSnap)}
+                      className={`px-1.5 py-0.5 rounded cursor-pointer font-black transition-colors ${
+                        stopAtSnap ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Snap
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    aria-pressed={stopAtRead}
+                    onClick={() => setStopAtRead(!stopAtRead)}
+                    className={`px-1.5 py-0.5 rounded cursor-pointer font-black transition-colors ${
+                      stopAtRead ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Read
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={stopAtFit}
+                    onClick={() => setStopAtFit(!stopAtFit)}
+                    className={`px-1.5 py-0.5 rounded cursor-pointer font-black transition-colors ${
+                      stopAtFit ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Fit
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={stopAtTackle}
+                    onClick={() => setStopAtTackle(!stopAtTackle)}
+                    className={`px-1.5 py-0.5 rounded cursor-pointer font-black transition-colors ${
+                      stopAtTackle ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Tackle
+                  </button>
+                </div>
+                {prevDefense && (
+                  <button
+                    type="button"
+                    aria-pressed={showGhostDefense}
+                    onClick={() => setShowGhostDefense((v) => !v)}
+                    className={`h-7 px-2 rounded-md border text-[10px] font-black cursor-pointer inline-flex items-center gap-1 ${
+                      showGhostDefense
+                        ? 'border-violet-400 bg-violet-600/30 text-violet-200'
+                        : 'border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    👻 {showGhostDefense ? `Ghost: ${prevDefense.label}` : `Compare: ${prevDefense.label}`}
+                  </button>
+                )}
+              </div>
+              {defensePresetBar && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-white/10">
+                  {defensePresetBar}
+                </div>
               )}
-            </div>
-            <span className="px-2 py-0.5 rounded bg-slate-800 border border-emerald-500/30 text-[10px] font-extrabold uppercase tracking-wider text-emerald-300 min-w-[110px] text-center">
-              {animatedFrame.phaseLabel}
-            </span>
-            {animProgress > snapAt + 0.01 && (() => {
-              const gainYds = Math.round(animatedFrame.ball.y * 10) / 10;
-              const isPos = gainYds > 0.2;
-              const isNeg = gainYds < -0.2;
-              return (
-                <span
-                  title="Live ball spot relative to the Line of Scrimmage"
-                  className={`px-1.5 py-0.5 rounded border text-[10px] font-black tabular-nums whitespace-nowrap ${
-                    isPos
-                      ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
-                      : isNeg
-                        ? 'bg-rose-950/80 border-rose-500/40 text-rose-300'
-                        : 'bg-slate-800 border-slate-600 text-slate-300'
-                  }`}
-                >
-                  🏈 {gainYds > 0 ? `+${gainYds.toFixed(1)} yds` : gainYds < 0 ? `${gainYds.toFixed(1)} yds` : 'LOS'}
-                </span>
-              );
-            })()}
-            <input
-              type="range"
-              min={0}
-              max={1000}
-              value={Math.round(animProgress * 1000)}
-              onChange={(e) => {
-                setIsPlaying(false);
-                setAnimProgress(Number(e.target.value) / 1000);
-              }}
-              aria-label="Play movement timeline"
-              className="h-1.5 flex-1 min-w-[100px] cursor-pointer accent-emerald-500"
-            />
-            <span className="font-mono text-[10px] font-bold text-slate-300 tabular-nums whitespace-nowrap">
-              {(animProgress * seconds).toFixed(1)}s / {seconds.toFixed(1)}s
-            </span>
-            <div role="group" aria-label="Speed" className="inline-flex rounded border border-slate-700 overflow-hidden text-[10px] font-extrabold">
-              {ANIM_SPEEDS.map((spd) => (
-                <button
-                  key={spd}
-                  type="button"
-                  aria-pressed={animSpeed === spd}
-                  onClick={() => setAnimSpeed(spd)}
-                  title={spd < 1 ? `Slow motion: ${spd}× speed` : 'Full speed'}
-                  className={`px-1.5 py-1 cursor-pointer ${animSpeed === spd ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
-                >
-                  {spd}×
-                </button>
-              ))}
-            </div>
-            <div
-              role="group"
-              aria-label="Auto-Pause Checkpoints"
-              className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-950/70 px-1.5 py-0.5 text-[10px] font-bold"
-            >
-              <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">⏸ Auto-Pause:</span>
-              {snapAt > 0.001 && (
-                <button
-                  type="button"
-                  aria-pressed={stopAtSnap}
-                  onClick={() => setStopAtSnap(!stopAtSnap)}
-                  title="Auto-pause at the Snap (once pre-snap shifts and motion are set)"
-                  className={`px-1.5 py-0.5 rounded cursor-pointer font-black transition-colors ${
-                    stopAtSnap ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Snap
-                </button>
-              )}
-              <button
-                type="button"
-                aria-pressed={stopAtRead}
-                onClick={() => setStopAtRead(!stopAtRead)}
-                title="Auto-pause at the Handoff / QB Read key checkpoint"
-                className={`px-1.5 py-0.5 rounded cursor-pointer font-black transition-colors ${
-                  stopAtRead ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Handoff / Read
-              </button>
-              <button
-                type="button"
-                aria-pressed={stopAtFit}
-                onClick={() => setStopAtFit(!stopAtFit)}
-                title="Auto-pause at the Linebacker Gap Fit / Downhill Trigger checkpoint"
-                className={`px-1.5 py-0.5 rounded cursor-pointer font-black transition-colors ${
-                  stopAtFit ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Gap Fit
-              </button>
-              <button
-                type="button"
-                aria-pressed={stopAtTackle}
-                onClick={() => setStopAtTackle(!stopAtTackle)}
-                title="Auto-pause when a defender first makes Tackle contact with the ball carrier"
-                className={`px-1.5 py-0.5 rounded cursor-pointer font-black transition-colors ${
-                  stopAtTackle ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Tackle
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setIsPlaying(false);
-                setAnimProgress(0);
-                setAnimOpen(false);
-              }}
-              title="Close the movement menu (back to the alignment)"
-              aria-label="Close the movement"
-              className="h-7 w-7 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer inline-flex items-center justify-center text-sm font-black"
-            >
-              ✕
-            </button>
-          </div>
-          {defensePresetBar && (
-            <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-white/10">
-              {defensePresetBar}
             </div>
           )}
         </div>

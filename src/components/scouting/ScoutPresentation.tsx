@@ -58,12 +58,10 @@ const TOP = 'calc(0.75rem + env(safe-area-inset-top, 0px))';
 const LEFT = 'max(0.75rem, env(safe-area-inset-left, 0px))';
 const RIGHT = 'max(0.75rem, env(safe-area-inset-right, 0px))';
 const stageBtn = (on = false) =>
-  `h-11 min-w-11 px-3 rounded-xl inline-flex items-center justify-center gap-1.5 text-sm font-black cursor-pointer transition-colors disabled:opacity-35 disabled:cursor-default ${
-    on ? 'bg-white text-slate-900' : 'text-white/90 hover:bg-white/10 active:bg-white/20'
+  `h-11 min-w-11 px-3 rounded-xl inline-flex items-center justify-center gap-1.5 text-sm font-black cursor-pointer transition-colors disabled:opacity-35 disabled:cursor-default ${on ? 'bg-white text-slate-900' : 'text-white/90 hover:bg-white/10 active:bg-white/20'
   }`;
 const segBtn = (on: boolean) =>
-  `h-10 px-3 rounded-lg inline-flex items-center gap-1.5 text-sm font-black cursor-pointer transition-colors ${
-    on ? 'bg-white text-slate-900 shadow' : 'text-white/80 hover:text-white'
+  `h-10 px-3 rounded-lg inline-flex items-center gap-1.5 text-sm font-black cursor-pointer transition-colors ${on ? 'bg-white text-slate-900 shadow' : 'text-white/80 hover:text-white'
   }`;
 /** Shown, or faded away (and out of the way of taps). */
 const fade = (shown: boolean) => `transition-all duration-300 ease-out ${shown ? 'opacity-100' : 'opacity-0 pointer-events-none [&_*]:!pointer-events-none'}`;
@@ -130,6 +128,7 @@ export const ScoutPresentation: React.FC<{
   // Presenting starts on a start screen, not in the first play (and its film): the coach picks where and how.
   const [phase, setPhase] = useState<Phase>('cover');
   const [moreOpen, setMoreOpen] = useState(false);
+  const [splitRatio, setSplitRatio] = useState<'50-50' | '65-35' | '35-65'>('50-50');
   const [showTendencyBanner, setShowTendencyBannerState] = useState(() => saved(BANNER_KEY) !== 'off');
   const setShowTendencyBanner = (next: boolean | ((v: boolean) => boolean)) =>
     setShowTendencyBannerState((v) => {
@@ -602,10 +601,9 @@ export const ScoutPresentation: React.FC<{
   );
 
   // Finger-sized on a touch screen (an iPad).
-  const navBtn ='h-9 pointer-coarse:h-11 px-3 rounded-lg text-sm font-black inline-flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-default';
+  const navBtn = 'h-9 pointer-coarse:h-11 px-3 rounded-lg text-sm font-black inline-flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-default';
   const viewBtn = (v: View) =>
-    `h-7 pointer-coarse:h-9 px-3 rounded-md text-xs pointer-coarse:text-sm font-black inline-flex items-center gap-1.5 cursor-pointer ${
-      view === v ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+    `h-7 pointer-coarse:h-9 px-3 rounded-md text-xs pointer-coarse:text-sm font-black inline-flex items-center gap-1.5 cursor-pointer ${view === v ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
     }`;
 
   return (
@@ -618,194 +616,221 @@ export const ScoutPresentation: React.FC<{
     >
       {/* Clear of the iPad's status bar (the app on the home screen). */}
       {!full && (
-      <header
-        className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
-        style={{ paddingTop: 'calc(0.5rem + env(safe-area-inset-top, 0px))' }}
-      >
-        <button
-          type="button"
-          className={`max-lg:hidden ${navBtn} !px-2 ${script ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-          aria-pressed={script}
-          onClick={toggleScript}
-          title={script ? 'Hide the script: the play gets the whole width' : 'Show the script down the side'}
+        <header
+          className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
+          style={{ paddingTop: 'calc(0.5rem + env(safe-area-inset-top, 0px))' }}
         >
-          <ListOrdered className="w-5 h-5" />
-        </button>
-        {/* Standing up, the menu names the play: the header stays one row. */}
-        <span className="hidden lg:inline-flex items-center gap-2 min-w-0">
-          <Presentation className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-          <span className="text-sm font-black text-slate-900 dark:text-white truncate max-w-[14rem]">{show.title}</span>
-        </span>
-        {/* On a phone, an iPad standing up, or with the side list hidden: the script as a menu. */}
-        <select
-          aria-label="Play on the script"
-          value={index}
-          onChange={(e) => go(Number(e.target.value))}
-          className={`${script ? 'lg:hidden' : ''} h-9 pointer-coarse:h-11 min-w-0 max-w-[16rem] flex-1 sm:flex-none rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white px-2 text-sm font-bold`}
-        >
-          {activeIndices.map((i) => {
-            const l = show.lines[i];
-            return (
-              <option key={l.playId} value={i}>
-                {isStarred(l) ? '★ ' : ''}{i + 1}. {l.name}
-              </option>
-            );
-          })}
-        </select>
-
-        {/* The play before / after (Page Up / Page Down, a clicker): after the last play, the end of the script. */}
-        <div className="flex items-center gap-1">
-          <button type="button" className={`${navBtn} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200`} disabled={prevPlayIndex < 0} onClick={() => goStep(-1)} title="The play before (Page Up)">
-            <ChevronLeft className="w-4 h-4" /> <span className="max-sm:hidden">Prev</span>
+          <button
+            type="button"
+            className={`max-lg:hidden ${navBtn} !px-2 ${script ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+            aria-pressed={script}
+            onClick={toggleScript}
+            title={script ? 'Hide the script: the play gets the whole width' : 'Show the script down the side'}
+          >
+            <ListOrdered className="w-5 h-5" />
           </button>
-          <span className="text-xs font-bold tabular-nums text-slate-500 px-1 whitespace-nowrap">
-            {starredOnly && posInActive >= 0 ? `★ ${posInActive + 1} / ${activeIndices.length}` : `${index + 1} / ${show.lines.length}`}
+          {/* Standing up, the menu names the play: the header stays one row. */}
+          <span className="hidden lg:inline-flex items-center gap-2 min-w-0">
+            <Presentation className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+            <span className="text-sm font-black text-slate-900 dark:text-white truncate max-w-[14rem]">{show.title}</span>
           </span>
-          <button type="button" className={`${navBtn} bg-indigo-600 text-white hover:bg-indigo-500`} onClick={() => goStep(1)} title={nextPlayIndex < 0 ? 'The end of the script (Page Down)' : 'The next play (Page Down)'}>
-            {nextPlayIndex < 0 ? (
+          {/* On a phone, an iPad standing up, or with the side list hidden: the script as a menu. */}
+          <select
+            aria-label="Play on the script"
+            value={index}
+            onChange={(e) => go(Number(e.target.value))}
+            className={`${script ? 'lg:hidden' : ''} h-9 pointer-coarse:h-11 min-w-0 max-w-[16rem] flex-1 sm:flex-none rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white px-2 text-sm font-bold`}
+          >
+            {activeIndices.map((i) => {
+              const l = show.lines[i];
+              return (
+                <option key={l.playId} value={i}>
+                  {isStarred(l) ? '★ ' : ''}{i + 1}. {l.name}
+                </option>
+              );
+            })}
+          </select>
+
+          {/* The play before / after (Page Up / Page Down, a clicker): after the last play, the end of the script. */}
+          <div className="flex items-center gap-1">
+            <button type="button" className={`${navBtn} border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200`} disabled={prevPlayIndex < 0} onClick={() => goStep(-1)} title="The play before (Page Up)">
+              <ChevronLeft className="w-4 h-4" /> <span className="max-sm:hidden">Prev</span>
+            </button>
+            <span className="text-xs font-bold tabular-nums text-slate-500 px-1 whitespace-nowrap">
+              {starredOnly && posInActive >= 0 ? `★ ${posInActive + 1} / ${activeIndices.length}` : `${index + 1} / ${show.lines.length}`}
+            </span>
+            <button type="button" className={`${navBtn} bg-indigo-600 text-white hover:bg-indigo-500`} onClick={() => goStep(1)} title={nextPlayIndex < 0 ? 'The end of the script (Page Down)' : 'The next play (Page Down)'}>
+              {nextPlayIndex < 0 ? (
+                <>
+                  <span className="max-sm:hidden">Finish</span> <Flag className="w-4 h-4" />
+                </>
+              ) : (
+                <>
+                  <span className="max-sm:hidden">Next</span> <ChevronRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          </div>
+
+          <div className="flex items-center gap-0.5 p-1 rounded-lg bg-slate-100 dark:bg-slate-800" role="group" aria-label="Show">
+            <button type="button" className={viewBtn('diagram')} aria-pressed={view === 'diagram'} onClick={() => setView('diagram')} title="The play's diagram, with every tool">
+              <PenTool className="w-3.5 h-3.5" /> <span className="max-sm:hidden">Diagram</span>
+            </button>
+            <button type="button" className={viewBtn('split')} aria-pressed={view === 'split'} onClick={() => setView('split')} title="The diagram and the film side by side">
+              <Columns2 className="w-3.5 h-3.5" /> <span className="max-sm:hidden">Split</span>
+            </button>
+            <button type="button" className={viewBtn('film')} aria-pressed={view === 'film'} onClick={() => setView('film')} title="The play's film, in the same place (it waits for you to press play)">
+              <Film className="w-3.5 h-3.5" /> <span className="max-sm:hidden">Film</span>
+            </button>
+          </div>
+          {view === 'split' && (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={syncRunBoth}
+                title="Start the diagram's movement and the film at the same time"
+                className={`${navBtn} !px-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs`}
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span className="max-md:hidden">Run both</span>
+              </button>
+              <div className="hidden lg:inline-flex items-center gap-0.5 p-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-black" role="group" aria-label="Split width ratio">
+                <button
+                  type="button"
+                  onClick={() => setSplitRatio('65-35')}
+                  title="Wider Diagram (65% Diagram / 35% Film) — great when editing plays"
+                  className={`px-1.5 py-1 rounded cursor-pointer ${splitRatio === '65-35' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
+                >
+                  Diagram+
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSplitRatio('50-50')}
+                  title="Equal 50 / 50 Split"
+                  className={`px-1.5 py-1 rounded cursor-pointer ${splitRatio === '50-50' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
+                >
+                  50/50
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSplitRatio('35-65')}
+                  title="Wider Film (35% Diagram / 65% Film) — great when watching Play Lines"
+                  className={`px-1.5 py-1 rounded cursor-pointer ${splitRatio === '35-65' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
+                >
+                  Film+
+                </button>
+              </div>
+            </div>
+          )}
+          {line && (
+            <button
+              type="button"
+              aria-pressed={isStarred(line)}
+              onClick={() => handleToggleStar(line)}
+              title={isStarred(line) ? 'Starred (click to unstar)' : 'Star this play'}
+              aria-label={isStarred(line) ? 'Unstar this play' : 'Star this play'}
+              className={`${navBtn} !px-2.5 border ${isStarred(line)
+                  ? 'border-amber-400 bg-amber-500/15 text-amber-600 dark:text-amber-300'
+                  : 'border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-amber-400'
+                }`}
+            >
+              <Star className={`w-4 h-4 ${isStarred(line) ? 'fill-amber-400 text-amber-500' : ''}`} />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setGridOpen(true)}
+            title="Every play on the script, with its picture: tap one to go to it"
+            className={`${navBtn} !px-2.5 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800`}
+          >
+            <LayoutGrid className="w-4 h-4" /> <span className="max-md:hidden">All plays</span>
+          </button>
+
+          {/* Everything else, out of the way until it's wanted. */}
+          <div className="relative">
+            <button
+              type="button"
+              aria-expanded={moreOpen}
+              aria-haspopup="menu"
+              onClick={() => setMoreOpen((v) => !v)}
+              className={`${navBtn} !px-2.5 border ${moreOpen ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300' : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+              title="More: starred only, notes, loop, the 3-second drill, the tendency banner, the study sheet"
+            >
+              <Ellipsis className="w-4 h-4" /> <span className="max-md:hidden">More</span>
+              {(starredOnly || loopPlay || !skipNotes) && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" aria-hidden="true" />}
+            </button>
+            {moreOpen && (
               <>
-                <span className="max-sm:hidden">Finish</span> <Flag className="w-4 h-4" />
-              </>
-            ) : (
-              <>
-                <span className="max-sm:hidden">Next</span> <ChevronRight className="w-4 h-4" />
+                <button type="button" aria-label="Close the menu" className="fixed inset-0 z-40 cursor-default" onClick={() => setMoreOpen(false)} />
+                <div role="menu" className="absolute right-0 top-full mt-1.5 z-50 w-72 max-w-[calc(100vw-1.5rem)] rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl p-1.5 text-slate-800 dark:text-slate-100">
+                  <p className="px-2.5 pt-1 pb-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400">Which plays</p>
+                  {menuItem(
+                    <Star className="w-4 h-4 text-amber-500" />,
+                    `Starred plays only (${starredIndices.length})`,
+                    () => setStarredOnly((v) => !v),
+                    { checked: starredOnly, disabled: starredIndices.length === 0 && !starredOnly, hint: starredIndices.length === 0 ? 'Star plays first' : undefined }
+                  )}
+                  <p className="px-2.5 pt-2.5 pb-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400">Running a play</p>
+                  {menuItem(<span className="w-4 text-center">📌</span>, 'Stop at the coaching notes', () => setSkipNotes(!skipNotes), { checked: !skipNotes, hint: 'Off: it plays straight through' })}
+                  {menuItem(<Repeat className="w-4 h-4" />, 'Loop the play', () => {
+                    const nextLoop = !loopPlay;
+                    setLoopPlay(nextLoop);
+                    if (nextLoop) setStartRunTrigger((n) => n + 1);
+                  }, { checked: loopPlay, hint: 'Plays over and over, a pause at each note' })}
+                  {loopPlay && activeIndices.length > 1 && menuItem(<ChevronRight className="w-4 h-4" />, 'Then the next play', () => setAutoAdvanceLoop((v) => !v), { checked: autoAdvanceLoop })}
+                  {menuItem(<Timer className="w-4 h-4" />, '3-second drill', () => {
+                    setMoreOpen(false);
+                    startRecognitionDrill();
+                  }, { hint: 'Routes hidden 3 s while they call the formation, then the snap' })}
+                  <p className="px-2.5 pt-2.5 pb-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400">On screen</p>
+                  {menuItem(<AlertTriangle className="w-4 h-4 text-rose-500" />, 'Tendency banner', () => setShowTendencyBanner((v) => !v), { checked: showTendencyBanner, hint: 'Their formation, how often they run from it, the key' })}
+                  <div className="my-1.5 h-px bg-slate-200 dark:bg-slate-700" />
+                  {menuItem(<Printer className="w-4 h-4" />, 'Player study sheet', () => {
+                    setMoreOpen(false);
+                    setStudySheetOpen(true);
+                  })}
+                  {menuItem(<RotateCcw className="w-4 h-4" />, 'Back to the start screen', () => {
+                    setMoreOpen(false);
+                    setPhase('cover');
+                  })}
+                </div>
               </>
             )}
-          </button>
-        </div>
+          </div>
 
-        <div className="flex items-center gap-0.5 p-1 rounded-lg bg-slate-100 dark:bg-slate-800" role="group" aria-label="Show">
-          <button type="button" className={viewBtn('diagram')} aria-pressed={view === 'diagram'} onClick={() => setView('diagram')} title="The play's diagram, with every tool">
-            <PenTool className="w-3.5 h-3.5" /> <span className="max-sm:hidden">Diagram</span>
-          </button>
-          <button type="button" className={viewBtn('split')} aria-pressed={view === 'split'} onClick={() => setView('split')} title="The diagram and the film side by side">
-            <Columns2 className="w-3.5 h-3.5" /> <span className="max-sm:hidden">Split</span>
-          </button>
-          <button type="button" className={viewBtn('film')} aria-pressed={view === 'film'} onClick={() => setView('film')} title="The play's film, in the same place (it waits for you to press play)">
-            <Film className="w-3.5 h-3.5" /> <span className="max-sm:hidden">Film</span>
-          </button>
-        </div>
-        {view === 'split' && (
-          <button
-            type="button"
-            onClick={syncRunBoth}
-            title="Start the diagram's movement and the film at the same time"
-            className={`${navBtn} !px-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs`}
-          >
-            <Play className="w-3.5 h-3.5 fill-current" />
-            <span className="max-md:hidden">Run both</span>
-          </button>
-        )}
-        {line && (
-          <button
-            type="button"
-            aria-pressed={isStarred(line)}
-            onClick={() => handleToggleStar(line)}
-            title={isStarred(line) ? 'Starred (click to unstar)' : 'Star this play'}
-            aria-label={isStarred(line) ? 'Unstar this play' : 'Star this play'}
-            className={`${navBtn} !px-2.5 border ${
-              isStarred(line)
-                ? 'border-amber-400 bg-amber-500/15 text-amber-600 dark:text-amber-300'
-                : 'border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-amber-400'
-            }`}
-          >
-            <Star className={`w-4 h-4 ${isStarred(line) ? 'fill-amber-400 text-amber-500' : ''}`} />
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => setGridOpen(true)}
-          title="Every play on the script, with its picture: tap one to go to it"
-          className={`${navBtn} !px-2.5 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800`}
-        >
-          <LayoutGrid className="w-4 h-4" /> <span className="max-md:hidden">All plays</span>
-        </button>
-
-        {/* Everything else, out of the way until it's wanted. */}
-        <div className="relative">
-          <button
-            type="button"
-            aria-expanded={moreOpen}
-            aria-haspopup="menu"
-            onClick={() => setMoreOpen((v) => !v)}
-            className={`${navBtn} !px-2.5 border ${moreOpen ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300' : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-            title="More: starred only, notes, loop, the 3-second drill, the tendency banner, the study sheet"
-          >
-            <Ellipsis className="w-4 h-4" /> <span className="max-md:hidden">More</span>
-            {(starredOnly || loopPlay || !skipNotes) && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" aria-hidden="true" />}
-          </button>
-          {moreOpen && (
-            <>
-              <button type="button" aria-label="Close the menu" className="fixed inset-0 z-40 cursor-default" onClick={() => setMoreOpen(false)} />
-              <div role="menu" className="absolute right-0 top-full mt-1.5 z-50 w-72 max-w-[calc(100vw-1.5rem)] rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl p-1.5 text-slate-800 dark:text-slate-100">
-                <p className="px-2.5 pt-1 pb-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400">Which plays</p>
-                {menuItem(
-                  <Star className="w-4 h-4 text-amber-500" />,
-                  `Starred plays only (${starredIndices.length})`,
-                  () => setStarredOnly((v) => !v),
-                  { checked: starredOnly, disabled: starredIndices.length === 0 && !starredOnly, hint: starredIndices.length === 0 ? 'Star plays first' : undefined }
-                )}
-                <p className="px-2.5 pt-2.5 pb-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400">Running a play</p>
-                {menuItem(<span className="w-4 text-center">📌</span>, 'Stop at the coaching notes', () => setSkipNotes(!skipNotes), { checked: !skipNotes, hint: 'Off: it plays straight through' })}
-                {menuItem(<Repeat className="w-4 h-4" />, 'Loop the play', () => {
-                  const nextLoop = !loopPlay;
-                  setLoopPlay(nextLoop);
-                  if (nextLoop) setStartRunTrigger((n) => n + 1);
-                }, { checked: loopPlay, hint: 'Plays over and over, a pause at each note' })}
-                {loopPlay && activeIndices.length > 1 && menuItem(<ChevronRight className="w-4 h-4" />, 'Then the next play', () => setAutoAdvanceLoop((v) => !v), { checked: autoAdvanceLoop })}
-                {menuItem(<Timer className="w-4 h-4" />, '3-second drill', () => {
-                  setMoreOpen(false);
-                  startRecognitionDrill();
-                }, { hint: 'Routes hidden 3 s while they call the formation, then the snap' })}
-                <p className="px-2.5 pt-2.5 pb-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400">On screen</p>
-                {menuItem(<AlertTriangle className="w-4 h-4 text-rose-500" />, 'Tendency banner', () => setShowTendencyBanner((v) => !v), { checked: showTendencyBanner, hint: 'Their formation, how often they run from it, the key' })}
-                <div className="my-1.5 h-px bg-slate-200 dark:bg-slate-700" />
-                {menuItem(<Printer className="w-4 h-4" />, 'Player study sheet', () => {
-                  setMoreOpen(false);
-                  setStudySheetOpen(true);
-                })}
-                {menuItem(<RotateCcw className="w-4 h-4" />, 'Back to the start screen', () => {
-                  setMoreOpen(false);
-                  setPhase('cover');
-                })}
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="ml-auto flex items-center gap-1.5">
-          <button
-            type="button"
-            className={`${navBtn} bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90`}
-            onClick={enterFull}
-            title="Full screen: the play edge to edge, the controls out of the way (a tap brings them back)"
-          >
-            <Expand className="w-4 h-4" /> <span className="max-sm:hidden">Full screen</span>
-          </button>
-          <button type="button" className={`${navBtn} text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800`} onClick={onExit} title="Leave presentation mode">
-            <X className="w-4 h-4" /> <span className="max-sm:hidden">Exit</span>
-          </button>
-        </div>
-      </header>
+          <div className="ml-auto flex items-center gap-1.5">
+            <button
+              type="button"
+              className={`${navBtn} bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90`}
+              onClick={enterFull}
+              title="Full screen: the play edge to edge, the controls out of the way (a tap brings them back)"
+            >
+              <Expand className="w-4 h-4" /> <span className="max-sm:hidden">Full screen</span>
+            </button>
+            <button type="button" className={`${navBtn} text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800`} onClick={onExit} title="Leave presentation mode">
+              <X className="w-4 h-4" /> <span className="max-sm:hidden">Exit</span>
+            </button>
+          </div>
+        </header>
       )}
 
-      {/* Opponent Tendency & Key Alert Banner */}
+      {/* Opponent Tendency & Key Alert Banner — compact 1-line strip with quick hide */}
       {!full && showTendencyBanner && tendencyAlert && (
-        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-gradient-to-r from-rose-950 via-slate-900 to-indigo-950 text-white border-b border-rose-500/30 text-xs">
-          <div className="flex flex-wrap items-center gap-2 min-w-0">
-            <span className="px-2 py-0.5 rounded-md bg-rose-600 text-white font-black uppercase tracking-wider text-[10px]">
-              🚨 Tendency Alert
+        <div className="flex items-center justify-between gap-2 px-3 py-1 bg-gradient-to-r from-rose-950 via-slate-900 to-indigo-950 text-white border-b border-rose-500/30 text-xs overflow-x-auto">
+          <div className="flex items-center gap-2 min-w-0 whitespace-nowrap">
+            <span className="px-1.5 py-0.5 rounded bg-rose-600 text-white font-black uppercase tracking-wider text-[10px]">
+              🚨 Tendency
             </span>
             <span className="font-black text-amber-300">
               {tendencyAlert.formation}
               {tendencyAlert.personnel ? ` (${tendencyAlert.personnel})` : ''}
             </span>
             <span className="px-1.5 py-0.5 rounded bg-white/10 font-bold text-slate-200 text-[11px]">
-              {tendencyAlert.runPct}% Run ({tendencyAlert.sameFormCount} play{tendencyAlert.sameFormCount === 1 ? '' : 's'} in this look)
+              {tendencyAlert.runPct}% Run ({tendencyAlert.sameFormCount} play{tendencyAlert.sameFormCount === 1 ? '' : 's'})
             </span>
             {tendencyAlert.clipCount > 0 && (
               <span className="px-1.5 py-0.5 rounded bg-indigo-500/25 border border-indigo-400/40 font-bold text-indigo-200 text-[11px]">
-                🎬 {tendencyAlert.clipCount}× in film
+                🎬 {tendencyAlert.clipCount}×
               </span>
             )}
             {tendencyAlert.down && (
@@ -814,81 +839,95 @@ export const ScoutPresentation: React.FC<{
               </span>
             )}
             {tendencyAlert.notes && (
-              <span className="text-slate-300 font-semibold truncate max-w-md">
+              <span className="text-slate-300 font-semibold truncate max-w-xs hidden xl:inline">
                 · {tendencyAlert.notes}
               </span>
             )}
           </div>
-          <div className="font-black text-emerald-300 text-[11px] uppercase tracking-wide">
-            🗣 {tendencyAlert.callout}
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="font-black text-emerald-300 text-[11px] uppercase tracking-wide whitespace-nowrap">
+              🗣 {tendencyAlert.callout}
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowTendencyBanner(false)}
+              title="Hide tendency bar (re-enable anytime under More)"
+              className="p-0.5 rounded text-slate-400 hover:text-white hover:bg-white/10 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       )}
 
-      <div className={full ? 'relative flex-1 min-h-0' : `flex-1 min-h-0 grid ${script ? 'lg:grid-cols-[12rem_minmax(0,1fr)] xl:grid-cols-[13.5rem_minmax(0,1fr)]' : ''}`}>
+      <div className={full ? 'relative flex-1 min-h-0' : `flex-1 min-h-0 grid ${script ? 'lg:grid-cols-[11.5rem_minmax(0,1fr)] xl:grid-cols-[13rem_minmax(0,1fr)]' : ''}`}>
         {!full && (
-        <nav className={`hidden ${script ? 'lg:flex lg:flex-col' : ''} overflow-y-auto overscroll-contain border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900`} aria-label="Scout script">
-          <div className="flex items-center justify-between gap-1 px-2 py-1.5 border-b border-slate-200 dark:border-slate-800 text-[11px] font-black">
-            <button
-              type="button"
-              onClick={() => setStarredOnly(false)}
-              className={`flex-1 py-1 rounded-md cursor-pointer ${!starredOnly ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-            >
-              All ({show.lines.length})
-            </button>
-            <button
-              type="button"
-              disabled={starredIndices.length === 0 && !starredOnly}
-              onClick={() => setStarredOnly((v) => !v)}
-              className={`flex-1 py-1 rounded-md cursor-pointer disabled:opacity-40 ${starredOnly ? 'bg-amber-500 text-slate-950' : 'text-amber-600 dark:text-amber-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-            >
-              ★ Starred ({starredIndices.length})
-            </button>
-          </div>
-          <ol className="p-1.5 space-y-0.5 flex-1 overflow-y-auto">
-            {activeIndices.map((i) => {
-              const l = show.lines[i];
-              const starred = isStarred(l);
-              return (
-                <li key={l.playId} className="flex items-start gap-0.5">
-                  <button
-                    type="button"
-                    aria-label={starred ? `Unstar ${l.name}` : `Star ${l.name}`}
-                    title={starred ? 'Starred to show (click to unstar)' : 'Star this play to show in presentation'}
-                    onClick={() => handleToggleStar(l)}
-                    className={`mt-1 p-1 rounded-md cursor-pointer transition-colors ${
-                      starred ? 'text-amber-400 hover:text-amber-300' : 'text-slate-300 dark:text-slate-600 hover:text-amber-400'
-                    }`}
-                  >
-                    <Star className={`w-3.5 h-3.5 ${starred ? 'fill-amber-400' : ''}`} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => go(i)}
-                    aria-current={i === index ? 'true' : undefined}
-                    ref={i === index ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
-                    className={`flex-1 min-w-0 text-left flex gap-1.5 rounded-lg px-1.5 py-1 pointer-coarse:py-2 cursor-pointer ${
-                      i === index ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
-                    }`}
-                  >
-                    <span className={`w-4 shrink-0 text-right text-[11px] font-black tabular-nums pt-0.5 ${i === index ? 'text-indigo-100' : 'text-slate-400'}`}>{i + 1}</span>
-                    <span className="min-w-0">
-                      <span className="block text-[13px] font-black leading-tight break-words">{l.name}</span>
-                      {l.detail && <span className={`block text-[10px] leading-snug mt-0.5 ${i === index ? 'text-indigo-100' : 'text-slate-500'}`}>{l.detail}</span>}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
-        </nav>
+          <nav className={`hidden ${script ? 'lg:flex lg:flex-col' : ''} overflow-y-auto overscroll-contain border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900`} aria-label="Scout script">
+            <div className="flex items-center justify-between gap-1 px-2 py-1.5 border-b border-slate-200 dark:border-slate-800 text-[11px] font-black">
+              <button
+                type="button"
+                onClick={() => setStarredOnly(false)}
+                className={`flex-1 py-1 rounded-md cursor-pointer ${!starredOnly ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+              >
+                All ({show.lines.length})
+              </button>
+              <button
+                type="button"
+                disabled={starredIndices.length === 0 && !starredOnly}
+                onClick={() => setStarredOnly((v) => !v)}
+                className={`flex-1 py-1 rounded-md cursor-pointer disabled:opacity-40 ${starredOnly ? 'bg-amber-500 text-slate-950' : 'text-amber-600 dark:text-amber-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+              >
+                ★ Starred ({starredIndices.length})
+              </button>
+            </div>
+            <ol className="p-1.5 space-y-0.5 flex-1 overflow-y-auto">
+              {activeIndices.map((i) => {
+                const l = show.lines[i];
+                const starred = isStarred(l);
+                return (
+                  <li key={l.playId} className="flex items-start gap-0.5">
+                    <button
+                      type="button"
+                      aria-label={starred ? `Unstar ${l.name}` : `Star ${l.name}`}
+                      title={starred ? 'Starred to show (click to unstar)' : 'Star this play to show in presentation'}
+                      onClick={() => handleToggleStar(l)}
+                      className={`mt-1 p-1 rounded-md cursor-pointer transition-colors ${starred ? 'text-amber-400 hover:text-amber-300' : 'text-slate-300 dark:text-slate-600 hover:text-amber-400'
+                        }`}
+                    >
+                      <Star className={`w-3.5 h-3.5 ${starred ? 'fill-amber-400' : ''}`} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => go(i)}
+                      aria-current={i === index ? 'true' : undefined}
+                      ref={i === index ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
+                      className={`flex-1 min-w-0 text-left flex gap-1.5 rounded-lg px-1.5 py-1 pointer-coarse:py-2 cursor-pointer ${i === index ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                        }`}
+                    >
+                      <span className={`w-4 shrink-0 text-right text-[11px] font-black tabular-nums pt-0.5 ${i === index ? 'text-indigo-100' : 'text-slate-400'}`}>{i + 1}</span>
+                      <span className="min-w-0">
+                        <span className="block text-[13px] font-black leading-tight break-words">{l.name}</span>
+                        {l.detail && <span className={`block text-[10px] leading-snug mt-0.5 ${i === index ? 'text-indigo-100' : 'text-slate-500'}`}>{l.detail}</span>}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          </nav>
         )}
         {/* Full screen, nothing here scrolls or zooms the page under a finger: the swipes and the pencil are the play's. */}
         <main
           ref={mainRef}
-          className={`${full ? 'absolute inset-0 touch-none' : 'relative min-w-0 min-h-0'} ${
-            view === 'split' ? 'grid grid-cols-1 lg:grid-cols-2 gap-2 p-2 overflow-y-auto' : ''
-          }`}
+          className={`${full ? 'absolute inset-0 touch-none' : 'relative min-w-0 min-h-0'} ${view === 'split'
+              ? `grid grid-cols-1 ${splitRatio === '65-35'
+                ? 'lg:grid-cols-[1.85fr_1fr]'
+                : splitRatio === '35-65'
+                  ? 'lg:grid-cols-[1fr_1.85fr]'
+                  : 'lg:grid-cols-2'
+              } gap-2 p-2 overflow-y-auto`
+              : ''
+            }`}
           aria-label={line ? line.name : undefined}
         >
           {/* 3-Second Pre-Snap Recognition Drill Countdown Overlay */}
@@ -917,30 +956,27 @@ export const ScoutPresentation: React.FC<{
 
           <PresentStageContext.Provider value={stage}>
             <div
-              className={`h-full ${
-                view === 'split'
+              className={`h-full ${view === 'split'
                   ? 'min-h-[22rem] overflow-y-auto rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900'
                   : full
                     ? 'flex items-center justify-center overflow-hidden'
                     : 'overflow-y-auto'
-              } ${view === 'diagram' || view === 'split' ? '' : 'hidden'}`}
+                } ${view === 'diagram' || view === 'split' ? '' : 'hidden'}`}
             >
               {children}
             </div>
           </PresentStageContext.Provider>
           <div
             ref={setDockEl}
-            className={`${
-              view === 'split'
+            className={`${view === 'split'
                 ? 'relative min-h-[22rem] h-full rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700 bg-black'
                 : 'absolute inset-0'
-            } ${(view === 'film' || view === 'split') && film ? '' : 'hidden'}`}
+              } ${(view === 'film' || view === 'split') && film ? '' : 'hidden'}`}
           />
           {(view === 'film' || view === 'split') && !film && (
             <div
-              className={`h-full flex flex-col items-center justify-center gap-3 p-6 text-center ${
-                view === 'split' ? 'rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-900/40' : ''
-              } ${full ? 'text-slate-400' : 'text-slate-500'}`}
+              className={`h-full flex flex-col items-center justify-center gap-3 p-6 text-center ${view === 'split' ? 'rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-900/40' : ''
+                } ${full ? 'text-slate-400' : 'text-slate-500'}`}
             >
               <Film className="w-8 h-8 text-slate-400" />
               <span className="text-sm font-bold">No film clip linked to this play.</span>
@@ -971,138 +1007,141 @@ export const ScoutPresentation: React.FC<{
             ))}
           </div>
 
-          {/* The play: its number, its name, what to look for. Tap it for every play on the script. */}
-          <button
-            type="button"
-            data-stage-ui
-            onClick={() => setGridOpen(true)}
-            title="Every play on the script"
-            className={`absolute z-30 flex items-center gap-3 max-w-[calc(100%-1.5rem)] md:max-w-[min(34rem,calc(100%-30rem))] rounded-2xl p-2 pr-3 text-left cursor-pointer ${GLASS} ${fade(controls || flash)} ${
-              controls || flash ? 'translate-y-0' : '-translate-y-2'
-            }`}
-            style={{ top: TOP, left: LEFT }}
-          >
-            <span className="shrink-0 w-12 h-12 rounded-xl bg-indigo-500 flex flex-col items-center justify-center leading-none shadow-lg shadow-indigo-950/50">
-              <span className="text-xl font-black tabular-nums">{starredOnly && posInActive >= 0 ? posInActive + 1 : index + 1}</span>
-              <span className="mt-0.5 text-[10px] font-bold text-indigo-100 tabular-nums">of {starredOnly ? activeIndices.length : show.lines.length}</span>
-            </span>
-            <span className="min-w-0">
-              <span className="block text-lg font-black leading-tight truncate">
-                {drillCountdown !== null && drillCountdown > 0
-                  ? '❓ CALL OUT FORMATION & STRENGTH!'
-                  : `${line && isStarred(line) ? '★ ' : ''}${line?.name || ''}`}
-              </span>
-              {tendencyAlert && showTendencyBanner ? (
-                <span className="block mt-0.5 text-xs font-bold text-amber-300 truncate">
-                  🚨 {tendencyAlert.formation} ({tendencyAlert.runPct}% Run) · {tendencyAlert.callout}
-                </span>
-              ) : (
-                line?.detail && <span className="block mt-0.5 text-xs font-semibold text-slate-300 truncate">{line.detail}</span>
-              )}
-            </span>
-            <LayoutGrid className="shrink-0 w-4 h-4 text-white/60" />
-          </button>
-
-          {/* Diagram, Split or Film; run the play; our defense; draw; the rest under "…"; leave full screen. */}
+          {/* Unified Full Screen Top Bar: play title card + right toolbar wrap cleanly instead of overlapping on narrow/iPad screens */}
           <div
-            data-stage-ui
-            className={`absolute z-30 flex items-center gap-1 p-1 rounded-2xl ${GLASS} ${fade(tools || moreOpen)} ${tools || moreOpen ? 'translate-y-0' : '-translate-y-2'}`}
-            style={{ top: TOP, right: RIGHT }}
+            className="pointer-events-none absolute inset-x-0 z-30 flex flex-wrap items-start justify-between gap-2"
+            style={{ top: TOP, paddingLeft: LEFT, paddingRight: RIGHT }}
           >
-            <div role="group" aria-label="Show" className="flex items-center gap-0.5 p-0.5 rounded-xl bg-white/10">
-              <button type="button" aria-pressed={view === 'diagram'} onClick={() => setView('diagram')} className={segBtn(view === 'diagram')} title="The play's diagram">
-                <PenTool className="w-4 h-4" />
-                <span className="max-sm:hidden">Diagram</span>
-              </button>
-              <button type="button" aria-pressed={view === 'split'} onClick={() => setView('split')} className={segBtn(view === 'split')} title="The diagram and the film side by side">
-                <Columns2 className="w-4 h-4" />
-                <span className="max-sm:hidden">Split</span>
-              </button>
-              <button type="button" aria-pressed={view === 'film'} onClick={() => setView('film')} className={segBtn(view === 'film')} title="The play's film">
-                <Film className="w-4 h-4" />
-                <span className="max-sm:hidden">Film</span>
-              </button>
-            </div>
-            {view === 'split' && (
-              <button type="button" onClick={syncRunBoth} className={stageBtn(true)} title="Run the diagram and the film together">
-                <Play className="w-4 h-4 fill-current" />
-                <span className="max-md:hidden">Run both</span>
-              </button>
-            )}
-            {(view === 'diagram' || view === 'split') && (
-              <>
-                <button type="button" onClick={() => setRun((n) => n + 1)} className={stageBtn()} title="Run the play (the movement bar)">
-                  <Play className="w-4 h-4 fill-current" />
-                  <span className="max-md:hidden">Run</span>
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={defenseHud}
-                  onClick={() => setDefenseHud((v) => !v)}
-                  className={stageBtn(defenseHud)}
-                  title="Our defense against their play: front, blitz, coverage, rules"
-                >
-                  <Shield className="w-4 h-4" />
-                  <span className="max-md:hidden">Defense</span>
-                </button>
-              </>
-            )}
+            {/* The play: its number, its name, what to look for. Tap it for every play on the script. */}
             <button
               type="button"
-              aria-pressed={inkOn}
-              onClick={() => setInkOn(!inkOn)}
-              className={stageBtn(inkOn)}
-              title={inkOn ? 'Stop drawing with a finger (Apple Pencil still draws)' : 'Draw over the play with a finger (Apple Pencil always draws)'}
+              data-stage-ui
+              onClick={() => setGridOpen(true)}
+              title="Every play on the script"
+              className={`pointer-events-auto flex items-center gap-3 min-w-0 max-w-full sm:max-w-[26rem] rounded-2xl p-2 pr-3 text-left cursor-pointer ${GLASS} ${fade(controls || flash)} ${controls || flash ? 'translate-y-0' : '-translate-y-2'
+                }`}
             >
-              <PenLine className="w-4 h-4" />
-              <span className="max-md:hidden">Draw</span>
+              <span className="shrink-0 w-11 h-11 rounded-xl bg-indigo-500 flex flex-col items-center justify-center leading-none shadow-lg shadow-indigo-950/50">
+                <span className="text-lg font-black tabular-nums">{starredOnly && posInActive >= 0 ? posInActive + 1 : index + 1}</span>
+                <span className="mt-0.5 text-[10px] font-bold text-indigo-100 tabular-nums">of {starredOnly ? activeIndices.length : show.lines.length}</span>
+              </span>
+              <span className="min-w-0">
+                <span className="block text-base sm:text-lg font-black leading-tight truncate">
+                  {drillCountdown !== null && drillCountdown > 0
+                    ? '❓ CALL OUT FORMATION & STRENGTH!'
+                    : `${line && isStarred(line) ? '★ ' : ''}${line?.name || ''}`}
+                </span>
+                {tendencyAlert && showTendencyBanner ? (
+                  <span className="block mt-0.5 text-xs font-bold text-amber-300 truncate">
+                    🚨 {tendencyAlert.formation} ({tendencyAlert.runPct}% Run) · {tendencyAlert.callout}
+                  </span>
+                ) : (
+                  line?.detail && <span className="block mt-0.5 text-xs font-semibold text-slate-300 truncate">{line.detail}</span>
+                )}
+              </span>
+              <LayoutGrid className="shrink-0 w-4 h-4 text-white/60" />
             </button>
-            <div className="relative">
+
+            {/* Diagram, Split or Film; run the play; our defense; draw; the rest under "…"; leave full screen. */}
+            <div
+              data-stage-ui
+              className={`pointer-events-auto ml-auto flex flex-wrap items-center gap-1 p-1 rounded-2xl ${GLASS} ${fade(tools || moreOpen)} ${tools || moreOpen ? 'translate-y-0' : '-translate-y-2'}`}
+            >
+              <div role="group" aria-label="Show" className="flex items-center gap-0.5 p-0.5 rounded-xl bg-white/10">
+                <button type="button" aria-pressed={view === 'diagram'} onClick={() => setView('diagram')} className={segBtn(view === 'diagram')} title="The play's diagram">
+                  <PenTool className="w-4 h-4" />
+                  <span className="max-sm:hidden">Diagram</span>
+                </button>
+                <button type="button" aria-pressed={view === 'split'} onClick={() => setView('split')} className={segBtn(view === 'split')} title="The diagram and the film side by side">
+                  <Columns2 className="w-4 h-4" />
+                  <span className="max-sm:hidden">Split</span>
+                </button>
+                <button type="button" aria-pressed={view === 'film'} onClick={() => setView('film')} className={segBtn(view === 'film')} title="The play's film">
+                  <Film className="w-4 h-4" />
+                  <span className="max-sm:hidden">Film</span>
+                </button>
+              </div>
+              {view === 'split' && (
+                <button type="button" onClick={syncRunBoth} className={stageBtn(true)} title="Run the diagram and the film together">
+                  <Play className="w-4 h-4 fill-current" />
+                  <span className="max-md:hidden">Run both</span>
+                </button>
+              )}
+              {(view === 'diagram' || view === 'split') && (
+                <>
+                  <button type="button" onClick={() => setRun((n) => n + 1)} className={stageBtn()} title="Run the play (the movement bar)">
+                    <Play className="w-4 h-4 fill-current" />
+                    <span className="max-md:hidden">Run</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={defenseHud}
+                    onClick={() => setDefenseHud((v) => !v)}
+                    className={stageBtn(defenseHud)}
+                    title="Our defense against their play: front, blitz, coverage, rules"
+                  >
+                    <Shield className="w-4 h-4" />
+                    <span className="max-md:hidden">Defense</span>
+                  </button>
+                </>
+              )}
               <button
                 type="button"
-                aria-expanded={moreOpen}
-                aria-haspopup="menu"
-                onClick={() => {
-                  setMoreOpen((v) => !v);
-                  poke();
-                }}
-                className={stageBtn(moreOpen)}
-                title="More: star, starred only, notes, loop, the 3-second drill"
-                aria-label="More"
+                aria-pressed={inkOn}
+                onClick={() => setInkOn(!inkOn)}
+                className={stageBtn(inkOn)}
+                title={inkOn ? 'Stop drawing with a finger (Apple Pencil still draws)' : 'Draw over the play with a finger (Apple Pencil always draws)'}
               >
-                <Ellipsis className="w-5 h-5" />
+                <PenLine className="w-4 h-4" />
+                <span className="max-md:hidden">Draw</span>
               </button>
-              {moreOpen && (
-                <div role="menu" className="absolute right-0 top-full mt-2 z-50 w-72 max-w-[calc(100vw-1.5rem)] rounded-xl bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 shadow-2xl ring-1 ring-black/10 p-1.5">
-                  {line && menuItem(<Star className="w-4 h-4 text-amber-500" />, isStarred(line) ? 'Starred' : 'Star this play', () => handleToggleStar(line), { checked: isStarred(line) })}
-                  {menuItem(<Star className="w-4 h-4 text-amber-500" />, `Starred plays only (${starredIndices.length})`, () => setStarredOnly((v) => !v), {
-                    checked: starredOnly,
-                    disabled: starredIndices.length === 0 && !starredOnly,
-                  })}
-                  <div className="my-1.5 h-px bg-slate-200 dark:bg-slate-700" />
-                  {menuItem(<span className="w-4 text-center">📌</span>, 'Stop at the coaching notes', () => setSkipNotes(!skipNotes), { checked: !skipNotes })}
-                  {menuItem(<Repeat className="w-4 h-4" />, 'Loop the play', () => {
-                    const nextLoop = !loopPlay;
-                    setLoopPlay(nextLoop);
-                    if (nextLoop) setStartRunTrigger((n) => n + 1);
-                  }, { checked: loopPlay })}
-                  {loopPlay && activeIndices.length > 1 && menuItem(<ChevronRight className="w-4 h-4" />, 'Then the next play', () => setAutoAdvanceLoop((v) => !v), { checked: autoAdvanceLoop })}
-                  {menuItem(<Timer className="w-4 h-4" />, '3-second drill', () => {
-                    setMoreOpen(false);
-                    startRecognitionDrill();
-                  }, { hint: 'Routes hidden 3 s while they call the formation' })}
-                  {menuItem(<AlertTriangle className="w-4 h-4 text-rose-500" />, 'Tendency line under the name', () => setShowTendencyBanner((v) => !v), { checked: showTendencyBanner })}
-                  <div className="my-1.5 h-px bg-slate-200 dark:bg-slate-700" />
-                  {menuItem(<LayoutGrid className="w-4 h-4" />, 'Every play', () => {
-                    setMoreOpen(false);
-                    setGridOpen(true);
-                  })}
-                </div>
-              )}
+              <div className="relative">
+                <button
+                  type="button"
+                  aria-expanded={moreOpen}
+                  aria-haspopup="menu"
+                  onClick={() => {
+                    setMoreOpen((v) => !v);
+                    poke();
+                  }}
+                  className={stageBtn(moreOpen)}
+                  title="More: star, starred only, notes, loop, the 3-second drill"
+                  aria-label="More"
+                >
+                  <Ellipsis className="w-5 h-5" />
+                </button>
+                {moreOpen && (
+                  <div role="menu" className="absolute right-0 top-full mt-2 z-50 w-72 max-w-[calc(100vw-1.5rem)] rounded-xl bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 shadow-2xl ring-1 ring-black/10 p-1.5">
+                    {line && menuItem(<Star className="w-4 h-4 text-amber-500" />, isStarred(line) ? 'Starred' : 'Star this play', () => handleToggleStar(line), { checked: isStarred(line) })}
+                    {menuItem(<Star className="w-4 h-4 text-amber-500" />, `Starred plays only (${starredIndices.length})`, () => setStarredOnly((v) => !v), {
+                      checked: starredOnly,
+                      disabled: starredIndices.length === 0 && !starredOnly,
+                    })}
+                    <div className="my-1.5 h-px bg-slate-200 dark:bg-slate-700" />
+                    {menuItem(<span className="w-4 text-center">📌</span>, 'Stop at the coaching notes', () => setSkipNotes(!skipNotes), { checked: !skipNotes })}
+                    {menuItem(<Repeat className="w-4 h-4" />, 'Loop the play', () => {
+                      const nextLoop = !loopPlay;
+                      setLoopPlay(nextLoop);
+                      if (nextLoop) setStartRunTrigger((n) => n + 1);
+                    }, { checked: loopPlay })}
+                    {loopPlay && activeIndices.length > 1 && menuItem(<ChevronRight className="w-4 h-4" />, 'Then the next play', () => setAutoAdvanceLoop((v) => !v), { checked: autoAdvanceLoop })}
+                    {menuItem(<Timer className="w-4 h-4" />, '3-second drill', () => {
+                      setMoreOpen(false);
+                      startRecognitionDrill();
+                    }, { hint: 'Routes hidden 3 s while they call the formation' })}
+                    {menuItem(<AlertTriangle className="w-4 h-4 text-rose-500" />, 'Tendency line under the name', () => setShowTendencyBanner((v) => !v), { checked: showTendencyBanner })}
+                    <div className="my-1.5 h-px bg-slate-200 dark:bg-slate-700" />
+                    {menuItem(<LayoutGrid className="w-4 h-4" />, 'Every play', () => {
+                      setMoreOpen(false);
+                      setGridOpen(true);
+                    })}
+                  </div>
+                )}
+              </div>
+              <button type="button" onClick={leaveFull} className={stageBtn()} title="Leave full screen (Esc)" aria-label="Leave full screen">
+                <Minimize2 className="w-4 h-4" />
+              </button>
             </div>
-            <button type="button" onClick={leaveFull} className={stageBtn()} title="Leave full screen (Esc)" aria-label="Leave full screen">
-              <Minimize2 className="w-4 h-4" />
-            </button>
           </div>
 
           {/* The ink: its color, pen (stays until the next play) or laser (glows and fades), undo, clear. */}
@@ -1185,99 +1224,96 @@ export const ScoutPresentation: React.FC<{
         </>
       )}
 
-          {/* Every play on the script, with its picture: tap one to go to it. */}
-          {gridOpen && (
-            <div
-              data-stage-ui
-              role="dialog"
-              aria-label="Every play on the script"
-              className="absolute inset-0 z-40 flex flex-col bg-slate-950/85 backdrop-blur-2xl text-white"
-              style={{ paddingTop: 'env(safe-area-inset-top, 0px)', paddingLeft: 'env(safe-area-inset-left, 0px)', paddingRight: 'env(safe-area-inset-right, 0px)' }}
+      {/* Every play on the script, with its picture: tap one to go to it. */}
+      {gridOpen && (
+        <div
+          data-stage-ui
+          role="dialog"
+          aria-label="Every play on the script"
+          className="absolute inset-0 z-40 flex flex-col bg-slate-950/85 backdrop-blur-2xl text-white"
+          style={{ paddingTop: 'env(safe-area-inset-top, 0px)', paddingLeft: 'env(safe-area-inset-left, 0px)', paddingRight: 'env(safe-area-inset-right, 0px)' }}
+        >
+          <div className="flex flex-wrap items-center gap-3 px-5 pt-4 pb-3">
+            <LayoutGrid className="w-5 h-5 text-indigo-300 shrink-0" />
+            <span className="min-w-0 truncate text-lg font-black">{show.title}</span>
+            <span className="shrink-0 text-sm font-bold text-slate-400">
+              {starredOnly ? `${activeIndices.length} starred of ${show.lines.length} plays` : `${show.lines.length} plays`}
+            </span>
+            <button
+              type="button"
+              aria-pressed={starredOnly}
+              disabled={starredIndices.length === 0 && !starredOnly}
+              onClick={() => setStarredOnly((v) => !v)}
+              className={stageBtn(starredOnly)}
             >
-              <div className="flex flex-wrap items-center gap-3 px-5 pt-4 pb-3">
-                <LayoutGrid className="w-5 h-5 text-indigo-300 shrink-0" />
-                <span className="min-w-0 truncate text-lg font-black">{show.title}</span>
-                <span className="shrink-0 text-sm font-bold text-slate-400">
-                  {starredOnly ? `${activeIndices.length} starred of ${show.lines.length} plays` : `${show.lines.length} plays`}
-                </span>
-                <button
-                  type="button"
-                  aria-pressed={starredOnly}
-                  disabled={starredIndices.length === 0 && !starredOnly}
-                  onClick={() => setStarredOnly((v) => !v)}
-                  className={stageBtn(starredOnly)}
-                >
-                  <Star className={`w-4 h-4 ${starredOnly ? 'fill-amber-500 text-amber-500' : 'text-amber-400'}`} />
-                  <span>★ Starred Only ({starredIndices.length})</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGridOpen(false);
-                    setStudySheetOpen(true);
-                  }}
-                  className={stageBtn()}
-                >
-                  <Printer className="w-4 h-4" />
-                  <span>🖨 Study Sheet</span>
-                </button>
-                <button type="button" onClick={() => setGridOpen(false)} className={`ml-auto ${stageBtn()}`} aria-label="Close" title="Close (Esc)">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5" style={{ paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))' }}>
-                <ol ref={gridRef} className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
-                  {activeIndices.map((i) => {
-                    const l = show.lines[i];
-                    const starred = isStarred(l);
-                    return (
-                      <li key={l.playId} className="relative">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            go(i);
-                            setGridOpen(false);
-                          }}
-                          aria-current={i === index ? 'true' : undefined}
-                          className={`w-full h-full text-left rounded-2xl p-2 cursor-pointer transition active:scale-[0.98] ${
-                            i === index ? 'bg-indigo-500/25 ring-2 ring-indigo-400' : 'bg-white/[0.06] ring-1 ring-white/10 hover:bg-white/10'
-                          }`}
+              <Star className={`w-4 h-4 ${starredOnly ? 'fill-amber-500 text-amber-500' : 'text-amber-400'}`} />
+              <span>★ Starred Only ({starredIndices.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setGridOpen(false);
+                setStudySheetOpen(true);
+              }}
+              className={stageBtn()}
+            >
+              <Printer className="w-4 h-4" />
+              <span>🖨 Study Sheet</span>
+            </button>
+            <button type="button" onClick={() => setGridOpen(false)} className={`ml-auto ${stageBtn()}`} aria-label="Close" title="Close (Esc)">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5" style={{ paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))' }}>
+            <ol ref={gridRef} className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+              {activeIndices.map((i) => {
+                const l = show.lines[i];
+                const starred = isStarred(l);
+                return (
+                  <li key={l.playId} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        go(i);
+                        setGridOpen(false);
+                      }}
+                      aria-current={i === index ? 'true' : undefined}
+                      className={`w-full h-full text-left rounded-2xl p-2 cursor-pointer transition active:scale-[0.98] ${i === index ? 'bg-indigo-500/25 ring-2 ring-indigo-400' : 'bg-white/[0.06] ring-1 ring-white/10 hover:bg-white/10'
+                        }`}
+                    >
+                      {l.diagram && <DiagramImage url={l.diagram} alt={l.name} loading="lazy" className="w-full aspect-[760/520] object-contain rounded-xl bg-white" />}
+                      <span className="mt-2 flex items-start gap-2 px-1">
+                        <span
+                          className={`shrink-0 min-w-7 h-7 px-1.5 rounded-lg inline-flex items-center justify-center text-sm font-black tabular-nums ${i === index ? 'bg-indigo-500 text-white' : 'bg-white/10 text-white'
+                            }`}
                         >
-                          {l.diagram && <DiagramImage url={l.diagram} alt={l.name} loading="lazy" className="w-full aspect-[760/520] object-contain rounded-xl bg-white" />}
-                          <span className="mt-2 flex items-start gap-2 px-1">
-                            <span
-                              className={`shrink-0 min-w-7 h-7 px-1.5 rounded-lg inline-flex items-center justify-center text-sm font-black tabular-nums ${
-                                i === index ? 'bg-indigo-500 text-white' : 'bg-white/10 text-white'
-                              }`}
-                            >
-                              {i + 1}
-                            </span>
-                            <span className="min-w-0">
-                              <span className="block text-sm font-black leading-tight break-words">{l.name}</span>
-                              {l.detail && <span className="block mt-0.5 text-xs text-slate-400 leading-snug line-clamp-2">{l.detail}</span>}
-                            </span>
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={starred ? `Unstar ${l.name}` : `Star ${l.name}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggleStar(l);
-                          }}
-                          className={`absolute top-4 right-4 w-9 h-9 rounded-full inline-flex items-center justify-center shadow-lg cursor-pointer ${
-                            starred ? 'bg-amber-400 text-slate-950' : 'bg-slate-900/80 text-white/80 hover:text-amber-300'
-                          }`}
-                        >
-                          <Star className={`w-4 h-4 ${starred ? 'fill-slate-950' : ''}`} />
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ol>
-              </div>
-            </div>
-          )}
+                          {i + 1}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-sm font-black leading-tight break-words">{l.name}</span>
+                          {l.detail && <span className="block mt-0.5 text-xs text-slate-400 leading-snug line-clamp-2">{l.detail}</span>}
+                        </span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={starred ? `Unstar ${l.name}` : `Star ${l.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleStar(l);
+                      }}
+                      className={`absolute top-4 right-4 w-9 h-9 rounded-full inline-flex items-center justify-center shadow-lg cursor-pointer ${starred ? 'bg-amber-400 text-slate-950' : 'bg-slate-900/80 text-white/80 hover:text-amber-300'
+                        }`}
+                    >
+                      <Star className={`w-4 h-4 ${starred ? 'fill-slate-950' : ''}`} />
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        </div>
+      )}
 
       {/* The start screen: the script at a glance. Pick what shows first (diagram, split, film), all plays or just the
           starred ones, and where to start; nothing plays until the coach starts. */}
@@ -1412,9 +1448,8 @@ export const ScoutPresentation: React.FC<{
                             e.stopPropagation();
                             handleToggleStar(l);
                           }}
-                          className={`absolute top-4 right-4 w-9 h-9 rounded-full inline-flex items-center justify-center shadow-lg cursor-pointer ${
-                            starred ? 'bg-amber-400 text-slate-950' : 'bg-slate-900/80 text-white/80 hover:text-amber-300'
-                          }`}
+                          className={`absolute top-4 right-4 w-9 h-9 rounded-full inline-flex items-center justify-center shadow-lg cursor-pointer ${starred ? 'bg-amber-400 text-slate-950' : 'bg-slate-900/80 text-white/80 hover:text-amber-300'
+                            }`}
                         >
                           <Star className={`w-4 h-4 ${starred ? 'fill-slate-950' : ''}`} />
                         </button>
@@ -1545,9 +1580,8 @@ export const ScoutPresentation: React.FC<{
                           {l.detail && <div className="text-[11px] font-bold text-slate-500 mt-0.5">{l.detail}</div>}
                         </div>
                         <span
-                          className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-black uppercase ${
-                            isPass ? 'bg-sky-100 text-sky-800 border border-sky-300' : 'bg-amber-100 text-amber-900 border border-amber-300'
-                          }`}
+                          className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-black uppercase ${isPass ? 'bg-sky-100 text-sky-800 border border-sky-300' : 'bg-amber-100 text-amber-900 border border-amber-300'
+                            }`}
                         >
                           {c?.kind ? c.kind.toUpperCase() : 'RUN'}
                         </span>

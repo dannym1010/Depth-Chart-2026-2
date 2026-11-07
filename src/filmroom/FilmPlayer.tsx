@@ -1015,18 +1015,17 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     </button>
   );
 
-  // Presenting: one bar along the bottom. The play's lines and its other snaps on the left, the timeline, and in the
-  // bottom right corner the frame steps around play / pause, then the speed. Full screen it sits over the bottom of
-  // the film and fades away while the coach isn't touching the screen.
+  // Presenting: clean two-tier bottom dock. When Play Lines are active, their controls sit in a dedicated top ribbon
+  // so they never collide with the video timeline, transport, or speed controls below.
   const fitBar = (
     <div
-      className={`${stage ? 'absolute inset-x-0 bottom-0 pt-12' : 'shrink-0 pt-2 border-t border-white/10'} z-10 flex flex-wrap items-center gap-x-1.5 gap-y-1 px-2 sm:px-3 pb-2 transition-opacity duration-300 ${
+      className={`${stage ? 'absolute inset-x-0 bottom-0 pt-10' : 'shrink-0 pt-1.5 border-t border-white/10'} z-10 flex flex-col gap-1.5 px-2 sm:px-3 pb-2 transition-opacity duration-300 ${
         tucked ? 'opacity-0 [&_*]:!pointer-events-none' : ''
       }`}
       style={
         stage
           ? {
-              background: 'linear-gradient(to top, rgba(0,0,0,0.88), rgba(0,0,0,0.5) 55%, rgba(0,0,0,0))',
+              background: 'linear-gradient(to top, rgba(2,6,23,0.95), rgba(2,6,23,0.72) 65%, rgba(0,0,0,0))',
               paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom, 0px))',
               paddingLeft: 'max(0.75rem, env(safe-area-inset-left, 0px))',
               paddingRight: 'max(0.75rem, env(safe-area-inset-right, 0px))',
@@ -1034,51 +1033,75 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
           : { background: '#020617' }
       }
     >
-      {(hasPrev || hasNext) && (
-        <>
-          <button className={idle} onClick={onPrev} disabled={!hasPrev} title="The snap before (↑)" aria-label="The snap before"><SkipBack size={16} /></button>
-          <button className={idle} onClick={onNext} disabled={!hasNext} title="The next snap (↓)" aria-label="The next snap"><SkipForward size={16} /></button>
-        </>
+      {playLines?.on && src && !drawing && (
+        <div className="w-full pb-1.5 border-b border-white/10 overflow-x-auto">
+          {playLines.bar({ playing, inline: true })}
+        </div>
       )}
-      {!viewOnly && playLines && (
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 w-full">
+        {(hasPrev || hasNext) && (
+          <>
+            <button className={idle} onClick={onPrev} disabled={!hasPrev} title="The snap before (↑)" aria-label="The snap before"><SkipBack size={16} /></button>
+            <button className={idle} onClick={onNext} disabled={!hasNext} title="The next snap (↓)" aria-label="The next snap"><SkipForward size={16} /></button>
+          </>
+        )}
+        <button className={loop ? on : idle} onClick={() => setLoop((x) => !x)} title="Loop this clip (L)" aria-pressed={loop}>
+          <Repeat size={15} />
+        </button>
         <button
-          className={playLines.on ? on : idle}
-          onClick={() => {
-            // The lines are drawn for a still frame.
-            if (!playLines.on) videoRef.current?.pause();
-            playLines.toggle();
-          }}
-          disabled={!src}
-          title="Show the selected play's routes, runs and motion on the paused video"
+          className={fastCut ? `${btn} bg-emerald-600 text-white` : idle}
+          onClick={toggleFastCut}
+          title="Fast Cutup Mode (C): trims pre-snap huddle walking (Snap -2s to +6.5s)"
+          aria-pressed={fastCut}
         >
-          <Route size={15} />
-          <span className="hidden sm:inline">Play lines</span>
+          <Zap size={14} />
+          <span className="hidden xl:inline">Cut</span>
         </button>
-      )}
-      {playLines?.on && src && !drawing && playLines.bar({ playing, inline: true })}
-      {recording && (
-        <button className={`${btn} bg-rose-600 text-white animate-pulse`} onClick={stopRecording} title="Stop recording (R)">
-          <Square size={14} /> Stop ({recSeconds}s)
-        </button>
-      )}
-      {snapAt !== null && (
-        <button className={btn} style={AMBER} onClick={stopwatch} title="Stopwatch: tap again at the release (S)">
-          <Timer size={15} /> Release
-        </button>
-      )}
-      {lastWatch && (
-        <button className={`${btn} hover:opacity-85`} style={{ background: 'rgba(245,158,11,0.2)', color: '#fcd34d' }} onClick={() => { onStopwatch(lastWatch.seconds, lastWatch.at); setLastWatch(null); }}>
-          Save {lastWatch.seconds.toFixed(2)}s as note
-        </button>
-      )}
-      <div className="flex-1 min-w-[9rem] flex items-center gap-2 px-1 text-[11px] tabular-nums" style={{ color: DIM }}>
-        <span>{fmtTime(time)}</span>
-        {timeline}
-        <span>{fmtTime(duration)}</span>
-      </div>
-      <div className="ml-auto flex items-center gap-1">
-        {transport([0.25, 0.5, 1])}
-        {!stage && fullButton}
+        {!viewOnly && (
+          <button className={drawing ? on : idle} onClick={toggleDraw} disabled={!src} title="Draw freeze-frame telestration on the video (D)">
+            <Pencil size={15} />
+            <span className="hidden lg:inline">Draw</span>
+          </button>
+        )}
+        {!viewOnly && playLines && (
+          <button
+            className={playLines.on ? on : idle}
+            onClick={() => {
+              // The lines are drawn for a still frame.
+              if (!playLines.on) videoRef.current?.pause();
+              playLines.toggle();
+            }}
+            disabled={!src}
+            title="Show the selected play's routes, runs and motion on the paused video"
+          >
+            <Route size={15} />
+            <span className="hidden sm:inline">Play lines</span>
+          </button>
+        )}
+        {recording && (
+          <button className={`${btn} bg-rose-600 text-white animate-pulse`} onClick={stopRecording} title="Stop recording (R)">
+            <Square size={14} /> Stop ({recSeconds}s)
+          </button>
+        )}
+        {snapAt !== null && (
+          <button className={btn} style={AMBER} onClick={stopwatch} title="Stopwatch: tap again at the release (S)">
+            <Timer size={15} /> Release
+          </button>
+        )}
+        {lastWatch && (
+          <button className={`${btn} hover:opacity-85`} style={{ background: 'rgba(245,158,11,0.2)', color: '#fcd34d' }} onClick={() => { onStopwatch(lastWatch.seconds, lastWatch.at); setLastWatch(null); }}>
+            Save {lastWatch.seconds.toFixed(2)}s as note
+          </button>
+        )}
+        <div className="flex-1 min-w-[8rem] flex items-center gap-2 px-1 text-[11px] tabular-nums" style={{ color: DIM }}>
+          <span>{fmtTime(time)}</span>
+          {timeline}
+          <span>{fmtTime(duration)}</span>
+        </div>
+        <div className="ml-auto flex items-center gap-1">
+          {transport([0.25, 0.5, 1])}
+          {!stage && fullButton}
+        </div>
       </div>
     </div>
   );
