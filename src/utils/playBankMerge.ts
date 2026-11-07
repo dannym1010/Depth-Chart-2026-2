@@ -18,6 +18,19 @@ export function stampPlayEdits(prev: PlayDatabaseEntry[], next: PlayDatabaseEntr
   });
 }
 
+/**
+ * The cloud copy of a play has no video still (it stays on the device that took it; see playsForCloud): taking
+ * the cloud copy keeps this device's still.
+ */
+function keepStill(remote: PlayDatabaseEntry, local: PlayDatabaseEntry): PlayDatabaseEntry {
+  const lb = (local as any).builder;
+  const rb = (remote as any).builder;
+  if (!lb || !rb || typeof lb !== 'object' || typeof rb !== 'object') return remote;
+  const stills = Object.keys(lb).filter((k) => typeof lb[k] === 'string' && lb[k].startsWith('data:') && lb[k].length > 4000 && rb[k] === undefined);
+  if (!stills.length) return remote;
+  return { ...remote, builder: { ...rb, ...Object.fromEntries(stills.map((k) => [k, lb[k]])) } } as PlayDatabaseEntry;
+}
+
 /** Merge another coach's Play Bank into this device's. Returns `local` itself when nothing changes. */
 export function mergePlayBanks(
   local: PlayDatabaseEntry[] | undefined,
@@ -35,7 +48,7 @@ export function mergePlayBanks(
     if (gone.has(r.id) || seen.has(r.id)) continue;
     seen.add(r.id);
     const l = mineById.get(r.id);
-    out.push(l && editTime(l) > editTime(r) ? l : r);
+    out.push(l && editTime(l) > editTime(r) ? l : l ? keepStill(r, l) : r);
   }
   for (const l of mine) {
     if (gone.has(l.id) || seen.has(l.id)) continue;

@@ -2990,6 +2990,24 @@ export function compactDiagramUrl(url: string | undefined): string | undefined {
 }
 
 /** Every play's picture made small (the same list back when nothing changes). */
+/**
+ * The plays as they go to the cloud (one Firestore document, which can't pass 1 MB): small pictures, and no video
+ * stills. A play lined up on the film (3D Field Homography, Auto-Sketch) keeps a still frame of the video in its
+ * drawing (a JPEG, often over 100 KB); a few of those filled the document and every save of the plays failed. The
+ * still stays on the device it was taken on; everything else about the play (its lines, the lineup) goes.
+ */
+export function playsForCloud<T extends { diagramUrl?: string; builder?: any }>(plays: T[]): T[] {
+  return compactPlayDiagrams(plays).map((p) => {
+    const b = p?.builder;
+    if (!b || typeof b !== 'object') return p;
+    const big = Object.keys(b).filter((k) => typeof b[k] === 'string' && b[k].startsWith('data:') && b[k].length > 4000);
+    if (!big.length) return p;
+    const slim = { ...b };
+    for (const k of big) delete slim[k];
+    return { ...p, builder: slim };
+  });
+}
+
 export function compactPlayDiagrams<T extends { diagramUrl?: string }>(plays: T[]): T[] {
   let changed = false;
   const out = plays.map((p) => {

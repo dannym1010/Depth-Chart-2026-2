@@ -25,7 +25,7 @@ import {
   DEFAULT_TEAM_COACHES,
   MASTER_PLAY_LIBRARY,
 } from '../data/initialData';
-import { compactPlayDiagrams } from '../utils/footballEngine';
+import { compactPlayDiagrams, playsForCloud } from '../utils/footballEngine';
 import { accessFromStaff } from '../utils/staffAccess';
 
 declare global {
@@ -1257,7 +1257,7 @@ export async function saveSharedBoardCloud(payload: {
           opsMeta({
             masterPlayLibrary: payload.masterPlayLibrary,
             // Small pictures: this document can't pass Firestore's 1 MB.
-            playDatabase: Array.isArray(payload.playDatabase) ? compactPlayDiagrams(payload.playDatabase) : payload.playDatabase,
+            playDatabase: Array.isArray(payload.playDatabase) ? playsForCloud(payload.playDatabase) : payload.playDatabase,
             deletedPlayIds: payload.deletedPlayIds || [],
           })
         )
