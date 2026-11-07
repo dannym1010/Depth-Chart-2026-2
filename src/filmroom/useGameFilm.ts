@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import {
   clipsFromFiles, driveClipUrl, driveFolderName, driveFolderNode, driveSignIn, folderAccess, forgetFolder, isDriveSignedIn,
-  listNodeClips, localFolderNode, parseDriveFolderId, pickedFolderNode, pickFolder, prepareDriveSignIn, recallFolder, rememberFolder,
+  listNodeClips, localFolderNode, parseDriveFolderId, pickedFilmRoot, pickedFolderNode, pickFolder, prepareDriveSignIn, recallFolder, rememberFolder, setPickedFilmRoot,
   sortViewNames, takeDriveSignInProblem,
 } from './filmSources';
 import { gameViews, isFilmRoot, resolveGameFolder, type FolderNode } from './folderRoutes';
@@ -57,8 +57,6 @@ const rememberedView = () => {
   }
 };
 
-/** The team film folder picked on a tablet this visit (a browser that can't keep a folder; gone on reload). */
-let pickedRoot: FolderNode | null = null;
 
 export function useGameFilm(opts: {
   game: FilmGame | undefined;
@@ -294,6 +292,7 @@ export function useGameFilm(opts: {
         return;
       }
       // A film folder picked on this tablet this visit (its files were handed over): every game finds its own there.
+      const pickedRoot = pickedFilmRoot();
       if (pickedRoot) {
         const r = await loadFromRoot(pickedRoot, Boolean(rootId));
         if (stale() || r === 'ok' || !rootId) return;
@@ -334,7 +333,7 @@ export function useGameFilm(opts: {
         setFilm({ status: 'reconnect', label: localRoot.name });
       } else if (needsSignin) setFilm({ status: 'signin', label: rootLabel });
       else if (available.length) void loadFromRoot(nodeOf(available[0])); // show why the game wasn't found
-      else if (!pickedRoot) setFilm({ status: 'none' });
+      else if (!pickedFilmRoot()) setFilm({ status: 'none' });
     })();
     return () => {
       cancelled = true;
@@ -407,7 +406,7 @@ export function useGameFilm(opts: {
       const node = pickedFolderNode(list);
       if (!node) return setFilm({ status: 'error', message: 'That folder has no files in it.' });
       if (isFilmRoot((await node.open()).dirs)) {
-        pickedRoot = node;
+        setPickedFilmRoot(node);
         await loadFromRoot(node);
         return;
       }

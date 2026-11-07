@@ -134,6 +134,14 @@ export function pickedFolderNode(list: FileList | File[]): FolderNode | null {
   return root.files.length || root.dirs.size ? node(root) : null;
 }
 
+// The team film folder picked on a tablet this visit (a drive plugged in, or a network share / NAS opened in the
+// Files app): the Film Room, its film window and Highlights all find their games in it until the page is reloaded.
+let pickedRootNode: FolderNode | null = null;
+export const pickedFilmRoot = () => pickedRootNode;
+export function setPickedFilmRoot(node: FolderNode | null) {
+  pickedRootNode = node;
+}
+
 /**
  * Clip files picked from the device (this visit only). Picked as one camera view ("Main", "Field"), they're keyed
  * "<view>/<file>" like a view folder's clips, so two cameras with the same file names don't mix.

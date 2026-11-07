@@ -229,11 +229,13 @@ export const LinkFilmDialog: React.FC<LinkFilmDialogProps> = ({ gameName, driveL
         {/* iPad / iPhone: the browser can't open a folder, and its picker offers the photo library first. */}
         {appleTouch && (
           <ol className="text-xs text-slate-600 dark:text-slate-300 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 list-decimal list-inside space-y-0.5">
-            <li>Plug in the drive, then tap {folderFiles ? <><b>Pick the film folder</b> (or <b>Pick this game’s clips</b>)</> : <b>Pick this game’s clips</b>}.</li>
-            <li>Tap <b>Choose Files</b> (not Photo Library).</li>
-            <li>Tap <b>Browse</b>, then your drive under <b>Locations</b>, then the game’s folder (like <b>10U / Week 2 - Yorktown Huskers</b>).</li>
+            <li>
+              Plug in the drive. A drive on the network instead (your computer’s shared folder, or a NAS): once, in the <b>Files</b> app tap <b>⋯</b> → <b>Connect to Server</b>, type its address (like <b>smb://192.168.1.25</b>) and sign in.
+            </li>
+            <li>Tap {folderFiles ? <><b>Pick the film folder</b> (or <b>Pick this game’s clips</b>)</> : <b>Pick this game’s clips</b>}, then <b>Choose Files</b> (not Photo Library).</li>
+            <li>Tap <b>Browse</b>, then your drive under <b>Locations</b> (a network drive is under <b>Shared</b>), then the game’s folder (like <b>10U / Week 2 - Yorktown Huskers</b>).</li>
             <li>{folderFiles ? <>For the folder: open it and tap <b>Open</b>. For clips: tap <b>Select</b> (top right), tap every clip, then <b>Open</b>.</> : <>Tap <b>Select</b> (top right), tap every clip, then <b>Open</b>.</>}</li>
-            <li>The iPad copies the clips first; big 4K clips take a while for a whole game.</li>
+            <li>The iPad copies everything you pick before it plays (big 4K clips take a while). Over the network, pick one game’s folder, not the whole film folder.</li>
           </ol>
         )}
         <input

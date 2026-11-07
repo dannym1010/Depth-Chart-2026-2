@@ -2,12 +2,14 @@
 // breakdown's suggestions, or a Field camera extra), each trimmed and titled; reels made from them (a game, the
 // season, one kid, or any mix) that play right here or go out to DaVinci Resolve; the banquet check that every kid
 // is in enough of them; and the team's look and defaults.
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Clapperboard, FolderOpen, Plus, Settings2, Sparkles, Star, Trash2, Users, Wand2 } from 'lucide-react';
 import type { Play } from '../hudlScout/types/football';
 import { probeSnap } from '../filmroom/snapProbe';
 import { countViewIndex } from '../filmroom/dualView';
 import type { FilmGameShared } from '../filmroom/types';
+import { canPickFolderFiles, pickedFolderNode, setPickedFilmRoot } from '../filmroom/filmSources';
+import { isFilmRoot } from '../filmroom/folderRoutes';
 import { playsForPlayer } from '../filmroom/playerPlays';
 import { ClipEditor, CATEGORY_LABEL } from './ClipEditor';
 import { clipLength, lineUp, type AccessState, type FilmAccess } from './filmAccess';
@@ -73,6 +75,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
   const [openId, setOpenId] = useState<string | null>(null);
   const [status, setStatus] = useState('');
   const [access_, setAccess] = useState<AccessState | 'checking'>('checking');
+  const pickRootInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
     void access.state().then(setAccess);
   }, [access]);
@@ -326,6 +329,35 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
           <button type="button" onClick={() => void connect()} className="h-7 px-3 rounded-lg bg-amber-500 text-slate-900 font-bold">
             {access_ === 'ask' ? 'Open the film folder' : 'Sign in with Google'}
           </button>
+        )}
+        {/* A tablet: the film folder from the Files app (a drive plugged in, or a network share / NAS). */}
+        {canPickFolderFiles() && (
+          <>
+            <button type="button" onClick={() => pickRootInput.current?.click()} className="h-7 px-3 rounded-lg bg-white/80 dark:bg-slate-800 ring-1 ring-amber-500/60 font-bold">
+              Pick the film folder (Files)
+            </button>
+            <input
+              ref={pickRootInput}
+              type="file"
+              // @ts-expect-error webkitdirectory isn't in React's input props
+              webkitdirectory=""
+              multiple
+              className="hidden"
+              onChange={async (e) => {
+                const list = e.target.files;
+                e.target.value = '';
+                if (!list?.length) return;
+                const node = pickedFolderNode(list);
+                if (!node || !isFilmRoot((await node.open()).dirs)) {
+                  setStatus('Pick the whole film folder: the one with the team folders (like 10U) in it.');
+                  return;
+                }
+                setPickedFilmRoot(node);
+                setAccess('ready');
+                setStatus(`Using “${node.name}” for this visit.`);
+              }}
+            />
+          </>
         )}
       </div>
     ) : null;

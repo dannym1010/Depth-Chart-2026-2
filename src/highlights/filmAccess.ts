@@ -1,7 +1,7 @@
 // Film for Highlights: any of our games, opened from the shared film folder ("Mahopac Film"), this computer's copy
 // first, else the team's Google Drive copy. Reels mix games, so this opens games one after another (kept for the
 // visit) instead of one game at a time the way the Film Room does. Clips are found by camera view and file name.
-import { driveClipUrl, driveFolderNode, folderAccess, isDriveSignedIn, driveSignIn, listNodeClips, localFolderNode, prepareDriveSignIn, recallFolder } from '../filmroom/filmSources';
+import { driveClipUrl, driveFolderNode, folderAccess, isDriveSignedIn, driveSignIn, listNodeClips, localFolderNode, pickedFilmRoot, prepareDriveSignIn, recallFolder } from '../filmroom/filmSources';
 import { gameViews, resolveGameFolder, type FolderNode } from '../filmroom/folderRoutes';
 import { matchClipsToPlays } from '../filmroom/clipMatching';
 import { hiddenNames, liveViewClips, picksForView } from '../filmroom/dualView';
@@ -82,6 +82,8 @@ export function realFilmAccess(opts: { teamName: string; rootDriveId?: string; r
   if (opts.rootDriveId) prepareDriveSignIn();
 
   const state = async (): Promise<AccessState> => {
+    // The film folder picked on this tablet this visit (a drive, or a network share / NAS in the Files app).
+    if (pickedFilmRoot()) return 'ready';
     const local = await localRoot();
     if (local && (await folderAccess(local))) return 'ready';
     if (opts.rootDriveId && isDriveSignedIn()) return 'ready';
@@ -92,6 +94,8 @@ export function realFilmAccess(opts: { teamName: string; rootDriveId?: string; r
 
   const roots = async (): Promise<{ node: FolderNode; from: 'local' | 'drive' }[]> => {
     const out: { node: FolderNode; from: 'local' | 'drive' }[] = [];
+    const picked = pickedFilmRoot();
+    if (picked) out.push({ node: picked, from: 'local' });
     const local = await localRoot();
     if (local && (await folderAccess(local))) out.push({ node: localFolderNode(local), from: 'local' });
     if (opts.rootDriveId && isDriveSignedIn()) out.push({ node: driveFolderNode(opts.rootDriveId, opts.rootDriveName || 'Team film folder'), from: 'drive' });
