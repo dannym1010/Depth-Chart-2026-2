@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { CallSheetPrintArrange, PrintPreviewFrame, type IncludeKey } from './CallSheetPrintArrange';
+import { sheetPartOf } from '../../utils/callSheetPrintLayout';
 import {
   Printer,
   ExternalLink,
@@ -61,6 +63,8 @@ interface CallSheetPrintModalProps {
   formationPictures?: Record<string, string>;
   /** What they run from each formation (plays and % by down), printed with those tables. */
   formationStats?: CallSheetPrintOptions['formationStats'];
+  /** Saves a change made while arranging the printout (table spots, widths, part order). */
+  onChange?: (next: CallSheetFullData) => void;
 }
 
 export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
@@ -72,7 +76,23 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
   gridColumns = 4,
   formationPictures,
   formationStats,
+  onChange,
 }) => {
+  const [tab, setTab] = useState<'arrange' | 'settings'>(() => {
+    try {
+      return localStorage.getItem('call_sheet_print_tab') === 'settings' ? 'settings' : 'arrange';
+    } catch {
+      return 'arrange';
+    }
+  });
+  const pickTab = (t: 'arrange' | 'settings') => {
+    setTab(t);
+    try {
+      localStorage.setItem('call_sheet_print_tab', t);
+    } catch {
+      /* not kept */
+    }
+  };
   const savedPrint = { ...loadPrintPrefs('call_sheet', CALL_SHEET_PRINT_DEFAULTS), ...loadPrintPrefs(sectionsKind(activeUnit), SECTION_DEFAULTS) };
   const [orientation, setOrientation] = useState<'landscape' | 'portrait'>(savedPrint.orientation);
   const [fitMode, setFitMode] = useState<'auto' | '1page' | '2page'>(savedPrint.fitMode);
@@ -111,7 +131,76 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
     setIncludeVsFormations(next.includeVsFormations !== false);
   }, [isOpen, activeUnit, gridColumns, callSheetData.desktopGridColumns]);
 
+  // The live preview on the Arrange tab: the real printout with the current settings.
+  const previewHtml = useMemo(() => {
+    if (!isOpen || tab !== 'arrange') return '';
+    return generateCallSheetPrintHTML(callSheetData, activeUnit, activeTeamName, 'Preview', {
+      orientation,
+      columns: selectedColumns,
+      density: fitMode === '1page' ? 'ultra' : density,
+      fitMode,
+      inkFriendly,
+      hideEmptySlots,
+      sectionsFilter: {
+        topSituations: includeTopSituations,
+        redZone: includeRedZone,
+        tempo: includeTempo,
+        custom: includeCustom,
+        scripts: includeScripts,
+        twoPoint: includeTwoPoint,
+        timeouts: includeTimeouts,
+        vsFormations: includeVsFormations,
+      },
+      formationPictures,
+      formationStats,
+    });
+  }, [
+    isOpen,
+    tab,
+    callSheetData,
+    activeUnit,
+    activeTeamName,
+    orientation,
+    selectedColumns,
+    density,
+    fitMode,
+    inkFriendly,
+    hideEmptySlots,
+    includeTopSituations,
+    includeRedZone,
+    includeTempo,
+    includeCustom,
+    includeScripts,
+    includeTwoPoint,
+    includeTimeouts,
+    includeVsFormations,
+    formationPictures,
+    formationStats,
+  ]);
+
   if (!isOpen) return null;
+
+  const include: Record<IncludeKey, boolean> = {
+    top: includeTopSituations,
+    vs: includeVsFormations,
+    redzone: includeRedZone,
+    tempo: includeTempo,
+    custom: includeCustom,
+    scripts: includeScripts,
+    twoPoint: includeTwoPoint,
+    timeouts: includeTimeouts,
+  };
+  const setInclude = (key: IncludeKey, on: boolean) =>
+    ({
+      top: setIncludeTopSituations,
+      vs: setIncludeVsFormations,
+      redzone: setIncludeRedZone,
+      tempo: setIncludeTempo,
+      custom: setIncludeCustom,
+      scripts: setIncludeScripts,
+      twoPoint: setIncludeTwoPoint,
+      timeouts: setIncludeTimeouts,
+    })[key](on);
 
   const isOffense = activeUnit === 'offense';
   const sections = isOffense
@@ -119,10 +208,10 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
     : callSheetData.defenseSections || [];
 
   const vsCount = sections.filter((s) => s.id.startsWith('vsform-')).length;
-  const topCount = sections.filter((s) => s.group === 'top_situations' && !s.id.startsWith('vsform-')).length;
-  const redZoneCount = sections.filter((s) => s.group === 'red_zone').length;
-  const tempoCount = sections.filter((s) => s.group === 'tempo_game_mgmt').length;
-  const customCount = sections.filter((s) => s.group === 'custom').length;
+  const topCount = sections.filter((s) => sheetPartOf(s) === 'top' && !s.id.startsWith('vsform-')).length;
+  const redZoneCount = sections.filter((s) => sheetPartOf(s) === 'red_zone').length;
+  const tempoCount = sections.filter((s) => sheetPartOf(s) === 'tempo_game_mgmt').length;
+  const customCount = sections.filter((s) => sheetPartOf(s) === 'custom').length;
   const scriptsCount = isOffense
     ? (callSheetData.offenseScript || []).filter((p) => p && p.name).length
     : (callSheetData.defenseScript || []).filter((p) => p && p.name).length;
@@ -290,7 +379,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-xs animate-in fade-in duration-150"
     >
-      <div className="max-w-3xl w-full max-h-[92vh] bg-slate-900 border border-slate-750 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-slate-100 font-sans">
+      <div className={`${tab === 'arrange' ? 'max-w-7xl' : 'max-w-3xl'} w-full max-h-[92vh] bg-slate-900 border border-slate-750 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-slate-100 font-sans`}>
         {/* Header */}
         <div className="bg-slate-850 px-5 py-4 border-b border-slate-750 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
@@ -329,6 +418,53 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          <div className="flex gap-1 p-1 rounded-xl bg-slate-850 border border-slate-750 w-full sm:w-fit">
+            {(
+              [
+                ['arrange', 'Arrange & preview'],
+                ['settings', 'Print settings'],
+              ] as const
+            ).map(([t, label]) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => pickTab(t)}
+                className={`flex-1 sm:flex-none px-4 py-1.5 rounded-lg text-xs font-black cursor-pointer transition-colors ${
+                  tab === t ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {tab === 'arrange' ? (
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-4 items-start">
+              <div className="min-w-0">
+                {onChange ? (
+                  <CallSheetPrintArrange
+                    data={callSheetData}
+                    unit={activeUnit}
+                    columns={selectedColumns}
+                    fitMode={fitMode}
+                    include={include}
+                    setInclude={setInclude}
+                    onChange={onChange}
+                  />
+                ) : (
+                  <p className="text-xs text-slate-400">Arranging isn&rsquo;t available here.</p>
+                )}
+              </div>
+              <div className="min-w-0 lg:sticky lg:top-0">
+                <div className="text-[11px] font-black uppercase tracking-wider text-slate-300 mb-1.5">
+                  Preview ({orientation}, {selectedColumns} columns
+                  {fitMode === '2page' ? ', 2 pages' : fitMode === '1page' ? ', 1 page' : ''})
+                </div>
+                <PrintPreviewFrame html={previewHtml} orientation={orientation} />
+              </div>
+            </div>
+          ) : (
+          <>
           {/* 1. Page Orientation Choice */}
           <div>
             <label className="text-xs font-black uppercase tracking-wider text-slate-300 block mb-2">
@@ -491,7 +627,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
                     {fitMode === '2page' && <Check className="w-3.5 h-3.5 text-indigo-400" />}
                   </div>
                   <p className="text-[11px] text-slate-400 leading-snug">
-                    Page 1: Situations &bull; Page 2: Red Zone, Scripts, 2-Pt Matrix &amp; Timeouts.
+                    Page 2 starts at the red zone, or wherever you drag &ldquo;Page 2 starts here&rdquo; on the Arrange tab.
                   </p>
                 </div>
                 <div className="mt-2 pt-1 border-t border-slate-750/60 text-[10px] text-emerald-400 font-mono font-bold">
@@ -732,6 +868,8 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
               </p>
             </div>
           </div>
+          </>
+          )}
         </div>
 
         {/* Footer */}

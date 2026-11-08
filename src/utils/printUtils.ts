@@ -11,6 +11,7 @@ import { formatWeekLabel } from './seasonWeekUtils';
 import { getWristbandStartNumber } from './wristbandLinking';
 import { CallSheetFullData, CallSheetSection, CallSheetPlay } from '../types/callSheet';
 import { bottomOrder } from './callSheetBottom';
+import { PAGE_BREAK, isVsTable, printOrder, rowLayout as sheetRowLayout, sheetPartOf, topRows } from './callSheetPrintLayout';
 import type { FormationDownStats } from './scoutOppPlays';
 import { loadPrintPrefs, loadSharedPrintPrefs } from './printPrefs';
 import { formatClock, formatClockRange } from './timeFormat';
@@ -2789,12 +2790,13 @@ export function generateCallSheetPrintHTML(
     : callSheetData.defenseSections || [];
 
   // "vs <their formation>" tables print in their own group (with the picture), so each can be left out.
-  const isVsFormation = (s: CallSheetSection) => s.id.startsWith('vsform-');
-  const topSituations = sections.filter((s) => s.group === 'top_situations' && !isVsFormation(s));
+  // Which part each table is in follows the screen's rules (sheetPartOf), so nothing on the screen goes missing on paper.
+  const isVsFormation = (s: CallSheetSection) => isVsTable(s);
+  const topSituations = sections.filter((s) => sheetPartOf(s) === 'top' && !isVsFormation(s));
   const vsFormations = sections.filter((s) => isVsFormation(s));
-  const redZone = sections.filter((s) => s.group === 'red_zone');
-  const tempo = sections.filter((s) => s.group === 'tempo_game_mgmt');
-  const custom = sections.filter((s) => s.group === 'custom');
+  const redZone = sections.filter((s) => sheetPartOf(s) === 'red_zone');
+  const tempo = sections.filter((s) => sheetPartOf(s) === 'tempo_game_mgmt');
+  const custom = sections.filter((s) => sheetPartOf(s) === 'custom');
   const rawScripts = isOffense ? callSheetData.offenseScript || [] : callSheetData.defenseScript || [];
 
   // Parity with screen: default to provided columns, or saved desktopGridColumns, or orientation standard
@@ -2834,7 +2836,7 @@ export function generateCallSheetPrintHTML(
     cellPadding = '3px 5px';
   }
 
-  const renderSectionCard = (sec: CallSheetSection) => {
+  const renderSectionCard = (sec: CallSheetSection, span = 1) => {
     const headerBg = inkFriendly ? '#f1f5f9' : sec.headerBgColor || '#0284c7';
     const headerText = inkFriendly ? '#000000' : sec.headerTextColor || getContrastColor(headerBg);
     const validPlays = sec.plays.filter((p) => p && p.name && p.name.trim() !== '');
@@ -2844,8 +2846,8 @@ export function generateCallSheetPrintHTML(
       playsToRender = validPlays.length > 0 ? validPlays : [];
     }
 
-    const colSpan = sec.colSpan || 1;
-    const colSpanStyle = colSpan > 1 ? `grid-column: span ${Math.min(colSpan, printColumns)};` : '';
+    // A row whose tables fit shares it by width (the template does that); only a wrapped row spans columns.
+    const colSpanStyle = span > 1 ? `grid-column: span ${span};` : '';
 
     const innerCols = sec.columnsCount && sec.columnsCount > 1 ? sec.columnsCount : 1;
     const cardBodyClass = innerCols > 1 ? 'card-body card-body-grid' : 'card-body';
@@ -2917,33 +2919,14 @@ export function generateCallSheetPrintHTML(
     `;
   };
 
-  // Dynamically calculate grid columns template so rows with fewer tables (or multi-column tables) expand proportionally across the page
-  // A row of only wristband color tables prints exactly as laid out on the sheet (all of them across), never wrapped.
-  const isWristbandColorTable = (sec: CallSheetSection) =>
-    sec.wristbandPresetMode === 'wb_color_col' || String(sec.id || '').startsWith('wb_col_table_');
-  const rowCols = (rowSecs: CallSheetSection[]) =>
-    rowSecs.length > 0 && rowSecs.every(isWristbandColorTable) ? Math.max(printColumns, rowSecs.length) : printColumns;
-
-  const getSectionListGridTemplate = (sectionList: CallSheetSection[], maxCols = printColumns) => {
-    if (!sectionList || sectionList.length === 0) return `repeat(${maxCols}, 1fr)`;
-    const totalSpan = sectionList.reduce(
-      (acc, s) => acc + (s.colSpan || (s.columnsCount && s.columnsCount > 1 ? s.columnsCount : 1)),
-      0
-    );
-    if (totalSpan <= maxCols) {
-      return sectionList
-        .map((s) => `${s.colSpan || (s.columnsCount && s.columnsCount > 1 ? s.columnsCount : 1)}fr`)
-        .join(' ');
-    }
-    return `repeat(${maxCols}, 1fr)`;
-  };
-
+  // Each row's tables share the page by width; a row wider than the page's columns wraps (rowLayout, same as the
+  // screen). A row of only wristband color tables keeps them all across.
   const renderSectionGrid = (sectionList: CallSheetSection[], cols = printColumns) => {
     if (!sectionList || sectionList.length === 0) return '';
-    const cards = sectionList.map((sec) => renderSectionCard(sec)).join('');
-    const template = getSectionListGridTemplate(sectionList, cols);
+    const lay = sheetRowLayout(sectionList, cols);
+    const cards = sectionList.map((sec) => renderSectionCard(sec, lay.spanOf(sec))).join('');
     return `
-      <div class="cards-grid" style="grid-template-columns: ${template}; gap: ${gridGap};">
+      <div class="cards-grid" style="grid-template-columns: ${lay.template}; gap: ${gridGap};">
         ${cards}
       </div>
     `;
@@ -2952,48 +2935,20 @@ export function generateCallSheetPrintHTML(
   // Build Sections HTML
   let topSituationsHtml = '';
   if (filter.topSituations && topSituations.length > 0) {
-    const allHaveRowIndex = topSituations.length > 0 && topSituations.every((s) => typeof s.rowIndex === 'number');
-
-    let rowsHtml = '';
-    if (allHaveRowIndex) {
-      const rowMap = new Map<number, CallSheetSection[]>();
-      topSituations.forEach((sec) => {
-        const r = sec.rowIndex ?? 0;
-        if (!rowMap.has(r)) rowMap.set(r, []);
-        rowMap.get(r)!.push(sec);
-      });
-      const sortedRowIndices = Array.from(rowMap.keys()).sort((a, b) => a - b);
-      rowsHtml = sortedRowIndices
-        .map((rIdx) => {
-          const rowSecs = (rowMap.get(rIdx) || []).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-          if (rowSecs.length === 0) return '';
-          const rowCards = rowSecs.map((sec) => renderSectionCard(sec)).join('');
-          const rowTemplate = getSectionListGridTemplate(rowSecs, rowCols(rowSecs));
-          return `
-            <div class="cards-grid situational-row" style="grid-template-columns: ${rowTemplate}; gap: ${gridGap}; margin-bottom: ${gridGap}; page-break-inside: avoid; break-inside: avoid;">
+    // The rows as the screen lays them out, without the "vs" tables (they print in their own part).
+    const rowsHtml = topRows(sections, printColumns)
+      .map((row) => row.filter((s) => !isVsFormation(s)))
+      .filter((row) => row.length > 0)
+      .map((rowSecs) => {
+        const lay = sheetRowLayout(rowSecs, printColumns);
+        const rowCards = rowSecs.map((sec) => renderSectionCard(sec, lay.spanOf(sec))).join('');
+        return `
+            <div class="cards-grid situational-row" style="grid-template-columns: ${lay.template}; gap: ${gridGap}; margin-bottom: ${gridGap}; page-break-inside: avoid; break-inside: avoid;">
               ${rowCards}
             </div>
           `;
-        })
-        .join('');
-    } else {
-      // Chunk into rows of printColumns
-      const rows: CallSheetSection[][] = [];
-      for (let i = 0; i < topSituations.length; i += printColumns) {
-        rows.push(topSituations.slice(i, i + printColumns));
-      }
-      rowsHtml = rows
-        .map((rowSecs) => {
-          const rowCards = rowSecs.map((sec) => renderSectionCard(sec)).join('');
-          const rowTemplate = getSectionListGridTemplate(rowSecs, rowCols(rowSecs));
-          return `
-            <div class="cards-grid situational-row" style="grid-template-columns: ${rowTemplate}; gap: ${gridGap}; margin-bottom: ${gridGap}; page-break-inside: avoid; break-inside: avoid;">
-              ${rowCards}
-            </div>
-          `;
-        })
-        .join('');
-    }
+      })
+      .join('');
 
     topSituationsHtml = `
       <div class="section-group">
@@ -3093,7 +3048,7 @@ export function generateCallSheetPrintHTML(
   let redZoneHtml = '';
   if (filter.redZone && redZone.length > 0) {
     redZoneHtml = `
-      <div class="section-group redzone-group ${fitMode === '2page' ? 'page-break-before' : ''}">
+      <div class="section-group redzone-group">
         <div class="group-banner redzone-banner">${callSheetData.redZoneTitle || (isOffense ? 'RED ZONE &amp; GOAL LINE (INSIDE 20)' : 'RED ZONE DEFENSE &amp; GOAL LINE')}</div>
         ${renderSectionGrid(redZone, printColumns)}
       </div>
@@ -3639,6 +3594,32 @@ export function generateCallSheetPrintHTML(
   </style>
 `;
 
+  // The parts in the order the coach arranged (Print → Arrange). On 2 pages, page 2 starts at the "break" marker
+  // (standard: before the red zone), if something prints on each side of it.
+  const partHtml: Record<string, string> = {
+    top: topSituationsHtml,
+    vs: vsFormationsHtml,
+    redzone: redZoneHtml,
+    tempo: tempoHtml,
+    custom: customHtml,
+    bottom: bottomSectionHtml,
+  };
+  let partsHtml = '';
+  let breakPending = false;
+  for (const key of printOrder(callSheetData, activeUnit)) {
+    if (key === PAGE_BREAK) {
+      breakPending = fitMode === '2page' && partsHtml.trim() !== '';
+      continue;
+    }
+    const html = partHtml[key] || '';
+    if (!html.trim()) continue;
+    if (breakPending) {
+      partsHtml += '<div class="page-break-before" style="height: 0; margin: 0; padding: 0;"></div>';
+      breakPending = false;
+    }
+    partsHtml += html;
+  }
+
   const bannerHtml = `
     <div class="print-banner">
       <div class="banner-title-area">
@@ -3658,12 +3639,7 @@ export function generateCallSheetPrintHTML(
       ${stylesBlock}
       <div class="callsheet-snippet-wrapper" style="width: 100%; background: ${inkFriendly ? '#ffffff' : '#090d16'}; color: ${inkFriendly ? '#000000' : '#f8fafc'};">
         ${bannerHtml}
-        ${topSituationsHtml}
-        ${vsFormationsHtml}
-        ${redZoneHtml}
-        ${tempoHtml}
-        ${customHtml}
-        ${bottomSectionHtml}
+        ${partsHtml}
       </div>
     `;
   }
@@ -3677,12 +3653,7 @@ export function generateCallSheetPrintHTML(
 </head>
 <body>
   ${bannerHtml}
-  ${topSituationsHtml}
-  ${vsFormationsHtml}
-  ${redZoneHtml}
-  ${tempoHtml}
-  ${customHtml}
-  ${bottomSectionHtml}
+  ${partsHtml}
 </body>
 </html>`;
 }
@@ -4405,11 +4376,11 @@ export function generateFormationDepthChartPrintHTML(
 
                 const bg = playerHl ? playerHl.bg : defaultBg;
                 const text = playerHl ? playerHl.text : defaultText;
-                const border = playerHl ? `2px solid ${playerHl.border}` : defaultBorder;
+                const border = playerHl ? `2px solid ${playerHl.border}` : defaultBorder;
 
                 return `
                   <div style="display: flex; align-items: center; justify-content: space-between; padding: 2.5px 5px; margin-bottom: 2.5px; border-radius: 3px; background: ${bg}; color: ${text}; border: ${border}; min-height: 21px; box-sizing: border-box; ${playerHl?.shadow ? `box-shadow: ${playerHl.shadow};` : ''}">
-                    <div style="display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden;">
+                    <div style="display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden;">
                       <span style="font-family: monospace; font-size: 10px; font-weight: 900; color: ${text}; shrink: 0;">#${p.num}</span>
                       <span style="font-size: 10.5px; font-weight: 900; text-transform: uppercase; color: ${text}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</span>
                     </div>
@@ -4423,7 +4394,7 @@ export function generateFormationDepthChartPrintHTML(
 
                 return `
                   <div style="display: flex; align-items: center; justify-content: space-between; padding: 2.5px 5px; margin-bottom: 2.5px; border-radius: 3px; background: ${bg}; color: ${text}; border: ${border}; min-height: 21px; box-sizing: border-box; ${playerHl?.shadow ? `box-shadow: ${playerHl.shadow};` : ''}">
-                    <div style="display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden;">
+                    <div style="display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden;">
                       <span style="font-family: monospace; font-size: 10px; font-weight: 900; color: ${text}; shrink: 0;">#${p.num}</span>
                       <span style="font-size: 10.5px; font-weight: 900; text-transform: uppercase; color: ${text}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</span>
                     </div>
@@ -4433,11 +4404,11 @@ export function generateFormationDepthChartPrintHTML(
                 // 3rd String: Royal Blue (Ultra Crisp, 100% Guaranteed High Contrast)
                 const bg = playerHl ? playerHl.bg : '#1d4ed8';
                 const text = playerHl ? playerHl.text : '#ffffff';
-                const border = playerHl ? `2px solid ${playerHl.border}` : '1.5px solid #1e40af';
+                const border = playerHl ? `2px solid ${playerHl.border}` : '1.5px solid #1e40af';
 
                 return `
                   <div style="display: flex; align-items: center; justify-content: space-between; padding: 2.5px 5px; margin-bottom: 2.5px; border-radius: 3px; background: ${bg}; color: ${text}; border: ${border}; min-height: 21px; box-sizing: border-box; ${playerHl?.shadow ? `box-shadow: ${playerHl.shadow};` : ''}">
-                    <div style="display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden;">
+                    <div style="display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden;">
                       <span style="font-family: monospace; font-size: 10px; font-weight: 900; color: ${text}; shrink: 0;">#${p.num}</span>
                       <span style="font-size: 10.5px; font-weight: 900; text-transform: uppercase; color: ${text}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</span>
                     </div>

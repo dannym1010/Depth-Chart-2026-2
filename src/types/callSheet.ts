@@ -115,6 +115,11 @@ export interface CallSheetFullData {
    * of extra script tables (sections with group 'script'). Missing = the three built-in boxes; a built-in left out is off.
    */
   bottomLayout?: { offense?: string[]; defense?: string[] };
+  /**
+   * The order the printout's parts print in, per unit: 'top', 'vs', 'redzone', 'tempo', 'custom', 'bottom', and 'break'
+   * (where page 2 starts when printing on 2 pages). Missing = the standard order (callSheetPrintLayout.ts).
+   */
+  printLayout?: { offense?: string[]; defense?: string[] };
   lastEdited?: number;
 }
 

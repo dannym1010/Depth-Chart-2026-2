@@ -1666,6 +1666,7 @@ export const CallSheetMainView: React.FC<CallSheetMainViewProps> = ({
         gridColumns={gridColumns}
         formationPictures={activeUnit === 'defense' ? formationPictures : undefined}
         formationStats={activeUnit === 'defense' ? formationStats : undefined}
+        onChange={(next) => applyCallSheetUpdate(next)}
       />
 
       {/* 7. Call Sheet History, Backups & Recovery Modal */}
