@@ -20,6 +20,7 @@ import {
   freeBoxesFor,
   freeLayoutOf,
   isVsTable,
+  isWristbandTable,
   printOrder,
   rowLayout as sheetRowLayout,
   sheetPartOf,
@@ -2735,6 +2736,8 @@ export interface CallSheetPrintOptions {
     timeouts?: boolean;
     /** Defense: the "vs <their formation>" tables (printed on their own, with pictures). */
     vsFormations?: boolean;
+    /** Offense: the wristband color tables (Blue, Gold, …), printed in their own part. */
+    wristband?: boolean;
   };
   /** Pictures of their formations vs our defense, by "vs" table id (vsform-<formation id>). */
   formationPictures?: Record<string, string>;
@@ -2805,7 +2808,8 @@ export function generateCallSheetPrintHTML(
   // "vs <their formation>" tables print in their own group (with the picture), so each can be left out.
   // Which part each table is in follows the screen's rules (sheetPartOf), so nothing on the screen goes missing on paper.
   const isVsFormation = (s: CallSheetSection) => isVsTable(s);
-  const topSituations = sections.filter((s) => sheetPartOf(s) === 'top' && !isVsFormation(s));
+  const topSituations = sections.filter((s) => sheetPartOf(s) === 'top' && !isVsFormation(s) && !isWristbandTable(s));
+  const wristbandTables = sections.filter((s) => sheetPartOf(s) === 'top' && !isVsFormation(s) && isWristbandTable(s));
   const vsFormations = sections.filter((s) => isVsFormation(s));
   const redZone = sections.filter((s) => sheetPartOf(s) === 'red_zone');
   const tempo = sections.filter((s) => sheetPartOf(s) === 'tempo_game_mgmt');
@@ -2949,12 +2953,34 @@ export function generateCallSheetPrintHTML(
   const bannerById: Record<string, string> = {};
   const vsById: Record<string, string> = {};
 
+  // The wristband color tables (Blue, Gold, …) print in their own part, in their rows as on the screen.
+  let wristbandHtml = '';
+  if (filter.wristband !== false && wristbandTables.length > 0) {
+    const wbRows = topRows(sections, printColumns)
+      .map((row) => row.filter((s) => !isVsFormation(s) && isWristbandTable(s)))
+      .filter((row) => row.length > 0)
+      .map((rowSecs) => {
+        const lay = sheetRowLayout(rowSecs, printColumns);
+        return `<div class="cards-grid situational-row" style="grid-template-columns: ${lay.template}; gap: ${gridGap}; margin-bottom: ${gridGap}; page-break-inside: avoid; break-inside: avoid;">${rowSecs
+          .map((sec) => renderSectionCard(sec, lay.spanOf(sec)))
+          .join('')}</div>`;
+      })
+      .join('');
+    bannerById['banner:wristband'] = `<div class="group-banner">WRISTBAND</div>`;
+    wristbandHtml = `
+      <div class="section-group">
+        ${bannerById['banner:wristband']}
+        ${wbRows}
+      </div>
+    `;
+  }
+
   // Build Sections HTML
   let topSituationsHtml = '';
   if (filter.topSituations && topSituations.length > 0) {
-    // The rows as the screen lays them out, without the "vs" tables (they print in their own part).
+    // The rows as the screen lays them out, without the "vs" and wristband tables (they print in their own parts).
     const rowsHtml = topRows(sections, printColumns)
-      .map((row) => row.filter((s) => !isVsFormation(s)))
+      .map((row) => row.filter((s) => !isVsFormation(s) && !isWristbandTable(s)))
       .filter((row) => row.length > 0)
       .map((rowSecs) => {
         const lay = sheetRowLayout(rowSecs, printColumns);
@@ -3618,6 +3644,7 @@ export function generateCallSheetPrintHTML(
   // The parts in the order the coach arranged (Print → Arrange). On 2 pages, page 2 starts at the "break" marker
   // (standard: before the red zone), if something prints on each side of it.
   const partHtml: Record<string, string> = {
+    wristband: wristbandHtml,
     top: topSituationsHtml,
     vs: vsFormationsHtml,
     redzone: redZoneHtml,
@@ -3647,6 +3674,7 @@ export function generateCallSheetPrintHTML(
   if (free?.on) {
     const boxHtml: Record<string, string> = { ...bannerById };
     const tables = [
+      ...(filter.wristband !== false ? wristbandTables : []),
       ...(filter.topSituations ? topSituations : []),
       ...(filter.redZone ? redZone : []),
       ...(filter.tempo ? tempo : []),

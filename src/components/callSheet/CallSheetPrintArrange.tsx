@@ -21,6 +21,7 @@ import {
   tidyFreeLayout,
   withFreeLayout,
   isVsTable,
+  isWristbandTable,
   placeBlock,
   placeTable,
   printOrder,
@@ -34,7 +35,7 @@ import {
 } from '../../utils/callSheetPrintLayout';
 
 /** Which parts print (the same switches as Print settings). */
-export type IncludeKey = 'top' | 'vs' | 'redzone' | 'tempo' | 'custom' | 'scripts' | 'twoPoint' | 'timeouts';
+export type IncludeKey = 'wristband' | 'top' | 'vs' | 'redzone' | 'tempo' | 'custom' | 'scripts' | 'twoPoint' | 'timeouts';
 
 type Item = { type: 'table' | 'block' | 'bottom'; id: string };
 type Drop =
@@ -72,8 +73,13 @@ export const CallSheetPrintArrange: React.FC<Props> = ({ data, unit, columns, fi
 
   // ---- what's on the page ----
   const fullRows = useMemo(() => topRows(sections, cols), [sections, cols]);
+  // Situation rows and wristband rows (the wristband color tables print in their own part).
   const rows = useMemo(
-    () => fullRows.map((r, i) => ({ i, secs: r.filter((s) => !isVsTable(s)) })).filter((r) => r.secs.length > 0),
+    () => fullRows.map((r, i) => ({ i, secs: r.filter((s) => !isVsTable(s) && !isWristbandTable(s)) })).filter((r) => r.secs.length > 0),
+    [fullRows]
+  );
+  const wbRows = useMemo(
+    () => fullRows.map((r, i) => ({ i, secs: r.filter((s) => !isVsTable(s) && isWristbandTable(s)) })).filter((r) => r.secs.length > 0),
     [fullRows]
   );
   const lists = useMemo(() => {
@@ -90,6 +96,7 @@ export const CallSheetPrintArrange: React.FC<Props> = ({ data, unit, columns, fi
   const blockShown = (k: string): boolean => {
     if (k === PAGE_BREAK) return fitMode === '2page';
     if (k === 'top') return rows.length > 0 || tableActive;
+    if (k === 'wristband') return wbRows.length > 0;
     if (k === 'vs') return vsCount > 0;
     if (k === 'bottom') return bottom.length > 0;
     const g = (Object.keys(BLOCK_OF_LIST) as ListGroup[]).find((x) => BLOCK_OF_LIST[x] === k);
@@ -242,10 +249,12 @@ export const CallSheetPrintArrange: React.FC<Props> = ({ data, unit, columns, fi
 
   // ---- the picked thing's quick moves ----
   const pickedSec = picked?.type === 'table' ? byId(picked.id) : undefined;
+  const rowsTop = rows;
   const tableMoves = (sec: CallSheetSection) => {
     const part = sheetPartOf(sec);
     const go = (spot: TableSpot) => apply({ type: 'table', id: sec.id }, { t: 'table', spot });
     if (part === 'top') {
+      const rows = isWristbandTable(sec) ? wbRows : rowsTop;
       const ri = rows.findIndex((r) => r.secs.some((s) => s.id === sec.id));
       const row = rows[ri];
       const k = row ? row.secs.findIndex((s) => s.id === sec.id) : -1;
@@ -364,7 +373,7 @@ export const CallSheetPrintArrange: React.FC<Props> = ({ data, unit, columns, fi
   };
 
   // ---- each part's contents ----
-  const topBody = () => (
+  const topBody = (rows: typeof rowsTop) => (
     <div className="flex flex-col gap-1">
       {slot({ t: 'table', spot: { kind: 'newRow', at: rows[0]?.i ?? 0 } }, 'New row here', 'h-6')}
       {rows.map((r, ri) => {
@@ -377,7 +386,7 @@ export const CallSheetPrintArrange: React.FC<Props> = ({ data, unit, columns, fi
               </div>
               {slot({ t: 'table', spot: { kind: 'row', row: r.i, before: null } }, 'End', 'w-10 shrink-0')}
             </div>
-            {slot({ t: 'table', spot: { kind: 'newRow', at: ri < rows.length - 1 ? rows[ri + 1].i : fullRows.length } }, 'New row here', 'h-6')}
+            {slot({ t: 'table', spot: { kind: 'newRow', at: ri < rows.length - 1 ? rows[ri + 1].i : r.i + 1 } }, 'New row here', 'h-6')}
           </React.Fragment>
         );
       })}
@@ -437,7 +446,8 @@ export const CallSheetPrintArrange: React.FC<Props> = ({ data, unit, columns, fi
   );
 
   const blockBody = (k: string) => {
-    if (k === 'top') return topBody();
+    if (k === 'top') return topBody(rowsTop);
+    if (k === 'wristband') return topBody(wbRows);
     if (k === 'bottom') return bottomBody();
     if (k === 'vs') return <p className="text-[11px] text-slate-400">{vsCount} formation{vsCount === 1 ? '' : 's'}, each with its picture, most-run first.</p>;
     const g = (Object.keys(BLOCK_OF_LIST) as ListGroup[]).find((x) => BLOCK_OF_LIST[x] === k);

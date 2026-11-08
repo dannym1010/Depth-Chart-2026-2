@@ -18,8 +18,10 @@ const sec = (id: string, group: CallSheetSection['group'], extra: Partial<CallSh
 const ids = (rows: CallSheetSection[][]) => rows.map((r) => r.map((s) => s.id));
 
 test('print order: standard, saved, and parts the saved order leaves out', () => {
-  assert.deepEqual(printOrder({}, 'offense'), ['top', 'vs', 'break', 'redzone', 'tempo', 'custom', 'bottom']);
+  assert.deepEqual(printOrder({}, 'offense'), ['wristband', 'top', 'vs', 'break', 'redzone', 'tempo', 'custom', 'bottom']);
+  // An order saved before the wristband part existed: the wristband tables go first, as they always printed.
   assert.deepEqual(printOrder({ printLayout: { offense: ['bottom', 'top'] } }, 'offense'), [
+    'wristband',
     'bottom',
     'top',
     'vs',
@@ -28,8 +30,9 @@ test('print order: standard, saved, and parts the saved order leaves out', () =>
     'tempo',
     'custom',
   ]);
-  assert.deepEqual(printOrder({ printLayout: { offense: ['redzone', 'top', 'junk', 'top'] } }, 'defense')[0], 'top');
+  assert.deepEqual(printOrder({ printLayout: { offense: ['redzone', 'top', 'junk', 'top'] } }, 'defense')[1], 'top');
   assert.deepEqual(printOrder({ printLayout: { offense: ['redzone', 'top', 'junk', 'top'] } }, 'offense'), [
+    'wristband',
     'redzone',
     'tempo',
     'custom',
@@ -42,10 +45,11 @@ test('print order: standard, saved, and parts the saved order leaves out', () =>
 
 test('moving a part: before another, last, and a step that skips hidden parts', () => {
   const o = printOrder({}, 'offense');
-  assert.deepEqual(placeBlock(o, 'bottom', 'top').slice(0, 2), ['bottom', 'top']);
+  // Scripts (the bottom boxes) right under the wristband tables, above the situations.
+  assert.deepEqual(placeBlock(o, 'bottom', 'top').slice(0, 3), ['wristband', 'bottom', 'top']);
   assert.equal(placeBlock(o, 'top', null).at(-1), 'top');
-  const shown = (k: string) => k !== 'vs' && k !== 'break';
-  assert.deepEqual(stepBlock(o, 'redzone', -1, shown).slice(0, 2), ['redzone', 'top']);
+  const shown = (k: string) => k !== 'vs' && k !== 'break' && k !== 'wristband';
+  assert.deepEqual(stepBlock(o, 'redzone', -1, shown).filter(shown).slice(0, 2), ['redzone', 'top']);
   assert.deepEqual(stepBlock(o, 'top', 1, shown).filter(shown).slice(0, 2), ['redzone', 'top']);
   assert.deepEqual(stepBlock(o, 'top', -1, shown), o);
 });
@@ -136,4 +140,31 @@ test('the printout follows the part order, and page 2 starts at the marker', asy
   assert.ok(at(two, breakDiv) > at(two, 'SITUATIONAL CALLS') && at(two, breakDiv) < at(two, 'redzone-group'));
   const twoLater = html(['top', 'redzone', 'break', 'tempo', 'custom', 'bottom'], '2page');
   assert.ok(at(twoLater, breakDiv) > at(twoLater, 'redzone-group'), 'page 2 starts where the marker was dragged');
+});
+
+test('wristband color tables print in their own part; the scripts can go right under them', async () => {
+  const { generateCallSheetPrintHTML } = await import('./printUtils');
+  const { DEFAULT_CALL_SHEET_DATA } = await import('../data/callSheetData');
+  const wb = (id: string, title: string, rowIndex: number, order: number): CallSheetSection =>
+    sec(id, 'top_situations', { title, rowIndex, order, wristbandPresetMode: 'wb_color_col', plays: [{ id: id + 'p', name: title + ' PLAY' } as any] });
+  const situations = DEFAULT_CALL_SHEET_DATA.offenseSections.map((s) =>
+    s.group === 'top_situations' ? { ...s, rowIndex: (s.rowIndex ?? 0) + 1 } : s
+  );
+  const data = {
+    ...DEFAULT_CALL_SHEET_DATA,
+    offenseSections: [wb('wb_col_table_blue', 'BLUE', 0, 0), wb('wb_col_table_gold', 'GOLD', 0, 1), ...situations],
+    printLayout: { offense: ['wristband', 'bottom', 'top', 'vs', 'break', 'redzone', 'tempo', 'custom'] },
+  };
+  const html = generateCallSheetPrintHTML(data, 'offense', 'Mahopac 10U', 'T', { orientation: 'landscape', columns: 4, hideEmptySlots: true });
+  const at = (t: string) => html.indexOf(t);
+  assert.ok(at('>WRISTBAND<') > 0);
+  assert.ok(at('>WRISTBAND<') < at('BLUE PLAY'));
+  assert.ok(at('GOLD PLAY') < at('OPENING SCRIPT') || at('GOLD PLAY') < at('SCRIPTS (OPENING'), 'scripts under the wristband');
+  assert.ok(at('2-PT CONVERSION') < at('SITUATIONAL CALLS'), 'situations after the bottom boxes');
+  const off = generateCallSheetPrintHTML(data, 'offense', 'Mahopac 10U', 'T', {
+    orientation: 'landscape',
+    columns: 4,
+    sectionsFilter: { wristband: false, topSituations: true, scripts: true, twoPoint: true, timeouts: true },
+  });
+  assert.equal(off.indexOf('BLUE PLAY'), -1, 'the Wristband switch leaves them off');
 });

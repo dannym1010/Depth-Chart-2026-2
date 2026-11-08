@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { CallSheetPrintArrange, PrintPreviewFrame, type IncludeKey } from './CallSheetPrintArrange';
-import { sheetPartOf } from '../../utils/callSheetPrintLayout';
+import { isWristbandTable, sheetPartOf } from '../../utils/callSheetPrintLayout';
 import {
   Printer,
   ExternalLink,
@@ -48,6 +48,7 @@ const SECTION_DEFAULTS = {
   includeTwoPoint: true,
   includeTimeouts: true,
   includeVsFormations: true,
+  includeWristband: true,
 };
 const sectionsKind = (unit: 'offense' | 'defense') => `call_sheet_sections_${unit}`;
 
@@ -111,6 +112,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
   const [includeTwoPoint, setIncludeTwoPoint] = useState(savedPrint.includeTwoPoint);
   const [includeTimeouts, setIncludeTimeouts] = useState(savedPrint.includeTimeouts);
   const [includeVsFormations, setIncludeVsFormations] = useState(savedPrint.includeVsFormations !== false);
+  const [includeWristband, setIncludeWristband] = useState(savedPrint.includeWristband !== false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -129,6 +131,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
     setIncludeTwoPoint(next.includeTwoPoint);
     setIncludeTimeouts(next.includeTimeouts);
     setIncludeVsFormations(next.includeVsFormations !== false);
+    setIncludeWristband(next.includeWristband !== false);
   }, [isOpen, activeUnit, gridColumns, callSheetData.desktopGridColumns]);
 
   // The live preview on the Arrange tab: the real printout with the current settings.
@@ -150,6 +153,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
         twoPoint: includeTwoPoint,
         timeouts: includeTimeouts,
         vsFormations: includeVsFormations,
+        wristband: includeWristband,
       },
       formationPictures,
       formationStats,
@@ -174,6 +178,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
     includeTwoPoint,
     includeTimeouts,
     includeVsFormations,
+    includeWristband,
     formationPictures,
     formationStats,
   ]);
@@ -183,6 +188,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
   const include: Record<IncludeKey, boolean> = {
     top: includeTopSituations,
     vs: includeVsFormations,
+    wristband: includeWristband,
     redzone: includeRedZone,
     tempo: includeTempo,
     custom: includeCustom,
@@ -194,6 +200,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
     ({
       top: setIncludeTopSituations,
       vs: setIncludeVsFormations,
+      wristband: setIncludeWristband,
       redzone: setIncludeRedZone,
       tempo: setIncludeTempo,
       custom: setIncludeCustom,
@@ -208,7 +215,8 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
     : callSheetData.defenseSections || [];
 
   const vsCount = sections.filter((s) => s.id.startsWith('vsform-')).length;
-  const topCount = sections.filter((s) => sheetPartOf(s) === 'top' && !s.id.startsWith('vsform-')).length;
+  const wristbandCount = sections.filter((s) => sheetPartOf(s) === 'top' && !s.id.startsWith('vsform-') && isWristbandTable(s)).length;
+  const topCount = sections.filter((s) => sheetPartOf(s) === 'top' && !s.id.startsWith('vsform-') && !isWristbandTable(s)).length;
   const redZoneCount = sections.filter((s) => sheetPartOf(s) === 'red_zone').length;
   const tempoCount = sections.filter((s) => sheetPartOf(s) === 'tempo_game_mgmt').length;
   const customCount = sections.filter((s) => sheetPartOf(s) === 'custom').length;
@@ -218,6 +226,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
 
   const totalSectionsCount =
     (vsCount > 0 ? 1 : 0) +
+    (wristbandCount > 0 ? 1 : 0) +
     (topCount > 0 ? 1 : 0) +
     (redZoneCount > 0 ? 1 : 0) +
     (tempoCount > 0 ? 1 : 0) +
@@ -228,6 +237,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
 
   const selectedSectionsCount =
     (includeVsFormations && vsCount > 0 ? 1 : 0) +
+    (includeWristband && wristbandCount > 0 ? 1 : 0) +
     (includeTopSituations && topCount > 0 ? 1 : 0) +
     (includeRedZone && redZoneCount > 0 ? 1 : 0) +
     (includeTempo && tempoCount > 0 ? 1 : 0) +
@@ -238,6 +248,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
 
   const handleSelectAllSections = () => {
     setIncludeVsFormations(true);
+    setIncludeWristband(true);
     setIncludeTopSituations(true);
     setIncludeRedZone(true);
     setIncludeTempo(true);
@@ -255,6 +266,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
 
   const handleClearAllSections = () => {
     setIncludeVsFormations(false);
+    setIncludeWristband(false);
     setIncludeTopSituations(false);
     setIncludeRedZone(false);
     setIncludeTempo(false);
@@ -280,6 +292,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
       twoPoint: includeTwoPoint,
       timeouts: includeTimeouts,
       vsFormations: includeVsFormations,
+      wristband: includeWristband,
     },
     formationPictures,
     formationStats,
@@ -303,6 +316,7 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
       includeTwoPoint,
       includeTimeouts,
       includeVsFormations,
+      includeWristband,
     });
   };
 
@@ -705,6 +719,21 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
                     className="rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
                   />
                   <span className="font-bold">vs Their Formations ({vsCount})</span>
+                </label>
+              )}
+              {wristbandCount > 0 && (
+                <label className={`flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer ${
+                  includeWristband
+                    ? 'bg-indigo-600/15 border-indigo-500/80 text-white'
+                    : 'bg-slate-850/50 border-slate-750 text-slate-400 opacity-60 hover:opacity-90'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={includeWristband}
+                    onChange={(e) => setIncludeWristband(e.target.checked)}
+                    className="rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                  />
+                  <span className="font-bold">Wristband ({wristbandCount})</span>
                 </label>
               )}
               <label className={`flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer ${

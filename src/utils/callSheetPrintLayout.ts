@@ -6,12 +6,16 @@ import type { CallSheetFullData, CallSheetSection, FreePrintBox, FreePrintLayout
  * group, so a move here shows on the screen too.
  */
 
-/** The printout's parts: situations, "vs their formations" (defense), red zone, tempo, custom, the bottom boxes. */
-export type PrintBlock = 'top' | 'vs' | 'redzone' | 'tempo' | 'custom' | 'bottom';
-export const PRINT_BLOCKS: PrintBlock[] = ['top', 'vs', 'redzone', 'tempo', 'custom', 'bottom'];
+/**
+ * The printout's parts: the wristband color tables (Blue, Gold, …), situations, "vs their formations" (defense), red
+ * zone, tempo, custom, the bottom boxes.
+ */
+export type PrintBlock = 'wristband' | 'top' | 'vs' | 'redzone' | 'tempo' | 'custom' | 'bottom';
+export const PRINT_BLOCKS: PrintBlock[] = ['wristband', 'top', 'vs', 'redzone', 'tempo', 'custom', 'bottom'];
 /** Where page 2 starts when printing on 2 pages (standard: before the red zone). */
 export const PAGE_BREAK = 'break';
 export const PRINT_BLOCK_LABELS: Record<PrintBlock | typeof PAGE_BREAK, string> = {
+  wristband: 'Wristband',
   top: 'Situations',
   vs: 'vs Their Formations',
   redzone: 'Red Zone',
@@ -26,6 +30,9 @@ export const LIST_GROUPS: ListGroup[] = ['red_zone', 'tempo_game_mgmt', 'custom'
 export const BLOCK_OF_LIST: Record<ListGroup, PrintBlock> = { red_zone: 'redzone', tempo_game_mgmt: 'tempo', custom: 'custom' };
 
 export const isVsTable = (s: CallSheetSection) => String(s.id || '').startsWith('vsform-');
+/** A wristband color table (one card color: Blue, Gold, …); they print in their own part, above the situations. */
+export const isWristbandTable = (s: CallSheetSection) =>
+  s.wristbandPresetMode === 'wb_color_col' || String(s.id || '').startsWith('wb_col_table_');
 
 /** Which part of the sheet a table is in (the same rules as the screen). */
 export function sheetPartOf(s: CallSheetSection): 'top' | ListGroup | 'script' {
@@ -37,7 +44,7 @@ export function sheetPartOf(s: CallSheetSection): 'top' | ListGroup | 'script' {
   return 'custom';
 }
 
-const STANDARD: string[] = ['top', 'vs', PAGE_BREAK, 'redzone', 'tempo', 'custom', 'bottom'];
+const STANDARD: string[] = ['wristband', 'top', 'vs', PAGE_BREAK, 'redzone', 'tempo', 'custom', 'bottom'];
 
 /** The parts in print order: the saved order, with any part it doesn't name put back where it stands as standard. */
 export function printOrder(data: Pick<CallSheetFullData, 'printLayout'>, unit: 'offense' | 'defense'): string[] {
@@ -159,15 +166,13 @@ export function setTableWidth(sections: CallSheetSection[], id: string, colSpan:
   return sections.map((s) => (s.id === id ? { ...s, colSpan: w } : s));
 }
 
-const isWristbandColorTable = (s: CallSheetSection) =>
-  s.wristbandPresetMode === 'wb_color_col' || String(s.id || '').startsWith('wb_col_table_');
 
 /**
  * How a row of tables lays out on paper (the same as the screen): its tables share the row by width; a row wider than
  * the page's columns wraps onto a second line. A row of only wristband color tables keeps them all across.
  */
 export function rowLayout(row: CallSheetSection[], columns: number): { template: string; spanOf: (s: CallSheetSection) => number } {
-  const cols = row.length > 0 && row.every(isWristbandColorTable) ? Math.max(columns, row.length) : columns;
+  const cols = row.length > 0 && row.every(isWristbandTable) ? Math.max(columns, row.length) : columns;
   const spans = row.map(tableSpan);
   if (spans.reduce((a, b) => a + b, 0) <= cols) {
     return { template: spans.map((s) => `minmax(0, ${s}fr)`).join(' ') || `repeat(${cols}, minmax(0, 1fr))`, spanOf: () => 1 };
@@ -249,11 +254,12 @@ export function freeBoxList(
     line++;
   };
   for (const part of printOrder(data, unit)) {
-    if (part === 'top') {
+    if (part === 'top' || part === 'wristband') {
+      const wb = part === 'wristband';
       const rows = topRows(sections, cols)
-        .map((r) => r.filter((s) => !isVsTable(s)))
+        .map((r) => r.filter((s) => !isVsTable(s) && isWristbandTable(s) === wb))
         .filter((r) => r.length);
-      if (rows.length) banner('banner:top', `${PRINT_BLOCK_LABELS.top} heading`);
+      if (rows.length) banner(`banner:${part}`, `${PRINT_BLOCK_LABELS[part]} heading`);
       rows.forEach(placeRow);
     } else if (part === 'vs') {
       const vs = sections.filter(isVsTable);
@@ -310,10 +316,17 @@ export function freeBoxesFor(layout: FreePrintLayout, list: FreeBoxInfo[]): Reco
   const out: Record<string, FreePrintBox> = {};
   const ys = Object.values(layout.boxes || {}).map((b) => b.y);
   const end = (ys.length ? Math.max(...ys) : 0) + 100000;
-  for (const b of list) {
+  list.forEach((b, i) => {
     const saved = layout.boxes?.[b.id];
-    out[b.id] = saved ? clampBox(saved) : { ...b.box, y: end + b.box.y };
-  }
+    if (saved) {
+      out[b.id] = clampBox(saved);
+      return;
+    }
+    // New since the layout was made (a table added, a part split off): where the row layout has it, i.e. just before
+    // the next box it lists that has a spot; with none after it, at the end.
+    const next = list.slice(i + 1).find((n) => layout.boxes?.[n.id]);
+    out[b.id] = next ? { ...b.box, y: Math.max(0, layout.boxes[next.id].y - 1) } : { ...b.box, y: end + b.box.y };
+  });
   return out;
 }
 
