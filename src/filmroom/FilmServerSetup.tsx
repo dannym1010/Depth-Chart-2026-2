@@ -75,7 +75,7 @@ export const FilmServerSetup: React.FC<{ onChanged?: () => void; compact?: boole
             )}
           </div>
           <p className="text-[11px] text-slate-500 dark:text-slate-400">
-            On the computer with the drive: run the film server (tools/film-server in the app’s files), then <b>tailscale serve --bg 8787</b>. Paste the https address Tailscale shows and the key the film server prints.
+            On the computer with the drive, run the film server (tools/film-server in the app’s files). On your own network: <b>node make-cert.mjs</b> once, then paste the https address and key it prints (trust its certificate on this iPad once, from the page it shows). Anywhere: <b>tailscale serve --bg 8787</b> and Tailscale’s https address.
           </p>
         </div>
       )}

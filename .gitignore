@@ -11,3 +11,7 @@ _hudlscout_unpack/
 # Runtime saved state only. Do not ignore src/data (app seed files).
 /data/
 .agents/
+
+# Film server: its key and local certificates stay on the computer that runs it
+tools/film-server/cert/
+tools/film-server/film-server.key

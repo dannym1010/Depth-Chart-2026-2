@@ -39,6 +39,27 @@ It shows an address like `https://your-pc.your-tailnet.ts.net`.
 Film Room → a game → **Link film** → **Team film server** → **Set up**: paste the https address and the key →
 **Connect**. Every game looks there first; its clips stream. Highlights has the same setup in its film bar.
 
+## Local mode: this network only (no internet, no Tailscale)
+
+The app only takes film from an **https** address. In local mode the film server gives itself a certificate for
+your network, and the iPad trusts it once.
+
+1. Install **Git for Windows** if you don't have it (it brings OpenSSL): https://git-scm.com
+2. In the film server folder: `node make-cert.mjs`. It makes `cert\` with the certificates for this computer's
+   network address. Run it again if the computer's address changes. Give the PC a fixed address in your router
+   ("DHCP reservation") so that rarely happens.
+3. Start the film server as usual: `node film-server.mjs "E:\Mahopac Film"`. It now says **local mode**, with the
+   address for the app (like `https://192.168.1.25:8787`) and a page for the iPad.
+4. **On the iPad, once:** in Safari open the page it shows (like `http://192.168.1.25:8788`):
+   - **Download the certificate** → Allow → **Settings → Profile Downloaded → Install**
+   - **Settings → General → About → Certificate Trust Settings** → turn on **Mahopac Film Server**
+5. In the app: Link film → Team film server → Set up → the https address and the key → Connect.
+
+Windows may ask to let Node through the firewall the first time: allow it on **Private** networks.
+
+For a portable NAS in its own Wi-Fi (AP) mode: run `node make-cert.mjs <its address>` on the machine that runs the
+film server there.
+
 ## Start it with the computer (optional)
 
 Make `start-film-server.cmd` next to `film-server.mjs`:

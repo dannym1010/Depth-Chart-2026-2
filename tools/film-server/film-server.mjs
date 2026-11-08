@@ -10,6 +10,8 @@
 // it starts, kept in film-server.key next to this file). Reach it from the iPad through Tailscale's https address
 // (see README.md): Safari won't play film from a plain http address inside the app.
 import http from 'node:http';
+import https from 'node:https';
+import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -66,7 +68,7 @@ function send(res, status, body, headers = {}) {
   res.end(typeof body === 'string' ? body : JSON.stringify(body));
 }
 
-const server = http.createServer((req, res) => {
+const handler = (req, res) => {
   // Any web page may ask (the app lives on another address); the key is what lets it in.
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Range');
@@ -131,11 +133,52 @@ const server = http.createServer((req, res) => {
   }
 
   return send(res, 404, { error: 'Not here.' });
-});
+};
 
+// Local mode: with a certificate made by make-cert.mjs (cert/server.crt), it answers on https itself, on this network
+// only (an iPad trusts it once cert/ca.crt is installed). Without one, plain http (Tailscale adds https).
+const certDir = path.join(here, 'cert');
+const local = fs.existsSync(path.join(certDir, 'server.crt')) && fs.existsSync(path.join(certDir, 'server.key'));
+const lanIps = Object.values(os.networkInterfaces())
+  .flat()
+  .filter((a) => a && a.family === 'IPv4' && !a.internal)
+  .map((a) => a.address);
+const server = local
+  ? https.createServer({ cert: fs.readFileSync(path.join(certDir, 'server.crt')), key: fs.readFileSync(path.join(certDir, 'server.key')) }, handler)
+  : http.createServer(handler);
 server.listen(PORT, () => {
   console.log(`Mahopac film server: streaming "${ROOT}"`);
-  console.log(`  On this computer: http://localhost:${PORT}`);
   console.log(`  Key (paste in the app with the address): ${KEY}`);
-  console.log('  For the iPad: run  tailscale serve --bg ' + PORT + '  and use the https address it shows.');
+  if (local) {
+    for (const ip of lanIps) console.log(`  Address for the app (this network): https://${ip}:${PORT}`);
+    console.log(`  iPad, once: open  http://${lanIps[0] || 'this-computer'}:${PORT + 1}  in Safari to install the certificate.`);
+  } else {
+    console.log(`  On this computer: http://localhost:${PORT}`);
+    console.log('  For the iPad: run  tailscale serve --bg ' + PORT + '  and use the https address it shows.');
+    console.log('  Local mode instead (this network only): node make-cert.mjs, then start this again.');
+  }
 });
+
+// Local mode: the certificate for the iPad to install, on plain http one port up (it can't trust the https one yet).
+if (local) {
+  const ip = lanIps[0] || 'this-computer';
+  const page = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Film server certificate</title>
+<body style="font:17px -apple-system,sans-serif;max-width:34em;margin:2em auto;padding:0 1em;line-height:1.5">
+<h2>Mahopac film server: trust it on this iPad (once)</h2>
+<ol>
+<li><a href="/ca.crt">Download the certificate</a>, then tap <b>Allow</b>.</li>
+<li>Open <b>Settings</b> → <b>Profile Downloaded</b> → <b>Install</b> (your passcode) → <b>Install</b>.</li>
+<li><b>Settings → General → About → Certificate Trust Settings</b>: turn on <b>Mahopac Film Server</b>.</li>
+<li>In the app: Link film → Team film server → Set up: <b>https://${ip}:${PORT}</b> and the key.</li>
+</ol></body>`;
+  http
+    .createServer((req, res) => {
+      if ((req.url || '').startsWith('/ca.crt')) {
+        res.writeHead(200, { 'Content-Type': 'application/x-x509-ca-cert', 'Content-Disposition': 'attachment; filename="Mahopac-Film-Server.crt"' });
+        return fs.createReadStream(path.join(certDir, 'ca.crt')).pipe(res);
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(page);
+    })
+    .listen(PORT + 1);
+}
