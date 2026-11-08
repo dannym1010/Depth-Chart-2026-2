@@ -439,30 +439,21 @@ export const CallSheetPrintModal: React.FC<CallSheetPrintModalProps> = ({
           </div>
 
           {tab === 'arrange' ? (
-            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-4 items-start">
-              <div className="min-w-0">
-                {onChange ? (
-                  <CallSheetPrintArrange
-                    data={callSheetData}
-                    unit={activeUnit}
-                    columns={selectedColumns}
-                    fitMode={fitMode}
-                    include={include}
-                    setInclude={setInclude}
-                    onChange={onChange}
-                  />
-                ) : (
-                  <p className="text-xs text-slate-400">Arranging isn&rsquo;t available here.</p>
-                )}
-              </div>
-              <div className="min-w-0 lg:sticky lg:top-0">
-                <div className="text-[11px] font-black uppercase tracking-wider text-slate-300 mb-1.5">
-                  Preview ({orientation}, {selectedColumns} columns
-                  {fitMode === '2page' ? ', 2 pages' : fitMode === '1page' ? ', 1 page' : ''})
-                </div>
-                <PrintPreviewFrame html={previewHtml} orientation={orientation} />
-              </div>
-            </div>
+            onChange ? (
+              <CallSheetPrintArrange
+                data={callSheetData}
+                unit={activeUnit}
+                columns={selectedColumns}
+                fitMode={fitMode}
+                include={include}
+                setInclude={setInclude}
+                onChange={onChange}
+                previewHtml={previewHtml}
+                orientation={orientation}
+              />
+            ) : (
+              <PrintPreviewFrame html={previewHtml} orientation={orientation} />
+            )
           ) : (
           <>
           {/* 1. Page Orientation Choice */}

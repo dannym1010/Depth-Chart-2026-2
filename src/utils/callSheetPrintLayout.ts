@@ -1,4 +1,4 @@
-import type { CallSheetFullData, CallSheetSection } from '../types/callSheet';
+import type { CallSheetFullData, CallSheetSection, FreePrintBox, FreePrintLayout } from '../types/callSheet';
 
 /**
  * Arranging the call sheet printout: the order its parts print in (saved with the sheet, so every coach prints the same
@@ -174,3 +174,224 @@ export function rowLayout(row: CallSheetSection[], columns: number): { template:
   }
   return { template: `repeat(${cols}, minmax(0, 1fr))`, spanOf: (s) => Math.min(tableSpan(s), cols) };
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Free layout: every box on the printout (each table, each heading, each script / 2-pt / timeouts box, each "vs"
+// formation) placed where the coach drags it on the preview. x and w are in 24ths of the page width; y is the lowest
+// top the box may sit at. When printed, boxes are packed in order of y: a box sits at its y unless something above it
+// in the same columns reaches lower (then just below that), so nothing overlaps and boxes line up on their own. A box
+// that would be cut by a page end starts on the next page.
+
+export const FREE_COLS = 24;
+/** The printed page at 96 px per inch, inside the 0.2" margins: content width and height. */
+export const FREE_PAGE_W = { landscape: 1018, portrait: 778 } as const;
+export const FREE_PAGE_H = { landscape: 777, portrait: 1017 } as const;
+
+export interface FreeBoxInfo {
+  id: string;
+  label: string;
+  /** Where it starts when the coach turns free layout on (from the row layout). */
+  box: FreePrintBox;
+}
+
+const bottomWeight = (key: string) => (key === 'timeouts' ? 3 : 4.5);
+
+/** Split widths (weights) into 24ths that add up to 24. */
+function shares(weights: number[]): number[] {
+  const total = weights.reduce((a, b) => a + b, 0) || 1;
+  const out = weights.map((w) => Math.max(1, Math.round((w / total) * FREE_COLS)));
+  const diff = FREE_COLS - out.reduce((a, b) => a + b, 0);
+  if (out.length) out[out.length - 1] = Math.max(1, out[out.length - 1] + diff);
+  return out;
+}
+
+/**
+ * Every box the printout can show, in the row layout's order, each with where it starts in free layout. Lines of the
+ * row layout become y = 0, 1, 2, … (only their order matters until the coach drags something).
+ */
+export function freeBoxList(
+  data: CallSheetFullData,
+  unit: 'offense' | 'defense',
+  columns: number,
+  bottomKeys: string[],
+  bottomLabel: (key: string) => string
+): FreeBoxInfo[] {
+  const sections = (unit === 'offense' ? data.offenseSections : data.defenseSections) || [];
+  const cols = Math.max(1, Math.min(6, columns || 4));
+  const out: FreeBoxInfo[] = [];
+  let line = 0;
+  const banner = (id: string, label: string) => out.push({ id, label, box: { x: 0, w: FREE_COLS, y: line++ } });
+  // Tables in a row: shared by width when they fit, else wrapped on the page's columns.
+  const placeRow = (row: CallSheetSection[]) => {
+    if (!row.length) return;
+    const spans = row.map(tableSpan);
+    if (spans.reduce((a, b) => a + b, 0) <= cols) {
+      const ws = shares(spans);
+      let x = 0;
+      row.forEach((s, i) => {
+        out.push({ id: `t:${s.id}`, label: s.title || 'Table', box: { x, w: ws[i], y: line } });
+        x += ws[i];
+      });
+      line++;
+      return;
+    }
+    const unitW = FREE_COLS / cols;
+    let used = 0;
+    for (const s of row) {
+      const span = Math.min(tableSpan(s), cols);
+      if (used + span > cols) {
+        line++;
+        used = 0;
+      }
+      out.push({ id: `t:${s.id}`, label: s.title || 'Table', box: { x: Math.round(used * unitW), w: Math.max(1, Math.round(span * unitW)), y: line } });
+      used += span;
+    }
+    line++;
+  };
+  for (const part of printOrder(data, unit)) {
+    if (part === 'top') {
+      const rows = topRows(sections, cols)
+        .map((r) => r.filter((s) => !isVsTable(s)))
+        .filter((r) => r.length);
+      if (rows.length) banner('banner:top', `${PRINT_BLOCK_LABELS.top} heading`);
+      rows.forEach(placeRow);
+    } else if (part === 'vs') {
+      const vs = sections.filter(isVsTable);
+      if (vs.length) banner('banner:vs', `${PRINT_BLOCK_LABELS.vs} heading`);
+      for (const s of vs) out.push({ id: `t:${s.id}`, label: s.title || 'vs', box: { x: 0, w: FREE_COLS, y: line++ } });
+    } else if (part === 'redzone' || part === 'tempo' || part === 'custom') {
+      const g = (Object.keys(BLOCK_OF_LIST) as ListGroup[]).find((x) => BLOCK_OF_LIST[x] === part)!;
+      const list = sections.filter((s) => sheetPartOf(s) === g);
+      if (list.length) banner(`banner:${part}`, `${PRINT_BLOCK_LABELS[part]} heading`);
+      placeRow(list);
+    } else if (part === 'bottom') {
+      for (let i = 0; i < bottomKeys.length; i += 4) {
+        const lineKeys = bottomKeys.slice(i, i + 4);
+        const ws = shares(lineKeys.map(bottomWeight));
+        let x = 0;
+        lineKeys.forEach((k, j) => {
+          out.push({ id: `b:${k}`, label: bottomLabel(k), box: { x, w: ws[j], y: line } });
+          x += ws[j];
+        });
+        line++;
+      }
+    }
+  }
+  return out;
+}
+
+export function freeLayoutOf(data: Pick<CallSheetFullData, 'freeLayout'>, unit: 'offense' | 'defense'): FreePrintLayout | undefined {
+  return data.freeLayout?.[unit];
+}
+
+export function withFreeLayout<T extends CallSheetFullData>(data: T, unit: 'offense' | 'defense', layout: FreePrintLayout): T {
+  return { ...data, freeLayout: { ...(data.freeLayout || {}), [unit]: layout } };
+}
+
+/** Turn free layout on: kept boxes stay where they were; the rest start from the row layout. */
+export function startFreeLayout(prev: FreePrintLayout | undefined, list: FreeBoxInfo[]): FreePrintLayout {
+  if (prev && Object.keys(prev.boxes || {}).length) return { ...prev, on: true };
+  const boxes: Record<string, FreePrintBox> = {};
+  for (const b of list) boxes[b.id] = { ...b.box };
+  return { on: true, boxes, hidden: [] };
+}
+
+export function clampBox(b: FreePrintBox): FreePrintBox {
+  const w = Math.max(2, Math.min(FREE_COLS, Math.round(b.w)));
+  const x = Math.max(0, Math.min(FREE_COLS - w, Math.round(b.x)));
+  return { x, w, y: Math.max(0, Math.round(b.y)) };
+}
+
+/**
+ * Where each box goes this time: its saved spot, or (a box added since, like a new table) after everything else, in
+ * its row-layout place across the page.
+ */
+export function freeBoxesFor(layout: FreePrintLayout, list: FreeBoxInfo[]): Record<string, FreePrintBox> {
+  const out: Record<string, FreePrintBox> = {};
+  const ys = Object.values(layout.boxes || {}).map((b) => b.y);
+  const end = (ys.length ? Math.max(...ys) : 0) + 100000;
+  for (const b of list) {
+    const saved = layout.boxes?.[b.id];
+    out[b.id] = saved ? clampBox(saved) : { ...b.box, y: end + b.box.y };
+  }
+  return out;
+}
+
+/**
+ * A box dragged or resized. `shownTops` are where the boxes are on the preview right now: they become the boxes' y,
+ * so what the coach sees stays put and only the moved box changes place.
+ */
+export function moveFreeBox(layout: FreePrintLayout, id: string, box: FreePrintBox, shownTops: Record<string, number>): FreePrintLayout {
+  const boxes: Record<string, FreePrintBox> = {};
+  for (const [k, b] of Object.entries(layout.boxes || {})) boxes[k] = { ...b, y: k in shownTops ? Math.round(shownTops[k]) : b.y };
+  boxes[id] = clampBox(box);
+  return { ...layout, boxes };
+}
+
+/** Take a box off the printout, or put it back (after everything else). */
+export function hideFreeBox(layout: FreePrintLayout, id: string): FreePrintLayout {
+  return { ...layout, hidden: [...new Set([...(layout.hidden || []), id])] };
+}
+export function showFreeBox(layout: FreePrintLayout, id: string): FreePrintLayout {
+  const ys = Object.values(layout.boxes || {}).map((b) => b.y);
+  const b = layout.boxes?.[id];
+  return {
+    ...layout,
+    hidden: (layout.hidden || []).filter((k) => k !== id),
+    boxes: { ...layout.boxes, [id]: { x: b?.x ?? 0, w: b?.w ?? FREE_COLS, y: (ys.length ? Math.max(...ys) : 0) + 1 } },
+  };
+}
+
+/** Close the gaps: the same order (top to bottom, then left to right), every box as high as it can go. */
+export function tidyFreeLayout(layout: FreePrintLayout, shownTops: Record<string, number>): FreePrintLayout {
+  const ids = Object.keys(layout.boxes || {});
+  const top = (k: string) => (k in shownTops ? shownTops[k] : layout.boxes[k].y);
+  ids.sort((a, b) => top(a) - top(b) || layout.boxes[a].x - layout.boxes[b].x);
+  const boxes: Record<string, FreePrintBox> = {};
+  ids.forEach((k, i) => (boxes[k] = { ...layout.boxes[k], y: i }));
+  return { ...layout, boxes };
+}
+
+/**
+ * Pack boxes (the same rules as the printout's own script, FREE_PACK_SCRIPT): in order of y, each at its y or just
+ * below whatever is above it in its columns, and onto the next page if a page end would cut it. Returns each top.
+ */
+export function packFreeBoxes(boxes: { id: string; box: FreePrintBox; h: number }[], pageH: number, offset = 0, gap = 6): Record<string, number> {
+  const sky = new Array(FREE_COLS).fill(0);
+  const out: Record<string, number> = {};
+  const order = [...boxes].sort((a, b) => a.box.y - b.box.y || a.box.x - b.box.x);
+  for (const { id, box, h } of order) {
+    const b = clampBox(box);
+    let top = b.y;
+    for (let c = b.x; c < b.x + b.w; c++) top = Math.max(top, sky[c]);
+    const abs = offset + top;
+    const pageStart = Math.floor(abs / pageH) * pageH;
+    if (h < pageH - 10 && abs + h > pageStart + pageH) top = pageStart + pageH - offset + 2;
+    out[id] = top;
+    for (let c = b.x; c < b.x + b.w; c++) sky[c] = top + h + gap;
+  }
+  return out;
+}
+
+/** The same packing, run inside the printed page (heights are only known there). */
+export const FREE_PACK_SCRIPT = `(function(){
+function pack(){
+  var page=document.getElementById('free-page'); if(!page) return;
+  var PH=+page.getAttribute('data-page-h'), COLS=${FREE_COLS}, GAP=6;
+  var off=page.getBoundingClientRect().top+(window.scrollY||0);
+  var els=[].slice.call(page.querySelectorAll('.free-box'));
+  els.sort(function(a,b){return (+a.getAttribute('data-y'))-(+b.getAttribute('data-y'))||(+a.getAttribute('data-x'))-(+b.getAttribute('data-x'));});
+  var sky=[];for(var i=0;i<COLS;i++)sky[i]=0;var bottom=0;
+  els.forEach(function(el){
+    var x=+el.getAttribute('data-x'),w=+el.getAttribute('data-w'),h=el.offsetHeight,top=+el.getAttribute('data-y'),c;
+    for(c=x;c<x+w;c++)top=Math.max(top,sky[c]);
+    var abs=off+top,ps=Math.floor(abs/PH)*PH;
+    if(h<PH-10&&abs+h>ps+PH)top=ps+PH-off+2;
+    el.style.top=top+'px';
+    for(c=x;c<x+w;c++)sky[c]=top+h+GAP;
+    bottom=Math.max(bottom,top+h);
+  });
+  page.style.height=bottom+'px';
+}
+pack();window.addEventListener('load',pack);window.addEventListener('beforeprint',pack);
+})();`;

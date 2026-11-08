@@ -2,8 +2,9 @@
 // part; move whole parts up and down; set a table's width; choose where page 2 starts. Every move is saved on the call
 // sheet (the screen follows), and the live preview beside it shows the real printout.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, GripVertical, RotateCcw, Undo2, X } from 'lucide-react';
-import type { CallSheetFullData, CallSheetSection } from '../../types/callSheet';
+import { AlignVerticalJustifyStart, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, GripVertical, RotateCcw, Undo2, X } from 'lucide-react';
+import type { CallSheetFullData, CallSheetSection, FreePrintLayout } from '../../types/callSheet';
+import { FreeLayoutEditor } from './CallSheetFreeLayout';
 import { BOTTOM_LABELS, bottomOrder, isBuiltIn, placeBottomBox } from '../../utils/callSheetBottom';
 import {
   BLOCK_OF_LIST,
@@ -13,6 +14,12 @@ import {
   type ListGroup,
   type PrintBlock,
   type TableSpot,
+  freeBoxList,
+  freeLayoutOf,
+  showFreeBox,
+  startFreeLayout,
+  tidyFreeLayout,
+  withFreeLayout,
   isVsTable,
   placeBlock,
   placeTable,
@@ -43,11 +50,15 @@ interface Props {
   include: Record<IncludeKey, boolean>;
   setInclude: (key: IncludeKey, on: boolean) => void;
   onChange: (next: CallSheetFullData) => void;
+  /** The real printout with the current settings, and its paper. */
+  previewHtml: string;
+  orientation: 'landscape' | 'portrait';
 }
 
 const bottomInclude = (key: string): IncludeKey => (key === 'twopoint' ? 'twoPoint' : key === 'timeouts' ? 'timeouts' : 'scripts');
 
-export const CallSheetPrintArrange: React.FC<Props> = ({ data, unit, columns, fitMode, include, setInclude, onChange }) => {
+export const CallSheetPrintArrange: React.FC<Props> = ({ data, unit, columns, fitMode, include, setInclude, onChange, previewHtml, orientation }) => {
+  const shownTops = useRef<Record<string, number>>({});
   const secKey = unit === 'offense' ? 'offenseSections' : 'defenseSections';
   const sections = data[secKey] || [];
   const cols = Math.max(1, Math.min(6, columns || 4));
@@ -436,17 +447,98 @@ export const CallSheetPrintArrange: React.FC<Props> = ({ data, unit, columns, fi
   const shownOrder = order.filter(blockShown);
   const blockIncludeKey = (k: string): IncludeKey | null => (k === 'bottom' || k === PAGE_BREAK ? null : (k as IncludeKey));
 
+  // ---- free layout ----
+  const free = freeLayoutOf(data, unit);
+  const freeOn = !!free?.on;
+  const boxList = freeBoxList(data, unit, cols, bottom, (k) => (isBuiltIn(k) ? BOTTOM_LABELS[k] : byId(k)?.title || 'Script'));
+  const labels = Object.fromEntries(boxList.map((b) => [b.id, b.label]));
+  const setFree = (l: FreePrintLayout) => commit(withFreeLayout(data, unit, l));
+  const toolBtn = 'h-8 px-2.5 rounded-lg bg-slate-800 border border-slate-600 text-[11px] font-bold text-slate-200 flex items-center gap-1 cursor-pointer hover:bg-slate-700 disabled:opacity-40 disabled:cursor-default';
+
+  const modeBar = (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex gap-1 p-1 rounded-lg bg-slate-850 border border-slate-750">
+        {(
+          [
+            [false, 'Rows (automatic)'],
+            [true, 'Free (drag on the page)'],
+          ] as const
+        ).map(([on, label]) => (
+          <button
+            key={label}
+            type="button"
+            onClick={() => {
+              if (on === freeOn) return;
+              setPicked(null);
+              setFree(on ? startFreeLayout(free, boxList) : { ...(free as FreePrintLayout), on: false });
+            }}
+            className={`px-3 py-1 rounded-md text-[11px] font-black cursor-pointer ${freeOn === on ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <button type="button" onClick={undo} disabled={!history.length} className={toolBtn}>
+        <Undo2 className="w-3.5 h-3.5" /> Undo
+      </button>
+    </div>
+  );
+
+  if (freeOn && free) {
+    const removed = (free.hidden || []).filter((id) => labels[id]);
+    return (
+      <div className="flex flex-col gap-2">
+        {modeBar}
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => setFree(tidyFreeLayout(free, shownTops.current))} className={toolBtn} title="Same order, every box moved up as far as it goes">
+            <AlignVerticalJustifyStart className="w-3.5 h-3.5" /> Tidy up (close gaps)
+          </button>
+          <button
+            type="button"
+            onClick={() => setFree({ ...startFreeLayout(undefined, boxList), hidden: [] })}
+            className={toolBtn}
+            title="Put every box back where the rows layout has it"
+          >
+            <RotateCcw className="w-3.5 h-3.5" /> Start over from rows
+          </button>
+          <p className="text-[11px] text-slate-400 basis-full sm:basis-auto">
+            <b className="text-slate-200">Drag</b> any box on the page (iPad: tap it first, then drag). Drag its <b className="text-slate-200">right edge</b> to
+            change its width; <b className="text-slate-200">Remove</b> takes it off the printout. Boxes snap into line and never overlap.
+          </p>
+        </div>
+        {removed.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Off the printout:</span>
+            {removed.map((id) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setFree(showFreeBox(free, id))}
+                className="h-7 px-2 rounded-md bg-slate-800 border border-dashed border-slate-500 text-[11px] font-bold text-slate-200 cursor-pointer hover:bg-slate-700"
+                title="Put it back (at the end)"
+              >
+                + {labels[id]}
+              </button>
+            ))}
+          </div>
+        )}
+        <FreeLayoutEditor
+          html={previewHtml}
+          orientation={orientation}
+          layout={free}
+          labels={labels}
+          onLayout={setFree}
+          onMeasured={(t) => (shownTops.current = t)}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col gap-2">
+    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-4 items-start">
+    <div className="min-w-0 flex flex-col gap-2">
+      {modeBar}
       <div className="flex items-center gap-2 flex-wrap">
-        <button
-          type="button"
-          onClick={undo}
-          disabled={!history.length}
-          className="h-8 px-2.5 rounded-lg bg-slate-800 border border-slate-600 text-[11px] font-bold text-slate-200 flex items-center gap-1 disabled:opacity-40 cursor-pointer disabled:cursor-default hover:bg-slate-700"
-        >
-          <Undo2 className="w-3.5 h-3.5" /> Undo
-        </button>
         <button
           type="button"
           onClick={() => commit(withPrintOrder(data, unit, []))}
@@ -518,6 +610,13 @@ export const CallSheetPrintArrange: React.FC<Props> = ({ data, unit, columns, fi
           );
         })}
         {slot({ t: 'block', before: null }, 'Put it last', 'h-6')}
+      </div>
+    </div>
+      <div className="min-w-0 lg:sticky lg:top-0">
+        <div className="text-[11px] font-black uppercase tracking-wider text-slate-300 mb-1.5">
+          Preview ({orientation}, {cols} columns{fitMode === '2page' ? ', 2 pages' : fitMode === '1page' ? ', 1 page' : ''})
+        </div>
+        <PrintPreviewFrame html={previewHtml} orientation={orientation} />
       </div>
     </div>
   );

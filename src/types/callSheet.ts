@@ -120,7 +120,23 @@ export interface CallSheetFullData {
    * (where page 2 starts when printing on 2 pages). Missing = the standard order (callSheetPrintLayout.ts).
    */
   printLayout?: { offense?: string[]; defense?: string[] };
+  /** Free layout of the printout, per unit: each box placed where the coach dragged it on the preview. */
+  freeLayout?: { offense?: FreePrintLayout; defense?: FreePrintLayout };
   lastEdited?: number;
+}
+
+/** A box on the free-layout printout: x and w in 24ths of the page width, y the lowest top it may sit at (px). */
+export interface FreePrintBox {
+  x: number;
+  w: number;
+  y: number;
+}
+
+export interface FreePrintLayout {
+  on: boolean;
+  boxes: Record<string, FreePrintBox>;
+  /** Boxes taken off the printout (the tables stay on the call sheet). */
+  hidden?: string[];
 }
 
 export type CallSheetData = CallSheetFullData;

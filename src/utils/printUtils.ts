@@ -11,7 +11,20 @@ import { formatWeekLabel } from './seasonWeekUtils';
 import { getWristbandStartNumber } from './wristbandLinking';
 import { CallSheetFullData, CallSheetSection, CallSheetPlay } from '../types/callSheet';
 import { bottomOrder } from './callSheetBottom';
-import { PAGE_BREAK, isVsTable, printOrder, rowLayout as sheetRowLayout, sheetPartOf, topRows } from './callSheetPrintLayout';
+import {
+  FREE_COLS,
+  FREE_PACK_SCRIPT,
+  FREE_PAGE_H,
+  PAGE_BREAK,
+  freeBoxList,
+  freeBoxesFor,
+  freeLayoutOf,
+  isVsTable,
+  printOrder,
+  rowLayout as sheetRowLayout,
+  sheetPartOf,
+  topRows,
+} from './callSheetPrintLayout';
 import type { FormationDownStats } from './scoutOppPlays';
 import { loadPrintPrefs, loadSharedPrintPrefs } from './printPrefs';
 import { formatClock, formatClockRange } from './timeFormat';
@@ -2932,6 +2945,10 @@ export function generateCallSheetPrintHTML(
     `;
   };
 
+  // Each part's heading and each "vs" formation on its own (for the free layout).
+  const bannerById: Record<string, string> = {};
+  const vsById: Record<string, string> = {};
+
   // Build Sections HTML
   let topSituationsHtml = '';
   if (filter.topSituations && topSituations.length > 0) {
@@ -2950,9 +2967,10 @@ export function generateCallSheetPrintHTML(
       })
       .join('');
 
+    bannerById['banner:top'] = `<div class="group-banner">${callSheetData.topSituationsTitle || 'SITUATIONAL CALLS &amp; DOWN-AND-DISTANCE'}</div>`;
     topSituationsHtml = `
       <div class="section-group">
-        <div class="group-banner">${callSheetData.topSituationsTitle || 'SITUATIONAL CALLS &amp; DOWN-AND-DISTANCE'}</div>
+        ${bannerById['banner:top']}
         ${rowsHtml}
       </div>
     `;
@@ -3017,7 +3035,7 @@ export function generateCallSheetPrintHTML(
               </tbody>
             </table>`
           : `<div style="font-size: ${fs2}; color: ${C.muted}; padding: 4px 6px; border: 1px dashed ${C.line}; border-radius: 4px;">No snaps tagged in this formation on their film yet.</div>`;
-        return `
+        return (vsById[sec.id] = `
           <section style="page-break-inside: avoid; break-inside: avoid; margin: 0 0 12px; border: ${C.bandBorder}; border-radius: 6px; overflow: hidden; background: #ffffff;">
             <div style="background: ${C.band}; color: ${C.bandText}; padding: 6px 10px; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; ${inkFriendly ? 'border-bottom: 2px solid #000;' : ''}">
               <span style="font-size: 15pt; font-weight: 900; letter-spacing: 0.02em;">vs ${esc(name)}</span>
@@ -3034,12 +3052,13 @@ export function generateCallSheetPrintHTML(
               </div>
             </div>
           </section>
-        `;
+        `);
       })
       .join('');
+    bannerById['banner:vs'] = `<div style="font-size: 13pt; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 0 6px; margin-bottom: 8px; border-bottom: 3px solid ${inkFriendly ? '#000' : '#0f2a4a'}; color: ${inkFriendly ? '#000' : '#0f2a4a'};">Our calls vs their formations</div>`;
     vsFormationsHtml = `
       <div class="section-group">
-        <div style="font-size: 13pt; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 0 6px; margin-bottom: 8px; border-bottom: 3px solid ${inkFriendly ? '#000' : '#0f2a4a'}; color: ${inkFriendly ? '#000' : '#0f2a4a'};">Our calls vs their formations</div>
+        ${bannerById['banner:vs']}
         ${rows}
       </div>
     `;
@@ -3047,9 +3066,10 @@ export function generateCallSheetPrintHTML(
 
   let redZoneHtml = '';
   if (filter.redZone && redZone.length > 0) {
+    bannerById['banner:redzone'] = `<div class="group-banner redzone-banner">${callSheetData.redZoneTitle || (isOffense ? 'RED ZONE &amp; GOAL LINE (INSIDE 20)' : 'RED ZONE DEFENSE &amp; GOAL LINE')}</div>`;
     redZoneHtml = `
       <div class="section-group redzone-group">
-        <div class="group-banner redzone-banner">${callSheetData.redZoneTitle || (isOffense ? 'RED ZONE &amp; GOAL LINE (INSIDE 20)' : 'RED ZONE DEFENSE &amp; GOAL LINE')}</div>
+        ${bannerById['banner:redzone']}
         ${renderSectionGrid(redZone, printColumns)}
       </div>
     `;
@@ -3057,9 +3077,10 @@ export function generateCallSheetPrintHTML(
 
   let tempoHtml = '';
   if (filter.tempo && tempo.length > 0) {
+    bannerById['banner:tempo'] = `<div class="group-banner">${callSheetData.tempoTitle || 'TEMPO, CLOCK &amp; SPECIALS'}</div>`;
     tempoHtml = `
       <div class="section-group">
-        <div class="group-banner">${callSheetData.tempoTitle || 'TEMPO, CLOCK &amp; SPECIALS'}</div>
+        ${bannerById['banner:tempo']}
         ${renderSectionGrid(tempo, printColumns)}
       </div>
     `;
@@ -3067,9 +3088,10 @@ export function generateCallSheetPrintHTML(
 
   let customHtml = '';
   if (filter.custom && custom.length > 0) {
+    bannerById['banner:custom'] = `<div class="group-banner">${callSheetData.customTitle || 'CUSTOM SITUATIONS'}</div>`;
     customHtml = `
       <div class="section-group">
-        <div class="group-banner">${callSheetData.customTitle || 'CUSTOM SITUATIONS'}</div>
+        ${bannerById['banner:custom']}
         ${renderSectionGrid(custom, printColumns)}
       </div>
     `;
@@ -3103,7 +3125,6 @@ export function generateCallSheetPrintHTML(
             <span class="script-num">${num}.</span>
             ${numVal ? `<span class="wrist-badge" style="background: ${numBg} !important; color: ${numText} !important; font-size: ${badgeFontSize}; -webkit-print-color-adjust: exact; print-color-adjust: exact;">${numVal}</span>` : ''}
             <span class="script-name">${play.name}</span>
-            ${play.formation ? `<span class="formation-tag">(${play.formation})</span>` : ''}
           </div>
         `;
       })
@@ -3226,14 +3247,14 @@ export function generateCallSheetPrintHTML(
   // Bottom boxes in the sheet's order (boxes the coach took off the sheet don't print); width by kind.
   const bottomCards = bottomOrder(callSheetData, activeUnit)
     .map((key) => {
-      if (key === 'script') return { html: scriptsHtml, w: 4.5 };
-      if (key === 'twopoint') return { html: twoPointHtml, w: 4.5 };
-      if (key === 'timeouts') return { html: timeoutsHtml, w: 3 };
+      if (key === 'script') return { key, html: scriptsHtml, w: 4.5 };
+      if (key === 'twopoint') return { key, html: twoPointHtml, w: 4.5 };
+      if (key === 'timeouts') return { key, html: timeoutsHtml, w: 3 };
       const sec = extraScripts.get(key);
-      if (!sec || !filter.scripts) return { html: '', w: 0 };
+      if (!sec || !filter.scripts) return { key, html: '', w: 0 };
       const rows = [...(sec.plays || [])];
       while (rows.length < sec.slotsCount) rows.push(null);
-      return { html: scriptCard(String(sec.title || 'Script').toUpperCase(), rows, sec.headerBgColor), w: 4.5 };
+      return { key, html: scriptCard(String(sec.title || 'Script').toUpperCase(), rows, sec.headerBgColor), w: 4.5 };
     })
     .filter((c) => c.html);
   // Up to 4 boxes on a line; more wrap onto the next.
@@ -3618,6 +3639,42 @@ export function generateCallSheetPrintHTML(
       breakPending = false;
     }
     partsHtml += html;
+  }
+
+  // Free layout (Print → Arrange → Free): every box where the coach put it, packed by FREE_PACK_SCRIPT once the page
+  // knows each box's height. The page is laid out at the paper's width so the heights match the printed ones.
+  const free = freeLayoutOf(callSheetData, activeUnit);
+  if (free?.on) {
+    const boxHtml: Record<string, string> = { ...bannerById };
+    const tables = [
+      ...(filter.topSituations ? topSituations : []),
+      ...(filter.redZone ? redZone : []),
+      ...(filter.tempo ? tempo : []),
+      ...(filter.custom ? custom : []),
+    ];
+    for (const s of tables) boxHtml[`t:${s.id}`] = renderSectionCard(s);
+    for (const [id, h] of Object.entries(vsById)) boxHtml[`t:${id}`] = h;
+    for (const c of bottomCards) boxHtml[`b:${c.key}`] = c.html;
+    const list = freeBoxList(callSheetData, activeUnit, printColumns, bottomOrder(callSheetData, activeUnit), (k) => k);
+    const spots = freeBoxesFor(free, list);
+    const hidden = new Set(free.hidden || []);
+    const attr = (t: string) => t.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    partsHtml = `
+      <style>
+        html, body { width: ${orientation === 'landscape' ? '10.6in' : '8.1in'} !important; }
+        .free-box > * { margin: 0 !important; width: 100%; }
+      </style>
+      <div id="free-page" data-page-h="${FREE_PAGE_H[orientation]}" style="position: relative; width: 100%;">
+        ${list
+          .filter((b) => boxHtml[b.id] && !hidden.has(b.id))
+          .map((b) => {
+            const p = spots[b.id];
+            return `<div class="free-box" data-box="${attr(b.id)}" data-x="${p.x}" data-y="${p.y}" data-w="${p.w}" style="position: absolute; left: calc(${(p.x / FREE_COLS) * 100}% + 3px); width: calc(${(p.w / FREE_COLS) * 100}% - 6px); top: ${Math.min(p.y, 99999)}px;">${boxHtml[b.id]}</div>`;
+          })
+          .join('')}
+      </div>
+      <script>${FREE_PACK_SCRIPT}</script>
+    `;
   }
 
   const bannerHtml = `
