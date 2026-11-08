@@ -617,9 +617,33 @@ function wristbandSlotNumber(
     const letter = String.fromCharCode(65 + colIdx);
     return { num: colIdx * rows + rowIdx + 1, label: `${letter}${rowIdx + 1}` };
   }
-  const fromPlay = Number(play?.wristbandNum);
-  const num = !isNaN(fromPlay) && fromPlay > 0 ? fromPlay : wbStart + colIdx * rows + rowIdx;
+  // By position, the same as the Wristband screen: the number saved on the play goes stale when the card gains or
+  // loses a row (Green got a 17th play, Pink kept 51 while the card and the scripts said 52).
+  const num = wbStart + colIdx * rows + rowIdx;
   return { num, label: String(num) };
+}
+
+/**
+ * The card with every play's saved number set from its spot (continuous numbering). Run after the card's rows change,
+ * so anything reading the saved numbers agrees with the card.
+ */
+export function restampWristbandNumbers(wb: SingleWristband, wristbands: SingleWristband[]): SingleWristband {
+  const wbIdx = Math.max(0, wristbands.findIndex((w) => w.id === wb.id));
+  const list = wristbands.map((w, i) => (i === wbIdx ? wb : w));
+  const mode = wb.labelingMode || 'continuous';
+  if (mode === 'letter_num') return wb;
+  const rows = wb.rowsCount || 13;
+  const start = getWristbandStartNumber(list, wbIdx);
+  return {
+    ...wb,
+    columns: (wb.columns || []).map((col, cIdx) => ({
+      ...col,
+      plays: (col.plays || []).map((p, rIdx) => {
+        const num = mode === 'same_per_card' ? cIdx * rows + rIdx + 1 : start + cIdx * rows + rIdx;
+        return p && p.wristbandNum !== num ? { ...p, wristbandNum: num } : p;
+      }),
+    })),
+  };
 }
 
 export function callSheetPlayFromWristbandSlot(

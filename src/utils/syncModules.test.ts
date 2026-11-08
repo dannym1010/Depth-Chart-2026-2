@@ -251,7 +251,8 @@ describe('copy wristband plays to call sheet row 1', () => {
     assert.equal(colorTables[0].plays[0]?.wristbandNum, 1);
     assert.equal(colorTables[3].title, 'Pink');
     assert.equal(colorTables[3].rowIndex, 0);
-    assert.equal(colorTables[3].plays[0]?.wristbandNum, 5);
+    // By its spot on the card (2 rows per color: Pink is the 4th color, 1 + 3 × 2), like the Wristband screen.
+    assert.equal(colorTables[3].plays[0]?.wristbandNum, 7);
     assert.equal(colorTables[4].title, 'Orange');
     assert.equal(colorTables[4].rowIndex, 1);
     const old = sheet.offenseSections.find((s) => s.id === 'off_1_10');

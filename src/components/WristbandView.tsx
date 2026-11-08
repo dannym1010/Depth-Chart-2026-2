@@ -36,7 +36,7 @@ import { PlayDatabaseEntry, CallSheetFullData, CallSheetPlay, PlayType } from '.
 import { deepClone, safeJSONStringify, safeJSONSet, safeJSONParse } from '../services/storageService';
 import { printWristbandInserts, generateWristbandPrintHTML, openCleanPrintTab, triggerPrint } from '../utils/printUtils';
 import { loadPrintPrefs, savePrintPrefs } from '../utils/printPrefs';
-import { extractPersonnel, getPersonnelSubTabs, normalizePlayName, syncCallSheetWithWristbands, syncWristbandToCallSheet, getWristbandStartNumber } from '../utils/wristbandLinking';
+import { extractPersonnel, getPersonnelSubTabs, normalizePlayName, syncCallSheetWithWristbands, syncWristbandToCallSheet, getWristbandStartNumber, restampWristbandNumbers } from '../utils/wristbandLinking';
 import { PlayPickerModal } from './callSheet/PlayPickerModal';
 import { PlayBankSidebar } from './callSheet/PlayBankSidebar';
 import { ExcelPlayImportModal } from './callSheet/ExcelPlayImportModal';
@@ -1076,7 +1076,7 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
         plays.push({ text: '' });
         return { ...col, plays };
       });
-      return { ...wb, rowsCount: nextRows, columns: nextCols };
+      return restampWristbandNumbers({ ...wb, rowsCount: nextRows, columns: nextCols }, wristbands);
     });
   };
 
@@ -1091,7 +1091,7 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
         plays.pop();
         return { ...col, plays };
       });
-      return { ...wb, rowsCount: nextRows, columns: nextCols };
+      return restampWristbandNumbers({ ...wb, rowsCount: nextRows, columns: nextCols }, wristbands);
     });
   };
 
@@ -1609,7 +1609,7 @@ export const WristbandView: React.FC<WristbandViewProps> = ({
                       }
                       return { ...col, plays: currentPlays };
                     });
-                    return { ...wb, rowsCount: rows, columns: updatedCols };
+                    return restampWristbandNumbers({ ...wb, rowsCount: rows, columns: updatedCols }, wristbands);
                   });
                 }}
                 className="bg-slate-950 border border-slate-750 text-white font-bold rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
