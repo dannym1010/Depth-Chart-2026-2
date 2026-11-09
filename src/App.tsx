@@ -8335,10 +8335,12 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
               />
             )}
 
-            {/* Highlights (coaches) */}
-            {activeUnit === 'highlights' && !isPlayer && (
+            {/* Highlights: coaches make them; players and families watch the shared reels and their kid's clips */}
+            {activeUnit === 'highlights' && (!isPlayer || (canSeeUnit?.('highlights') ?? false)) && (
               <HighlightsSection
                 key={`highlights-${activeTeamId}`}
+                watchOnly={isPlayer}
+                myKids={isPlayer ? myStaffEntry?.kids || [] : undefined}
                 teamId={activeTeamId}
                 teamName={currentActiveTeam?.name || 'Mahopac 10U'}
                 ownTeamScout={teamOwnScout}
@@ -8860,6 +8862,20 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                     const { playerTabs: _old, ...rest } = updated[idx];
                     const tabs = defaultTabsFor(role);
                     updated[idx] = { ...rest, role, ...(tabs ? { playerTabs: tabs } : {}) };
+                    safeJSONSet('footballTeamCoaches', updated);
+                    latestStateRef.current.staffList = updated;
+                    return updated;
+                  });
+                  queueStaffTeamsPublish();
+                }}
+                roster={activeTeamRoster}
+                onUpdateStaffKids={(idx, kids) => {
+                  if (!mayManageStaffAt(idx)) return;
+                  setStaffList((prev) => {
+                    const updated = [...prev];
+                    if (!updated[idx]) return prev;
+                    // [] (not a missing key) when the last kid is taken off, so the merge doesn't bring him back.
+                    updated[idx] = { ...updated[idx], kids };
                     safeJSONSet('footballTeamCoaches', updated);
                     latestStateRef.current.staffList = updated;
                     return updated;

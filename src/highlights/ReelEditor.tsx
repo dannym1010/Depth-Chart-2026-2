@@ -7,7 +7,7 @@ import type { Play } from '../hudlScout/types/football';
 import type { FilmAccess } from './filmAccess';
 import { ExportPanel } from './ExportPanel';
 import { loadImage } from './graphics';
-import { addToReel, clock, editReel, EVERYONE, moveInReel, newReel, orderedHighlights, reelTimeline, timelineSeconds, type Kid } from './highlightData';
+import { addToReel, clock, editReel, EVERYONE, FAMILIES, moveInReel, newReel, shareReel, orderedHighlights, reelTimeline, timelineSeconds, type Kid } from './highlightData';
 import { libraryFolder, listFiles, subfolder } from './localLibrary';
 import { ReelPlayer } from './ReelPlayer';
 import { SocialVideoPanel } from './SocialVideoPanel';
@@ -134,11 +134,19 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
           </span>
         )}
         {mine && !ro && (
-          <label className="inline-flex items-center gap-1 ml-auto">
-            <input type="checkbox" checked={reel.sharedWith.includes(EVERYONE)} onChange={(e) => edit((r) => ({ ...r, sharedWith: e.target.checked ? [EVERYONE] : [] }))} />
-            Shared with the staff
-          </label>
+          <span className="inline-flex flex-wrap items-center gap-3 ml-auto">
+            <label className="inline-flex items-center gap-1">
+              <input type="checkbox" checked={reel.sharedWith.includes(EVERYONE)} onChange={(e) => edit((r) => shareReel(r, EVERYONE, e.target.checked))} />
+              Shared with the staff
+            </label>
+            {/* Players' and families' accounts with the Film Room watch it in Highlights (watch only). */}
+            <label className="inline-flex items-center gap-1 font-bold text-emerald-700 dark:text-emerald-400" title="Player and family accounts that have the Film Room can watch this reel (they can't change anything)">
+              <input type="checkbox" checked={reel.sharedWith.includes(FAMILIES)} onChange={(e) => edit((r) => shareReel(r, FAMILIES, e.target.checked))} />
+              Families can watch
+            </label>
+          </span>
         )}
+        {(!mine || ro) && reel.sharedWith.includes(FAMILIES) && <span className="ml-auto font-bold text-emerald-700 dark:text-emerald-400">Families can watch</span>}
       </div>
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]">

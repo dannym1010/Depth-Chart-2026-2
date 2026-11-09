@@ -75,9 +75,12 @@ describe('tabs for every account', () => {
     assert.deepEqual(accountTabs({ role: 'Assistant Coach', playerTabs: ['playbook', 'users'] }), ['playbook', 'users']);
     assert.ok(playerCanSee(['playbook', 'users'], 'users'));
     assert.ok(!playerCanSee(['playbook'], 'users'));
-    assert.deepEqual(accountTabs({ role: 'Family' }), ['filmroom']);
-    assert.deepEqual(accountTabs({ role: 'Family', playerTabs: ['filmroom', 'schedule', 'users'] }), ['filmroom', 'schedule']);
+    // Highlights (watch only) comes with the Film Room for players and families.
+    assert.deepEqual(accountTabs({ role: 'Family' }), ['filmroom', 'highlights']);
+    assert.deepEqual(accountTabs({ role: 'Family', playerTabs: ['filmroom', 'schedule', 'users', 'highlights'] }), ['filmroom', 'schedule', 'highlights']);
     assert.deepEqual(accountTabs({ role: 'Player' }), ['home', 'schedule', 'depth_chart', 'playbook']);
+    assert.ok(playerCanSee(accountTabs({ role: 'Family' }), 'highlights'));
+    assert.ok(!playerCanSee(accountTabs({ role: 'Player' }), 'highlights'));
     assert.ok(tabOptionsFor('Head Coach (Admin)').some((o) => o.id === 'users'));
     assert.ok(!tabOptionsFor('Family').some((o) => o.id === 'users'));
     assert.deepEqual(defaultTabsFor('Family'), ['filmroom']);

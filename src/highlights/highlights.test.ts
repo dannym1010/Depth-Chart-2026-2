@@ -265,3 +265,25 @@ describe('highlights saved to the cloud keep their game', () => {
     assert.deepEqual(mergeHighlights(broken, undefined).highlights.map((h) => h.game.name), ['Week 3', 'Game not known', 'Game not known']);
   });
 });
+
+describe('highlights for families (watch only)', () => {
+  it('a reel shared with families shows for them; staff sharing is left alone', async () => {
+    const { EVERYONE, FAMILIES, familyReels, shareReel } = await import('./highlightData.ts');
+    const g = game(1);
+    const h = highlightFromPlay({ game: g, play: play(1, { rusher: '#21 Nash Ward', gainLoss: 40, result: 'Rush, TD' }), view: '', clip: 'a.mp4', settings: s, by: 'c@x.com' });
+    const r = newReel({ name: 'Week 1', kind: 'game', owner: 'c@x.com', highlightIds: [h.id] });
+    const both = shareReel(r, FAMILIES, true);
+    assert.deepEqual(both.sharedWith, [EVERYONE, FAMILIES]);
+    assert.deepEqual(shareReel(both, EVERYONE, false).sharedWith, [FAMILIES], 'unsharing with the staff keeps families');
+    assert.deepEqual(shareReel(both, FAMILIES, false).sharedWith, [EVERYONE]);
+    const d = { ...emptyHighlights(), highlights: [h], reels: [r, both, { ...shareReel(r, FAMILIES, true), id: 'empty', items: [] }] };
+    assert.deepEqual(familyReels(d).map((x) => x.id), [both.id], 'only shared reels with clips');
+  });
+  it("a kid's clips play as a reel made on the spot (one clip: no cards)", async () => {
+    const { tempReel } = await import('./FamilyHighlights.tsx');
+    const g = game(1);
+    const h = highlightFromPlay({ game: g, play: play(1, { rusher: '#21 Nash Ward', gainLoss: 40, result: 'Rush, TD' }), view: '', clip: 'a.mp4', settings: s, by: 'c@x.com' });
+    const one = reelTimeline({ reel: tempReel('Nash', [h.id], '21', { cards: false }), highlights: [h], games: gameOrder([g]), settings: s, roster, teamName: 'Mahopac' });
+    assert.ok(one.length > 0 && one.every((x) => x.type !== 'card'));
+  });
+});

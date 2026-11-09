@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FAMILY_ROLE, PLAYER_ROLE, accountTabs, defaultTabsFor, isFamilyRole, isPlayerRole, tabOptionsFor } from '../utils/playerAccess';
+import { FAMILY_ROLE, PLAYER_ROLE, accountTabs, defaultTabsFor, isFamilyRole, isPlayerRole, isViewOnlyRole, tabOptionsFor } from '../utils/playerAccess';
 import {
   Users,
   UserPlus,
@@ -56,6 +56,10 @@ interface StaffManagerViewProps {
   /** Player accounts: which tabs this player sees. */
   /** The tabs an account sees; undefined = all of them. */
   onUpdateStaffPlayerTabs?: (idx: number, tabs: string[] | undefined) => void;
+  /** Player and family accounts: link their kid(s) (jersey numbers), for their Highlights. */
+  onUpdateStaffKids?: (idx: number, kids: string[]) => void;
+  /** This team's roster, to pick a family's kid from. */
+  roster?: { num: string; firstName?: string; lastName?: string }[];
   onToggleStaffApproval: (idx: number) => void;
   onRemoveStaffCoach: (idx: number) => void;
   onUpdateStaffAssignedTeams: (idx: number, teamIds: string[]) => void;
@@ -87,6 +91,8 @@ export const StaffManagerView: React.FC<StaffManagerViewProps> = ({
   onAddStaffCoach,
   onUpdateStaffRole,
   onUpdateStaffPlayerTabs,
+  onUpdateStaffKids,
+  roster = [],
   onToggleStaffApproval,
   onRemoveStaffCoach,
   onUpdateStaffAssignedTeams,
@@ -721,7 +727,7 @@ Looking forward to a great season!`;
                               Assistant Coach
                             </option>
                             <option value={PLAYER_ROLE}>Player (view only)</option>
-                            <option value={FAMILY_ROLE}>Family (watch our games in the Film Room)</option>
+                            <option value={FAMILY_ROLE}>Family (watch our games and highlights)</option>
                           </select>
                         ) : (
                           <span className="font-semibold text-slate-300">
@@ -734,6 +740,14 @@ Looking forward to a great season!`;
                             tabs={accountTabs(coach)}
                             disabled={!canEdit}
                             onChange={(tabs) => onUpdateStaffPlayerTabs?.(idx, tabs)}
+                          />
+                        )}
+                        {!isMaster && isViewOnlyRole(coach.role) && (
+                          <AccountKids
+                            kids={coach.kids || []}
+                            roster={roster}
+                            disabled={!canEdit || !onUpdateStaffKids}
+                            onChange={(kids) => onUpdateStaffKids?.(idx, kids)}
                           />
                         )}
                       </td>
@@ -1367,11 +1381,11 @@ Looking forward to a great season!`;
                   <option value="Head Coach (Admin)">Head Coach (Admin)</option>
                   <option value="Assistant Coach">Assistant Coach</option>
                   <option value={PLAYER_ROLE}>Player (view only)</option>
-                  <option value={FAMILY_ROLE}>Family (watch our games in the Film Room)</option>
+                  <option value={FAMILY_ROLE}>Family (watch our games and highlights)</option>
                 </select>
                 <p className="text-[10.5px] text-slate-400 mt-1">
                   {isFamilyRole(newStaffRole)
-                    ? 'Family members watch our games in the Film Room. Nothing they do is saved.'
+                    ? 'Family members watch our games in the Film Room, and in Highlights the reels you share with families plus their kid’s clips (link the kid after adding them). Nothing they do is saved.'
                     : isPlayerRole(newStaffRole)
                       ? 'Players only look: nothing they do is saved.'
                       : 'Coaches build plays & schedules for their allowed teams.'}
@@ -2007,6 +2021,69 @@ Looking forward to a great season!`;
     </div>
   );
 };
+
+/**
+ * A player's or family's kid(s): "Kid: #21 Nash Ward" that opens the roster to tick them. Their Highlights shows
+ * every clip their kid is in, to watch and make Instagram videos from.
+ */
+function AccountKids({
+  kids,
+  roster,
+  onChange,
+  disabled,
+}: {
+  kids: string[];
+  roster: { num: string; firstName?: string; lastName?: string }[];
+  onChange: (kids: string[]) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const norm = (n: string) => String(Number(n)) === 'NaN' ? String(n).trim() : String(Number(n));
+  const on = new Set(kids.map(norm));
+  const label = (n: string) => {
+    const k = roster.find((r) => norm(r.num) === norm(n));
+    const name = k ? [k.firstName, k.lastName].filter(Boolean).join(' ') : '';
+    return name ? `#${n} ${name}` : `#${n}`;
+  };
+  const kids_ = roster.filter((r) => r.num && norm(r.num) !== 'NaN').slice().sort((a, b) => Number(a.num) - Number(b.num));
+  return (
+    <div className="mt-1 max-w-xs">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="inline-flex items-center gap-1 text-[10.5px] font-bold text-slate-400 hover:text-slate-200 cursor-pointer"
+        title="Their kid: his highlights show in their Highlights, to watch and save for Instagram"
+      >
+        <span className="text-slate-500">Kid:</span> {kids.length ? kids.map(label).join(', ') : <span className="text-amber-400">none linked</span>}{' '}
+        <span className="underline">{open ? 'Done' : disabled ? 'See' : 'Link'}</span>
+      </button>
+      {open && (
+        <div className="mt-1 flex flex-wrap gap-1 max-h-40 overflow-auto" aria-label="Their kid">
+          {kids_.map((k) => {
+            const n = norm(k.num);
+            const active = on.has(n);
+            return (
+              <button
+                key={n}
+                type="button"
+                disabled={disabled}
+                aria-pressed={active}
+                onClick={() => onChange(active ? kids.filter((x) => norm(x) !== n) : [...kids, n])}
+                className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors ${
+                  active ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-600'
+                } ${disabled ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}
+              >
+                {label(n)}
+              </button>
+            );
+          })}
+          {!kids_.length && <span className="text-[10px] text-slate-500">No roster for this team yet.</span>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * The tabs an account sees: a short line ("All tabs", "Film Room", "4 tabs") that opens one chip per tab.

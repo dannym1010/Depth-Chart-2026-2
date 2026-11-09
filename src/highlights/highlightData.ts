@@ -9,6 +9,17 @@ import type {
 } from './types';
 
 export const EVERYONE = '*';
+/** In a reel's sharedWith: players' and families' accounts may watch it (Highlights, watch only). */
+export const FAMILIES = 'families';
+
+/** A reel's sharing with one group switched on or off, the other sharing left as it is. */
+export const shareReel = (r: Reel, who: string, on: boolean): Reel => ({
+  ...r,
+  sharedWith: on ? [...r.sharedWith.filter((e) => e !== who), who] : r.sharedWith.filter((e) => e !== who),
+});
+/** The reels families may watch (with at least one clip), newest first. */
+export const familyReels = (d: HighlightsData): Reel[] =>
+  d.reels.filter((r) => r.sharedWith.includes(FAMILIES) && r.items.length).sort((a, b) => b.createdAt - a.createdAt);
 
 export const defaultSettings = (): HighlightSettings => ({
   primary: '#1d3f8f',

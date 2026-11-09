@@ -10,6 +10,7 @@ import { getFirebaseServices, isFirestoreQuotaPaused, safeJSONParse } from '../s
 import { realFilmAccess } from './filmAccess';
 import { seasonOf, type Kid } from './highlightData';
 import { HighlightsView } from './HighlightsView';
+import { FamilyHighlights } from './FamilyHighlights';
 import type { HighlightGame } from './types';
 import { useHighlights } from './useHighlights';
 
@@ -20,9 +21,13 @@ interface Props {
   roster: Kid[];
   userEmail: string;
   authorName: string;
+  /** A player's or family's account: their kid's clips and the reels shared with families, to watch. */
+  watchOnly?: boolean;
+  /** Their kid(s), by jersey number. */
+  myKids?: string[];
 }
 
-export const HighlightsSection: React.FC<Props> = ({ teamId, teamName, ownTeamScout, roster, userEmail, authorName }) => {
+export const HighlightsSection: React.FC<Props> = ({ teamId, teamName, ownTeamScout, roster, userEmail, authorName, watchOnly, myKids }) => {
   const season = seasonOf();
   const store = useHighlights(teamId, season);
   const own = useMemo(() => bundleFromSaved(ownTeamScout, teamName), [ownTeamScout, teamName]);
@@ -59,6 +64,8 @@ export const HighlightsSection: React.FC<Props> = ({ teamId, teamName, ownTeamSc
     [teamId]
   );
 
+  if (watchOnly)
+    return <FamilyHighlights teamName={teamName} season={season} store={store} access={access} games={games} plays={plays} roster={roster} kids={myKids || []} />;
   return (
     <HighlightsView
       teamName={teamName}
