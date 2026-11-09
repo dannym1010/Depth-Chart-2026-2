@@ -2,14 +2,15 @@
 // part on a loop, "Start at snap", slow motion over part of it, a freeze frame with a spotlight on a kid (tap him on
 // the picture), a replay from another camera lined up with this one, and its title, kinds, kids, rating and note.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Columns2, Crosshair, Pause, Play as PlayIcon, Repeat, Scissors, SkipBack, Star, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { Columns2, Crosshair, Instagram, Pause, Play as PlayIcon, Repeat, Scissors, SkipBack, Star, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import type { Play } from '../hudlScout/types/football';
 import { probeSnap, snapTimeCache } from '../filmroom/snapProbe';
 import { savedOffset, snapOffset, syncTarget } from '../filmroom/dualView';
 import type { FilmGameShared } from '../filmroom/types';
 import { lineUp, type FilmAccess, type GameFilm } from './filmAccess';
-import { drawLowerThird, drawSpot } from './graphics';
-import { editHighlight, kidLabel, kidsText, removeHighlights, snapWindow, type Kid } from './highlightData';
+import { drawLowerThird, drawSpot, loadImage } from './graphics';
+import { editHighlight, highlightSegments, kidLabel, kidsText, removeHighlights, snapWindow, type Kid } from './highlightData';
+import { SocialVideoPanel } from './SocialVideoPanel';
 import type { Highlight, HighlightCategory, HighlightMark, HighlightSettings, SpotStyle } from './types';
 import type { HighlightStore } from './useHighlights';
 import { useClipSrc } from './useClipSrc';
@@ -154,6 +155,10 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
       const t = e.target as HTMLElement;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (social) {
+        if (e.key === 'Escape') setSocial(false);
+        return;
+      }
       const v = videoRef.current;
       if (!v) return;
       const k = e.key.toLowerCase();
@@ -173,6 +178,17 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
 
   // The lower third and the spotlight drawn over the picture, as the reel will show them.
   const kids = kidsText(h.kids, roster, settings.names);
+
+  // "Instagram video" of just this highlight: its title, slow motion, freeze and replay.
+  const [social, setSocial] = useState(false);
+  const [logo, setLogo] = useState<HTMLImageElement | null>(null);
+  useEffect(() => {
+    if (social) void loadImage(settings.logo).then(setLogo);
+  }, [social, settings.logo]);
+  const socialSegments = useMemo(
+    () => (social ? highlightSegments(h, { overlay: { title: h.title, sub: kids || undefined }, replays: h.replay ? 'each' : 'none', replaySpeed: settings.replaySpeed }) : []),
+    [social, h, kids, settings.replaySpeed]
+  );
   useEffect(() => {
     const c = overRef.current;
     const v = videoRef.current;
@@ -796,6 +812,17 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
         {reels.some((r) => r.has) && (
           <span className="text-slate-500 truncate">In: {reels.filter((r) => r.has).map((r) => r.name).join(', ')}</span>
         )}
+        <button
+          type="button"
+          onClick={() => {
+            videoRef.current?.pause();
+            setSocial(true);
+          }}
+          className="inline-flex items-center gap-1 h-8 px-2 rounded-lg border border-pink-400 font-bold text-pink-700 dark:text-pink-300"
+          title="Make an MP4 of this highlight for Instagram"
+        >
+          <Instagram size={13} /> Instagram video
+        </button>
         {!ro && (
           <button
             type="button"
@@ -809,6 +836,9 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
           </button>
         )}
       </div>
+      {social && (
+        <SocialVideoPanel title={h.title || 'Highlight'} segments={socialSegments} access={access} settings={settings} logo={logo} onClose={() => setSocial(false)} />
+      )}
     </div>
   );
 };

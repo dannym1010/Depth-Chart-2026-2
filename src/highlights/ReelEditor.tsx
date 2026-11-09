@@ -2,7 +2,7 @@
 // goes around them (intro, game cards, a kid's stats, titles, score, the end card, replays, a song), its length
 // against a goal, and Play / Export.
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, Copy, Download, Play as PlayIcon, Plus, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Copy, Download, Instagram, Play as PlayIcon, Plus, Trash2, X } from 'lucide-react';
 import type { Play } from '../hudlScout/types/football';
 import type { FilmAccess } from './filmAccess';
 import { ExportPanel } from './ExportPanel';
@@ -10,6 +10,7 @@ import { loadImage } from './graphics';
 import { addToReel, clock, editReel, EVERYONE, moveInReel, newReel, orderedHighlights, reelTimeline, timelineSeconds, type Kid } from './highlightData';
 import { libraryFolder, listFiles, subfolder } from './localLibrary';
 import { ReelPlayer } from './ReelPlayer';
+import { SocialVideoPanel } from './SocialVideoPanel';
 import type { HighlightsData, Reel, ReelOptions } from './types';
 import type { HighlightStore } from './useHighlights';
 
@@ -43,6 +44,7 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
   const seconds = timelineSeconds(segments);
   const [playing, setPlaying] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [social, setSocial] = useState(false);
   const [adding, setAdding] = useState(false);
   const [logo, setLogo] = useState<HTMLImageElement | null>(null);
   useEffect(() => {
@@ -117,6 +119,9 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
         </button>
         <button type="button" onClick={() => setExporting(true)} disabled={!list.length} className="h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-600 font-bold text-sm inline-flex items-center gap-1.5 disabled:opacity-40">
           <Download size={15} /> Export
+        </button>
+        <button type="button" onClick={() => setSocial(true)} disabled={!list.length} className="h-9 px-3 rounded-lg border border-pink-400 text-pink-700 dark:text-pink-300 font-bold text-sm inline-flex items-center gap-1.5 disabled:opacity-40" title="Make an MP4 for Instagram (Reel, Story or post)">
+          <Instagram size={15} /> Instagram video
         </button>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
@@ -321,6 +326,18 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
       )}
 
       {playing && <ReelPlayer title={reel.name} segments={segments} access={access} settings={settings} logo={logo} musicUrl={musicUrl} transition={o.transition} onClose={stopPlaying} />}
+      {social && (
+        <SocialVideoPanel
+          title={reel.name}
+          segments={segments}
+          access={access}
+          settings={settings}
+          logo={logo}
+          transition={o.transition}
+          music={o.music ? songs.find((s) => s.name === o.music) : undefined}
+          onClose={() => setSocial(false)}
+        />
+      )}
       {exporting && <ExportPanel reelName={reel.name} segments={segments} access={access} settings={settings} logo={logo} data={data} teamName={teamName} season={season} onClose={() => setExporting(false)} />}
     </div>
   );
