@@ -71,13 +71,18 @@ export function jerseyOf(label: string | undefined): string {
   return m ? m[1] : '';
 }
 
-export type BallRole = 'rusher' | 'passer' | 'receiver';
+export type BallRole = 'rusher' | 'passer' | 'receiver' | 'returner' | 'kicker';
 
-/** Set who ran, threw or caught it on one play ("#13 Landon Veto"), or clear it with ''. */
+/** Set who ran, threw, caught, returned or kicked it on one play ("#13 Landon Veto"), or clear it with ''. */
 export function setPlayBallPlayer(plays: Play[], playId: string, role: BallRole, label: string): Play[] {
   return plays.map((p) => {
     if (p.id !== playId) return p;
     const next = { ...p, [role]: label || undefined };
+    if (!label) delete next[role];
+    if (role === 'returner' || role === 'kicker') {
+      next.editedAt = Date.now();
+      return next;
+    }
     // The carrier / target line follows: the runner on a run, else the receiver or passer.
     const isRun = p.playType === 'RUN';
     next.carrierOrTarget = (isRun ? next.rusher || next.receiver : next.receiver || next.rusher) || next.passer || '';

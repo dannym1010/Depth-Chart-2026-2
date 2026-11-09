@@ -452,6 +452,8 @@ function keepCoachWork(old: Play, fresh: Play): Play {
   if (!fresh.rusher && old.rusher) next.rusher = old.rusher;
   if (!fresh.passer && old.passer) next.passer = old.passer;
   if (!fresh.receiver && old.receiver) next.receiver = old.receiver;
+  if (!fresh.returner && old.returner) next.returner = old.returner;
+  if (!fresh.kicker && old.kicker) next.kicker = old.kicker;
   if (!fresh.carrierOrTarget && old.carrierOrTarget) next.carrierOrTarget = old.carrierOrTarget;
   if (old.defPlay && (old.defPlay.maker || old.defPlay.assist || old.defPlay.assists?.length || old.defPlay.events?.length)) {
     const assists = old.defPlay.assists?.length ? old.defPlay.assists : undefined;

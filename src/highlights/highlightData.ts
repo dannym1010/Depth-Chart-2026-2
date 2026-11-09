@@ -115,7 +115,7 @@ const isKick = (p: Play) => p.odk === 'K' || /\b(ko|kick|punt)\b/i.test(String(p
 
 /** Jersey numbers on a play: who carried, threw, caught, made the tackle. */
 export function kidsOnPlay(p: Play): string[] {
-  const nums = [p.rusher, p.passer, p.receiver, p.defPlay?.maker, ...(p.defPlay?.assists || []), p.defPlay?.assist]
+  const nums = [p.rusher, p.passer, p.receiver, p.returner, p.kicker, p.defPlay?.maker, ...(p.defPlay?.assists || []), p.defPlay?.assist]
     .map((x) => jerseyOf(x))
     .filter(Boolean);
   if (!nums.length && p.carrierOrTarget) nums.push(jerseyOf(p.carrierOrTarget));

@@ -7,6 +7,7 @@ import type { FilmLineup } from './filmLineup';
 import { defAssists, jerseyOf } from './filmLineup';
 import { isDefensiveStop } from '../hudlScout/utils/unitStats';
 import { defPlayFrom } from '../hudlScout/utils/csvParser';
+import { kickKind } from '../hudlScout/utils/gameStats';
 import type { DefEvent } from '../hudlScout/types/football';
 
 /** Sack / TFL / INT... on a defense play: what a coach marked, else what the result says. */
@@ -45,6 +46,9 @@ export interface PlayerFilmLine {
   ff: number;
   fr: number;
   pbu: number;
+  /** Kickoff and punt returns, and their yards (a return TD is in touchdowns). */
+  returns: number;
+  retYds: number;
   /** Share of his defensive snaps where the offense did not stay on schedule. */
   stopRate: number;
   /** Yards the offense gained per play while he was on the field. */
@@ -96,6 +100,8 @@ export function playerFilmStats(
         ff: 0,
         fr: 0,
         pbu: 0,
+        returns: 0,
+        retYds: 0,
         stopRate: 0,
         yardsAllowedPerSnap: 0,
         _stops: 0,
@@ -148,6 +154,16 @@ export function playerFilmStats(
   for (const p of plays) {
     if (p.odk === 'K') {
       creditTackles(p);
+      // Kick and punt returns (Hudl's rusher column on a return, unless a coach picked the returner).
+      const k = kickKind(p);
+      const ret = p.returner || (k === 'koReturn' || k === 'puntReturn' ? p.rusher || p.carrierOrTarget : '');
+      const num = jerseyOf(ret);
+      if (num) {
+        const l = line(num, ret);
+        l.returns++;
+        l.retYds += Number(p.gainLoss) || 0;
+        if (/\btd\b|touchdown/i.test(p.result || '')) l.touchdowns++;
+      }
       continue;
     }
     if (!isSnap(p)) continue;

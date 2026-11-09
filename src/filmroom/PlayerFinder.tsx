@@ -30,9 +30,18 @@ interface Props {
 }
 
 type SortKey = 'game' | 'play' | 'qtr' | 'down' | 'yard' | 'role' | 'name' | 'result' | 'gain';
-type RoleFilter = 'all' | 'run' | 'pass' | 'catch' | 'defense';
+type RoleFilter = 'all' | 'run' | 'pass' | 'catch' | 'defense' | 'special';
 
-const ROLE_COLOR: Record<PlayerRole, string> = { Rush: '#2563eb', Pass: '#8b5cf6', Catch: '#0891b2', Target: '#94a3b8', Tackle: '#ea580c', Assist: '#f59e0b' };
+const ROLE_COLOR: Record<PlayerRole, string> = {
+  Rush: '#2563eb',
+  Pass: '#8b5cf6',
+  Catch: '#0891b2',
+  Target: '#94a3b8',
+  Return: '#059669',
+  Kick: '#65a30d',
+  Tackle: '#ea580c',
+  Assist: '#f59e0b',
+};
 const EVENT_LABEL: Record<string, string> = { sack: 'Sack', tfl: 'TFL', int: 'INT', ff: 'Forced fumble', fr: 'Fumble rec.', pbu: 'PBU' };
 
 const ordinal = (n: number) => `${n}${['', 'st', 'nd', 'rd'][n] || 'th'}`;
@@ -65,7 +74,7 @@ export const PlayerFinder: React.FC<Props> = ({ open, onClose, games, plays, ros
     const counts = new Map<string, number>();
     for (const p of plays) {
       const seen = new Set<string>();
-      for (const label of [p.rusher, p.passer, p.receiver, p.carrierOrTarget, p.defPlay?.maker, p.defPlay?.assist, ...(p.defPlay?.assists || [])]) {
+      for (const label of [p.rusher, p.passer, p.receiver, p.carrierOrTarget, p.returner, p.kicker, p.defPlay?.maker, p.defPlay?.assist, ...(p.defPlay?.assists || [])]) {
         const n = jerseyOf(label);
         if (n && !seen.has(n)) {
           seen.add(n);
@@ -94,7 +103,8 @@ export const PlayerFinder: React.FC<Props> = ({ open, onClose, games, plays, ros
     (role === 'run' && r.roles.includes('Rush')) ||
     (role === 'pass' && r.roles.includes('Pass')) ||
     (role === 'catch' && (r.roles.includes('Catch') || r.roles.includes('Target'))) ||
-    (role === 'defense' && (r.roles.includes('Tackle') || r.roles.includes('Assist')));
+    (role === 'defense' && (r.roles.includes('Tackle') || r.roles.includes('Assist'))) ||
+    (role === 'special' && (r.roles.includes('Return') || r.roles.includes('Kick') || r.play.odk === 'K'));
   const sorted = useMemo(() => {
     const val = (r: PlayerPlay): number | string => {
       const p = r.play;
@@ -132,7 +142,7 @@ export const PlayerFinder: React.FC<Props> = ({ open, onClose, games, plays, ros
 
   if (!open) return null;
   // The playlist's name: the player, and what's picked ("#21 Nash Ward · Runs · Week 3 - Shrub Oak").
-  const roleName: Record<RoleFilter, string> = { all: '', run: 'Runs', pass: 'Passes', catch: 'Catches & targets', defense: 'Tackles & assists' };
+  const roleName: Record<RoleFilter, string> = { all: '', run: 'Runs', pass: 'Passes', catch: 'Catches & targets', defense: 'Tackles & assists', special: 'Special teams' };
   const listName = [
     person ? `#${person.num}${person.name ? ` ${person.name}` : ''}` : '',
     roleName[role],
@@ -258,6 +268,11 @@ export const PlayerFinder: React.FC<Props> = ({ open, onClose, games, plays, ros
                         ['Assists', t.assists],
                         ...([['TFL', t.tfl], ['Sacks', t.sacks], ['INT', t.ints], ['Forced fum.', t.forcedFumbles], ['Fum. rec.', t.recoveries], ['PBU', t.pbu]] as [string, number][]).filter(([, v]) => v > 0),
                       ])}
+                    {t.returns + t.kicks > 0 &&
+                      group('Special teams', ROLE_COLOR.Return, [
+                        ...((t.returns ? [['Returns', t.returns], ['Ret. yards', t.retYds], ['Avg', avg(t.retYds, t.returns)]] : []) as [string, string | number][]),
+                        ...((t.kicks ? [['Kicks', t.kicks]] : []) as [string, number][]),
+                      ])}
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {(
@@ -267,6 +282,7 @@ export const PlayerFinder: React.FC<Props> = ({ open, onClose, games, plays, ros
                         ['pass', 'Passes'],
                         ['catch', 'Catches & targets'],
                         ['defense', 'Tackles & assists'],
+                        ['special', 'Special teams'],
                       ] as const
                     ).map(([k, label]) => (
                       <button key={k} type="button" className={chip(role === k)} onClick={() => setRole(k)}>

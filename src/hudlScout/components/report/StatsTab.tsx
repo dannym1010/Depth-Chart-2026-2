@@ -2,7 +2,7 @@
 // game-by-game table. Offense and defense side by side, then rushing, passing, receiving and the defense.
 import React, { useMemo } from 'react';
 import type { Play } from '../../types/football';
-import { boxScore, defenseStats, gameRows, playKind, unsidedPlays, type CallTypeOf, type TeamLine } from '../../utils/gameStats';
+import { boxScore, defenseStats, gameRows, kickKind, playKind, specialTeamsStats, unsidedPlays, type CallTypeOf, type TeamLine } from '../../utils/gameStats';
 import type { PlayDatabaseEntry } from '../../../types/callSheet';
 import { Card, EmptyNote, SectionHeader, WatchCutupFn, WatchPill } from './ui';
 import { PlayerAnalytics } from './PlayerAnalytics';
@@ -135,7 +135,11 @@ export const StatsTab: React.FC<Props> = ({ plays, games, selectedGameId, own, p
   const offense = useMemo(() => boxScore(offPlays, callTypeOf), [offPlays, callTypeOf]);
   const defense = useMemo(() => boxScore(defPlays, callTypeOf), [defPlays, callTypeOf]);
   const unsided = useMemo(() => unsidedPlays(plays), [plays]);
-  const defenders = useMemo(() => defenseStats(defPlays), [defPlays]);
+  const kickPlays = useMemo(() => plays.filter((p) => p.odk === 'K'), [plays]);
+  // Tackles on kick coverage count with the defense's.
+  const tacklePlays = useMemo(() => [...defPlays, ...kickPlays], [defPlays, kickPlays]);
+  const defenders = useMemo(() => defenseStats(tacklePlays), [tacklePlays]);
+  const special = useMemo(() => specialTeamsStats(kickPlays), [kickPlays]);
   const byGame = useMemo(
     () => (season ? gameRows(plays, [...games].sort((a, b) => (Number(a.week) || 99) - (Number(b.week) || 99)), 'O', callTypeOf) : []),
     [season, plays, games, callTypeOf]
@@ -329,7 +333,7 @@ export const StatsTab: React.FC<Props> = ({ plays, games, selectedGameId, own, p
       <Card>
         <SectionHeader
           title="Defense"
-          subtitle="Tackles count the tackler and every assist. Click any defender row to watch their plays."
+          subtitle="Tackles count everyone in on the tackle (kick coverage too). Click any defender row to watch their plays."
         />
         <Table
           head={['Player', 'Tackles', 'Solo', 'Assists', 'TFL', 'Sacks', 'INT', 'FF', 'FR', 'PBU']}
@@ -340,7 +344,7 @@ export const StatsTab: React.FC<Props> = ({ plays, games, selectedGameId, own, p
                   const d = defenders[idx];
                   if (!d) return;
                   const target = d.name.trim().toLowerCase();
-                  const subset = defPlays.filter((p) => {
+                  const subset = tacklePlays.filter((p) => {
                     const dp = p.defPlay;
                     if (!dp) return false;
                     const maker = String(dp.maker || '').trim().toLowerCase();
@@ -354,6 +358,66 @@ export const StatsTab: React.FC<Props> = ({ plays, games, selectedGameId, own, p
           empty="No tackles credited yet. Open a defensive play in the play log (▸ by the play number) to credit the tackle."
         />
       </Card>
+
+      {(special.returners.length > 0 || special.kickers.length > 0 || (own && kickPlays.length > 0)) && (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <Card>
+            <SectionHeader title="Returns" subtitle="Kickoff (KR) and punt (PR) returns; yards are the play's gain. Click a row to watch them." />
+            <Table
+              head={['Player', 'KR', 'KR Yds', 'PR', 'PR Yds', 'Avg', 'TD', 'Long']}
+              rows={special.returners.map((r) => [
+                r.name,
+                r.kr,
+                r.krYds,
+                r.pr,
+                r.prYds,
+                r.kr + r.pr ? Math.round(((r.krYds + r.prYds) / (r.kr + r.pr)) * 10) / 10 : 0,
+                r.td,
+                r.long,
+              ])}
+              onRowClick={
+                onWatchCutup
+                  ? (idx) => {
+                      const r = special.returners[idx];
+                      if (!r) return;
+                      const back = (p: (typeof kickPlays)[number]) => kickKind(p) === 'koReturn' || kickKind(p) === 'puntReturn';
+                      const subset = kickPlays.filter(
+                        (p) => (String(p.returner || '').trim() || (back(p) ? String(p.rusher || p.carrierOrTarget || '').trim() : '')).toLowerCase() === r.name.toLowerCase()
+                      );
+                      if (subset.length > 0) onWatchCutup(`Returns · ${r.name}`, subset);
+                    }
+                  : undefined
+              }
+              empty="No returners picked yet. In the Film Room breakdown, open a KO Rec or Punt Rec play and tap the kid who ran it back."
+            />
+          </Card>
+          <Card>
+            <SectionHeader title="Kicking" subtitle="Kickoffs, punts (yards = the play's gain), PATs and field goals (Good / No good in the result)." />
+            <Table
+              head={['Player', 'KO', 'Punts', 'Punt Avg', 'PAT', 'FG']}
+              rows={special.kickers.map((k) => [
+                k.name,
+                k.ko,
+                k.punts,
+                k.punts ? Math.round((k.puntYds / k.punts) * 10) / 10 : '–',
+                k.patAtt ? `${k.patMade}/${k.patAtt}` : '–',
+                k.fgAtt ? `${k.fgMade}/${k.fgAtt}` : '–',
+              ])}
+              onRowClick={
+                onWatchCutup
+                  ? (idx) => {
+                      const k = special.kickers[idx];
+                      if (!k) return;
+                      const subset = kickPlays.filter((p) => String(p.kicker || '').trim().toLowerCase() === k.name.toLowerCase());
+                      if (subset.length > 0) onWatchCutup(`Kicking · ${k.name}`, subset);
+                    }
+                  : undefined
+              }
+              empty="No kickers picked yet. In the Film Room breakdown, open a KO, Punt, PAT or FG play and tap who kicked it."
+            />
+          </Card>
+        </div>
+      )}
     </div>
   );
 };

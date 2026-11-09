@@ -75,6 +75,9 @@ export interface Play {
   rusher?: string;
   passer?: string;
   receiver?: string;
+  /** Special teams (our film): who ran back the kickoff / punt, and who kicked or punted it ("#4 Cole"). */
+  returner?: string;
+  kicker?: string;
   oppRusher?: string;
   oppPasser?: string;
   oppReceiver?: string;

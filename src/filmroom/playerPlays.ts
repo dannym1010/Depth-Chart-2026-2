@@ -3,8 +3,9 @@
 // forced fumble, recovery, pass breakup). Players are matched by jersey number, the way the plays record them
 // ("#21 Nash Ward", "#52").
 import type { DefEvent, Play } from '../hudlScout/types/football';
+import { kickKind } from '../hudlScout/utils/gameStats';
 
-export type PlayerRole = 'Rush' | 'Pass' | 'Catch' | 'Target' | 'Tackle' | 'Assist';
+export type PlayerRole = 'Rush' | 'Pass' | 'Catch' | 'Target' | 'Return' | 'Kick' | 'Tackle' | 'Assist';
 
 export interface PlayerPlay {
   play: Play;
@@ -33,6 +34,11 @@ export interface PlayerTotals {
   recoveries: number;
   pbu: number;
   touchdowns: number;
+  /** Kickoff and punt returns, and their yards. */
+  returns: number;
+  retYds: number;
+  /** Kickoffs, punts, PATs and field goals he kicked. */
+  kicks: number;
 }
 
 /** The jersey number in a player label ("#21 Nash Ward" → "21", "52" → "52"); '' when there's none. */
@@ -52,11 +58,18 @@ export function playsForPlayer(plays: Play[], num: string): PlayerPlay[] {
   const out: PlayerPlay[] = [];
   for (const p of plays) {
     const roles: PlayerRole[] = [];
-    if (is(p.rusher)) roles.push('Rush');
-    if (is(p.passer)) roles.push('Pass');
-    if (is(p.receiver)) roles.push(completed(p) ? 'Catch' : 'Target');
-    // A carrier named only in the players column ("#21 Ward" on a run).
-    if (!roles.length && is(p.carrierOrTarget)) roles.push(p.playType === 'PASS' ? (completed(p) ? 'Catch' : 'Target') : 'Rush');
+    if (p.odk === 'K') {
+      // Special teams: the returner (or, from Hudl, the one carrying it back on a return) and the kicker.
+      const back = kickKind(p) === 'koReturn' || kickKind(p) === 'puntReturn';
+      if (is(p.returner) || (!p.returner && back && is(p.rusher || p.carrierOrTarget))) roles.push('Return');
+      if (is(p.kicker)) roles.push('Kick');
+    } else {
+      if (is(p.rusher)) roles.push('Rush');
+      if (is(p.passer)) roles.push('Pass');
+      if (is(p.receiver)) roles.push(completed(p) ? 'Catch' : 'Target');
+      // A carrier named only in the players column ("#21 Ward" on a run).
+      if (!roles.length && is(p.carrierOrTarget)) roles.push(p.playType === 'PASS' ? (completed(p) ? 'Catch' : 'Target') : 'Rush');
+    }
     const d = p.defPlay;
     const tackled = is(d?.maker);
     if (tackled) roles.push('Tackle');
@@ -71,10 +84,16 @@ export function playerTotals(rows: PlayerPlay[]): PlayerTotals {
   const t: PlayerTotals = {
     plays: rows.length, carries: 0, rushYds: 0, attempts: 0, completions: 0, passYds: 0, targets: 0, catches: 0, recYds: 0,
     tackles: 0, assists: 0, sacks: 0, tfl: 0, ints: 0, forcedFumbles: 0, recoveries: 0, pbu: 0, touchdowns: 0,
+    returns: 0, retYds: 0, kicks: 0,
   };
   for (const r of rows) {
     const g = Number(r.play.gainLoss) || 0;
-    const offense = r.roles.some((x) => x === 'Rush' || x === 'Catch' || x === 'Pass');
+    const offense = r.roles.some((x) => x === 'Rush' || x === 'Catch' || x === 'Pass' || x === 'Return');
+    if (r.roles.includes('Return')) {
+      t.returns += 1;
+      t.retYds += g;
+    }
+    if (r.roles.includes('Kick')) t.kicks += 1;
     if (r.roles.includes('Rush')) {
       t.carries += 1;
       t.rushYds += g;

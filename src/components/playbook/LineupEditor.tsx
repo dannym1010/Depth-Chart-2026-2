@@ -19,7 +19,7 @@ export const LineupEditor: React.FC<{
   canEdit: boolean;
   onSetSub: (slotId: string, ref: FilmPlayerRef | null | undefined) => void;
   /** Who ran, threw and caught it (from Hudl, or picked here). */
-  ball?: { rusher?: string; passer?: string; receiver?: string };
+  ball?: Partial<Record<BallRole, string>>;
   onSetBall?: (role: BallRole, label: string) => void;
   /** Defense and special teams: who made the tackle, the assists, and sack / TFL / INT / FF / FR / PBU. */
   defPlay?: DefPlay;
@@ -29,8 +29,11 @@ export const LineupEditor: React.FC<{
 }> = ({ lineup, unit, weekLabel, roster, canEdit, onSetSub, ball, onSetBall, defPlay, onSetDefPlay, kick }) => {
   if (kick || !lineup) {
     const sortedAll = [...roster].sort((a, b) => (Number(a.num) || 999) - (Number(b.num) || 999));
-    return kick && onSetDefPlay ? (
-      <DefPicker lineup={null} roster={sortedAll} defPlay={defPlay || {}} canEdit={canEdit} onSetDefPlay={onSetDefPlay} kick />
+    return kick && (onSetDefPlay || onSetBall) ? (
+      <div className="space-y-2">
+        {onSetBall && <BallPicker lineup={null} roster={sortedAll} ball={ball || {}} canEdit={canEdit} onSetBall={onSetBall} roles={KICK_ROLES} />}
+        {onSetDefPlay && <DefPicker lineup={null} roster={sortedAll} defPlay={defPlay || {}} canEdit={canEdit} onSetDefPlay={onSetDefPlay} kick />}
+      </div>
     ) : (
       <p className="text-xs text-slate-500 dark:text-slate-400">Timeouts and penalties have no lineup here.</p>
     );
@@ -116,22 +119,27 @@ const ROLES: { role: BallRole; label: string }[] = [
   { role: 'passer', label: 'Passer' },
   { role: 'receiver', label: 'Receiver' },
 ];
+const KICK_ROLES: { role: BallRole; label: string }[] = [
+  { role: 'returner', label: 'Returner' },
+  { role: 'kicker', label: 'Kicker' },
+];
 
-/** Runner / passer / receiver for one play. Players on the field for the play are listed first. */
+/** Runner / passer / receiver (or returner / kicker on a kick) for one play. Players on the field are listed first. */
 const BallPicker: React.FC<{
-  lineup: FilmLineup;
+  lineup: FilmLineup | null;
   roster: RosterPlayer[];
-  ball: { rusher?: string; passer?: string; receiver?: string };
+  ball: Partial<Record<BallRole, string>>;
   canEdit: boolean;
   onSetBall: (role: BallRole, label: string) => void;
-}> = ({ lineup, roster, ball, canEdit, onSetBall }) => {
-  const onField = new Set(lineup.slots.map((s) => String(s.player?.num || '')).filter(Boolean));
+  roles?: { role: BallRole; label: string }[];
+}> = ({ lineup, roster, ball, canEdit, onSetBall, roles = ROLES }) => {
+  const onField = new Set((lineup?.slots || []).map((s) => String(s.player?.num || '')).filter(Boolean));
   const fieldPlayers = roster.filter((r) => onField.has(String(r.num)));
   const others = roster.filter((r) => !onField.has(String(r.num)));
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 px-2 py-1.5">
       <span className="text-[11px] font-black uppercase tracking-wide text-slate-600 dark:text-slate-300">On the ball</span>
-      {ROLES.map(({ role, label }) => {
+      {roles.map(({ role, label }) => {
         const current = ball[role] || '';
         const num = jerseyOf(current);
         const known = roster.some((r) => String(r.num) === num);

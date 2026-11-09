@@ -29,7 +29,7 @@ interface PlaysTableProps {
   lineupFor?: (play: Play) => { lineup: FilmLineup | null; weekLabel?: string };
   roster?: RosterPlayer[];
   onSetSub?: (playId: string, slotId: string, ref: FilmPlayerRef | null | undefined) => void;
-  onSetBall?: (playId: string, role: 'rusher' | 'passer' | 'receiver', label: string) => void;
+  onSetBall?: (playId: string, role: 'rusher' | 'passer' | 'receiver' | 'returner' | 'kicker', label: string) => void;
   onSetDefPlay?: (playId: string, patch: Partial<NonNullable<Play['defPlay']>>) => void;
   /** Our film uploaded before player names were read: offer to upload the file again. */
   onRefreshFromHudl?: () => void;
@@ -221,7 +221,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
         roster={roster!}
         canEdit
         onSetSub={(slotId, ref) => onSetSub!(play.id, slotId, ref)}
-        ball={{ rusher: play.rusher, passer: play.passer, receiver: play.receiver }}
+        ball={{ rusher: play.rusher, passer: play.passer, receiver: play.receiver, returner: play.returner, kicker: play.kicker }}
         onSetBall={onSetBall ? (role, label) => onSetBall(play.id, role, label) : undefined}
         defPlay={play.defPlay}
         onSetDefPlay={onSetDefPlay ? (patch) => onSetDefPlay(play.id, patch) : undefined}
@@ -1353,7 +1353,7 @@ const FormationCell: React.FC<{
   );
 };
 
-const hasPlayers = (p: Play) => Boolean(p.rusher || p.passer || p.receiver || p.defPlay?.maker || defAssists(p.defPlay).length || p.defPlay?.events?.length);
+const hasPlayers = (p: Play) => Boolean(p.rusher || p.passer || p.receiver || p.returner || p.kicker || p.defPlay?.maker || defAssists(p.defPlay).length || p.defPlay?.events?.length);
 const EVENT_LABEL: Record<string, string> = { sack: 'Sack', tfl: 'TFL', int: 'INT', ff: 'FF', fr: 'FR', pbu: 'PBU' };
 
 /** Who had the ball: "Run #13 Landon Veto" / "Pass #21 Nash Ward → #10 Luke M". */
@@ -1362,6 +1362,8 @@ const BallPlayers: React.FC<{ play: Play; inline?: boolean }> = ({ play, inline 
   if (play.rusher) rows.push(['Run', play.rusher]);
   if (play.passer) rows.push(['Pass', play.passer]);
   if (play.receiver) rows.push(['Target', play.receiver]);
+  if (play.returner) rows.push(['Return', play.returner]);
+  if (play.kicker) rows.push(['Kick', play.kicker]);
   if (play.odk === 'D' && play.carrierOrTarget && !play.rusher) rows.push(['Their', play.carrierOrTarget]);
   if (play.defPlay?.maker) rows.push(['Tackle', play.defPlay.maker]);
   for (const a of defAssists(play.defPlay)) rows.push(['Assist', a]);

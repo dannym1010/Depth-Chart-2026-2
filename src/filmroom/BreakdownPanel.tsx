@@ -2,8 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronRight, Eraser, Sparkles } from 'lucide-react';
 import type { DefPlay, Play, TeamUnit } from '../hudlScout/types/football';
 import type { RosterPlayer } from '../types';
-import { playTakesTackles, type FilmLineup } from '../utils/filmLineup';
+import { playTakesTackles, type BallRole, type FilmLineup } from '../utils/filmLineup';
 import { TacklesBox } from './TacklesBox';
+import { BallBox } from './BallBox';
 import { playIsUnitTaggable } from '../hudlScout/utils/unitStats';
 import { isBalancedPlay, playStrength } from '../hudlScout/utils/strength';
 import { breakdownRowOf, type BreakdownColumn, type BreakdownRow } from './breakdownEntry';
@@ -56,6 +57,8 @@ interface Props {
   onSetDefPlay?: (play: Play, patch: Partial<DefPlay>) => void;
   /** Who was on the field for the play, so their buttons come first. */
   lineupOf?: (play: Play) => FilmLineup | null;
+  /** Our film: who ran, threw or caught it (offense), returned or kicked it (kicks), picked by tapping a kid. */
+  onSetBall?: (play: Play, role: BallRole, label: string) => void;
 }
 
 const ODK = [
@@ -69,7 +72,7 @@ const DN = ['1', '2', '3', '4'];
 const LMR = ['L', 'M', 'R'];
 const RUN_PASS = ['Run', 'Pass', 'RPO', 'Screen'];
 const KICKS = ['KO', 'KO Rec', 'Punt', 'Punt Rec', 'PAT', 'FG'];
-const RESULTS = ['Rush', 'Complete', 'Incomplete', 'Sack', 'Scramble', 'Interception', 'Fumble', 'Rush, TD', 'Complete, TD', 'Penalty', 'Return', 'Touchback', 'Fair catch'];
+const RESULTS = ['Rush', 'Complete', 'Incomplete', 'Sack', 'Scramble', 'Interception', 'Fumble', 'Rush, TD', 'Complete, TD', 'Penalty', 'Return', 'Return, TD', 'Touchback', 'Fair catch', 'Good', 'No good'];
 
 const uniq = (xs: string[]) => [...new Set(xs.map((x) => x.trim()).filter((x) => x && x !== '-'))].sort((a, b) => a.localeCompare(b));
 
@@ -103,6 +106,7 @@ export const BreakdownPanel: React.FC<Props> = ({
   isProgramAdmin = false,
   onSetDefPlay,
   lineupOf,
+  onSetBall,
 }) => {
   const saved = useMemo(() => (play ? breakdownRowOf(play) : {}), [play]);
   // Typed boxes: kept here until they're saved.
@@ -316,11 +320,14 @@ export const BreakdownPanel: React.FC<Props> = ({
         {field('Result', box('RESULT', { list: `${listId}-result`, placeholder: 'Rush, Complete…' }))}
         {field('Gain', box('GN/LS', { placeholder: '0', inputMode: 'numeric', className: 'w-14' }))}
       </div>
+      {onSetBall && (play.odk === 'O' || play.odk === 'K') && (
+        <BallBox play={play} lineup={lineupOf ? lineupOf(play) : null} roster={roster} readOnly={readOnly} onSetBall={(role, label) => onSetBall(play, role, label)} />
+      )}
       {onSetDefPlay && playTakesTackles(play) && (
         <TacklesBox play={play} lineup={lineupOf ? lineupOf(play) : null} roster={roster} readOnly={readOnly} onSetDefPlay={(patch) => onSetDefPlay(play, patch)} />
       )}
       {onPatch && (
-        <MoreFields play={play} onPatch={onPatch} readOnly={readOnly} chipClass={chipClass} />
+        <MoreFields play={play} onPatch={onPatch} readOnly={readOnly} chipClass={chipClass} players={!onSetBall} />
       )}
       <datalist id={`${listId}-form`}>{lists.form.map((v) => <option key={v} value={v} />)}</datalist>
       <datalist id={`${listId}-play`}>{lists.play.map((v) => <option key={v} value={v} />)}</datalist>
@@ -388,7 +395,14 @@ const chipClass = (on: boolean) =>
 
 /** The rest of a play's breakdown: strength (as set, or read from the formation), personnel, backfield,
  * motion, who had the ball, and the explosive / efficient flags. Typed boxes save on Enter or leaving them. */
-const MoreFields: React.FC<{ play: Play; onPatch: (play: Play, patch: Partial<Play>) => void; readOnly?: boolean; chipClass: (on: boolean) => string }> = ({ play, onPatch, readOnly, chipClass }) => {
+const MoreFields: React.FC<{
+  play: Play;
+  onPatch: (play: Play, patch: Partial<Play>) => void;
+  readOnly?: boolean;
+  chipClass: (on: boolean) => string;
+  /** Typed ball carrier / passer / receiver boxes (opponent film; our film taps kids in the box above). */
+  players?: boolean;
+}> = ({ play, onPatch, readOnly, chipClass, players = true }) => {
   const auto = (() => {
     const { strength: _s, ...rest } = play;
     if (isBalancedPlay(rest)) return 'Balanced';
@@ -477,11 +491,13 @@ const MoreFields: React.FC<{ play: Play; onPatch: (play: Play, patch: Partial<Pl
             {text('backfield', 'Backfield', 'I')}
             {text('motion', 'Motion (other)', 'Jet, Orbit')}
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            {text('rusher', 'Ball carrier', '#21')}
-            {text('passer', 'Passer', '#10')}
-            {text('receiver', 'Receiver', '#4')}
-          </div>
+          {players && (
+            <div className="grid grid-cols-3 gap-2">
+              {text('rusher', 'Ball carrier', '#21')}
+              {text('passer', 'Passer', '#10')}
+              {text('receiver', 'Receiver', '#4')}
+            </div>
+          )}
           <div className="flex flex-wrap gap-1">
             <button type="button" disabled={readOnly} aria-pressed={play.isExplosive} onClick={() => onPatch(play, { isExplosive: !play.isExplosive })} className={chipClass(play.isExplosive)}>
               Explosive

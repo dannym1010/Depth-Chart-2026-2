@@ -213,6 +213,69 @@ export function defenseStats(defense: Play[]): DefenderLine[] {
   return [...lines.values()].sort((a, b) => b.tackles - a.tackles || b.sacks - a.sacks);
 }
 
+/** What kind of kick a special teams play was, from its play type ("KO", "KO Rec", "Punt Rec", "PAT", "FG"...). */
+export type KickKind = 'ko' | 'koReturn' | 'punt' | 'puntReturn' | 'pat' | 'fg' | '';
+
+export function kickKind(p: Pick<Play, 'rawPlayType' | 'playName'>): KickKind {
+  const t = `${p.rawPlayType || ''} ${p.playName || ''}`.toLowerCase();
+  const back = /\brec\b|receiv|\bret|\bkr\b|\bpr\b/.test(t);
+  if (/punt|\bpr\b/.test(t)) return back ? 'puntReturn' : 'punt';
+  if (/\bfg\b|field goal/.test(t)) return 'fg';
+  if (/\bpat\b|\bxp\b|extra point/.test(t)) return 'pat';
+  if (/\bko\b|kick ?off|onside|squib|\bkr\b|kick/.test(t)) return back ? 'koReturn' : 'ko';
+  return '';
+}
+
+/** A kick that went through (PAT / FG): marked good or made, and not missed or blocked. */
+const kickGood = (p: Play) => /\bgood\b|\bmade\b|\bmake\b|success/.test(result(p)) && !/no good|miss|block|fail/.test(result(p));
+
+export interface ReturnLine { name: string; kr: number; krYds: number; pr: number; prYds: number; td: number; long: number }
+export interface KickerLine { name: string; ko: number; punts: number; puntYds: number; patMade: number; patAtt: number; fgMade: number; fgAtt: number }
+
+/** Our special teams by player: kick and punt returns (yards = the play's gain), and kicks / punts / PATs / FGs. */
+export function specialTeamsStats(kicks: Play[]): { returners: ReturnLine[]; kickers: KickerLine[] } {
+  const returners = new Map<string, ReturnLine>();
+  const kickers = new Map<string, KickerLine>();
+  for (const p of kicks) {
+    if (p.odk !== 'K') continue;
+    const kind = kickKind(p);
+    // Hudl puts the returner in its rusher column; a coach's pick wins.
+    const ret = name(p.returner) || (kind === 'koReturn' || kind === 'puntReturn' ? name(p.rusher) || name(p.carrierOrTarget) : '');
+    if (ret) {
+      const l = returners.get(ret) || { name: ret, kr: 0, krYds: 0, pr: 0, prYds: 0, td: 0, long: 0 };
+      if (kind === 'puntReturn') {
+        l.pr += 1;
+        l.prYds += gain(p);
+      } else {
+        l.kr += 1;
+        l.krYds += gain(p);
+      }
+      l.long = Math.max(l.long, gain(p));
+      if (isTd(p)) l.td += 1;
+      returners.set(ret, l);
+    }
+    const k = name(p.kicker);
+    if (k) {
+      const l = kickers.get(k) || { name: k, ko: 0, punts: 0, puntYds: 0, patMade: 0, patAtt: 0, fgMade: 0, fgAtt: 0 };
+      if (kind === 'punt') {
+        l.punts += 1;
+        l.puntYds += Math.abs(gain(p));
+      } else if (kind === 'pat') {
+        l.patAtt += 1;
+        if (kickGood(p)) l.patMade += 1;
+      } else if (kind === 'fg') {
+        l.fgAtt += 1;
+        if (kickGood(p)) l.fgMade += 1;
+      } else l.ko += 1;
+      kickers.set(k, l);
+    }
+  }
+  return {
+    returners: [...returners.values()].sort((a, b) => b.krYds + b.prYds - (a.krYds + a.prYds)),
+    kickers: [...kickers.values()].sort((a, b) => b.ko + b.punts + b.patAtt + b.fgAtt - (a.ko + a.punts + a.patAtt + a.fgAtt)),
+  };
+}
+
 /** One row per game for the season table. */
 export interface GameRow {
   gameId: string;

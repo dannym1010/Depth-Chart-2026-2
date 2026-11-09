@@ -1758,6 +1758,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
       readOnly={isReadOnlySession()}
       onSetUnit={isOwn ? (p, unit) => editPlays((all) => tagPlayUnits(all, p.id, unit, 'play')) : undefined}
       onSetDefPlay={isOwn && !locked ? (p, patch) => editPlays((all) => setPlayDefPlay(all, p.id, patch)) : undefined}
+      onSetBall={isOwn && !locked ? (p, role, label) => editPlays((all) => setPlayBallPlayer(all, p.id, role, label)) : undefined}
       lineupOf={isOwn && roster ? (p) => lineupFor(p).lineup : undefined}
       videoElement={apiRef.current?.video?.() || null}
       getVideo={() => apiRef.current?.video?.() || null}

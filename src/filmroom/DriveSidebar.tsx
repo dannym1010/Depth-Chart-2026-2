@@ -76,6 +76,8 @@ function whoOf(p: Play): string {
   else if (p.receiver) parts.push(`to ${p.receiver}`);
   if (p.rusher) parts.push(p.rusher);
   if (!parts.length && p.carrierOrTarget) parts.push(p.carrierOrTarget);
+  if (p.returner) parts.push(`Ret ${p.returner}`);
+  if (p.kicker) parts.push(`K ${p.kicker}`);
   const d = p.defPlay;
   if (d?.maker) parts.push(`Tkl ${d.maker}${d.assists?.length ? ` + ${d.assists.join(', ')}` : d.assist ? ` + ${d.assist}` : ''}`);
   return parts.join(' · ');
