@@ -29,6 +29,44 @@ export interface HighlightStore {
   readOnly: boolean;
 }
 
+/**
+ * A parent's or player's own highlights: kept in this browser only (never the cloud, never the coaches' list), so
+ * they can make them although their account is read-only. `who` = their email ('' = none: an empty store).
+ */
+export function useDeviceHighlights(teamId: string, season: string, who: string): HighlightStore {
+  const cacheKey = `footballHighlightsMine_${teamId}_${season}_${String(who || '').toLowerCase().trim()}`;
+  const [data, setData] = useState<HighlightsData>(() => (who ? mergeHighlights(safeJSONParse(cacheKey, emptyHighlights()), undefined) : emptyHighlights()));
+  const ref = useRef(data);
+  ref.current = data;
+  useEffect(() => {
+    if (!who) return;
+    const local = mergeHighlights(safeJSONParse(cacheKey, emptyHighlights()), undefined);
+    ref.current = local;
+    setData(local);
+    // The bigger copy (browser storage can drop the small one when it's full).
+    void bigGet<HighlightsData>(cacheKey).then((saved) => {
+      if (!saved) return;
+      const merged = mergeHighlights(ref.current, saved);
+      if (JSON.stringify(merged) !== JSON.stringify(ref.current)) {
+        ref.current = merged;
+        setData(merged);
+      }
+    });
+  }, [cacheKey, who]);
+  const update = useCallback(
+    (change: (d: HighlightsData) => HighlightsData) => {
+      if (!who) return;
+      const next = change(ref.current);
+      ref.current = next;
+      setData(next);
+      safeJSONSet(cacheKey, next);
+      bigSet(cacheKey, next);
+    },
+    [cacheKey, who]
+  );
+  return { data, update, localOnly: true, setLocalOnly: () => undefined, readOnly: !who };
+}
+
 export function useHighlights(teamId: string, season: string): HighlightStore {
   const docId = sharedDocId(teamId, `highlights_${season}`);
   const cacheKey = `footballHighlights_${docId}`;

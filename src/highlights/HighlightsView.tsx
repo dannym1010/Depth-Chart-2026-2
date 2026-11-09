@@ -5,7 +5,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Clapperboard, FolderOpen, Plus, Settings2, Sparkles, Star, Trash2, Users, Wand2 } from 'lucide-react';
 import type { Play } from '../hudlScout/types/football';
-import { probeSnap } from '../filmroom/snapProbe';
 import { countViewIndex } from '../filmroom/dualView';
 import type { FilmGameShared } from '../filmroom/types';
 import { canPickFolderFiles, pickedFolderNode, setPickedFilmRoot } from '../filmroom/filmSources';
@@ -15,10 +14,11 @@ import { playsForPlayer } from '../filmroom/playerPlays';
 import { ClipEditor, CATEGORY_LABEL } from './ClipEditor';
 import { clipLength, lineUp, type AccessState, type FilmAccess } from './filmAccess';
 import {
-  addHighlights, addToReel, editHighlight, editReel, extraPlace, FAMILIES, shareReel, gameOrder, highlightFromExtra, highlightFromPlay, kidCoverage, kidHighlights, kidLabel, kidsText,
-  mergeHighlights, newReel, recommendPlays, REC_GROUPS, removeHighlights, removeReel, seasonPicks, snapWindow, clock, reelsFor, type Kid, type RecGroup,
+  addHighlights, addToReel, editHighlight, editReel, extraPlace, FAMILIES, shareReel, gameOrder, highlightFromExtra, kidCoverage, kidHighlights, kidLabel, kidsText,
+  mergeHighlights, newReel, recommendPlays, REC_GROUPS, removeHighlights, removeReel, seasonPicks, clock, reelsFor, type Kid, type RecGroup,
 } from './highlightData';
 import { ReelEditor } from './ReelEditor';
+import { keepPlaysAsHighlights } from './keepPlays';
 import { AUTO_JSON_KEY, SettingsPanel } from './SettingsPanel';
 import { canWriteFolders, DB_FILE, dbJson, libraryFolder, writeFile } from './localLibrary';
 import type { Highlight, HighlightCategory, HighlightGame } from './types';
@@ -154,41 +154,8 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
    */
   const keepPlays = async (g: HighlightGame, list: Play[]) => {
     if (ro || !list.length) return;
-    setStatus(`Finding the clips for ${list.length} play${list.length === 1 ? '' : 's'}…`);
     try {
-      const film = await access.openGame(g);
-      const shared = await needShared(g.key);
-      const view = film.views[countViewIndex(film.views)] || '';
-      const { clipOf } = lineUp(film, view, playsOf(g), shared);
-      const made: Highlight[] = [];
-      const missing: number[] = [];
-      for (const p of list) {
-        const c = clipOf.get(p.id);
-        if (!c) missing.push(p.playNumber);
-        else made.push(highlightFromPlay({ game: g, play: p, view, clip: c.name, clipLen: c.durationSec, snap: undefined, settings, by: me }));
-      }
-      update((d) => addHighlights(d, made));
-      setStatus(missing.length ? `No clip for play${missing.length === 1 ? '' : 's'} #${missing.join(', #')}.` : '');
-      // Trim each at its snap (the clip is opened to look for the snap; Drive clips download first).
-      let n = 0;
-      for (const h of made) {
-        n += 1;
-        setStatus(`Trimming at the snap ${n}/${made.length}…`);
-        try {
-          const u = await access.url(g, h.view, h.clip);
-          const len = h.clipLen ?? (await clipLength(u.url));
-          const snap = await probeSnap(u.url);
-          u.release();
-          update((d) =>
-            editHighlight(d, h.id, (x) =>
-              x.start === h.start && x.end === h.end ? { ...x, clipLen: len ?? x.clipLen, ...(snap !== null ? snapWindow(snap, len, settings) : { end: len ?? x.end }) } : x
-            )
-          );
-        } catch {
-          /* keep the whole clip */
-        }
-      }
-      setStatus(missing.length ? `No clip for play${missing.length === 1 ? '' : 's'} #${missing.join(', #')}.` : `Kept ${made.length}.`);
+      await keepPlaysAsHighlights({ store, access, game: g, list, gamePlays: playsOf(g), shared: await needShared(g.key), settings, by: me, onStatus: setStatus });
     } catch (err: any) {
       setStatus(err?.message || String(err));
     }

@@ -62,8 +62,8 @@ interface Props {
   onClose: () => void;
   /** "Add to reel" choices. */
   reels: { id: string; name: string; has?: boolean }[];
-  /** A reel's id, or '__new' for a new reel. */
-  onAddToReel: (reelId: string) => void;
+  /** A reel's id, or '__new' for a new reel. Without it (a parent's own highlights) there's no "Add to reel". */
+  onAddToReel?: (reelId: string) => void;
 }
 
 export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, roster, onClose, reels, onAddToReel }) => {
@@ -1009,7 +1009,7 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
           onBlur={(e) => e.target.value !== (h.note || '') && edit((x) => ({ ...x, note: e.target.value }))}
           className="flex-1 min-w-40 h-8 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2"
         />
-        {!ro && (
+        {!ro && onAddToReel && (
           <select
             value=""
             onChange={(e) => e.target.value && onAddToReel(e.target.value)}

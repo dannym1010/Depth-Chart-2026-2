@@ -12,7 +12,7 @@ import { seasonOf, type Kid } from './highlightData';
 import { HighlightsView } from './HighlightsView';
 import { FamilyHighlights } from './FamilyHighlights';
 import type { HighlightGame } from './types';
-import { useHighlights } from './useHighlights';
+import { useDeviceHighlights, useHighlights } from './useHighlights';
 
 interface Props {
   teamId: string;
@@ -30,6 +30,8 @@ interface Props {
 export const HighlightsSection: React.FC<Props> = ({ teamId, teamName, ownTeamScout, roster, userEmail, authorName, watchOnly, myKids }) => {
   const season = seasonOf();
   const store = useHighlights(teamId, season);
+  // A parent's or player's own highlights, on their device only (their account can't save to the team's).
+  const mine = useDeviceHighlights(teamId, season, watchOnly ? userEmail : '');
   const own = useMemo(() => bundleFromSaved(ownTeamScout, teamName), [ownTeamScout, teamName]);
   const games: HighlightGame[] = useMemo(() => {
     const gone = new Set(own.deletedGameIds || []);
@@ -65,7 +67,21 @@ export const HighlightsSection: React.FC<Props> = ({ teamId, teamName, ownTeamSc
   );
 
   if (watchOnly)
-    return <FamilyHighlights teamName={teamName} season={season} store={store} access={access} games={games} plays={plays} roster={roster} kids={myKids || []} />;
+    return (
+      <FamilyHighlights
+        teamName={teamName}
+        season={season}
+        store={store}
+        mine={mine}
+        access={access}
+        loadShared={loadShared}
+        games={games}
+        plays={plays}
+        roster={roster}
+        kids={myKids || []}
+        me={userEmail.toLowerCase().trim()}
+      />
+    );
   return (
     <HighlightsView
       teamName={teamName}

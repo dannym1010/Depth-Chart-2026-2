@@ -21,9 +21,11 @@ interface Props {
   me: string;
   /** Only while the Film Room's own keys are on (not while typing, not in the film window). */
   keys?: boolean;
+  /** A parent's or player's own highlights (on their device), not the team's. */
+  personal?: boolean;
 }
 
-export const HighlightButton: React.FC<Props> = ({ store, game, play, view, clip, clipUrl, getVideo, me, keys = true }) => {
+export const HighlightButton: React.FC<Props> = ({ store, game, play, view, clip, clipUrl, getVideo, me, keys = true, personal = false }) => {
   const kept = store.data.highlights.find((h) => h.game.key === game.key && h.playId === play.id);
   const [open, setOpen] = useState(false);
   const [flash, setFlash] = useState('');
@@ -42,7 +44,7 @@ export const HighlightButton: React.FC<Props> = ({ store, game, play, view, clip
     const snap = clipUrl ? snapTimeCache.get(clipUrl) : undefined;
     const h = highlightFromPlay({ game, play, view, clip: clip.name, clipLen: len, snap, settings: store.data.settings, by: me });
     store.update((d) => addHighlights(d, [h]));
-    setFlash(`Kept: ${h.title}`);
+    setFlash(personal ? `In My highlights: ${h.title}` : `Kept: ${h.title}`);
     window.setTimeout(() => setFlash(''), 2500);
   };
 
@@ -78,7 +80,13 @@ export const HighlightButton: React.FC<Props> = ({ store, game, play, view, clip
         className={`inline-flex items-center gap-1 h-7 px-2 rounded-lg text-xs font-bold border ${
           kept ? 'bg-amber-400 border-amber-500 text-slate-900' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-amber-50 dark:hover:bg-amber-500/10'
         }`}
-        title={kept ? `A highlight: ${kept.title} (rate it, or take it back)` : 'Keep this play as a highlight (H)'}
+        title={
+          kept
+            ? `A highlight: ${kept.title} (rate it, or take it back)`
+            : personal
+              ? 'Add this play to My highlights, on this device (H)'
+              : 'Keep this play as a highlight (H)'
+        }
         aria-pressed={Boolean(kept)}
       >
         <Sparkles size={13} />
@@ -106,7 +114,7 @@ export const HighlightButton: React.FC<Props> = ({ store, game, play, view, clip
             ))}
             <span className="text-slate-500 ml-1">{kept.rating === 3 ? 'Season reel' : kept.rating === 2 ? 'Good' : 'Game only'}</span>
           </span>
-          <span className="text-slate-500">Trim, title and add to reels in Highlights.</span>
+          <span className="text-slate-500">{personal ? 'Trim it and make Instagram videos in Highlights → My highlights.' : 'Trim, title and add to reels in Highlights.'}</span>
           {!store.readOnly && (
             <button
               type="button"

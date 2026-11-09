@@ -57,7 +57,7 @@ import { useFilmLists } from './useFilmLists';
 import { isFavorite, moveListsGames, playInfo, toggleFavorite, type ClipRef, type PlayInfo } from './playlists';
 import { HighlightButton } from '../highlights/HighlightButton';
 import { seasonOf } from '../highlights/highlightData';
-import { useHighlights } from '../highlights/useHighlights';
+import { useDeviceHighlights, useHighlights } from '../highlights/useHighlights';
 
 interface FilmRoomViewProps {
   teamId: string;
@@ -1063,7 +1063,10 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const me = userEmail.toLowerCase().trim();
   const canList = Boolean(me) && !locked;
   // Highlights: ★ Highlight keeps the play on screen (our games).
-  const highlights = useHighlights(teamId, seasonOf());
+  // A parent's or player's ★ goes to their own highlights on this device (their account can't save the team's).
+  const teamHighlights = useHighlights(teamId, seasonOf());
+  const myHighlights = useDeviceHighlights(teamId, seasonOf(), locked ? me : '');
+  const highlights = locked && me ? myHighlights : teamHighlights;
 
   // A week off the schedule moved to a season week: its report (App), then each game's notes and drawings and
   // the playlists' plays, which are kept by the week an opponent's film is in.
@@ -1305,9 +1308,9 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     );
   };
   const playActions =
-    canList && play && clipRefOf(play) ? (
+    me && play && clipRefOf(play) && (canList || game?.source === 'own') ? (
       <>
-        {game?.source === 'own' && !family && (
+        {game?.source === 'own' && (
           <HighlightButton
             store={highlights}
             game={{ key: game.key, gameId: game.gameId, name: game.name, week: game.week }}
@@ -1317,9 +1320,10 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             clipUrl={clipUrl.url}
             getVideo={() => apiRef.current?.video?.()}
             me={me}
+            personal={locked}
           />
         )}
-        <PlayListActions current={clipRefOf(play)!} lists={filmLists.lists} update={filmLists.update} me={me} myName={authorName} />
+        {canList && <PlayListActions current={clipRefOf(play)!} lists={filmLists.lists} update={filmLists.update} me={me} myName={authorName} />}
       </>
     ) : null;
   const odkChips = (

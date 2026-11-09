@@ -303,3 +303,15 @@ describe("a kid's reel goes to his family only", () => {
     assert.deepEqual(familyReels(d, []).map((r) => r.id), ['team']);
   });
 });
+
+describe("a parent's own highlights", () => {
+  it("copying a coach's clip makes a new one of theirs, without the coach's note", async () => {
+    const { copyHighlight } = await import('./FamilyHighlights.tsx');
+    const h = { ...highlightFromPlay({ game: game(1), play: play(1, { rusher: '#21 Nash Ward', gainLoss: 12 }), view: '', clip: 'a.mp4', settings: s, by: 'coach@x.com' }), note: 'coach only' };
+    const c = copyHighlight(h, 'mom@home.com', 1000);
+    assert.notEqual(c.id, h.id);
+    assert.equal(c.note, undefined);
+    assert.equal(c.createdBy, 'mom@home.com');
+    assert.deepEqual([c.start, c.end, c.clip, c.playId, c.kids], [h.start, h.end, h.clip, h.playId, h.kids]);
+  });
+});
