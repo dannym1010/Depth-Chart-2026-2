@@ -7,6 +7,7 @@
 import { drawCard, drawLowerThird, drawSpot } from './graphics';
 import { segmentSeconds, timelineSeconds, type Overlay, type Segment } from './highlightData';
 import type { FilmAccess } from './filmAccess';
+import { followAt, unpackFollow, type FollowPoint } from './follow';
 import type { Highlight, HighlightSettings } from './types';
 
 export type SocialShape = 'reel' | 'post' | 'square';
@@ -31,7 +32,9 @@ const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n
 export function pictureRect(srcW: number, srcH: number, outW: number, outH: number, zoom: number, focusX = 0.5, focusY = 0.5) {
   const fit = Math.min(outW / srcW, outH / srcH);
   const cover = Math.max(outW / srcW, outH / srcH);
-  const scale = fit + (cover - fit) * clamp(zoom, 0, 1);
+  // 0..1: from fitting to filling; past 1, closer still (1.5 = half again as close as filling).
+  const z = clamp(zoom, 0, 3);
+  const scale = z <= 1 ? fit + (cover - fit) * z : cover * z;
   const w = srcW * scale;
   const h = srcH * scale;
   const x = w <= outW ? (outW - w) / 2 : clamp(outW / 2 - focusX * w, outW - w, 0);
@@ -39,13 +42,30 @@ export function pictureRect(srcW: number, srcH: number, outW: number, outH: numb
   return { x, y, w, h, scale };
 }
 
+const paths = new WeakMap<number[], FollowPoint[]>();
+/** The kid's path drawn by finger on a highlight (unpacked once). */
+export function followPath(h: Pick<Highlight, 'follow'>): FollowPoint[] {
+  const pts = h.follow?.pts;
+  if (!pts?.length) return [];
+  let p = paths.get(pts);
+  if (!p) paths.set(pts, (p = unpackFollow(pts)));
+  return p;
+}
+export const hasFollow = (h: Pick<Highlight, 'follow'>) => followPath(h).length > 1;
+
+/** How close the camera is on a highlight: closer when a kid's path was drawn on it. */
+export const zoomFor = (h: Pick<Highlight, 'follow'>, zoom: number, followZoom: number) => (hasFollow(h) ? Math.max(zoom, followZoom) : zoom);
+
 /**
  * Which part of the picture to keep in view at a moment of the clip (0..1 across): a set focus for the highlight,
- * else the kid's marks (sliding from one to the next), else the freeze frame's spotlight, else the middle.
+ * else the kid's path drawn by finger, else his marks (sliding from one to the next), else the freeze frame's
+ * spotlight, else the middle. 'replay' is another camera (the path and marks don't fit it).
  */
 export function focusAt(h: Highlight, t: number, part: 'main' | 'replay', manual?: number): { x: number; y: number } {
   if (manual !== undefined && manual !== null && Number.isFinite(manual)) return { x: clamp(manual, 0, 1), y: 0.5 };
   if (part === 'replay') return { x: 0.5, y: 0.5 };
+  const followed = followAt(followPath(h), t);
+  if (followed) return followed;
   const keys = (h.marks || [])
     .map((m) => ({ t: (m.from + m.to) / 2, from: m.from, to: m.to, x: m.x, y: m.y }))
     .sort((a, b) => a.t - b.t);
@@ -133,8 +153,10 @@ export interface SocialRenderOptions {
   shape: SocialShape;
   /** 0 = the whole picture, 1 = fills the frame. */
   zoom: number;
-  /** A set focus (0..1 across) per highlight id; the rest follow their marks. */
+  /** A set focus (0..1 across) per highlight id; the rest follow their path or marks. */
   focus?: Record<string, number>;
+  /** How close the camera is on highlights with a kid's path drawn (1 = fills the frame, up to 2). Default 1. */
+  followZoom?: number;
   sound: SocialSound;
   /** The title at the bottom of each highlight (and "Replay"); cards are always shown. */
   titles: boolean;
@@ -166,6 +188,7 @@ export async function renderSocialVideo(o: SocialRenderOptions): Promise<SocialR
     if (!(await mb.canEncodeVideo('avc', { width: W, height: H, quality: mb.QUALITY_HIGH, frameRate: SOCIAL_FPS })))
       throw new Error("This browser can't make H.264 video. Use Chrome or Edge on a computer, or Safari on an up-to-date iPad / iPhone.");
   }
+  const followZoom = o.followZoom ?? 1;
   const wantSound = o.sound.game || Boolean(o.sound.music);
   const sound = wantSound && typeof OfflineAudioContext !== 'undefined' && (await mb.canEncodeAudio('aac', { numberOfChannels: 2, sampleRate: SR, quality: mb.QUALITY_HIGH }));
 
@@ -213,7 +236,7 @@ export async function renderSocialVideo(o: SocialRenderOptions): Promise<SocialR
       w = vt.displayWidth;
       h = vt.displayHeight;
       // Decode no bigger than it's drawn (4K film into a 1080-wide frame).
-      scale = Math.min(1, pictureRect(w, h, W, H, o.zoom).scale);
+      scale = Math.min(1, pictureRect(w, h, W, H, Math.max(o.zoom, hasFollow(s.h) ? followZoom : 0)).scale);
       frames = new mb.CanvasSink(vt, { width: Math.max(2, Math.round(w * scale)), height: Math.max(2, Math.round(h * scale)), fit: 'fill', poolSize: 2 });
     }
     let snd: Opened['sound'] = null;
@@ -228,10 +251,10 @@ export async function renderSocialVideo(o: SocialRenderOptions): Promise<SocialR
   };
 
   const look = o.settings;
-  const drawFilm = (src: CanvasImageSource | null, c: Opened, focus: { x: number; y: number }) => {
-    if (src) drawFilmFrame(fctx, W, H, src, c.w, c.h, o.zoom, focus, tiny);
+  const drawFilm = (src: CanvasImageSource | null, c: Opened, focus: { x: number; y: number }, zoom: number) => {
+    if (src) drawFilmFrame(fctx, W, H, src, c.w, c.h, zoom, focus, tiny);
   };
-  const pictureOf = (c: Opened, focus: { x: number; y: number }) => pictureRect(c.w, c.h, W, H, o.zoom, focus.x, focus.y);
+  const pictureOf = (c: Opened, focus: { x: number; y: number }, zoom: number) => pictureRect(c.w, c.h, W, H, zoom, focus.x, focus.y);
   const spotIn = (r: ReturnType<typeof pictureRect>, spot: Parameters<typeof drawSpot>[3]) => drawSpotIn(ctx, W, H, r, spot, look);
   const overlays = (s: Exclude<Segment, { type: 'card' }>) => {
     if (!o.titles) return;
@@ -280,16 +303,19 @@ export async function renderSocialVideo(o: SocialRenderOptions): Promise<SocialR
       } else {
         const c = await open(s);
         const manual = o.focus?.[s.h.id];
+        const zoom = zoomFor(s.h, o.zoom, followZoom);
+        // A replay from the same camera follows the same path; another camera doesn't.
+        const part: 'main' | 'replay' = s.type === 'clip' && s.part === 'replay' && (s.clip !== s.h.clip || s.view !== s.h.view) ? 'replay' : 'main';
         fctx.fillStyle = '#000';
         fctx.fillRect(0, 0, W, H);
         if (s.type === 'freeze') {
           const fr = c.frames ? await c.frames.getCanvas(s.at) : null;
           const focus = focusAt(s.h, s.at, 'main', manual);
-          drawFilm(fr?.canvas ?? null, c, focus);
+          drawFilm(fr?.canvas ?? null, c, focus, zoom);
           for (let f = f0; f < f1; f++) {
             check();
             ctx.drawImage(film, 0, 0);
-            if (s.h.freeze?.spot) spotIn(pictureOf(c, focus), s.h.freeze.spot);
+            if (s.h.freeze?.spot) spotIn(pictureOf(c, focus, zoom), s.h.freeze.spot);
             overlays(s);
             dip(f / SOCIAL_FPS - t0, starts);
             await video.add(f / SOCIAL_FPS, 1 / SOCIAL_FPS);
@@ -305,16 +331,16 @@ export async function renderSocialVideo(o: SocialRenderOptions): Promise<SocialR
             const f = f0 + i;
             const t = times[i];
             const next = iter ? await iter.next() : null;
-            const focus = focusAt(s.h, t, s.part, manual);
+            const focus = focusAt(s.h, t, part, manual);
             const fr = next && !next.done ? next.value : null;
             if (fr) {
               fctx.fillStyle = '#000';
               fctx.fillRect(0, 0, W, H);
-              drawFilm(fr.canvas, c, focus);
+              drawFilm(fr.canvas, c, focus, zoom);
             }
             ctx.drawImage(film, 0, 0);
             if (s.part !== 'replay') {
-              const r = pictureOf(c, focus);
+              const r = pictureOf(c, focus, zoom);
               for (const m of s.h.marks || []) if (t >= m.from && t <= m.to) spotIn(r, m);
             }
             overlays(s);

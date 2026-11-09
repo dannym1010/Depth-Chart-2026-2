@@ -27,6 +27,15 @@ export function useZoomPan() {
     setPan({ x: clampPan(sx / z2 - ux, z2), y: clampPan(sy / z2 - uy, z2) });
   }, []);
   const zoomBy = (d: number) => zoomTo(cur.current.zoom + d);
+  /** Zoom in and center a spot of the picture (ux, uy: −0.5..0.5 from its middle), as far as the edges allow. */
+  const lookAt = useCallback((z: number, ux: number, uy: number) => {
+    const z2 = Math.max(1, Math.min(MAX, z));
+    const p = { x: clampPan(-ux, z2), y: clampPan(-uy, z2) };
+    const c = cur.current;
+    if (c.zoom === z2 && Math.abs(c.pan.x - p.x) < 1e-4 && Math.abs(c.pan.y - p.y) < 1e-4) return;
+    setZoom(z2);
+    setPan(p);
+  }, []);
   const reset = () => zoomTo(1);
 
   // Scroll wheel (and a trackpad pinch, which comes as a scroll with Ctrl) zooms toward the pointer.
@@ -90,6 +99,7 @@ export function useZoomPan() {
     zoom,
     zoomBy,
     reset,
+    lookAt,
     /** True when the last press dragged or pinched (so it isn't a tap on the picture). */
     wasDrag: () => moved.current,
     handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp },

@@ -54,6 +54,8 @@ export interface Highlight {
   freeze?: { at: number; seconds: number; spot?: { x: number; y: number; style: SpotStyle; label?: string } };
   /** Circles / arrows on a kid while the play runs: where (0..1 of the picture) and when (clip seconds). */
   marks?: HighlightMark[];
+  /** A kid's path through the play, drawn by finger (follow.ts): [t, x, y, ...]; the Instagram video's camera follows it. */
+  follow?: { pts: number[]; kid?: string };
   title: string;
   categories: HighlightCategory[];
   /** Jersey numbers of the kids in it ("21"). */

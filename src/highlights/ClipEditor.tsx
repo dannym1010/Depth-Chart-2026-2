@@ -11,6 +11,7 @@ import { lineUp, type FilmAccess, type GameFilm } from './filmAccess';
 import { drawLowerThird, drawSpot, loadImage } from './graphics';
 import { editHighlight, highlightSegments, kidLabel, kidsText, removeHighlights, snapWindow, type Kid } from './highlightData';
 import { SocialVideoPanel } from './SocialVideoPanel';
+import { FOLLOW_STEP, followAt, packFollow, pathAt, recordInto, thin, unpackFollow, type FollowPoint } from './follow';
 import type { Highlight, HighlightCategory, HighlightMark, HighlightSettings, SpotStyle } from './types';
 import type { HighlightStore } from './useHighlights';
 import { useClipSrc } from './useClipSrc';
@@ -81,6 +82,15 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
   const [markStyle, setMarkStyle] = useState<SpotStyle>('ring');
   const [markSecs, setMarkSecs] = useState(2);
   const [busy, setBusy] = useState('');
+  // Follow a kid by finger: the clip plays slowly while a finger (or the mouse button) stays on him; each stretch is
+  // saved when the finger lifts. The Instagram video's camera rides the path.
+  const [following, setFollowing] = useState(false);
+  const [followSpeed, setFollowSpeed] = useState(0.25);
+  const [watchFollow, setWatchFollow] = useState(false);
+  const followRef = useRef<{ speed: number } | null>(null);
+  const fingerRef = useRef<{ x: number; y: number } | null>(null);
+  const stretchRef = useRef<FollowPoint[]>([]);
+  const path = useMemo(() => unpackFollow(h.follow?.pts), [h.follow]);
   // Start / end while a handle is dragged (saved on letting go).
   const [draft, setDraft] = useState<{ start: number; end: number } | null>(null);
   const start = draft?.start ?? h.start;
@@ -102,7 +112,15 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
     const tick = () => {
       const t = v.currentTime;
       setNow(t);
-      if (!v.paused) {
+      const fol = followRef.current;
+      if (!v.paused && fol) {
+        // Following a kid: slow, keeping the finger's spot, and stopping at the end (no loop).
+        if (v.playbackRate !== fol.speed) v.playbackRate = fol.speed;
+        const f = fingerRef.current;
+        const lastPt = stretchRef.current[stretchRef.current.length - 1];
+        if (f && (!lastPt || t - lastPt.t >= FOLLOW_STEP - 1e-3)) stretchRef.current.push({ t, x: f.x, y: f.y });
+        if (t >= end - 0.02) v.pause();
+      } else if (!v.paused) {
         const slow = h.slow && t >= h.slow.from && t < h.slow.to ? h.slow.speed : 1;
         if (v.playbackRate !== slow) v.playbackRate = slow;
         if (t >= end - 0.02) {
@@ -159,6 +177,11 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
         if (e.key === 'Escape') setSocial(false);
         return;
       }
+      if (following && e.key === 'Escape') {
+        stopFollow();
+        e.preventDefault();
+        return;
+      }
       const v = videoRef.current;
       if (!v) return;
       const k = e.key.toLowerCase();
@@ -201,7 +224,32 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
     if (h.freeze?.spot && (atFreeze || placing)) drawSpot(ctx, w, hh, h.freeze.spot, settings);
     for (const m of h.marks || []) if (now >= m.from && now <= m.to) drawSpot(ctx, w, hh, m, settings);
     if (now >= start && now <= end) drawLowerThird(ctx, w, hh, { title: h.title, sub: kids || undefined }, settings);
-  }, [now, h.freeze, h.marks, h.title, kids, settings, start, end, placing]);
+    // The kid's path (while following, or paused), and where it has him now.
+    if (path.length > 1 && (following || !playing)) {
+      const u = Math.min(w, hh) / 400;
+      ctx.save();
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(249,115,22,0.75)';
+      ctx.lineWidth = 3 * u;
+      if (!watchFollow) {
+        ctx.beginPath();
+        path.forEach((p, i) => (i ? ctx.lineTo(p.x * w, p.y * hh) : ctx.moveTo(p.x * w, p.y * hh)));
+        ctx.stroke();
+      }
+      const at = pathAt(path, now);
+      if (at && now >= path[0].t - 0.05 && now <= path[path.length - 1].t + 0.05) {
+        ctx.fillStyle = '#f97316';
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2 * u;
+        ctx.beginPath();
+        ctx.arc(at.x * w, at.y * hh, 7 * u, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }, [now, h.freeze, h.marks, h.title, kids, settings, start, end, placing, path, following, playing, watchFollow]);
 
   const findSnap = async () => {
     if (!src.url) return;
@@ -275,6 +323,93 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
     edit((x0) => ({ ...x0, freeze: { ...x0.freeze!, spot: { style: x0.freeze?.spot?.style || 'ring', label: x0.freeze?.spot?.label, x: r2(Math.min(1, Math.max(0, x))), y: r2(Math.min(1, Math.max(0, y))) } } }));
     setPlacing(false);
   };
+
+  // ---- Follow a kid by finger ----
+  /** A pointer's spot on the picture (0..1), zoom and black bars included. */
+  const pictureSpot = (clientX: number, clientY: number) => {
+    const vv = videoRef.current!;
+    const r = vv.getBoundingClientRect();
+    const s = Math.min(r.width / (vv.videoWidth || 16), r.height / (vv.videoHeight || 9));
+    const pw = (vv.videoWidth || 16) * s;
+    const ph = (vv.videoHeight || 9) * s;
+    const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
+    return { x: clamp01((clientX - r.left - (r.width - pw) / 2) / pw), y: clamp01((clientY - r.top - (r.height - ph) / 2) / ph) };
+  };
+  /** Save the stretch just followed into the path (it replaces what was there for those moments). */
+  const commitStretch = () => {
+    const s = thin(stretchRef.current);
+    stretchRef.current = [];
+    if (s.length < 2) return;
+    edit((x) => ({ ...x, follow: { ...(x.follow || {}), pts: packFollow(recordInto(unpackFollow(x.follow?.pts), s)) } }));
+  };
+  const startFollow = () => {
+    const vv = videoRef.current;
+    if (!vv) return;
+    vv.pause();
+    setMarking(false);
+    setPlacing(false);
+    setWatchFollow(false);
+    if (vv.currentTime < start || vv.currentTime >= end - 0.1) vv.currentTime = start;
+    followRef.current = { speed: followSpeed };
+    setFollowing(true);
+  };
+  const stopFollow = () => {
+    const vv = videoRef.current;
+    vv?.pause();
+    commitStretch();
+    followRef.current = null;
+    fingerRef.current = null;
+    setFollowing(false);
+    if (vv) vv.playbackRate = 1;
+  };
+  useEffect(() => {
+    if (followRef.current) followRef.current.speed = followSpeed;
+  }, [followSpeed]);
+  const followHandlers = {
+    onPointerDown: (e: React.PointerEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const vv = videoRef.current;
+      if (!vv) return;
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      const spot = pictureSpot(e.clientX, e.clientY);
+      fingerRef.current = spot;
+      if (vv.currentTime >= end - 0.05) vv.currentTime = start;
+      stretchRef.current = [{ t: vv.currentTime, ...spot }];
+      vv.playbackRate = followSpeed;
+      void vv.play().catch(() => undefined);
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      e.stopPropagation();
+      if (fingerRef.current) fingerRef.current = pictureSpot(e.clientX, e.clientY);
+    },
+    onPointerUp: (e: React.PointerEvent) => {
+      e.stopPropagation();
+      if (!fingerRef.current) return;
+      fingerRef.current = null;
+      videoRef.current?.pause();
+    },
+    onClick: (e: React.MouseEvent) => e.stopPropagation(),
+  };
+  // Lifting the finger (or the clip reaching its end) pauses it: keep that stretch.
+  const onVideoPause = () => {
+    setPlaying(false);
+    if (followRef.current) {
+      fingerRef.current = null;
+      commitStretch();
+    }
+  };
+  // "Watch it zoom": the editor's picture zooms in and rides the path, the way the Instagram video will.
+  useEffect(() => {
+    if (!watchFollow || following || path.length < 2) return;
+    const p = followAt(path, now);
+    if (p) zp.lookAt(2.5, p.x - 0.5, p.y - 0.5);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchFollow, following, path, now]);
+  useEffect(() => {
+    if (!watchFollow) zp.reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchFollow]);
 
   // Another camera's view of this play, lined up with this one.
   const [film, setFilm] = useState<GameFilm | null>(null);
@@ -413,7 +548,7 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
         >
           <div className="absolute inset-0" style={zp.style}>
             {src.url ? (
-              <video ref={videoRef} src={src.url} playsInline muted={settings.gameSound === 'off'} onLoadedMetadata={onLoaded} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} className="absolute inset-0 w-full h-full object-contain" />
+              <video ref={videoRef} src={src.url} playsInline muted={settings.gameSound === 'off'} onLoadedMetadata={onLoaded} onPlay={() => setPlaying(true)} onPause={onVideoPause} className="absolute inset-0 w-full h-full object-contain" />
             ) : (
               <div className="absolute inset-0 flex items-center justify-center p-3 text-center text-sm" style={{ color: '#cbd5e1' }}>
                 {src.loading ? 'Loading the clip…' : src.error || 'No clip'}
@@ -421,6 +556,16 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
             )}
             <canvas ref={overRef} className="absolute inset-0 w-full h-full pointer-events-none" />
           </div>
+          {following && (
+            <>
+              <div className="absolute inset-0 z-10 cursor-crosshair" style={{ touchAction: 'none' }} {...followHandlers} aria-label="Keep your finger on the kid" />
+              <div className="absolute top-2 left-2 right-2 z-20 pointer-events-none flex">
+                <span className="rounded-md px-2 py-1 text-xs font-bold" style={{ background: '#f97316', color: '#111827' }}>
+                  {playing ? 'Keep your finger on him… let go to pause' : 'Press and hold on the kid; it plays while you follow him'}
+                </span>
+              </div>
+            </>
+          )}
           {(placing || marking) && (
             <div className="absolute top-2 left-2 rounded-md px-2 py-1 text-xs font-bold" style={{ background: '#f59e0b', color: '#111827' }}>
               {marking ? `Tap the kid to ${markStyle === 'arrow' ? 'point at' : 'circle'} (zoom in first if he's small)` : 'Tap the kid to spotlight'}
@@ -652,6 +797,46 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
             )}
           </fieldset>
         </div>
+      )}
+
+      {/* Follow a kid by finger: the Instagram video's camera rides his path */}
+      {!ro && (
+        <fieldset className="rounded-lg border border-orange-200 dark:border-orange-500/30 p-2 flex flex-col gap-1.5 min-w-0 text-xs">
+          <legend className="px-1 font-black text-slate-700 dark:text-slate-200">Follow a kid (the Instagram video zooms in and follows him)</legend>
+          {following ? (
+            <span className="flex flex-wrap items-center gap-1.5">
+              <span className="text-slate-600 dark:text-slate-300">Press and hold on him on the picture; it plays while your finger is down. Let go to pause, press again to carry on.</span>
+              <select value={followSpeed} onChange={(e) => setFollowSpeed(Number(e.target.value))} className="h-7 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-1" aria-label="Speed while following">
+                <option value={0.25}>¼ speed</option>
+                <option value={0.5}>½ speed</option>
+                <option value={1}>Full speed</option>
+              </select>
+              <button type="button" className="h-7 px-3 rounded-lg bg-orange-600 text-white font-bold" onClick={stopFollow}>
+                Done
+              </button>
+            </span>
+          ) : (
+            <span className="flex flex-wrap items-center gap-1.5">
+              <button type="button" className={small} onClick={startFollow} disabled={!src.url} title="From the playhead (or the start): play slowly while you keep your finger on him">
+                <Crosshair size={12} className="inline -mt-0.5" /> {path.length > 1 ? 'Redo from the playhead' : 'Follow a kid'}
+              </button>
+              {path.length > 1 && (
+                <>
+                  <span className="text-slate-500">
+                    Followed {fmt(path[0].t)}–{fmt(path[path.length - 1].t)}
+                    {path[0].t > start + 0.3 || path[path.length - 1].t < end - 0.3 ? ' (not the whole highlight; the camera holds at the ends)' : ''}
+                  </span>
+                  <button type="button" className={chip(watchFollow)} aria-pressed={watchFollow} onClick={() => setWatchFollow((x) => !x)} title="Zoom the picture along his path, like the video will">
+                    Watch it zoom
+                  </button>
+                  <button type="button" className="text-rose-600 dark:text-rose-400 font-bold px-1" onClick={() => { setWatchFollow(false); edit((x) => ({ ...x, follow: undefined })); }}>
+                    Remove
+                  </button>
+                </>
+              )}
+            </span>
+          )}
+        </fieldset>
       )}
 
       {/* Circles and arrows on a kid while the play runs */}
