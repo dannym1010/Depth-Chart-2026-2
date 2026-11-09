@@ -63,3 +63,33 @@ test('returns and kicking add up, and show on the kid', () => {
   assert.equal(playerTotals(playsForPlayer(plays, '9')).kicks, 4);
   assert.deepEqual(playsForPlayer(plays, '4').map((r) => r.roles), [['Return']], "Hudl's returner isn't a carry");
 });
+
+test('a pass breakup goes to the kid who made it, without a tackle; old plays still credit the tackler', async () => {
+  const { defenseStats } = await import('../hudlScout/utils/gameStats');
+  const { setPlayDefPlay } = await import('../utils/filmLineup');
+  const D = (n: number, defPlay: Play['defPlay']) => P(n, { odk: 'D', playType: 'PASS', defPlay });
+  const plays = [
+    D(1, { events: ['pbu'], by: { pbu: '#4 Cole' } }),
+    D(2, { maker: '#22 Jax', events: ['sack', 'ff', 'fr'], by: { ff: '#22 Jax', fr: '#55 Ben' } }),
+    D(3, { maker: '#22 Jax', events: ['tfl'] }), // saved before each play had its own kid
+    D(4, { events: ['qbh', 'int'], by: { qbh: '#55 Ben', int: '#4 Cole' } }),
+  ];
+  const lines = defenseStats(plays);
+  const cole = lines.find((l) => l.name === '#4 Cole')!;
+  assert.deepEqual([cole.tackles, cole.pbu, cole.ints], [0, 1, 1]);
+  const jax = lines.find((l) => l.name === '#22 Jax')!;
+  assert.deepEqual([jax.tackles, jax.sacks, jax.ff, jax.fr, jax.tfl], [2, 1, 1, 0, 1]);
+  const ben = lines.find((l) => l.name === '#55 Ben')!;
+  assert.deepEqual([ben.tackles, ben.fr, ben.qbh], [0, 1, 1]);
+
+  const coleRows = playsForPlayer(plays, '4');
+  assert.deepEqual(coleRows.map((r) => [r.roles, r.events]), [[[], ['pbu']], [[], ['int']]]);
+  const t = playerTotals(coleRows);
+  assert.deepEqual([t.tackles, t.pbu, t.ints], [0, 1, 1]);
+
+  // Taking the play off drops its kid too.
+  const off = setPlayDefPlay(plays, 'p4', { events: ['int'] });
+  assert.deepEqual(off[3].defPlay?.by, { int: '#4 Cole' });
+  const none = setPlayDefPlay(plays, 'p1', { events: [] });
+  assert.equal(none[0].defPlay, undefined);
+});

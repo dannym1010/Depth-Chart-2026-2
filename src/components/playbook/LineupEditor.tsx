@@ -2,7 +2,7 @@ import React from 'react';
 import { RotateCcw, Users } from 'lucide-react';
 import type { FilmPlayerRef, RosterPlayer } from '../../types';
 import { X } from 'lucide-react';
-import { BallRole, DEF_EVENTS, FilmLineup, defAssists, jerseyOf, rosterLabel } from '../../utils/filmLineup';
+import { BallRole, FilmLineup, defAssists, defEventsFor, jerseyOf, rosterLabel } from '../../utils/filmLineup';
 import type { DefPlay } from '../../hudlScout/types/football';
 
 const UNIT_LABEL: Record<string, string> = { black: 'Black · 1s', gold: 'Gold · 2s', blue: 'Blue · 3s' };
@@ -242,7 +242,7 @@ const DefPicker: React.FC<{
   const events = defPlay.events || [];
   const assists = defAssists(defPlay);
   // Kick coverage: only the plays that happen on a kick.
-  const eventChoices = kick ? DEF_EVENTS.filter((e) => e.id === 'ff' || e.id === 'fr') : DEF_EVENTS;
+  const eventChoices = defEventsFor(Boolean(kick));
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 px-2 py-1.5">
       <span className="text-[11px] font-black uppercase tracking-wide text-slate-600 dark:text-slate-300">{kick ? 'Special teams tackle' : 'Made the play'}</span>

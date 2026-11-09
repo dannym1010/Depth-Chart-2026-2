@@ -4,6 +4,7 @@
 // ("#21 Nash Ward", "#52").
 import type { DefEvent, Play } from '../hudlScout/types/football';
 import { kickKind } from '../hudlScout/utils/gameStats';
+import { eventCredits } from '../utils/filmLineup';
 
 export type PlayerRole = 'Rush' | 'Pass' | 'Catch' | 'Target' | 'Return' | 'Kick' | 'Tackle' | 'Assist';
 
@@ -33,6 +34,9 @@ export interface PlayerTotals {
   forcedFumbles: number;
   recoveries: number;
   pbu: number;
+  /** QB hurries and blocked kicks. */
+  qbh: number;
+  blk: number;
   touchdowns: number;
   /** Kickoff and punt returns, and their yards. */
   returns: number;
@@ -71,10 +75,11 @@ export function playsForPlayer(plays: Play[], num: string): PlayerPlay[] {
       if (!roles.length && is(p.carrierOrTarget)) roles.push(p.playType === 'PASS' ? (completed(p) ? 'Catch' : 'Target') : 'Rush');
     }
     const d = p.defPlay;
-    const tackled = is(d?.maker);
-    if (tackled) roles.push('Tackle');
+    if (is(d?.maker)) roles.push('Tackle');
     if ((d?.assists || []).some(is) || is(d?.assist)) roles.push('Assist');
-    if (roles.length) out.push({ play: p, roles, events: tackled ? [...(d?.events || [])] : [] });
+    // The big plays he made (picked for each one, else as the tackler): a pass breakup with no tackle counts too.
+    const events = eventCredits(d).filter((c) => is(c.who)).map((c) => c.event);
+    if (roles.length || events.length) out.push({ play: p, roles, events });
   }
   return out;
 }
@@ -84,7 +89,7 @@ export function playerTotals(rows: PlayerPlay[]): PlayerTotals {
   const t: PlayerTotals = {
     plays: rows.length, carries: 0, rushYds: 0, attempts: 0, completions: 0, passYds: 0, targets: 0, catches: 0, recYds: 0,
     tackles: 0, assists: 0, sacks: 0, tfl: 0, ints: 0, forcedFumbles: 0, recoveries: 0, pbu: 0, touchdowns: 0,
-    returns: 0, retYds: 0, kicks: 0,
+    returns: 0, retYds: 0, kicks: 0, qbh: 0, blk: 0,
   };
   for (const r of rows) {
     const g = Number(r.play.gainLoss) || 0;
@@ -122,6 +127,8 @@ export function playerTotals(rows: PlayerPlay[]): PlayerTotals {
       else if (e === 'ff') t.forcedFumbles += 1;
       else if (e === 'fr') t.recoveries += 1;
       else if (e === 'pbu') t.pbu += 1;
+      else if (e === 'qbh') t.qbh += 1;
+      else if (e === 'blk') t.blk += 1;
     }
     if (offense && scored(r.play)) t.touchdowns += 1;
   }

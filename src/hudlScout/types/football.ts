@@ -9,7 +9,7 @@ export type FieldZone = 'backed_up' | 'own_territory' | 'plus_territory' | 'red_
 export type HashPosition = 'L' | 'M' | 'R';
 
 /** Big defensive moments on a play. */
-export type DefEvent = 'sack' | 'tfl' | 'int' | 'ff' | 'fr' | 'pbu';
+export type DefEvent = 'sack' | 'tfl' | 'int' | 'ff' | 'fr' | 'pbu' | 'qbh' | 'blk';
 
 /** Who made the play on defense (our film): from Hudl's tackler / key-player columns or picked by a coach. */
 export interface DefPlay {
@@ -20,6 +20,8 @@ export interface DefPlay {
   /** Older single assist (still read; replaced by assists when a coach edits the play). */
   assist?: string;
   events?: DefEvent[];
+  /** Who made each of those ("pbu": "#4 Cole"); an event with nobody here goes to the tackler (maker). */
+  by?: Partial<Record<DefEvent, string>>;
 }
 
 /** Which of our units was on the field (our-team play log only). */

@@ -1354,7 +1354,7 @@ const FormationCell: React.FC<{
 };
 
 const hasPlayers = (p: Play) => Boolean(p.rusher || p.passer || p.receiver || p.returner || p.kicker || p.defPlay?.maker || defAssists(p.defPlay).length || p.defPlay?.events?.length);
-const EVENT_LABEL: Record<string, string> = { sack: 'Sack', tfl: 'TFL', int: 'INT', ff: 'FF', fr: 'FR', pbu: 'PBU' };
+const EVENT_LABEL: Record<string, string> = { sack: 'Sack', tfl: 'TFL', int: 'INT', ff: 'FF', fr: 'FR', pbu: 'PBU', qbh: 'QBH', blk: 'BLK' };
 
 /** Who had the ball: "Run #13 Landon Veto" / "Pass #21 Nash Ward → #10 Luke M". */
 const BallPlayers: React.FC<{ play: Play; inline?: boolean }> = ({ play, inline }) => {
@@ -1367,7 +1367,17 @@ const BallPlayers: React.FC<{ play: Play; inline?: boolean }> = ({ play, inline 
   if (play.odk === 'D' && play.carrierOrTarget && !play.rusher) rows.push(['Their', play.carrierOrTarget]);
   if (play.defPlay?.maker) rows.push(['Tackle', play.defPlay.maker]);
   for (const a of defAssists(play.defPlay)) rows.push(['Assist', a]);
-  if (play.defPlay?.events?.length) rows.push(['Play', play.defPlay.events.map((e) => EVENT_LABEL[e] || e).join(', ')]);
+  // Each big play with the kid who made it when that isn't the tackler ("PBU #4 Cole").
+  if (play.defPlay?.events?.length)
+    rows.push([
+      'Play',
+      play.defPlay.events
+        .map((e) => {
+          const by = play.defPlay?.by?.[e];
+          return `${EVENT_LABEL[e] || e}${by && by !== play.defPlay?.maker ? ` ${by}` : ''}`;
+        })
+        .join(', '),
+    ]);
   return (
     <span className={inline ? 'flex flex-wrap gap-x-3' : 'flex flex-col gap-0.5'}>
       {rows.map(([label, who]) => (

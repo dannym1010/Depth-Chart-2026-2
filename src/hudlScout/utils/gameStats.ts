@@ -1,7 +1,7 @@
 // Game and season stats from the breakdown: a box score for one side of the ball (team totals, rushing,
 // passing, receiving) and the defense's individual stats, read from each play's type, result, gain and the
 // players on it. Penalties, kicks and stoppages aren't offensive plays.
-import type { Play } from '../types/football';
+import type { DefEvent, Play } from '../types/football';
 
 const result = (p: Play) => String(p.result || '').toLowerCase();
 const gain = (p: Play) => Number(p.gainLoss) || 0;
@@ -75,7 +75,7 @@ export interface TeamLine {
 export interface RusherLine { name: string; att: number; yds: number; avg: number; td: number; long: number }
 export interface PasserLine { name: string; comp: number; att: number; yds: number; td: number; int: number; pct: number }
 export interface ReceiverLine { name: string; rec: number; targets: number; yds: number; td: number; long: number }
-export interface DefenderLine { name: string; tackles: number; solo: number; assists: number; tfl: number; sacks: number; ints: number; ff: number; fr: number; pbu: number }
+export interface DefenderLine { name: string; tackles: number; solo: number; assists: number; tfl: number; sacks: number; ints: number; ff: number; fr: number; pbu: number; qbh: number; blk: number }
 
 export interface BoxScore {
   team: TeamLine;
@@ -180,28 +180,28 @@ export function boxScore(offense: Play[], callTypeOf?: CallTypeOf): BoxScore {
 export function defenseStats(defense: Play[]): DefenderLine[] {
   const lines = new Map<string, DefenderLine>();
   const line = (who: string) => {
-    const l = lines.get(who) || { name: who, tackles: 0, solo: 0, assists: 0, tfl: 0, sacks: 0, ints: 0, ff: 0, fr: 0, pbu: 0 };
+    const l = lines.get(who) || { name: who, tackles: 0, solo: 0, assists: 0, tfl: 0, sacks: 0, ints: 0, ff: 0, fr: 0, pbu: 0, qbh: 0, blk: 0 };
     lines.set(who, l);
     return l;
   };
+  const field: Record<DefEvent, keyof DefenderLine> = { tfl: 'tfl', sack: 'sacks', int: 'ints', ff: 'ff', fr: 'fr', pbu: 'pbu', qbh: 'qbh', blk: 'blk' };
   for (const p of defense) {
     const d = p.defPlay;
     if (!d) continue;
     const maker = name(d.maker);
     const assists = [...(d.assists || []), ...(d.assist ? [d.assist] : [])].map(name).filter(Boolean);
-    const events = d.events || [];
     if (maker) {
       const l = line(maker);
       l.tackles += 1;
       // Alone: a solo tackle. Shared: everyone in on it, the first one picked too, has an assisted tackle.
       if (!assists.some((a) => a !== maker)) l.solo += 1;
       else l.assists += 1;
-      if (events.includes('tfl')) l.tfl += 1;
-      if (events.includes('sack')) l.sacks += 1;
-      if (events.includes('int')) l.ints += 1;
-      if (events.includes('ff')) l.ff += 1;
-      if (events.includes('fr')) l.fr += 1;
-      if (events.includes('pbu')) l.pbu += 1;
+    }
+    // Each big play to the kid who made it (a pass breakup isn't a tackle), else the tackler.
+    for (const e of new Set(d.events || [])) {
+      const who = name(d.by?.[e]) || maker;
+      if (!who) continue;
+      (line(who)[field[e]] as number) += 1;
     }
     for (const a of new Set(assists)) {
       if (a === maker) continue;
@@ -216,7 +216,7 @@ export function defenseStats(defense: Play[]): DefenderLine[] {
 /** What kind of kick a special teams play was, from its play type ("KO", "KO Rec", "Punt Rec", "PAT", "FG"...). */
 export type KickKind = 'ko' | 'koReturn' | 'punt' | 'puntReturn' | 'pat' | 'fg' | '';
 
-export function kickKind(p: Pick<Play, 'rawPlayType' | 'playName'>): KickKind {
+export function kickKind(p: Partial<Pick<Play, 'rawPlayType' | 'playName'>>): KickKind {
   const t = `${p.rawPlayType || ''} ${p.playName || ''}`.toLowerCase();
   const back = /\brec\b|receiv|\bret|\bkr\b|\bpr\b/.test(t);
   if (/punt|\bpr\b/.test(t)) return back ? 'puntReturn' : 'punt';

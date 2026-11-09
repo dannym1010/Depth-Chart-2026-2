@@ -4,7 +4,7 @@
 import type { RosterPlayer } from '../types';
 import type { Play } from '../hudlScout/types/football';
 import type { FilmLineup } from './filmLineup';
-import { defAssists, jerseyOf } from './filmLineup';
+import { defAssists, eventCredits, jerseyOf } from './filmLineup';
 import { isDefensiveStop } from '../hudlScout/utils/unitStats';
 import { defPlayFrom } from '../hudlScout/utils/csvParser';
 import { kickKind } from '../hudlScout/utils/gameStats';
@@ -46,6 +46,9 @@ export interface PlayerFilmLine {
   ff: number;
   fr: number;
   pbu: number;
+  /** QB hurries and blocked kicks. */
+  qbh: number;
+  blk: number;
   /** Kickoff and punt returns, and their yards (a return TD is in touchdowns). */
   returns: number;
   retYds: number;
@@ -100,6 +103,8 @@ export function playerFilmStats(
         ff: 0,
         fr: 0,
         pbu: 0,
+        qbh: 0,
+        blk: 0,
         returns: 0,
         retYds: 0,
         stopRate: 0,
@@ -129,15 +134,21 @@ export function playerFilmStats(
       // Shared with someone: his is an assisted tackle too.
       if (defAssists(p.defPlay).some((a) => jerseyOf(a) && jerseyOf(a) !== maker)) l.assists++;
       if (kick) l.stTackles++;
-      // On kicks only what a coach marked counts (the result text there describes the return).
-      for (const e of kick ? p.defPlay?.events || [] : defEventsOf(p)) {
-        if (e === 'sack') l.sacks++;
-        else if (e === 'tfl') l.tfl++;
-        else if (e === 'int') l.ints++;
-        else if (e === 'ff') l.ff++;
-        else if (e === 'fr') l.fr++;
-        else if (e === 'pbu') l.pbu++;
-      }
+    }
+    // Big plays to the kid who made each one, else the tackler. On kicks only what a coach marked counts (the
+    // result text there describes the return).
+    for (const { event: e, who } of eventCredits(p.defPlay, kick ? p.defPlay?.events || [] : defEventsOf(p))) {
+      const num = jerseyOf(who);
+      if (!num) continue;
+      const l = line(num, who);
+      if (e === 'sack') l.sacks++;
+      else if (e === 'tfl') l.tfl++;
+      else if (e === 'int') l.ints++;
+      else if (e === 'ff') l.ff++;
+      else if (e === 'fr') l.fr++;
+      else if (e === 'pbu') l.pbu++;
+      else if (e === 'qbh') l.qbh++;
+      else if (e === 'blk') l.blk++;
     }
     const credited = new Set<string>([maker]);
     for (const a of defAssists(p.defPlay)) {

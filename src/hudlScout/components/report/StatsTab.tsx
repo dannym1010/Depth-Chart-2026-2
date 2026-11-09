@@ -333,11 +333,11 @@ export const StatsTab: React.FC<Props> = ({ plays, games, selectedGameId, own, p
       <Card>
         <SectionHeader
           title="Defense"
-          subtitle="Tackles count everyone in on the tackle (kick coverage too). Click any defender row to watch their plays."
+          subtitle="Tackles count everyone in on the tackle (kick coverage too). TFL, sacks, INT, PBU... go to the kid who made each one. QBH = QB hurry, BLK = blocked kick. Click a row to watch his plays."
         />
         <Table
-          head={['Player', 'Tackles', 'Solo', 'Assists', 'TFL', 'Sacks', 'INT', 'FF', 'FR', 'PBU']}
-          rows={defenders.map((d) => [d.name, d.tackles, d.solo, d.assists, d.tfl, d.sacks, d.ints, d.ff, d.fr, d.pbu])}
+          head={['Player', 'Tackles', 'Solo', 'Assists', 'TFL', 'Sacks', 'INT', 'FF', 'FR', 'PBU', 'QBH', 'BLK']}
+          rows={defenders.map((d) => [d.name, d.tackles, d.solo, d.assists, d.tfl, d.sacks, d.ints, d.ff, d.fr, d.pbu, d.qbh, d.blk])}
           onRowClick={
             onWatchCutup
               ? (idx) => {
@@ -349,7 +349,8 @@ export const StatsTab: React.FC<Props> = ({ plays, games, selectedGameId, own, p
                     if (!dp) return false;
                     const maker = String(dp.maker || '').trim().toLowerCase();
                     const assists = [...(dp.assists || []), ...(dp.assist ? [dp.assist] : [])].map((a) => String(a || '').trim().toLowerCase());
-                    return maker === target || assists.includes(target);
+                    const made = Object.values(dp.by || {}).map((a) => String(a || '').trim().toLowerCase());
+                    return maker === target || assists.includes(target) || made.includes(target);
                   });
                   if (subset.length > 0) onWatchCutup(`Defense · ${d.name}`, subset);
                 }

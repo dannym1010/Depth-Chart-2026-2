@@ -461,6 +461,7 @@ function keepCoachWork(old: Play, fresh: Play): Play {
       maker: old.defPlay.maker || fresh.defPlay?.maker,
       ...(assists ? { assists } : { assist: old.defPlay.assist || fresh.defPlay?.assist }),
       events: old.defPlay.events?.length ? old.defPlay.events : fresh.defPlay?.events,
+      ...(old.defPlay.by && Object.keys(old.defPlay.by).length ? { by: old.defPlay.by } : {}),
     };
   }
   if (old.playCallId) {

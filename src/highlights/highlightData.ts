@@ -115,7 +115,7 @@ const isKick = (p: Play) => p.odk === 'K' || /\b(ko|kick|punt)\b/i.test(String(p
 
 /** Jersey numbers on a play: who carried, threw, caught, made the tackle. */
 export function kidsOnPlay(p: Play): string[] {
-  const nums = [p.rusher, p.passer, p.receiver, p.returner, p.kicker, p.defPlay?.maker, ...(p.defPlay?.assists || []), p.defPlay?.assist]
+  const nums = [p.rusher, p.passer, p.receiver, p.returner, p.kicker, p.defPlay?.maker, ...(p.defPlay?.assists || []), p.defPlay?.assist, ...Object.values(p.defPlay?.by || {})]
     .map((x) => jerseyOf(x))
     .filter(Boolean);
   if (!nums.length && p.carrierOrTarget) nums.push(jerseyOf(p.carrierOrTarget));
@@ -133,11 +133,12 @@ export function categoriesOf(p: Play, bigGain = 15): HighlightCategory[] {
     else if (e === 'ff' || e === 'fr') out.push('fumble');
     else if (e === 'tfl') out.push('tfl');
     else if (e === 'pbu') out.push('pbu');
+    else if (e === 'blk' && !out.includes('kick')) out.push('kick');
   }
   // Our defense stopping them behind the line (a tackler named), even when the TFL box wasn't ticked.
   if (p.odk === 'D' && gain < 0 && (p.defPlay?.maker || p.defPlay?.events?.length) && !out.includes('sack')) out.push('tfl');
   if (isKick(p)) {
-    if (gain >= bigGain || scored(p)) out.push('kick');
+    if ((gain >= bigGain || scored(p)) && !out.includes('kick')) out.push('kick');
   } else if (p.odk === 'O' || p.odk === 'UNKNOWN') {
     if (gain >= bigGain || p.isExplosive) out.push(isPass(p) && completed(p) ? 'catch' : isPass(p) ? 'pass' : 'big_run');
   }
@@ -247,6 +248,7 @@ export function reasonsFor(p: Play, bigGain = 15): RecReason[] {
   if (ev.includes('ff')) add('turnovers', 'Forced fumble', 7);
   if (ev.includes('fr')) add('turnovers', 'Fumble recovery', 7);
   if (ev.includes('pbu')) add('turnovers', 'Pass breakup', 3);
+  if (ev.includes('blk')) add('specials', 'Blocked kick', 8);
 
   // Behind the line.
   if (ev.includes('sack')) add('backfield', gain < 0 ? `Sack (${gain})` : 'Sack', 6);

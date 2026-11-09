@@ -48,7 +48,7 @@ describe('game and season stats', () => {
       mk(2, { odk: 'D', defPlay: { maker: '#17 Dicob', events: ['sack'] } }),
     ];
     const lines = defenseStats(d);
-    assert.deepEqual(lines.find((l) => l.name === '#17 Dicob'), { name: '#17 Dicob', tackles: 2, solo: 1, assists: 1, tfl: 0, sacks: 1, ints: 0, ff: 0, fr: 0, pbu: 0 });
+    assert.deepEqual(lines.find((l) => l.name === '#17 Dicob'), { name: '#17 Dicob', tackles: 2, solo: 1, assists: 1, tfl: 0, sacks: 1, ints: 0, ff: 0, fr: 0, pbu: 0, qbh: 0, blk: 0 });
     const k = lines.find((l) => l.name === '#8 Kilkenny')!;
     assert.deepEqual([k.tackles, k.solo, k.assists, k.tfl], [1, 0, 1, 1], 'a shared tackle: an assisted tackle for him too');
     const rows = gameRows([...d, mk(3, { gameId: 'g2', gainLoss: 9 })], [{ id: 'g1', name: 'A' }, { id: 'g2', name: 'B' }]);

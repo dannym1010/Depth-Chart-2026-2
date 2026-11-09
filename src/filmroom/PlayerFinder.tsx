@@ -42,7 +42,7 @@ const ROLE_COLOR: Record<PlayerRole, string> = {
   Tackle: '#ea580c',
   Assist: '#f59e0b',
 };
-const EVENT_LABEL: Record<string, string> = { sack: 'Sack', tfl: 'TFL', int: 'INT', ff: 'Forced fumble', fr: 'Fumble rec.', pbu: 'PBU' };
+const EVENT_LABEL: Record<string, string> = { sack: 'Sack', tfl: 'TFL', int: 'INT', ff: 'Forced fumble', fr: 'Fumble rec.', pbu: 'PBU', qbh: 'QB hurry', blk: 'Blocked kick' };
 
 const ordinal = (n: number) => `${n}${['', 'st', 'nd', 'rd'][n] || 'th'}`;
 const signed = (n: number) => `${n > 0 ? '+' : ''}${n}`;
@@ -74,7 +74,7 @@ export const PlayerFinder: React.FC<Props> = ({ open, onClose, games, plays, ros
     const counts = new Map<string, number>();
     for (const p of plays) {
       const seen = new Set<string>();
-      for (const label of [p.rusher, p.passer, p.receiver, p.carrierOrTarget, p.returner, p.kicker, p.defPlay?.maker, p.defPlay?.assist, ...(p.defPlay?.assists || [])]) {
+      for (const label of [p.rusher, p.passer, p.receiver, p.carrierOrTarget, p.returner, p.kicker, p.defPlay?.maker, p.defPlay?.assist, ...(p.defPlay?.assists || []), ...Object.values(p.defPlay?.by || {})]) {
         const n = jerseyOf(label);
         if (n && !seen.has(n)) {
           seen.add(n);
@@ -103,7 +103,7 @@ export const PlayerFinder: React.FC<Props> = ({ open, onClose, games, plays, ros
     (role === 'run' && r.roles.includes('Rush')) ||
     (role === 'pass' && r.roles.includes('Pass')) ||
     (role === 'catch' && (r.roles.includes('Catch') || r.roles.includes('Target'))) ||
-    (role === 'defense' && (r.roles.includes('Tackle') || r.roles.includes('Assist'))) ||
+    (role === 'defense' && (r.roles.includes('Tackle') || r.roles.includes('Assist') || (r.events.length > 0 && r.play.odk !== 'K'))) ||
     (role === 'special' && (r.roles.includes('Return') || r.roles.includes('Kick') || r.play.odk === 'K'));
   const sorted = useMemo(() => {
     const val = (r: PlayerPlay): number | string => {
@@ -262,11 +262,16 @@ export const PlayerFinder: React.FC<Props> = ({ open, onClose, games, plays, ros
                     {t.carries > 0 && group('Rushing', ROLE_COLOR.Rush, [['Carries', t.carries], ['Yards', t.rushYds], ['Avg', avg(t.rushYds, t.carries)], ['TDs', t.touchdowns]])}
                     {t.targets > 0 && group('Receiving', ROLE_COLOR.Catch, [['Targets', t.targets], ['Catches', t.catches], ['Yards', t.recYds], ['Avg', avg(t.recYds, t.catches)]])}
                     {t.attempts > 0 && group('Passing', ROLE_COLOR.Pass, [['Comp / Att', `${t.completions}/${t.attempts}`], ['Yards', t.passYds], ['Comp %', t.attempts ? `${Math.round((t.completions / t.attempts) * 100)}%` : '—']])}
-                    {t.tackles + t.assists > 0 &&
+                    {t.tackles + t.assists + t.tfl + t.sacks + t.ints + t.forcedFumbles + t.recoveries + t.pbu + t.qbh + t.blk > 0 &&
                       group('Defense', ROLE_COLOR.Tackle, [
                         ['Tackles', t.tackles],
                         ['Assists', t.assists],
-                        ...([['TFL', t.tfl], ['Sacks', t.sacks], ['INT', t.ints], ['Forced fum.', t.forcedFumbles], ['Fum. rec.', t.recoveries], ['PBU', t.pbu]] as [string, number][]).filter(([, v]) => v > 0),
+                        ...(
+                          [
+                            ['TFL', t.tfl], ['Sacks', t.sacks], ['INT', t.ints], ['Forced fum.', t.forcedFumbles], ['Fum. rec.', t.recoveries], ['PBU', t.pbu],
+                            ['QB hurries', t.qbh], ['Blocked kicks', t.blk],
+                          ] as [string, number][]
+                        ).filter(([, v]) => v > 0),
                       ])}
                     {t.returns + t.kicks > 0 &&
                       group('Special teams', ROLE_COLOR.Return, [

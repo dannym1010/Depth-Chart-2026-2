@@ -1,7 +1,7 @@
 // Who was on the field for a play of our film: the week's depth chart for the unit that was in
 // (Black 1s / Gold 2s / Blue 3s), in the called play's formation, plus any subs a coach set for that play.
 import type { FilmPlayerRef, FilmUnitColor, FormationBoard, PlacedPlayer, RosterPlayer } from '../types';
-import type { Play } from '../hudlScout/types/football';
+import type { DefEvent, Play } from '../hudlScout/types/football';
 import type { FilmSlotDef } from './hudlFilmImport';
 import { isPffSourceFormation, type PprSide } from './pprGroups';
 import { formationForCall, lineupFromFormation } from './pffFilm';
@@ -97,14 +97,33 @@ export function rosterLabel(r: { num?: string | number; firstName?: string; last
   return name ? `#${r.num} ${name}` : `#${r.num}`;
 }
 
-export const DEF_EVENTS: { id: import('../hudlScout/types/football').DefEvent; label: string; long: string }[] = [
+export const DEF_EVENTS: { id: DefEvent; label: string; long: string }[] = [
   { id: 'sack', label: 'Sack', long: 'Sack' },
   { id: 'tfl', label: 'TFL', long: 'Tackle for loss' },
   { id: 'int', label: 'INT', long: 'Interception' },
   { id: 'ff', label: 'FF', long: 'Forced fumble' },
   { id: 'fr', label: 'FR', long: 'Fumble recovery' },
   { id: 'pbu', label: 'PBU', long: 'Pass breakup' },
+  { id: 'qbh', label: 'QB hurry', long: 'QB hurry (pressure)' },
+  { id: 'blk', label: 'Blocked kick', long: 'Blocked kick / punt' },
 ];
+
+/** The play buttons for a play: defense gets everything but the blocked kick; kicks get FF / FR / blocked kick. */
+export const defEventsFor = (kick: boolean) =>
+  kick ? DEF_EVENTS.filter((e) => e.id === 'ff' || e.id === 'fr' || e.id === 'blk') : DEF_EVENTS.filter((e) => e.id !== 'blk');
+
+/**
+ * Who made each big play on a play: the kid picked for it, else the tackler (plays saved before each one had its
+ * own kid). An event nobody can be credited with is left out.
+ */
+export function eventCredits(dp: Play['defPlay'] | undefined, events?: DefEvent[]): { event: DefEvent; who: string }[] {
+  const out: { event: DefEvent; who: string }[] = [];
+  for (const e of events || dp?.events || []) {
+    const who = String(dp?.by?.[e] || dp?.maker || '').trim();
+    if (who && who !== '-') out.push({ event: e, who });
+  }
+  return out;
+}
 
 /** Everyone credited with an assist on a play (plays saved before several assists were allowed had one). */
 export function defAssists(dp?: Play['defPlay']): string[] {
@@ -159,6 +178,13 @@ export function setPlayDefPlay(plays: Play[], playId: string, patch: Partial<Non
     if (!next.assist) delete next.assist;
     if (!next.assists?.length) delete next.assists;
     if (!next.events?.length) delete next.events;
+    // Credits only for the plays still marked, and none left blank.
+    if (next.by) {
+      const by: Partial<Record<DefEvent, string>> = {};
+      for (const e of next.events || []) if (next.by[e]) by[e] = next.by[e];
+      if (Object.keys(by).length) next.by = by;
+      else delete next.by;
+    }
     return { ...p, defPlay: Object.keys(next).length ? next : undefined, editedAt: Date.now() };
   });
 }
