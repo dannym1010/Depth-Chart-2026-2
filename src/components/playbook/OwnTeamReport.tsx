@@ -142,7 +142,7 @@ const PlayersCard: React.FC<{
   const total = side === 'offense' ? stats.offSnaps : stats.defSnaps;
   const rows = useMemo(() => {
     const list = stats.players.filter((p) => (side === 'offense' ? p.offSnaps || p.carries || p.targets || p.passes : p.defSnaps || p.tackles || p.assists || p.stTackles));
-    const touches = (p: PlayerFilmLine) => (side === 'offense' ? p.carries + p.targets : p.tackles + p.assists);
+    const touches = (p: PlayerFilmLine) => (side === 'offense' ? p.carries + p.targets : p.tackles);
     const yards = (p: PlayerFilmLine) => p.rushYds + p.recYds;
     const snaps = (p: PlayerFilmLine) => (side === 'offense' ? p.offSnaps : p.defSnaps);
     const key: Record<Sort, (p: PlayerFilmLine) => number> = {
@@ -237,7 +237,7 @@ const PlayersCard: React.FC<{
                     </th>
                     <th className="py-1.5 px-1.5 font-black text-right" title="Yards per play the offense gained while he was on the field">Yds / snap</th>
                     <th className={th} onClick={() => setSort('touches')}>Tackles{sort === 'touches' ? ' ▾' : ''}</th>
-                    <th className="py-1.5 px-1.5 font-black text-right">Ast</th>
+                    <th className="py-1.5 px-1.5 font-black text-right" title="Shared tackles (each player in on one gets a tackle; these are also in Tackles)">Ast</th>
                     <th className="py-1.5 px-1.5 font-black text-right" title="Special teams tackles and assists (included in Tkl and Ast)">ST</th>
                     <th className="py-1.5 px-1.5 font-black text-right">Sack</th>
                     <th className="py-1.5 px-1.5 font-black text-right">TFL</th>

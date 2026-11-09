@@ -107,6 +107,30 @@ export function defAssists(dp?: Play['defPlay']): string[] {
   return dp?.assist ? [dp.assist] : [];
 }
 
+/** Everyone in on the tackle, the first one picked first ("#22 Jaxson Pestone", ...). */
+export function tacklersOf(dp?: Play['defPlay']): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const a of [dp?.maker || '', ...defAssists(dp)]) {
+    const k = jerseyOf(a) || a;
+    if (!a || seen.has(k)) continue;
+    seen.add(k);
+    out.push(a);
+  }
+  return out;
+}
+
+/**
+ * Tap a player in or out of the tackle. One player = a solo tackle; more = a shared tackle, and every one of them
+ * gets a tackle in the stats (saved as the first one picked + assists; sack / TFL / INT go to the first one).
+ */
+export function toggleTackler(dp: Play['defPlay'] | undefined, label: string): { maker?: string; assists: string[] } {
+  const k = jerseyOf(label) || label;
+  const now = tacklersOf(dp);
+  const next = now.some((a) => (jerseyOf(a) || a) === k) ? now.filter((a) => (jerseyOf(a) || a) !== k) : [...now, label];
+  return { maker: next[0], assists: next.slice(1) };
+}
+
 /** Plays where our players make tackles: defense and special teams. */
 export const playTakesTackles = (p: Pick<Play, 'odk'>) => p.odk === 'D' || p.odk === 'K';
 

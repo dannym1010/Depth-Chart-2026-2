@@ -193,7 +193,9 @@ export function defenseStats(defense: Play[]): DefenderLine[] {
     if (maker) {
       const l = line(maker);
       l.tackles += 1;
-      if (!assists.length) l.solo += 1;
+      // Alone: a solo tackle. Shared: everyone in on it, the first one picked too, has an assisted tackle.
+      if (!assists.some((a) => a !== maker)) l.solo += 1;
+      else l.assists += 1;
       if (events.includes('tfl')) l.tfl += 1;
       if (events.includes('sack')) l.sacks += 1;
       if (events.includes('int')) l.ints += 1;

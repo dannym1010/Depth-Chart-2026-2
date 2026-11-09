@@ -35,7 +35,7 @@ describe("a player's plays", () => {
     assert.equal(t.targets, 2);
     assert.equal(t.catches, 1);
     assert.equal(t.recYds, 9);
-    assert.equal(t.tackles, 1);
+    assert.equal(t.tackles, 2, 'his own tackle and the one he shared');
     assert.equal(t.assists, 1);
     assert.equal(t.tfl, 1);
     assert.equal(t.touchdowns, 1);

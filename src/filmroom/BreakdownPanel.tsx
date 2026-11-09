@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronRight, Eraser, Sparkles } from 'lucide-react';
-import type { Play, TeamUnit } from '../hudlScout/types/football';
+import type { DefPlay, Play, TeamUnit } from '../hudlScout/types/football';
 import type { RosterPlayer } from '../types';
+import { playTakesTackles, type FilmLineup } from '../utils/filmLineup';
+import { TacklesBox } from './TacklesBox';
 import { playIsUnitTaggable } from '../hudlScout/utils/unitStats';
 import { isBalancedPlay, playStrength } from '../hudlScout/utils/strength';
 import { breakdownRowOf, type BreakdownColumn, type BreakdownRow } from './breakdownEntry';
@@ -50,6 +52,10 @@ interface Props {
   onAddNote?: (playId: string, text: string) => void;
   /** Only master / program admin sees AI Auto-Breakdown assistant */
   isProgramAdmin?: boolean;
+  /** Our film's defense and kick plays: who was in on the tackle (and sack / TFL / INT...). */
+  onSetDefPlay?: (play: Play, patch: Partial<DefPlay>) => void;
+  /** Who was on the field for the play, so their buttons come first. */
+  lineupOf?: (play: Play) => FilmLineup | null;
 }
 
 const ODK = [
@@ -95,6 +101,8 @@ export const BreakdownPanel: React.FC<Props> = ({
   gameId = '',
   onAddNote,
   isProgramAdmin = false,
+  onSetDefPlay,
+  lineupOf,
 }) => {
   const saved = useMemo(() => (play ? breakdownRowOf(play) : {}), [play]);
   // Typed boxes: kept here until they're saved.
@@ -308,6 +316,9 @@ export const BreakdownPanel: React.FC<Props> = ({
         {field('Result', box('RESULT', { list: `${listId}-result`, placeholder: 'Rush, Complete…' }))}
         {field('Gain', box('GN/LS', { placeholder: '0', inputMode: 'numeric', className: 'w-14' }))}
       </div>
+      {onSetDefPlay && playTakesTackles(play) && (
+        <TacklesBox play={play} lineup={lineupOf ? lineupOf(play) : null} roster={roster} readOnly={readOnly} onSetDefPlay={(patch) => onSetDefPlay(play, patch)} />
+      )}
       {onPatch && (
         <MoreFields play={play} onPatch={onPatch} readOnly={readOnly} chipClass={chipClass} />
       )}

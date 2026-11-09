@@ -3282,8 +3282,10 @@ describe('re-uploading and defensive stats', () => {
     assert.equal(jax.defSnaps, 2);
     assert.equal(jax.stopRate, 50);
     assert.equal(jax.yardsAllowedPerSnap, 2);
-    assert.equal(chris.tackles, 1);
+    // A shared tackle: each one in on it gets a tackle, and it's an assisted (not solo) tackle for both.
+    assert.equal(chris.tackles, 2);
     assert.equal(chris.assists, 1);
+    assert.equal(jax.assists, 1);
   });
 });
 

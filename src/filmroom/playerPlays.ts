@@ -91,8 +91,11 @@ export function playerTotals(rows: PlayerPlay[]): PlayerTotals {
       t.catches += 1;
       t.recYds += g;
     }
-    if (r.roles.includes('Tackle')) t.tackles += 1;
-    if (r.roles.includes('Assist')) t.assists += 1;
+    // A shared tackle counts as a tackle for everyone in on it (and an assist for the helpers).
+    if (r.roles.includes('Tackle') || r.roles.includes('Assist')) t.tackles += 1;
+    const dp = r.play.defPlay;
+    const shared = [...(dp?.assists || []), ...(dp?.assist ? [dp.assist] : [])].some((a) => jerseyOf(a) && jerseyOf(a) !== jerseyOf(dp?.maker));
+    if (r.roles.includes('Assist') || (r.roles.includes('Tackle') && shared)) t.assists += 1;
     for (const e of r.events) {
       if (e === 'sack') t.sacks += 1;
       else if (e === 'tfl') t.tfl += 1;

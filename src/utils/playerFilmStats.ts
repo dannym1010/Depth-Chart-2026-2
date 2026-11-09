@@ -33,8 +33,9 @@ export interface PlayerFilmLine {
   touchSuccess: number;
   explosive: number;
   touchdowns: number;
-  /** Defense: plays made. Events count for the player credited with the tackle. */
+  /** Defense: every tackle he was in on, alone or shared. Events count for the player credited first. */
   tackles: number;
+  /** Shared tackles (also in tackles). */
   assists: number;
   /** Special teams tackles + assists (also included in tackles / assists). */
   stTackles: number;
@@ -119,6 +120,8 @@ export function playerFilmStats(
     if (maker) {
       const l = line(maker, p.defPlay?.maker);
       l.tackles++;
+      // Shared with someone: his is an assisted tackle too.
+      if (defAssists(p.defPlay).some((a) => jerseyOf(a) && jerseyOf(a) !== maker)) l.assists++;
       if (kick) l.stTackles++;
       // On kicks only what a coach marked counts (the result text there describes the return).
       for (const e of kick ? p.defPlay?.events || [] : defEventsOf(p)) {
@@ -136,6 +139,8 @@ export function playerFilmStats(
       if (!num || credited.has(num)) continue;
       credited.add(num);
       const l = line(num, a);
+      // A shared tackle: everyone in on it gets a tackle (and an assist).
+      l.tackles++;
       l.assists++;
       if (kick) l.stTackles++;
     }
