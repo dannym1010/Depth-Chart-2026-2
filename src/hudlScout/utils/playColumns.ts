@@ -17,6 +17,7 @@ export type PlayColumnKey =
   | 'playCall'
   | 'callName'
   | 'players'
+  | 'tacklers'
   | 'playType'
   | 'direction'
   | 'motion'
@@ -46,6 +47,12 @@ const unitLabel = (p: Play) => TEAM_UNITS.find((u) => u.id === p.unit)?.label ||
 const downDistText = (p: Play) => (p.down ? `${p.down} & ${p.distance}` : 'Kick');
 const callText = (p: Play) => clean(p.playCall) || clean(p.playName);
 const playerText = (p: Play) => clean(p.rusher) || clean(p.passer) || clean(p.receiver) || clean(p.carrierOrTarget) || clean(p.defPlay?.maker);
+/** Everyone in on the tackle, the first kid picked first (older plays kept one assist in `assist`). */
+export const playTacklers = (p: Play): string[] => {
+  const dp = p.defPlay;
+  const all = [dp?.maker, ...(dp?.assists?.length ? dp.assists : [dp?.assist])].map((x) => clean(x)).filter(Boolean);
+  return [...new Set(all)];
+};
 /** "Strong" / "Middle" / "Weak" ("" when the formation has no side or the play no direction). */
 export const strengthText = (p: Play) => {
   if (isBalancedPlay(p)) return 'Balanced'; // a balanced formation (like 32) has no strong side
@@ -90,6 +97,8 @@ export const PLAY_COLUMNS: PlayColumn[] = [
   // The name a coach built in the Film Room breakdown ("32 Gun Rt Tight 44 Counter").
   { key: 'callName', label: 'PLAY NAME', sortValue: (p) => clean(p.callName), filterValues: (p) => one(p.callName) },
   { key: 'players', label: 'PLAYERS', sortValue: playerText, filterValues: (p) => [playerText(p) || BLANK] },
+  // Everyone in on the tackle: the filter lists each kid (a play shows under every kid in on it); sorts by the first kid picked.
+  { key: 'tacklers', label: 'TACKLES', sortValue: (p) => playTacklers(p).join(', '), filterValues: (p) => (playTacklers(p).length ? playTacklers(p) : [BLANK]) },
   { key: 'playType', label: 'TYPE', sortValue: (p) => clean(p.playType), filterValues: (p) => one(p.playType) },
   { key: 'direction', label: 'DIR', sortValue: (p) => clean(p.direction), filterValues: (p) => one(p.direction) },
   // Strong / weak side: the play's direction vs the formation's side letter ("21 L" = strength left).

@@ -64,6 +64,28 @@ test('returns and kicking add up, and show on the kid', () => {
   assert.deepEqual(playsForPlayer(plays, '4').map((r) => r.roles), [['Return']], "Hudl's returner isn't a carry");
 });
 
+test('the play log filters and sorts by the tacklers: a shared tackle shows under every kid in on it', async () => {
+  const { filterOptions, filterPlays, sortPlays } = await import('../hudlScout/utils/playColumns');
+  const D = (n: number, defPlay?: Play['defPlay']) => P(n, { odk: 'D', defPlay });
+  const plays = [
+    D(1, { maker: '#22 Jax', assists: ['#4 Cole'] }),
+    D(2, { maker: '#4 Cole' }),
+    D(3),
+    D(4, { maker: '#10 Max', assist: '#22 Jax' }), // saved when a play had one assist
+  ];
+  assert.deepEqual(filterOptions(plays, 'tacklers'), [
+    { value: '#4 Cole', count: 2 },
+    { value: '#10 Max', count: 1 },
+    { value: '#22 Jax', count: 2 },
+    { value: '(blank)', count: 1 },
+  ]);
+  assert.deepEqual(filterPlays(plays, { tacklers: ['#4 Cole'] }).map((p) => p.playNumber), [1, 2]);
+  assert.deepEqual(filterPlays(plays, { tacklers: ['#22 Jax'] }).map((p) => p.playNumber), [1, 4]);
+  // Sorted by the first kid picked (jersey order), plays without a tackler last either way.
+  assert.deepEqual(sortPlays(plays, 'tacklers', true).map((p) => p.playNumber), [2, 4, 1, 3]);
+  assert.deepEqual(sortPlays(plays, 'tacklers', false).map((p) => p.playNumber), [1, 4, 2, 3]);
+});
+
 test('a pass breakup goes to the kid who made it, without a tackle; old plays still credit the tackler', async () => {
   const { defenseStats } = await import('../hudlScout/utils/gameStats');
   const { setPlayDefPlay } = await import('../utils/filmLineup');

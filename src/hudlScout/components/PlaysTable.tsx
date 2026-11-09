@@ -7,7 +7,7 @@ import { fillFromYardLines, callUsage, isNumberFormation, isTaggablePlay, restOf
 import type { PlayDatabaseEntry } from '../../types/callSheet';
 import { CallButton, FormationEditor, TagPlaysPanel } from '../../components/playbook/CallPicker';
 import { Search, ChevronDown, ChevronUp, ChevronRight, Zap, Flame, CheckCircle2, ListChecks, Users, Filter, X, Pencil } from 'lucide-react';
-import { PLAY_COLUMNS, columnByKey, filterOptions, filterPlays, sortPlays, strengthSideText, strengthText, strengthFieldText, wentFieldText, type PlayColumnKey, type PlayFilters } from '../utils/playColumns';
+import { PLAY_COLUMNS, columnByKey, filterOptions, filterPlays, playTacklers, sortPlays, strengthSideText, strengthText, strengthFieldText, wentFieldText, type PlayColumnKey, type PlayFilters } from '../utils/playColumns';
 import { ColumnFilter } from './ColumnFilter';
 import type { FilmPlayerRef, RosterPlayer } from '../../types';
 import { defAssists, type FilmLineup } from '../../utils/filmLineup';
@@ -288,7 +288,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
     });
     setPage(1);
   };
-  const columns = PLAY_COLUMNS.filter((c) => c.key !== 'unit' || onSetUnit);
+  const columns = PLAY_COLUMNS.filter((c) => (c.key !== 'unit' || onSetUnit) && (c.key !== 'tacklers' || plays.some((p) => playTacklers(p).length)));
   const activeFilters = (Object.keys(filters) as PlayColumnKey[]).filter((k) => filters[k]);
 
   const basePlays = useMemo(() => {
@@ -303,7 +303,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
           p.playName.toLowerCase().includes(lower) ||
           p.formation.toLowerCase().includes(lower) ||
           p.carrierOrTarget.toLowerCase().includes(lower) ||
-          `${p.rusher || ''} ${p.passer || ''} ${p.receiver || ''}`.toLowerCase().includes(lower) ||
+          `${p.rusher || ''} ${p.passer || ''} ${p.receiver || ''} ${p.returner || ''} ${p.kicker || ''} ${playTacklers(p).join(' ')}`.toLowerCase().includes(lower) ||
           p.result.toLowerCase().includes(lower) ||
           p.playType.toLowerCase().includes(lower)
       );
@@ -317,6 +317,8 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
 
   // The PLAY NAME column, once a coach has named a play (Film Room breakdown).
   const hasNames = plays.some((p) => p.callName);
+  // The TACKLES column, once a coach has tagged who made a tackle (Film Room breakdown or the ▸ panel).
+  const hasTacklers = plays.some((p) => playTacklers(p).length);
   // The columns in the coach's order (drag a header onto another, or the Columns menu); kept on this device.
   const [colOrder, setColOrder] = useState<PlayColumnKey[]>(() => columnOrder(readColumnOrder()));
   const saveOrder = (next: PlayColumnKey[]) => {
@@ -327,7 +329,7 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
       /* not kept on this device */
     }
   };
-  const shownCols = colOrder.filter((k) => (k !== 'unit' || onSetUnit) && (k !== 'callName' || hasNames));
+  const shownCols = colOrder.filter((k) => (k !== 'unit' || onSetUnit) && (k !== 'callName' || hasNames) && (k !== 'tacklers' || hasTacklers));
   const moveCol = (key: PlayColumnKey, to: PlayColumnKey | number) => {
     const rest = colOrder.filter((k) => k !== key);
     const at = typeof to === 'number' ? Math.max(0, Math.min(rest.length, to)) : rest.indexOf(to) + (colOrder.indexOf(key) < colOrder.indexOf(to) ? 1 : 0);
@@ -1019,8 +1021,8 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     players: (
                       <React.Fragment key="players">
                   <td className="py-2.5 px-3 text-slate-300 text-xs">
-                    {hasPlayers(play) ? (
-                      <BallPlayers play={play} inline={compact} />
+                    {hasPlayers(play, hasTacklers) ? (
+                      <BallPlayers play={play} inline={compact} noTacklers={hasTacklers} />
                     ) : onEditPlay ? (
                       <CellInput
                         value={play.carrierOrTarget || ''}
@@ -1033,6 +1035,11 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                       play.carrierOrTarget || <span className="text-slate-400">-</span>
                     )}
                   </td>
+                      </React.Fragment>
+                    ),
+                    tacklers: (
+                      <React.Fragment key="tacklers">
+                  {hasTacklers && <td className="py-2.5 px-3 text-xs"><Tacklers play={play} inline={compact} /></td>}
                       </React.Fragment>
                     ),
                     playType: (
@@ -1353,11 +1360,29 @@ const FormationCell: React.FC<{
   );
 };
 
-const hasPlayers = (p: Play) => Boolean(p.rusher || p.passer || p.receiver || p.returner || p.kicker || p.defPlay?.maker || defAssists(p.defPlay).length || p.defPlay?.events?.length);
+/** Anything for the PLAYERS column (the tacklers left out when they have their own column). */
+const hasPlayers = (p: Play, noTacklers?: boolean) =>
+  Boolean(p.rusher || p.passer || p.receiver || p.returner || p.kicker || p.defPlay?.events?.length || (!noTacklers && (p.defPlay?.maker || defAssists(p.defPlay).length)));
 const EVENT_LABEL: Record<string, string> = { sack: 'Sack', tfl: 'TFL', int: 'INT', ff: 'FF', fr: 'FR', pbu: 'PBU', qbh: 'QBH', blk: 'BLK' };
 
+/** The TACKLES column: the first kid picked, then everyone else in on it ("+ #17 Dicob"). */
+const Tacklers: React.FC<{ play: Play; inline?: boolean }> = ({ play, inline }) => {
+  const all = playTacklers(play);
+  if (!all.length) return null;
+  return (
+    <span className={inline ? 'flex flex-wrap gap-x-2' : 'flex flex-col gap-0.5 min-w-[96px] max-w-[140px] leading-tight'} title={all.length > 1 ? 'Shared tackle: a tackle for each kid' : 'Solo tackle'}>
+      {all.map((who, i) => (
+        <span key={who} className={`whitespace-nowrap ${i ? 'text-slate-300' : 'text-orange-300 font-bold'}`}>
+          {i ? '+ ' : ''}
+          {who}
+        </span>
+      ))}
+    </span>
+  );
+};
+
 /** Who had the ball: "Run #13 Landon Veto" / "Pass #21 Nash Ward → #10 Luke M". */
-const BallPlayers: React.FC<{ play: Play; inline?: boolean }> = ({ play, inline }) => {
+const BallPlayers: React.FC<{ play: Play; inline?: boolean; noTacklers?: boolean }> = ({ play, inline, noTacklers }) => {
   const rows: [string, string][] = [];
   if (play.rusher) rows.push(['Run', play.rusher]);
   if (play.passer) rows.push(['Pass', play.passer]);
@@ -1365,8 +1390,8 @@ const BallPlayers: React.FC<{ play: Play; inline?: boolean }> = ({ play, inline 
   if (play.returner) rows.push(['Return', play.returner]);
   if (play.kicker) rows.push(['Kick', play.kicker]);
   if (play.odk === 'D' && play.carrierOrTarget && !play.rusher) rows.push(['Their', play.carrierOrTarget]);
-  if (play.defPlay?.maker) rows.push(['Tackle', play.defPlay.maker]);
-  for (const a of defAssists(play.defPlay)) rows.push(['Assist', a]);
+  if (play.defPlay?.maker && !noTacklers) rows.push(['Tackle', play.defPlay.maker]);
+  if (!noTacklers) for (const a of defAssists(play.defPlay)) rows.push(['Assist', a]);
   // Each big play with the kid who made it when that isn't the tackler ("PBU #4 Cole").
   if (play.defPlay?.events?.length)
     rows.push([
