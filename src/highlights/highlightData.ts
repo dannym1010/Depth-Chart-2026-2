@@ -17,9 +17,17 @@ export const shareReel = (r: Reel, who: string, on: boolean): Reel => ({
   ...r,
   sharedWith: on ? [...r.sharedWith.filter((e) => e !== who), who] : r.sharedWith.filter((e) => e !== who),
 });
-/** The reels families may watch (with at least one clip), newest first. */
-export const familyReels = (d: HighlightsData): Reel[] =>
-  d.reels.filter((r) => r.sharedWith.includes(FAMILIES) && r.items.length).sort((a, b) => b.createdAt - a.createdAt);
+/**
+ * The reels a family may watch (with at least one clip): a player reel shared with families goes to that kid's
+ * family only; any other reel shared with families goes to every family. Their kid's reel first, then newest first.
+ */
+export const familyReels = (d: HighlightsData, kids: string[] = []): Reel[] => {
+  const mine = new Set(kids.map((k) => String(Number(k))));
+  const isMine = (r: Reel) => r.kind === 'player' && Boolean(r.kid) && mine.has(String(Number(r.kid)));
+  return d.reels
+    .filter((r) => r.sharedWith.includes(FAMILIES) && r.items.length && (r.kind !== 'player' || !r.kid || isMine(r)))
+    .sort((a, b) => Number(isMine(b)) - Number(isMine(a)) || b.createdAt - a.createdAt);
+};
 
 export const defaultSettings = (): HighlightSettings => ({
   primary: '#1d3f8f',

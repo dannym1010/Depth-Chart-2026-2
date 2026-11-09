@@ -52,7 +52,7 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, acc
   }, [myKids, kid]);
   const inOrder = (list: Highlight[]) => list.slice().sort((a, b) => (order.get(a.game.key) ?? 999) - (order.get(b.game.key) ?? 999) || a.seq - b.seq);
   const clips = useMemo(() => (kid ? inOrder(kidHighlights(data.highlights, kid)) : []), [data.highlights, kid, order]); // eslint-disable-line react-hooks/exhaustive-deps
-  const reels = useMemo(() => familyReels(data), [data]);
+  const reels = useMemo(() => familyReels(data, myKids), [data, myKids]);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   useEffect(() => setPicked(new Set()), [kid]);
 
@@ -183,8 +183,8 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, acc
         )}
       </section>
 
-      <section className={panel} aria-label="Team reels">
-        <span className="text-sm font-black text-slate-900 dark:text-slate-100">Team reels</span>
+      <section className={panel} aria-label="Reels">
+        <span className="text-sm font-black text-slate-900 dark:text-slate-100">Reels</span>
         <ul className="flex flex-col divide-y divide-slate-100 dark:divide-slate-800">
           {reels.map((r) => {
             const n = orderedHighlights(r, data.highlights, order).length;
@@ -205,7 +205,7 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, acc
               </li>
             );
           })}
-          {!reels.length && <li className="py-6 text-center text-sm text-slate-500">No team reels shared yet.</li>}
+          {!reels.length && <li className="py-6 text-center text-sm text-slate-500">No reels shared with you yet.</li>}
         </ul>
       </section>
 

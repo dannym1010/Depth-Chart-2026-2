@@ -36,6 +36,8 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
   const o = reel.options;
   const settings = data.settings;
   const mine = reel.owner === me || !reel.owner;
+  // A player reel goes to his family only.
+  const forOneKid = reel.kind === 'player' && Boolean(reel.kid);
   const edit = (change: (r: Reel) => Reel) => !ro && store.update((d) => editReel(d, reel.id, change));
   const setOpt = (patch: Partial<ReelOptions>) => edit((r) => ({ ...r, options: { ...r.options, ...patch } }));
 
@@ -139,14 +141,18 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
               <input type="checkbox" checked={reel.sharedWith.includes(EVERYONE)} onChange={(e) => edit((r) => shareReel(r, EVERYONE, e.target.checked))} />
               Shared with the staff
             </label>
-            {/* Players' and families' accounts with the Film Room watch it in Highlights (watch only). */}
-            <label className="inline-flex items-center gap-1 font-bold text-emerald-700 dark:text-emerald-400" title="Player and family accounts that have the Film Room can watch this reel (they can't change anything)">
+            {/* Players' and families' accounts with the Film Room watch it in Highlights (watch only); a player
+                reel only his own family (the accounts linked to him in Staff & access). */}
+            <label
+              className="inline-flex items-center gap-1 font-bold text-emerald-700 dark:text-emerald-400"
+              title={forOneKid ? "Only the player and family accounts linked to this kid (Staff & access → Kid) can watch it" : "Every player and family account that has the Film Room can watch this reel (they can't change anything)"}
+            >
               <input type="checkbox" checked={reel.sharedWith.includes(FAMILIES)} onChange={(e) => edit((r) => shareReel(r, FAMILIES, e.target.checked))} />
-              Families can watch
+              {forOneKid ? 'His family can watch' : 'Families can watch'}
             </label>
           </span>
         )}
-        {(!mine || ro) && reel.sharedWith.includes(FAMILIES) && <span className="ml-auto font-bold text-emerald-700 dark:text-emerald-400">Families can watch</span>}
+        {(!mine || ro) && reel.sharedWith.includes(FAMILIES) && <span className="ml-auto font-bold text-emerald-700 dark:text-emerald-400">{forOneKid ? 'His family can watch' : 'Families can watch'}</span>}
       </div>
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]">

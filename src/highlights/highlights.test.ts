@@ -287,3 +287,19 @@ describe('highlights for families (watch only)', () => {
     assert.ok(one.length > 0 && one.every((x) => x.type !== 'card'));
   });
 });
+
+describe("a kid's reel goes to his family only", () => {
+  it('player reels shared with families show for the families linked to that kid; team reels for everyone', async () => {
+    const { FAMILIES, familyReels, shareReel } = await import('./highlightData.ts');
+    const g = game(1);
+    const h = highlightFromPlay({ game: g, play: play(1, { rusher: '#21 Nash Ward', gainLoss: 40, result: 'Rush, TD' }), view: '', clip: 'a.mp4', settings: s, by: 'c@x.com' });
+    const nash = shareReel({ ...newReel({ name: 'Nash', kind: 'player', kid: '21', owner: 'c', highlightIds: [h.id], now: 1 }), id: 'nash' }, FAMILIES, true);
+    const jay = shareReel({ ...newReel({ name: 'Jay', kind: 'player', kid: '7', owner: 'c', highlightIds: [h.id], now: 2 }), id: 'jay' }, FAMILIES, true);
+    const team = shareReel({ ...newReel({ name: 'Week 1', kind: 'game', owner: 'c', highlightIds: [h.id], now: 3 }), id: 'team' }, FAMILIES, true);
+    const notShared = { ...newReel({ name: 'Nash draft', kind: 'player', kid: '21', owner: 'c', highlightIds: [h.id], now: 4 }), id: 'draft', sharedWith: [] };
+    const d = { ...emptyHighlights(), highlights: [h], reels: [nash, jay, team, notShared] };
+    assert.deepEqual(familyReels(d, ['21']).map((r) => r.id), ['nash', 'team'], "his reel first, then the team's; never another kid's");
+    assert.deepEqual(familyReels(d, ['07']).map((r) => r.id), ['jay', 'team']);
+    assert.deepEqual(familyReels(d, []).map((r) => r.id), ['team']);
+  });
+});

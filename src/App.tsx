@@ -183,6 +183,7 @@ import { diffCoachNames, mergeTeamCoaches, noteCoachNames, type CoachNameMeta } 
 import { mergeAttendanceLogs, mergeRosters, mergeStaffLists, mergeTombstones, removedIds, staffKey, stampEdits, stampStaffEdits, type Tombstones } from './utils/recordMerge';
 import { syncEntireRosterWithLogs } from './utils/hoursCalculation';
 import { appRoleFor, canManageCoach, coachTeamIds, hasNoTeamYet, isProgramAdminCoach, isProgramAdminEmail, sameTeamId } from './utils/staffAccess';
+import { applyStaffEdits } from './utils/staffBulk';
 import { OWN_HUDL_KEY, PLAYS_FULL_KEY, WEEKLY_HUDL_KEY, bigGet, bigStoreAvailable, markBigStoreReady } from './utils/bigLocalStore';
 import { syncWristbandToCallSheet } from './utils/wristbandLinking';
 import { saveCallSheetSnapshot, countCallSheetPlays } from './utils/callSheetStorage';
@@ -8869,6 +8870,51 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                   queueStaffTeamsPublish();
                 }}
                 roster={activeTeamRoster}
+                // Many accounts at once (approve, role, team, remove...), by email; only the ones this admin manages.
+                onEditStaff={(edits) => {
+                  if (userRole !== 'admin') return;
+                  const base = latestStateRef.current.staffList || staffList;
+                  const updated = applyStaffEdits(
+                    base,
+                    // A team admin never makes a program admin.
+                    isProgramAdmin ? edits : edits.map((e) => (e.patch && /master|super|program/i.test(String(e.patch.role || '')) ? { ...e, patch: { ...e.patch, role: 'Head Coach (Admin)' } } : e)),
+                    (c) => canManageCoach(staffManager, c, teams)
+                  );
+                  if (updated === base) return;
+                  setStaffList(updated);
+                  safeJSONSet('footballTeamCoaches', updated);
+                  latestStateRef.current.staffList = updated;
+                  queueStaffTeamsPublish();
+                }}
+                // A pasted list of accounts (parents for the season), added together.
+                onAddStaffAccounts={(entries) => {
+                  if (userRole !== 'admin') return [];
+                  const base = latestStateRef.current.staffList || staffList;
+                  const have = new Set(base.map((c) => c.email.toLowerCase().trim()));
+                  const fresh: StaffCoach[] = [];
+                  for (const e of entries) {
+                    const email = e.email.toLowerCase().trim();
+                    if (!email || have.has(email)) continue;
+                    have.add(email);
+                    let teamIds = e.assignedTeamIds?.length ? e.assignedTeamIds : [activeTeamId];
+                    let role = e.role || 'Assistant Coach';
+                    // Team admins add accounts to their own teams only, and never another program admin.
+                    if (!isProgramAdmin) {
+                      teamIds = teamIds.filter((id) => id !== 'all' && staffManager.teamIds.includes(id));
+                      if (!teamIds.length) teamIds = [activeTeamId];
+                      if (/master|super|program/i.test(role)) role = 'Head Coach (Admin)';
+                    }
+                    fresh.push({ ...e, email, role, assignedTeamIds: teamIds });
+                  }
+                  if (!fresh.length) return [];
+                  const updated = [...base, ...fresh];
+                  setStaffList(updated);
+                  safeJSONSet('footballTeamCoaches', updated);
+                  latestStateRef.current.staffList = updated;
+                  queueStaffTeamsPublish();
+                  saveServerState(latestStateRef.current, currentUser?.email || 'Admin', { scope: 'staff_add', timestamp: Date.now() }).catch(() => {});
+                  return fresh.map((c) => c.email);
+                }}
                 onUpdateStaffKids={(idx, kids) => {
                   if (!mayManageStaffAt(idx)) return;
                   setStaffList((prev) => {

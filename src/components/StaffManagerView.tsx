@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FAMILY_ROLE, PLAYER_ROLE, accountTabs, defaultTabsFor, isFamilyRole, isPlayerRole, isViewOnlyRole, tabOptionsFor } from '../utils/playerAccess';
+import { FAMILY_ROLE, PLAYER_ROLE, defaultTabsFor, isFamilyRole, isPlayerRole, isViewOnlyRole } from '../utils/playerAccess';
 import {
   Users,
   UserPlus,
@@ -27,7 +27,10 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { StaffCoach, UserRole, Team, UnitType } from '../types';
-import { canSeeCoach, coachTeamIds, hasNoTeamYet, isProgramAdminCoach, isProgramAdminEmail } from '../utils/staffAccess';
+import { coachTeamIds, isProgramAdminCoach, isProgramAdminEmail } from '../utils/staffAccess';
+import { parseAccountLines, type StaffEdit } from '../utils/staffBulk';
+import { AccountTabs } from './staff/AccountChips';
+import { StaffAccountsPanel } from './staff/StaffAccountsPanel';
 
 interface StaffManagerViewProps {
   /** The program owner: every team, creates/deletes teams, the admin passcode. */
@@ -60,6 +63,10 @@ interface StaffManagerViewProps {
   onUpdateStaffKids?: (idx: number, kids: string[]) => void;
   /** This team's roster, to pick a family's kid from. */
   roster?: { num: string; firstName?: string; lastName?: string }[];
+  /** Change many accounts at once, by email (null removes one). */
+  onEditStaff?: (edits: StaffEdit[]) => void;
+  /** Add many accounts at once (a pasted list). Returns the emails added. */
+  onAddStaffAccounts?: (entries: StaffCoach[]) => string[];
   onToggleStaffApproval: (idx: number) => void;
   onRemoveStaffCoach: (idx: number) => void;
   onUpdateStaffAssignedTeams: (idx: number, teamIds: string[]) => void;
@@ -93,6 +100,8 @@ export const StaffManagerView: React.FC<StaffManagerViewProps> = ({
   onUpdateStaffPlayerTabs,
   onUpdateStaffKids,
   roster = [],
+  onEditStaff,
+  onAddStaffAccounts,
   onToggleStaffApproval,
   onRemoveStaffCoach,
   onUpdateStaffAssignedTeams,
@@ -133,6 +142,9 @@ export const StaffManagerView: React.FC<StaffManagerViewProps> = ({
     assignedTeamNames: string[];
   } | null>(null);
   const [copiedInvite, setCopiedInvite] = useState(false);
+  // After adding a pasted list: who was added (to email them all at once), who was already on, lines without an email.
+  const [bulkAdded, setBulkAdded] = useState<{ emails: string[]; skipped: string[]; bad: string[]; role: string; teamNames: string[] } | null>(null);
+  const [bulkCopied, setBulkCopied] = useState('');
   const [copiedLink, setCopiedLink] = useState(false);
 
   // Admin Passcode Management State
@@ -169,6 +181,20 @@ export const StaffManagerView: React.FC<StaffManagerViewProps> = ({
   const generateInviteBody = (email: string, role: string, assignedTeamNames: string[]) => {
     const origin = typeof window !== 'undefined' ? window.location.origin || window.location.href : '';
     const teamListStr = assignedTeamNames.length > 0 ? assignedTeamNames.join(', ') : 'All Program Teams';
+    // Families and players: what they can see, not the coaches' tools.
+    if (isViewOnlyRole(role))
+      return `Hi,
+
+You've been given access to watch ${teamListStr} on our team app${isFamilyRole(role) ? ': our game film and the highlights, including your player’s clips (you can save them for Instagram)' : ''}.
+
+🏈 Open the app:
+${origin}
+
+How to get in:
+1. Open the link above.
+2. Sign in with Google using ${email} (it has to be this email).
+
+Go team!`;
     return `Hi Coach,
 
 You have been invited to join the coaching staff on our Football Team Management & Playbook platform.
@@ -190,7 +216,7 @@ Looking forward to a great season!`;
   };
 
   const handleOpenMailClient = (email: string, role: string, assignedTeamNames: string[]) => {
-    const subject = encodeURIComponent(`Youth Football Coaching Staff Invitation - ${role}`);
+    const subject = encodeURIComponent(isViewOnlyRole(role) ? `Your access to the team app` : `Youth Football Coaching Staff Invitation - ${role}`);
     const body = encodeURIComponent(generateInviteBody(email, role, assignedTeamNames));
     window.location.href = `mailto:${email}?subject=${subject}&body=${body}`;
   };
@@ -231,12 +257,41 @@ Looking forward to a great season!`;
     setTeamToDelete(null);
   };
 
+  const pasted = React.useMemo(() => parseAccountLines(newStaffEmail), [newStaffEmail]);
+  const alreadyOn = React.useMemo(() => {
+    const have = new Set(staffList.map((c) => c.email.toLowerCase().trim()));
+    return pasted.accounts.filter((a) => have.has(a.email)).map((a) => a.email);
+  }, [pasted, staffList]);
   const handleCreateStaffCoach = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newStaffEmail.trim()) return;
-    const cleanEmail = newStaffEmail.trim().toLowerCase();
+    if (!pasted.accounts.length) return;
     const assignedIds = newStaffAssignedTeams.length > 0 ? newStaffAssignedTeams : [activeTeamId];
-    
+    const teamNamesOf = teams.filter((t) => assignedIds.includes('all') || assignedIds.includes(t.id)).map((t) => `${t.name} (${t.ageGroup || 'Youth'})`);
+    // A whole list (or one with a kid / name): added together, with their kids linked.
+    const one = pasted.accounts.length === 1 && !pasted.accounts[0].kids.length && !pasted.accounts[0].name;
+    if (onAddStaffAccounts && !one) {
+      const viewOnly = isViewOnlyRole(newStaffRole);
+      const added = onAddStaffAccounts(
+        pasted.accounts.map((a) => ({
+          email: a.email,
+          role: newStaffRole,
+          status: 'Active' as const,
+          assignedTeamIds: assignedIds,
+          favoriteTeamId: activeTeamId,
+          startScreen: 'schedule' as UnitType,
+          idleTimeoutMinutes: newStaffIdleTimeout,
+          ...(newPlayerTabs ? { playerTabs: newPlayerTabs } : {}),
+          ...(viewOnly ? { kids: a.kids } : {}),
+          ...(a.name ? { name: a.name } : {}),
+        }))
+      );
+      setBulkAdded({ emails: added, skipped: alreadyOn, bad: pasted.bad, role: newStaffRole, teamNames: teamNamesOf });
+      setShowAddStaffModal(false);
+      setNewStaffEmail('');
+      return;
+    }
+    const cleanEmail = pasted.accounts[0].email;
+
     onAddStaffCoach(
       cleanEmail,
       newStaffRole,
@@ -267,9 +322,8 @@ Looking forward to a great season!`;
       console.warn('Mailto launch:', e);
     }
 
+    // The role, tabs and teams stay as they were, for adding the next family or coach.
     setNewStaffEmail('');
-    setNewStaffRole('Head Coach (Admin)');
-    setNewPlayerTabs(undefined);
     setNewStaffAssignedTeams([activeTeamId]);
   };
 
@@ -545,439 +599,46 @@ Looking forward to a great season!`;
         </div>
       )}
 
-      {/* SECTION 2: STAFF & COACH ACCESS PERMISSIONS */}
+      {/* SECTION 2: ACCOUNTS (coaches, players, families) */}
+      <StaffAccountsPanel
+        staffList={staffList}
+        teams={teams}
+        allTeams={allTeams}
+        roster={roster}
+        userRole={userRole}
+        isProgramAdmin={isProgramAdmin}
+        manager={manager}
+        currentUserEmail={currentUserEmail}
+        activeTeamId={activeTeamId}
+        defaultTeamId={defaultTeamId}
+        teamFilter={staffTeamFilter}
+        onTeamFilter={setStaffTeamFilter}
+        canManageStaffAt={canManageStaffAt}
+        isMaster={isMasterSuperAdminUser}
+        onAdd={() => {
+          // New accounts join the team being shown.
+          setNewStaffAssignedTeams([staffTeamFilter !== 'all' ? staffTeamFilter : activeTeamId]);
+          setShowAddStaffModal(true);
+        }}
+        onInvite={(coach) => {
+          const assigned = coach.assignedTeamIds || [];
+          setInviteModalData({
+            email: coach.email,
+            role: coach.role,
+            assignedTeamNames: teams.filter((t) => assigned.includes('all') || assigned.includes(t.id)).map((t) => `${t.name} (${t.ageGroup || 'Youth'})`),
+          });
+        }}
+        onEditStaff={onEditStaff}
+        onUpdateStaffRole={onUpdateStaffRole}
+        onUpdateStaffPlayerTabs={onUpdateStaffPlayerTabs}
+        onUpdateStaffKids={onUpdateStaffKids}
+        onToggleStaffApproval={onToggleStaffApproval}
+        onRemoveStaffCoach={onRemoveStaffCoach}
+        onToggleTeam={toggleTeamForCoach}
+        onUpdateStaffPreferences={onUpdateStaffPreferences}
+      />
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: Registered Accounts & Team Assignments */}
-        <div className="lg:col-span-2 bg-slate-800/95 backdrop-blur-md rounded-3xl border border-slate-700/80 shadow-xl p-5 space-y-4">
-          <div className="flex items-center justify-between pb-3.5 border-b border-slate-700 flex-wrap gap-2">
-            <div>
-              <div className="flex items-center gap-2">
-                <Shield className="w-4 h-4 text-indigo-400" />
-                <h3 className="font-black text-sm text-slate-100">
-                  Staff Accounts &amp; Team Access Permissions
-                </h3>
-              </div>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                {isProgramAdmin
-                  ? 'You have full access to every team. Head Coaches (Admin) manage their own teams and coaches; Assistant Coaches work on their teams.'
-                  : 'You manage the coaches on your teams. New sign-ups you approve join your current team.'}
-              </p>
-            </div>
-            <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-300">
-              <span>Team:</span>
-              <select
-                value={staffTeamFilter}
-                onChange={(e) => setStaffTeamFilter(e.target.value)}
-                className="bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1 text-xs font-bold text-indigo-300 focus:outline-none"
-                aria-label="Show coaches for team"
-              >
-                {teams.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-                {isProgramAdmin && <option value="all">All teams</option>}
-              </select>
-            </label>
-            {userRole === 'admin' && (
-              <button
-                onClick={() => {
-                  // New coaches join the team being shown.
-                  setNewStaffAssignedTeams([staffTeamFilter !== 'all' ? staffTeamFilter : activeTeamId]);
-                  setShowAddStaffModal(true);
-                }}
-                className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-md shadow-indigo-600/30 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
-              >
-                <UserPlus className="w-3.5 h-3.5" />
-                <span>Add Account</span>
-              </button>
-            )}
-          </div>
-
-          {staffList.filter((c) => c.status === 'Pending' && !isMasterSuperAdminUser(c.email)).length > 0 && (
-            <div className="p-3.5 bg-amber-500/15 border border-amber-500/40 rounded-2xl flex items-center justify-between flex-wrap gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
-                  <Clock className="w-4 h-4 animate-pulse" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-black text-amber-200">
-                    {staffList.filter((c) => c.status === 'Pending' && !isMasterSuperAdminUser(c.email)).length} Coach Account(s) Awaiting Access Approval
-                  </h4>
-                  <p className="text-[11px] text-amber-300/80">
-                    These coaches cannot access the site. Click "Approve" below to grant access. Once approved, they remain approved until you remove them.
-                  </p>
-                </div>
-              </div>
-              {userRole === 'admin' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    staffList.forEach((c, i) => {
-                      if (c.status === 'Pending' && canManageStaffAt(i)) {
-                        onToggleStaffApproval(i);
-                      }
-                    });
-                  }}
-                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow-md shadow-emerald-600/30 transition-all cursor-pointer"
-                >
-                  ✓ Approve All Pending Coaches
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Quick Admin Inactivity Settings Card */}
-          {userRole === 'admin' && (
-            <div className="bg-slate-900/90 border border-slate-700/70 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs mb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0">
-                  <Clock className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="font-bold text-slate-200 text-xs flex items-center gap-2">
-                    <span>Inactivity Automatic Logout Controls</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium">
-                      Guaranteed Auto-Save Before Logout
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Adjust idle timeout per coach below or batch-apply to all coaches. Pending depth charts &amp; game plans are automatically saved to disk and cloud before any logout.
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[10.5px] font-bold text-slate-400 mr-1">Batch Set All:</span>
-                {[30, 60, 90, 120, 240, 0].map((mins) => (
-                  <button
-                    key={mins}
-                    type="button"
-                    onClick={() => {
-                      if (!onUpdateStaffPreferences) return;
-                      staffList.forEach((c, i) => {
-                        if (canManageStaffAt(i)) onUpdateStaffPreferences(i, c.favoriteTeamId, c.startScreen, mins);
-                      });
-                    }}
-                    className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-[10.5px] font-bold transition-all cursor-pointer"
-                    title={`Set all coaches to ${mins === 0 ? 'Never' : mins === 60 ? '1 Hour' : mins === 90 ? '1.5 Hours' : mins >= 120 ? `${mins / 60} Hours` : `${mins} min`} timeout`}
-                  >
-                    {mins === 0 ? 'Never' : mins === 60 ? '1h' : mins === 90 ? '1.5h' : mins >= 120 ? `${mins / 60}h` : `${mins}m`}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-900 text-slate-400 font-black uppercase text-[10px] border-b border-slate-700">
-                  <th className="py-3 px-3 text-left">Email / User</th>
-                  <th className="py-3 px-3 text-left">Role Assigned</th>
-                  <th className="py-3 px-3 text-left">Allowed Teams</th>
-                  <th className="py-3 px-3 text-left">Favorite Team &amp; Start Screen</th>
-                  <th className="py-3 px-3 text-left">Auto-Logout</th>
-                  <th className="py-3 px-3 text-center">Status</th>
-                  {userRole === 'admin' && (
-                    <th className="py-3 px-3 text-right">Actions</th>
-                  )}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700/80">
-                {staffList.map((coach, idx) => {
-                  if (!canSeeCoach(manager, coach, allTeams)) return null;
-                  const isMaster = isMasterSuperAdminUser(coach.email);
-                  const onTeams = coachTeamIds(coach, allTeams);
-                  const waitingForTeam = coach.status === 'Pending' && hasNoTeamYet(coach);
-                  if (staffTeamFilter !== 'all' && !isMaster && !waitingForTeam && !onTeams.includes(staffTeamFilter)) return null;
-                  const canEdit = canManageStaffAt(idx);
-                  const isHeadCoachRole = coach.role.toLowerCase().includes('head coach');
-                  const isActive = coach.status === 'Active';
-                  const isAssignedAll = false;
-
-                  return (
-                    <tr key={idx} className="hover:bg-slate-750/50 transition-colors">
-                      <td className="py-3.5 px-3 font-bold text-slate-100 font-mono">
-                        <div className="flex items-center gap-1.5">
-                          {isMaster && (
-                            <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                          )}
-                          <span>{coach.email}</span>
-                        </div>
-                      </td>
-
-                      <td className="py-3.5 px-3">
-                        {isMaster ? (
-                          <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 font-black text-[10.5px] border border-amber-500/30 inline-flex items-center gap-1">
-                            <Crown className="w-3 h-3" />
-                            <span>Master Super Admin</span>
-                          </span>
-                        ) : canEdit ? (
-                          <select
-                            value={coach.role}
-                            onChange={(e) =>
-                              onUpdateStaffRole(idx, e.target.value)
-                            }
-                            className="bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1 text-xs font-semibold text-slate-200 focus:outline-none"
-                          >
-                            <option value="Head Coach (Admin)">
-                              Head Coach (Admin)
-                            </option>
-                            <option value="Assistant Coach">
-                              Assistant Coach
-                            </option>
-                            <option value={PLAYER_ROLE}>Player (view only)</option>
-                            <option value={FAMILY_ROLE}>Family (watch our games and highlights)</option>
-                          </select>
-                        ) : (
-                          <span className="font-semibold text-slate-300">
-                            {coach.role}
-                          </span>
-                        )}
-                        {!isMaster && (
-                          <AccountTabs
-                            role={coach.role}
-                            tabs={accountTabs(coach)}
-                            disabled={!canEdit}
-                            onChange={(tabs) => onUpdateStaffPlayerTabs?.(idx, tabs)}
-                          />
-                        )}
-                        {!isMaster && isViewOnlyRole(coach.role) && (
-                          <AccountKids
-                            kids={coach.kids || []}
-                            roster={roster}
-                            disabled={!canEdit || !onUpdateStaffKids}
-                            onChange={(kids) => onUpdateStaffKids?.(idx, kids)}
-                          />
-                        )}
-                      </td>
-
-                      {/* Assigned Teams Access */}
-                      <td className="py-3.5 px-3">
-                        {isMaster ? (
-                          <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 text-[10px] font-bold border border-amber-500/30 inline-flex items-center gap-1">
-                            <Lock className="w-2.5 h-2.5" />
-                            <span>All Teams (Permanent Full Access)</span>
-                          </span>
-                        ) : canEdit ? (
-                          <div className="flex flex-wrap items-center gap-1 max-w-xs">
-                            {false && (
-                            <button
-                              type="button"
-                              onClick={() => setAllTeamsForCoach(idx)}
-                              className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
-                                isAssignedAll
-                                    ? 'bg-indigo-600 text-white shadow-xs'
-                                    : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-700'
-                              }`}
-                              title="Grant access to all teams"
-                            >
-                              All Teams
-                            </button>
-                            )}
-                            {teams.map((t) => {
-                              const hasAccess = onTeams.includes(t.id);
-                              return (
-                                <button
-                                  key={t.id}
-                                  type="button"
-                                  onClick={() => toggleTeamForCoach(idx, coach, t.id)}
-                                  className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
-                                    hasAccess && !isAssignedAll
-                                      ? 'bg-emerald-600 text-white shadow-xs'
-                                      : hasAccess && isAssignedAll
-                                      ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
-                                      : 'bg-slate-900 text-slate-500 border border-slate-800 hover:border-slate-700'
-                                  }`}
-                                  title={`Toggle access to ${t.name}`}
-                                >
-                                  <span>{t.ageGroup || t.name}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <span className="text-[11px] text-slate-300 font-medium">
-                            {allTeams
-                              .filter((t) => onTeams.includes(t.id))
-                              .map((t) => t.ageGroup || t.name)
-                              .join(', ') || 'No Teams Assigned'}
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Favorite Team & Start Screen */}
-                      <td className="py-3.5 px-3">
-                        <div className="flex flex-col gap-1 min-w-[170px]">
-                          <div className="flex items-center gap-1 text-[10.5px]">
-                            <Star className="w-3 h-3 text-amber-400 shrink-0" />
-                            <select
-                              value={coach.favoriteTeamId || defaultTeamId || (teams[0]?.id || '')}
-                              onChange={(e) => {
-                                onUpdateStaffPreferences?.(idx, e.target.value, coach.startScreen);
-                              }}
-                              className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-0.5 text-[11px] font-semibold text-amber-300 focus:outline-none w-full"
-                              title="Favorite team linked to this coach login"
-                            >
-                              {teams.map((t) => (
-                                <option key={t.id} value={t.id}>
-                                  {t.name}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div className="flex items-center gap-1 text-[10.5px]">
-                            <Sparkles className="w-3 h-3 text-indigo-400 shrink-0" />
-                            <select
-                              value={coach.startScreen || 'schedule'}
-                              onChange={(e) => {
-                                onUpdateStaffPreferences?.(idx, coach.favoriteTeamId, e.target.value as UnitType);
-                              }}
-                              className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-0.5 text-[11px] font-semibold text-indigo-300 focus:outline-none w-full"
-                              title="Start screen linked to this coach login"
-                            >
-                              <option value="mobile_hub">📱 Mobile Coach HUD</option>
-                              <option value="home">Home</option>
-                              <option value="schedule">Team Schedule</option>
-                              <option value="depth_chart">Depth Chart</option>
-                              <option value="practice">Practice Planner</option>
-                              <option value="call_sheet">Call Sheet &amp; Wristbands</option>
-                              <option value="hudl_scout">Hudl Scout</option>
-                              <option value="playbook">Play Library</option>
-                              <option value="drills">Drill Library</option>
-                              <option value="compliance">Compliance &amp; Hours</option>
-                              <option value="users">Staff &amp; Team Access</option>
-                            </select>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Inactivity Auto-Logout Timeout */}
-                      <td className="py-3.5 px-3">
-                        {userRole === 'admin' ? (
-                          <div className="flex items-center gap-1.5 min-w-[145px]">
-                            <Clock className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                            <select
-                              value={coach.idleTimeoutMinutes !== undefined ? coach.idleTimeoutMinutes : 30}
-                              onChange={(e) => {
-                                const val = parseInt(e.target.value, 10);
-                                onUpdateStaffPreferences?.(
-                                  idx,
-                                  coach.favoriteTeamId,
-                                  coach.startScreen,
-                                  val
-                                );
-                              }}
-                              className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-[11px] font-semibold text-cyan-300 focus:outline-none w-full cursor-pointer hover:border-slate-600 transition-colors"
-                              title="Inactivity automatic logout timeout for this coach"
-                            >
-                              <option value={30}>30 Min (Default)</option>
-                              <option value={60}>1 Hour</option>
-                              <option value={90}>1.5 Hours (90 Min)</option>
-                              <option value={120}>2 Hours</option>
-                              <option value={240}>4 Hours</option>
-                              <option value={0}>Disabled (Never)</option>
-                            </select>
-                          </div>
-                        ) : (
-                          <span className="text-[11px] text-slate-300 font-medium flex items-center gap-1">
-                            <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                            <span>
-                              {coach.idleTimeoutMinutes === 0
-                                ? 'Disabled (Never)'
-                                : coach.idleTimeoutMinutes === 60
-                                ? '1 Hour'
-                                : coach.idleTimeoutMinutes === 90
-                                ? '1.5 Hours'
-                                : coach.idleTimeoutMinutes >= 120
-                                ? `${coach.idleTimeoutMinutes / 60} Hours`
-                                : `${coach.idleTimeoutMinutes || 30} Min`}
-                            </span>
-                          </span>
-                        )}
-                      </td>
-
-                      <td className="py-3.5 px-3 text-center">
-                        <span
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                            isActive
-                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                              : 'bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse'
-                          }`}
-                        >
-                          {coach.status}
-                        </span>
-                      </td>
-
-                      {userRole === 'admin' && (
-                        <td className="py-3.5 px-3 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const assigned = coach.assignedTeamIds || [];
-                                const teamNames = teams
-                                  .filter((t) => assigned.includes('all') || assigned.includes(t.id))
-                                  .map((t) => `${t.name} (${t.ageGroup || 'Youth'})`);
-                                setInviteModalData({
-                                  email: coach.email,
-                                  role: coach.role,
-                                  assignedTeamNames: teamNames,
-                                });
-                              }}
-                              className="p-1.5 text-indigo-300 hover:text-white bg-indigo-950/60 hover:bg-indigo-600/50 border border-indigo-700/50 rounded-lg transition-all cursor-pointer"
-                              title={`Send email invitation to ${coach.email}`}
-                            >
-                              <Mail className="w-3.5 h-3.5" />
-                            </button>
-                            {canEdit ? (
-                              <>
-                                <button
-                                  onClick={() => onToggleStaffApproval(idx)}
-                                  className={`px-3 py-1 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                                    isActive
-                                      ? 'bg-slate-900 hover:bg-rose-950/40 text-slate-300 hover:text-rose-300 border border-slate-700 hover:border-rose-700/50'
-                                      : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/30'
-                                  }`}
-                                  title={isActive ? 'Deactivate and revoke site access for this coach' : 'Approve and grant full site access for this coach'}
-                                >
-                                  {isActive ? 'Revoke Access' : '✓ Approve Coach'}
-                                </button>
-                                <button
-                                  onClick={() => onRemoveStaffCoach(idx)}
-                                  className="p-1.5 text-rose-400 hover:bg-rose-950/50 rounded-lg transition-colors cursor-pointer"
-                                  title="Remove staff account"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </>
-                            ) : (
-                              <span className="text-[10.5px] text-amber-400/80 font-bold italic px-1">
-                                {isMaster ? 'Owner' : coach.email.toLowerCase() === String(currentUserEmail || '').toLowerCase() ? 'You' : ''}
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {staffList.length === 0 && (
-              <div className="text-center py-10 px-4 space-y-2">
-                <Users className="w-8 h-8 text-slate-600 mx-auto" />
-                <p className="text-xs font-bold text-slate-400">
-                  No coach accounts added yet.
-                </p>
-                <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
-                  Click <strong className="text-slate-300">+ Add Account</strong> above to add someone and send them an email invitation to join.
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
 
         {/* Right Column: Saved Practice Coaches Roster (Per-Team) */}
         <div className="bg-slate-800/95 backdrop-blur-md rounded-3xl border border-slate-700/80 shadow-xl p-5 space-y-4">
@@ -1341,7 +1002,7 @@ Looking forward to a great season!`;
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <UserPlus className="w-5 h-5 text-indigo-400" />
-                <h3 className="font-black text-base text-white">Add Account</h3>
+                <h3 className="font-black text-base text-white">Add accounts</h3>
               </div>
               <button
                 onClick={() => setShowAddStaffModal(false)}
@@ -1353,17 +1014,26 @@ Looking forward to a great season!`;
 
             <form onSubmit={handleCreateStaffCoach} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">
-                  Email Address *
+                <label htmlFor="new-accounts" className="block text-xs font-bold text-slate-300 mb-1">
+                  Email(s) *
                 </label>
-                <input
-                  type="email"
+                <textarea
+                  id="new-accounts"
                   required
+                  rows={onAddStaffAccounts ? 4 : 1}
                   value={newStaffEmail}
                   onChange={(e) => setNewStaffEmail(e.target.value)}
-                  placeholder="name@example.com"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-indigo-500"
+                  placeholder={onAddStaffAccounts ? 'name@example.com\n\nA whole list: one per line, with the kid’s number and a name if you like:\nmom@home.com, 21, Ward family' : 'name@example.com'}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono focus:outline-none focus:border-indigo-500 resize-y"
                 />
+                {newStaffEmail.trim() && (
+                  <p className="text-[10.5px] mt-1 text-slate-400">
+                    <b className="text-emerald-300">{pasted.accounts.length - alreadyOn.length}</b> to add
+                    {pasted.accounts.some((a) => a.kids.length) && isViewOnlyRole(newStaffRole) ? `, ${pasted.accounts.filter((a) => a.kids.length).length} with a kid linked` : ''}
+                    {alreadyOn.length ? <span className="text-amber-300"> · {alreadyOn.length} already on the list</span> : null}
+                    {pasted.bad.length ? <span className="text-rose-300"> · {pasted.bad.length} line{pasted.bad.length === 1 ? '' : 's'} without an email: {pasted.bad.slice(0, 2).join(' / ')}</span> : null}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -1385,7 +1055,7 @@ Looking forward to a great season!`;
                 </select>
                 <p className="text-[10.5px] text-slate-400 mt-1">
                   {isFamilyRole(newStaffRole)
-                    ? 'Family members watch our games in the Film Room, and in Highlights the reels you share with families plus their kid’s clips (link the kid after adding them). Nothing they do is saved.'
+                    ? 'Family members watch our games in the Film Room, and in Highlights their kid’s clips plus the reels you share with families. Put the kid’s number after the email (mom@home.com, 21) to link him now, or later with “Kid: Link”. Nothing they do is saved.'
                     : isPlayerRole(newStaffRole)
                       ? 'Players only look: nothing they do is saved.'
                       : 'Coaches build plays & schedules for their allowed teams.'}
@@ -1457,9 +1127,10 @@ Looking forward to a great season!`;
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/30 cursor-pointer"
+                  disabled={!pasted.accounts.length || pasted.accounts.length === alreadyOn.length}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/30 cursor-pointer disabled:opacity-40"
                 >
-                  Add Account
+                  {pasted.accounts.length - alreadyOn.length > 1 ? `Add ${pasted.accounts.length - alreadyOn.length} accounts` : 'Add account'}
                 </button>
               </div>
             </form>
@@ -1602,6 +1273,57 @@ Looking forward to a great season!`;
                   Copy List
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AFTER ADDING A LIST: email them all at once (Bcc), with the invitation text */}
+      {bulkAdded && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-label="Accounts added">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-3 text-xs text-slate-300">
+            <div className="flex items-center justify-between">
+              <h3 className="font-black text-base text-white flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400" /> Added {bulkAdded.emails.length} account{bulkAdded.emails.length === 1 ? '' : 's'}
+              </h3>
+              <button type="button" onClick={() => setBulkAdded(null)} className="text-slate-400 hover:text-white p-1 rounded-lg" aria-label="Close">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {bulkAdded.skipped.length > 0 && <p className="text-amber-300">{bulkAdded.skipped.length} already had an account: {bulkAdded.skipped.slice(0, 5).join(', ')}{bulkAdded.skipped.length > 5 ? '…' : ''}</p>}
+            {bulkAdded.bad.length > 0 && <p className="text-rose-300">Skipped {bulkAdded.bad.length} line{bulkAdded.bad.length === 1 ? '' : 's'} without an email: {bulkAdded.bad.slice(0, 3).join(' / ')}</p>}
+            <p>
+              They can sign in with Google now. To tell them, send one email to yourself with these addresses in <b>Bcc</b> and the invitation as the message:
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  ['emails', 'Copy the emails', bulkAdded.emails.join(', ')],
+                  ['text', 'Copy the invitation', generateInviteBody('your Google email', bulkAdded.role, bulkAdded.teamNames)],
+                ] as const
+              ).map(([id, label, text]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(text);
+                      setBulkCopied(id);
+                    } catch {
+                      window.prompt('Copy this:', text);
+                    }
+                  }}
+                  className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  {bulkCopied === id ? <CheckCheck className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {bulkCopied === id ? 'Copied' : label}
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end pt-2 border-t border-slate-800">
+              <button type="button" onClick={() => { setBulkAdded(null); setBulkCopied(''); }} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl cursor-pointer">
+                Done
+              </button>
             </div>
           </div>
         </div>
@@ -2021,140 +1743,3 @@ Looking forward to a great season!`;
     </div>
   );
 };
-
-/**
- * A player's or family's kid(s): "Kid: #21 Nash Ward" that opens the roster to tick them. Their Highlights shows
- * every clip their kid is in, to watch and make Instagram videos from.
- */
-function AccountKids({
-  kids,
-  roster,
-  onChange,
-  disabled,
-}: {
-  kids: string[];
-  roster: { num: string; firstName?: string; lastName?: string }[];
-  onChange: (kids: string[]) => void;
-  disabled?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const norm = (n: string) => String(Number(n)) === 'NaN' ? String(n).trim() : String(Number(n));
-  const on = new Set(kids.map(norm));
-  const label = (n: string) => {
-    const k = roster.find((r) => norm(r.num) === norm(n));
-    const name = k ? [k.firstName, k.lastName].filter(Boolean).join(' ') : '';
-    return name ? `#${n} ${name}` : `#${n}`;
-  };
-  const kids_ = roster.filter((r) => r.num && norm(r.num) !== 'NaN').slice().sort((a, b) => Number(a.num) - Number(b.num));
-  return (
-    <div className="mt-1 max-w-xs">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="inline-flex items-center gap-1 text-[10.5px] font-bold text-slate-400 hover:text-slate-200 cursor-pointer"
-        title="Their kid: his highlights show in their Highlights, to watch and save for Instagram"
-      >
-        <span className="text-slate-500">Kid:</span> {kids.length ? kids.map(label).join(', ') : <span className="text-amber-400">none linked</span>}{' '}
-        <span className="underline">{open ? 'Done' : disabled ? 'See' : 'Link'}</span>
-      </button>
-      {open && (
-        <div className="mt-1 flex flex-wrap gap-1 max-h-40 overflow-auto" aria-label="Their kid">
-          {kids_.map((k) => {
-            const n = norm(k.num);
-            const active = on.has(n);
-            return (
-              <button
-                key={n}
-                type="button"
-                disabled={disabled}
-                aria-pressed={active}
-                onClick={() => onChange(active ? kids.filter((x) => norm(x) !== n) : [...kids, n])}
-                className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors ${
-                  active ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-600'
-                } ${disabled ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}
-              >
-                {label(n)}
-              </button>
-            );
-          })}
-          {!kids_.length && <span className="text-[10px] text-slate-500">No roster for this team yet.</span>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * The tabs an account sees: a short line ("All tabs", "Film Room", "4 tabs") that opens one chip per tab.
- * `tabs` undefined = all of them (a coach nobody limited); players and families never get Staff & access.
- */
-function AccountTabs({
-  role,
-  tabs,
-  onChange,
-  disabled,
-  startOpen = false,
-}: {
-  role?: string;
-  tabs: string[] | undefined;
-  onChange: (tabs: string[] | undefined) => void;
-  disabled?: boolean;
-  startOpen?: boolean;
-}) {
-  const [open, setOpen] = useState(startOpen);
-  const options = tabOptionsFor(role);
-  const all = options.map((o) => o.id);
-  const shown = tabs ?? all;
-  const on = new Set(shown);
-  const allOn = all.every((id) => on.has(id));
-  const summary = allOn ? 'All tabs' : !shown.length ? 'No tabs' : shown.length <= 2 ? options.filter((o) => on.has(o.id)).map((o) => o.label).join(', ') : `${shown.length} tabs`;
-  const set = (next: string[]) => {
-    const ordered = all.filter((id) => next.includes(id));
-    // A coach with every tab is unlimited (new tabs added later show up too).
-    onChange(!isPlayerRole(role) && !isFamilyRole(role) && ordered.length === all.length ? undefined : ordered);
-  };
-  return (
-    <div className="mt-1.5 max-w-xs">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="inline-flex items-center gap-1 text-[10.5px] font-bold text-slate-400 hover:text-slate-200 cursor-pointer"
-        title="Which tabs this account sees"
-      >
-        <span className="text-slate-500">Tabs:</span> {summary} <span className="underline">{open ? 'Done' : disabled ? 'See' : 'Edit'}</span>
-      </button>
-      {open && (
-    <div className="mt-1 flex flex-wrap gap-1" aria-label="Tabs this account can see">
-      {!disabled && (
-        <button
-          type="button"
-          onClick={() => set(allOn ? [] : all)}
-          className="px-2 py-0.5 rounded-md text-[10px] font-bold border border-dashed border-slate-600 text-slate-300 hover:border-slate-400 cursor-pointer"
-        >
-          {allOn ? 'None' : 'All'}
-        </button>
-      )}
-      {options.map((o) => {
-        const active = on.has(o.id);
-        return (
-          <button
-            key={o.id}
-            type="button"
-            disabled={disabled}
-            aria-pressed={active}
-            onClick={() => set(active ? shown.filter((t) => t !== o.id) : [...shown, o.id])}
-            className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors ${
-              active ? 'bg-sky-600 text-white border-sky-500' : 'bg-slate-900 text-slate-500 border-slate-800 hover:border-slate-600'
-            } ${disabled ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}
-          >
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
-      )}
-    </div>
-  );
-}

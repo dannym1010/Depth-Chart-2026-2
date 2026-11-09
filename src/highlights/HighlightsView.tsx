@@ -15,7 +15,7 @@ import { playsForPlayer } from '../filmroom/playerPlays';
 import { ClipEditor, CATEGORY_LABEL } from './ClipEditor';
 import { clipLength, lineUp, type AccessState, type FilmAccess } from './filmAccess';
 import {
-  addHighlights, addToReel, editHighlight, editReel, extraPlace, gameOrder, highlightFromExtra, highlightFromPlay, kidCoverage, kidHighlights, kidLabel, kidsText,
+  addHighlights, addToReel, editHighlight, editReel, extraPlace, FAMILIES, shareReel, gameOrder, highlightFromExtra, highlightFromPlay, kidCoverage, kidHighlights, kidLabel, kidsText,
   mergeHighlights, newReel, recommendPlays, REC_GROUPS, removeHighlights, removeReel, seasonPicks, snapWindow, clock, reelsFor, type Kid, type RecGroup,
 } from './highlightData';
 import { ReelEditor } from './ReelEditor';
@@ -803,6 +803,13 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
             update((d) => ({ ...d, reels: [...d.reels, ...made] }));
             setStatus(`Made ${made.length} player reel${made.length === 1 ? '' : 's'}.`);
           }}
+          playerReels={data.reels.filter((r) => r.kind === 'player' && r.kid).length}
+          onShareAll={() => {
+            const ids = data.reels.filter((r) => r.kind === 'player' && r.kid && !r.sharedWith.includes(FAMILIES)).map((r) => r.id);
+            if (!ids.length) return setStatus("Every kid's reel is already shared with his family.");
+            update((d) => ids.reduce((acc, id) => editReel(acc, id, (r) => shareReel(r, FAMILIES, true)), d));
+            setStatus(`Shared ${ids.length} kid's reel${ids.length === 1 ? '' : 's'}: each family sees only their own kid's (link the kid on their account in Staff & access).`);
+          }}
         />
       )}
 
@@ -829,7 +836,10 @@ const KidsCheck: React.FC<{
   onKeep: (g: HighlightGame, p: Play) => void;
   onReel: (kid: string) => void;
   onAllReels: () => void;
-}> = ({ roster, highlights, min, plays, games, ro, onKeep, onReel, onAllReels }) => {
+  /** How many player reels there are, and share them all with each kid's family. */
+  playerReels: number;
+  onShareAll: () => void;
+}> = ({ roster, highlights, min, plays, games, ro, onKeep, onReel, onAllReels, playerReels, onShareAll }) => {
   const rows = useMemo(() => kidCoverage(roster, highlights), [roster, highlights]);
   const [kid, setKid] = useState<string | null>(null);
   const short = rows.filter((r) => r.count < min).length;
@@ -845,9 +855,21 @@ const KidsCheck: React.FC<{
             {short ? `${short} kid${short === 1 ? '' : 's'} with fewer than ${min}` : `Every kid has ${min} or more`}
           </span>
           {!ro && (
-            <button type="button" onClick={onAllReels} className="ml-auto h-7 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold">
-              A reel for every kid
-            </button>
+            <span className="ml-auto flex flex-wrap items-center gap-1.5">
+              <button type="button" onClick={onAllReels} className="h-7 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold">
+                A reel for every kid
+              </button>
+              {playerReels > 0 && (
+                <button
+                  type="button"
+                  onClick={onShareAll}
+                  className="h-7 px-2.5 rounded-lg border border-emerald-500 text-emerald-700 dark:text-emerald-400 text-xs font-bold"
+                  title="Each kid's reel shows in Highlights for the family and player accounts linked to him (Staff & access → Kid)"
+                >
+                  Share each kid's reel with his family
+                </button>
+              )}
+            </span>
           )}
         </div>
         <ul className="flex flex-col divide-y divide-slate-100 dark:divide-slate-800 max-h-[65vh] overflow-auto">
