@@ -7,7 +7,7 @@
 import { drawCard, drawLowerThird, drawSpot } from './graphics';
 import { segmentSeconds, timelineSeconds, type Overlay, type Segment } from './highlightData';
 import type { FilmAccess } from './filmAccess';
-import { followAt, unpackFollow, type FollowPoint } from './follow';
+import { followCam, unpackFollow, type FollowPoint } from './follow';
 import type { Highlight, HighlightSettings } from './types';
 
 export type SocialShape = 'reel' | 'post' | 'square';
@@ -56,16 +56,32 @@ export const hasFollow = (h: Pick<Highlight, 'follow'>) => followPath(h).length 
 /** How close the camera is on a highlight: closer when a kid's path was drawn on it. */
 export const zoomFor = (h: Pick<Highlight, 'follow'>, zoom: number, followZoom: number) => (hasFollow(h) ? Math.max(zoom, followZoom) : zoom);
 
+const isSet = (n?: number | null): n is number => n !== undefined && n !== null && Number.isFinite(n);
+
 /**
- * Which part of the picture to keep in view at a moment of the clip (0..1 across): a set focus for the highlight,
- * else the kid's path drawn by finger, else his marks (sliding from one to the next), else the freeze frame's
- * spotlight, else the middle. 'replay' is another camera (the path and marks don't fit it).
+ * The camera at a moment of a highlight's clip: how close (zoom, see pictureRect) and which spot of the picture it
+ * keeps in the middle. A set focus wins; else, while his path is being followed, it's zoomed in on him (easing in and
+ * out where the following starts and stops); else the film slider's zoom on his marks / spotlight / the middle.
+ * 'replay' is another camera (his path and marks don't fit it).
  */
+export function cameraAt(h: Highlight, t: number, part: 'main' | 'replay', o: { zoom: number; followZoom: number; manual?: number }): { zoom: number; focus: { x: number; y: number } } {
+  const followed = part === 'main' ? followCam(followPath(h), t) : null;
+  if (isSet(o.manual)) return { zoom: followed ? Math.max(o.zoom, o.followZoom) : o.zoom, focus: { x: clamp(o.manual, 0, 1), y: 0.5 } };
+  const base = baseFocus(h, t, part);
+  if (!followed || followed.amount <= 0) return { zoom: o.zoom, focus: base };
+  const a = followed.amount;
+  const close = Math.max(o.zoom, o.followZoom);
+  return { zoom: o.zoom + (close - o.zoom) * a, focus: { x: base.x + (followed.x - base.x) * a, y: base.y + (followed.y - base.y) * a } };
+}
+
+/** Which part of the picture to keep in view at a moment (0..1 across): see cameraAt. */
 export function focusAt(h: Highlight, t: number, part: 'main' | 'replay', manual?: number): { x: number; y: number } {
-  if (manual !== undefined && manual !== null && Number.isFinite(manual)) return { x: clamp(manual, 0, 1), y: 0.5 };
+  return cameraAt(h, t, part, { zoom: 1, followZoom: 1, manual }).focus;
+}
+
+/** Without a path: his marks (sliding from one to the next), else the freeze frame's spotlight, else the middle. */
+function baseFocus(h: Highlight, t: number, part: 'main' | 'replay'): { x: number; y: number } {
   if (part === 'replay') return { x: 0.5, y: 0.5 };
-  const followed = followAt(followPath(h), t);
-  if (followed) return followed;
   const keys = (h.marks || [])
     .map((m) => ({ t: (m.from + m.to) / 2, from: m.from, to: m.to, x: m.x, y: m.y }))
     .sort((a, b) => a.t - b.t);
@@ -127,6 +143,69 @@ export function drawSocialTitle(c: Ctx2D, W: number, H: number, overlay: Overlay
   c.scale(k, k);
   drawLowerThird(c as CanvasRenderingContext2D, W / k, H / k, overlay, look, logo);
   c.restore();
+}
+
+/** How dark the dip to black is, this far (seconds) into a part that starts a new highlight or card. */
+export function dipAlpha(local: number, starts: boolean, transition: 'cut' | 'dip' | 'fade' = 'cut') {
+  if (!starts || transition === 'cut') return 0;
+  const len = transition === 'dip' ? 0.35 : 0.25;
+  return local >= len ? 0 : 1 - local / len;
+}
+
+/** A replay from the same camera follows the same path; one from another camera doesn't. */
+export const partOf = (s: Exclude<Segment, { type: 'card' }>): 'main' | 'replay' =>
+  s.type === 'clip' && s.part === 'replay' && (s.clip !== s.h.clip || s.view !== s.h.view) ? 'replay' : 'main';
+
+/** Does a part start a new highlight (or is it a card)? The dip to black goes there. */
+export const startsNew = (segs: Segment[], i: number) => {
+  const s = segs[i];
+  const prev = segs[i - 1];
+  return !prev || s.type === 'card' || prev.type === 'card' || prev.h.id !== s.h.id;
+};
+
+/**
+ * One frame of a highlight, everything on it: the film placed by the camera, his circles / arrows / spotlight, the
+ * title and the dip. The video and the live preview both draw with this, so they look the same.
+ */
+export function drawHighlightFrame(
+  c: Ctx2D,
+  W: number,
+  H: number,
+  f: {
+    s: Exclude<Segment, { type: 'card' }>;
+    /** Clip seconds shown. */
+    t: number;
+    src: CanvasImageSource | null;
+    srcW: number;
+    srcH: number;
+    tiny: AnyCanvas;
+    zoom: number;
+    followZoom: number;
+    manual?: number;
+    titles: boolean;
+    look: HighlightSettings;
+    logo?: HTMLImageElement | null;
+    /** Seconds into this part, and whether it starts a new highlight (the dip). */
+    local: number;
+    starts: boolean;
+    transition?: 'cut' | 'dip' | 'fade';
+  }
+) {
+  const { s, t } = f;
+  const cam = cameraAt(s.h, t, partOf(s), { zoom: f.zoom, followZoom: f.followZoom, manual: f.manual });
+  if (f.src) drawFilmFrame(c, W, H, f.src, f.srcW, f.srcH, cam.zoom, cam.focus, f.tiny);
+  const r = pictureRect(f.srcW, f.srcH, W, H, cam.zoom, cam.focus.x, cam.focus.y);
+  if (s.type === 'freeze' && s.h.freeze?.spot) drawSpotIn(c, W, H, r, s.h.freeze.spot, f.look);
+  if (s.type === 'clip' && s.part !== 'replay') for (const m of s.h.marks || []) if (t >= m.from && t <= m.to) drawSpotIn(c, W, H, r, m, f.look);
+  if (f.titles) {
+    if (s.type === 'clip' && s.part === 'replay') drawSocialTitle(c, W, H, { title: 'Replay' }, f.look, f.logo);
+    else if (s.overlay) drawSocialTitle(c, W, H, s.overlay, f.look, f.logo);
+  }
+  const a = dipAlpha(f.local, f.starts, f.transition);
+  if (a > 0) {
+    c.fillStyle = `rgba(0,0,0,${a})`;
+    c.fillRect(0, 0, W, H);
+  }
 }
 
 /** The output frames (by number) that fall in [t0, t1) seconds. */
@@ -192,12 +271,9 @@ export async function renderSocialVideo(o: SocialRenderOptions): Promise<SocialR
   const wantSound = o.sound.game || Boolean(o.sound.music);
   const sound = wantSound && typeof OfflineAudioContext !== 'undefined' && (await mb.canEncodeAudio('aac', { numberOfChannels: 2, sampleRate: SR, quality: mb.QUALITY_HIGH }));
 
-  // The frame that's encoded, and a layer with just the film (kept when a frame can't be read, so the titles never
-  // stack up on an old frame).
+  // The frame that's encoded.
   const out = new OffscreenCanvas(W, H);
   const ctx = out.getContext('2d', { alpha: false }) as OffscreenCanvasRenderingContext2D;
-  const film = new OffscreenCanvas(W, H);
-  const fctx = film.getContext('2d', { alpha: false }) as OffscreenCanvasRenderingContext2D;
   // A tiny copy of the frame, stretched back up: the soft blurred fill behind a picture that doesn't fill the frame.
   const tiny = new OffscreenCanvas(Math.max(8, Math.round(W / 30)), Math.max(8, Math.round(H / 30)));
 
@@ -251,23 +327,17 @@ export async function renderSocialVideo(o: SocialRenderOptions): Promise<SocialR
   };
 
   const look = o.settings;
-  const drawFilm = (src: CanvasImageSource | null, c: Opened, focus: { x: number; y: number }, zoom: number) => {
-    if (src) drawFilmFrame(fctx, W, H, src, c.w, c.h, zoom, focus, tiny);
-  };
-  const pictureOf = (c: Opened, focus: { x: number; y: number }, zoom: number) => pictureRect(c.w, c.h, W, H, zoom, focus.x, focus.y);
-  const spotIn = (r: ReturnType<typeof pictureRect>, spot: Parameters<typeof drawSpot>[3]) => drawSpotIn(ctx, W, H, r, spot, look);
-  const overlays = (s: Exclude<Segment, { type: 'card' }>) => {
-    if (!o.titles) return;
-    if (s.type === 'clip' && s.part === 'replay') drawSocialTitle(ctx, W, H, { title: 'Replay' }, look, o.logo);
-    else if (s.overlay) drawSocialTitle(ctx, W, H, s.overlay, look, o.logo);
-  };
-  // A dip to black at the start of each new highlight or card.
-  const dip = (local: number, starts: boolean) => {
-    if (!starts || (o.transition || 'cut') === 'cut') return;
-    const len = o.transition === 'dip' ? 0.35 : 0.25;
-    if (local >= len) return;
-    ctx.fillStyle = `rgba(0,0,0,${1 - local / len})`;
-    ctx.fillRect(0, 0, W, H);
+  // The newest decoded frame of the clip, kept (a frame that can't be read shows the one before, never old titles).
+  const frameCopy = new OffscreenCanvas(2, 2);
+  const fcx = frameCopy.getContext('2d') as OffscreenCanvasRenderingContext2D;
+  let haveFrame = false;
+  const keep = (src: CanvasImageSource & { width: number; height: number }) => {
+    if (frameCopy.width !== src.width || frameCopy.height !== src.height) {
+      frameCopy.width = src.width;
+      frameCopy.height = src.height;
+    }
+    fcx.drawImage(src, 0, 0);
+    haveFrame = true;
   };
 
   let t0 = 0;
@@ -282,11 +352,10 @@ export async function renderSocialVideo(o: SocialRenderOptions): Promise<SocialR
     for (let si = 0; si < o.segments.length; si++) {
       check();
       const s = o.segments[si];
-      const prev = o.segments[si - 1];
       const dur = segmentSeconds(s);
       const t1 = t0 + dur;
       const [f0, f1] = frameRange(t0, t1);
-      const starts = !prev || s.type === 'card' || prev.type === 'card' || prev.h.id !== s.h.id;
+      const starts = startsNew(o.segments, si);
       const label = s.type === 'card' ? s.card.title : `${s.h.title || 'Highlight'}${s.type === 'clip' && s.part === 'replay' ? ' (replay)' : ''}`;
       progress(label);
 
@@ -296,28 +365,46 @@ export async function renderSocialVideo(o: SocialRenderOptions): Promise<SocialR
         for (let f = f0; f < f1; f++) {
           check();
           ctx.putImageData(card, 0, 0);
-          dip(f / SOCIAL_FPS - t0, starts);
+          const a = dipAlpha(f / SOCIAL_FPS - t0, starts, o.transition);
+          if (a > 0) {
+            ctx.fillStyle = `rgba(0,0,0,${a})`;
+            ctx.fillRect(0, 0, W, H);
+          }
           await video.add(f / SOCIAL_FPS, 1 / SOCIAL_FPS);
           frameNo = f + 1;
         }
       } else {
         const c = await open(s);
-        const manual = o.focus?.[s.h.id];
-        const zoom = zoomFor(s.h, o.zoom, followZoom);
-        // A replay from the same camera follows the same path; another camera doesn't.
-        const part: 'main' | 'replay' = s.type === 'clip' && s.part === 'replay' && (s.clip !== s.h.clip || s.view !== s.h.view) ? 'replay' : 'main';
-        fctx.fillStyle = '#000';
-        fctx.fillRect(0, 0, W, H);
+        haveFrame = false;
+        const frame = (t: number, local: number) => {
+          if (!haveFrame) {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, W, H);
+          }
+          drawHighlightFrame(ctx, W, H, {
+            s,
+            t,
+            src: haveFrame ? frameCopy : null,
+            srcW: c.w,
+            srcH: c.h,
+            tiny,
+            zoom: o.zoom,
+            followZoom,
+            manual: o.focus?.[s.h.id],
+            titles: o.titles,
+            look,
+            logo: o.logo,
+            local,
+            starts,
+            transition: o.transition,
+          });
+        };
         if (s.type === 'freeze') {
           const fr = c.frames ? await c.frames.getCanvas(s.at) : null;
-          const focus = focusAt(s.h, s.at, 'main', manual);
-          drawFilm(fr?.canvas ?? null, c, focus, zoom);
+          if (fr) keep(fr.canvas as OffscreenCanvas);
           for (let f = f0; f < f1; f++) {
             check();
-            ctx.drawImage(film, 0, 0);
-            if (s.h.freeze?.spot) spotIn(pictureOf(c, focus, zoom), s.h.freeze.spot);
-            overlays(s);
-            dip(f / SOCIAL_FPS - t0, starts);
+            frame(s.at, f / SOCIAL_FPS - t0);
             await video.add(f / SOCIAL_FPS, 1 / SOCIAL_FPS);
             frameNo = f + 1;
             if (f % 15 === 0) progress(label);
@@ -329,22 +416,10 @@ export async function renderSocialVideo(o: SocialRenderOptions): Promise<SocialR
           for (let i = 0; i < times.length; i++) {
             check();
             const f = f0 + i;
-            const t = times[i];
             const next = iter ? await iter.next() : null;
-            const focus = focusAt(s.h, t, part, manual);
             const fr = next && !next.done ? next.value : null;
-            if (fr) {
-              fctx.fillStyle = '#000';
-              fctx.fillRect(0, 0, W, H);
-              drawFilm(fr.canvas, c, focus, zoom);
-            }
-            ctx.drawImage(film, 0, 0);
-            if (s.part !== 'replay') {
-              const r = pictureOf(c, focus, zoom);
-              for (const m of s.h.marks || []) if (t >= m.from && t <= m.to) spotIn(r, m);
-            }
-            overlays(s);
-            dip(f / SOCIAL_FPS - t0, starts);
+            if (fr) keep(fr.canvas as OffscreenCanvas);
+            frame(times[i], f / SOCIAL_FPS - t0);
             await video.add(f / SOCIAL_FPS, 1 / SOCIAL_FPS);
             frameNo = f + 1;
             if (i % 15 === 0) progress(label);

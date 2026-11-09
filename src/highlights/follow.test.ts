@@ -59,6 +59,26 @@ test('the video follows the path, zoomed in, even with the film slider at "whole
   near(closer.w / fill.w, 1.5);
 });
 
+test('he shows up partway in: the whole field until then, easing in; a gap eases out and back', async () => {
+  const { followCam, stretches, EASE_IN } = await import('./follow');
+  const { cameraAt } = await import('./socialVideo');
+  // Followed 3-5 s, then (after he went off the picture) 6-7 s.
+  const path = [...run(3, 5, 0.2, 0.6), ...run(6, 7, 0.7, 0.8)];
+  assert.equal(stretches(path).length, 2);
+  assert.equal(followCam(path, 1)!.amount, 0, 'before he shows up: not on him');
+  const easing = followCam(path, 3 - EASE_IN / 2)!.amount;
+  assert.ok(easing > 0 && easing < 1, 'easing in just before');
+  assert.equal(followCam(path, 4)!.amount, 1);
+  assert.ok(followCam(path, 5.5)!.amount < 1, 'the gap: eases out');
+  assert.equal(followCam(path, 6.5)!.amount, 1);
+  const h = { follow: { pts: packFollow(path) } } as unknown as Highlight;
+  const o = { zoom: 0, followZoom: 1 };
+  assert.equal(cameraAt(h, 1, 'main', o).zoom, 0, 'whole field at the start');
+  assert.equal(cameraAt(h, 4, 'main', o).zoom, 1, 'zoomed in on him');
+  near(cameraAt(h, 4, 'main', o).focus.x, 0.4, 0.03);
+  assert.equal(cameraAt(h, 4, 'replay', o).zoom, 0, 'another camera: not zoomed on a spot that isn\'t him');
+});
+
 test('zip: checksums, unique names, and a well-formed file', async () => {
   assert.equal(crc32(new TextEncoder().encode('123456789')), 0xcbf43926);
   assert.deepEqual(uniqueNames(['Run.mp4', 'run.mp4', 'Pass.mp4']), ['Run.mp4', 'run (2).mp4', 'Pass.mp4']);

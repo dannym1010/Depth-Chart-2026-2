@@ -11,7 +11,7 @@ import { lineUp, type FilmAccess, type GameFilm } from './filmAccess';
 import { drawLowerThird, drawSpot, loadImage } from './graphics';
 import { editHighlight, highlightSegments, kidLabel, kidsText, removeHighlights, snapWindow, type Kid } from './highlightData';
 import { SocialVideoPanel } from './SocialVideoPanel';
-import { FOLLOW_STEP, followAt, packFollow, pathAt, recordInto, thin, unpackFollow, type FollowPoint } from './follow';
+import { FOLLOW_STEP, followCam, packFollow, pathAt, recordInto, stretches, thin, unpackFollow, type FollowPoint } from './follow';
 import type { Highlight, HighlightCategory, HighlightMark, HighlightSettings, SpotStyle } from './types';
 import type { HighlightStore } from './useHighlights';
 import { useClipSrc } from './useClipSrc';
@@ -87,6 +87,7 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
   const [following, setFollowing] = useState(false);
   const [followSpeed, setFollowSpeed] = useState(0.25);
   const [watchFollow, setWatchFollow] = useState(false);
+  const [fingerDown, setFingerDown] = useState(false);
   const followRef = useRef<{ speed: number } | null>(null);
   const fingerRef = useRef<{ x: number; y: number } | null>(null);
   const stretchRef = useRef<FollowPoint[]>([]);
@@ -232,13 +233,18 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
       ctx.lineCap = 'round';
       ctx.strokeStyle = 'rgba(249,115,22,0.75)';
       ctx.lineWidth = 3 * u;
+      // Each stretch he was followed (none drawn across a gap where he wasn't).
+      const parts = stretches(path);
       if (!watchFollow) {
-        ctx.beginPath();
-        path.forEach((p, i) => (i ? ctx.lineTo(p.x * w, p.y * hh) : ctx.moveTo(p.x * w, p.y * hh)));
-        ctx.stroke();
+        for (const s of parts) {
+          ctx.beginPath();
+          s.forEach((p, i) => (i ? ctx.lineTo(p.x * w, p.y * hh) : ctx.moveTo(p.x * w, p.y * hh)));
+          ctx.stroke();
+        }
       }
-      const at = pathAt(path, now);
-      if (at && now >= path[0].t - 0.05 && now <= path[path.length - 1].t + 0.05) {
+      const on = parts.find((s) => now >= s[0].t - 0.05 && now <= s[s.length - 1].t + 0.05);
+      const at = on ? pathAt(on, now) : null;
+      if (at) {
         ctx.fillStyle = '#f97316';
         ctx.strokeStyle = '#fff';
         ctx.lineWidth = 2 * u;
@@ -374,6 +380,7 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       const spot = pictureSpot(e.clientX, e.clientY);
       fingerRef.current = spot;
+      setFingerDown(true);
       if (vv.currentTime >= end - 0.05) vv.currentTime = start;
       stretchRef.current = [{ t: vv.currentTime, ...spot }];
       vv.playbackRate = followSpeed;
@@ -385,6 +392,7 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
     },
     onPointerUp: (e: React.PointerEvent) => {
       e.stopPropagation();
+      setFingerDown(false);
       if (!fingerRef.current) return;
       fingerRef.current = null;
       videoRef.current?.pause();
@@ -402,8 +410,9 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
   // "Watch it zoom": the editor's picture zooms in and rides the path, the way the Instagram video will.
   useEffect(() => {
     if (!watchFollow || following || path.length < 2) return;
-    const p = followAt(path, now);
-    if (p) zp.lookAt(2.5, p.x - 0.5, p.y - 0.5);
+    // Like the video: zoomed in while he's followed, easing back to the whole picture where he isn't.
+    const cam = followCam(path, now);
+    if (cam) zp.lookAt(1 + 1.5 * cam.amount, (cam.x - 0.5) * cam.amount, (cam.y - 0.5) * cam.amount);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchFollow, following, path, now]);
   useEffect(() => {
@@ -561,7 +570,11 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
               <div className="absolute inset-0 z-10 cursor-crosshair" style={{ touchAction: 'none' }} {...followHandlers} aria-label="Keep your finger on the kid" />
               <div className="absolute top-2 left-2 right-2 z-20 pointer-events-none flex">
                 <span className="rounded-md px-2 py-1 text-xs font-bold" style={{ background: '#f97316', color: '#111827' }}>
-                  {playing ? 'Keep your finger on him… let go to pause' : 'Press and hold on the kid; it plays while you follow him'}
+                  {playing && fingerDown
+                    ? 'Keep your finger on him… let go to pause'
+                    : playing
+                      ? 'Not following: press on him when he shows up'
+                      : 'Press and hold on the kid; it plays while you follow him'}
                 </span>
               </div>
             </>
@@ -805,7 +818,25 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
           <legend className="px-1 font-black text-slate-700 dark:text-slate-200">Follow a kid (the Instagram video zooms in and follows him)</legend>
           {following ? (
             <span className="flex flex-wrap items-center gap-1.5">
-              <span className="text-slate-600 dark:text-slate-300">Press and hold on him on the picture; it plays while your finger is down. Let go to pause, press again to carry on.</span>
+              <span className="text-slate-600 dark:text-slate-300">
+                Press and hold on him on the picture; it plays while your finger is down. Let go to pause, press again to carry on. Not in the picture yet (or gone)?
+                Play ahead without following; the video shows the whole field there and zooms in when you pick him up.
+              </span>
+              <button
+                type="button"
+                className={small}
+                onClick={() => {
+                  const vv = videoRef.current;
+                  if (!vv) return;
+                  if (!vv.paused) return vv.pause();
+                  if (vv.currentTime >= end - 0.05) vv.currentTime = start;
+                  vv.playbackRate = followSpeed;
+                  void vv.play().catch(() => undefined);
+                }}
+                title="Play (slowly) without following him, to where he shows up"
+              >
+                {playing ? <Pause size={12} className="inline -mt-0.5" /> : <PlayIcon size={12} className="inline -mt-0.5" />} {playing ? 'Pause' : 'Play, not following'}
+              </button>
               <select value={followSpeed} onChange={(e) => setFollowSpeed(Number(e.target.value))} className="h-7 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-1" aria-label="Speed while following">
                 <option value={0.25}>¼ speed</option>
                 <option value={0.5}>½ speed</option>
@@ -818,13 +849,13 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
           ) : (
             <span className="flex flex-wrap items-center gap-1.5">
               <button type="button" className={small} onClick={startFollow} disabled={!src.url} title="From the playhead (or the start): play slowly while you keep your finger on him">
-                <Crosshair size={12} className="inline -mt-0.5" /> {path.length > 1 ? 'Redo from the playhead' : 'Follow a kid'}
+                <Crosshair size={12} className="inline -mt-0.5" /> {path.length > 1 ? 'Follow again from the playhead' : 'Follow a kid'}
               </button>
               {path.length > 1 && (
                 <>
                   <span className="text-slate-500">
-                    Followed {fmt(path[0].t)}–{fmt(path[path.length - 1].t)}
-                    {path[0].t > start + 0.3 || path[path.length - 1].t < end - 0.3 ? ' (not the whole highlight; the camera holds at the ends)' : ''}
+                    Followed {stretches(path).filter((s) => s.length > 1).map((s) => `${fmt(s[0].t)}–${fmt(s[s.length - 1].t)}`).join(', ')}
+                    {path[0].t > start + 0.3 || path[path.length - 1].t < end - 0.3 ? ' · the whole field shows where he isn\'t followed' : ''}
                   </span>
                   <button type="button" className={chip(watchFollow)} aria-pressed={watchFollow} onClick={() => setWatchFollow((x) => !x)} title="Zoom the picture along his path, like the video will">
                     Watch it zoom

@@ -4,15 +4,12 @@
 // computer), or share them straight to Instagram / Photos from an iPad or phone.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, Download, Loader2, Share2, X } from 'lucide-react';
-import { drawCard } from './graphics';
 import { clock, timelineSeconds, type Segment } from './highlightData';
 import type { FilmAccess } from './filmAccess';
+import { SocialPreview } from './SocialPreview';
 import type { Highlight, HighlightSettings } from './types';
 import {
   canMakeVideo,
-  drawFilmFrame,
-  drawSocialTitle,
-  drawSpotIn,
   focusAt,
   followPath,
   hasFollow,
@@ -118,78 +115,13 @@ export const SocialVideoPanel: React.FC<Props> = ({ title, segments, access, set
   useEffect(clearResults, [prefs, focus, segments]);
   useEffect(() => () => stopRef.current?.abort(), []);
 
-  // ---- The preview: one frame of the highlight picked, drawn the way the video will be ----
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const vidRef = useRef<HTMLVideoElement | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string>('');
-  const [previewReady, setPreviewReady] = useState(0);
-  useEffect(() => {
-    if (!showH) return;
-    let release: (() => void) | undefined;
-    let off = false;
-    setPreviewUrl('');
-    access
-      .url(showH.game, showH.view, showH.clip)
-      .then((r) => {
-        if (off) return r.release();
-        release = r.release;
-        setPreviewUrl(r.url);
-      })
-      .catch(() => undefined);
-    return () => {
-      off = true;
-      release?.();
-    };
-  }, [access, showH]);
-  const previewAt = showH ? previewMoment(showH) : 0;
-  useEffect(() => {
-    const v = vidRef.current;
-    if (!v || !previewUrl) return;
-    const seek = () => {
-      v.currentTime = Math.max(0, previewAt);
-    };
-    const ready = () => setPreviewReady((n) => n + 1);
-    v.addEventListener('seeked', ready);
-    if (v.readyState >= 1) seek();
-    else v.addEventListener('loadedmetadata', seek, { once: true });
-    return () => {
-      v.removeEventListener('seeked', ready);
-      v.removeEventListener('loadedmetadata', seek);
-    };
-  }, [previewUrl, previewAt]);
-  useEffect(() => {
-    const c = canvasRef.current;
-    if (!c) return;
-    const W = shape.w;
-    const H = shape.h;
-    c.width = W;
-    c.height = H;
-    const ctx = c.getContext('2d')!;
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, W, H);
-    const v = vidRef.current;
-    if (!showH) {
-      const card = segments.find((s) => s.type === 'card');
-      if (card && card.type === 'card') drawCard(ctx, W, H, card.card, settings, logo);
-      return;
-    }
-    if (v && previewUrl && v.readyState >= 2 && v.videoWidth) {
-      const tiny = document.createElement('canvas');
-      tiny.width = Math.round(W / 30);
-      tiny.height = Math.round(H / 30);
-      const f = focusAt(showH, previewAt, 'main', focus[showH.id]);
-      const r = drawFilmFrame(ctx, W, H, v, v.videoWidth, v.videoHeight, zoomFor(showH, prefs.zoom, prefs.followZoom), f, tiny);
-      for (const m of showH.marks || []) if (previewAt >= m.from && previewAt <= m.to) drawSpotIn(ctx, W, H, r, m, settings);
-      if (showH.freeze?.spot && Math.abs(previewAt - showH.freeze.at) < 0.05) drawSpotIn(ctx, W, H, r, showH.freeze.spot, settings);
-    } else {
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = '700 44px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('Loading the film…', W / 2, H / 2);
-    }
-    const seg = segments.find((s) => s.type !== 'card' && s.h.id === showH.id);
-    if (prefs.titles && seg && seg.type !== 'card' && seg.overlay) drawSocialTitle(ctx, W, H, seg.overlay, settings, logo);
-  }, [shape, prefs.zoom, prefs.followZoom, prefs.titles, focus, showH, previewReady, previewUrl, previewAt, segments, settings, logo]);
+  // ---- The live preview: "Where to look" jumps it to a highlight, paused where he shows ----
+  const [jump, setJump] = useState<{ id: string; at: number; n: number } | undefined>();
+  const look = (h: Highlight) => {
+    setShown(h.id);
+    setJump((j) => ({ id: h.id, at: previewMoment(h), n: (j?.n || 0) + 1 }));
+  };
+  const previewSegs = useMemo(() => (each ? segments.filter((s) => s.type !== 'card') : segments), [each, segments]);
 
   // ---- Making them ----
   const make = async () => {
@@ -380,7 +312,7 @@ export const SocialVideoPanel: React.FC<Props> = ({ title, segments, access, set
                     const followed = hasFollow(h);
                     const zoomed = zoomFor(h, prefs.zoom, prefs.followZoom) > 0;
                     return (
-                      <div key={h.id} className={`flex items-center gap-2 text-xs rounded-lg px-1.5 py-1 ${showH?.id === h.id ? 'bg-slate-100 dark:bg-slate-800' : ''}`} onClick={() => setShown(h.id)}>
+                      <div key={h.id} className={`flex items-center gap-2 text-xs rounded-lg px-1.5 py-1 ${showH?.id === h.id ? 'bg-slate-100 dark:bg-slate-800' : ''}`} onClick={() => showH?.id !== h.id && look(h)}>
                         <span className="truncate w-28 sm:w-36 shrink-0 font-bold text-slate-700 dark:text-slate-200" title={h.title}>{h.title || 'Highlight'}</span>
                         {zoomed ? (
                           <input
@@ -390,7 +322,7 @@ export const SocialVideoPanel: React.FC<Props> = ({ title, segments, access, set
                             step={2}
                             value={Math.round((auto ? focusAt(h, previewMoment(h), 'main').x : focus[h.id]) * 100)}
                             onChange={(e) => {
-                              setShown(h.id);
+                              if (showH?.id !== h.id) look(h);
                               setFocus((f) => ({ ...f, [h.id]: Number(e.target.value) / 100 }));
                             }}
                             className="flex-1 min-w-0"
@@ -440,14 +372,22 @@ export const SocialVideoPanel: React.FC<Props> = ({ title, segments, access, set
           </div>
 
           <div className="flex flex-col items-center gap-1 min-w-0">
-            <canvas
-              ref={canvasRef}
-              className="rounded-lg border border-slate-200 dark:border-slate-700 bg-black max-w-full"
-              style={{ width: prefs.shape === 'reel' ? 160 : 210, aspectRatio: `${shape.w} / ${shape.h}` }}
-              aria-label="Preview of a frame"
+            <SocialPreview
+              segments={previewSegs}
+              access={access}
+              settings={settings}
+              logo={logo}
+              shape={prefs.shape}
+              zoom={prefs.zoom}
+              followZoom={prefs.followZoom}
+              focus={focus}
+              titles={prefs.titles}
+              transition={transition}
+              sound={prefs.game}
+              jump={jump}
+              width={prefs.shape === 'reel' ? 190 : 224}
             />
-            {previewUrl && <video ref={vidRef} src={previewUrl} muted playsInline preload="auto" className="hidden" />}
-            <span className="text-[11px] text-slate-500 text-center">{showH ? `Preview: ${showH.title || 'highlight'}` : 'Preview'}</span>
+            <span className="text-[11px] text-slate-500 text-center">Preview: plays like the video{music && prefs.music ? ' (no song here)' : ''}</span>
           </div>
         </div>
 

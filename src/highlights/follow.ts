@@ -92,6 +92,52 @@ export function followAt(path: FollowPoint[], t: number, window = 0.5): { x: num
   return wsum ? { x: wx / wsum, y: wy / wsum } : null;
 }
 
+/** A gap this long (clip seconds) with no spots means the coach wasn't following him there (not in view yet, gone). */
+export const FOLLOW_GAP = 0.35;
+/** The camera eases in on him over this long before his first spot, and back out after his last. */
+export const EASE_IN = 0.5;
+export const EASE_OUT = 0.6;
+
+const stretchCache = new WeakMap<FollowPoint[], FollowPoint[][]>();
+/** The path cut where the coach stopped following (a gap in time). */
+export function stretches(path: FollowPoint[]): FollowPoint[][] {
+  const had = stretchCache.get(path);
+  if (had) return had;
+  const out: FollowPoint[][] = [];
+  for (const p of path) {
+    const cur = out[out.length - 1];
+    if (cur && p.t - cur[cur.length - 1].t <= FOLLOW_GAP) cur.push(p);
+    else out.push([p]);
+  }
+  stretchCache.set(path, out);
+  return out;
+}
+
+const smooth = (f: number) => {
+  const x = Math.min(1, Math.max(0, f));
+  return x * x * (3 - 2 * x);
+};
+
+/**
+ * The follow camera at a moment: where he is, and how much it's on him (1 = zoomed in following him, 0 = not
+ * following: before he shows up, after he's gone, or between stretches). It eases in just before a stretch starts and
+ * out after it ends, so a play that starts with him off the picture opens on the whole field.
+ */
+export function followCam(path: FollowPoint[], t: number): { x: number; y: number; amount: number } | null {
+  const parts = stretches(path).filter((s) => s.length > 1 || path.length === 1);
+  if (!parts.length) return null;
+  let best: { s: FollowPoint[]; amount: number; d: number } | null = null;
+  for (const s of parts) {
+    const a = s[0].t;
+    const b = s[s.length - 1].t;
+    const amount = t < a ? smooth(1 - (a - t) / EASE_IN) : t > b ? smooth(1 - (t - b) / EASE_OUT) : 1;
+    const d = t < a ? a - t : t > b ? t - b : 0;
+    if (!best || amount > best.amount || (amount === best.amount && d < best.d)) best = { s, amount, d };
+  }
+  const p = followAt(best!.s, t)!;
+  return { x: p.x, y: p.y, amount: best!.amount };
+}
+
 /** Does the path cover this stretch of the clip (most of it)? */
 export function followCovers(path: FollowPoint[], from: number, to: number) {
   if (!path.length) return false;
