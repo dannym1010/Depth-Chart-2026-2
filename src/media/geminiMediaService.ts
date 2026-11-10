@@ -23,6 +23,8 @@ export interface AnalyzePhotoOptions {
   driveId: string;
   photoName?: string;
   roster?: RosterRef[];
+  targetJerseyColor?: string;
+  opponentJerseyColor?: string;
   apiKey?: string;
   modelName?: string;
   onStatus?: (status: string) => void;
@@ -54,10 +56,11 @@ export const VALID_CATEGORIES: MediaCategory[] = [
 export const SYSTEM_PROMPT = `You are an elite computer vision AI sports analyst embedded in a media management application. Your task is to analyze the provided sports photograph and extract precise metadata to power automated photo tagging, filtering, and organization.
 
 Jersey Number Extraction Rules (Top Priority):
-- Scan all visible players for jersey numbers.
+- Scan all visible players for jersey numbers matching the designated target team uniform color (if specified).
+- Team Uniform Filter: When a target team jersey color is specified, ONLY extract and tag numbers from players wearing that specific color. Completely IGNORE numbers on players wearing opposing team colors, referee stripes, or spectator clothing.
 - Read digits carefully, accounting for fabric stretching, body angles, and sweat.
 - If a number is partially obscured or ambiguous, include it with a lower confidence score (0.1 to 0.6).
-- Do not hallucinate numbers. If no jersey numbers are visible or legible, return an empty array for detected_jerseys.
+- Do not hallucinate numbers. If no jersey numbers from the target team are visible or legible, return an empty array for detected_jerseys.
 
 Photo Category Classification:
 Classify into exactly one of these primary categories:
@@ -329,6 +332,98 @@ export function parseGeminiMediaResponse(rawJson: unknown, roster?: RosterRef[])
   };
 }
 
+export const TARGET_COLOR_STORAGE_KEY = 'mahopac_ai_target_jersey_color';
+export const OPPONENT_COLOR_STORAGE_KEY = 'mahopac_ai_opponent_jersey_color';
+
+export interface PresetColor {
+  label: string;
+  value: string;
+  bg: string;
+  border: string;
+  note?: string;
+}
+
+export const COMMON_TEAM_COLORS: PresetColor[] = [
+  { label: 'Navy / Blue', value: 'Navy / Blue', bg: 'bg-blue-900 text-white', border: 'border-blue-900', note: 'Mahopac Home' },
+  { label: 'White', value: 'White', bg: 'bg-white text-slate-900', border: 'border-slate-300 dark:border-slate-600', note: 'Mahopac Away' },
+  { label: 'Gold / Yellow', value: 'Gold / Yellow', bg: 'bg-amber-400 text-slate-950', border: 'border-amber-500', note: 'Mahopac Gold' },
+  { label: 'Red', value: 'Red', bg: 'bg-rose-600 text-white', border: 'border-rose-600' },
+  { label: 'Green', value: 'Green', bg: 'bg-emerald-600 text-white', border: 'border-emerald-600' },
+  { label: 'Black', value: 'Black', bg: 'bg-slate-900 text-white', border: 'border-slate-900' },
+  { label: 'Orange', value: 'Orange', bg: 'bg-orange-500 text-white', border: 'border-orange-500' },
+  { label: 'Any Color', value: 'Any', bg: 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300', border: 'border-slate-300 dark:border-slate-700', note: 'No filter' },
+];
+
+export function getSavedTargetColor(): string {
+  if (typeof localStorage === 'undefined') return 'Navy / Blue';
+  try {
+    return localStorage.getItem(TARGET_COLOR_STORAGE_KEY) || 'Navy / Blue';
+  } catch {
+    return 'Navy / Blue';
+  }
+}
+
+export function saveTargetColor(color: string): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(TARGET_COLOR_STORAGE_KEY, color);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function getSavedOpponentColor(): string {
+  if (typeof localStorage === 'undefined') return '';
+  try {
+    return localStorage.getItem(OPPONENT_COLOR_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function saveOpponentColor(color: string): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(OPPONENT_COLOR_STORAGE_KEY, color);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Builds the user prompt sent to Gemini Vision, combining roster context and team uniform color filtering.
+ */
+export function buildGeminiMediaPrompt(opts: {
+  photoName?: string;
+  roster?: RosterRef[];
+  targetJerseyColor?: string;
+  opponentJerseyColor?: string;
+}): string {
+  const { photoName = '', roster = [], targetJerseyColor, opponentJerseyColor } = opts;
+
+  let rosterContext = '';
+  if (roster.length > 0) {
+    const list = roster
+      .map((r) => `#${r.num}${r.firstName ? ` (${r.firstName} ${r.lastName || ''})` : ''}`)
+      .join(', ');
+    rosterContext = `\nOur active team roster jersey numbers are: ${list}. Use this for digit disambiguation, but DO NOT hallucinate numbers not visible in the photo.`;
+  }
+
+  let colorFilter = '';
+  const cleanColor = targetJerseyColor?.trim();
+  if (cleanColor && !/^(any|all|none|both)$/i.test(cleanColor)) {
+    const opp = opponentJerseyColor?.trim();
+    colorFilter = `\n\nCRITICAL TEAM UNIFORM COLOR FILTER (TOP PRIORITY):
+- TARGET TEAM JERSEY COLOR: "${cleanColor}".
+- You MUST ONLY tag and extract jersey numbers for players wearing ${cleanColor} jerseys/uniforms.
+${opp ? `- The OPPONENT team is wearing "${opp}" jerseys. DO NOT tag or extract ANY numbers from players wearing ${opp} uniforms!` : '- DO NOT extract jersey numbers from opposing players wearing a different uniform color!'}
+- If players from both teams appear together in the photograph, scan ONLY the players wearing ${cleanColor} and completely IGNORE numbers on players wearing other colors.
+- Do NOT include opposing team player numbers in detected_jerseys or the kids array.`;
+  }
+
+  return `Analyze this football photo (${photoName || 'game day photo'}).${rosterContext}${colorFilter}\nExtract visible jersey numbers, identify category, determine single vs group, evaluate quality metrics, and assign curation tier.`;
+}
+
 /**
  * Executes multimodal Gemini Vision analysis on a single photo.
  */
@@ -337,6 +432,8 @@ export async function analyzePhotoWithGemini(opts: AnalyzePhotoOptions): Promise
     blob,
     photoName = '',
     roster = [],
+    targetJerseyColor = getSavedTargetColor(),
+    opponentJerseyColor = getSavedOpponentColor(),
     apiKey = getSavedGeminiKey(),
     modelName = getSavedGeminiModel(),
     onStatus,
@@ -350,16 +447,12 @@ export async function analyzePhotoWithGemini(opts: AnalyzePhotoOptions): Promise
   onStatus?.('Preparing image for analysis…');
   const { base64, mimeType } = await preparePhotoBase64(blob, 1600);
 
-  // Mention roster context to assist with digits
-  let rosterContext = '';
-  if (roster.length > 0) {
-    const list = roster
-      .map((r) => `#${r.num}${r.firstName ? ` (${r.firstName} ${r.lastName || ''})` : ''}`)
-      .join(', ');
-    rosterContext = `\nOur active team roster jersey numbers are: ${list}. Use this for digit disambiguation, but DO NOT hallucinate numbers not visible in the photo.`;
-  }
-
-  const promptText = `Analyze this football photo (${photoName || 'game day photo'}).${rosterContext}\nExtract visible jersey numbers, identify category, determine single vs group, evaluate quality metrics, and assign curation tier.`;
+  const promptText = buildGeminiMediaPrompt({
+    photoName,
+    roster,
+    targetJerseyColor,
+    opponentJerseyColor,
+  });
 
   const body = {
     contents: [

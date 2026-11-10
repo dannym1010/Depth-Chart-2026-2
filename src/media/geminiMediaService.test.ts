@@ -1,6 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseGeminiMediaResponse, SYSTEM_PROMPT, VALID_CATEGORIES } from './geminiMediaService.ts';
+import {
+  buildGeminiMediaPrompt,
+  COMMON_TEAM_COLORS,
+  parseGeminiMediaResponse,
+  SYSTEM_PROMPT,
+  VALID_CATEGORIES,
+} from './geminiMediaService.ts';
 import { tierOfScore } from './mediaData.ts';
 
 describe('Gemini Media AI Vision: Response Parser', () => {
@@ -128,6 +134,35 @@ describe('Gemini Media AI Vision: Response Parser', () => {
     assert.ok(VALID_CATEGORIES.includes('Coaches'));
     assert.ok(VALID_CATEGORIES.includes('Fans'));
     assert.ok(VALID_CATEGORIES.includes('Portraits'));
+  });
+
+  it('builds prompt with target uniform color and opponent exclusions', () => {
+    const prompt = buildGeminiMediaPrompt({
+      photoName: 'week3-action.jpg',
+      roster: [{ num: '21', firstName: 'Danny' }],
+      targetJerseyColor: 'Navy / Blue',
+      opponentJerseyColor: 'Red',
+    });
+    assert.ok(prompt.includes('TARGET TEAM JERSEY COLOR: "Navy / Blue"'));
+    assert.ok(prompt.includes('The OPPONENT team is wearing "Red" jerseys'));
+    assert.ok(prompt.includes('ONLY tag and extract jersey numbers for players wearing Navy / Blue'));
+    assert.ok(prompt.includes('#21 (Danny )'));
+  });
+
+  it('omits color filtering when color is set to Any', () => {
+    const prompt = buildGeminiMediaPrompt({
+      photoName: 'celebration.jpg',
+      targetJerseyColor: 'Any',
+    });
+    assert.ok(!prompt.includes('CRITICAL TEAM UNIFORM COLOR FILTER'));
+  });
+
+  it('provides standard preset team colors including Mahopac Home and Away', () => {
+    const values = COMMON_TEAM_COLORS.map((c) => c.value);
+    assert.ok(values.includes('Navy / Blue'));
+    assert.ok(values.includes('White'));
+    assert.ok(values.includes('Gold / Yellow'));
+    assert.ok(values.includes('Any'));
   });
 });
 

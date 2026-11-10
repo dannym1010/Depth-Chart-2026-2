@@ -3,10 +3,19 @@
 // extracting jersey numbers [top priority], photo category, single/group, quality metrics,
 // curation score & tier, and rationale, saving each photo incrementally.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Key, Loader2, Pause, Play, Sparkles, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Key, Loader2, Pause, Play, Shirt, Sparkles, X } from 'lucide-react';
 import type { RosterPlayer } from '../types';
 import type { DrivePhoto, MediaFolder, MediaPhoto } from './types';
-import { analyzePhotoWithGemini, preparePhotoBase64, type RosterRef } from './geminiMediaService';
+import {
+  analyzePhotoWithGemini,
+  COMMON_TEAM_COLORS,
+  getSavedOpponentColor,
+  getSavedTargetColor,
+  preparePhotoBase64,
+  saveOpponentColor,
+  saveTargetColor,
+  type RosterRef,
+} from './geminiMediaService';
 import { getSavedGeminiKey, saveGeminiKey } from '../services/geminiFilmService';
 import { drivePhotoBlob, drivePhotoThumb, listDrivePhotos } from './mediaSources';
 import { STARS } from './mediaData';
@@ -59,6 +68,16 @@ export const AiTaggingModal: React.FC<Props> = ({
   const [apiKeyInput, setApiKeyInput] = useState(() => getSavedGeminiKey());
   const [showKeyEditor, setShowKeyEditor] = useState(() => !getSavedGeminiKey());
   const [keySavedNote, setKeySavedNote] = useState('');
+  const [targetColor, setTargetColor] = useState<string>(() => getSavedTargetColor());
+  const [isCustomColor, setIsCustomColor] = useState<boolean>(() => {
+    const cur = getSavedTargetColor();
+    return !COMMON_TEAM_COLORS.some((c) => c.value === cur);
+  });
+  const [customColorText, setCustomColorText] = useState<string>(() => {
+    const cur = getSavedTargetColor();
+    return COMMON_TEAM_COLORS.some((c) => c.value === cur) ? '' : cur;
+  });
+  const [opponentColor, setOpponentColor] = useState<string>(() => getSavedOpponentColor());
   const stopRequested = useRef(false);
   const pauseRequested = useRef(false);
 
@@ -157,6 +176,8 @@ export const AiTaggingModal: React.FC<Props> = ({
           driveId: item.photo.id,
           photoName: item.photo.name,
           roster: rosterRefs,
+          targetJerseyColor: targetColor,
+          opponentJerseyColor: opponentColor,
           onStatus: (s) => setCurrentStep(`Photo ${i + 1}/${items.length}: ${s}`),
         });
 
@@ -340,6 +361,98 @@ export const AiTaggingModal: React.FC<Props> = ({
                 </div>
               </div>
 
+              {/* Team Uniform Color to Tag */}
+              <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 flex flex-col gap-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <Shirt size={15} className="text-indigo-600 dark:text-indigo-400" />
+                    Team Jersey Color to Tag
+                  </span>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Filters out opposing team numbers
+                  </span>
+                </div>
+
+                {/* Preset color pills */}
+                <div className="flex flex-wrap gap-1.5">
+                  {COMMON_TEAM_COLORS.map((c) => {
+                    const active = !isCustomColor && targetColor === c.value;
+                    return (
+                      <button
+                        key={c.value}
+                        type="button"
+                        onClick={() => {
+                          setIsCustomColor(false);
+                          setTargetColor(c.value);
+                          saveTargetColor(c.value);
+                        }}
+                        className={`h-7 px-2.5 rounded-lg text-xs font-bold border transition flex items-center gap-1.5 cursor-pointer ${
+                          active
+                            ? 'ring-2 ring-indigo-500 ring-offset-1 border-indigo-600 shadow-sm scale-[1.02]'
+                            : 'opacity-80 hover:opacity-100 hover:scale-[1.01]'
+                        } ${c.bg} ${c.border}`}
+                      >
+                        <span>{c.label}</span>
+                        {c.note && <span className="text-[10px] opacity-75 font-normal">({c.note})</span>}
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCustomColor(true);
+                      if (customColorText) {
+                        setTargetColor(customColorText);
+                        saveTargetColor(customColorText);
+                      }
+                    }}
+                    className={`h-7 px-2.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                      isCustomColor
+                        ? 'ring-2 ring-indigo-500 border-indigo-600 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 font-black'
+                        : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    ✏️ Custom Color…
+                  </button>
+                </div>
+
+                {/* Custom Color Input if enabled */}
+                {isCustomColor && (
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <input
+                      type="text"
+                      value={customColorText}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCustomColorText(val);
+                        setTargetColor(val || 'Any');
+                        saveTargetColor(val || 'Any');
+                      }}
+                      placeholder="e.g. Royal Blue jerseys with White numbers"
+                      className="flex-1 h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                )}
+
+                {/* Opponent jersey color (optional) */}
+                <div className="flex items-center gap-2 pt-1.5 border-t border-slate-200/80 dark:border-slate-800/80 text-[11px]">
+                  <span className="font-semibold text-slate-600 dark:text-slate-400 shrink-0">
+                    Opponent Color (optional):
+                  </span>
+                  <input
+                    type="text"
+                    value={opponentColor}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setOpponentColor(val);
+                      saveOpponentColor(val);
+                    }}
+                    placeholder="e.g. Red, Somers Green, Brewster White (leave empty if unknown)"
+                    className="flex-1 h-7 px-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
               <label className="flex items-center gap-2.5 text-xs text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
                 <input
                   type="checkbox"
@@ -367,8 +480,13 @@ export const AiTaggingModal: React.FC<Props> = ({
           {(running || total > 0) && (
             <div className="flex flex-col gap-3">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-slate-700 dark:text-slate-300">
-                  {running ? `Processing ${currentIndex + 1} of ${total}…` : 'Processing Complete'}
+                <span className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                  <span>{running ? `Processing ${currentIndex + 1} of ${total}…` : 'Processing Complete'}</span>
+                  {targetColor && targetColor !== 'Any' && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
+                      <Shirt size={10} /> {targetColor}
+                    </span>
+                  )}
                 </span>
                 <span className="text-slate-500 dark:text-slate-400 font-semibold">{progressPct}%</span>
               </div>

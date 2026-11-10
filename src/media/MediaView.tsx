@@ -21,6 +21,7 @@ import {
   Plus,
   RotateCcw,
   Search,
+  Shirt,
   SlidersHorizontal,
   Sparkles,
   Square,
@@ -40,7 +41,15 @@ import type { RosterPlayer } from '../types';
 import { AiKeyModal } from './AiKeyModal';
 import { AiTaggingModal } from './AiTaggingModal';
 import { CropModal } from './CropModal';
-import { analyzePhotoWithGemini, type RosterRef, VALID_CATEGORIES } from './geminiMediaService';
+import {
+  analyzePhotoWithGemini,
+  COMMON_TEAM_COLORS,
+  getSavedOpponentColor,
+  getSavedTargetColor,
+  saveTargetColor,
+  type RosterRef,
+  VALID_CATEGORIES,
+} from './geminiMediaService';
 import { getSavedGeminiKey } from '../services/geminiFilmService';
 import {
   addFolder,
@@ -241,6 +250,7 @@ const Viewer: React.FC<{
   const [showInspector, setShowInspector] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [customJersey, setCustomJersey] = useState('');
+  const [photoTargetColor, setPhotoTargetColor] = useState<string>(() => getSavedTargetColor());
 
   useEffect(() => {
     let off = false;
@@ -283,6 +293,8 @@ const Viewer: React.FC<{
         driveId: photo.id,
         photoName: photo.name,
         roster: refs,
+        targetJerseyColor: photoTargetColor,
+        opponentJerseyColor: getSavedOpponentColor(),
       });
       onSavePhoto(photo.id, folder.id, analysis);
     } catch (err: unknown) {
@@ -398,20 +410,44 @@ const Viewer: React.FC<{
       {/* Right Area: Metadata & Curation Inspector */}
       {showInspector && (
         <div className="w-full md:w-96 bg-slate-900 border-l border-slate-800 text-slate-100 flex flex-col h-auto md:h-full overflow-y-auto max-h-[50vh] md:max-h-full z-20">
-          <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-            <h3 className="text-sm font-black flex items-center gap-2">
-              <Sparkles size={16} className="text-indigo-400" /> Photo Metadata & Curation
-            </h3>
+          <div className="p-4 border-b border-slate-800 flex flex-col gap-2.5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black flex items-center gap-2">
+                <Sparkles size={16} className="text-indigo-400" /> Photo Metadata & Curation
+              </h3>
+              {canEdit && (
+                <button
+                  type="button"
+                  disabled={analyzing}
+                  onClick={() => void runAiOnCurrent()}
+                  className="h-8 px-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-sm"
+                >
+                  {analyzing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                  {record?.aiAnalyzedAt ? 'Re-Analyze AI' : 'AI Analyze'}
+                </button>
+              )}
+            </div>
             {canEdit && (
-              <button
-                type="button"
-                disabled={analyzing}
-                onClick={() => void runAiOnCurrent()}
-                className="h-8 px-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
-              >
-                {analyzing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                {record?.aiAnalyzedAt ? 'Re-Analyze AI' : 'AI Analyze'}
-              </button>
+              <div className="flex items-center justify-between text-[11px] bg-slate-800/70 px-2.5 py-1.5 rounded-lg border border-slate-700/80">
+                <span className="font-semibold text-slate-300 flex items-center gap-1.5">
+                  <Shirt size={13} className="text-indigo-400" /> Target Team Color:
+                </span>
+                <select
+                  value={photoTargetColor}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setPhotoTargetColor(v);
+                    saveTargetColor(v);
+                  }}
+                  className="h-6 px-1.5 rounded bg-slate-900 border border-slate-700 text-slate-200 text-[11px] font-bold cursor-pointer"
+                >
+                  {COMMON_TEAM_COLORS.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label} {c.note ? `(${c.note})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
             )}
           </div>
 
