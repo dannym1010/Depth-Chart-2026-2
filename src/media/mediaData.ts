@@ -2,7 +2,7 @@
 // each photo's record.
 import { mergeById, mergeTombstones } from '../utils/recordMerge';
 import { newId } from '../highlights/highlightData';
-import type { MediaData, MediaFolder, MediaPhoto, MediaTier } from './types';
+import type { MediaCategory, MediaData, MediaFolder, MediaPhoto, MediaTag, MediaTier } from './types';
 
 export const emptyMedia = (): MediaData => ({ folders: [], deletedFolders: {}, photos: [], deletedPhotos: {} });
 
@@ -71,4 +71,74 @@ export const dayOf = (ms: number): string => {
   const d = new Date(ms);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
+
+// ---- Filtering & Library Helpers ----
+
+export interface MediaFilter {
+  opponent?: string;
+  date?: string;
+  venue?: 'home' | 'away' | '';
+  group?: 'single' | 'group' | '';
+  player?: string; // jersey number e.g. "21"
+  category?: MediaCategory | '';
+  side?: 'Offense' | 'Defense' | 'unknown' | '';
+  tier?: MediaTier | '';
+  minStars?: number; // 1 to 4
+  tags?: MediaTag[];
+  folderId?: string;
+  search?: string;
+}
+
+export const TAG_LABELS: Record<MediaTag, { label: string; short: string; emoji: string }> = {
+  social: { label: 'For Social Media', short: 'Social', emoji: '📱' },
+  poster: { label: 'For Posters', short: 'Posters', emoji: '🖼️' },
+  highlight: { label: 'For Highlights & Reels', short: 'Highlights', emoji: '🎬' },
+};
+
+export function togglePhotoTag(tags: MediaTag[] = [], tag: MediaTag): MediaTag[] {
+  return tags.includes(tag) ? tags.filter((t) => t !== tag) : [...tags, tag];
+}
+
+export function matchPhotoFilter(
+  photo: { id: string; name?: string; takenAt?: number },
+  record: MediaPhoto | undefined,
+  folder: MediaFolder | undefined,
+  filter: MediaFilter
+): boolean {
+  if (filter.folderId && folder && folder.id !== filter.folderId) return false;
+  if (filter.opponent && folder && (folder.opponent || '').toLowerCase() !== filter.opponent.toLowerCase()) {
+    return false;
+  }
+  if (filter.venue && folder && folder.venue !== filter.venue) return false;
+  if (filter.date) {
+    const fDate = folder?.date || (photo.takenAt ? dayOf(photo.takenAt) : '');
+    if (fDate !== filter.date) return false;
+  }
+  if (filter.player) {
+    const kids = record?.kids || [];
+    if (!kids.includes(filter.player)) return false;
+  }
+  if (filter.group && record?.group && record.group !== filter.group) return false;
+  if (filter.category && record?.category && record.category !== filter.category) return false;
+  if (filter.side && record?.side && record.side !== filter.side) return false;
+  if (filter.tier && record?.tier && record.tier !== filter.tier) return false;
+  if (filter.minStars && filter.minStars > 0) {
+    const stars = starsOf(record);
+    if (stars < filter.minStars) return false;
+  }
+  if (filter.tags && filter.tags.length > 0) {
+    const rTags = record?.tags || [];
+    if (!filter.tags.every((t) => rTags.includes(t))) return false;
+  }
+  if (filter.search && filter.search.trim()) {
+    const term = filter.search.toLowerCase().trim();
+    const matchName = (photo.name || '').toLowerCase().includes(term);
+    const matchOpponent = (folder?.opponent || '').toLowerCase().includes(term);
+    const matchKids = (record?.kids || []).some((k) => k.includes(term));
+    const matchRationale = (record?.curationRationale || '').toLowerCase().includes(term);
+    if (!matchName && !matchOpponent && !matchKids && !matchRationale) return false;
+  }
+  return true;
+}
+
 

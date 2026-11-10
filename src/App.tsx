@@ -8361,6 +8361,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 teamId={activeTeamId}
                 teamName={currentActiveTeam?.name || 'Mahopac 10U'}
                 ownTeamScout={teamOwnScout}
+                roster={roster}
                 userEmail={currentUserEmail}
               />
             )}

@@ -11,6 +11,27 @@ export type MediaCategory = 'Action' | 'Sidelines and huddles' | 'Warmups' | 'Ce
 /** A coach's own tags on a photo. */
 export type MediaTag = 'social' | 'poster' | 'highlight';
 
+export interface MediaJerseyDetection {
+  jersey: string;
+  confidence: number;
+  obscured?: boolean;
+}
+
+export interface MediaQualityMetrics {
+  sharpness_and_focus: number;
+  composition_and_framing: number;
+  storytelling_and_emotion: number;
+  player_isolation: number;
+}
+
+export interface MediaCrop {
+  aspect: '1:1' | '4:5' | '9:16' | '1.91:1' | 'original';
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+}
+
 /** A Drive folder of photos from one day (usually a game). Every photo in it shares the game, opponent and venue. */
 export interface MediaFolder {
   id: string;
@@ -37,6 +58,8 @@ export interface MediaPhoto {
   folderId: string;
   /** Jersey numbers in the photo (AI-read or typed). */
   kids?: string[];
+  /** Detailed detected jersey numbers with AI confidence scores. */
+  detectedJerseys?: MediaJerseyDetection[];
   category?: MediaCategory;
   /** Offense / Defense for an Action photo ('unknown' when it can't be told). */
   side?: 'Offense' | 'Defense' | 'unknown';
@@ -44,7 +67,12 @@ export interface MediaPhoto {
   group?: 'single' | 'group';
   score?: number;
   tier?: MediaTier;
+  qualityMetrics?: MediaQualityMetrics;
+  curationRationale?: string;
   tags?: MediaTag[];
+  crop?: MediaCrop;
+  notes?: string;
+  aiAnalyzedAt?: number;
   editedAt: number;
 }
 

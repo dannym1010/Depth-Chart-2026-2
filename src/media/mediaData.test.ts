@@ -1,6 +1,19 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { addFolder, dayOf, editFolder, editPhoto, emptyMedia, mergeMedia, newFolder, removeFolder, starsOf, tierOfScore } from './mediaData.ts';
+import {
+  addFolder,
+  dayOf,
+  editFolder,
+  editPhoto,
+  emptyMedia,
+  matchPhotoFilter,
+  mergeMedia,
+  newFolder,
+  removeFolder,
+  starsOf,
+  tierOfScore,
+  togglePhotoTag,
+} from './mediaData.ts';
 import { isPhoto, parseExifTime } from './mediaSources.ts';
 
 const folder = (driveId: string, now: number) => newFolder({ driveId, name: `Game ${driveId}`, createdBy: 'a@x.com' }, now);
@@ -100,4 +113,60 @@ describe('media library: reading Drive photos', () => {
     assert.equal(dayOf(new Date(2026, 10, 7, 23, 59).getTime()), '2026-11-07');
   });
 });
+
+describe('media library: filters and tagging', () => {
+  const f = { id: 'f1', driveId: 'd1', name: 'Suffern Game', opponent: 'Suffern', venue: 'away' as const, date: '2026-10-18', createdBy: 'c@x.com', createdAt: 1000, editedAt: 1000 };
+  const photo = { id: 'p1', name: 'DSC_0042.jpg', takenAt: new Date(2026, 9, 18, 14, 0).getTime() };
+  const record = {
+    id: 'p1',
+    folderId: 'f1',
+    kids: ['21', '7'],
+    category: 'Action' as const,
+    side: 'Offense' as const,
+    group: 'group' as const,
+    score: 9.1,
+    tier: 'Elite' as const,
+    tags: ['social' as const, 'poster' as const],
+    curationRationale: 'Great run up the middle',
+    editedAt: 2000,
+  };
+
+  it('matches by player jersey number [top priority]', () => {
+    assert.equal(matchPhotoFilter(photo, record, f, { player: '21' }), true);
+    assert.equal(matchPhotoFilter(photo, record, f, { player: '7' }), true);
+    assert.equal(matchPhotoFilter(photo, record, f, { player: '99' }), false);
+  });
+
+  it('matches by opponent, venue, and date', () => {
+    assert.equal(matchPhotoFilter(photo, record, f, { opponent: 'Suffern' }), true);
+    assert.equal(matchPhotoFilter(photo, record, f, { opponent: 'Carmel' }), false);
+    assert.equal(matchPhotoFilter(photo, record, f, { venue: 'away' }), true);
+    assert.equal(matchPhotoFilter(photo, record, f, { venue: 'home' }), false);
+    assert.equal(matchPhotoFilter(photo, record, f, { date: '2026-10-18' }), true);
+  });
+
+  it('matches by category, group, tier, and minStars', () => {
+    assert.equal(matchPhotoFilter(photo, record, f, { category: 'Action' }), true);
+    assert.equal(matchPhotoFilter(photo, record, f, { category: 'Portraits' }), false);
+    assert.equal(matchPhotoFilter(photo, record, f, { side: 'Offense' }), true);
+    assert.equal(matchPhotoFilter(photo, record, f, { group: 'group' }), true);
+    assert.equal(matchPhotoFilter(photo, record, f, { group: 'single' }), false);
+    assert.equal(matchPhotoFilter(photo, record, f, { tier: 'Elite' }), true);
+    assert.equal(matchPhotoFilter(photo, record, f, { tier: 'Good' }), false);
+    assert.equal(matchPhotoFilter(photo, record, f, { minStars: 4 }), true);
+    assert.equal(matchPhotoFilter(photo, record, f, { minStars: 3 }), true);
+  });
+
+  it('matches by user tags and toggles tags', () => {
+    assert.equal(matchPhotoFilter(photo, record, f, { tags: ['social'] }), true);
+    assert.equal(matchPhotoFilter(photo, record, f, { tags: ['social', 'poster'] }), true);
+    assert.equal(matchPhotoFilter(photo, record, f, { tags: ['highlight'] }), false);
+
+    const toggled = togglePhotoTag(['social'], 'poster');
+    assert.deepEqual(toggled, ['social', 'poster']);
+    const untoggled = togglePhotoTag(toggled, 'social');
+    assert.deepEqual(untoggled, ['poster']);
+  });
+});
+
 
