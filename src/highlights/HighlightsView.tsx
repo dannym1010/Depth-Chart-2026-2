@@ -15,7 +15,7 @@ import { ClipEditor, CATEGORY_LABEL } from './ClipEditor';
 import { clipLength, lineUp, type AccessState, type FilmAccess } from './filmAccess';
 import {
   addHighlights, addToReel, editHighlight, editReel, extraPlace, FAMILIES, shareReel, gameOrder, highlightFromExtra, kidCoverage, kidHighlights, kidLabel, kidsText,
-  mergeHighlights, newReel, recommendPlays, REC_GROUPS, removeHighlights, removeReel, seasonPicks, clock, reelsFor, type Kid, type RecGroup,
+  mergeHighlights, newReel, orderedHighlights, recommendPlays, REC_GROUPS, removeHighlights, removeReel, seasonPicks, clock, reelsFor, type Kid, type RecGroup,
 } from './highlightData';
 import { ReelEditor } from './ReelEditor';
 import { keepPlaysAsHighlights } from './keepPlays';
@@ -253,6 +253,20 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
   };
   const [reelId, setReelId] = useState<string | null>(null);
   const reel = myReels.find((r) => r.id === reelId) || null;
+  // A clip opened from a reel is edited right there, stepping through that reel's clips (not the whole list).
+  const [reelClipId, setReelClipId] = useState<string | null>(null);
+  useEffect(() => setReelClipId(null), [reelId]);
+  const reelList = useMemo(() => (reel ? orderedHighlights(reel, data.highlights, order) : []), [reel, data.highlights, order]);
+  const reelClipAt = reelList.findIndex((h) => h.id === reelClipId);
+  const reelClip = reelClipAt >= 0 ? reelList[reelClipAt] : null;
+  const reelClipRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (reelClip) void needShared(reelClip.game.key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reelClip?.game.key]);
+  useEffect(() => {
+    if (reelClipId) reelClipRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [reelClipId]);
 
   const tabBtn = (t: Tab, label: React.ReactNode) => (
     <button
@@ -723,10 +737,56 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
               {!myReels.length && <li className="text-sm text-slate-500 py-4 text-center">No reels yet.</li>}
             </ul>
           </div>
-          <div className={`${panel} p-3 min-w-0`}>
+          <div className={`${panel} p-3 min-w-0 flex flex-col gap-3`}>
+            {reel && reelClip && (
+              <div ref={reelClipRef} className="rounded-xl border-2 border-indigo-300 dark:border-indigo-500/40 p-2 flex flex-col gap-2 min-w-0 scroll-mt-4">
+                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                  <span className="font-black text-indigo-700 dark:text-indigo-300 truncate">
+                    {reel.name}: clip {reelClipAt + 1} of {reelList.length}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={reelClipAt <= 0}
+                    onClick={() => setReelClipId(reelList[reelClipAt - 1]?.id || null)}
+                    className="h-7 px-2 rounded-lg border border-slate-300 dark:border-slate-600 font-bold disabled:opacity-40"
+                  >
+                    ‹ Previous
+                  </button>
+                  <button
+                    type="button"
+                    disabled={reelClipAt >= reelList.length - 1}
+                    onClick={() => setReelClipId(reelList[reelClipAt + 1]?.id || null)}
+                    className="h-7 px-2 rounded-lg border border-slate-300 dark:border-slate-600 font-bold disabled:opacity-40"
+                  >
+                    Next ›
+                  </button>
+                  <button type="button" onClick={() => setReelClipId(null)} className="ml-auto h-7 px-2 rounded-lg font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10">
+                    Back to the reel
+                  </button>
+                </div>
+                <ClipEditor
+                  key={reelClip.id}
+                  h={reelClip}
+                  store={store}
+                  access={access}
+                  shared={sharedOf[reelClip.game.key]}
+                  plays={plays}
+                  roster={roster}
+                  onClose={() => setReelClipId(null)}
+                  reels={myReels.map((r) => ({ id: r.id, name: r.name, has: r.items.some((it) => it.highlightId === reelClip.id) }))}
+                  onAddToReel={(id) => {
+                    if (id === '__new') {
+                      const r = newReel({ name: `${reelClip.title || 'New'} reel`, kind: 'custom', owner: me, ownerName: myName, highlightIds: [reelClip.id] });
+                      update((d) => ({ ...d, reels: [...d.reels, r] }));
+                    } else update((d) => editReel(d, id, (r) => addToReel(r, [reelClip.id])));
+                  }}
+                />
+              </div>
+            )}
             {reel ? (
               <ReelEditor
                 key={reel.id}
+                openId={reelClipId}
                 reel={reel}
                 data={data}
                 store={store}
@@ -737,11 +797,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                 teamName={teamName}
                 season={season}
                 me={me}
-                onOpenClip={(id) => {
-                  setOpenId(id);
-                  setClipsView('kept');
-                  setTab('clips');
-                }}
+                onOpenClip={(id) => setReelClipId((cur) => (cur === id ? null : id))}
                 onDelete={() => {
                   if (!window.confirm(`Delete the reel “${reel.name}”? Its highlights stay.`)) return;
                   update((d) => removeReel(d, reel.id));

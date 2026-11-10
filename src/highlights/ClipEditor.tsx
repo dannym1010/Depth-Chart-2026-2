@@ -39,7 +39,7 @@ const ZoomButtons: React.FC<{ zp: ReturnType<typeof useZoomPan> }> = ({ zp }) =>
       <button type="button" className={b} onClick={() => zp.zoomBy(-0.5)} disabled={zp.zoom <= 1} aria-label="Zoom out">
         <ZoomOut size={14} />
       </button>
-      <button type="button" className="h-7 px-1 text-[11px] font-bold tabular-nums" onClick={zp.reset} title="Back to the whole picture">
+      <button type="button" className="h-7 px-1 text-[11px] font-bold tabular-nums" onClick={zp.userReset} title="Back to the whole picture">
         {zp.zoom.toFixed(1)}×
       </button>
       <button type="button" className={b} onClick={() => zp.zoomBy(0.5)} disabled={zp.zoom >= 6} aria-label="Zoom in">
@@ -372,6 +372,7 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
     fingerRef.current = null;
     setFollowing(false);
     if (vv) vv.playbackRate = 1;
+    restoreView();
   };
   useEffect(() => {
     if (followRef.current) followRef.current.speed = followSpeed;
@@ -421,11 +422,11 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchFollow, following, path, now]);
   useEffect(() => {
-    if (!watchFollow) zp.reset();
+    if (!watchFollow) restoreView();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchFollow]);
 
-  // ---- The zoom kept for Play and the Resolve export ----
+  // ---- The zoom kept for Play, the Instagram video and the Resolve export ----
   /** The film's place in the editor's picture box (it's fitted in, bars around it). */
   const fitInBox = () => {
     const box = zp.boxRef.current;
@@ -434,39 +435,63 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
     const H = box?.clientHeight || 9;
     return { W, H, fit: zoomRect(vv?.videoWidth || 16, vv?.videoHeight || 9, W, H, null).fit };
   };
-  const keepZoom = () => {
+  /** What's on screen now, as a kept zoom (the middle of the view as a spot of the film). */
+  const viewAsZoom = () => {
     const { W, H, fit } = fitInBox();
     const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
-    // The middle of what's on screen, as a spot of the film.
-    const x = clamp01(((0.5 - zp.pan.x) * W - fit.x) / fit.w);
-    const y = clamp01(((0.5 - zp.pan.y) * H - fit.y) / fit.h);
-    const c = fitCam({ mag: zp.zoom, x, y });
+    const c = fitCam({ mag: zp.zoom, x: clamp01(((0.5 - zp.pan.x) * W - fit.x) / fit.w), y: clamp01(((0.5 - zp.pan.y) * H - fit.y) / fit.h) });
     const r3 = (n: number) => Math.round(n * 1000) / 1000;
-    edit((h0) => ({ ...h0, zoom: { level: r2(c.mag), x: r3(c.x), y: r3(c.y), follow: false } }));
-    setWatchFollow(false);
-    setShowZoom(true);
+    return { level: r2(c.mag), x: r3(c.x), y: r3(c.y) };
   };
-  useEffect(() => setShowZoom(false), [h.id]);
-  // "Show it": the editor's picture plays with the kept zoom, the way Play will.
+  /** Put the editor's picture on a kept spot. */
+  const showSpot = (level: number, x: number, y: number) => {
+    const { W, H, fit } = fitInBox();
+    zp.lookAt(level, (fit.x + x * fit.w) / W - 0.5, (fit.y + y * fit.h) / H - 0.5);
+  };
+  /** The picture as the clip's zoom has it (held on its spot), else the whole picture. */
+  const restoreView = () => {
+    const z = h.zoom;
+    if (z && !z.follow && z.level > 1) showSpot(z.level, z.x, z.y);
+    else zp.reset();
+  };
+  // Zooming the picture by hand is the clip's zoom: kept once it settles (back to 1× = the whole picture again).
+  // Not while following him, watching the Instagram follow, showing his path's zoom, or when it rides his path.
+  useEffect(() => {
+    if (!zp.touched || ro || following || watchFollow || showZoom || h.zoom?.follow) return;
+    const t = window.setTimeout(() => {
+      const z = viewAsZoom();
+      if (z.level <= 1.05) {
+        if (h.zoom) edit((x) => ({ ...x, zoom: undefined }));
+        return;
+      }
+      const was = h.zoom;
+      if (was && Math.abs(was.level - z.level) < 0.01 && Math.abs(was.x - z.x) < 0.002 && Math.abs(was.y - z.y) < 0.002) return;
+      edit((x) => ({ ...x, zoom: { ...z, follow: false } }));
+    }, 600);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zp.touched]);
+  // "Watch it": the editor's picture rides his path with the zoom, the way Play and the Instagram video will.
   useEffect(() => {
     if (!showZoom || following || watchFollow) return;
     const cam = clipCamera(h, now);
     if (!cam) return zp.lookAt(1, 0, 0);
-    const { W, H, fit } = fitInBox();
-    zp.lookAt(cam.mag, (fit.x + cam.x * fit.w) / W - 0.5, (fit.y + cam.y * fit.h) / H - 0.5);
+    showSpot(cam.mag, cam.x, cam.y);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showZoom, following, watchFollow, h.zoom, h.follow, now]);
+  // Opening a clip (and after watching): the picture as its zoom has it, so what you see is what's kept.
   useEffect(() => {
-    if (!showZoom && !watchFollow) zp.reset();
+    if (!showZoom && !watchFollow) restoreView();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showZoom]);
+  const followsHim = Boolean(h.zoom?.follow) && path.length > 1;
   const zoomLine = !h.zoom
     ? 'Whole picture.'
-    : h.zoom.follow && path.length > 1
+    : followsHim
       ? `Follows him at ${h.zoom.level}× (the whole field where he isn't followed).`
       : h.zoom.follow
         ? `${h.zoom.level}× on the middle: follow a kid above and it rides his path.`
-        : `${h.zoom.level}× on the spot you kept.`;
+        : `${h.zoom.level}× on what the picture shows, kept.`;
 
   // Another camera's view of this play, lined up with this one.
   const [film, setFilm] = useState<GameFilm | null>(null);
@@ -599,7 +624,7 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
           className={`relative bg-black rounded-xl overflow-hidden ${zp.zoom > 1 ? 'touch-none cursor-grab active:cursor-grabbing' : 'touch-pan-y'}`}
           style={{ aspectRatio: '16 / 9' }}
           onClick={onPicture}
-          onDoubleClick={zp.reset}
+          onDoubleClick={zp.userReset}
           title="Click: play / pause · Scroll or pinch: zoom · Drag: move around · Double-click: zoom out"
           data-film-area
         >
@@ -927,33 +952,31 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
         </fieldset>
       )}
 
-      {/* The zoom kept for Play and the Resolve export */}
+      {/* The clip's zoom, kept for Play, the Instagram video and the Resolve export */}
       {!ro && (
         <fieldset className="rounded-lg border border-sky-200 dark:border-sky-500/30 p-2 flex flex-col gap-1.5 min-w-0 text-xs">
-          <legend className="px-1 font-black text-slate-700 dark:text-slate-200">Zoom in Play and the Resolve export</legend>
+          <legend className="px-1 font-black text-slate-700 dark:text-slate-200">Zoom (kept for Play, the Instagram video and the Resolve export)</legend>
           <span className="flex flex-wrap items-center gap-1.5">
-            <span className="text-slate-600 dark:text-slate-300">{zoomLine}</span>
-            <button
-              type="button"
-              className={small}
-              disabled={!src.url || zp.zoom <= 1.05 || showZoom || watchFollow || following}
-              onClick={keepZoom}
-              title="Pinch or scroll on the picture to what you want, then keep it"
-            >
-              <ZoomIn size={12} className="inline -mt-0.5" /> Keep this zoom{zp.zoom > 1.05 && !showZoom && !watchFollow ? ` (${zp.zoom.toFixed(1)}×)` : ''}
-            </button>
+            <ZoomIn size={13} className="text-sky-600 dark:text-sky-400 shrink-0" />
+            <span className="text-slate-600 dark:text-slate-300 font-semibold">{zoomLine}</span>
             {path.length > 1 && (
               <button
                 type="button"
-                className={chip(Boolean(h.zoom?.follow))}
-                aria-pressed={Boolean(h.zoom?.follow)}
-                onClick={() =>
-                  edit((x) =>
-                    x.zoom?.follow
-                      ? { ...x, zoom: { ...x.zoom, follow: false } }
-                      : { ...x, zoom: { level: x.zoom?.level && x.zoom.level > 1 ? x.zoom.level : 2, x: x.zoom?.x ?? 0.5, y: x.zoom?.y ?? 0.5, follow: true } }
-                  )
-                }
+                className={chip(followsHim)}
+                aria-pressed={followsHim}
+                onClick={() => {
+                  const z = h.zoom;
+                  if (z?.follow) {
+                    // Back to holding on a spot: the middle of what was last held, at the same closeness.
+                    edit((x) => ({ ...x, zoom: { ...x.zoom!, follow: false } }));
+                    setShowZoom(false);
+                    showSpot(z.level, z.x, z.y);
+                  } else {
+                    edit((x) => ({ ...x, zoom: { level: x.zoom?.level && x.zoom.level > 1 ? x.zoom.level : 2, x: x.zoom?.x ?? 0.5, y: x.zoom?.y ?? 0.5, follow: true } }));
+                    setWatchFollow(false);
+                    setShowZoom(true);
+                  }
+                }}
                 title="Zoom in on him and ride the path you followed (the whole field where he isn't followed)"
               >
                 <Crosshair size={12} className="inline -mt-0.5" /> Follow his path
@@ -963,29 +986,41 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
               <>
                 <span className="inline-flex items-center gap-0.5" role="group" aria-label="How close">
                   {CLIP_ZOOM_LEVELS.map((lv) => (
-                    <button key={lv} type="button" className={chip(Math.abs((h.zoom?.level || 0) - lv) < 0.01)} onClick={() => edit((x) => (x.zoom ? { ...x, zoom: { ...x.zoom, level: lv } } : x))}>
+                    <button
+                      key={lv}
+                      type="button"
+                      className={chip(Math.abs((h.zoom?.level || 0) - lv) < 0.01)}
+                      onClick={() => {
+                        const z = h.zoom!;
+                        edit((x) => (x.zoom ? { ...x, zoom: { ...x.zoom, level: lv } } : x));
+                        if (!z.follow) showSpot(lv, z.x, z.y);
+                      }}
+                    >
                       {lv}×
                     </button>
                   ))}
                 </span>
-                <button
-                  type="button"
-                  className={chip(showZoom)}
-                  aria-pressed={showZoom}
-                  onClick={() => {
-                    setWatchFollow(false);
-                    setShowZoom((x) => !x);
-                  }}
-                  title="Play it here with the zoom, the way Play will"
-                >
-                  Show it
-                </button>
+                {h.zoom.follow && (
+                  <button
+                    type="button"
+                    className={chip(showZoom)}
+                    aria-pressed={showZoom}
+                    onClick={() => {
+                      setWatchFollow(false);
+                      setShowZoom((x) => !x);
+                    }}
+                    title="Play it here riding his path, the way Play and the Instagram video will"
+                  >
+                    Watch it
+                  </button>
+                )}
                 <button
                   type="button"
                   className="text-rose-600 dark:text-rose-400 font-bold px-1"
                   onClick={() => {
                     setShowZoom(false);
                     edit((x) => ({ ...x, zoom: undefined }));
+                    zp.reset();
                   }}
                 >
                   Whole picture
@@ -993,12 +1028,14 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
               </>
             )}
           </span>
-          {!h.zoom && (
-            <span className="text-slate-500">
-              Pinch or scroll on the picture (or the + button) to what you want to see, drag it into place, then <b>Keep this zoom</b>.
-              {path.length > 1 ? ' Or pick Follow his path to ride the kid you followed.' : ' Or follow a kid above, then pick Follow his path.'}
-            </span>
-          )}
+          <span className="text-slate-500">
+            {!h.zoom
+              ? 'Pinch or scroll on the picture (or the + button) and drag it to what you want to see: that zoom is kept with the clip. Double-click the picture for the whole field again.'
+              : h.zoom.follow
+                ? 'Pinching now only looks closer; pick Follow his path again to hold on one spot.'
+                : 'Pinch or drag the picture to change it; it\'s kept when you stop.'}
+            {!h.zoom && (path.length > 1 ? ' Or pick Follow his path to ride the kid you followed.' : ' Or follow a kid above, then pick Follow his path.')}
+          </span>
         </fieldset>
       )}
 

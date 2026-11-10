@@ -27,11 +27,13 @@ interface Props {
   me: string;
   onOpenClip: (highlightId: string) => void;
   onDelete: () => void;
+  /** The clip open in the editor above (marked in the list). */
+  openId?: string | null;
 }
 
 const MUSIC = /\.(mp3|m4a|aac|wav|ogg|flac)$/i;
 
-export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, roster, plays, teamName, season, me, onOpenClip, onDelete }) => {
+export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, roster, plays, teamName, season, me, onOpenClip, onDelete, openId }) => {
   const ro = store.readOnly;
   const o = reel.options;
   const settings = data.settings;
@@ -159,12 +161,13 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
         <div className="flex flex-col gap-1.5 min-w-0">
           <ol className="flex flex-col divide-y divide-slate-100 dark:divide-slate-800 rounded-lg border border-slate-200 dark:border-slate-800" aria-label="Clips in the reel">
             {list.map((h, i) => (
-              <li key={h.id} className="flex items-center gap-2 px-2 py-1.5">
+              <li key={h.id} className={`flex items-center gap-2 px-2 py-1.5 ${openId === h.id ? 'bg-indigo-50 dark:bg-indigo-500/15' : ''}`}>
                 <span className="w-6 text-right text-xs tabular-nums text-slate-400">{o.order === 'top10' ? `${list.length - i}` : i + 1}</span>
-                <button type="button" onClick={() => onOpenClip(h.id)} className="min-w-0 flex-1 text-left">
+                <button type="button" onClick={() => onOpenClip(h.id)} className="min-w-0 flex-1 text-left" aria-current={openId === h.id ? 'true' : undefined} title="Edit this clip here (trim, zoom, slow motion…)">
                   <span className="block text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{h.title}</span>
                   <span className="block text-[11px] text-slate-500 truncate">
                     {h.game.name} · {h.kind === 'extra' ? 'extra' : `#${h.playNumber}`} · {(h.end - h.start).toFixed(1)} s{'★'.repeat(h.rating) ? ` · ${'★'.repeat(h.rating)}` : ''}
+                    {h.zoom ? ` · ${h.zoom.follow ? 'follows him' : `${h.zoom.level}× zoom`}` : ''}
                   </span>
                 </button>
                 {!ro && (
