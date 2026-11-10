@@ -3,10 +3,11 @@
 // extracting jersey numbers [top priority], photo category, single/group, quality metrics,
 // curation score & tier, and rationale, saving each photo incrementally.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Loader2, Pause, Play, Sparkles, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Key, Loader2, Pause, Play, Sparkles, X } from 'lucide-react';
 import type { RosterPlayer } from '../types';
 import type { DrivePhoto, MediaFolder, MediaPhoto } from './types';
 import { analyzePhotoWithGemini, preparePhotoBase64, type RosterRef } from './geminiMediaService';
+import { getSavedGeminiKey, saveGeminiKey } from '../services/geminiFilmService';
 import { drivePhotoBlob, drivePhotoThumb, listDrivePhotos } from './mediaSources';
 import { STARS } from './mediaData';
 
@@ -55,8 +56,18 @@ export const AiTaggingModal: React.FC<Props> = ({
     rationale?: string;
   } | null>(null);
   const [errorNote, setErrorNote] = useState('');
+  const [apiKeyInput, setApiKeyInput] = useState(() => getSavedGeminiKey());
+  const [showKeyEditor, setShowKeyEditor] = useState(() => !getSavedGeminiKey());
+  const [keySavedNote, setKeySavedNote] = useState('');
   const stopRequested = useRef(false);
   const pauseRequested = useRef(false);
+
+  const handleSaveKey = () => {
+    saveGeminiKey(apiKeyInput.trim());
+    setKeySavedNote('Key saved on this device!');
+    setTimeout(() => setKeySavedNote(''), 3000);
+    if (apiKeyInput.trim()) setShowKeyEditor(false);
+  };
 
   // Sync ref with pause state
   useEffect(() => {
@@ -220,6 +231,71 @@ export const AiTaggingModal: React.FC<Props> = ({
 
         {/* Body */}
         <div className="p-5 flex flex-col gap-4 overflow-y-auto">
+          {/* Gemini API Key Configuration Box */}
+          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <Key size={14} className="text-indigo-600 dark:text-indigo-400" />
+                Google Gemini API Key
+              </span>
+              {!showKeyEditor && getSavedGeminiKey() && (
+                <button
+                  type="button"
+                  onClick={() => setShowKeyEditor(true)}
+                  className="text-[11px] font-bold text-indigo-600 hover:text-indigo-500 cursor-pointer"
+                >
+                  Change Key
+                </button>
+              )}
+            </div>
+
+            {showKeyEditor || !getSavedGeminiKey() ? (
+              <div className="flex flex-col gap-2">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Enter your Google AI Studio key (starts with <code className="font-mono text-indigo-600 dark:text-indigo-400">AIzaSy…</code>). Free at{' '}
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline text-indigo-600 dark:text-indigo-400 font-semibold"
+                  >
+                    aistudio.google.com
+                  </a>.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    placeholder="Paste Gemini API Key (AIzaSy...)"
+                    className="flex-1 h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-mono text-slate-900 dark:text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveKey}
+                    className="h-8 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold cursor-pointer"
+                  >
+                    Save Key
+                  </button>
+                  {getSavedGeminiKey() && (
+                    <button
+                      type="button"
+                      onClick={() => setShowKeyEditor(false)}
+                      className="h-8 px-2 rounded-lg text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+                {keySavedNote && <p className="text-[11px] text-emerald-600 font-bold">{keySavedNote}</p>}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
+                <CheckCircle2 size={14} />
+                <span>API Key configured on this device (AIzaSy…{getSavedGeminiKey().slice(-4)})</span>
+              </div>
+            )}
+          </div>
           {!running && total === 0 && (
             <>
               <div className="flex flex-col gap-2">
@@ -430,3 +506,4 @@ export const AiTaggingModal: React.FC<Props> = ({
     </div>
   );
 };
+
