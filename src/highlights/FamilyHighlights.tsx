@@ -173,7 +173,7 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, min
   };
   const panel = 'rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 flex flex-col gap-2 min-w-0';
   const btn = 'h-8 px-3 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 disabled:opacity-40';
-  const iconBtn = 'h-7 w-7 inline-flex items-center justify-center rounded-lg shrink-0';
+  const iconBtn = 'h-9 w-9 sm:h-7 sm:w-7 inline-flex items-center justify-center rounded-lg shrink-0';
   const stars = (n: number) => (
     <span className="inline-flex shrink-0" aria-label={`${n} star${n > 1 ? 's' : ''}`}>
       {[1, 2, 3].map((i) => (

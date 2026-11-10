@@ -282,9 +282,17 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
   const onBarDown = (e: React.PointerEvent, which?: 'start' | 'end') => {
     if (!len) return;
     e.stopPropagation();
+    // A finger is wider than a handle: a touch near one grabs it (a tap elsewhere moves the playhead).
+    if (!which && !ro && barRef.current) {
+      const r = barRef.current.getBoundingClientRect();
+      const reach = e.pointerType === 'mouse' ? 6 : 22;
+      const dist = (t: number) => Math.abs(e.clientX - (r.left + (t / len) * r.width));
+      const near = ([['start', dist(start)], ['end', dist(end)]] as const).filter(([, d]) => d <= reach).sort((a, b) => a[1] - b[1])[0];
+      if (near) which = near[0];
+    }
     if (!which || ro) return seek(timeAt(e.clientX));
     drag.current = which;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    barRef.current?.setPointerCapture(e.pointerId);
     setDraft({ start: h.start, end: h.end });
   };
   const onBarMove = (e: React.PointerEvent) => {
@@ -573,12 +581,14 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
 
   return (
     <div className="flex flex-col gap-2 min-w-0" role="region" aria-label={`Highlight: ${h.title}`}>
-      <div className="flex items-center gap-2 min-w-0">
-        <h3 className="font-black text-slate-900 dark:text-slate-100 truncate">{h.title || 'Highlight'}</h3>
-        <span className="text-xs text-slate-500 truncate">
-          {h.game.name} · {h.kind === 'extra' ? h.where || 'extra' : `play #${h.playNumber}`} · {h.view || 'film'} · {h.clip}
-        </span>
-        <button type="button" onClick={onClose} className="ml-auto h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500" aria-label="Close">
+      <div className="flex items-start sm:items-center gap-2 min-w-0">
+        <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-center sm:gap-2">
+          <h3 className="font-black text-slate-900 dark:text-slate-100 truncate">{h.title || 'Highlight'}</h3>
+          <span className="text-xs text-slate-500 truncate">
+            {h.game.name} · {h.kind === 'extra' ? h.where || 'extra' : `play #${h.playNumber}`} · {h.view || 'film'} · {h.clip}
+          </span>
+        </div>
+        <button type="button" onClick={onClose} className="h-9 w-9 sm:h-8 sm:w-8 shrink-0 inline-flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500" aria-label="Close">
           <X size={16} />
         </button>
       </div>
@@ -1030,7 +1040,7 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
           </span>
           <span className="text-slate-500">
             {!h.zoom
-              ? 'Pinch or scroll on the picture (or the + button) and drag it to what you want to see: that zoom is kept with the clip. Double-click the picture for the whole field again.'
+              ? 'Pinch (or scroll, or the + button) and drag the picture to what you want to see: that zoom is kept with the clip. Tap the 1.0× in its corner (or double-click it) for the whole field again.'
               : h.zoom.follow
                 ? 'Pinching now only looks closer; pick Follow his path again to hold on one spot.'
                 : 'Pinch or drag the picture to change it; it\'s kept when you stop.'}

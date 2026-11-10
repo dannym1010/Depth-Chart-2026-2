@@ -7,7 +7,7 @@ import type { Play } from '../hudlScout/types/football';
 import type { FilmAccess } from './filmAccess';
 import { ExportPanel } from './ExportPanel';
 import { loadImage } from './graphics';
-import { addToReel, clock, editReel, EVERYONE, FAMILIES, moveInReel, newReel, shareReel, orderedHighlights, reelTimeline, timelineSeconds, type Kid } from './highlightData';
+import { addToReel, clock, editReel, EVERYONE, FAMILIES, kidLabel, kidsText, moveInReel, newReel, shareReel, orderedHighlights, reelTimeline, timelineSeconds, type Kid } from './highlightData';
 import { libraryFolder, listFiles, subfolder } from './localLibrary';
 import { ReelPlayer } from './ReelPlayer';
 import { SocialVideoPanel } from './SocialVideoPanel';
@@ -47,7 +47,17 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
   const segments = useMemo(() => reelTimeline({ reel, highlights: data.highlights, games, settings, roster, plays, teamName }), [reel, data.highlights, games, settings, roster, plays, teamName]);
   const seconds = timelineSeconds(segments);
   const [playing, setPlaying] = useState(false);
+  // Play from this highlight (its ▶ in the list), else from the start.
+  const [playFrom, setPlayFrom] = useState<string | undefined>();
   const [exporting, setExporting] = useState(false);
+  // Reel options: open on a computer, folded on a phone (the clips come first there).
+  const [showOptions, setShowOptions] = useState(() => {
+    try {
+      return window.matchMedia('(min-width: 768px)').matches;
+    } catch {
+      return true;
+    }
+  });
   const [social, setSocial] = useState(false);
   const [adding, setAdding] = useState(false);
   const [logo, setLogo] = useState<HTMLImageElement | null>(null);
@@ -71,15 +81,18 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
       off = true;
     };
   }, []);
-  const play = async () => {
+  const play = async (from?: string) => {
+    setPlayFrom(from);
+    // The player opens right away (in the tap: a phone lets it start); the song joins when it's read.
+    setPlaying(true);
     const song = o.music ? songs.find((s) => s.name === o.music) : undefined;
     if (song) setMusicUrl(URL.createObjectURL(await song.get()));
-    setPlaying(true);
   };
   const stopPlaying = () => {
     if (musicUrl) URL.revokeObjectURL(musicUrl);
     setMusicUrl(undefined);
     setPlaying(false);
+    setPlayFrom(undefined);
   };
 
   // Moving a clip by hand keeps the order as it shows now, then moves it.
@@ -96,6 +109,28 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
     return data.highlights.filter((h) => !have.has(h.id)).sort((a, b) => (games.get(a.game.key) ?? 0) - (games.get(b.game.key) ?? 0) || a.seq - b.seq);
   }, [reel.items, data.highlights, games]);
   const [toAdd, setToAdd] = useState<Set<string>>(new Set());
+  // Finding them in a season's worth: by game, kid, stars or words.
+  const [fGame, setFGame] = useState('');
+  const [fKid, setFKid] = useState(reel.kind === 'player' && reel.kid ? String(Number(reel.kid)) : '');
+  const [fStars, setFStars] = useState(0);
+  const [fText, setFText] = useState('');
+  const addGames = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const h of notIn) m.set(h.game.key, h.game.name);
+    return [...m].sort((a, b) => (games.get(a[0]) ?? 0) - (games.get(b[0]) ?? 0));
+  }, [notIn, games]);
+  const addKids = useMemo(() => [...new Set(notIn.flatMap((h) => h.kids.map((k) => String(Number(k)))))].filter((k) => k !== 'NaN').sort((a, b) => Number(a) - Number(b)), [notIn]);
+  const shownToAdd = useMemo(
+    () =>
+      notIn.filter(
+        (h) =>
+          (!fGame || h.game.key === fGame) &&
+          (!fKid || h.kids.some((k) => String(Number(k)) === fKid)) &&
+          h.rating >= fStars &&
+          (!fText || `${h.title} ${h.note || ''} ${h.game.name}`.toLowerCase().includes(fText.toLowerCase()))
+      ),
+    [notIn, fGame, fKid, fStars, fText]
+  );
 
   const sel = 'h-8 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-1.5 text-xs min-w-0';
   const check = (label: string, on: boolean, set: (v: boolean) => void) => (
@@ -115,7 +150,7 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
           disabled={ro}
           onBlur={(e) => e.target.value.trim() && e.target.value !== reel.name && edit((r) => ({ ...r, name: e.target.value.trim() }))}
           onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-          className="flex-1 min-w-40 h-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-base font-black"
+          className="basis-full sm:basis-auto flex-1 min-w-40 h-10 sm:h-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-base font-black"
           aria-label="Reel name"
         />
         <button type="button" onClick={() => void play()} disabled={!segments.length} className="h-9 px-4 rounded-lg bg-indigo-600 text-white font-bold text-sm inline-flex items-center gap-1.5 disabled:opacity-40">
@@ -170,16 +205,25 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
                     {h.zoom ? ` · ${h.zoom.follow ? 'follows him' : `${h.zoom.level}× zoom`}` : ''}
                   </span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => void play(h.id)}
+                  className="h-9 w-9 sm:h-7 sm:w-7 shrink-0 inline-flex items-center justify-center rounded-lg text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
+                  aria-label={`Play the reel from ${h.title}`}
+                  title="Play the reel from here"
+                >
+                  <PlayIcon size={14} />
+                </button>
                 {!ro && (
                   <span className="flex items-center shrink-0">
-                    <button type="button" onClick={() => move(i, i - 1)} disabled={i === 0} className="h-7 w-7 inline-flex items-center justify-center rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30" aria-label={`Move ${h.title} up`}>
-                      <ArrowUp size={13} />
+                    <button type="button" onClick={() => move(i, i - 1)} disabled={i === 0} className="h-9 w-9 sm:h-7 sm:w-7 inline-flex items-center justify-center rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30" aria-label={`Move ${h.title} up`}>
+                      <ArrowUp size={14} />
                     </button>
-                    <button type="button" onClick={() => move(i, i + 1)} disabled={i === list.length - 1} className="h-7 w-7 inline-flex items-center justify-center rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30" aria-label={`Move ${h.title} down`}>
-                      <ArrowDown size={13} />
+                    <button type="button" onClick={() => move(i, i + 1)} disabled={i === list.length - 1} className="h-9 w-9 sm:h-7 sm:w-7 inline-flex items-center justify-center rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30" aria-label={`Move ${h.title} down`}>
+                      <ArrowDown size={14} />
                     </button>
-                    <button type="button" onClick={() => removeItem(h.id)} className="h-7 w-7 inline-flex items-center justify-center rounded text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10" aria-label={`Take ${h.title} out of the reel`}>
-                      <X size={13} />
+                    <button type="button" onClick={() => removeItem(h.id)} className="h-9 w-9 sm:h-7 sm:w-7 inline-flex items-center justify-center rounded text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10" aria-label={`Take ${h.title} out of the reel`}>
+                      <X size={14} />
                     </button>
                   </span>
                 )}
@@ -194,12 +238,48 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
               </button>
               {adding && (
                 <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-2 flex flex-col gap-1.5">
-                  <ul className="max-h-60 overflow-auto flex flex-col">
-                    {notIn.map((h) => (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {addGames.length > 1 && (
+                      <select value={fGame} onChange={(e) => setFGame(e.target.value)} className={sel} aria-label="Game">
+                        <option value="">Every game</option>
+                        {addGames.map(([k, name]) => (
+                          <option key={k} value={k}>{name}</option>
+                        ))}
+                      </select>
+                    )}
+                    {addKids.length > 0 && (
+                      <select value={fKid} onChange={(e) => setFKid(e.target.value)} className={sel} aria-label="Kid">
+                        <option value="">Every kid</option>
+                        {addKids.map((k) => (
+                          <option key={k} value={k}>{kidLabel(k, roster, 'full')}</option>
+                        ))}
+                      </select>
+                    )}
+                    <select value={fStars} onChange={(e) => setFStars(Number(e.target.value))} className={sel} aria-label="Stars">
+                      <option value={0}>Any stars</option>
+                      <option value={2}>★★ and up</option>
+                      <option value={3}>★★★</option>
+                    </select>
+                    <input value={fText} onChange={(e) => setFText(e.target.value)} placeholder="Search" className={`${sel} flex-1 min-w-24`} aria-label="Search highlights" />
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                    <button
+                      type="button"
+                      className="font-bold text-indigo-600 dark:text-indigo-300 underline"
+                      onClick={() => setToAdd((s) => (shownToAdd.every((h) => s.has(h.id)) ? new Set([...s].filter((id) => !shownToAdd.some((h) => h.id === id))) : new Set([...s, ...shownToAdd.map((h) => h.id)])))}
+                      disabled={!shownToAdd.length}
+                    >
+                      {shownToAdd.length && shownToAdd.every((h) => toAdd.has(h.id)) ? 'Unpick these' : `Pick all ${shownToAdd.length} shown`}
+                    </button>
+                    <span>{notIn.length - shownToAdd.length > 0 ? `${notIn.length - shownToAdd.length} hidden by the filters` : ''}</span>
+                  </div>
+                  <ul className="max-h-72 overflow-auto flex flex-col divide-y divide-slate-100 dark:divide-slate-800">
+                    {shownToAdd.map((h) => (
                       <li key={h.id}>
-                        <label className="flex items-center gap-2 text-xs py-1">
+                        <label className="flex items-center gap-2 text-xs py-2 sm:py-1 cursor-pointer">
                           <input
                             type="checkbox"
+                            className="h-4 w-4 shrink-0"
                             checked={toAdd.has(h.id)}
                             onChange={(e) =>
                               setToAdd((s) => {
@@ -210,12 +290,20 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
                               })
                             }
                           />
-                          <span className="truncate">
-                            <b>{h.title}</b> · {h.game.name} · {'★'.repeat(h.rating)}
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate">
+                              <b>{h.title}</b> <span className="text-amber-500">{'★'.repeat(h.rating)}</span>
+                            </span>
+                            <span className="block truncate text-[11px] text-slate-500">
+                              {h.game.name}
+                              {h.kids.length ? ` · ${kidsText(h.kids, roster, 'first')}` : ''}
+                              {` · ${(h.end - h.start).toFixed(1)} s`}
+                            </span>
                           </span>
                         </label>
                       </li>
                     ))}
+                    {!shownToAdd.length && <li className="py-4 text-center text-xs text-slate-500">{notIn.length ? 'None match.' : 'Every highlight is in this reel.'}</li>}
                   </ul>
                   <button
                     type="button"
@@ -225,9 +313,9 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
                       setToAdd(new Set());
                       setAdding(false);
                     }}
-                    className="self-start h-8 px-3 rounded-lg bg-indigo-600 text-white text-xs font-bold disabled:opacity-40"
+                    className="self-start h-9 px-4 rounded-lg bg-indigo-600 text-white text-xs font-bold disabled:opacity-40"
                   >
-                    Add {toAdd.size || ''}
+                    Add {toAdd.size || ''} to the reel
                   </button>
                 </div>
               )}
@@ -235,8 +323,19 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
           )}
         </div>
 
-        <fieldset className="flex flex-col gap-2 rounded-lg border border-slate-200 dark:border-slate-800 p-2.5 text-xs" disabled={ro}>
-          <legend className="px-1 font-black text-slate-800 dark:text-slate-100">Reel options</legend>
+        <fieldset className="flex flex-col gap-2 rounded-lg border border-slate-200 dark:border-slate-800 p-2.5 text-xs self-start w-full" disabled={ro}>
+          <legend className="px-1">
+            <button type="button" onClick={() => setShowOptions((x) => !x)} aria-expanded={showOptions} className="font-black text-slate-800 dark:text-slate-100 inline-flex items-center gap-1">
+              Reel options <span className="text-slate-400 font-bold">{showOptions ? '▾' : '▸'}</span>
+            </button>
+          </legend>
+          {!showOptions && (
+            <button type="button" onClick={() => setShowOptions(true)} className="text-left text-slate-500">
+              {[o.order === 'game' ? 'Game order' : o.order === 'category' ? 'By kind' : o.order === 'rating' ? 'Best first' : o.order === 'top10' ? 'Top 10' : 'By hand', o.intro ? 'intro card' : '', o.chapters ? 'game cards' : '', o.outro !== 'none' ? 'end card' : '', o.music ? `♪ ${o.music}` : ''].filter(Boolean).join(' · ')}
+            </button>
+          )}
+          {showOptions && (
+          <>
           <label className="flex items-center gap-2">
             <span className="w-20 text-slate-600 dark:text-slate-300">Order</span>
             <select value={o.order} onChange={(e) => setOpt({ order: e.target.value as ReelOptions['order'] })} className={sel}>
@@ -321,6 +420,8 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
             </select>
           </label>
           {!songs.length && <span className="text-[11px] text-slate-500">Songs: put them in the Music folder inside the highlights folder (Settings).</span>}
+          </>
+          )}
         </fieldset>
       </div>
 
@@ -342,7 +443,7 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
         </div>
       )}
 
-      {playing && <ReelPlayer title={reel.name} segments={segments} access={access} settings={settings} logo={logo} musicUrl={musicUrl} transition={o.transition} onClose={stopPlaying} />}
+      {playing && <ReelPlayer title={reel.name} segments={segments} access={access} settings={settings} logo={logo} musicUrl={musicUrl} transition={o.transition} onClose={stopPlaying} startAt={playFrom} />}
       {social && (
         <SocialVideoPanel
           title={reel.name}

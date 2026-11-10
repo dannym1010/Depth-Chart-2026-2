@@ -200,11 +200,24 @@ export const ExportPanel: React.FC<Props> = ({ reelName, segments, access, setti
         </div>
 
         {!canWriteFolders() && (
-          <p className="rounded-lg bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-200 text-xs p-2">
-            Exporting writes into a folder on this computer, which needs Chrome or Edge on a computer (not an iPad or phone).
-          </p>
+          <div className="rounded-lg bg-amber-50 dark:bg-amber-500/10 text-amber-900 dark:text-amber-100 text-sm p-3 flex flex-col gap-2">
+            <b>Exporting for DaVinci Resolve needs a computer.</b>
+            <span className="text-xs">
+              It writes the timeline and pictures into a folder next to the film, which only Chrome or Edge on a computer can do (not an iPad or a phone). Open
+              this reel there and Export it.
+            </span>
+            <span className="text-xs">
+              On this {/iPad|Macintosh/.test(navigator.userAgent) && 'ontouchend' in document ? 'iPad' : 'device'}: <b>Instagram video</b> makes the reel into one MP4 right here, to save or share
+              anywhere.
+            </span>
+            <button type="button" onClick={onClose} className="self-start h-9 px-4 rounded-lg bg-amber-500 text-slate-900 font-bold">
+              OK
+            </button>
+          </div>
         )}
 
+        {canWriteFolders() && (
+        <>
         <fieldset className="flex flex-col gap-2">
           <legend className="font-black text-slate-800 dark:text-slate-100 mb-1">Where the folders are</legend>
           <label className="flex flex-col gap-1 text-xs">
@@ -328,6 +341,8 @@ export const ExportPanel: React.FC<Props> = ({ reelName, segments, access, setti
           </button>
           {!ready && <span className="text-xs text-slate-500">Type where the {!paths.library.trim() ? 'highlights folder' : 'film folder'} is first.</span>}
         </div>
+        </>
+        )}
       </div>
     </div>
   );

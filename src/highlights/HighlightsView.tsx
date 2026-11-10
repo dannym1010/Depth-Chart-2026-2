@@ -132,6 +132,13 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
   );
   const keptSeconds = kept.reduce((n, h) => n + (h.end - h.start), 0);
   const open = data.highlights.find((h) => h.id === openId) || null;
+  // On a phone or an iPad held upright the editor opens below the list: bring it up.
+  const openRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!openId || window.innerWidth >= 1024) return;
+    const t = window.setTimeout(() => openRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 50);
+    return () => window.clearTimeout(t);
+  }, [openId]);
   const myReels = useMemo(() => reelsFor(data, me), [data, me]);
 
   // A game's shared Film Room data, for the game being worked on.
@@ -265,7 +272,9 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reelClip?.game.key]);
   useEffect(() => {
-    if (reelClipId) reelClipRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (!reelClipId) return;
+    const t = window.setTimeout(() => reelClipRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 50);
+    return () => window.clearTimeout(t);
   }, [reelClipId]);
 
   const tabBtn = (t: Tab, label: React.ReactNode) => (
@@ -664,7 +673,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
           </div>
 
           {open && (
-            <div className={`${panel} p-3 min-w-0`}>
+            <div ref={openRef} className={`${panel} p-3 min-w-0 scroll-mt-2`}>
               <ClipEditor
                 key={open.id}
                 h={open}
