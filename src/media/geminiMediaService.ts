@@ -477,11 +477,19 @@ export async function analyzePhotoWithGemini(opts: AnalyzePhotoOptions): Promise
     onStatus?.(`Analyzing photo with Gemini (${m})…`);
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${encodeURIComponent(cleanKey)}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 25000); // 25s timeout per request
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: ctrl.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
 
       if (res.ok) {
         const json = await res.json();
@@ -508,6 +516,15 @@ export async function analyzePhotoWithGemini(opts: AnalyzePhotoOptions): Promise
       }
       if (res.status === 429) {
         const delay = geminiRetryDelay(errText);
+        if (delay !== null && delay > 0 && delay <= 25) {
+          // Live countdown wait for per-minute rate limit
+          for (let s = Math.ceil(delay); s > 0; s--) {
+            onStatus?.(`Gemini rate limit: waiting ${s}s to retry…`);
+            await new Promise((r) => setTimeout(r, 1000));
+          }
+          // Retry on next attempt
+          continue;
+        }
         lastError = delay ? `Gemini busy (${delay}s delay)` : 'Gemini quota reached';
         continue;
       }
@@ -516,8 +533,12 @@ export async function analyzePhotoWithGemini(opts: AnalyzePhotoOptions): Promise
       }
       lastError = `Gemini (${res.status}): ${errText.slice(0, 150)}`;
     } catch (err: unknown) {
-      if (err instanceof Error && /refused this Gemini API key/i.test(err.message)) throw err;
-      lastError = err instanceof Error ? err.message : String(err);
+      if (err instanceof Error && /refused this Gemini API key|402 Payment Required/i.test(err.message)) throw err;
+      if (err instanceof Error && err.name === 'AbortError') {
+        lastError = `Gemini request timed out after 25s on ${m}`;
+      } else {
+        lastError = err instanceof Error ? err.message : String(err);
+      }
     }
   }
 

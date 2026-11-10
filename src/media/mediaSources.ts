@@ -63,6 +63,46 @@ export async function drivePhotoBlob(fileId: string): Promise<Blob> {
   return res.blob();
 }
 
+/**
+ * Fast photo blob optimized for AI analysis.
+ * Preferentially downloads a 1600px edge-cached thumbnail from Drive CDN if available (~300KB vs 30MB),
+ * avoiding huge multi-megabyte downloads, memory exhaustion, and browser HEIC decode hangs.
+ * Falls back to the original file blob with a 15-second timeout if thumbnail is unavailable.
+ */
+export async function drivePhotoAnalysisBlob(photo: Pick<DrivePhoto, 'id' | 'thumbnailLink'>, timeoutMs = 15000): Promise<Blob> {
+  const token = driveAccessToken();
+  if (photo.thumbnailLink && token) {
+    try {
+      const url = photo.thumbnailLink.replace(/=s\d+(-\w+)*$/, '=s1600');
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      if (res.ok) {
+        const b = await res.blob();
+        if (b && b.size > 1000) return b;
+      }
+    } catch {
+      // Fall through to full file download
+    }
+  }
+
+  // Fallback to original file download with timeout
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await driveFetch(`${API}/${encodeURIComponent(photo.id)}?alt=media&supportsAllDrives=true`, {
+      signal: ctrl.signal,
+    });
+    return await res.blob();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // A few downloads at a time (a folder of hundreds of photos must not open hundreds of connections at once).
 const LIMIT = 4;
 let running = 0;

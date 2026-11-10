@@ -66,6 +66,19 @@ export function tierOfScore(score: number): MediaTier {
 export const STARS: Record<MediaTier, number> = { Elite: 4, Good: 3, Archive: 2, Reject: 1 };
 export const starsOf = (p?: Pick<MediaPhoto, 'tier'> | null): number => (p?.tier ? STARS[p.tier] : 0);
 
+/** True when a photo has already been analyzed by AI, scored, assigned a tier, or tagged with jerseys/tags. */
+export function isPhotoTaggedOrRated(r?: Partial<MediaPhoto> | null): boolean {
+  if (!r) return false;
+  return Boolean(
+    r.aiAnalyzedAt ||
+    (typeof r.score === 'number' && Number.isFinite(r.score)) ||
+    r.tier ||
+    (Array.isArray(r.kids) && r.kids.length > 0) ||
+    r.category ||
+    (Array.isArray(r.tags) && r.tags.length > 0)
+  );
+}
+
 /** A date as YYYY-MM-DD in local time. */
 export const dayOf = (ms: number): string => {
   const d = new Date(ms);

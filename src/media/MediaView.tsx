@@ -56,6 +56,7 @@ import {
   dayOf,
   editFolder,
   editPhoto,
+  isPhotoTaggedOrRated,
   matchPhotoFilter,
   newFolder,
   photoMap,
@@ -67,7 +68,7 @@ import {
   togglePhotoTag,
   type MediaFilter,
 } from './mediaData';
-import { drivePhotoBlob, drivePhotoThumb, drivePhotoUrl, listDrivePhotos } from './mediaSources';
+import { drivePhotoAnalysisBlob, drivePhotoBlob, drivePhotoThumb, drivePhotoUrl, listDrivePhotos } from './mediaSources';
 import { PlayerAlbumsModal, type PhotoEntry } from './PlayerAlbumsModal';
 import type { DrivePhoto, MediaCategory, MediaCrop, MediaFolder, MediaPhoto, MediaTag, MediaTier } from './types';
 import type { MediaStore } from './useMedia';
@@ -286,7 +287,7 @@ const Viewer: React.FC<{
     if (!folder || analyzing) return;
     setAnalyzing(true);
     try {
-      const blob = await drivePhotoBlob(photo.id);
+      const blob = await drivePhotoAnalysisBlob(photo);
       const refs: RosterRef[] = roster.map((r) => ({ num: r.num, firstName: r.firstName, lastName: r.lastName }));
       const analysis = await analyzePhotoWithGemini({
         blob,
@@ -1159,7 +1160,7 @@ export const MediaView: React.FC<Props> = ({
     if (!photos) return 0;
     return photos.filter((p) => {
       const r = records.get(p.id);
-      return !r?.aiAnalyzedAt && r?.score === undefined;
+      return !isPhotoTaggedOrRated(r);
     }).length;
   }, [photos, records]);
 

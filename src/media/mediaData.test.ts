@@ -6,6 +6,7 @@ import {
   editFolder,
   editPhoto,
   emptyMedia,
+  isPhotoTaggedOrRated,
   matchPhotoFilter,
   mergeMedia,
   newFolder,
@@ -166,6 +167,18 @@ describe('media library: filters and tagging', () => {
     assert.deepEqual(toggled, ['social', 'poster']);
     const untoggled = togglePhotoTag(toggled, 'social');
     assert.deepEqual(untoggled, ['poster']);
+  });
+
+  it('detects if a photo has already been tagged or rated', () => {
+    assert.equal(isPhotoTaggedOrRated(null), false);
+    assert.equal(isPhotoTaggedOrRated(undefined), false);
+    assert.equal(isPhotoTaggedOrRated({ id: 'p1', folderId: 'f1', editedAt: 100 }), false);
+    assert.equal(isPhotoTaggedOrRated({ id: 'p1', folderId: 'f1', aiAnalyzedAt: 1234, editedAt: 100 }), true);
+    assert.equal(isPhotoTaggedOrRated({ id: 'p1', folderId: 'f1', score: 8.5, editedAt: 100 }), true);
+    assert.equal(isPhotoTaggedOrRated({ id: 'p1', folderId: 'f1', tier: 'Elite', editedAt: 100 }), true);
+    assert.equal(isPhotoTaggedOrRated({ id: 'p1', folderId: 'f1', kids: ['21'], editedAt: 100 }), true);
+    assert.equal(isPhotoTaggedOrRated({ id: 'p1', folderId: 'f1', category: 'Action', editedAt: 100 }), true);
+    assert.equal(isPhotoTaggedOrRated({ id: 'p1', folderId: 'f1', tags: ['social'], editedAt: 100 }), true);
   });
 });
 

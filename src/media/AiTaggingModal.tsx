@@ -3,7 +3,7 @@
 // extracting jersey numbers [top priority], photo category, single/group, quality metrics,
 // curation score & tier, and rationale, saving each photo incrementally.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Key, Loader2, Pause, Play, Shirt, Sparkles, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Key, Loader2, Pause, Play, Shirt, SkipForward, Sparkles, X } from 'lucide-react';
 import type { RosterPlayer } from '../types';
 import type { DrivePhoto, MediaFolder, MediaPhoto } from './types';
 import {
@@ -17,8 +17,8 @@ import {
   type RosterRef,
 } from './geminiMediaService';
 import { getSavedGeminiKey, saveGeminiKey } from '../services/geminiFilmService';
-import { drivePhotoBlob, drivePhotoThumb, listDrivePhotos } from './mediaSources';
-import { STARS } from './mediaData';
+import { drivePhotoAnalysisBlob, drivePhotoThumb, listDrivePhotos } from './mediaSources';
+import { isPhotoTaggedOrRated, STARS } from './mediaData';
 
 interface Props {
   open: boolean;
@@ -78,8 +78,10 @@ export const AiTaggingModal: React.FC<Props> = ({
     return COMMON_TEAM_COLORS.some((c) => c.value === cur) ? '' : cur;
   });
   const [opponentColor, setOpponentColor] = useState<string>(() => getSavedOpponentColor());
+  const [processedIds, setProcessedIds] = useState<Set<string>>(() => new Set());
   const stopRequested = useRef(false);
   const pauseRequested = useRef(false);
+  const skipRequested = useRef(false);
 
   const handleSaveKey = () => {
     saveGeminiKey(apiKeyInput.trim());
@@ -95,8 +97,7 @@ export const AiTaggingModal: React.FC<Props> = ({
 
   // Compute unanalyzed counts
   const unanalyzedInCurrent = currentPhotos.filter((p) => {
-    const r = records.get(p.id);
-    return !r?.aiAnalyzedAt && r?.score === undefined;
+    return !isPhotoTaggedOrRated(records.get(p.id)) && !processedIds.has(p.id);
   }).length;
 
   const rosterRefs: RosterRef[] = roster.map((r) => ({
@@ -125,8 +126,7 @@ export const AiTaggingModal: React.FC<Props> = ({
       items = currentPhotos
         .filter((p) => {
           if (!skipAnalyzed) return true;
-          const r = records.get(p.id);
-          return !r?.aiAnalyzedAt && r?.score === undefined;
+          return !isPhotoTaggedOrRated(records.get(p.id)) && !processedIds.has(p.id);
         })
         .map((p) => ({ photo: p, folderId: currentFolder.id, folderName: currentFolder.name }));
     } else {
@@ -136,8 +136,7 @@ export const AiTaggingModal: React.FC<Props> = ({
           const list = await listDrivePhotos(f.driveId);
           const filtered = list.filter((p) => {
             if (!skipAnalyzed) return true;
-            const r = records.get(p.id);
-            return !r?.aiAnalyzedAt && r?.score === undefined;
+            return !isPhotoTaggedOrRated(records.get(p.id)) && !processedIds.has(p.id);
           });
           items.push(...filtered.map((p) => ({ photo: p, folderId: f.id, folderName: f.name })));
         } catch {
@@ -157,6 +156,10 @@ export const AiTaggingModal: React.FC<Props> = ({
 
     for (let i = 0; i < items.length; i++) {
       if (stopRequested.current) break;
+      if (skipRequested.current) {
+        skipRequested.current = false;
+        continue;
+      }
 
       while (pauseRequested.current && !stopRequested.current) {
         setCurrentStep('Paused. Click Resume to continue.');
@@ -170,7 +173,13 @@ export const AiTaggingModal: React.FC<Props> = ({
       setCurrentStep(`Reading photo ${i + 1} of ${items.length}: ${item.photo.name}…`);
 
       try {
-        const blob = await drivePhotoBlob(item.photo.id);
+        const blob = await drivePhotoAnalysisBlob(item.photo);
+        if (stopRequested.current) break;
+        if (skipRequested.current) {
+          skipRequested.current = false;
+          continue;
+        }
+
         const analysis = await analyzePhotoWithGemini({
           blob,
           driveId: item.photo.id,
@@ -183,6 +192,7 @@ export const AiTaggingModal: React.FC<Props> = ({
 
         // Incrementally save photo to store
         onSavePhoto(item.photo.id, item.folderId, analysis);
+        setProcessedIds((prev) => new Set(prev).add(item.photo.id));
 
         // Fetch thumbnail for preview
         let thumb = '';
@@ -202,6 +212,11 @@ export const AiTaggingModal: React.FC<Props> = ({
           tier: analysis.tier,
           rationale: analysis.curationRationale,
         });
+
+        // Small 1.2s pace between photos to protect Gemini free-tier RPM quota
+        if (i < items.length - 1 && !stopRequested.current && !skipRequested.current) {
+          await new Promise((r) => setTimeout(r, 1200));
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         if (/refused this Gemini API key|quota reached|No Gemini API key|402|Payment Required/i.test(msg)) {
@@ -225,6 +240,11 @@ export const AiTaggingModal: React.FC<Props> = ({
     setRunning(false);
     setPaused(false);
     setCurrentStep('Stopped.');
+  };
+
+  const handleSkipPhoto = () => {
+    skipRequested.current = true;
+    setCurrentStep('Skipping to next photo…');
   };
 
   if (!open) return null;
@@ -599,21 +619,31 @@ export const AiTaggingModal: React.FC<Props> = ({
               </button>
               <div className="flex items-center gap-2">
                 {running && (
-                  <button
-                    type="button"
-                    onClick={() => setPaused((p) => !p)}
-                    className="h-9 px-3.5 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800"
-                  >
-                    {paused ? (
-                      <>
-                        <Play size={14} /> Resume
-                      </>
-                    ) : (
-                      <>
-                        <Pause size={14} /> Pause
-                      </>
-                    )}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleSkipPhoto}
+                      title="Skip this photo and move to next"
+                      className="h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800"
+                    >
+                      <SkipForward size={14} /> Skip Photo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPaused((p) => !p)}
+                      className="h-9 px-3.5 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800"
+                    >
+                      {paused ? (
+                        <>
+                          <Play size={14} /> Resume
+                        </>
+                      ) : (
+                        <>
+                          <Pause size={14} /> Pause
+                        </>
+                      )}
+                    </button>
+                  </>
                 )}
                 {!running && (
                   <button

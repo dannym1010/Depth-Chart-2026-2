@@ -465,10 +465,10 @@ export function prepareDriveSignIn() {
   void loadGoogleSignIn().catch(() => undefined);
 }
 
-export async function driveFetch(url: string): Promise<Response> {
+export async function driveFetch(url: string, init?: RequestInit): Promise<Response> {
   const token = savedToken();
   if (!token) throw new Error('Sign in with Google to watch this film.');
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const res = await fetch(url, { ...init, headers: { ...init?.headers, Authorization: `Bearer ${token}` } });
   if (res.status === 401) {
     driveSignOut();
     throw new Error('Your Google sign-in expired. Sign in again.');
