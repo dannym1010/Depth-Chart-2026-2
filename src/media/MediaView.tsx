@@ -1,22 +1,28 @@
 // The Sideline Media library: Google Drive photos, AI vision metadata extraction,
 // deep filterable content library (Player [top priority], Opponent, Date, Home/Away, Group/Singles,
-// Category, Star Curation Tier, Social/Poster/Highlight tags), full-screen viewer, and inspector.
+// Category, Star Curation Tier, Social/Poster/Highlight tags), Instagram ratio cropper,
+// player highlight albums, and batch ZIP downloads for coaches and parents.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  Award,
   Camera,
   Check,
+  CheckSquare,
   ChevronLeft,
   ChevronRight,
+  Crop,
+  Download,
   Filter,
   ImageOff,
-  Info,
+  Instagram,
   Loader2,
   Plus,
   RotateCcw,
   Search,
   SlidersHorizontal,
   Sparkles,
+  Square,
   Star,
   Tag,
   Trash2,
@@ -28,8 +34,10 @@ import { DriveFolderPicker } from '../filmroom/DriveFolderPicker';
 import { driveReady, driveSignIn, isDriveSignedIn, prepareDriveSignIn } from '../filmroom/filmSources';
 import { opponentOf } from '../highlights/highlightData';
 import type { HighlightGame } from '../highlights/types';
+import { zipFiles } from '../highlights/zip';
 import type { RosterPlayer } from '../types';
 import { AiTaggingModal } from './AiTaggingModal';
+import { CropModal } from './CropModal';
 import { analyzePhotoWithGemini, type RosterRef, VALID_CATEGORIES } from './geminiMediaService';
 import {
   addFolder,
@@ -48,7 +56,8 @@ import {
   type MediaFilter,
 } from './mediaData';
 import { drivePhotoBlob, drivePhotoThumb, drivePhotoUrl, listDrivePhotos } from './mediaSources';
-import type { DrivePhoto, MediaCategory, MediaFolder, MediaPhoto, MediaTag, MediaTier } from './types';
+import { PlayerAlbumsModal, type PhotoEntry } from './PlayerAlbumsModal';
+import type { DrivePhoto, MediaCategory, MediaCrop, MediaFolder, MediaPhoto, MediaTag, MediaTier } from './types';
 import type { MediaStore } from './useMedia';
 
 interface Props {
@@ -58,6 +67,8 @@ interface Props {
   games: HighlightGame[];
   roster?: RosterPlayer[];
   me: string;
+  watchOnly?: boolean;
+  myKids?: string[];
 }
 
 const field =
@@ -65,14 +76,18 @@ const field =
 
 /**
  * Thumbnail cell in the library grid.
- * Displays lazy-loaded image, star rating badge, detected jersey numbers, and user tag icons.
+ * Displays lazy-loaded image, star rating badge, detected jersey numbers, user tag icons,
+ * and selection checkmark when multi-select mode is on.
  */
 const Thumb: React.FC<{
   photo: DrivePhoto;
   record?: MediaPhoto;
+  isSelected?: boolean;
+  selectionMode?: boolean;
+  onToggleSelect?: () => void;
   onOpen: () => void;
-}> = ({ photo, record, onOpen }) => {
-  const box = useRef<HTMLButtonElement>(null);
+}> = ({ photo, record, isSelected = false, selectionMode = false, onToggleSelect, onOpen }) => {
+  const box = useRef<HTMLDivElement>(null);
   const [url, setUrl] = useState('');
   const [failed, setFailed] = useState(false);
 
@@ -102,15 +117,23 @@ const Thumb: React.FC<{
   const tags = record?.tags || [];
 
   return (
-    <button
+    <div
       ref={box}
-      type="button"
-      onClick={onOpen}
+      onClick={selectionMode ? onToggleSelect : onOpen}
       title={`${photo.name}${record?.curationRationale ? ` · ${record.curationRationale}` : ''}`}
-      className="relative aspect-square rounded-xl overflow-hidden bg-slate-200 dark:bg-slate-800 cursor-pointer group focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm border border-slate-200/60 dark:border-slate-700/60 transition hover:shadow-md"
+      className={`relative aspect-square rounded-xl overflow-hidden bg-slate-200 dark:bg-slate-800 cursor-pointer group focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm border transition ${
+        isSelected
+          ? 'ring-2 ring-indigo-600 border-indigo-600 shadow-md'
+          : 'border-slate-200/60 dark:border-slate-700/60 hover:shadow-md'
+      }`}
     >
       {url ? (
-        <img src={url} alt={photo.name} className="w-full h-full object-cover group-hover:scale-105 transition duration-300" draggable={false} />
+        <img
+          src={url}
+          alt={photo.name}
+          className="w-full h-full object-cover group-hover:scale-105 transition duration-300 select-none"
+          draggable={false}
+        />
       ) : failed ? (
         <span className="absolute inset-0 grid place-items-center text-slate-400">
           <ImageOff size={20} />
@@ -121,8 +144,26 @@ const Thumb: React.FC<{
         </span>
       )}
 
-      {/* Top Left: User tags */}
-      {tags.length > 0 && (
+      {/* Selection checkbox */}
+      {selectionMode && (
+        <div className="absolute top-2 left-2 z-20">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleSelect?.();
+            }}
+            className={`h-6 w-6 rounded-md flex items-center justify-center transition shadow-md ${
+              isSelected ? 'bg-indigo-600 text-white' : 'bg-black/60 text-white/80 hover:bg-black/80'
+            }`}
+          >
+            {isSelected ? <CheckSquare size={16} /> : <Square size={16} />}
+          </button>
+        </div>
+      )}
+
+      {/* Top Left: User tags (if not selection mode) */}
+      {!selectionMode && tags.length > 0 && (
         <div className="absolute top-1.5 left-1.5 flex gap-1 z-10">
           {tags.map((t) => (
             <span
@@ -170,12 +211,13 @@ const Thumb: React.FC<{
         )}
         <span className="text-[10px] font-medium text-white/90 truncate leading-tight">{photo.name}</span>
       </div>
-    </button>
+    </div>
   );
 };
 
 /**
- * Full-size photo viewer with metadata inspector, AI re-tagging, player tagging, and user tags.
+ * Full-size photo viewer with metadata inspector, AI re-tagging, player tagging,
+ * Instagram crop shortcut, and user tags.
  */
 const Viewer: React.FC<{
   photos: DrivePhoto[];
@@ -186,8 +228,9 @@ const Viewer: React.FC<{
   canEdit: boolean;
   onIndex: (i: number) => void;
   onSavePhoto: (photoId: string, folderId: string, patch: Partial<MediaPhoto>) => void;
+  onOpenCrop: (photo: DrivePhoto) => void;
   onClose: () => void;
-}> = ({ photos, index, records, folder, roster, canEdit, onIndex, onSavePhoto, onClose }) => {
+}> = ({ photos, index, records, folder, roster, canEdit, onIndex, onSavePhoto, onOpenCrop, onClose }) => {
   const photo = photos[index];
   const record = records.get(photo.id);
   const [url, setUrl] = useState('');
@@ -289,6 +332,14 @@ const Viewer: React.FC<{
             {index + 1} of {photos.length}
             {photo.takenAt ? ` · ${new Date(photo.takenAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}` : ''}
           </span>
+          <button
+            type="button"
+            onClick={() => onOpenCrop(photo)}
+            title="Crop to Instagram Ratios"
+            className="h-9 px-3 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer bg-gradient-to-r from-amber-500 via-rose-500 to-purple-600 text-white shadow-sm hover:opacity-90 transition"
+          >
+            <Instagram size={14} /> Crop Instagram
+          </button>
           <button
             type="button"
             onClick={() => setShowInspector((s) => !s)}
@@ -944,20 +995,42 @@ const FolderDetails: React.FC<{
   );
 };
 
-export const MediaView: React.FC<Props> = ({ teamName, season, store, games, roster = [], me }) => {
+export const MediaView: React.FC<Props> = ({
+  teamName,
+  season,
+  store,
+  games,
+  roster = [],
+  me,
+  watchOnly = false,
+  myKids = [],
+}) => {
   const { data, update, readOnly, saveError } = store;
-  const canEdit = !readOnly;
+  const canEdit = !readOnly && !watchOnly;
   const [signedIn, setSignedIn] = useState(isDriveSignedIn());
   const [signInNote, setSignInNote] = useState('');
   const [adding, setAdding] = useState(false);
   const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [cropPhoto, setCropPhoto] = useState<DrivePhoto | null>(null);
+  const [albumsOpen, setAlbumsOpen] = useState(false);
   const [openId, setOpenId] = useState('');
   const [photos, setPhotos] = useState<DrivePhoto[] | null>(null);
   const [problem, setProblem] = useState('');
   const [viewing, setViewing] = useState(-1);
 
-  // Filter state
-  const [filter, setFilter] = useState<MediaFilter>({});
+  // Selection mode & Batch operations
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [zippingBatch, setZippingBatch] = useState(false);
+  const [batchZipStatus, setBatchZipStatus] = useState('');
+
+  // Filter state (if family view with linked kid, initialize to that kid)
+  const [filter, setFilter] = useState<MediaFilter>(() => {
+    if (watchOnly && myKids.length > 0) {
+      return { player: myKids[0] };
+    }
+    return {};
+  });
 
   useEffect(() => prepareDriveSignIn(), []);
 
@@ -971,6 +1044,7 @@ export const MediaView: React.FC<Props> = ({ teamName, season, store, games, ros
     setPhotos(null);
     setProblem('');
     setViewing(-1);
+    setSelectedIds(new Set());
     if (!driveId || !signedIn) return;
     let off = false;
     listDrivePhotos(driveId)
@@ -1030,7 +1104,7 @@ export const MediaView: React.FC<Props> = ({ teamName, season, store, games, ros
     return counts;
   }, [data.photos]);
 
-  // Filtered photos
+  // Filtered photos in current folder
   const filteredPhotos = useMemo(() => {
     if (!photos) return [];
     return photos.filter((p) => {
@@ -1048,6 +1122,101 @@ export const MediaView: React.FC<Props> = ({ teamName, season, store, games, ros
     }).length;
   }, [photos, records]);
 
+  // All photo entries formatted for Player Albums
+  const allPhotoEntries: PhotoEntry[] = useMemo(() => {
+    if (!photos || !folder) return [];
+    return photos.map((p) => ({
+      photo: p,
+      folder,
+      record: records.get(p.id),
+    }));
+  }, [photos, folder, records]);
+
+  // Toggle selection of one photo
+  const toggleSelectPhoto = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllFiltered = () => {
+    setSelectedIds(new Set(filteredPhotos.map((p) => p.id)));
+  };
+
+  const deselectAll = () => {
+    setSelectedIds(new Set());
+  };
+
+  // Batch download selected photos as ZIP
+  const handleBatchDownloadZip = async () => {
+    if (selectedIds.size === 0 || zippingBatch || !photos || !folder) return;
+    setZippingBatch(true);
+    setBatchZipStatus(`Preparing download for ${selectedIds.size} photos…`);
+
+    try {
+      const selectedPhotos = photos.filter((p) => selectedIds.has(p.id));
+      const files: { name: string; data: Blob }[] = [];
+
+      for (let i = 0; i < selectedPhotos.length; i++) {
+        const p = selectedPhotos[i];
+        setBatchZipStatus(`Downloading ${i + 1}/${selectedPhotos.length}: ${p.name}…`);
+        try {
+          const blob = await drivePhotoBlob(p.id);
+          const rec = records.get(p.id);
+          const tier = rec?.tier ? `_${rec.tier}` : '';
+          const kidStr = rec?.kids?.length ? `_#${rec.kids.join('_#')}` : '';
+          const base = p.name.replace(/\.[^.]+$/, '');
+          files.push({ name: `${base}${kidStr}${tier}.jpg`, data: blob });
+        } catch {
+          /* continue on error */
+        }
+      }
+
+      if (!files.length) throw new Error('No photos could be downloaded.');
+
+      setBatchZipStatus('Building ZIP file…');
+      const zipBlob = await zipFiles(files);
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      const opp = folder.opponent ? `_${folder.opponent}` : '';
+      a.download = `${teamName}${opp}_Selected_Photos_${dayOf(Date.now())}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setBatchZipStatus('Download complete!');
+      setTimeout(() => setBatchZipStatus(''), 3000);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : String(err));
+    } finally {
+      setZippingBatch(false);
+    }
+  };
+
+  // Batch tag selected photos
+  const handleBatchAddTag = (tag: MediaTag) => {
+    if (!folder) return;
+    for (const id of selectedIds) {
+      const rec = records.get(id);
+      const curTags = rec?.tags || [];
+      if (!curTags.includes(tag)) {
+        handleSavePhoto(id, folder.id, { tags: [...curTags, tag] });
+      }
+    }
+  };
+
+  const linkedKidName = useMemo(() => {
+    if (myKids.length > 0) {
+      const p = roster.find((r) => r.num === myKids[0]);
+      return p ? `${p.firstName} ${p.lastName}` : `#${myKids[0]}`;
+    }
+    return '';
+  }, [myKids, roster]);
+
   return (
     <div className="p-3 sm:p-5 flex flex-col gap-4 max-w-[1500px] mx-auto">
       {/* Title & Action Bar */}
@@ -1059,8 +1228,38 @@ export const MediaView: React.FC<Props> = ({ teamName, season, store, games, ros
             {teamName} · {season} season · game day photos from Google Drive (photos stay in Drive; metadata saved here)
           </p>
         </div>
-        {canEdit && signedIn && (
-          <div className="flex items-center gap-2">
+
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Player Albums Button */}
+          <button
+            type="button"
+            onClick={() => setAlbumsOpen(true)}
+            className="h-9 px-3 inline-flex items-center gap-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-bold cursor-pointer transition shadow-sm"
+          >
+            <Award size={14} className="text-amber-500" />
+            <span>Player Albums</span>
+          </button>
+
+          {/* Select Mode Toggle */}
+          <button
+            type="button"
+            onClick={() => {
+              setSelectionMode((m) => !m);
+              if (selectionMode) deselectAll();
+            }}
+            className={`h-9 px-3 inline-flex items-center gap-1.5 rounded-lg text-xs font-bold cursor-pointer transition shadow-sm border ${
+              selectionMode
+                ? 'bg-indigo-600 text-white border-indigo-600'
+                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
+            }`}
+          >
+            <CheckSquare size={14} />
+            <span>{selectionMode ? 'Done Selecting' : 'Select'}</span>
+          </button>
+
+          {/* AI Tag Photos (Coaches only) */}
+          {canEdit && signedIn && (
             <button
               type="button"
               onClick={() => setAiModalOpen(true)}
@@ -1074,6 +1273,10 @@ export const MediaView: React.FC<Props> = ({ teamName, season, store, games, ros
                 </span>
               )}
             </button>
+          )}
+
+          {/* Add photo folder (Coaches only) */}
+          {canEdit && signedIn && (
             <button
               type="button"
               onClick={() => setAdding((a) => !a)}
@@ -1081,9 +1284,29 @@ export const MediaView: React.FC<Props> = ({ teamName, season, store, games, ros
             >
               <Plus size={14} /> Add photo folder
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
+
+      {/* Family Welcome Banner */}
+      {watchOnly && linkedKidName && (
+        <div className="p-3.5 rounded-2xl bg-gradient-to-r from-indigo-900/40 via-purple-900/30 to-indigo-900/20 border border-indigo-500/30 text-indigo-100 flex items-center justify-between flex-wrap gap-2 text-xs">
+          <div className="flex items-center gap-2">
+            <Award size={18} className="text-amber-400" />
+            <span>
+              Welcome to <strong>{linkedKidName}’s</strong> photo highlights! Browse, crop for Instagram, or download
+              photo albums.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAlbumsOpen(true)}
+            className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold cursor-pointer"
+          >
+            Open {linkedKidName}’s Album
+          </button>
+        </div>
+      )}
 
       {saveError && (
         <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 rounded-lg px-3 py-2 flex items-center gap-1.5">
@@ -1107,7 +1330,7 @@ export const MediaView: React.FC<Props> = ({ teamName, season, store, games, ros
         </div>
       ) : (
         <>
-          {adding && (
+          {adding && canEdit && (
             <div className="p-3 rounded-xl border border-indigo-200 dark:border-indigo-900 bg-white dark:bg-slate-900 flex flex-col gap-2">
               <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
                 Find the Google Drive folder with the photos, open it, and tap “Use”.
@@ -1143,8 +1366,8 @@ export const MediaView: React.FC<Props> = ({ teamName, season, store, games, ros
                 ))}
               </div>
 
-              {/* Folder Metadata */}
-              {folder && (
+              {/* Folder Metadata (Shown to coaches) */}
+              {folder && canEdit && (
                 <FolderDetails
                   folder={folder}
                   games={games}
@@ -1162,13 +1385,75 @@ export const MediaView: React.FC<Props> = ({ teamName, season, store, games, ros
               <FilterToolbar
                 filter={filter}
                 onChange={setFilter}
-                onReset={() => setFilter({})}
+                onReset={() => setFilter(watchOnly && myKids.length ? { player: myKids[0] } : {})}
                 roster={roster}
                 opponents={opponents}
                 photoPlayerCounts={photoPlayerCounts}
                 totalMatching={filteredPhotos.length}
                 totalPhotos={photos?.length || 0}
               />
+
+              {/* Selection Bar (Active when selectionMode is enabled) */}
+              {selectionMode && (
+                <div className="p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-between flex-wrap gap-2 text-xs">
+                  <div className="flex items-center gap-2 font-bold text-indigo-950 dark:text-indigo-200">
+                    <span>{selectedIds.size} of {filteredPhotos.length} photos selected</span>
+                    <button
+                      type="button"
+                      onClick={selectAllFiltered}
+                      className="px-2 py-1 rounded bg-indigo-200/60 dark:bg-indigo-800 hover:bg-indigo-200 text-indigo-900 dark:text-indigo-100 cursor-pointer"
+                    >
+                      Select All
+                    </button>
+                    {selectedIds.size > 0 && (
+                      <button
+                        type="button"
+                        onClick={deselectAll}
+                        className="px-2 py-1 rounded hover:bg-indigo-200/50 cursor-pointer"
+                      >
+                        Clear Selection
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* Tag selected */}
+                    {canEdit && selectedIds.size > 0 && (
+                      <div className="flex items-center gap-1">
+                        <span className="text-[11px] text-slate-500 mr-1">Tag:</span>
+                        {(['social', 'poster', 'highlight'] as const).map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => handleBatchAddTag(t)}
+                            title={`Tag selected as ${TAG_LABELS[t].label}`}
+                            className="px-2 py-1 rounded-lg bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900 cursor-pointer"
+                          >
+                            {TAG_LABELS[t].emoji} {TAG_LABELS[t].short}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Batch download ZIP */}
+                    <button
+                      type="button"
+                      disabled={selectedIds.size === 0 || zippingBatch}
+                      onClick={() => void handleBatchDownloadZip()}
+                      className="h-8 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-40"
+                    >
+                      {zippingBatch ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                      <span>Download ZIP ({selectedIds.size})</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {batchZipStatus && (
+                <p className="text-xs text-indigo-600 dark:text-indigo-400 font-bold flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-950/40 p-2 rounded-lg">
+                  <Loader2 size={13} className="animate-spin" /> {batchZipStatus}
+                </p>
+              )}
 
               {/* Photo Grid */}
               {problem ? (
@@ -1186,7 +1471,7 @@ export const MediaView: React.FC<Props> = ({ teamName, season, store, games, ros
                   <p className="text-xs text-slate-500">Try clearing or broadening your player, opponent, category or star rating filters.</p>
                   <button
                     type="button"
-                    onClick={() => setFilter({})}
+                    onClick={() => setFilter(watchOnly && myKids.length ? { player: myKids[0] } : {})}
                     className="mt-2 h-8 px-3 rounded-lg bg-indigo-600 text-white text-xs font-bold cursor-pointer"
                   >
                     Clear Filters
@@ -1195,7 +1480,15 @@ export const MediaView: React.FC<Props> = ({ teamName, season, store, games, ros
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-2">
                   {filteredPhotos.map((p, i) => (
-                    <Thumb key={p.id} photo={p} record={records.get(p.id)} onOpen={() => setViewing(i)} />
+                    <Thumb
+                      key={p.id}
+                      photo={p}
+                      record={records.get(p.id)}
+                      isSelected={selectedIds.has(p.id)}
+                      selectionMode={selectionMode}
+                      onToggleSelect={() => toggleSelectPhoto(p.id)}
+                      onOpen={() => setViewing(i)}
+                    />
                   ))}
                 </div>
               )}
@@ -1215,6 +1508,7 @@ export const MediaView: React.FC<Props> = ({ teamName, season, store, games, ros
           canEdit={canEdit}
           onIndex={setViewing}
           onSavePhoto={handleSavePhoto}
+          onOpenCrop={(p) => setCropPhoto(p)}
           onClose={() => setViewing(-1)}
         />
       )}
@@ -1229,6 +1523,39 @@ export const MediaView: React.FC<Props> = ({ teamName, season, store, games, ros
         records={records}
         roster={roster}
         onSavePhoto={handleSavePhoto}
+      />
+
+      {/* Instagram Crop Modal */}
+      {cropPhoto && (
+        <CropModal
+          open={Boolean(cropPhoto)}
+          onClose={() => setCropPhoto(null)}
+          photo={cropPhoto}
+          record={records.get(cropPhoto.id)}
+          canEdit={canEdit}
+          onSaveCrop={(crop) => {
+            if (folder && cropPhoto) {
+              handleSavePhoto(cropPhoto.id, folder.id, { crop });
+            }
+          }}
+        />
+      )}
+
+      {/* Player Albums Modal */}
+      <PlayerAlbumsModal
+        open={albumsOpen}
+        onClose={() => setAlbumsOpen(false)}
+        entries={allPhotoEntries}
+        roster={roster}
+        teamName={teamName}
+        season={season}
+        initialKid={myKids[0]}
+        isFamily={watchOnly}
+        onOpenPhoto={(photo) => {
+          const idx = filteredPhotos.findIndex((p) => p.id === photo.id);
+          if (idx >= 0) setViewing(idx);
+          setAlbumsOpen(false);
+        }}
       />
     </div>
   );

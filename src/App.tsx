@@ -8354,14 +8354,16 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
               />
             )}
 
-            {/* Media: game day photos from Google Drive (coaches only for now) */}
-            {activeUnit === 'media' && !isPlayer && (
+            {/* Media: game day photos from Google Drive */}
+            {activeUnit === 'media' && (!isPlayer || (canSeeUnit?.('media') ?? false)) && (
               <MediaSection
                 key={`media-${activeTeamId}`}
+                watchOnly={isPlayer}
+                myKids={isPlayer ? myStaffEntry?.kids || [] : undefined}
                 teamId={activeTeamId}
                 teamName={currentActiveTeam?.name || 'Mahopac 10U'}
                 ownTeamScout={teamOwnScout}
-                roster={roster}
+                roster={activeTeamRoster}
                 userEmail={currentUserEmail}
               />
             )}

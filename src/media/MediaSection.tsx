@@ -15,9 +15,11 @@ interface Props {
   ownTeamScout?: unknown;
   roster?: RosterPlayer[];
   userEmail: string;
+  watchOnly?: boolean;
+  myKids?: string[];
 }
 
-export const MediaSection: React.FC<Props> = ({ teamId, teamName, ownTeamScout, roster = [], userEmail }) => {
+export const MediaSection: React.FC<Props> = ({ teamId, teamName, ownTeamScout, roster = [], userEmail, watchOnly = false, myKids = [] }) => {
   const season = seasonOf();
   const store = useMedia(teamId, season);
   const own = useMemo(() => bundleFromSaved(ownTeamScout, teamName), [ownTeamScout, teamName]);
@@ -25,6 +27,17 @@ export const MediaSection: React.FC<Props> = ({ teamId, teamName, ownTeamScout, 
     const gone = new Set(own.deletedGameIds || []);
     return own.games.filter((g) => !gone.has(g.id)).map((g) => ({ key: filmGameKey('own', g.id), gameId: g.id, name: g.name, week: g.week }));
   }, [own]);
-  return <MediaView teamName={teamName} season={season} store={store} games={games} roster={roster} me={userEmail.toLowerCase().trim()} />;
+  return (
+    <MediaView
+      teamName={teamName}
+      season={season}
+      store={store}
+      games={games}
+      roster={roster}
+      me={userEmail.toLowerCase().trim()}
+      watchOnly={watchOnly}
+      myKids={myKids}
+    />
+  );
 };
 

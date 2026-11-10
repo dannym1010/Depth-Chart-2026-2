@@ -27,8 +27,10 @@ export const PLAYER_TAB_OPTIONS: PlayerTabOption[] = [
 export const STAFF_TAB_OPTION: PlayerTabOption = { id: 'users', label: 'Staff & access', units: ['users'] };
 /** Highlights (game and season reels): coaches make them; players and families with the Film Room watch the shared ones. */
 export const HIGHLIGHTS_TAB_OPTION: PlayerTabOption = { id: 'highlights', label: 'Highlights', units: ['highlights'] };
-/** The tabs a coach account can be given (everything a player can, plus Highlights and Staff & access). */
-export const COACH_TAB_OPTIONS: PlayerTabOption[] = [...PLAYER_TAB_OPTIONS, HIGHLIGHTS_TAB_OPTION, STAFF_TAB_OPTION];
+/** Media (game day photos from Google Drive, AI tags, player albums). */
+export const MEDIA_TAB_OPTION: PlayerTabOption = { id: 'media', label: 'Media', units: ['media'] };
+/** The tabs a coach account can be given (everything a player can, plus Highlights, Media, and Staff & access). */
+export const COACH_TAB_OPTIONS: PlayerTabOption[] = [...PLAYER_TAB_OPTIONS, HIGHLIGHTS_TAB_OPTION, MEDIA_TAB_OPTION, STAFF_TAB_OPTION];
 
 /** What a new player account sees until a coach changes it. */
 export const DEFAULT_PLAYER_TABS = ['home', 'schedule', 'depth_chart', 'playbook'];
