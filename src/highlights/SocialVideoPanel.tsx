@@ -23,6 +23,7 @@ import {
   type SocialShape,
 } from './socialVideo';
 import { zipFiles } from './zip';
+import { hasClipZoom } from './clipZoom';
 
 interface Props {
   title: string;
@@ -102,6 +103,7 @@ export const SocialVideoPanel: React.FC<Props> = ({ title, segments, access, set
     return out;
   }, [segments]);
   const anyFollow = highlights.some(hasFollow);
+  const anyKept = highlights.some(hasClipZoom);
   const each = prefs.each && highlights.length > 1;
   const [shown, setShown] = useState<string>('');
   const showH = highlights.find((h) => h.id === shown) || highlights[0];
@@ -208,7 +210,7 @@ export const SocialVideoPanel: React.FC<Props> = ({ title, segments, access, set
   const longest = each ? Math.max(0, ...highlights.map((h) => timelineSeconds(segments.filter((s) => s.type !== 'card' && s.h.id === h.id)))) : seconds;
   const tooLong = prefs.shape === 'reel' && longest > IG_REEL_MAX;
   const storyNote = prefs.shape === 'reel' && !each && seconds > IG_STORY_MAX && !tooLong;
-  const showLook = prefs.zoom > 0 || anyFollow;
+  const showLook = prefs.zoom > 0 || anyFollow || anyKept;
   const chip = (on: boolean) =>
     `flex flex-col items-center gap-1 rounded-xl border p-2 cursor-pointer min-w-0 ${on ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10' : 'border-slate-200 dark:border-slate-700'}`;
   const pill = (on: boolean) =>
@@ -290,6 +292,7 @@ export const SocialVideoPanel: React.FC<Props> = ({ title, segments, access, set
                 {prefs.zoom === 0
                   ? 'The whole picture shows, with a soft copy of it filling the rest of the frame.'
                   : 'Zoomed in: each highlight follows its kid (his path, or his circles / arrows); set the others below.'}
+                {anyKept ? ' Clips with a zoom kept in the clip editor are never wider than you framed them.' : ''}
               </p>
               {anyFollow && (
                 <div className="flex flex-wrap items-center gap-1.5 text-xs mt-1">
@@ -310,7 +313,7 @@ export const SocialVideoPanel: React.FC<Props> = ({ title, segments, access, set
                   {highlights.map((h) => {
                     const auto = focus[h.id] === undefined;
                     const followed = hasFollow(h);
-                    const zoomed = zoomFor(h, prefs.zoom, prefs.followZoom) > 0;
+                    const zoomed = zoomFor(h, prefs.zoom, prefs.followZoom) > 0 || hasClipZoom(h);
                     return (
                       <div key={h.id} className={`flex items-center gap-2 text-xs rounded-lg px-1.5 py-1 ${showH?.id === h.id ? 'bg-slate-100 dark:bg-slate-800' : ''}`} onClick={() => showH?.id !== h.id && look(h)}>
                         <span className="truncate w-28 sm:w-36 shrink-0 font-bold text-slate-700 dark:text-slate-200" title={h.title}>{h.title || 'Highlight'}</span>
@@ -335,7 +338,7 @@ export const SocialVideoPanel: React.FC<Props> = ({ title, segments, access, set
                           <span className="w-20 shrink-0" />
                         ) : auto ? (
                           <span className={`text-[11px] w-20 shrink-0 ${followed ? 'font-bold text-orange-600 dark:text-orange-400' : 'text-slate-500'}`}>
-                            {followed ? 'follows him' : h.marks?.length || h.freeze?.spot ? 'his marks' : 'middle'}
+                            {hasClipZoom(h) && !(h.zoom?.follow && followed) ? `kept ${h.zoom!.level}×` : followed ? 'follows him' : h.marks?.length || h.freeze?.spot ? 'his marks' : 'middle'}
                           </span>
                         ) : (
                           <button type="button" className="text-[11px] font-bold text-indigo-600 dark:text-indigo-300 w-20 shrink-0 text-left" onClick={() => setFocus((f) => { const n = { ...f }; delete n[h.id]; return n; })}>

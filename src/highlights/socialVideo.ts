@@ -9,6 +9,7 @@ import { segmentSeconds, timelineSeconds, type Overlay, type Segment } from './h
 import type { FilmAccess } from './filmAccess';
 import { followCam, unpackFollow, type FollowPoint } from './follow';
 import type { Highlight, HighlightSettings } from './types';
+import { clipCamera } from './clipZoom';
 
 export type SocialShape = 'reel' | 'post' | 'square';
 
@@ -42,6 +43,20 @@ export function pictureRect(srcW: number, srcH: number, outW: number, outH: numb
   return { x, y, w, h, scale };
 }
 
+/**
+ * A clip's kept zoom (mag times the whole picture, clipZoom.ts) as pictureRect's zoom for this video's frame: the film
+ * that much bigger than fitting it whole. In a tall video that's the framed part across the width (soft fill above and
+ * below); in a frame its shape it fills it, like Play.
+ */
+export function keptZoom(srcW: number, srcH: number, W: number, H: number, mag: number) {
+  const fit = Math.min(W / (srcW || 16), H / (srcH || 9));
+  const cover = Math.max(W / (srcW || 16), H / (srcH || 9));
+  const scale = fit * Math.max(1, mag);
+  if (cover - fit < 1e-6) return clamp(scale / cover, 0, 3);
+  if (scale <= cover) return (scale - fit) / (cover - fit);
+  return clamp(scale / cover, 1, 3);
+}
+
 const paths = new WeakMap<number[], FollowPoint[]>();
 /** The kid's path drawn by finger on a highlight (unpacked once). */
 export function followPath(h: Pick<Highlight, 'follow'>): FollowPoint[] {
@@ -67,6 +82,10 @@ const isSet = (n?: number | null): n is number => n !== undefined && n !== null 
 export function cameraAt(h: Highlight, t: number, part: 'main' | 'replay', o: { zoom: number; followZoom: number; manual?: number }): { zoom: number; focus: { x: number; y: number } } {
   const followed = part === 'main' ? followCam(followPath(h), t) : null;
   if (isSet(o.manual)) return { zoom: followed ? Math.max(o.zoom, o.followZoom) : o.zoom, focus: { x: clamp(o.manual, 0, 1), y: 0.5 } };
+  // The zoom kept with the clip (for Play) says where to look: its spot, or him along his path. How close it makes
+  // the video depends on the video's shape (keptZoom, in drawHighlightFrame).
+  const kept = clipCamera(h, t, part);
+  if (kept) return { zoom: followed ? o.zoom + (Math.max(o.zoom, o.followZoom) - o.zoom) * followed.amount : o.zoom, focus: { x: kept.x, y: kept.y } };
   const base = baseFocus(h, t, part);
   if (!followed || followed.amount <= 0) return { zoom: o.zoom, focus: base };
   const a = followed.amount;
@@ -194,6 +213,9 @@ export function drawHighlightFrame(
 ) {
   const { s, t } = f;
   const cam = cameraAt(s.h, t, partOf(s), { zoom: f.zoom, followZoom: f.followZoom, manual: f.manual });
+  // Never wider than the zoom kept with the clip: the part of the picture it framed fills the video's width at least.
+  const kept = clipCamera(s.h, t, partOf(s));
+  if (kept) cam.zoom = Math.max(cam.zoom, keptZoom(f.srcW, f.srcH, W, H, kept.mag));
   if (f.src) drawFilmFrame(c, W, H, f.src, f.srcW, f.srcH, cam.zoom, cam.focus, f.tiny);
   const r = pictureRect(f.srcW, f.srcH, W, H, cam.zoom, cam.focus.x, cam.focus.y);
   if (s.type === 'freeze' && s.h.freeze?.spot) drawSpotIn(c, W, H, r, s.h.freeze.spot, f.look);

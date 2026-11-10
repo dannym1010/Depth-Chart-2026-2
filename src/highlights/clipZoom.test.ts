@@ -68,6 +68,47 @@ describe('a clip zoom', () => {
   });
 });
 
+describe('a zoomed clip in the Instagram video', () => {
+  it('is never wider than it was framed: the framed part fills the width of a tall video, the whole of a wide one', async () => {
+    const { keptZoom, pictureRect } = await import('./socialVideo.ts');
+    const z = keptZoom(1920, 1080, 1080, 1920, 2);
+    near(pictureRect(1920, 1080, 1080, 1920, z).w, 2160, 0.5);
+    near(keptZoom(1920, 1080, 1920, 1080, 2), 2);
+    // Closer than fills the screen: past 1.
+    assert.ok(keptZoom(1920, 1080, 1080, 1080, 3) > 1);
+    near(keptZoom(1920, 1080, 1080, 1920, 1), 0);
+  });
+
+  it('looks at the kept spot (or him along his path), unless a spot was set by hand in the panel', async () => {
+    const { cameraAt } = await import('./socialVideo.ts');
+    const o = { zoom: 0, followZoom: 1 };
+    const held = hl('a', 1, { zoom: { level: 2, x: 0.8, y: 0.3 }, marks: [{ id: 'm', x: 0.1, y: 0.9, style: 'ring', from: 2, to: 9 }] });
+    assert.deepEqual(cameraAt(held, 5, 'main', o).focus, { x: 0.75, y: 0.3 });
+    assert.equal(cameraAt(held, 5, 'main', { ...o, manual: 0.2 }).focus.x, 0.2);
+    assert.deepEqual(cameraAt(held, 5, 'replay', o).focus, { x: 0.5, y: 0.5 });
+  });
+
+  it('draws the film that close in a frame of the video', async () => {
+    const { drawHighlightFrame } = await import('./socialVideo.ts');
+    const calls: number[][] = [];
+    const fake: any = { fillRect() {}, drawImage: (...a: any[]) => calls.push(a.slice(1).map(Number)), save() {}, restore() {}, beginPath() {}, rect() {}, clip() {}, translate() {} };
+    const tiny: any = { width: 32, height: 32, getContext: () => fake };
+    const h = hl('a', 1, { zoom: { level: 2, x: 0.5, y: 0.5 } });
+    const seg = { type: 'clip', h, view: 'Main', clip: h.clip, from: 2, to: 10, speed: 1, part: 'main' } as any;
+    const frame = (zoom: number) => {
+      calls.length = 0;
+      drawHighlightFrame(fake, 1080, 1920, { s: seg, t: 5, src: {} as any, srcW: 1920, srcH: 1080, tiny, zoom, followZoom: 1, titles: false, look: defaultSettings(), local: 1, starts: false });
+      return calls[calls.length - 1];
+    };
+    // The slider at "Whole field": still twice the whole picture across (2160 wide), its middle in the middle.
+    const [x, , w] = frame(0);
+    near(w, 2160, 0.5);
+    near(x, -540, 0.5);
+    // The slider asking for closer than that wins.
+    assert.ok(frame(1)[2] > 2160);
+  });
+});
+
 describe('a zoomed clip in the Resolve export', () => {
   const s = defaultSettings();
   const all = [
