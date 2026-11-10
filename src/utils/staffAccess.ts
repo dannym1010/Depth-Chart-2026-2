@@ -87,9 +87,11 @@ export interface CloudAccess {
   admins: Record<string, true>;
   coaches: Record<string, true>;
   viewers: Record<string, true>;
+  /** Viewers who may also save the team's highlights (a family's "Highlights helper"). */
+  highlighters: Record<string, true>;
 }
-export function accessFromStaff(staff: Pick<StaffCoach, 'email' | 'role' | 'status'>[] = []): CloudAccess {
-  const out: CloudAccess = { admins: {}, coaches: {}, viewers: {} };
+export function accessFromStaff(staff: Pick<StaffCoach, 'email' | 'role' | 'status' | 'highlightAccess'>[] = []): CloudAccess {
+  const out: CloudAccess = { admins: {}, coaches: {}, viewers: {}, highlighters: {} };
   for (const email of PROGRAM_ADMIN_EMAILS) out.admins[cleanEmail(email)] = true;
   for (const c of staff || []) {
     const email = cleanEmail(c?.email);
@@ -97,7 +99,10 @@ export function accessFromStaff(staff: Pick<StaffCoach, 'email' | 'role' | 'stat
     const role = appRoleFor(c);
     if (role === 'admin') out.admins[email] = true;
     else if (role === 'assistant') out.coaches[email] = true;
-    else out.viewers[email] = true;
+    else {
+      out.viewers[email] = true;
+      if (c.highlightAccess === 'helper') out.highlighters[email] = true;
+    }
   }
   return out;
 }

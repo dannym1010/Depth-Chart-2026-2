@@ -16,7 +16,7 @@ export type UnitType =
   | 'hudl_scout'
   | 'filmroom'
   | 'highlights'
-  | 'tendencies'
+  | 'media'  | 'tendencies'
   | 'html_tendencies'
   | 'practice'
   | 'drills' 
@@ -657,7 +657,14 @@ export interface StaffCoach {
   playerTabs?: string[];
   /** Player and family accounts: their kid(s), by jersey number ("21"), for their Highlights. [] = none linked. */
   kids?: string[];
+  /**
+   * Player and family accounts, in Highlights: 'kid' (unset) = their kid's clips and the reels shared with them;
+   * 'all' = every kid's clips and every reel shared with families; 'helper' = that, plus keeping, tagging and trimming
+   * plays in the team's highlights like a coach (a "video parent").
+   */
+  highlightAccess?: HighlightAccess;
 }
+export type HighlightAccess = 'kid' | 'all' | 'helper';
 
 export interface PlaybookGuideTree {
   [mainCategory: string]: {

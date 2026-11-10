@@ -19,7 +19,7 @@ import {
   Smartphone,
   ChevronRight,
   Sliders,
-  Sparkles, Library, Camera, Clapperboard } from 'lucide-react';
+  Sparkles, Library, Camera, Clapperboard, Images } from 'lucide-react';
 import { UnitType, DepthSubUnit, UserRole } from '../types';
 
 interface MobileNavigationModalProps {
@@ -113,6 +113,13 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
             label: '🎬 Highlights',
             subtitle: 'Game, season and player highlight reels',
             icon: Clapperboard,
+            accentColor: 'border-blue-500/40 hover:bg-blue-950/40 text-blue-300',
+          },
+          {
+            id: 'media',
+            label: '📸 Media',
+            subtitle: 'Game day photos, tagged by player and rated',
+            icon: Images,
             accentColor: 'border-blue-500/40 hover:bg-blue-950/40 text-blue-300',
           },
         ],

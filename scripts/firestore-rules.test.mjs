@@ -13,7 +13,8 @@ let env;
 const ACCESS = {
   admins: { 'dannym1010@gmail.com': true, 'head@coach.com': true },
   coaches: { 'asst@coach.com': true },
-  viewers: { 'family@home.com': true, 'player@team.com': true },
+  viewers: { 'family@home.com': true, 'player@team.com': true, 'video@home.com': true },
+  highlighters: { 'video@home.com': true, 'asst@coach.com': true },
 };
 const as = (email, verified = true) => env.authenticatedContext(email.replace(/\W/g, '_'), { email, email_verified: verified }).firestore();
 const storageAs = (email, verified = true) => env.authenticatedContext(email.replace(/\W/g, '_'), { email, email_verified: verified }).storage();
@@ -97,6 +98,20 @@ describe('a player or family member', () => {
     await assertFails(setDoc(doc(db(), 'teamData/depthChartData'), { x: 1 }));
     await assertFails(setDoc(doc(db(), 'teamData/filmroom_team_10u_own_g1'), { notes: ['hi'] }));
     await assertFails(setDoc(doc(db(), 'teamData/access'), ACCESS));
+    await assertFails(setDoc(doc(db(), 'teamData/filmroom_team_10u_highlights_2026'), { highlights: [] }));
+  });
+});
+
+describe('a family\'s highlights helper', () => {
+  const db = () => as('video@home.com');
+  it('saves the team highlights and nothing else', async () => {
+    await assertSucceeds(setDoc(doc(db(), 'teamData/filmroom_team_10u_highlights_2026'), { highlights: [] }));
+    await assertFails(setDoc(doc(db(), 'teamData/filmroom_team_10u_own_g1'), { notes: ['hi'] }));
+    await assertFails(setDoc(doc(db(), 'teamData/depthChartData'), { x: 1 }));
+    await assertFails(setDoc(doc(db(), 'teamData/access'), ACCESS));
+  });
+  it('needs to be a viewer too (a stranger on the helper list is not)', async () => {
+    await assertFails(setDoc(doc(as('stranger@gmail.com'), 'teamData/filmroom_team_10u_highlights_2026'), { highlights: [] }));
   });
 });
 

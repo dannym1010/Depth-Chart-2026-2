@@ -1,6 +1,8 @@
-// The small pickers on an account in Staff & access: which tabs it sees, and (players and families) their kid.
+// The small pickers on an account in Staff & access: which tabs it sees, and (players and families) their kid and
+// what they may do in Highlights.
 import React, { useState } from 'react';
-import { isFamilyRole, isPlayerRole, tabOptionsFor } from '../../utils/playerAccess';
+import type { HighlightAccess } from '../../types';
+import { HIGHLIGHT_ACCESS_OPTIONS, isFamilyRole, isPlayerRole, tabOptionsFor } from '../../utils/playerAccess';
 
 /**
  * A player's or family's kid(s): "Kid: #21 Nash Ward" that opens the roster to tick them. Their Highlights shows
@@ -62,6 +64,37 @@ export function AccountKids({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * What a player's or family's account may do in Highlights: their kid's (the default), all highlights, or helper
+ * (keeps, tags and trims plays in the team's highlights like a coach).
+ */
+export function AccountHighlights({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: HighlightAccess;
+  onChange: (v: HighlightAccess) => void;
+  disabled?: boolean;
+}) {
+  const hint = HIGHLIGHT_ACCESS_OPTIONS.find((o) => o.id === value)?.hint;
+  return (
+    <label className="mt-1 inline-flex items-center gap-1 text-[10.5px] font-bold text-slate-400" title={hint}>
+      <span className="text-slate-500">Highlights:</span>
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value as HighlightAccess)}
+        className={`bg-slate-900 border rounded px-1 py-0.5 text-[10.5px] font-bold ${value === 'helper' ? 'border-pink-500/60 text-pink-300' : value === 'all' ? 'border-sky-500/60 text-sky-300' : 'border-slate-700 text-slate-300'}`}
+      >
+        {HIGHLIGHT_ACCESS_OPTIONS.map((o) => (
+          <option key={o.id} value={o.id}>{o.label}</option>
+        ))}
+      </select>
+    </label>
   );
 }
 

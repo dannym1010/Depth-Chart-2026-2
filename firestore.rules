@@ -7,6 +7,7 @@ rules_version = '2';
 //   admins   - head coaches / admins: everything, and the access list
 //   coaches  - read and write team data
 //   viewers  - players and families: read only (plus "who's online")
+//   highlighters - viewers who may also save the team's highlights (Staff & access → Highlights: Helper)
 //   anyone else signed in with a verified email - may only ask to join (signups/<their email>)
 //
 // Publish with: npx firebase-tools deploy --only firestore:rules,storage --project u-football-manager
@@ -42,12 +43,20 @@ service cloud.firestore {
       return coach() || listed('viewers');
     }
 
+    // A team's highlights for a season (src/highlights/useHighlights.ts): filmroom_<team>_highlights_<year>.
+    function highlightsDoc(docId) {
+      return docId.matches('filmroom_[A-Za-z0-9_-]+_highlights_[0-9]{4}');
+    }
+
     match /teamData/{docId} {
       allow read: if viewer();
-      // The access list: admins only. Players and families only say they're online.
+      // The access list: admins only. Players and families only say they're online, and a family's
+      // "Highlights helper" also saves the team's highlights.
       allow write: if docId == 'access'
         ? admin()
-        : coach() || (viewer() && docId == 'ops_presence');
+        : coach()
+          || (viewer() && docId == 'ops_presence')
+          || (listed('viewers') && listed('highlighters') && highlightsDoc(docId));
     }
 
     // A new account asks to join; an admin's app adds it to the staff list and clears the request.

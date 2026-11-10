@@ -1,7 +1,7 @@
 // Player accounts: a player (or parent) signs in with Google like a coach, but sees only the tabs a coach
 // picked for them, and can only look (nothing they do is saved). Each choice here is one tab in the app's
 // navigation and the screens that belong to it.
-import type { UnitType } from '../types';
+import type { HighlightAccess, UnitType } from '../types';
 
 export interface PlayerTabOption {
   id: string;
@@ -65,6 +65,18 @@ export function accountTabs(entry?: { role?: string; playerTabs?: string[] } | n
     return [...entry.playerTabs, HIGHLIGHTS_TAB_OPTION.id];
   return Array.isArray(entry.playerTabs) ? entry.playerTabs : undefined;
 }
+/** What a player's or family's account may do in Highlights (chosen per account in Staff & access). */
+export const HIGHLIGHT_ACCESS_OPTIONS: { id: HighlightAccess; label: string; hint: string }[] = [
+  { id: 'kid', label: 'Their kid', hint: 'Their kid’s clips and the reels shared with them, and their own highlights on their device' },
+  { id: 'all', label: 'All highlights', hint: 'Every kid’s clips and every reel shared with families' },
+  { id: 'helper', label: 'Helper', hint: 'All highlights, and keeps, tags and trims plays in the team’s highlights like a coach' },
+];
+/** An account's Highlights level: undefined for coaches (they have all of it), 'kid' unless a coach picked more. */
+export function highlightAccessOf(entry?: { role?: string; highlightAccess?: HighlightAccess } | null): HighlightAccess | undefined {
+  if (!entry || !isViewOnlyRole(entry.role)) return undefined;
+  return entry.highlightAccess === 'all' || entry.highlightAccess === 'helper' ? entry.highlightAccess : 'kid';
+}
+
 /** The tab choices for an account of this role. */
 export const tabOptionsFor = (role?: string) => (isViewOnlyRole(role) ? PLAYER_TAB_OPTIONS : COACH_TAB_OPTIONS);
 /** What an account of this role starts with: undefined = all tabs (a coach). */

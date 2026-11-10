@@ -38,6 +38,10 @@ export interface HighlightsViewProps {
   roster: Kid[];
   me: string;
   myName: string;
+  /** A family's Highlights helper: everything coaches do here but the team's settings (look, music, this-computer-only). */
+  helper?: boolean;
+  /** Shown at the right of the title row (the helper's switch to their own family page). */
+  extra?: React.ReactNode;
 }
 
 type Tab = 'clips' | 'reels' | 'kids' | 'settings';
@@ -53,7 +57,7 @@ const REC_COLOR: Record<RecGroup, string> = {
 };
 type ClipsView = 'kept' | 'suggested' | 'extras';
 
-export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season, store, access, loadShared, games, plays, roster, me, myName }) => {
+export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season, store, access, loadShared, games, plays, roster, me, myName, helper = false, extra }) => {
   const { data, update } = store;
   const ro = store.readOnly;
   const settings = data.settings;
@@ -346,8 +350,9 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
           {tabBtn('clips', <><Sparkles size={13} /> Clips</>)}
           {tabBtn('reels', <><Clapperboard size={13} /> Reels</>)}
           {tabBtn('kids', <><Users size={13} /> Every kid</>)}
-          {tabBtn('settings', <><Settings2 size={13} /> Settings</>)}
+          {!helper && tabBtn('settings', <><Settings2 size={13} /> Settings</>)}
         </div>
+        {extra}
       </div>
       {filmBar}
       {store.saveError && (
@@ -780,7 +785,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
         />
       )}
 
-      {tab === 'settings' && (
+      {tab === 'settings' && !helper && (
         <SettingsPanel
           store={store}
           teamName={teamName}

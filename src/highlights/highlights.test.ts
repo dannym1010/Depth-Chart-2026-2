@@ -301,6 +301,9 @@ describe("a kid's reel goes to his family only", () => {
     assert.deepEqual(familyReels(d, ['21']).map((r) => r.id), ['nash', 'team'], "his reel first, then the team's; never another kid's");
     assert.deepEqual(familyReels(d, ['07']).map((r) => r.id), ['jay', 'team']);
     assert.deepEqual(familyReels(d, []).map((r) => r.id), ['team']);
+    // A family a coach let see all highlights: every kid's shared reel, theirs first.
+    assert.deepEqual(familyReels(d, ['07'], { all: true }).map((r) => r.id).slice(0, 1), ['jay']);
+    assert.deepEqual(familyReels(d, ['07'], { all: true }).map((r) => r.id).sort(), ['jay', 'nash', 'team']);
   });
 });
 

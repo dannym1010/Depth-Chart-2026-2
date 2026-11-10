@@ -33,7 +33,7 @@ import {
   Filter,
   Camera,
   Home as HomeIcon,
-  Activity, Library, Clapperboard } from 'lucide-react';
+  Activity, Library, Clapperboard, Images } from 'lucide-react';
 import { CustomTabGroup, UnitType, DepthSubUnit, UserRole, Team } from '../types';
 import { safeJSONParse, safeJSONSet } from '../services/storageService';
 import { TabGroupManagerModal } from './TabGroupManagerModal';
@@ -139,6 +139,14 @@ const MAIN_NAV_ITEMS: NavItemConfig[] = [
     shortLabel: 'Highlights',
     icon: Clapperboard,
     description: 'Game, season and player highlight reels: trim, title, play, and export to DaVinci Resolve',
+    badgeText: 'Film',
+  },
+  {
+    id: 'media',
+    label: 'Media',
+    shortLabel: 'Media',
+    icon: Images,
+    description: 'Game day photos from Google Drive: AI-tagged by jersey number, rated, filtered by player, cropped and shared',
     badgeText: 'Film',
   },
   {

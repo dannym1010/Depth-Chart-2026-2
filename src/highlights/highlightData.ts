@@ -20,12 +20,13 @@ export const shareReel = (r: Reel, who: string, on: boolean): Reel => ({
 /**
  * The reels a family may watch (with at least one clip): a player reel shared with families goes to that kid's
  * family only; any other reel shared with families goes to every family. Their kid's reel first, then newest first.
+ * `all` (an account a coach let see all highlights): every kid's reel shared with families, theirs first.
  */
-export const familyReels = (d: HighlightsData, kids: string[] = []): Reel[] => {
+export const familyReels = (d: HighlightsData, kids: string[] = [], opts: { all?: boolean } = {}): Reel[] => {
   const mine = new Set(kids.map((k) => String(Number(k))));
   const isMine = (r: Reel) => r.kind === 'player' && Boolean(r.kid) && mine.has(String(Number(r.kid)));
   return d.reels
-    .filter((r) => r.sharedWith.includes(FAMILIES) && r.items.length && (r.kind !== 'player' || !r.kid || isMine(r)))
+    .filter((r) => r.sharedWith.includes(FAMILIES) && r.items.length && (opts.all || r.kind !== 'player' || !r.kid || isMine(r)))
     .sort((a, b) => Number(isMine(b)) - Number(isMine(a)) || b.createdAt - a.createdAt);
 };
 

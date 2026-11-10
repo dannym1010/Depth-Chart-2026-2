@@ -4,11 +4,14 @@
 import React, { useEffect, useState } from 'react';
 import { ChevronRight, Folder, HardDrive, Loader2, Search, Users } from 'lucide-react';
 import { countDriveVideos, listDriveFolders, searchDriveFolders, type DriveFolderEntry, type DrivePlace } from './filmSources';
+import { countDrivePhotos } from '../media/mediaSources';
 import { isFilmRoot } from './folderRoutes';
 
 interface Props {
   busy?: boolean;
   onPick: (folderId: string, name: string) => void;
+  /** What the folder is for: film (the default) or game day photos (the Media library). */
+  kind?: 'video' | 'photo';
 }
 
 const PLACES: { key: DrivePlace; label: string; icon: React.ReactNode }[] = [
@@ -17,7 +20,7 @@ const PLACES: { key: DrivePlace; label: string; icon: React.ReactNode }[] = [
   { key: 'drives', label: 'Shared drives', icon: <HardDrive size={14} /> },
 ];
 
-export const DriveFolderPicker: React.FC<Props> = ({ busy, onPick }) => {
+export const DriveFolderPicker: React.FC<Props> = ({ busy, onPick, kind = 'video' }) => {
   const [place, setPlace] = useState<DrivePlace>('shared');
   // The folders opened from the starting place, in order (the last one is where the coach is).
   const [trail, setTrail] = useState<DriveFolderEntry[]>([]);
@@ -35,11 +38,11 @@ export const DriveFolderPicker: React.FC<Props> = ({ busy, onPick }) => {
     setError('');
     const list = searched && !here ? searchDriveFolders(searched) : listDriveFolders(here ? here.id : place);
     list.then((f) => !off && setFolders(f)).catch((e) => !off && setError(e?.message || String(e)));
-    if (here) countDriveVideos(here.id).then((n) => !off && setVideos(n)).catch(() => undefined);
+    if (here) (kind === 'photo' ? countDrivePhotos : countDriveVideos)(here.id).then((n) => !off && setVideos(n)).catch(() => undefined);
     return () => {
       off = true;
     };
-  }, [place, here, searched]);
+  }, [place, here, searched, kind]);
 
   const open = (f: DriveFolderEntry) => setTrail((t) => [...t, f]);
   const teamFolder = Boolean(here && folders && isFilmRoot(folders));
@@ -135,14 +138,20 @@ export const DriveFolderPicker: React.FC<Props> = ({ busy, onPick }) => {
 
       {here && (
         <div className="flex flex-wrap items-center gap-2">
-          <span className={`text-xs flex-1 min-w-0 ${teamFolder ? 'font-bold text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
-            {teamFolder
-              ? '✓ The team film folder: every game will find its own folder in it.'
-              : videos
-                ? `${videos} video${videos === 1 ? '' : 's'} in this folder.`
+          <span className={`text-xs flex-1 min-w-0 ${teamFolder && kind === 'video' ? 'font-bold text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
+            {kind === 'photo'
+              ? videos
+                ? `${videos} photo${videos === 1 ? '' : 's'} in this folder.`
                 : videos === 0
-                  ? 'No videos right in this folder (open a game’s folder, or use the team film folder).'
-                  : ''}
+                  ? 'No photos right in this folder (open the folder the photos are in).'
+                  : ''
+              : teamFolder
+                ? '✓ The team film folder: every game will find its own folder in it.'
+                : videos
+                  ? `${videos} video${videos === 1 ? '' : 's'} in this folder.`
+                  : videos === 0
+                    ? 'No videos right in this folder (open a game’s folder, or use the team film folder).'
+                    : ''}
           </span>
           <button
             type="button"

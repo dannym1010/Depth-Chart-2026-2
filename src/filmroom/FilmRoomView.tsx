@@ -112,6 +112,8 @@ interface FilmRoomViewProps {
   userEmail?: string;
   /** People a playlist can be shared with. */
   people?: Person[];
+  /** A family's Highlights helper: ★ Highlight keeps plays in the team's highlights. */
+  highlightHelper?: boolean;
 }
 
 type OdkFilter = 'all' | 'O' | 'D' | 'K';
@@ -127,6 +129,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   family = false,
   userEmail = '',
   people = [],
+  highlightHelper = false,
 }) => {
   // Watching only: a player or family account (or any session that can't save).
   const locked = viewOnly || family || isReadOnlySession();
@@ -1063,10 +1066,12 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
   const me = userEmail.toLowerCase().trim();
   const canList = Boolean(me) && !locked;
   // Highlights: ★ Highlight keeps the play on screen (our games).
-  // A parent's or player's ★ goes to their own highlights on this device (their account can't save the team's).
-  const teamHighlights = useHighlights(teamId, seasonOf());
-  const myHighlights = useDeviceHighlights(teamId, seasonOf(), locked ? me : '');
-  const highlights = locked && me ? myHighlights : teamHighlights;
+  // A parent's or player's ★ goes to their own highlights on this device (their account can't save the team's),
+  // unless a coach made them a Highlights helper: then it's the team's, like a coach's.
+  const teamHighlights = useHighlights(teamId, seasonOf(), { helper: highlightHelper });
+  const personalStar = locked && !highlightHelper;
+  const myHighlights = useDeviceHighlights(teamId, seasonOf(), personalStar ? me : '');
+  const highlights = personalStar && me ? myHighlights : teamHighlights;
 
   // A week off the schedule moved to a season week: its report (App), then each game's notes and drawings and
   // the playlists' plays, which are kept by the week an opponent's film is in.
@@ -1320,7 +1325,7 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
             clipUrl={clipUrl.url}
             getVideo={() => apiRef.current?.video?.()}
             me={me}
-            personal={locked}
+            personal={personalStar}
           />
         )}
         {canList && <PlayListActions current={clipRefOf(play)!} lists={filmLists.lists} update={filmLists.update} me={me} myName={authorName} />}

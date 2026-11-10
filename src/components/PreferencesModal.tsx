@@ -187,6 +187,13 @@ const SCREEN_OPTIONS: ScreenOption[] = [
     icon: Camera,
   },
   {
+    id: 'media',
+    name: 'Media',
+    category: 'Game Day Operations',
+    description: 'Game day photos from Google Drive: AI-tagged by jersey number, rated, filtered by player, cropped and shared',
+    icon: Camera,
+  },
+  {
     id: 'whiteboard',
     name: 'Interactive Whiteboard Playbook',
     category: 'Reference & Guides',

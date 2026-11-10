@@ -274,6 +274,8 @@ function savedAccount(): string {
   }
 }
 export const isDriveSignedIn = () => Boolean(savedToken());
+/** The current Google sign-in's access token (for other Drive readers, like the Media library's thumbnails). */
+export const driveAccessToken = (): string | null => savedToken();
 /** Signed out (the sign-in ran out or was refused); the account is remembered, so signing in again is one tap. */
 export function driveSignOut() {
   try {
@@ -463,7 +465,7 @@ export function prepareDriveSignIn() {
   void loadGoogleSignIn().catch(() => undefined);
 }
 
-async function driveFetch(url: string): Promise<Response> {
+export async function driveFetch(url: string): Promise<Response> {
   const token = savedToken();
   if (!token) throw new Error('Sign in with Google to watch this film.');
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
@@ -483,8 +485,8 @@ export function parseDriveFolderId(input: string): string | null {
   return m ? m[1] : null;
 }
 
-const API = 'https://www.googleapis.com/drive/v3/files';
-const ALL_DRIVES = 'supportsAllDrives=true&includeItemsFromAllDrives=true';
+export const API = 'https://www.googleapis.com/drive/v3/files';
+export const ALL_DRIVES = 'supportsAllDrives=true&includeItemsFromAllDrives=true';
 
 export async function driveFolderName(folderId: string): Promise<string> {
   const res = await driveFetch(`${API}/${encodeURIComponent(folderId)}?fields=name&supportsAllDrives=true`);

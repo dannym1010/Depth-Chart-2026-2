@@ -4,10 +4,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Clock, Copy, Crown, Lock, Mail, Search, Settings2, Shield, Trash2, UserPlus, Users, X } from 'lucide-react';
 import type { StaffCoach, Team, UnitType, UserRole } from '../../types';
-import { FAMILY_ROLE, PLAYER_ROLE, defaultTabsFor, accountTabs, isViewOnlyRole } from '../../utils/playerAccess';
+import { FAMILY_ROLE, PLAYER_ROLE, defaultTabsFor, accountTabs, highlightAccessOf, isViewOnlyRole } from '../../utils/playerAccess';
 import { canSeeCoach, coachTeamIds, hasNoTeamYet, type StaffManager } from '../../utils/staffAccess';
 import { matchesStaffSearch, staffGroup, STAFF_GROUPS, type StaffEdit, type StaffGroup } from '../../utils/staffBulk';
-import { AccountKids, AccountTabs } from './AccountChips';
+import { AccountHighlights, AccountKids, AccountTabs } from './AccountChips';
 
 type Kid = { num: string; firstName?: string; lastName?: string };
 
@@ -214,6 +214,14 @@ export const StaffAccountsPanel: React.FC<Props> = (p) => {
               <div className="flex flex-wrap items-start gap-x-4">
                 <AccountTabs role={c.role} tabs={accountTabs(c)} disabled={!canEdit} onChange={(tabs) => p.onUpdateStaffPlayerTabs?.(idx, tabs)} />
                 {viewOnly && <AccountKids kids={c.kids || []} roster={roster} disabled={!canEdit || !p.onUpdateStaffKids} onChange={(kids) => p.onUpdateStaffKids?.(idx, kids)} />}
+                {viewOnly && (accountTabs(c) || []).includes('highlights') && (
+                  <AccountHighlights
+                    value={highlightAccessOf(c) || 'kid'}
+                    disabled={!canEdit || !p.onEditStaff}
+                    // 'kid' is stored too (not a deleted key), so a merge with an older copy doesn't bring "helper" back.
+                    onChange={(v) => p.onEditStaff?.([{ email: c.email, patch: { highlightAccess: v } }])}
+                  />
+                )}
               </div>
             )}
           </div>

@@ -65,6 +65,30 @@ describe('the database access list', () => {
     assert.deepEqual(Object.keys(a.admins).sort(), ['dannym1010@gmail.com', 'head@coach.com']);
     assert.deepEqual(Object.keys(a.coaches), ['asst@coach.com']);
     assert.deepEqual(Object.keys(a.viewers).sort(), ['kid@team.com', 'mom@home.com']);
+    assert.deepEqual(a.highlighters, {});
+  });
+  it("lists a family's highlights helper (active viewers only) so the database lets them save the team's highlights", async () => {
+    const { accessFromStaff } = await import('./staffAccess.ts');
+    const a = accessFromStaff([
+      { email: 'Video@Home.com', role: 'Family', status: 'Active', highlightAccess: 'helper' },
+      { email: 'all@home.com', role: 'Family', status: 'Active', highlightAccess: 'all' },
+      { email: 'wait@home.com', role: 'Family', status: 'Pending', highlightAccess: 'helper' },
+      { email: 'asst@coach.com', role: 'Assistant Coach', status: 'Active', highlightAccess: 'helper' },
+    ] as any);
+    assert.deepEqual(Object.keys(a.highlighters), ['video@home.com']);
+    assert.ok(a.viewers['video@home.com'] && a.viewers['all@home.com']);
+  });
+});
+
+describe('Highlights level', () => {
+  it("is their kid's for players and families until a coach picks more; none for coaches", async () => {
+    const { highlightAccessOf } = await import('./playerAccess.ts');
+    assert.equal(highlightAccessOf({ role: 'Family' }), 'kid');
+    assert.equal(highlightAccessOf({ role: 'Player', highlightAccess: 'all' }), 'all');
+    assert.equal(highlightAccessOf({ role: 'Family', highlightAccess: 'helper' }), 'helper');
+    assert.equal(highlightAccessOf({ role: 'Family', highlightAccess: 'bogus' as any }), 'kid');
+    assert.equal(highlightAccessOf({ role: 'Assistant Coach', highlightAccess: 'helper' }), undefined);
+    assert.equal(highlightAccessOf(null), undefined);
   });
 });
 

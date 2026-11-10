@@ -35,7 +35,14 @@ interface Props {
   /** Their kid(s), by jersey number, linked by a coach in Staff & access. */
   kids: string[];
   me: string;
+  /** A coach let this account see all highlights: every kid's clips (and the whole team's), every reel shared with families. */
+  seeAll?: boolean;
+  /** Shown at the right of the title row (a helper's switch to the team's highlights). */
+  extra?: React.ReactNode;
 }
+
+/** In the kid picker: every clip of the team. */
+export const WHOLE_TEAM = '*';
 
 /** A reel made on the spot (never saved): a kid's clips, picked clips, or one clip. */
 export function tempReel(name: string, ids: string[], kid?: string, opts: { cards?: boolean } = {}): Reel {
@@ -60,7 +67,7 @@ const playLine = (p: Play) =>
     .filter(Boolean)
     .join(' · ');
 
-export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, mine, access, loadShared, games, plays, roster, kids, me }) => {
+export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, mine, access, loadShared, games, plays, roster, kids, me, seeAll = false, extra }) => {
   const { data } = store;
   const settings = data.settings;
   const order = useMemo(() => gameOrder(games), [games]);
@@ -80,13 +87,22 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, min
   }, [access]);
 
   const myKids = useMemo(() => [...new Set(kids.map((k) => String(Number(k))).filter((k) => k !== 'NaN'))], [kids]);
-  const [kid, setKid] = useState(myKids[0] || '');
+  // Who they may pick: their kid(s); with all highlights, also the whole team and every kid with a clip.
+  const choices = useMemo(() => {
+    if (!seeAll) return myKids;
+    const others = new Set<string>();
+    for (const h of data.highlights) for (const k of h.kids) others.add(String(Number(k)));
+    const rest = [...others].filter((k) => k !== 'NaN' && !myKids.includes(k)).sort((a, b) => Number(a) - Number(b));
+    return [...myKids, WHOLE_TEAM, ...rest];
+  }, [seeAll, myKids, data.highlights]);
+  const [kid, setKid] = useState(choices[0] || '');
   useEffect(() => {
-    if (!myKids.includes(kid)) setKid(myKids[0] || '');
-  }, [myKids, kid]);
+    if (!choices.includes(kid)) setKid(choices[0] || '');
+  }, [choices, kid]);
   const inOrder = (list: Highlight[]) => list.slice().sort((a, b) => (order.get(a.game.key) ?? 999) - (order.get(b.game.key) ?? 999) || a.seq - b.seq);
-  const clips = useMemo(() => (kid ? inOrder(kidHighlights(data.highlights, kid)) : []), [data.highlights, kid, order]); // eslint-disable-line react-hooks/exhaustive-deps
-  const reels = useMemo(() => familyReels(data, myKids), [data, myKids]);
+  const team = kid === WHOLE_TEAM;
+  const clips = useMemo(() => (team ? inOrder(data.highlights) : kid ? inOrder(kidHighlights(data.highlights, kid)) : []), [data.highlights, kid, team, order]); // eslint-disable-line react-hooks/exhaustive-deps
+  const reels = useMemo(() => familyReels(data, myKids, { all: seeAll }), [data, myKids, seeAll]);
   const myClips = useMemo(() => inOrder(mine.data.highlights), [mine.data.highlights, order]); // eslint-disable-line react-hooks/exhaustive-deps
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [myPicked, setMyPicked] = useState<Set<string>>(new Set());
@@ -99,9 +115,12 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, min
     if (!segments.length) return setStatus('Nothing to play in that one yet.');
     setShow({ title: reel.name, segments, transition: reel.options.transition, mode });
   };
-  const kidName = kid ? kidLabel(kid, roster, 'full') : '';
-  const kidReel = (ids: string[], cards = true) => tempReel(`${kidName} highlights`, ids, kid, { cards });
-  const myReel = (ids: string[], cards = true) => tempReel(kidName ? `${kidName} highlights` : 'My highlights', ids, kid || undefined, { cards });
+  const kidName = team ? teamName : kid ? kidLabel(kid, roster, 'full') : '';
+  const kidReel = (ids: string[], cards = true) => tempReel(`${kidName} highlights`, ids, team ? undefined : kid, { cards });
+  // Their own: named for their kid (the first, with more than one).
+  const ownKid = myKids.includes(kid) ? kid : myKids[0] || '';
+  const ownName = ownKid ? kidLabel(ownKid, roster, 'full') : '';
+  const myReel = (ids: string[], cards = true) => tempReel(ownName ? `${ownName} highlights` : 'My highlights', ids, ownKid || undefined, { cards });
 
   // ---- Making their own ----
   const [adding, setAdding] = useState(false);
@@ -178,6 +197,7 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, min
         <Clapperboard size={22} className="text-indigo-600 dark:text-indigo-400" />
         <h2 className="text-lg font-black text-slate-900 dark:text-slate-100">Highlights</h2>
         <span className="text-xs text-slate-500">{season} season · watch, make your own, save for Instagram</span>
+        {extra && <span className="sm:ml-auto">{extra}</span>}
       </div>
 
       {(state === 'ask' || state === 'signin' || state === 'none') && (
@@ -201,10 +221,12 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, min
       {/* ---- Their kid's clips (kept by the coaches) ---- */}
       <section className={panel} aria-label="Your kid's clips">
         <div className="flex flex-wrap items-center gap-2">
-          {myKids.length > 1 ? (
-            <select value={kid} onChange={(e) => setKid(e.target.value)} className="h-8 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-1.5 text-sm font-black" aria-label="Kid">
-              {myKids.map((k) => (
-                <option key={k} value={k}>{kidLabel(k, roster, 'full')}</option>
+          {choices.length > 1 ? (
+            <select value={kid} onChange={(e) => setKid(e.target.value)} className="h-8 max-w-[60vw] rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-1.5 text-sm font-black" aria-label="Whose clips">
+              {choices.map((k) => (
+                <option key={k} value={k}>
+                  {k === WHOLE_TEAM ? `Whole team (${data.highlights.length})` : kidLabel(k, roster, 'full')}
+                </option>
               ))}
             </select>
           ) : (
@@ -231,7 +253,7 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, min
             </span>
           )}
         </div>
-        {!myKids.length ? (
+        {!choices.length ? (
           <p className="text-sm text-slate-500 py-4 text-center">No kid is linked to this account yet. Ask a coach to link your kid (Staff &amp; access → Kid), and the coaches' clips of him show up here. You can still make your own below.</p>
         ) : (
           <ul className="flex flex-col divide-y divide-slate-100 dark:divide-slate-800 max-h-[45vh] overflow-auto -mx-1" aria-label={`${kidName} clips`}>
@@ -243,7 +265,13 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, min
                   <span className="block text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{h.title}</span>
                   <span className="block text-[11px] text-slate-500 truncate">
                     {h.game.name}
-                    {h.kids.length > 1 ? ` · with ${kidsText(h.kids.filter((k) => String(Number(k)) !== kid), roster, 'first')}` : ''}
+                    {team
+                      ? h.kids.length
+                        ? ` · ${kidsText(h.kids, roster, 'first')}`
+                        : ''
+                      : h.kids.length > 1
+                        ? ` · with ${kidsText(h.kids.filter((k) => String(Number(k)) !== kid), roster, 'first')}`
+                        : ''}
                   </span>
                 </button>
                 <span className="text-[11px] tabular-nums text-slate-500 shrink-0">{(h.end - h.start).toFixed(1)} s</span>
@@ -260,7 +288,11 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, min
                 )}
               </li>
             ))}
-            {!clips.length && <li className="py-6 text-center text-sm text-slate-500">No highlights with {kidName} from the coaches yet. Make your own below.</li>}
+            {!clips.length && (
+              <li className="py-6 text-center text-sm text-slate-500">
+                {team ? 'No highlights from the coaches yet.' : `No highlights with ${kidName} from the coaches yet.`} Make your own below.
+              </li>
+            )}
           </ul>
         )}
       </section>
@@ -300,7 +332,7 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, min
                 </select>
                 {kidRoles.size > 0 && (
                   <button type="button" disabled={busy} onClick={() => void keep(listed.filter((p) => kidRoles.has(p.id) && !taken.has(p.id)))} className={`${btn} bg-indigo-600 text-white`}>
-                    <Plus size={13} /> Add all {kidName ? kidLabel(kid, roster, 'first') : 'my kid'}'s plays
+                    <Plus size={13} /> Add all {myKids.length === 1 ? `${kidLabel(myKids[0], roster, 'first')}'s` : 'my kids’'} plays
                   </button>
                 )}
                 <span className="text-[11px] text-slate-500">Each play is cut at the snap; trim it with the pencil.</span>

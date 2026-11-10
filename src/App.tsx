@@ -191,12 +191,13 @@ import { ScoutingView } from './components/ScoutingView';
 import { ScoutPresentation, type ScoutShow } from './components/scouting/ScoutPresentation';
 import { FilmRoomView } from './filmroom/FilmRoomView';
 import { HighlightsSection } from './highlights/HighlightsSection';
+import { MediaSection } from './media/MediaSection';
 import { FilmWindowHost } from './filmroom/FilmWindow';
 import { openScoutVersions, ScoutSafetyNet } from './components/ScoutSafetyNet';
 import { closeFilmWindow, filmWindowAutoOpen, openFilmWindow, setFilmWindowUpcoming, type FilmWindowRequest } from './filmroom/filmWindowStore';
 import { setDefenseRosterSource } from './utils/defenseRosterStore';
 import { setReadOnlySession, setAccessPublisher, syncAccessDoc, requestSignup, listenSignups, clearSignup } from './services/storageService';
-import { DEFAULT_PLAYER_TABS, accountTabs, defaultTabsFor, firstPlayerScreen, isFamilyRole, isViewOnlyRole, playerCanSee } from './utils/playerAccess';
+import { DEFAULT_PLAYER_TABS, accountTabs, defaultTabsFor, firstPlayerScreen, highlightAccessOf, isFamilyRole, isViewOnlyRole, playerCanSee } from './utils/playerAccess';
 import { buildLibrary } from './filmroom/FilmLibrary';
 import { normalizeWeek, setFolderWeekMoves } from './filmroom/folderRoutes';
 import { moveScoutReport } from './utils/weekMove';
@@ -8328,6 +8329,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 isProgramAdmin={isProgramAdmin}
                 viewOnly={isPlayer}
                 family={isFamily}
+                highlightHelper={isPlayer && highlightAccessOf(myStaffEntry) === 'helper'}
                 userEmail={currentUserEmail}
                 // A playlist can be shared with anyone on this team's staff list (coaches, players, families).
                 people={staffList
@@ -8342,12 +8344,24 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 key={`highlights-${activeTeamId}`}
                 watchOnly={isPlayer}
                 myKids={isPlayer ? myStaffEntry?.kids || [] : undefined}
+                level={isPlayer ? highlightAccessOf(myStaffEntry) : undefined}
                 teamId={activeTeamId}
                 teamName={currentActiveTeam?.name || 'Mahopac 10U'}
                 ownTeamScout={teamOwnScout}
                 roster={activeTeamRoster}
                 userEmail={currentUserEmail}
                 authorName={currentUser?.displayName || (currentUser?.email || 'Coach').split('@')[0]}
+              />
+            )}
+
+            {/* Media: game day photos from Google Drive (coaches only for now) */}
+            {activeUnit === 'media' && !isPlayer && (
+              <MediaSection
+                key={`media-${activeTeamId}`}
+                teamId={activeTeamId}
+                teamName={currentActiveTeam?.name || 'Mahopac 10U'}
+                ownTeamScout={teamOwnScout}
+                userEmail={currentUserEmail}
               />
             )}
 
@@ -9052,7 +9066,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
           </div>
 
           {/* Master Roster Sidebar (Shown on Depth Charts and Scrimmage) */}
-          {!['home', 'mobile_hub', 'game_day', 'wristband', 'drills', 'scouting', 'hudl_scout', 'filmroom', 'highlights', 'guide', 'practice', 'users', 'schedule', 'compliance', 'call_sheet', 'whiteboard', 'ppr', 'playbook'].includes(
+          {!['home', 'mobile_hub', 'game_day', 'wristband', 'drills', 'scouting', 'hudl_scout', 'filmroom', 'highlights', 'media', 'guide', 'practice', 'users', 'schedule', 'compliance', 'call_sheet', 'whiteboard', 'ppr', 'playbook'].includes(
             activeUnit
           ) && (
             <div className="hidden lg:block shrink-0 w-80 self-start sticky top-[10rem] z-20 h-[calc(100dvh-11rem)] print:hidden">

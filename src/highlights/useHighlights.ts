@@ -67,7 +67,13 @@ export function useDeviceHighlights(teamId: string, season: string, who: string)
   return { data, update, localOnly: true, setLocalOnly: () => undefined, readOnly: !who };
 }
 
-export function useHighlights(teamId: string, season: string): HighlightStore {
+/**
+ * `helper`: a family's "Highlights helper" (Staff & access): their account is read-only, but it may save the
+ * team's highlights (the database lets the access list's highlighters write this one doc).
+ */
+export function useHighlights(teamId: string, season: string, opts: { helper?: boolean } = {}): HighlightStore {
+  const helper = Boolean(opts.helper);
+  const cantSave = () => isReadOnlySession() && !helper;
   const docId = sharedDocId(teamId, `highlights_${season}`);
   const cacheKey = `footballHighlights_${docId}`;
   const [localOnly, setLocalOnlyState] = useState(() => isLocalOnly(teamId));
@@ -122,12 +128,12 @@ export function useHighlights(teamId: string, season: string): HighlightStore {
   }, [docId, cacheKey, adopt, localOnly]);
 
   const saveTimer = useRef<any>(null);
-  const readOnly = isReadOnlySession();
+  const readOnly = cantSave();
   // Why the last save to the cloud didn't happen (shown on the Highlights page), or '' when it did.
   const [saveError, setSaveError] = useState('');
   const update = useCallback(
     (change: (d: HighlightsData) => HighlightsData) => {
-      if (isReadOnlySession()) return;
+      if (cantSave()) return;
       keep(change(ref.current));
       if (localOnly) return;
       if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -153,7 +159,7 @@ export function useHighlights(teamId: string, season: string): HighlightStore {
         }
       }, 600);
     },
-    [docId, teamId, season, keep, adopt, localOnly]
+    [docId, teamId, season, keep, adopt, localOnly, helper] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const setLocalOnly = useCallback(
