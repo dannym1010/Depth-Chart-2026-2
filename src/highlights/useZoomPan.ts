@@ -97,6 +97,8 @@ export function useZoomPan() {
   return {
     boxRef,
     zoom,
+    /** How far the zoomed picture is moved (fractions of the box; the middle of the view is the box's 0.5 − pan). */
+    pan,
     zoomBy,
     reset,
     lookAt,

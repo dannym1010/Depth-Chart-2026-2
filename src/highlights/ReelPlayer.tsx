@@ -6,6 +6,8 @@ import { ChevronLeft, ChevronRight, Maximize2, Pause, Play as PlayIcon, RotateCc
 import { NEEDS_SIGN_IN, type FilmAccess } from './filmAccess';
 import { drawCard, drawLowerThird, drawSpot } from './graphics';
 import { clock, segmentSeconds, timelineSeconds, type Segment } from './highlightData';
+import { clipCamera, zoomRect } from './clipZoom';
+import { drawSpotIn, partOf } from './socialVideo';
 import type { HighlightSettings } from './types';
 import { useClipSrc } from './useClipSrc';
 
@@ -148,14 +150,36 @@ export const ReelPlayer: React.FC<Props> = ({ title, segments, access, settings,
     const shape = settings.shape === '9:16' ? 9 / 16 : settings.shape === '1:1' ? 1 : 16 / 9;
     const fw = Math.min(w, h * shape);
     const fh = fw / shape;
+    const v = videoRef.current;
+    // The clip's saved zoom (held on a spot, or riding his path): the video is moved and scaled to it, and the
+    // circles / spotlight are drawn where the picture is now.
+    let pic: { x: number; y: number; w: number; h: number } | null = null;
+    if (s.type !== 'card' && v) {
+      const t = s.type === 'freeze' ? s.at : v.currentTime;
+      const cam = clipCamera(s.h, t, partOf(s));
+      const W = c.clientWidth;
+      const H = c.clientHeight;
+      const r = zoomRect(v.videoWidth, v.videoHeight, W, H, cam);
+      const k = r.w / r.fit.w;
+      const transform = cam ? `translate(${(r.x - k * r.fit.x).toFixed(2)}px, ${(r.y - k * r.fit.y).toFixed(2)}px) scale(${k.toFixed(4)})` : '';
+      if (v.style.transform !== transform) {
+        v.style.transformOrigin = '0 0';
+        v.style.transform = transform;
+      }
+      const dpr = window.devicePixelRatio || 1;
+      pic = { x: r.x * dpr, y: r.y * dpr, w: r.w * dpr, h: r.h * dpr };
+    }
+    if (s.type !== 'card' && pic) {
+      if (s.type === 'freeze' && s.h.freeze?.spot) drawSpotIn(ctx, w, h, pic, s.h.freeze.spot, settings);
+      // The circles / arrows on a kid, over the play itself (not its replay from another camera).
+      const t = v?.currentTime ?? -1;
+      if (s.type === 'clip' && s.part !== 'replay') for (const m of s.h.marks || []) if (t >= m.from && t <= m.to) drawSpotIn(ctx, w, h, pic, m, settings);
+    }
     ctx.save();
     ctx.translate((w - fw) / 2, (h - fh) / 2);
     if (s.type === 'card') drawCard(ctx, fw, fh, s.card, settings, logo);
     else {
-      if (s.type === 'freeze' && s.h.freeze?.spot) drawSpot(ctx, fw, fh, s.h.freeze.spot, settings);
-      // The circles / arrows on a kid, over the play itself (not its replay from another camera).
-      const t = videoRef.current?.currentTime ?? -1;
-      if (s.type === 'clip' && s.part !== 'replay') for (const m of s.h.marks || []) if (t >= m.from && t <= m.to) drawSpot(ctx, fw, fh, m, settings);
+      if (!pic && s.type === 'freeze' && s.h.freeze?.spot) drawSpot(ctx, fw, fh, s.h.freeze.spot, settings);
       if (s.type === 'clip' && s.part === 'replay') drawLowerThird(ctx, fw, fh, { title: 'Replay' }, settings, logo);
       else if (s.overlay) drawLowerThird(ctx, fw, fh, s.overlay, settings, logo);
     }
@@ -208,7 +232,7 @@ export const ReelPlayer: React.FC<Props> = ({ title, segments, access, settings,
 
   return (
     <div className="fixed inset-0 z-[80] flex flex-col" style={{ background: '#000', color: INK }} role="dialog" aria-label={`Reel: ${title}`} ref={boxRef} data-film-area>
-      <div className="relative flex-1 min-h-0" onClick={toggle}>
+      <div className="relative flex-1 min-h-0 overflow-hidden" onClick={toggle}>
         {src.url && (
           <video
             ref={videoRef}

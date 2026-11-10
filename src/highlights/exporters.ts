@@ -4,6 +4,7 @@
 // The browser can't see drive letters, so file paths come from where the coach says the folders are.
 import { chapters, clock, segmentSeconds, type CardSpec, type Overlay, type Segment } from './highlightData';
 import type { Highlight, HighlightSettings, SpotStyle } from './types';
+import { cameraKeys, clipCamera, fcpTransform, type ClipCam } from './clipZoom';
 
 export interface PlanMedia {
   id: string;
@@ -16,9 +17,16 @@ export interface PlanMedia {
 export type GraphicSpec =
   | { kind: 'card'; card: CardSpec }
   | { kind: 'lower'; overlay: Overlay }
-  | { kind: 'spot'; spot: { x: number; y: number; style: SpotStyle; label?: string } }
-  /** A still of the film at a moment (a freeze frame). */
-  | { kind: 'freeze'; h: Highlight; view: string; clip: string; at: number };
+  /** `cam`: the clip's zoom at that moment (the spotlight sits where the zoomed picture puts him). */
+  | { kind: 'spot'; spot: { x: number; y: number; style: SpotStyle; label?: string }; cam?: ClipCam }
+  /** A still of the film at a moment (a freeze frame), zoomed like the clip when it has a zoom. */
+  | { kind: 'freeze'; h: Highlight; view: string; clip: string; at: number; cam?: ClipCam };
+
+/** The clip's zoom over a piece: keyframes in the piece's own time (FCPXML's: it starts at `from`). */
+export interface PlanCam {
+  t: number;
+  cam: ClipCam;
+}
 
 export interface PlanGraphic {
   id: string;
@@ -29,7 +37,7 @@ export interface PlanGraphic {
 
 /** Track 1: film clips and full-frame pictures (cards, freezes). Times in frames at the timeline rate. */
 export type PlanV1 =
-  | { kind: 'clip'; media: string; from: number; to: number; speed: number; at: number; len: number; name: string; volumeDb: number }
+  | { kind: 'clip'; media: string; from: number; to: number; speed: number; at: number; len: number; name: string; volumeDb: number; cam?: PlanCam[] }
   | { kind: 'still'; graphic: string; at: number; len: number; name: string };
 
 export interface PlanV2 {
@@ -88,7 +96,8 @@ export function buildPlan(opts: {
   name: string;
   segments: Segment[];
   settings: HighlightSettings;
-  mediaOf: (h: Highlight, view: string, clip: string) => { path: string; durationSec?: number };
+  /** `base`: a cut copy starts this many seconds into the clip (the segments' times are already shifted by it). */
+  mediaOf: (h: Highlight, view: string, clip: string) => { path: string; durationSec?: number; base?: number };
   graphicsDir: string;
 }): ExportPlan {
   const { settings } = opts;
@@ -140,12 +149,21 @@ export function buildPlan(opts: {
       }
       if (!own) lower = null;
       if (s.type === 'freeze') {
-        const id = graphic({ kind: 'freeze', h: s.h, view: s.view, clip: s.clip, at: s.at }, `freeze ${s.h.title}`);
+        // A freeze is never shifted (its still comes from the whole clip).
+        const cam = clipCamera(s.h, s.at, 'main') || undefined;
+        const id = graphic({ kind: 'freeze', h: s.h, view: s.view, clip: s.clip, at: s.at, ...(cam ? { cam } : {}) }, `freeze ${s.h.title}`);
         v1.push({ kind: 'still', graphic: id, at, len, name: `${s.h.title} (freeze)` });
         const spot = s.h.freeze?.spot;
-        if (spot) v2.push({ graphic: graphic({ kind: 'spot', spot }, `spotlight ${s.h.title}`), at, len, name: 'Spotlight' });
+        if (spot) v2.push({ graphic: graphic({ kind: 'spot', spot, ...(cam ? { cam } : {}) }, `spotlight ${s.h.title}`), at, len, name: 'Spotlight' });
       } else {
-        v1.push({ kind: 'clip', media: mediaId(s.h, s.view, s.clip), from: s.from, to: s.to, speed: s.speed, at, len, name: s.part === 'replay' ? `${s.h.title} (replay)` : s.h.title, volumeDb });
+        // The clip's zoom, from its own (unshifted) seconds, as keyframes in the piece's time.
+        const part = s.part === 'replay' && (s.clip !== s.h.clip || s.view !== s.h.view) ? 'replay' : 'main';
+        const base = opts.mediaOf(s.h, s.view, s.clip).base || 0;
+        const cam = cameraKeys(s.h, s.from + base, s.to + base, part).map((k) => ({ t: s.from + (k.t - base - s.from) / s.speed, cam: k.cam }));
+        v1.push({
+          kind: 'clip', media: mediaId(s.h, s.view, s.clip), from: s.from, to: s.to, speed: s.speed, at, len, name: s.part === 'replay' ? `${s.h.title} (replay)` : s.h.title, volumeDb,
+          ...(cam.length ? { cam } : {}),
+        });
       }
       if (own && lower && lower.v2.graphic) lower.v2.len = at + len - lower.v2.at;
     }
@@ -161,6 +179,32 @@ const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'
 const rt = (frames: number, fps: number) => `${Math.round(frames)}/${fps}s`;
 /** Source seconds as an exact FCPXML time (hundredths of a frame are plenty). */
 const st = (sec: number) => `${Math.round(sec * 6000)}/6000s`;
+
+/**
+ * A clip's zoom as Final Cut XML's transform (Resolve brings it in as the clip's Zoom and Position, keyframed where it
+ * follows a kid). Film is taken as 16:9 (phones and cameras shoot it).
+ */
+function fcpZoom(cam: PlanCam[] | undefined, W: number, H: number): string[] {
+  if (!cam?.length) return [];
+  const tf = cam.map((k) => ({ t: k.t, ...fcpTransform(k.cam, W, H) }));
+  const first = tf[0];
+  const attrs = `position="${first.x} ${first.y}" scale="${first.scale} ${first.scale}"`;
+  if (tf.length === 1) return [`              <adjust-transform ${attrs}/>`];
+  return [
+    `              <adjust-transform ${attrs}>`,
+    '                <param name="position">',
+    '                  <keyframeAnimation>',
+    ...tf.map((k) => `                    <keyframe time="${st(k.t)}" value="${k.x} ${k.y}"/>`),
+    '                  </keyframeAnimation>',
+    '                </param>',
+    '                <param name="scale">',
+    '                  <keyframeAnimation>',
+    ...tf.map((k) => `                    <keyframe time="${st(k.t)}" value="${k.scale} ${k.scale}"/>`),
+    '                  </keyframeAnimation>',
+    '                </param>',
+    '              </adjust-transform>',
+  ];
+}
 
 /** Final Cut Pro X XML (DaVinci Resolve reads it too): the default. */
 export function toFcpxml(plan: ExportPlan): string {
@@ -215,6 +259,7 @@ export function toFcpxml(plan: ExportPlan): string {
         '              </timeMap>'
       );
     }
+    out.push(...fcpZoom(c.cam, plan.width, plan.height));
     if (volume) out.push(volume);
     out.push(...kids, '            </asset-clip>');
   }
@@ -390,6 +435,14 @@ export function readMe(plan: ExportPlan, timelineFile: string): string {
     `Timeline: ${plan.width}x${plan.height}, ${plan.fps} frames a second, ${clock(plan.total / plan.fps)} long.`,
     'Track 1: the film, title cards and freeze frames. Track 2: titles and spotlights (see-through pictures).',
     'Each highlight has a marker with its title, kids, kind and rating.',
+    ...(plan.v1.some((c) => c.kind === 'clip' && c.cam?.length)
+      ? [
+          '',
+          'Zoomed clips: the zoom (and the camera following a kid) comes in with the .fcpxml timeline as each clip\'s',
+          '  Zoom and Position in the Inspector (keyframed where it follows him). When importing, leave',
+          '  "Use sizing information" ticked. The .xml, .edl and .otio timelines show those clips whole.',
+        ]
+      : []),
     '',
     'Premiere Pro: File > Import, the .xml file.  Final Cut Pro: File > Import > XML, the .fcpxml file.',
     '',

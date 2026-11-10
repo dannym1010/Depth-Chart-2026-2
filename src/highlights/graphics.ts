@@ -4,6 +4,7 @@
 // (see-through where there's no graphic), so the reel looks the same everywhere.
 import type { CardSpec, Overlay } from './highlightData';
 import type { HighlightSettings, SpotStyle } from './types';
+import { zoomRect, type ClipCam } from './clipZoom';
 
 export const FONTS = ['Impact', 'Arial Black', 'Trebuchet MS', 'Georgia', 'Verdana'];
 
@@ -239,8 +240,11 @@ export function canvasPng(w: number, h: number, draw: (ctx: CanvasRenderingConte
   return new Promise((resolve, reject) => c.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not make the picture.'))), 'image/png'));
 }
 
-/** One frame of a video file at a moment, as a PNG the size of the reel (the frame fitted inside, black bars). */
-export async function frameGrab(file: Blob, at: number, w: number, h: number): Promise<Blob> {
+/**
+ * One frame of a video file at a moment, as a PNG the size of the reel (the frame fitted inside, black bars), zoomed
+ * like its clip when `cam` is given.
+ */
+export async function frameGrab(file: Blob, at: number, w: number, h: number, cam?: ClipCam | null): Promise<Blob> {
   const url = URL.createObjectURL(file);
   try {
     const v = document.createElement('video');
@@ -267,10 +271,10 @@ export async function frameGrab(file: Blob, at: number, w: number, h: number): P
     return await canvasPng(w, h, (ctx) => {
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, w, h);
-      const s = Math.min(w / v.videoWidth, h / v.videoHeight);
-      const dw = v.videoWidth * s;
-      const dh = v.videoHeight * s;
-      ctx.drawImage(v, (w - dw) / 2, (h - dh) / 2, dw, dh);
+      const r = zoomRect(v.videoWidth, v.videoHeight, w, h, cam || null);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(v, r.x, r.y, r.w, r.h);
     });
   } finally {
     URL.revokeObjectURL(url);

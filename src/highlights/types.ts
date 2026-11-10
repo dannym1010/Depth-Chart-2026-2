@@ -56,6 +56,11 @@ export interface Highlight {
   marks?: HighlightMark[];
   /** A kid's path through the play, drawn by finger (follow.ts): [t, x, y, ...]; the Instagram video's camera follows it. */
   follow?: { pts: number[]; kid?: string };
+  /**
+   * How Play and the DaVinci Resolve export show it (clipZoom.ts): `level` times as close (1 = the whole picture) on
+   * the spot x, y (0..1 of the picture), or riding his `follow` path when `follow` is on (whole field where he isn't).
+   */
+  zoom?: { level: number; x: number; y: number; follow?: boolean };
   title: string;
   categories: HighlightCategory[];
   /** Jersey numbers of the kids in it ("21"). */

@@ -16,6 +16,7 @@ import type { Highlight, HighlightCategory, HighlightMark, HighlightSettings, Sp
 import type { HighlightStore } from './useHighlights';
 import { useClipSrc } from './useClipSrc';
 import { useZoomPan } from './useZoomPan';
+import { CLIP_ZOOM_LEVELS, clipCamera, fitCam, zoomRect } from './clipZoom';
 
 export const CATEGORY_LABEL: Record<HighlightCategory, string> = {
   td: 'TD', big_run: 'Big run', catch: 'Catch', pass: 'Pass', sack: 'Sack', int: 'INT', fumble: 'Fumble', tfl: 'TFL', pbu: 'PBU', tackle: 'Tackle',
@@ -87,6 +88,8 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
   const [following, setFollowing] = useState(false);
   const [followSpeed, setFollowSpeed] = useState(0.25);
   const [watchFollow, setWatchFollow] = useState(false);
+  // Show the zoom kept for Play and the Resolve export on the editor's picture.
+  const [showZoom, setShowZoom] = useState(false);
   const [fingerDown, setFingerDown] = useState(false);
   const followRef = useRef<{ speed: number } | null>(null);
   const fingerRef = useRef<{ x: number; y: number } | null>(null);
@@ -355,6 +358,8 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
     setMarking(false);
     setPlacing(false);
     setWatchFollow(false);
+    setShowZoom(false);
+    zp.reset();
     if (vv.currentTime < start || vv.currentTime >= end - 0.1) vv.currentTime = start;
     followRef.current = { speed: followSpeed };
     setFollowing(true);
@@ -419,6 +424,49 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
     if (!watchFollow) zp.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchFollow]);
+
+  // ---- The zoom kept for Play and the Resolve export ----
+  /** The film's place in the editor's picture box (it's fitted in, bars around it). */
+  const fitInBox = () => {
+    const box = zp.boxRef.current;
+    const vv = videoRef.current;
+    const W = box?.clientWidth || 16;
+    const H = box?.clientHeight || 9;
+    return { W, H, fit: zoomRect(vv?.videoWidth || 16, vv?.videoHeight || 9, W, H, null).fit };
+  };
+  const keepZoom = () => {
+    const { W, H, fit } = fitInBox();
+    const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
+    // The middle of what's on screen, as a spot of the film.
+    const x = clamp01(((0.5 - zp.pan.x) * W - fit.x) / fit.w);
+    const y = clamp01(((0.5 - zp.pan.y) * H - fit.y) / fit.h);
+    const c = fitCam({ mag: zp.zoom, x, y });
+    const r3 = (n: number) => Math.round(n * 1000) / 1000;
+    edit((h0) => ({ ...h0, zoom: { level: r2(c.mag), x: r3(c.x), y: r3(c.y), follow: false } }));
+    setWatchFollow(false);
+    setShowZoom(true);
+  };
+  useEffect(() => setShowZoom(false), [h.id]);
+  // "Show it": the editor's picture plays with the kept zoom, the way Play will.
+  useEffect(() => {
+    if (!showZoom || following || watchFollow) return;
+    const cam = clipCamera(h, now);
+    if (!cam) return zp.lookAt(1, 0, 0);
+    const { W, H, fit } = fitInBox();
+    zp.lookAt(cam.mag, (fit.x + cam.x * fit.w) / W - 0.5, (fit.y + cam.y * fit.h) / H - 0.5);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showZoom, following, watchFollow, h.zoom, h.follow, now]);
+  useEffect(() => {
+    if (!showZoom && !watchFollow) zp.reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showZoom]);
+  const zoomLine = !h.zoom
+    ? 'Whole picture.'
+    : h.zoom.follow && path.length > 1
+      ? `Follows him at ${h.zoom.level}× (the whole field where he isn't followed).`
+      : h.zoom.follow
+        ? `${h.zoom.level}× on the middle: follow a kid above and it rides his path.`
+        : `${h.zoom.level}× on the spot you kept.`;
 
   // Another camera's view of this play, lined up with this one.
   const [film, setFilm] = useState<GameFilm | null>(null);
@@ -857,7 +905,16 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
                     Followed {stretches(path).filter((s) => s.length > 1).map((s) => `${fmt(s[0].t)}–${fmt(s[s.length - 1].t)}`).join(', ')}
                     {path[0].t > start + 0.3 || path[path.length - 1].t < end - 0.3 ? ' · the whole field shows where he isn\'t followed' : ''}
                   </span>
-                  <button type="button" className={chip(watchFollow)} aria-pressed={watchFollow} onClick={() => setWatchFollow((x) => !x)} title="Zoom the picture along his path, like the video will">
+                  <button
+                    type="button"
+                    className={chip(watchFollow)}
+                    aria-pressed={watchFollow}
+                    onClick={() => {
+                      setShowZoom(false);
+                      setWatchFollow((x) => !x);
+                    }}
+                    title="Zoom the picture along his path, like the video will"
+                  >
                     Watch it zoom
                   </button>
                   <button type="button" className="text-rose-600 dark:text-rose-400 font-bold px-1" onClick={() => { setWatchFollow(false); edit((x) => ({ ...x, follow: undefined })); }}>
@@ -865,6 +922,81 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
                   </button>
                 </>
               )}
+            </span>
+          )}
+        </fieldset>
+      )}
+
+      {/* The zoom kept for Play and the Resolve export */}
+      {!ro && (
+        <fieldset className="rounded-lg border border-sky-200 dark:border-sky-500/30 p-2 flex flex-col gap-1.5 min-w-0 text-xs">
+          <legend className="px-1 font-black text-slate-700 dark:text-slate-200">Zoom in Play and the Resolve export</legend>
+          <span className="flex flex-wrap items-center gap-1.5">
+            <span className="text-slate-600 dark:text-slate-300">{zoomLine}</span>
+            <button
+              type="button"
+              className={small}
+              disabled={!src.url || zp.zoom <= 1.05 || showZoom || watchFollow || following}
+              onClick={keepZoom}
+              title="Pinch or scroll on the picture to what you want, then keep it"
+            >
+              <ZoomIn size={12} className="inline -mt-0.5" /> Keep this zoom{zp.zoom > 1.05 && !showZoom && !watchFollow ? ` (${zp.zoom.toFixed(1)}×)` : ''}
+            </button>
+            {path.length > 1 && (
+              <button
+                type="button"
+                className={chip(Boolean(h.zoom?.follow))}
+                aria-pressed={Boolean(h.zoom?.follow)}
+                onClick={() =>
+                  edit((x) =>
+                    x.zoom?.follow
+                      ? { ...x, zoom: { ...x.zoom, follow: false } }
+                      : { ...x, zoom: { level: x.zoom?.level && x.zoom.level > 1 ? x.zoom.level : 2, x: x.zoom?.x ?? 0.5, y: x.zoom?.y ?? 0.5, follow: true } }
+                  )
+                }
+                title="Zoom in on him and ride the path you followed (the whole field where he isn't followed)"
+              >
+                <Crosshair size={12} className="inline -mt-0.5" /> Follow his path
+              </button>
+            )}
+            {h.zoom && (
+              <>
+                <span className="inline-flex items-center gap-0.5" role="group" aria-label="How close">
+                  {CLIP_ZOOM_LEVELS.map((lv) => (
+                    <button key={lv} type="button" className={chip(Math.abs((h.zoom?.level || 0) - lv) < 0.01)} onClick={() => edit((x) => (x.zoom ? { ...x, zoom: { ...x.zoom, level: lv } } : x))}>
+                      {lv}×
+                    </button>
+                  ))}
+                </span>
+                <button
+                  type="button"
+                  className={chip(showZoom)}
+                  aria-pressed={showZoom}
+                  onClick={() => {
+                    setWatchFollow(false);
+                    setShowZoom((x) => !x);
+                  }}
+                  title="Play it here with the zoom, the way Play will"
+                >
+                  Show it
+                </button>
+                <button
+                  type="button"
+                  className="text-rose-600 dark:text-rose-400 font-bold px-1"
+                  onClick={() => {
+                    setShowZoom(false);
+                    edit((x) => ({ ...x, zoom: undefined }));
+                  }}
+                >
+                  Whole picture
+                </button>
+              </>
+            )}
+          </span>
+          {!h.zoom && (
+            <span className="text-slate-500">
+              Pinch or scroll on the picture (or the + button) to what you want to see, drag it into place, then <b>Keep this zoom</b>.
+              {path.length > 1 ? ' Or pick Follow his path to ride the kid you followed.' : ' Or follow a kid above, then pick Follow his path.'}
             </span>
           )}
         </fieldset>

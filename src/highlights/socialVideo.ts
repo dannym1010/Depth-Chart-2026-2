@@ -87,7 +87,8 @@ function baseFocus(h: Highlight, t: number, part: 'main' | 'replay'): { x: numbe
     .sort((a, b) => a.t - b.t);
   if (h.freeze?.spot) keys.push({ t: h.freeze.at, from: h.freeze.at, to: h.freeze.at, x: h.freeze.spot.x, y: h.freeze.spot.y });
   keys.sort((a, b) => a.t - b.t);
-  if (!keys.length) return { x: 0.5, y: 0.5 };
+  // Nothing marked: the spot kept with the clip's zoom (for Play), else the middle.
+  if (!keys.length) return h.zoom && !h.zoom.follow && Number.isFinite(h.zoom.x) && Number.isFinite(h.zoom.y) ? { x: h.zoom.x, y: h.zoom.y } : { x: 0.5, y: 0.5 };
   const on = keys.filter((k) => t >= k.from && t <= k.to);
   if (on.length) return { x: on.reduce((n, k) => n + k.x, 0) / on.length, y: on.reduce((n, k) => n + k.y, 0) / on.length };
   if (t <= keys[0].t) return { x: keys[0].x, y: keys[0].y };

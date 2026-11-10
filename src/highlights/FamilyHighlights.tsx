@@ -374,6 +374,7 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, min
                     {h.slow ? ' · slow-mo' : ''}
                     {h.marks?.length ? ' · circled' : ''}
                     {h.follow ? ' · follows' : ''}
+                    {h.zoom ? ' · zoomed' : ''}
                   </span>
                 </button>
                 <span className="text-[11px] tabular-nums text-slate-500 shrink-0">{(h.end - h.start).toFixed(1)} s</span>

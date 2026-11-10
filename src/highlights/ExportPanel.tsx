@@ -8,6 +8,8 @@ import { CheckCircle2, FolderOpen, Loader2, X } from 'lucide-react';
 import { canCut, cutClip } from './cutter';
 import type { FilmAccess } from './filmAccess';
 import { canvasPng, drawCard, drawLowerThird, drawSpot, frameGrab } from './graphics';
+import { hasClipZoom, zoomRect } from './clipZoom';
+import { drawSpotIn } from './socialVideo';
 import { chapters, type Segment } from './highlightData';
 import { buildPlan, frameSize, joinPath, readMe, toCsv, toEdl, toFcpxml, toOtio, toXmeml, type ExportPlan } from './exporters';
 import { canWriteFolders, cleanName, DB_FILE, dbJson, libraryFolder, loadPaths, pickLibrary, savePaths, subfolder, writeFile } from './localLibrary';
@@ -80,6 +82,7 @@ export const ExportPanel: React.FC<Props> = ({ reelName, segments, access, setti
 
   const ready = Boolean(paths.library.trim()) && (mode !== 'link' || Boolean(paths.film.trim()));
   const fmt = FORMATS.find((f) => f.id === format)!;
+  const zoomed = useMemo(() => new Set(segments.filter((s) => s.type !== 'card' && hasClipZoom(s.h)).map((s) => (s.type === 'card' ? '' : s.h.id))).size, [segments]);
 
   const run = async () => {
     setRunning(true);
@@ -138,7 +141,7 @@ export const ExportPanel: React.FC<Props> = ({ reelName, segments, access, setti
         settings,
         mediaOf: (h, view, clip) => {
           const w = where.get(`${h.game.key}|${view}|${clip}`);
-          return { path: w?.path || clip, durationSec: w?.durationSec };
+          return { path: w?.path || clip, durationSec: w?.durationSec, base: w?.base || 0 };
         },
         graphicsDir: joinPath(reelPath, 'Graphics'),
       });
@@ -152,8 +155,10 @@ export const ExportPanel: React.FC<Props> = ({ reelName, segments, access, setti
         const spec = gr.spec;
         if (spec.kind === 'card') png = await canvasPng(width, height, (ctx) => drawCard(ctx, width, height, spec.card, settings, logo));
         else if (spec.kind === 'lower') png = await canvasPng(width, height, (ctx) => drawLowerThird(ctx, width, height, spec.overlay, settings, logo));
-        else if (spec.kind === 'spot') png = await canvasPng(width, height, (ctx) => drawSpot(ctx, width, height, spec.spot, settings));
-        else png = await frameGrab(await access.file(spec.h.game, spec.view, spec.clip), spec.at, width, height);
+        else if (spec.kind === 'spot')
+          // On a zoomed clip the spotlight goes where the zoomed picture puts him (film taken as 16:9).
+          png = await canvasPng(width, height, (ctx) => (spec.cam ? drawSpotIn(ctx, width, height, zoomRect(16, 9, width, height, spec.cam), spec.spot, settings) : drawSpot(ctx, width, height, spec.spot, settings)));
+        else png = await frameGrab(await access.file(spec.h.game, spec.view, spec.clip), spec.at, width, height, spec.cam);
         await writeFile(gDir, gr.file, png);
       }
 
@@ -240,6 +245,13 @@ export const ExportPanel: React.FC<Props> = ({ reelName, segments, access, setti
             ))}
           </div>
           <p className="text-[11px] text-slate-500">A cut list (CSV), YouTube chapters and a read-me are always written too.</p>
+          {zoomed > 0 && (
+            <p className={`text-[11px] ${format === 'fcpxml' ? 'text-slate-500' : 'font-bold text-amber-700 dark:text-amber-300'}`}>
+              {format === 'fcpxml'
+                ? `${zoomed} zoomed clip${zoomed === 1 ? '' : 's'}: the zoom comes into Resolve as each clip's Zoom and Position (keyframed where it follows a kid).`
+                : `${zoomed} clip${zoomed === 1 ? ' is' : 's are'} zoomed: only FCPXML carries the zoom; this format shows ${zoomed === 1 ? 'it' : 'them'} whole.`}
+            </p>
+          )}
         </fieldset>
 
         <fieldset className="flex flex-col gap-1.5">
