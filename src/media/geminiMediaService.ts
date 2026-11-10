@@ -410,6 +410,9 @@ export async function analyzePhotoWithGemini(opts: AnalyzePhotoOptions): Promise
       }
 
       const errText = await res.text();
+      if (res.status === 402 || /402|prepayment|credits are depleted/i.test(errText)) {
+        throw new Error('Google Gemini error (402 Payment Required): Your Google AI Studio prepayment balance is depleted ($0). Top up credits at aistudio.google.com or create a key under a free-tier project.');
+      }
       if (res.status === 429) {
         const delay = geminiRetryDelay(errText);
         lastError = delay ? `Gemini busy (${delay}s delay)` : 'Gemini quota reached';

@@ -183,7 +183,7 @@ export const AiTaggingModal: React.FC<Props> = ({
         });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (/refused this Gemini API key|quota reached|No Gemini API key/i.test(msg)) {
+        if (/refused this Gemini API key|quota reached|No Gemini API key|402|Payment Required/i.test(msg)) {
           setErrorNote(msg);
           setShowKeyEditor(true);
           setRunning(false);

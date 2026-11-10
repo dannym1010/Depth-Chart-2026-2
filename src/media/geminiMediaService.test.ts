@@ -118,5 +118,16 @@ describe('Gemini Media AI Vision: Response Parser', () => {
     assert.equal(res.score, 8.7);
     assert.equal(res.tier, 'Elite');
   });
+
+  it('validates categories against wish list constants', () => {
+    assert.ok(VALID_CATEGORIES.includes('Action'));
+    assert.ok(VALID_CATEGORIES.includes('Sidelines and huddles'));
+    assert.ok(VALID_CATEGORIES.includes('Warmups'));
+    assert.ok(VALID_CATEGORIES.includes('Celebration'));
+    assert.ok(VALID_CATEGORIES.includes('Post-game'));
+    assert.ok(VALID_CATEGORIES.includes('Coaches'));
+    assert.ok(VALID_CATEGORIES.includes('Fans'));
+    assert.ok(VALID_CATEGORIES.includes('Portraits'));
+  });
 });
 

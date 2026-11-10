@@ -700,6 +700,10 @@ ${userPrompt ? `Coach's note for this play: ${userPrompt}` : ''}
         lastError = `The model ${m} isn't available.`;
         break; // the next model
       }
+      if (res.status === 402) {
+        lastError = 'Google returned 402 Payment Required: Your Google AI Studio prepayment balance is depleted ($0). Top up credits at aistudio.google.com or create a key under a free-tier project.';
+        break;
+      }
       if (res.status === 429) {
         quotaHit = true;
         // A per-minute limit says how long to wait: worth one short wait. A daily limit isn't: the next model has its own.

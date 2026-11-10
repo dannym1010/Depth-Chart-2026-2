@@ -69,6 +69,11 @@ export const AiKeyModal: React.FC<Props> = ({ open, onClose, onSaved }) => {
         const text = await res.text();
         if (res.status === 400 || res.status === 403 || /API key not valid|API_KEY_INVALID/i.test(text)) {
           setTestResult({ ok: false, message: 'Invalid API key. Check or re-copy the key from Google AI Studio.' });
+        } else if (res.status === 402 || /402|prepayment|credits/i.test(text)) {
+          setTestResult({
+            ok: false,
+            message: '402 Payment Required: Your Google AI Studio prepayment credits are at $0. Top up at aistudio.google.com or switch to a free-tier key.',
+          });
         } else if (res.status === 429) {
           setTestResult({ ok: true, message: 'Key is valid! (Note: temporary quota limit reached, will clear soon).' });
         } else {
@@ -153,7 +158,7 @@ export const AiKeyModal: React.FC<Props> = ({ open, onClose, onSaved }) => {
               className="h-10 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
             <p className="text-[11px] text-slate-500">
-              Must start with <code className="font-mono text-indigo-600 dark:text-indigo-400">AIzaSy…</code>
+              Keys are generated at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-indigo-600 dark:text-indigo-400 underline font-medium">aistudio.google.com</a> (typically starts with <code className="font-mono">AIzaSy…</code>).
             </p>
           </div>
 
