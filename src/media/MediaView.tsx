@@ -342,38 +342,58 @@ const Viewer: React.FC<{
       {/* Left/Main Area: Photo Canvas */}
       <div className="flex-1 flex flex-col h-full min-w-0 relative">
         {/* Top bar */}
-        <div className="flex items-center gap-3 px-4 py-3 text-white z-20 bg-gradient-to-b from-black/80 to-transparent">
-          <span className="flex-1 min-w-0 truncate text-sm font-bold">{photo.name}</span>
-          <span className="text-xs text-slate-300 shrink-0">
-            {index + 1} of {photos.length}
-            {photo.takenAt ? ` · ${new Date(photo.takenAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}` : ''}
-          </span>
-          <button
-            type="button"
-            onClick={() => onOpenCrop(photo)}
-            title="Crop to Instagram Ratios"
-            className="h-9 px-3 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer bg-gradient-to-r from-amber-500 via-rose-500 to-purple-600 text-white shadow-sm hover:opacity-90 transition"
-          >
-            <Instagram size={14} /> Crop Instagram
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowInspector((s) => !s)}
-            title="Toggle Inspector (I)"
-            className={`h-9 px-3 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition ${
-              showInspector ? 'bg-indigo-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'
-            }`}
-          >
-            <SlidersHorizontal size={14} /> Details
-          </button>
+        <div className="flex items-center gap-3 px-4 py-3 text-white z-20 bg-gradient-to-b from-black/90 to-transparent shrink-0 border-b border-white/10">
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
-            className="h-9 w-9 grid place-items-center rounded-lg hover:bg-white/10 cursor-pointer text-white"
+            aria-label="Back to library"
+            title="Back to photo library (Esc)"
+            className="h-9 px-3.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-black inline-flex items-center gap-1.5 cursor-pointer transition shrink-0 backdrop-blur-md border border-white/15 shadow-sm hover:scale-[1.02]"
           >
-            <X size={20} />
+            <ChevronLeft size={18} />
+            <span>Back to Library</span>
           </button>
+
+          <div className="flex-1 min-w-0 flex items-center gap-2">
+            <span className="truncate text-sm font-bold text-white">{photo.name}</span>
+            <span className="text-xs text-slate-400 shrink-0 hidden sm:inline">
+              ({index + 1} of {photos.length})
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-xs text-slate-300 hidden lg:inline mr-1">
+              {photo.takenAt ? new Date(photo.takenAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''}
+            </span>
+            <button
+              type="button"
+              onClick={() => onOpenCrop(photo)}
+              title="Crop to Instagram Ratios"
+              className="h-9 px-3 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer bg-gradient-to-r from-amber-500 via-rose-500 to-purple-600 text-white shadow-sm hover:opacity-90 transition"
+            >
+              <Instagram size={14} /> <span className="hidden sm:inline">Crop Instagram</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowInspector((s) => !s)}
+              title="Toggle Inspector (I)"
+              className={`h-9 px-3 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition ${
+                showInspector ? 'bg-indigo-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'
+              }`}
+            >
+              <SlidersHorizontal size={14} /> <span className="hidden sm:inline">Details</span>
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close viewer (Escape)"
+              title="Close (Esc)"
+              className="h-9 px-3 rounded-xl bg-white/10 hover:bg-rose-600 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition border border-white/15"
+            >
+              <X size={16} />
+              <span className="hidden md:inline">Close</span>
+            </button>
+          </div>
         </div>
 
         {/* Center image */}
@@ -416,17 +436,28 @@ const Viewer: React.FC<{
               <h3 className="text-sm font-black flex items-center gap-2">
                 <Sparkles size={16} className="text-indigo-400" /> Photo Metadata & Curation
               </h3>
-              {canEdit && (
+              <div className="flex items-center gap-1.5">
+                {canEdit && (
+                  <button
+                    type="button"
+                    disabled={analyzing}
+                    onClick={() => void runAiOnCurrent()}
+                    className="h-8 px-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-sm"
+                  >
+                    {analyzing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                    {record?.aiAnalyzedAt ? 'Re-Analyze AI' : 'AI Analyze'}
+                  </button>
+                )}
                 <button
                   type="button"
-                  disabled={analyzing}
-                  onClick={() => void runAiOnCurrent()}
-                  className="h-8 px-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-sm"
+                  onClick={onClose}
+                  aria-label="Close photo viewer"
+                  title="Close viewer (Esc)"
+                  className="h-8 w-8 grid place-items-center rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer transition border border-slate-700/80"
                 >
-                  {analyzing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                  {record?.aiAnalyzedAt ? 'Re-Analyze AI' : 'AI Analyze'}
+                  <X size={16} />
                 </button>
-              )}
+              </div>
             </div>
             {canEdit && (
               <div className="flex items-center justify-between text-[11px] bg-slate-800/70 px-2.5 py-1.5 rounded-lg border border-slate-700/80">
