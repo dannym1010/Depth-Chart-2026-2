@@ -88,6 +88,13 @@ export const AiTaggingModal: React.FC<Props> = ({
 
   const startBatch = async () => {
     setErrorNote('');
+    const keyCheck = getSavedGeminiKey();
+    if (!keyCheck) {
+      setErrorNote('No Gemini API key found on this device. Paste your key in the box above and click "Save Key" first.');
+      setShowKeyEditor(true);
+      setRunning(false);
+      return;
+    }
     stopRequested.current = false;
     pauseRequested.current = false;
     setPaused(false);
@@ -176,8 +183,9 @@ export const AiTaggingModal: React.FC<Props> = ({
         });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (/refused this Gemini API key|quota reached/i.test(msg)) {
+        if (/refused this Gemini API key|quota reached|No Gemini API key/i.test(msg)) {
           setErrorNote(msg);
+          setShowKeyEditor(true);
           setRunning(false);
           return;
         }
@@ -292,7 +300,7 @@ export const AiTaggingModal: React.FC<Props> = ({
             ) : (
               <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
                 <CheckCircle2 size={14} />
-                <span>API Key configured on this device (AIzaSy…{getSavedGeminiKey().slice(-4)})</span>
+                <span>API Key configured on this device ({getSavedGeminiKey().slice(0, 6)}…{getSavedGeminiKey().slice(-4)})</span>
               </div>
             )}
           </div>

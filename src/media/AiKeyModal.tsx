@@ -42,7 +42,7 @@ export const AiKeyModal: React.FC<Props> = ({ open, onClose, onSaved }) => {
   const handleTestKey = async () => {
     const keyToTest = keyInput.trim() || currentSavedKey;
     if (!keyToTest) {
-      setTestResult({ ok: false, message: 'Please enter a key starting with AIzaSy…' });
+      setTestResult({ ok: false, message: 'Please enter your Gemini API key.' });
       return;
     }
     setTesting(true);
@@ -117,7 +117,7 @@ export const AiKeyModal: React.FC<Props> = ({ open, onClose, onSaved }) => {
               <CheckCircle2 size={16} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
               <div>
                 <p className="font-bold">Active API Key Configured</p>
-                <p className="font-mono text-[11px] opacity-90">AIzaSy…{currentSavedKey.slice(-6)}</p>
+                <p className="font-mono text-[11px] opacity-90">{currentSavedKey.slice(0, 6)}…{currentSavedKey.slice(-4)}</p>
               </div>
             </div>
           ) : (
@@ -227,3 +227,4 @@ export const AiKeyModal: React.FC<Props> = ({ open, onClose, onSaved }) => {
     </div>
   );
 };
+
