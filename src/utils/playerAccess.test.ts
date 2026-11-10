@@ -80,6 +80,27 @@ describe('the database access list', () => {
   });
 });
 
+describe('Media for families', () => {
+  it('can be given to a family or a player (never Staff & access), one account or many', async () => {
+    const { tabOptionsFor, withTab, accountTabs, playerCanSee } = await import('./playerAccess.ts');
+    assert.ok(tabOptionsFor('Family').some((o) => o.id === 'media'));
+    assert.ok(!tabOptionsFor('Family').some((o) => o.id === 'users'));
+    // A family with the default Film Room gets Media added (Highlights still comes with the Film Room).
+    const tabs = withTab({ role: 'Family' }, 'media', true);
+    assert.deepEqual(tabs, ['filmroom', 'media']);
+    assert.deepEqual(accountTabs({ role: 'Family', playerTabs: tabs! }), ['filmroom', 'media', 'highlights']);
+    assert.ok(playerCanSee(tabs!, 'media'));
+    assert.equal(withTab({ role: 'Family', playerTabs: ['filmroom', 'media'] }, 'media', true), null, 'already has it');
+    assert.deepEqual(withTab({ role: 'Family', playerTabs: ['filmroom', 'media'] }, 'media', false), ['filmroom']);
+    assert.equal(withTab({ role: 'Family' }, 'users', true), null, 'never Staff & access');
+    // A coach nobody limited already has it; taking one away limits them; giving it back makes them unlimited again.
+    assert.equal(withTab({ role: 'Assistant Coach' }, 'media', true), null);
+    const less = withTab({ role: 'Assistant Coach' }, 'media', false)!;
+    assert.ok(!less.includes('media') && less.includes('filmroom'));
+    assert.equal(withTab({ role: 'Assistant Coach', playerTabs: less }, 'media', true), undefined);
+  });
+});
+
 describe('Highlights level', () => {
   it("is their kid's for players and families until a coach picks more; none for coaches", async () => {
     const { highlightAccessOf } = await import('./playerAccess.ts');

@@ -4,7 +4,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Clock, Copy, Crown, Lock, Mail, Search, Settings2, Shield, Trash2, UserPlus, Users, X } from 'lucide-react';
 import type { StaffCoach, Team, UnitType, UserRole } from '../../types';
-import { FAMILY_ROLE, PLAYER_ROLE, defaultTabsFor, accountTabs, highlightAccessOf, isViewOnlyRole } from '../../utils/playerAccess';
+import { COACH_TAB_OPTIONS, FAMILY_ROLE, PLAYER_ROLE, defaultTabsFor, accountTabs, highlightAccessOf, isViewOnlyRole, withTab } from '../../utils/playerAccess';
 import { canSeeCoach, coachTeamIds, hasNoTeamYet, type StaffManager } from '../../utils/staffAccess';
 import { matchesStaffSearch, staffGroup, STAFF_GROUPS, type StaffEdit, type StaffGroup } from '../../utils/staffBulk';
 import { AccountHighlights, AccountKids, AccountTabs } from './AccountChips';
@@ -464,6 +464,32 @@ export const StaffAccountsPanel: React.FC<Props> = (p) => {
               ))}
             </select>
           )}
+          <select
+            value=""
+            onChange={(e) => {
+              const [how, tab] = e.target.value.split(':');
+              if (!tab) return;
+              const label = COACH_TAB_OPTIONS.find((o) => o.id === tab)?.label || tab;
+              edit(
+                pickedRows,
+                (c) => {
+                  const next = withTab(c, tab, how === 'add');
+                  return next === null ? undefined : { playerTabs: next };
+                },
+                how === 'add' ? `Gave ${label} to` : `Took ${label} from`
+              );
+            }}
+            className={sel}
+            aria-label="Give the picked accounts a tab, or take one away"
+          >
+            <option value="">Tabs…</option>
+            {COACH_TAB_OPTIONS.filter((o) => o.id !== 'highlights').map((o) => (
+              <option key={`a${o.id}`} value={`add:${o.id}`}>Give {o.label}</option>
+            ))}
+            {COACH_TAB_OPTIONS.filter((o) => o.id !== 'highlights').map((o) => (
+              <option key={`r${o.id}`} value={`off:${o.id}`}>Take away {o.label}</option>
+            ))}
+          </select>
           <select
             value=""
             onChange={(e) => e.target.value !== '' && edit(pickedRows, () => ({ idleTimeoutMinutes: Number(e.target.value) }), 'Auto-logout set for')}

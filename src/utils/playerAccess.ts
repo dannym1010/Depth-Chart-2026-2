@@ -79,8 +79,26 @@ export function highlightAccessOf(entry?: { role?: string; highlightAccess?: Hig
   return entry.highlightAccess === 'all' || entry.highlightAccess === 'helper' ? entry.highlightAccess : 'kid';
 }
 
+/** The tabs a player or family account can be given: a player's, plus Media (to look at; their kid's photos first). */
+export const VIEWER_TAB_OPTIONS: PlayerTabOption[] = [...PLAYER_TAB_OPTIONS, MEDIA_TAB_OPTION];
 /** The tab choices for an account of this role. */
-export const tabOptionsFor = (role?: string) => (isViewOnlyRole(role) ? PLAYER_TAB_OPTIONS : COACH_TAB_OPTIONS);
+export const tabOptionsFor = (role?: string) => (isViewOnlyRole(role) ? VIEWER_TAB_OPTIONS : COACH_TAB_OPTIONS);
+/** The tabs an account has now, spelled out (a coach nobody limited: every coach tab). */
+export const tabsNow = (entry: { role?: string; playerTabs?: string[] }) =>
+  isViewOnlyRole(entry.role) ? viewerTabs(entry).filter((t) => t !== HIGHLIGHTS_TAB_OPTION.id) : entry.playerTabs ?? COACH_TAB_OPTIONS.map((o) => o.id);
+/**
+ * One tab given to or taken from an account (Staff & access, for many accounts at once): the new `playerTabs`, or
+ * null when nothing changes (it already has it / never had it, or the tab isn't one its role can get). A coach with
+ * every tab again is unlimited (undefined).
+ */
+export function withTab(entry: { role?: string; playerTabs?: string[] }, tab: string, on: boolean): string[] | undefined | null {
+  const options = tabOptionsFor(entry.role).map((o) => o.id);
+  if (!options.includes(tab)) return null;
+  const now = tabsNow(entry);
+  if (now.includes(tab) === on) return null;
+  const next = options.filter((id) => (id === tab ? on : now.includes(id)));
+  return !isViewOnlyRole(entry.role) && next.length === options.length ? undefined : next;
+}
 /** What an account of this role starts with: undefined = all tabs (a coach). */
 export const defaultTabsFor = (role?: string): string[] | undefined =>
   isFamilyRole(role) ? [...FAMILY_TABS] : isPlayerRole(role) ? [...DEFAULT_PLAYER_TABS] : undefined;
