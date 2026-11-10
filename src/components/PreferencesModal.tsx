@@ -30,7 +30,16 @@ import {
   Clock,
   Flame,
   Camera,
+  Key,
+  ExternalLink,
 } from 'lucide-react';
+import {
+  GEMINI_MODELS,
+  getSavedGeminiKey,
+  getSavedGeminiModel,
+  saveGeminiKey,
+  saveGeminiModel,
+} from '../services/geminiFilmService';
 import { UnitType, DepthSubUnit, Team, UserRole } from '../types';
 
 interface PreferencesModalProps {
@@ -238,6 +247,9 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
   onUpdateIdleTimeout,
 }) => {
   const [activeTab, setActiveTab] = useState<'screen' | 'team' | 'tools' | 'data'>('screen');
+  const [geminiKeyInput, setGeminiKeyInput] = useState(() => getSavedGeminiKey());
+  const [geminiModelInput, setGeminiModelInput] = useState(() => getSavedGeminiModel());
+  const [geminiToast, setGeminiToast] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
@@ -649,6 +661,79 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                       </p>
                     </div>
                   </button>
+                </div>
+              </div>
+
+              {/* Google Gemini AI Key Card */}
+              <div className="p-4 rounded-2xl bg-zinc-900/90 border border-zinc-800 flex flex-col gap-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-xs font-black text-zinc-100 flex items-center gap-2">
+                      <Key className="w-4 h-4 text-indigo-400" />
+                      <span>Google Gemini AI Key (Multimodal Vision &amp; Film Breakdown)</span>
+                    </h4>
+                    <p className="text-[11px] text-zinc-400 mt-0.5">
+                      Powers automated game photo jersey recognition, photo categorization, quality scoring, and film room breakdown.
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-full font-mono self-start sm:self-center bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                    {getSavedGeminiKey() ? `Key Active: AIzaSy…${getSavedGeminiKey().slice(-4)}` : 'No Key Set'}
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-2.5 mt-1">
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="password"
+                      value={geminiKeyInput}
+                      onChange={(e) => setGeminiKeyInput(e.target.value)}
+                      placeholder="Paste Gemini API Key (AIzaSy...)"
+                      className="flex-1 h-9 px-3 rounded-xl border border-zinc-700 bg-zinc-950 text-xs font-mono text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <select
+                      value={geminiModelInput}
+                      onChange={(e) => setGeminiModelInput(e.target.value)}
+                      className="h-9 px-2.5 rounded-xl border border-zinc-700 bg-zinc-950 text-xs font-bold text-zinc-200 cursor-pointer"
+                    >
+                      {GEMINI_MODELS.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        saveGeminiKey(geminiKeyInput.trim());
+                        saveGeminiModel(geminiModelInput);
+                        setGeminiToast('Gemini API key saved on this device!');
+                        setTimeout(() => setGeminiToast(''), 3000);
+                      }}
+                      className="h-9 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black cursor-pointer shadow-sm shrink-0"
+                    >
+                      Save Key
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between flex-wrap gap-2 text-[11px]">
+                    <span className="text-zinc-400">
+                      Keys start with <code className="font-mono text-indigo-400">AIzaSy…</code>
+                    </span>
+                    <a
+                      href="https://aistudio.google.com/app/apikey"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-indigo-400 hover:underline font-semibold inline-flex items-center gap-1"
+                    >
+                      <span>Get a free key at Google AI Studio</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                  {geminiToast && (
+                    <p className="text-xs text-emerald-400 font-bold mt-1">
+                      ✓ {geminiToast}
+                    </p>
+                  )}
                 </div>
               </div>
 

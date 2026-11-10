@@ -403,3 +403,4 @@ export const CropModal: React.FC<Props> = ({ open, onClose, photo, record, canEd
     </div>
   );
 };
+

@@ -407,3 +407,4 @@ const AlbumThumb: React.FC<{ photo: DrivePhoto }> = ({ photo }) => {
     />
   );
 };
+

@@ -16,6 +16,7 @@ import {
   Filter,
   ImageOff,
   Instagram,
+  Key,
   Loader2,
   Plus,
   RotateCcw,
@@ -36,9 +37,11 @@ import { opponentOf } from '../highlights/highlightData';
 import type { HighlightGame } from '../highlights/types';
 import { zipFiles } from '../highlights/zip';
 import type { RosterPlayer } from '../types';
+import { AiKeyModal } from './AiKeyModal';
 import { AiTaggingModal } from './AiTaggingModal';
 import { CropModal } from './CropModal';
 import { analyzePhotoWithGemini, type RosterRef, VALID_CATEGORIES } from './geminiMediaService';
+import { getSavedGeminiKey } from '../services/geminiFilmService';
 import {
   addFolder,
   dayOf,
@@ -1011,6 +1014,8 @@ export const MediaView: React.FC<Props> = ({
   const [signInNote, setSignInNote] = useState('');
   const [adding, setAdding] = useState(false);
   const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiKeyModalOpen, setAiKeyModalOpen] = useState(false);
+  const [hasGeminiKey, setHasGeminiKey] = useState(() => Boolean(getSavedGeminiKey()));
   const [cropPhoto, setCropPhoto] = useState<DrivePhoto | null>(null);
   const [albumsOpen, setAlbumsOpen] = useState(false);
   const [openId, setOpenId] = useState('');
@@ -1231,6 +1236,22 @@ export const MediaView: React.FC<Props> = ({
 
         {/* Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap">
+          {/* AI Key & Settings Button (Always visible to coaches) */}
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => setAiKeyModalOpen(true)}
+              className={`h-9 px-3 inline-flex items-center gap-1.5 rounded-lg text-xs font-bold cursor-pointer transition shadow-sm border ${
+                hasGeminiKey
+                  ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  : 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600 shadow-md font-black'
+              }`}
+            >
+              <Key size={14} />
+              <span>{hasGeminiKey ? 'AI Key' : '🔑 Set AI Key'}</span>
+            </button>
+          )}
+
           {/* Player Albums Button */}
           <button
             type="button"
@@ -1287,6 +1308,28 @@ export const MediaView: React.FC<Props> = ({
           )}
         </div>
       </div>
+
+      {/* Alert banner if no Gemini API key is configured yet */}
+      {canEdit && !hasGeminiKey && (
+        <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-indigo-500/10 to-transparent border border-amber-500/40 text-slate-900 dark:text-slate-100 flex items-center justify-between flex-wrap gap-2 text-xs">
+          <div className="flex items-center gap-2">
+            <Key size={18} className="text-amber-500 shrink-0" />
+            <div>
+              <p className="font-bold">Google Gemini AI Key Not Set Yet</p>
+              <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                Enter your free Google AI Studio key to enable automated jersey number reading, category tagging, and curation quality scores.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAiKeyModalOpen(true)}
+            className="h-8 px-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black cursor-pointer shadow-sm"
+          >
+            Enter AI Key
+          </button>
+        </div>
+      )}
 
       {/* Family Welcome Banner */}
       {watchOnly && linkedKidName && (
@@ -1523,6 +1566,13 @@ export const MediaView: React.FC<Props> = ({
         records={records}
         roster={roster}
         onSavePhoto={handleSavePhoto}
+      />
+
+      {/* AI Key Modal */}
+      <AiKeyModal
+        open={aiKeyModalOpen}
+        onClose={() => setAiKeyModalOpen(false)}
+        onSaved={() => setHasGeminiKey(Boolean(getSavedGeminiKey()))}
       />
 
       {/* Instagram Crop Modal */}
