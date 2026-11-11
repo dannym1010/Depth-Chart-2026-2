@@ -91,6 +91,12 @@ interface Props {
   myKids?: string[];
 }
 
+/**
+ * The photo viewer's light-on-dark buttons. Set as styles, not see-through white utility colors: the light theme
+ * turns those into solid grey with dark text, and the buttons disappeared on the black bar.
+ */
+const GHOST: React.CSSProperties = { background: 'rgba(255,255,255,0.16)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.3)' };
+
 const field =
   'h-9 px-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm text-slate-900 dark:text-slate-100';
 
@@ -382,7 +388,8 @@ const Viewer: React.FC<{
             onClick={onClose}
             aria-label="Back to library"
             title="Back to photo library (Esc)"
-            className="h-9 px-3.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-black inline-flex items-center gap-1.5 cursor-pointer transition shrink-0 backdrop-blur-md border border-white/15 shadow-sm hover:scale-[1.02]"
+            className="h-9 px-3.5 rounded-xl text-xs font-black inline-flex items-center gap-1.5 cursor-pointer transition shrink-0 shadow-sm hover:scale-[1.02]"
+            style={GHOST}
           >
             <ChevronLeft size={18} />
             <span>Back to Library</span>
@@ -405,9 +412,10 @@ const Viewer: React.FC<{
                 onClick={() => onFav(photo)}
                 aria-pressed={Boolean(isFav?.(photo.id))}
                 title={isFav?.(photo.id) ? 'In your favorites (F)' : 'Add to your favorites (F)'}
-                className={`h-9 px-3 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition border border-white/15 ${isFav?.(photo.id) ? 'bg-rose-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                className="h-9 px-3 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition"
+                style={isFav?.(photo.id) ? { ...GHOST, background: '#e11d48', border: '1px solid #e11d48' } : GHOST}
               >
-                <Heart size={14} className={isFav?.(photo.id) ? 'fill-current' : ''} /> <span className="hidden sm:inline">{isFav?.(photo.id) ? 'Favorite' : 'Favorite'}</span>
+                <Heart size={14} className={isFav?.(photo.id) ? 'fill-current' : ''} /> <span className="hidden sm:inline">{isFav?.(photo.id) ? 'Favorited' : 'Favorite'}</span>
               </button>
             )}
             <button
@@ -422,9 +430,8 @@ const Viewer: React.FC<{
               type="button"
               onClick={() => setShowInspector((s) => !s)}
               title="Toggle Inspector (I)"
-              className={`h-9 px-3 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition ${
-                showInspector ? 'bg-indigo-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'
-              }`}
+              className="h-9 px-3 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition"
+              style={showInspector ? { ...GHOST, background: '#4f46e5', border: '1px solid #4f46e5' } : GHOST}
             >
               <SlidersHorizontal size={14} /> <span className="hidden sm:inline">Details</span>
             </button>
@@ -433,7 +440,8 @@ const Viewer: React.FC<{
               onClick={onClose}
               aria-label="Close viewer (Escape)"
               title="Close (Esc)"
-              className="h-9 px-3 rounded-xl bg-white/10 hover:bg-rose-600 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition border border-white/15"
+              className="h-9 px-3 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition"
+              style={GHOST}
             >
               <X size={16} />
               <span className="hidden md:inline">Close</span>
