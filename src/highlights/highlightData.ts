@@ -59,6 +59,8 @@ export function mergeHighlights(a?: Partial<HighlightsData> | null, b?: Partial<
   const y = { ...emptyHighlights(), ...(b || {}) };
   const deletedHighlights = mergeTombstones(x.deletedHighlights, y.deletedHighlights);
   const deletedReels = mergeTombstones(x.deletedReels, y.deletedReels);
+  const deletedSlideshows = mergeTombstones(x.deletedSlideshows || {}, y.deletedSlideshows || {});
+  const slideshows = mergeById(x.slideshows || [], y.slideshows || [], deletedSlideshows).sort((m, n) => m.createdAt - n.createdAt);
   const sx = { ...defaultSettings(), ...(x.settings || {}) };
   const sy = { ...defaultSettings(), ...(y.settings || {}) };
   // A highlight's game, from whichever copy still has it (a cloud copy once lost it: the save blanked a game shared
@@ -78,6 +80,8 @@ export function mergeHighlights(a?: Partial<HighlightsData> | null, b?: Partial<
     reels: mergeById(x.reels, y.reels, deletedReels).sort((m, n) => m.createdAt - n.createdAt),
     deletedReels,
     settings: (sy.editedAt || 0) > (sx.editedAt || 0) ? sy : sx,
+    // Only when there are some (older copies and tests compare without them).
+    ...(slideshows.length || Object.keys(deletedSlideshows).length ? { slideshows, deletedSlideshows } : {}),
   };
 }
 

@@ -155,6 +155,7 @@ export const HighlightsSection: React.FC<Props> = ({ teamId, teamName, ownTeamSc
       people={people}
       seeAllReels={Boolean(seeAllReels) && !watchOnly}
       familySends={familySends}
+      teamId={teamId}
     />
   );
 };

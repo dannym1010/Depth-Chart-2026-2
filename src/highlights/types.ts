@@ -2,6 +2,7 @@
 // is a play's clip (or a Field camera extra) with a start and an end; the film itself is never changed. Shared with
 // the staff like playlists (one doc per team per season), or kept on this computer only.
 import type { Tombstones } from '../utils/recordMerge';
+import type { Slideshow } from '../slideshow/types';
 
 /** The game a highlight comes from (our games only), enough to find its film again. */
 export interface HighlightGame {
@@ -172,4 +173,7 @@ export interface HighlightsData {
   reels: Reel[];
   deletedReels: Tombstones;
   settings: HighlightSettings;
+  /** Photo-and-clip slideshows (src/slideshow). */
+  slideshows?: Slideshow[];
+  deletedSlideshows?: Tombstones;
 }

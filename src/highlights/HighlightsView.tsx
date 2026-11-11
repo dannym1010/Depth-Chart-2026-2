@@ -3,7 +3,7 @@
 // season, one kid, or any mix) that play right here or go out to DaVinci Resolve; the banquet check that every kid
 // is in enough of them; and the team's look and defaults.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Clapperboard, FolderOpen, Plus, Settings2, Sparkles, Star, Trash2, Users, Wand2 } from 'lucide-react';
+import { Clapperboard, FolderOpen, Images, Plus, Settings2, Sparkles, Star, Trash2, Users, Wand2 } from 'lucide-react';
 import type { Play } from '../hudlScout/types/football';
 import { countViewIndex } from '../filmroom/dualView';
 import type { FilmGameShared } from '../filmroom/types';
@@ -24,6 +24,7 @@ import { canWriteFolders, DB_FILE, dbJson, libraryFolder, writeFile } from './lo
 import type { Highlight, HighlightCategory, HighlightGame, Reel } from './types';
 import { inboxFor, type FamilySends } from './familySends';
 import type { HighlightStore } from './useHighlights';
+import { SlideshowsTab } from '../slideshow/SlideshowsTab';
 
 export interface HighlightsViewProps {
   teamName: string;
@@ -49,9 +50,11 @@ export interface HighlightsViewProps {
   seeAllReels?: boolean;
   /** What families sent for reels taking clips (each family's document). */
   familySends?: FamilySends[];
+  /** The team (for its Media photos in slideshows); no Slideshows tab without it. */
+  teamId?: string;
 }
 
-type Tab = 'clips' | 'reels' | 'kids' | 'settings';
+type Tab = 'clips' | 'reels' | 'shows' | 'kids' | 'settings';
 /** Each kind of recommended play's color (its chip and its badges). */
 const REC_COLOR: Record<RecGroup, string> = {
   scores: '#dc2626',
@@ -64,7 +67,7 @@ const REC_COLOR: Record<RecGroup, string> = {
 };
 type ClipsView = 'kept' | 'suggested' | 'extras';
 
-export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season, store, access, loadShared, games, plays, roster, me, myName, helper = false, extra, people, seeAllReels = false, familySends = [] }) => {
+export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season, store, access, loadShared, games, plays, roster, me, myName, helper = false, extra, people, seeAllReels = false, familySends = [], teamId }) => {
   const { data, update } = store;
   const ro = store.readOnly;
   const settings = data.settings;
@@ -440,6 +443,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
         <div role="tablist" className="flex flex-wrap items-center gap-1 sm:ml-auto">
           {tabBtn('clips', <><Sparkles size={13} /> Clips</>)}
           {tabBtn('reels', <><Clapperboard size={13} /> Reels</>)}
+          {teamId && tabBtn('shows', <><Images size={13} /> Slideshows</>)}
           {tabBtn('kids', <><Users size={13} /> Every kid</>)}
           {!helper && tabBtn('settings', <><Settings2 size={13} /> Settings</>)}
         </div>
@@ -952,6 +956,23 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
             )}
           </div>
         </div>
+      )}
+
+      {tab === 'shows' && teamId && (
+        <SlideshowsTab
+          teamId={teamId}
+          season={season}
+          store={store}
+          access={access}
+          games={sortedGames}
+          roster={roster}
+          reels={listedReels}
+          me={me}
+          myName={myName}
+          helper={helper}
+          seeAll={seeAllReels}
+          nameOf={nameOf}
+        />
       )}
 
       {tab === 'kids' && (
