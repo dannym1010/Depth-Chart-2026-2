@@ -39,7 +39,7 @@ export function drawSlide(
   slide: Slide,
   local: number,
   src: SlideSource | null,
-  o: { look: HighlightSettings; logo?: HTMLImageElement | null; tiny: AnyCanvas }
+  o: { look: HighlightSettings; logo?: HTMLImageElement | null; tiny: AnyCanvas; backdrop?: 'blur' | 'black' | 'team' }
 ) {
   c.save();
   c.globalAlpha = 1;
@@ -50,8 +50,13 @@ export function drawSlide(
   } else if (slide.kind === 'photo') {
     if (src?.img && src.w && src.h) {
       const fill = fitsByFilling(slide.fit, src.w, src.h, W, H);
-      const r = photoRect(src.w, src.h, W, H, fill, slide.motion, local / slide.seconds);
-      if (r.w < W - 1 || r.h < H - 1) softFill(c, W, H, src.img, src.w, src.h, o.tiny);
+      const r = photoRect(src.w, src.h, W, H, fill, slide.motion, local / slide.seconds, slide.strength, slide.item.focus);
+      if (r.w < W - 1 || r.h < H - 1) {
+        if (o.backdrop === 'team') {
+          c.fillStyle = o.look.primary || '#0f172a';
+          c.fillRect(0, 0, W, H);
+        } else if (o.backdrop !== 'black') softFill(c, W, H, src.img, src.w, src.h, o.tiny);
+      }
       c.imageSmoothingEnabled = true;
       c.imageSmoothingQuality = 'high';
       c.drawImage(src.img, r.x, r.y, r.w, r.h);

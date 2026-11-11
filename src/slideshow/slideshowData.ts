@@ -44,7 +44,9 @@ export const defaultSlideshowOptions = (): SlideshowOptions => ({
   fadeSeconds: 1,
   fadeEnds: true,
   motion: 'auto',
+  motionStrength: 'normal',
   photoFit: 'auto',
+  backdrop: 'blur',
   clipTitles: true,
   clipReplays: true,
   clipSound: 'low',
@@ -74,7 +76,105 @@ export function newSlideshow(opts: { name: string; owner: string; ownerName?: st
 /** Old copies (or ones missing a newer option) read with every option set. */
 export const withOptions = (s: Slideshow): Slideshow => ({ ...s, items: s.items || [], sharedWith: s.sharedWith || [], options: { ...defaultSlideshowOptions(), ...(s.options || {}) } });
 
-export const photoItem = (p: { id: string; folderId: string; name: string }): SlideItem => ({ id: newId('sl'), kind: 'photo', photoId: p.id, folderId: p.folderId, name: p.name });
+export const photoItem = (p: { id: string; folderId: string; name: string; takenAt?: number }): SlideItem => ({
+  id: newId('sl'),
+  kind: 'photo',
+  photoId: p.id,
+  folderId: p.folderId,
+  name: p.name,
+  ...(p.takenAt ? { takenAt: p.takenAt } : {}),
+});
+
+/** A copy of a slide (a new id). */
+export const copyItem = (i: SlideItem): SlideItem => ({ ...i, id: newId('sl') });
+
+/** Several slides moved together to `to` (their order kept), e.g. 0 = the start. */
+export function moveItems(s: Slideshow, ids: string[], to: number): Slideshow {
+  const set = new Set(ids);
+  const moving = s.items.filter((i) => set.has(i.id));
+  const rest = s.items.filter((i) => !set.has(i.id));
+  const at = clamp(to, 0, rest.length);
+  return { ...s, items: [...rest.slice(0, at), ...moving, ...rest.slice(at)] };
+}
+
+export const editItems = (s: Slideshow, ids: string[], patch: (i: SlideItem) => Partial<SlideItem> | null): Slideshow => {
+  const set = new Set(ids);
+  return {
+    ...s,
+    items: s.items.map((i) => {
+      if (!set.has(i.id)) return i;
+      const p = patch(i);
+      return p ? ({ ...i, ...p } as SlideItem) : i;
+    }),
+  };
+};
+
+export type ArrangeHow = 'time' | 'shuffle' | 'reverse' | 'photosFirst' | 'spreadClips';
+
+export const ARRANGE: { id: ArrangeHow; label: string }[] = [
+  { id: 'time', label: 'Photos in the order taken' },
+  { id: 'shuffle', label: 'Shuffle the photos' },
+  { id: 'reverse', label: 'Reverse' },
+  { id: 'photosFirst', label: 'Photos first, then clips' },
+  { id: 'spreadClips', label: 'Spread the clips through the photos' },
+];
+
+/**
+ * Put slides in an order: only the ones in `ids` (else all), in the places they take now. Photos by when they were
+ * taken (`times` fills in ones that don't know), photos shuffled, everything reversed, photos before clips, or the
+ * clips spread evenly among the photos. Title cards stay where they are, except when reversing.
+ */
+export function arrange(items: SlideItem[], how: ArrangeHow, ids?: Set<string> | null, times: Record<string, number> = {}, rnd = Math.random): SlideItem[] {
+  const inScope = (i: SlideItem) => !ids || ids.size < 2 || ids.has(i.id);
+  const slots = items.map((i, k) => (inScope(i) ? k : -1)).filter((k) => k >= 0);
+  const scoped = slots.map((k) => items[k]);
+  const out = items.slice();
+  const put = (list: SlideItem[], where: number[]) => list.forEach((it, j) => (out[where[j]] = it));
+  if (how === 'reverse') {
+    put(scoped.slice().reverse(), slots);
+    return out;
+  }
+  const photoSlots = slots.filter((k) => items[k].kind === 'photo');
+  const photos = photoSlots.map((k) => items[k] as Extract<SlideItem, { kind: 'photo' }>);
+  if (how === 'time') {
+    const when = (p: Extract<SlideItem, { kind: 'photo' }>) => p.takenAt ?? times[p.photoId];
+    const sorted = photos
+      .map((p, j) => ({ p, j, t: when(p) }))
+      .sort((a, b) => (a.t === undefined || b.t === undefined ? a.j - b.j : a.t - b.t || a.j - b.j))
+      .map((x) => x.p);
+    put(sorted, photoSlots);
+    return out;
+  }
+  if (how === 'shuffle') {
+    const list = photos.slice();
+    for (let k = list.length - 1; k > 0; k--) {
+      const j = Math.floor(rnd() * (k + 1));
+      [list[k], list[j]] = [list[j], list[k]];
+    }
+    put(list, photoSlots);
+    return out;
+  }
+  // Clips against everything else (photos and titles).
+  const clipSlots = slots.filter((k) => items[k].kind === 'clip');
+  const clips = clipSlots.map((k) => items[k]);
+  const others = scoped.filter((i) => i.kind !== 'clip');
+  if (how === 'photosFirst') {
+    put([...others, ...clips], slots);
+    return out;
+  }
+  // Spread: a clip after every so many others.
+  const n = others.length;
+  const c = clips.length;
+  const list: SlideItem[] = [];
+  let ci = 0;
+  for (let k = 0; k < n; k++) {
+    list.push(others[k]);
+    while (ci < c && Math.round(((ci + 1) * n) / (c + 1)) === k + 1) list.push(clips[ci++]);
+  }
+  while (ci < c) list.push(clips[ci++]);
+  put(list, slots);
+  return out;
+}
 export const clipItem = (highlightId: string): SlideItem => ({ id: newId('sl'), kind: 'clip', highlightId });
 export const titleItem = (title: string, sub?: string): SlideItem => ({ id: newId('sl'), kind: 'title', title, ...(sub ? { sub } : {}) });
 
@@ -111,7 +211,7 @@ export const slideshowsFor = (list: Slideshow[], me: string, all = false) => lis
 // ---- The timeline ----
 
 export type Slide =
-  | { kind: 'photo'; item: Extract<SlideItem, { kind: 'photo' }>; start: number; seconds: number; fade: number; transition: SlideTransition; motion: PhotoMotion; fit: PhotoFit }
+  | { kind: 'photo'; item: Extract<SlideItem, { kind: 'photo' }>; start: number; seconds: number; fade: number; transition: SlideTransition; motion: PhotoMotion; fit: PhotoFit; strength: number }
   | { kind: 'title'; item: Extract<SlideItem, { kind: 'title' }>; start: number; seconds: number; fade: number; transition: SlideTransition }
   | { kind: 'clip'; item: Extract<SlideItem, { kind: 'clip' }>; h: Highlight; segs: Segment[]; start: number; seconds: number; fade: number; transition: SlideTransition; sound: boolean };
 
@@ -132,7 +232,7 @@ export function buildSlides(show: Slideshow, highlights: Highlight[], settings: 
       const pick = item.motion || o.motion;
       const motion = pick === 'auto' ? AUTO_MOTIONS[photoNo % AUTO_MOTIONS.length] : pick;
       photoNo++;
-      slide = { kind: 'photo', item, start: t, seconds, fade: 0, transition, motion, fit: item.fit || o.photoFit };
+      slide = { kind: 'photo', item, start: t, seconds, fade: 0, transition, motion, fit: item.fit || o.photoFit, strength: MOVE_STRENGTH[o.motionStrength] ?? MOVE_STRENGTH.normal };
     } else if (item.kind === 'title') {
       slide = { kind: 'title', item, start: t, seconds: clamp(item.seconds || o.titleSeconds, 0.5, 60), fade: 0, transition };
     } else {
@@ -245,31 +345,51 @@ export const fitsByFilling = (fit: PhotoFit, srcW: number, srcH: number, W: numb
 };
 
 /** How much closer a photo gets over its time up. */
-const MOVE = 0.1;
+export const MOVE_STRENGTH = { subtle: 0.05, normal: 0.1, strong: 0.2 } as const;
 
 /**
- * Where a photo is drawn at `p` (0..1 of its time up): filling the frame or whole, slowly zooming in or out or
- * drifting across. Whole photos move less (their edges show).
+ * Where a photo is drawn at `p` (0..1 of its time up): filling the frame or whole, slowly zooming in or out (toward
+ * `focus`, 0..1 of the photo) or drifting across. Whole photos move half as much (their edges show). A photo that
+ * fills the frame never leaves a gap at its edges.
  */
-export function photoRect(srcW: number, srcH: number, W: number, H: number, fill: boolean, motion: PhotoMotion, p: number): { x: number; y: number; w: number; h: number } {
+export function photoRect(
+  srcW: number,
+  srcH: number,
+  W: number,
+  H: number,
+  fill: boolean,
+  motion: PhotoMotion,
+  p: number,
+  strength: number = MOVE_STRENGTH.normal,
+  focus?: { x: number; y: number }
+): { x: number; y: number; w: number; h: number } {
   const base = fill ? Math.max(W / srcW, H / srcH) : Math.min(W / srcW, H / srcH);
   const k = clamp(p, 0, 1);
   const ease = k * k * (3 - 2 * k) * 0.35 + k * 0.65;
-  const move = fill ? MOVE : MOVE / 2;
+  const move = fill ? strength : strength / 2;
   let zoom = 1;
-  let dx = 0;
+  let drift: number | null = null;
   if (motion === 'in') zoom = 1 + move * ease;
   else if (motion === 'out') zoom = 1 + move * (1 - ease);
   else if (motion === 'left' || motion === 'right') {
     zoom = 1 + move;
-    dx = (motion === 'left' ? 1 - 2 * ease : 2 * ease - 1) * 0.5;
+    drift = motion === 'left' ? ease : 1 - ease;
   }
   const w = srcW * base * zoom;
   const h = srcH * base * zoom;
+  const fx = clamp(focus?.x ?? 0.5, 0, 1);
+  const fy = clamp(focus?.y ?? 0.5, 0, 1);
+  // Bigger than the frame: kept over it (the focus as near the middle as the edges let it); smaller: in the middle,
+  // closing in on the focus as it grows.
+  const place = (size: number, frame: number, f: number, at1: number) => {
+    if (size > frame) return clamp(frame / 2 - f * size, frame - size, 0);
+    const grow = (size - at1) / Math.max(1e-6, at1);
+    return (frame - size) / 2 + (0.5 - f) * size * Math.min(1, grow * 4);
+  };
+  let x = place(w, W, fx, srcW * base);
+  const y = place(h, H, fy, srcH * base);
   // Drifting: from one side of the extra width to the other.
-  const spare = Math.max(0, w - W);
-  const x = (W - w) / 2 + dx * spare;
-  const y = (H - h) / 2;
+  if (drift !== null && w > W) x = -(w - W) * drift;
   return { x, y, w, h };
 }
 

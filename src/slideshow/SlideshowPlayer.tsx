@@ -226,7 +226,7 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
           lastIndex.current = i;
         }
         const fctx = frame.getContext('2d')!;
-        drawSlide(fctx, FW, FH, s, local, src, { look, logo, tiny });
+        drawSlide(fctx, FW, FH, s, local, src, { look, logo, tiny, backdrop: options.backdrop });
         drawFade(fctx, FW, FH, fadeAt(slides, i, local, options.fadeEnds), havePrev.current ? prev : null);
 
         // Songs: the one for now, at its place, as loud as it should be.

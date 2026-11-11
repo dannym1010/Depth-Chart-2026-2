@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  arrange,
   buildSlides,
   clipItem,
   clipPartAt,
@@ -8,6 +9,8 @@ import {
   fitToMusic,
   insertItems,
   moveItem,
+  moveItems,
+  editItems,
   musicLevel,
   musicPieces,
   newSlideshow,
@@ -162,5 +165,43 @@ describe('slideshows saved with the highlights', () => {
     assert.deepEqual(gone.slideshows!.map((s) => s.id), ['s1']);
     // None: the copy looks like before.
     assert.equal('slideshows' in mergeHighlights(emptyHighlights(), emptyHighlights()), false);
+  });
+});
+
+describe('more slideshow controls', () => {
+  const P = (id: string, takenAt?: number) => ({ id, kind: 'photo' as const, photoId: `p${id}`, folderId: 'f', name: id, ...(takenAt ? { takenAt } : {}) });
+  const C = (id: string) => ({ id, kind: 'clip' as const, highlightId: `h${id}` });
+  const T = (id: string) => ({ id, kind: 'title' as const, title: id });
+  const ids = (l: { id: string }[]) => l.map((i) => i.id).join(' ');
+  it('arranges photos by time taken in their own places (times filled in), shuffles, reverses', () => {
+    const items = [T('t'), P('a', 30), C('c1'), P('b'), P('d', 10)];
+    assert.equal(ids(arrange(items, 'time', null, { pb: 20 })), 't d c1 b a');
+    assert.equal(ids(arrange(items, 'reverse')), 'd b c1 a t');
+    const sh = arrange(items, 'shuffle', null, {}, () => 0);
+    assert.equal(sh[0].id, 't');
+    assert.equal(sh[2].id, 'c1');
+    // Only the picked ones (two or more), in their places.
+    assert.equal(ids(arrange(items, 'reverse', new Set(['a', 'd']))), 't d c1 b a');
+  });
+  it('puts photos first, or spreads the clips through them', () => {
+    const items = [C('c1'), C('c2'), P('a'), P('b'), P('c'), P('d'), P('e'), P('f')];
+    assert.equal(ids(arrange(items, 'photosFirst')), 'a b c d e f c1 c2');
+    assert.equal(ids(arrange(items, 'spreadClips')), 'a b c1 c d c2 e f');
+  });
+  it('moves several slides together and changes them together', () => {
+    let s = newSlideshow({ name: 'x', owner: 'c' });
+    s = { ...s, items: [P('a'), P('b'), P('c'), P('d')] };
+    assert.equal(ids(moveItems(s, ['d', 'b'], 0).items), 'b d a c');
+    assert.equal(ids(moveItems(s, ['a', 'b'], 9).items), 'c d a b');
+    const e = editItems(s, ['a', 'c'], () => ({ seconds: 7 }));
+    assert.deepEqual(e.items.map((i: any) => i.seconds), [7, undefined, 7, undefined]);
+  });
+  it('zooms toward the spot picked and never shows a gap', () => {
+    const mid = photoRect(3000, 2000, 1920, 1080, true, 'in', 1);
+    const right = photoRect(3000, 2000, 1920, 1080, true, 'in', 1, 0.1, { x: 1, y: 0.5 });
+    assert.ok(right.x < mid.x);
+    assert.ok(right.x + right.w >= 1919.999);
+    const strong = photoRect(3000, 2000, 1920, 1080, true, 'in', 1, 0.2);
+    assert.ok(strong.w > mid.w);
   });
 });

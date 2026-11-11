@@ -4,11 +4,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Heart, Loader2, X } from 'lucide-react';
 import type { Kid } from '../highlights/highlightData';
 import { kidLabel } from '../highlights/highlightData';
-import { drivePhotoThumb, listDrivePhotos } from '../media/mediaSources';
+import { drivePhotoThumb } from '../media/mediaSources';
+import { folderPhotos } from './photoLoad';
 import { isFavorite, MEDIA_TAGS, starsOf, TAG_LABELS } from '../media/mediaData';
 import type { DrivePhoto, MediaData, MediaTag } from '../media/types';
 
-export type PickedPhoto = { id: string; folderId: string; name: string };
+export type PickedPhoto = { id: string; folderId: string; name: string; takenAt?: number };
 
 interface Props {
   media: MediaData;
@@ -21,17 +22,7 @@ interface Props {
   onClose: () => void;
 }
 
-// Folders listed this visit (Drive is asked once per folder).
-const listed = new Map<string, Promise<DrivePhoto[]>>();
-const listFolder = (driveId: string) => {
-  let p = listed.get(driveId);
-  if (!p) {
-    p = listDrivePhotos(driveId);
-    p.catch(() => listed.delete(driveId));
-    listed.set(driveId, p);
-  }
-  return p;
-};
+const listFolder = folderPhotos;
 
 /** A small picture, fetched when it scrolls into view. */
 const Thumb: React.FC<{ photo: DrivePhoto }> = ({ photo }) => {
@@ -116,7 +107,7 @@ export const PhotoPicker: React.FC<Props> = ({ media, me, roster, already, onAdd
   const toggle = (id: string) => setPicked((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]));
   const add = () => {
     // In the order they were taken (the way they read best), not the order tapped.
-    const list = photos.filter((p) => pickedSet.has(p.id)).map((p) => ({ id: p.id, folderId: p.folderId, name: p.name }));
+    const list = photos.filter((p) => pickedSet.has(p.id)).map((p) => ({ id: p.id, folderId: p.folderId, name: p.name, takenAt: p.takenAt || undefined }));
     if (list.length) onAdd(list);
   };
   const needsSignIn = /sign in|sign-in|expired/i.test(error);

@@ -38,6 +38,10 @@ export interface PhotoItem extends ItemBase {
   fit?: PhotoFit;
   /** Words at the bottom. */
   caption?: string;
+  /** The spot its slow zoom goes toward (0..1 of the photo; else the middle). */
+  focus?: { x: number; y: number };
+  /** When it was taken (ms), for putting photos in order. */
+  takenAt?: number;
 }
 
 export interface ClipItem extends ItemBase {
@@ -67,7 +71,11 @@ export interface SlideshowOptions {
   /** Comes up from black and goes out to black. */
   fadeEnds: boolean;
   motion: PhotoMotion;
+  /** How far photos move while they're up. */
+  motionStrength: 'subtle' | 'normal' | 'strong';
   photoFit: PhotoFit;
+  /** Behind a photo shown whole: a soft copy of it, black, or the team color. */
+  backdrop: 'blur' | 'black' | 'team';
   /** The clip's title at the bottom of clips. */
   clipTitles: boolean;
   /** Clips' replays (another camera, set in the clip editor). */

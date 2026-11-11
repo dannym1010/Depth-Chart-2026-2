@@ -196,7 +196,7 @@ export async function renderSlideshowVideo(o: SlideshowRenderOptions): Promise<S
         const src = bm ? { img: bm, w: bm.width, h: bm.height } : null;
         for (let f = f0; f < f1; f++) {
           check();
-          await put(i, f, (local) => drawSlide(ctx, W, H, s, local, src, { look, logo: o.logo, tiny }));
+          await put(i, f, (local) => drawSlide(ctx, W, H, s, local, src, { look, logo: o.logo, tiny, backdrop: opt.backdrop }));
           if (f % 15 === 0) progress(label);
         }
         photos.delete(i);

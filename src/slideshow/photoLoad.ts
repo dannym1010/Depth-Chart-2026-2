@@ -1,7 +1,35 @@
 // A slideshow's photos from Google Drive: Drive's own resized copy (quick, and already turned the right way up), else
 // the photo itself. Only the file id is saved with the slideshow; the rest is asked for when it's shown.
 import { ALL_DRIVES, API, driveAccessToken, driveFetch } from '../filmroom/filmSources';
-import { drivePhotoBlob, drivePhotoThumb } from '../media/mediaSources';
+import { drivePhotoBlob, drivePhotoThumb, listDrivePhotos } from '../media/mediaSources';
+import type { DrivePhoto } from '../media/types';
+
+// Folders listed this visit (Drive is asked once per folder).
+const listed = new Map<string, Promise<DrivePhoto[]>>();
+export function folderPhotos(driveId: string): Promise<DrivePhoto[]> {
+  let p = listed.get(driveId);
+  if (!p) {
+    p = listDrivePhotos(driveId);
+    p.catch(() => listed.delete(driveId));
+    listed.set(driveId, p);
+  }
+  return p;
+}
+
+/** When photos were taken (by Drive file id), from their folders' listings. */
+export async function photoTimes(folders: { id: string; driveId: string }[], want: { photoId: string; folderId: string }[]): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  const byFolder = new Set(want.map((w) => w.folderId));
+  for (const f of folders) {
+    if (!byFolder.has(f.id)) continue;
+    try {
+      for (const p of await folderPhotos(f.driveId)) if (p.takenAt) out[p.id] = p.takenAt;
+    } catch {
+      /* a folder that can't be read: its photos keep their places */
+    }
+  }
+  return out;
+}
 
 type Meta = { thumbnailLink?: string; width?: number; height?: number };
 const metas = new Map<string, Promise<Meta>>();

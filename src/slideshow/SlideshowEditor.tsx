@@ -3,7 +3,7 @@
 // under it. Plays right here, or is made into one MP4.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowDown, ArrowUp, ChevronsDown, ChevronsUp, Copy, Film, Image as ImageIcon, Music, Play, Plus, Trash2, Type, Upload, Video, X,
+  ArrowDown, ArrowUp, Check, CheckSquare, ChevronsDown, ChevronsUp, Copy, Crosshair, Film, Image as ImageIcon, Music, Play, Plus, Redo2, Trash2, Type, Undo2, Upload, Video, X,
 } from 'lucide-react';
 import type { FilmAccess } from '../highlights/filmAccess';
 import { clock, type Kid } from '../highlights/highlightData';
@@ -11,11 +11,12 @@ import type { Highlight, HighlightGame, HighlightSettings, Reel } from '../highl
 import type { MediaData } from '../media/types';
 import { ClipPicker } from './ClipPicker';
 import { PhotoPicker } from './PhotoPicker';
-import { photoThumb } from './photoLoad';
+import { photoThumb, photoTimes } from './photoLoad';
+import { SlidePreview } from './SlidePreview';
 import { SlideshowPlayer } from './SlideshowPlayer';
 import { SlideshowVideoPanel } from './SlideshowVideoPanel';
 import {
-  buildSlides, clipItem, editItem, FITS, fitToMusic, insertItems, mmss, MOTIONS, moveItem, parseMmss, photoItem, removeItems, SHAPES, slidesSeconds, songsSeconds, titleItem, TRANSITIONS, type Slide,
+  ARRANGE, arrange, buildSlides, clipItem, copyItem, editItem, editItems, FITS, fitToMusic, insertItems, mmss, MOTIONS, moveItem, moveItems, parseMmss, photoItem, removeItems, SHAPES, slidesSeconds, songsSeconds, titleItem, TRANSITIONS, type ArrangeHow, type Slide,
 } from './slideshowData';
 import type { useSongs } from './songs';
 import type { PhotoFit, PhotoMotion, SlideItem, Slideshow, SlideshowOptions, SlideshowShape, SlideTransition } from './types';
@@ -75,23 +76,103 @@ const PhotoThumb: React.FC<{ id: string }> = ({ id }) => {
 
 const TRANSITION_SHORT: Record<SlideTransition, string> = { crossfade: 'Crossfade', black: 'Black', white: 'White', cut: 'Cut' };
 
+const TILE_SIZES = { s: 92, m: 118, l: 170 } as const;
+type TileSize = keyof typeof TILE_SIZES;
+
 export const SlideshowEditor: React.FC<Props> = ({
-  show, edit, readOnly: ro, highlights, reels, games, roster, media, me, ownerLabel, access, settings, logo, songs, onDuplicate, onDelete, onClose,
+  show, edit: editRaw, readOnly: ro, highlights, reels, games, roster, media, me, ownerLabel, access, settings, logo, songs, onDuplicate, onDelete, onClose,
 }) => {
   const o = show.options;
   const slides = useMemo(() => buildSlides(show, highlights, settings), [show, highlights, settings]);
   const total = slidesSeconds(slides);
   const slideOf = useMemo(() => new Map(slides.map((s) => [s.item.id, s])), [slides]);
   const hById = useMemo(() => new Map(highlights.map((h) => [h.id, h])), [highlights]);
-  const [selected, setSelected] = useState<string | null>(null);
+
+  // ---- Undo / Redo: every change remembered. Changes from the same box or slider in a row (typing a title,
+  // dragging a slider) count as one; every button press is its own. ----
+  const showRef = useRef(show);
+  showRef.current = show;
+  const undoStack = useRef<Slideshow[]>([]);
+  const redoStack = useRef<Slideshow[]>([]);
+  const lastEditAt = useRef(0);
+  const lastEditFrom = useRef<Element | null>(null);
+  const [, bumpHistory] = useState(0);
+  // The box or slider just typed in / slid (an iPad's Safari leaves a box focused when a button is tapped, so the
+  // focus alone can't tell).
+  const lastInput = useRef<{ el: EventTarget | null; at: number }>({ el: null, at: 0 });
+  useEffect(() => {
+    const on = (e: Event) => (lastInput.current = { el: e.target, at: Date.now() });
+    document.addEventListener('input', on, true);
+    return () => document.removeEventListener('input', on, true);
+  }, []);
+  const edit = (change: (s: Slideshow) => Slideshow) => {
+    const now = Date.now();
+    const li = lastInput.current;
+    const from = li.el instanceof HTMLInputElement && li.el.type !== 'checkbox' && now - li.at < 200 ? li.el : null;
+    const typing = Boolean(from);
+    if (!(typing && from === lastEditFrom.current && now - lastEditAt.current < 1500)) {
+      undoStack.current.push(showRef.current);
+      if (undoStack.current.length > 100) undoStack.current.shift();
+    }
+    lastEditFrom.current = typing ? from : null;
+    lastEditAt.current = now;
+    redoStack.current = [];
+    editRaw(change);
+    bumpHistory((n) => n + 1);
+  };
+  const undo = () => {
+    const prev = undoStack.current.pop();
+    if (!prev || ro) return;
+    redoStack.current.push(showRef.current);
+    lastEditAt.current = 0;
+    editRaw(() => prev);
+    bumpHistory((n) => n + 1);
+  };
+  const redo = () => {
+    const next = redoStack.current.pop();
+    if (!next || ro) return;
+    undoStack.current.push(showRef.current);
+    lastEditAt.current = 0;
+    editRaw(() => next);
+    bumpHistory((n) => n + 1);
+  };
+
+  // ---- The picked slides: one (its settings) or several (changed together) ----
+  const [picked, setPicked] = useState<string[]>([]);
+  const anchor = useRef<string | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const pickedNow = picked.filter((id) => show.items.some((i) => i.id === id));
+  const pickedSet = new Set(pickedNow);
+  const selected = pickedNow.length === 1 ? pickedNow[0] : null;
+  const setSelected = (id: string | null) => setPicked(id ? [id] : []);
   const sel = show.items.find((i) => i.id === selected) || null;
   const selIndex = sel ? show.items.indexOf(sel) : -1;
+  // New slides go after the last picked one.
+  const insertAfter = pickedNow.length ? show.items.filter((i) => pickedSet.has(i.id)).pop()?.id ?? null : null;
+  const insertIndex = insertAfter ? show.items.findIndex((i) => i.id === insertAfter) : -1;
+  const [tileSize, setTileSizeState] = useState<TileSize>(() => {
+    try {
+      const v = localStorage.getItem('slideshowTileSize');
+      return v === 's' || v === 'l' ? v : 'm';
+    } catch {
+      return 'm';
+    }
+  });
+  const setTileSize = (v: TileSize) => {
+    setTileSizeState(v);
+    try {
+      localStorage.setItem('slideshowTileSize', v);
+    } catch {
+      /* private window */
+    }
+  };
   const [side, setSide] = useState<Side>('look');
   const [picking, setPicking] = useState<'' | 'photos' | 'clips'>('');
   const [playing, setPlaying] = useState<number | null>(null);
   const [making, setMaking] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  const [lengthNote, setLengthNote] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const setOpt = (p: Partial<SlideshowOptions>) => edit((s) => ({ ...s, options: { ...s.options, ...p } }));
   const setItem = (id: string, p: Partial<SlideItem>) => edit((s) => editItem(s, id, p));
@@ -102,6 +183,7 @@ export const SlideshowEditor: React.FC<Props> = ({
   const pick = (id: string | null) => {
     const was = selected;
     setSelected(id);
+    anchor.current = id;
     if (id) setSide('slide');
     if (!narrow()) return;
     window.setTimeout(() => {
@@ -109,6 +191,86 @@ export const SlideshowEditor: React.FC<Props> = ({
       else if (was) document.querySelector(`[data-slide="${was}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 30);
   };
+  // A tap: that slide. Ctrl / ⌘ (or "Select several"): add or take it off. Shift: everything from the last one tapped.
+  const onTile = (e: React.MouseEvent, id: string, i: number) => {
+    if (selectMode || e.ctrlKey || e.metaKey) {
+      setPicked((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]));
+      anchor.current = id;
+      setSide('slide');
+      return;
+    }
+    if (e.shiftKey && anchor.current) {
+      const a = show.items.findIndex((x) => x.id === anchor.current);
+      if (a >= 0) {
+        const [lo, hi] = a < i ? [a, i] : [i, a];
+        setPicked(show.items.slice(lo, hi + 1).map((x) => x.id));
+        setSide('slide');
+        return;
+      }
+    }
+    pick(selected === id ? null : id);
+  };
+  const selectAll = () => {
+    setPicked(show.items.map((i) => i.id));
+    setSide('slide');
+  };
+  const removePicked = () => {
+    if (!pickedNow.length || ro) return;
+    const last = Math.max(...pickedNow.map((id) => show.items.findIndex((i) => i.id === id)));
+    const next = show.items.slice(last + 1).find((i) => !pickedSet.has(i.id)) || show.items.slice(0, last).reverse().find((i) => !pickedSet.has(i.id));
+    edit((s) => removeItems(s, pickedNow));
+    setPicked(next && pickedNow.length === 1 ? [next.id] : []);
+  };
+  const copyPicked = () => {
+    if (!pickedNow.length || ro) return;
+    const copies = show.items.filter((i) => pickedSet.has(i.id)).map(copyItem);
+    edit((s) => insertItems(s, copies, insertAfter));
+    setPicked(copies.map((c) => c.id));
+  };
+
+  // ---- Putting slides in an order ----
+  const [arranging, setArranging] = useState('');
+  const doArrange = async (how: ArrangeHow) => {
+    if (ro) return;
+    const scope = pickedNow.length > 1 ? new Set(pickedNow) : null;
+    let times: Record<string, number> = {};
+    if (how === 'time') {
+      const need = show.items.flatMap((i) => (i.kind === 'photo' && !i.takenAt && (!scope || scope.has(i.id)) ? [i] : []));
+      if (need.length) {
+        setArranging('Reading when the photos were taken…');
+        times = await photoTimes(media.folders, need).catch(() => ({}));
+        setArranging('');
+      }
+    }
+    edit((s) => {
+      // Keep the times found, so it's quick next time.
+      const known = s.items.map((i) => (i.kind === 'photo' && !i.takenAt && times[i.photoId] ? { ...i, takenAt: times[i.photoId] } : i));
+      return { ...s, items: arrange(known, how, scope, times) };
+    });
+  };
+
+  // ---- Keys (a computer): Ctrl+Z / Ctrl+Y, Delete, Ctrl+A, Ctrl+D, Escape ----
+  const keysRef = useRef<(e: KeyboardEvent) => void>(() => undefined);
+  keysRef.current = (e: KeyboardEvent) => {
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+    if (picking || playing !== null || making) return;
+    const mod = e.ctrlKey || e.metaKey;
+    const k = e.key.toLowerCase();
+    if (mod && k === 'z' && !e.shiftKey) undo();
+    else if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) redo();
+    else if (mod && k === 'a') selectAll();
+    else if (mod && k === 'd') copyPicked();
+    else if ((k === 'delete' || k === 'backspace') && pickedNow.length) removePicked();
+    else if (k === 'escape' && pickedNow.length) setPicked([]);
+    else return;
+    e.preventDefault();
+  };
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => keysRef.current(e);
+    window.addEventListener('keydown', on);
+    return () => window.removeEventListener('keydown', on);
+  }, []);
 
   // ---- Dragging tiles into order (a mouse); the buttons do it on a touch screen ----
   const dragFrom = useRef<number | null>(null);
@@ -118,6 +280,13 @@ export const SlideshowEditor: React.FC<Props> = ({
     dragFrom.current = null;
     setDropAt(null);
     if (from === null || ro) return;
+    const dragged = show.items[from];
+    if (dragged && pickedSet.has(dragged.id) && pickedNow.length > 1) {
+      // Several: their place among the slides left, where the drop line was.
+      const before = show.items.slice(0, to).filter((i) => pickedSet.has(i.id)).length;
+      edit((s) => moveItems(s, pickedNow, to - before));
+      return;
+    }
     edit((s) => moveItem(s, from, from < to ? to - 1 : to));
   };
 
@@ -148,7 +317,8 @@ export const SlideshowEditor: React.FC<Props> = ({
 
   const tile = (item: SlideItem, i: number) => {
     const s = slideOf.get(item.id);
-    const on = item.id === selected;
+    const on = pickedSet.has(item.id);
+    const many = pickedNow.length > 1 || selectMode;
     const h = item.kind === 'clip' ? hById.get(item.highlightId) : undefined;
     const trans = s && i > 0 ? s.transition : null;
     return (
@@ -173,6 +343,8 @@ export const SlideshowEditor: React.FC<Props> = ({
           type="button"
           draggable={!ro}
           onDragStart={(e) => {
+            // Dragging one of several picked slides moves them all.
+            if (!on || pickedNow.length < 2) setPicked([item.id]);
             dragFrom.current = i;
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/plain', item.id);
@@ -181,7 +353,7 @@ export const SlideshowEditor: React.FC<Props> = ({
             dragFrom.current = null;
             setDropAt(null);
           }}
-          onClick={() => pick(on ? null : item.id)}
+          onClick={(e) => onTile(e, item.id, i)}
           aria-pressed={on}
           aria-label={`Slide ${i + 1}`}
           className={`relative block w-full aspect-video rounded-lg overflow-hidden text-left ${on ? 'ring-4 ring-indigo-500' : 'ring-1 ring-slate-300 dark:ring-slate-700'}`}
@@ -202,6 +374,20 @@ export const SlideshowEditor: React.FC<Props> = ({
           <span className="absolute top-0.5 left-0.5 h-4 min-w-4 px-1 rounded text-[9px] font-black inline-flex items-center justify-center" style={{ background: 'rgba(15,23,42,.75)', color: '#f8fafc' }}>
             {i + 1}
           </span>
+          {many && (
+            <span
+              className="absolute top-0.5 right-0.5 h-5 w-5 rounded-full inline-flex items-center justify-center"
+              style={on ? { background: '#4f46e5', color: '#fff' } : { background: 'rgba(15,23,42,.45)', border: '2px solid rgba(248,250,252,.85)' }}
+              aria-hidden
+            >
+              {on && <Check size={12} />}
+            </span>
+          )}
+          {item.kind === 'photo' && item.focus && !many && (
+            <span className="absolute top-0.5 right-0.5 h-4 w-4 rounded inline-flex items-center justify-center" style={{ background: 'rgba(15,23,42,.75)', color: '#f8fafc' }} title="Zooms toward a spot you picked">
+              <Crosshair size={9} />
+            </span>
+          )}
           <span className="absolute bottom-0.5 right-0.5 h-4 px-1 rounded text-[9px] font-bold tabular-nums inline-flex items-center gap-0.5" style={{ background: 'rgba(15,23,42,.75)', color: '#f8fafc' }}>
             {item.kind === 'clip' ? <Video size={8} /> : item.kind === 'title' ? <Type size={8} /> : null}
             {s ? `${Math.round(s.seconds * 10) / 10}s` : '–'}
@@ -246,7 +432,13 @@ export const SlideshowEditor: React.FC<Props> = ({
 
   // ---- The picked slide ----
   const slidePanel = () => {
-    if (!sel) return <p className="text-xs text-slate-500">Tap a slide to change it: its time, how it fades in, how a photo moves, words on it.</p>;
+    if (pickedNow.length > 1) return manyPanel();
+    if (!sel)
+      return (
+        <p className="text-xs text-slate-500">
+          Tap a slide to change it: its time, how it fades in, how a photo moves, words on it. To change several at once, {touch ? 'tap Select several, then the slides' : 'Ctrl-click or Shift-click them (or Select several)'}.
+        </p>
+      );
     const s = slideOf.get(sel.id) as Slide | undefined;
     const move = (to: number) => edit((x) => moveItem(x, selIndex, to));
     return (
@@ -287,6 +479,7 @@ export const SlideshowEditor: React.FC<Props> = ({
             </button>
           </div>
         )}
+        {s && s.kind !== 'clip' && <SlidePreview slide={s} options={o} look={settings} logo={logo} readOnly={ro} onFocus={(f) => setItem(sel.id, { focus: f })} />}
         {sel.kind === 'title' && (
           <>
             <div className={row}>
@@ -365,21 +558,115 @@ export const SlideshowEditor: React.FC<Props> = ({
         </div>
         {!ro && (
           <div className="flex flex-wrap gap-1.5 pt-1">
-            <button type="button" onClick={() => edit((x) => insertItems(x, [{ ...sel, id: `${sel.id}_c${Date.now().toString(36)}` }], sel.id))} className="h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold inline-flex items-center gap-1">
+            <button type="button" onClick={copyPicked} className="h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold inline-flex items-center gap-1">
               <Copy size={12} /> Copy it
             </button>
             <button
               type="button"
-              onClick={() => {
-                const next = show.items[selIndex + 1] || show.items[selIndex - 1];
-                edit((x) => removeItems(x, [sel.id]));
-                setSelected(next?.id || null);
-              }}
+              onClick={removePicked}
               className="h-8 px-2.5 rounded-lg border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 text-xs font-bold inline-flex items-center gap-1"
             >
               <Trash2 size={12} /> Take it out
             </button>
           </div>
+        )}
+      </div>
+    );
+  };
+
+  // ---- Several picked slides, changed together ----
+  const manyPanel = () => {
+    const list = show.items.filter((i) => pickedSet.has(i.id));
+    const photos = list.filter((i) => i.kind === 'photo');
+    const timed = list.filter((i) => i.kind !== 'clip');
+    const first = show.items.findIndex((i) => pickedSet.has(i.id));
+    const all = (patch: (i: SlideItem) => Partial<SlideItem> | null) => edit((x) => editItems(x, pickedNow, patch));
+    // The same value on all of them shows; different ones show as "(mixed)".
+    const same = <T,>(get: (i: SlideItem) => T): T | '~' => {
+      const vals = new Set(list.map((i) => JSON.stringify(get(i) ?? null)));
+      return vals.size === 1 ? (get(list[0]) as T) : '~';
+    };
+    const secs = same((i) => (i.kind === 'clip' ? undefined : i.seconds));
+    const trans = same((i) => i.transition);
+    const motion = same((i) => (i.kind === 'photo' ? i.motion : undefined));
+    const fitV = same((i) => (i.kind === 'photo' ? i.fit : undefined));
+    return (
+      <div className="flex flex-col gap-2.5">
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs font-black text-slate-800 dark:text-slate-100">{list.length} slides picked</span>
+          <span className="text-[11px] text-slate-500">
+            {photos.length} photo{photos.length === 1 ? '' : 's'}
+            {list.length - timed.length ? ` · ${list.length - timed.length} clip${list.length - timed.length === 1 ? '' : 's'}` : ''}
+          </span>
+          <button type="button" onClick={() => setPicked([])} className="ml-auto h-7 px-2 rounded-lg text-[11px] font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
+            Clear
+          </button>
+        </div>
+        {!ro && (
+          <>
+            <div className="flex flex-wrap items-center gap-1">
+              <button type="button" className={iconBtn} disabled={first <= 0} onClick={() => edit((x) => moveItems(x, pickedNow, 0))} aria-label="Move them to the start" title="Move them to the start"><ChevronsUp size={14} /></button>
+              <button type="button" className={iconBtn} disabled={first <= 0} onClick={() => edit((x) => moveItems(x, pickedNow, first - 1))} aria-label="Move them earlier" title="Move them earlier"><ArrowUp size={14} /></button>
+              <button type="button" className={iconBtn} onClick={() => edit((x) => moveItems(x, pickedNow, first + 1))} aria-label="Move them later" title="Move them later"><ArrowDown size={14} /></button>
+              <button type="button" className={iconBtn} onClick={() => edit((x) => moveItems(x, pickedNow, x.items.length))} aria-label="Move them to the end" title="Move them to the end"><ChevronsDown size={14} /></button>
+              <span className="text-[11px] text-slate-500 ml-1">together, in their order</span>
+            </div>
+            {timed.length > 0 && (
+              <div className={row}>
+                <span className={label}>Time up</span>
+                {secondsInput(secs === '~' ? undefined : (secs as number | undefined), o.photoSeconds, (v) => all((i) => (i.kind === 'clip' ? null : { seconds: v })))}
+                {secs === '~' && <span className="text-[11px] text-slate-500">(mixed)</span>}
+              </div>
+            )}
+            {photos.length > 0 && (
+              <>
+                <div className={row}>
+                  <span className={label}>Move</span>
+                  <select value={motion === '~' ? '~' : (motion as string) || ''} onChange={(e) => e.target.value !== '~' && all((i) => (i.kind === 'photo' ? { motion: (e.target.value || undefined) as PhotoMotion | undefined } : null))} className={input} aria-label="How these photos move">
+                    {motion === '~' && <option value="~">(mixed)</option>}
+                    <option value="">Same as the rest</option>
+                    {MOTIONS.filter((m) => m.id !== 'auto').map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className={row}>
+                  <span className={label}>Fit</span>
+                  <select value={fitV === '~' ? '~' : (fitV as string) || ''} onChange={(e) => e.target.value !== '~' && all((i) => (i.kind === 'photo' ? { fit: (e.target.value || undefined) as PhotoFit | undefined } : null))} className={input} aria-label="Fill or whole, these photos">
+                    {fitV === '~' && <option value="~">(mixed)</option>}
+                    <option value="">Same as the rest</option>
+                    {FITS.filter((f) => f.id !== 'auto').map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
+            <div className={row}>
+              <span className={label}>Fade in by</span>
+              <select value={trans === '~' ? '~' : (trans as string) || ''} onChange={(e) => e.target.value !== '~' && all(() => ({ transition: (e.target.value || undefined) as SlideTransition | undefined }))} className={input} aria-label="How these fade in">
+                {trans === '~' && <option value="~">(mixed)</option>}
+                <option value="">Same as the rest ({TRANSITIONS.find((t) => t.id === o.transition)?.label})</option>
+                {TRANSITIONS.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              <button type="button" onClick={copyPicked} className="h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold inline-flex items-center gap-1">
+                <Copy size={12} /> Copy them
+              </button>
+              <button type="button" onClick={removePicked} className="h-8 px-2.5 rounded-lg border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 text-xs font-bold inline-flex items-center gap-1">
+                <Trash2 size={12} /> Take {list.length} out
+              </button>
+            </div>
+          </>
         )}
       </div>
     );
@@ -446,6 +733,16 @@ export const SlideshowEditor: React.FC<Props> = ({
             ))}
           </select>
         </div>
+        {o.motion !== 'none' && (
+          <div className={row}>
+            <span className={label}>How much</span>
+            {(['subtle', 'normal', 'strong'] as const).map((v) => (
+              <button key={v} type="button" className={pill(o.motionStrength === v)} aria-pressed={o.motionStrength === v} onClick={() => setOpt({ motionStrength: v })}>
+                {v === 'subtle' ? 'Subtle' : v === 'normal' ? 'Normal' : 'Strong'}
+              </button>
+            ))}
+          </div>
+        )}
         <div className={row}>
           <span className={label}>Fit</span>
           <select value={o.photoFit} onChange={(e) => setOpt({ photoFit: e.target.value as PhotoFit })} className={input} aria-label="Fill the screen or whole photos">
@@ -456,11 +753,45 @@ export const SlideshowEditor: React.FC<Props> = ({
             ))}
           </select>
         </div>
-        <p className="text-[11px] text-slate-500">Best for each: a photo about the screen's shape fills it; a tall photo on a wide screen shows whole, a soft copy of it behind.</p>
+        <p className="text-[11px] text-slate-500">Best for each: a photo about the screen's shape fills it; a tall photo on a wide screen shows whole.</p>
+        {o.photoFit !== 'fill' && (
+          <div className={row}>
+            <span className={label}>Behind it</span>
+            {(['blur', 'black', 'team'] as const).map((v) => (
+              <button key={v} type="button" className={pill(o.backdrop === v)} aria-pressed={o.backdrop === v} onClick={() => setOpt({ backdrop: v })}>
+                {v === 'blur' ? 'Soft copy' : v === 'black' ? 'Black' : 'Team color'}
+              </button>
+            ))}
+          </div>
+        )}
         <div className={row}>
           <span className={label}>Title cards</span>
           <input type="range" min={1.5} max={10} step={0.5} value={o.titleSeconds} onChange={(e) => setOpt({ titleSeconds: Number(e.target.value) })} className="flex-1 min-w-0" aria-label="Seconds each title card is up" />
           <span className="w-12 tabular-nums text-slate-500">{o.titleSeconds} s</span>
+        </div>
+        <div className={row}>
+          <span className={label}>Run about</span>
+          <input
+            key={`len-${Math.round(total)}`}
+            defaultValue={mmss(total)}
+            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+            onBlur={(e) => {
+              const want = parseMmss(e.target.value);
+              if (!Number.isFinite(want) || Math.abs(want - total) < 1) return;
+              const each = fitToMusic(slides, want);
+              if (each === null) {
+                setLengthNote(`The clips and title cards alone run ${mmss(total - counts.p * o.photoSeconds)}.`);
+                e.target.value = mmss(total);
+              } else {
+                setLengthNote('');
+                setOpt({ photoSeconds: each });
+              }
+            }}
+            className={`${input} w-16`}
+            aria-label="How long the slideshow runs"
+          />
+          <span className="text-slate-500">minutes:seconds (sets each photo's time)</span>
+          {lengthNote && <span className="text-[11px] text-amber-600 dark:text-amber-400 w-full">{lengthNote}</span>}
         </div>
       </fieldset>
       <fieldset className="flex flex-col gap-1.5" disabled={ro}>
@@ -641,7 +972,7 @@ export const SlideshowEditor: React.FC<Props> = ({
                   onKeyDown={(e) => {
                     if (e.key !== 'Enter' || !newTitle.trim()) return;
                     const it = titleItem(newTitle.trim());
-                    edit((s) => insertItems(s, [it], selected));
+                    edit((s) => insertItems(s, [it], insertAfter));
                     setNewTitle('');
                     pick(it.id);
                   }}
@@ -653,7 +984,7 @@ export const SlideshowEditor: React.FC<Props> = ({
                   type="button"
                   onClick={() => {
                     const it = titleItem(newTitle.trim() || show.name || 'Title');
-                    edit((s) => insertItems(s, [it], selected));
+                    edit((s) => insertItems(s, [it], insertAfter));
                     setNewTitle('');
                     pick(it.id);
                   }}
@@ -663,7 +994,77 @@ export const SlideshowEditor: React.FC<Props> = ({
                 </button>
               </span>
               <span className="text-[11px] text-slate-500 w-full sm:w-auto sm:ml-auto">
-                {selected ? `New ones go after slide ${selIndex + 1}.` : 'New ones go at the end.'} {touch ? 'Tap a slide to move it.' : 'Drag slides to put them in order.'}
+                {insertAfter ? `New ones go after slide ${insertIndex + 1}.` : 'New ones go at the end.'} {touch ? 'Tap a slide to move it.' : 'Drag slides to put them in order.'}
+              </span>
+            </div>
+          )}
+          {show.items.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 dark:border-slate-800 pt-2">
+              {!ro && (
+                <>
+                  <button type="button" className={iconBtn} disabled={!undoStack.current.length} onClick={undo} aria-label="Undo" title="Undo (Ctrl+Z)">
+                    <Undo2 size={14} />
+                  </button>
+                  <button type="button" className={iconBtn} disabled={!redoStack.current.length} onClick={redo} aria-label="Redo" title="Redo (Ctrl+Y)">
+                    <Redo2 size={14} />
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectMode((m) => !m);
+                  if (selectMode) setPicked([]);
+                }}
+                aria-pressed={selectMode}
+                className={pill(selectMode)}
+              >
+                <span className="inline-flex items-center gap-1">
+                  <CheckSquare size={13} /> {selectMode ? 'Done selecting' : 'Select several'}
+                </span>
+              </button>
+              {(selectMode || pickedNow.length > 1) && (
+                <>
+                  <button type="button" onClick={selectAll} className="h-8 px-2 rounded-lg text-xs font-bold text-indigo-600 dark:text-indigo-300">
+                    All
+                  </button>
+                  {pickedNow.length > 0 && (
+                    <button type="button" onClick={() => setPicked([])} className="h-8 px-2 rounded-lg text-xs font-bold text-slate-600 dark:text-slate-300">
+                      None
+                    </button>
+                  )}
+                  <span className="text-xs font-bold text-slate-600 dark:text-slate-300">{pickedNow.length} picked</span>
+                </>
+              )}
+              {!ro && (
+                <select
+                  value=""
+                  disabled={Boolean(arranging)}
+                  onChange={(e) => e.target.value && void doArrange(e.target.value as ArrangeHow)}
+                  className={input}
+                  aria-label="Put in an order"
+                >
+                  <option value="">{arranging || (pickedNow.length > 1 ? `Arrange the ${pickedNow.length} picked…` : 'Arrange…')}</option>
+                  {ARRANGE.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <span className="ml-auto inline-flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden" role="group" aria-label="Tile size">
+                {(['s', 'm', 'l'] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setTileSize(v)}
+                    aria-pressed={tileSize === v}
+                    aria-label={v === 's' ? 'Small slides' : v === 'm' ? 'Medium slides' : 'Large slides'}
+                    className={`h-8 w-8 inline-flex items-center justify-center ${tileSize === v ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'text-slate-500'}`}
+                  >
+                    <ImageIcon size={v === 's' ? 10 : v === 'm' ? 13 : 16} />
+                  </button>
+                ))}
               </span>
             </div>
           )}
@@ -675,7 +1076,7 @@ export const SlideshowEditor: React.FC<Props> = ({
           ) : (
             <div
               className="grid gap-2"
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(118px, 1fr))' }}
+              style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${TILE_SIZES[tileSize]}px, 1fr))` }}
               onDragLeave={(e) => {
                 if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropAt(null);
               }}
@@ -720,7 +1121,7 @@ export const SlideshowEditor: React.FC<Props> = ({
           onSignIn={() => access.connect()}
           onAdd={(list) => {
             const items = list.map(photoItem);
-            edit((s) => insertItems(s, items, selected));
+            edit((s) => insertItems(s, items, insertAfter));
             setPicking('');
           }}
           onClose={() => setPicking('')}
@@ -735,7 +1136,7 @@ export const SlideshowEditor: React.FC<Props> = ({
           already={new Set(show.items.flatMap((i) => (i.kind === 'clip' ? [i.highlightId] : [])))}
           onAdd={(ids) => {
             const items = ids.map(clipItem);
-            edit((s) => insertItems(s, items, selected));
+            edit((s) => insertItems(s, items, insertAfter));
             setPicking('');
           }}
           onClose={() => setPicking('')}
