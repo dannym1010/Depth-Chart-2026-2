@@ -3,7 +3,7 @@
 // extracting jersey numbers [top priority], photo category, single/group, quality metrics,
 // curation score & tier, and rationale, saving each photo incrementally.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Key, Loader2, Pause, Play, Shirt, SkipForward, Sparkles, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Key, Loader2, Pause, Play, RotateCcw, Shirt, SkipForward, Sparkles, X } from 'lucide-react';
 import type { RosterPlayer } from '../types';
 import type { DrivePhoto, MediaFolder, MediaPhoto } from './types';
 import {
@@ -19,6 +19,7 @@ import {
 import { getSavedGeminiKey, saveGeminiKey } from '../services/geminiFilmService';
 import { drivePhotoAnalysisBlob, drivePhotoThumb, listDrivePhotos } from './mediaSources';
 import { cleanJersey, isPhotoTaggedOrRated, photosToRecheck, recheckKids } from './mediaData';
+import { AI_COOLDOWNS, aiErrorKind, cooldownFor, limitReason, mmssLeft } from './aiCooldown';
 
 interface Props {
   open: boolean;
@@ -83,6 +84,12 @@ export const AiTaggingModal: React.FC<Props> = ({
   });
   const [opponentColor, setOpponentColor] = useState<string>(() => getSavedOpponentColor());
   const [processedIds, setProcessedIds] = useState<Set<string>>(() => new Set());
+  // A wait after Gemini said no for now (402, quota, busy): seconds left, why, and which wait it is.
+  const [cooldown, setCooldown] = useState<{ left: number; reason: string; strike: number } | null>(null);
+  const [finished, setFinished] = useState(false);
+  const [doneCount, setDoneCount] = useState(0);
+  const [skippedCount, setSkippedCount] = useState(0);
+  const retryRequested = useRef(false);
   const stopRequested = useRef(false);
   const pauseRequested = useRef(false);
   const skipRequested = useRef(false);
@@ -128,6 +135,10 @@ export const AiTaggingModal: React.FC<Props> = ({
     pauseRequested.current = false;
     setPaused(false);
     setRunning(true);
+    setFinished(false);
+    setDoneCount(0);
+    setSkippedCount(0);
+    setCooldown(null);
     setCurrentStep('Building photo queue…');
 
     let items: QueueItem[] = [];
@@ -170,12 +181,15 @@ export const AiTaggingModal: React.FC<Props> = ({
     if (!items.length) {
       setCurrentStep(checking ? `No photos tagged #${checking} found in Drive.` : 'No un-analyzed photos to process.');
       setRunning(false);
+      setFinished(true);
       return;
     }
 
     setQueue(items);
     setCurrentIndex(0);
 
+    // Waits in a row after Gemini said no; back to none after a photo goes through.
+    let strikes = 0;
     for (let i = 0; i < items.length; i++) {
       if (stopRequested.current) break;
       if (skipRequested.current) {
@@ -194,6 +208,10 @@ export const AiTaggingModal: React.FC<Props> = ({
       const item = items[i];
       setCurrentStep(`Reading photo ${i + 1} of ${items.length}: ${item.photo.name}…`);
 
+      // The same photo again after a cool down, when Gemini says no for now (402, quota, busy).
+      let again = true;
+      while (again) {
+      again = false;
       try {
         const blob = await drivePhotoAnalysisBlob(item.photo);
         if (stopRequested.current) break;
@@ -236,33 +254,92 @@ export const AiTaggingModal: React.FC<Props> = ({
           rationale: analysis.curationRationale,
         });
 
+        strikes = 0;
+        setDoneCount((n) => n + 1);
         // Small 1.2s pace between photos to protect Gemini free-tier RPM quota
         if (i < items.length - 1 && !stopRequested.current && !skipRequested.current) {
           await new Promise((r) => setTimeout(r, 1200));
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (/refused this Gemini API key|quota reached|No Gemini API key|402|Payment Required/i.test(msg)) {
+        const kind = aiErrorKind(msg);
+        if (kind === 'key') {
           setErrorNote(msg);
           setShowKeyEditor(true);
           setRunning(false);
+          setFinished(true);
           return;
         }
-        // Other photo error, continue to next
+        if (kind === 'limit') {
+          const wait = cooldownFor(strikes);
+          if (wait === null) {
+            setErrorNote(
+              `${limitReason(msg)}, and it still said no after ${strikes} waits. Stopped at photo ${i + 1} of ${items.length}; the photos done are saved. ` +
+                (/402|Payment Required|prepayment|credits/i.test(msg)
+                  ? 'Top up the credits in Google AI Studio, or use a key from a free-tier project, then Run again.'
+                  : 'Try Run again later (Google’s daily limits start over overnight).')
+            );
+            if (/402|Payment Required|prepayment|credits/i.test(msg)) setShowKeyEditor(true);
+            setRunning(false);
+            setFinished(true);
+            return;
+          }
+          strikes++;
+          // Count down; Retry now ends it early, Stop ends the batch.
+          retryRequested.current = false;
+          for (let left = wait; left > 0; left--) {
+            if (stopRequested.current || retryRequested.current) break;
+            setCooldown({ left, reason: limitReason(msg), strike: strikes });
+            await new Promise((r) => setTimeout(r, 1000));
+          }
+          setCooldown(null);
+          if (stopRequested.current) break;
+          setCurrentStep(`Trying photo ${i + 1} again…`);
+          again = true;
+          continue;
+        }
+        // Something about this photo (it couldn't be read): skip it, Run again tries it later.
+        setSkippedCount((n) => n + 1);
         setCurrentStep(`Skipped photo (${msg.slice(0, 80)})`);
         await new Promise((r) => setTimeout(r, 1000));
       }
+      }
+      if (stopRequested.current) break;
     }
 
     setRunning(false);
-    setCurrentStep('All photos processed!');
+    setFinished(true);
+    setCooldown(null);
+    if (!stopRequested.current) setCurrentStep('All photos processed!');
   };
 
   const handleStop = () => {
     stopRequested.current = true;
     setRunning(false);
     setPaused(false);
-    setCurrentStep('Stopped.');
+    setCooldown(null);
+    setFinished(true);
+    setCurrentStep('Stopped. The photos done are saved.');
+  };
+
+  // Back to the start screen (the same choices), for another run: photos already tagged are skipped, so it picks
+  // up where it stopped.
+  const runAgain = () => {
+    setQueue([]);
+    setCurrentIndex(0);
+    setCurrentStep('');
+    setErrorNote('');
+    setFinished(false);
+    setCooldown(null);
+    setDoneCount(0);
+    setSkippedCount(0);
+    setSkipAnalyzed(true);
+  };
+  const close = () => {
+    if (running) return;
+    // Opened again later, it starts fresh (not stuck on the last run).
+    if (finished) runAgain();
+    onClose();
   };
 
   const handleSkipPhoto = () => {
@@ -294,7 +371,7 @@ export const AiTaggingModal: React.FC<Props> = ({
           <button
             type="button"
             disabled={running}
-            onClick={onClose}
+            onClick={close}
             className="h-8 w-8 grid place-items-center rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 disabled:opacity-30 cursor-pointer"
           >
             <X size={18} />
@@ -589,7 +666,7 @@ export const AiTaggingModal: React.FC<Props> = ({
             <div className="flex flex-col gap-3">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                  <span>{running ? `Processing ${currentIndex + 1} of ${total}…` : 'Processing Complete'}</span>
+                  <span>{running ? `Processing ${currentIndex + 1} of ${total}…` : stopRequested.current || errorNote ? `Stopped at ${currentIndex + 1} of ${total}` : 'Processing Complete'}</span>
                   {targetColor && targetColor !== 'Any' && (
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
                       <Shirt size={10} /> {targetColor}
@@ -605,9 +682,32 @@ export const AiTaggingModal: React.FC<Props> = ({
                 />
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                {running && <Loader2 size={13} className="animate-spin text-indigo-600 shrink-0" />}
-                {currentStep}
+                {running && !cooldown && <Loader2 size={13} className="animate-spin text-indigo-600 shrink-0" />}
+                {cooldown ? `Waiting before trying photo ${currentIndex + 1} again…` : currentStep}
               </p>
+              {(doneCount > 0 || skippedCount > 0) && (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {doneCount} tagged and saved{skippedCount ? ` · ${skippedCount} skipped (Run again tries them)` : ''}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Cooling down: Gemini said no for now (402, quota, busy). */}
+          {cooldown && (
+            <div className="p-3 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-100 flex flex-col gap-2" role="status">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl font-black tabular-nums">{mmssLeft(cooldown.left)}</span>
+                <div className="min-w-0">
+                  <p className="font-bold">{cooldown.reason}. Cooling down, then trying again.</p>
+                  <p className="text-[11px] opacity-80">
+                    Wait {cooldown.strike} of {AI_COOLDOWNS.length} (each one longer). Nothing is lost: every photo done is saved.
+                  </p>
+                </div>
+              </div>
+              <div className="h-1.5 rounded-full bg-amber-200 dark:bg-amber-900 overflow-hidden">
+                <div className="h-full bg-amber-500 transition-[width] duration-1000 ease-linear" style={{ width: `${(cooldown.left / (AI_COOLDOWNS[cooldown.strike - 1] || 1)) * 100}%` }} />
+              </div>
             </div>
           )}
 
@@ -670,7 +770,7 @@ export const AiTaggingModal: React.FC<Props> = ({
             <div className="p-3 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/40 text-xs text-rose-700 dark:text-rose-300 flex items-start gap-2">
               <AlertCircle size={16} className="shrink-0 mt-0.5" />
               <div>
-                <p className="font-bold">AI Analysis Paused</p>
+                <p className="font-bold">AI tagging stopped</p>
                 <p>{errorNote}</p>
               </div>
             </div>
@@ -683,7 +783,7 @@ export const AiTaggingModal: React.FC<Props> = ({
             <>
               <button
                 type="button"
-                onClick={onClose}
+                onClick={close}
                 className="h-9 px-3.5 rounded-lg text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800 cursor-pointer"
               >
                 Cancel
@@ -700,15 +800,35 @@ export const AiTaggingModal: React.FC<Props> = ({
             </>
           ) : (
             <>
-              <button
-                type="button"
-                onClick={handleStop}
-                className="h-9 px-3.5 rounded-lg text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
-              >
-                Stop Tagging
-              </button>
+              {running ? (
+                <button
+                  type="button"
+                  onClick={handleStop}
+                  className="h-9 px-3.5 rounded-lg text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                >
+                  Stop Tagging
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={runAgain}
+                  title="Back to the choices; photos already tagged are skipped, so it picks up where it stopped"
+                  className="h-9 px-3.5 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  <RotateCcw size={14} /> Run again
+                </button>
+              )}
               <div className="flex items-center gap-2">
-                {running && (
+                {running && cooldown && (
+                  <button
+                    type="button"
+                    onClick={() => (retryRequested.current = true)}
+                    className="h-9 px-3.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-900 text-xs font-black inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RotateCcw size={14} /> Retry now
+                  </button>
+                )}
+                {running && !cooldown && (
                   <>
                     <button
                       type="button"
@@ -738,7 +858,7 @@ export const AiTaggingModal: React.FC<Props> = ({
                 {!running && (
                   <button
                     type="button"
-                    onClick={onClose}
+                    onClick={close}
                     className="h-9 px-4 rounded-lg bg-indigo-600 text-white text-xs font-bold cursor-pointer"
                   >
                     Done
