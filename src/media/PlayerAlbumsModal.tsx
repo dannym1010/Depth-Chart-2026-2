@@ -53,7 +53,7 @@ export const PlayerAlbumsModal: React.FC<Props> = ({
   onOpenPhoto,
 }) => {
   const [selectedKid, setSelectedKid] = useState<string>(initialKid || '');
-  const [filterMode, setFilterMode] = useState<'all' | 'highlights' | 'elite'>('highlights');
+  const [filterMode, setFilterMode] = useState<'all' | 'highlights' | 'elite' | 'poster' | 'yearend'>('highlights');
   const [zipping, setZipping] = useState(false);
   const [zipProgress, setZipProgress] = useState('');
 
@@ -103,8 +103,14 @@ export const PlayerAlbumsModal: React.FC<Props> = ({
     if (filterMode === 'highlights') {
       return activePhotos.filter((p) => starsOf(p.record) >= 3);
     }
+    // His photos tagged for a poster, or for the year-end video.
+    if (filterMode === 'poster' || filterMode === 'yearend') {
+      return activePhotos.filter((p) => (p.record?.tags || []).includes(filterMode));
+    }
     return activePhotos;
   }, [activePhotos, filterMode]);
+  const posterCount = activePhotos.filter((p) => (p.record?.tags || []).includes('poster')).length;
+  const yearendCount = activePhotos.filter((p) => (p.record?.tags || []).includes('yearend')).length;
 
   const eliteCount = activePhotos.filter((p) => p.record?.tier === 'Elite').length;
   const goodCount = activePhotos.filter((p) => p.record?.tier === 'Good').length;
@@ -252,7 +258,7 @@ export const PlayerAlbumsModal: React.FC<Props> = ({
 
                 {/* Filter and Download Toolbar */}
                 <div className="flex flex-wrap items-center justify-between gap-2.5">
-                  <div className="flex items-center rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden h-8 text-xs font-bold">
+                  <div className="flex items-center rounded-xl border border-slate-200 dark:border-slate-700 overflow-x-auto max-w-full h-8 text-xs font-bold whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => setFilterMode('highlights')}
@@ -274,6 +280,30 @@ export const PlayerAlbumsModal: React.FC<Props> = ({
                       }`}
                     >
                       Elite Only (4★)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFilterMode('poster')}
+                      title="His photos tagged For Posters"
+                      className={`px-3 h-full cursor-pointer transition ${
+                        filterMode === 'poster'
+                          ? 'bg-indigo-600 text-white'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      🖼️ Posters ({posterCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFilterMode('yearend')}
+                      title="His photos tagged For the Year-End Video"
+                      className={`px-3 h-full cursor-pointer transition ${
+                        filterMode === 'yearend'
+                          ? 'bg-indigo-600 text-white'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      🏆 Year-end ({yearendCount})
                     </button>
                     <button
                       type="button"

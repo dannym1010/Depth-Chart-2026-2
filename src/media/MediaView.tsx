@@ -1185,16 +1185,43 @@ export const MediaView: React.FC<Props> = ({
     if (!folder && data.folders.length) setOpenId(data.folders[0].id);
   }, [folder, data.folders]);
 
+  // "All games": every folder's photos together (posters, the year-end video, favorites, a kid across the season).
+  const [allMode, setAllMode] = useState(false);
+  // Which folder (game) each listed photo is in: tags and hearts are saved with it.
+  const [photoFolder, setPhotoFolder] = useState<Map<string, MediaFolder>>(new Map());
+  const folderOf = (id?: string): MediaFolder | null => (id ? photoFolder.get(id) || folder : folder);
+  const allKey = data.folders.map((f) => f.driveId).join('|');
+
   const driveId = folder?.driveId || '';
   useEffect(() => {
     setPhotos(null);
     setProblem('');
     setViewing(-1);
     setSelectedIds(new Set());
-    if (!driveId || !signedIn) return;
+    if (!signedIn) return;
     let off = false;
+    if (allMode) {
+      const folders = data.folders;
+      if (!folders.length) return;
+      void Promise.all(folders.map((f) => listDrivePhotos(f.driveId).then((list) => list.map((p) => [p, f] as const)).catch(() => [] as (readonly [DrivePhoto, MediaFolder])[])))
+        .then((parts) => {
+          if (off) return;
+          const all = parts.flat();
+          setPhotoFolder(new Map(all.map(([p, f]) => [p.id, f])));
+          setPhotos(all.map(([p]) => p));
+        })
+        .catch((e) => !off && setProblem(e?.message || String(e)));
+      return () => {
+        off = true;
+      };
+    }
+    if (!driveId) return;
     listDrivePhotos(driveId)
-      .then((list) => !off && setPhotos(list))
+      .then((list) => {
+        if (off) return;
+        setPhotoFolder(new Map());
+        setPhotos(list);
+      })
       .catch((e) => {
         if (off) return;
         setProblem(e?.message || String(e));
@@ -1203,7 +1230,8 @@ export const MediaView: React.FC<Props> = ({
     return () => {
       off = true;
     };
-  }, [driveId, signedIn]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driveId, signedIn, allMode, allMode ? allKey : '']);
 
   const signIn = async () => {
     setSignInNote('');
@@ -1292,9 +1320,10 @@ export const MediaView: React.FC<Props> = ({
     if (!photos) return [];
     return photos.filter((p) => {
       const rec = records.get(p.id);
-      return matchPhotoFilter(p, rec, folder || undefined, filter);
+      return matchPhotoFilter(p, rec, folderOf(p.id) || undefined, filter);
     });
-  }, [photos, records, folder, filter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photos, records, folder, filter, photoFolder]);
 
   // Count un-analyzed photos in current folder
   const unanalyzedCount = useMemo(() => {
@@ -1310,10 +1339,11 @@ export const MediaView: React.FC<Props> = ({
     if (!photos || !folder) return [];
     return photos.map((p) => ({
       photo: p,
-      folder,
+      folder: folderOf(p.id) || folder,
       record: records.get(p.id),
     }));
-  }, [photos, folder, records]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photos, folder, records, photoFolder]);
 
   // Toggle selection of one photo
   const toggleSelectPhoto = (id: string) => {
@@ -1365,7 +1395,7 @@ export const MediaView: React.FC<Props> = ({
       const url = URL.createObjectURL(zipBlob);
       const a = document.createElement('a');
       a.href = url;
-      const opp = folder.opponent ? `_${folder.opponent}` : '';
+      const opp = allMode ? '_All_games' : folder.opponent ? `_${folder.opponent}` : '';
       a.download = `${teamName}${opp}_Selected_Photos_${dayOf(Date.now())}.zip`;
       document.body.appendChild(a);
       a.click();
@@ -1382,12 +1412,13 @@ export const MediaView: React.FC<Props> = ({
 
   // Batch tag selected photos
   const handleBatchAddTag = (tag: MediaTag) => {
-    if (!folder) return;
     for (const id of selectedIds) {
+      const f = folderOf(id);
+      if (!f) continue;
       const rec = records.get(id);
       const curTags = rec?.tags || [];
       if (!curTags.includes(tag)) {
-        handleSavePhoto(id, folder.id, { tags: [...curTags, tag] });
+        handleSavePhoto(id, f.id, { tags: [...curTags, tag] });
       }
     }
   };
@@ -1433,7 +1464,11 @@ export const MediaView: React.FC<Props> = ({
           {/* Player Albums Button */}
           <button
             type="button"
-            onClick={() => setAlbumsOpen(true)}
+            onClick={() => {
+              // A kid's album is the whole season's photos.
+              if (data.folders.length > 1) setAllMode(true);
+              setAlbumsOpen(true);
+            }}
             className="h-9 px-3 inline-flex items-center gap-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-bold cursor-pointer transition shadow-sm"
           >
             <Award size={14} className="text-amber-500" />
@@ -1521,7 +1556,11 @@ export const MediaView: React.FC<Props> = ({
           </div>
           <button
             type="button"
-            onClick={() => setAlbumsOpen(true)}
+            onClick={() => {
+              // A kid's album is the whole season's photos.
+              if (data.folders.length > 1) setAllMode(true);
+              setAlbumsOpen(true);
+            }}
             className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold cursor-pointer"
           >
             Open {linkedKidName}’s Album
@@ -1609,15 +1648,32 @@ export const MediaView: React.FC<Props> = ({
             <>
               {/* Folder Selector Tabs */}
               <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Photo folders">
+                {data.folders.length > 1 && (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={allMode}
+                    onClick={() => setAllMode(true)}
+                    title="Every game's photos together: filter by Posters, Year-end, favorites or a player across the season"
+                    className={`h-9 px-3 rounded-lg text-xs font-black cursor-pointer transition inline-flex items-center gap-1.5 ${
+                      allMode ? 'bg-indigo-600 text-white shadow-sm' : 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100'
+                    }`}
+                  >
+                    <FolderTree size={14} /> All games
+                  </button>
+                )}
                 {data.folders.map((f) => (
                   <button
                     key={f.id}
                     type="button"
                     role="tab"
-                    aria-selected={f.id === openId}
-                    onClick={() => setOpenId(f.id)}
+                    aria-selected={!allMode && f.id === openId}
+                    onClick={() => {
+                      setAllMode(false);
+                      setOpenId(f.id);
+                    }}
                     className={`h-9 px-3 rounded-lg text-xs font-bold cursor-pointer max-w-[16rem] truncate transition ${
-                      f.id === openId
+                      !allMode && f.id === openId
                         ? 'bg-indigo-600 text-white shadow-sm'
                         : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-750'
                     }`}
@@ -1629,7 +1685,22 @@ export const MediaView: React.FC<Props> = ({
               </div>
 
               {/* Folder Metadata (Shown to coaches) */}
-              {folder && canEdit && (
+              {/* A tag / favorites / player filter on one game: offer the whole season. */}
+              {!allMode && data.folders.length > 1 && (filter.tags?.length || filter.favoriteOf || filter.player) ? (
+                <p className="text-xs text-slate-600 dark:text-slate-300 flex flex-wrap items-center gap-2">
+                  Showing this game only.
+                  <button type="button" onClick={() => setAllMode(true)} className="font-bold text-indigo-600 dark:text-indigo-300 underline cursor-pointer">
+                    See all games
+                  </button>
+                </p>
+              ) : null}
+              {allMode && (
+                <p className="text-xs text-slate-600 dark:text-slate-300">
+                  All {data.folders.length} folders together{photos ? ` · ${photos.length} photos` : ' · loading…'}. Pick a tag (like 🖼️ Posters or 🏆 Year-end), My favorites or a player in the filters.
+                </p>
+              )}
+
+              {folder && canEdit && !allMode && (
                 <FolderDetails
                   folder={folder}
                   games={games}
@@ -1752,7 +1823,7 @@ export const MediaView: React.FC<Props> = ({
                       onToggleSelect={() => toggleSelectPhoto(p.id)}
                       onOpen={() => setViewing(i)}
                       fav={isFavorite(records.get(p.id), me)}
-                      onFav={canEdit && me && folder ? () => update((d) => toggleFavorite(d, p.id, folder.id, me)) : undefined}
+                      onFav={canEdit && me && folderOf(p.id) ? () => update((d) => toggleFavorite(d, p.id, folderOf(p.id)!.id, me)) : undefined}
                     />
                   ))}
                 </div>
@@ -1768,7 +1839,7 @@ export const MediaView: React.FC<Props> = ({
           photos={filteredPhotos}
           index={viewing}
           records={records}
-          folder={folder}
+          folder={folderOf(filteredPhotos[viewing]?.id)}
           roster={roster}
           canEdit={canEdit}
           onIndex={setViewing}
@@ -1776,7 +1847,7 @@ export const MediaView: React.FC<Props> = ({
           onOpenCrop={(p) => setCropPhoto(p)}
           onClose={() => setViewing(-1)}
           isFav={(id) => isFavorite(records.get(id), me)}
-          onFav={canEdit && me && folder ? (p) => update((d) => toggleFavorite(d, p.id, folder.id, me)) : undefined}
+          onFav={canEdit && me ? (p) => { const f = folderOf(p.id); if (f) update((d) => toggleFavorite(d, p.id, f.id, me)); } : undefined}
         />
       )}
 
@@ -1808,8 +1879,9 @@ export const MediaView: React.FC<Props> = ({
           record={records.get(cropPhoto.id)}
           canEdit={canEdit}
           onSaveCrop={(crop) => {
-            if (folder && cropPhoto) {
-              handleSavePhoto(cropPhoto.id, folder.id, { crop });
+            const cf = folderOf(cropPhoto?.id);
+            if (cf && cropPhoto) {
+              handleSavePhoto(cropPhoto.id, cf.id, { crop });
             }
           }}
         />
