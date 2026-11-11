@@ -134,7 +134,7 @@ export function autoDetectColumnMapping(headers: string[]): ColumnMapping {
     return '';
   };
 
-  return {
+  const mapping: ColumnMapping = {
     playNumber: findMatch(['PLAY #', 'PLAY NO', 'PLAY', 'PLAY NUMBER', 'PL#', 'NUM']),
     odk: findMatch(['ODK', 'O/D/K', 'O-D-K', 'OFF/DEF', 'POSSESSION', 'UNIT', 'OFF_DEF', 'PLAY ODK', 'ODK UNIT']),
     quarter: findMatch(['QTR', 'QUARTER', 'PERIOD', 'Q']),
@@ -170,6 +170,11 @@ export function autoDetectColumnMapping(headers: string[]): ColumnMapping {
     assistJersey: exactColumn(headers, ['TACKLER2_Jersey', 'TACKLER 2', 'TACKLER2', 'ASSIST_Jersey', 'ASSIST JERSEY', 'ASSIST', 'ASSISTED BY']),
     assistName: exactColumn(headers, ['TACKLER2_Name', 'ASSIST_Name', 'ASSIST NAME']),
   };
+  // The other team's columns (OPP RUSHER ...) never borrow our own RUSHER_Jersey / PASSER_Name ... columns: a loose
+  // match ("RUSHER") used to read our runner as theirs too.
+  const ours = new Set([mapping.rusherJersey, mapping.rusherName, mapping.passerJersey, mapping.passerName, mapping.receiverJersey, mapping.receiverName].filter(Boolean));
+  for (const k of ['oppRusher', 'oppPasser', 'oppReceiver'] as const) if (ours.has(mapping[k])) mapping[k] = '';
+  return mapping;
 }
 
 /** A column whose name matches exactly (ignoring case, spaces and punctuation). */
@@ -308,17 +313,21 @@ export function normalizeHudlRow(row: Record<string, string>, mapping: ColumnMap
   const runSide = classifyRunSide(rawDir, hash);
   const direction = directionLabel(runSide, hash, rawDir);
 
-  // Opponent player attribution (from Hudl columns OPP RUSHER, OPP PASSER, OPP RECEIVER)
-  const oppRusher = getVal(mapping.oppRusher, '');
-  const oppPasser = getVal(mapping.oppPasser, '');
-  const oppReceiver = getVal(mapping.oppReceiver, '');
+  // Players on the ball (Hudl RUSHER / PASSER / RECEIVER jersey + name columns): ours on offense and kicks. On a
+  // defense play the ball is theirs, and Hudl names their jersey from OUR roster, so only the jersey is kept, as theirs.
+  const theirBall = odk === 'D';
+  const ballCol = (jersey: string, name: string) => (theirBall ? '' : jerseyAndName(getVal(jersey, ''), getVal(name, '')));
+  const theirJersey = (jersey: string) => (theirBall ? (getVal(jersey, '').match(/\d+/) || [''])[0] : '');
+  const rusher = ballCol(mapping.rusherJersey, mapping.rusherName);
+  const passer = ballCol(mapping.passerJersey, mapping.passerName);
+  const receiver = ballCol(mapping.receiverJersey, mapping.receiverName);
+
+  // The other team's players (Hudl OPP RUSHER / OPP PASSER / OPP RECEIVER, or the ball columns on a defense play).
+  const oppRusher = getVal(mapping.oppRusher, '') || theirJersey(mapping.rusherJersey);
+  const oppPasser = getVal(mapping.oppPasser, '') || theirJersey(mapping.passerJersey);
+  const oppReceiver = getVal(mapping.oppReceiver, '') || theirJersey(mapping.receiverJersey);
   const seriesVal = parseInt(getVal(mapping.series, ''), 10);
   const series = isNaN(seriesVal) ? undefined : seriesVal;
-
-  // Our players on the ball (Hudl RUSHER / PASSER / RECEIVER jersey + name columns).
-  const rusher = jerseyAndName(getVal(mapping.rusherJersey, ''), getVal(mapping.rusherName, ''));
-  const passer = jerseyAndName(getVal(mapping.passerJersey, ''), getVal(mapping.passerName, ''));
-  const receiver = jerseyAndName(getVal(mapping.receiverJersey, ''), getVal(mapping.receiverName, ''));
 
   const keyPlayer = jerseyAndName(getVal(mapping.keyJersey, ''), getVal(mapping.keyName, ''));
   const tackler = jerseyAndName(getVal(mapping.tacklerJersey, ''), getVal(mapping.tacklerName, ''));

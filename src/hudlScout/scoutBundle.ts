@@ -449,9 +449,11 @@ function keepCoachWork(old: Play, fresh: Play): Play {
   const freshIsNumber = /^\d/.test(String(fresh.formation || '').trim());
   if (/^\d/.test(String(oldForm || '').trim()) && !freshIsNumber) next.formation = oldForm;
   // Players on the ball: the file wins when it has them, else keep what a coach picked.
-  if (!fresh.rusher && old.rusher) next.rusher = old.rusher;
-  if (!fresh.passer && old.passer) next.passer = old.passer;
-  if (!fresh.receiver && old.receiver) next.receiver = old.receiver;
+  // On a defense play the ball is theirs: our kids there came from an old import, so they aren't kept.
+  const theirBall = fresh.odk === 'D';
+  if (!theirBall && !fresh.rusher && old.rusher) next.rusher = old.rusher;
+  if (!theirBall && !fresh.passer && old.passer) next.passer = old.passer;
+  if (!theirBall && !fresh.receiver && old.receiver) next.receiver = old.receiver;
   if (!fresh.returner && old.returner) next.returner = old.returner;
   if (!fresh.kicker && old.kicker) next.kicker = old.kicker;
   if (!fresh.carrierOrTarget && old.carrierOrTarget) next.carrierOrTarget = old.carrierOrTarget;

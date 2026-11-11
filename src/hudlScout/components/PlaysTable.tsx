@@ -10,7 +10,8 @@ import { Search, ChevronDown, ChevronUp, ChevronRight, Zap, Flame, CheckCircle2,
 import { PLAY_COLUMNS, columnByKey, filterOptions, filterPlays, playTacklers, sortPlays, strengthSideText, strengthText, strengthFieldText, wentFieldText, type PlayColumnKey, type PlayFilters } from '../utils/playColumns';
 import { ColumnFilter } from './ColumnFilter';
 import type { FilmPlayerRef, RosterPlayer } from '../../types';
-import { defAssists, type FilmLineup } from '../../utils/filmLineup';
+import { defAssists, rosterLabel, type BallRole, type FilmLineup } from '../../utils/filmLineup';
+import { moveBallToThem, ourKidsOnTheirBall } from '../utils/theirBall';
 import { LineupEditor } from '../../components/playbook/LineupEditor';
 import { realCall } from '../../utils/scoutOppPlays';
 import { formationFromParts } from '../../filmroom/callName';
@@ -195,6 +196,36 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
   const [openPlay, setOpenPlay] = useState<string | null>(null);
   // The play whose fields are being changed (strength, hash, type, down and distance, gain, result).
   const [editPlay, setEditPlay] = useState<string | null>(null);
+  // The play whose PLAYERS (who ran, threw, caught, returned, kicked) are being changed.
+  const [editPlayers, setEditPlayers] = useState<string | null>(null);
+  const canEditPlayers = Boolean(onSetBall && roster?.length);
+  const theirBallCount = useMemo(() => plays.filter(ourKidsOnTheirBall).length, [plays]);
+  const playersButton = (play: Play) =>
+    canEditPlayers ? (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setEditPlayers((id) => (id === play.id ? null : play.id));
+        }}
+        aria-expanded={editPlayers === play.id}
+        aria-label={`Edit players on play ${play.playNumber}`}
+        title="Change who ran, threw, caught, returned or kicked it"
+        className={`shrink-0 inline-flex items-center justify-center h-5 w-5 rounded cursor-pointer ${editPlayers === play.id ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-white hover:bg-slate-800'}`}
+      >
+        <Pencil className="w-3 h-3" />
+      </button>
+    ) : null;
+  const playersPanel = (play: Play) => (
+    <PlayersEditor
+      play={play}
+      roster={roster || []}
+      onSetBall={(role, label) => onSetBall!(play.id, role, label)}
+      onTheirCarrier={onEditPlay ? (v) => onEditPlay(play.id, { carrierOrTarget: v }) : undefined}
+      onMoveToThem={onEditPlays ? () => onEditPlays((all) => moveBallToThem(all, [play.id])) : undefined}
+      onClose={() => setEditPlayers(null)}
+    />
+  );
   const editButton = (play: Play) =>
     onEditPlay ? (
       <button
@@ -657,6 +688,19 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
         </div>
       )}
 
+      {/* Hudl put our kids' names on the other team's ball (its RUSHER column names their jersey from our roster). */}
+      {onEditPlays && theirBallCount > 0 && (
+        <div className="mx-4 mt-3 rounded-lg border border-amber-500/50 bg-amber-950/30 px-3 py-2.5 flex flex-col sm:flex-row sm:items-center gap-2 text-xs text-amber-100">
+          <span className="flex-1">
+            {theirBallCount} defense play{theirBallCount === 1 ? ' has' : 's have'} our kids as the runner, passer or receiver. On defense the ball is
+            theirs: Hudl filled their jersey numbers with our roster’s names. Move them to their players (jersey only) so our kids aren’t credited.
+          </span>
+          <button type="button" onClick={() => onEditPlays((all) => moveBallToThem(all))} className="h-9 px-3 rounded-lg bg-amber-500 text-slate-950 font-black shrink-0 cursor-pointer">
+            Fix {theirBallCount === 1 ? 'it' : `all ${theirBallCount}`}
+          </button>
+        </div>
+      )}
+
       {/* Phone cards */}
       <div className="md:hidden divide-y divide-slate-800">
         {paginatedPlays.map((play, idx) => {
@@ -702,11 +746,13 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                 {strengthFieldText(play) || wentFieldText(play) ? <> · <FieldTag play={play} /></> : null}
                 {!hasPlayers(play) && play.carrierOrTarget ? ` · ${play.carrierOrTarget}` : ''}
               </div>
-              {hasPlayers(play) && (
-                <div className="text-[11px]">
-                  <BallPlayers play={play} inline />
+              {(hasPlayers(play) || canEditPlayers) && (
+                <div className="text-[11px] flex items-start gap-1.5">
+                  {hasPlayers(play) ? <BallPlayers play={play} inline /> : <span className="text-slate-500">No players</span>}
+                  {playersButton(play)}
                 </div>
               )}
+              {canEditPlayers && editPlayers === play.id && <div className="pt-1">{playersPanel(play)}</div>}
               {onEditPlay && editPlay === play.id && (
                 <div className="pt-1">
                   <PlayFieldsEditor play={play} kickChoices={kickChoices} onEdit={(e) => onEditPlay(play.id, e)} onClose={() => setEditPlay(null)} />
@@ -1021,6 +1067,8 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     players: (
                       <React.Fragment key="players">
                   <td className="py-2.5 px-3 text-slate-300 text-xs">
+                    <div className="flex items-start gap-1">
+                    <div className="min-w-0">
                     {hasPlayers(play, hasTacklers) ? (
                       <BallPlayers play={play} inline={compact} noTacklers={hasTacklers} />
                     ) : onEditPlay ? (
@@ -1034,6 +1082,9 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                     ) : (
                       play.carrierOrTarget || <span className="text-slate-400">-</span>
                     )}
+                    </div>
+                    {playersButton(play)}
+                    </div>
                   </td>
                       </React.Fragment>
                     ),
@@ -1188,6 +1239,13 @@ export const PlaysTable: React.FC<PlaysTableProps> = ({ plays, onSetUnit, playDa
                   <tr className="bg-slate-950/60">
                     <td colSpan={99} className="px-4 py-3">
                       {lineupPanel(play)}
+                    </td>
+                  </tr>
+                )}
+                {canEditPlayers && editPlayers === play.id && (
+                  <tr className="bg-slate-950/60">
+                    <td colSpan={99} className="px-4 py-3">
+                      {playersPanel(play)}
                     </td>
                   </tr>
                 )}
@@ -1950,3 +2008,92 @@ function writeLogView(key: string | undefined, view: LogView) {
     /* only a convenience */
   }
 }
+
+/** Our kids on the ball for one play: pick or clear who ran, threw, caught (offense) or returned, kicked (kicks). On a
+ *  defense play the ball is theirs: our kids there (from a Hudl import) move to their players, and their carrier is typed. */
+const PlayersEditor: React.FC<{
+  play: Play;
+  roster: RosterPlayer[];
+  onSetBall: (role: BallRole, label: string) => void;
+  onTheirCarrier?: (v: string) => void;
+  onMoveToThem?: () => void;
+  onClose: () => void;
+}> = ({ play, roster, onSetBall, onTheirCarrier, onMoveToThem, onClose }) => {
+  const lab = 'text-[10px] font-black uppercase tracking-wider text-slate-500';
+  const box = 'h-8 rounded-md border border-slate-700 bg-slate-900 px-2 text-xs text-slate-100 max-w-[11rem]';
+  const kids = useMemo(() => [...roster].filter((r) => r.num !== undefined && r.num !== '').sort((a, b) => Number(a.num) - Number(b.num) || String(a.num).localeCompare(String(b.num))), [roster]);
+  const isD = play.odk === 'D';
+  const roles: { role: BallRole; label: string }[] =
+    play.odk === 'K'
+      ? [
+          { role: 'returner', label: 'Returned' },
+          { role: 'kicker', label: 'Kicked' },
+        ]
+      : [
+          { role: 'rusher', label: 'Ran it' },
+          { role: 'passer', label: 'Threw it' },
+          { role: 'receiver', label: 'Thrown to' },
+        ];
+  const ours = isD ? (['rusher', 'passer', 'receiver'] as const).filter((r) => play[r]) : [];
+  return (
+    <div className="flex flex-col gap-2.5 max-w-xl sticky left-0" role="group" aria-label={`Players on play ${play.playNumber}`}>
+      {isD ? (
+        <>
+          {ours.length > 0 && (
+            <div className="rounded-lg border border-amber-500/50 bg-amber-950/30 px-3 py-2 flex flex-wrap items-center gap-2 text-xs text-amber-100">
+              <span className="flex-1 min-w-[12rem]">
+                Our kids are on their ball here ({ours.map((r) => play[r]).join(', ')}). On defense those are their players: Hudl named their jersey from our roster.
+              </span>
+              {onMoveToThem && (
+                <button type="button" onClick={onMoveToThem} className="h-8 px-3 rounded-lg bg-amber-500 text-slate-950 font-black cursor-pointer">
+                  Make them theirs
+                </button>
+              )}
+              {!onMoveToThem &&
+                ours.map((r) => (
+                  <button key={r} type="button" onClick={() => onSetBall(r, '')} className="h-8 px-2.5 rounded-lg border border-amber-500/60 font-bold cursor-pointer">
+                    Clear {play[r]}
+                  </button>
+                ))}
+            </div>
+          )}
+          <div className="flex flex-wrap items-end gap-3">
+            {onTheirCarrier && (
+              <label className="flex flex-col gap-1">
+                <span className={lab}>Their ball carrier</span>
+                <CellInput value={play.carrierOrTarget || ''} label={`Their ball carrier on play ${play.playNumber}`} placeholder="#13 (Rush)" onSave={onTheirCarrier} className="w-40 !h-8 rounded-md border border-slate-700 bg-slate-900 px-2" />
+              </label>
+            )}
+            <span className="text-[11px] text-slate-400 pb-2">Our tacklers: open the play’s lineup (▸ by the play number) or the Film Room’s Tackle box.</span>
+          </div>
+        </>
+      ) : (
+        <div className="flex flex-wrap items-end gap-3">
+          {roles.map(({ role, label }) => {
+            const now = play[role] || '';
+            const inList = kids.some((r) => rosterLabel(r) === now);
+            return (
+              <label key={role} className="flex flex-col gap-1">
+                <span className={lab}>{label}</span>
+                <select value={now} onChange={(e) => onSetBall(role, e.target.value)} className={box} aria-label={`${label} on play ${play.playNumber}`}>
+                  <option value="">Nobody</option>
+                  {now && !inList && <option value={now}>{now}</option>}
+                  {kids.map((r) => (
+                    <option key={r.id || r.num} value={rosterLabel(r)}>
+                      {rosterLabel(r)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            );
+          })}
+        </div>
+      )}
+      <div>
+        <button type="button" onClick={onClose} className="h-8 px-3 rounded-md border border-slate-600 text-xs font-bold text-slate-200 hover:bg-slate-800 cursor-pointer">
+          Done
+        </button>
+      </div>
+    </div>
+  );
+};

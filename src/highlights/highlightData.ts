@@ -137,12 +137,14 @@ const completed = (p: Play) => /\bcomplete/i.test(String(p.result || '')) && !/i
 const isPass = (p: Play) => p.playType === 'PASS' || p.playType === 'SCREEN' || Boolean(p.passer) || /complete|pass/i.test(String(p.result || ''));
 const isKick = (p: Play) => p.odk === 'K' || /\b(ko|kick|punt)\b/i.test(String(p.rawPlayType || ''));
 
-/** Jersey numbers on a play: who carried, threw, caught, made the tackle. */
+/** Jersey numbers on a play: who carried, threw, caught, made the tackle. On defense the ball is theirs. */
 export function kidsOnPlay(p: Play): string[] {
-  const nums = [p.rusher, p.passer, p.receiver, p.returner, p.kicker, p.defPlay?.maker, ...(p.defPlay?.assists || []), p.defPlay?.assist, ...Object.values(p.defPlay?.by || {})]
+  const ours = p.odk !== 'D';
+  const ball = ours ? [p.rusher, p.passer, p.receiver] : [];
+  const nums = [...ball, p.returner, p.kicker, p.defPlay?.maker, ...(p.defPlay?.assists || []), p.defPlay?.assist, ...Object.values(p.defPlay?.by || {})]
     .map((x) => jerseyOf(x))
     .filter(Boolean);
-  if (!nums.length && p.carrierOrTarget) nums.push(jerseyOf(p.carrierOrTarget));
+  if (!nums.length && ours && p.carrierOrTarget) nums.push(jerseyOf(p.carrierOrTarget));
   return [...new Set(nums.filter(Boolean))];
 }
 

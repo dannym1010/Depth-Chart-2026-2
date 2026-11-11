@@ -74,7 +74,9 @@ export const PlayerFinder: React.FC<Props> = ({ open, onClose, games, plays, ros
     const counts = new Map<string, number>();
     for (const p of plays) {
       const seen = new Set<string>();
-      for (const label of [p.rusher, p.passer, p.receiver, p.carrierOrTarget, p.returner, p.kicker, p.defPlay?.maker, p.defPlay?.assist, ...(p.defPlay?.assists || []), ...Object.values(p.defPlay?.by || {})]) {
+      // On defense the ball is theirs.
+      const ball = p.odk === 'D' ? [] : [p.rusher, p.passer, p.receiver, p.carrierOrTarget];
+      for (const label of [...ball, p.returner, p.kicker, p.defPlay?.maker, p.defPlay?.assist, ...(p.defPlay?.assists || []), ...Object.values(p.defPlay?.by || {})]) {
         const n = jerseyOf(label);
         if (n && !seen.has(n)) {
           seen.add(n);

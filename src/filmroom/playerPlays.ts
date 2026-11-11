@@ -67,7 +67,8 @@ export function playsForPlayer(plays: Play[], num: string): PlayerPlay[] {
       const back = kickKind(p) === 'koReturn' || kickKind(p) === 'puntReturn';
       if (is(p.returner) || (!p.returner && back && is(p.rusher || p.carrierOrTarget))) roles.push('Return');
       if (is(p.kicker)) roles.push('Kick');
-    } else {
+    } else if (p.odk !== 'D') {
+      // On defense the ball is theirs (Hudl names their runner from our roster).
       if (is(p.rusher)) roles.push('Rush');
       if (is(p.passer)) roles.push('Pass');
       if (is(p.receiver)) roles.push(completed(p) ? 'Catch' : 'Target');
