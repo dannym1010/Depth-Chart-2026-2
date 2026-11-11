@@ -5,6 +5,7 @@ import type { Segment } from '../highlights/highlightData';
 import type { FilmAccess } from '../highlights/filmAccess';
 import type { HighlightSettings } from '../highlights/types';
 import { frameRange, pictureRect } from '../highlights/socialVideo';
+import { encoderQuality, qualitySizes, type VideoQuality } from '../highlights/videoQuality';
 import { drawFade, drawSlide } from './drawSlide';
 import { photoBitmap } from './photoLoad';
 import { fadeAt, musicLevel, musicPieces, SHAPES, slidesSeconds, songsSeconds, type Slide } from './slideshowData';
@@ -21,6 +22,8 @@ export interface SlideshowRenderOptions {
   logo?: HTMLImageElement | null;
   /** The songs, in the slideshow's order (null: not on this device, left out). */
   songs: (Blob | null)[];
+  /** Quick (720p), Standard (1080p), Best (more bits; 4K when wide). */
+  quality?: VideoQuality;
   onProgress?: (fraction: number, label: string) => void;
   signal?: AbortSignal;
 }
@@ -42,13 +45,20 @@ export async function renderSlideshowVideo(o: SlideshowRenderOptions): Promise<S
   const mb = await import('mediabunny');
   const total = slidesSeconds(o.slides);
   if (!o.slides.length || total <= 0) throw new Error('Nothing in the slideshow yet.');
-  let { w: W, h: H } = SHAPES[o.options.shape] || SHAPES['16:9'];
-  if (!(await mb.canEncodeVideo('avc', { width: W, height: H, quality: mb.QUALITY_HIGH, frameRate: FPS }))) {
-    W = Math.round((W * 2) / 3 / 2) * 2;
-    H = Math.round((H * 2) / 3 / 2) * 2;
-    if (!(await mb.canEncodeVideo('avc', { width: W, height: H, quality: mb.QUALITY_HIGH, frameRate: FPS })))
-      throw new Error("This browser can't make H.264 video. Use Chrome or Edge on a computer, or Safari on an up-to-date iPad / iPhone.");
+  const base = SHAPES[o.options.shape] || SHAPES['16:9'];
+  const q = o.quality || 'standard';
+  const vq = encoderQuality(mb, q);
+  // The biggest size this device can encode, from the quality's sizes (a wide slideshow at Best tries 4K).
+  let W = 0;
+  let H = 0;
+  for (const s of qualitySizes(base.w, base.h, q, base.w > base.h)) {
+    if (await mb.canEncodeVideo('avc', { width: s.w, height: s.h, quality: vq, frameRate: FPS })) {
+      W = s.w;
+      H = s.h;
+      break;
+    }
   }
+  if (!W) throw new Error("This browser can't make H.264 video. Use Chrome or Edge on a computer, or Safari on an up-to-date iPad / iPhone.");
   const opt = o.options;
   const wantSongs = o.songs.some(Boolean);
   const wantGame = o.slides.some((s) => s.kind === 'clip' && s.sound);
@@ -65,7 +75,7 @@ export async function renderSlideshowVideo(o: SlideshowRenderOptions): Promise<S
 
   const target = new mb.BufferTarget();
   const output = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: 'in-memory' }), target });
-  const video = new mb.CanvasSource(out, { codec: 'avc', quality: mb.QUALITY_HIGH, keyFrameInterval: 2 });
+  const video = new mb.CanvasSource(out, { codec: 'avc', quality: vq, keyFrameInterval: 2 });
   output.addVideoTrack(video, { frameRate: FPS });
   const audio = sound ? new mb.AudioBufferSource({ codec: 'aac', quality: mb.QUALITY_HIGH }) : null;
   if (audio) output.addAudioTrack(audio);

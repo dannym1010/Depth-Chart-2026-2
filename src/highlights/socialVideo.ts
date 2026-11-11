@@ -10,6 +10,7 @@ import type { FilmAccess } from './filmAccess';
 import { followCam, unpackFollow, type FollowPoint } from './follow';
 import type { Highlight, HighlightSettings } from './types';
 import { clipCamera } from './clipZoom';
+import { encoderQuality, qualitySizes, type VideoQuality } from './videoQuality';
 
 export type SocialShape = 'reel' | 'post' | 'square';
 
@@ -263,6 +264,8 @@ export interface SocialRenderOptions {
   /** The title at the bottom of each highlight (and "Replay"); cards are always shown. */
   titles: boolean;
   transition?: 'cut' | 'dip' | 'fade';
+  /** Quick (720p), Standard (1080p), Best (1080p, more detail). */
+  quality?: VideoQuality;
   onProgress?: (fraction: number, label: string) => void;
   signal?: AbortSignal;
 }
@@ -282,14 +285,20 @@ export async function renderSocialVideo(o: SocialRenderOptions): Promise<SocialR
   const mb = await import('mediabunny');
   const total = timelineSeconds(o.segments);
   if (!o.segments.length || total <= 0) throw new Error('Nothing to put in the video.');
-  let { w: W, h: H } = SOCIAL_SHAPES[o.shape];
-  if (!(await mb.canEncodeVideo('avc', { width: W, height: H, quality: mb.QUALITY_HIGH, frameRate: SOCIAL_FPS }))) {
-    // Older devices: the same shape at 720 wide.
-    W = Math.round((W * 2) / 3 / 2) * 2;
-    H = Math.round((H * 2) / 3 / 2) * 2;
-    if (!(await mb.canEncodeVideo('avc', { width: W, height: H, quality: mb.QUALITY_HIGH, frameRate: SOCIAL_FPS })))
-      throw new Error("This browser can't make H.264 video. Use Chrome or Edge on a computer, or Safari on an up-to-date iPad / iPhone.");
+  // The quality's sizes (Instagram shows 1080 wide at most, so Best is more detail, not more pixels); older devices
+  // fall back to a smaller one.
+  const q = o.quality || 'standard';
+  const vq = encoderQuality(mb, q);
+  let W = 0;
+  let H = 0;
+  for (const s of qualitySizes(SOCIAL_SHAPES[o.shape].w, SOCIAL_SHAPES[o.shape].h, q)) {
+    if (await mb.canEncodeVideo('avc', { width: s.w, height: s.h, quality: vq, frameRate: SOCIAL_FPS })) {
+      W = s.w;
+      H = s.h;
+      break;
+    }
   }
+  if (!W) throw new Error("This browser can't make H.264 video. Use Chrome or Edge on a computer, or Safari on an up-to-date iPad / iPhone.");
   const followZoom = o.followZoom ?? 1;
   const wantSound = o.sound.game || Boolean(o.sound.music);
   const sound = wantSound && typeof OfflineAudioContext !== 'undefined' && (await mb.canEncodeAudio('aac', { numberOfChannels: 2, sampleRate: SR, quality: mb.QUALITY_HIGH }));
@@ -302,7 +311,7 @@ export async function renderSocialVideo(o: SocialRenderOptions): Promise<SocialR
 
   const target = new mb.BufferTarget();
   const output = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: 'in-memory' }), target });
-  const video = new mb.CanvasSource(out, { codec: 'avc', quality: mb.QUALITY_HIGH, keyFrameInterval: 2 });
+  const video = new mb.CanvasSource(out, { codec: 'avc', quality: vq, keyFrameInterval: 2 });
   output.addVideoTrack(video, { frameRate: SOCIAL_FPS });
   const audio = sound ? new mb.AudioBufferSource({ codec: 'aac', quality: mb.QUALITY_HIGH }) : null;
   if (audio) output.addAudioTrack(audio);

@@ -24,6 +24,8 @@ import {
 } from './socialVideo';
 import { zipFiles } from './zip';
 import { hasClipZoom } from './clipZoom';
+import { QualityPicker } from './QualityPicker';
+import { qualitySizes, savedQuality, saveQuality, type VideoQuality } from './videoQuality';
 
 interface Props {
   title: string;
@@ -92,6 +94,11 @@ export const SocialVideoPanel: React.FC<Props> = ({ title, segments, access, set
   const [results, setResults] = useState<Made[]>([]);
   const [zipping, setZipping] = useState(false);
   const stopRef = useRef<AbortController | null>(null);
+  const [quality, setQualityState] = useState<VideoQuality>(savedQuality);
+  const setQuality = (q: VideoQuality) => {
+    setQualityState(q);
+    saveQuality(q);
+  };
   const seconds = useMemo(() => timelineSeconds(segments), [segments]);
   const shape = SOCIAL_SHAPES[prefs.shape];
 
@@ -114,7 +121,7 @@ export const SocialVideoPanel: React.FC<Props> = ({ title, segments, access, set
       r.forEach((x) => URL.revokeObjectURL(x.url));
       return [];
     });
-  useEffect(clearResults, [prefs, focus, segments]);
+  useEffect(clearResults, [prefs, focus, segments, quality]);
   useEffect(() => () => stopRef.current?.abort(), []);
 
   // ---- The live preview: "Where to look" jumps it to a highlight, paused where he shows ----
@@ -158,6 +165,7 @@ export const SocialVideoPanel: React.FC<Props> = ({ title, segments, access, set
           titles: prefs.titles,
           sound: { game: prefs.game, music: song },
           transition,
+          quality,
           signal: stop.signal,
           onProgress: (f, label) => setProgress({ f: (j + f) / jobs.length, label: jobs.length > 1 ? `${j + 1} of ${jobs.length}: ${label}` : label }),
         });
@@ -280,6 +288,8 @@ export const SocialVideoPanel: React.FC<Props> = ({ title, segments, access, set
                 })}
               </div>
             </fieldset>
+
+            <QualityPicker value={quality} onChange={setQuality} disabled={running} sizes={qualitySizes(shape.w, shape.h, quality)[0]} />
 
             <fieldset className="flex flex-col gap-1" disabled={running}>
               <legend className="font-black text-slate-800 dark:text-slate-100 mb-1">The film</legend>

@@ -6,6 +6,8 @@ import type { FilmAccess } from '../highlights/filmAccess';
 import { clock } from '../highlights/highlightData';
 import type { HighlightSettings } from '../highlights/types';
 import { canMakeVideo } from '../highlights/socialVideo';
+import { QualityPicker } from '../highlights/QualityPicker';
+import { qualitySizes, savedQuality, saveQuality, type VideoQuality } from '../highlights/videoQuality';
 import { renderSlideshowVideo, type SlideshowResult } from './renderSlideshow';
 import { SHAPES, slidesSeconds, type Slide } from './slideshowData';
 import type { Song } from './songs';
@@ -30,6 +32,12 @@ export const SlideshowVideoPanel: React.FC<Props> = ({ title, slides, options, a
   const [error, setError] = useState('');
   const [made, setMade] = useState<(SlideshowResult & { file: File; url: string }) | null>(null);
   const stopRef = useRef<AbortController | null>(null);
+  const [quality, setQualityState] = useState<VideoQuality>(savedQuality);
+  const setQuality = (q: VideoQuality) => {
+    setQualityState(q);
+    saveQuality(q);
+    setMade(null);
+  };
   useEffect(() => () => stopRef.current?.abort(), []);
   useEffect(() => () => (made ? URL.revokeObjectURL(made.url) : undefined), [made]);
   const seconds = slidesSeconds(slides);
@@ -45,7 +53,7 @@ export const SlideshowVideoPanel: React.FC<Props> = ({ title, slides, options, a
     stopRef.current = stop;
     try {
       const blobs = await Promise.all(options.songs.map((p) => songs.find((s) => s.name === p.name)?.get().catch(() => null) ?? Promise.resolve(null)));
-      const r = await renderSlideshowVideo({ slides, options, access, look, logo, songs: blobs, signal: stop.signal, onProgress: (f, label) => setProgress({ f, label }) });
+      const r = await renderSlideshowVideo({ slides, options, access, look, logo, songs: blobs, quality, signal: stop.signal, onProgress: (f, label) => setProgress({ f, label }) });
       const file = new File([r.blob], fileName(title), { type: 'video/mp4' });
       setMade({ ...r, file, url: URL.createObjectURL(file) });
     } catch (err: any) {
@@ -85,7 +93,7 @@ export const SlideshowVideoPanel: React.FC<Props> = ({ title, slides, options, a
           <div className="min-w-0">
             <h3 className="font-black text-slate-900 dark:text-slate-100">Make the video</h3>
             <p className="text-xs text-slate-500 truncate">
-              {title} · {clock(seconds)} · {shape.label} ({shape.w}×{shape.h}) · MP4, made on this device
+              {title} · {clock(seconds)} · {shape.label} · MP4, made on this device
             </p>
           </div>
           <button type="button" onClick={() => (running ? stopRef.current?.abort() : onClose())} className="ml-auto h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500" aria-label="Close">
@@ -102,8 +110,9 @@ export const SlideshowVideoPanel: React.FC<Props> = ({ title, slides, options, a
             Not on this device, so left out: {missingSongs.join(', ')}. Add the song file in Music to put it in.
           </p>
         )}
+        <QualityPicker value={quality} onChange={setQuality} disabled={running} sizes={qualitySizes(shape.w, shape.h, quality, shape.w > shape.h)[0]} />
         <p className="text-xs text-slate-500">
-          It takes about as long as the slideshow runs, or a bit longer: every photo and clip is read from Google Drive first. Keep this screen open.
+          At Standard it takes about as long as the slideshow runs, or a bit longer: every photo and clip is read from Google Drive first. Keep this screen open.
         </p>
         {(running || error) && (
           <div className="flex flex-col gap-1">
