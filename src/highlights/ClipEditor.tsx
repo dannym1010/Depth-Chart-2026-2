@@ -181,6 +181,19 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
   // The finished clip, played the way a reel shows it.
   const [preview, setPreview] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  // The effects on this clip (each can also be taken off in its own tab).
+  const effectsList = [
+    h.slow ? 'slow motion' : '',
+    h.freeze ? 'the freeze' : '',
+    h.replay ? 'the replay' : '',
+    h.marks?.length ? `${h.marks.length} circle${h.marks.length === 1 ? '' : 's'} / arrow${h.marks.length === 1 ? '' : 's'}` : '',
+    h.zoom ? 'the zoom' : '',
+    h.follow?.pts?.length ? 'the kid’s path' : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+  const hasEffects = Boolean(effectsList);
 
   // Undo / redo: every change made here, back to when the clip was opened.
   const hRef = useRef(h);
@@ -1021,6 +1034,38 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
             <span className="tabular-nums text-slate-500">{(end - start).toFixed(1)} s long</span>
             {busy && <span className="text-amber-600 dark:text-amber-400 font-semibold">{busy}</span>}
           </div>
+          {/* Take every effect off at once (the trim, title, kids, stars and note stay). */}
+          {hasEffects &&
+            (confirmReset ? (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-rose-300 dark:border-rose-500/40 p-2">
+                <span className="font-bold text-rose-700 dark:text-rose-300">
+                  Take off {effectsList}? The trim, title and kids stay.
+                </span>
+                <button
+                  type="button"
+                  className="h-9 sm:h-8 px-3 rounded-lg bg-rose-600 text-white font-bold"
+                  onClick={() => {
+                    edit((x) => ({ ...x, slow: undefined, freeze: undefined, replay: undefined, marks: undefined, zoom: undefined, follow: undefined }));
+                    setConfirmReset(false);
+                    setShowZoom(false);
+                    setWatchFollow(false);
+                    zp.reset();
+                  }}
+                >
+                  Take them all off
+                </button>
+                <button type="button" className="underline" onClick={() => setConfirmReset(false)}>
+                  Keep them
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-slate-500">On this clip: {effectsList}.</span>
+                <button type="button" className={small} onClick={() => setConfirmReset(true)} title="Take every effect off this clip (Undo brings them back)">
+                  Start over (take all effects off)
+                </button>
+              </div>
+            ))}
           <p className="text-[11px] text-slate-500">Drag the blue handles on the bar (a touch near one grabs it), or nudge them here. A tap on the bar moves the playhead.</p>
         </div>
       )}
