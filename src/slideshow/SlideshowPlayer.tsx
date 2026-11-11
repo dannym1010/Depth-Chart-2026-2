@@ -48,9 +48,9 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
   const [waiting, setWaiting] = useState('');
   const [, force] = useState(0);
 
-  // The frame drawn at the slideshow's own shape (up to 1280 on its long side), and the last slide's last frame.
+  // The frame drawn at the slideshow's own shape (1080p: sharp on the banquet TV), and the last slide's last frame.
   const shape = SHAPES[options.shape] || SHAPES['16:9'];
-  const scale = Math.min(1, 1280 / Math.max(shape.w, shape.h));
+  const scale = Math.min(1, 1920 / Math.max(shape.w, shape.h));
   const FW = Math.round(shape.w * scale);
   const FH = Math.round(shape.h * scale);
   const frame = useMemo(() => Object.assign(document.createElement('canvas'), { width: FW, height: FH }), [FW, FH]);
