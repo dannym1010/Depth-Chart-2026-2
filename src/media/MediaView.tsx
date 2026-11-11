@@ -1120,7 +1120,7 @@ const FolderDetails: React.FC<{
         <button
           type="button"
           onClick={() => {
-            if (window.confirm(`Take “${folder.name}” out of the Media library? The photos stay in Google Drive.`)) onRemove();
+            if (window.confirm(`Take “${folder.name}” out of the Media library? The photos stay in Google Drive, and their AI tags, stars, players and favorites are kept: add the folder back and they're all there.`)) onRemove();
           }}
           className="ml-auto h-9 px-3 inline-flex items-center gap-1.5 rounded-lg text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
         >

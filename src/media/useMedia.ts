@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getFirebaseServices, isFirestoreQuotaPaused, isReadOnlySession, safeJSONParse, safeJSONSet, withoutUndefined } from '../services/storageService';
 import { bigGet, bigSet } from '../utils/bigLocalStore';
 import { sharedDocId } from '../filmroom/sharedMerge';
-import { emptyMedia, mergeMedia } from './mediaData';
+import { emptyMedia, mergeMedia, photosMissingFrom } from './mediaData';
 import type { MediaData } from './types';
 
 export interface MediaStore {
@@ -28,6 +28,7 @@ export function useMedia(teamId: string, season: string, opts: { helper?: boolea
   const [data, setData] = useState<MediaData>(() => mergeMedia(safeJSONParse(cacheKey, emptyMedia()), undefined));
   const ref = useRef(data);
   ref.current = data;
+  const saveRef = useRef<((change: (d: MediaData) => MediaData) => void) | null>(null);
 
   const keep = useCallback(
     (next: MediaData) => {
@@ -61,7 +62,12 @@ export function useMedia(teamId: string, season: string, opts: { helper?: boolea
       .doc(docId)
       .onSnapshot(
         (snap: any) => {
-          if (snap?.exists && !snap.metadata?.hasPendingWrites) adopt(snap.data());
+          if (!snap?.exists || snap.metadata?.hasPendingWrites) return;
+          const cloud = snap.data();
+          adopt(cloud);
+          // This device has photo tags / ratings the cloud lost (a folder removed under the old rule dropped them):
+          // send them back.
+          if (!cantSave() && photosMissingFrom(cloud, ref.current) > 0) saveRef.current?.((d) => d);
         },
         (err: any) => console.warn('Media live updates error:', err)
       );
@@ -103,6 +109,7 @@ export function useMedia(teamId: string, season: string, opts: { helper?: boolea
     },
     [docId, teamId, season, keep, adopt, helper] // eslint-disable-line react-hooks/exhaustive-deps
   );
+  saveRef.current = update;
 
   return { data, update, saveError, readOnly: cantSave() };
 }

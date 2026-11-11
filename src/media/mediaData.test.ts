@@ -10,6 +10,7 @@ import {
   matchPhotoFilter,
   mergeMedia,
   newFolder,
+  photosMissingFrom,
   removeFolder,
   starsOf,
   tierOfScore,
@@ -66,17 +67,28 @@ describe('media library: photo folders', () => {
     assert.equal(mergeMedia(theirs, mine).folders[0].opponent, 'Mine');
   });
 
-  it('a removed folder stays removed after merging with an older copy, and its photo tags go with it', () => {
+  it('a removed folder stays removed after merging with an older copy, and its photo tags are kept', () => {
     const f = folder('d1', 1000);
     let d = addFolder(emptyMedia(), f);
-    d = editPhoto(d, 'photo1', f.id, { kids: ['21'] }, 1500);
+    d = editPhoto(d, 'photo1', f.id, { kids: ['21'], tier: 'Elite' }, 1500);
     const older = d;
     d = removeFolder(d, f.id, 5000);
     assert.equal(d.folders.length, 0);
-    assert.equal(d.photos.length, 0);
+    assert.equal(d.photos.length, 1, 'the ratings stay with the photo');
     const merged = mergeMedia(d, older);
     assert.equal(merged.folders.length, 0);
-    assert.equal(merged.photos.length, 0);
+    assert.deepEqual(merged.photos[0].kids, ['21']);
+  });
+
+  it('brings back photo tags an old folder removal marked deleted, from a copy that still has them', () => {
+    // The cloud after a removal under the old rule: no records, "deleted" marks on them.
+    const cloud = { ...emptyMedia(), deletedPhotos: { photo1: 5000 } };
+    const ipad = editPhoto(addFolder(emptyMedia(), folder('d1', 1000)), 'photo1', 'f', { tier: 'Elite', kids: ['21'] }, 1500);
+    const merged = mergeMedia(cloud, ipad);
+    assert.equal(merged.photos.length, 1);
+    assert.equal(merged.photos[0].tier, 'Elite');
+    assert.equal(photosMissingFrom(cloud, merged), 1, 'the cloud is missing it: this device sends it back');
+    assert.equal(photosMissingFrom(merged, merged), 0);
   });
 });
 

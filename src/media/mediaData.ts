@@ -6,17 +6,28 @@ import type { MediaCategory, MediaData, MediaFolder, MediaPhoto, MediaTag, Media
 
 export const emptyMedia = (): MediaData => ({ folders: [], deletedFolders: {}, photos: [], deletedPhotos: {} });
 
+/**
+ * Two copies of the library together. A photo's record (its AI tags, stars, players, tags, favorites) is never
+ * deleted: it belongs to the photo (its Drive id), not the folder, so taking a folder off and adding it back keeps
+ * everything. Old photo "deleted" marks (from when removing a folder dropped its tags) are ignored, so a copy that
+ * still has those records brings them back.
+ */
 export function mergeMedia(a?: Partial<MediaData> | null, b?: Partial<MediaData> | null): MediaData {
   const x = { ...emptyMedia(), ...(a || {}) };
   const y = { ...emptyMedia(), ...(b || {}) };
   const deletedFolders = mergeTombstones(x.deletedFolders, y.deletedFolders);
-  const deletedPhotos = mergeTombstones(x.deletedPhotos, y.deletedPhotos);
   return {
     folders: mergeById(x.folders, y.folders, deletedFolders).sort((m, n) => m.createdAt - n.createdAt),
     deletedFolders,
-    photos: mergeById(x.photos, y.photos, deletedPhotos),
-    deletedPhotos,
+    photos: mergeById(x.photos, y.photos, []),
+    deletedPhotos: {},
   };
+}
+
+/** Photo records one copy has that the other is missing (or has older): the cloud lost them and this device can give them back. */
+export function photosMissingFrom(cloud: Partial<MediaData> | null | undefined, local: MediaData): number {
+  const have = new Map((cloud?.photos || []).map((p) => [p.id, Number(p.editedAt) || 0]));
+  return local.photos.filter((p) => !have.has(p.id) || (have.get(p.id) || 0) < (Number(p.editedAt) || 0)).length;
 }
 
 // ---- Folders ----
@@ -31,15 +42,15 @@ export function editFolder(d: MediaData, id: string, change: Partial<MediaFolder
   return { ...d, folders: d.folders.map((f) => (f.id === id ? { ...f, ...change, editedAt: now } : f)) };
 }
 
-/** Take a folder off the library (its photos stay in Drive; the tags on them are dropped). */
+/**
+ * Take a folder off the library. Its photos stay in Drive, and everything known about them (AI tags, stars, players,
+ * tags, favorites) is kept: add the same Drive folder back and it's all there.
+ */
 export function removeFolder(d: MediaData, id: string, now = Date.now()): MediaData {
-  const gone = d.photos.filter((p) => p.folderId === id).map((p) => p.id);
   return {
     ...d,
     folders: d.folders.filter((f) => f.id !== id),
     deletedFolders: { ...d.deletedFolders, [id]: now },
-    photos: d.photos.filter((p) => p.folderId !== id),
-    deletedPhotos: { ...d.deletedPhotos, ...Object.fromEntries(gone.map((g) => [g, now])) },
   };
 }
 
