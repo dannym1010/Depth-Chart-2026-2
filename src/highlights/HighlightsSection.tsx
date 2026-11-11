@@ -28,9 +28,13 @@ interface Props {
   myKids?: string[];
   /** What a coach let this player / family account do here (Staff & access → Highlights). */
   level?: HighlightAccess;
+  /** The staff by email → name (who kept a clip, who made a reel). */
+  people?: Record<string, string>;
+  /** The program owner and head coaches see every coach's reels, the ones not shared too. */
+  seeAllReels?: boolean;
 }
 
-export const HighlightsSection: React.FC<Props> = ({ teamId, teamName, ownTeamScout, roster, userEmail, authorName, watchOnly, myKids, level = 'kid' }) => {
+export const HighlightsSection: React.FC<Props> = ({ teamId, teamName, ownTeamScout, roster, userEmail, authorName, watchOnly, myKids, level = 'kid', people, seeAllReels }) => {
   const season = seasonOf();
   // A family's Highlights helper saves to the team's highlights like a coach.
   const helper = Boolean(watchOnly) && level === 'helper';
@@ -134,6 +138,8 @@ export const HighlightsSection: React.FC<Props> = ({ teamId, teamName, ownTeamSc
       myName={authorName}
       helper={helper}
       extra={helperSwitch}
+      people={people}
+      seeAllReels={Boolean(seeAllReels) && !watchOnly}
     />
   );
 };

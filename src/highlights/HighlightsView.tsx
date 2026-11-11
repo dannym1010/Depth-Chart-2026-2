@@ -14,14 +14,14 @@ import { playsForPlayer } from '../filmroom/playerPlays';
 import { ClipEditor, CATEGORY_LABEL } from './ClipEditor';
 import { clipLength, lineUp, type AccessState, type FilmAccess } from './filmAccess';
 import {
-  addHighlights, addToReel, editHighlight, editReel, extraPlace, FAMILIES, shareReel, gameOrder, highlightFromExtra, kidCoverage, kidHighlights, kidLabel, kidsText,
+  addHighlights, addToReel, editHighlight, editReel, EVERYONE, extraPlace, FAMILIES, shareReel, gameOrder, highlightFromExtra, kidCoverage, kidHighlights, kidLabel, kidsText,
   mergeHighlights, newReel, orderedHighlights, recommendPlays, REC_GROUPS, removeHighlights, removeReel, seasonPicks, clock, reelsFor, type Kid, type RecGroup,
 } from './highlightData';
 import { ReelEditor } from './ReelEditor';
 import { keepPlaysAsHighlights } from './keepPlays';
 import { AUTO_JSON_KEY, SettingsPanel } from './SettingsPanel';
 import { canWriteFolders, DB_FILE, dbJson, libraryFolder, writeFile } from './localLibrary';
-import type { Highlight, HighlightCategory, HighlightGame } from './types';
+import type { Highlight, HighlightCategory, HighlightGame, Reel } from './types';
 import type { HighlightStore } from './useHighlights';
 
 export interface HighlightsViewProps {
@@ -42,6 +42,10 @@ export interface HighlightsViewProps {
   helper?: boolean;
   /** Shown at the right of the title row (the helper's switch to their own family page). */
   extra?: React.ReactNode;
+  /** The staff by email (lower case) → name: who kept a clip, who made a reel. */
+  people?: Record<string, string>;
+  /** The program owner and head coaches: every coach's reels, the ones not shared too. */
+  seeAllReels?: boolean;
 }
 
 type Tab = 'clips' | 'reels' | 'kids' | 'settings';
@@ -57,7 +61,7 @@ const REC_COLOR: Record<RecGroup, string> = {
 };
 type ClipsView = 'kept' | 'suggested' | 'extras';
 
-export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season, store, access, loadShared, games, plays, roster, me, myName, helper = false, extra }) => {
+export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season, store, access, loadShared, games, plays, roster, me, myName, helper = false, extra, people, seeAllReels = false }) => {
   const { data, update } = store;
   const ro = store.readOnly;
   const settings = data.settings;
@@ -114,6 +118,28 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
   const [fRating, setFRating] = useState(0);
   const [fKind, setFKind] = useState<'' | 'play' | 'extra'>('');
   const [fText, setFText] = useState('');
+  const [fBy, setFBy] = useState('');
+  // A phone shows the search and a Filters button; the rest opens from it.
+  const [showFilters, setShowFilters] = useState(false);
+  const activeFilters = [fGame, fCat, fKid, fRating, fKind, fBy].filter(Boolean).length;
+  const clearFilters = () => {
+    setFGame('');
+    setFCat('');
+    setFKid('');
+    setFRating(0);
+    setFKind('');
+    setFBy('');
+    setFText('');
+  };
+  /** Who someone is (a staff member's name), "You", or the start of their email. */
+  const nameOf = useCallback((email?: string) => {
+    const e = String(email || '').toLowerCase().trim();
+    if (!e) return '';
+    if (e === me) return 'You';
+    return people?.[e] || e.split('@')[0];
+  }, [people, me]);
+  // Who kept the clips (the "Kept by" filter shows when more than one person has).
+  const keepers = useMemo(() => [...new Set(data.highlights.map((h) => String(h.createdBy || '').toLowerCase().trim()).filter(Boolean))].sort((a, b) => (a === me ? -1 : b === me ? 1 : nameOf(a).localeCompare(nameOf(b)))), [data.highlights, me, nameOf]);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const kept = useMemo(
     () =>
@@ -125,10 +151,11 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
             (!fKid || h.kids.some((k) => String(Number(k)) === fKid)) &&
             h.rating >= fRating &&
             (!fKind || h.kind === fKind) &&
+            (!fBy || String(h.createdBy || '').toLowerCase().trim() === fBy) &&
             (!fText || `${h.title} ${h.note || ''} ${h.game.name}`.toLowerCase().includes(fText.toLowerCase()))
         )
         .sort((a, b) => (order.get(a.game.key) ?? 0) - (order.get(b.game.key) ?? 0) || a.seq - b.seq),
-    [data.highlights, fGame, fCat, fKid, fRating, fKind, fText, order]
+    [data.highlights, fGame, fCat, fKid, fRating, fKind, fBy, fText, order]
   );
   const keptSeconds = kept.reduce((n, h) => n + (h.end - h.start), 0);
   const open = data.highlights.find((h) => h.id === openId) || null;
@@ -259,7 +286,40 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
     setTab('reels');
   };
   const [reelId, setReelId] = useState<string | null>(null);
-  const reel = myReels.find((r) => r.id === reelId) || null;
+  // The reels list: yours, the ones shared with the staff (or you), and, for the owner and head coaches, every other
+  // coach's (not shared). Newest first in each.
+  const reelGroups = useMemo(() => {
+    const yours: Reel[] = [];
+    const shared: Reel[] = [];
+    const others: Reel[] = [];
+    for (const r of seeAllReels ? data.reels : myReels) {
+      if (!r.owner || r.owner === me) yours.push(r);
+      else if (r.sharedWith.some((e) => e === EVERYONE || e === me)) shared.push(r);
+      else others.push(r);
+    }
+    const newest = (a: Reel, b: Reel) => (b.editedAt || b.createdAt) - (a.editedAt || a.createdAt);
+    return [
+      { id: 'yours', label: 'Your reels', reels: yours.sort(newest) },
+      { id: 'shared', label: 'Shared with the staff', reels: shared.sort(newest) },
+      { id: 'others', label: 'Other coaches’ reels (not shared)', reels: others.sort(newest) },
+    ].filter((g) => g.reels.length);
+  }, [seeAllReels, data.reels, myReels, me]);
+  const listedReels = useMemo(() => reelGroups.flatMap((g) => g.reels), [reelGroups]);
+  const reel = listedReels.find((r) => r.id === reelId) || null;
+  // On a phone the reel opens below the list: bring it up.
+  const reelRef = useRef<HTMLDivElement>(null);
+  const pickReel = (id: string) => {
+    setReelId(id);
+    if (window.innerWidth < 1024) window.setTimeout(() => reelRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 60);
+  };
+  /** A reel's clips, added up (no cards): close to how long it plays. */
+  const reelClipsSeconds = (r: Reel) => {
+    const byId = new Map(data.highlights.map((h) => [h.id, h]));
+    return r.items.reduce((n, it) => {
+      const h = byId.get(it.highlightId);
+      return h ? n + (h.end - h.start) : n;
+    }, 0);
+  };
   // A clip opened from a reel is edited right there, stepping through that reel's clips (not the whole list).
   const [reelClipId, setReelClipId] = useState<string | null>(null);
   useEffect(() => setReelClipId(null), [reelId]);
@@ -367,7 +427,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
         <Clapperboard size={22} className="text-indigo-600 dark:text-indigo-400" />
         <h2 className="text-lg font-black text-slate-900 dark:text-slate-100">Highlights</h2>
         <span className="text-xs text-slate-500">
-          {season} season · {data.highlights.length} kept · {myReels.length} reel{myReels.length === 1 ? '' : 's'} · {store.localOnly ? 'this computer only' : 'shared with the staff'}
+          {season} season · {data.highlights.length} kept · {listedReels.length} reel{listedReels.length === 1 ? '' : 's'} · {store.localOnly ? 'this computer only' : 'shared with the staff'}
         </span>
         <div role="tablist" className="flex flex-wrap items-center gap-1 sm:ml-auto">
           {tabBtn('clips', <><Sparkles size={13} /> Clips</>)}
@@ -412,7 +472,24 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
 
             {clipsView === 'kept' && (
               <>
-                <div className="flex flex-wrap items-center gap-1.5">
+                {/* A phone: the search, and a Filters button for the rest. */}
+                <div className="flex items-center gap-1.5 sm:hidden">
+                  <input value={fText} onChange={(e) => setFText(e.target.value)} placeholder="Search" className={`${sel} h-9 flex-1 min-w-0`} aria-label="Search" />
+                  <button
+                    type="button"
+                    onClick={() => setShowFilters((x) => !x)}
+                    aria-expanded={showFilters}
+                    className={`h-9 px-3 rounded-lg border text-xs font-bold shrink-0 ${activeFilters ? 'border-indigo-500 text-indigo-700 dark:text-indigo-300' : 'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200'}`}
+                  >
+                    Filters{activeFilters ? ` · ${activeFilters}` : ''} {showFilters ? '▴' : '▾'}
+                  </button>
+                  {(activeFilters > 0 || fText) && (
+                    <button type="button" onClick={clearFilters} className="text-xs font-bold underline text-slate-500 shrink-0">
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <div className={`${showFilters ? 'flex' : 'hidden'} sm:flex flex-wrap items-center gap-1.5`}>
                   {gameSelect(fGame, setFGame, 'Every game')}
                   <select value={fCat} onChange={(e) => setFCat(e.target.value as HighlightCategory | '')} className={sel} aria-label="Kind">
                     <option value="">Every kind</option>
@@ -436,7 +513,20 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                     <option value="play">Plays</option>
                     <option value="extra">Extras</option>
                   </select>
-                  <input value={fText} onChange={(e) => setFText(e.target.value)} placeholder="Search" className={`${sel} w-28`} aria-label="Search" />
+                  {keepers.length > 1 && (
+                    <select value={fBy} onChange={(e) => setFBy(e.target.value)} className={sel} aria-label="Kept by">
+                      <option value="">Kept by anyone</option>
+                      {keepers.map((e) => (
+                        <option key={e} value={e}>Kept by {nameOf(e)}</option>
+                      ))}
+                    </select>
+                  )}
+                  <input value={fText} onChange={(e) => setFText(e.target.value)} placeholder="Search" className={`${sel} w-28 hidden sm:block`} aria-label="Search" />
+                  {(activeFilters > 0 || fText) && (
+                    <button type="button" onClick={clearFilters} className="hidden sm:inline text-xs font-bold underline text-slate-500">
+                      Clear filters
+                    </button>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                   {!ro && kept.length > 0 && (
@@ -524,6 +614,8 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                           {h.slow ? ' · slow-mo' : ''}
                           {h.freeze ? ' · freeze' : ''}
                           {h.marks?.length ? ` · ${h.marks.length} mark${h.marks.length === 1 ? '' : 's'}` : ''}
+                          {h.zoom ? (h.zoom.follow ? ' · follows him' : ` · ${h.zoom.level}× zoom`) : ''}
+                          {h.createdBy && String(h.createdBy).toLowerCase().trim() !== me ? ` · ${nameOf(h.createdBy)}` : ''}
                         </span>
                       </span>
                       <span className="text-[11px] tabular-nums text-slate-500 shrink-0">{(h.end - h.start).toFixed(1)} s</span>
@@ -724,29 +816,50 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                 </div>
               </div>
             )}
-            <ul className="flex flex-col gap-1" aria-label="Reels">
-              {myReels.map((r) => {
-                const segsLen = r.items.length;
-                return (
-                  <li key={r.id}>
-                    <button
-                      type="button"
-                      onClick={() => setReelId(r.id)}
-                      className={`w-full text-left rounded-lg px-2 py-1.5 ${reelId === r.id ? 'bg-indigo-50 dark:bg-indigo-500/15' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}
-                    >
-                      <span className="block text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{r.name}</span>
-                      <span className="block text-[11px] text-slate-500">
-                        {r.kind === 'game' ? 'Game' : r.kind === 'season' ? 'Season' : r.kind === 'player' ? 'Player' : 'Custom'} · {segsLen} clip{segsLen === 1 ? '' : 's'}
-                        {r.ownerName && r.owner !== me ? ` · ${r.ownerName}` : ''}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-              {!myReels.length && <li className="text-sm text-slate-500 py-4 text-center">No reels yet.</li>}
-            </ul>
+            <div className="flex flex-col gap-3 lg:max-h-[75vh] lg:overflow-auto -mx-1 px-1" aria-label="Reels">
+              {reelGroups.map((g) => (
+                <section key={g.id} className="flex flex-col gap-1" aria-label={g.label}>
+                  {(reelGroups.length > 1 || g.id !== 'yours') && (
+                    <h3 className="text-[11px] font-black uppercase tracking-wide text-slate-500 px-1">
+                      {g.label} <span className="font-bold tabular-nums">({g.reels.length})</span>
+                    </h3>
+                  )}
+                  {g.id === 'others' && <p className="text-[11px] text-slate-500 px-1 -mt-0.5">Only the owner and head coaches see these.</p>}
+                  <ul className="flex flex-col gap-1">
+                    {g.reels.map((r) => {
+                      const n = r.items.length;
+                      const who = r.owner && r.owner !== me ? r.ownerName || nameOf(r.owner) : '';
+                      return (
+                        <li key={r.id}>
+                          <button
+                            type="button"
+                            onClick={() => pickReel(r.id)}
+                            aria-current={reelId === r.id ? 'true' : undefined}
+                            className={`w-full text-left rounded-lg px-2 py-2 sm:py-1.5 ${reelId === r.id ? 'bg-indigo-50 dark:bg-indigo-500/15 ring-1 ring-indigo-300 dark:ring-indigo-500/40' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}
+                          >
+                            <span className="flex items-center gap-1.5 min-w-0">
+                              <span className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{r.name}</span>
+                              {r.sharedWith.includes(FAMILIES) && (
+                                <span className="shrink-0 text-[9px] font-black uppercase px-1 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300" title={r.kind === 'player' && r.kid ? 'His family can watch' : 'Families can watch'}>
+                                  Families
+                                </span>
+                              )}
+                            </span>
+                            <span className="block text-[11px] text-slate-500 truncate">
+                              {r.kind === 'game' ? 'Game' : r.kind === 'season' ? 'Season' : r.kind === 'player' ? 'Player' : 'Custom'} · {n} clip{n === 1 ? '' : 's'} · {clock(reelClipsSeconds(r))}
+                              {who ? ` · by ${who}` : ''}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              ))}
+              {!listedReels.length && <p className="text-sm text-slate-500 py-4 text-center">No reels yet.</p>}
+            </div>
           </div>
-          <div className={`${panel} p-3 min-w-0 flex flex-col gap-3`}>
+          <div ref={reelRef} className={`${panel} p-3 min-w-0 flex flex-col gap-3 scroll-mt-2`}>
             {reel && reelClip && (
               <div ref={reelClipRef} className="rounded-xl border-2 border-indigo-300 dark:border-indigo-500/40 p-2 flex flex-col gap-2 min-w-0 scroll-mt-4">
                 <div className="flex flex-wrap items-center gap-1.5 text-xs">
@@ -796,6 +909,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
               <ReelEditor
                 key={reel.id}
                 openId={reelClipId}
+                ownerLabel={reel.owner && reel.owner !== me ? reel.ownerName || nameOf(reel.owner) : undefined}
                 reel={reel}
                 data={data}
                 store={store}

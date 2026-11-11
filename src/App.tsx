@@ -8351,6 +8351,9 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 roster={activeTeamRoster}
                 userEmail={currentUserEmail}
                 authorName={currentUser?.displayName || (currentUser?.email || 'Coach').split('@')[0]}
+                // Who kept a clip / made a reel, by name; the owner and head coaches see every coach's reels.
+                people={Object.fromEntries(staffList.filter((c) => c?.email).map((c) => [c.email.toLowerCase().trim(), c.name || c.email.split('@')[0]]))}
+                seeAllReels={!isPlayer && (isProgramAdmin || userRole === 'admin')}
               />
             )}
 

@@ -29,11 +29,13 @@ interface Props {
   onDelete: () => void;
   /** The clip open in the editor above (marked in the list). */
   openId?: string | null;
+  /** Who made it, by name (another coach's reel). */
+  ownerLabel?: string;
 }
 
 const MUSIC = /\.(mp3|m4a|aac|wav|ogg|flac)$/i;
 
-export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, roster, plays, teamName, season, me, onOpenClip, onDelete, openId }) => {
+export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, roster, plays, teamName, season, me, onOpenClip, onDelete, openId, ownerLabel }) => {
   const ro = store.readOnly;
   const o = reel.options;
   const settings = data.settings;
@@ -167,6 +169,12 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
         <span>
           {list.length} clip{list.length === 1 ? '' : 's'} · <b className="text-slate-700 dark:text-slate-200">{clock(seconds)}</b> with cards and replays
         </span>
+        {!mine && (
+          <span className="font-bold text-slate-700 dark:text-slate-200">
+            Made by {ownerLabel || reel.ownerName || reel.owner.split('@')[0]}
+            {!reel.sharedWith.some((e) => e === EVERYONE || e === me) && <span className="font-normal text-amber-700 dark:text-amber-300"> · not shared (you see it as head coach)</span>}
+          </span>
+        )}
         {goal > 0 && (
           <span className={`font-bold ${seconds > goal ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
             {seconds > goal ? `${clock(seconds - goal)} over` : `${clock(goal - seconds)} to spare`} the {clock(goal)} goal
