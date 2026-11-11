@@ -18,7 +18,7 @@ import {
 } from './geminiMediaService';
 import { getSavedGeminiKey, saveGeminiKey } from '../services/geminiFilmService';
 import { drivePhotoAnalysisBlob, drivePhotoThumb, listDrivePhotos } from './mediaSources';
-import { isPhotoTaggedOrRated, STARS } from './mediaData';
+import { cleanJersey, isPhotoTaggedOrRated, photosToRecheck, recheckKids } from './mediaData';
 
 interface Props {
   open: boolean;
@@ -49,6 +49,10 @@ export const AiTaggingModal: React.FC<Props> = ({
 }) => {
   const [scope, setScope] = useState<'current' | 'all'>('current');
   const [skipAnalyzed, setSkipAnalyzed] = useState(true);
+  // 'recheck': run the AI again on just the photos tagged with one number (a kid's number was wrong on the roster).
+  const [mode, setMode] = useState<'tag' | 'recheck'>('tag');
+  const [recheckNum, setRecheckNum] = useState('');
+  const [recheckEmpty, setRecheckEmpty] = useState(true);
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -100,6 +104,11 @@ export const AiTaggingModal: React.FC<Props> = ({
     return !isPhotoTaggedOrRated(records.get(p.id)) && !processedIds.has(p.id);
   }).length;
 
+  const recheckFolderIds = new Set(scope === 'current' && currentFolder ? [currentFolder.id] : allFolders.map((f) => f.id));
+  const recheckTargets = photosToRecheck(records.values(), recheckNum, recheckFolderIds, recheckEmpty);
+  const recheckWithNum = cleanJersey(recheckNum) ? photosToRecheck(records.values(), recheckNum, recheckFolderIds, false).length : 0;
+  const recheckReady = Boolean(cleanJersey(recheckNum)) && recheckTargets.length > 0;
+
   const rosterRefs: RosterRef[] = roster.map((r) => ({
     num: r.num,
     firstName: r.firstName,
@@ -122,7 +131,20 @@ export const AiTaggingModal: React.FC<Props> = ({
     setCurrentStep('Building photo queue…');
 
     let items: QueueItem[] = [];
-    if (scope === 'current' && currentFolder) {
+    const checking = mode === 'recheck' ? cleanJersey(recheckNum) : '';
+    if (checking) {
+      // Just the photos with that number (and the ones with none, if asked): find their Drive files.
+      const want = new Map(recheckTargets.map((r) => [r.id, r.folderId] as const));
+      const folders = allFolders.filter((f) => [...want.values()].includes(f.id));
+      for (const f of folders) {
+        try {
+          const list = scope === 'current' && currentFolder && f.id === currentFolder.id ? currentPhotos : await listDrivePhotos(f.driveId);
+          for (const p of list) if (want.get(p.id) === f.id) items.push({ photo: p, folderId: f.id, folderName: f.name });
+        } catch {
+          // ignore folder list errors and continue
+        }
+      }
+    } else if (scope === 'current' && currentFolder) {
       items = currentPhotos
         .filter((p) => {
           if (!skipAnalyzed) return true;
@@ -146,7 +168,7 @@ export const AiTaggingModal: React.FC<Props> = ({
     }
 
     if (!items.length) {
-      setCurrentStep('No un-analyzed photos to process.');
+      setCurrentStep(checking ? `No photos tagged #${checking} found in Drive.` : 'No un-analyzed photos to process.');
       setRunning(false);
       return;
     }
@@ -190,8 +212,9 @@ export const AiTaggingModal: React.FC<Props> = ({
           onStatus: (s) => setCurrentStep(`Photo ${i + 1}/${items.length}: ${s}`),
         });
 
-        // Incrementally save photo to store
-        onSavePhoto(item.photo.id, item.folderId, analysis);
+        // Incrementally save photo to store. A re-check only changes the numbers: ratings, tags and the rest stay.
+        if (checking) onSavePhoto(item.photo.id, item.folderId, { kids: recheckKids(records.get(item.photo.id)?.kids, checking, analysis.kids || []) });
+        else onSavePhoto(item.photo.id, item.folderId, analysis);
         setProcessedIds((prev) => new Set(prev).add(item.photo.id));
 
         // Fetch thumbnail for preview
@@ -347,6 +370,67 @@ export const AiTaggingModal: React.FC<Props> = ({
           </div>
           {!running && total === 0 && (
             <>
+              <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800" role="tablist" aria-label="What to run">
+                {(
+                  [
+                    ['tag', 'Tag photos'],
+                    ['recheck', 'Re-check one number'],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={mode === id}
+                    onClick={() => setMode(id)}
+                    className={`h-8 rounded-lg text-xs font-black cursor-pointer ${
+                      mode === id ? 'bg-white dark:bg-slate-950 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {mode === 'recheck' && (
+                <div className="p-3.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20 flex flex-col gap-2.5">
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                    Fixed a kid&apos;s number on the roster? Type the <strong>wrong number</strong> photos were tagged with. The AI looks at just those photos again with the fixed roster. Only the numbers on them change: stars, tags and favorites stay.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label htmlFor="recheck-num" className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      Number to re-check
+                    </label>
+                    <div className="flex items-center h-9 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 pl-2">
+                      <span className="text-sm font-black text-slate-400">#</span>
+                      <input
+                        id="recheck-num"
+                        inputMode="numeric"
+                        value={recheckNum}
+                        onChange={(e) => setRecheckNum(cleanJersey(e.target.value).slice(0, 3))}
+                        placeholder="32"
+                        className="w-14 h-full px-1 bg-transparent text-sm font-black text-slate-900 dark:text-white focus:outline-none"
+                      />
+                    </div>
+                    {cleanJersey(recheckNum) && (
+                      <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                        {recheckWithNum} photo{recheckWithNum === 1 ? '' : 's'} tagged #{cleanJersey(recheckNum)}
+                        {roster.some((r) => String(r.num) === cleanJersey(recheckNum)) ? '' : ' · not on the roster now'}
+                      </span>
+                    )}
+                  </div>
+                  <label className="flex items-center gap-2.5 text-xs text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={recheckEmpty}
+                      onChange={(e) => setRecheckEmpty(e.target.checked)}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    Also photos where the AI found no number ({photosToRecheck(records.values(), '', recheckFolderIds, true).length})
+                  </label>
+                </div>
+              )}
+
               <div className="flex flex-col gap-2">
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Target Folder Scope</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -473,6 +557,8 @@ export const AiTaggingModal: React.FC<Props> = ({
                 </div>
               </div>
 
+              {mode === 'tag' && (
+              <>
               <label className="flex items-center gap-2.5 text-xs text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
                 <input
                   type="checkbox"
@@ -493,6 +579,8 @@ export const AiTaggingModal: React.FC<Props> = ({
                   <li><strong>Quality & Curation:</strong> 1-10 scores for focus, framing, emotion & subject isolation with 4-star Elite to 1-star Reject tiers.</li>
                 </ul>
               </div>
+              </>
+              )}
             </>
           )}
 
@@ -603,9 +691,11 @@ export const AiTaggingModal: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => void startBatch()}
-                className="h-9 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                disabled={mode === 'recheck' && !recheckReady}
+                className="h-9 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-40 disabled:cursor-default"
               >
-                <Sparkles size={14} /> Start AI Tagging
+                <Sparkles size={14} />{' '}
+                {mode === 'recheck' ? (recheckReady ? `Re-check ${recheckTargets.length} photo${recheckTargets.length === 1 ? '' : 's'}` : 'Re-check') : 'Start AI Tagging'}
               </button>
             </>
           ) : (

@@ -1,6 +1,41 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyMedia, foldersToAdd, isFavorite, matchPhotoFilter, MEDIA_TAGS, TAG_LABELS, toggleFavorite } from './mediaData.ts';
+import {
+  emptyMedia,
+  foldersToAdd,
+  isFavorite,
+  matchPhotoFilter,
+  MEDIA_TAGS,
+  photosToRecheck,
+  recheckKids,
+  TAG_LABELS,
+  toggleFavorite,
+} from './mediaData.ts';
+
+describe('re-check one number', () => {
+  const rec = (id: string, folderId: string, kids?: string[], aiAnalyzedAt?: number) => ({ id, folderId, kids, aiAnalyzedAt, editedAt: 1 });
+  const records = [
+    rec('a', 'f1', ['32', '7'], 5),
+    rec('b', 'f1', [], 5),
+    rec('c', 'f2', ['32'], 5),
+    rec('d', 'f1', ['8'], 5),
+    rec('e', 'f1', undefined, undefined),
+    rec('z', 'gone', ['32'], 5),
+  ];
+  it('picks the photos with that number, and the analyzed ones with none if asked, in the chosen folders', () => {
+    const all = new Set(['f1', 'f2']);
+    assert.deepEqual(photosToRecheck(records, '#32', all, false).map((r) => r.id), ['a', 'c']);
+    assert.deepEqual(photosToRecheck(records, '32', all, true).map((r) => r.id), ['a', 'b', 'c']);
+    assert.deepEqual(photosToRecheck(records, '32', new Set(['f1']), false).map((r) => r.id), ['a']);
+    assert.deepEqual(photosToRecheck(records, '', all, true).map((r) => r.id), ['b']);
+  });
+  it('takes the checked number off, puts what the AI sees on, keeps the rest', () => {
+    assert.deepEqual(recheckKids(['32', '7'], '32', ['23']), ['7', '23']);
+    assert.deepEqual(recheckKids(['32'], '32', ['32']), ['32']);
+    assert.deepEqual(recheckKids([], '32', ['5', '23']), ['5', '23']);
+    assert.deepEqual(recheckKids(['7'], '32', []), ['7']);
+  });
+});
 
 describe('photo favorites', () => {
   it("are each person's own heart, on and off, and a filter", () => {

@@ -90,6 +90,36 @@ export function isPhotoTaggedOrRated(r?: Partial<MediaPhoto> | null): boolean {
   );
 }
 
+/** "#32 " → "32". */
+export const cleanJersey = (s: string): string => String(s || '').replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+
+/** Re-check one number: photos tagged with it, plus (optionally) analyzed photos where the AI found no number.
+ *  Only photos in the given folders. */
+export function photosToRecheck(
+  records: Iterable<MediaPhoto>,
+  num: string,
+  folderIds: Set<string>,
+  withEmpty: boolean,
+): MediaPhoto[] {
+  const n = cleanJersey(num);
+  const out: MediaPhoto[] = [];
+  for (const r of records) {
+    if (!folderIds.has(r.folderId)) continue;
+    const kids = r.kids || [];
+    if ((n && kids.includes(n)) || (withEmpty && r.aiAnalyzedAt && !kids.length)) out.push(r);
+  }
+  return out;
+}
+
+/** After a re-check: the checked number comes off, every number the AI sees now goes on, and every other number
+ *  already on the photo (typed in by hand, or another kid) stays. */
+export function recheckKids(old: string[] | undefined, checked: string, found: string[]): string[] {
+  const n = cleanJersey(checked);
+  const set = new Set((old || []).filter((k) => k !== n));
+  for (const k of found) if (cleanJersey(k)) set.add(cleanJersey(k));
+  return [...set].sort((a, b) => Number(a) - Number(b));
+}
+
 /** A date as YYYY-MM-DD in local time. */
 export const dayOf = (ms: number): string => {
   const d = new Date(ms);
