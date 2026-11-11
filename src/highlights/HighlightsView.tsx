@@ -22,6 +22,7 @@ import { keepPlaysAsHighlights } from './keepPlays';
 import { AUTO_JSON_KEY, SettingsPanel } from './SettingsPanel';
 import { canWriteFolders, DB_FILE, dbJson, libraryFolder, writeFile } from './localLibrary';
 import type { Highlight, HighlightCategory, HighlightGame, Reel } from './types';
+import { inboxFor, type FamilySends } from './familySends';
 import type { HighlightStore } from './useHighlights';
 
 export interface HighlightsViewProps {
@@ -46,6 +47,8 @@ export interface HighlightsViewProps {
   people?: Record<string, string>;
   /** The program owner and head coaches: every coach's reels, the ones not shared too. */
   seeAllReels?: boolean;
+  /** What families sent for reels taking clips (each family's document). */
+  familySends?: FamilySends[];
 }
 
 type Tab = 'clips' | 'reels' | 'kids' | 'settings';
@@ -61,7 +64,7 @@ const REC_COLOR: Record<RecGroup, string> = {
 };
 type ClipsView = 'kept' | 'suggested' | 'extras';
 
-export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season, store, access, loadShared, games, plays, roster, me, myName, helper = false, extra, people, seeAllReels = false }) => {
+export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season, store, access, loadShared, games, plays, roster, me, myName, helper = false, extra, people, seeAllReels = false, familySends = [] }) => {
   const { data, update } = store;
   const ro = store.readOnly;
   const settings = data.settings;
@@ -301,7 +304,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
     return [
       { id: 'yours', label: 'Your reels', reels: yours.sort(newest) },
       { id: 'shared', label: 'Shared with the staff', reels: shared.sort(newest) },
-      { id: 'others', label: 'Other coaches’ reels (not shared)', reels: others.sort(newest) },
+      { id: 'others', label: 'Other people’s reels (not shared)', reels: others.sort(newest) },
     ].filter((g) => g.reels.length);
   }, [seeAllReels, data.reels, myReels, me]);
   const listedReels = useMemo(() => reelGroups.flatMap((g) => g.reels), [reelGroups]);
@@ -312,6 +315,11 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
     setReelId(id);
     if (window.innerWidth < 1024) window.setTimeout(() => reelRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 60);
   };
+  /** What families sent for a reel, named the way the staff list names them. */
+  const inboxOf = useCallback(
+    (r: Reel) => inboxFor(r, familySends).map((it) => ({ ...it, family: { ...it.family, name: people?.[it.family.email] || it.family.name } })),
+    [familySends, people]
+  );
   /** A reel's clips, added up (no cards): close to how long it plays. */
   const reelClipsSeconds = (r: Reel) => {
     const byId = new Map(data.highlights.map((h) => [h.id, h]));
@@ -829,6 +837,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                     {g.reels.map((r) => {
                       const n = r.items.length;
                       const who = r.owner && r.owner !== me ? r.ownerName || nameOf(r.owner) : '';
+                      const fresh = r.familySend?.on || r.fromFamilies ? inboxOf(r).filter((i) => i.status === 'waiting' || i.status === 'updated').length : 0;
                       return (
                         <li key={r.id}>
                           <button
@@ -842,6 +851,16 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                               {r.sharedWith.includes(FAMILIES) && (
                                 <span className="shrink-0 text-[9px] font-black uppercase px-1 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300" title={r.kind === 'player' && r.kid ? 'His family can watch' : 'Families can watch'}>
                                   Families
+                                </span>
+                              )}
+                              {fresh > 0 && (
+                                <span className="shrink-0 text-[9px] font-black uppercase px-1 rounded bg-pink-600 text-white" title="New clips from families">
+                                  {fresh} new
+                                </span>
+                              )}
+                              {r.familySend?.on && !fresh && (
+                                <span className="shrink-0 text-[9px] font-black uppercase px-1 rounded bg-pink-100 text-pink-800 dark:bg-pink-500/20 dark:text-pink-300" title="Families can send clips">
+                                  Asking
                                 </span>
                               )}
                             </span>
@@ -910,6 +929,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                 key={reel.id}
                 openId={reelClipId}
                 ownerLabel={reel.owner && reel.owner !== me ? reel.ownerName || nameOf(reel.owner) : undefined}
+                inbox={reel.familySend?.on || reel.fromFamilies ? inboxOf(reel) : []}
                 reel={reel}
                 data={data}
                 store={store}

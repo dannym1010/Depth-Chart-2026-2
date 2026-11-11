@@ -47,15 +47,21 @@ service cloud.firestore {
     function highlightsDoc(docId) {
       return docId.matches('filmroom_[A-Za-z0-9_-]+_highlights_[0-9]{4}');
     }
+    // A family's own clips sent for a reel (src/highlights/familySends.ts): filmroom_<team>_hlsend_<year>_<email>,
+    // the email with everything but a-z and 0-9 as "_". Only that family's account may write it.
+    function mySendsDoc(docId) {
+      return docId.matches('filmroom_[A-Za-z0-9_-]+_hlsend_[0-9]{4}_' + me().replace('[^a-z0-9]', '_'));
+    }
 
     match /teamData/{docId} {
       allow read: if viewer();
-      // The access list: admins only. Players and families only say they're online, and a family's
-      // "Highlights helper" also saves the team's highlights.
+      // The access list: admins only. Players and families only say they're online and send their own clips
+      // for a reel, and a family's "Highlights helper" also saves the team's highlights.
       allow write: if docId == 'access'
         ? admin()
         : coach()
           || (viewer() && docId == 'ops_presence')
+          || (listed('viewers') && mySendsDoc(docId))
           || (listed('viewers') && listed('highlighters') && highlightsDoc(docId));
     }
 

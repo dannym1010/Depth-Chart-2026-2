@@ -1,9 +1,11 @@
 // Highlights for a player's or a family's account: their kid's clips (every highlight coaches kept with him), the
 // reels coaches shared with them, and their own highlights, made from any play of our games and kept on this device
-// only (trim, slow motion, circles, follow the kid), to play and to make Instagram videos. Nothing goes to the cloud
-// or to the coaches; coaches' notes, suggestions and settings aren't shown.
+// only (trim, slow motion, circles, follow the kid), to play and to make Instagram videos. Their own clips stay on
+// the device unless they send one to the coaches for a video that's asking for clips (familySends.ts); coaches'
+// notes, suggestions and settings aren't shown.
 import React, { useEffect, useMemo, useState } from 'react';
-import { Clapperboard, CopyPlus, FolderOpen, Instagram, Pencil, Play as PlayIcon, Plus, Smartphone, Star, Trash2 } from 'lucide-react';
+import { Clapperboard, CopyPlus, FolderOpen, Instagram, Pencil, Play as PlayIcon, Plus, Send, Smartphone, Star, Trash2 } from 'lucide-react';
+import { sendStatus, type FamilySends } from './familySends';
 import type { Play } from '../hudlScout/types/football';
 import type { FilmGameShared } from '../filmroom/types';
 import { playsForPlayer } from '../filmroom/playerPlays';
@@ -39,6 +41,16 @@ interface Props {
   seeAll?: boolean;
   /** Shown at the right of the title row (a helper's switch to the team's highlights). */
   extra?: React.ReactNode;
+  /** The coaches are asking families for clips (the year-end video): what they've sent, and sending. */
+  sends?: {
+    /** The reels taking clips from families (with the coaches' answers on them). */
+    reels: Reel[];
+    data: FamilySends;
+    send: (h: Highlight, reelId: string, note: string) => void;
+    unsend: (id: string) => void;
+    saving: boolean;
+    saveError: string;
+  };
 }
 
 /** In the kid picker: every clip of the team. */
@@ -67,7 +79,11 @@ const playLine = (p: Play) =>
     .filter(Boolean)
     .join(' · ');
 
-export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, mine, access, loadShared, games, plays, roster, kids, me, seeAll = false, extra }) => {
+export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, mine, access, loadShared, games, plays, roster, kids, me, seeAll = false, extra, sends }) => {
+  // Sending one of their clips: which one is open, for which video, and their note.
+  const [sendFor, setSendFor] = useState<string | null>(null);
+  const [sendReel, setSendReel] = useState('');
+  const [sendNote, setSendNote] = useState('');
   const { data } = store;
   const settings = data.settings;
   const order = useMemo(() => gameOrder(games), [games]);
@@ -218,6 +234,68 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, min
         </div>
       )}
 
+      {/* ---- The coaches are asking for clips (the year-end video) ---- */}
+      {sends && sends.reels.length > 0 && (
+        <section className={`${panel} border-2 !border-pink-300 dark:!border-pink-500/40`} aria-label="Help make the video">
+          <div className="flex flex-wrap items-center gap-2">
+            <Clapperboard size={18} className="text-pink-600 dark:text-pink-400" />
+            <span className="text-sm font-black text-slate-900 dark:text-slate-100">Help make the video</span>
+            {sends.saving && <span className="text-[11px] text-slate-500">Sending…</span>}
+          </div>
+          {sends.reels.map((r) => {
+            const mineSent = sends.data.sent.filter((s) => s.reelId === r.id);
+            return (
+              <div key={r.id} className="flex flex-col gap-1.5">
+                <p className="text-sm text-slate-800 dark:text-slate-100">
+                  <b>{r.name}</b>
+                  {r.familySend?.ask ? <span className="text-slate-600 dark:text-slate-300">: “{r.familySend.ask}”</span> : null}
+                </p>
+                <p className="text-xs text-slate-500">
+                  Add plays to <b>My highlights</b> below, make each one look right with the pencil (trim it, zoom in, circle your kid), then tap <b>Send</b>. The coaches pick what goes in.
+                </p>
+                {mineSent.length > 0 && (
+                  <ul className="flex flex-col divide-y divide-slate-100 dark:divide-slate-800" aria-label={`Sent for ${r.name}`}>
+                    {mineSent.map((s) => {
+                      const st = sendStatus(r, s);
+                      return (
+                        <li key={s.id} className="flex flex-wrap items-center gap-2 py-1.5">
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{s.h.title}</span>
+                            {s.note && <span className="block text-[11px] text-slate-500 truncate">“{s.note}”</span>}
+                          </span>
+                          <span
+                            className={`text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                              st === 'used'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300'
+                                : st === 'updated'
+                                  ? 'bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-300'
+                                  : st === 'passed'
+                                    ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                                    : 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-200'
+                            }`}
+                          >
+                            {st === 'used' ? 'In the video ✓' : st === 'updated' ? 'In the video · your change is with the coach' : st === 'passed' ? 'Not used this time' : 'Waiting for the coach'}
+                          </span>
+                          <button type="button" onClick={() => open(tempReel(s.h.title, [s.h.id], undefined, { cards: false }), 'play', [s.h])} className={`${iconBtn} bg-indigo-600 text-white`} aria-label={`Play ${s.h.title}`}>
+                            <PlayIcon size={12} />
+                          </button>
+                          {st === 'waiting' && (
+                            <button type="button" onClick={() => sends.unsend(s.id)} className="text-xs font-bold underline text-slate-500 shrink-0">
+                              Take back
+                            </button>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
+          {sends.saveError && <p className="text-xs font-bold text-rose-700 dark:text-rose-300">{sends.saveError}</p>}
+        </section>
+      )}
+
       {/* ---- Their kid's clips (kept by the coaches) ---- */}
       <section className={panel} aria-label="Your kid's clips">
         <div className="flex flex-wrap items-center gap-2">
@@ -363,8 +441,11 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, min
           )}
 
           <ul className="flex flex-col divide-y divide-slate-100 dark:divide-slate-800 max-h-[45vh] overflow-auto -mx-1" aria-label="My highlights">
-            {myClips.map((h) => (
-              <li key={h.id} className={`flex items-center gap-2 px-1 py-1.5 ${editId === h.id ? 'bg-indigo-50 dark:bg-indigo-500/15 rounded' : ''}`}>
+            {myClips.map((h) => {
+              const sentFor = (sends?.reels || []).map((r) => sends!.data.sent.find((s) => s.id === `${r.id}__${h.id}`)).filter(Boolean);
+              const changed = sentFor.some((s) => h.editedAt > s!.editedAt);
+              return (
+              <li key={h.id} className={`flex flex-wrap items-center gap-x-2 gap-y-1 px-1 py-1.5 ${editId === h.id ? 'bg-indigo-50 dark:bg-indigo-500/15 rounded' : ''}`}>
                 <input type="checkbox" checked={myPicked.has(h.id)} onChange={(e) => toggle(setMyPicked, h.id, e.target.checked)} aria-label={`Pick ${h.title}`} />
                 <button type="button" onClick={() => setEditId(h.id)} className="min-w-0 flex-1 text-left">
                   <span className="block text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{h.title}</span>
@@ -378,6 +459,24 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, min
                   </span>
                 </button>
                 <span className="text-[11px] tabular-nums text-slate-500 shrink-0">{(h.end - h.start).toFixed(1)} s</span>
+                <span className="flex items-center gap-1 w-full sm:w-auto justify-end">
+                {sends && sends.reels.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSendFor((x) => (x === h.id ? null : h.id));
+                      setSendNote(sentFor[0]?.note || '');
+                      setSendReel(sends.reels[0].id);
+                    }}
+                    className={`h-9 sm:h-7 px-2.5 rounded-lg text-xs font-bold inline-flex items-center gap-1 shrink-0 ${
+                      sentFor.length && !changed ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300' : 'bg-pink-600 text-white'
+                    }`}
+                    aria-expanded={sendFor === h.id}
+                    title="Send this clip to the coaches for the video"
+                  >
+                    <Send size={12} /> {!sentFor.length ? 'Send' : changed ? 'Send update' : 'Sent'}
+                  </button>
+                )}
                 <button type="button" onClick={() => setEditId(h.id)} className={`${iconBtn} border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300`} aria-label={`Edit ${h.title}`} title="Trim, slow motion, circle him, follow him">
                   <Pencil size={12} />
                 </button>
@@ -407,8 +506,49 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, min
                     <Trash2 size={12} />
                   </button>
                 )}
+                </span>
+                {/* Sending it to the coaches: which video (when more than one is asking), and a word to them. */}
+                {sends && sendFor === h.id && (
+                  <div className="w-full rounded-lg border border-pink-300 dark:border-pink-500/40 bg-pink-50/60 dark:bg-pink-500/10 p-2 flex flex-col gap-1.5">
+                    <span className="text-xs text-slate-700 dark:text-slate-200">
+                      The coaches get it just as you made it (trim, zoom, circles{h.follow ? ', following him' : ''}) and decide if it goes in.
+                    </span>
+                    {sends.reels.length > 1 && (
+                      <select value={sendReel} onChange={(e) => setSendReel(e.target.value)} className="h-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-1.5 text-sm" aria-label="For which video">
+                        {sends.reels.map((r) => (
+                          <option key={r.id} value={r.id}>{r.name}</option>
+                        ))}
+                      </select>
+                    )}
+                    <input
+                      value={sendNote}
+                      onChange={(e) => setSendNote(e.target.value)}
+                      placeholder="A note for the coach (optional): what to watch"
+                      maxLength={200}
+                      className="h-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm"
+                      aria-label="Note for the coach"
+                    />
+                    <span className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sends.send(h, sendReel || sends.reels[0].id, sendNote);
+                          setSendFor(null);
+                          setStatus(`Sent “${h.title}” to the coaches.`);
+                        }}
+                        className="h-9 px-4 rounded-lg bg-pink-600 text-white font-bold text-sm inline-flex items-center gap-1.5"
+                      >
+                        <Send size={14} /> {sentFor.some((s) => s!.reelId === (sendReel || sends.reels[0].id)) ? 'Send my latest' : 'Send to the coaches'}
+                      </button>
+                      <button type="button" onClick={() => setSendFor(null)} className="text-xs underline text-slate-500">
+                        Cancel
+                      </button>
+                    </span>
+                  </div>
+                )}
               </li>
-            ))}
+              );
+            })}
             {!myClips.length && (
               <li className="py-6 text-center text-sm text-slate-500">
                 Make your own: tap <b>Add plays</b>, pick a game and add plays (your kid's are at the top), or copy a coach's clip with the <CopyPlus size={12} className="inline" /> button. They stay on this device.

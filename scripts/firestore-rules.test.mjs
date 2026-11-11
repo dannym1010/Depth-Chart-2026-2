@@ -102,6 +102,19 @@ describe('a player or family member', () => {
   });
 });
 
+describe('a family sending clips for a reel', () => {
+  it('writes its own sent clips and no one else\'s', async () => {
+    const db = as('family@home.com');
+    await assertSucceeds(setDoc(doc(db, 'teamData/filmroom_team_10u_hlsend_2026_family_home_com'), { kind: 'hlsend', sent: [] }));
+    await assertFails(setDoc(doc(db, 'teamData/filmroom_team_10u_hlsend_2026_player_team_com'), { kind: 'hlsend', sent: [] }));
+    await assertFails(setDoc(doc(db, 'teamData/filmroom_team_10u_hlsend_2026_xfamily_home_com'), { kind: 'hlsend', sent: [] }));
+    await assertFails(setDoc(doc(db, 'teamData/filmroom_team_10u_highlights_2026'), { highlights: [] }));
+  });
+  it('a stranger cannot, even for their own email', async () => {
+    await assertFails(setDoc(doc(as('stranger@gmail.com'), 'teamData/filmroom_team_10u_hlsend_2026_stranger_gmail_com'), { sent: [] }));
+  });
+});
+
 describe('a family\'s highlights helper', () => {
   const db = () => as('video@home.com');
   it('saves the team highlights and nothing else', async () => {

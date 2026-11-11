@@ -75,6 +75,14 @@ export interface Highlight {
 }
 
 export type ReelKind = 'game' | 'season' | 'player' | 'custom';
+
+/** A coach's answer to a clip a family sent for a reel: put in it (as `highlightId`), or passed on. */
+export interface FamilyPick {
+  status: 'used' | 'passed';
+  at: number;
+  by: string;
+  highlightId?: string;
+}
 export type ReelOrder = 'game' | 'category' | 'rating' | 'top10' | 'hand';
 
 export interface ReelOptions {
@@ -118,6 +126,10 @@ export interface Reel {
   ownerName?: string;
   /** Emails it's shared with; "*" = the whole staff. */
   sharedWith: string[];
+  /** Families may send clips for it (the year-end video): `ask` = what the coach asks them for. */
+  familySend?: { on: boolean; ask?: string };
+  /** What the coaches did with each clip a family sent (by the sent clip's id). */
+  fromFamilies?: Record<string, FamilyPick>;
   createdAt: number;
   editedAt: number;
 }

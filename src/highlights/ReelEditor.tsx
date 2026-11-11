@@ -12,6 +12,8 @@ import { libraryFolder, listFiles, subfolder } from './localLibrary';
 import { ReelPlayer } from './ReelPlayer';
 import { SocialVideoPanel } from './SocialVideoPanel';
 import type { HighlightsData, Reel, ReelOptions } from './types';
+import { addSentToReel, passSent, type InboxItem } from './familySends';
+import { tempReel } from './FamilyHighlights';
 import type { HighlightStore } from './useHighlights';
 
 interface Props {
@@ -31,11 +33,13 @@ interface Props {
   openId?: string | null;
   /** Who made it, by name (another coach's reel). */
   ownerLabel?: string;
+  /** Clips families sent for this reel (when it takes them). */
+  inbox?: InboxItem[];
 }
 
 const MUSIC = /\.(mp3|m4a|aac|wav|ogg|flac)$/i;
 
-export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, roster, plays, teamName, season, me, onOpenClip, onDelete, openId, ownerLabel }) => {
+export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, roster, plays, teamName, season, me, onOpenClip, onDelete, openId, ownerLabel, inbox = [] }) => {
   const ro = store.readOnly;
   const o = reel.options;
   const settings = data.settings;
@@ -111,6 +115,20 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
     return data.highlights.filter((h) => !have.has(h.id)).sort((a, b) => (games.get(a.game.key) ?? 0) - (games.get(b.game.key) ?? 0) || a.seq - b.seq);
   }, [reel.items, data.highlights, games]);
   const [toAdd, setToAdd] = useState<Set<string>>(new Set());
+
+  // ---- Clips families sent (the year-end video) ----
+  const taking = Boolean(reel.familySend?.on);
+  const [inboxView, setInboxView] = useState<'new' | 'used' | 'passed'>('new');
+  const inboxNew = inbox.filter((i) => i.status === 'waiting' || i.status === 'updated');
+  const inboxUsed = inbox.filter((i) => i.status === 'used');
+  const inboxPassed = inbox.filter((i) => i.status === 'passed');
+  const inboxShown = inboxView === 'new' ? inboxNew : inboxView === 'used' ? inboxUsed : inboxPassed;
+  const [preview, setPreview] = useState<InboxItem | null>(null);
+  const previewSegs = useMemo(
+    () => (preview ? reelTimeline({ reel: tempReel(preview.sent.h.title, [preview.sent.h.id], undefined, { cards: false }), highlights: [preview.sent.h], games, settings, roster, plays, teamName }) : []),
+    [preview, games, settings, roster, plays, teamName]
+  );
+  const setTaking = (on: boolean, ask = reel.familySend?.ask) => edit((r) => ({ ...r, familySend: { on, ...(ask ? { ask } : {}) } }));
   // Finding them in a season's worth: by game, kid, stars or words.
   const [fGame, setFGame] = useState('');
   const [fKid, setFKid] = useState(reel.kind === 'player' && reel.kid ? String(Number(reel.kid)) : '');
@@ -199,6 +217,113 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
         )}
         {(!mine || ro) && reel.sharedWith.includes(FAMILIES) && <span className="ml-auto font-bold text-emerald-700 dark:text-emerald-400">{forOneKid ? 'His family can watch' : 'Families can watch'}</span>}
       </div>
+
+      {/* Families send clips for it (the year-end video): the switch, what to ask for, and what they sent. */}
+      {(!ro || taking || inbox.length > 0) && (
+        <div className={`rounded-lg border p-2 flex flex-col gap-2 min-w-0 ${taking ? 'border-pink-300 dark:border-pink-500/40 bg-pink-50/50 dark:bg-pink-500/5' : 'border-slate-200 dark:border-slate-800'}`}>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            {!ro ? (
+              <label className="inline-flex items-center gap-1.5 font-bold text-pink-700 dark:text-pink-300 cursor-pointer">
+                <input type="checkbox" className="h-4 w-4" checked={taking} onChange={(e) => setTaking(e.target.checked)} />
+                Families can send clips for this reel
+              </label>
+            ) : (
+              taking && <span className="font-bold text-pink-700 dark:text-pink-300">Families are sending clips for this reel</span>
+            )}
+            {inbox.length > 0 && (
+              <span className="text-slate-500">
+                {inboxNew.length} new · {inboxUsed.length} in it · {inboxPassed.length} passed
+              </span>
+            )}
+          </div>
+          {taking && !ro && (
+            <input
+              key={`ask-${reel.id}-${reel.familySend?.ask || ''}`}
+              defaultValue={reel.familySend?.ask || ''}
+              onBlur={(e) => e.target.value.trim() !== (reel.familySend?.ask || '') && setTaking(true, e.target.value.trim())}
+              onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+              placeholder="What to ask families for (they see it): e.g. your kid's 3 best plays of the season, by Dec 1"
+              maxLength={200}
+              className="h-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm min-w-0"
+              aria-label="What to ask families for"
+            />
+          )}
+          {taking && !inbox.length && (
+            <p className="text-xs text-slate-500">
+              Families with Highlights see “Help make the video” with your note. They make a clip their way (trim, zoom, circle their kid) and send it; it shows up here for you to add or pass.
+            </p>
+          )}
+          {inbox.length > 0 && (
+            <>
+              <div className="inline-flex self-start rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-xs font-bold" role="group" aria-label="From families">
+                {([['new', `New (${inboxNew.length})`], ['used', `In the reel (${inboxUsed.length})`], ['passed', `Passed (${inboxPassed.length})`]] as const).map(([k, label]) => (
+                  <button key={k} type="button" onClick={() => setInboxView(k)} aria-pressed={inboxView === k} className={`h-8 px-2.5 ${inboxView === k ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'text-slate-600 dark:text-slate-300'}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <ul className="flex flex-col divide-y divide-slate-100 dark:divide-slate-800 max-h-80 overflow-auto" aria-label="Clips from families">
+                {inboxShown.map((it) => (
+                  <li key={it.sent.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5">
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
+                        {it.sent.h.title}
+                        {it.status === 'updated' && <span className="ml-1.5 text-[10px] font-black uppercase text-sky-700 dark:text-sky-300">updated since you added it</span>}
+                      </span>
+                      <span className="block text-[11px] text-slate-500 truncate">
+                        from {it.family.name}
+                        {it.sent.h.kids.length ? ` · ${kidsText(it.sent.h.kids, roster, 'first')}` : ''} · {it.sent.h.game.name} · {(it.sent.h.end - it.sent.h.start).toFixed(1)} s
+                        {it.sent.h.zoom ? ' · zoomed' : ''}
+                        {it.sent.h.marks?.length ? ' · circled' : ''}
+                      </span>
+                      {it.sent.note && <span className="block text-[11px] text-slate-600 dark:text-slate-300 italic truncate">“{it.sent.note}”</span>}
+                    </span>
+                    <span className="flex items-center gap-1 shrink-0 w-full sm:w-auto justify-end">
+                      <button type="button" onClick={() => setPreview(it)} className="h-9 w-9 sm:h-8 sm:w-8 inline-flex items-center justify-center rounded-lg bg-indigo-600 text-white" aria-label={`Play ${it.sent.h.title}`}>
+                        <PlayIcon size={13} />
+                      </button>
+                      {!ro && (it.status === 'waiting' || it.status === 'updated') && (
+                        <button
+                          type="button"
+                          onClick={() => store.update((d) => addSentToReel(d, reel.id, it, me))}
+                          className="h-9 sm:h-8 px-3 rounded-lg bg-emerald-600 text-white text-xs font-bold inline-flex items-center gap-1"
+                        >
+                          <Plus size={13} /> {it.status === 'updated' ? 'Use their change' : 'Add to the reel'}
+                        </button>
+                      )}
+                      {!ro && it.status === 'waiting' && (
+                        <button type="button" onClick={() => store.update((d) => passSent(d, reel.id, it.sent.id, me))} className="h-9 sm:h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold">
+                          Pass
+                        </button>
+                      )}
+                      {!ro && it.status === 'passed' && (
+                        <button type="button" onClick={() => store.update((d) => passSent(d, reel.id, it.sent.id, me, true))} className="h-9 sm:h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold">
+                          Undo
+                        </button>
+                      )}
+                      {it.status === 'used' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const hid = reel.fromFamilies?.[it.sent.id]?.highlightId;
+                            if (hid) onOpenClip(hid);
+                          }}
+                          className="h-9 sm:h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold"
+                        >
+                          Edit it
+                        </button>
+                      )}
+                    </span>
+                  </li>
+                ))}
+                {!inboxShown.length && (
+                  <li className="py-4 text-center text-xs text-slate-500">{inboxView === 'new' ? 'Nothing new from families.' : inboxView === 'used' ? 'None added yet.' : 'None passed.'}</li>
+                )}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="flex flex-col gap-1.5 min-w-0">
@@ -452,6 +577,9 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
       )}
 
       {playing && <ReelPlayer title={reel.name} segments={segments} access={access} settings={settings} logo={logo} musicUrl={musicUrl} transition={o.transition} onClose={stopPlaying} startAt={playFrom} />}
+      {preview && previewSegs.length > 0 && (
+        <ReelPlayer title={`${preview.sent.h.title} · from ${preview.family.name}`} segments={previewSegs} access={access} settings={settings} logo={logo} onClose={() => setPreview(null)} />
+      )}
       {social && (
         <SocialVideoPanel
           title={reel.name}

@@ -14,6 +14,8 @@ import { HighlightsView } from './HighlightsView';
 import { FamilyHighlights } from './FamilyHighlights';
 import type { HighlightGame } from './types';
 import { useDeviceHighlights, useHighlights } from './useHighlights';
+import { reelsTakingClips, sendClip, unsendClip } from './familySends';
+import { useFamilyInbox, useMySends } from './useFamilySends';
 
 interface Props {
   teamId: string;
@@ -39,6 +41,10 @@ export const HighlightsSection: React.FC<Props> = ({ teamId, teamName, ownTeamSc
   // A family's Highlights helper saves to the team's highlights like a coach.
   const helper = Boolean(watchOnly) && level === 'helper';
   const store = useHighlights(teamId, season, { helper });
+  // The year-end video: what families sent (coaches and helpers see it), and a family's own sending.
+  const familySends = useFamilyInbox(teamId, season, !watchOnly || helper);
+  const mySends = useMySends(teamId, season, watchOnly ? userEmail : '', { name: authorName, kids: myKids });
+  const takingReels = useMemo(() => reelsTakingClips(store.data), [store.data]);
   // A helper switches between the team's highlights and their own family page (remembered on this device).
   const [helperView, setHelperView] = useState<'team' | 'family'>(() => {
     try {
@@ -111,6 +117,14 @@ export const HighlightsSection: React.FC<Props> = ({ teamId, teamName, ownTeamSc
       <FamilyHighlights
         seeAll={level === 'all' || helper}
         extra={helperSwitch}
+        sends={{
+          reels: takingReels,
+          data: mySends.data,
+          send: (h, reelId, note) => mySends.update((d) => sendClip(d, h, reelId, note)),
+          unsend: (id) => mySends.update((d) => unsendClip(d, id)),
+          saving: mySends.saving,
+          saveError: mySends.saveError,
+        }}
         teamName={teamName}
         season={season}
         store={store}
@@ -140,6 +154,7 @@ export const HighlightsSection: React.FC<Props> = ({ teamId, teamName, ownTeamSc
       extra={helperSwitch}
       people={people}
       seeAllReels={Boolean(seeAllReels) && !watchOnly}
+      familySends={familySends}
     />
   );
 };
