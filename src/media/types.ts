@@ -8,8 +8,8 @@ export type MediaTier = 'Elite' | 'Good' | 'Archive' | 'Reject';
 
 export type MediaCategory = 'Action' | 'Sidelines and huddles' | 'Warmups' | 'Celebration' | 'Post-game' | 'Coaches' | 'Fans' | 'Portraits';
 
-/** A coach's own tags on a photo. */
-export type MediaTag = 'social' | 'poster' | 'highlight';
+/** A coach's (or Highlights helper's) own tags on a photo. 'yearend' = for the year-end video. */
+export type MediaTag = 'social' | 'poster' | 'highlight' | 'yearend';
 
 export interface MediaJerseyDetection {
   jersey: string;
@@ -46,6 +46,8 @@ export interface MediaFolder {
   venue?: 'home' | 'away' | '';
   /** The day of the game or event (YYYY-MM-DD), when known. */
   date?: string;
+  /** Added with a main folder: the folders it sits in under that main folder ("Week 3 / Sideline"). */
+  path?: string;
   createdBy: string;
   createdAt: number;
   editedAt: number;
@@ -70,6 +72,8 @@ export interface MediaPhoto {
   qualityMetrics?: MediaQualityMetrics;
   curationRationale?: string;
   tags?: MediaTag[];
+  /** Who favorited it (lower-case emails): each person's own heart, shared with the staff. */
+  favBy?: string[];
   crop?: MediaCrop;
   notes?: string;
   aiAnalyzedAt?: number;

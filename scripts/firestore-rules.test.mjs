@@ -119,6 +119,7 @@ describe('a family\'s highlights helper', () => {
   const db = () => as('video@home.com');
   it('saves the team highlights and nothing else', async () => {
     await assertSucceeds(setDoc(doc(db(), 'teamData/filmroom_team_10u_highlights_2026'), { highlights: [] }));
+    await assertSucceeds(setDoc(doc(db(), 'teamData/filmroom_team_10u_media_2026'), { photos: [] }));
     await assertFails(setDoc(doc(db(), 'teamData/filmroom_team_10u_own_g1'), { notes: ['hi'] }));
     await assertFails(setDoc(doc(db(), 'teamData/depthChartData'), { x: 1 }));
     await assertFails(setDoc(doc(db(), 'teamData/access'), ACCESS));

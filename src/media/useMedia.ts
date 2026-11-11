@@ -16,7 +16,13 @@ export interface MediaStore {
   readOnly: boolean;
 }
 
-export function useMedia(teamId: string, season: string): MediaStore {
+/**
+ * `helper`: a family's Highlights helper: their account is read-only, but it may save the team's Media too (the
+ * database lets the access list's highlighters write this one doc).
+ */
+export function useMedia(teamId: string, season: string, opts: { helper?: boolean } = {}): MediaStore {
+  const helper = Boolean(opts.helper);
+  const cantSave = () => isReadOnlySession() && !helper;
   const docId = sharedDocId(teamId, `media_${season}`);
   const cacheKey = `footballMedia_${docId}`;
   const [data, setData] = useState<MediaData>(() => mergeMedia(safeJSONParse(cacheKey, emptyMedia()), undefined));
@@ -72,7 +78,7 @@ export function useMedia(teamId: string, season: string): MediaStore {
   const [saveError, setSaveError] = useState('');
   const update = useCallback(
     (change: (d: MediaData) => MediaData) => {
-      if (isReadOnlySession()) return;
+      if (cantSave()) return;
       keep(change(ref.current));
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(async () => {
@@ -95,9 +101,9 @@ export function useMedia(teamId: string, season: string): MediaStore {
         }
       }, 600);
     },
-    [docId, teamId, season, keep, adopt]
+    [docId, teamId, season, keep, adopt, helper] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  return { data, update, saveError, readOnly: isReadOnlySession() };
+  return { data, update, saveError, readOnly: cantSave() };
 }
 

@@ -57,6 +57,44 @@ export async function countDrivePhotos(folderId: string): Promise<number> {
   return n;
 }
 
+/** The folders right in a Drive folder. */
+async function listDriveFolders(folderId: string): Promise<{ id: string; name: string }[]> {
+  const out: { id: string; name: string }[] = [];
+  let pageToken = '';
+  do {
+    const q = encodeURIComponent(`'${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
+    const res = await driveFetch(`${API}?q=${q}&fields=nextPageToken,files(id,name)&pageSize=1000&${ALL_DRIVES}${pageToken ? `&pageToken=${pageToken}` : ''}`);
+    const data = await res.json();
+    for (const f of data.files || []) out.push({ id: f.id, name: f.name });
+    pageToken = data.nextPageToken || '';
+  } while (pageToken);
+  return out.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+}
+
+/**
+ * Every folder under a main folder (down to `depth` levels), with where it sits ("Week 3 / Sideline") and how many
+ * photos are right in it: to add a whole season's photo folders at once. `onProgress` says how far it's got.
+ */
+export async function listDriveSubfolders(
+  folderId: string,
+  opts: { depth?: number; onProgress?: (found: number) => void } = {}
+): Promise<{ driveId: string; name: string; path: string; photos: number }[]> {
+  const depth = opts.depth ?? 4;
+  const out: { driveId: string; name: string; path: string; photos: number }[] = [];
+  const walk = async (id: string, path: string[], level: number): Promise<void> => {
+    if (level > depth || out.length > 500) return;
+    const kids = await listDriveFolders(id);
+    for (const k of kids) {
+      const at = [...path, k.name];
+      out.push({ driveId: k.id, name: k.name, path: at.join(' / '), photos: await countDrivePhotos(k.id) });
+      opts.onProgress?.(out.length);
+      await walk(k.id, at, level + 1);
+    }
+  };
+  await walk(folderId, [], 1);
+  return out;
+}
+
 /** The whole photo, as the file Drive has. */
 export async function drivePhotoBlob(fileId: string): Promise<Blob> {
   const res = await driveFetch(`${API}/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`);

@@ -17,11 +17,15 @@ interface Props {
   userEmail: string;
   watchOnly?: boolean;
   myKids?: string[];
+  /** A family's Highlights helper: edits the Media like a coach (adds folders, tags, stars, favorites). */
+  helper?: boolean;
 }
 
-export const MediaSection: React.FC<Props> = ({ teamId, teamName, ownTeamScout, roster = [], userEmail, watchOnly = false, myKids = [] }) => {
+export const MediaSection: React.FC<Props> = ({ teamId, teamName, ownTeamScout, roster = [], userEmail, watchOnly = false, myKids = [], helper = false }) => {
   const season = seasonOf();
-  const store = useMedia(teamId, season);
+  const store = useMedia(teamId, season, { helper: helper && watchOnly });
+  // A helper gets the coaches' Media page, not the watch-only one.
+  if (helper) watchOnly = false;
   const own = useMemo(() => bundleFromSaved(ownTeamScout, teamName), [ownTeamScout, teamName]);
   const games: HighlightGame[] = useMemo(() => {
     const gone = new Set(own.deletedGameIds || []);

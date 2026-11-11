@@ -8363,6 +8363,7 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
                 key={`media-${activeTeamId}`}
                 watchOnly={isPlayer}
                 myKids={isPlayer ? myStaffEntry?.kids || [] : undefined}
+                helper={isPlayer && highlightAccessOf(myStaffEntry) === 'helper'}
                 teamId={activeTeamId}
                 teamName={currentActiveTeam?.name || 'Mahopac 10U'}
                 ownTeamScout={teamOwnScout}

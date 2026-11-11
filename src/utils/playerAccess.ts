@@ -71,7 +71,7 @@ export function accountTabs(entry?: { role?: string; playerTabs?: string[] } | n
 export const HIGHLIGHT_ACCESS_OPTIONS: { id: HighlightAccess; label: string; hint: string }[] = [
   { id: 'kid', label: 'Their kid', hint: 'Their kid’s clips and the reels shared with them, and their own highlights on their device' },
   { id: 'all', label: 'All highlights', hint: 'Every kid’s clips and every reel shared with families' },
-  { id: 'helper', label: 'Helper', hint: 'All highlights, and keeps, tags and trims plays in the team’s highlights like a coach' },
+  { id: 'helper', label: 'Helper', hint: 'All highlights, and works in the team’s highlights and Media like a coach: keeps, tags and trims plays; adds photo folders, tags, stars and favorites photos' },
 ];
 /** An account's Highlights level: undefined for coaches (they have all of it), 'kid' unless a coach picked more. */
 export function highlightAccessOf(entry?: { role?: string; highlightAccess?: HighlightAccess } | null): HighlightAccess | undefined {

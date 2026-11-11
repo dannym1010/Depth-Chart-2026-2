@@ -100,13 +100,51 @@ export interface MediaFilter {
   tags?: MediaTag[];
   folderId?: string;
   search?: string;
+  /** Only the photos this person (email) favorited. */
+  favoriteOf?: string;
 }
 
 export const TAG_LABELS: Record<MediaTag, { label: string; short: string; emoji: string }> = {
   social: { label: 'For Social Media', short: 'Social', emoji: '📱' },
   poster: { label: 'For Posters', short: 'Posters', emoji: '🖼️' },
   highlight: { label: 'For Highlights & Reels', short: 'Highlights', emoji: '🎬' },
+  yearend: { label: 'For the Year-End Video', short: 'Year-end', emoji: '🏆' },
 };
+/** Every tag, in the order they're offered. */
+export const MEDIA_TAGS: MediaTag[] = ['poster', 'yearend', 'social', 'highlight'];
+
+// ---- Favorites (each person's own heart) ----
+
+export const isFavorite = (r: Pick<MediaPhoto, 'favBy'> | undefined | null, email: string) =>
+  Boolean(r?.favBy?.includes(String(email || '').toLowerCase().trim()));
+
+/** Heart (or un-heart) a photo for one person. */
+export function toggleFavorite(d: MediaData, photoId: string, folderId: string, email: string, now = Date.now()): MediaData {
+  const me = String(email || '').toLowerCase().trim();
+  if (!me) return d;
+  const have = d.photos.find((p) => p.id === photoId);
+  const favBy = have?.favBy || [];
+  return editPhoto(d, photoId, folderId, { favBy: favBy.includes(me) ? favBy.filter((e) => e !== me) : [...favBy, me] }, now);
+}
+
+// ---- A main folder and the folders under it ----
+
+/** A Drive folder found under a main folder: where it sits ("Week 3 / Sideline") and how many photos are right in it. */
+export interface FoundFolder {
+  driveId: string;
+  name: string;
+  path: string;
+  photos: number;
+}
+
+/**
+ * The folders to add for a main folder: the main one when it has photos itself, and every folder under it that has
+ * photos, skipping ones already in the library. Each is named by where it sits ("Week 3 / Sideline").
+ */
+export function foldersToAdd(main: FoundFolder, under: FoundFolder[], have: Pick<MediaFolder, 'driveId'>[]): FoundFolder[] {
+  const known = new Set(have.map((f) => f.driveId));
+  return [main, ...under].filter((f) => f.photos > 0 && !known.has(f.driveId));
+}
 
 export function togglePhotoTag(tags: MediaTag[] = [], tag: MediaTag): MediaTag[] {
   return tags.includes(tag) ? tags.filter((t) => t !== tag) : [...tags, tag];
@@ -143,6 +181,7 @@ export function matchPhotoFilter(
     const rTags = record?.tags || [];
     if (!filter.tags.every((t) => rTags.includes(t))) return false;
   }
+  if (filter.favoriteOf && !isFavorite(record, filter.favoriteOf)) return false;
   if (filter.search && filter.search.trim()) {
     const term = filter.search.toLowerCase().trim();
     const matchName = (photo.name || '').toLowerCase().includes(term);
