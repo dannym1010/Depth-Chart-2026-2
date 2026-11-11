@@ -31,6 +31,8 @@ import {
   User,
   Users,
   X,
+  Heart,
+  FolderTree,
 } from 'lucide-react';
 import { DriveFolderPicker } from '../filmroom/DriveFolderPicker';
 import { driveReady, driveSignIn, isDriveSignedIn, prepareDriveSignIn } from '../filmroom/filmSources';
@@ -56,8 +58,11 @@ import {
   dayOf,
   editFolder,
   editPhoto,
+  foldersToAdd,
+  isFavorite,
   isPhotoTaggedOrRated,
   matchPhotoFilter,
+  MEDIA_TAGS,
   newFolder,
   photoMap,
   removeFolder,
@@ -65,10 +70,12 @@ import {
   starsOf,
   TAG_LABELS,
   tierOfScore,
+  toggleFavorite,
   togglePhotoTag,
+  type FoundFolder,
   type MediaFilter,
 } from './mediaData';
-import { drivePhotoAnalysisBlob, drivePhotoBlob, drivePhotoThumb, drivePhotoUrl, listDrivePhotos } from './mediaSources';
+import { countDrivePhotos, drivePhotoAnalysisBlob, drivePhotoBlob, drivePhotoThumb, drivePhotoUrl, listDrivePhotos, listDriveSubfolders } from './mediaSources';
 import { PlayerAlbumsModal, type PhotoEntry } from './PlayerAlbumsModal';
 import type { DrivePhoto, MediaCategory, MediaCrop, MediaFolder, MediaPhoto, MediaTag, MediaTier } from './types';
 import type { MediaStore } from './useMedia';
@@ -99,7 +106,10 @@ const Thumb: React.FC<{
   selectionMode?: boolean;
   onToggleSelect?: () => void;
   onOpen: () => void;
-}> = ({ photo, record, isSelected = false, selectionMode = false, onToggleSelect, onOpen }) => {
+  /** This person's heart on it, and turning it on / off (absent: can't favorite). */
+  fav?: boolean;
+  onFav?: () => void;
+}> = ({ photo, record, isSelected = false, selectionMode = false, onToggleSelect, onOpen, fav = false, onFav }) => {
   const box = useRef<HTMLDivElement>(null);
   const [url, setUrl] = useState('');
   const [failed, setFailed] = useState(false);
@@ -208,8 +218,26 @@ const Thumb: React.FC<{
         </div>
       )}
 
+      {/* Bottom right: this person's heart */}
+      {onFav && !selectionMode && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onFav();
+          }}
+          aria-pressed={fav}
+          aria-label={fav ? `Unfavorite ${photo.name}` : `Favorite ${photo.name}`}
+          title={fav ? 'In your favorites' : 'Add to your favorites'}
+          className={`absolute bottom-1.5 right-1.5 z-20 h-8 w-8 grid place-items-center rounded-full shadow ${fav ? 'text-rose-500' : 'text-white/90 opacity-80 group-hover:opacity-100'}`}
+          style={{ background: 'rgba(0,0,0,0.55)' }}
+        >
+          <Heart size={16} className={fav ? 'fill-current' : ''} />
+        </button>
+      )}
+
       {/* Bottom overlay: Jersey Numbers & Name */}
-      <div className="absolute inset-x-0 bottom-0 px-2 py-1.5 bg-gradient-to-t from-black/80 via-black/40 to-transparent flex flex-col justify-end">
+      <div className="absolute inset-x-0 bottom-0 px-2 py-1.5 pr-11 bg-gradient-to-t from-black/80 via-black/40 to-transparent flex flex-col justify-end">
         {kids.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-0.5">
             {kids.slice(0, 3).map((k) => (
@@ -243,7 +271,10 @@ const Viewer: React.FC<{
   onSavePhoto: (photoId: string, folderId: string, patch: Partial<MediaPhoto>) => void;
   onOpenCrop: (photo: DrivePhoto) => void;
   onClose: () => void;
-}> = ({ photos, index, records, folder, roster, canEdit, onIndex, onSavePhoto, onOpenCrop, onClose }) => {
+  /** Is this photo in this person's favorites, and turning it on / off (absent: can't favorite). */
+  isFav?: (id: string) => boolean;
+  onFav?: (photo: DrivePhoto) => void;
+}> = ({ photos, index, records, folder, roster, canEdit, onIndex, onSavePhoto, onOpenCrop, onClose, isFav, onFav }) => {
   const photo = photos[index];
   const record = records.get(photo.id);
   const [url, setUrl] = useState('');
@@ -278,10 +309,11 @@ const Viewer: React.FC<{
       else if (e.key === 'ArrowLeft') go(-1);
       else if (e.key === 'ArrowRight') go(1);
       else if (e.key === 'i' || e.key === 'I') setShowInspector((s) => !s);
+      else if ((e.key === 'f' || e.key === 'F') && onFav) onFav(photos[index]);
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
-  }, [go, onClose]);
+  }, [go, onClose, onFav, photos, index]);
 
   const runAiOnCurrent = async () => {
     if (!folder || analyzing) return;
@@ -338,7 +370,9 @@ const Viewer: React.FC<{
   const metrics = record?.qualityMetrics;
 
   return (
-    <div className="fixed inset-0 z-[80] bg-black/95 flex flex-col md:flex-row overflow-hidden" role="dialog" aria-label={photo.name}>
+    <div className="fixed inset-0 z-[80]" style={{ background: '#000' }} role="dialog" aria-label={photo.name}>
+      {/* An absolute layer (not plain children of the fixed box): the light theme paints those as light panels. */}
+      <div className="absolute inset-0 flex flex-col md:flex-row overflow-hidden" style={{ background: '#000', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
       {/* Left/Main Area: Photo Canvas */}
       <div className="flex-1 flex flex-col h-full min-w-0 relative">
         {/* Top bar */}
@@ -365,6 +399,17 @@ const Viewer: React.FC<{
             <span className="text-xs text-slate-300 hidden lg:inline mr-1">
               {photo.takenAt ? new Date(photo.takenAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''}
             </span>
+            {onFav && (
+              <button
+                type="button"
+                onClick={() => onFav(photo)}
+                aria-pressed={Boolean(isFav?.(photo.id))}
+                title={isFav?.(photo.id) ? 'In your favorites (F)' : 'Add to your favorites (F)'}
+                className={`h-9 px-3 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition border border-white/15 ${isFav?.(photo.id) ? 'bg-rose-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
+              >
+                <Heart size={14} className={isFav?.(photo.id) ? 'fill-current' : ''} /> <span className="hidden sm:inline">{isFav?.(photo.id) ? 'Favorite' : 'Favorite'}</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onOpenCrop(photo)}
@@ -407,11 +452,13 @@ const Viewer: React.FC<{
           >
             <ChevronLeft size={28} />
           </button>
-          <div className="w-full h-full grid place-items-center p-2">
+          {/* The photo fills this box and is fitted whole inside it (a grid cell grows to a tall photo's height, which
+              cut its bottom off). */}
+          <div className="relative w-full h-full grid place-items-center">
             {error ? (
               <p className="text-sm text-rose-300">{error}</p>
             ) : url ? (
-              <img src={url} alt={photo.name} className="max-w-full max-h-full object-contain select-none" draggable={false} />
+              <img src={url} alt={photo.name} className="absolute inset-0 w-full h-full p-2 object-contain select-none" draggable={false} />
             ) : (
               <Loader2 size={32} className="animate-spin text-slate-400" />
             )}
@@ -705,7 +752,7 @@ const Viewer: React.FC<{
             <div className="flex flex-col gap-1.5 pt-2 border-t border-slate-800">
               <span className="text-[11px] font-bold text-slate-400">User Added Tags</span>
               <div className="flex flex-col gap-1.5">
-                {(['social', 'poster', 'highlight'] as const).map((tagKey) => {
+                {MEDIA_TAGS.map((tagKey) => {
                   const active = (record?.tags || []).includes(tagKey);
                   const meta = TAG_LABELS[tagKey];
                   return (
@@ -733,6 +780,7 @@ const Viewer: React.FC<{
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };
@@ -750,8 +798,11 @@ const FilterToolbar: React.FC<{
   photoPlayerCounts: Map<string, number>;
   totalMatching: number;
   totalPhotos: number;
-}> = ({ filter, onChange, onReset, roster, opponents, photoPlayerCounts, totalMatching, totalPhotos }) => {
+  /** Whose favorites "My favorites" shows ('' = none: no button). */
+  me?: string;
+}> = ({ filter, onChange, onReset, roster, opponents, photoPlayerCounts, totalMatching, totalPhotos, me = '' }) => {
   const hasActiveFilter = Boolean(
+    filter.favoriteOf ||
     filter.player ||
       filter.opponent ||
       filter.venue ||
@@ -897,6 +948,20 @@ const FilterToolbar: React.FC<{
           </button>
         </div>
 
+        {/* This person's favorites */}
+        {me && (
+          <button
+            type="button"
+            onClick={() => onChange({ ...filter, favoriteOf: filter.favoriteOf ? undefined : me })}
+            aria-pressed={Boolean(filter.favoriteOf)}
+            className={`h-7 px-2.5 rounded-lg border text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer ${
+              filter.favoriteOf ? 'bg-rose-600 border-rose-600 text-white' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Heart size={12} className={filter.favoriteOf ? 'fill-current' : ''} /> My favorites
+          </button>
+        )}
+
         {/* Venue (Home / Away) */}
         <div className="flex items-center rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden h-7 text-[11px] font-bold">
           <button
@@ -949,7 +1014,7 @@ const FilterToolbar: React.FC<{
 
         {/* User Added Tags Quick Toggles */}
         <div className="flex items-center gap-1 sm:ml-auto">
-          {(['social', 'poster', 'highlight'] as const).map((t) => {
+          {MEDIA_TAGS.map((t) => {
             const active = (filter.tags || []).includes(t);
             const meta = TAG_LABELS[t];
             return (
@@ -1142,7 +1207,8 @@ export const MediaView: React.FC<Props> = ({
     }
   };
 
-  const link = (id: string, name: string) => {
+  /** One Drive folder into the library (or open it, when it's in already). */
+  const addOne = (id: string, name: string) => {
     const have = data.folders.find((f) => f.driveId === id);
     if (have) {
       setOpenId(have.id);
@@ -1152,6 +1218,42 @@ export const MediaView: React.FC<Props> = ({
       setOpenId(f.id);
     }
     setAdding(false);
+    setScan(null);
+  };
+
+  // A picked folder is looked inside first: a main folder (the season's) adds the folders under it all at once.
+  const [scan, setScan] = useState<{ main: FoundFolder; add: FoundFolder[]; skipped: number; busy: boolean; seen: number } | null>(null);
+  const link = (id: string, name: string) => {
+    const main: FoundFolder = { driveId: id, name, path: '', photos: 0 };
+    setScan({ main, add: [], skipped: 0, busy: true, seen: 0 });
+    void (async () => {
+      try {
+        const [own, under] = await Promise.all([
+          countDrivePhotos(id),
+          listDriveSubfolders(id, { onProgress: (n) => setScan((s) => (s && s.main.driveId === id ? { ...s, seen: n } : s)) }),
+        ]);
+        const withPhotos = under.filter((f) => f.photos > 0);
+        // Nothing inside with photos: just this folder, as before.
+        if (!withPhotos.length) return addOne(id, name);
+        const mainNow = { ...main, photos: own };
+        const add = foldersToAdd(mainNow, withPhotos, data.folders).map((f) => (f.driveId === id ? { ...f, path: name } : f));
+        setScan({ main: mainNow, add, skipped: withPhotos.length + (own ? 1 : 0) - add.length, busy: false, seen: under.length });
+      } catch {
+        // Couldn't look inside: add it the plain way.
+        addOne(id, name);
+      }
+    })();
+  };
+  /** Every folder found under the main one, each its own photo folder named where it sits. */
+  const addScanned = () => {
+    if (!scan) return;
+    const now = Date.now();
+    const made = scan.add.map((f, i) => newFolder({ driveId: f.driveId, name: f.path || f.name, path: f.path || undefined, createdBy: me }, now + i));
+    if (!made.length) return;
+    update((d) => made.reduce((acc, f) => addFolder(acc, f), d));
+    setOpenId(made[0].id);
+    setAdding(false);
+    setScan(null);
   };
 
   const handleSavePhoto = (photoId: string, folderId: string, patch: Partial<MediaPhoto>) => {
@@ -1441,12 +1543,53 @@ export const MediaView: React.FC<Props> = ({
         </div>
       ) : (
         <>
-          {adding && canEdit && (
+          {adding && canEdit && !scan && (
             <div className="p-3 rounded-xl border border-indigo-200 dark:border-indigo-900 bg-white dark:bg-slate-900 flex flex-col gap-2">
               <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                Find the Google Drive folder with the photos, open it, and tap “Use”.
+                Find the Google Drive folder with the photos, open it, and tap “Use”. A main folder (like the season’s) works too: the folders inside it are found and can all be added.
               </p>
               <DriveFolderPicker kind="photo" onPick={link} />
+            </div>
+          )}
+
+          {/* A main folder: the folders found inside it, to add all at once. */}
+          {scan && (
+            <div className="p-3 rounded-xl border border-indigo-200 dark:border-indigo-900 bg-white dark:bg-slate-900 flex flex-col gap-2">
+              <p className="text-sm font-bold text-slate-800 dark:text-slate-100 inline-flex items-center gap-2">
+                <FolderTree size={16} className="text-indigo-600 dark:text-indigo-400" /> “{scan.main.name}”
+              </p>
+              {scan.busy ? (
+                <p className="text-xs text-slate-600 dark:text-slate-300 inline-flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin" /> Looking inside it… {scan.seen ? `${scan.seen} folder${scan.seen === 1 ? '' : 's'} so far` : ''}
+                </p>
+              ) : (
+                <>
+                  <p className="text-xs text-slate-600 dark:text-slate-300">
+                    {scan.add.length} folder{scan.add.length === 1 ? '' : 's'} with photos
+                    {scan.main.photos ? ` (this one has ${scan.main.photos} itself)` : ''}
+                    {scan.skipped ? ` · ${scan.skipped} already in the library` : ''}. Each becomes its own photo folder, named where it sits.
+                  </p>
+                  <ul className="max-h-48 overflow-auto text-xs flex flex-col divide-y divide-slate-100 dark:divide-slate-800">
+                    {scan.add.map((f) => (
+                      <li key={f.driveId} className="py-1 flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate font-bold text-slate-800 dark:text-slate-100">{f.path || f.name}</span>
+                        <span className="tabular-nums text-slate-500 shrink-0">{f.photos} photos</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button type="button" onClick={addScanned} disabled={!scan.add.length} className="h-9 px-4 rounded-lg bg-indigo-600 text-white text-xs font-bold cursor-pointer disabled:opacity-40">
+                      Add all {scan.add.length}
+                    </button>
+                    <button type="button" onClick={() => addOne(scan.main.driveId, scan.main.name)} className="h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold cursor-pointer">
+                      Just this folder
+                    </button>
+                    <button type="button" onClick={() => setScan(null)} className="text-xs underline text-slate-500 cursor-pointer">
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -1502,6 +1645,7 @@ export const MediaView: React.FC<Props> = ({
                 photoPlayerCounts={photoPlayerCounts}
                 totalMatching={filteredPhotos.length}
                 totalPhotos={photos?.length || 0}
+                me={canEdit ? me : ''}
               />
 
               {/* Selection Bar (Active when selectionMode is enabled) */}
@@ -1532,7 +1676,7 @@ export const MediaView: React.FC<Props> = ({
                     {canEdit && selectedIds.size > 0 && (
                       <div className="flex items-center gap-1">
                         <span className="text-[11px] text-slate-500 mr-1">Tag:</span>
-                        {(['social', 'poster', 'highlight'] as const).map((t) => (
+                        {MEDIA_TAGS.map((t) => (
                           <button
                             key={t}
                             type="button"
@@ -1599,6 +1743,8 @@ export const MediaView: React.FC<Props> = ({
                       selectionMode={selectionMode}
                       onToggleSelect={() => toggleSelectPhoto(p.id)}
                       onOpen={() => setViewing(i)}
+                      fav={isFavorite(records.get(p.id), me)}
+                      onFav={canEdit && me && folder ? () => update((d) => toggleFavorite(d, p.id, folder.id, me)) : undefined}
                     />
                   ))}
                 </div>
@@ -1621,6 +1767,8 @@ export const MediaView: React.FC<Props> = ({
           onSavePhoto={handleSavePhoto}
           onOpenCrop={(p) => setCropPhoto(p)}
           onClose={() => setViewing(-1)}
+          isFav={(id) => isFavorite(records.get(id), me)}
+          onFav={canEdit && me && folder ? (p) => update((d) => toggleFavorite(d, p.id, folder.id, me)) : undefined}
         />
       )}
 
