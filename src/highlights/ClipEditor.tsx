@@ -2,14 +2,15 @@
 // part on a loop, "Start at snap", slow motion over part of it, a freeze frame with a spotlight on a kid (tap him on
 // the picture), a replay from another camera lined up with this one, and its title, kinds, kids, rating and note.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Columns2, Crosshair, Instagram, Pause, Play as PlayIcon, Repeat, Scissors, SkipBack, Star, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clapperboard, Columns2, Crosshair, Instagram, Pause, Play as PlayIcon, Redo2, Repeat, Scissors, SkipBack, Star, Trash2, Undo2, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { ReelPlayer } from './ReelPlayer';
 import type { Play } from '../hudlScout/types/football';
 import { probeSnap, snapTimeCache } from '../filmroom/snapProbe';
 import { savedOffset, snapOffset, syncTarget } from '../filmroom/dualView';
 import type { FilmGameShared } from '../filmroom/types';
 import { lineUp, type FilmAccess, type GameFilm } from './filmAccess';
 import { drawLowerThird, drawSpot, loadImage } from './graphics';
-import { editHighlight, highlightSegments, kidLabel, kidsText, removeHighlights, snapWindow, type Kid } from './highlightData';
+import { autoTitle, editHighlight, highlightSegments, kidLabel, kidsText, removeHighlights, snapWindow, type Kid } from './highlightData';
 import { SocialVideoPanel } from './SocialVideoPanel';
 import { FOLLOW_STEP, followCam, packFollow, pathAt, recordInto, stretches, thin, unpackFollow, type FollowPoint } from './follow';
 import type { Highlight, HighlightCategory, HighlightMark, HighlightSettings, SpotStyle } from './types';
@@ -51,6 +52,75 @@ const ZoomButtons: React.FC<{ zp: ReturnType<typeof useZoomPan> }> = ({ zp }) =>
 
 const fmt = (t: number) => `${Math.floor(Math.max(0, t) / 60)}:${(Math.max(0, t) % 60).toFixed(1).padStart(4, '0')}`;
 const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Pictures along a clip, drawn into the trim bar: a hidden copy of the video, stepped through once. Drawn straight
+ * into the canvases (never read back), so film from another site works too. Nothing shows if the device won't load it.
+ */
+const Filmstrip: React.FC<{ url: string; len: number }> = ({ url, len }) => {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [n, setN] = useState(0);
+  const canvases = useRef<(HTMLCanvasElement | null)[]>([]);
+  useEffect(() => {
+    const w = boxRef.current?.clientWidth || 320;
+    setN(Math.max(4, Math.min(14, Math.round(w / 60))));
+  }, []);
+  useEffect(() => {
+    if (!n || !url || !len) return;
+    let off = false;
+    const v = document.createElement('video');
+    v.muted = true;
+    v.preload = 'auto';
+    v.playsInline = true;
+    v.src = url;
+    const draw = async () => {
+      await new Promise<void>((res, rej) => {
+        const t = window.setTimeout(() => rej(new Error('slow')), 10000);
+        v.onloadeddata = () => {
+          window.clearTimeout(t);
+          res();
+        };
+        v.onerror = () => {
+          window.clearTimeout(t);
+          rej(new Error('no film'));
+        };
+      });
+      for (let i = 0; i < n && !off; i++) {
+        await new Promise<void>((res) => {
+          const done = () => res();
+          v.addEventListener('seeked', done, { once: true });
+          window.setTimeout(done, 3000);
+          v.currentTime = Math.min(len - 0.05, ((i + 0.5) * len) / n);
+        });
+        const c = canvases.current[i];
+        if (!c || off || !v.videoWidth) continue;
+        c.width = Math.max(1, c.clientWidth);
+        c.height = Math.max(1, c.clientHeight);
+        const ctx = c.getContext('2d');
+        if (!ctx) continue;
+        const s = Math.max(c.width / v.videoWidth, c.height / v.videoHeight);
+        ctx.drawImage(v, (c.width - v.videoWidth * s) / 2, (c.height - v.videoHeight * s) / 2, v.videoWidth * s, v.videoHeight * s);
+      }
+    };
+    draw().catch(() => undefined);
+    return () => {
+      off = true;
+      v.removeAttribute('src');
+      v.load();
+    };
+  }, [url, len, n]);
+  return (
+    <div ref={boxRef} className="absolute inset-0 flex pointer-events-none" aria-hidden>
+      {Array.from({ length: n }, (_, i) => (
+        <canvas key={i} ref={(el) => void (canvases.current[i] = el)} className="h-full flex-1 min-w-0" />
+      ))}
+    </div>
+  );
+};
+
+type EditorTab = 'trim' | 'effects' | 'camera' | 'circles' | 'details';
+/** The section last open (the next clip opens on it too). */
+let lastTab: EditorTab = 'trim';
 
 interface Props {
   h: Highlight;
@@ -100,7 +170,52 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
   const start = draft?.start ?? h.start;
   const end = draft?.end ?? h.end;
 
-  const edit = useCallback((change: (x: Highlight) => Highlight) => !ro && store.update((d) => editHighlight(d, h.id, change)), [ro, store, h.id]);
+  // The sections under the picture (the last one used stays open from clip to clip).
+  const [tab, setTabState] = useState<EditorTab>(lastTab);
+  const setTab = (t: EditorTab) => {
+    lastTab = t;
+    setTabState(t);
+  };
+  // Review speed (slow motion inside the clip plays slower still).
+  const [rate, setRate] = useState(1);
+  // The finished clip, played the way a reel shows it.
+  const [preview, setPreview] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Undo / redo: every change made here, back to when the clip was opened.
+  const hRef = useRef(h);
+  hRef.current = h;
+  const undoStack = useRef<Highlight[]>([]);
+  const redoStack = useRef<Highlight[]>([]);
+  const [, bumpHistory] = useState(0);
+  const syncView = useRef(false);
+  const rawEdit = useCallback((change: (x: Highlight) => Highlight) => !ro && store.update((d) => editHighlight(d, h.id, change)), [ro, store, h.id]);
+  const edit = useCallback(
+    (change: (x: Highlight) => Highlight) => {
+      if (ro) return;
+      undoStack.current = [...undoStack.current.slice(-49), hRef.current];
+      redoStack.current = [];
+      bumpHistory((n) => n + 1);
+      store.update((d) => editHighlight(d, h.id, change));
+    },
+    [ro, store, h.id]
+  );
+  const undo = () => {
+    const prev = undoStack.current.pop();
+    if (!prev) return;
+    redoStack.current.push(hRef.current);
+    syncView.current = true;
+    bumpHistory((n) => n + 1);
+    rawEdit(() => ({ ...prev, id: h.id }));
+  };
+  const redo = () => {
+    const next = redoStack.current.pop();
+    if (!next) return;
+    undoStack.current.push(hRef.current);
+    syncView.current = true;
+    bumpHistory((n) => n + 1);
+    rawEdit(() => ({ ...next, id: h.id }));
+  };
   const zp = useZoomPan();
   const zp2 = useZoomPan();
   // The other camera beside this one: its view, its clip of this play and how far its clock is from this clip's.
@@ -125,7 +240,7 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
         if (f && (!lastPt || t - lastPt.t >= FOLLOW_STEP - 1e-3)) stretchRef.current.push({ t, x: f.x, y: f.y });
         if (t >= end - 0.02) v.pause();
       } else if (!v.paused) {
-        const slow = h.slow && t >= h.slow.from && t < h.slow.to ? h.slow.speed : 1;
+        const slow = (h.slow && t >= h.slow.from && t < h.slow.to ? h.slow.speed : 1) * rate;
         if (v.playbackRate !== slow) v.playbackRate = slow;
         if (t >= end - 0.02) {
           if (loop) v.currentTime = start;
@@ -145,19 +260,34 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [src.url, start, end, loop, h.slow, side]);
+  }, [src.url, start, end, loop, h.slow, side, rate]);
 
   const onLoaded = () => {
     const v = videoRef.current!;
     if (Number.isFinite(v.duration)) {
       setLen(v.duration);
-      if (!h.clipLen || Math.abs(h.clipLen - v.duration) > 0.2) edit((x) => ({ ...x, clipLen: r2(v.duration), end: x.end > v.duration ? r2(v.duration) : x.end }));
+      // The clip's real length (not something to undo).
+      if (!h.clipLen || Math.abs(h.clipLen - v.duration) > 0.2) rawEdit((x) => ({ ...x, clipLen: r2(v.duration), end: x.end > v.duration ? r2(v.duration) : x.end }));
     }
     v.currentTime = h.start;
   };
   const seek = (t: number) => {
     const v = videoRef.current;
     if (v) v.currentTime = Math.max(0, Math.min(len || t, t));
+  };
+  /** A frame (or more) back or ahead, paused. */
+  const step = (d: number) => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.pause();
+    seek(v.currentTime + d);
+  };
+  /** Watch the last couple of seconds: does it end where it should? */
+  const checkEnd = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.currentTime = Math.max(start, end - 2);
+    void v.play().catch(() => undefined);
   };
   const toggle = () => {
     const v = videoRef.current;
@@ -176,6 +306,17 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      if (preview || social) {
+        if (e.key === 'Escape' && social) setSocial(false);
+        return;
+      }
+      // Ctrl+Z undoes, Ctrl+Y / Ctrl+Shift+Z redoes.
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) {
+        if (e.key.toLowerCase() === 'y' || e.shiftKey) redo();
+        else undo();
+        e.preventDefault();
+        return;
+      }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (social) {
         if (e.key === 'Escape') setSocial(false);
@@ -210,11 +351,11 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
   const [social, setSocial] = useState(false);
   const [logo, setLogo] = useState<HTMLImageElement | null>(null);
   useEffect(() => {
-    if (social) void loadImage(settings.logo).then(setLogo);
-  }, [social, settings.logo]);
+    if (social || preview) void loadImage(settings.logo).then(setLogo);
+  }, [social, preview, settings.logo]);
   const socialSegments = useMemo(
-    () => (social ? highlightSegments(h, { overlay: { title: h.title, sub: kids || undefined }, replays: h.replay ? 'each' : 'none', replaySpeed: settings.replaySpeed }) : []),
-    [social, h, kids, settings.replaySpeed]
+    () => (social || preview ? highlightSegments(h, { overlay: { title: h.title, sub: kids || undefined }, replays: h.replay ? 'each' : 'none', replaySpeed: settings.replaySpeed }) : []),
+    [social, preview, h, kids, settings.replaySpeed]
   );
   useEffect(() => {
     const c = overRef.current;
@@ -479,6 +620,13 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zp.touched]);
+  // After an undo / redo, the picture shows the zoom it brought back.
+  useEffect(() => {
+    if (!syncView.current) return;
+    syncView.current = false;
+    if (!showZoom && !watchFollow && !following) restoreView();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [h]);
   // "Watch it": the editor's picture rides his path with the zoom, the way Play and the Instagram video will.
   useEffect(() => {
     if (!showZoom || following || watchFollow) return;
@@ -574,9 +722,12 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
     edit((x) => ({ ...x, replay: { view, clip: c.name, start: r2(Math.max(0, x.start + o)), end: r2(x.end + o), speed: settings.replaySpeed } }));
   };
 
+  // Thumb-sized on a phone, compact on a computer.
   const chip = (on: boolean) =>
-    `px-2 h-7 rounded-lg text-[11px] font-bold border ${on ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}`;
-  const small = 'h-7 px-2 rounded-lg text-[11px] font-bold border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 disabled:opacity-40';
+    `px-2 h-9 sm:h-7 rounded-lg text-[11px] font-bold border ${on ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}`;
+  const small = 'h-9 sm:h-7 px-2 rounded-lg text-[11px] font-bold border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 disabled:opacity-40';
+  // The play this highlight is (its breakdown makes a title).
+  const thePlay = h.playId ? plays.find((p) => p.id === h.playId) : undefined;
   const v = videoRef.current;
 
   return (
@@ -714,13 +865,19 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
         </button>
         <div
           ref={barRef}
-          className="relative flex-1 h-9 rounded-lg bg-slate-200 dark:bg-slate-800 cursor-pointer touch-none select-none"
+          className="relative flex-1 h-10 sm:h-9 rounded-lg bg-slate-200 dark:bg-slate-800 cursor-pointer touch-none select-none overflow-hidden"
           onPointerDown={(e) => onBarDown(e)}
           onPointerMove={onBarMove}
           onPointerUp={onBarUp}
           aria-label="Trim"
         >
-          <div className="absolute top-0 bottom-0 bg-indigo-500/35 border-y-2 border-indigo-500" style={{ left: pct(start), width: `calc(${pct(end)} - ${pct(start)})` }} />
+          {/* Pictures along the clip, so you can see where the play is. */}
+          {src.url && len > 0 && <Filmstrip url={src.url} len={len} />}
+          {/* Outside the trim: dimmed; the trim: a light tint with its edges (set colors: the light theme turns
+              see-through utility colors solid, which would hide the pictures). */}
+          <div className="absolute top-0 bottom-0 left-0" style={{ width: pct(start), background: 'rgba(15,23,42,0.62)' }} />
+          <div className="absolute top-0 bottom-0 right-0" style={{ left: pct(end), background: 'rgba(15,23,42,0.62)' }} />
+          <div className="absolute top-0 bottom-0" style={{ left: pct(start), width: `calc(${pct(end)} - ${pct(start)})`, background: 'rgba(99,102,241,0.12)', borderTop: '2px solid #6366f1', borderBottom: '2px solid #6366f1' }} />
           {h.slow && <div className="absolute bottom-0 h-2 bg-sky-400" style={{ left: pct(h.slow.from), width: `calc(${pct(h.slow.to)} - ${pct(h.slow.from)})` }} title="Slow motion" />}
           {h.freeze && <div className="absolute top-0 bottom-0 w-1 bg-amber-400" style={{ left: pct(h.freeze.at) }} title="Freeze" />}
           <div className="absolute top-[-3px] bottom-[-3px] w-0.5 bg-rose-500" style={{ left: pct(now) }} />
@@ -740,33 +897,135 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
               />
             ))}
         </div>
-        <span className="tabular-nums text-slate-600 dark:text-slate-300 whitespace-nowrap">
+        <span className="tabular-nums text-slate-600 dark:text-slate-300 whitespace-nowrap hidden sm:inline">
           {fmt(now)} <span className="text-slate-400">/ {fmt(len)}</span>
         </span>
       </div>
 
+      {/* A frame at a time, how fast to watch it, undo, and the finished clip. */}
+      <div className="flex flex-wrap items-center gap-1 text-xs">
+        <span className="tabular-nums text-slate-600 dark:text-slate-300 whitespace-nowrap sm:hidden mr-1">
+          {fmt(now)} <span className="text-slate-400">/ {fmt(len)}</span>
+        </span>
+        <button type="button" className={small} onClick={() => step(-1 / 30)} aria-label="Back a frame" title="Back a frame (←)">
+          <ChevronLeft size={14} className="inline -mt-0.5" />1f
+        </button>
+        <button type="button" className={small} onClick={() => step(1 / 30)} aria-label="Ahead a frame" title="Ahead a frame (→)">
+          1f<ChevronRight size={14} className="inline -mt-0.5" />
+        </button>
+        <span className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden" role="group" aria-label="Watch speed">
+          {[1, 0.5, 0.25].map((r) => (
+            <button key={r} type="button" onClick={() => setRate(r)} aria-pressed={rate === r} className={`h-9 sm:h-7 px-2 font-bold ${rate === r ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'text-slate-600 dark:text-slate-300'}`} title="How fast to watch it here (the highlight itself isn't changed)">
+              {r === 1 ? '1×' : r === 0.5 ? '½×' : '¼×'}
+            </button>
+          ))}
+        </span>
+        {!ro && (
+          <>
+            <button type="button" className={small} onClick={undo} disabled={!undoStack.current.length} aria-label="Undo" title="Undo (Ctrl+Z)">
+              <Undo2 size={13} className="inline -mt-0.5" /> <span className="hidden sm:inline">Undo</span>
+            </button>
+            <button type="button" className={small} onClick={redo} disabled={!redoStack.current.length} aria-label="Redo" title="Redo (Ctrl+Y)">
+              <Redo2 size={13} className="inline -mt-0.5" /> <span className="hidden sm:inline">Redo</span>
+            </button>
+          </>
+        )}
+        <span className="flex items-center gap-1 ml-auto">
+          <button
+            type="button"
+            onClick={() => {
+              videoRef.current?.pause();
+              setPreview(true);
+            }}
+            disabled={!src.url}
+            className="h-9 sm:h-8 px-3 rounded-lg bg-indigo-600 text-white font-bold inline-flex items-center gap-1 disabled:opacity-40"
+            title="Play it finished: the title, slow motion, freeze, replay and zoom, the way a reel shows it"
+          >
+            <Clapperboard size={13} /> Preview
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              videoRef.current?.pause();
+              setSocial(true);
+            }}
+            className="h-9 sm:h-8 px-2.5 rounded-lg border border-pink-400 font-bold text-pink-700 dark:text-pink-300 inline-flex items-center gap-1"
+            title="Make an MP4 of this highlight for Instagram"
+          >
+            <Instagram size={13} /> <span className="hidden sm:inline">Instagram video</span>
+          </button>
+        </span>
+      </div>
+
+      {/* The sections: a dot on the ones with something set. */}
       {!ro && (
-        <div className="flex flex-wrap items-center gap-1.5 text-xs">
-          <button type="button" className={small} onClick={() => v && setStart(v.currentTime)} title="Start here (I)">
-            Start here <kbd className="opacity-60">I</kbd>
-          </button>
-          <button type="button" className={small} onClick={() => v && setEnd(v.currentTime)} title="End here (O)">
-            End here <kbd className="opacity-60">O</kbd>
-          </button>
-          <button type="button" className={small} onClick={findSnap} disabled={!src.url} title={`${settings.preRoll} s before the snap to ${settings.postRoll} s after`}>
-            <Scissors size={12} className="inline -mt-0.5" /> Start at snap
-          </button>
-          <button type="button" className={small} onClick={() => edit((x) => ({ ...x, start: 0, end: r2(len || x.end) }))} disabled={!len}>
-            Whole clip
-          </button>
-          <span className="tabular-nums text-slate-500">
-            {fmt(start)}–{fmt(end)} · {(end - start).toFixed(1)} s
-          </span>
-          {busy && <span className="text-amber-600 dark:text-amber-400 font-semibold">{busy}</span>}
+        <div className="flex gap-1 overflow-x-auto -mx-1 px-1 border-b border-slate-200 dark:border-slate-800" role="tablist" aria-label="Edit">
+          {(
+            [
+              ['trim', 'Trim', false],
+              ['effects', 'Slow-mo & replay', Boolean(h.slow || h.freeze || h.replay)],
+              ['camera', 'Zoom & follow', Boolean(h.zoom || path.length > 1)],
+              ['circles', 'Circles', Boolean(h.marks?.length)],
+              ['details', 'Title & kids', false],
+            ] as [EditorTab, string, boolean][]
+          ).map(([id, label, on]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              onClick={() => setTab(id)}
+              className={`shrink-0 h-10 sm:h-9 px-3 text-xs font-bold border-b-2 -mb-px inline-flex items-center gap-1.5 ${
+                tab === id ? 'border-indigo-600 text-indigo-700 dark:text-indigo-300' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              {label}
+              {on && <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" aria-label="(set)" />}
+            </button>
+          ))}
         </div>
       )}
 
-      {!ro && (
+      {!ro && tab === 'trim' && (
+        <div className="flex flex-col gap-2 text-xs">
+          {(['start', 'end'] as const).map((which) => {
+            const t = which === 'start' ? start : end;
+            const set = which === 'start' ? setStart : setEnd;
+            return (
+              <div key={which} className="flex flex-wrap items-center gap-1">
+                <span className="w-12 font-black text-slate-700 dark:text-slate-200">{which === 'start' ? 'Start' : 'End'}</span>
+                <button type="button" className="tabular-nums font-bold text-indigo-700 dark:text-indigo-300 underline decoration-dotted w-14 text-left" onClick={() => { videoRef.current?.pause(); seek(t); }} title="Go there">
+                  {fmt(t)}
+                </button>
+                {[-0.5, -1 / 30, 1 / 30, 0.5].map((d) => (
+                  <button key={d} type="button" className={small} onClick={() => set(t + d)} title={`${d > 0 ? 'Later' : 'Earlier'} by ${Math.abs(d) < 0.1 ? 'a frame' : 'half a second'}`}>
+                    {Math.abs(d) < 0.1 ? `${d > 0 ? '+' : '−'}1f` : `${d > 0 ? '+' : '−'}½s`}
+                  </button>
+                ))}
+                <button type="button" className={small} onClick={() => v && set(v.currentTime)} title={`${which === 'start' ? 'Start' : 'End'} at the playhead (${which === 'start' ? 'I' : 'O'})`}>
+                  {which === 'start' ? 'Start here' : 'End here'} <kbd className="opacity-60 hidden sm:inline">{which === 'start' ? 'I' : 'O'}</kbd>
+                </button>
+              </div>
+            );
+          })}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button type="button" className={small} onClick={findSnap} disabled={!src.url} title={`${settings.preRoll} s before the snap to ${settings.postRoll} s after`}>
+              <Scissors size={12} className="inline -mt-0.5" /> Start at snap
+            </button>
+            <button type="button" className={small} onClick={checkEnd} disabled={!src.url} title="Play the last 2 seconds">
+              Check the end
+            </button>
+            <button type="button" className={small} onClick={() => edit((x) => ({ ...x, start: 0, end: r2(len || x.end) }))} disabled={!len}>
+              Whole clip
+            </button>
+            <span className="tabular-nums text-slate-500">{(end - start).toFixed(1)} s long</span>
+            {busy && <span className="text-amber-600 dark:text-amber-400 font-semibold">{busy}</span>}
+          </div>
+          <p className="text-[11px] text-slate-500">Drag the blue handles on the bar (a touch near one grabs it), or nudge them here. A tap on the bar moves the playhead.</p>
+        </div>
+      )}
+
+      {!ro && tab === 'effects' && (
         <div className="grid sm:grid-cols-3 gap-2 text-xs">
           {/* Slow motion */}
           <fieldset className="rounded-lg border border-slate-200 dark:border-slate-700 p-2 flex flex-col gap-1.5 min-w-0">
@@ -896,7 +1155,7 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
       )}
 
       {/* Follow a kid by finger: the Instagram video's camera rides his path */}
-      {!ro && (
+      {!ro && tab === 'camera' && (
         <fieldset className="rounded-lg border border-orange-200 dark:border-orange-500/30 p-2 flex flex-col gap-1.5 min-w-0 text-xs">
           <legend className="px-1 font-black text-slate-700 dark:text-slate-200">Follow a kid (the Instagram video zooms in and follows him)</legend>
           {following ? (
@@ -963,7 +1222,7 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
       )}
 
       {/* The clip's zoom, kept for Play, the Instagram video and the Resolve export */}
-      {!ro && (
+      {!ro && tab === 'camera' && (
         <fieldset className="rounded-lg border border-sky-200 dark:border-sky-500/30 p-2 flex flex-col gap-1.5 min-w-0 text-xs">
           <legend className="px-1 font-black text-slate-700 dark:text-slate-200">Zoom (kept for Play, the Instagram video and the Resolve export)</legend>
           <span className="flex flex-wrap items-center gap-1.5">
@@ -1050,7 +1309,7 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
       )}
 
       {/* Circles and arrows on a kid while the play runs */}
-      {!ro && (
+      {!ro && tab === 'circles' && (
         <fieldset className="rounded-lg border border-slate-200 dark:border-slate-700 p-2 flex flex-col gap-1.5 min-w-0 text-xs">
           <legend className="px-1 font-black text-slate-700 dark:text-slate-200">Circle or point at a player</legend>
           <span className="flex flex-wrap items-center gap-1">
@@ -1122,41 +1381,86 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
         </fieldset>
       )}
 
-      {/* Title, kinds, kids, rating, note */}
+      {/* Title, kids, kinds, rating, note */}
+      {(ro || tab === 'details') && (
+      <div className="flex flex-col gap-2">
       <div className="grid sm:grid-cols-2 gap-2 text-xs">
-        <label className="flex flex-col gap-1 min-w-0">
-          <span className="font-black text-slate-700 dark:text-slate-200">Title</span>
+        <div className="flex flex-col gap-1 min-w-0">
+          <span className="flex items-center gap-2">
+            <label htmlFor={`hl-title-${h.id}`} className="font-black text-slate-700 dark:text-slate-200">Title</label>
+            {!ro && thePlay && (
+              <button
+                type="button"
+                className="text-[11px] font-bold text-indigo-600 dark:text-indigo-300 underline"
+                onClick={() => edit((x) => ({ ...x, title: autoTitle(thePlay) }))}
+                title="The title made from the play's breakdown"
+              >
+                From the play
+              </button>
+            )}
+          </span>
           <input
-            key={`t-${h.id}`}
+            id={`hl-title-${h.id}`}
+            key={`t-${h.id}-${h.title}`}
             defaultValue={h.title}
             disabled={ro}
             onBlur={(e) => e.target.value !== h.title && edit((x) => ({ ...x, title: e.target.value }))}
             onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-            className="h-8 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm"
+            className="h-10 sm:h-8 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm"
           />
-        </label>
-        <label className="flex flex-col gap-1 min-w-0">
-          <span className="font-black text-slate-700 dark:text-slate-200">Kids (jersey numbers)</span>
-          <input
-            key={`k-${h.id}-${h.kids.join(',')}`}
-            defaultValue={h.kids.join(', ')}
-            disabled={ro}
-            list="hl-roster"
-            onBlur={(e) => {
-              const kids = [...new Set(e.target.value.split(/[\s,#]+/).map((x) => x.replace(/\D/g, '')).filter(Boolean).map((x) => String(Number(x))))];
-              if (kids.join(',') !== h.kids.join(',')) edit((x) => ({ ...x, kids }));
-            }}
-            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-            placeholder="21, 7"
-            className="h-8 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm"
-          />
-          <datalist id="hl-roster">
-            {roster.map((k) => (
-              <option key={k.num} value={k.num}>{kidLabel(k.num, roster, 'full')}</option>
-            ))}
-          </datalist>
-          {kids && <span className="text-slate-500 truncate">{kids}</span>}
-        </label>
+        </div>
+        <div className="flex flex-col gap-1 min-w-0">
+          <span className="font-black text-slate-700 dark:text-slate-200">Kids in it</span>
+          {roster.length > 0 ? (
+            // Tap a kid to take him off; pick from the roster to add one.
+            <span className="flex flex-wrap items-center gap-1" role="group" aria-label="Kids in it">
+              {h.kids.map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  disabled={ro}
+                  onClick={() => edit((x) => ({ ...x, kids: x.kids.filter((y) => y !== k) }))}
+                  className="h-9 sm:h-7 px-2 rounded-lg bg-indigo-600 text-white font-bold inline-flex items-center gap-1"
+                  title={ro ? undefined : 'Take him off this clip'}
+                >
+                  {kidLabel(k, roster, 'full')} {!ro && <X size={12} />}
+                </button>
+              ))}
+              {!ro && (
+                <select
+                  value=""
+                  onChange={(e) => e.target.value && edit((x) => ({ ...x, kids: [...new Set([...x.kids, e.target.value])] }))}
+                  className="h-9 sm:h-7 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-1.5 font-bold"
+                  aria-label="Add a kid"
+                >
+                  <option value="">+ Add a kid…</option>
+                  {roster
+                    .map((k) => String(Number(k.num)))
+                    .filter((n) => n !== 'NaN' && !h.kids.includes(n))
+                    .sort((a, b) => Number(a) - Number(b))
+                    .map((n) => (
+                      <option key={n} value={n}>{kidLabel(n, roster, 'full')}</option>
+                    ))}
+                </select>
+              )}
+              {!h.kids.length && ro && <span className="text-slate-500">None</span>}
+            </span>
+          ) : (
+            <input
+              key={`k-${h.id}-${h.kids.join(',')}`}
+              defaultValue={h.kids.join(', ')}
+              disabled={ro}
+              onBlur={(e) => {
+                const kids = [...new Set(e.target.value.split(/[\s,#]+/).map((x) => x.replace(/\D/g, '')).filter(Boolean).map((x) => String(Number(x))))];
+                if (kids.join(',') !== h.kids.join(',')) edit((x) => ({ ...x, kids }));
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+              placeholder="Jersey numbers: 21, 7"
+              className="h-10 sm:h-8 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm"
+              aria-label="Kids (jersey numbers)"
+            />
+          )}
+        </div>
       </div>
       <div className="flex flex-wrap items-center gap-1 text-xs" role="group" aria-label="Kinds">
         {(Object.keys(CATEGORY_LABEL) as HighlightCategory[]).map((c) => (
@@ -1181,18 +1485,18 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
           ))}
         </span>
         <input
-          key={`n-${h.id}`}
+          key={`n-${h.id}-${h.note || ''}`}
           defaultValue={h.note || ''}
           disabled={ro}
           placeholder="Note (goes into the editor as a marker)"
           onBlur={(e) => e.target.value !== (h.note || '') && edit((x) => ({ ...x, note: e.target.value }))}
-          className="flex-1 min-w-40 h-8 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2"
+          className="flex-1 min-w-40 h-10 sm:h-8 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2"
         />
         {!ro && onAddToReel && (
           <select
             value=""
             onChange={(e) => e.target.value && onAddToReel(e.target.value)}
-            className="h-8 rounded-lg border border-indigo-400 bg-white dark:bg-slate-950 px-1 font-bold text-indigo-700 dark:text-indigo-300"
+            className="h-10 sm:h-8 rounded-lg border border-indigo-400 bg-white dark:bg-slate-950 px-1 font-bold text-indigo-700 dark:text-indigo-300"
             aria-label="Add to a reel"
           >
             <option value="">Add to reel…</option>
@@ -1207,32 +1511,42 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
         {reels.some((r) => r.has) && (
           <span className="text-slate-500 truncate">In: {reels.filter((r) => r.has).map((r) => r.name).join(', ')}</span>
         )}
-        <button
-          type="button"
-          onClick={() => {
-            videoRef.current?.pause();
-            setSocial(true);
-          }}
-          className="inline-flex items-center gap-1 h-8 px-2 rounded-lg border border-pink-400 font-bold text-pink-700 dark:text-pink-300"
-          title="Make an MP4 of this highlight for Instagram"
-        >
-          <Instagram size={13} /> Instagram video
-        </button>
-        {!ro && (
-          <button
-            type="button"
-            onClick={() => {
-              store.update((d) => removeHighlights(d, [h.id]));
-              onClose();
-            }}
-            className="inline-flex items-center gap-1 h-8 px-2 rounded-lg font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10"
-          >
-            <Trash2 size={13} /> Delete
-          </button>
-        )}
+        {!ro &&
+          (confirmDelete ? (
+            <span className="inline-flex items-center gap-1.5 ml-auto">
+              <span className="font-bold text-rose-700 dark:text-rose-300">Delete this highlight?</span>
+              <button
+                type="button"
+                onClick={() => {
+                  store.update((d) => removeHighlights(d, [h.id]));
+                  onClose();
+                }}
+                className="h-9 sm:h-8 px-3 rounded-lg bg-rose-600 text-white font-bold"
+              >
+                Delete
+              </button>
+              <button type="button" onClick={() => setConfirmDelete(false)} className="underline">
+                Keep it
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              className="ml-auto inline-flex items-center gap-1 h-9 sm:h-8 px-2 rounded-lg font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10"
+              title="Take it out of the highlights (and every reel); the film isn't touched"
+            >
+              <Trash2 size={13} /> Delete
+            </button>
+          ))}
       </div>
+      </div>
+      )}
       {social && (
         <SocialVideoPanel title={h.title || 'Highlight'} segments={socialSegments} access={access} settings={settings} logo={logo} onClose={() => setSocial(false)} />
+      )}
+      {preview && socialSegments.length > 0 && (
+        <ReelPlayer title={`${h.title || 'Highlight'} (preview)`} segments={socialSegments} access={access} settings={settings} logo={logo} onClose={() => setPreview(false)} />
       )}
     </div>
   );
