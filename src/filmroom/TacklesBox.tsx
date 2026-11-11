@@ -84,7 +84,11 @@ export const TacklesBox: React.FC<Props> = ({ play, lineup, roster, readOnly, on
   const tacklers = tacklersOf(dp);
   const events = dp?.events || [];
   const by = dp?.by || {};
-  const eventChoices = defEventsFor(kick);
+  // An incomplete pass has no tackle: what can happen is a pass breakup (or a hurry). A tackle already put on it
+  // still shows, to take off.
+  const incomplete = !kick && /incompl|\binc\b/i.test(String(play.result || ''));
+  const showTackle = !incomplete || tacklers.length > 0;
+  const eventChoices = defEventsFor(kick).filter((c) => !incomplete || c.id === 'pbu' || c.id === 'qbh' || events.includes(c.id));
   // The big play waiting for its kid ("Who broke it up?").
   const [picking, setPicking] = useState<DefEvent | null>(null);
   useEffect(() => setPicking(null), [play.id]);
@@ -119,6 +123,23 @@ export const TacklesBox: React.FC<Props> = ({ play, lineup, roster, readOnly, on
 
   return (
     <div className="flex flex-col gap-1.5 rounded-lg border border-orange-200 dark:border-orange-500/30 bg-orange-50/60 dark:bg-orange-500/5 px-2 py-2" role="group" aria-label="Tackles and big plays on this play">
+      {incomplete && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] font-black uppercase tracking-wide text-slate-600 dark:text-slate-300">Incomplete pass: no tackle</span>
+          {!events.includes('pbu') && !readOnly && (
+            <button
+              type="button"
+              onClick={() => pressEvent('pbu')}
+              className="h-8 px-3 rounded-md bg-blue-600 text-white text-xs font-black"
+              title="Someone broke it up: tap, then tap the kid"
+            >
+              Pass breakup? Who broke it up
+            </button>
+          )}
+        </div>
+      )}
+      {showTackle && (
+      <>
       <div className="flex flex-wrap items-baseline gap-x-2">
         <span className="text-[10px] font-black uppercase tracking-wide text-orange-800 dark:text-orange-300">{kick ? 'Special teams tackle' : 'Tackle'}</span>
         <span className="text-[11px] text-slate-500 dark:text-slate-400">
@@ -151,6 +172,9 @@ export const TacklesBox: React.FC<Props> = ({ play, lineup, roster, readOnly, on
         ))}
       />
       {!buttons.length && !roster.length && <span className="text-[11px] text-slate-500">Add the team&apos;s roster to pick kids here.</span>}
+      {incomplete && <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300">It&apos;s an incomplete pass: clear the tackle unless the result is wrong.</span>}
+      </>
+      )}
 
       <span className="text-[10px] font-black uppercase tracking-wide text-blue-800 dark:text-blue-300 mt-1">Big plays</span>
       <div className="flex flex-wrap items-center gap-1">
