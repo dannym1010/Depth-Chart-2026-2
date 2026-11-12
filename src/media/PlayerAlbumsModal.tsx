@@ -38,7 +38,8 @@ interface Props {
   season: string;
   initialKid?: string;
   isFamily?: boolean;
-  onOpenPhoto: (photo: DrivePhoto) => void;
+  /** Open a photo, with the album's photos as shown (the viewer swipes through just those). */
+  onOpenPhoto: (photo: DrivePhoto, album: DrivePhoto[]) => void;
 }
 
 export const PlayerAlbumsModal: React.FC<Props> = ({
@@ -359,7 +360,7 @@ export const PlayerAlbumsModal: React.FC<Props> = ({
                       return (
                         <div
                           key={item.photo.id}
-                          onClick={() => onOpenPhoto(item.photo)}
+                          onClick={() => onOpenPhoto(item.photo, displayedPhotos.map((x) => x.photo))}
                           className="group relative aspect-square rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 cursor-pointer shadow-sm border border-slate-200/60 dark:border-slate-700/60"
                         >
                           {/* Mini Thumbnail */}

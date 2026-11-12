@@ -1163,6 +1163,8 @@ export const MediaView: React.FC<Props> = ({
   const [photos, setPhotos] = useState<DrivePhoto[] | null>(null);
   const [problem, setProblem] = useState('');
   const [viewing, setViewing] = useState(-1);
+  // A photo opened from a player's album: the viewer swipes through that album only, and closing goes back to it.
+  const [albumList, setAlbumList] = useState<DrivePhoto[] | null>(null);
 
   // Selection mode & Batch operations
   const [selectionMode, setSelectionMode] = useState(false);
@@ -1197,6 +1199,7 @@ export const MediaView: React.FC<Props> = ({
     setPhotos(null);
     setProblem('');
     setViewing(-1);
+    setAlbumList(null);
     setSelectedIds(new Set());
     if (!signedIn) return;
     let off = false;
@@ -1324,6 +1327,9 @@ export const MediaView: React.FC<Props> = ({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photos, records, folder, filter, photoFolder]);
+
+  // The photos the viewer swipes through: a player's album when opened from it, else the grid as filtered.
+  const viewList = albumList || filteredPhotos;
 
   // Count un-analyzed photos in current folder
   const unanalyzedCount = useMemo(() => {
@@ -1834,18 +1840,25 @@ export const MediaView: React.FC<Props> = ({
       )}
 
       {/* Lightbox Viewer & Inspector */}
-      {filteredPhotos && viewing >= 0 && filteredPhotos[viewing] && (
+      {viewList && viewing >= 0 && viewList[viewing] && (
         <Viewer
-          photos={filteredPhotos}
+          photos={viewList}
           index={viewing}
           records={records}
-          folder={folderOf(filteredPhotos[viewing]?.id)}
+          folder={folderOf(viewList[viewing]?.id)}
           roster={roster}
           canEdit={canEdit}
           onIndex={setViewing}
           onSavePhoto={handleSavePhoto}
           onOpenCrop={(p) => setCropPhoto(p)}
-          onClose={() => setViewing(-1)}
+          onClose={() => {
+            setViewing(-1);
+            // Opened from a player's album: back to that album.
+            if (albumList) {
+              setAlbumList(null);
+              setAlbumsOpen(true);
+            }
+          }}
           isFav={(id) => isFavorite(records.get(id), me)}
           onFav={canEdit && me ? (p) => { const f = folderOf(p.id); if (f) update((d) => toggleFavorite(d, p.id, f.id, me)); } : undefined}
         />
@@ -1897,9 +1910,12 @@ export const MediaView: React.FC<Props> = ({
         season={season}
         initialKid={myKids[0]}
         isFamily={watchOnly}
-        onOpenPhoto={(photo) => {
-          const idx = filteredPhotos.findIndex((p) => p.id === photo.id);
-          if (idx >= 0) setViewing(idx);
+        onOpenPhoto={(photo, album) => {
+          // The viewer goes through this kid's album only (not every photo of the season).
+          const idx = album.findIndex((p) => p.id === photo.id);
+          if (idx < 0) return;
+          setAlbumList(album);
+          setViewing(idx);
           setAlbumsOpen(false);
         }}
       />
