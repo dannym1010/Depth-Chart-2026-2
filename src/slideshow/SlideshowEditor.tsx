@@ -64,9 +64,9 @@ export const SlideshowEditor: React.FC<Props> = ({
   show, edit: editRaw, readOnly: ro, highlights, reels, games, roster, media, me, ownerLabel, access, settings, logo, songs, onDuplicate, onDelete, onClose, aiDesigner = false, teamName, renderClipEditor,
 }) => {
   const o = show.options;
-  const slides = useMemo(() => buildSlides(show, highlights, settings), [show, highlights, settings]);
+  const slides = useMemo(() => buildSlides(show, highlights, settings, { roster }), [show, highlights, settings, roster]);
   // The video and the export leave the empty photo spots out.
-  const videoSlides = useMemo(() => buildSlides(show, highlights, settings, { spots: false }), [show, highlights, settings]);
+  const videoSlides = useMemo(() => buildSlides(show, highlights, settings, { spots: false, roster }), [show, highlights, settings, roster]);
   const total = slidesSeconds(slides);
   const slideOf = useMemo(() => new Map(slides.map((s) => [s.item.id, s])), [slides]);
   const hById = useMemo(() => new Map(highlights.map((h) => [h.id, h])), [highlights]);
@@ -373,7 +373,7 @@ export const SlideshowEditor: React.FC<Props> = ({
   };
   const [beatNote, setBeatNote] = useState('');
   const lineUp = (every: number, withMarks: boolean, from: Slideshow = show) => {
-    const built = from === show ? slides : buildSlides(from, highlights, settings);
+    const built = from === show ? slides : buildSlides(from, highlights, settings, { roster });
     return lineUpWithBeats(from, built, beats, every, withMarks ? o.marks : []);
   };
   const doLineUp = (every: number, withMarks: boolean) => {
@@ -1099,6 +1099,9 @@ export const SlideshowEditor: React.FC<Props> = ({
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
           <label className="inline-flex items-center gap-1.5">
             <input type="checkbox" checked={o.clipTitles} onChange={(e) => setOpt({ clipTitles: e.target.checked })} /> Clip titles
+          </label>
+          <label className="inline-flex items-center gap-1.5" title="Under the title: each kid in the clip (#52 Sam), named the way Highlights settings say">
+            <input type="checkbox" checked={o.clipKids !== false} disabled={!o.clipTitles} onChange={(e) => setOpt({ clipKids: e.target.checked })} /> Kids' numbers and names
           </label>
           <label className="inline-flex items-center gap-1.5">
             <input type="checkbox" checked={o.clipReplays} onChange={(e) => setOpt({ clipReplays: e.target.checked })} /> Replays

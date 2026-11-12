@@ -104,6 +104,8 @@ export interface SlideshowOptions {
   backdrop: 'blur' | 'black' | 'team';
   /** The clip's title at the bottom of clips. */
   clipTitles: boolean;
+  /** The kids' numbers and names under a clip's title (else on). */
+  clipKids?: boolean;
   /** Clips' replays (another camera, set in the clip editor). */
   clipReplays: boolean;
   /** Game sound on clips. */

@@ -1,6 +1,6 @@
 // Slideshows as plain data: making and changing them, and the timeline every player and the video read the same
 // way (when each slide is up, how it fades in, where a photo's slow move is, which song plays when and how loud).
-import { highlightSegments, segmentSeconds, type Segment } from '../highlights/highlightData';
+import { highlightSegments, kidsText, segmentSeconds, type Kid, type Segment } from '../highlights/highlightData';
 import type { Highlight, HighlightSettings } from '../highlights/types';
 import type { PhotoFit, PhotoFrame, PhotoLook, PhotoMotion, SlideItem, Slideshow, SlideshowOptions, SlideshowShape, SlideTransition, SongPick } from './types';
 
@@ -358,7 +358,13 @@ const AUTO_MOTIONS: PhotoMotion[] = ['in', 'right', 'out', 'left'];
 
 /** Every slide with when it starts, how long it's up, and how it comes in. Clips whose highlight is gone are left out. */
 /** `spots: false`: the empty photo spots left out (the video and the export). */
-export function buildSlides(show: Slideshow, highlights: Highlight[], settings: Pick<HighlightSettings, 'replaySpeed'>, opts: { spots?: boolean } = {}): Slide[] {
+/** `roster`: the kids' names under a clip's title (as the team's highlight settings show them); without it, just their numbers. */
+export function buildSlides(
+  show: Slideshow,
+  highlights: Highlight[],
+  settings: Pick<HighlightSettings, 'replaySpeed'> & Partial<Pick<HighlightSettings, 'names'>>,
+  opts: { spots?: boolean; roster?: Kid[] } = {}
+): Slide[] {
   const o = { ...defaultSlideshowOptions(), ...show.options };
   const byId = new Map(highlights.map((h) => [h.id, h]));
   const out: Slide[] = [];
@@ -381,7 +387,8 @@ export function buildSlides(show: Slideshow, highlights: Highlight[], settings: 
     } else {
       const h = byId.get(item.highlightId);
       if (!h) continue;
-      const segs = highlightSegments(h, { overlay: o.clipTitles ? { title: h.title } : undefined, replays: o.clipReplays ? 'each' : 'none', replaySpeed: settings.replaySpeed });
+      const kids = o.clipKids === false ? '' : kidsText(h.kids || [], opts.roster || [], settings.names || 'first');
+      const segs = highlightSegments(h, { overlay: o.clipTitles ? { title: h.title, ...(kids ? { sub: kids } : {}) } : undefined, replays: o.clipReplays ? 'each' : 'none', replaySpeed: settings.replaySpeed });
       const seconds = segs.reduce((n, s) => n + segmentSeconds(s), 0);
       if (seconds <= 0) continue;
       const gain = clamp(item.volume ?? gameVolumeOf(o), 0, 1);

@@ -283,3 +283,17 @@ describe('game order, reels and the sound mix', () => {
     assert.equal(musicLevel({ ...o, duckLevel: 0.1 }, 5, 60, true), 0.08000000000000002);
   });
 });
+
+describe('clip titles', () => {
+  it("put the kids' numbers and names under the title", () => {
+    let s = newSlideshow({ name: 'x', owner: 'c' });
+    s = insertItems(s, [clipItem('h1')]);
+    const h = [hl('h1', 0, 4, { title: 'Big sack', kids: ['52', '7'] })];
+    const roster = [{ num: '52', firstName: 'Sam', lastName: 'Cole' }];
+    const sub = (show: typeof s, opts = {}) => ((buildSlides(show, h, { replaySpeed: 0.5, names: 'first' }, opts)[0] as any).segs[0].overlay || {}).sub;
+    assert.equal(sub(s, { roster }), '#52 Sam · #7');
+    assert.equal(sub(s), '#52 · #7');
+    assert.equal(sub({ ...s, options: { ...s.options, clipKids: false } }, { roster }), undefined);
+    assert.equal((buildSlides({ ...s, options: { ...s.options, clipTitles: false } }, h, { replaySpeed: 0.5 }, { roster })[0] as any).segs[0].overlay, undefined);
+  });
+});
