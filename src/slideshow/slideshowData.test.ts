@@ -400,3 +400,17 @@ describe('songs placed at a time, and the background layer', () => {
     assert.deepEqual(musicLayers(o, (p) => (p.name === 'A' ? null : { seconds: 9, item: 1 }))[0].items, []);
   });
 });
+
+describe("a clip's title in this slideshow", () => {
+  it('uses its own title and line, or none, else the clip\'s', () => {
+    let s = newSlideshow({ name: 'x', owner: 'c' });
+    s = insertItems(s, [clipItem('h1'), clipItem('h1'), clipItem('h1')]);
+    s.items[0] = { ...(s.items[0] as any), title: 'What a run', sub: 'Our best play' };
+    s.items[1] = { ...(s.items[1] as any), noTitle: true };
+    const h = [hl('h1', 0, 4, { title: 'Big sack', kids: ['52'] })];
+    const ov = (k: number) => (buildSlides(s, h, { replaySpeed: 0.5 }, { roster: [{ num: '52', firstName: 'Sam', lastName: 'C' }] })[k] as any).segs[0].overlay;
+    assert.deepEqual(ov(0), { title: 'What a run', sub: 'Our best play' });
+    assert.equal(ov(1), undefined);
+    assert.deepEqual(ov(2), { title: 'Big sack', sub: '#52 Sam' });
+  });
+});

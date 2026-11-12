@@ -342,7 +342,7 @@ export const SlideshowTimeline: React.FC<Props> = ({
               const w = Math.max(3, secs * pps - 2);
               const on = picked.has(s.item.id);
               const moving = d?.kind === 'move' && d.moved && d.id === s.item.id;
-              const label = s.kind === 'photo' ? s.item.caption || s.item.name : s.kind === 'title' ? s.item.title : s.kind === 'spot' ? s.item.label || 'Photo spot' : s.h.title;
+              const label = s.kind === 'photo' ? s.item.caption || s.item.name : s.kind === 'title' ? s.item.title : s.kind === 'spot' ? s.item.label || 'Photo spot' : s.item.title || s.h.title;
               return (
                 <div
                   key={s.item.id}
@@ -368,7 +368,7 @@ export const SlideshowTimeline: React.FC<Props> = ({
                   ) : (
                     <div className="absolute inset-0 flex items-center gap-1 px-1.5" style={{ background: '#0f172a', color: '#e2e8f0' }}>
                       {w > 24 && <Film size={11} className="shrink-0" style={{ color: accent }} />}
-                      {w > 50 && <span className="text-[10px] font-bold truncate">{s.h.title || 'Clip'}</span>}
+                      {w > 50 && <span className="text-[10px] font-bold truncate">{s.item.title || s.h.title || 'Clip'}</span>}
                     </div>
                   )}
                   {s.fade > 0 && s.fade * pps > 4 && (

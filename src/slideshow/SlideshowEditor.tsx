@@ -6,7 +6,7 @@ import {
   ArrowDown, ArrowUp, AudioLines, Clapperboard, ListOrdered, Scissors, Trophy, Bookmark, Check, CheckSquare, ChevronsDown, ChevronsUp, Copy, Crosshair, Film, Image as ImageIcon, ImagePlus, Move, Music, Play, Plus, Redo2, Sparkles, SquareDashed, Trash2, Type, Undo2, Upload, Video, X,
 } from 'lucide-react';
 import type { FilmAccess } from '../highlights/filmAccess';
-import { clock, orderedHighlights, weekText, type Kid } from '../highlights/highlightData';
+import { clock, kidsText, orderedHighlights, weekText, type Kid } from '../highlights/highlightData';
 import type { Highlight, HighlightGame, HighlightSettings, Reel } from '../highlights/types';
 import type { MediaData } from '../media/types';
 import { ClipPicker } from './ClipPicker';
@@ -561,7 +561,7 @@ export const SlideshowEditor: React.FC<Props> = ({
           ) : item.kind === 'clip' ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 p-1.5 text-center" style={{ background: '#0f172a', color: '#e2e8f0' }}>
               <Film size={18} style={{ color: settings.accent || '#f2b705' }} />
-              <span className="text-[10px] font-bold leading-tight line-clamp-2">{h ? h.title || 'Highlight' : 'Clip deleted'}</span>
+              <span className="text-[10px] font-bold leading-tight line-clamp-2">{h ? (item.kind === 'clip' && item.title) || h.title || 'Highlight' : 'Clip deleted'}</span>
             </div>
           ) : item.kind === 'spot' ? (
             <div className="absolute inset-0 m-0.5 rounded-md border-2 border-dashed border-slate-400 dark:border-slate-500 bg-slate-100 dark:bg-slate-900 flex flex-col items-center justify-center gap-0.5 p-1.5 text-center text-slate-500 dark:text-slate-400">
@@ -831,9 +831,46 @@ export const SlideshowEditor: React.FC<Props> = ({
         {sel.kind === 'clip' && (
           <>
             <p className="text-xs text-slate-600 dark:text-slate-300">
-              <b>{hById.get(sel.highlightId)?.title || 'This clip was deleted'}</b>
+              <b>{sel.title ?? hById.get(sel.highlightId)?.title ?? 'This clip was deleted'}</b>
               {s ? ` · ${clock(s.seconds)}` : ''}
             </p>
+            {/* Its title in this slideshow (the clip in the reels keeps its own). */}
+            {hById.has(sel.highlightId) && (
+              <fieldset className="flex flex-col gap-1.5" disabled={ro} aria-label="This clip's title in the slideshow">
+                <div className={row}>
+                  <span className={label}>Title</span>
+                  <input
+                    value={sel.title ?? hById.get(sel.highlightId)?.title ?? ''}
+                    onChange={(e) => setItem(sel.id, { title: e.target.value })}
+                    disabled={ro || sel.noTitle || !o.clipTitles}
+                    className={`${input} flex-1`}
+                    aria-label="Title on this clip"
+                  />
+                </div>
+                <div className={row}>
+                  <span className={label}>Under it</span>
+                  <input
+                    value={sel.sub ?? (o.clipKids === false ? '' : kidsText(hById.get(sel.highlightId)?.kids || [], roster, settings.names || 'first'))}
+                    onChange={(e) => setItem(sel.id, { sub: e.target.value })}
+                    disabled={ro || sel.noTitle || !o.clipTitles}
+                    placeholder="(nothing)"
+                    className={`${input} flex-1`}
+                    aria-label="Line under the clip's title"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-3 text-xs">
+                  <label className="inline-flex items-center gap-1.5">
+                    <input type="checkbox" checked={Boolean(sel.noTitle)} disabled={!o.clipTitles} onChange={(e) => setItem(sel.id, { noTitle: e.target.checked || undefined })} /> No title on this clip
+                  </label>
+                  {(sel.title !== undefined || sel.sub !== undefined) && !ro && (
+                    <button type="button" onClick={() => setItem(sel.id, { title: undefined, sub: undefined })} className="h-7 px-2 rounded-lg text-[11px] font-bold text-indigo-600 dark:text-indigo-300">
+                      Same as the clip
+                    </button>
+                  )}
+                </div>
+                {!o.clipTitles && <span className="text-[11px] text-slate-500">Clip titles are off (Look tab).</span>}
+              </fieldset>
+            )}
             {renderClipEditor && hById.has(sel.highlightId) && (
               <div className="flex flex-col gap-1">
                 <button

@@ -74,6 +74,11 @@ export interface ClipItem extends ItemBase {
   volume?: number;
   /** How loud the songs are under it, as part of the music volume (0 = silent, 1 = as loud as the rest). Else they dip when its game sound plays. */
   musicUnder?: number;
+  /** Its title in this slideshow, and the line under it (else the clip's title and its kids; '' = none). */
+  title?: string;
+  sub?: string;
+  /** No title on this clip (the slideshow's clip titles on). */
+  noTitle?: boolean;
 }
 
 export interface TitleItem extends ItemBase {

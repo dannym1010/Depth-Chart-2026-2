@@ -400,7 +400,7 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
   const cur = slideAt(slides, now);
   const s = slides[cur.i];
   const btn = 'h-10 w-10 sm:h-9 sm:w-9 shrink-0 rounded-lg inline-flex items-center justify-center hover:bg-white/10';
-  const label = !s ? '' : s.kind === 'photo' ? s.item.caption || s.item.name : s.kind === 'title' ? s.item.title : s.kind === 'spot' ? s.item.label || 'Photo spot' : s.h.title;
+  const label = !s ? '' : s.kind === 'photo' ? s.item.caption || s.item.name : s.kind === 'title' ? s.item.title : s.kind === 'spot' ? s.item.label || 'Photo spot' : s.item.title || s.h.title;
 
   if (inline) {
     const small = 'h-8 w-8 shrink-0 rounded-lg inline-flex items-center justify-center hover:bg-white/10';

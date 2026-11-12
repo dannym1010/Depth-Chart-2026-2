@@ -400,7 +400,10 @@ export function buildSlides(
       const h = byId.get(item.highlightId);
       if (!h) continue;
       const kids = o.clipKids === false ? '' : kidsText(h.kids || [], opts.roster || [], settings.names || 'first');
-      const segs = highlightSegments(h, { overlay: o.clipTitles ? { title: h.title, ...(kids ? { sub: kids } : {}) } : undefined, replays: o.clipReplays ? 'each' : 'none', replaySpeed: settings.replaySpeed });
+      // Its own title and line in this slideshow, when it has them ('' = none), else the clip's title and its kids.
+      const title = item.title ?? h.title;
+      const sub = item.sub ?? kids;
+      const segs = highlightSegments(h, { overlay: o.clipTitles && !item.noTitle && (title || sub) ? { title, ...(sub ? { sub } : {}) } : undefined, replays: o.clipReplays ? 'each' : 'none', replaySpeed: settings.replaySpeed });
       const seconds = segs.reduce((n, s) => n + segmentSeconds(s), 0);
       if (seconds <= 0) continue;
       const gain = clamp(item.volume ?? gameVolumeOf(o), 0, 1);

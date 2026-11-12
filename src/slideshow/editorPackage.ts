@@ -69,7 +69,7 @@ export function packageFiles(slides: Slide[], songNames: string[]): { slideFile:
       return f;
     }
     if (s.kind === 'title') return `Titles/${n} ${safe(s.item.title)}.png`;
-    if (s.kind === 'clip') return `Clips/${n} ${safe(s.h.title || 'Clip')}.mp4`;
+    if (s.kind === 'clip') return `Clips/${n} ${safe(s.item.title || s.h.title || 'Clip')}.mp4`;
     return null;
   });
   const songFile = songNames.map((name, k) => `Music/${k + 1} ${safe(name.replace(/\.[a-z0-9]+$/i, ''))}${(/\.[a-z0-9]+$/i.exec(name)?.[0] || '.mp3').toLowerCase()}`);
@@ -94,7 +94,7 @@ export function packagePlan(o: {
   o.slides.forEach((s, i) => {
     const file = slideFile[i];
     if (!file || (s.kind === 'clip' && !o.clips)) return;
-    const name = s.kind === 'photo' ? s.item.caption || s.item.name : s.kind === 'title' ? s.item.title : s.kind === 'clip' ? s.h.title || 'Clip' : '';
+    const name = s.kind === 'photo' ? s.item.caption || s.item.name : s.kind === 'title' ? s.item.title : s.kind === 'clip' ? s.item.title || s.h.title || 'Clip' : '';
     if (s.kind === 'title') markers.push({ at, title: s.item.title });
     items.push({ kind: s.kind === 'clip' ? 'clip' : 'still', file, at, len: s.seconds, name });
     at += s.seconds;
