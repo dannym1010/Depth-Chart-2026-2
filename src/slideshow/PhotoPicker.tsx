@@ -1,7 +1,8 @@
 // Picking photos for a slideshow from the Media library's folders (Google Drive): one game's folder or all of them,
 // narrowed to a kid, a tag (poster, year-end...), favorites or stars; tap to pick, or pick everything shown.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Heart, Loader2, X } from 'lucide-react';
+import { Check, Heart, Loader2, Users, X } from 'lucide-react';
+import { pickPhotosPerKid, type KidPicks } from './kidPicks';
 import type { Kid } from '../highlights/highlightData';
 import { kidLabel } from '../highlights/highlightData';
 import { drivePhotoThumb } from '../media/mediaSources';
@@ -91,6 +92,39 @@ export const PhotoPicker: React.FC<Props> = ({ media, me, roster, already, onAdd
     };
   }, [folderId, folders, retry]);
 
+  // Photos of every kid: so many each (remembered on this device).
+  const [each, setEachState] = useState(() => {
+    try {
+      return Math.min(10, Math.max(1, Number(localStorage.getItem('slideshowPerKid')) || 1));
+    } catch {
+      return 1;
+    }
+  });
+  const setEach = (n: number) => {
+    setEachState(n);
+    try {
+      localStorage.setItem('slideshowPerKid', String(n));
+    } catch {
+      /* private window */
+    }
+  };
+  const [perKid, setPerKid] = useState<KidPicks | null>(null);
+  const pickPerKid = () => {
+    // From the photos shown (the folder, tag, stars, hearts picked), every kid's own, not just the one picked.
+    const pool = photos.filter((p) => {
+      const r = records.get(p.id);
+      if (tag && !(r?.tags || []).includes(tag)) return false;
+      if (fav && !isFavorite(r, me)) return false;
+      if (minStars && starsOf(r) < minStars) return false;
+      return true;
+    });
+    const kids = roster.length ? roster.map((k) => k.num) : kidsWithPhotos;
+    const res = pickPhotosPerKid({ kids, each, pool: pool.map((p) => ({ id: p.id, record: records.get(p.id) })), inShow: already, records });
+    setPerKid(res);
+    setKid('');
+    setPicked((l) => [...l, ...res.picks.filter((id) => !l.includes(id))]);
+  };
+
   const shown = useMemo(
     () =>
       photos.filter((p) => {
@@ -170,6 +204,53 @@ export const PhotoPicker: React.FC<Props> = ({ media, me, roster, already, onAdd
             <X size={16} />
           </button>
         </div>
+
+        {/* Photos of every kid: each kid's best, so everyone is in it at least so many times. */}
+        {folders.length > 0 && (
+          <div className="flex flex-col gap-1.5 px-3 py-2 border-b border-slate-200 dark:border-slate-800 bg-indigo-50/60 dark:bg-indigo-500/10 text-xs" role="group" aria-label="Photos of every kid">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Users size={14} className="text-indigo-600 dark:text-indigo-300 shrink-0" />
+              <span className="font-black text-slate-800 dark:text-slate-100">Photos of every kid:</span>
+              <span className="inline-flex rounded-lg overflow-hidden border border-slate-300 dark:border-slate-600" role="group" aria-label="Photos each">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setEach(n)}
+                    aria-pressed={each === n}
+                    className={`h-8 w-8 text-xs font-black ${each === n ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200'}`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </span>
+              <span className="text-slate-600 dark:text-slate-300">each</span>
+              <button
+                type="button"
+                onClick={pickPerKid}
+                disabled={Boolean(loading) || Boolean(error) || !photos.length}
+                className="h-8 px-3 rounded-lg bg-indigo-600 text-white text-xs font-black disabled:opacity-40"
+              >
+                Pick their best
+              </button>
+              <span className="text-[11px] text-slate-500">
+                From {folderId ? 'this folder (pick All folders above for the whole season)' : 'every folder'}{tag || fav || minStars ? ' with the filters above' : ''}. Highest rated first; photos already in the slideshow count.
+              </span>
+            </div>
+            {perKid && (
+              <div className="text-[11px] text-slate-700 dark:text-slate-200" role="status">
+                <b>
+                  {perKid.picks.length ? `Picked ${perKid.picks.length} photo${perKid.picks.length === 1 ? '' : 's'}.` : 'No more photos to pick.'}
+                </b>{' '}
+                {perKid.short.length === 0
+                  ? `Every kid is in at least ${each}.`
+                  : `${perKid.counts.length - perKid.short.length} of ${perKid.counts.length} kids are in at least ${each}. Not enough photos tagged of: ${perKid.short
+                      .map((s) => `${kidLabel(s.kid, roster, 'first')} (${s.have})`)
+                      .join(', ')}.${folderId ? ' Try every folder, or tag more in Media.' : ' Tag more of them in Media.'}`}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="flex-1 min-h-0 overflow-auto p-3">
           {!folders.length ? (
