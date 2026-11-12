@@ -37,6 +37,8 @@ interface Props {
   teamName: string;
   season: string;
   initialKid?: string;
+  /** Still listing every folder's photos in Google Drive. */
+  loading?: boolean;
   isFamily?: boolean;
   /** Open a photo, with the album's photos as shown (the viewer swipes through just those). */
   onOpenPhoto: (photo: DrivePhoto, album: DrivePhoto[]) => void;
@@ -50,6 +52,7 @@ export const PlayerAlbumsModal: React.FC<Props> = ({
   teamName,
   season,
   initialKid,
+  loading = false,
   isFamily = false,
   onOpenPhoto,
 }) => {
@@ -175,7 +178,13 @@ export const PlayerAlbumsModal: React.FC<Props> = ({
                 Player Highlight Albums
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Curated game day photo albums by player · 4★ Elite & 3★ Good highlights
+                {loading ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Loader2 size={12} className="animate-spin" /> Loading every folder’s photos from Google Drive…
+                  </span>
+                ) : (
+                  "Curated game day photo albums by player · 4★ Elite & 3★ Good highlights"
+                )}
               </p>
             </div>
           </div>

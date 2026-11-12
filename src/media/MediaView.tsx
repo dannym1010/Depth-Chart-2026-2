@@ -36,7 +36,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { DriveFolderPicker } from '../filmroom/DriveFolderPicker';
-import { forgetFolderPhotos } from '../slideshow/photoLoad';
+import { folderPhotos, forgetFolderPhotos } from '../slideshow/photoLoad';
 import { driveReady, driveSignIn, isDriveSignedIn, prepareDriveSignIn } from '../filmroom/filmSources';
 import { opponentOf } from '../highlights/highlightData';
 import type { HighlightGame } from '../highlights/types';
@@ -1193,7 +1193,9 @@ export const MediaView: React.FC<Props> = ({
   const [allMode, setAllMode] = useState(false);
   // Which folder (game) each listed photo is in: tags and hearts are saved with it.
   const [photoFolder, setPhotoFolder] = useState<Map<string, MediaFolder>>(new Map());
-  const folderOf = (id?: string): MediaFolder | null => (id ? photoFolder.get(id) || folder : folder);
+  // A photo from a player's album can be in another folder than the one open: its tags are saved with that one.
+  const albumFolders = useRef<Map<string, MediaFolder>>(new Map());
+  const folderOf = (id?: string): MediaFolder | null => (id ? photoFolder.get(id) || albumFolders.current.get(id) || folder : folder);
   const allKey = data.folders.map((f) => f.driveId).join('|');
 
   const driveId = folder?.driveId || '';
@@ -1378,8 +1380,30 @@ export const MediaView: React.FC<Props> = ({
     }).length;
   }, [photos, records]);
 
-  // All photo entries formatted for Player Albums
+  // Player Albums: the whole season's photos. The album lists every folder itself (the library grid stays on the
+  // folder picked; opening an album used to switch the grid to all folders, and it stayed that way).
+  const seasonWide = albumsOpen && !allMode && data.folders.length > 1;
+  const [albumRaw, setAlbumRaw] = useState<(readonly [DrivePhoto, MediaFolder])[] | null>(null);
+  useEffect(() => {
+    if (!seasonWide || !signedIn) return;
+    let off = false;
+    setAlbumRaw(null);
+    void Promise.all(data.folders.map((f) => folderPhotos(f.driveId).then((list) => list.map((p) => [p, f] as const)).catch(() => [] as (readonly [DrivePhoto, MediaFolder])[]))).then(
+      (parts) => {
+        if (!off) setAlbumRaw(parts.flat());
+      }
+    );
+    return () => {
+      off = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seasonWide, signedIn, allKey, reloadKey]);
+  useEffect(() => {
+    albumFolders.current = new Map((albumRaw || []).map(([p, f]) => [p.id, f]));
+  }, [albumRaw]);
+  const albumLoading = seasonWide && !albumRaw;
   const allPhotoEntries: PhotoEntry[] = useMemo(() => {
+    if (seasonWide) return (albumRaw || []).map(([p, f]) => ({ photo: p, folder: f, record: records.get(p.id) }));
     if (!photos || !folder) return [];
     return photos.map((p) => ({
       photo: p,
@@ -1387,7 +1411,7 @@ export const MediaView: React.FC<Props> = ({
       record: records.get(p.id),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [photos, folder, records, photoFolder]);
+  }, [seasonWide, albumRaw, photos, folder, records, photoFolder]);
 
   // Toggle selection of one photo
   const toggleSelectPhoto = (id: string) => {
@@ -1528,8 +1552,7 @@ export const MediaView: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => {
-              // A kid's album is the whole season's photos.
-              if (data.folders.length > 1) setAllMode(true);
+              // A kid's album is the whole season's photos: it loads them itself (the library stays on its folder).
               setAlbumsOpen(true);
             }}
             className="h-9 px-3 inline-flex items-center gap-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-bold cursor-pointer transition shadow-sm"
@@ -1620,8 +1643,7 @@ export const MediaView: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => {
-              // A kid's album is the whole season's photos.
-              if (data.folders.length > 1) setAllMode(true);
+              // A kid's album is the whole season's photos: it loads them itself (the library stays on its folder).
               setAlbumsOpen(true);
             }}
             className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold cursor-pointer"
@@ -1962,6 +1984,7 @@ export const MediaView: React.FC<Props> = ({
         open={albumsOpen}
         onClose={() => setAlbumsOpen(false)}
         entries={allPhotoEntries}
+        loading={albumLoading}
         roster={roster}
         teamName={teamName}
         season={season}
