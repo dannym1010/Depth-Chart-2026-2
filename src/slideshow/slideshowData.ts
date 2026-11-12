@@ -590,32 +590,106 @@ export interface SongLen {
   seconds: number;
   /** Seconds into it the slideshow starts it. */
   start: number;
+  /** Seconds into it the slideshow stops it (else its end). */
+  end?: number;
+  /** Seconds it overlaps the song before it (that one gets quieter while this one gets louder). */
+  crossfade?: number;
 }
 
-/** The songs as pieces of a stretch of the slideshow [t0, t1): which song, from where in it, at what time. */
-export function musicPieces(songs: SongLen[], loop: boolean, t0: number, t1: number): { song: number; at: number; offset: number; seconds: number }[] {
-  const lens = songs.map((s) => Math.max(0, s.seconds - clamp(s.start, 0, s.seconds)));
-  const all = lens.reduce((n, l) => n + l, 0);
-  const out: { song: number; at: number; offset: number; seconds: number }[] = [];
-  if (all <= 0.01 || t1 <= t0) return out;
-  let t = t0;
-  let guard = 0;
-  while (t < t1 - 1e-6 && guard++ < 10000) {
-    if (!loop && t >= all) break;
-    let pos = loop ? t % all : t;
-    let k = 0;
-    while (k < lens.length - 1 && pos >= lens[k]) pos -= lens[k++];
-    if (pos >= lens[k]) {
-      // Past the last song (rounding).
-      if (!loop) break;
-      pos = 0;
-    }
-    const left = lens[k] - pos;
-    const seconds = Math.min(left, t1 - t);
-    if (seconds > 1e-6) out.push({ song: k, at: t - t0, offset: clamp(songs[k].start, 0, songs[k].seconds) + pos, seconds });
-    t += Math.max(seconds, 1e-3);
+/** A song as the slideshow plays it: its pick and length, the crossfade from the slideshow's when it has none. */
+export const songLen = (pick: Pick<SongPick, 'start' | 'end' | 'crossfade'>, seconds: number, o?: Pick<SlideshowOptions, 'songCrossfade'>): SongLen => ({
+  seconds,
+  start: pick.start || 0,
+  ...(pick.end !== undefined ? { end: pick.end } : {}),
+  crossfade: pick.crossfade ?? o?.songCrossfade ?? 0,
+});
+
+/** A song's stretch of the slideshow in [t0, t1). */
+export interface MusicPiece {
+  song: number;
+  /** When it starts (from t0), from how far into the song, for how long. */
+  at: number;
+  offset: number;
+  seconds: number;
+  /** How far into the song's whole turn `at` is, and how long the turn is. */
+  pos: number;
+  len: number;
+  /** Seconds it fades in at the start of its turn and out at the end (crossfades; a soft edge where it's cut). */
+  fadeIn: number;
+  fadeOut: number;
+}
+
+/**
+ * When each song plays, in the music's own time (0 = the first song starts): its turn's length (start to end), the
+ * crossfade into it (no more than half of it or of the song before), and when its turn starts. Looping, the first
+ * song crossfades out of the last one, and the songs come round every `period` seconds.
+ */
+export function musicPlan(songs: SongLen[], loop: boolean) {
+  const n = songs.length;
+  const len = songs.map((s) => {
+    const a = clamp(s.start, 0, s.seconds);
+    return Math.max(0, clamp(s.end ?? s.seconds, a, s.seconds) - a);
+  });
+  const roundTheEnd = loop && n > 1;
+  const cross = songs.map((s, k) => (k === 0 && !roundTheEnd) || n < 2 ? 0 : clamp(s.crossfade || 0, 0, Math.min(len[k], len[(k - 1 + n) % n]) / 2));
+  const at: number[] = [];
+  let t = 0;
+  for (let k = 0; k < n; k++) {
+    if (k > 0) t -= cross[k];
+    at.push(t);
+    t += len[k];
   }
-  return out;
+  return { len, cross, at, total: t, period: roundTheEnd ? t - cross[0] : t };
+}
+
+/** A soft edge where a song is cut (its start or end trimmed) and nothing crossfades there. */
+const SOFT_EDGE = 0.8;
+
+/** The songs as pieces of a stretch of the slideshow [t0, t1) (the music's own time): which song, from where in it, when, and its fades. Two play at once while one crossfades into the next. */
+export function musicPieces(songs: SongLen[], loop: boolean, t0: number, t1: number): MusicPiece[] {
+  const plan = musicPlan(songs, loop);
+  const n = songs.length;
+  const out: MusicPiece[] = [];
+  if (plan.total <= 0.01 || plan.period <= 0.01 || t1 <= t0) return out;
+  const first = loop ? Math.max(0, Math.floor((t0 - plan.total) / plan.period)) : 0;
+  for (let c = first; c < first + 100000; c++) {
+    const base = c * plan.period;
+    if (base >= t1 || (!loop && c > 0)) break;
+    for (let k = 0; k < n; k++) {
+      const s = base + plan.at[k];
+      const e = s + plan.len[k];
+      if (plan.len[k] <= 0 || e <= t0 + 1e-9 || s >= t1) continue;
+      const a = Math.max(s, t0);
+      const b = Math.min(e, t1);
+      if (b - a <= 1e-6) continue;
+      const song = songs[k];
+      const start = clamp(song.start, 0, song.seconds);
+      const cut = { start: start > 0.05, end: (song.end ?? song.seconds) < song.seconds - 0.05 };
+      const crossIn = c === 0 && k === 0 ? 0 : plan.cross[k];
+      const crossOut = k < n - 1 ? plan.cross[k + 1] : loop && n > 1 ? plan.cross[0] : 0;
+      out.push({
+        song: k,
+        at: a - t0,
+        offset: start + (a - s),
+        seconds: b - a,
+        pos: a - s,
+        len: plan.len[k],
+        fadeIn: crossIn || (cut.start && !(c === 0 && k === 0) ? Math.min(SOFT_EDGE, plan.len[k] / 4) : 0),
+        fadeOut: crossOut || (cut.end ? Math.min(SOFT_EDGE * 2, plan.len[k] / 4) : 0),
+      });
+    }
+  }
+  return out.sort((x, y) => x.at - y.at || x.song - y.song);
+}
+
+/** How loud a piece is `u` seconds into it (0..1): rising through its fade in, falling through its fade out (equal power, so a crossfade doesn't dip). */
+export function pieceGain(p: Pick<MusicPiece, 'pos' | 'len' | 'fadeIn' | 'fadeOut'>, u: number): number {
+  const q = p.pos + u;
+  let g = 1;
+  if (p.fadeIn > 0 && q < p.fadeIn) g *= Math.sin((clamp(q / p.fadeIn, 0, 1) * Math.PI) / 2);
+  const outFrom = p.len - p.fadeOut;
+  if (p.fadeOut > 0 && q > outFrom) g *= Math.cos((clamp((q - outFrom) / p.fadeOut, 0, 1) * Math.PI) / 2);
+  return clamp(g, 0, 1);
 }
 
 /** How loud the songs are at a time (0..1): the volume, faded in and out, lower under a clip's game sound. */
@@ -654,8 +728,8 @@ export function showMusicPieces(songs: SongLen[], loop: boolean, delay: number, 
   return musicPieces(songs, loop, from - d, t1 - d).map((p) => ({ ...p, at: p.at + (from - t0) }));
 }
 
-/** Seconds of the songs as picked (each from its start). */
-export const songsSeconds = (songs: SongLen[]) => songs.reduce((n, s) => n + Math.max(0, s.seconds - clamp(s.start, 0, s.seconds)), 0);
+/** Seconds of the songs as picked, once through (each from its start to its end, less the crossfades). */
+export const songsSeconds = (songs: SongLen[]) => musicPlan(songs, false).total;
 
 /**
  * Seconds per photo so the slideshow runs as long as the songs: the time the clips, title cards and photos with

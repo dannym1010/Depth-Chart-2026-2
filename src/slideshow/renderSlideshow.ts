@@ -8,8 +8,8 @@ import { frameRange, pictureRect } from '../highlights/socialVideo';
 import { encoderQuality, qualitySizes, type VideoQuality } from '../highlights/videoQuality';
 import { drawFade, drawSlide, slideLook } from './drawSlide';
 import { photoBitmap } from './photoLoad';
-import { fadeAt, musicLevel, musicUnderOf, SHAPES, showMusicPieces, slidesSeconds, songsSeconds, type Slide } from './slideshowData';
-import type { SlideshowOptions } from './types';
+import { fadeAt, musicLevel, musicUnderOf, pieceGain, SHAPES, showMusicPieces, songLen, slidesSeconds, songsSeconds, type Slide } from './slideshowData';
+import type { SlideshowOptions, SongPick } from './types';
 
 export const FPS = 30;
 const SR = 48000;
@@ -82,20 +82,20 @@ export async function renderSlideshowVideo(o: SlideshowRenderOptions): Promise<S
   await output.start();
 
   // The songs, read once.
-  const music: { buf: AudioBuffer; start: number }[] = [];
+  const music: { buf: AudioBuffer; pick: SongPick }[] = [];
   if (audio) {
     for (let k = 0; k < o.songs.length; k++) {
       const b = o.songs[k];
       if (!b) continue;
       try {
         const buf = await new OfflineAudioContext(2, 1, SR).decodeAudioData(await b.arrayBuffer());
-        music.push({ buf, start: opt.songs[k]?.start || 0 });
+        music.push({ buf, pick: opt.songs[k] || { name: '' } });
       } catch {
         /* a song this device can't read: left out */
       }
     }
   }
-  const lens = music.map((m) => ({ seconds: m.buf.duration, start: m.start }));
+  const lens = music.map((m) => songLen(m.pick, m.buf.duration, opt));
   const delay = opt.musicDelay || 0;
   const songsEnd = opt.loopMusic ? Infinity : delay + songsSeconds(lens);
   const drawLook = slideLook(opt);
@@ -283,7 +283,13 @@ export async function renderSlideshowVideo(o: SlideshowRenderOptions): Promise<S
             for (const p of showMusicPieces(lens, opt.loopMusic, delay, t0, t1)) {
               const m = ac.createBufferSource();
               m.buffer = music[p.song].buf;
-              m.connect(g);
+              // Its own fades (a crossfade with the song before or after, a soft cut), on top of the music's level.
+              const pg = ac.createGain();
+              pg.gain.setValueAtTime(pieceGain(p, 0), p.at);
+              for (let u = 0.1; u < p.seconds; u += 0.1) pg.gain.linearRampToValueAtTime(pieceGain(p, u), p.at + u);
+              pg.gain.linearRampToValueAtTime(pieceGain(p, p.seconds), p.at + p.seconds);
+              m.connect(pg);
+              pg.connect(g);
               m.start(p.at, p.offset, p.seconds);
             }
           }

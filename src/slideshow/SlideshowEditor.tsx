@@ -19,11 +19,12 @@ import type { AppliedPlan } from './aiDesign';
 import { lineUpWithBeats, showBeats } from './beats';
 import { PreviewDeck } from './PreviewDeck';
 import { SlidePreview } from './SlidePreview';
+import { SongTrim } from './SongTrim';
 import { SlideshowPlayer } from './SlideshowPlayer';
 import { SlideshowVideoPanel } from './SlideshowVideoPanel';
 import { useSongAnalysis } from './songAnalysis';
 import {
-  ARRANGE, arrange, buildSlides, repeatClips, duckLevelOf, gameVolumeOf, inGameOrder, reelSlides, clipItem, copyItem, editItem, editItems, fillSpot, FITS, fitToMusic, insertItems, LOOKS, mmss, MOTIONS, moveItem, moveItems, parseMmss, photoItem, removeItems, SHAPES, showMusicPieces, slidesSeconds, songsSeconds, spotItem, titleItem, TRANSITIONS, type ArrangeHow, type Slide,
+  ARRANGE, arrange, buildSlides, repeatClips, duckLevelOf, gameVolumeOf, inGameOrder, reelSlides, clipItem, copyItem, editItem, editItems, fillSpot, FITS, fitToMusic, insertItems, LOOKS, mmss, MOTIONS, moveItem, moveItems, parseMmss, photoItem, removeItems, SHAPES, showMusicPieces, slidesSeconds, songLen, songsSeconds, spotItem, titleItem, TRANSITIONS, type ArrangeHow, type Slide,
 } from './slideshowData';
 import type { useSongs } from './songs';
 import type { PhotoFit, PhotoLook, PhotoMotion, SlideItem, Slideshow, SlideshowOptions, SlideshowShape, SlideTransition } from './types';
@@ -372,16 +373,17 @@ export const SlideshowEditor: React.FC<Props> = ({
   }, [show.items]);
   const songLens = songs.lens;
   const pickedSongs = o.songs.map((p) => ({ ...p, seconds: songLens[p.name] || 0, have: songs.songs.some((s) => s.name === p.name) }));
-  const musicSeconds = songsSeconds(pickedSongs.filter((p) => p.have).map((p) => ({ seconds: p.seconds, start: p.start || 0 })));
+  const musicSeconds = songsSeconds(pickedSongs.filter((p) => p.have).map((p) => songLen(p, p.seconds, o)));
   const delay = o.musicDelay || 0;
   const fit = musicSeconds > 0 ? fitToMusic(slides, delay + musicSeconds) : null;
 
   // ---- The songs read on this device: waveform, tempo and beats (lined up in the slideshow's time) ----
-  const playableKey = pickedSongs.map((p) => `${p.name}|${p.seconds}|${p.start || 0}|${p.have}`).join('\n');
+  const playableKey = pickedSongs.map((p) => `${p.name}|${p.seconds}|${p.start || 0}|${p.end ?? ''}|${p.crossfade ?? ''}|${p.have}`).join('\n');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const playable = useMemo(() => pickedSongs.filter((p) => p.have && p.seconds > 0), [playableKey]);
   const analyses = useSongAnalysis(songs.songs, playable.map((p) => p.name));
-  const lens = useMemo(() => playable.map((p) => ({ seconds: p.seconds, start: p.start || 0 })), [playable]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const lens = useMemo(() => playable.map((p) => songLen(p, p.seconds, o)), [playable, o.songCrossfade]);
   const pieces = useMemo(() => showMusicPieces(lens, o.loopMusic, delay, 0, total), [lens, o.loopMusic, delay, total]);
   const analysisOf = (k: number) => {
     const a = analyses[playable[k]?.name];
@@ -395,7 +397,7 @@ export const SlideshowEditor: React.FC<Props> = ({
   const musicShift = delay - firstStart;
   // Where the songs sit, from the timeline: later = the music starts later; before the start = the first song starts further in.
   const setMusicShift = (shift: number) => {
-    const firstLen = playable[0]?.seconds || 0;
+    const firstLen = Math.min(playable[0]?.end ?? Infinity, playable[0]?.seconds || 0);
     const into = shift < 0 ? Math.min(-shift, Math.max(0, firstLen - 1)) : 0;
     setOpt({ musicDelay: Math.max(0, Math.round(shift * 100) / 100), songs: o.songs.map((x, j) => (j === 0 ? { ...x, start: into > 0 ? Math.round(into * 100) / 100 : undefined } : x)) });
   };
@@ -1147,39 +1149,90 @@ export const SlideshowEditor: React.FC<Props> = ({
       <div className="flex flex-col gap-1.5">
         <span className="text-xs font-black text-slate-800 dark:text-slate-100">Songs (played in this order)</span>
         {!pickedSongs.length && <span className="text-[11px] text-slate-500">No songs yet.</span>}
+        {pickedSongs.length > 1 && (
+          <div className="flex flex-wrap items-center gap-1.5 text-xs" role="group" aria-label="Crossfade between songs">
+            <span className="font-bold text-slate-600 dark:text-slate-300">Between songs</span>
+            {[0, 2, 4, 6, 8].map((v) => {
+              const on = pickedSongs.slice(1).every((p) => (p.crossfade ?? o.songCrossfade ?? 0) === v);
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  disabled={ro}
+                  aria-pressed={on}
+                  onClick={() => setOpt({ songCrossfade: v, songs: o.songs.map(({ crossfade: _x, ...rest }) => rest) })}
+                  className={`h-7 px-2 rounded-lg border text-[11px] font-bold ${on ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200'}`}
+                >
+                  {v ? `Crossfade ${v} s` : 'One after the other'}
+                </button>
+              );
+            })}
+          </div>
+        )}
         <ol className="flex flex-col gap-1">
-          {pickedSongs.map((p, k) => (
-            <li key={`${p.name}-${k}`} className="flex flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-800 px-2 py-1.5 text-xs">
-              <span className="flex items-center gap-1.5 w-full min-w-0">
-                <span className="text-[10px] font-black text-slate-400 tabular-nums">{k + 1}</span>
-                <Music size={12} className="text-indigo-500 shrink-0" />
-                <span className="font-bold text-slate-800 dark:text-slate-100 truncate min-w-0 flex-1" title={p.name}>{p.name}</span>
-                {p.have ? <span className="text-slate-500 tabular-nums">{p.seconds ? mmss(p.seconds) : '…'}</span> : <span className="text-amber-600 dark:text-amber-400 font-bold">not on this device</span>}
-              </span>
-              {!ro && (
-                <>
-                  <label className="inline-flex items-center gap-1 text-slate-500">
-                    from
+          {pickedSongs.map((p, k) => {
+            const cross = p.crossfade ?? o.songCrossfade ?? 0;
+            const a = analyses[p.name];
+            const song = songs.songs.find((x) => x.name === p.name);
+            // The crossfade into this song (or, for the first, from the last one when the songs start over).
+            const showCross = k > 0 || (o.loopMusic && pickedSongs.length > 1);
+            return (
+              <React.Fragment key={`${p.name}-${k}`}>
+                {showCross && (
+                  <li className="flex flex-wrap items-center gap-2 px-2 text-[11px] text-slate-600 dark:text-slate-300" aria-label={`Into ${p.name}`}>
+                    <span className="font-bold w-28 shrink-0">{k === 0 ? 'Starting over' : cross ? 'Crossfade' : 'Straight into it'}</span>
                     <input
-                      defaultValue={mmss(p.start || 0)}
-                      key={`${p.name}-${p.start || 0}`}
-                      onBlur={(e) => {
-                        const v = parseMmss(e.target.value);
-                        if (!Number.isFinite(v)) return;
-                        setOpt({ songs: o.songs.map((x, j) => (j === k ? { ...x, start: v > 0 ? v : undefined } : x)) });
-                      }}
-                      className={`${input} w-14`}
-                      aria-label={`Start ${p.name} at`}
+                      type="range"
+                      min={0}
+                      max={12}
+                      step={0.5}
+                      value={cross}
+                      disabled={ro}
+                      onChange={(e) => setOpt({ songs: o.songs.map((x, j) => (j === k ? { ...x, crossfade: Number(e.target.value) } : x)) })}
+                      className="flex-1 min-w-0"
+                      aria-label={`Crossfade into ${p.name}`}
                     />
-                  </label>
-                  <span className="flex-1" />
-                  <button type="button" className={iconBtn} disabled={k === 0} onClick={() => setOpt({ songs: moveArr(o.songs, k, k - 1) })} aria-label="Play earlier"><ArrowUp size={13} /></button>
-                  <button type="button" className={iconBtn} disabled={k === o.songs.length - 1} onClick={() => setOpt({ songs: moveArr(o.songs, k, k + 1) })} aria-label="Play later"><ArrowDown size={13} /></button>
-                  <button type="button" className={iconBtn} onClick={() => setOpt({ songs: o.songs.filter((_, j) => j !== k) })} aria-label={`Take ${p.name} out`}><X size={13} /></button>
-                </>
-              )}
-            </li>
-          ))}
+                    <span className="w-24 tabular-nums text-right">{cross ? `${cross} s overlap` : 'no overlap'}</span>
+                  </li>
+                )}
+                <li className="flex flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-800 px-2 py-1.5 text-xs">
+                  <span className="flex items-center gap-1.5 w-full min-w-0">
+                    <span className="text-[10px] font-black text-slate-400 tabular-nums">{k + 1}</span>
+                    <Music size={12} className="text-indigo-500 shrink-0" />
+                    <span className="font-bold text-slate-800 dark:text-slate-100 truncate min-w-0 flex-1" title={p.name}>{p.name}</span>
+                    {p.have ? <span className="text-slate-500 tabular-nums">{p.seconds ? mmss(p.seconds) : '…'}</span> : <span className="text-amber-600 dark:text-amber-400 font-bold">not on this device</span>}
+                    {!ro && (
+                      <>
+                        <button type="button" className={iconBtn} disabled={k === 0} onClick={() => setOpt({ songs: moveArr(o.songs, k, k - 1) })} aria-label="Play earlier"><ArrowUp size={13} /></button>
+                        <button type="button" className={iconBtn} disabled={k === o.songs.length - 1} onClick={() => setOpt({ songs: moveArr(o.songs, k, k + 1) })} aria-label="Play later"><ArrowDown size={13} /></button>
+                        <button type="button" className={iconBtn} onClick={() => setOpt({ songs: o.songs.filter((_, j) => j !== k) })} aria-label={`Take ${p.name} out`}><X size={13} /></button>
+                      </>
+                    )}
+                  </span>
+                  {p.have && p.seconds > 0 && (
+                    <SongTrim
+                      name={p.name}
+                      seconds={p.seconds}
+                      start={Math.min(p.start || 0, p.seconds)}
+                      end={Math.min(p.end ?? p.seconds, p.seconds)}
+                      analysis={a && a !== 'failed' ? a : undefined}
+                      readOnly={ro}
+                      getBlob={song ? () => song.get() : undefined}
+                      onChange={(s, e) =>
+                        setOpt({
+                          songs: o.songs.map((x, j) => {
+                            if (j !== k) return x;
+                            const { start: _s, end: _e, ...rest } = x;
+                            return { ...rest, ...(s > 0.01 ? { start: s } : {}), ...(e < p.seconds - 0.01 ? { end: e } : {}) };
+                          }),
+                        })
+                      }
+                    />
+                  )}
+                </li>
+              </React.Fragment>
+            );
+          })}
         </ol>
         {!ro && (
           <div className="flex flex-wrap items-center gap-1.5">

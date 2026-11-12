@@ -8,7 +8,7 @@ import type { HighlightSettings } from '../highlights/types';
 import { clock } from '../highlights/highlightData';
 import { drawFade, drawSlide, slideLook } from './drawSlide';
 import { bitmapCache } from './photoLoad';
-import { clipPartAt, fadeAt, musicLevel, musicUnderOf, SHAPES, showMusicPieces, slideAt, slidesSeconds, songsSeconds, type Slide } from './slideshowData';
+import { clipPartAt, fadeAt, musicLevel, musicUnderOf, pieceGain, SHAPES, showMusicPieces, songLen, slideAt, slidesSeconds, songsSeconds, type Slide } from './slideshowData';
 import type { Song } from './songs';
 import type { SlideshowOptions } from './types';
 
@@ -138,7 +138,7 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
         .filter((x) => x.song && x.seconds > 0),
     [options.songs, songs, songLens]
   );
-  const lens = useMemo(() => picked.map((x) => ({ seconds: x.seconds, start: x.pick.start || 0 })), [picked]);
+  const lens = useMemo(() => picked.map((x) => songLen(x.pick, x.seconds, options)), [picked, options.songCrossfade]);
   const delay = options.musicDelay || 0;
   const songsEnd = options.loopMusic ? Infinity : delay + songsSeconds(lens);
   const audios = useRef<(HTMLAudioElement | null)[]>([]);
@@ -247,16 +247,17 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
         drawSlide(fctx, FW, FH, s, local, src, { look, logo, tiny, ...slideLook(options) });
         drawFade(fctx, FW, FH, fadeAt(slides, i, local, options.fadeEnds), havePrev.current ? prev : null);
 
-        // Songs: the one for now, at its place, as loud as it should be.
-        const piece = on && !hold ? showMusicPieces(lens, options.loopMusic, delay, tRef.current, tRef.current + 0.05)[0] : undefined;
+        // Songs: the ones for now (two while one crossfades into the next), each at its place, as loud as it should be.
+        const now = on && !hold ? showMusicPieces(lens, options.loopMusic, delay, tRef.current, tRef.current + 0.05) : [];
         audios.current.forEach((a, k) => {
           if (!a) return;
-          if (!piece || piece.song !== k) {
+          const piece = now.find((p) => p.song === k);
+          if (!piece) {
             if (!a.paused) a.pause();
             return;
           }
           if (Math.abs(a.currentTime - piece.offset) > 0.4) a.currentTime = piece.offset;
-          a.volume = Math.min(1, Math.max(0, musicLevel(options, tRef.current, total, musicUnderOf(s), songsEnd, delay)));
+          a.volume = Math.min(1, Math.max(0, musicLevel(options, tRef.current, total, musicUnderOf(s), songsEnd, delay) * pieceGain(piece, 0)));
           if (a.paused) tryPlay(a);
         });
 

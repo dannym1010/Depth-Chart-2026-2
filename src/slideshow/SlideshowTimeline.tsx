@@ -16,6 +16,11 @@ export interface TimelineSong {
   offset: number;
   seconds: number;
   analysis?: SongAnalysis;
+  /** Its fades (seconds), and how far into its turn it starts and how long the turn is (a crossfade shows as a fade). */
+  fadeIn?: number;
+  fadeOut?: number;
+  pos?: number;
+  len?: number;
 }
 
 interface Props {
@@ -343,8 +348,15 @@ export const SlideshowTimeline: React.FC<Props> = ({
               </span>
             )}
             <div className="absolute inset-0" style={{ transform: `translateX(${musicDx}px)` }}>
-              {songs.map((p, k) => (
-                <div key={k} className="absolute top-0 rounded-md overflow-hidden bg-indigo-100 dark:bg-indigo-500/15 ring-1 ring-indigo-300 dark:ring-indigo-700" style={{ left: X(p.at), width: Math.max(2, p.seconds * pps - 1), height: MUSIC }}>
+              {songs.map((p, k) => {
+                // A crossfade (or a soft cut) shows as the song fading at that end.
+                const w = Math.max(2, p.seconds * pps - 1);
+                const fi = Math.min(w, Math.max(0, (p.fadeIn || 0) - (p.pos || 0)) * pps);
+                const outFrom = (p.len ?? Infinity) - (p.fadeOut || 0) - (p.pos || 0);
+                const fo = p.fadeOut && outFrom < p.seconds ? Math.min(w, (p.seconds - Math.max(0, outFrom)) * pps) : 0;
+                const mask = fi > 0 || fo > 0 ? `linear-gradient(to right, rgba(0,0,0,${fi > 0 ? 0.2 : 1}) 0px, #000 ${fi}px, #000 ${w - fo}px, rgba(0,0,0,${fo > 0 ? 0.2 : 1}) ${w}px)` : undefined;
+                return (
+                <div key={k} className="absolute top-0 rounded-md overflow-hidden bg-indigo-100 dark:bg-indigo-500/15 ring-1 ring-indigo-300 dark:ring-indigo-700" style={{ left: X(p.at), width: w, height: MUSIC, ...(mask ? { maskImage: mask, WebkitMaskImage: mask } : {}) }}>
                   <Wave a={p.analysis} offset={p.offset} seconds={p.seconds} width={Math.max(2, p.seconds * pps - 1)} color="#6366f1" />
                   {p.seconds * pps > 60 && (
                     <span className="absolute left-1 top-0.5 text-[9px] font-bold text-indigo-800 dark:text-indigo-200 truncate max-w-[90%] inline-flex items-center gap-0.5">
@@ -353,7 +365,8 @@ export const SlideshowTimeline: React.FC<Props> = ({
                     </span>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
             {d?.kind === 'music' && (
               <span className="absolute right-2 top-1 text-[10px] font-black px-1.5 rounded z-[3]" style={{ background: 'rgba(15,23,42,.85)', color: '#fff' }}>

@@ -28,6 +28,10 @@ export type SlideshowShape = '16:9' | '9:16' | '1:1' | '4:5';
 export interface SongPick {
   name: string;
   start?: number;
+  /** Seconds into it the slideshow stops it (else the song's end). */
+  end?: number;
+  /** Seconds it overlaps the song before it, that one getting quieter while this one gets louder (else the slideshow's songCrossfade). */
+  crossfade?: number;
 }
 
 interface ItemBase {
@@ -123,6 +127,8 @@ export interface SlideshowOptions {
   duckLevel?: number;
   /** The songs start over when they run out before the slideshow does. */
   loopMusic: boolean;
+  /** Seconds each song overlaps the one before it (0 = one right after the other). */
+  songCrossfade?: number;
   /** Seconds into the slideshow the first song starts. */
   musicDelay: number;
   /** Moments marked while it played (seconds into the slideshow): slides can be lined up to them. */

@@ -13,6 +13,9 @@ import {
   editItems,
   musicLevel,
   musicPieces,
+  musicPlan,
+  pieceGain,
+  songsSeconds,
   newSlideshow,
   parseMmss,
   photoItem,
@@ -130,15 +133,16 @@ describe('music', () => {
     { seconds: 100, start: 10 },
     { seconds: 60, start: 0 },
   ];
+  const mp = (...a: Parameters<typeof musicPieces>) => musicPieces(...a).map(({ song, at, offset, seconds }) => ({ song, at, offset, seconds }));
   it('plays the songs one after the other from their start, and loops', () => {
-    assert.deepEqual(musicPieces(songs, true, 0, 5), [{ song: 0, at: 0, offset: 10, seconds: 5 }]);
-    assert.deepEqual(musicPieces(songs, true, 88, 92), [
+    assert.deepEqual(mp(songs, true, 0, 5), [{ song: 0, at: 0, offset: 10, seconds: 5 }]);
+    assert.deepEqual(mp(songs, true, 88, 92), [
       { song: 0, at: 0, offset: 98, seconds: 2 },
       { song: 1, at: 2, offset: 0, seconds: 2 },
     ]);
     // 150 s in all: the first song again from its start.
-    assert.deepEqual(musicPieces(songs, true, 151, 152), [{ song: 0, at: 0, offset: 11, seconds: 1 }]);
-    assert.deepEqual(musicPieces(songs, false, 151, 152), []);
+    assert.deepEqual(mp(songs, true, 151, 152), [{ song: 0, at: 0, offset: 11, seconds: 1 }]);
+    assert.deepEqual(mp(songs, false, 151, 152), []);
   });
   it('fades in and out, and goes quieter under game sound', () => {
     const o = { musicVolume: 1, musicFadeIn: true, musicFadeOut: true, duck: true };
@@ -304,5 +308,43 @@ describe('clips in twice', () => {
     const items = [clipItem('a'), photoItem({ id: 'p', folderId: 'f', name: 'x' }), clipItem('b'), clipItem('a'), clipItem('a')];
     assert.deepEqual(repeatClips(items), [items[3].id, items[4].id]);
     assert.deepEqual(repeatClips([clipItem('a'), clipItem('b')]), []);
+  });
+});
+
+describe('songs trimmed and crossfading', () => {
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+  it('plays each song from its start to its end', () => {
+    const songs = [{ seconds: 100, start: 10, end: 40 }, { seconds: 60, start: 5, end: 25 }];
+    assert.equal(songsSeconds(songs), 50);
+    const p = musicPieces(songs, false, 0, 100);
+    assert.deepEqual(p.map((x) => [x.song, x.at, x.offset, x.seconds]), [[0, 0, 10, 30], [1, 30, 5, 20]]);
+    // Cut ends fade softly; the very start doesn't (the music's own fade in does that).
+    assert.equal(p[0].fadeIn, 0);
+    assert.ok(p[0].fadeOut > 0 && p[1].fadeIn > 0);
+  });
+  it('overlaps the next song by its crossfade: one gets quieter while the other gets louder', () => {
+    const songs = [{ seconds: 30, start: 0 }, { seconds: 30, start: 0, crossfade: 6 }];
+    const plan = musicPlan(songs, false);
+    assert.deepEqual(plan.at, [0, 24]);
+    assert.equal(plan.total, 54);
+    const both = musicPieces(songs, false, 26, 27);
+    assert.deepEqual(both.map((x) => x.song), [0, 1]);
+    const [out, inn] = both;
+    // 2 s into the 6 s crossfade: equal power (the two add up to full).
+    assert.ok(near(pieceGain(out, 0) ** 2 + pieceGain(inn, 0) ** 2, 1));
+    assert.ok(pieceGain(out, 0) > pieceGain(inn, 0));
+    assert.ok(near(pieceGain(musicPieces(songs, false, 29.999, 30)[0], 0.001), 0));
+    assert.equal(pieceGain(musicPieces(songs, false, 10, 11)[0], 0), 1);
+  });
+  it('never crossfades more than half a song, and loops round through the first song', () => {
+    const songs = [{ seconds: 20, start: 0, crossfade: 4 }, { seconds: 10, start: 0, crossfade: 30 }];
+    const plan = musicPlan(songs, true);
+    assert.deepEqual(plan.cross, [4, 5]);
+    assert.equal(plan.period, 20 - 5 + 10 - 4);
+    const round = musicPieces(songs, true, 21, 22);
+    assert.deepEqual(round.map((x) => [x.song, x.offset]), [[0, 0], [1, 6]]);
+    assert.ok(round[0].fadeIn === 4 && round[1].fadeOut === 4);
+    // One song looping: no crossfade with itself.
+    assert.equal(musicPlan([{ seconds: 20, start: 0, crossfade: 5 }], true).period, 20);
   });
 });

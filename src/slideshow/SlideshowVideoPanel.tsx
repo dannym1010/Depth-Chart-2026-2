@@ -118,13 +118,13 @@ export const SlideshowVideoPanel: React.FC<Props> = ({ title, slides, options, a
     const stop = new AbortController();
     stopRef.current = stop;
     try {
-      const list: { name: string; seconds: number; start: number; blob: Blob }[] = [];
+      const list: { name: string; seconds: number; start?: number; end?: number; crossfade?: number; blob: Blob }[] = [];
       for (const p of options.songs) {
         const song = songs.find((s) => s.name === p.name);
         const seconds = songLens[p.name] || 0;
         if (!song || !seconds) continue;
         const blob = await song.get().catch(() => null);
-        if (blob) list.push({ name: p.name, seconds, start: p.start || 0, blob });
+        if (blob) list.push({ name: p.name, seconds, start: p.start, end: p.end, crossfade: p.crossfade, blob });
       }
       const r = await buildEditorPackage({ name: title, slides, options, access, look, logo, songs: list, base: basePath, clips: withClips, signal: stop.signal, onProgress: (f, label) => setProgress({ f, label }) });
       setPkg({ url: URL.createObjectURL(r.zip), size: r.zip.size, missing: r.missing });
