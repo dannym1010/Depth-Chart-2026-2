@@ -64,6 +64,10 @@ export interface ClipItem extends ItemBase {
   highlightId: string;
   /** Its game sound (else the slideshow's). */
   sound?: boolean;
+  /** How loud its game sound is, 0..1 (else the slideshow's game sound; 0 = none). */
+  volume?: number;
+  /** How loud the songs are under it, as part of the music volume (0 = silent, 1 = as loud as the rest). Else they dip when its game sound plays. */
+  musicUnder?: number;
 }
 
 export interface TitleItem extends ItemBase {
@@ -104,6 +108,8 @@ export interface SlideshowOptions {
   clipReplays: boolean;
   /** Game sound on clips. */
   clipSound: 'off' | 'low' | 'full';
+  /** How loud the game sound is, 0..1 (else from clipSound: full 1, low 0.4). */
+  gameVolume?: number;
   songs: SongPick[];
   /** 0..1. */
   musicVolume: number;
@@ -111,6 +117,8 @@ export interface SlideshowOptions {
   musicFadeOut: boolean;
   /** The songs go quieter while a clip's game sound plays. */
   duck: boolean;
+  /** How loud the songs are then, as part of their volume (else 0.3). */
+  duckLevel?: number;
   /** The songs start over when they run out before the slideshow does. */
   loopMusic: boolean;
   /** Seconds into the slideshow the first song starts. */

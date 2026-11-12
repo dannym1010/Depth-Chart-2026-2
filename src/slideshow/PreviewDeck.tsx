@@ -36,6 +36,8 @@ interface Props {
   onBig: (t: number) => void;
   /** Where the playhead is (read when needed, e.g. "start the music here"). */
   timeRef?: React.MutableRefObject<number>;
+  /** Something open over the editor (a picker, the clip editor): M doesn't mark. */
+  keysOff?: boolean;
 }
 
 export const PreviewDeck: React.FC<Props> = (p) => {
@@ -58,11 +60,14 @@ export const PreviewDeck: React.FC<Props> = (p) => {
   };
   const markRef = useRef(mark);
   markRef.current = mark;
+  const keysOff = useRef(false);
+  keysOff.current = Boolean(p.keysOff);
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
       if (e.key.toLowerCase() !== 'm' || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (keysOff.current) return;
       e.preventDefault();
       markRef.current(nowRef.current);
     };

@@ -8,7 +8,7 @@ import { frameRange, pictureRect } from '../highlights/socialVideo';
 import { encoderQuality, qualitySizes, type VideoQuality } from '../highlights/videoQuality';
 import { drawFade, drawSlide, slideLook } from './drawSlide';
 import { photoBitmap } from './photoLoad';
-import { fadeAt, musicLevel, SHAPES, showMusicPieces, slidesSeconds, songsSeconds, type Slide } from './slideshowData';
+import { fadeAt, musicLevel, musicUnderOf, SHAPES, showMusicPieces, slidesSeconds, songsSeconds, type Slide } from './slideshowData';
 import type { SlideshowOptions } from './types';
 
 export const FPS = 30;
@@ -163,7 +163,6 @@ export async function renderSlideshowVideo(o: SlideshowRenderOptions): Promise<S
   };
   const missing: string[] = [];
   const look = o.look;
-  const gameGain = opt.clipSound === 'full' ? 1 : 0.4;
 
   // One frame of slide i, its fade on top, into the video.
   const put = async (i: number, f: number, draw: (local: number) => void) => {
@@ -250,10 +249,9 @@ export async function renderSlideshowVideo(o: SlideshowRenderOptions): Promise<S
         const n1 = Math.round(t1 * SR);
         if (n1 > n0) {
           const ac = new OfflineAudioContext(2, n1 - n0, SR);
-          const underSound = s.kind === 'clip' && s.sound;
           if (s.kind === 'clip' && s.sound) {
             const gain = ac.createGain();
-            gain.gain.value = gameGain;
+            gain.gain.value = s.gain;
             gain.connect(ac.destination);
             let at = 0;
             for (const seg of s.segs) {
@@ -277,7 +275,7 @@ export async function renderSlideshowVideo(o: SlideshowRenderOptions): Promise<S
             const g = ac.createGain();
             // The level along the slide, every half second (fades, and the dip under game sound easing in).
             const len = t1 - t0;
-            const lvl = (t: number) => musicLevel(opt, t, total, underSound, songsEnd, delay);
+            const lvl = (t: number) => musicLevel(opt, t, total, musicUnderOf(s), songsEnd, delay);
             g.gain.setValueAtTime(lvl(t0), 0);
             for (let x = 0.5; x < len; x += 0.5) g.gain.linearRampToValueAtTime(lvl(t0 + x), x);
             g.gain.linearRampToValueAtTime(lvl(t1), len);

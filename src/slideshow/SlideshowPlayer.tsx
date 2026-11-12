@@ -8,7 +8,7 @@ import type { HighlightSettings } from '../highlights/types';
 import { clock } from '../highlights/highlightData';
 import { drawFade, drawSlide, slideLook } from './drawSlide';
 import { bitmapCache } from './photoLoad';
-import { clipPartAt, fadeAt, musicLevel, SHAPES, showMusicPieces, slideAt, slidesSeconds, songsSeconds, type Slide } from './slideshowData';
+import { clipPartAt, fadeAt, musicLevel, musicUnderOf, SHAPES, showMusicPieces, slideAt, slidesSeconds, songsSeconds, type Slide } from './slideshowData';
 import type { Song } from './songs';
 import type { SlideshowOptions } from './types';
 
@@ -165,7 +165,6 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
     };
   }, [picked]);
 
-  const gameGain = options.clipSound === 'full' ? 1 : 0.4;
   const tryPlay = (m: HTMLMediaElement) =>
     void m.play().catch((err) => {
       if (err?.name === 'NotAllowedError') {
@@ -228,7 +227,7 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
             if (runs) vid.playbackRate = seg.speed;
             const withSound = runs && s.kind === 'clip' && s.sound && seg.speed === 1;
             vid.muted = !withSound;
-            vid.volume = gameGain;
+            vid.volume = s.kind === 'clip' ? s.gain : 0;
             if (on && runs && !hold && vid.paused) tryPlay(vid);
             if ((!on || !runs) && !vid.paused) vid.pause();
             if (vid.seeking) hold = hold || 'Loading the film…';
@@ -250,7 +249,6 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
 
         // Songs: the one for now, at its place, as loud as it should be.
         const piece = on && !hold ? showMusicPieces(lens, options.loopMusic, delay, tRef.current, tRef.current + 0.05)[0] : undefined;
-        const underSound = s.kind === 'clip' && s.sound;
         audios.current.forEach((a, k) => {
           if (!a) return;
           if (!piece || piece.song !== k) {
@@ -258,7 +256,7 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
             return;
           }
           if (Math.abs(a.currentTime - piece.offset) > 0.4) a.currentTime = piece.offset;
-          a.volume = Math.min(1, Math.max(0, musicLevel(options, tRef.current, total, underSound, songsEnd, delay)));
+          a.volume = Math.min(1, Math.max(0, musicLevel(options, tRef.current, total, musicUnderOf(s), songsEnd, delay)));
           if (a.paused) tryPlay(a);
         });
 

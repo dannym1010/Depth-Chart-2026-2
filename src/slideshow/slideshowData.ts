@@ -127,9 +127,10 @@ export const editItems = (s: Slideshow, ids: string[], patch: (i: SlideItem) => 
   };
 };
 
-export type ArrangeHow = 'time' | 'shuffle' | 'reverse' | 'photosFirst' | 'spreadClips';
+export type ArrangeHow = 'game' | 'time' | 'shuffle' | 'reverse' | 'photosFirst' | 'spreadClips';
 
 export const ARRANGE: { id: ArrangeHow; label: string }[] = [
+  { id: 'game', label: 'Everything in game order' },
   { id: 'time', label: 'Photos in the order taken' },
   { id: 'shuffle', label: 'Shuffle the photos' },
   { id: 'reverse', label: 'Reverse' },
@@ -143,6 +144,7 @@ export const ARRANGE: { id: ArrangeHow; label: string }[] = [
  * clips spread evenly among the photos. Title cards stay where they are, except when reversing.
  */
 export function arrange(items: SlideItem[], how: ArrangeHow, ids?: Set<string> | null, times: Record<string, number> = {}, rnd = Math.random): SlideItem[] {
+  if (how === 'game') return items; // inGameOrder()
   const inScope = (i: SlideItem) => !ids || ids.size < 2 || ids.has(i.id);
   const slots = items.map((i, k) => (inScope(i) ? k : -1)).filter((k) => k >= 0);
   const scoped = slots.map((k) => items[k]);
@@ -180,7 +182,12 @@ export function arrange(items: SlideItem[], how: ArrangeHow, ids?: Set<string> |
     put([...others, ...clips], slots);
     return out;
   }
-  // Spread: a clip after every so many others.
+  put(spread(others, clips), slots);
+  return out;
+}
+
+/** The clips spread evenly among the others (a clip after every so many). */
+function spread(others: SlideItem[], clips: SlideItem[]): SlideItem[] {
   const n = others.length;
   const c = clips.length;
   const list: SlideItem[] = [];
@@ -190,7 +197,103 @@ export function arrange(items: SlideItem[], how: ArrangeHow, ids?: Set<string> |
     while (ci < c && Math.round(((ci + 1) * n) / (c + 1)) === k + 1) list.push(clips[ci++]);
   }
   while (ci < c) list.push(clips[ci++]);
-  put(list, slots);
+  return list;
+}
+
+/** What game order needs to know: each game's place in the season, the clips, and which game a photo folder is from. */
+export interface GameOrderInfo {
+  /** Game key → its place in the season (gameOrder()). */
+  games: Map<string, number>;
+  highlights: Map<string, Pick<Highlight, 'game' | 'seq'>>;
+  /** Media folder id → its game's key (folders linked to a game). */
+  folderGame: Map<string, string>;
+  /** When photos were taken, for the ones that don't know yet (Drive photo id → ms). */
+  times?: Record<string, number>;
+}
+
+/**
+ * Everything in game order (only the ones in `ids` when there are 2 or more, in the places they take now): the games
+ * in season order; in each, its photos by when they were taken and its plays in order, the plays spread through the
+ * photos. Title cards go with the slide after them (a game's card stays first in its game); the ones at the very start
+ * and end stay there. Photos from a folder not linked to a game, and photo spots, stay with the slide before them.
+ */
+export function inGameOrder(items: SlideItem[], info: GameOrderInfo, ids?: Set<string> | null): SlideItem[] {
+  const inScope = (i: SlideItem) => !ids || ids.size < 2 || ids.has(i.id);
+  const slots = items.map((i, k) => (inScope(i) ? k : -1)).filter((k) => k >= 0);
+  const list = slots.map((k) => items[k]);
+  const own = (i: SlideItem): number | undefined => {
+    if (i.kind === 'clip') {
+      const h = info.highlights.get(i.highlightId);
+      return h ? info.games.get(h.game.key) ?? 999 : undefined;
+    }
+    if (i.kind === 'photo') {
+      const g = info.folderGame.get(i.folderId);
+      return g !== undefined ? info.games.get(g) : undefined;
+    }
+    return undefined;
+  };
+  let a = 0;
+  while (a < list.length && list[a].kind === 'title') a++;
+  let b = list.length;
+  while (b > a && list[b - 1].kind === 'title') b--;
+  const mid = list.slice(a, b);
+  const keys = mid.map(own);
+  if (keys.every((k) => k === undefined)) return items;
+  // The ones that don't know their game: title cards take the next slide's, the rest the slide before's.
+  const game = keys.slice();
+  for (let k = 0; k < mid.length; k++) {
+    if (game[k] !== undefined) continue;
+    const next = keys.slice(k + 1).find((x) => x !== undefined);
+    const prev = game.slice(0, k).reverse().find((x) => x !== undefined);
+    game[k] = mid[k].kind === 'title' ? next ?? prev : prev ?? next;
+  }
+  const groups = [...new Set(game as number[])].sort((x, y) => x - y);
+  const time = (i: SlideItem) => (i.kind === 'photo' ? i.takenAt ?? info.times?.[i.photoId] : undefined);
+  const seq = (i: SlideItem) => (i.kind === 'clip' ? info.highlights.get(i.highlightId)?.seq ?? 0 : 0);
+  const ordered: SlideItem[] = [];
+  for (const g of groups) {
+    const here = mid.filter((_, k) => game[k] === g);
+    const titles = here.filter((i) => i.kind === 'title');
+    const clips = here.filter((i) => i.kind === 'clip').sort((x, y) => seq(x) - seq(y));
+    // Photos by when they were taken (the ones that don't know keep their places among them).
+    const rest = here.filter((i) => i.kind === 'photo' || i.kind === 'spot');
+    const timed = rest.map((i, k) => ({ i, k, t: time(i) })).filter((x) => x.t !== undefined);
+    const sorted = timed.slice().sort((x, y) => (x.t as number) - (y.t as number) || x.k - y.k);
+    const photos = rest.slice();
+    timed.forEach((x, j) => (photos[x.k] = sorted[j].i));
+    ordered.push(...titles, ...spread(photos, clips));
+  }
+  const out = items.slice();
+  [...list.slice(0, a), ...ordered, ...list.slice(b)].forEach((it, j) => (out[slots[j]] = it));
+  return out;
+}
+
+/**
+ * Reels' clips as slides: in each reel's own order, or every clip in game order; a title card before each game (its
+ * name and week) if asked; clips already in the slideshow (or in two of the reels) only once.
+ */
+export function reelSlides(
+  reels: { items: { highlightId: string }[]; ordered?: string[] }[],
+  highlights: Map<string, Pick<Highlight, 'game' | 'seq'>>,
+  opts: { games: Map<string, number>; gameOrder: boolean; gameCards: boolean; skip?: Set<string>; weekOf?: (gameKey: string) => string }
+): SlideItem[] {
+  const seen = new Set(opts.skip || []);
+  const ids: string[] = [];
+  for (const r of reels)
+    for (const id of r.ordered || r.items.map((i) => i.highlightId))
+      if (highlights.has(id) && !seen.has(id)) (seen.add(id), ids.push(id));
+  if (opts.gameOrder) {
+    const at = (id: string) => highlights.get(id)!;
+    ids.sort((x, y) => (opts.games.get(at(x).game.key) ?? 999) - (opts.games.get(at(y).game.key) ?? 999) || at(x).seq - at(y).seq);
+  }
+  const out: SlideItem[] = [];
+  let last = '';
+  for (const id of ids) {
+    const g = highlights.get(id)!.game;
+    if (opts.gameCards && g.key !== last) out.push(titleItem(g.name, opts.weekOf?.(g.key) || undefined));
+    last = g.key;
+    out.push(clipItem(id));
+  }
   return out;
 }
 export const clipItem = (highlightId: string): SlideItem => ({ id: newId('sl'), kind: 'clip', highlightId });
@@ -245,7 +348,11 @@ export type Slide =
   | { kind: 'photo'; item: Extract<SlideItem, { kind: 'photo' }>; start: number; seconds: number; fade: number; transition: SlideTransition; motion: PhotoMotion; fit: PhotoFit; strength: number }
   | { kind: 'title'; item: Extract<SlideItem, { kind: 'title' }>; start: number; seconds: number; fade: number; transition: SlideTransition }
   | { kind: 'spot'; item: Extract<SlideItem, { kind: 'spot' }>; start: number; seconds: number; fade: number; transition: SlideTransition }
-  | { kind: 'clip'; item: Extract<SlideItem, { kind: 'clip' }>; h: Highlight; segs: Segment[]; start: number; seconds: number; fade: number; transition: SlideTransition; sound: boolean };
+  | {
+      kind: 'clip'; item: Extract<SlideItem, { kind: 'clip' }>; h: Highlight; segs: Segment[]; start: number; seconds: number; fade: number; transition: SlideTransition; sound: boolean;
+      /** How loud its game sound is (0..1), and the songs under it (part of their volume). */
+      gain: number; musicUnder: number;
+    };
 
 const AUTO_MOTIONS: PhotoMotion[] = ['in', 'right', 'out', 'left'];
 
@@ -277,7 +384,10 @@ export function buildSlides(show: Slideshow, highlights: Highlight[], settings: 
       const segs = highlightSegments(h, { overlay: o.clipTitles ? { title: h.title } : undefined, replays: o.clipReplays ? 'each' : 'none', replaySpeed: settings.replaySpeed });
       const seconds = segs.reduce((n, s) => n + segmentSeconds(s), 0);
       if (seconds <= 0) continue;
-      slide = { kind: 'clip', item, h, segs, start: t, seconds, fade: 0, transition, sound: item.sound ?? o.clipSound !== 'off' };
+      const gain = clamp(item.volume ?? gameVolumeOf(o), 0, 1);
+      const sound = item.volume !== undefined ? item.volume > 0 : (item.sound ?? o.clipSound !== 'off') && gain > 0;
+      const musicUnder = clamp(item.musicUnder ?? (sound && o.duck ? duckLevelOf(o) : 1), 0, 1);
+      slide = { kind: 'clip', item, h, segs, start: t, seconds, fade: 0, transition, sound, gain, musicUnder };
     }
     out.push(slide);
     t += slide.seconds;
@@ -491,15 +601,31 @@ export function musicPieces(songs: SongLen[], loop: boolean, t0: number, t1: num
 
 /** How loud the songs are at a time (0..1): the volume, faded in and out, lower under a clip's game sound. */
 /** `songsEnd`: seconds into the slideshow the songs run out; `delay`: when the first one starts. */
-export function musicLevel(o: Pick<SlideshowOptions, 'musicVolume' | 'musicFadeIn' | 'musicFadeOut' | 'duck'>, t: number, total: number, underSound: boolean, songsEnd = Infinity, delay = 0): number {
+/** `under`: a clip's game sound playing (the songs dip, when they do), or how loud the songs are now (part of their volume: a clip slide's `musicUnder`). */
+export function musicLevel(
+  o: Pick<SlideshowOptions, 'musicVolume' | 'musicFadeIn' | 'musicFadeOut' | 'duck' | 'duckLevel'>,
+  t: number,
+  total: number,
+  under: boolean | number,
+  songsEnd = Infinity,
+  delay = 0
+): number {
   if (t < delay) return 0;
   let v = clamp(o.musicVolume, 0, 1);
   if (o.musicFadeIn) v *= clamp((t - delay) / 2, 0, 1);
   const end = Math.min(total, songsEnd);
   if (o.musicFadeOut) v *= clamp((end - t) / 3, 0, 1);
-  if (o.duck && underSound) v *= 0.3;
+  if (typeof under === 'number') v *= clamp(under, 0, 1);
+  else if (o.duck && under) v *= duckLevelOf(o);
   return v;
 }
+
+/** The game sound's level (older slideshows only said off / low / full). */
+export const gameVolumeOf = (o: Pick<SlideshowOptions, 'gameVolume' | 'clipSound'>) => clamp(o.gameVolume ?? (o.clipSound === 'full' ? 1 : 0.4), 0, 1);
+/** How loud the songs are under game sound (part of their volume). */
+export const duckLevelOf = (o: Pick<SlideshowOptions, 'duckLevel'>) => clamp(o.duckLevel ?? 0.3, 0, 1);
+/** How loud the songs are during a slide (part of their volume). */
+export const musicUnderOf = (s: Slide | undefined) => (s?.kind === 'clip' ? s.musicUnder : 1);
 
 /** The songs over [t0, t1) of the slideshow when the first one starts `delay` seconds in (`at` from t0, like musicPieces). */
 export function showMusicPieces(songs: SongLen[], loop: boolean, delay: number, t0: number, t1: number) {

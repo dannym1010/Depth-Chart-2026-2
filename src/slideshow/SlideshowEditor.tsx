@@ -3,13 +3,14 @@
 // under it. Plays right here, or is made into one MP4.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowDown, ArrowUp, AudioLines, Bookmark, Check, CheckSquare, ChevronsDown, ChevronsUp, Copy, Crosshair, Film, Image as ImageIcon, ImagePlus, Move, Music, Play, Plus, Redo2, Sparkles, SquareDashed, Trash2, Type, Undo2, Upload, Video, X,
+  ArrowDown, ArrowUp, AudioLines, Clapperboard, ListOrdered, Scissors, Bookmark, Check, CheckSquare, ChevronsDown, ChevronsUp, Copy, Crosshair, Film, Image as ImageIcon, ImagePlus, Move, Music, Play, Plus, Redo2, Sparkles, SquareDashed, Trash2, Type, Undo2, Upload, Video, X,
 } from 'lucide-react';
 import type { FilmAccess } from '../highlights/filmAccess';
-import { clock, type Kid } from '../highlights/highlightData';
+import { clock, orderedHighlights, weekText, type Kid } from '../highlights/highlightData';
 import type { Highlight, HighlightGame, HighlightSettings, Reel } from '../highlights/types';
 import type { MediaData } from '../media/types';
 import { ClipPicker } from './ClipPicker';
+import { ReelPicker } from './ReelPicker';
 import { PhotoPicker } from './PhotoPicker';
 import { photoTimes } from './photoLoad';
 import { PhotoThumb } from './PhotoThumb';
@@ -22,7 +23,7 @@ import { SlideshowPlayer } from './SlideshowPlayer';
 import { SlideshowVideoPanel } from './SlideshowVideoPanel';
 import { useSongAnalysis } from './songAnalysis';
 import {
-  ARRANGE, arrange, buildSlides, clipItem, copyItem, editItem, editItems, fillSpot, FITS, fitToMusic, insertItems, LOOKS, mmss, MOTIONS, moveItem, moveItems, parseMmss, photoItem, removeItems, SHAPES, showMusicPieces, slidesSeconds, songsSeconds, spotItem, titleItem, TRANSITIONS, type ArrangeHow, type Slide,
+  ARRANGE, arrange, buildSlides, duckLevelOf, gameVolumeOf, inGameOrder, reelSlides, clipItem, copyItem, editItem, editItems, fillSpot, FITS, fitToMusic, insertItems, LOOKS, mmss, MOTIONS, moveItem, moveItems, parseMmss, photoItem, removeItems, SHAPES, showMusicPieces, slidesSeconds, songsSeconds, spotItem, titleItem, TRANSITIONS, type ArrangeHow, type Slide,
 } from './slideshowData';
 import type { useSongs } from './songs';
 import type { PhotoFit, PhotoLook, PhotoMotion, SlideItem, Slideshow, SlideshowOptions, SlideshowShape, SlideTransition } from './types';
@@ -48,6 +49,8 @@ interface Props {
   /** The program owner: the AI designer tab. */
   aiDesigner?: boolean;
   teamName?: string;
+  /** The clip editor (the one in Clips and Reels) on a clip, over the slideshow. */
+  renderClipEditor?: (highlightId: string, close: () => void) => React.ReactNode;
 }
 
 type Side = 'slide' | 'look' | 'music' | 'ai';
@@ -58,7 +61,7 @@ const TILE_SIZES = { s: 92, m: 118, l: 170 } as const;
 type TileSize = keyof typeof TILE_SIZES;
 
 export const SlideshowEditor: React.FC<Props> = ({
-  show, edit: editRaw, readOnly: ro, highlights, reels, games, roster, media, me, ownerLabel, access, settings, logo, songs, onDuplicate, onDelete, onClose, aiDesigner = false, teamName,
+  show, edit: editRaw, readOnly: ro, highlights, reels, games, roster, media, me, ownerLabel, access, settings, logo, songs, onDuplicate, onDelete, onClose, aiDesigner = false, teamName, renderClipEditor,
 }) => {
   const o = show.options;
   const slides = useMemo(() => buildSlides(show, highlights, settings), [show, highlights, settings]);
@@ -147,7 +150,7 @@ export const SlideshowEditor: React.FC<Props> = ({
     }
   };
   const [side, setSide] = useState<Side>('look');
-  const [picking, setPicking] = useState<'' | 'photos' | 'clips'>('');
+  const [picking, setPicking] = useState<'' | 'photos' | 'clips' | 'reels'>('');
   // Photos picked for a saved spot fill it; the + on a slide puts new ones right after it.
   const [fillingSpot, setFillingSpot] = useState<string | null>(null);
   const [insertHere, setInsertHere] = useState<string | null | undefined>(undefined);
@@ -166,6 +169,8 @@ export const SlideshowEditor: React.FC<Props> = ({
   const fileRef = useRef<HTMLInputElement>(null);
   const setOpt = (p: Partial<SlideshowOptions>) => edit((s) => ({ ...s, options: { ...s.options, ...p } }));
   const setItem = (id: string, p: Partial<SlideItem>) => edit((s) => editItem(s, id, p));
+  // The clip open in the clip editor.
+  const [editingClip, setEditingClip] = useState<string | null>(null);
   // A phone / narrow iPad shows the slide's settings under all the slides: go there on a tap, and back after.
   const sideRef = useRef<HTMLDivElement>(null);
   const narrow = () => typeof window !== 'undefined' && Boolean(window.matchMedia?.('(max-width: 1023px)').matches);
@@ -225,8 +230,10 @@ export const SlideshowEditor: React.FC<Props> = ({
   const doArrange = async (how: ArrangeHow) => {
     if (ro) return;
     const scope = pickedNow.length > 1 ? new Set(pickedNow) : null;
+    if (how === 'game' && inGameOrder(show.items, { games: gameIndex, highlights: hById, folderGame }, scope) === show.items)
+      return flashNote('Nothing to put in game order: no clips, and no photos from a Media folder linked to a game.');
     let times: Record<string, number> = {};
-    if (how === 'time') {
+    if (how === 'time' || how === 'game') {
       const need = show.items.flatMap((i) => (i.kind === 'photo' && !i.takenAt && (!scope || scope.has(i.id)) ? [i] : []));
       if (need.length) {
         setArranging('Reading when the photos were taken…');
@@ -237,16 +244,62 @@ export const SlideshowEditor: React.FC<Props> = ({
     edit((s) => {
       // Keep the times found, so it's quick next time.
       const known = s.items.map((i) => (i.kind === 'photo' && !i.takenAt && times[i.photoId] ? { ...i, takenAt: times[i.photoId] } : i));
+      if (how === 'game') return { ...s, items: inGameOrder(known, { games: gameIndex, highlights: hById, folderGame, times }, scope) };
       return { ...s, items: arrange(known, how, scope, times) };
     });
   };
+  // Each game's place in the season (the games come in season order), and which game a Media folder is from.
+  const gameIndex = useMemo(() => new Map(games.map((g, i) => [g.key, i])), [games]);
+  const folderGame = useMemo(() => new Map(media.folders.flatMap((f) => (f.gameKey ? [[f.id, f.gameKey] as const] : []))), [media.folders]);
+  const [note, setNote] = useState('');
+  const noteTimer = useRef(0);
+  const flashNote = (text: string) => {
+    setNote(text);
+    window.clearTimeout(noteTimer.current);
+    noteTimer.current = window.setTimeout(() => setNote(''), 6000);
+  };
+  // Reels: their clips added (in game order, a card before each game, if asked).
+  const addReels = (ids: string[], how: { gameOrder: boolean; gameCards: boolean; skipIn: boolean }) => {
+    const chosen = reels.filter((r) => ids.includes(r.id));
+    const already = new Set(show.items.flatMap((i) => (i.kind === 'clip' ? [i.highlightId] : [])));
+    const items = reelSlides(
+      chosen.map((r) => ({ items: r.items, ordered: orderedHighlights(r, highlights, gameIndex).map((h) => h.id) })),
+      hById,
+      {
+        games: gameIndex,
+        gameOrder: how.gameOrder,
+        gameCards: how.gameCards,
+        skip: how.skipIn ? already : undefined,
+        weekOf: (key) => {
+          const g = games.find((x) => x.key === key);
+          return g && !/week|playoff|champ/i.test(g.name) ? weekText(g.week) : '';
+        },
+      }
+    );
+    setPicking('');
+    setInsertHere(undefined);
+    if (!items.length) return flashNote('Those clips are all in the slideshow already.');
+    edit((s) => insertItems(s, items, target));
+    flashNote(`Added ${items.filter((i) => i.kind === 'clip').length} clips${how.gameCards ? ' with a card before each game' : ''}.`);
+  };
+  // A volume slider: 0..100%, the word for 0 (Off / Silent), and what the % is of.
+  const level = (name: string, v: number, set: (v: number) => void, aria: string, zero?: string, of?: string) => (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <span className="w-24 shrink-0 font-bold text-slate-600 dark:text-slate-300">{name}</span>
+      <input type="range" min={0} max={1} step={0.05} value={v} onChange={(e) => set(Number(e.target.value))} className="flex-1 min-w-0" aria-label={aria} disabled={ro} />
+      <span className="w-14 tabular-nums text-slate-500 text-right" title={of ? `${Math.round(v * 100)}% ${of}` : undefined}>
+        {v <= 0 && zero ? zero : `${Math.round(v * 100)}%`}
+      </span>
+    </div>
+  );
+  const setGameVolume = (v: number) => setOpt({ gameVolume: v, clipSound: v <= 0 ? 'off' : v >= 0.95 ? 'full' : 'low' });
 
   // ---- Keys (a computer): Ctrl+Z / Ctrl+Y, Delete, Ctrl+A, Ctrl+D, Escape ----
   const keysRef = useRef<(e: KeyboardEvent) => void>(() => undefined);
   keysRef.current = (e: KeyboardEvent) => {
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
-    if (picking || playing !== null || making) return;
+    if (picking || playing !== null || making || editingClip) return;
     const mod = e.ctrlKey || e.metaKey;
     const k = e.key.toLowerCase();
     if (mod && k === 'z' && !e.shiftKey) undo();
@@ -506,6 +559,7 @@ export const SlideshowEditor: React.FC<Props> = ({
               [
                 ['Photos', <ImageIcon key="p" size={13} />, () => (setInsertHere(item.id), setPicking('photos'))],
                 ['Clips', <Film key="c" size={13} />, () => (setInsertHere(item.id), setPicking('clips'))],
+                ...(reels.length ? [['Reels', <Clapperboard key="r" size={13} />, () => (setInsertHere(item.id), setPicking('reels'))] as const] : []),
                 [
                   'Title card',
                   <Type key="t" size={13} />,
@@ -715,22 +769,37 @@ export const SlideshowEditor: React.FC<Props> = ({
           <>
             <p className="text-xs text-slate-600 dark:text-slate-300">
               <b>{hById.get(sel.highlightId)?.title || 'This clip was deleted'}</b>
-              {s ? ` · ${clock(s.seconds)} (its trim, slow motion and freeze from the clip editor)` : ''}
+              {s ? ` · ${clock(s.seconds)}` : ''}
             </p>
-            <div className={row}>
-              <span className={label}>Game sound</span>
-              <select
-                value={sel.sound === undefined ? '' : sel.sound ? 'on' : 'off'}
-                onChange={(e) => setItem(sel.id, { sound: e.target.value === '' ? undefined : e.target.value === 'on' })}
-                className={input}
-                disabled={ro}
-                aria-label="Game sound on this clip"
-              >
-                <option value="">Same as the rest ({o.clipSound === 'off' ? 'off' : 'on'})</option>
-                <option value="on">On</option>
-                <option value="off">Off</option>
-              </select>
-            </div>
+            {renderClipEditor && hById.has(sel.highlightId) && (
+              <div className="flex flex-col gap-1">
+                <button
+                  type="button"
+                  onClick={() => setEditingClip(sel.highlightId)}
+                  className="self-start h-9 px-3 rounded-lg bg-indigo-600 text-white text-xs font-black inline-flex items-center gap-1.5"
+                >
+                  <Scissors size={14} /> Edit the clip
+                </button>
+                <span className="text-[11px] text-slate-500">
+                  Trim, slow motion, freeze, replay, circles and zoom, in the clip editor. It's the same clip as in your reels, so they change too.
+                </span>
+              </div>
+            )}
+            {s?.kind === 'clip' && (
+              <>
+                {level('Game sound', s.sound ? s.gain : 0, (v) => setItem(sel.id, { volume: v, sound: undefined }), 'Game sound on this clip', 'Off')}
+                {level('Music under it', s.musicUnder, (v) => setItem(sel.id, { musicUnder: v }), 'Music volume under this clip', 'Silent', 'of the music')}
+                {(sel.volume !== undefined || sel.sound !== undefined || sel.musicUnder !== undefined) && !ro && (
+                  <button
+                    type="button"
+                    onClick={() => setItem(sel.id, { volume: undefined, sound: undefined, musicUnder: undefined })}
+                    className="self-start h-7 px-2 rounded-lg text-[11px] font-bold text-indigo-600 dark:text-indigo-300"
+                  >
+                    Back to the slideshow's levels
+                  </button>
+                )}
+              </>
+            )}
           </>
         )}
         <div className={row}>
@@ -1035,14 +1104,7 @@ export const SlideshowEditor: React.FC<Props> = ({
             <input type="checkbox" checked={o.clipReplays} onChange={(e) => setOpt({ clipReplays: e.target.checked })} /> Replays
           </label>
         </div>
-        <div className={row}>
-          <span className={label}>Game sound</span>
-          {(['off', 'low', 'full'] as const).map((v) => (
-            <button key={v} type="button" className={pill(o.clipSound === v)} aria-pressed={o.clipSound === v} onClick={() => setOpt({ clipSound: v })}>
-              {v === 'off' ? 'Off' : v === 'low' ? 'Low' : 'Full'}
-            </button>
-          ))}
-        </div>
+        {level('Game sound', gameVolumeOf(o), setGameVolume, 'Game sound volume', 'Off')}
       </fieldset>
     </div>
   );
@@ -1112,11 +1174,10 @@ export const SlideshowEditor: React.FC<Props> = ({
       </div>
       <fieldset className="flex flex-col gap-1.5" disabled={ro}>
         <legend className="text-xs font-black text-slate-800 dark:text-slate-100 mb-1">How it plays</legend>
-        <div className={row}>
-          <span className={label}>Volume</span>
-          <input type="range" min={0} max={1} step={0.05} value={o.musicVolume} onChange={(e) => setOpt({ musicVolume: Number(e.target.value) })} className="flex-1 min-w-0" aria-label="Song volume" />
-          <span className="w-12 tabular-nums text-slate-500">{Math.round(o.musicVolume * 100)}%</span>
-        </div>
+        {level('Music', o.musicVolume, (v) => setOpt({ musicVolume: v }), 'Song volume')}
+        {level('Game sound', gameVolumeOf(o), setGameVolume, 'Game sound volume', 'Off')}
+        {o.duck && level('Music dips to', duckLevelOf(o), (v) => setOpt({ duckLevel: v }), 'Music volume while game sound plays', 'Silent', 'of the music')}
+        <p className="text-[11px] text-slate-500">A clip can have its own levels too: tap it.</p>
         <div className="flex flex-col gap-1 text-xs">
           <label className="inline-flex items-center gap-1.5">
             <input type="checkbox" checked={o.musicFadeIn} onChange={(e) => setOpt({ musicFadeIn: e.target.checked })} /> Fade the music in at the start
@@ -1261,6 +1322,7 @@ export const SlideshowEditor: React.FC<Props> = ({
         {slides.length > 0 && (
           <div className={`${box} p-2 sm:p-3 min-w-0`}>
             <PreviewDeck
+              keysOff={Boolean(picking || playing !== null || making || editingClip)}
               title={show.name}
               slides={slides}
               total={total}
@@ -1295,6 +1357,11 @@ export const SlideshowEditor: React.FC<Props> = ({
               <button type="button" onClick={() => setPicking('clips')} className="h-9 px-3 rounded-lg bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 text-xs font-bold inline-flex items-center gap-1.5">
                 <Film size={14} /> Add clips
               </button>
+              {reels.length > 0 && (
+                <button type="button" onClick={() => setPicking('reels')} className="h-9 px-3 rounded-lg bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 text-xs font-bold inline-flex items-center gap-1.5">
+                  <Clapperboard size={14} /> Add reels
+                </button>
+              )}
               <span className="inline-flex items-center gap-1">
                 <input
                   value={newTitle}
@@ -1412,6 +1479,22 @@ export const SlideshowEditor: React.FC<Props> = ({
                   ))}
                 </select>
               )}
+              {!ro && (
+                <button
+                  type="button"
+                  disabled={Boolean(arranging)}
+                  onClick={() => void doArrange('game')}
+                  className="h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-40"
+                  title="Games first to last: each game's photos by when they were taken, its plays in order spread through them"
+                >
+                  <ListOrdered size={13} /> {pickedNow.length > 1 ? 'Picked in game order' : 'Game order'}
+                </button>
+              )}
+              {note && (
+                <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300" role="status">
+                  {note}
+                </span>
+              )}
               <span className="ml-auto inline-flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden" role="group" aria-label="Tile size">
                 {(['s', 'm', 'l'] as const).map((v) => (
                   <button
@@ -1513,6 +1596,16 @@ export const SlideshowEditor: React.FC<Props> = ({
           onClose={() => (setPicking(''), setFillingSpot(null), setInsertHere(undefined))}
         />
       )}
+      {picking === 'reels' && (
+        <ReelPicker
+          reels={reels}
+          highlights={highlights}
+          games={games}
+          already={new Set(show.items.flatMap((i) => (i.kind === 'clip' ? [i.highlightId] : [])))}
+          onAdd={addReels}
+          onClose={() => (setPicking(''), setInsertHere(undefined))}
+        />
+      )}
       {picking === 'clips' && (
         <ClipPicker
           highlights={highlights}
@@ -1531,6 +1624,13 @@ export const SlideshowEditor: React.FC<Props> = ({
       )}
       {playing !== null && (
         <SlideshowPlayer title={show.name} slides={slides} options={o} access={access} look={settings} logo={logo} songs={songs.songs} songLens={songLens} startAt={playing} onClose={() => setPlaying(null)} />
+      )}
+      {editingClip && renderClipEditor && hById.has(editingClip) && (
+        <div className="fixed inset-0 z-[85] bg-black/60 overflow-auto p-2 sm:p-4" onClick={() => setEditingClip(null)}>
+          <div role="dialog" aria-label="Edit the clip" onClick={(e) => e.stopPropagation()} className="mx-auto w-full max-w-5xl rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl p-2 sm:p-3">
+            {renderClipEditor(editingClip, () => setEditingClip(null))}
+          </div>
+        </div>
       )}
       {making && <SlideshowVideoPanel title={show.name} slides={videoSlides} options={o} access={access} look={settings} logo={logo} songs={songs.songs} songLens={songLens} onClose={() => setMaking(false)} />}
     </div>

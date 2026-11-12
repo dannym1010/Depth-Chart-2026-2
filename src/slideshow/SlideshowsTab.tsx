@@ -30,9 +30,11 @@ interface Props {
   seeAll?: boolean;
   nameOf: (email?: string) => string;
   teamName?: string;
+  /** The clip editor on a clip (from Highlights). */
+  renderClipEditor?: (highlightId: string, close: () => void) => React.ReactNode;
 }
 
-export const SlideshowsTab: React.FC<Props> = ({ teamId, season, store, access, games, roster, reels, me, myName, helper, seeAll, nameOf, teamName }) => {
+export const SlideshowsTab: React.FC<Props> = ({ teamId, season, store, access, games, roster, reels, me, myName, helper, seeAll, nameOf, teamName, renderClipEditor }) => {
   const { data, update } = store;
   const ro = store.readOnly;
   const media = useMedia(teamId, season, { helper });
@@ -136,6 +138,7 @@ export const SlideshowsTab: React.FC<Props> = ({ teamId, season, store, access, 
             onDelete={() => remove(open.id)}
             onClose={() => choose(null)}
             aiDesigner={isProgramAdminEmail(me)}
+            renderClipEditor={renderClipEditor}
             teamName={teamName ? `${teamName} ${season}`.trim() : season}
           />
         ) : (

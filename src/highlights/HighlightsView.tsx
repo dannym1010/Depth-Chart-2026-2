@@ -973,10 +973,37 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
           seeAll={seeAllReels}
           nameOf={nameOf}
           teamName={teamName}
+          renderClipEditor={(id, close) => {
+            const h = data.highlights.find((x) => x.id === id);
+            if (!h) return null;
+            return (
+              <>
+                <LoadShared gameKey={h.game.key} load={needShared} />
+                <ClipEditor
+                  key={h.id}
+                  h={h}
+                  store={store}
+                  access={access}
+                  shared={sharedOf[h.game.key]}
+                  plays={plays}
+                  roster={roster}
+                  onClose={close}
+                  reels={myReels.map((r) => ({ id: r.id, name: r.name, has: r.items.some((it) => it.highlightId === h.id) }))}
+                  onAddToReel={(rid) => {
+                    if (rid === '__new') {
+                      const r = newReel({ name: `${h.title || 'New'} reel`, kind: 'custom', owner: me, ownerName: myName, highlightIds: [h.id] });
+                      update((d) => ({ ...d, reels: [...d.reels, r] }));
+                    } else update((d) => editReel(d, rid, (r) => addToReel(r, [h.id])));
+                  }}
+                />
+              </>
+            );
+          }}
         />
       )}
 
       {tab === 'kids' && (
+
         <KidsCheck
           roster={roster}
           highlights={data.highlights}
@@ -1125,3 +1152,12 @@ const KidsCheck: React.FC<{
   );
 };
 
+
+/** Reads a game's shared Film Room data (the replay camera's line-up) when a clip from it opens. */
+const LoadShared: React.FC<{ gameKey: string; load: (key: string) => unknown }> = ({ gameKey, load }) => {
+  useEffect(() => {
+    void load(gameKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameKey]);
+  return null;
+};

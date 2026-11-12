@@ -420,6 +420,8 @@ export function applyPlan(show: Slideshow, plan: AiPlan): AppliedPlan {
   pick('fadeEnds', flag(po.fadeEnds));
   pick('captionAt', oneOf(po.captionAt, ['bottom', 'top'] as const));
   pick('clipSound', oneOf(po.clipSound, ['off', 'low', 'full'] as const));
+  // The game sound's level follows (a slider set by hand would otherwise keep it).
+  if (o.clipSound === 'full' || o.clipSound === 'low') o.gameVolume = o.clipSound === 'full' ? 1 : 0.4;
   pick('musicVolume', typeof po.musicVolume === 'number' && po.musicVolume >= 0 ? clampNum(po.musicVolume, 0, 1) : undefined);
   pick('musicDelay', typeof po.musicStartsAt === 'number' && po.musicStartsAt >= 0 ? clampNum(po.musicStartsAt, 0, 600) : undefined);
   if (Object.keys(o).length) {

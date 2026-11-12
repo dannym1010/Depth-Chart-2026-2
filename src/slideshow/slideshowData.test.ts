@@ -21,6 +21,9 @@ import {
   slideAt,
   slidesSeconds,
   titleItem,
+  inGameOrder,
+  reelSlides,
+  gameVolumeOf,
 } from './slideshowData.ts';
 import { emptyHighlights, mergeHighlights } from '../highlights/highlightData.ts';
 import type { Highlight } from '../highlights/types.ts';
@@ -203,5 +206,80 @@ describe('more slideshow controls', () => {
     assert.ok(right.x + right.w >= 1919.999);
     const strong = photoRect(3000, 2000, 1920, 1080, true, 'in', 1, 0.2);
     assert.ok(strong.w > mid.w);
+  });
+});
+
+describe('game order, reels and the sound mix', () => {
+  const g = (n: number) => ({ key: `own_g${n}`, gameId: `g${n}`, name: `Week ${n}` });
+  const hs = new Map([
+    ['a2', { game: g(2), seq: 2 }],
+    ['b2', { game: g(2), seq: 9 }],
+    ['a1', { game: g(1), seq: 5 }],
+  ]);
+  const games = new Map([
+    ['own_g1', 0],
+    ['own_g2', 1],
+  ]);
+  const name = (i: any) => i.title || i.name || i.highlightId || i.label;
+
+  it('puts everything in game order: games, photos by time, plays spread through them', () => {
+    const items = [
+      titleItem('Our season'),
+      clipItem('b2'),
+      photoItem({ id: 'p2late', folderId: 'f2', name: 'w2 late', takenAt: 300 }),
+      titleItem('Week 1'),
+      clipItem('a1'),
+      photoItem({ id: 'p1', folderId: 'f1', name: 'w1', takenAt: 50 }),
+      photoItem({ id: 'px', folderId: 'unlinked', name: 'loose' }),
+      clipItem('a2'),
+      photoItem({ id: 'p2early', folderId: 'f2', name: 'w2 early', takenAt: 200 }),
+      titleItem('Thanks'),
+    ];
+    const out = inGameOrder(items, { games, highlights: hs, folderGame: new Map([['f1', 'own_g1'], ['f2', 'own_g2']]) });
+    // Week 1 first (its card, its photo, its play spread in, the loose photo that came after it), then week 2: photos by time, plays in order.
+    assert.deepEqual(out.map(name), ['Our season', 'Week 1', 'w1', 'a1', 'loose', 'w2 early', 'a2', 'b2', 'w2 late', 'Thanks']);
+    assert.equal(out.length, items.length);
+  });
+
+  it('only moves the picked ones, and leaves a show with no games alone', () => {
+    const items = [clipItem('b2'), photoItem({ id: 'p', folderId: 'f', name: 'x' }), clipItem('a1')];
+    const ids = new Set([items[0].id, items[2].id]);
+    assert.deepEqual(inGameOrder(items, { games, highlights: hs, folderGame: new Map() }, ids).map(name), ['a1', 'x', 'b2']);
+    const plain = [titleItem('A'), photoItem({ id: 'p', folderId: 'f', name: 'x' })];
+    assert.equal(inGameOrder(plain, { games, highlights: hs, folderGame: new Map() }), plain);
+  });
+
+  it('adds reels in game order with a card per game, each clip once', () => {
+    const reels = [{ items: [{ highlightId: 'b2' }, { highlightId: 'a1' }] }, { items: [{ highlightId: 'a2' }, { highlightId: 'a1' }, { highlightId: 'gone' }] }];
+    const out = reelSlides(reels, hs, { games, gameOrder: true, gameCards: true, weekOf: (k) => (k === 'own_g1' ? 'Week 1' : '') });
+    assert.deepEqual(out.map(name), ['Week 1', 'a1', 'Week 2', 'a2', 'b2']);
+    assert.equal((out[0] as any).sub, 'Week 1');
+    const asIs = reelSlides(reels, hs, { games, gameOrder: false, gameCards: false, skip: new Set(['a2']) });
+    assert.deepEqual(asIs.map(name), ['b2', 'a1']);
+  });
+
+  it('mixes the game sound and the songs under each clip', () => {
+    assert.equal(gameVolumeOf({ clipSound: 'full' }), 1);
+    assert.equal(gameVolumeOf({ clipSound: 'low' }), 0.4);
+    assert.equal(gameVolumeOf({ clipSound: 'low', gameVolume: 0.7 }), 0.7);
+    let s = newSlideshow({ name: 'x', owner: 'c' });
+    s = insertItems(s, [clipItem('h1'), clipItem('h1'), clipItem('h1'), clipItem('h1')]);
+    s = { ...s, options: { ...s.options, gameVolume: 0.8, duckLevel: 0.5 } };
+    s.items[1] = { ...(s.items[1] as any), volume: 0 };
+    s.items[2] = { ...(s.items[2] as any), musicUnder: 0 };
+    s.items[3] = { ...(s.items[3] as any), sound: false, volume: 0.3 };
+    const sl = buildSlides(s, [hl('h1', 0, 4)], { replaySpeed: 0.5 }) as any[];
+    assert.deepEqual(
+      sl.map((x) => [x.sound, x.gain, x.musicUnder]),
+      [
+        [true, 0.8, 0.5],
+        [false, 0, 1],
+        [true, 0.8, 0],
+        [true, 0.3, 0.5],
+      ]
+    );
+    const o = { musicVolume: 0.8, musicFadeIn: false, musicFadeOut: false, duck: true };
+    assert.equal(musicLevel(o, 5, 60, 0.5), 0.4);
+    assert.equal(musicLevel({ ...o, duckLevel: 0.1 }, 5, 60, true), 0.08000000000000002);
   });
 });
