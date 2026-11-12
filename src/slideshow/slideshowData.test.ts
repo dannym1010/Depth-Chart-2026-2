@@ -24,6 +24,7 @@ import {
   inGameOrder,
   reelSlides,
   gameVolumeOf,
+  repeatClips,
 } from './slideshowData.ts';
 import { emptyHighlights, mergeHighlights } from '../highlights/highlightData.ts';
 import type { Highlight } from '../highlights/types.ts';
@@ -295,5 +296,13 @@ describe('clip titles', () => {
     assert.equal(sub(s), '#52 · #7');
     assert.equal(sub({ ...s, options: { ...s.options, clipKids: false } }, { roster }), undefined);
     assert.equal((buildSlides({ ...s, options: { ...s.options, clipTitles: false } }, h, { replaySpeed: 0.5 }, { roster })[0] as any).segs[0].overlay, undefined);
+  });
+});
+
+describe('clips in twice', () => {
+  it('finds the later copies, the first stays', () => {
+    const items = [clipItem('a'), photoItem({ id: 'p', folderId: 'f', name: 'x' }), clipItem('b'), clipItem('a'), clipItem('a')];
+    assert.deepEqual(repeatClips(items), [items[3].id, items[4].id]);
+    assert.deepEqual(repeatClips([clipItem('a'), clipItem('b')]), []);
   });
 });

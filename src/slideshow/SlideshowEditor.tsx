@@ -23,7 +23,7 @@ import { SlideshowPlayer } from './SlideshowPlayer';
 import { SlideshowVideoPanel } from './SlideshowVideoPanel';
 import { useSongAnalysis } from './songAnalysis';
 import {
-  ARRANGE, arrange, buildSlides, duckLevelOf, gameVolumeOf, inGameOrder, reelSlides, clipItem, copyItem, editItem, editItems, fillSpot, FITS, fitToMusic, insertItems, LOOKS, mmss, MOTIONS, moveItem, moveItems, parseMmss, photoItem, removeItems, SHAPES, showMusicPieces, slidesSeconds, songsSeconds, spotItem, titleItem, TRANSITIONS, type ArrangeHow, type Slide,
+  ARRANGE, arrange, buildSlides, repeatClips, duckLevelOf, gameVolumeOf, inGameOrder, reelSlides, clipItem, copyItem, editItem, editItems, fillSpot, FITS, fitToMusic, insertItems, LOOKS, mmss, MOTIONS, moveItem, moveItems, parseMmss, photoItem, removeItems, SHAPES, showMusicPieces, slidesSeconds, songsSeconds, spotItem, titleItem, TRANSITIONS, type ArrangeHow, type Slide,
 } from './slideshowData';
 import type { useSongs } from './songs';
 import type { PhotoFit, PhotoLook, PhotoMotion, SlideItem, Slideshow, SlideshowOptions, SlideshowShape, SlideTransition } from './types';
@@ -217,6 +217,7 @@ export const SlideshowEditor: React.FC<Props> = ({
     const next = show.items.slice(last + 1).find((i) => !pickedSet.has(i.id)) || show.items.slice(0, last).reverse().find((i) => !pickedSet.has(i.id));
     edit((s) => removeItems(s, pickedNow));
     setPicked(next && pickedNow.length === 1 ? [next.id] : []);
+    flashNote(`Took out ${pickedNow.length === 1 ? 'the slide' : `${pickedNow.length} slides`}.`, true);
   };
   const copyPicked = () => {
     if (!pickedNow.length || ro) return;
@@ -251,15 +252,42 @@ export const SlideshowEditor: React.FC<Props> = ({
   // Each game's place in the season (the games come in season order), and which game a Media folder is from.
   const gameIndex = useMemo(() => new Map(games.map((g, i) => [g.key, i])), [games]);
   const folderGame = useMemo(() => new Map(media.folders.flatMap((f) => (f.gameKey ? [[f.id, f.gameKey] as const] : []))), [media.folders]);
-  const [note, setNote] = useState('');
+  // A note after a change; one that took slides out offers Undo (while nothing else has changed since).
+  const [note, setNoteState] = useState<{ text: string; undoAt?: number } | null>(null);
   const noteTimer = useRef(0);
-  const flashNote = (text: string) => {
-    setNote(text);
+  const flashNote = (text: string, canUndo = false) => {
+    setNoteState({ text, ...(canUndo ? { undoAt: undoStack.current.length } : {}) });
     window.clearTimeout(noteTimer.current);
-    noteTimer.current = window.setTimeout(() => setNote(''), 6000);
+    noteTimer.current = window.setTimeout(() => setNoteState(null), canUndo ? 15000 : 6000);
+  };
+  // How many of each kind, and the clips that are in a second time (their later copies).
+  const kinds = useMemo(() => {
+    const c = { photo: 0, clip: 0, title: 0, spot: 0 };
+    for (const i of show.items) c[i.kind]++;
+    return c;
+  }, [show.items]);
+  const repeats = useMemo(() => repeatClips(show.items), [show.items]);
+  // Taking slides out: the ones listed, with a note and its Undo.
+  const takeOut = (ids: string[], what: string) => {
+    if (!ids.length || ro) return;
+    const gone = new Set(ids);
+    edit((s) => removeItems(s, ids));
+    setPicked((l) => l.filter((id) => !gone.has(id)));
+    flashNote(`Took out ${what}.`, true);
+  };
+  // Clips added: each one once (the ones already in the slideshow left out).
+  const addClips = (ids: string[]) => {
+    const inIt = new Set(show.items.flatMap((i) => (i.kind === 'clip' ? [i.highlightId] : [])));
+    const fresh = [...new Set(ids)].filter((id) => !inIt.has(id));
+    const left = new Set(ids).size - fresh.length;
+    setPicking('');
+    setInsertHere(undefined);
+    if (!fresh.length) return flashNote(left === 1 ? 'That clip is in the slideshow already.' : 'Those clips are all in the slideshow already.');
+    edit((s) => insertItems(s, fresh.map(clipItem), target));
+    flashNote(`Added ${fresh.length} clip${fresh.length === 1 ? '' : 's'}${left ? ` (${left} already in it, left out)` : ''}.`);
   };
   // Reels: their clips added (in game order, a card before each game, if asked).
-  const addReels = (ids: string[], how: { gameOrder: boolean; gameCards: boolean; skipIn: boolean }) => {
+  const addReels = (ids: string[], how: { gameOrder: boolean; gameCards: boolean }) => {
     const chosen = reels.filter((r) => ids.includes(r.id));
     const already = new Set(show.items.flatMap((i) => (i.kind === 'clip' ? [i.highlightId] : [])));
     const items = reelSlides(
@@ -269,7 +297,7 @@ export const SlideshowEditor: React.FC<Props> = ({
         games: gameIndex,
         gameOrder: how.gameOrder,
         gameCards: how.gameCards,
-        skip: how.skipIn ? already : undefined,
+        skip: already,
         weekOf: (key) => {
           const g = games.find((x) => x.key === key);
           return g && !/week|playoff|champ/i.test(g.name) ? weekText(g.week) : '';
@@ -1493,9 +1521,48 @@ export const SlideshowEditor: React.FC<Props> = ({
                   <ListOrdered size={13} /> {pickedNow.length > 1 ? 'Picked in game order' : 'Game order'}
                 </button>
               )}
+              {!ro && (
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const how = e.target.value;
+                    if (!how) return;
+                    const of = (k: SlideItem['kind']) => show.items.filter((i) => i.kind === k).map((i) => i.id);
+                    if (how === 'clips') takeOut(of('clip'), `all ${kinds.clip} clips`);
+                    else if (how === 'photos') takeOut(of('photo'), `all ${kinds.photo} photos`);
+                    else if (how === 'titles') takeOut(of('title'), `all ${kinds.title} title cards`);
+                    else if (how === 'spots') takeOut(of('spot'), `all ${kinds.spot} empty photo spots`);
+                    else if (how === 'repeats') takeOut(repeats, `${repeats.length} clip${repeats.length === 1 ? '' : 's'} that were in twice`);
+                    else if (how === 'all') takeOut(show.items.map((i) => i.id), `all ${show.items.length} slides`);
+                  }}
+                  className={input}
+                  aria-label="Take out"
+                  title="Undo puts them back"
+                >
+                  <option value="">Take out…</option>
+                  {kinds.clip > 0 && <option value="clips">All clips ({kinds.clip})</option>}
+                  {repeats.length > 0 && <option value="repeats">Clips in twice ({repeats.length})</option>}
+                  {kinds.photo > 0 && <option value="photos">All photos ({kinds.photo})</option>}
+                  {kinds.title > 0 && <option value="titles">All title cards ({kinds.title})</option>}
+                  {kinds.spot > 0 && <option value="spots">All empty photo spots ({kinds.spot})</option>}
+                  <option value="all">Everything ({show.items.length})</option>
+                </select>
+              )}
               {note && (
-                <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300" role="status">
-                  {note}
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-indigo-700 dark:text-indigo-300" role="status">
+                  {note.text}
+                  {note.undoAt !== undefined && note.undoAt === undoStack.current.length && !ro && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        undo();
+                        setNoteState(null);
+                      }}
+                      className="h-7 px-2.5 rounded-lg bg-indigo-600 text-white text-xs font-black inline-flex items-center gap-1"
+                    >
+                      <Undo2 size={12} /> Undo
+                    </button>
+                  )}
                 </span>
               )}
               <span className="ml-auto inline-flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden" role="group" aria-label="Tile size">
@@ -1616,12 +1683,7 @@ export const SlideshowEditor: React.FC<Props> = ({
           games={games}
           roster={roster}
           already={new Set(show.items.flatMap((i) => (i.kind === 'clip' ? [i.highlightId] : [])))}
-          onAdd={(ids) => {
-            const items = ids.map(clipItem);
-            edit((s) => insertItems(s, items, target));
-            setPicking('');
-            setInsertHere(undefined);
-          }}
+          onAdd={addClips}
           onClose={() => (setPicking(''), setInsertHere(undefined))}
         />
       )}

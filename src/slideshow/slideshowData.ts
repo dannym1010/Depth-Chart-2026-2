@@ -329,6 +329,18 @@ export function moveItem(s: Slideshow, from: number, to: number): Slideshow {
   return { ...s, items: list };
 }
 
+/** Clips in the slideshow a second (third…) time: the later copies' slide ids (the first of each stays). */
+export function repeatClips(items: SlideItem[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const i of items) {
+    if (i.kind !== 'clip') continue;
+    if (seen.has(i.highlightId)) out.push(i.id);
+    else seen.add(i.highlightId);
+  }
+  return out;
+}
+
 export const removeItems = (s: Slideshow, ids: string[]): Slideshow => {
   const gone = new Set(ids);
   return { ...s, items: s.items.filter((i) => !gone.has(i.id)) };

@@ -11,7 +11,7 @@ interface Props {
   games: HighlightGame[];
   /** Clips already in the slideshow (by highlight id). */
   already: Set<string>;
-  onAdd: (reelIds: string[], how: { gameOrder: boolean; gameCards: boolean; skipIn: boolean }) => void;
+  onAdd: (reelIds: string[], how: { gameOrder: boolean; gameCards: boolean }) => void;
   onClose: () => void;
 }
 
@@ -21,7 +21,6 @@ export const ReelPicker: React.FC<Props> = ({ reels, highlights, games, already,
   const [picked, setPicked] = useState<string[]>([]);
   const [gameOrder, setGameOrder] = useState(true);
   const [gameCards, setGameCards] = useState(false);
-  const [skipIn, setSkipIn] = useState(true);
   const order = useMemo(() => new Map(games.map((g, i) => [g.key, i])), [games]);
   // Game reels first, in season order; then the rest by name.
   const sorted = useMemo(
@@ -34,13 +33,20 @@ export const ReelPicker: React.FC<Props> = ({ reels, highlights, games, already,
     [reels, order]
   );
   const clipsOf = useMemo(() => new Map(reels.map((r) => [r.id, orderedHighlights(r, highlights, order)])), [reels, highlights, order]);
-  // What "Add" puts in: each clip once, the ones in the slideshow left out if asked.
-  const adding = useMemo(() => {
-    const seen = new Set(skipIn ? already : []);
+  // What "Add" puts in: each clip once; the ones already in the slideshow are left out.
+  const { adding, inAlready } = useMemo(() => {
+    const seen = new Set<string>();
     const list: Highlight[] = [];
-    for (const id of picked) for (const h of clipsOf.get(id) || []) if (!seen.has(h.id)) (seen.add(h.id), list.push(h));
-    return list;
-  }, [picked, clipsOf, already, skipIn]);
+    let n = 0;
+    for (const id of picked)
+      for (const h of clipsOf.get(id) || []) {
+        if (seen.has(h.id)) continue;
+        seen.add(h.id);
+        if (already.has(h.id)) n++;
+        else list.push(h);
+      }
+    return { adding: list, inAlready: n };
+  }, [picked, clipsOf, already]);
   const gamesIn = new Set(adding.map((h) => h.game.key)).size;
   const toggle = (id: string) => setPicked((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]));
   const box = 'inline-flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-200';
@@ -56,7 +62,7 @@ export const ReelPicker: React.FC<Props> = ({ reels, highlights, games, already,
         <div className="flex items-center gap-2 p-3 border-b border-slate-200 dark:border-slate-800">
           <Clapperboard size={16} className="text-indigo-500" />
           <h3 className="font-black text-slate-900 dark:text-slate-100">Add reels</h3>
-          <span className="text-[11px] text-slate-500">Every clip in the reels you pick goes in.</span>
+          <span className="text-[11px] text-slate-500">Every clip in the reels you pick goes in, each one once.</span>
           <button type="button" onClick={onClose} className="ml-auto h-8 w-8 inline-flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500" aria-label="Close">
             <X size={16} />
           </button>
@@ -99,17 +105,16 @@ export const ReelPicker: React.FC<Props> = ({ reels, highlights, games, already,
             <label className={box}>
               <input type="checkbox" checked={gameCards} onChange={(e) => setGameCards(e.target.checked)} /> A title card before each game
             </label>
-            <label className={box}>
-              <input type="checkbox" checked={skipIn} onChange={(e) => setSkipIn(e.target.checked)} /> Leave out clips already in the slideshow
-            </label>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-slate-500">
-              {picked.length ? `${adding.length} clip${adding.length === 1 ? '' : 's'} from ${gamesIn} game${gamesIn === 1 ? '' : 's'}` : 'Pick one or more reels'}
+              {picked.length
+                ? `${adding.length} clip${adding.length === 1 ? '' : 's'} from ${gamesIn} game${gamesIn === 1 ? '' : 's'}${inAlready ? ` · ${inAlready} already in the slideshow (left out)` : ''}`
+                : 'Pick one or more reels'}
             </span>
             <button
               type="button"
-              onClick={() => picked.length && onAdd(picked, { gameOrder, gameCards, skipIn })}
+              onClick={() => picked.length && onAdd(picked, { gameOrder, gameCards })}
               disabled={!adding.length}
               className="ml-auto h-9 px-4 rounded-lg bg-indigo-600 text-white font-bold disabled:opacity-40"
             >
