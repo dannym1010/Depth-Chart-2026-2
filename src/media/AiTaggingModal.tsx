@@ -17,6 +17,7 @@ import {
   type RosterRef,
 } from './geminiMediaService';
 import { getSavedGeminiKey, saveGeminiKey } from '../services/geminiFilmService';
+import { driveSignIn } from '../filmroom/filmSources';
 import { drivePhotoAnalysisBlob, drivePhotoThumb, listDrivePhotos } from './mediaSources';
 import { cleanJersey, isPhotoTaggedOrRated, photosToRecheck, recheckKids } from './mediaData';
 import { AI_COOLDOWNS, aiErrorKind, cooldownFor, limitReason, mmssLeft } from './aiCooldown';
@@ -89,6 +90,10 @@ export const AiTaggingModal: React.FC<Props> = ({
   const [finished, setFinished] = useState(false);
   const [doneCount, setDoneCount] = useState(0);
   const [skippedCount, setSkippedCount] = useState(0);
+  // The Google sign-in (Drive) ran out mid-run: waiting for the coach to sign in again, then the same photo.
+  const [needSignIn, setNeedSignIn] = useState(false);
+  const [signInNote, setSignInNote] = useState('');
+  const signedInAgain = useRef(false);
   const retryRequested = useRef(false);
   const stopRequested = useRef(false);
   const pauseRequested = useRef(false);
@@ -270,6 +275,19 @@ export const AiTaggingModal: React.FC<Props> = ({
           setFinished(true);
           return;
         }
+        if (kind === 'signin') {
+          // Not this photo's fault: wait for "Sign in with Google", then the same photo again (Stop ends the batch).
+          signedInAgain.current = false;
+          setSignInNote('');
+          setNeedSignIn(true);
+          setCurrentStep('Waiting for you to sign in to Google again…');
+          while (!signedInAgain.current && !stopRequested.current) await new Promise((r) => setTimeout(r, 400));
+          setNeedSignIn(false);
+          if (stopRequested.current) break;
+          setCurrentStep(`Signed in. Trying photo ${i + 1} again…`);
+          again = true;
+          continue;
+        }
         if (kind === 'limit') {
           const wait = cooldownFor(strikes);
           if (wait === null) {
@@ -313,11 +331,23 @@ export const AiTaggingModal: React.FC<Props> = ({
     if (!stopRequested.current) setCurrentStep('All photos processed!');
   };
 
+  // Must follow the tap (Google's sign-in window).
+  const signInAgain = async () => {
+    setSignInNote('');
+    try {
+      await driveSignIn();
+      signedInAgain.current = true;
+    } catch (e) {
+      setSignInNote(e instanceof Error ? e.message : 'Google sign-in did not finish. Tap Sign in again.');
+    }
+  };
+
   const handleStop = () => {
     stopRequested.current = true;
     setRunning(false);
     setPaused(false);
     setCooldown(null);
+    setNeedSignIn(false);
     setFinished(true);
     setCurrentStep('Stopped. The photos done are saved.');
   };
@@ -690,6 +720,22 @@ export const AiTaggingModal: React.FC<Props> = ({
                   {doneCount} tagged and saved{skippedCount ? ` · ${skippedCount} skipped (Run again tries them)` : ''}
                 </p>
               )}
+            </div>
+          )}
+
+          {/* The Google sign-in ran out: tagging waits on this photo until it's back. */}
+          {running && needSignIn && (
+            <div className="p-3 rounded-xl border border-sky-300 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/40 text-xs text-sky-900 dark:text-sky-100 flex flex-col gap-2" role="alert">
+              <p className="font-bold">Your Google sign-in ran out (it lasts about an hour), so the photos can't be read from Drive.</p>
+              <p className="text-[11px] opacity-80">Tagging is waiting on photo {currentIndex + 1}. Sign in again and it carries on from there. Nothing is lost.</p>
+              <button
+                type="button"
+                onClick={() => void signInAgain()}
+                className="self-start h-9 px-3.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-black cursor-pointer"
+              >
+                Sign in with Google
+              </button>
+              {signInNote && <p className="text-[11px] text-rose-700 dark:text-rose-300">{signInNote}</p>}
             </div>
           )}
 

@@ -2,10 +2,12 @@
 // again. A limit (402 Payment Required, quota, rate limit, every model busy) often clears after a while, so the batch
 // waits longer each time and tries again instead of stopping; a bad or missing key (or no model found) needs the coach.
 
-export type AiErrorKind = 'key' | 'limit' | 'photo';
+export type AiErrorKind = 'key' | 'signin' | 'limit' | 'photo';
 
 export function aiErrorKind(message: string): AiErrorKind {
   const m = String(message || '');
+  // The Google sign-in that reads the photos from Drive ran out (about an hour): every photo would fail until it's back.
+  if (/Sign in with Google|sign-in expired|Sign in again/i.test(m)) return 'signin';
   if (/refused this Gemini API key|No Gemini API key|API key not valid|API_KEY_INVALID|none of the AI models were found/i.test(m)) return 'key';
   if (/\b402\b|Payment Required|prepayment|credits are depleted|quota|rate limit|\b429\b|RESOURCE_EXHAUSTED|all models busy|Gemini busy|\b50[03]\b|overloaded|UNAVAILABLE|Failed to fetch|NetworkError|network|timed out|offline/i.test(m)) return 'limit';
   return 'photo';

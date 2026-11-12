@@ -12,6 +12,8 @@ describe('AI tagging cool down', () => {
     assert.equal(aiErrorKind('No Gemini API key on this device.'), 'key');
     assert.equal(aiErrorKind('The image could not be decoded'), 'photo');
     assert.equal(aiErrorKind('AI Photo analysis failed: Failed to fetch'), 'limit');
+    assert.equal(aiErrorKind('Sign in with Google to watch this film.'), 'signin');
+    assert.equal(aiErrorKind('Your Google sign-in expired. Sign in again.'), 'signin');
     assert.match(limitReason('Failed to fetch'), /No internet/);
   });
   it('waits longer each time, then gives up', () => {
