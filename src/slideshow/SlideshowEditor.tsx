@@ -25,7 +25,7 @@ import { SlideshowPlayer } from './SlideshowPlayer';
 import { SlideshowVideoPanel } from './SlideshowVideoPanel';
 import { useSongAnalysis } from './songAnalysis';
 import {
-  ARRANGE, arrange, buildSlides, repeatClips, duckLevelOf, gameVolumeOf, inGameOrder, reelSlides, clipItem, copyItem, editItem, editItems, fillSpot, FITS, fitToMusic, insertItems, LOOKS, mmss, MOTIONS, moveItem, moveItems, parseMmss, photoItem, removeItems, SHAPES, showMusicPieces, slidesSeconds, songLen, songsSeconds, spotItem, titleItem, TRANSITIONS, type ArrangeHow, type Slide,
+  ARRANGE, arrange, buildSlides, repeatClips, duckLevelOf, gameVolumeOf, inGameOrder, reelSlides, clipItem, copyItem, editItem, editItems, fillSpot, FITS, fitToMusic, insertItems, LOOKS, mmss, MOTIONS, moveItem, moveItems, parseMmss, photoItem, removeItems, SHAPES, showMusicPieces, slidesSeconds, songLen, songsSeconds, splitSong, cutOutOfSong, keepOnlyOfSong, repeatSong, spotItem, titleItem, TRANSITIONS, type ArrangeHow, type Slide,
 } from './slideshowData';
 import type { useSongs } from './songs';
 import type { PhotoFit, PhotoLook, PhotoMotion, SlideItem, Slideshow, SlideshowOptions, SlideshowShape, SlideTransition } from './types';
@@ -387,7 +387,7 @@ export const SlideshowEditor: React.FC<Props> = ({
   const analyses = useSongAnalysis(songs.songs, playable.map((p) => p.name));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const lens = useMemo(() => playable.map((p) => songLen(p, p.seconds, o)), [playable, o.songCrossfade]);
-  const pieces = useMemo(() => showMusicPieces(lens, o.loopMusic, delay, 0, total), [lens, o.loopMusic, delay, total]);
+  const pieces = useMemo(() => showMusicPieces(lens, o.repeatSongs, delay, 0, total), [lens, o.repeatSongs, delay, total]);
   const analysisOf = (k: number) => {
     const a = analyses[playable[k]?.name];
     return a && a !== 'failed' ? a : undefined;
@@ -1178,7 +1178,7 @@ export const SlideshowEditor: React.FC<Props> = ({
             const a = analyses[p.name];
             const song = songs.songs.find((x) => x.name === p.name);
             // The crossfade into this song (or, for the first, from the last one when the songs start over).
-            const showCross = k > 0 || (o.loopMusic && pickedSongs.length > 1);
+            const showCross = k > 0 || (o.repeatSongs && pickedSongs.length > 1);
             return (
               <React.Fragment key={`${p.name}-${k}`}>
                 {showCross && (
@@ -1202,16 +1202,25 @@ export const SlideshowEditor: React.FC<Props> = ({
                   <span className="flex items-center gap-1.5 w-full min-w-0">
                     <span className="text-[10px] font-black text-slate-400 tabular-nums">{k + 1}</span>
                     <Music size={12} className="text-indigo-500 shrink-0" />
-                    <span className="font-bold text-slate-800 dark:text-slate-100 truncate min-w-0 flex-1" title={p.name}>{p.name}</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-100 truncate min-w-0 flex-1" title={p.name}>
+                      {p.name}
+                    </span>
                     {p.have ? <span className="text-slate-500 tabular-nums">{p.seconds ? mmss(p.seconds) : '…'}</span> : <span className="text-amber-600 dark:text-amber-400 font-bold">not on this device</span>}
                     {!ro && (
                       <>
+                        <button type="button" className={iconBtn} onClick={() => setOpt({ songs: repeatSong(o.songs, k) })} aria-label={`Play ${p.name} again`} title="Play this piece again right after (a chorus twice)"><Copy size={13} /></button>
                         <button type="button" className={iconBtn} disabled={k === 0} onClick={() => setOpt({ songs: moveArr(o.songs, k, k - 1) })} aria-label="Play earlier"><ArrowUp size={13} /></button>
                         <button type="button" className={iconBtn} disabled={k === o.songs.length - 1} onClick={() => setOpt({ songs: moveArr(o.songs, k, k + 1) })} aria-label="Play later"><ArrowDown size={13} /></button>
                         <button type="button" className={iconBtn} onClick={() => setOpt({ songs: o.songs.filter((_, j) => j !== k) })} aria-label={`Take ${p.name} out`}><X size={13} /></button>
                       </>
                     )}
                   </span>
+                  {/* A song cut in pieces: which piece this is. */}
+                  {pickedSongs.filter((x) => x.name === p.name).length > 1 && (
+                    <span className="w-full text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
+                      Piece {pickedSongs.slice(0, k + 1).filter((x) => x.name === p.name).length} of {pickedSongs.filter((x) => x.name === p.name).length} · {mmss(p.start || 0)}–{mmss(p.end ?? p.seconds)}
+                    </span>
+                  )}
                   {p.have && p.seconds > 0 && (
                     <SongTrim
                       name={p.name}
@@ -1230,6 +1239,12 @@ export const SlideshowEditor: React.FC<Props> = ({
                           }),
                         })
                       }
+                      onSplit={(t) => setOpt({ songs: splitSong(o.songs, k, t, p.seconds) })}
+                      onCutOut={(x, y) => {
+                        setOpt({ songs: cutOutOfSong(o.songs, k, x, y, p.seconds) });
+                        flashNote(`Cut ${mmss(Math.abs(y - x))} out of ${p.name}.`, true);
+                      }}
+                      onKeepOnly={(x, y) => setOpt({ songs: keepOnlyOfSong(o.songs, k, x, y, p.seconds) })}
                     />
                   )}
                 </li>
@@ -1276,7 +1291,7 @@ export const SlideshowEditor: React.FC<Props> = ({
             <input type="checkbox" checked={o.duck} onChange={(e) => setOpt({ duck: e.target.checked })} /> Quieter while a clip's game sound plays
           </label>
           <label className="inline-flex items-center gap-1.5">
-            <input type="checkbox" checked={o.loopMusic} onChange={(e) => setOpt({ loopMusic: e.target.checked })} /> Start the songs over if they run out
+            <input type="checkbox" checked={o.repeatSongs} onChange={(e) => setOpt({ repeatSongs: e.target.checked })} /> Start the songs over if they run out
           </label>
         </div>
       </fieldset>

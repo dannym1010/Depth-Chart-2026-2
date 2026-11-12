@@ -126,7 +126,7 @@ export interface SlideshowOptions {
   /** How loud the songs are then, as part of their volume (else 0.3). */
   duckLevel?: number;
   /** The songs start over when they run out before the slideshow does. */
-  loopMusic: boolean;
+  repeatSongs: boolean;
   /** Seconds each song overlaps the one before it (0 = one right after the other). */
   songCrossfade?: number;
   /** Seconds into the slideshow the first song starts. */

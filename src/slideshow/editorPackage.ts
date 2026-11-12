@@ -100,7 +100,7 @@ export function packagePlan(o: {
   const lens = o.songs.map((s) => songLen(s, s.seconds, o.options));
   // Songs that overlap (crossfading) go on a track each.
   const trackEnds: number[] = [];
-  const music = showMusicPieces(lens, o.options.loopMusic, o.options.musicDelay || 0, 0, total).map((p) => {
+  const music = showMusicPieces(lens, o.options.repeatSongs, o.options.musicDelay || 0, 0, total).map((p) => {
     let track = trackEnds.findIndex((e) => e <= p.at + 1e-6);
     if (track < 0) track = trackEnds.push(0) - 1;
     trackEnds[track] = p.at + p.seconds;

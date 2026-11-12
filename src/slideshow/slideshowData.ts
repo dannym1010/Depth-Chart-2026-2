@@ -66,7 +66,7 @@ export const defaultSlideshowOptions = (): SlideshowOptions => ({
   musicFadeIn: true,
   musicFadeOut: true,
   duck: true,
-  loopMusic: true,
+  repeatSongs: false,
   musicDelay: 0,
   marks: [],
   beatEvery: 2,
@@ -748,6 +748,62 @@ export function fitToMusic(slides: Slide[], musicSeconds: number): number | null
 }
 
 export const songPick = (name: string): SongPick => ({ name });
+
+// ---- Cutting songs up: a song in pieces is the same song more than once in the list, each with its own start and end ----
+
+/** Where two pieces of a cut song meet: a short crossfade, so the join doesn't click. */
+export const SONG_JOIN = 0.4;
+/** A piece shorter than this is dropped. */
+const SHORTEST_PIECE = 0.5;
+
+const piece = (p: SongPick, start: number, end: number, seconds: number, extra: Partial<SongPick> = {}): SongPick => {
+  const { start: _s, end: _e, crossfade: _c, ...rest } = p;
+  return { ...rest, ...(start > 0.01 ? { start: Math.round(start * 100) / 100 } : {}), ...(end < seconds - 0.01 ? { end: Math.round(end * 100) / 100 } : {}), ...extra };
+};
+const span = (p: SongPick, seconds: number) => {
+  const a = clamp(p.start || 0, 0, seconds);
+  return { a, b: clamp(p.end ?? seconds, a, seconds) };
+};
+
+/** Song `k` split in two at `t` seconds into it (the second piece crossfades in from the first). */
+export function splitSong(songs: SongPick[], k: number, t: number, seconds: number): SongPick[] {
+  const p = songs[k];
+  if (!p) return songs;
+  const { a, b } = span(p, seconds);
+  if (t - a < SHORTEST_PIECE || b - t < SHORTEST_PIECE) return songs;
+  const first = piece(p, a, t, seconds, p.crossfade !== undefined ? { crossfade: p.crossfade } : {});
+  const second = piece(p, t, b, seconds, { crossfade: SONG_JOIN });
+  return [...songs.slice(0, k), first, second, ...songs.slice(k + 1)];
+}
+
+/** The part from `from` to `to` (seconds into the song) cut out of song `k`: what's before and after it play joined. */
+export function cutOutOfSong(songs: SongPick[], k: number, from: number, to: number, seconds: number): SongPick[] {
+  const p = songs[k];
+  if (!p) return songs;
+  const { a, b } = span(p, seconds);
+  const x = clamp(Math.min(from, to), a, b);
+  const y = clamp(Math.max(from, to), a, b);
+  if (y - x < 0.05) return songs;
+  const keep: SongPick[] = [];
+  if (x - a >= SHORTEST_PIECE) keep.push(piece(p, a, x, seconds, p.crossfade !== undefined ? { crossfade: p.crossfade } : {}));
+  if (b - y >= SHORTEST_PIECE) keep.push(piece(p, y, b, seconds, keep.length ? { crossfade: SONG_JOIN } : p.crossfade !== undefined ? { crossfade: p.crossfade } : {}));
+  return [...songs.slice(0, k), ...keep, ...songs.slice(k + 1)];
+}
+
+/** Song `k` played only from `from` to `to`. */
+export function keepOnlyOfSong(songs: SongPick[], k: number, from: number, to: number, seconds: number): SongPick[] {
+  const p = songs[k];
+  if (!p || Math.abs(to - from) < SHORTEST_PIECE) return songs;
+  const next = piece(p, Math.min(from, to), Math.max(from, to), seconds, p.crossfade !== undefined ? { crossfade: p.crossfade } : {});
+  return songs.map((x, j) => (j === k ? next : x));
+}
+
+/** Song `k` again right after itself (a chorus twice), crossfading in. */
+export function repeatSong(songs: SongPick[], k: number): SongPick[] {
+  const p = songs[k];
+  if (!p) return songs;
+  return [...songs.slice(0, k + 1), { ...p, crossfade: SONG_JOIN }, ...songs.slice(k + 1)];
+}
 
 /** "1:05" from seconds. */
 export const mmss = (sec: number) => {

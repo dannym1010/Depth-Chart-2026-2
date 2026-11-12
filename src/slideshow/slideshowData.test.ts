@@ -28,6 +28,10 @@ import {
   reelSlides,
   gameVolumeOf,
   repeatClips,
+  splitSong,
+  cutOutOfSong,
+  keepOnlyOfSong,
+  repeatSong,
 } from './slideshowData.ts';
 import { emptyHighlights, mergeHighlights } from '../highlights/highlightData.ts';
 import type { Highlight } from '../highlights/types.ts';
@@ -346,5 +350,25 @@ describe('songs trimmed and crossfading', () => {
     assert.ok(round[0].fadeIn === 4 && round[1].fadeOut === 4);
     // One song looping: no crossfade with itself.
     assert.equal(musicPlan([{ seconds: 20, start: 0, crossfade: 5 }], true).period, 20);
+  });
+});
+
+describe('cutting songs up', () => {
+  const S = 100;
+  it('splits a song in two, the second crossfading in', () => {
+    const out = splitSong([{ name: 'a', start: 10 }, { name: 'b' }], 0, 40, S);
+    assert.deepEqual(out, [{ name: 'a', start: 10, end: 40 }, { name: 'a', start: 40, crossfade: 0.4 }, { name: 'b' }]);
+    // Too near an end: nothing.
+    assert.deepEqual(splitSong([{ name: 'a' }], 0, 0.2, S), [{ name: 'a' }]);
+  });
+  it('cuts a part out (what is left plays joined), or keeps only it', () => {
+    assert.deepEqual(cutOutOfSong([{ name: 'a', crossfade: 3 }], 0, 60, 30, S), [{ name: 'a', end: 30, crossfade: 3 }, { name: 'a', start: 60, crossfade: 0.4 }]);
+    // Cutting out the start: just the rest, keeping its own crossfade.
+    assert.deepEqual(cutOutOfSong([{ name: 'a', crossfade: 2 }], 0, 0, 20, S), [{ name: 'a', start: 20, crossfade: 2 }]);
+    assert.deepEqual(cutOutOfSong([{ name: 'a' }], 0, 0, 100, S), []);
+    assert.deepEqual(keepOnlyOfSong([{ name: 'a', start: 5 }], 0, 20, 50, S), [{ name: 'a', start: 20, end: 50 }]);
+  });
+  it('repeats a piece right after itself', () => {
+    assert.deepEqual(repeatSong([{ name: 'a', start: 30, end: 50 }, { name: 'b' }], 0), [{ name: 'a', start: 30, end: 50 }, { name: 'a', start: 30, end: 50, crossfade: 0.4 }, { name: 'b' }]);
   });
 });

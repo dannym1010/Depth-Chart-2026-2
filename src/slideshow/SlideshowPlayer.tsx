@@ -140,7 +140,7 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
   );
   const lens = useMemo(() => picked.map((x) => songLen(x.pick, x.seconds, options)), [picked, options.songCrossfade]);
   const delay = options.musicDelay || 0;
-  const songsEnd = options.loopMusic ? Infinity : delay + songsSeconds(lens);
+  const songsEnd = options.repeatSongs ? Infinity : delay + songsSeconds(lens);
   const audios = useRef<(HTMLAudioElement | null)[]>([]);
   useEffect(() => {
     let off = false;
@@ -248,7 +248,7 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
         drawFade(fctx, FW, FH, fadeAt(slides, i, local, options.fadeEnds), havePrev.current ? prev : null);
 
         // Songs: the ones for now (two while one crossfades into the next), each at its place, as loud as it should be.
-        const now = on && !hold ? showMusicPieces(lens, options.loopMusic, delay, tRef.current, tRef.current + 0.05) : [];
+        const now = on && !hold ? showMusicPieces(lens, options.repeatSongs, delay, tRef.current, tRef.current + 0.05) : [];
         audios.current.forEach((a, k) => {
           if (!a) return;
           const piece = now.find((p) => p.song === k);

@@ -97,7 +97,7 @@ export async function renderSlideshowVideo(o: SlideshowRenderOptions): Promise<S
   }
   const lens = music.map((m) => songLen(m.pick, m.buf.duration, opt));
   const delay = opt.musicDelay || 0;
-  const songsEnd = opt.loopMusic ? Infinity : delay + songsSeconds(lens);
+  const songsEnd = opt.repeatSongs ? Infinity : delay + songsSeconds(lens);
   const drawLook = slideLook(opt);
 
   // Photos: a few ahead, so the encoder rarely waits on Drive.
@@ -280,7 +280,7 @@ export async function renderSlideshowVideo(o: SlideshowRenderOptions): Promise<S
             for (let x = 0.5; x < len; x += 0.5) g.gain.linearRampToValueAtTime(lvl(t0 + x), x);
             g.gain.linearRampToValueAtTime(lvl(t1), len);
             g.connect(ac.destination);
-            for (const p of showMusicPieces(lens, opt.loopMusic, delay, t0, t1)) {
+            for (const p of showMusicPieces(lens, opt.repeatSongs, delay, t0, t1)) {
               const m = ac.createBufferSource();
               m.buffer = music[p.song].buf;
               // Its own fades (a crossfade with the song before or after, a soft cut), on top of the music's level.
