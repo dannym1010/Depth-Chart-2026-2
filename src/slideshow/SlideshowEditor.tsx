@@ -3,7 +3,7 @@
 // under it. Plays right here, or is made into one MP4.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowDown, ArrowUp, Check, CheckSquare, ChevronsDown, ChevronsUp, Copy, Crosshair, Film, Image as ImageIcon, Music, Play, Plus, Redo2, Trash2, Type, Undo2, Upload, Video, X,
+  ArrowDown, ArrowUp, AudioLines, Bookmark, Check, CheckSquare, ChevronsDown, ChevronsUp, Copy, Crosshair, Film, Image as ImageIcon, ImagePlus, Move, Music, Play, Plus, Redo2, Sparkles, SquareDashed, Trash2, Type, Undo2, Upload, Video, X,
 } from 'lucide-react';
 import type { FilmAccess } from '../highlights/filmAccess';
 import { clock, type Kid } from '../highlights/highlightData';
@@ -11,15 +11,21 @@ import type { Highlight, HighlightGame, HighlightSettings, Reel } from '../highl
 import type { MediaData } from '../media/types';
 import { ClipPicker } from './ClipPicker';
 import { PhotoPicker } from './PhotoPicker';
-import { photoThumb, photoTimes } from './photoLoad';
+import { photoTimes } from './photoLoad';
+import { PhotoThumb } from './PhotoThumb';
+import { AiDesignPanel } from './AiDesignPanel';
+import type { AppliedPlan } from './aiDesign';
+import { lineUpWithBeats, showBeats } from './beats';
+import { PreviewDeck } from './PreviewDeck';
 import { SlidePreview } from './SlidePreview';
 import { SlideshowPlayer } from './SlideshowPlayer';
 import { SlideshowVideoPanel } from './SlideshowVideoPanel';
+import { useSongAnalysis } from './songAnalysis';
 import {
-  ARRANGE, arrange, buildSlides, clipItem, copyItem, editItem, editItems, FITS, fitToMusic, insertItems, mmss, MOTIONS, moveItem, moveItems, parseMmss, photoItem, removeItems, SHAPES, slidesSeconds, songsSeconds, titleItem, TRANSITIONS, type ArrangeHow, type Slide,
+  ARRANGE, arrange, buildSlides, clipItem, copyItem, editItem, editItems, fillSpot, FITS, fitToMusic, insertItems, LOOKS, mmss, MOTIONS, moveItem, moveItems, parseMmss, photoItem, removeItems, SHAPES, showMusicPieces, slidesSeconds, songsSeconds, spotItem, titleItem, TRANSITIONS, type ArrangeHow, type Slide,
 } from './slideshowData';
 import type { useSongs } from './songs';
-import type { PhotoFit, PhotoMotion, SlideItem, Slideshow, SlideshowOptions, SlideshowShape, SlideTransition } from './types';
+import type { PhotoFit, PhotoLook, PhotoMotion, SlideItem, Slideshow, SlideshowOptions, SlideshowShape, SlideTransition } from './types';
 
 interface Props {
   show: Slideshow;
@@ -39,51 +45,25 @@ interface Props {
   onDuplicate: () => void;
   onDelete: () => void;
   onClose: () => void;
+  /** The program owner: the AI designer tab. */
+  aiDesigner?: boolean;
+  teamName?: string;
 }
 
-type Side = 'slide' | 'look' | 'music';
+type Side = 'slide' | 'look' | 'music' | 'ai';
 
-/** A photo's small picture, fetched when its tile scrolls into view. */
-const PhotoThumb: React.FC<{ id: string }> = ({ id }) => {
-  const ref = useRef<HTMLDivElement>(null);
-  const [url, setUrl] = useState('');
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    let off = false;
-    const io = new IntersectionObserver(
-      (es) => {
-        if (!es.some((e) => e.isIntersecting)) return;
-        io.disconnect();
-        void photoThumb(id)
-          .then((u) => !off && setUrl(u))
-          .catch(() => undefined);
-      },
-      { rootMargin: '200px' }
-    );
-    io.observe(el);
-    return () => {
-      off = true;
-      io.disconnect();
-    };
-  }, [id]);
-  return (
-    <div ref={ref} className="absolute inset-0 bg-slate-200 dark:bg-slate-800">
-      {url && <img src={url} alt="" className="w-full h-full object-cover" draggable={false} />}
-    </div>
-  );
-};
-
-const TRANSITION_SHORT: Record<SlideTransition, string> = { crossfade: 'Crossfade', black: 'Black', white: 'White', cut: 'Cut' };
+const TRANSITION_SHORT: Record<SlideTransition, string> = { crossfade: 'Crossfade', black: 'Black', white: 'White', cut: 'Cut', wipe: 'Wipe', push: 'Push', zoom: 'Zoom' };
 
 const TILE_SIZES = { s: 92, m: 118, l: 170 } as const;
 type TileSize = keyof typeof TILE_SIZES;
 
 export const SlideshowEditor: React.FC<Props> = ({
-  show, edit: editRaw, readOnly: ro, highlights, reels, games, roster, media, me, ownerLabel, access, settings, logo, songs, onDuplicate, onDelete, onClose,
+  show, edit: editRaw, readOnly: ro, highlights, reels, games, roster, media, me, ownerLabel, access, settings, logo, songs, onDuplicate, onDelete, onClose, aiDesigner = false, teamName,
 }) => {
   const o = show.options;
   const slides = useMemo(() => buildSlides(show, highlights, settings), [show, highlights, settings]);
+  // The video and the export leave the empty photo spots out.
+  const videoSlides = useMemo(() => buildSlides(show, highlights, settings, { spots: false }), [show, highlights, settings]);
   const total = slidesSeconds(slides);
   const slideOf = useMemo(() => new Map(slides.map((s) => [s.item.id, s])), [slides]);
   const hById = useMemo(() => new Map(highlights.map((h) => [h.id, h])), [highlights]);
@@ -168,6 +148,16 @@ export const SlideshowEditor: React.FC<Props> = ({
   };
   const [side, setSide] = useState<Side>('look');
   const [picking, setPicking] = useState<'' | 'photos' | 'clips'>('');
+  // Photos picked for a saved spot fill it; the + on a slide puts new ones right after it.
+  const [fillingSpot, setFillingSpot] = useState<string | null>(null);
+  const [insertHere, setInsertHere] = useState<string | null | undefined>(undefined);
+  const [plusMenu, setPlusMenu] = useState<string | null>(null);
+  // The preview's playhead: a slide tapped jumps there.
+  const [seekReq, setSeekReq] = useState({ t: 0, n: 0 });
+  const playhead = useRef(0);
+  const seekTo = (t: number) => setSeekReq((s) => ({ t, n: s.n + 1 }));
+  // Where a slide is fully in view (past its fade in, and past the fade up from black for the first one).
+  const shownAt = (sl: Slide) => sl.start + Math.min(sl.seconds * 0.5, Math.max(sl.fade, sl.start === 0 && o.fadeEnds ? Math.min(1, total / 4) : 0) + 0.05);
   const [playing, setPlaying] = useState<number | null>(null);
   const [making, setMaking] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -185,6 +175,8 @@ export const SlideshowEditor: React.FC<Props> = ({
     setSelected(id);
     anchor.current = id;
     if (id) setSide('slide');
+    const at = id ? slideOf.get(id) : null;
+    if (at) seekTo(shownAt(at));
     if (!narrow()) return;
     window.setTimeout(() => {
       if (id) sideRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -300,7 +292,97 @@ export const SlideshowEditor: React.FC<Props> = ({
   const songLens = songs.lens;
   const pickedSongs = o.songs.map((p) => ({ ...p, seconds: songLens[p.name] || 0, have: songs.songs.some((s) => s.name === p.name) }));
   const musicSeconds = songsSeconds(pickedSongs.filter((p) => p.have).map((p) => ({ seconds: p.seconds, start: p.start || 0 })));
-  const fit = fitToMusic(slides, musicSeconds);
+  const delay = o.musicDelay || 0;
+  const fit = musicSeconds > 0 ? fitToMusic(slides, delay + musicSeconds) : null;
+
+  // ---- The songs read on this device: waveform, tempo and beats (lined up in the slideshow's time) ----
+  const playableKey = pickedSongs.map((p) => `${p.name}|${p.seconds}|${p.start || 0}|${p.have}`).join('\n');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const playable = useMemo(() => pickedSongs.filter((p) => p.have && p.seconds > 0), [playableKey]);
+  const analyses = useSongAnalysis(songs.songs, playable.map((p) => p.name));
+  const lens = useMemo(() => playable.map((p) => ({ seconds: p.seconds, start: p.start || 0 })), [playable]);
+  const pieces = useMemo(() => showMusicPieces(lens, o.loopMusic, delay, 0, total), [lens, o.loopMusic, delay, total]);
+  const analysisOf = (k: number) => {
+    const a = analyses[playable[k]?.name];
+    return a && a !== 'failed' ? a : undefined;
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const beats = useMemo(() => showBeats(pieces, (k) => analysisOf(k)?.beats), [pieces, analyses, playable]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const timelineSongs = useMemo(() => pieces.map((p) => ({ ...p, name: playable[p.song]?.name || '', analysis: analysisOf(p.song) })), [pieces, analyses, playable]);
+  const firstStart = o.songs[0]?.start || 0;
+  const musicShift = delay - firstStart;
+  // Where the songs sit, from the timeline: later = the music starts later; before the start = the first song starts further in.
+  const setMusicShift = (shift: number) => {
+    const firstLen = playable[0]?.seconds || 0;
+    const into = shift < 0 ? Math.min(-shift, Math.max(0, firstLen - 1)) : 0;
+    setOpt({ musicDelay: Math.max(0, Math.round(shift * 100) / 100), songs: o.songs.map((x, j) => (j === 0 ? { ...x, start: into > 0 ? Math.round(into * 100) / 100 : undefined } : x)) });
+  };
+  const [beatNote, setBeatNote] = useState('');
+  const lineUp = (every: number, withMarks: boolean, from: Slideshow = show) => {
+    const built = from === show ? slides : buildSlides(from, highlights, settings);
+    return lineUpWithBeats(from, built, beats, every, withMarks ? o.marks : []);
+  };
+  const doLineUp = (every: number, withMarks: boolean) => {
+    if (ro) return;
+    const r = lineUp(every, withMarks);
+    if (!r.changed) {
+      setBeatNote(beats.length || o.marks.length ? 'Already lined up.' : 'No beat found yet: add a song (its beat is read in a few seconds), or mark moments while it plays.');
+      return;
+    }
+    edit(() => ({ ...r.show, options: { ...r.show.options, beatEvery: every as 1 | 2 | 4 | 8 } }));
+    setBeatNote(`Timed ${r.changed} slide${r.changed === 1 ? '' : 's'} to the ${withMarks ? 'beat and your marks' : 'beat'}.`);
+  };
+  // The AI's plan, applied as one change (then lined up with the beat, when it asks).
+  const applyAi = (r: AppliedPlan) => {
+    let next = r.show;
+    if (r.beatEvery && beats.length) next = { ...lineUp(r.beatEvery, false, next).show, options: { ...next.options, beatEvery: r.beatEvery } };
+    edit(() => next);
+    setPicked([]);
+  };
+  // Timeline: a slide moved (with the others picked along with it) or made longer / shorter.
+  const moveBefore = (id: string, beforeId: string | null) => {
+    if (ro) return;
+    const group = pickedSet.has(id) && pickedNow.length > 1 ? pickedNow : [id];
+    edit((s) => {
+      const rest = s.items.filter((i) => !group.includes(i.id));
+      const at = beforeId ? rest.findIndex((i) => i.id === beforeId) : rest.length;
+      return moveItems(s, group, at < 0 ? rest.length : at);
+    });
+  };
+  const fromTimeline = (id: string, how: { add: boolean; range: boolean }) => {
+    if (how.add) {
+      setPicked((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]));
+      anchor.current = id;
+    } else if (how.range && anchor.current) {
+      const a = show.items.findIndex((x) => x.id === anchor.current);
+      const b = show.items.findIndex((x) => x.id === id);
+      if (a >= 0 && b >= 0) setPicked(show.items.slice(Math.min(a, b), Math.max(a, b) + 1).map((x) => x.id));
+    } else {
+      setPicked([id]);
+      anchor.current = id;
+    }
+    setSide('slide');
+  };
+  // Where new slides go: right after a slide's + button, else after the picked ones.
+  const target = insertHere !== undefined ? insertHere : insertAfter;
+  const addSpot = (afterId: string | null, label?: string) => {
+    if (ro) return;
+    const it = spotItem(label);
+    edit((s) => insertItems(s, [it], afterId));
+    setInsertHere(undefined);
+    pick(it.id);
+  };
+  // The + menu closes on a tap anywhere else.
+  useEffect(() => {
+    if (!plusMenu) return;
+    const on = (e: Event) => {
+      const t = e.target as Element | null;
+      if (!t?.closest?.('[role=menu]') && !t?.closest?.('[aria-label^="Add after"]')) setPlusMenu(null);
+    };
+    document.addEventListener('pointerdown', on);
+    return () => document.removeEventListener('pointerdown', on);
+  }, [plusMenu]);
 
   const addSongFiles = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -325,7 +407,7 @@ export const SlideshowEditor: React.FC<Props> = ({
       <div
         key={item.id}
         data-slide={item.id}
-        className="relative"
+        className="relative group"
         onDragOver={(e) => {
           if (dragFrom.current === null) return;
           e.preventDefault();
@@ -365,6 +447,11 @@ export const SlideshowEditor: React.FC<Props> = ({
               <Film size={18} style={{ color: settings.accent || '#f2b705' }} />
               <span className="text-[10px] font-bold leading-tight line-clamp-2">{h ? h.title || 'Highlight' : 'Clip deleted'}</span>
             </div>
+          ) : item.kind === 'spot' ? (
+            <div className="absolute inset-0 m-0.5 rounded-md border-2 border-dashed border-slate-400 dark:border-slate-500 bg-slate-100 dark:bg-slate-900 flex flex-col items-center justify-center gap-0.5 p-1.5 text-center text-slate-500 dark:text-slate-400">
+              <ImagePlus size={18} />
+              <span className="text-[10px] font-bold leading-tight line-clamp-2">{item.label || 'Photo goes here'}</span>
+            </div>
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-1.5 text-center" style={{ background: settings.primary || '#1e3a8a', color: settings.text || '#fff' }}>
               <span className="text-[11px] font-black leading-tight line-clamp-2">{item.title || 'Title'}</span>
@@ -383,9 +470,9 @@ export const SlideshowEditor: React.FC<Props> = ({
               {on && <Check size={12} />}
             </span>
           )}
-          {item.kind === 'photo' && item.focus && !many && (
-            <span className="absolute top-0.5 right-0.5 h-4 w-4 rounded inline-flex items-center justify-center" style={{ background: 'rgba(15,23,42,.75)', color: '#f8fafc' }} title="Zooms toward a spot you picked">
-              <Crosshair size={9} />
+          {item.kind === 'photo' && (item.focus || item.frame) && !many && (
+            <span className="absolute top-0.5 right-0.5 h-4 w-4 rounded inline-flex items-center justify-center" style={{ background: 'rgba(15,23,42,.75)', color: '#f8fafc' }} title={item.frame ? 'Placed by hand' : 'Zooms toward a spot you picked'}>
+              {item.frame ? <Move size={9} /> : <Crosshair size={9} />}
             </span>
           )}
           <span className="absolute bottom-0.5 right-0.5 h-4 px-1 rounded text-[9px] font-bold tabular-nums inline-flex items-center gap-0.5" style={{ background: 'rgba(15,23,42,.75)', color: '#f8fafc' }}>
@@ -398,6 +485,54 @@ export const SlideshowEditor: React.FC<Props> = ({
             </span>
           )}
         </button>
+        {!ro && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setPlusMenu(plusMenu === item.id ? null : item.id);
+            }}
+            className={`absolute -right-2.5 top-1/2 -translate-y-1/2 z-20 h-6 w-6 rounded-full bg-indigo-600 text-white shadow-md ring-2 ring-white dark:ring-slate-900 inline-flex items-center justify-center transition-opacity ${on || plusMenu === item.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
+            aria-label={`Add after slide ${i + 1}`}
+            title="Add after this slide"
+          >
+            <Plus size={13} />
+          </button>
+        )}
+        {plusMenu === item.id && (
+          <div className="absolute right-0 top-full mt-1 z-30 w-44 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl p-1 flex flex-col text-xs" role="menu">
+            <span className="px-2 py-1 text-[10px] font-black uppercase tracking-wide text-slate-400">After slide {i + 1}</span>
+            {(
+              [
+                ['Photos', <ImageIcon key="p" size={13} />, () => (setInsertHere(item.id), setPicking('photos'))],
+                ['Clips', <Film key="c" size={13} />, () => (setInsertHere(item.id), setPicking('clips'))],
+                [
+                  'Title card',
+                  <Type key="t" size={13} />,
+                  () => {
+                    const it = titleItem(show.name || 'Title');
+                    edit((s) => insertItems(s, [it], item.id));
+                    pick(it.id);
+                  },
+                ],
+                ['Empty photo spot', <SquareDashed key="s" size={13} />, () => addSpot(item.id)],
+              ] as const
+            ).map(([text, icon, run]) => (
+              <button
+                key={text}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setPlusMenu(null);
+                  run();
+                }}
+                className="h-8 px-2 rounded-lg inline-flex items-center gap-2 font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-left"
+              >
+                {icon} {text}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
   };
@@ -479,7 +614,42 @@ export const SlideshowEditor: React.FC<Props> = ({
             </button>
           </div>
         )}
-        {s && s.kind !== 'clip' && <SlidePreview slide={s} options={o} look={settings} logo={logo} readOnly={ro} onFocus={(f) => setItem(sel.id, { focus: f })} />}
+        {s && s.kind !== 'clip' && (
+          <SlidePreview
+            slide={s}
+            options={o}
+            look={settings}
+            logo={logo}
+            readOnly={ro}
+            onFocus={(f) => setItem(sel.id, { focus: f })}
+            onFrame={(frame, frameEnd) => setItem(sel.id, { frame, frameEnd })}
+          />
+        )}
+        {sel.kind === 'spot' && (
+          <>
+            {!ro && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFillingSpot(sel.id);
+                  setPicking('photos');
+                }}
+                className="h-10 px-4 rounded-lg bg-indigo-600 text-white text-xs font-black inline-flex items-center justify-center gap-1.5"
+              >
+                <ImagePlus size={15} /> Pick the photo for this spot
+              </button>
+            )}
+            <div className={row}>
+              <span className={label}>What goes here</span>
+              <input value={sel.label || ''} onChange={(e) => setItem(sel.id, { label: e.target.value || undefined })} className={`${input} flex-1`} disabled={ro} placeholder="e.g. Team photo, #13 with the trophy" aria-label="What photo goes here" />
+            </div>
+            <div className={row}>
+              <span className={label}>Time up</span>
+              {secondsInput(sel.seconds, o.photoSeconds, (v) => setItem(sel.id, { seconds: v }))}
+            </div>
+            <p className="text-[11px] text-slate-500">A spot shows while you edit and play here; the video leaves it out until a photo fills it.</p>
+          </>
+        )}
         {sel.kind === 'title' && (
           <>
             <div className={row}>
@@ -527,6 +697,17 @@ export const SlideshowEditor: React.FC<Props> = ({
             <div className={row}>
               <span className={label}>Words on it</span>
               <input value={sel.caption || ''} onChange={(e) => setItem(sel.id, { caption: e.target.value || undefined })} className={`${input} flex-1`} disabled={ro} placeholder="(optional)" aria-label="Words on the photo" />
+            </div>
+            <div className={row}>
+              <span className={label}>Look</span>
+              <select value={sel.look || ''} onChange={(e) => setItem(sel.id, { look: (e.target.value || undefined) as PhotoLook | undefined })} className={input} disabled={ro} aria-label="Color look of this photo">
+                <option value="">Same as the rest ({LOOKS.find((l) => l.id === o.look)?.label})</option>
+                {LOOKS.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </>
         )}
@@ -590,6 +771,7 @@ export const SlideshowEditor: React.FC<Props> = ({
     const trans = same((i) => i.transition);
     const motion = same((i) => (i.kind === 'photo' ? i.motion : undefined));
     const fitV = same((i) => (i.kind === 'photo' ? i.fit : undefined));
+    const lookV = same((i) => (i.kind === 'photo' ? i.look : undefined));
     return (
       <div className="flex flex-col gap-2.5">
         <div className="flex items-center gap-1.5">
@@ -640,6 +822,18 @@ export const SlideshowEditor: React.FC<Props> = ({
                     {FITS.filter((f) => f.id !== 'auto').map((f) => (
                       <option key={f.id} value={f.id}>
                         {f.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className={row}>
+                  <span className={label}>Look</span>
+                  <select value={lookV === '~' ? '~' : (lookV as string) || ''} onChange={(e) => e.target.value !== '~' && all((i) => (i.kind === 'photo' ? { look: (e.target.value || undefined) as PhotoLook | undefined } : null))} className={input} aria-label="Color look of these photos">
+                    {lookV === '~' && <option value="~">(mixed)</option>}
+                    <option value="">Same as the rest</option>
+                    {LOOKS.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.label}
                       </option>
                     ))}
                   </select>
@@ -795,6 +989,43 @@ export const SlideshowEditor: React.FC<Props> = ({
         </div>
       </fieldset>
       <fieldset className="flex flex-col gap-1.5" disabled={ro}>
+        <legend className="text-xs font-black text-slate-800 dark:text-slate-100 mb-1">Look</legend>
+        <div className="grid grid-cols-5 gap-1">
+          {LOOKS.map((l) => {
+            const on = o.look === l.id;
+            const swatch: Record<string, string> = {
+              natural: 'linear-gradient(135deg,#16a34a,#2563eb)',
+              warm: 'linear-gradient(135deg,#f59e0b,#b45309)',
+              cool: 'linear-gradient(135deg,#38bdf8,#1e40af)',
+              bw: 'linear-gradient(135deg,#e5e7eb,#111827)',
+              vintage: 'linear-gradient(135deg,#d6b98c,#7c5a3a)',
+            };
+            return (
+              <button key={l.id} type="button" onClick={() => setOpt({ look: l.id })} aria-pressed={on} className={`flex flex-col items-center gap-1 rounded-lg border p-1 ${on ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
+                <span className="w-full h-6 rounded" style={{ background: swatch[l.id] }} aria-hidden />
+                <span className="text-[10px] font-bold text-slate-700 dark:text-slate-200 leading-tight text-center">{l.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+          <label className="inline-flex items-center gap-1.5">
+            <input type="checkbox" checked={o.vignette} onChange={(e) => setOpt({ vignette: e.target.checked })} /> Darker corners
+          </label>
+          <label className="inline-flex items-center gap-1.5">
+            <input type="checkbox" checked={o.logoBug} onChange={(e) => setOpt({ logoBug: e.target.checked })} disabled={!logo} /> Team logo in the corner{!logo ? ' (add a logo in Highlights settings)' : ''}
+          </label>
+        </div>
+        <div className={row}>
+          <span className={label}>Photo words</span>
+          {(['bottom', 'top'] as const).map((v) => (
+            <button key={v} type="button" className={pill(o.captionAt === v)} aria-pressed={o.captionAt === v} onClick={() => setOpt({ captionAt: v })}>
+              {v === 'bottom' ? 'At the bottom' : 'At the top'}
+            </button>
+          ))}
+        </div>
+      </fieldset>
+      <fieldset className="flex flex-col gap-1.5" disabled={ro}>
         <legend className="text-xs font-black text-slate-800 dark:text-slate-100 mb-1">Clips</legend>
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
           <label className="inline-flex items-center gap-1.5">
@@ -914,6 +1145,76 @@ export const SlideshowEditor: React.FC<Props> = ({
           {fit === null && counts.p > 0 && <span className="text-slate-500">The clips and title cards already run longer than the songs.</span>}
         </div>
       )}
+      <fieldset className="flex flex-col gap-2" disabled={ro}>
+        <legend className="text-xs font-black text-slate-800 dark:text-slate-100 mb-1 inline-flex items-center gap-1">
+          <AudioLines size={13} /> Line up with the music
+        </legend>
+        {playable.length > 0 ? (
+          <ul className="flex flex-col gap-0.5 text-[11px] text-slate-600 dark:text-slate-300">
+            {playable.map((p) => {
+              const a = analyses[p.name];
+              return (
+                <li key={p.name} className="truncate">
+                  <b>{p.name}</b>: {a === 'failed' ? "couldn't read its beat" : a ? (a.bpm ? `${Math.round(a.bpm)} beats a minute · ${a.beats.length} beats` : 'no steady beat found') : 'reading the beat…'}
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <span className="text-[11px] text-slate-500">Add a song above; its beat is read on this device.</span>
+        )}
+        <div className={row}>
+          <span className={label}>Music starts</span>
+          <input
+            key={`delay-${delay}`}
+            defaultValue={mmss(delay)}
+            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+            onBlur={(e) => {
+              const v = parseMmss(e.target.value);
+              if (Number.isFinite(v) && Math.abs(v - delay) > 0.01) setOpt({ musicDelay: Math.max(0, v) });
+              else e.target.value = mmss(delay);
+            }}
+            className={`${input} w-16`}
+            aria-label="Seconds into the slideshow the music starts"
+          />
+          <span className="text-slate-500">into the slideshow</span>
+          {sel && slideOf.get(sel.id) && (
+            <button type="button" onClick={() => setOpt({ musicDelay: Math.round((slideOf.get(sel.id)?.start || 0) * 100) / 100 })} className="h-8 px-2 rounded-lg border border-slate-300 dark:border-slate-600 font-bold">
+              With slide {selIndex + 1}
+            </button>
+          )}
+          <button type="button" onClick={() => setOpt({ musicDelay: Math.round(playhead.current * 100) / 100 })} className="h-8 px-2 rounded-lg border border-slate-300 dark:border-slate-600 font-bold">
+            At the playhead
+          </button>
+        </div>
+        <div className={row}>
+          <span className={label}>New photo every</span>
+          {([1, 2, 4, 8] as const).map((n) => (
+            <button key={n} type="button" className={pill(o.beatEvery === n)} aria-pressed={o.beatEvery === n} onClick={() => setOpt({ beatEvery: n })}>
+              {n} beat{n === 1 ? '' : 's'}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <button type="button" onClick={() => doLineUp(o.beatEvery, false)} disabled={!beats.length} className="h-9 px-3 rounded-lg bg-indigo-600 text-white text-xs font-black inline-flex items-center gap-1.5 disabled:opacity-40">
+            <AudioLines size={14} /> Change slides on the beat
+          </button>
+          {o.marks.length > 0 && (
+            <button type="button" onClick={() => doLineUp(o.beatEvery, true)} className="h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold inline-flex items-center gap-1.5">
+              <Bookmark size={13} /> …and on my {o.marks.length} mark{o.marks.length === 1 ? '' : 's'}
+            </button>
+          )}
+        </div>
+        {beatNote && <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300">{beatNote}</span>}
+        <p className="text-[11px] text-slate-500">
+          Each photo, title card and spot is timed so the next one starts on a beat (clips keep their length). Tap <b>Mark</b> under the preview (or press M) while it plays to mark big moments in the song (the chorus, a drop); they show on the timeline and slides line up to them too.
+        </p>
+        {o.marks.length > 0 && !ro && (
+          <button type="button" onClick={() => setOpt({ marks: [] })} className="self-start text-[11px] font-bold text-slate-600 dark:text-slate-300 underline">
+            Clear my {o.marks.length} mark{o.marks.length === 1 ? '' : 's'}
+          </button>
+        )}
+      </fieldset>
     </div>
   );
 
@@ -934,7 +1235,7 @@ export const SlideshowEditor: React.FC<Props> = ({
             <Play size={14} /> Play
           </button>
           <button type="button" onClick={() => setMaking(true)} disabled={!slides.length} className="h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold inline-flex items-center gap-1.5 disabled:opacity-40">
-            <Video size={14} /> Make the video
+            <Video size={14} /> Video & export
           </button>
           {!ro && (
             <>
@@ -956,6 +1257,35 @@ export const SlideshowEditor: React.FC<Props> = ({
       </div>
 
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="flex flex-col gap-3 min-w-0">
+        {slides.length > 0 && (
+          <div className={`${box} p-2 sm:p-3 min-w-0`}>
+            <PreviewDeck
+              title={show.name}
+              slides={slides}
+              total={total}
+              options={o}
+              access={access}
+              look={settings}
+              logo={logo}
+              songs={songs.songs}
+              songLens={songLens}
+              seek={seekReq}
+              readOnly={ro}
+              picked={pickedSet}
+              onPick={fromTimeline}
+              onResize={(id, seconds) => setItem(id, { seconds })}
+              onMove={moveBefore}
+              timelineSongs={timelineSongs}
+              beats={beats}
+              onMarks={(marks) => setOpt({ marks })}
+              musicShift={musicShift}
+              onMusicShift={setMusicShift}
+              onBig={(t) => setPlaying(t)}
+              timeRef={playhead}
+            />
+          </div>
+        )}
         <div className={`${box} p-3 flex flex-col gap-2 min-w-0`}>
           {!ro && (
             <div className="flex flex-wrap items-center gap-1.5">
@@ -992,9 +1322,39 @@ export const SlideshowEditor: React.FC<Props> = ({
                 >
                   <Plus size={12} /> Title card
                 </button>
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (!v) return;
+                    const [where, title, sub] = v.split('|');
+                    const it = titleItem(title, sub || undefined);
+                    edit((s) => (where === 'start' ? { ...s, items: [it, ...s.items] } : where === 'end' ? { ...s, items: [...s.items, it] } : insertItems(s, [it], target)));
+                    pick(it.id);
+                  }}
+                  className={`${input} h-9 w-24`}
+                  aria-label="Ready-made title cards"
+                >
+                  <option value="">Ready-made…</option>
+                  {teamName && <option value={`start|${teamName}|Season highlights`}>Opening: {teamName}</option>}
+                  <option value="start|Our Season|Every snap, every smile">Opening: Our Season</option>
+                  <option value="here|The Playoffs">The Playoffs</option>
+                  <option value="here|Behind the Scenes|Practice · Sidelines · Fun">Behind the Scenes</option>
+                  <option value="end|Thank you, Coaches">Thank you, Coaches</option>
+                  <option value="end|Thank you, Families|We couldn't do it without you">Thank you, Families</option>
+                  <option value="end|See you next season">Ending: See you next season</option>
+                </select>
               </span>
+              <button
+                type="button"
+                onClick={() => addSpot(target)}
+                className="h-9 px-2.5 rounded-lg border border-dashed border-slate-400 dark:border-slate-500 text-xs font-bold inline-flex items-center gap-1 text-slate-700 dark:text-slate-200"
+                title="Save a place for a photo you'll add later"
+              >
+                <SquareDashed size={13} /> Photo spot
+              </button>
               <span className="text-[11px] text-slate-500 w-full sm:w-auto sm:ml-auto">
-                {insertAfter ? `New ones go after slide ${insertIndex + 1}.` : 'New ones go at the end.'} {touch ? 'Tap a slide to move it.' : 'Drag slides to put them in order.'}
+                {insertAfter ? `New ones go after slide ${insertIndex + 1}.` : 'New ones go at the end.'} {touch ? 'Tap a slide, then its + to add after it.' : 'Drag slides to put them in order; the + on a slide adds after it.'}
               </span>
             </div>
           )}
@@ -1085,15 +1445,17 @@ export const SlideshowEditor: React.FC<Props> = ({
             </div>
           )}
         </div>
+        </div>
 
         <div ref={sideRef} className={`${box} p-3 flex flex-col gap-3 min-w-0 lg:max-h-[80vh] lg:overflow-auto lg:sticky lg:top-2 self-start w-full scroll-mt-2`}>
-          <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800" role="tablist">
+          <div className={`grid ${aiDesigner ? 'grid-cols-4' : 'grid-cols-3'} gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800`} role="tablist">
             {(
               [
                 ['slide', 'This slide'],
-                ['look', 'Fades & photos'],
+                ['look', 'Look'],
                 ['music', 'Music'],
-              ] as const
+                ...(aiDesigner ? ([['ai', 'AI']] as const) : []),
+              ] as [Side, string][]
             ).map(([id, text]) => (
               <button
                 key={id}
@@ -1101,14 +1463,34 @@ export const SlideshowEditor: React.FC<Props> = ({
                 role="tab"
                 aria-selected={side === id}
                 onClick={() => setSide(id)}
-                className={`h-8 rounded-lg text-[11px] font-black ${side === id ? 'bg-white dark:bg-slate-950 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'text-slate-600 dark:text-slate-300'}`}
+                className={`h-8 rounded-lg text-[11px] font-black inline-flex items-center justify-center gap-1 ${side === id ? 'bg-white dark:bg-slate-950 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'text-slate-600 dark:text-slate-300'}`}
               >
+                {id === 'ai' && <Sparkles size={12} />}
                 {text}
                 {id === 'music' && o.songs.length ? ` (${o.songs.length})` : ''}
               </button>
             ))}
           </div>
-          {side === 'slide' ? slidePanel() : side === 'look' ? lookPanel() : musicPanel()}
+          {side === 'slide' ? (
+            slidePanel()
+          ) : side === 'look' ? (
+            lookPanel()
+          ) : side === 'music' || !aiDesigner ? (
+            musicPanel()
+          ) : (
+            <AiDesignPanel
+              show={show}
+              slides={slides}
+              media={media}
+              highlights={highlights}
+              roster={roster.map((k) => ({ num: k.num, name: [k.firstName, k.lastName].filter(Boolean).join(' ') }))}
+              teamName={teamName}
+              songs={playable.map((p) => ({ name: p.name, seconds: p.seconds, bpm: analysisOf(playable.indexOf(p))?.bpm || 0, start: p.start || 0 }))}
+              beats={beats}
+              readOnly={ro}
+              onApply={applyAi}
+            />
+          )}
         </div>
       </div>
 
@@ -1121,10 +1503,14 @@ export const SlideshowEditor: React.FC<Props> = ({
           onSignIn={() => access.connect()}
           onAdd={(list) => {
             const items = list.map(photoItem);
-            edit((s) => insertItems(s, items, insertAfter));
+            const spot = fillingSpot;
+            edit((s) => (spot && s.items.some((i) => i.id === spot) ? fillSpot(s, spot, items) : insertItems(s, items, target)));
+            if (spot && items[0]) pick(items[0].id);
             setPicking('');
+            setFillingSpot(null);
+            setInsertHere(undefined);
           }}
-          onClose={() => setPicking('')}
+          onClose={() => (setPicking(''), setFillingSpot(null), setInsertHere(undefined))}
         />
       )}
       {picking === 'clips' && (
@@ -1136,16 +1522,17 @@ export const SlideshowEditor: React.FC<Props> = ({
           already={new Set(show.items.flatMap((i) => (i.kind === 'clip' ? [i.highlightId] : [])))}
           onAdd={(ids) => {
             const items = ids.map(clipItem);
-            edit((s) => insertItems(s, items, insertAfter));
+            edit((s) => insertItems(s, items, target));
             setPicking('');
+            setInsertHere(undefined);
           }}
-          onClose={() => setPicking('')}
+          onClose={() => (setPicking(''), setInsertHere(undefined))}
         />
       )}
       {playing !== null && (
         <SlideshowPlayer title={show.name} slides={slides} options={o} access={access} look={settings} logo={logo} songs={songs.songs} songLens={songLens} startAt={playing} onClose={() => setPlaying(null)} />
       )}
-      {making && <SlideshowVideoPanel title={show.name} slides={slides} options={o} access={access} look={settings} logo={logo} songs={songs.songs} onClose={() => setMaking(false)} />}
+      {making && <SlideshowVideoPanel title={show.name} slides={videoSlides} options={o} access={access} look={settings} logo={logo} songs={songs.songs} songLens={songLens} onClose={() => setMaking(false)} />}
     </div>
   );
 };

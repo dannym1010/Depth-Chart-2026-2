@@ -6,9 +6,9 @@ import type { FilmAccess } from '../highlights/filmAccess';
 import type { HighlightSettings } from '../highlights/types';
 import { frameRange, pictureRect } from '../highlights/socialVideo';
 import { encoderQuality, qualitySizes, type VideoQuality } from '../highlights/videoQuality';
-import { drawFade, drawSlide } from './drawSlide';
+import { drawFade, drawSlide, slideLook } from './drawSlide';
 import { photoBitmap } from './photoLoad';
-import { fadeAt, musicLevel, musicPieces, SHAPES, slidesSeconds, songsSeconds, type Slide } from './slideshowData';
+import { fadeAt, musicLevel, SHAPES, showMusicPieces, slidesSeconds, songsSeconds, type Slide } from './slideshowData';
 import type { SlideshowOptions } from './types';
 
 export const FPS = 30;
@@ -96,7 +96,9 @@ export async function renderSlideshowVideo(o: SlideshowRenderOptions): Promise<S
     }
   }
   const lens = music.map((m) => ({ seconds: m.buf.duration, start: m.start }));
-  const songsEnd = opt.loopMusic ? Infinity : songsSeconds(lens);
+  const delay = opt.musicDelay || 0;
+  const songsEnd = opt.loopMusic ? Infinity : delay + songsSeconds(lens);
+  const drawLook = slideLook(opt);
 
   // Photos: a few ahead, so the encoder rarely waits on Drive.
   const photoSize = Math.max(W, H) * 1.15;
@@ -185,18 +187,18 @@ export async function renderSlideshowVideo(o: SlideshowRenderOptions): Promise<S
         pctx.drawImage(out, 0, 0);
         havePrev = true;
       }
-      const label = s.kind === 'photo' ? s.item.name : s.kind === 'title' ? s.item.title : s.h.title || 'Clip';
+      const label = s.kind === 'photo' ? s.item.name : s.kind === 'title' ? s.item.title : s.kind === 'spot' ? s.item.label || 'Photo spot' : s.h.title || 'Clip';
       progress(label);
       // Start reading the next photos now.
       for (let k = i + 1; k <= i + 3; k++) void photoOf(k);
 
-      if (s.kind === 'photo' || s.kind === 'title') {
+      if (s.kind === 'photo' || s.kind === 'title' || s.kind === 'spot') {
         const bm = s.kind === 'photo' ? await photoOf(i) : null;
         if (s.kind === 'photo' && !bm) missing.push(s.item.name);
         const src = bm ? { img: bm, w: bm.width, h: bm.height } : null;
         for (let f = f0; f < f1; f++) {
           check();
-          await put(i, f, (local) => drawSlide(ctx, W, H, s, local, src, { look, logo: o.logo, tiny, backdrop: opt.backdrop }));
+          await put(i, f, (local) => drawSlide(ctx, W, H, s, local, src, { look, logo: o.logo, tiny, ...drawLook }));
           if (f % 15 === 0) progress(label);
         }
         photos.delete(i);
@@ -216,7 +218,7 @@ export async function renderSlideshowVideo(o: SlideshowRenderOptions): Promise<S
           const cc = c && c.key === `${seg.h.game.key}|${seg.view}|${seg.clip}` ? c : await open(seg).catch(() => null);
           let have = false;
           const draw = (t: number) => (local: number) =>
-            drawSlide(ctx, W, H, s, local, { img: have ? frameCopy : null, w: cc?.w || 16, h: cc?.h || 9, seg, t }, { look, logo: o.logo, tiny });
+            drawSlide(ctx, W, H, s, local, { img: have ? frameCopy : null, w: cc?.w || 16, h: cc?.h || 9, seg, t }, { look, logo: o.logo, tiny, ...drawLook });
           if (seg.type === 'freeze') {
             const fr = cc?.frames ? await cc.frames.getCanvas(seg.at) : null;
             if (fr) (keep(fr.canvas as OffscreenCanvas), (have = true));
@@ -275,12 +277,12 @@ export async function renderSlideshowVideo(o: SlideshowRenderOptions): Promise<S
             const g = ac.createGain();
             // The level along the slide, every half second (fades, and the dip under game sound easing in).
             const len = t1 - t0;
-            const lvl = (t: number) => musicLevel(opt, t, total, underSound, songsEnd);
+            const lvl = (t: number) => musicLevel(opt, t, total, underSound, songsEnd, delay);
             g.gain.setValueAtTime(lvl(t0), 0);
             for (let x = 0.5; x < len; x += 0.5) g.gain.linearRampToValueAtTime(lvl(t0 + x), x);
             g.gain.linearRampToValueAtTime(lvl(t1), len);
             g.connect(ac.destination);
-            for (const p of musicPieces(lens, opt.loopMusic, t0, t1)) {
+            for (const p of showMusicPieces(lens, opt.loopMusic, delay, t0, t1)) {
               const m = ac.createBufferSource();
               m.buffer = music[p.song].buf;
               m.connect(g);

@@ -2,7 +2,7 @@
 // way (when each slide is up, how it fades in, where a photo's slow move is, which song plays when and how loud).
 import { highlightSegments, segmentSeconds, type Segment } from '../highlights/highlightData';
 import type { Highlight, HighlightSettings } from '../highlights/types';
-import type { PhotoFit, PhotoMotion, SlideItem, Slideshow, SlideshowOptions, SlideshowShape, SlideTransition, SongPick } from './types';
+import type { PhotoFit, PhotoFrame, PhotoLook, PhotoMotion, SlideItem, Slideshow, SlideshowOptions, SlideshowShape, SlideTransition, SongPick } from './types';
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 const newId = (prefix: string, now = Date.now()) => `${prefix}_${now.toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -18,6 +18,9 @@ export const TRANSITIONS: { id: SlideTransition; label: string }[] = [
   { id: 'crossfade', label: 'Crossfade' },
   { id: 'black', label: 'Fade through black' },
   { id: 'white', label: 'Fade through white' },
+  { id: 'wipe', label: 'Wipe across' },
+  { id: 'push', label: 'Push (slides over)' },
+  { id: 'zoom', label: 'Zoom through' },
   { id: 'cut', label: 'Cut (no fade)' },
 ];
 
@@ -28,6 +31,14 @@ export const MOTIONS: { id: PhotoMotion; label: string }[] = [
   { id: 'left', label: 'Drift left' },
   { id: 'right', label: 'Drift right' },
   { id: 'none', label: 'Still' },
+];
+
+export const LOOKS: { id: PhotoLook; label: string }[] = [
+  { id: 'natural', label: 'Natural' },
+  { id: 'warm', label: 'Warm' },
+  { id: 'cool', label: 'Cool' },
+  { id: 'bw', label: 'Black & white' },
+  { id: 'vintage', label: 'Vintage' },
 ];
 
 export const FITS: { id: PhotoFit; label: string }[] = [
@@ -56,6 +67,13 @@ export const defaultSlideshowOptions = (): SlideshowOptions => ({
   musicFadeOut: true,
   duck: true,
   loopMusic: true,
+  musicDelay: 0,
+  marks: [],
+  beatEvery: 2,
+  look: 'natural',
+  vignette: false,
+  logoBug: false,
+  captionAt: 'bottom',
 });
 
 export function newSlideshow(opts: { name: string; owner: string; ownerName?: string; items?: SlideItem[]; now?: number }): Slideshow {
@@ -177,6 +195,19 @@ export function arrange(items: SlideItem[], how: ArrangeHow, ids?: Set<string> |
 }
 export const clipItem = (highlightId: string): SlideItem => ({ id: newId('sl'), kind: 'clip', highlightId });
 export const titleItem = (title: string, sub?: string): SlideItem => ({ id: newId('sl'), kind: 'title', title, ...(sub ? { sub } : {}) });
+export const spotItem = (label?: string): SlideItem => ({ id: newId('sl'), kind: 'spot', ...(label ? { label } : {}) });
+
+/** A saved spot filled with photos: the first takes its place (its time and fade), the rest go right after it. */
+export function fillSpot(s: Slideshow, spotId: string, photos: SlideItem[]): Slideshow {
+  const at = s.items.findIndex((i) => i.id === spotId);
+  const spot = s.items[at];
+  if (!spot || spot.kind !== 'spot' || !photos.length) return insertItems(s, photos, null);
+  const [first, ...rest] = photos;
+  const keep = { ...(spot.seconds ? { seconds: spot.seconds } : {}), ...(spot.transition ? { transition: spot.transition } : {}) };
+  const list = s.items.slice();
+  list.splice(at, 1, first.kind === 'photo' ? ({ ...first, ...keep } as SlideItem) : first, ...rest);
+  return { ...s, items: list };
+}
 
 /** New items go right after `afterId` (the slide picked), else at the end. */
 export function insertItems(s: Slideshow, items: SlideItem[], afterId?: string | null): Slideshow {
@@ -213,12 +244,14 @@ export const slideshowsFor = (list: Slideshow[], me: string, all = false) => lis
 export type Slide =
   | { kind: 'photo'; item: Extract<SlideItem, { kind: 'photo' }>; start: number; seconds: number; fade: number; transition: SlideTransition; motion: PhotoMotion; fit: PhotoFit; strength: number }
   | { kind: 'title'; item: Extract<SlideItem, { kind: 'title' }>; start: number; seconds: number; fade: number; transition: SlideTransition }
+  | { kind: 'spot'; item: Extract<SlideItem, { kind: 'spot' }>; start: number; seconds: number; fade: number; transition: SlideTransition }
   | { kind: 'clip'; item: Extract<SlideItem, { kind: 'clip' }>; h: Highlight; segs: Segment[]; start: number; seconds: number; fade: number; transition: SlideTransition; sound: boolean };
 
 const AUTO_MOTIONS: PhotoMotion[] = ['in', 'right', 'out', 'left'];
 
 /** Every slide with when it starts, how long it's up, and how it comes in. Clips whose highlight is gone are left out. */
-export function buildSlides(show: Slideshow, highlights: Highlight[], settings: Pick<HighlightSettings, 'replaySpeed'>): Slide[] {
+/** `spots: false`: the empty photo spots left out (the video and the export). */
+export function buildSlides(show: Slideshow, highlights: Highlight[], settings: Pick<HighlightSettings, 'replaySpeed'>, opts: { spots?: boolean } = {}): Slide[] {
   const o = { ...defaultSlideshowOptions(), ...show.options };
   const byId = new Map(highlights.map((h) => [h.id, h]));
   const out: Slide[] = [];
@@ -235,6 +268,9 @@ export function buildSlides(show: Slideshow, highlights: Highlight[], settings: 
       slide = { kind: 'photo', item, start: t, seconds, fade: 0, transition, motion, fit: item.fit || o.photoFit, strength: MOVE_STRENGTH[o.motionStrength] ?? MOVE_STRENGTH.normal };
     } else if (item.kind === 'title') {
       slide = { kind: 'title', item, start: t, seconds: clamp(item.seconds || o.titleSeconds, 0.5, 60), fade: 0, transition };
+    } else if (item.kind === 'spot') {
+      if (opts.spots === false) continue;
+      slide = { kind: 'spot', item, start: t, seconds: clamp(item.seconds || o.photoSeconds, 0.5, 60), fade: 0, transition };
     } else {
       const h = byId.get(item.highlightId);
       if (!h) continue;
@@ -289,16 +325,27 @@ export function clipPartAt(slide: Extract<Slide, { kind: 'clip' }>, local: numbe
  * What goes over a slide's frame at a moment: `cross` = how much of the last frame of the slide before still shows
  * (a crossfade), and a black / white veil (`veil` 0..1) when fading through a color or at the very start and end.
  */
-export function fadeAt(slides: Slide[], i: number, local: number, fadeEnds: boolean): { cross: number; veil: number; color: 'black' | 'white' } {
+export type MoveKind = 'wipe' | 'push' | 'zoom';
+export interface FadeNow {
+  cross: number;
+  veil: number;
+  color: 'black' | 'white';
+  /** A wipe, push or zoom coming in: how far along it is (0..1). */
+  move?: { kind: MoveKind; p: number };
+}
+
+export function fadeAt(slides: Slide[], i: number, local: number, fadeEnds: boolean): FadeNow {
   const s = slides[i];
   let cross = 0;
   let veil = 0;
+  let move: FadeNow['move'];
   let color: 'black' | 'white' = 'black';
   if (!s) return { cross, veil, color };
   const half = s.fade / 2;
   // Coming in.
   if (s.fade > 0 && local < s.fade) {
     if (s.transition === 'crossfade') cross = 1 - local / s.fade;
+    else if (s.transition === 'wipe' || s.transition === 'push' || s.transition === 'zoom') move = { kind: s.transition, p: local / s.fade };
     else if ((s.transition === 'black' || s.transition === 'white') && local < half) {
       veil = 1 - local / half;
       color = s.transition;
@@ -331,7 +378,7 @@ export function fadeAt(slides: Slide[], i: number, local: number, fadeEnds: bool
       }
     }
   }
-  return { cross: clamp(cross, 0, 1), veil: clamp(veil, 0, 1), color };
+  return { cross: clamp(cross, 0, 1), veil: clamp(veil, 0, 1), color, ...(move ? { move: { kind: move.kind, p: clamp(move.p, 0, 1) } } : {}) };
 }
 
 // ---- Photos ----
@@ -361,7 +408,8 @@ export function photoRect(
   motion: PhotoMotion,
   p: number,
   strength: number = MOVE_STRENGTH.normal,
-  focus?: { x: number; y: number }
+  focus?: { x: number; y: number },
+  frames?: { from?: PhotoFrame; to?: PhotoFrame }
 ): { x: number; y: number; w: number; h: number } {
   const base = fill ? Math.max(W / srcW, H / srcH) : Math.min(W / srcW, H / srcH);
   const k = clamp(p, 0, 1);
@@ -369,16 +417,29 @@ export function photoRect(
   const move = fill ? strength : strength / 2;
   let zoom = 1;
   let drift: number | null = null;
-  if (motion === 'in') zoom = 1 + move * ease;
-  else if (motion === 'out') zoom = 1 + move * (1 - ease);
-  else if (motion === 'left' || motion === 'right') {
-    zoom = 1 + move;
-    drift = motion === 'left' ? ease : 1 - ease;
+  const a = frames?.from;
+  const b = frames?.to;
+  let spot = focus;
+  if (a && b) {
+    // Placed by hand at both ends: from one to the other (no other move).
+    zoom = clamp(a.z + (b.z - a.z) * ease, 1, 8);
+    spot = { x: a.x + (b.x - a.x) * ease, y: a.y + (b.y - a.y) * ease };
+  } else {
+    if (motion === 'in') zoom = 1 + move * ease;
+    else if (motion === 'out') zoom = 1 + move * (1 - ease);
+    else if (motion === 'left' || motion === 'right') {
+      zoom = 1 + move;
+      drift = motion === 'left' ? ease : 1 - ease;
+    }
+    if (a) {
+      zoom *= clamp(a.z, 1, 8);
+      spot = a;
+    }
   }
   const w = srcW * base * zoom;
   const h = srcH * base * zoom;
-  const fx = clamp(focus?.x ?? 0.5, 0, 1);
-  const fy = clamp(focus?.y ?? 0.5, 0, 1);
+  const fx = clamp(spot?.x ?? 0.5, 0, 1);
+  const fy = clamp(spot?.y ?? 0.5, 0, 1);
   // Bigger than the frame: kept over it (the focus as near the middle as the edges let it); smaller: in the middle,
   // closing in on the focus as it grows.
   const place = (size: number, frame: number, f: number, at1: number) => {
@@ -429,13 +490,23 @@ export function musicPieces(songs: SongLen[], loop: boolean, t0: number, t1: num
 }
 
 /** How loud the songs are at a time (0..1): the volume, faded in and out, lower under a clip's game sound. */
-export function musicLevel(o: Pick<SlideshowOptions, 'musicVolume' | 'musicFadeIn' | 'musicFadeOut' | 'duck'>, t: number, total: number, underSound: boolean, songsEnd = Infinity): number {
+/** `songsEnd`: seconds into the slideshow the songs run out; `delay`: when the first one starts. */
+export function musicLevel(o: Pick<SlideshowOptions, 'musicVolume' | 'musicFadeIn' | 'musicFadeOut' | 'duck'>, t: number, total: number, underSound: boolean, songsEnd = Infinity, delay = 0): number {
+  if (t < delay) return 0;
   let v = clamp(o.musicVolume, 0, 1);
-  if (o.musicFadeIn) v *= clamp(t / 2, 0, 1);
+  if (o.musicFadeIn) v *= clamp((t - delay) / 2, 0, 1);
   const end = Math.min(total, songsEnd);
   if (o.musicFadeOut) v *= clamp((end - t) / 3, 0, 1);
   if (o.duck && underSound) v *= 0.3;
   return v;
+}
+
+/** The songs over [t0, t1) of the slideshow when the first one starts `delay` seconds in (`at` from t0, like musicPieces). */
+export function showMusicPieces(songs: SongLen[], loop: boolean, delay: number, t0: number, t1: number) {
+  const d = Math.max(0, delay || 0);
+  const from = Math.max(t0, d);
+  if (t1 <= from) return [];
+  return musicPieces(songs, loop, from - d, t1 - d).map((p) => ({ ...p, at: p.at + (from - t0) }));
 }
 
 /** Seconds of the songs as picked (each from its start). */
@@ -449,7 +520,7 @@ export function fitToMusic(slides: Slide[], musicSeconds: number): number | null
   let fixed = 0;
   let n = 0;
   for (const s of slides) {
-    if (s.kind === 'photo' && !s.item.seconds) n++;
+    if ((s.kind === 'photo' || s.kind === 'spot') && !s.item.seconds) n++;
     else fixed += s.seconds;
   }
   if (!n || musicSeconds <= fixed) return null;

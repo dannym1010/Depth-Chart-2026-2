@@ -4,13 +4,23 @@
 // the songs on the device that added them.
 
 /** How a slide comes in: straight cut, the last one dissolving into it, or through black / white. */
-export type SlideTransition = 'cut' | 'crossfade' | 'black' | 'white';
+export type SlideTransition = 'cut' | 'crossfade' | 'black' | 'white' | 'wipe' | 'push' | 'zoom';
 
 /** A photo's slow move while it's up ('auto' takes turns: in, out, left, right). */
 export type PhotoMotion = 'auto' | 'none' | 'in' | 'out' | 'left' | 'right';
 
 /** Fill the frame (the edges cut off), the whole photo (a soft copy of it behind), or whichever suits each photo. */
 export type PhotoFit = 'auto' | 'fill' | 'whole';
+
+/** A color look over photos and film (title cards stay as they are). */
+export type PhotoLook = 'natural' | 'warm' | 'cool' | 'bw' | 'vintage';
+
+/** Where a photo sits in the frame: the spot in the middle of the screen (0..1 of the photo) and how close (1 = as it fits). */
+export interface PhotoFrame {
+  x: number;
+  y: number;
+  z: number;
+}
 
 export type SlideshowShape = '16:9' | '9:16' | '1:1' | '4:5';
 
@@ -40,6 +50,11 @@ export interface PhotoItem extends ItemBase {
   caption?: string;
   /** The spot its slow zoom goes toward (0..1 of the photo; else the middle). */
   focus?: { x: number; y: number };
+  /** Placed by hand: where it sits (its slow move works around it), and where it ends up (a move from one to the other). */
+  frame?: PhotoFrame;
+  frameEnd?: PhotoFrame;
+  /** Its own color look (else the slideshow's). */
+  look?: PhotoLook;
   /** When it was taken (ms), for putting photos in order. */
   takenAt?: number;
 }
@@ -58,7 +73,14 @@ export interface TitleItem extends ItemBase {
   seconds?: number;
 }
 
-export type SlideItem = PhotoItem | ClipItem | TitleItem;
+/** A place saved for a photo not picked yet ("Team photo goes here"). It shows while editing; the video leaves it out. */
+export interface SpotItem extends ItemBase {
+  kind: 'spot';
+  label?: string;
+  seconds?: number;
+}
+
+export type SlideItem = PhotoItem | ClipItem | TitleItem | SpotItem;
 
 export interface SlideshowOptions {
   shape: SlideshowShape;
@@ -91,6 +113,20 @@ export interface SlideshowOptions {
   duck: boolean;
   /** The songs start over when they run out before the slideshow does. */
   loopMusic: boolean;
+  /** Seconds into the slideshow the first song starts. */
+  musicDelay: number;
+  /** Moments marked while it played (seconds into the slideshow): slides can be lined up to them. */
+  marks: number[];
+  /** Lining photos up with the beat: a new photo every so many beats. */
+  beatEvery: 1 | 2 | 4 | 8;
+  /** Color look over photos and clips. */
+  look: PhotoLook;
+  /** Darker corners on photos. */
+  vignette: boolean;
+  /** The team logo small in the corner of photos and clips. */
+  logoBug: boolean;
+  /** Where words on a photo go. */
+  captionAt: 'bottom' | 'top';
 }
 
 export interface Slideshow {

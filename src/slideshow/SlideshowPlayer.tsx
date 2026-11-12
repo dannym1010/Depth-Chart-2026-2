@@ -2,13 +2,13 @@
 // it): one clock runs the photos' slow moves, the clips' film, the fades and the songs, drawn the same way the MP4
 // is made.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Maximize2, Pause, Play as PlayIcon, RotateCcw, X } from 'lucide-react';
+import { Bookmark, ChevronLeft, ChevronRight, Maximize2, Pause, Play as PlayIcon, RotateCcw, X } from 'lucide-react';
 import type { FilmAccess } from '../highlights/filmAccess';
 import type { HighlightSettings } from '../highlights/types';
 import { clock } from '../highlights/highlightData';
-import { drawFade, drawSlide } from './drawSlide';
+import { drawFade, drawSlide, slideLook } from './drawSlide';
 import { bitmapCache } from './photoLoad';
-import { clipPartAt, fadeAt, musicLevel, musicPieces, SHAPES, slideAt, slidesSeconds, songsSeconds, type Slide } from './slideshowData';
+import { clipPartAt, fadeAt, musicLevel, SHAPES, showMusicPieces, slideAt, slidesSeconds, songsSeconds, type Slide } from './slideshowData';
 import type { Song } from './songs';
 import type { SlideshowOptions } from './types';
 
@@ -24,7 +24,17 @@ interface Props {
   songLens: Record<string, number>;
   /** Seconds in to start at. */
   startAt?: number;
-  onClose: () => void;
+  onClose?: () => void;
+  /** In the editor (not full screen): starts paused, follows `seek`, says where it is. */
+  inline?: boolean;
+  /** A new `n` jumps to `t`. */
+  seek?: { t: number; n: number };
+  /** Where it is, about 4 times a second. */
+  onTime?: (t: number, playing: boolean) => void;
+  /** "Mark" tapped while it plays (a moment to line slides up to). */
+  onMark?: (t: number) => void;
+  /** Inline: the full screen button (opens the big player here). */
+  onBig?: (t: number) => void;
 }
 
 const INK = '#f8fafc';
@@ -34,14 +44,14 @@ const canFullscreen = () => typeof document !== 'undefined' && Boolean(document.
 
 type ClipVideo = { video: HTMLVideoElement; release?: () => void; error?: string };
 
-export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, access, look, logo, songs, songLens, startAt = 0, onClose }) => {
+export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, access, look, logo, songs, songLens, startAt = 0, onClose = () => undefined, inline = false, seek: seekReq, onTime, onMark, onBig }) => {
   const total = useMemo(() => slidesSeconds(slides), [slides]);
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const holdRef = useRef<HTMLDivElement>(null);
   const tRef = useRef(Math.min(startAt, Math.max(0, total - 0.1)));
-  const [playing, setPlaying] = useState(true);
-  const playingRef = useRef(true);
+  const [playing, setPlaying] = useState(!inline);
+  const playingRef = useRef(!inline);
   playingRef.current = playing;
   const [needTap, setNeedTap] = useState(false);
   const [ended, setEnded] = useState(false);
@@ -129,7 +139,8 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
     [options.songs, songs, songLens]
   );
   const lens = useMemo(() => picked.map((x) => ({ seconds: x.seconds, start: x.pick.start || 0 })), [picked]);
-  const songsEnd = options.loopMusic ? Infinity : songsSeconds(lens);
+  const delay = options.musicDelay || 0;
+  const songsEnd = options.loopMusic ? Infinity : delay + songsSeconds(lens);
   const audios = useRef<(HTMLAudioElement | null)[]>([]);
   useEffect(() => {
     let off = false;
@@ -168,10 +179,18 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
     let raf = 0;
     let last = performance.now();
     let lastQuarter = -1;
+    let lastDraw = 0;
     const loop = (now: number) => {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       const on = playingRef.current;
+      // Paused in the editor: a few frames a second is plenty (a photo arriving, a seek, an edit).
+      if (inline && !on && now - lastDraw < 120 && !dirty.current) {
+        raf = requestAnimationFrame(loop);
+        return;
+      }
+      lastDraw = now;
+      dirty.current = false;
       const { i, local } = slideAt(slides, tRef.current);
       const s = slides[i];
       let hold = '';
@@ -226,11 +245,11 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
           lastIndex.current = i;
         }
         const fctx = frame.getContext('2d')!;
-        drawSlide(fctx, FW, FH, s, local, src, { look, logo, tiny, backdrop: options.backdrop });
+        drawSlide(fctx, FW, FH, s, local, src, { look, logo, tiny, ...slideLook(options) });
         drawFade(fctx, FW, FH, fadeAt(slides, i, local, options.fadeEnds), havePrev.current ? prev : null);
 
         // Songs: the one for now, at its place, as loud as it should be.
-        const piece = on && !hold ? musicPieces(lens, options.loopMusic, tRef.current, tRef.current + 0.05)[0] : undefined;
+        const piece = on && !hold ? showMusicPieces(lens, options.loopMusic, delay, tRef.current, tRef.current + 0.05)[0] : undefined;
         const underSound = s.kind === 'clip' && s.sound;
         audios.current.forEach((a, k) => {
           if (!a) return;
@@ -239,7 +258,7 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
             return;
           }
           if (Math.abs(a.currentTime - piece.offset) > 0.4) a.currentTime = piece.offset;
-          a.volume = Math.min(1, Math.max(0, musicLevel(options, tRef.current, total, underSound, songsEnd)));
+          a.volume = Math.min(1, Math.max(0, musicLevel(options, tRef.current, total, underSound, songsEnd, delay)));
           if (a.paused) tryPlay(a);
         });
 
@@ -262,6 +281,7 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
       if (q !== lastQuarter) {
         lastQuarter = q;
         force((n) => n + 1);
+        timeRef.current?.(tRef.current, playingRef.current);
       }
       raf = requestAnimationFrame(loop);
     };
@@ -270,6 +290,20 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slides, options, lens, total, look, logo]);
   const waitingRef = useRef('');
+  const dirty = useRef(true);
+  const timeRef = useRef(onTime);
+  timeRef.current = onTime;
+  // The editor jumped somewhere (a slide or the timeline tapped).
+  const lastSeek = useRef(seekReq?.n);
+  useEffect(() => {
+    if (!seekReq || seekReq.n === lastSeek.current) return;
+    lastSeek.current = seekReq.n;
+    seek(seekReq.t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seekReq?.n]);
+  useEffect(() => {
+    dirty.current = true;
+  }, [slides, options, look]);
 
   // The frame onto the screen, as big as fits.
   const draw = () => {
@@ -299,7 +333,10 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
 
   const seek = (t: number) => {
     tRef.current = Math.max(0, Math.min(total - 0.05, t));
+    dirty.current = true;
     setEnded(false);
+    force((n) => n + 1);
+    timeRef.current?.(tRef.current, playingRef.current);
   };
   const jumpSlide = (dir: 1 | -1) => {
     const { i, local } = slideAt(slides, tRef.current);
@@ -326,6 +363,7 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
     }
   };
   useEffect(() => {
+    if (inline) return;
     const onKey = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
       if (k === ' ') toggle();
@@ -352,7 +390,62 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
   const cur = slideAt(slides, now);
   const s = slides[cur.i];
   const btn = 'h-10 w-10 sm:h-9 sm:w-9 shrink-0 rounded-lg inline-flex items-center justify-center hover:bg-white/10';
-  const label = !s ? '' : s.kind === 'photo' ? s.item.caption || s.item.name : s.kind === 'title' ? s.item.title : s.h.title;
+  const label = !s ? '' : s.kind === 'photo' ? s.item.caption || s.item.name : s.kind === 'title' ? s.item.title : s.kind === 'spot' ? s.item.label || 'Photo spot' : s.h.title;
+
+  if (inline) {
+    const small = 'h-8 w-8 shrink-0 rounded-lg inline-flex items-center justify-center hover:bg-white/10';
+    return (
+      <div ref={boxRef} className="relative w-full rounded-xl overflow-hidden select-none" style={{ background: '#000', color: INK }} data-film-area aria-label={`Preview: ${title}`}>
+        <div className="relative w-full mx-auto" style={{ aspectRatio: `${FW} / ${FH}`, maxHeight: '50vh' }} onClick={() => !needTap && toggle()}>
+          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+          <div ref={holdRef} aria-hidden className="absolute left-0 top-0 w-px h-px overflow-hidden opacity-0 pointer-events-none" />
+          {waiting && playing && (
+            <div className="absolute left-1/2 bottom-2 -translate-x-1/2 text-[11px] px-2.5 py-1 rounded-full whitespace-nowrap" style={{ background: 'rgba(15,23,42,.7)', color: DIM }}>
+              {waiting}
+            </div>
+          )}
+          {(needTap || !playing) && (
+            <button
+              type="button"
+              onClick={(e) => (needTap ? tapToPlay(e) : (e.stopPropagation(), toggle()))}
+              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full inline-flex items-center justify-center h-12 w-12"
+              style={{ background: 'rgba(15,23,42,.62)', color: INK, border: '2px solid rgba(248,250,252,.5)' }}
+              aria-label={needTap ? 'Tap to play' : ended ? 'Play again' : 'Play'}
+            >
+              {ended ? <RotateCcw size={20} /> : <PlayIcon size={22} />}
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-0.5 px-1 py-1" style={{ background: '#0b1220' }}>
+          <button type="button" className={small} onClick={() => jumpSlide(-1)} aria-label="Previous slide"><ChevronLeft size={16} /></button>
+          <button type="button" className={small} onClick={needTap ? tapToPlay : toggle} aria-label={playing ? 'Pause' : 'Play'}>{playing ? <Pause size={16} /> : <PlayIcon size={16} />}</button>
+          <button type="button" className={small} onClick={() => jumpSlide(1)} aria-label="Next slide"><ChevronRight size={16} /></button>
+          <span className="text-[11px] tabular-nums ml-1 whitespace-nowrap" style={{ color: DIM }}>
+            {clock(now)} / {clock(total)}
+          </span>
+          <span className="text-[11px] ml-2 truncate min-w-0" style={{ color: DIM }}>
+            {s ? `${cur.i + 1}/${slides.length} · ${label}` : ''}
+          </span>
+          <span className="flex-1" />
+          {onMark && (
+            <button
+              type="button"
+              onClick={() => onMark(tRef.current)}
+              className="h-8 px-2 shrink-0 rounded-lg inline-flex items-center gap-1 text-[11px] font-bold hover:bg-white/10"
+              title="Mark this moment (M): slides can be lined up to your marks"
+            >
+              <Bookmark size={13} /> Mark
+            </button>
+          )}
+          {onBig && (
+            <button type="button" className={small} onClick={() => (setPlaying(false), onBig(tRef.current))} aria-label="Play full screen" title="Play full screen">
+              <Maximize2 size={15} />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[80]" style={{ background: '#000', color: INK }} role="dialog" aria-label={`Slideshow: ${title}`} ref={boxRef} data-film-area>

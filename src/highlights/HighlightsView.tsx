@@ -972,6 +972,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
           helper={helper}
           seeAll={seeAllReels}
           nameOf={nameOf}
+          teamName={teamName}
         />
       )}
 

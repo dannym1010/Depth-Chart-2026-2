@@ -8,6 +8,7 @@ import { loadImage } from '../highlights/graphics';
 import type { HighlightGame, Reel } from '../highlights/types';
 import type { HighlightStore } from '../highlights/useHighlights';
 import { useMedia } from '../media/useMedia';
+import { isProgramAdminEmail } from '../utils/staffAccess';
 import { SlideshowEditor } from './SlideshowEditor';
 import { buildSlides, newSlideshow, slideshowsFor, slidesSeconds, withOptions } from './slideshowData';
 import { useSongs } from './songs';
@@ -28,9 +29,10 @@ interface Props {
   /** Head coaches and the program owner see every slideshow, the ones not shared too. */
   seeAll?: boolean;
   nameOf: (email?: string) => string;
+  teamName?: string;
 }
 
-export const SlideshowsTab: React.FC<Props> = ({ teamId, season, store, access, games, roster, reels, me, myName, helper, seeAll, nameOf }) => {
+export const SlideshowsTab: React.FC<Props> = ({ teamId, season, store, access, games, roster, reels, me, myName, helper, seeAll, nameOf, teamName }) => {
   const { data, update } = store;
   const ro = store.readOnly;
   const media = useMedia(teamId, season, { helper });
@@ -133,6 +135,8 @@ export const SlideshowsTab: React.FC<Props> = ({ teamId, season, store, access, 
             onDuplicate={() => duplicate(open)}
             onDelete={() => remove(open.id)}
             onClose={() => choose(null)}
+            aiDesigner={isProgramAdminEmail(me)}
+            teamName={teamName ? `${teamName} ${season}`.trim() : season}
           />
         ) : (
           <div className={`${panel} p-8 text-center text-sm text-slate-500 flex flex-col items-center gap-3`}>
