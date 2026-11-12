@@ -16,6 +16,11 @@ export function folderPhotos(driveId: string): Promise<DrivePhoto[]> {
   return p;
 }
 
+/** Ask Drive again next time (after a coach added photos to a folder). */
+export function forgetFolderPhotos(): void {
+  listed.clear();
+}
+
 /** When photos were taken (by Drive file id), from their folders' listings. */
 export async function photoTimes(folders: { id: string; driveId: string }[], want: { photoId: string; folderId: string }[]): Promise<Record<string, number>> {
   const out: Record<string, number> = {};

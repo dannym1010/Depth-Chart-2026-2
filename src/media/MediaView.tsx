@@ -33,8 +33,10 @@ import {
   X,
   Heart,
   FolderTree,
+  RefreshCw,
 } from 'lucide-react';
 import { DriveFolderPicker } from '../filmroom/DriveFolderPicker';
+import { forgetFolderPhotos } from '../slideshow/photoLoad';
 import { driveReady, driveSignIn, isDriveSignedIn, prepareDriveSignIn } from '../filmroom/filmSources';
 import { opponentOf } from '../highlights/highlightData';
 import type { HighlightGame } from '../highlights/types';
@@ -1195,14 +1197,49 @@ export const MediaView: React.FC<Props> = ({
   const allKey = data.folders.map((f) => f.driveId).join('|');
 
   const driveId = folder?.driveId || '';
+  // "Check for new photos": the same folder (or all of them) asked of Drive again, keeping the grid while it looks.
+  const [reloadKey, setReloadKey] = useState(0);
+  const [refreshNote, setRefreshNote] = useState('');
+  const refreshing = useRef(false);
+  const [checking, setChecking] = useState(false);
+  const shownIds = useRef<Set<string>>(new Set());
   useEffect(() => {
-    setPhotos(null);
+    shownIds.current = new Set((photos || []).map((p) => p.id));
+  }, [photos]);
+  const checkForNew = () => {
+    refreshing.current = true;
+    setChecking(true);
+    setRefreshNote('');
+    // The slideshow's photo picker lists folders once a visit: it sees the new ones too.
+    forgetFolderPhotos();
+    setReloadKey((k) => k + 1);
+  };
+  // After a check: how many photos are new, or that there were none.
+  const noteNew = (list: DrivePhoto[]) => {
+    if (!refreshing.current) return;
+    refreshing.current = false;
+    setChecking(false);
+    const added = list.filter((p) => !shownIds.current.has(p.id)).length;
+    setRefreshNote(added ? `${added} new photo${added === 1 ? '' : 's'} found` : 'No new photos in Drive');
+  };
+  useEffect(() => {
+    const again = refreshing.current;
+    if (!again) {
+      setPhotos(null);
+      setViewing(-1);
+      setAlbumList(null);
+      setSelectedIds(new Set());
+      setRefreshNote('');
+    }
     setProblem('');
-    setViewing(-1);
-    setAlbumList(null);
-    setSelectedIds(new Set());
     if (!signedIn) return;
     let off = false;
+    const failed = (e: unknown) => {
+      if (off) return;
+      refreshing.current = false;
+      setChecking(false);
+      setProblem((e as Error)?.message || String(e));
+    };
     if (allMode) {
       const folders = data.folders;
       if (!folders.length) return;
@@ -1212,8 +1249,9 @@ export const MediaView: React.FC<Props> = ({
           const all = parts.flat();
           setPhotoFolder(new Map(all.map(([p, f]) => [p.id, f])));
           setPhotos(all.map(([p]) => p));
+          noteNew(all.map(([p]) => p));
         })
-        .catch((e) => !off && setProblem(e?.message || String(e)));
+        .catch(failed);
       return () => {
         off = true;
       };
@@ -1224,17 +1262,17 @@ export const MediaView: React.FC<Props> = ({
         if (off) return;
         setPhotoFolder(new Map());
         setPhotos(list);
+        noteNew(list);
       })
       .catch((e) => {
-        if (off) return;
-        setProblem(e?.message || String(e));
-        setSignedIn(isDriveSignedIn());
+        failed(e);
+        if (!off) setSignedIn(isDriveSignedIn());
       });
     return () => {
       off = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [driveId, signedIn, allMode, allMode ? allKey : '']);
+  }, [driveId, signedIn, allMode, allMode ? allKey : '', reloadKey]);
 
   const signIn = async () => {
     setSignInNote('');
@@ -1465,6 +1503,25 @@ export const MediaView: React.FC<Props> = ({
               <Key size={14} />
               <span>{hasGeminiKey ? 'AI Key' : '🔑 Set AI Key'}</span>
             </button>
+          )}
+
+          {/* Photos added to the Drive folder since it was opened: look again. */}
+          {signedIn && data.folders.length > 0 && (
+            <button
+              type="button"
+              onClick={checkForNew}
+              disabled={checking}
+              title={allMode ? 'Look in every folder in Google Drive for photos added since' : 'Look in this folder in Google Drive for photos added since'}
+              className="h-9 px-3 inline-flex items-center gap-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-bold cursor-pointer transition shadow-sm disabled:opacity-60"
+            >
+              <RefreshCw size={14} className={checking ? 'animate-spin' : ''} />
+              <span>{checking ? 'Checking Drive…' : 'Check for new photos'}</span>
+            </button>
+          )}
+          {refreshNote && (
+            <span role="status" className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
+              {refreshNote}
+            </span>
           )}
 
           {/* Player Albums Button */}
