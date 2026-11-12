@@ -1,12 +1,12 @@
 // AI photo tagging when Gemini says no: what kind of "no" it is, and how long to wait before trying the same photo
 // again. A limit (402 Payment Required, quota, rate limit, every model busy) often clears after a while, so the batch
-// waits longer each time and tries again instead of stopping; a bad or missing key needs the coach.
+// waits longer each time and tries again instead of stopping; a bad or missing key (or no model found) needs the coach.
 
 export type AiErrorKind = 'key' | 'limit' | 'photo';
 
 export function aiErrorKind(message: string): AiErrorKind {
   const m = String(message || '');
-  if (/refused this Gemini API key|No Gemini API key|API key not valid|API_KEY_INVALID/i.test(m)) return 'key';
+  if (/refused this Gemini API key|No Gemini API key|API key not valid|API_KEY_INVALID|none of the AI models were found/i.test(m)) return 'key';
   if (/\b402\b|Payment Required|prepayment|credits are depleted|quota|rate limit|\b429\b|RESOURCE_EXHAUSTED|all models busy|Gemini busy|\b50[03]\b|overloaded|UNAVAILABLE|Failed to fetch|NetworkError|network|timed out|offline/i.test(m)) return 'limit';
   return 'photo';
 }

@@ -424,6 +424,13 @@ ${opp ? `- The OPPONENT team is wearing "${opp}" jerseys. DO NOT tag or extract 
   return `Analyze this football photo (${photoName || 'game day photo'}).${rosterContext}${colorFilter}\nExtract visible jersey numbers, identify category, determine single vs group, evaluate quality metrics, and assign curation tier.`;
 }
 
+/** Models Google answered 404 (not found: retired or not on this key) this visit: not asked again for each photo. */
+const missingModels = new Set<string>();
+
+/** What a batch says when every model was not found (404): it stops, since waiting won't bring a model back. */
+export const NO_MODELS_MESSAGE =
+  'Google says none of the AI models were found (404) for this key. Google retires older models now and then. Open AI settings and pick another model (Gemini Flash newest), then Run again.';
+
 /**
  * Executes multimodal Gemini Vision analysis on a single photo.
  */
@@ -470,7 +477,10 @@ export async function analyzePhotoWithGemini(opts: AnalyzePhotoOptions): Promise
     },
   };
 
-  const models = geminiCandidates(modelName);
+  // A model Google already said isn't there is skipped (unless it's the only one left to try).
+  const all = geminiCandidates(modelName);
+  const models = all.filter((m) => !missingModels.has(m));
+  if (!models.length) models.push(...all);
   let lastError = '';
 
   for (const m of models) {
@@ -491,6 +501,8 @@ export async function analyzePhotoWithGemini(opts: AnalyzePhotoOptions): Promise
         clearTimeout(timer);
       }
 
+      // Any answer but "not found": the model is there.
+      if (res.status !== 404) missingModels.delete(m);
       if (res.ok) {
         const json = await res.json();
         const text = geminiAnswerText(json);
@@ -531,6 +543,12 @@ export async function analyzePhotoWithGemini(opts: AnalyzePhotoOptions): Promise
       if (/API key not valid|API_KEY_INVALID/i.test(errText) || res.status === 401 || res.status === 403) {
         throw new Error('Google refused this Gemini API key. Check or re-paste your key in AI settings.');
       }
+      // Not found: that model is retired (or not on this key). The next one is tried, and the reason another model
+      // gave (busy, out of quota) is kept: a 404 used to hide it, so the photo was skipped instead of waited for.
+      if (res.status === 404) {
+        missingModels.add(m);
+        continue;
+      }
       lastError = `Gemini (${res.status}): ${errText.slice(0, 150)}`;
     } catch (err: unknown) {
       if (err instanceof Error && /refused this Gemini API key|402 Payment Required/i.test(err.message)) throw err;
@@ -542,5 +560,6 @@ export async function analyzePhotoWithGemini(opts: AnalyzePhotoOptions): Promise
     }
   }
 
+  if (!lastError && models.every((m) => missingModels.has(m))) throw new Error(NO_MODELS_MESSAGE);
   throw new Error(`AI Photo analysis failed: ${lastError || 'all models busy'}`);
 }
