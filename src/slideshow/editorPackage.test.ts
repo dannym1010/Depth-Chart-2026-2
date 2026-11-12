@@ -10,14 +10,14 @@ const show = () => {
     owner: 'me',
     items: [titleItem('Our Season'), photoItem({ id: 'p1', folderId: 'f', name: 'IMG_1.HEIC' }), photoItem({ id: 'p1', folderId: 'f', name: 'IMG_1.HEIC' }), spotItem('Team photo'), titleItem('Playoffs')],
   });
-  return { ...s, options: { ...s.options, musicDelay: 2, musicVolume: 0.5 } };
+  return { ...s, options: { ...s.options, musicDelay: 2, musicVolume: 0.5, songs: [{ name: 'Song.m4a', start: 10 }] } };
 };
 
 describe('the editor package', () => {
   it('lays out the timeline with the songs under it (spots left out)', () => {
     const s = show();
     const slides = buildSlides(s, [], { replaySpeed: 0.5 }, { spots: false });
-    const plan = packagePlan({ name: s.name, slides, options: s.options, base: 'C:\\Videos\\Year End', songs: [{ name: 'Song.m4a', seconds: 100, start: 10 }], clips: true });
+    const plan = packagePlan({ name: s.name, slides, options: s.options, base: 'C:\\Videos\\Year End', songs: [{ name: 'Song.m4a', seconds: 100 }], clips: true });
     assert.equal(plan.items.length, 4);
     assert.equal(plan.items[1].file, 'Photos/002 IMG_1.jpg');
     // The same photo twice: one file.
@@ -53,5 +53,17 @@ describe('the editor package', () => {
     assert.equal(dv.getUint32(end, true), 0x06054b50);
     assert.equal(dv.getUint16(end + 10, true), 2);
     assert.equal(dv.getUint32(14, true), 0x3610a686);
+  });
+});
+
+describe('the editor package: the background layer', () => {
+  it('puts it on its own tracks at its own level', () => {
+    const s = show();
+    const o = { ...s.options, bedSongs: [{ name: 'Crowd.wav' }], bedVolume: 0.25, bedDelay: 1 };
+    const slides = buildSlides({ ...s, options: o }, [], { replaySpeed: 0.5 }, { spots: false });
+    const plan = packagePlan({ name: s.name, slides, options: o, base: 'C:\V', songs: [{ name: 'Song.m4a', seconds: 100 }, { name: 'Crowd.wav', seconds: 60 }], clips: true });
+    assert.deepEqual(plan.music.map((m) => [m.name, m.at, m.track, m.db, Boolean(m.background)]), [['Song.m4a', 2, 0, -6, false], ['Crowd.wav', 1, 1, -12, true]]);
+    assert.match(packageFcpxml(plan), /lane="-2"[^>]*name="Crowd\.wav"/);
+    assert.match(packageXmeml(plan), /<track><clipitem id="a2-1">.*<\/track><track><clipitem id="a2-2">/);
   });
 });

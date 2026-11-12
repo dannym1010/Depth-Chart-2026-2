@@ -28,6 +28,8 @@ interface Props {
   onResize: (id: string, seconds: number) => void;
   onMove: (id: string, beforeId: string | null) => void;
   timelineSongs: TimelineSong[];
+  bedTimelineSongs?: TimelineSong[];
+  onPlaceSong?: (layer: 'main' | 'bed', index: number, at: number) => void;
   beats: number[];
   onMarks: (marks: number[]) => void;
   musicShift: number;
@@ -110,6 +112,8 @@ export const PreviewDeck: React.FC<Props> = (p) => {
           onResize={p.onResize}
           onMove={p.onMove}
           songs={p.timelineSongs}
+          bedSongs={p.bedTimelineSongs}
+          onPlaceSong={p.readOnly ? undefined : p.onPlaceSong}
           beats={p.beats}
           marks={p.options.marks}
           onMarks={p.onMarks}

@@ -594,14 +594,18 @@ export interface SongLen {
   end?: number;
   /** Seconds it overlaps the song before it (that one gets quieter while this one gets louder). */
   crossfade?: number;
+  /** Placed at a time (the music's own seconds): starts then, not right after the one before (a gap is quiet; an overlap crossfades). */
+  at?: number;
 }
 
 /** A song as the slideshow plays it: its pick and length, the crossfade from the slideshow's when it has none. */
-export const songLen = (pick: Pick<SongPick, 'start' | 'end' | 'crossfade'>, seconds: number, o?: Pick<SlideshowOptions, 'songCrossfade'>): SongLen => ({
+/** `delay`: when its layer's first song starts in the slideshow (a song placed at a time is placed in the music's own time). */
+export const songLen = (pick: Pick<SongPick, 'start' | 'end' | 'crossfade' | 'at'>, seconds: number, o?: Pick<SlideshowOptions, 'songCrossfade'>, delay = 0): SongLen => ({
   seconds,
   start: pick.start || 0,
   ...(pick.end !== undefined ? { end: pick.end } : {}),
   crossfade: pick.crossfade ?? o?.songCrossfade ?? 0,
+  ...(pick.at !== undefined ? { at: Math.max(0, pick.at - delay) } : {}),
 });
 
 /** A song's stretch of the slideshow in [t0, t1). */
@@ -634,12 +638,19 @@ export function musicPlan(songs: SongLen[], loop: boolean) {
   const cross = songs.map((s, k) => (k === 0 && !roundTheEnd) || n < 2 ? 0 : clamp(s.crossfade || 0, 0, Math.min(len[k], len[(k - 1 + n) % n]) / 2));
   const at: number[] = [];
   let t = 0;
+  let total = 0;
   for (let k = 0; k < n; k++) {
-    if (k > 0) t -= cross[k];
+    const placed = k > 0 ? songs[k].at : undefined;
+    if (placed !== undefined) {
+      // Placed at a time: it overlaps the song before by however much it starts before that one ends.
+      cross[k] = clamp(t - placed, 0, Math.min(len[k], len[k - 1]) / 2);
+      t = Math.max(0, placed);
+    } else if (k > 0) t -= cross[k];
     at.push(t);
     t += len[k];
+    total = Math.max(total, t);
   }
-  return { len, cross, at, total: t, period: roundTheEnd ? t - cross[0] : t };
+  return { len, cross, at, total, period: roundTheEnd ? total - cross[0] : total };
 }
 
 /** A soft edge where a song is cut (its start or end trimmed) and nothing crossfades there. */
@@ -730,6 +741,43 @@ export function showMusicPieces(songs: SongLen[], loop: boolean, delay: number, 
 
 /** Seconds of the songs as picked, once through (each from its start to its end, less the crossfades). */
 export const songsSeconds = (songs: SongLen[]) => musicPlan(songs, false).total;
+
+/** The background layer's volume (0..1). */
+export const bedVolumeOf = (o: Pick<SlideshowOptions, 'bedVolume'>) => clamp(o.bedVolume ?? 0.3, 0, 1);
+
+export type MusicLayerName = 'main' | 'bed';
+/** One layer of music as this device plays it: the songs it has (with what the caller keeps for each), their lengths, and when the layer starts and stops. */
+export interface MusicLayer<T> {
+  name: MusicLayerName;
+  items: T[];
+  picks: SongPick[];
+  lens: SongLen[];
+  repeat: boolean;
+  delay: number;
+  /** Seconds into the slideshow the layer runs out (Infinity when it starts over). */
+  end: number;
+}
+
+/**
+ * The songs and the background layer, each with only the songs this device has (`have` gives a song's length and
+ * whatever the caller keeps for it, or null).
+ */
+export function musicLayers<T>(o: SlideshowOptions, have: (pick: SongPick) => { seconds: number; item: T } | null): MusicLayer<T>[] {
+  const layer = (name: MusicLayerName, list: SongPick[], repeat: boolean, delay: number): MusicLayer<T> => {
+    const ok = list.flatMap((p) => {
+      const h = have(p);
+      return h && h.seconds > 0 ? [{ p, h }] : [];
+    });
+    const lens = ok.map((x) => songLen(x.p, x.h.seconds, o, delay));
+    return { name, items: ok.map((x) => x.h.item), picks: ok.map((x) => x.p), lens, repeat, delay, end: repeat ? Infinity : delay + songsSeconds(lens) };
+  };
+  return [layer('main', o.songs || [], Boolean(o.repeatSongs), o.musicDelay || 0), layer('bed', o.bedSongs || [], Boolean(o.bedRepeat), o.bedDelay || 0)];
+}
+
+/** How loud a layer is at a time (0..1): the songs at the music volume, the background at its own; both fade and dip the same way. */
+export function layerLevel(o: Pick<SlideshowOptions, 'musicVolume' | 'musicFadeIn' | 'musicFadeOut' | 'duck' | 'duckLevel' | 'bedVolume'>, layer: Pick<MusicLayer<unknown>, 'name' | 'end' | 'delay'>, t: number, total: number, under: boolean | number): number {
+  return musicLevel(layer.name === 'bed' ? { ...o, musicVolume: bedVolumeOf(o) } : o, t, total, under, layer.end, layer.delay);
+}
 
 /**
  * Seconds per photo so the slideshow runs as long as the songs: the time the clips, title cards and photos with

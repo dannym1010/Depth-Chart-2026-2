@@ -60,7 +60,8 @@ export const SlideshowVideoPanel: React.FC<Props> = ({ title, slides, options, a
     stopRef.current = stop;
     try {
       const blobs = await Promise.all(options.songs.map((p) => songs.find((s) => s.name === p.name)?.get().catch(() => null) ?? Promise.resolve(null)));
-      const r = await renderSlideshowVideo({ slides, options, access, look, logo, songs: blobs, quality, signal: stop.signal, onProgress: (f, label) => setProgress({ f, label }) });
+      const bedBlobs = await Promise.all((options.bedSongs || []).map((p) => songs.find((s) => s.name === p.name)?.get().catch(() => null) ?? Promise.resolve(null)));
+      const r = await renderSlideshowVideo({ slides, options, access, look, logo, songs: blobs, bedSongs: bedBlobs, quality, signal: stop.signal, onProgress: (f, label) => setProgress({ f, label }) });
       const file = new File([r.blob], fileName(title), { type: 'video/mp4' });
       setMade({ ...r, file, url: URL.createObjectURL(file) });
     } catch (err: any) {
@@ -118,13 +119,15 @@ export const SlideshowVideoPanel: React.FC<Props> = ({ title, slides, options, a
     const stop = new AbortController();
     stopRef.current = stop;
     try {
-      const list: { name: string; seconds: number; start?: number; end?: number; crossfade?: number; blob: Blob }[] = [];
-      for (const p of options.songs) {
+      // Each song file once (a song cut in pieces, or in both layers, is one file).
+      const list: { name: string; seconds: number; blob: Blob }[] = [];
+      for (const p of [...options.songs, ...(options.bedSongs || [])]) {
+        if (list.some((x) => x.name === p.name)) continue;
         const song = songs.find((s) => s.name === p.name);
         const seconds = songLens[p.name] || 0;
         if (!song || !seconds) continue;
         const blob = await song.get().catch(() => null);
-        if (blob) list.push({ name: p.name, seconds, start: p.start, end: p.end, crossfade: p.crossfade, blob });
+        if (blob) list.push({ name: p.name, seconds, blob });
       }
       const r = await buildEditorPackage({ name: title, slides, options, access, look, logo, songs: list, base: basePath, clips: withClips, signal: stop.signal, onProgress: (f, label) => setProgress({ f, label }) });
       setPkg({ url: URL.createObjectURL(r.zip), size: r.zip.size, missing: r.missing });

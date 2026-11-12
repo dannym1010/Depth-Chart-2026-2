@@ -32,6 +32,9 @@ import {
   cutOutOfSong,
   keepOnlyOfSong,
   repeatSong,
+  musicLayers,
+  layerLevel,
+  songLen,
 } from './slideshowData.ts';
 import { emptyHighlights, mergeHighlights } from '../highlights/highlightData.ts';
 import type { Highlight } from '../highlights/types.ts';
@@ -370,5 +373,30 @@ describe('cutting songs up', () => {
   });
   it('repeats a piece right after itself', () => {
     assert.deepEqual(repeatSong([{ name: 'a', start: 30, end: 50 }, { name: 'b' }], 0), [{ name: 'a', start: 30, end: 50 }, { name: 'a', start: 30, end: 50, crossfade: 0.4 }, { name: 'b' }]);
+  });
+});
+
+describe('songs placed at a time, and the background layer', () => {
+  it('a song placed at a time starts then: a gap is quiet, an overlap crossfades', () => {
+    const gap = musicPlan([{ seconds: 30, start: 0 }, { seconds: 20, start: 0, at: 40 }], false);
+    assert.deepEqual(gap.at, [0, 40]);
+    assert.equal(gap.total, 60);
+    assert.deepEqual(musicPieces([{ seconds: 30, start: 0 }, { seconds: 20, start: 0, at: 40 }], false, 32, 38), []);
+    const over = musicPlan([{ seconds: 30, start: 0 }, { seconds: 20, start: 0, at: 26 }, { seconds: 10, start: 0 }], false);
+    assert.deepEqual(over.at, [0, 26, 46]);
+    assert.deepEqual(over.cross, [0, 4, 0]);
+    // A placed time is in the slideshow's seconds: the layer's start comes off.
+    assert.equal(songLen({ at: 50 }, 20, undefined, 10).at, 40);
+  });
+  it('the background plays under the songs at its own volume, from its own start', () => {
+    const base = newSlideshow({ name: 'x', owner: 'c' }).options;
+    const o = { ...base, songs: [{ name: 'A' }], bedSongs: [{ name: 'Crowd' }], bedVolume: 0.2, bedDelay: 5, musicVolume: 0.8, musicFadeIn: false, musicFadeOut: false };
+    const [main, bed] = musicLayers(o, (p) => ({ seconds: p.name === 'A' ? 30 : 100, item: p.name }));
+    assert.deepEqual([main.items, bed.items, bed.delay, bed.end, main.end], [['A'], ['Crowd'], 5, 105, 30]);
+    assert.equal(layerLevel(o, bed, 10, 200, false), 0.2);
+    assert.equal(layerLevel(o, bed, 2, 200, false), 0);
+    assert.equal(layerLevel(o, main, 10, 200, false), 0.8);
+    // Songs not on this device are left out.
+    assert.deepEqual(musicLayers(o, (p) => (p.name === 'A' ? null : { seconds: 9, item: 1 }))[0].items, []);
   });
 });

@@ -8,7 +8,7 @@ import { frameRange, pictureRect } from '../highlights/socialVideo';
 import { encoderQuality, qualitySizes, type VideoQuality } from '../highlights/videoQuality';
 import { drawFade, drawSlide, slideLook } from './drawSlide';
 import { photoBitmap } from './photoLoad';
-import { fadeAt, musicLevel, musicUnderOf, pieceGain, SHAPES, showMusicPieces, songLen, slidesSeconds, songsSeconds, type Slide } from './slideshowData';
+import { fadeAt, layerLevel, musicLayers, musicUnderOf, pieceGain, SHAPES, showMusicPieces, slidesSeconds, songsSeconds, type Slide } from './slideshowData';
 import type { SlideshowOptions, SongPick } from './types';
 
 export const FPS = 30;
@@ -22,6 +22,8 @@ export interface SlideshowRenderOptions {
   logo?: HTMLImageElement | null;
   /** The songs, in the slideshow's order (null: not on this device, left out). */
   songs: (Blob | null)[];
+  /** The background layer's songs, in its order. */
+  bedSongs?: (Blob | null)[];
   /** Quick (720p), Standard (1080p), Best (more bits; 4K when wide). */
   quality?: VideoQuality;
   onProgress?: (fraction: number, label: string) => void;
@@ -60,7 +62,7 @@ export async function renderSlideshowVideo(o: SlideshowRenderOptions): Promise<S
   }
   if (!W) throw new Error("This browser can't make H.264 video. Use Chrome or Edge on a computer, or Safari on an up-to-date iPad / iPhone.");
   const opt = o.options;
-  const wantSongs = o.songs.some(Boolean);
+  const wantSongs = o.songs.some(Boolean) || Boolean(o.bedSongs?.some(Boolean));
   const wantGame = o.slides.some((s) => s.kind === 'clip' && s.sound);
   const sound =
     (wantSongs || wantGame) && typeof OfflineAudioContext !== 'undefined' && (await mb.canEncodeAudio('aac', { numberOfChannels: 2, sampleRate: SR, quality: mb.QUALITY_HIGH }));
@@ -81,23 +83,24 @@ export async function renderSlideshowVideo(o: SlideshowRenderOptions): Promise<S
   if (audio) output.addAudioTrack(audio);
   await output.start();
 
-  // The songs, read once.
-  const music: { buf: AudioBuffer; pick: SongPick }[] = [];
+  // The songs and the background layer, each file read once (a song cut in pieces is the same file).
+  const bufs = new Map<string, AudioBuffer>();
   if (audio) {
-    for (let k = 0; k < o.songs.length; k++) {
-      const b = o.songs[k];
-      if (!b) continue;
+    const files: [string, Blob | null | undefined][] = [...opt.songs.map((p, k) => [p.name, o.songs[k]] as [string, Blob | null]), ...(opt.bedSongs || []).map((p, k) => [p.name, o.bedSongs?.[k]] as [string, Blob | null | undefined])];
+    for (const [name, b] of files) {
+      if (!b || bufs.has(name)) continue;
       try {
-        const buf = await new OfflineAudioContext(2, 1, SR).decodeAudioData(await b.arrayBuffer());
-        music.push({ buf, pick: opt.songs[k] || { name: '' } });
+        bufs.set(name, await new OfflineAudioContext(2, 1, SR).decodeAudioData(await b.arrayBuffer()));
       } catch {
         /* a song this device can't read: left out */
       }
     }
   }
-  const lens = music.map((m) => songLen(m.pick, m.buf.duration, opt));
-  const delay = opt.musicDelay || 0;
-  const songsEnd = opt.repeatSongs ? Infinity : delay + songsSeconds(lens);
+  const layers = musicLayers<AudioBuffer>(opt, (p) => {
+    const buf = bufs.get(p.name);
+    return buf ? { seconds: buf.duration, item: buf } : null;
+  });
+  const anyMusic = layers.some((L) => L.items.length > 0);
   const drawLook = slideLook(opt);
 
   // Photos: a few ahead, so the encoder rarely waits on Drive.
@@ -271,18 +274,19 @@ export async function renderSlideshowVideo(o: SlideshowRenderOptions): Promise<S
               at += d;
             }
           }
-          if (music.length) {
+          for (const L of anyMusic ? layers : []) {
+            if (!L.items.length) continue;
             const g = ac.createGain();
             // The level along the slide, every half second (fades, and the dip under game sound easing in).
             const len = t1 - t0;
-            const lvl = (t: number) => musicLevel(opt, t, total, musicUnderOf(s), songsEnd, delay);
+            const lvl = (t: number) => layerLevel(opt, L, t, total, musicUnderOf(s));
             g.gain.setValueAtTime(lvl(t0), 0);
             for (let x = 0.5; x < len; x += 0.5) g.gain.linearRampToValueAtTime(lvl(t0 + x), x);
             g.gain.linearRampToValueAtTime(lvl(t1), len);
             g.connect(ac.destination);
-            for (const p of showMusicPieces(lens, opt.repeatSongs, delay, t0, t1)) {
+            for (const p of showMusicPieces(L.lens, L.repeat, L.delay, t0, t1)) {
               const m = ac.createBufferSource();
-              m.buffer = music[p.song].buf;
+              m.buffer = L.items[p.song];
               // Its own fades (a crossfade with the song before or after, a soft cut), on top of the music's level.
               const pg = ac.createGain();
               pg.gain.setValueAtTime(pieceGain(p, 0), p.at);

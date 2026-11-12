@@ -32,6 +32,8 @@ export interface SongPick {
   end?: number;
   /** Seconds it overlaps the song before it, that one getting quieter while this one gets louder (else the slideshow's songCrossfade). */
   crossfade?: number;
+  /** Seconds into the slideshow it starts (else right after the song before it): a gap is quiet, an overlap crossfades. */
+  at?: number;
 }
 
 interface ItemBase {
@@ -129,6 +131,11 @@ export interface SlideshowOptions {
   repeatSongs: boolean;
   /** Seconds each song overlaps the one before it (0 = one right after the other). */
   songCrossfade?: number;
+  /** The background layer: songs (or crowd noise) playing under the songs above, as loud as bedVolume (0..1), from bedDelay seconds in, started over when they run out if bedRepeat. */
+  bedSongs?: SongPick[];
+  bedVolume?: number;
+  bedDelay?: number;
+  bedRepeat?: boolean;
   /** Seconds into the slideshow the first song starts. */
   musicDelay: number;
   /** Moments marked while it played (seconds into the slideshow): slides can be lined up to them. */

@@ -21,6 +21,8 @@ export interface TimelineSong {
   fadeOut?: number;
   pos?: number;
   len?: number;
+  /** Which song in its list it is (the song may be in pieces). */
+  index?: number;
 }
 
 interface Props {
@@ -44,22 +46,28 @@ interface Props {
   /** Where the songs sit: the first song's start in the slideshow minus how far into it it starts. */
   musicShift: number;
   onMusicShift: (shift: number) => void;
+  /** The background layer under the songs. */
+  bedSongs?: TimelineSong[];
+  /** A song dragged to a time of its own (seconds into the slideshow its turn starts). */
+  onPlaceSong?: (layer: 'main' | 'bed', index: number, at: number) => void;
 }
 
 const ROW = 56;
 const MUSIC = 44;
+/** The background layer's row. */
+const BED = 28;
 const RULER = 22;
 const PAD = 12;
 
 /** One song's piece of the waveform. */
-const Wave: React.FC<{ a?: SongAnalysis; offset: number; seconds: number; width: number; color: string }> = ({ a, offset, seconds, width, color }) => {
+const Wave: React.FC<{ a?: SongAnalysis; offset: number; seconds: number; width: number; color: string; h?: number }> = ({ a, offset, seconds, width, color, h: rowH = MUSIC }) => {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const c = ref.current;
     if (!c) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const w = Math.max(1, Math.min(8000, Math.round(width * dpr)));
-    const h = Math.round((MUSIC - 8) * dpr);
+    const h = Math.round((rowH - 8) * dpr);
     c.width = w;
     c.height = h;
     const x = c.getContext('2d')!;
@@ -80,12 +88,12 @@ const Wave: React.FC<{ a?: SongAnalysis; offset: number; seconds: number; width:
       const bar = Math.max(1, m * h * 0.95);
       x.fillRect(px, (h - bar) / 2, 1, bar);
     }
-  }, [a, offset, seconds, width, color]);
-  return <canvas ref={ref} className="absolute left-0 right-0" style={{ top: 4, height: MUSIC - 8, width: '100%' }} aria-hidden />;
+  }, [a, offset, seconds, width, color, rowH]);
+  return <canvas ref={ref} className="absolute left-0 right-0" style={{ top: 4, height: rowH - 8, width: '100%' }} aria-hidden />;
 };
 
 export const SlideshowTimeline: React.FC<Props> = ({
-  slides, total, time, picked, look, readOnly: ro, onSeek, onPick, onResize, onMove, songs, beats, marks, onMarks, musicShift, onMusicShift,
+  slides, total, time, picked, look, readOnly: ro, onSeek, onPick, onResize, onMove, songs, bedSongs = [], beats, marks, onMarks, musicShift, onMusicShift, onPlaceSong,
 }) => {
   const box = useRef<HTMLDivElement>(null);
   const [boxW, setBoxW] = useState(800);
@@ -146,7 +154,8 @@ export const SlideshowTimeline: React.FC<Props> = ({
     | { kind: 'seek' }
     | { kind: 'move'; id: string; x0: number; moved: boolean; t: number; e: { add: boolean; range: boolean }; start: number }
     | { kind: 'size'; id: string; start: number; seconds: number }
-    | { kind: 'music'; x0: number; dx: number };
+    | { kind: 'music'; x0: number; dx: number }
+    | { kind: 'song'; layer: 'main' | 'bed'; index: number; at0: number; x0: number; dx: number };
   const drag = useRef<Drag | null>(null);
   const [, redraw] = useState(0);
   const bump = () => redraw((n) => n + 1);
@@ -169,7 +178,18 @@ export const SlideshowTimeline: React.FC<Props> = ({
     bump();
   };
   const onMusicDown = (e: React.PointerEvent) => {
-    if (ro || !songs.length) return;
+    if (ro) return;
+    // A song after the first (or any background song): just that one moves, to a time of its own.
+    const el = (e.target as Element).closest?.('[data-song-index]') as HTMLElement | null;
+    const layer = (el?.dataset.songLayer || '') as 'main' | 'bed' | '';
+    const index = Number(el?.dataset.songIndex ?? -1);
+    if (el && onPlaceSong && layer && index >= 0 && !(layer === 'main' && index === 0)) {
+      e.stopPropagation();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      drag.current = { kind: 'song', layer, index, at0: Number(el.dataset.songAt || 0), x0: e.clientX, dx: 0 };
+      return;
+    }
+    if (!songs.length || (e.currentTarget as HTMLElement).dataset.row === 'bed') return;
     e.currentTarget.setPointerCapture(e.pointerId);
     drag.current = { kind: 'music', x0: e.clientX, dx: 0 };
   };
@@ -187,7 +207,7 @@ export const SlideshowTimeline: React.FC<Props> = ({
       const end = snap(T(e.clientX), e.altKey);
       d.seconds = Math.max(0.5, Math.min(60, end - d.start));
       bump();
-    } else if (d.kind === 'music') {
+    } else if (d.kind === 'music' || d.kind === 'song') {
       d.dx = e.clientX - d.x0;
       bump();
     }
@@ -216,6 +236,7 @@ export const SlideshowTimeline: React.FC<Props> = ({
       }
     } else if (d.kind === 'size') onResize(d.id, Math.round(d.seconds * 1000) / 1000);
     else if (d.kind === 'music' && Math.abs(d.dx) > 2) onMusicShift(Math.round((musicShift + d.dx / pps) * 100) / 100);
+    else if (d.kind === 'song' && Math.abs(d.dx) > 2) onPlaceSong?.(d.layer, d.index, Math.max(0, Math.round((d.at0 + d.dx / pps) * 100) / 100));
     bump();
   };
 
@@ -224,6 +245,40 @@ export const SlideshowTimeline: React.FC<Props> = ({
   const primary = look.primary || '#1e3a8a';
   const musicDx = d?.kind === 'music' ? d.dx : 0;
   const drop = d?.kind === 'move' && d.moved ? dropBefore(d.t, d.id) : null;
+
+  // One song's piece on its row: its waveform, fading where it crossfades; a song after the first (and any background
+  // song) can be dragged to a time of its own.
+  const songBlock = (p: TimelineSong, k: number, layer: 'main' | 'bed') => {
+    const rowH = layer === 'bed' ? BED : MUSIC;
+    const w = Math.max(2, p.seconds * pps - 1);
+    const fi = Math.min(w, Math.max(0, (p.fadeIn || 0) - (p.pos || 0)) * pps);
+    const outFrom = (p.len ?? Infinity) - (p.fadeOut || 0) - (p.pos || 0);
+    const fo = p.fadeOut && outFrom < p.seconds ? Math.min(w, (p.seconds - Math.max(0, outFrom)) * pps) : 0;
+    const mask = fi > 0 || fo > 0 ? `linear-gradient(to right, rgba(0,0,0,${fi > 0 ? 0.2 : 1}) 0px, #000 ${fi}px, #000 ${w - fo}px, rgba(0,0,0,${fo > 0 ? 0.2 : 1}) ${w}px)` : undefined;
+    const movable = !ro && onPlaceSong && p.index !== undefined && !(layer === 'main' && p.index === 0);
+    const dx = d?.kind === 'song' && d.layer === layer && d.index === p.index ? d.dx : 0;
+    const bed = layer === 'bed';
+    return (
+      <div
+        key={`${layer}${k}`}
+        data-song-layer={layer}
+        data-song-index={p.index ?? -1}
+        data-song-at={Math.round((p.at - (p.pos || 0)) * 1000) / 1000}
+        className={`absolute top-0 rounded-md overflow-hidden ring-1 ${bed ? 'bg-amber-100 dark:bg-amber-500/15 ring-amber-300 dark:ring-amber-700' : 'bg-indigo-100 dark:bg-indigo-500/15 ring-indigo-300 dark:ring-indigo-700'} ${dx ? 'z-[3] shadow-lg' : ''}`}
+        style={{ left: X(p.at) + dx, width: w, height: rowH, cursor: movable ? 'grab' : undefined, ...(mask ? { maskImage: mask, WebkitMaskImage: mask } : {}) }}
+        title={movable ? `${p.name}: drag to start it at another time` : p.name}
+      >
+        <Wave a={p.analysis} offset={p.offset} seconds={p.seconds} width={w} color={bed ? '#d97706' : '#6366f1'} h={rowH} />
+        {p.seconds * pps > 60 && (
+          <span className={`absolute left-1 top-0.5 text-[9px] font-bold truncate max-w-[90%] inline-flex items-center gap-0.5 ${bed ? 'text-amber-900 dark:text-amber-200' : 'text-indigo-800 dark:text-indigo-200'}`}>
+            <Music size={9} /> {bed ? 'Background · ' : ''}
+            {p.name}
+            {!bed && p.analysis?.bpm ? ` · ${Math.round(p.analysis.bpm)} BPM` : ''}
+          </span>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col gap-1 min-w-0">
@@ -252,7 +307,7 @@ export const SlideshowTimeline: React.FC<Props> = ({
         onPointerCancel={onUp}
         style={{ touchAction: d ? 'none' : 'pan-x' }}
       >
-        <div className="relative" style={{ width, height: RULER + ROW + MUSIC + 10 }}>
+        <div className="relative" style={{ width, height: RULER + ROW + MUSIC + 10 + (bedSongs.length ? BED + 4 : 0) }}>
           {/* Ruler */}
           <div className="absolute left-0 right-0 top-0 cursor-pointer border-b border-slate-200 dark:border-slate-800" style={{ height: RULER, touchAction: 'none' }} onPointerDown={onRulerDown} role="slider" aria-label="Go to a time" aria-valuemin={0} aria-valuemax={Math.round(total)} aria-valuenow={Math.round(time)}>
             {showBeats && beats.map((b, i) => <span key={i} className="absolute bottom-0 w-px h-1.5 bg-slate-300 dark:bg-slate-700" style={{ left: X(b) }} />)}
@@ -348,25 +403,7 @@ export const SlideshowTimeline: React.FC<Props> = ({
               </span>
             )}
             <div className="absolute inset-0" style={{ transform: `translateX(${musicDx}px)` }}>
-              {songs.map((p, k) => {
-                // A crossfade (or a soft cut) shows as the song fading at that end.
-                const w = Math.max(2, p.seconds * pps - 1);
-                const fi = Math.min(w, Math.max(0, (p.fadeIn || 0) - (p.pos || 0)) * pps);
-                const outFrom = (p.len ?? Infinity) - (p.fadeOut || 0) - (p.pos || 0);
-                const fo = p.fadeOut && outFrom < p.seconds ? Math.min(w, (p.seconds - Math.max(0, outFrom)) * pps) : 0;
-                const mask = fi > 0 || fo > 0 ? `linear-gradient(to right, rgba(0,0,0,${fi > 0 ? 0.2 : 1}) 0px, #000 ${fi}px, #000 ${w - fo}px, rgba(0,0,0,${fo > 0 ? 0.2 : 1}) ${w}px)` : undefined;
-                return (
-                <div key={k} className="absolute top-0 rounded-md overflow-hidden bg-indigo-100 dark:bg-indigo-500/15 ring-1 ring-indigo-300 dark:ring-indigo-700" style={{ left: X(p.at), width: w, height: MUSIC, ...(mask ? { maskImage: mask, WebkitMaskImage: mask } : {}) }}>
-                  <Wave a={p.analysis} offset={p.offset} seconds={p.seconds} width={Math.max(2, p.seconds * pps - 1)} color="#6366f1" />
-                  {p.seconds * pps > 60 && (
-                    <span className="absolute left-1 top-0.5 text-[9px] font-bold text-indigo-800 dark:text-indigo-200 truncate max-w-[90%] inline-flex items-center gap-0.5">
-                      <Music size={9} /> {p.name}
-                      {p.analysis?.bpm ? ` · ${Math.round(p.analysis.bpm)} BPM` : ''}
-                    </span>
-                  )}
-                </div>
-                );
-              })}
+              {songs.map((p, k) => songBlock(p, k, 'main'))}
             </div>
             {d?.kind === 'music' && (
               <span className="absolute right-2 top-1 text-[10px] font-black px-1.5 rounded z-[3]" style={{ background: 'rgba(15,23,42,.85)', color: '#fff' }}>
@@ -374,6 +411,18 @@ export const SlideshowTimeline: React.FC<Props> = ({
               </span>
             )}
           </div>
+
+          {/* The background layer */}
+          {bedSongs.length > 0 && (
+            <div className="absolute left-0 right-0" data-row="bed" style={{ top: RULER + ROW + MUSIC + 12, height: BED, touchAction: ro ? 'pan-x' : 'none' }} onPointerDown={onMusicDown} aria-label="Background music">
+              {bedSongs.map((p, k) => songBlock(p, k, 'bed'))}
+            </div>
+          )}
+          {d?.kind === 'song' && (
+            <span className="absolute right-2 text-[10px] font-black px-1.5 rounded z-[5]" style={{ top: RULER + ROW + 10, background: 'rgba(15,23,42,.85)', color: '#fff' }}>
+              Starts at {mmss(Math.max(0, d.at0 + d.dx / pps))}
+            </span>
+          )}
 
           {/* Playhead */}
           <span className="absolute top-0 bottom-0 w-0.5 pointer-events-none z-[4]" style={{ left: X(time) - 1, background: '#ef4444' }}>

@@ -8,7 +8,7 @@ import { fileUrl, joinPath } from '../highlights/exporters';
 import { drawSlide, slideLook } from './drawSlide';
 import { photoBlob } from './photoLoad';
 import { renderSlideshowVideo } from './renderSlideshow';
-import { mmss, SHAPES, showMusicPieces, slidesSeconds, songLen, type Slide } from './slideshowData';
+import { bedVolumeOf, mmss, musicLayers, SHAPES, showMusicPieces, slidesSeconds, type Slide } from './slideshowData';
 import type { SlideshowOptions } from './types';
 import { makeZip, type ZipEntry } from './zip';
 
@@ -35,6 +35,9 @@ export interface PkgMusic {
   track: number;
   fadeIn: number;
   fadeOut: number;
+  /** Its level (dB), and whether it's the background layer. */
+  db: number;
+  background?: boolean;
 }
 export interface PkgPlan {
   name: string;
@@ -79,8 +82,8 @@ export function packagePlan(o: {
   slides: Slide[];
   options: SlideshowOptions;
   base: string;
-  /** The songs this device has, in the slideshow's order: name and length. */
-  songs: { name: string; seconds: number; start?: number; end?: number; crossfade?: number }[];
+  /** The song files this device has (each once, the background layer's too): name and length. */
+  songs: { name: string; seconds: number }[];
   clips: boolean;
 }): PkgPlan {
   const shape = SHAPES[o.options.shape] || SHAPES['16:9'];
@@ -97,19 +100,29 @@ export function packagePlan(o: {
     at += s.seconds;
   });
   const total = at;
-  const lens = o.songs.map((s) => songLen(s, s.seconds, o.options));
-  // Songs that overlap (crossfading) go on a track each.
-  const trackEnds: number[] = [];
-  const music = showMusicPieces(lens, o.options.repeatSongs, o.options.musicDelay || 0, 0, total).map((p) => {
-    let track = trackEnds.findIndex((e) => e <= p.at + 1e-6);
-    if (track < 0) track = trackEnds.push(0) - 1;
-    trackEnds[track] = p.at + p.seconds;
-    const fadeIn = p.pos < p.fadeIn ? p.fadeIn - p.pos : 0;
-    const fadeOut = p.pos + p.seconds > p.len - p.fadeOut ? Math.min(p.seconds, p.fadeOut) : 0;
-    return { file: songFile[p.song], name: o.songs[p.song].name, at: p.at, offset: p.offset, len: p.seconds, songSeconds: o.songs[p.song].seconds, track, fadeIn, fadeOut };
+  // The songs, then the background layer: songs that overlap (crossfading) go on a track each, the background on tracks after the songs'.
+  const fileOf = new Map(o.songs.map((s, k) => [s.name, k]));
+  const layers = musicLayers<number>(o.options, (p) => {
+    const k = fileOf.get(p.name);
+    return k === undefined ? null : { seconds: o.songs[k].seconds, item: k };
   });
-  const v = Math.max(0.001, o.options.musicVolume);
-  return { name: o.name, fps: PKG_FPS, width: shape.w, height: shape.h, base: o.base, items, music, musicDb: Math.round(20 * Math.log10(v) * 10) / 10, markers, total };
+  const dB = (v: number) => Math.round(20 * Math.log10(Math.max(0.001, v)) * 10) / 10;
+  const music: PkgMusic[] = [];
+  let tracks = 0;
+  for (const L of layers) {
+    const ends: number[] = [];
+    for (const p of showMusicPieces(L.lens, L.repeat, L.delay, 0, total)) {
+      let t = ends.findIndex((e) => e <= p.at + 1e-6);
+      if (t < 0) t = ends.push(0) - 1;
+      ends[t] = p.at + p.seconds;
+      const k = L.items[p.song];
+      const fadeIn = p.pos < p.fadeIn ? p.fadeIn - p.pos : 0;
+      const fadeOut = p.pos + p.seconds > p.len - p.fadeOut ? Math.min(p.seconds, p.fadeOut) : 0;
+      music.push({ file: songFile[k], name: o.songs[k].name, at: p.at, offset: p.offset, len: p.seconds, songSeconds: o.songs[k].seconds, track: tracks + t, fadeIn, fadeOut, db: dB(L.name === 'bed' ? bedVolumeOf(o.options) : o.options.musicVolume), background: L.name === 'bed' });
+    }
+    tracks += ends.length;
+  }
+  return { name: o.name, fps: PKG_FPS, width: shape.w, height: shape.h, base: o.base, items, music, musicDb: dB(o.options.musicVolume), markers, total };
 }
 
 const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -150,7 +163,7 @@ export function packageFcpxml(p: PkgPlan): string {
     if (i === 0)
       for (const m of p.music) {
         kids.push(`              <asset-clip ref="${ids.get(m.file)}" lane="${-1 - m.track}" name="${esc(m.name)}" offset="${rt(m.at, fps)}" start="${st(m.offset)}" duration="${rt(m.len, fps)}">`);
-        if (p.musicDb < -0.05) kids.push(`                <adjust-volume amount="${p.musicDb}dB"/>`);
+        if (m.db < -0.05) kids.push(`                <adjust-volume amount="${m.db}dB"/>`);
         kids.push('              </asset-clip>');
       }
     for (const mk of p.markers.filter((x) => x.at >= it.at && x.at < it.at + it.len)) kids.push(`              <marker start="${rt(mk.at - it.at, fps)}" duration="1/${fps}s" value="${esc(mk.title)}"/>`);
@@ -184,13 +197,13 @@ export function packageXmeml(p: PkgPlan): string {
     if (it.kind === 'clip')
       a1.push(`<clipitem id="a1-${i + 1}"><name>${esc(it.name)}</name><duration>${len}</duration>${rate}<start>${at}</start><end>${at + len}</end><in>0</in><out>${len}</out>${fileEl(it.file, len, true, true)}<sourcetrack><mediatype>audio</mediatype><trackindex>1</trackindex></sourcetrack></clipitem>`);
   });
-  const level = Math.pow(10, p.musicDb / 20).toFixed(3);
+  const levelOf = (db: number) => Math.pow(10, db / 20).toFixed(3);
   const songClips = p.music.map((m, i) => {
     const at = fr(m.at, fps);
     const len = Math.max(1, fr(m.len, fps));
     const inF = fr(m.offset, fps);
     const total = Math.max(inF + len, fr(m.songSeconds, fps));
-    return `<clipitem id="a2-${i + 1}"><name>${esc(m.name)}</name><duration>${total}</duration>${rate}<start>${at}</start><end>${at + len}</end><in>${inF}</in><out>${inF + len}</out>${fileEl(m.file, total, false, true)}<sourcetrack><mediatype>audio</mediatype><trackindex>1</trackindex></sourcetrack><filter><effect><name>Audio Levels</name><effectid>audiolevels</effectid><effectcategory>audiolevels</effectcategory><effecttype>audiolevels</effecttype><mediatype>audio</mediatype><parameter><parameterid>level</parameterid><name>Level</name><value>${level}</value></parameter></effect></filter></clipitem>`;
+    return `<clipitem id="a2-${i + 1}"><name>${esc(m.name)}</name><duration>${total}</duration>${rate}<start>${at}</start><end>${at + len}</end><in>${inF}</in><out>${inF + len}</out>${fileEl(m.file, total, false, true)}<sourcetrack><mediatype>audio</mediatype><trackindex>1</trackindex></sourcetrack><filter><effect><name>Audio Levels</name><effectid>audiolevels</effectid><effectcategory>audiolevels</effectcategory><effecttype>audiolevels</effecttype><mediatype>audio</mediatype><parameter><parameterid>level</parameterid><name>Level</name><value>${levelOf(m.db)}</value></parameter></effect></filter></clipitem>`;
   });
   // The songs on A2 (and A3 for the ones crossfading over them).
   const songTracks: string[][] = [];
@@ -275,7 +288,7 @@ export async function buildEditorPackage(o: {
   look: HighlightSettings;
   logo?: HTMLImageElement | null;
   /** The songs this device has, in the slideshow's order. */
-  songs: { name: string; seconds: number; start?: number; end?: number; crossfade?: number; blob: Blob }[];
+  songs: { name: string; seconds: number; blob: Blob }[];
   base: string;
   clips: boolean;
   signal?: AbortSignal;

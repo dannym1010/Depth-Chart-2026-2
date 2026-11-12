@@ -8,7 +8,7 @@ import type { HighlightSettings } from '../highlights/types';
 import { clock } from '../highlights/highlightData';
 import { drawFade, drawSlide, slideLook } from './drawSlide';
 import { bitmapCache } from './photoLoad';
-import { clipPartAt, fadeAt, musicLevel, musicUnderOf, pieceGain, SHAPES, showMusicPieces, songLen, slideAt, slidesSeconds, songsSeconds, type Slide } from './slideshowData';
+import { clipPartAt, fadeAt, layerLevel, musicLayers, musicUnderOf, pieceGain, SHAPES, showMusicPieces, slideAt, slidesSeconds, songsSeconds, type Slide } from './slideshowData';
 import type { Song } from './songs';
 import type { SlideshowOptions } from './types';
 
@@ -130,24 +130,28 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
     [tidyVideos]
   );
 
-  // ---- Songs ----
-  const picked = useMemo(
+  // ---- Songs: the songs and the background layer, each song with its own player ----
+  const layersKey = JSON.stringify([options.songs, options.bedSongs, options.repeatSongs, options.bedRepeat, options.musicDelay, options.bedDelay, options.songCrossfade, songLens, songs.map((s) => s.name)]);
+  const layers = useMemo(
     () =>
-      options.songs
-        .map((p) => ({ pick: p, song: songs.find((s) => s.name === p.name), seconds: songLens[p.name] || 0 }))
-        .filter((x) => x.song && x.seconds > 0),
-    [options.songs, songs, songLens]
+      musicLayers(options, (p) => {
+        const song = songs.find((s) => s.name === p.name);
+        const seconds = songLens[p.name] || 0;
+        return song && seconds ? { seconds, item: song } : null;
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [layersKey]
   );
-  const lens = useMemo(() => picked.map((x) => songLen(x.pick, x.seconds, options)), [picked, options.songCrossfade]);
-  const delay = options.musicDelay || 0;
-  const songsEnd = options.repeatSongs ? Infinity : delay + songsSeconds(lens);
+  const slots = useMemo(() => layers.flatMap((L, li) => L.items.map((song, k) => ({ li, k, song }))), [layers]);
+  // The players only change when the songs in the list do (not on a trim).
+  const slotNames = slots.map((x) => x.song.name).join('\n');
   const audios = useRef<(HTMLAudioElement | null)[]>([]);
   useEffect(() => {
     let off = false;
     const made: HTMLAudioElement[] = [];
-    audios.current = picked.map(() => null);
-    picked.forEach((x, k) => {
-      void x.song!.get().then((blob) => {
+    audios.current = slots.map(() => null);
+    slots.forEach((x, k) => {
+      void x.song.get().then((blob) => {
         if (off) return;
         const a = new Audio(URL.createObjectURL(blob));
         a.preload = 'auto';
@@ -163,7 +167,12 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
       }
       audios.current = [];
     };
-  }, [picked]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slotNames]);
+  const slotsRef = useRef(slots);
+  slotsRef.current = slots;
+  const layersRef = useRef(layers);
+  layersRef.current = layers;
 
   const tryPlay = (m: HTMLMediaElement) =>
     void m.play().catch((err) => {
@@ -247,17 +256,19 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
         drawSlide(fctx, FW, FH, s, local, src, { look, logo, tiny, ...slideLook(options) });
         drawFade(fctx, FW, FH, fadeAt(slides, i, local, options.fadeEnds), havePrev.current ? prev : null);
 
-        // Songs: the ones for now (two while one crossfades into the next), each at its place, as loud as it should be.
-        const now = on && !hold ? showMusicPieces(lens, options.repeatSongs, delay, tRef.current, tRef.current + 0.05) : [];
+        // Songs and the background layer: the ones for now (two while one crossfades into the next), each at its place, as loud as it should be.
+        const ls = layersRef.current;
+        const now = ls.map((L) => (on && !hold ? showMusicPieces(L.lens, L.repeat, L.delay, tRef.current, tRef.current + 0.05) : []));
+        const sl = slotsRef.current;
         audios.current.forEach((a, k) => {
-          if (!a) return;
-          const piece = now.find((p) => p.song === k);
+          if (!a || !sl[k]) return;
+          const piece = now[sl[k].li]?.find((p) => p.song === sl[k].k);
           if (!piece) {
             if (!a.paused) a.pause();
             return;
           }
           if (Math.abs(a.currentTime - piece.offset) > 0.4) a.currentTime = piece.offset;
-          a.volume = Math.min(1, Math.max(0, musicLevel(options, tRef.current, total, musicUnderOf(s), songsEnd, delay) * pieceGain(piece, 0)));
+          a.volume = Math.min(1, Math.max(0, layerLevel(options, ls[sl[k].li], tRef.current, total, musicUnderOf(s)) * pieceGain(piece, 0)));
           if (a.paused) tryPlay(a);
         });
 
@@ -287,7 +298,7 @@ export const SlideshowPlayer: React.FC<Props> = ({ title, slides, options, acces
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slides, options, lens, total, look, logo]);
+  }, [slides, options, total, look, logo]);
   const waitingRef = useRef('');
   const dirty = useRef(true);
   const timeRef = useRef(onTime);

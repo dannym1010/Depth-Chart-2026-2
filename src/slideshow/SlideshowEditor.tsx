@@ -25,10 +25,10 @@ import { SlideshowPlayer } from './SlideshowPlayer';
 import { SlideshowVideoPanel } from './SlideshowVideoPanel';
 import { useSongAnalysis } from './songAnalysis';
 import {
-  ARRANGE, arrange, buildSlides, repeatClips, duckLevelOf, gameVolumeOf, inGameOrder, reelSlides, clipItem, copyItem, editItem, editItems, fillSpot, FITS, fitToMusic, insertItems, LOOKS, mmss, MOTIONS, moveItem, moveItems, parseMmss, photoItem, removeItems, SHAPES, showMusicPieces, slidesSeconds, songLen, songsSeconds, splitSong, cutOutOfSong, keepOnlyOfSong, repeatSong, spotItem, titleItem, TRANSITIONS, type ArrangeHow, type Slide,
+  ARRANGE, arrange, buildSlides, repeatClips, duckLevelOf, gameVolumeOf, inGameOrder, reelSlides, clipItem, copyItem, editItem, editItems, fillSpot, FITS, fitToMusic, insertItems, LOOKS, mmss, MOTIONS, moveItem, moveItems, parseMmss, photoItem, removeItems, SHAPES, showMusicPieces, slidesSeconds, songsSeconds, musicLayers, musicPlan, bedVolumeOf, splitSong, cutOutOfSong, keepOnlyOfSong, repeatSong, spotItem, titleItem, TRANSITIONS, type ArrangeHow, type Slide,
 } from './slideshowData';
 import type { useSongs } from './songs';
-import type { PhotoFit, PhotoLook, PhotoMotion, SlideItem, Slideshow, SlideshowOptions, SlideshowShape, SlideTransition } from './types';
+import type { PhotoFit, PhotoLook, PhotoMotion, SlideItem, Slideshow, SlideshowOptions, SlideshowShape, SlideTransition, SongPick } from './types';
 
 interface Props {
   show: Slideshow;
@@ -171,6 +171,7 @@ export const SlideshowEditor: React.FC<Props> = ({
   const [newTitle, setNewTitle] = useState('');
   const [lengthNote, setLengthNote] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const bedFileRef = useRef<HTMLInputElement>(null);
   const setOpt = (p: Partial<SlideshowOptions>) => edit((s) => ({ ...s, options: { ...s.options, ...p } }));
   const setItem = (id: string, p: Partial<SlideItem>) => edit((s) => editItem(s, id, p));
   // The clip open in the clip editor.
@@ -376,26 +377,52 @@ export const SlideshowEditor: React.FC<Props> = ({
   }, [show.items]);
   const songLens = songs.lens;
   const pickedSongs = o.songs.map((p) => ({ ...p, seconds: songLens[p.name] || 0, have: songs.songs.some((s) => s.name === p.name) }));
-  const musicSeconds = songsSeconds(pickedSongs.filter((p) => p.have).map((p) => songLen(p, p.seconds, o)));
   const delay = o.musicDelay || 0;
-  const fit = musicSeconds > 0 ? fitToMusic(slides, delay + musicSeconds) : null;
 
-  // ---- The songs read on this device: waveform, tempo and beats (lined up in the slideshow's time) ----
-  const playableKey = pickedSongs.map((p) => `${p.name}|${p.seconds}|${p.start || 0}|${p.end ?? ''}|${p.crossfade ?? ''}|${p.have}`).join('\n');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const playable = useMemo(() => pickedSongs.filter((p) => p.have && p.seconds > 0), [playableKey]);
-  const analyses = useSongAnalysis(songs.songs, playable.map((p) => p.name));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const lens = useMemo(() => playable.map((p) => songLen(p, p.seconds, o)), [playable, o.songCrossfade]);
-  const pieces = useMemo(() => showMusicPieces(lens, o.repeatSongs, delay, 0, total), [lens, o.repeatSongs, delay, total]);
-  const analysisOf = (k: number) => {
-    const a = analyses[playable[k]?.name];
+  // ---- The songs read on this device (both layers): waveform, tempo and beats (lined up in the slideshow's time) ----
+  const layersKey = JSON.stringify([o.songs, o.bedSongs, o.repeatSongs, o.bedRepeat, o.musicDelay, o.bedDelay, o.songCrossfade, songLens, songs.songs.map((s) => s.name)]);
+  const [mainLayer, bedLayer] = useMemo(
+    () =>
+      musicLayers<SongPick>(o, (p) => {
+        const seconds = songLens[p.name] || 0;
+        return seconds && songs.songs.some((s) => s.name === p.name) ? { seconds, item: p } : null;
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [layersKey]
+  );
+  const playable = mainLayer.picks.map((p) => ({ ...p, seconds: songLens[p.name] || 0 }));
+  const musicSeconds = songsSeconds(mainLayer.lens);
+  const fit = musicSeconds > 0 ? fitToMusic(slides, delay + musicSeconds) : null;
+  const analyses = useSongAnalysis(songs.songs, [...new Set([...mainLayer.picks, ...bedLayer.picks].map((p) => p.name))]);
+  const pieces = useMemo(() => showMusicPieces(mainLayer.lens, mainLayer.repeat, mainLayer.delay, 0, total), [mainLayer, total]);
+  const bedPieces = useMemo(() => showMusicPieces(bedLayer.lens, bedLayer.repeat, bedLayer.delay, 0, total), [bedLayer, total]);
+  const analysisOfName = (name?: string) => {
+    const a = name ? analyses[name] : undefined;
     return a && a !== 'failed' ? a : undefined;
   };
+  const analysisOf = (k: number) => analysisOfName(mainLayer.picks[k]?.name);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const beats = useMemo(() => showBeats(pieces, (k) => analysisOf(k)?.beats), [pieces, analyses, playable]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const timelineSongs = useMemo(() => pieces.map((p) => ({ ...p, name: playable[p.song]?.name || '', analysis: analysisOf(p.song) })), [pieces, analyses, playable]);
+  const beats = useMemo(() => showBeats(pieces, (k) => analysisOf(k)?.beats), [pieces, analyses, mainLayer]);
+  // Each piece with its song's name, waveform and place in its list (the song may be in pieces).
+  const timelineSongs = useMemo(
+    () => pieces.map((p) => ({ ...p, name: mainLayer.picks[p.song]?.name || '', analysis: analysisOf(p.song), index: o.songs.indexOf(mainLayer.items[p.song]) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pieces, analyses, mainLayer]
+  );
+  const bedTimelineSongs = useMemo(
+    () => bedPieces.map((p) => ({ ...p, name: bedLayer.picks[p.song]?.name || '', analysis: analysisOfName(bedLayer.picks[p.song]?.name), index: (o.bedSongs || []).indexOf(bedLayer.items[p.song]) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bedPieces, analyses, bedLayer]
+  );
+  // A song dragged on the timeline to a time of its own (the background's first song moves the whole background).
+  const placeSong = (layer: 'main' | 'bed', index: number, at: number) => {
+    const t = Math.max(0, Math.round(at * 100) / 100);
+    if (layer === 'bed') {
+      if (index <= 0) return setOpt({ bedDelay: t });
+      return setOpt({ bedSongs: (o.bedSongs || []).map((x, j) => (j === index ? { ...x, at: t } : x)) });
+    }
+    if (index > 0) setOpt({ songs: o.songs.map((x, j) => (j === index ? { ...x, at: t } : x)) });
+  };
   const firstStart = o.songs[0]?.start || 0;
   const musicShift = delay - firstStart;
   // Where the songs sit, from the timeline: later = the music starts later; before the start = the first song starts further in.
@@ -470,10 +497,13 @@ export const SlideshowEditor: React.FC<Props> = ({
     return () => document.removeEventListener('pointerdown', on);
   }, [plusMenu]);
 
-  const addSongFiles = async (files: FileList | null) => {
+  const addSongFiles = async (files: FileList | null, layer: 'main' | 'bed' = 'main') => {
     if (!files?.length) return;
     const added = await songs.add(files);
-    if (added.length && !ro) setOpt({ songs: [...o.songs, ...added.filter((n) => !o.songs.some((p) => p.name === n)).map((name) => ({ name }))] });
+    if (!added.length || ro) return;
+    const list = layer === 'main' ? o.songs : o.bedSongs || [];
+    const next = [...list, ...added.filter((n) => !list.some((p) => p.name === n)).map((name) => ({ name }))];
+    setOpt(layer === 'main' ? { songs: next } : { bedSongs: next });
   };
 
   const box = 'rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900';
@@ -1145,18 +1175,32 @@ export const SlideshowEditor: React.FC<Props> = ({
     </div>
   );
 
-  // ---- Songs ----
-  const available = songs.songs.filter((s) => !o.songs.some((p) => p.name === s.name));
-  const musicPanel = () => (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-black text-slate-800 dark:text-slate-100">Songs (played in this order)</span>
-        {!pickedSongs.length && <span className="text-[11px] text-slate-500">No songs yet.</span>}
-        {pickedSongs.length > 1 && (
+  // ---- Songs: the songs, and the background layer under them (each a list of songs, or pieces of songs) ----
+  const layerList = (layer: 'main' | 'bed') => (layer === 'main' ? o.songs : o.bedSongs || []);
+  const setLayerList = (layer: 'main' | 'bed', list: SongPick[]) => setOpt(layer === 'main' ? { songs: list } : { bedSongs: list });
+  // When each song's turn starts in the slideshow (as it plays now), for the "Starts" boxes.
+  const turnStarts = (layer: 'main' | 'bed') => {
+    const L = layer === 'main' ? mainLayer : bedLayer;
+    const plan = musicPlan(L.lens, false);
+    const out = new Map<SongPick, number>();
+    L.items.forEach((p, k) => out.set(p, L.delay + plan.at[k]));
+    return out;
+  };
+  const songRows = (layer: 'main' | 'bed') => {
+    const list = layerList(layer);
+    const picks = list.map((p) => ({ ...p, seconds: songLens[p.name] || 0, have: songs.songs.some((s) => s.name === p.name) }));
+    const setList = (l: SongPick[]) => setLayerList(layer, l);
+    const starts = turnStarts(layer);
+    const bed = layer === 'bed';
+    const available = songs.songs.filter((s) => !list.some((p) => p.name === s.name));
+    return (
+      <>
+        {!picks.length && <span className="text-[11px] text-slate-500">{bed ? 'No background yet: a song or crowd noise that plays quietly under everything.' : 'No songs yet.'}</span>}
+        {!bed && picks.length > 1 && (
           <div className="flex flex-wrap items-center gap-1.5 text-xs" role="group" aria-label="Crossfade between songs">
             <span className="font-bold text-slate-600 dark:text-slate-300">Between songs</span>
             {[0, 2, 4, 6, 8].map((v) => {
-              const on = pickedSongs.slice(1).every((p) => (p.crossfade ?? o.songCrossfade ?? 0) === v);
+              const on = picks.slice(1).every((p) => p.at === undefined && (p.crossfade ?? o.songCrossfade ?? 0) === v);
               return (
                 <button
                   key={v}
@@ -1173,12 +1217,16 @@ export const SlideshowEditor: React.FC<Props> = ({
           </div>
         )}
         <ol className="flex flex-col gap-1">
-          {pickedSongs.map((p, k) => {
-            const cross = p.crossfade ?? o.songCrossfade ?? 0;
+          {picks.map((p, k) => {
+            const cross = p.crossfade ?? (bed ? 0 : o.songCrossfade ?? 0);
             const a = analyses[p.name];
             const song = songs.songs.find((x) => x.name === p.name);
-            // The crossfade into this song (or, for the first, from the last one when the songs start over).
-            const showCross = k > 0 || (o.repeatSongs && pickedSongs.length > 1);
+            const placed = p.at !== undefined;
+            const startsAt = starts.get(list[k]);
+            const repeat = bed ? o.bedRepeat : o.repeatSongs;
+            // The crossfade into this song (or, for the first, from the last one when the songs start over); a song placed at a time crossfades by however much it overlaps.
+            const showCross = !placed && (k > 0 || (repeat && picks.length > 1));
+            const same = picks.filter((x) => x.name === p.name).length;
             return (
               <React.Fragment key={`${p.name}-${k}`}>
                 {showCross && (
@@ -1191,34 +1239,59 @@ export const SlideshowEditor: React.FC<Props> = ({
                       step={0.5}
                       value={cross}
                       disabled={ro}
-                      onChange={(e) => setOpt({ songs: o.songs.map((x, j) => (j === k ? { ...x, crossfade: Number(e.target.value) } : x)) })}
+                      onChange={(e) => setList(list.map((x, j) => (j === k ? { ...x, crossfade: Number(e.target.value) } : x)))}
                       className="flex-1 min-w-0"
                       aria-label={`Crossfade into ${p.name}`}
                     />
                     <span className="w-24 tabular-nums text-right">{cross ? `${cross} s overlap` : 'no overlap'}</span>
                   </li>
                 )}
-                <li className="flex flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-800 px-2 py-1.5 text-xs">
+                <li className={`flex flex-wrap items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs ${bed ? 'border-amber-200 dark:border-amber-900/60' : 'border-slate-200 dark:border-slate-800'}`}>
                   <span className="flex items-center gap-1.5 w-full min-w-0">
                     <span className="text-[10px] font-black text-slate-400 tabular-nums">{k + 1}</span>
-                    <Music size={12} className="text-indigo-500 shrink-0" />
+                    <Music size={12} className={`${bed ? 'text-amber-500' : 'text-indigo-500'} shrink-0`} />
                     <span className="font-bold text-slate-800 dark:text-slate-100 truncate min-w-0 flex-1" title={p.name}>
                       {p.name}
                     </span>
                     {p.have ? <span className="text-slate-500 tabular-nums">{p.seconds ? mmss(p.seconds) : '…'}</span> : <span className="text-amber-600 dark:text-amber-400 font-bold">not on this device</span>}
                     {!ro && (
                       <>
-                        <button type="button" className={iconBtn} onClick={() => setOpt({ songs: repeatSong(o.songs, k) })} aria-label={`Play ${p.name} again`} title="Play this piece again right after (a chorus twice)"><Copy size={13} /></button>
-                        <button type="button" className={iconBtn} disabled={k === 0} onClick={() => setOpt({ songs: moveArr(o.songs, k, k - 1) })} aria-label="Play earlier"><ArrowUp size={13} /></button>
-                        <button type="button" className={iconBtn} disabled={k === o.songs.length - 1} onClick={() => setOpt({ songs: moveArr(o.songs, k, k + 1) })} aria-label="Play later"><ArrowDown size={13} /></button>
-                        <button type="button" className={iconBtn} onClick={() => setOpt({ songs: o.songs.filter((_, j) => j !== k) })} aria-label={`Take ${p.name} out`}><X size={13} /></button>
+                        <button type="button" className={iconBtn} onClick={() => setList(repeatSong(list, k))} aria-label={`Play ${p.name} again`} title="Play this piece again right after (a chorus twice)"><Copy size={13} /></button>
+                        <button type="button" className={iconBtn} disabled={k === 0} onClick={() => setList(moveArr(list, k, k - 1))} aria-label="Play earlier"><ArrowUp size={13} /></button>
+                        <button type="button" className={iconBtn} disabled={k === list.length - 1} onClick={() => setList(moveArr(list, k, k + 1))} aria-label="Play later"><ArrowDown size={13} /></button>
+                        <button type="button" className={iconBtn} onClick={() => setList(list.filter((_, j) => j !== k))} aria-label={`Take ${p.name} out`}><X size={13} /></button>
                       </>
                     )}
                   </span>
                   {/* A song cut in pieces: which piece this is. */}
-                  {pickedSongs.filter((x) => x.name === p.name).length > 1 && (
-                    <span className="w-full text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
-                      Piece {pickedSongs.slice(0, k + 1).filter((x) => x.name === p.name).length} of {pickedSongs.filter((x) => x.name === p.name).length} · {mmss(p.start || 0)}–{mmss(p.end ?? p.seconds)}
+                  {same > 1 && (
+                    <span className={`w-full text-[11px] font-bold ${bed ? 'text-amber-700 dark:text-amber-300' : 'text-indigo-700 dark:text-indigo-300'}`}>
+                      Piece {picks.slice(0, k + 1).filter((x) => x.name === p.name).length} of {same} · {mmss(p.start || 0)}–{mmss(p.end ?? p.seconds)}
+                    </span>
+                  )}
+                  {/* When it starts: right after the one before, or at a time of its own (the first song: when the music starts). */}
+                  {k > 0 && (
+                    <span className="w-full flex flex-wrap items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300">
+                      <span className="font-bold">Starts</span>
+                      <input
+                        key={`at-${k}-${startsAt ?? ''}-${p.at ?? ''}`}
+                        defaultValue={startsAt !== undefined ? mmss(startsAt) : ''}
+                        disabled={ro}
+                        onBlur={(e) => {
+                          const v = parseMmss(e.target.value);
+                          if (!Number.isFinite(v) || (startsAt !== undefined && Math.abs(v - startsAt) < 0.05)) return;
+                          setList(list.map((x, j) => (j === k ? { ...x, at: Math.max(0, Math.round(v * 100) / 100) } : x)));
+                        }}
+                        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                        className={`${input} w-16 h-7`}
+                        aria-label={`${p.name} starts at`}
+                      />
+                      <span>{placed ? 'into the slideshow (its own time)' : 'right after the one before'}</span>
+                      {placed && !ro && (
+                        <button type="button" onClick={() => setList(list.map((x, j) => (j === k ? (({ at: _a, ...rest }) => rest)(x) : x)))} className="h-7 px-2 rounded-lg text-[11px] font-bold text-indigo-600 dark:text-indigo-300">
+                          Right after the one before
+                        </button>
+                      )}
                     </span>
                   )}
                   {p.have && p.seconds > 0 && (
@@ -1231,20 +1304,20 @@ export const SlideshowEditor: React.FC<Props> = ({
                       readOnly={ro}
                       getBlob={song ? () => song.get() : undefined}
                       onChange={(s, e) =>
-                        setOpt({
-                          songs: o.songs.map((x, j) => {
+                        setList(
+                          list.map((x, j) => {
                             if (j !== k) return x;
                             const { start: _s, end: _e, ...rest } = x;
                             return { ...rest, ...(s > 0.01 ? { start: s } : {}), ...(e < p.seconds - 0.01 ? { end: e } : {}) };
-                          }),
-                        })
+                          })
+                        )
                       }
-                      onSplit={(t) => setOpt({ songs: splitSong(o.songs, k, t, p.seconds) })}
+                      onSplit={(t) => setList(splitSong(list, k, t, p.seconds))}
                       onCutOut={(x, y) => {
-                        setOpt({ songs: cutOutOfSong(o.songs, k, x, y, p.seconds) });
+                        setList(cutOutOfSong(list, k, x, y, p.seconds));
                         flashNote(`Cut ${mmss(Math.abs(y - x))} out of ${p.name}.`, true);
                       }}
-                      onKeepOnly={(x, y) => setOpt({ songs: keepOnlyOfSong(o.songs, k, x, y, p.seconds) })}
+                      onKeepOnly={(x, y) => setList(keepOnlyOfSong(list, k, x, y, p.seconds))}
                     />
                   )}
                 </li>
@@ -1255,8 +1328,8 @@ export const SlideshowEditor: React.FC<Props> = ({
         {!ro && (
           <div className="flex flex-wrap items-center gap-1.5">
             {available.length > 0 && (
-              <select value="" onChange={(e) => e.target.value && setOpt({ songs: [...o.songs, { name: e.target.value }] })} className={input} aria-label="Add a song">
-                <option value="">Add a song…</option>
+              <select value="" onChange={(e) => e.target.value && setList([...list, { name: e.target.value }])} className={input} aria-label={bed ? 'Add a background song' : 'Add a song'}>
+                <option value="">{bed ? 'Add a background song…' : 'Add a song…'}</option>
                 {available.map((s) => (
                   <option key={s.name} value={s.name}>
                     {s.name}
@@ -1265,15 +1338,55 @@ export const SlideshowEditor: React.FC<Props> = ({
                 ))}
               </select>
             )}
-            <button type="button" onClick={() => fileRef.current?.click()} className="h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold inline-flex items-center gap-1">
-              <Upload size={12} /> Add a song file
+            <button type="button" onClick={() => (bed ? bedFileRef : fileRef).current?.click()} className="h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold inline-flex items-center gap-1">
+              <Upload size={12} /> {bed ? 'Add a background file' : 'Add a song file'}
             </button>
-            <input ref={fileRef} type="file" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac" multiple className="hidden" onChange={(e) => (void addSongFiles(e.target.files), (e.target.value = ''))} />
           </div>
         )}
+      </>
+    );
+  };
+  const musicPanel = () => (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1.5">
+        <span className="text-xs font-black text-slate-800 dark:text-slate-100">Songs (played in this order)</span>
+        {songRows('main')}
+        <input ref={fileRef} type="file" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac" multiple className="hidden" onChange={(e) => (void addSongFiles(e.target.files, 'main'), (e.target.value = ''))} />
         {songs.error && <span className="text-[11px] font-bold text-rose-600">{songs.error}</span>}
-        <p className="text-[11px] text-slate-500">Songs stay on this device (MP3, M4A, WAV). Another coach's device plays the slideshow's songs it has with the same name.</p>
+        <p className="text-[11px] text-slate-500">
+          Songs stay on this device (MP3, M4A, WAV). Another coach's device plays the slideshow's songs it has with the same name. Drag a song on the timeline (or type when it starts) to start it at a time of its own.
+        </p>
       </div>
+      <section className="flex flex-col gap-1.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-500/5 p-2" aria-label="Background music">
+        <span className="text-xs font-black text-slate-800 dark:text-slate-100 inline-flex items-center gap-1">
+          <Music size={13} className="text-amber-500" /> Background (plays under the songs)
+        </span>
+        {songRows('bed')}
+        <input ref={bedFileRef} type="file" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac" multiple className="hidden" onChange={(e) => (void addSongFiles(e.target.files, 'bed'), (e.target.value = ''))} />
+        {(o.bedSongs || []).length > 0 && (
+          <fieldset className="flex flex-col gap-1.5" disabled={ro}>
+            {level('Its volume', bedVolumeOf(o), (v) => setOpt({ bedVolume: v }), 'Background volume', 'Silent')}
+            <div className={row}>
+              <span className={label}>Starts at</span>
+              <input
+                key={`bed-${o.bedDelay || 0}`}
+                defaultValue={mmss(o.bedDelay || 0)}
+                onBlur={(e) => {
+                  const v = parseMmss(e.target.value);
+                  if (Number.isFinite(v)) setOpt({ bedDelay: Math.max(0, Math.round(v * 100) / 100) });
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                className={`${input} w-16`}
+                aria-label="Background starts at"
+              />
+              <span className="text-slate-500">into the slideshow</span>
+            </div>
+            <label className="inline-flex items-center gap-1.5 text-xs">
+              <input type="checkbox" checked={Boolean(o.bedRepeat)} onChange={(e) => setOpt({ bedRepeat: e.target.checked })} /> Start the background over if it runs out
+            </label>
+          </fieldset>
+        )}
+      </section>
       <fieldset className="flex flex-col gap-1.5" disabled={ro}>
         <legend className="text-xs font-black text-slate-800 dark:text-slate-100 mb-1">How it plays</legend>
         {level('Music', o.musicVolume, (v) => setOpt({ musicVolume: v }), 'Song volume')}
@@ -1441,6 +1554,8 @@ export const SlideshowEditor: React.FC<Props> = ({
               onResize={(id, seconds) => setItem(id, { seconds })}
               onMove={moveBefore}
               timelineSongs={timelineSongs}
+              bedTimelineSongs={bedTimelineSongs}
+              onPlaceSong={placeSong}
               beats={beats}
               onMarks={(marks) => setOpt({ marks })}
               musicShift={musicShift}
