@@ -41,6 +41,7 @@ import { CallResultsCard } from '../playbook/CallResultsCard';
 import { OwnTeamReport } from '../playbook/OwnTeamReport';
 import type { FilmPlayerRef, RosterPlayer } from '../../types';
 import { BallRole, WeekBoards, filmLineup, setPlayBallPlayer, setPlayDefPlay, setPlaySub } from '../../utils/filmLineup';
+import { withRosterNames } from '../../hudlScout/utils/rosterNames';
 import { pickScoutBundle, scoutFingerprint } from '../../utils/remoteStateMerge';
 import { markGamesDeleted } from '../../utils/gameTombstones';
 import {
@@ -281,7 +282,8 @@ export const HudlScoutView: React.FC<HudlScoutViewProps> = ({
       updatedAt: Date.now(),
     }));
   }, [ownBundle.games, scheduleEvents]);
-  const allPlays = bundle.plays;
+  // Our kids' names as the roster has them now (a name fixed on the roster reaches the play log and the stats).
+  const allPlays = useMemo(() => (scoutTarget === 'own' ? withRosterNames(bundle.plays, roster) : bundle.plays), [scoutTarget, bundle.plays, roster]);
   // The printed report: each of their play types on this week's report, drawn against our defense.
   const reportCards = useMemo<{ combined: ReportPlayType[]; single: ReportPlayType[] }>(() => {
     if (!isCallSheetOpen || scoutTarget !== 'opponent') return { combined: [], single: [] };

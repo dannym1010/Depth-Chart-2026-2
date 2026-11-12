@@ -16,6 +16,7 @@ import { isReadOnlySession, safeJSONParse, safeJSONSet } from '../services/stora
 import type { FilmPlayerRef, RosterPlayer } from '../types';
 import type { PlayBuilderState, PlayDatabaseEntry } from '../types/callSheet';
 import { filmLineup, setPlayBallPlayer, setPlayDefPlay, setPlaySub, type BallRole, type WeekBoards } from '../utils/filmLineup';
+import { withRosterNames } from '../hudlScout/utils/rosterNames';
 import { newPlayEntry } from '../utils/playbookImport';
 import { theirCallEntries } from '../utils/theirCalls';
 import { clipMatchMode, matchClipsToPlays, naturalCompare, NO_CLIP } from './clipMatching';
@@ -204,10 +205,12 @@ export const FilmRoomView: React.FC<FilmRoomViewProps> = ({
     if (game.filmOnly) return clipPlays;
     const b = game.source === 'own' ? own : opp;
     const onlyGame = b.games.length === 1;
-    return b.plays
+    const list = b.plays
       .filter((p) => p.gameId === game.gameId || (onlyGame && !p.gameId))
       .sort((a, c) => (Number(a.playNumber) || 0) - (Number(c.playNumber) || 0));
-  }, [game, own, opp, clipPlays]);
+    // Our kids' names as the roster has them now (a name fixed on the roster reaches the breakdown).
+    return game.source === 'own' ? withRosterNames(list, roster) : list;
+  }, [game, own, opp, clipPlays, roster]);
 
   const [odk, setOdkState] = useState<OdkFilter>(() => {
     try {
