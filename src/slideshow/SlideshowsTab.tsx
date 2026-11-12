@@ -1,7 +1,8 @@
 // The Slideshows tab in Highlights: every slideshow this coach can see, a new one, and the one open. Photos come from
 // the team's Media library, clips from the highlights, songs from this device.
 import React, { useEffect, useMemo, useState } from 'react';
-import { Images, Plus } from 'lucide-react';
+import { Images, Plus, Trophy } from 'lucide-react';
+import { PicksBoard } from './PicksBoard';
 import type { FilmAccess } from '../highlights/filmAccess';
 import { clock, type Kid } from '../highlights/highlightData';
 import { loadImage } from '../highlights/graphics';
@@ -38,6 +39,9 @@ export const SlideshowsTab: React.FC<Props> = ({ teamId, season, store, access, 
   const { data, update } = store;
   const ro = store.readOnly;
   const media = useMedia(teamId, season, { helper });
+  // The picks board (each kid's year-end photos), over everything.
+  const [picksOpen, setPicksOpen] = useState(false);
+  const onMedia = media.readOnly ? null : media.update;
   const songs = useSongs();
   const [logo, setLogo] = useState<HTMLImageElement | null>(null);
   useEffect(() => {
@@ -91,6 +95,9 @@ export const SlideshowsTab: React.FC<Props> = ({ teamId, season, store, access, 
             <Plus size={14} /> New slideshow
           </button>
         )}
+        <button type="button" onClick={() => setPicksOpen(true)} className="h-9 px-3 rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-500/10 text-amber-900 dark:text-amber-200 text-xs font-black inline-flex items-center justify-center gap-1.5" title="Each kid's photos for the slideshow (helpers can pick too)">
+          <Trophy size={14} /> Pick photos by kid
+        </button>
         {!list.length && <p className="text-xs text-slate-500 py-4 text-center">No slideshows yet.</p>}
         <ul className="flex flex-col gap-1">
           {list.map((s) => {
@@ -128,6 +135,7 @@ export const SlideshowsTab: React.FC<Props> = ({ teamId, season, store, access, 
             games={sortedGames}
             roster={roster}
             media={media.data}
+            onMedia={onMedia}
             me={me}
             ownerLabel={open.owner !== me ? open.ownerName || nameOf(open.owner) : undefined}
             access={access}
@@ -156,6 +164,7 @@ export const SlideshowsTab: React.FC<Props> = ({ teamId, season, store, access, 
           </div>
         )}
       </div>
+      {picksOpen && <PicksBoard media={media.data} onMedia={onMedia} roster={roster} me={me} onSignIn={() => access.connect()} onClose={() => setPicksOpen(false)} />}
     </div>
   );
 };

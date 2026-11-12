@@ -3,7 +3,7 @@
 // under it. Plays right here, or is made into one MP4.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowDown, ArrowUp, AudioLines, Clapperboard, ListOrdered, Scissors, Bookmark, Check, CheckSquare, ChevronsDown, ChevronsUp, Copy, Crosshair, Film, Image as ImageIcon, ImagePlus, Move, Music, Play, Plus, Redo2, Sparkles, SquareDashed, Trash2, Type, Undo2, Upload, Video, X,
+  ArrowDown, ArrowUp, AudioLines, Clapperboard, ListOrdered, Scissors, Trophy, Bookmark, Check, CheckSquare, ChevronsDown, ChevronsUp, Copy, Crosshair, Film, Image as ImageIcon, ImagePlus, Move, Music, Play, Plus, Redo2, Sparkles, SquareDashed, Trash2, Type, Undo2, Upload, Video, X,
 } from 'lucide-react';
 import type { FilmAccess } from '../highlights/filmAccess';
 import { clock, orderedHighlights, weekText, type Kid } from '../highlights/highlightData';
@@ -11,6 +11,7 @@ import type { Highlight, HighlightGame, HighlightSettings, Reel } from '../highl
 import type { MediaData } from '../media/types';
 import { ClipPicker } from './ClipPicker';
 import { ReelPicker } from './ReelPicker';
+import { PicksBoard } from './PicksBoard';
 import { PhotoPicker } from './PhotoPicker';
 import { photoTimes } from './photoLoad';
 import { PhotoThumb } from './PhotoThumb';
@@ -38,6 +39,8 @@ interface Props {
   games: HighlightGame[];
   roster: Kid[];
   media: MediaData;
+  /** Saving picks to Media (null: can't). */
+  onMedia?: ((change: (d: MediaData) => MediaData) => void) | null;
   me: string;
   ownerLabel?: string;
   access: FilmAccess;
@@ -62,7 +65,7 @@ const TILE_SIZES = { s: 92, m: 118, l: 170 } as const;
 type TileSize = keyof typeof TILE_SIZES;
 
 export const SlideshowEditor: React.FC<Props> = ({
-  show, edit: editRaw, readOnly: ro, highlights, reels, games, roster, media, me, ownerLabel, access, settings, logo, songs, onDuplicate, onDelete, onClose, aiDesigner = false, teamName, renderClipEditor,
+  show, edit: editRaw, readOnly: ro, highlights, reels, games, roster, media, me, ownerLabel, access, settings, logo, songs, onDuplicate, onDelete, onClose, aiDesigner = false, teamName, renderClipEditor, onMedia = null,
 }) => {
   const o = show.options;
   const slides = useMemo(() => buildSlides(show, highlights, settings, { roster }), [show, highlights, settings, roster]);
@@ -151,7 +154,7 @@ export const SlideshowEditor: React.FC<Props> = ({
     }
   };
   const [side, setSide] = useState<Side>('look');
-  const [picking, setPicking] = useState<'' | 'photos' | 'clips' | 'reels'>('');
+  const [picking, setPicking] = useState<'' | 'photos' | 'clips' | 'reels' | 'picks'>('');
   // Photos picked for a saved spot fill it; the + on a slide puts new ones right after it.
   const [fillingSpot, setFillingSpot] = useState<string | null>(null);
   const [insertHere, setInsertHere] = useState<string | null | undefined>(undefined);
@@ -1446,6 +1449,9 @@ export const SlideshowEditor: React.FC<Props> = ({
                   <Clapperboard size={14} /> Add reels
                 </button>
               )}
+              <button type="button" onClick={() => setPicking('picks')} className="h-9 px-3 rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-500/10 text-amber-900 dark:text-amber-200 text-xs font-black inline-flex items-center gap-1.5" title="Each kid's picked photos (at least 2 each), and team / group photos">
+                <Trophy size={14} /> Picks by kid
+              </button>
               <span className="inline-flex items-center gap-1">
                 <input
                   value={newTitle}
@@ -1717,6 +1723,23 @@ export const SlideshowEditor: React.FC<Props> = ({
             setInsertHere(undefined);
           }}
           onClose={() => (setPicking(''), setFillingSpot(null), setInsertHere(undefined))}
+        />
+      )}
+      {picking === 'picks' && (
+        <PicksBoard
+          media={media}
+          onMedia={ro ? null : onMedia}
+          roster={roster}
+          me={me}
+          inShow={new Set(show.items.flatMap((i) => (i.kind === 'photo' ? [i.photoId] : [])))}
+          onAddToShow={ro ? undefined : (list) => {
+            edit((s) => insertItems(s, list.map(photoItem), target));
+            setPicking('');
+            setInsertHere(undefined);
+            flashNote(`Added ${list.length} picked photo${list.length === 1 ? '' : 's'}.`, true);
+          }}
+          onSignIn={() => access.connect()}
+          onClose={() => (setPicking(''), setInsertHere(undefined))}
         />
       )}
       {picking === 'reels' && (

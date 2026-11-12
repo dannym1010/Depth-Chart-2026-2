@@ -5,6 +5,34 @@
 import type { MediaPhoto } from '../media/types';
 
 const TIER: Record<string, number> = { Elite: 3, Good: 2, Archive: 1, Reject: -1 };
+
+// ---- Picks: the photos coaches and helpers chose for the year-end slideshow (Media's Year-end tag, so each photo
+// keeps its own pick and two people picking at once don't undo each other) ----
+
+export const PICK_TAG = 'yearend' as const;
+export const isPicked = (r?: Pick<MediaPhoto, 'tags'> | null) => Boolean(r?.tags?.includes(PICK_TAG));
+const kidsIn = (r?: Pick<MediaPhoto, 'kids'> | null) => [...new Set((r?.kids || []).map((k) => String(Number(k))))];
+
+/** A team or group photo: marked a group, or three or more kids in it. */
+export const isGroupPhoto = (r?: Pick<MediaPhoto, 'group' | 'kids'> | null) => Boolean(r && (r.group === 'group' || kidsIn(r).length >= 3));
+
+/** How many picked photos each kid is in (a group photo counts for everyone in it). */
+export function pickCounts(kids: string[], records: Iterable<MediaPhoto>): Map<string, number> {
+  const n = new Map(kids.map((k) => [String(Number(k)), 0]));
+  for (const r of records) if (isPicked(r)) for (const k of kidsIn(r)) if (n.has(k)) n.set(k, (n.get(k) || 0) + 1);
+  return n;
+}
+
+/** A kid's photos, best first (never a rejected one). */
+export function kidPhotos(kid: string, records: Iterable<MediaPhoto>): MediaPhoto[] {
+  const k = String(Number(kid));
+  return [...records].filter((r) => kidsIn(r).includes(k) && photoRank(r) !== -Infinity).sort((a, b) => photoRank(b) - photoRank(a) || kidsIn(a).length - kidsIn(b).length);
+}
+
+/** Team and group photos, best first. */
+export function groupPhotos(records: Iterable<MediaPhoto>): MediaPhoto[] {
+  return [...records].filter((r) => isGroupPhoto(r) && photoRank(r) !== -Infinity).sort((a, b) => photoRank(b) - photoRank(a) || kidsIn(b).length - kidsIn(a).length);
+}
 const num = (k: string) => String(Number(k));
 
 /** How good a photo is for the slideshow (higher is better); a rejected one is never picked. */
