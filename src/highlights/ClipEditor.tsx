@@ -10,7 +10,7 @@ import { savedOffset, snapOffset, syncTarget } from '../filmroom/dualView';
 import type { FilmGameShared } from '../filmroom/types';
 import { lineUp, type FilmAccess, type GameFilm } from './filmAccess';
 import { drawLowerThird, drawSpot, loadImage } from './graphics';
-import { autoTitle, editHighlight, highlightSegments, kidLabel, kidsText, removeHighlights, snapWindow, type Kid } from './highlightData';
+import { autoTitle, editHighlight, highlightSegments, kidLabel, kidsText, markFreezeSeconds, removeHighlights, snapWindow, type Kid } from './highlightData';
 import { SocialVideoPanel } from './SocialVideoPanel';
 import { FOLLOW_STEP, followCam, packFollow, pathAt, recordInto, stretches, thin, unpackFollow, type FollowPoint } from './follow';
 import type { Highlight, HighlightCategory, HighlightMark, HighlightSettings, SpotStyle } from './types';
@@ -152,6 +152,22 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
   const [marking, setMarking] = useState(false);
   const [markStyle, setMarkStyle] = useState<SpotStyle>('ring');
   const [markSecs, setMarkSecs] = useState(2);
+  // New circles / arrows stop the play while they show (remembered on this device).
+  const [markFreeze, setMarkFreezeState] = useState(() => {
+    try {
+      return localStorage.getItem('clipMarkFreeze') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const setMarkFreeze = (on: boolean) => {
+    setMarkFreezeState(on);
+    try {
+      localStorage.setItem('clipMarkFreeze', on ? '1' : '0');
+    } catch {
+      /* private window */
+    }
+  };
   const [busy, setBusy] = useState('');
   // Follow a kid by finger: the clip plays slowly while a finger (or the mouse button) stays on him; each stretch is
   // saved when the finger lifts. The Instagram video's camera rides the path.
@@ -486,6 +502,7 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
         label: markStyle === 'tag' && h.kids[0] ? kidLabel(h.kids[0], roster, settings.names === 'none' ? 'number' : settings.names) : undefined,
         from: r2(at),
         to: r2(markSecs ? Math.min(end, at + markSecs) : end),
+        ...(markFreeze ? { freeze: true } : {}),
       };
       edit((x0) => ({ ...x0, marks: [...(x0.marks || []), mark] }));
       setMarking(false);
@@ -1383,6 +1400,9 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
               <Crosshair size={12} className="inline -mt-0.5" /> {marking ? 'Tap the kid… (cancel)' : 'Mark at the playhead'}
             </button>
           </span>
+          <label className="inline-flex items-center gap-1.5 text-slate-700 dark:text-slate-200" title="The play stops on that frame while the circle shows, then goes on from there">
+            <input type="checkbox" checked={markFreeze} onChange={(e) => setMarkFreeze(e.target.checked)} /> Freeze the play while it shows
+          </label>
           {(h.marks || []).length > 0 && (
             <ul className="flex flex-col gap-1">
               {(h.marks || []).map((m) => (
@@ -1415,6 +1435,15 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
                   </button>
                   <button type="button" className={small} onClick={() => v && edit((x) => ({ ...x, marks: (x.marks || []).map((k) => (k.id === m.id ? { ...k, to: r2(Math.max(v.currentTime, k.from + 0.2)) } : k)) }))} title="Hide it at the playhead">
                     To here
+                  </button>
+                  <button
+                    type="button"
+                    className={chip(Boolean(m.freeze))}
+                    aria-pressed={Boolean(m.freeze)}
+                    onClick={() => edit((x) => ({ ...x, marks: (x.marks || []).map((k) => (k.id === m.id ? (k.freeze ? (({ freeze: _f, ...rest }) => rest)(k) : { ...k, freeze: true }) : k)) }))}
+                    title={m.freeze ? `The play stops for ${markFreezeSeconds(m).toFixed(1)} s while it shows (Preview shows it)` : 'The play keeps going while it shows'}
+                  >
+                    {m.freeze ? `Freezes ${markFreezeSeconds(m).toFixed(1)} s` : 'Plays on'}
                   </button>
                   <button type="button" className="text-rose-600 dark:text-rose-400 font-bold px-1" onClick={() => edit((x) => ({ ...x, marks: (x.marks || []).filter((k) => k.id !== m.id) }))} aria-label="Remove this mark">
                     Remove

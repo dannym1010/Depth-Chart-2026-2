@@ -2,7 +2,7 @@
 // pictures on a second track, a marker on each highlight) in the formats DaVinci Resolve, Premiere, Final Cut and
 // most editors read, plus a cut list and YouTube chapters. The editor cuts the original film; nothing is re-encoded.
 // The browser can't see drive letters, so file paths come from where the coach says the folders are.
-import { chapters, clock, segmentSeconds, type CardSpec, type Overlay, type Segment } from './highlightData';
+import { chapters, clock, freezeSpotOf, segmentSeconds, type CardSpec, type Overlay, type Segment } from './highlightData';
 import type { Highlight, HighlightSettings, SpotStyle } from './types';
 import { cameraKeys, clipCamera, fcpTransform, type ClipCam } from './clipZoom';
 
@@ -153,7 +153,7 @@ export function buildPlan(opts: {
         const cam = clipCamera(s.h, s.at, 'main') || undefined;
         const id = graphic({ kind: 'freeze', h: s.h, view: s.view, clip: s.clip, at: s.at, ...(cam ? { cam } : {}) }, `freeze ${s.h.title}`);
         v1.push({ kind: 'still', graphic: id, at, len, name: `${s.h.title} (freeze)` });
-        const spot = s.h.freeze?.spot;
+        const spot = freezeSpotOf(s);
         if (spot) v2.push({ graphic: graphic({ kind: 'spot', spot, ...(cam ? { cam } : {}) }, `spotlight ${s.h.title}`), at, len, name: 'Spotlight' });
       } else {
         // The clip's zoom, from its own (unshifted) seconds, as keyframes in the piece's time.

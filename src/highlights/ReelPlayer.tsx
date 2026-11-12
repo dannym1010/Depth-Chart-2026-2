@@ -5,7 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Maximize2, Pause, Play as PlayIcon, RotateCcw, X } from 'lucide-react';
 import { NEEDS_SIGN_IN, type FilmAccess } from './filmAccess';
 import { drawCard, drawLowerThird, drawSpot } from './graphics';
-import { clock, segmentSeconds, timelineSeconds, type Segment } from './highlightData';
+import { clock, freezeSpotOf, marksOver, segmentSeconds, timelineSeconds, type Segment } from './highlightData';
 import { clipCamera, zoomRect } from './clipZoom';
 import { drawSpotIn, partOf, startsNew } from './socialVideo';
 import type { HighlightSettings } from './types';
@@ -201,16 +201,16 @@ export const ReelPlayer: React.FC<Props> = ({ title, segments, access, settings,
       pic = { x: r.x * dpr, y: r.y * dpr, w: r.w * dpr, h: r.h * dpr };
     }
     if (s.type !== 'card' && pic) {
-      if (s.type === 'freeze' && s.h.freeze?.spot) drawSpotIn(ctx, w, h, pic, s.h.freeze.spot, settings);
+      { const fs = freezeSpotOf(s); if (fs) drawSpotIn(ctx, w, h, pic, fs, settings); }
       // The circles / arrows on a kid, over the play itself (not its replay from another camera).
       const t = v?.currentTime ?? -1;
-      if (s.type === 'clip' && s.part !== 'replay') for (const m of s.h.marks || []) if (t >= m.from && t <= m.to) drawSpotIn(ctx, w, h, pic, m, settings);
+      for (const m of marksOver(s, t)) drawSpotIn(ctx, w, h, pic, m, settings);
     }
     ctx.save();
     ctx.translate((w - fw) / 2, (h - fh) / 2);
     if (s.type === 'card') drawCard(ctx, fw, fh, s.card, settings, logo);
     else {
-      if (!pic && s.type === 'freeze' && s.h.freeze?.spot) drawSpot(ctx, fw, fh, s.h.freeze.spot, settings);
+      if (!pic) { const fs = freezeSpotOf(s); if (fs) drawSpot(ctx, fw, fh, fs, settings); }
       if (s.type === 'clip' && s.part === 'replay') drawLowerThird(ctx, fw, fh, { title: 'Replay' }, settings, logo);
       else if (s.overlay) drawLowerThird(ctx, fw, fh, s.overlay, settings, logo);
     }

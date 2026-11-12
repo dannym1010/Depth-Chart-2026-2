@@ -28,6 +28,8 @@ export interface HighlightMark {
   label?: string;
   from: number;
   to: number;
+  /** The play stops at `from` while it shows (MARK_FREEZE_MAX seconds at most), then goes on from there. */
+  freeze?: boolean;
 }
 
 export interface Highlight {

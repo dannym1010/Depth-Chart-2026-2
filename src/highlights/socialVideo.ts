@@ -5,7 +5,7 @@
 // the tall frame) or is zoomed in, following the kid when he's been marked.
 // Made on this device with its own video encoder (Mediabunny, loaded only when a video is made).
 import { drawCard, drawLowerThird, drawSpot } from './graphics';
-import { segmentSeconds, timelineSeconds, type Overlay, type Segment } from './highlightData';
+import { freezeSpotOf, marksOver, segmentSeconds, timelineSeconds, type Overlay, type Segment } from './highlightData';
 import type { FilmAccess } from './filmAccess';
 import { followCam, unpackFollow, type FollowPoint } from './follow';
 import type { Highlight, HighlightSettings } from './types';
@@ -219,8 +219,8 @@ export function drawHighlightFrame(
   if (kept) cam.zoom = Math.max(cam.zoom, keptZoom(f.srcW, f.srcH, W, H, kept.mag));
   if (f.src) drawFilmFrame(c, W, H, f.src, f.srcW, f.srcH, cam.zoom, cam.focus, f.tiny);
   const r = pictureRect(f.srcW, f.srcH, W, H, cam.zoom, cam.focus.x, cam.focus.y);
-  if (s.type === 'freeze' && s.h.freeze?.spot) drawSpotIn(c, W, H, r, s.h.freeze.spot, f.look);
-  if (s.type === 'clip' && s.part !== 'replay') for (const m of s.h.marks || []) if (t >= m.from && t <= m.to) drawSpotIn(c, W, H, r, m, f.look);
+  { const fs = freezeSpotOf(s); if (fs) drawSpotIn(c, W, H, r, fs, f.look); }
+  for (const m of marksOver(s, t)) drawSpotIn(c, W, H, r, m, f.look);
   if (f.titles) {
     if (s.type === 'clip' && s.part === 'replay') drawSocialTitle(c, W, H, { title: 'Replay' }, f.look, f.logo);
     else if (s.overlay) drawSocialTitle(c, W, H, s.overlay, f.look, f.logo);

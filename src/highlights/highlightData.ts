@@ -5,6 +5,7 @@ import type { Play } from '../hudlScout/types/football';
 import { jerseyOf, playerTotals, playsForPlayer } from '../filmroom/playerPlays';
 import { mergeById, mergeTombstones } from '../utils/recordMerge';
 import type {
+  HighlightMark,
   Highlight, HighlightCategory, HighlightGame, HighlightSettings, HighlightsData, NameStyle, Reel, ReelKind, ReelOptions,
 } from './types';
 
@@ -598,7 +599,7 @@ export interface Overlay {
 export type Segment =
   | { type: 'card'; card: CardSpec; seconds: number }
   | { type: 'clip'; h: Highlight; view: string; clip: string; from: number; to: number; speed: number; part: 'main' | 'replay'; overlay?: Overlay }
-  | { type: 'freeze'; h: Highlight; view: string; clip: string; at: number; seconds: number; overlay?: Overlay };
+  | { type: 'freeze'; h: Highlight; view: string; clip: string; at: number; seconds: number; overlay?: Overlay; /** A circle / arrow the play stops for (else the freeze frame's own spotlight). */ mark?: HighlightMark };
 
 export const segmentSeconds = (s: Segment) => (s.type === 'clip' ? (s.to - s.from) / s.speed : s.seconds);
 export const timelineSeconds = (segs: Segment[]) => segs.reduce((n, s) => n + segmentSeconds(s), 0);
@@ -614,6 +615,11 @@ export function highlightSegments(h: Highlight, opts: { overlay?: Overlay; repla
   }
   const freeze = h.freeze && h.freeze.at >= h.start && h.freeze.at <= h.end && h.freeze.seconds > 0 ? h.freeze : undefined;
   if (freeze) cuts.add(freeze.at);
+  // Circles / arrows the play stops for: a freeze where each one shows up, as long as it stays up.
+  const stops = (h.marks || []).filter((m) => m.freeze && m.from >= h.start - 1e-6 && m.from <= h.end + 1e-6);
+  for (const m of stops) cuts.add(clamp(m.from, h.start, h.end));
+  const stopsAt = (t: number) =>
+    stops.filter((m) => Math.abs(clamp(m.from, h.start, h.end) - t) < 1e-6).map((m) => ({ type: 'freeze' as const, ...base, at: clamp(m.from, h.start, h.end), seconds: markFreezeSeconds(m), overlay: opts.overlay, mark: m }));
   const points = [...cuts].sort((a, b) => a - b);
   const out: Segment[] = [];
   for (let i = 0; i < points.length - 1; i++) {
@@ -621,10 +627,12 @@ export function highlightSegments(h: Highlight, opts: { overlay?: Overlay; repla
     const to = points[i + 1];
     if (to - from < 0.02) continue;
     if (freeze && Math.abs(from - freeze.at) < 1e-6) out.push({ type: 'freeze', ...base, at: freeze.at, seconds: freeze.seconds, overlay: opts.overlay });
+    out.push(...stopsAt(from));
     const speed = slow && from >= slow.from - 1e-6 && to <= slow.to + 1e-6 ? slow.speed : 1;
     out.push({ type: 'clip', ...base, from, to, speed, part: 'main', overlay: opts.overlay });
   }
   if (freeze && Math.abs(freeze.at - h.end) < 1e-6) out.push({ type: 'freeze', ...base, at: freeze.at, seconds: freeze.seconds, overlay: opts.overlay });
+  out.push(...stopsAt(h.end));
   // A replay: the one set on the highlight (another camera); with every replay on, the play again slowed down.
   const replay =
     opts.replays === 'none' ? undefined : h.replay && h.replay.end > h.replay.start ? h.replay : opts.replays === 'all' ? { view: h.view, clip: h.clip, start: h.start, end: h.end, speed: opts.replaySpeed } : undefined;
@@ -633,6 +641,16 @@ export function highlightSegments(h: Highlight, opts: { overlay?: Overlay; repla
 }
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+
+/** The longest a circle / arrow holds the play (one shown to the end of the clip would stop it for good). */
+export const MARK_FREEZE_MAX = 6;
+/** How long the play stops for a circle / arrow that freezes it: as long as it stays up, half a second to MARK_FREEZE_MAX. */
+export const markFreezeSeconds = (m: Pick<HighlightMark, 'from' | 'to'>) => clamp(m.to - m.from, 0.5, MARK_FREEZE_MAX);
+/** The spotlight on a freeze frame: the circle it stops for, else the freeze's own. */
+export const freezeSpotOf = (s: Segment) => (s.type === 'freeze' ? s.mark ?? s.h.freeze?.spot : undefined);
+/** The circles / arrows over a moving clip at clip time `t` (the main camera only; ones that freeze the play show in their freeze instead). */
+export const marksOver = (s: Segment, t: number): HighlightMark[] =>
+  s.type === 'clip' && s.part !== 'replay' ? (s.h.marks || []).filter((m) => !m.freeze && t >= m.from && t <= m.to) : [];
 
 /** A whole reel as a timeline: intro, stats, chapters, every highlight's parts, outro. */
 export function reelTimeline(opts: {

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   addToReel, autoTitle, categoriesOf, chapters, defaultSettings, editHighlight, emptyHighlights, extraPlace, gameOrder, highlightFromExtra,
   highlightFromPlay, highlightSegments, kidCoverage, kidLabel, mergeHighlights, newReel, opponentOf, orderedHighlights, reelTimeline, removeHighlights,
-  reasonsFor, recommendPlays, seasonOf, segmentSeconds, setSettings, snapWindow, statLines, suggestFromPlays, timelineSeconds,
+  reasonsFor, recommendPlays, seasonOf, segmentSeconds, setSettings, snapWindow, statLines, suggestFromPlays, timelineSeconds, freezeSpotOf, marksOver,
 } from './highlightData.ts';
 import { buildPlan, fileUrl, joinPath, toCsv, toEdl, toFcpxml, toOtio, toXmeml } from './exporters.ts';
 import type { Highlight } from './types.ts';
@@ -316,5 +316,25 @@ describe("a parent's own highlights", () => {
     assert.equal(c.note, undefined);
     assert.equal(c.createdBy, 'mom@home.com');
     assert.deepEqual([c.start, c.end, c.clip, c.playId, c.kids], [h.start, h.end, h.clip, h.playId, h.kids]);
+  });
+});
+
+describe('circles that freeze the play', () => {
+  it('stops the play where the circle shows up, as long as it stays up, then goes on', () => {
+    const ring = { id: 'm1', x: 0.5, y: 0.5, style: 'ring' as const, from: 5, to: 7, freeze: true };
+    const moving = { id: 'm2', x: 0.2, y: 0.2, style: 'arrow' as const, from: 3, to: 4 };
+    const h = hl('a', 1, 1, { marks: [ring, moving] });
+    const segs = highlightSegments(h, { replays: 'none', replaySpeed: 0.5 });
+    assert.deepEqual(segs.map((s) => (s.type === 'freeze' ? `freeze ${s.at} ${s.seconds}` : s.type === 'clip' ? `clip ${s.from}-${s.to}` : 'card')), ['clip 2-5', 'freeze 5 2', 'clip 5-10']);
+    assert.equal(timelineSeconds(segs), 8 + 2);
+    // The freeze shows that circle; the moving clip shows only the one that doesn't freeze.
+    assert.equal(freezeSpotOf(segs[1]), ring);
+    assert.deepEqual(marksOver(segs[0], 3.5), [moving]);
+    assert.deepEqual(marksOver(segs[2], 6), []);
+  });
+  it('never stops for more than 6 seconds (a circle shown to the end)', () => {
+    const h = hl('a', 1, 1, { start: 0, end: 20, marks: [{ id: 'm', x: 0, y: 0, style: 'ring', from: 2, to: 20, freeze: true }] });
+    const f = highlightSegments(h, { replays: 'none', replaySpeed: 0.5 }).find((s) => s.type === 'freeze');
+    assert.equal(f && f.type === 'freeze' ? f.seconds : 0, 6);
   });
 });
