@@ -1,14 +1,14 @@
 // One reel: its clips in the order it plays (moved by hand, or by game, kind, rating, or a top-10 countdown), what
 // goes around them (intro, game cards, a kid's stats, titles, score, the end card, replays, a song), its length
 // against a goal, and Play / Export.
-import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, Copy, Download, Instagram, Play as PlayIcon, Plus, Trash2, X } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowDown, ArrowUp, Copy, Download, GripVertical, Instagram, Play as PlayIcon, Plus, Trash2, X } from 'lucide-react';
 import type { Play } from '../hudlScout/types/football';
 import type { FilmAccess } from './filmAccess';
 import { ExportPanel } from './ExportPanel';
 import { loadImage } from './graphics';
 import { ClipPicture } from './ClipPicture';
-import { addToReel, clock, editReel, EVERYONE, FAMILIES, kidLabel, kidsText, moveInReel, newReel, playLabel, reelOptionsOf, shareReel, orderedHighlights, reelTimeline, timelineSeconds, type Kid } from './highlightData';
+import { addToReel, clock, editReel, EVERYONE, FAMILIES, highlightSegments, kidLabel, kidsText, moveInReel, newReel, playLabel, reelOptionsOf, shareReel, orderedHighlights, reelTimeline, timelineSeconds, type Kid } from './highlightData';
 import { libraryFolder, listFiles, subfolder } from './localLibrary';
 import { ReelPlayer } from './ReelPlayer';
 import { SocialVideoPanel } from './SocialVideoPanel';
@@ -110,6 +110,16 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
       return moveInReel(base, from, to);
     });
   const removeItem = (hid: string) => edit((r) => ({ ...r, items: r.items.filter((i) => i.highlightId !== hid) }));
+  // Dragging a clip to its place (a computer: a touch screen keeps the arrows).
+  const canDrag = !ro && typeof window !== 'undefined' && !window.matchMedia?.('(pointer: coarse)').matches;
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const dragRef = useRef<number | null>(null);
+  const [dropBefore, setDropBefore] = useState<number | null>(null);
+  // How long each clip runs in the reel (slow motion and freezes count; replays as the reel shows them).
+  const playedOf = useMemo(
+    () => new Map(list.map((h) => [h.id, timelineSeconds(highlightSegments(h, { replays: o.replays, replaySpeed: settings.replaySpeed }))])),
+    [list, o.replays, settings.replaySpeed]
+  );
 
   const notIn = useMemo(() => {
     const have = new Set(reel.items.map((i) => i.highlightId));
@@ -330,13 +340,54 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
         <div className="flex flex-col gap-1.5 min-w-0">
           <ol className="flex flex-col divide-y divide-slate-100 dark:divide-slate-800 rounded-lg border border-slate-200 dark:border-slate-800" aria-label="Clips in the reel">
             {list.map((h, i) => (
-              <li key={h.id} className={`flex items-center gap-2 px-2 py-1.5 ${openId === h.id ? 'bg-indigo-50 dark:bg-indigo-500/15' : ''}`}>
+              <li
+                key={h.id}
+                className={`flex items-center gap-2 px-2 py-1.5 ${openId === h.id ? 'bg-indigo-50 dark:bg-indigo-500/15' : ''} ${dragFrom === i ? 'opacity-40' : ''}`}
+                style={dropBefore === i ? { boxShadow: 'inset 0 3px 0 #6366f1' } : dropBefore === list.length && i === list.length - 1 ? { boxShadow: 'inset 0 -3px 0 #6366f1' } : undefined}
+                {...(canDrag
+                  ? {
+                      draggable: true,
+                      onDragStart: (e: React.DragEvent) => {
+                        dragRef.current = i;
+                        setDragFrom(i);
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('text/plain', h.id);
+                      },
+                      onDragOver: (e: React.DragEvent) => {
+                        if (dragRef.current === null) return;
+                        e.preventDefault();
+                        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setDropBefore(e.clientY < r.top + r.height / 2 ? i : i + 1);
+                      },
+                      onDrop: (e: React.DragEvent) => {
+                        e.preventDefault();
+                        const from = dragRef.current;
+                        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        const before = e.clientY < r.top + r.height / 2 ? i : i + 1;
+                        if (from !== null) {
+                          // Above row N: N, or N − 1 when the clip comes from higher up.
+                          const to = before > from ? before - 1 : before;
+                          if (to !== from) move(from, to);
+                        }
+                        dragRef.current = null;
+                        setDragFrom(null);
+                        setDropBefore(null);
+                      },
+                      onDragEnd: () => {
+                        dragRef.current = null;
+                        setDragFrom(null);
+                        setDropBefore(null);
+                      },
+                    }
+                  : {})}
+              >
+                {canDrag && <GripVertical size={14} className="shrink-0 -mr-1 text-slate-300 dark:text-slate-600 cursor-grab" aria-hidden />}
                 <span className="w-6 text-right text-xs tabular-nums text-slate-400">{o.order === 'top10' ? `${list.length - i}` : i + 1}</span>
                 <ClipPicture h={h} access={access} className="h-9 w-16 rounded" />
                 <button type="button" onClick={() => onOpenClip(h.id)} className="min-w-0 flex-1 text-left" aria-current={openId === h.id ? 'true' : undefined} title="Edit this clip here (trim, zoom, slow motion…)">
                   <span className="block text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{h.title}</span>
                   <span className="block text-[11px] text-slate-500 truncate">
-                    {[h.game.name, playLabel(h)].filter(Boolean).join(' · ')} · {(h.end - h.start).toFixed(1)} s{'★'.repeat(h.rating) ? ` · ${'★'.repeat(h.rating)}` : ''}
+                    {[h.game.name, playLabel(h)].filter(Boolean).join(' · ')} · {(playedOf.get(h.id) ?? h.end - h.start).toFixed(1)} s{'★'.repeat(h.rating) ? ` · ${'★'.repeat(h.rating)}` : ''}
                     {h.zoom ? ` · ${h.zoom.follow ? 'follows him' : `${h.zoom.level}× zoom`}` : ''}
                   </span>
                 </button>
