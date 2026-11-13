@@ -16,6 +16,7 @@ import {
   Layers,
   PenTool,
   Flame,
+  Clapperboard,
 } from 'lucide-react';
 import { MobileNavigationModal } from './components/MobileNavigationModal';
 import {
@@ -192,6 +193,7 @@ import { ScoutPresentation, type ScoutShow } from './components/scouting/ScoutPr
 import { FilmRoomView } from './filmroom/FilmRoomView';
 import { HighlightsSection } from './highlights/HighlightsSection';
 import { MediaSection } from './media/MediaSection';
+import { HighlightsDock } from './highlights/HighlightsDock';
 import { FilmWindowHost } from './filmroom/FilmWindow';
 import { openScoutVersions, ScoutSafetyNet } from './components/ScoutSafetyNet';
 import { closeFilmWindow, filmWindowAutoOpen, openFilmWindow, setFilmWindowUpcoming, type FilmWindowRequest } from './filmroom/filmWindowStore';
@@ -9128,6 +9130,15 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
 
       {/* Mobile Bottom Quick Launch Dock (Phone Viewports) */}
       <nav aria-label="Mobile Navigation" className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-950/95 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800 px-2 py-1.5 flex items-center justify-around shadow-2xl print:hidden">
+        {/* In Highlights or Media (a coach): Clips, Reels, Slideshows and Media instead, one tap each. */}
+        {(activeUnit === 'highlights' || activeUnit === 'media') && !isPlayer ? (
+          <HighlightsDock
+            section={activeUnit === 'media' ? 'media' : 'highlights'}
+            go={(unit) => setActiveUnit(unit)}
+            media={!canSeeUnit || canSeeUnit('media')}
+          />
+        ) : (
+        <>
         {(!canSeeUnit || canSeeUnit('mobile_hub')) && (
         <button
           type="button"
@@ -9188,6 +9199,23 @@ This changes those plans for all coaches. Past ${day} plans are not changed.`
           <PenTool className="w-5 h-5" />
           <span className="text-[10px]">Drills</span>
         </button>
+        )}
+
+        {(!canSeeUnit || canSeeUnit('highlights')) && (
+        <button
+          type="button"
+          onClick={() => setActiveUnit('highlights')}
+          className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl transition-all cursor-pointer ${
+            activeUnit === 'highlights' || activeUnit === 'media'
+              ? 'text-indigo-700 dark:text-indigo-400 font-black'
+              : 'text-slate-500 dark:text-slate-400 font-semibold'
+          }`}
+        >
+          <Clapperboard className="w-5 h-5" />
+          <span className="text-[10px]">Highlights</span>
+        </button>
+        )}
+        </>
         )}
 
         <button

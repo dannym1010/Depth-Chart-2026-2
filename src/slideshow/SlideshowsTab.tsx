@@ -1,9 +1,10 @@
 // The Slideshows tab in Highlights: every slideshow this coach can see, a new one, and the one open. Photos come from
 // the team's Media library, clips from the highlights, songs from this device.
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Images, Plus, Trophy } from 'lucide-react';
 import { PicksBoard } from './PicksBoard';
 import type { FilmAccess } from '../highlights/filmAccess';
+import { placeOf, scrollerOf, useHighlightsRetap } from '../highlights/highlightsNav';
 import { clock, type Kid } from '../highlights/highlightData';
 import { loadImage } from '../highlights/graphics';
 import type { HighlightGame, Reel } from '../highlights/types';
@@ -33,9 +34,11 @@ interface Props {
   teamName?: string;
   /** The clip editor on a clip (from Highlights). */
   renderClipEditor?: (highlightId: string, close: () => void) => React.ReactNode;
+  /** Told when a slideshow opens or closes (a phone's page title gives way to it). */
+  onOpen?: (open: boolean) => void;
 }
 
-export const SlideshowsTab: React.FC<Props> = ({ teamId, season, store, access, games, roster, reels, me, myName, helper, seeAll, nameOf, teamName, renderClipEditor }) => {
+export const SlideshowsTab: React.FC<Props> = ({ teamId, season, store, access, games, roster, reels, me, myName, helper, seeAll, nameOf, teamName, renderClipEditor, onOpen }) => {
   const { data, update } = store;
   const ro = store.readOnly;
   const media = useMedia(teamId, season, { helper });
@@ -57,8 +60,27 @@ export const SlideshowsTab: React.FC<Props> = ({ teamId, season, store, access, 
     }
   });
   const open = list.find((s) => s.id === openId) || null;
+  const isOpen = Boolean(open);
+  useEffect(() => {
+    onOpen?.(isOpen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+  useEffect(() => () => onOpen?.(false), []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Below a computer's width the list hides while a slideshow is open: it opens from its top, and going back lands
+  // where the list was left.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const back = useRef<ReturnType<typeof placeOf> | null>(null);
+  const narrow = () => window.innerWidth < 1024;
   const choose = (id: string | null) => {
+    const was = openId;
+    if (id && !open && narrow()) back.current = placeOf(rootRef.current);
     setOpenId(id);
+    if (id && narrow()) window.setTimeout(() => scrollerOf(rootRef.current)?.scrollTo({ top: 0 }), 30);
+    if (!id) {
+      const to = back.current;
+      back.current = null;
+      if (to && narrow()) to(() => (was ? rootRef.current?.querySelector(`[data-show="${CSS.escape(was)}"]`) : null));
+    }
     try {
       if (id) localStorage.setItem('slideshowOpen', id);
       else localStorage.removeItem('slideshowOpen');
@@ -66,6 +88,12 @@ export const SlideshowsTab: React.FC<Props> = ({ teamId, season, store, access, 
       /* private window */
     }
   };
+  // The phone's bottom bar: Slideshows tapped again closes the one open (back to the list).
+  useHighlightsRetap('shows', () => {
+    if (!open) return false;
+    choose(null);
+    return true;
+  });
 
   const editShow = (id: string) => (change: (s: Slideshow) => Slideshow) =>
     update((d) => ({ ...d, slideshows: (d.slideshows || []).map((s) => (s.id === id ? { ...change(withOptions(s)), editedAt: Date.now() } : s)) }));
@@ -88,7 +116,7 @@ export const SlideshowsTab: React.FC<Props> = ({ teamId, season, store, access, 
 
   const panel = 'rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900';
   return (
-    <div className="grid gap-3 lg:grid-cols-[16rem_minmax(0,1fr)]">
+    <div ref={rootRef} className="grid gap-3 lg:grid-cols-[16rem_minmax(0,1fr)]">
       <div className={`${panel} p-3 flex flex-col gap-2 min-w-0 ${open ? 'hidden lg:flex' : ''}`}>
         {!ro && (
           <button type="button" onClick={() => create()} className="h-9 px-3 rounded-lg bg-indigo-600 text-white text-xs font-black inline-flex items-center justify-center gap-1.5">
@@ -107,6 +135,7 @@ export const SlideshowsTab: React.FC<Props> = ({ teamId, season, store, access, 
               <li key={s.id}>
                 <button
                   type="button"
+                  data-show={s.id}
                   onClick={() => choose(s.id)}
                   aria-pressed={on}
                   className={`w-full text-left rounded-lg border px-2.5 py-2 ${on ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10' : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
@@ -150,7 +179,8 @@ export const SlideshowsTab: React.FC<Props> = ({ teamId, season, store, access, 
             teamName={teamName ? `${teamName} ${season}`.trim() : season}
           />
         ) : (
-          <div className={`${panel} p-8 text-center text-sm text-slate-500 flex flex-col items-center gap-3`}>
+          // What a slideshow is: beside the list on a computer; below it only while there are none yet.
+          <div className={`${panel} p-8 text-center text-sm text-slate-500 flex-col items-center gap-3 ${list.length ? 'hidden lg:flex' : 'flex'}`}>
             <Images size={32} className="text-indigo-400" />
             <p className="max-w-md">
               A slideshow mixes game day photos from Media and highlight clips, in any order you like, with fades between them and your songs under them. Play it on the

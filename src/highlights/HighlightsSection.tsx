@@ -156,6 +156,8 @@ export const HighlightsSection: React.FC<Props> = ({ teamId, teamName, ownTeamSc
       seeAllReels={Boolean(seeAllReels) && !watchOnly}
       familySends={familySends}
       teamId={teamId}
+      // A coach's phone has Clips, Reels and Slideshows on the bottom bar (a helper keeps the page's own tabs).
+      phoneDock={!watchOnly}
     />
   );
 };

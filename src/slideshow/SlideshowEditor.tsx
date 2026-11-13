@@ -3,7 +3,7 @@
 // under it. Plays right here, or is made into one MP4.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowDown, ArrowUp, AudioLines, Clapperboard, ListOrdered, Scissors, Trophy, Bookmark, Check, CheckSquare, ChevronsDown, ChevronsUp, Copy, Crosshair, Film, Image as ImageIcon, ImagePlus, Move, Music, Play, Plus, Redo2, Sparkles, SquareDashed, Trash2, Type, Undo2, Upload, Video, X,
+  ArrowDown, ArrowUp, AudioLines, ChevronLeft, Clapperboard, ListOrdered, Scissors, Trophy, Bookmark, Check, CheckSquare, ChevronsDown, ChevronsUp, Copy, Crosshair, Film, Image as ImageIcon, ImagePlus, Move, Music, Play, Plus, Redo2, Sparkles, SquareDashed, Trash2, Type, Undo2, Upload, Video, X,
 } from 'lucide-react';
 import type { FilmAccess } from '../highlights/filmAccess';
 import { clock, kidsText, orderedHighlights, weekText, type Kid } from '../highlights/highlightData';
@@ -11,6 +11,7 @@ import type { Highlight, HighlightGame, HighlightSettings, Reel } from '../highl
 import type { MediaData } from '../media/types';
 import { ClipPicker } from './ClipPicker';
 import { ClipPicture } from '../highlights/ClipPicture';
+import { useIsPhone } from '../highlights/highlightsNav';
 import { ReelPicker } from './ReelPicker';
 import { PicksBoard } from './PicksBoard';
 import { PhotoPicker } from './PhotoPicker';
@@ -170,6 +171,10 @@ export const SlideshowEditor: React.FC<Props> = ({
   const [making, setMaking] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  // A phone: photos, clips, reels and picks to add; title cards and photo spots when asked for (less to scroll past).
+  const phone = useIsPhone();
+  const [moreAdd, setMoreAdd] = useState(false);
+  const addMore = !phone || moreAdd;
   const [lengthNote, setLengthNote] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const bedFileRef = useRef<HTMLInputElement>(null);
@@ -1539,8 +1544,8 @@ export const SlideshowEditor: React.FC<Props> = ({
   return (
     <div className="flex flex-col gap-3 min-w-0">
       <div className={`${box} p-3 flex flex-wrap items-center gap-2`}>
-        <button type="button" onClick={onClose} className="h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold lg:hidden">
-          ‹ Slideshows
+        <button type="button" onClick={onClose} className="h-9 pl-1 pr-2 -ml-1 rounded-lg font-black text-sm text-indigo-700 dark:text-indigo-300 inline-flex items-center gap-0.5 lg:hidden">
+          <ChevronLeft size={18} /> Slideshows
         </button>
         <input value={show.name} onChange={(e) => edit((s) => ({ ...s, name: e.target.value }))} disabled={ro} className="h-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-2 text-sm font-black min-w-0 flex-1 sm:flex-none sm:w-64" aria-label="Slideshow name" />
         <span className="text-xs text-slate-500 w-full sm:w-auto">
@@ -1624,7 +1629,13 @@ export const SlideshowEditor: React.FC<Props> = ({
               <button type="button" onClick={() => setPicking('picks')} className="h-9 px-3 rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-500/10 text-amber-900 dark:text-amber-200 text-xs font-black inline-flex items-center gap-1.5" title="Each kid's picked photos (at least 2 each), and team / group photos">
                 <Trophy size={14} /> Picks by kid
               </button>
-              <span className="inline-flex items-center gap-1">
+              {!addMore && (
+                <button type="button" onClick={() => setMoreAdd(true)} className="h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold inline-flex items-center gap-1.5">
+                  <Type size={13} /> Title card or photo spot
+                </button>
+              )}
+              {addMore && (
+              <span className="inline-flex flex-wrap items-center gap-1">
                 <input
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
@@ -1674,6 +1685,8 @@ export const SlideshowEditor: React.FC<Props> = ({
                   <option value="end|See you next season">Ending: See you next season</option>
                 </select>
               </span>
+              )}
+              {addMore && (
               <button
                 type="button"
                 onClick={() => addSpot(target)}
@@ -1682,6 +1695,7 @@ export const SlideshowEditor: React.FC<Props> = ({
               >
                 <SquareDashed size={13} /> Photo spot
               </button>
+              )}
               <span className="text-[11px] text-slate-500 w-full sm:w-auto sm:ml-auto">
                 {insertAfter ? `New ones go after slide ${insertIndex + 1}.` : 'New ones go at the end.'} {touch ? 'Tap a slide, then its + to add after it.' : 'Drag slides to put them in order; the + on a slide adds after it.'}
               </span>

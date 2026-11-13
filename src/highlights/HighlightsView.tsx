@@ -3,7 +3,7 @@
 // season, one kid, or any mix) that play right here or go out to DaVinci Resolve; the banquet check that every kid
 // is in enough of them; and the team's look and defaults.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Clapperboard, FolderOpen, Images, Plus, Settings2, Sparkles, Star, Trash2, Users, Wand2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clapperboard, FolderOpen, Images, Plus, Settings2, Sparkles, Star, Trash2, Users, Wand2 } from 'lucide-react';
 import type { Play } from '../hudlScout/types/football';
 import { countViewIndex } from '../filmroom/dualView';
 import type { FilmGameShared } from '../filmroom/types';
@@ -26,6 +26,7 @@ import type { Highlight, HighlightCategory, HighlightGame, Reel } from './types'
 import { inboxFor, type FamilySends } from './familySends';
 import type { HighlightStore } from './useHighlights';
 import { SlideshowsTab } from '../slideshow/SlideshowsTab';
+import { placeOf, scrollerOf, useHighlightsRetap, useHighlightsTab, useIsPhone } from './highlightsNav';
 
 export interface HighlightsViewProps {
   teamName: string;
@@ -45,6 +46,8 @@ export interface HighlightsViewProps {
   helper?: boolean;
   /** Shown at the right of the title row (the helper's switch to their own family page). */
   extra?: React.ReactNode;
+  /** The phone's bottom bar has Clips, Reels and Slideshows (a coach): the page's own tabs stay off a phone's screen. */
+  phoneDock?: boolean;
   /** The staff by email (lower case) → name: who kept a clip, who made a reel. */
   people?: Record<string, string>;
   /** The program owner and head coaches: every coach's reels, the ones not shared too. */
@@ -67,14 +70,41 @@ const REC_COLOR: Record<RecGroup, string> = {
   kids: '#db2777',
 };
 type ClipsView = 'kept' | 'suggested' | 'extras';
+/** Each part's name (a phone shows it big at the top). */
+const TAB_TITLE: Record<Tab, string> = { clips: 'Clips', reels: 'Reels', shows: 'Slideshows', kids: 'Every kid', settings: 'Settings' };
 
-export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season, store, access, loadShared, games, plays, roster, me, myName, helper = false, extra, people, seeAllReels = false, familySends = [], teamId }) => {
+export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season, store, access, loadShared, games, plays, roster, me, myName, helper = false, extra, phoneDock = false, people, seeAllReels = false, familySends = [], teamId }) => {
   const { data, update } = store;
   const ro = store.readOnly;
   const settings = data.settings;
   const order = useMemo(() => gameOrder(games), [games]);
   const sortedGames = useMemo(() => games.slice().sort((a, b) => (order.get(a.key) ?? 0) - (order.get(b.key) ?? 0)), [games, order]);
-  const [tab, setTab] = useState<Tab>('clips');
+  // The open tab, shared with the phone's bottom bar (kept on this device). One this page doesn't show (Settings for a
+  // helper, Slideshows with no team) opens on Clips.
+  const [storedTab, setTab] = useHighlightsTab();
+  const tab: Tab = (storedTab === 'settings' && helper) || (storedTab === 'shows' && !teamId) ? 'clips' : storedTab;
+  // A phone: one thing at a time (the list, or the clip open), with a way back.
+  const phone = useIsPhone();
+  const rootRef = useRef<HTMLDivElement>(null);
+  // Going back to a phone's list (of clips, of reels, a reel's clips) lands where it was left.
+  const backs = useRef<Partial<Record<'clips' | 'reels' | 'reel', ReturnType<typeof placeOf>>>>({});
+  const keepPlace = (list: 'clips' | 'reels' | 'reel') => {
+    if (phone) backs.current[list] = placeOf(rootRef.current);
+  };
+  const goBack = (list: 'clips' | 'reels' | 'reel', row?: string) => {
+    const back = backs.current[list];
+    delete backs.current[list];
+    if (!phone) return;
+    const find = () => (row ? rootRef.current?.querySelector(row) : null);
+    if (back) back(find);
+    else window.requestAnimationFrame(() => find()?.scrollIntoView({ block: 'center' }));
+  };
+  // A phone shows what opened from its top (the list it came from is hidden).
+  const toTop = () => {
+    if (phone) window.setTimeout(() => scrollerOf(rootRef.current)?.scrollTo({ top: 0 }), 30);
+  };
+  // The slideshow open (Slideshows tells): a phone's big title gives way to it, like a clip's or a reel's.
+  const [showOpen, setShowOpen] = useState(false);
   // Highlights whose game was lost (an old save blanked it): their game again, from their play.
   useEffect(() => {
     if (ro) return;
@@ -148,6 +178,9 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
   // Who kept the clips (the "Kept by" filter shows when more than one person has).
   const keepers = useMemo(() => [...new Set(data.highlights.map((h) => String(h.createdBy || '').toLowerCase().trim()).filter(Boolean))].sort((a, b) => (a === me ? -1 : b === me ? 1 : nameOf(a).localeCompare(nameOf(b)))), [data.highlights, me, nameOf]);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // A phone shows the tick boxes only while picking several (Select); a computer always.
+  const [selecting, setSelecting] = useState(false);
+  const showChecks = !phone || selecting || picked.size > 0;
   const kept = useMemo(
     () =>
       data.highlights
@@ -168,13 +201,25 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
   const open = data.highlights.find((h) => h.id === openId) || null;
   // Where the open clip is in the list shown (for Previous / Next).
   const openAt = open ? kept.findIndex((h) => h.id === open.id) : -1;
-  // On a phone or an iPad held upright the editor opens below the list: bring it up.
+  // On an iPad held upright the editor opens below the list: bring it up. A phone shows it alone, from its top.
   const openRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!openId || window.innerWidth >= 1024) return;
-    const t = window.setTimeout(() => openRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 50);
+    const t = window.setTimeout(() => (phone ? scrollerOf(rootRef.current)?.scrollTo({ top: 0 }) : openRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })), 50);
     return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openId]);
+  /** Open a clip from the list (a phone: the list hides till you go back). */
+  const openClip = (id: string) => {
+    if (!openId) keepPlace('clips');
+    setOpenId(id);
+  };
+  /** Back to the list of clips, at the clip that was open. */
+  const closeClip = () => {
+    const id = openId;
+    setOpenId(null);
+    goBack('clips', id ? `[data-hid="${CSS.escape(id)}"]` : undefined);
+  };
   const myReels = useMemo(() => reelsFor(data, me), [data, me]);
 
   // A game's shared Film Room data, for the game being worked on.
@@ -293,6 +338,8 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
     const name = kind === 'game' && g ? `${g.name} reel` : kind === 'season' ? `${season} season reel` : kind === 'player' && opts.kid ? `${kidLabel(opts.kid, roster, 'full')} reel` : 'New reel';
     const r = newReel({ name, kind, owner: me, ownerName: myName, highlightIds: ids, ...opts });
     update((d) => ({ ...d, reels: [...d.reels, r] }));
+    setNewReelOpen(false);
+    toTop();
     setReelId(r.id);
     setTab('reels');
   };
@@ -317,12 +364,26 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
   }, [seeAllReels, data.reels, myReels, me]);
   const listedReels = useMemo(() => reelGroups.flatMap((g) => g.reels), [reelGroups]);
   const reel = listedReels.find((r) => r.id === reelId) || null;
-  // On a phone the reel opens below the list: bring it up.
+  // On an iPad held upright the reel opens below the list: bring it up. A phone shows it alone (the list hides).
   const reelRef = useRef<HTMLDivElement>(null);
   const pickReel = (id: string) => {
+    if (phone) {
+      if (!reelId) keepPlace('reels');
+      setReelId(id);
+      toTop();
+      return;
+    }
     setReelId(id);
     if (window.innerWidth < 1024) window.setTimeout(() => reelRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 60);
   };
+  /** Back to the list of reels, at the one that was open. */
+  const closeReel = () => {
+    const id = reelId;
+    setReelId(null);
+    goBack('reels', id ? `[data-reel="${CSS.escape(id)}"]` : undefined);
+  };
+  // A phone's "New reel" choices stay folded till asked for (the list of reels first).
+  const [newReelOpen, setNewReelOpen] = useState(false);
   /** What families sent for a reel, named the way the staff list names them. */
   const inboxOf = useCallback(
     (r: Reel) => inboxFor(r, familySends).map((it) => ({ ...it, family: { ...it.family, name: people?.[it.family.email] || it.family.name } })),
@@ -352,9 +413,35 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
   }, [reelClip?.game.key]);
   useEffect(() => {
     if (!reelClipId) return;
-    const t = window.setTimeout(() => reelClipRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 50);
+    const t = window.setTimeout(() => (phone ? scrollerOf(rootRef.current)?.scrollTo({ top: 0 }) : reelClipRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })), 50);
     return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reelClipId]);
+  /** Open one of the reel's clips (a phone: in place of the reel, till you go back). */
+  const openReelClip = (id: string) => {
+    if (!reelClipId) keepPlace('reel');
+    setReelClipId((cur) => (cur === id ? null : id));
+  };
+  /** Back to the reel, at the clip that was open. */
+  const closeReelClip = () => {
+    const id = reelClipId;
+    setReelClipId(null);
+    goBack('reel', id ? `[data-hid="${CSS.escape(id)}"]` : undefined);
+  };
+  // The bottom bar's Clips or Reels tapped again: back to the list (then the bar goes to the top).
+  useHighlightsRetap('clips', () => {
+    if (!openId) return false;
+    closeClip();
+    return true;
+  });
+  useHighlightsRetap('reels', () => {
+    if (reelClipId) closeReelClip();
+    else if (reelId) closeReel();
+    else return false;
+    return true;
+  });
+  // A phone's big title gives way to a clip, reel or slideshow open (its back button says where it goes).
+  const phoneDetail = phone && ((tab === 'clips' && !!open) || (tab === 'reels' && !!reel) || (tab === 'shows' && showOpen));
 
   const tabBtn = (t: Tab, label: React.ReactNode) => (
     <button
@@ -441,8 +528,39 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
     ) : null;
 
   return (
-    <div className="flex flex-col gap-3 p-2 sm:p-4 max-w-[1400px] mx-auto w-full">
-      <div className="flex flex-wrap items-center gap-2">
+    <div id="highlights-top" ref={rootRef} className="flex flex-col gap-3 p-2 sm:p-4 max-w-[1400px] mx-auto w-full">
+      {/* A phone with the bottom bar: the part open, big, and the two that aren't on the bar. */}
+      {phoneDock && !phoneDetail && (
+        <div className="flex items-center gap-2 md:hidden px-1 pt-1">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-2xl font-black leading-tight text-slate-900 dark:text-slate-100">{TAB_TITLE[tab]}</h2>
+            <span className="block text-[11px] text-slate-500 truncate">
+              Highlights · {season} · {data.highlights.length} kept · {listedReels.length} reel{listedReels.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setTab('kids')}
+            aria-pressed={tab === 'kids'}
+            aria-label="Every kid"
+            className={`h-10 w-10 shrink-0 inline-flex items-center justify-center rounded-full ${tab === 'kids' ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-slate-700'}`}
+          >
+            <Users size={18} />
+          </button>
+          {!helper && (
+            <button
+              type="button"
+              onClick={() => setTab('settings')}
+              aria-pressed={tab === 'settings'}
+              aria-label="Settings"
+              className={`h-10 w-10 shrink-0 inline-flex items-center justify-center rounded-full ${tab === 'settings' ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-slate-700'}`}
+            >
+              <Settings2 size={18} />
+            </button>
+          )}
+        </div>
+      )}
+      <div className={`flex-wrap items-center gap-2 ${phoneDock ? 'hidden md:flex' : 'flex'}`}>
         <Clapperboard size={22} className="text-indigo-600 dark:text-indigo-400" />
         <h2 className="text-lg font-black text-slate-900 dark:text-slate-100">Highlights</h2>
         <span className="text-xs text-slate-500">
@@ -479,7 +597,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
 
       {tab === 'clips' && (
         <div className={`grid gap-3 ${open ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]' : ''}`}>
-          <div className={`${panel} p-3 flex flex-col gap-2 min-w-0`}>
+          <div className={`${panel} p-3 flex flex-col gap-2 min-w-0 ${phone && open ? 'hidden' : ''}`}>
             <div className="flex flex-wrap items-center gap-2">
               <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden" role="group" aria-label="Clips">
                 {sub('kept', `Kept (${data.highlights.length})`)}
@@ -556,7 +674,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                   )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                  {!ro && kept.length > 0 && (
+                  {!ro && kept.length > 0 && showChecks && (
                     <label className="inline-flex items-center gap-1 font-bold text-slate-700 dark:text-slate-200 cursor-pointer">
                       <input
                         type="checkbox"
@@ -570,6 +688,19 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                   <span>
                     {kept.length} clip{kept.length === 1 ? '' : 's'} · {clock(keptSeconds)}
                   </span>
+                  {/* A phone: the tick boxes only when picking several (to add to a reel, rate or delete). */}
+                  {!ro && phone && kept.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selecting) setPicked(new Set());
+                        setSelecting((s) => !s);
+                      }}
+                      className={`ml-auto h-8 px-3 rounded-full text-xs font-black ${selecting ? 'bg-indigo-600 text-white' : 'text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-300 dark:ring-indigo-500/40'}`}
+                    >
+                      {selecting ? 'Done' : 'Select'}
+                    </button>
+                  )}
                   {picked.size > 0 && !ro && (
                     <>
                       <span className="font-bold text-slate-700 dark:text-slate-200">{picked.size} picked:</span>
@@ -628,14 +759,15 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                     </>
                   )}
                 </div>
-                <ul className="flex flex-col divide-y divide-slate-100 dark:divide-slate-800 max-h-[62vh] overflow-auto -mx-1" aria-label="Highlights">
+                <ul className={`flex flex-col divide-y divide-slate-100 dark:divide-slate-800 -mx-1 ${phone ? '' : 'max-h-[62vh] overflow-auto'}`} aria-label="Highlights">
                   {kept.map((h) => (
                     <li
                       key={h.id}
+                      data-hid={h.id}
                       className={`flex items-center gap-2 px-1 py-1.5 cursor-pointer rounded ${openId === h.id ? 'bg-indigo-50 dark:bg-indigo-500/15' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}
-                      onClick={() => setOpenId(h.id)}
+                      onClick={() => openClip(h.id)}
                     >
-                      {!ro && (
+                      {!ro && showChecks && (
                         <input
                           type="checkbox"
                           checked={picked.has(h.id)}
@@ -719,7 +851,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                     </button>
                   )}
                 </div>
-                <ul className="flex flex-col divide-y divide-slate-100 dark:divide-slate-800 max-h-[62vh] overflow-auto">
+                <ul className={`flex flex-col divide-y divide-slate-100 dark:divide-slate-800 ${phone ? '' : 'max-h-[62vh] overflow-auto'}`}>
                   {recShown.map((r) => (
                     <li key={`${r.game.key}/${r.play.id}`} className="flex items-center gap-2 py-1.5">
                       <span className="min-w-0 flex-1">
@@ -760,7 +892,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                 <p className="text-xs text-slate-500">
                   Clips from the other cameras that aren't plays (marked “Not a play” in the Film Room, or past the last play): celebrations, the sideline, the huddle.
                 </p>
-                <ul className="flex flex-col divide-y divide-slate-100 dark:divide-slate-800 max-h-[62vh] overflow-auto">
+                <ul className={`flex flex-col divide-y divide-slate-100 dark:divide-slate-800 ${phone ? '' : 'max-h-[62vh] overflow-auto'}`}>
                   {extras === null && <li className="py-6 text-center text-sm text-slate-500">Looking at the film…</li>}
                   {extras?.map((x) => {
                     const done = keptExtras.has(`${x.view}/${x.name}`);
@@ -792,7 +924,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                                 }
                                 const h = highlightFromExtra({ game, view: x.view, clip: x.name, clipLen: len, seq: x.seq, where: x.where, by: me });
                                 update((d) => addHighlights(d, [h]));
-                                setOpenId(h.id);
+                                openClip(h.id);
                               }}
                               className="h-7 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-bold"
                             >
@@ -812,18 +944,27 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
 
           {open && (
             <div ref={openRef} className={`${panel} p-3 min-w-0 scroll-mt-2 flex flex-col gap-2`}>
-              {/* Stepping through the clips the list shows (its filters too), like a reel's. */}
-              {openAt >= 0 && kept.length > 1 && (
+              {/* Stepping through the clips the list shows (its filters too), like a reel's; a phone's way back to the list. */}
+              {(phone || (openAt >= 0 && kept.length > 1)) && (
                 <div className="flex flex-wrap items-center gap-1.5 text-xs" role="group" aria-label="Clips in the list">
-                  <span className="font-black text-slate-600 dark:text-slate-300">
-                    Clip {openAt + 1} of {kept.length}
-                  </span>
-                  <button type="button" disabled={openAt <= 0} onClick={() => setOpenId(kept[openAt - 1]?.id || null)} className="h-7 px-2 rounded-lg border border-slate-300 dark:border-slate-600 font-bold disabled:opacity-40" title="The clip before (↑)">
-                    ‹ Previous
-                  </button>
-                  <button type="button" disabled={openAt >= kept.length - 1} onClick={() => setOpenId(kept[openAt + 1]?.id || null)} className="h-7 px-2 rounded-lg border border-slate-300 dark:border-slate-600 font-bold disabled:opacity-40" title="The next clip (↓)">
-                    Next ›
-                  </button>
+                  {phone && (
+                    <button type="button" onClick={closeClip} className="h-9 pl-1 pr-2.5 -ml-1 rounded-lg font-black text-sm text-indigo-700 dark:text-indigo-300 inline-flex items-center gap-0.5">
+                      <ChevronLeft size={18} /> Clips
+                    </button>
+                  )}
+                  {openAt >= 0 && kept.length > 1 && (
+                    <span className={`inline-flex items-center gap-1.5 ${phone ? 'ml-auto' : ''}`}>
+                      <span className="font-black text-slate-600 dark:text-slate-300">
+                        {phone ? `${openAt + 1} of ${kept.length}` : `Clip ${openAt + 1} of ${kept.length}`}
+                      </span>
+                      <button type="button" disabled={openAt <= 0} onClick={() => setOpenId(kept[openAt - 1]?.id || null)} className={`${phone ? 'h-9 w-9' : 'h-7 px-2'} rounded-lg border border-slate-300 dark:border-slate-600 font-bold disabled:opacity-40`} title="The clip before (↑)" aria-label={phone ? 'The clip before' : undefined}>
+                        {phone ? <ChevronLeft size={18} className="mx-auto" /> : '‹ Previous'}
+                      </button>
+                      <button type="button" disabled={openAt >= kept.length - 1} onClick={() => setOpenId(kept[openAt + 1]?.id || null)} className={`${phone ? 'h-9 w-9' : 'h-7 px-2'} rounded-lg border border-slate-300 dark:border-slate-600 font-bold disabled:opacity-40`} title="The next clip (↓)" aria-label={phone ? 'The next clip' : undefined}>
+                        {phone ? <ChevronRight size={18} className="mx-auto" /> : 'Next ›'}
+                      </button>
+                    </span>
+                  )}
                 </div>
               )}
               <ClipEditor
@@ -834,7 +975,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                 shared={sharedOf[open.game.key]}
                 plays={plays}
                 roster={roster}
-                onClose={() => setOpenId(null)}
+                onClose={closeClip}
                 onPrev={openAt > 0 ? () => setOpenId(kept[openAt - 1].id) : undefined}
                 onNext={openAt >= 0 && openAt < kept.length - 1 ? () => setOpenId(kept[openAt + 1].id) : undefined}
                 reels={myReels.map((r) => ({ id: r.id, name: r.name, has: r.items.some((it) => it.highlightId === open.id) }))}
@@ -852,10 +993,23 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
 
       {tab === 'reels' && (
         <div className="grid gap-3 lg:grid-cols-[18rem_minmax(0,1fr)]">
-          <div className={`${panel} p-3 flex flex-col gap-2 min-w-0`}>
-            {!ro && (
+          <div className={`${panel} p-3 flex flex-col gap-2 min-w-0 ${phone && reel ? 'hidden' : ''}`}>
+            {/* A phone: one button, the kinds of reel when it's tapped. */}
+            {!ro && phone && !newReelOpen && (
+              <button type="button" onClick={() => setNewReelOpen(true)} className="h-10 px-3 rounded-lg bg-indigo-600 text-white text-sm font-black inline-flex items-center justify-center gap-1.5">
+                <Plus size={16} /> New reel
+              </button>
+            )}
+            {!ro && (!phone || newReelOpen) && (
               <div className="flex flex-col gap-1.5">
-                <span className="text-xs font-black text-slate-700 dark:text-slate-200">New reel</span>
+                <span className="flex items-center text-xs font-black text-slate-700 dark:text-slate-200">
+                  New reel
+                  {phone && (
+                    <button type="button" onClick={() => setNewReelOpen(false)} className="ml-auto h-7 px-2 rounded-lg font-bold text-slate-500">
+                      Cancel
+                    </button>
+                  )}
+                </span>
                 <div className="flex flex-wrap gap-1.5">
                   <select value="" onChange={(e) => e.target.value && addReelOf('game', { gameKey: e.target.value })} className={sel} aria-label="Game reel for">
                     <option value="">Game reel…</option>
@@ -896,6 +1050,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                         <li key={r.id}>
                           <button
                             type="button"
+                            data-reel={r.id}
                             onClick={() => pickReel(r.id)}
                             aria-current={reelId === r.id ? 'true' : undefined}
                             className={`w-full text-left rounded-lg px-2 py-2 sm:py-1.5 flex items-center gap-2 min-w-0 ${reelId === r.id ? 'bg-indigo-50 dark:bg-indigo-500/15 ring-1 ring-indigo-300 dark:ring-indigo-500/40' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}
@@ -936,33 +1091,68 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
               {!listedReels.length && <p className="text-sm text-slate-500 py-4 text-center">No reels yet.</p>}
             </div>
           </div>
-          <div ref={reelRef} className={`${panel} p-3 min-w-0 flex flex-col gap-3 scroll-mt-2`}>
+          <div ref={reelRef} className={`${panel} p-3 min-w-0 flex flex-col gap-3 scroll-mt-2 ${phone && !reel ? 'hidden' : ''}`}>
+            {/* A phone: the way back to the list of reels (a clip open has its own, back to the reel). */}
+            {phone && reel && !reelClip && (
+              <button type="button" onClick={closeReel} className="self-start h-9 pl-1 pr-2.5 -ml-1 -my-1 rounded-lg font-black text-sm text-indigo-700 dark:text-indigo-300 inline-flex items-center gap-0.5">
+                <ChevronLeft size={18} /> Reels
+              </button>
+            )}
             {reel && reelClip && (
-              <div ref={reelClipRef} className="rounded-xl border-2 border-indigo-300 dark:border-indigo-500/40 p-2 flex flex-col gap-2 min-w-0 scroll-mt-4">
-                <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                  <span className="font-black text-indigo-700 dark:text-indigo-300 truncate">
-                    {reel.name}: clip {reelClipAt + 1} of {reelList.length}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={reelClipAt <= 0}
-                    onClick={() => setReelClipId(reelList[reelClipAt - 1]?.id || null)}
-                    className="h-7 px-2 rounded-lg border border-slate-300 dark:border-slate-600 font-bold disabled:opacity-40"
-                  >
-                    ‹ Previous
-                  </button>
-                  <button
-                    type="button"
-                    disabled={reelClipAt >= reelList.length - 1}
-                    onClick={() => setReelClipId(reelList[reelClipAt + 1]?.id || null)}
-                    className="h-7 px-2 rounded-lg border border-slate-300 dark:border-slate-600 font-bold disabled:opacity-40"
-                  >
-                    Next ›
-                  </button>
-                  <button type="button" onClick={() => setReelClipId(null)} className="ml-auto h-7 px-2 rounded-lg font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10">
-                    Back to the reel
-                  </button>
-                </div>
+              <div ref={reelClipRef} className={phone ? 'flex flex-col gap-2 min-w-0' : 'rounded-xl border-2 border-indigo-300 dark:border-indigo-500/40 p-2 flex flex-col gap-2 min-w-0 scroll-mt-4'}>
+                {phone ? (
+                  <div className="flex items-center gap-1.5 text-xs min-w-0" role="group" aria-label="Clips in the reel">
+                    <button type="button" onClick={closeReelClip} className="h-9 pl-1 pr-2 -ml-1 rounded-lg font-black text-sm text-indigo-700 dark:text-indigo-300 inline-flex items-center gap-0.5 min-w-0">
+                      <ChevronLeft size={18} className="shrink-0" /> <span className="truncate">{reel.name}</span>
+                    </button>
+                    <span className="ml-auto shrink-0 font-black text-slate-600 dark:text-slate-300 tabular-nums">
+                      {reelClipAt + 1} of {reelList.length}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={reelClipAt <= 0}
+                      onClick={() => setReelClipId(reelList[reelClipAt - 1]?.id || null)}
+                      className="h-9 w-9 shrink-0 rounded-lg border border-slate-300 dark:border-slate-600 font-bold disabled:opacity-40"
+                      aria-label="The clip before"
+                    >
+                      <ChevronLeft size={18} className="mx-auto" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={reelClipAt >= reelList.length - 1}
+                      onClick={() => setReelClipId(reelList[reelClipAt + 1]?.id || null)}
+                      className="h-9 w-9 shrink-0 rounded-lg border border-slate-300 dark:border-slate-600 font-bold disabled:opacity-40"
+                      aria-label="The next clip"
+                    >
+                      <ChevronRight size={18} className="mx-auto" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                    <span className="font-black text-indigo-700 dark:text-indigo-300 truncate">
+                      {reel.name}: clip {reelClipAt + 1} of {reelList.length}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={reelClipAt <= 0}
+                      onClick={() => setReelClipId(reelList[reelClipAt - 1]?.id || null)}
+                      className="h-7 px-2 rounded-lg border border-slate-300 dark:border-slate-600 font-bold disabled:opacity-40"
+                    >
+                      ‹ Previous
+                    </button>
+                    <button
+                      type="button"
+                      disabled={reelClipAt >= reelList.length - 1}
+                      onClick={() => setReelClipId(reelList[reelClipAt + 1]?.id || null)}
+                      className="h-7 px-2 rounded-lg border border-slate-300 dark:border-slate-600 font-bold disabled:opacity-40"
+                    >
+                      Next ›
+                    </button>
+                    <button type="button" onClick={closeReelClip} className="ml-auto h-7 px-2 rounded-lg font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10">
+                      Back to the reel
+                    </button>
+                  </div>
+                )}
                 <ClipEditor
                   key={reelClip.id}
                   h={reelClip}
@@ -971,7 +1161,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                   shared={sharedOf[reelClip.game.key]}
                   plays={plays}
                   roster={roster}
-                  onClose={() => setReelClipId(null)}
+                  onClose={closeReelClip}
                   onPrev={reelClipAt > 0 ? () => setReelClipId(reelList[reelClipAt - 1].id) : undefined}
                   onNext={reelClipAt < reelList.length - 1 ? () => setReelClipId(reelList[reelClipAt + 1].id) : undefined}
                   reels={myReels.map((r) => ({ id: r.id, name: r.name, has: r.items.some((it) => it.highlightId === reelClip.id) }))}
@@ -985,28 +1175,32 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
               </div>
             )}
             {reel ? (
-              <ReelEditor
-                key={reel.id}
-                openId={reelClipId}
-                ownerLabel={reel.owner && reel.owner !== me ? reel.ownerName || nameOf(reel.owner) : undefined}
-                inbox={reel.familySend?.on || reel.fromFamilies ? inboxOf(reel) : []}
-                reel={reel}
-                data={data}
-                store={store}
-                access={access}
-                games={order}
-                roster={roster}
-                plays={plays}
-                teamName={teamName}
-                season={season}
-                me={me}
-                onOpenClip={(id) => setReelClipId((cur) => (cur === id ? null : id))}
-                onDelete={() => {
-                  if (!window.confirm(`Delete the reel “${reel.name}”? Its highlights stay.`)) return;
-                  update((d) => removeReel(d, reel.id));
-                  setReelId(null);
-                }}
-              />
+              // A phone with one of its clips open shows just that clip (the reel waits, as it was, behind "‹ back").
+              <div className={phone && reelClip ? 'hidden' : 'contents'}>
+                <ReelEditor
+                  key={reel.id}
+                  openId={reelClipId}
+                  ownerLabel={reel.owner && reel.owner !== me ? reel.ownerName || nameOf(reel.owner) : undefined}
+                  inbox={reel.familySend?.on || reel.fromFamilies ? inboxOf(reel) : []}
+                  reel={reel}
+                  data={data}
+                  store={store}
+                  access={access}
+                  games={order}
+                  roster={roster}
+                  plays={plays}
+                  teamName={teamName}
+                  season={season}
+                  me={me}
+                  onOpenClip={openReelClip}
+                  onDelete={() => {
+                    if (!window.confirm(`Delete the reel “${reel.name}”? Its highlights stay.`)) return;
+                    update((d) => removeReel(d, reel.id));
+                    setReelId(null);
+                    delete backs.current.reels;
+                  }}
+                />
+              </div>
             ) : (
               <p className="text-sm text-slate-500 py-8 text-center">Pick a reel, or make one: a game's reel starts with that game's highlights, the season reel with the ★★ and ★★★ ones, a player reel with every clip he's in.</p>
             )}
@@ -1029,6 +1223,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
           seeAll={seeAllReels}
           nameOf={nameOf}
           teamName={teamName}
+          onOpen={setShowOpen}
           renderClipEditor={(id, close) => {
             const h = data.highlights.find((x) => x.id === id);
             if (!h) return null;

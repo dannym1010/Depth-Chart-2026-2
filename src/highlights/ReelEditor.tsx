@@ -16,6 +16,7 @@ import type { HighlightsData, Reel, ReelOptions } from './types';
 import { addSentToReel, passSent, type InboxItem } from './familySends';
 import { tempReel } from './FamilyHighlights';
 import type { HighlightStore } from './useHighlights';
+import { useIsPhone } from './highlightsNav';
 
 interface Props {
   reel: Reel;
@@ -67,6 +68,10 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
   });
   const [social, setSocial] = useState(false);
   const [adding, setAdding] = useState(false);
+  // A phone's rows: the clip's name with room to read it, and ▶; ↑ ↓ ✕ while arranging (a computer: all at once).
+  const phone = useIsPhone();
+  const [arranging, setArranging] = useState(false);
+  const arrows = !phone || arranging;
   const [logo, setLogo] = useState<HTMLImageElement | null>(null);
   useEffect(() => {
     void loadImage(settings.logo).then(setLogo);
@@ -338,10 +343,24 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="flex flex-col gap-1.5 min-w-0">
+          {phone && !ro && list.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-500">{arranging ? 'Move clips up or down, or take one out.' : 'Tap a clip to edit it.'}</span>
+              <button
+                type="button"
+                onClick={() => setArranging((a) => !a)}
+                aria-pressed={arranging}
+                className={`ml-auto h-8 px-3 rounded-full text-xs font-black shrink-0 ${arranging ? 'bg-indigo-600 text-white' : 'text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-300 dark:ring-indigo-500/40'}`}
+              >
+                {arranging ? 'Done' : 'Arrange'}
+              </button>
+            </div>
+          )}
           <ol className="flex flex-col divide-y divide-slate-100 dark:divide-slate-800 rounded-lg border border-slate-200 dark:border-slate-800" aria-label="Clips in the reel">
             {list.map((h, i) => (
               <li
                 key={h.id}
+                data-hid={h.id}
                 className={`flex items-center gap-2 px-2 py-1.5 ${openId === h.id ? 'bg-indigo-50 dark:bg-indigo-500/15' : ''} ${dragFrom === i ? 'opacity-40' : ''}`}
                 style={dropBefore === i ? { boxShadow: 'inset 0 3px 0 #6366f1' } : dropBefore === list.length && i === list.length - 1 ? { boxShadow: 'inset 0 -3px 0 #6366f1' } : undefined}
                 {...(canDrag
@@ -382,7 +401,7 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
                   : {})}
               >
                 {canDrag && <GripVertical size={14} className="shrink-0 -mr-1 text-slate-300 dark:text-slate-600 cursor-grab" aria-hidden />}
-                <span className="w-6 text-right text-xs tabular-nums text-slate-400">{o.order === 'top10' ? `${list.length - i}` : i + 1}</span>
+                {(!phone || o.order === 'top10') && <span className="w-6 text-right text-xs tabular-nums text-slate-400">{o.order === 'top10' ? `${list.length - i}` : i + 1}</span>}
                 <ClipPicture h={h} access={access} className="h-9 w-16 rounded" />
                 <button type="button" onClick={() => onOpenClip(h.id)} className="min-w-0 flex-1 text-left" aria-current={openId === h.id ? 'true' : undefined} title="Edit this clip here (trim, zoom, slow motion…)">
                   <span className="block text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{h.title}</span>
@@ -391,16 +410,18 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
                     {h.zoom ? ` · ${h.zoom.follow ? 'follows him' : `${h.zoom.level}× zoom`}` : ''}
                   </span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => void play(h.id)}
-                  className="h-9 w-9 sm:h-7 sm:w-7 shrink-0 inline-flex items-center justify-center rounded-lg text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
-                  aria-label={`Play the reel from ${h.title}`}
-                  title="Play the reel from here"
-                >
-                  <PlayIcon size={14} />
-                </button>
-                {!ro && (
+                {!(phone && arranging) && (
+                  <button
+                    type="button"
+                    onClick={() => void play(h.id)}
+                    className="h-9 w-9 sm:h-7 sm:w-7 shrink-0 inline-flex items-center justify-center rounded-lg text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
+                    aria-label={`Play the reel from ${h.title}`}
+                    title="Play the reel from here"
+                  >
+                    <PlayIcon size={14} />
+                  </button>
+                )}
+                {!ro && arrows && (
                   <span className="flex items-center shrink-0">
                     <button type="button" onClick={() => move(i, i - 1)} disabled={i === 0} className="h-9 w-9 sm:h-7 sm:w-7 inline-flex items-center justify-center rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30" aria-label={`Move ${h.title} up`}>
                       <ArrowUp size={14} />
