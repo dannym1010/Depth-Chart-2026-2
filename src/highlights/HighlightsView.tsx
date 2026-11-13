@@ -340,6 +340,9 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
   const [reelClipId, setReelClipId] = useState<string | null>(null);
   useEffect(() => setReelClipId(null), [reelId]);
   const reelList = useMemo(() => (reel ? orderedHighlights(reel, data.highlights, order) : []), [reel, data.highlights, order]);
+  // Each reel's first clip (its picture in the list of reels).
+  const hById = useMemo(() => new Map(data.highlights.map((h) => [h.id, h])), [data.highlights]);
+  const firstOf = (r: Reel) => r.items.map((i) => hById.get(i.highlightId)).find(Boolean);
   const reelClipAt = reelList.findIndex((h) => h.id === reelClipId);
   const reelClip = reelClipAt >= 0 ? reelList[reelClipAt] : null;
   const reelClipRef = useRef<HTMLDivElement>(null);
@@ -895,8 +898,11 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                             type="button"
                             onClick={() => pickReel(r.id)}
                             aria-current={reelId === r.id ? 'true' : undefined}
-                            className={`w-full text-left rounded-lg px-2 py-2 sm:py-1.5 ${reelId === r.id ? 'bg-indigo-50 dark:bg-indigo-500/15 ring-1 ring-indigo-300 dark:ring-indigo-500/40' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}
+                            className={`w-full text-left rounded-lg px-2 py-2 sm:py-1.5 flex items-center gap-2 min-w-0 ${reelId === r.id ? 'bg-indigo-50 dark:bg-indigo-500/15 ring-1 ring-indigo-300 dark:ring-indigo-500/40' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}
                           >
+                            {/* Its first clip's picture. */}
+                            {firstOf(r) ? <ClipPicture h={firstOf(r)!} access={access} className="h-9 w-16 rounded" /> : <span className="h-9 w-16 shrink-0 rounded bg-slate-100 dark:bg-slate-800" aria-hidden />}
+                            <span className="min-w-0 flex-1">
                             <span className="flex items-center gap-1.5 min-w-0">
                               <span className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{r.name}</span>
                               {r.sharedWith.includes(FAMILIES) && (
@@ -918,6 +924,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                             <span className="block text-[11px] text-slate-500 truncate">
                               {r.kind === 'game' ? 'Game' : r.kind === 'season' ? 'Season' : r.kind === 'player' ? 'Player' : 'Custom'} · {n} clip{n === 1 ? '' : 's'} · {clock(reelClipsSeconds(r))}
                               {who ? ` · by ${who}` : ''}
+                            </span>
                             </span>
                           </button>
                         </li>
