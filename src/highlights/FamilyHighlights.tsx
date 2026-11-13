@@ -12,6 +12,7 @@ import { playsForPlayer } from '../filmroom/playerPlays';
 import { ClipEditor } from './ClipEditor';
 import type { AccessState, FilmAccess } from './filmAccess';
 import { loadImage } from './graphics';
+import { ClipPicture } from './ClipPicture';
 import {
   addHighlights, clock, familyReels, gameOrder, kidHighlights, kidLabel, kidsText, newReel, orderedHighlights, reelOptionsOf, reelTimeline, removeHighlights, timelineSeconds,
   type Kid, type Segment,
@@ -338,6 +339,7 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, min
             {clips.map((h) => (
               <li key={h.id} className="flex items-center gap-2 px-1 py-1.5">
                 <input type="checkbox" checked={picked.has(h.id)} onChange={(e) => toggle(setPicked, h.id, e.target.checked)} aria-label={`Pick ${h.title} for an Instagram video`} />
+                <ClipPicture h={h} access={access} className="h-9 w-16 rounded" />
                 {stars(h.rating)}
                 <button type="button" onClick={() => open(kidReel([h.id], false), 'play')} className="min-w-0 flex-1 text-left">
                   <span className="block text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{h.title}</span>
@@ -447,6 +449,7 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, min
               return (
               <li key={h.id} className={`flex flex-wrap items-center gap-x-2 gap-y-1 px-1 py-1.5 ${editId === h.id ? 'bg-indigo-50 dark:bg-indigo-500/15 rounded' : ''}`}>
                 <input type="checkbox" checked={myPicked.has(h.id)} onChange={(e) => toggle(setMyPicked, h.id, e.target.checked)} aria-label={`Pick ${h.title}`} />
+                <ClipPicture h={h} access={access} className="h-9 w-16 rounded" />
                 <button type="button" onClick={() => setEditId(h.id)} className="min-w-0 flex-1 text-left">
                   <span className="block text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{h.title}</span>
                   <span className="block text-[11px] text-slate-500 truncate">

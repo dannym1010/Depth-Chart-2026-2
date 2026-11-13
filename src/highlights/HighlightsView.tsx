@@ -12,6 +12,7 @@ import { isFilmRoot } from '../filmroom/folderRoutes';
 import { FilmServerSetup } from '../filmroom/FilmServerSetup';
 import { playsForPlayer } from '../filmroom/playerPlays';
 import { ClipEditor, CATEGORY_LABEL } from './ClipEditor';
+import { ClipPicture } from './ClipPicture';
 import { clipLength, lineUp, type AccessState, type FilmAccess } from './filmAccess';
 import {
   addHighlights, addToReel, editHighlight, editReel, EVERYONE, extraPlace, FAMILIES, shareReel, gameOrder, highlightFromExtra, kidCoverage, kidHighlights, kidLabel, kidsText,
@@ -618,6 +619,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                           aria-label={`Pick ${h.title}`}
                         />
                       )}
+                      <ClipPicture h={h} access={access} className="h-9 w-16 rounded" />
                       {stars(h.rating)}
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{h.title}</span>

@@ -7,6 +7,7 @@ import type { Play } from '../hudlScout/types/football';
 import type { FilmAccess } from './filmAccess';
 import { ExportPanel } from './ExportPanel';
 import { loadImage } from './graphics';
+import { ClipPicture } from './ClipPicture';
 import { addToReel, clock, editReel, EVERYONE, FAMILIES, kidLabel, kidsText, moveInReel, newReel, playLabel, reelOptionsOf, shareReel, orderedHighlights, reelTimeline, timelineSeconds, type Kid } from './highlightData';
 import { libraryFolder, listFiles, subfolder } from './localLibrary';
 import { ReelPlayer } from './ReelPlayer';
@@ -331,6 +332,7 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
             {list.map((h, i) => (
               <li key={h.id} className={`flex items-center gap-2 px-2 py-1.5 ${openId === h.id ? 'bg-indigo-50 dark:bg-indigo-500/15' : ''}`}>
                 <span className="w-6 text-right text-xs tabular-nums text-slate-400">{o.order === 'top10' ? `${list.length - i}` : i + 1}</span>
+                <ClipPicture h={h} access={access} className="h-9 w-16 rounded" />
                 <button type="button" onClick={() => onOpenClip(h.id)} className="min-w-0 flex-1 text-left" aria-current={openId === h.id ? 'true' : undefined} title="Edit this clip here (trim, zoom, slow motion…)">
                   <span className="block text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{h.title}</span>
                   <span className="block text-[11px] text-slate-500 truncate">

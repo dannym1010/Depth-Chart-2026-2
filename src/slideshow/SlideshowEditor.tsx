@@ -10,6 +10,7 @@ import { clock, kidsText, orderedHighlights, weekText, type Kid } from '../highl
 import type { Highlight, HighlightGame, HighlightSettings, Reel } from '../highlights/types';
 import type { MediaData } from '../media/types';
 import { ClipPicker } from './ClipPicker';
+import { ClipPicture } from '../highlights/ClipPicture';
 import { ReelPicker } from './ReelPicker';
 import { PicksBoard } from './PicksBoard';
 import { PhotoPicker } from './PhotoPicker';
@@ -559,9 +560,13 @@ export const SlideshowEditor: React.FC<Props> = ({
           {item.kind === 'photo' ? (
             <PhotoThumb id={item.photoId} />
           ) : item.kind === 'clip' ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 p-1.5 text-center" style={{ background: '#0f172a', color: '#e2e8f0' }}>
-              <Film size={18} style={{ color: settings.accent || '#f2b705' }} />
-              <span className="text-[10px] font-bold leading-tight line-clamp-2">{h ? (item.kind === 'clip' && item.title) || h.title || 'Highlight' : 'Clip deleted'}</span>
+            <div className="absolute inset-0" style={{ background: '#0f172a', color: '#e2e8f0' }}>
+              {/* A picture of the play (made from the film on this device), its title over it. */}
+              {h ? <ClipPicture h={h} access={access} className="w-full h-full" iconSize={18} /> : <Film size={18} className="absolute top-1/3 left-1/2 -translate-x-1/2" style={{ color: settings.accent || '#f2b705' }} />}
+              <span className="absolute inset-x-0 top-0 pl-6 pr-1.5 pt-1 pb-4 text-[10px] font-bold leading-tight line-clamp-2 text-left" style={{ background: 'linear-gradient(rgba(2,6,23,.85), transparent)', color: '#f8fafc' }}>
+                <Film size={9} className="inline -mt-0.5 mr-0.5" style={{ color: settings.accent || '#f2b705' }} />
+                {h ? (item.kind === 'clip' && item.title) || h.title || 'Highlight' : 'Clip deleted'}
+              </span>
             </div>
           ) : item.kind === 'spot' ? (
             <div className="absolute inset-0 m-0.5 rounded-md border-2 border-dashed border-slate-400 dark:border-slate-500 bg-slate-100 dark:bg-slate-900 flex flex-col items-center justify-center gap-0.5 p-1.5 text-center text-slate-500 dark:text-slate-400">
@@ -1922,6 +1927,7 @@ export const SlideshowEditor: React.FC<Props> = ({
       {picking === 'clips' && (
         <ClipPicker
           highlights={highlights}
+          access={access}
           reels={reels}
           games={games}
           roster={roster}

@@ -3,6 +3,8 @@ import React, { useMemo, useState } from 'react';
 import { Check, Star, X } from 'lucide-react';
 import { clock, kidLabel, kidsText, type Kid } from '../highlights/highlightData';
 import type { Highlight, HighlightGame, Reel } from '../highlights/types';
+import type { FilmAccess } from '../highlights/filmAccess';
+import { ClipPicture } from '../highlights/ClipPicture';
 
 interface Props {
   highlights: Highlight[];
@@ -12,9 +14,11 @@ interface Props {
   already: Set<string>;
   onAdd: (ids: string[]) => void;
   onClose: () => void;
+  /** The film, for each clip's picture. */
+  access?: FilmAccess;
 }
 
-export const ClipPicker: React.FC<Props> = ({ highlights, reels, games, roster, already, onAdd, onClose }) => {
+export const ClipPicker: React.FC<Props> = ({ highlights, reels, games, roster, already, onAdd, onClose, access }) => {
   const [game, setGame] = useState('');
   const [kid, setKid] = useState('');
   const [rating, setRating] = useState(0);
@@ -108,6 +112,7 @@ export const ClipPicker: React.FC<Props> = ({ highlights, reels, games, roster, 
                   <span className={`h-5 w-5 shrink-0 rounded border inline-flex items-center justify-center ${on ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600'}`}>
                     {on && <Check size={13} />}
                   </span>
+                  <ClipPicture h={h} access={access} className="h-9 w-16 rounded" />
                   <span className="min-w-0 flex-1">
                     <span className="block font-bold text-slate-800 dark:text-slate-100 truncate">{h.title || 'Highlight'}</span>
                     <span className="block text-[11px] text-slate-500 truncate">

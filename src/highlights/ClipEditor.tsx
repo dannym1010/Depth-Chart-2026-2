@@ -16,6 +16,7 @@ import { FOLLOW_STEP, followCam, packFollow, pathAt, recordInto, stretches, thin
 import type { Highlight, HighlightCategory, HighlightMark, HighlightSettings, SpotStyle } from './types';
 import type { HighlightStore } from './useHighlights';
 import { useClipSrc } from './useClipSrc';
+import { pictureKey, rememberPicture } from './clipPictures';
 import { useZoomPan } from './useZoomPan';
 import { CLIP_ZOOM_LEVELS, clipCamera, fitCam, zoomRect } from './clipZoom';
 
@@ -141,6 +142,15 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
   const settings = store.data.settings;
   const ro = store.readOnly;
   const src = useClipSrc(access, h.game, h.view, h.clip);
+  // Its picture for the lists, from the film open here (a Drive clip is on this device now), once it has loaded.
+  const picKey = pictureKey(h);
+  useEffect(() => {
+    if (!src.url) return;
+    const url = src.url;
+    const t = window.setTimeout(() => void rememberPicture(h, url), 1500);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src.url, picKey]);
   const videoRef = useRef<HTMLVideoElement>(null);
   const overRef = useRef<HTMLCanvasElement>(null);
   const [now, setNow] = useState(0);
