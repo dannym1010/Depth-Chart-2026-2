@@ -585,6 +585,24 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                           <option key={r.id} value={r.id}>{r.name}</option>
                         ))}
                       </select>
+                      {/* Rate them all at once (sorting through a game's clips). */}
+                      <span className="inline-flex items-center gap-0.5" role="group" aria-label="Rate the picked clips">
+                        {([1, 2, 3] as const).map((n) => (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => {
+                              const now = Date.now();
+                              update((d) => ({ ...d, highlights: d.highlights.map((h) => (picked.has(h.id) && h.rating !== n ? { ...h, rating: n, editedAt: now } : h)) }));
+                            }}
+                            className="h-7 px-1.5 rounded-lg border border-slate-300 dark:border-slate-600 font-bold text-amber-600 dark:text-amber-400"
+                            title={`Give the ${picked.size} picked ${n} star${n === 1 ? '' : 's'}`}
+                            aria-label={`Give them ${n} star${n === 1 ? '' : 's'}`}
+                          >
+                            {'★'.repeat(n)}
+                          </button>
+                        ))}
+                      </span>
                       <button
                         type="button"
                         className="inline-flex items-center gap-1 font-bold text-rose-600 dark:text-rose-400"

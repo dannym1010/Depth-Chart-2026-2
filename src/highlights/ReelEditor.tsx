@@ -476,6 +476,7 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
                               })
                             }
                           />
+                          <ClipPicture h={h} access={access} className="h-8 w-14 rounded" iconSize={12} />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate">
                               <b>{h.title}</b> <span className="text-amber-500">{'★'.repeat(h.rating)}</span>
