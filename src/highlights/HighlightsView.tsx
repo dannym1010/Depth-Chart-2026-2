@@ -166,6 +166,8 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
   );
   const keptSeconds = kept.reduce((n, h) => n + (h.end - h.start), 0);
   const open = data.highlights.find((h) => h.id === openId) || null;
+  // Where the open clip is in the list shown (for Previous / Next).
+  const openAt = open ? kept.findIndex((h) => h.id === open.id) : -1;
   // On a phone or an iPad held upright the editor opens below the list: bring it up.
   const openRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -781,7 +783,21 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
           </div>
 
           {open && (
-            <div ref={openRef} className={`${panel} p-3 min-w-0 scroll-mt-2`}>
+            <div ref={openRef} className={`${panel} p-3 min-w-0 scroll-mt-2 flex flex-col gap-2`}>
+              {/* Stepping through the clips the list shows (its filters too), like a reel's. */}
+              {openAt >= 0 && kept.length > 1 && (
+                <div className="flex flex-wrap items-center gap-1.5 text-xs" role="group" aria-label="Clips in the list">
+                  <span className="font-black text-slate-600 dark:text-slate-300">
+                    Clip {openAt + 1} of {kept.length}
+                  </span>
+                  <button type="button" disabled={openAt <= 0} onClick={() => setOpenId(kept[openAt - 1]?.id || null)} className="h-7 px-2 rounded-lg border border-slate-300 dark:border-slate-600 font-bold disabled:opacity-40" title="The clip before (↑)">
+                    ‹ Previous
+                  </button>
+                  <button type="button" disabled={openAt >= kept.length - 1} onClick={() => setOpenId(kept[openAt + 1]?.id || null)} className="h-7 px-2 rounded-lg border border-slate-300 dark:border-slate-600 font-bold disabled:opacity-40" title="The next clip (↓)">
+                    Next ›
+                  </button>
+                </div>
+              )}
               <ClipEditor
                 key={open.id}
                 h={open}
@@ -791,6 +807,8 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                 plays={plays}
                 roster={roster}
                 onClose={() => setOpenId(null)}
+                onPrev={openAt > 0 ? () => setOpenId(kept[openAt - 1].id) : undefined}
+                onNext={openAt >= 0 && openAt < kept.length - 1 ? () => setOpenId(kept[openAt + 1].id) : undefined}
                 reels={myReels.map((r) => ({ id: r.id, name: r.name, has: r.items.some((it) => it.highlightId === open.id) }))}
                 onAddToReel={(id) => {
                   if (id === '__new') {
@@ -922,6 +940,8 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                   plays={plays}
                   roster={roster}
                   onClose={() => setReelClipId(null)}
+                  onPrev={reelClipAt > 0 ? () => setReelClipId(reelList[reelClipAt - 1].id) : undefined}
+                  onNext={reelClipAt < reelList.length - 1 ? () => setReelClipId(reelList[reelClipAt + 1].id) : undefined}
                   reels={myReels.map((r) => ({ id: r.id, name: r.name, has: r.items.some((it) => it.highlightId === reelClip.id) }))}
                   onAddToReel={(id) => {
                     if (id === '__new') {

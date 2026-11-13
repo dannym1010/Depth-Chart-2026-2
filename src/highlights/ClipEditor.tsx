@@ -136,9 +136,12 @@ interface Props {
   reels: { id: string; name: string; has?: boolean }[];
   /** A reel's id, or '__new' for a new reel. Without it (a parent's own highlights) there's no "Add to reel". */
   onAddToReel?: (reelId: string) => void;
+  /** The clip before / after in the list it was opened from (↑ / ↓). */
+  onPrev?: () => void;
+  onNext?: () => void;
 }
 
-export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, roster, onClose, reels, onAddToReel }) => {
+export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, roster, onClose, reels, onAddToReel, onPrev, onNext }) => {
   const settings = store.data.settings;
   const ro = store.readOnly;
   const src = useClipSrc(access, h.game, h.view, h.clip);
@@ -364,6 +367,13 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
       if (following && e.key === 'Escape') {
         stopFollow();
         e.preventDefault();
+        return;
+      }
+      // ↑ / ↓: the clip before / after (not while following a kid or placing something).
+      if ((e.key === 'ArrowUp' && onPrev) || (e.key === 'ArrowDown' && onNext)) {
+        if (following || marking || placing) return;
+        e.preventDefault();
+        (e.key === 'ArrowUp' ? onPrev : onNext)!();
         return;
       }
       const v = videoRef.current;
