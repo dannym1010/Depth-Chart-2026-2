@@ -460,6 +460,13 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
           {store.saveError}
         </div>
       )}
+      {/* Warned well before the cloud copy fills (past that, changes only stay on this device). */}
+      {!store.saveError && (store.fullness || 0) >= 0.75 && (
+        <div role="status" className="text-xs font-bold text-amber-800 dark:text-amber-200 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-2.5 py-1.5">
+          The team's highlights are {Math.round((store.fullness || 0) * 100)}% of what one cloud save can hold. Deleting old slideshows or copies of reels makes room; when it's full,
+          changes stay on this device only.
+        </div>
+      )}
       {status && (
         <div role="status" className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-2">
           {status}

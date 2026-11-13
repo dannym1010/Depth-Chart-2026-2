@@ -9,6 +9,8 @@ import { emptyHighlights, mergeHighlights } from './highlightData';
 import type { HighlightsData } from './types';
 
 const localKey = (teamId: string) => `footballHighlightsLocalOnly_${teamId}`;
+/** About what one cloud document holds (Firestore's limit is 1 MiB). */
+const DOC_LIMIT = 1_000_000;
 
 export function isLocalOnly(teamId: string) {
   try {
@@ -27,6 +29,8 @@ export interface HighlightStore {
   saveError?: string;
   /** Read-only session (a player or family account, or the app can't save). */
   readOnly: boolean;
+  /** How full the cloud copy is (0..1 of the most one save can hold), from the last save. */
+  fullness?: number;
 }
 
 /**
@@ -131,6 +135,8 @@ export function useHighlights(teamId: string, season: string, opts: { helper?: b
   const readOnly = cantSave();
   // Why the last save to the cloud didn't happen (shown on the Highlights page), or '' when it did.
   const [saveError, setSaveError] = useState('');
+  // How big the cloud copy is (a Firestore document holds about 1 MB; past that, saves fail).
+  const [fullness, setFullness] = useState(0);
   const update = useCallback(
     (change: (d: HighlightsData) => HighlightsData) => {
       if (cantSave()) return;
@@ -148,7 +154,9 @@ export function useHighlights(teamId: string, season: string, opts: { helper?: b
             const merged = mergeHighlights(snap?.exists ? snap.data() : undefined, ref.current);
             // Not cleanFirestoreData: it blanks an object it has seen before, and every highlight from one game
             // shares its game, so all but the first lost their game in the cloud copy.
-            tx.set(docRef, withoutUndefined({ ...merged, teamId, season, updatedAt: Date.now() }));
+            const doc = withoutUndefined({ ...merged, teamId, season, updatedAt: Date.now() });
+            setFullness(JSON.stringify(doc).length / DOC_LIMIT);
+            tx.set(docRef, doc);
             return merged;
           });
           adopt(saved);
@@ -174,5 +182,5 @@ export function useHighlights(teamId: string, season: string, opts: { helper?: b
     [teamId]
   );
 
-  return { data, update, localOnly, setLocalOnly, readOnly, saveError };
+  return { data, update, localOnly, setLocalOnly, readOnly, saveError, fullness };
 }
