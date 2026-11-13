@@ -8,6 +8,8 @@ import type { HighlightSettings } from '../highlights/types';
 import { PhotoThumb } from './PhotoThumb';
 import { mmss, type Slide } from './slideshowData';
 import { PEAKS_PER_SECOND, type SongAnalysis } from './songAnalysis';
+import { ClipPicture } from '../highlights/ClipPicture';
+import type { FilmAccess } from '../highlights/filmAccess';
 
 export interface TimelineSong {
   song: number;
@@ -27,6 +29,8 @@ export interface TimelineSong {
 
 interface Props {
   slides: Slide[];
+  /** The film, for the clips' pictures. */
+  access?: FilmAccess;
   total: number;
   time: number;
   picked: Set<string>;
@@ -93,7 +97,7 @@ const Wave: React.FC<{ a?: SongAnalysis; offset: number; seconds: number; width:
 };
 
 export const SlideshowTimeline: React.FC<Props> = ({
-  slides, total, time, picked, look, readOnly: ro, onSeek, onPick, onResize, onMove, songs, bedSongs = [], beats, marks, onMarks, musicShift, onMusicShift, onPlaceSong,
+  slides, total, time, picked, look, access, readOnly: ro, onSeek, onPick, onResize, onMove, songs, bedSongs = [], beats, marks, onMarks, musicShift, onMusicShift, onPlaceSong,
 }) => {
   const box = useRef<HTMLDivElement>(null);
   const [boxW, setBoxW] = useState(800);
@@ -367,8 +371,18 @@ export const SlideshowTimeline: React.FC<Props> = ({
                     </div>
                   ) : (
                     <div className="absolute inset-0 flex items-center gap-1 px-1.5" style={{ background: '#0f172a', color: '#e2e8f0' }}>
-                      {w > 24 && <Film size={11} className="shrink-0" style={{ color: accent }} />}
-                      {w > 50 && <span className="text-[10px] font-bold truncate">{s.item.title || s.h.title || 'Clip'}</span>}
+                      {/* A picture of the play behind its name, when there's room. */}
+                      {w > 18 && (
+                        <span className="absolute inset-0">
+                          <ClipPicture h={s.h} access={access} className="w-full h-full" iconSize={11} />
+                        </span>
+                      )}
+                      {w > 24 && <Film size={11} className="relative shrink-0" style={{ color: accent }} />}
+                      {w > 50 && (
+                        <span className="relative text-[10px] font-bold truncate px-0.5 rounded" style={{ background: 'rgba(2,6,23,.7)', color: '#f8fafc' }}>
+                          {s.item.title || s.h.title || 'Clip'}
+                        </span>
+                      )}
                     </div>
                   )}
                   {s.fade > 0 && s.fade * pps > 4 && (

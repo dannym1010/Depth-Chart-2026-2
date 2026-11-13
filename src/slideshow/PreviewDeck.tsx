@@ -102,6 +102,7 @@ export const PreviewDeck: React.FC<Props> = (p) => {
       {p.slides.length > 0 && (
         <SlideshowTimeline
           slides={p.slides}
+          access={p.access}
           total={p.total}
           time={now}
           picked={p.picked}
