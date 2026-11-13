@@ -13,7 +13,7 @@ import { ClipEditor } from './ClipEditor';
 import type { AccessState, FilmAccess } from './filmAccess';
 import { loadImage } from './graphics';
 import {
-  addHighlights, clock, familyReels, gameOrder, kidHighlights, kidLabel, kidsText, newReel, orderedHighlights, reelTimeline, removeHighlights, timelineSeconds,
+  addHighlights, clock, familyReels, gameOrder, kidHighlights, kidLabel, kidsText, newReel, orderedHighlights, reelOptionsOf, reelTimeline, removeHighlights, timelineSeconds,
   type Kid, type Segment,
 } from './highlightData';
 import { keepPlaysAsHighlights } from './keepPlays';
@@ -129,7 +129,7 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, min
   const open = (reel: Reel, mode: 'play' | 'social', highlights: Highlight[] = data.highlights) => {
     const segments = reelTimeline({ reel, highlights, games: order, settings, roster, plays, teamName });
     if (!segments.length) return setStatus('Nothing to play in that one yet.');
-    setShow({ title: reel.name, segments, transition: reel.options.transition, mode });
+    setShow({ title: reel.name, segments, transition: reelOptionsOf(reel).transition, mode });
   };
   const kidName = team ? teamName : kid ? kidLabel(kid, roster, 'full') : '';
   const kidReel = (ids: string[], cards = true) => tempReel(`${kidName} highlights`, ids, team ? undefined : kid, { cards });
@@ -451,7 +451,7 @@ export const FamilyHighlights: React.FC<Props> = ({ teamName, season, store, min
                   <span className="block text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{h.title}</span>
                   <span className="block text-[11px] text-slate-500 truncate">
                     {h.game.name}
-                    {h.kind === 'play' ? ` · #${h.playNumber}` : ''}
+                    {h.kind === 'play' && h.playNumber ? ` · #${h.playNumber}` : ''}
                     {h.slow ? ' · slow-mo' : ''}
                     {h.marks?.length ? ' · circled' : ''}
                     {h.follow ? ' · follows' : ''}

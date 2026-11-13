@@ -508,7 +508,9 @@ body.theme-light {
 
 /* 7f. A light chip nested inside a saturated panel keeps ink text. Section 7
    whitens every descendant of a solid colour, which erases pills written as
-   e.g. "bg-white text-blue-700" sitting inside an indigo header. */
+   e.g. "bg-white text-blue-700" sitting inside an indigo header. Text that sets
+   its own colour (style="color: …") keeps it: a pop-up's dark backdrop counts as
+   such a panel, and white labels drawn on photos in a pop-up turned dark. */
 @media screen {
   .theme-light :is(
     .bg-black, [class*="bg-black/"], .bg-slate-600, .bg-zinc-600,
@@ -527,7 +529,7 @@ body.theme-light {
     .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-sky-600, .bg-cyan-600, .bg-teal-600,
     .bg-emerald-600, .bg-emerald-700, .bg-green-600, .bg-amber-600, .bg-orange-600,
     .bg-red-500, .bg-red-600, .bg-red-700, .bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-pink-600
-  ) :is(.bg-white, [class*="bg-white/7"], [class*="bg-white/8"], [class*="bg-white/9"], .bg-slate-50, .bg-slate-100, .bg-amber-300, .bg-amber-400, .bg-yellow-300, .bg-yellow-400, .bg-lime-300, .bg-lime-400) * {
+  ) :is(.bg-white, [class*="bg-white/7"], [class*="bg-white/8"], [class*="bg-white/9"], .bg-slate-50, .bg-slate-100, .bg-amber-300, .bg-amber-400, .bg-yellow-300, .bg-yellow-400, .bg-lime-300, .bg-lime-400) *:not([style^="color"]):not([style*=" color:"]) {
     color: #0f172a !important;
   }
 }

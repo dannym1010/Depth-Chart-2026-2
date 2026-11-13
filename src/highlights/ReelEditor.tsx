@@ -7,7 +7,7 @@ import type { Play } from '../hudlScout/types/football';
 import type { FilmAccess } from './filmAccess';
 import { ExportPanel } from './ExportPanel';
 import { loadImage } from './graphics';
-import { addToReel, clock, editReel, EVERYONE, FAMILIES, kidLabel, kidsText, moveInReel, newReel, shareReel, orderedHighlights, reelTimeline, timelineSeconds, type Kid } from './highlightData';
+import { addToReel, clock, editReel, EVERYONE, FAMILIES, kidLabel, kidsText, moveInReel, newReel, playLabel, reelOptionsOf, shareReel, orderedHighlights, reelTimeline, timelineSeconds, type Kid } from './highlightData';
 import { libraryFolder, listFiles, subfolder } from './localLibrary';
 import { ReelPlayer } from './ReelPlayer';
 import { SocialVideoPanel } from './SocialVideoPanel';
@@ -41,7 +41,7 @@ const MUSIC = /\.(mp3|m4a|aac|wav|ogg|flac)$/i;
 
 export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, roster, plays, teamName, season, me, onOpenClip, onDelete, openId, ownerLabel, inbox = [] }) => {
   const ro = store.readOnly;
-  const o = reel.options;
+  const o = reelOptionsOf(reel);
   const settings = data.settings;
   const mine = reel.owner === me || !reel.owner;
   // A player reel goes to his family only.
@@ -334,7 +334,7 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
                 <button type="button" onClick={() => onOpenClip(h.id)} className="min-w-0 flex-1 text-left" aria-current={openId === h.id ? 'true' : undefined} title="Edit this clip here (trim, zoom, slow motion…)">
                   <span className="block text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{h.title}</span>
                   <span className="block text-[11px] text-slate-500 truncate">
-                    {h.game.name} · {h.kind === 'extra' ? 'extra' : `#${h.playNumber}`} · {(h.end - h.start).toFixed(1)} s{'★'.repeat(h.rating) ? ` · ${'★'.repeat(h.rating)}` : ''}
+                    {[h.game.name, playLabel(h)].filter(Boolean).join(' · ')} · {(h.end - h.start).toFixed(1)} s{'★'.repeat(h.rating) ? ` · ${'★'.repeat(h.rating)}` : ''}
                     {h.zoom ? ` · ${h.zoom.follow ? 'follows him' : `${h.zoom.level}× zoom`}` : ''}
                   </span>
                 </button>

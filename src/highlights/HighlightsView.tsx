@@ -15,7 +15,7 @@ import { ClipEditor, CATEGORY_LABEL } from './ClipEditor';
 import { clipLength, lineUp, type AccessState, type FilmAccess } from './filmAccess';
 import {
   addHighlights, addToReel, editHighlight, editReel, EVERYONE, extraPlace, FAMILIES, shareReel, gameOrder, highlightFromExtra, kidCoverage, kidHighlights, kidLabel, kidsText,
-  mergeHighlights, newReel, orderedHighlights, recommendPlays, REC_GROUPS, removeHighlights, removeReel, seasonPicks, clock, reelsFor, type Kid, type RecGroup,
+  mergeHighlights, newReel, orderedHighlights, playLabel, recommendPlays, REC_GROUPS, removeHighlights, removeReel, seasonPicks, clock, reelsFor, type Kid, type RecGroup,
 } from './highlightData';
 import { ReelEditor } from './ReelEditor';
 import { keepPlaysAsHighlights } from './keepPlays';
@@ -209,7 +209,9 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
   const [sGame, setSGame] = useState('');
   // Recommended: one game, or every game of the season ('*').
   const everyGame = sGame === '*' && clipsView === 'suggested';
-  const game = sortedGames.find((g) => g.key === sGame) || sortedGames[sortedGames.length - 1];
+  // Until one is picked: the latest game with a breakdown (the newest game often has none yet), else the latest.
+  const latestWithPlays = useMemo(() => [...sortedGames].reverse().find((g) => plays.some((p) => p.gameId === g.gameId)), [sortedGames, plays]);
+  const game = sortedGames.find((g) => g.key === sGame) || latestWithPlays || sortedGames[sortedGames.length - 1];
   const [recGroup, setRecGroup] = useState<RecGroup | ''>('');
   // How many clips each kid is in already (the banquet's "every kid in N"): kids short of it get their plays recommended.
   const kidCounts = useMemo(() => {
@@ -620,7 +622,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{h.title}</span>
                         <span className="block text-[11px] text-slate-500 truncate">
-                          {h.game.name} · {h.kind === 'extra' ? h.where || 'extra' : `#${h.playNumber}`}
+                          {[h.game.name, playLabel(h)].filter(Boolean).join(' · ')}
                           {h.kids.length ? ` · ${kidsText(h.kids, roster, 'number')}` : ''}
                           {h.replay ? ' · replay' : ''}
                           {h.slow ? ' · slow-mo' : ''}
@@ -635,7 +637,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                   ))}
                   {!kept.length && (
                     <li className="py-6 text-center text-sm text-slate-500">
-                      {data.highlights.length ? 'Nothing matches those filters.' : 'No highlights yet. Tap ★ Highlight (or H) while watching film in the Film Room, or keep some from Suggested.'}
+                      {data.highlights.length ? 'Nothing matches those filters.' : 'No highlights yet. Tap ★ Highlight (or H) while watching film in the Film Room, or keep some from Recommended.'}
                     </li>
                   )}
                 </ul>

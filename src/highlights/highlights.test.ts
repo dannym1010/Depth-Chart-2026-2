@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   addToReel, autoTitle, categoriesOf, chapters, defaultSettings, editHighlight, emptyHighlights, extraPlace, gameOrder, highlightFromExtra,
   highlightFromPlay, highlightSegments, kidCoverage, kidLabel, mergeHighlights, newReel, opponentOf, orderedHighlights, reelTimeline, removeHighlights,
-  reasonsFor, recommendPlays, seasonOf, segmentSeconds, setSettings, snapWindow, statLines, suggestFromPlays, timelineSeconds, freezeSpotOf, marksOver,
+  reasonsFor, recommendPlays, seasonOf, segmentSeconds, setSettings, snapWindow, statLines, suggestFromPlays, timelineSeconds, freezeSpotOf, marksOver, playLabel, reelOptionsOf,
 } from './highlightData.ts';
 import { buildPlan, fileUrl, joinPath, toCsv, toEdl, toFcpxml, toOtio, toXmeml } from './exporters.ts';
 import type { Highlight } from './types.ts';
@@ -336,5 +336,20 @@ describe('circles that freeze the play', () => {
     const h = hl('a', 1, 1, { start: 0, end: 20, marks: [{ id: 'm', x: 0, y: 0, style: 'ring', from: 2, to: 20, freeze: true }] });
     const f = highlightSegments(h, { replays: 'none', replaySpeed: 0.5 }).find((s) => s.type === 'freeze');
     assert.equal(f && f.type === 'freeze' ? f.seconds : 0, 6);
+  });
+});
+
+describe('lists and older reels', () => {
+  it("says where a clip is in its game, never '#undefined'", () => {
+    assert.equal(playLabel(hl('a', 1, 7)), '#7');
+    assert.equal(playLabel({ ...hl('a', 1, 7), playNumber: undefined }), '');
+    assert.equal(playLabel({ ...hl('a', 1, 7), kind: 'extra', where: 'between plays #3 and #4' }), 'between plays #3 and #4');
+    assert.equal(playLabel(hl('a', 1, 7), 'play #'), 'play #7');
+  });
+  it('a reel saved before an option existed still plays (and has a length)', () => {
+    const r = { ...newReel({ name: 'Old', kind: 'season', owner: 'x', highlightIds: ['a'] }), options: { order: 'hand' } as any };
+    assert.equal(reelOptionsOf(r).cardSeconds, 3);
+    const segs = reelTimeline({ reel: r, highlights: [hl('a', 1, 7)], games: gameOrder([game(1)]), settings: defaultSettings(), roster: [], plays: [], teamName: 'Mahopac' });
+    assert.ok(Number.isFinite(timelineSeconds(segs)) && timelineSeconds(segs) > 0, String(timelineSeconds(segs)));
   });
 });

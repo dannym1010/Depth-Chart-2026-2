@@ -494,6 +494,13 @@ export const defaultReelOptions = (kind: ReelKind): ReelOptions => ({
   cardSeconds: 3,
 });
 
+/** A reel's options with every one filled in (a reel saved before an option was added doesn't have it). */
+export const reelOptionsOf = (r: Pick<Reel, 'kind' | 'options'>): ReelOptions => ({ ...defaultReelOptions(r.kind || 'custom'), ...(r.options || {}) });
+
+/** Where a highlight is in its game, for lists: its play ("#12"), where an extra falls, or '' when that isn't known. */
+export const playLabel = (h: Pick<Highlight, 'kind' | 'playNumber' | 'where'>, prefix = '#') =>
+  h.kind === 'extra' ? h.where || 'extra' : h.playNumber ? `${prefix}${h.playNumber}` : '';
+
 export function newReel(opts: { name: string; kind: ReelKind; owner: string; ownerName?: string; gameKey?: string; kid?: string; highlightIds?: string[]; now?: number }): Reel {
   const now = opts.now ?? Date.now();
   return {
@@ -552,7 +559,7 @@ export function orderedHighlights(r: Reel, all: Highlight[], games: Map<string, 
     const i = CATEGORY_ORDER.indexOf(h.categories[0] || 'other');
     return i < 0 ? CATEGORY_ORDER.length : i;
   };
-  switch (r.options.order) {
+  switch (reelOptionsOf(r).order) {
     case 'hand':
       return list;
     case 'category':
@@ -664,7 +671,7 @@ export function reelTimeline(opts: {
   teamName: string;
 }): Segment[] {
   const { reel, settings, roster } = opts;
-  const o = reel.options;
+  const o = reelOptionsOf(reel);
   const list = orderedHighlights(reel, opts.highlights, opts.games);
   const card = (c: CardSpec): Segment => ({ type: 'card', card: c, seconds: o.cardSeconds });
   const segs: Segment[] = [];

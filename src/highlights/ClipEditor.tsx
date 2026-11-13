@@ -10,7 +10,7 @@ import { savedOffset, snapOffset, syncTarget } from '../filmroom/dualView';
 import type { FilmGameShared } from '../filmroom/types';
 import { lineUp, type FilmAccess, type GameFilm } from './filmAccess';
 import { drawLowerThird, drawSpot, loadImage } from './graphics';
-import { autoTitle, editHighlight, highlightSegments, kidLabel, kidsText, markFreezeSeconds, removeHighlights, snapWindow, type Kid } from './highlightData';
+import { autoTitle, editHighlight, highlightSegments, kidLabel, kidsText, markFreezeSeconds, playLabel, removeHighlights, snapWindow, type Kid } from './highlightData';
 import { SocialVideoPanel } from './SocialVideoPanel';
 import { FOLLOW_STEP, followCam, packFollow, pathAt, recordInto, stretches, thin, unpackFollow, type FollowPoint } from './follow';
 import type { Highlight, HighlightCategory, HighlightMark, HighlightSettings, SpotStyle } from './types';
@@ -766,7 +766,7 @@ export const ClipEditor: React.FC<Props> = ({ h, store, access, shared, plays, r
         <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-center sm:gap-2">
           <h3 className="font-black text-slate-900 dark:text-slate-100 truncate">{h.title || 'Highlight'}</h3>
           <span className="text-xs text-slate-500 truncate">
-            {h.game.name} · {h.kind === 'extra' ? h.where || 'extra' : `play #${h.playNumber}`} · {h.view || 'film'} · {h.clip}
+            {[h.game.name, playLabel(h, 'play #'), h.view || 'film', h.clip].filter(Boolean).join(' · ')}
           </span>
         </div>
         <button type="button" onClick={onClose} className="h-9 w-9 sm:h-8 sm:w-8 shrink-0 inline-flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500" aria-label="Close">

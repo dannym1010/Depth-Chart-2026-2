@@ -1656,7 +1656,7 @@ export const SlideshowEditor: React.FC<Props> = ({
                     edit((s) => (where === 'start' ? { ...s, items: [it, ...s.items] } : where === 'end' ? { ...s, items: [...s.items, it] } : insertItems(s, [it], target)));
                     pick(it.id);
                   }}
-                  className={`${input} h-9 w-24`}
+                  className={`${input} h-9 w-32`}
                   aria-label="Ready-made title cards"
                 >
                   <option value="">Ready-made…</option>
