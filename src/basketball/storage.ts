@@ -993,3 +993,22 @@ export function convertTeamSnapEventsToBasketballGames(
 
   return mode === 'replace' ? additions : [...existingGames, ...additions];
 }
+
+/** Determine whether a visitor may enter the Court Studio workspace or must see the sign-in / pending gate. */
+export function canAccessBasketballWorkspace(
+  email: string | null | undefined,
+  staff: BasketballStaffMember[]
+): { status: 'unauthenticated' | 'pending' | 'approved'; role?: BasketballStaffMember['role'] } {
+  if (!email || !String(email).trim()) {
+    return { status: 'unauthenticated' };
+  }
+  const clean = String(email).toLowerCase().trim();
+  if (isProgramAdminEmail(clean)) {
+    return { status: 'approved', role: 'Admin' };
+  }
+  const member = (staff || []).find((m) => m.email.toLowerCase().trim() === clean);
+  if (!member || member.status !== 'Active') {
+    return { status: 'pending' };
+  }
+  return { status: 'approved', role: member.role };
+}

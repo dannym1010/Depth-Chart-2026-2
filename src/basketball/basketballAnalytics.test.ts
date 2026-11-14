@@ -10,6 +10,7 @@ import {
   DEFAULT_BASKETBALL_STATE,
   SAMPLE_BASKETBALL_STATE,
   bballAccessFromStaff,
+  canAccessBasketballWorkspace,
   convertTeamSnapEventsToBasketballGames,
   parseBasketballHudlCsv,
   parseBasketballRosterInput,
@@ -362,4 +363,56 @@ test('convertTeamSnapEventsToBasketballGames converts events and deduplicates in
 
   const appended = convertTeamSnapEventsToBasketballGames(events, replaced, 'append');
   assert.equal(appended.length, 2);
+});
+
+test('canAccessBasketballWorkspace blocks unauthenticated and unapproved visitors before showing any workspace', () => {
+  const staff: BasketballStaffMember[] = [
+    {
+      id: 'st-coach',
+      name: 'Coach Sam',
+      email: 'coach.sam@example.com',
+      role: 'Coach',
+      status: 'Active',
+      teamIds: ['bball-10u-boys'],
+      linkedPlayerNums: [],
+    },
+    {
+      id: 'st-family',
+      name: 'Family Viewer',
+      email: 'family@example.com',
+      role: 'Family',
+      status: 'Active',
+      teamIds: ['bball-10u-boys'],
+      linkedPlayerNums: ['23'],
+    },
+    {
+      id: 'st-pending',
+      name: 'Pending User',
+      email: 'pending@example.com',
+      role: 'Coach',
+      status: 'Pending',
+      teamIds: ['bball-10u-boys'],
+      linkedPlayerNums: [],
+    },
+  ];
+
+  assert.deepEqual(canAccessBasketballWorkspace(null, staff), { status: 'unauthenticated' });
+  assert.deepEqual(canAccessBasketballWorkspace('', staff), { status: 'unauthenticated' });
+  assert.deepEqual(canAccessBasketballWorkspace('   ', staff), { status: 'unauthenticated' });
+
+  assert.deepEqual(canAccessBasketballWorkspace('stranger@example.com', staff), { status: 'pending' });
+  assert.deepEqual(canAccessBasketballWorkspace('pending@example.com', staff), { status: 'pending' });
+
+  assert.deepEqual(canAccessBasketballWorkspace('dannym1010@gmail.com', []), {
+    status: 'approved',
+    role: 'Admin',
+  });
+  assert.deepEqual(canAccessBasketballWorkspace('Coach.Sam@Example.com', staff), {
+    status: 'approved',
+    role: 'Coach',
+  });
+  assert.deepEqual(canAccessBasketballWorkspace('family@example.com', staff), {
+    status: 'approved',
+    role: 'Family',
+  });
 });
