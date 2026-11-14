@@ -40,7 +40,8 @@ export const HighlightsSection: React.FC<Props> = ({ teamId, teamName, ownTeamSc
   const season = seasonOf();
   // A family's Highlights helper saves to the team's highlights like a coach.
   const helper = Boolean(watchOnly) && level === 'helper';
-  const store = useHighlights(teamId, season, { helper });
+  // Coaches and helpers see edits live; a family's page reads the cloud copy when it opens (not on every coach edit).
+  const store = useHighlights(teamId, season, { helper, live: !watchOnly || helper });
   // The year-end video: what families sent (coaches and helpers see it), and a family's own sending.
   const familySends = useFamilyInbox(teamId, season, !watchOnly || helper);
   const mySends = useMySends(teamId, season, watchOnly ? userEmail : '', { name: authorName, kids: myKids });

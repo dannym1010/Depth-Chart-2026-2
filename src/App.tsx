@@ -89,6 +89,8 @@ import {
   fetchSharedBoardCloud,
   subscribeSharedBoardCloud,
   isFirestoreQuotaPaused,
+  ensureFirestoreOnline,
+  firestorePauseEndsAt,
   noteFirestoreError,
   lastCloudSaveError,
   LOCAL_SAVE_FAILED,
@@ -2818,8 +2820,23 @@ export default function App() {
   const handleForceSave = async () => {
     lastSavedPayloadRef.current = '';
     setSyncStatus({ text: '☁️ Saving to Cloud & Server...', color: '#f59e0b' });
+    // After the daily limit's pause: the cloud connection back on first (it was turned off for the pause).
+    await ensureFirestoreOnline();
     await saveStateToStorage('force');
   };
+
+  // The daily limit's pause ends: the connection comes back on and what's waiting goes up (no reload needed).
+  useEffect(() => {
+    const ends = firestorePauseEndsAt();
+    if (!ends) return;
+    const t = window.setTimeout(async () => {
+      await ensureFirestoreOnline();
+      for (const [s, meta] of readUnsynced()) queueSaveScope(s, meta);
+      if (pendingScopesRef.current.size) scheduleSaves(0);
+    }, Math.max(1000, ends - Date.now() + 5000));
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveAlarm]);
 
   const persistWeekScouting = (field: any, val?: any) => {
     lastLocalEditTimeRef.current = Date.now();
@@ -4015,7 +4032,7 @@ export default function App() {
       }
       if (isUserIdleRef.current) {
         isUserIdleRef.current = false;
-        if (currentUser?.email && !isIdleTimedOut) {
+        if (currentUser?.email && !isIdleTimedOut && userRole !== 'player') {
           registerPresence({
             email: currentUser.email,
             displayName: currentUser.displayName || currentUser.email.split('@')[0],
@@ -4048,7 +4065,7 @@ export default function App() {
 
       if (idleDuration > idleWarningThreshold && !isUserIdleRef.current) {
         isUserIdleRef.current = true;
-        registerPresence({
+        if (userRole !== 'player') registerPresence({
           email: currentUser.email,
           displayName: currentUser.displayName || currentUser.email.split('@')[0],
           role: userRole === 'admin' ? 'Head Coach / Admin' : 'Assistant Coach',
@@ -4082,9 +4099,10 @@ export default function App() {
     getActiveUserIdleTimeoutMinutes,
   ]);
 
-  // Real-Time Presence Heartbeat (every 30s while connected)
+  // Real-Time Presence Heartbeat (checked every 30 s; it goes to the cloud every 2 minutes, see registerPresence).
+  // Families and players aren't in "who's online" (each report is a cloud write and a read).
   useEffect(() => {
-    if (!currentUser?.email || isIdleTimedOut) return;
+    if (!currentUser?.email || isIdleTimedOut || userRole === 'player') return;
 
     const report = () => {
       if (document.hidden) return;

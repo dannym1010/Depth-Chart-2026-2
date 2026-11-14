@@ -1,4 +1,5 @@
 import { mergeSpotStamps, outgoingSpots } from '../utils/depthStamps';
+import { presenceDue, PRESENCE_STALE_MS, quotaPauseUntil } from '../utils/cloudQuota';
 import {
   WeekState,
   FormationBoard,
@@ -485,14 +486,8 @@ function readStoredQuotaPause(): number {
   }
 }
 
-function nextQuotaResetMs(): number {
-  const now = Date.now();
-  const d = new Date();
-  // Spark quotas reset around midnight Pacific (07:00 UTC during PDT).
-  const resetTodayUtc = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 7, 0, 0);
-  const resetAt = now < resetTodayUtc ? resetTodayUtc : resetTodayUtc + 24 * 60 * 60 * 1000;
-  return Math.max(now + 2 * 60 * 60 * 1000, resetAt);
-}
+// Spark quotas start over at midnight Pacific (winter and summer time): saves wait until a few minutes after.
+const nextQuotaResetMs = () => quotaPauseUntil();
 
 async function disableFirestoreNetwork(): Promise<void> {
   if (firestoreNetworkDisabled || typeof window === 'undefined') return;
@@ -507,10 +502,49 @@ async function disableFirestoreNetwork(): Promise<void> {
   }
 }
 
+/**
+ * The pause is over: the cloud connection turned off for it comes back on (before, it stayed off until the page was
+ * reloaded, so saves kept failing as "no internet" after the limit had started over).
+ */
+let firestoreResuming: Promise<void> | null = null;
+function resumeFirestoreNetwork(): Promise<void> {
+  if (!firestoreNetworkDisabled) return Promise.resolve();
+  if (!firestoreResuming) {
+    firestoreResuming = (async () => {
+      try {
+        const { db } = getFirebaseServices();
+        if (db && typeof db.enableNetwork === 'function') await db.enableNetwork();
+      } catch {
+        // ignore: the next save tries again
+      }
+      firestoreNetworkDisabled = false;
+      if (/daily limit/.test(lastCloudError)) lastCloudError = '';
+      firestoreResuming = null;
+    })();
+  }
+  return firestoreResuming;
+}
+
+/** When cloud saves start again after the daily limit (0 when they aren't paused). */
+export function firestorePauseEndsAt(): number {
+  return isFirestoreQuotaPaused() ? firestoreQuotaPausedUntil : 0;
+}
+
+/** Make sure the cloud connection is on (after a pause for the daily limit): resolves once it is. */
+export async function ensureFirestoreOnline(): Promise<void> {
+  if (!isFirestoreQuotaPaused()) await resumeFirestoreNetwork();
+}
+
+const quotaText = () => {
+  const until = firestoreQuotaPausedUntil || quotaPauseUntil();
+  const at = new Date(until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return `the cloud's free daily limit is used up; saving starts again at ${at}`;
+};
+
 /** Why the last cloud save didn't go through, in plain words (empty after one that did). */
 let lastCloudError = '';
 export function lastCloudSaveError(): string {
-  if (isFirestoreQuotaPaused()) return "the cloud's free daily limit is used up (it resets overnight)";
+  if (isFirestoreQuotaPaused()) return quotaText();
   return lastCloudError;
 }
 export function clearCloudSaveError() {
@@ -518,7 +552,7 @@ export function clearCloudSaveError() {
 }
 export function describeCloudError(err?: any): string {
   const text = `${err?.code || ''} ${err?.message || ''}`.toLowerCase();
-  if (text.includes('resource-exhausted') || text.includes('quota')) return "the cloud's free daily limit is used up (it resets overnight)";
+  if (text.includes('resource-exhausted') || text.includes('quota')) return quotaText();
   if (text.includes('maximum allowed size') || text.includes('exceeds') || text.includes('too large')) return 'this week is too big for one cloud save';
   if (text.includes('permission') || text.includes('unauthenticated')) return 'the cloud refused it (sign out and back in)';
   if (text.includes('unavailable') || text.includes('offline') || text.includes('network') || text.includes('failed to fetch')) return 'no internet connection';
@@ -544,7 +578,10 @@ export function isFirestoreQuotaPaused() {
   if (!firestoreQuotaPausedUntil) {
     firestoreQuotaPausedUntil = readStoredQuotaPause();
   }
-  return Date.now() < firestoreQuotaPausedUntil;
+  const paused = Date.now() < firestoreQuotaPausedUntil;
+  // Past the pause with the connection still off: turn it back on (every cloud call asks this first).
+  if (!paused && firestoreNetworkDisabled) void resumeFirestoreNetwork();
+  return paused;
 }
 
 export function cloudModulesForScope(scope: string = ''): Array<
@@ -2370,10 +2407,11 @@ export interface ActiveUserSession {
 }
 
 // Live site (no Express server): who is online is kept in one shared cloud doc,
-// teamData/ops_presence, as users.<clientId>. Anyone not seen for 2.5 minutes is offline.
+// teamData/ops_presence, as users.<clientId>. Anyone not seen for 5½ minutes is offline (PRESENCE_STALE_MS).
 const PRESENCE_DOC = 'ops_presence';
-const PRESENCE_STALE_MS = 150000;
 const presenceConnectedAt = Date.now();
+// The last report that went up (each one is a cloud write and a read, so they go every 2 minutes, not 30 s).
+let lastPresence: { at: number; key: string; idle: boolean; users: ActiveUserSession[] } | null = null;
 
 function activeUsersFromPresenceDoc(data: any): { active: ActiveUserSession[]; staleIds: string[] } {
   const users = data && typeof data.users === 'object' && data.users ? data.users : {};
@@ -2434,6 +2472,10 @@ export async function registerPresence(params: {
     if (isFirestoreQuotaPaused()) return [];
     const { db } = getFirebaseServices();
     if (!db) return [];
+    // Only when it's due (a change of team / week / idle, or every 2 minutes); else who was online last time.
+    const key = [params.email, params.activeTeamId || '', params.currentWeek || ''].join('|');
+    const idle = Boolean(params.isIdle);
+    if (!presenceDue(lastPresence, key, idle)) return lastPresence?.users || [];
     try {
       const entry: ActiveUserSession = {
         clientId: CLIENT_ID,
@@ -2452,7 +2494,9 @@ export async function registerPresence(params: {
       noteFirestoreError(err);
       return [];
     }
-    return readCloudPresence();
+    const users = await readCloudPresence();
+    lastPresence = { at: Date.now(), key, idle, users };
+    return users;
   }
   if (isServerApiAvailable === false) return [];
   try {
@@ -2473,6 +2517,7 @@ export async function registerPresence(params: {
 }
 
 export async function leavePresence(email?: string): Promise<boolean> {
+  lastPresence = null;
   if (!shouldUseLocalOpsApi()) {
     const { db } = getFirebaseServices();
     const del = typeof window !== 'undefined' ? window.firebase?.firestore?.FieldValue?.delete?.() : undefined;
