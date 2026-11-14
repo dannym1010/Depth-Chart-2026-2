@@ -81,9 +81,9 @@ export function lineUp(film: GameFilm, view: string, plays: { id: string; playNu
 export const NEEDS_SIGN_IN = 'Sign in with Google to play the film (it’s in the team Drive).';
 
 /** The film folder on this computer and / or the team's Google Drive copy (Drive folder id from the program doc). */
-export function realFilmAccess(opts: { teamName: string; rootDriveId?: string; rootDriveName?: string }): FilmAccess {
+export function realFilmAccess(opts: { teamName: string; rootDriveId?: string; rootDriveName?: string; rootLocalKey?: string }): FilmAccess {
   const games = new Map<string, Promise<GameFilm & { files: Map<string, () => Promise<File>> }>>();
-  const localRoot = () => recallFolder('root');
+  const localRoot = () => recallFolder(opts.rootLocalKey || 'root');
   // Google's sign-in script ready before the coach taps Sign in (Safari only opens its window right in the tap).
   if (opts.rootDriveId) prepareDriveSignIn();
 

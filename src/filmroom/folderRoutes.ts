@@ -24,21 +24,21 @@ export function weekKeyFromFolder(name: string): string | undefined {
 
 function weekNamedInFolder(name: string): string | undefined {
   const s = String(name || '').toLowerCase();
-  let m = s.match(/pre[\s-]*season\s*(?:week|wk)?\s*(\d+)/);
+  let m = s.match(/pre[\s-]*season\s*(?:week|wk|game|gm)?\s*(\d+)/);
   if (m) return `pre-${Number(m[1])}`;
-  m = s.match(/\b(?:week|wk)\s*(\d+)/);
+  m = s.match(/\b(?:week|wk|game|gm)\s*(\d+)/);
   if (m) return String(Number(m[1]));
   if (/playoff/.test(s)) return 'playoffs';
   if (/championship|\bfinal/.test(s)) return 'championship';
   return undefined;
 }
 
-/** The app's week keys ("3", "Week 3", "team_10u__week_3", "pre-4") in the same form. */
+/** The app's week keys ("3", "Week 3", "Game 1", "team_10u__week_3", "pre-4") in the same form. */
 export function normalizeWeek(week?: string): string {
   let s = String(week || '').trim();
   if (s.includes('__week_')) s = s.split('__week_').pop() || '';
-  s = s.replace(/^week\s*/i, '').trim().toLowerCase();
-  const pre = s.match(/^pre-?(?:season)?[\s-]*(?:week)?\s*(\d+)$/);
+  s = s.replace(/^(?:week|wk|game|gm)\s*/i, '').trim().toLowerCase();
+  const pre = s.match(/^pre-?(?:season)?[\s-]*(?:week|wk|game|gm)?\s*(\d+)$/);
   if (pre) return `pre-${Number(pre[1])}`;
   if (/^\d+$/.test(s)) return String(Number(s));
   return s;

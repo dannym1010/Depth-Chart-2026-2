@@ -91,10 +91,21 @@ export const HighlightsSection: React.FC<Props> = ({ teamId, teamName, ownTeamSc
   }, [own]);
 
   // The team film folder: this computer's copy, or the Google Drive one (its link is in the program's shared doc).
-  const root = useSharedGame('program', 'root');
+  // Basketball uses an isolated root film folder separate from Football.
+  const isBball = teamId.startsWith('bball_');
+  const root = useSharedGame(isBball ? 'bball_program' : 'program', 'root');
   const rootId = root.shared.drive?.folderId || undefined;
   const rootName = root.shared.drive?.folderName;
-  const access = useMemo(() => realFilmAccess({ teamName, rootDriveId: rootId, rootDriveName: rootName }), [teamName, rootId, rootName]);
+  const access = useMemo(
+    () =>
+      realFilmAccess({
+        teamName,
+        rootDriveId: rootId,
+        rootDriveName: rootName,
+        rootLocalKey: isBball ? 'bball_root' : 'root',
+      }),
+    [teamName, rootId, rootName, isBball]
+  );
 
   // A game's shared Film Room data, read once: this device's copy merged with the cloud's.
   const loadShared = useCallback(

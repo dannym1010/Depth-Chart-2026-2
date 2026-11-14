@@ -1,10 +1,12 @@
 import type { ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play } from '../hudlScout/types/football';
-import { cleanFirestoreData, getFirebaseServices, isFirestoreQuotaPaused, parseCSV, safeJSONParse, safeJSONSet } from '../services/storageService';
+import { cleanFirestoreData, getFirebaseServices, isFirestoreQuotaPaused, isReadOnlySession, parseCSV, safeJSONParse, safeJSONSet } from '../services/storageService';
+import { isProgramAdminEmail, PROGRAM_ADMIN_EMAILS } from '../utils/staffAccess';
 import type {
   BasketballGame,
   BasketballPlayer,
   BasketballPossession,
+  BasketballStaffMember,
   BasketballState,
   DefenseType,
   PossessionPhase,
@@ -13,7 +15,9 @@ import type {
 } from './types';
 
 const STORAGE_KEY = 'bball_studio_v1_state';
-const CLOUD_COLLECTION = 'bballStudio';
+const CLOUD_STATE_DOC = 'bball_studio_state';
+const CLOUD_ACCESS_DOC = 'bball_access';
+let lastBballAccessKey = '';
 
 export const DEFAULT_BASKETBALL_SETS = [
   '5-Out Motion',
@@ -37,6 +41,19 @@ const SAMPLE_ROSTER_10U: BasketballPlayer[] = [
   { id: 'bbp-8', num: '30', firstName: 'Noah', lastName: 'Velez', position: 'SG', height: '4\'10"', grade: '4th', tags: ['Corner 3'] },
   { id: 'bbp-9', num: '33', firstName: 'Lucas', lastName: 'Romero', position: 'C', height: '5\'4"', grade: '4th', tags: ['Post Scorer', 'Glass Cleaner'] },
   { id: 'bbp-10', num: '41', firstName: 'Aiden', lastName: 'Byrne', position: 'SF', height: '5\'0"', grade: '4th', tags: ['Two-Way Wing'] },
+];
+
+const SAMPLE_ROSTER_12U: BasketballPlayer[] = [
+  { id: 'bbp12-1', num: '1', firstName: 'Dylan', lastName: 'Morales', position: 'PG', height: '5\'3"', grade: '6th', tags: ['Floor General', 'On-Ball Pressure'] },
+  { id: 'bbp12-2', num: '3', firstName: 'Caleb', lastName: 'Kerrigan', position: 'SG', height: '5\'4"', grade: '6th', tags: ['Catch & Shoot', '3PT Threat'] },
+  { id: 'bbp12-3', num: '10', firstName: 'Gavin', lastName: 'O\'Connor', position: 'SF', height: '5\'6"', grade: '6th', tags: ['Slasher', 'Transition'] },
+  { id: 'bbp12-4', num: '12', firstName: 'Brady', lastName: 'Santoro', position: 'PG', height: '5\'2"', grade: '6th', tags: ['Press Breaker'] },
+  { id: 'bbp12-5', num: '15', firstName: 'Ryan', lastName: 'McAllister', position: 'PF', height: '5\'7"', grade: '6th', tags: ['Rim Runner', 'Screen & Roll'] },
+  { id: 'bbp12-6', num: '21', firstName: 'Jack', lastName: 'DeLuca', position: 'SG', height: '5\'5"', grade: '6th', tags: ['Corner 3', 'Weakside Help'] },
+  { id: 'bbp12-7', num: '25', firstName: 'Nolan', lastName: 'Fitzpatrick', position: 'SF', height: '5\'6"', grade: '6th', tags: ['Wing Defender'] },
+  { id: 'bbp12-8', num: '32', firstName: 'Trevor', lastName: 'Quinn', position: 'PF', height: '5\'8"', grade: '6th', tags: ['High Post Nail', 'Rebounder'] },
+  { id: 'bbp12-9', num: '34', firstName: 'Julian', lastName: 'Clemente', position: 'C', height: '5\'9"', grade: '6th', tags: ['Rim Protector', 'Post Finish'] },
+  { id: 'bbp12-10', num: '44', firstName: 'Leo', lastName: 'Vasquez', position: 'C', height: '5\'8"', grade: '6th', tags: ['Offensive Glass'] },
 ];
 
 const GAME_1_POSSESSIONS: BasketballPossession[] = [
@@ -79,9 +96,9 @@ export const DEFAULT_BASKETBALL_STATE: BasketballState = {
   },
   darkMode: true,
   staff: [
-    { id: 'st-1', name: 'Coach Danny', email: 'dannym1010@gmail.com', role: 'Admin', teamIds: ['bball-10u-boys', 'bball-12u-gold'], linkedPlayerNums: [] },
-    { id: 'st-2', name: 'Assistant Coach Mike', email: 'coach.mike@mahopachoops.org', role: 'Coach', teamIds: ['bball-10u-boys'], linkedPlayerNums: [] },
-    { id: 'st-3', name: 'Brennan Family', email: 'brennan.family@gmail.com', role: 'Family', teamIds: ['bball-10u-boys'], linkedPlayerNums: ['5'], allowedTabs: ['schedule', 'highlights'], highlightAccess: 'kid' },
+    { id: 'st-1', name: 'Coach Danny', email: 'dannym1010@gmail.com', role: 'Admin', status: 'Active', teamIds: ['bball-10u-boys', 'bball-12u-gold'], linkedPlayerNums: [] },
+    { id: 'st-2', name: 'Assistant Coach Mike', email: 'coach.mike@mahopachoops.org', role: 'Coach', status: 'Active', defaultSport: 'basketball', teamIds: ['bball-10u-boys'], linkedPlayerNums: [] },
+    { id: 'st-3', name: 'Brennan Family', email: 'brennan.family@gmail.com', role: 'Family', status: 'Active', defaultSport: 'basketball', teamIds: ['bball-10u-boys'], linkedPlayerNums: ['5'], allowedTabs: ['schedule', 'highlights'], highlightAccess: 'kid' },
   ],
   teamData: {
     'bball-10u-boys': {
@@ -180,7 +197,7 @@ export const DEFAULT_BASKETBALL_STATE: BasketballState = {
       ],
     },
     'bball-12u-gold': {
-      roster: SAMPLE_ROSTER_10U.slice(0, 6),
+      roster: SAMPLE_ROSTER_12U,
       customSets: DEFAULT_BASKETBALL_SETS,
       games: [
         {
@@ -199,32 +216,154 @@ export const DEFAULT_BASKETBALL_STATE: BasketballState = {
   },
 };
 
-export function loadBasketballState(): BasketballState {
-  const saved = safeJSONParse<BasketballState | null>(STORAGE_KEY, null);
-  if (!saved || !Array.isArray(saved.teams) || saved.teams.length === 0) {
+function normalizeBasketballState(raw: Partial<BasketballState> | null | undefined): BasketballState {
+  if (!raw || !Array.isArray(raw.teams) || raw.teams.length === 0) {
     return DEFAULT_BASKETBALL_STATE;
   }
   return {
     ...DEFAULT_BASKETBALL_STATE,
-    ...saved,
+    ...raw,
+    activeGameIdByTeam: {
+      ...DEFAULT_BASKETBALL_STATE.activeGameIdByTeam,
+      ...(raw.activeGameIdByTeam || {}),
+    },
     teamData: {
       ...DEFAULT_BASKETBALL_STATE.teamData,
-      ...(saved.teamData || {}),
+      ...(raw.teamData || {}),
     },
+    staff: Array.isArray(raw.staff) && raw.staff.length > 0 ? raw.staff : DEFAULT_BASKETBALL_STATE.staff,
   };
+}
+
+export function loadBasketballState(): BasketballState {
+  const saved = safeJSONParse<BasketballState | null>(STORAGE_KEY, null);
+  return normalizeBasketballState(saved);
+}
+
+export interface BasketballCloudAccess {
+  admins: Record<string, true>;
+  coaches: Record<string, true>;
+  viewers: Record<string, true>;
+  highlighters: Record<string, true>;
+}
+
+/** Build the Firestore teamData/bball_access permission map from the Basketball staff list. */
+export function bballAccessFromStaff(staff: BasketballStaffMember[] = []): BasketballCloudAccess {
+  const out: BasketballCloudAccess = { admins: {}, coaches: {}, viewers: {}, highlighters: {} };
+  for (const email of PROGRAM_ADMIN_EMAILS) {
+    out.admins[String(email || '').toLowerCase().trim()] = true;
+  }
+  for (const m of staff || []) {
+    const email = String(m?.email || '').toLowerCase().trim();
+    if (!email || !email.includes('@') || m.status === 'Pending') continue;
+    if (m.role === 'Admin') out.admins[email] = true;
+    else if (m.role === 'Coach') out.coaches[email] = true;
+    else {
+      out.viewers[email] = true;
+      if (m.highlightAccess === 'helper') out.highlighters[email] = true;
+    }
+  }
+  return out;
+}
+
+/** Write teamData/bball_access when a Basketball Admin updates staff/roles. */
+export async function syncBasketballAccessDoc(staff: BasketballStaffMember[]): Promise<void> {
+  if (isReadOnlySession() || !Array.isArray(staff)) return;
+  try {
+    if (isFirestoreQuotaPaused()) return;
+    const { db } = getFirebaseServices();
+    if (!db) return;
+    const access = bballAccessFromStaff(staff);
+    const key = JSON.stringify(access);
+    if (key === lastBballAccessKey) return;
+    await db.collection('teamData').doc(CLOUD_ACCESS_DOC).set({ ...access, updatedAt: Date.now() });
+    lastBballAccessKey = key;
+  } catch (err) {
+    console.warn('Basketball access list update failed:', err);
+  }
 }
 
 export function saveBasketballState(state: BasketballState): void {
   safeJSONSet(STORAGE_KEY, state);
+  if (isReadOnlySession()) return;
   try {
     const { db } = getFirebaseServices();
     if (db && !isFirestoreQuotaPaused()) {
       const payload = cleanFirestoreData({ ...state, updatedAt: Date.now() });
-      db.collection(CLOUD_COLLECTION).doc('programState').set(payload, { merge: true }).catch(() => undefined);
+      db.collection('teamData').doc(CLOUD_STATE_DOC).set(payload, { merge: true }).catch(() => undefined);
     }
   } catch {
     /* local save already complete */
   }
+}
+
+/** Fetch Basketball state once from teamData/bball_studio_state (for login routing and initial hydration). */
+export async function fetchBasketballStateCloud(): Promise<BasketballState | null> {
+  try {
+    if (isFirestoreQuotaPaused()) return null;
+    const { db } = getFirebaseServices();
+    if (!db) return null;
+    const snap = await db.collection('teamData').doc(CLOUD_STATE_DOC).get();
+    if (!snap?.exists) return null;
+    const normalized = normalizeBasketballState(snap.data());
+    safeJSONSet(STORAGE_KEY, normalized);
+    return normalized;
+  } catch {
+    return null;
+  }
+}
+
+/** Subscribe to real-time Basketball state updates in teamData/bball_studio_state. */
+export function subscribeBasketballStateCloud(onChange: (state: BasketballState) => void): () => void {
+  try {
+    if (isFirestoreQuotaPaused()) return () => undefined;
+    const { db } = getFirebaseServices();
+    if (!db || typeof db.collection !== 'function') return () => undefined;
+    const unsub = db.collection('teamData').doc(CLOUD_STATE_DOC).onSnapshot(
+      (snap: any) => {
+        if (!snap?.exists || snap.metadata?.hasPendingWrites) return;
+        const normalized = normalizeBasketballState(snap.data());
+        safeJSONSet(STORAGE_KEY, normalized);
+        onChange(normalized);
+      },
+      (err: any) => console.warn('Basketball cloud listener error:', err?.code || err)
+    );
+    return () => {
+      try {
+        unsub();
+      } catch {
+        /* ignore */
+      }
+    };
+  } catch {
+    return () => undefined;
+  }
+}
+
+/**
+ * Determine if an authenticated user signing into the Football portal should be routed directly into
+ * Court Studio (Basketball). Program owner (dannym1010@gmail.com) is never forced either way.
+ */
+export function shouldRouteToBasketballOnLogin(
+  email: string,
+  bballStaff: BasketballStaffMember[] = [],
+  footballStaff?: { email: string; role?: string; status?: string }[]
+): boolean {
+  const clean = String(email || '').toLowerCase().trim();
+  if (!clean || isProgramAdminEmail(clean)) return false;
+
+  const bballMember = (bballStaff || []).find(
+    (m) => String(m?.email || '').toLowerCase().trim() === clean && m.status !== 'Pending'
+  );
+  if (!bballMember) return false;
+  if (bballMember.defaultSport === 'football') return false;
+  if (bballMember.defaultSport === 'basketball') return true;
+
+  const footballMember = (footballStaff || []).find(
+    (f) => String(f?.email || '').toLowerCase().trim() === clean && f.status === 'Active'
+  );
+  if (!footballMember) return true;
+  return /\b(player|family)\b/i.test(String(footballMember.role || ''));
 }
 
 /**

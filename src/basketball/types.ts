@@ -105,6 +105,8 @@ export interface BasketballStaffMember {
   name: string;
   email: string;
   role: 'Admin' | 'Coach' | 'Player' | 'Family';
+  status?: 'Active' | 'Pending';
+  defaultSport?: 'basketball' | 'football';
   teamIds: string[];
   linkedPlayerNums: string[];
   allowedTabs?: BasketballTab[];

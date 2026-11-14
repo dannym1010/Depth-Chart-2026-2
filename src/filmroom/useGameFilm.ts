@@ -49,9 +49,9 @@ type DriveLink = FilmGameShared['drive'];
 const ROOT_KEY = 'root';
 const linked = (d?: DriveLink) => (d?.folderId ? d : undefined);
 const VIEW_KEY = 'footballFilmroomView';
-const rememberedView = () => {
+const rememberedView = (key = VIEW_KEY) => {
   try {
-    return localStorage.getItem(VIEW_KEY) || '';
+    return localStorage.getItem(key) || '';
   } catch {
     return '';
   }
@@ -72,6 +72,10 @@ export function useGameFilm(opts: {
   setPick: (name: string) => void;
 }) {
   const { game, teamId, teamName, opponentName, setDrive, setRootDrive, pick, setPick } = opts;
+  const isBball = String(teamId || '').startsWith('bball_');
+  const rootKey = isBball ? 'bball_root' : ROOT_KEY;
+  const viewStorageKey = isBball ? 'bballFilmroomView' : VIEW_KEY;
+  const sourceStorageKey = isBball ? 'bballFilmroomSource' : 'footballFilmroomSource';
   const drive = linked(opts.drive);
   const rootDrive = linked(opts.rootDrive);
   const [film, setFilm] = useState<FilmState>({ status: 'none' });
@@ -115,12 +119,12 @@ export function useGameFilm(opts: {
       localFiles.current = files;
       viewClips.current = lists;
       const names = views.map((v) => (v === node ? (views.length > 1 ? 'Film' : v.name) : v.name));
-      const want = rememberedView().toLowerCase();
+      const want = rememberedView(viewStorageKey).toLowerCase();
       const view = Math.max(0, names.findIndex((n) => n.toLowerCase() === want));
       setFilm({ status: 'ready', kind: node.driveId ? 'drive' : 'folder', label, clips: lists[view] || [], views: names, view, lists, ...extra });
       return total;
     },
-    []
+    [viewStorageKey]
   );
 
   /** Watch another camera view of the same game (remembered on this device, unless just swapping two views). */
@@ -128,13 +132,13 @@ export function useGameFilm(opts: {
     setFilm((f) => {
       if (f.status !== 'ready' || !f.views[i]) return f;
       try {
-        if (remember) localStorage.setItem(VIEW_KEY, f.views[i]);
+        if (remember) localStorage.setItem(viewStorageKey, f.views[i]);
       } catch {
         /* ignore */
       }
       return { ...f, view: i, clips: viewClips.current[i] || [] };
     });
-  }, []);
+  }, [viewStorageKey]);
 
   // Look for this game's folder inside the shared film folder, then open it. With `quiet`, a game that
   // isn't in this copy (no folder, or no videos yet) shows nothing, so the other copy can be tried.
@@ -201,7 +205,7 @@ export function useGameFilm(opts: {
         const node = localFolderNode(handle);
         // The shared film folder picked for one game: remember it as the shared folder on this device.
         if (isFilmRoot((await node.open()).dirs)) {
-          await rememberFolder(ROOT_KEY, handle);
+          await rememberFolder(rootKey, handle);
           setHasLocalRoot(true);
           if (folderKey) await forgetFolder(folderKey);
           await loadFromRoot(node);
@@ -212,7 +216,7 @@ export function useGameFilm(opts: {
         fail(id, handle.name, err);
       }
     },
-    [folderKey, loadFromRoot, openGameFolder]
+    [folderKey, rootKey, loadFromRoot, openGameFolder]
   );
 
   // Open the game's film on its own when nothing needs a tap.
@@ -225,26 +229,26 @@ export function useGameFilm(opts: {
   // game, else Google Drive), or always one of them.
   const [sourcePref, setSourcePrefState] = useState<'auto' | 'local' | 'drive'>(() => {
     try {
-      return (localStorage.getItem('footballFilmroomSource') as 'auto' | 'local' | 'drive') || 'auto';
+      return (localStorage.getItem(sourceStorageKey) as 'auto' | 'local' | 'drive') || 'auto';
     } catch {
       return 'auto';
     }
   });
   const setSourcePref = useCallback((p: 'auto' | 'local' | 'drive') => {
     try {
-      localStorage.setItem('footballFilmroomSource', p);
+      localStorage.setItem(sourceStorageKey, p);
     } catch {
       /* ignore */
     }
     setSourcePrefState(p);
-  }, []);
+  }, [sourceStorageKey]);
   const [hasLocalRoot, setHasLocalRoot] = useState(false);
   const getRootNode = useCallback(async (): Promise<FolderNode | undefined> => {
-    const local = await recallFolder(ROOT_KEY);
+    const local = await recallFolder(rootKey);
     if (local && (await folderAccess(local))) return localFolderNode(local);
     if (rootId && isDriveSignedIn()) return driveFolderNode(rootId, rootLabel);
     return undefined;
-  }, [rootId, rootLabel]);
+  }, [rootKey, rootId, rootLabel]);
   /**
    * Every shared film folder that can be read now: this computer's first, then Google Drive's. `ask` (on a click)
    * shows the browser's prompt for this computer's folder; `localBlocked`: it's linked but can't be read until then.
@@ -253,7 +257,7 @@ export function useGameFilm(opts: {
     async (ask = false): Promise<{ nodes: FolderNode[]; localBlocked: boolean }> => {
       const nodes: FolderNode[] = [];
       let localBlocked = false;
-      const local = await recallFolder(ROOT_KEY);
+      const local = await recallFolder(rootKey);
       if (local) {
         if (await folderAccess(local, ask)) nodes.push(localFolderNode(local));
         else localBlocked = true;
@@ -261,7 +265,7 @@ export function useGameFilm(opts: {
       if (rootId && isDriveSignedIn()) nodes.push(driveFolderNode(rootId, rootLabel));
       return { nodes, localBlocked };
     },
-    [rootId, rootLabel]
+    [rootKey, rootId, rootLabel]
   );
   const [reloadTick, setReloadTick] = useState(0);
   // Counts film picked by hand (clips or a tablet folder), so the game's own lookup doesn't replace it when it ends later.
@@ -301,12 +305,12 @@ export function useGameFilm(opts: {
       // comes from the other copies.
       const server = filmServer();
       if (server) {
-        const r = await loadFromRoot(serverFolderNode(server, '', 'Film server'), Boolean(rootId) || Boolean(await recallFolder(ROOT_KEY)));
+        const r = await loadFromRoot(serverFolderNode(server, '', 'Film server'), Boolean(rootId) || Boolean(await recallFolder(rootKey)));
         if (stale() || r === 'ok') return;
       }
       // The shared film folder: this computer's copy and / or the Google Drive one. The preferred copy
       // first ("auto" = this computer's, it's faster); a game it doesn't have yet comes from the other.
-      const localRoot = await recallFolder(ROOT_KEY);
+      const localRoot = await recallFolder(rootKey);
       if (stale()) return;
       setHasLocalRoot(Boolean(localRoot));
       const order: ('local' | 'drive')[] = sourcePref === 'drive' ? ['drive', 'local'] : ['local', 'drive'];
@@ -319,7 +323,7 @@ export function useGameFilm(opts: {
         if (src === 'local' && !(await folderAccess(localRoot))) {
           // Chose this computer's copy: ask for the tap. Otherwise quietly use Google Drive meanwhile.
           if (sourcePref === 'local') {
-            pending.current = ROOT_KEY;
+            pending.current = rootKey;
             if (!stale()) setFilm({ status: 'reconnect', label: localRoot.name });
             return;
           }
@@ -336,7 +340,7 @@ export function useGameFilm(opts: {
       }
       if (stale()) return;
       if (needsTap) {
-        pending.current = ROOT_KEY;
+        pending.current = rootKey;
         setFilm({ status: 'reconnect', label: localRoot.name });
       } else if (needsSignin) setFilm({ status: 'signin', label: rootLabel });
       else if (available.length) void loadFromRoot(nodeOf(available[0])); // show why the game wasn't found
@@ -346,7 +350,7 @@ export function useGameFilm(opts: {
       cancelled = true;
       loadId.current++;
     };
-  }, [folderKey, driveId, driveLabel, rootId, rootLabel, loadDrive, loadFolder, loadFromRoot, sourcePref, reloadTick]);
+  }, [folderKey, rootKey, driveId, driveLabel, rootId, rootLabel, loadDrive, loadFolder, loadFromRoot, sourcePref, reloadTick]);
 
   /** Choose a folder on this computer: one game's clips, or the shared film folder with every team. */
   const chooseFolder = useCallback(async () => {
@@ -354,7 +358,7 @@ export function useGameFilm(opts: {
     const handle = await pickFolder();
     if (!handle || !folderKey) return;
     if (isFilmRoot((await localFolderNode(handle).open()).dirs)) {
-      await rememberFolder(ROOT_KEY, handle);
+      await rememberFolder(rootKey, handle);
       setHasLocalRoot(true);
       await forgetFolder(folderKey);
       // Picked this computer's copy: play from it from now on (not Google Drive from an earlier choice).
@@ -364,21 +368,21 @@ export function useGameFilm(opts: {
     }
     await rememberFolder(folderKey, handle);
     await loadFolder(handle);
-  }, [folderKey, loadFolder, loadFromRoot, setSourcePref]);
+  }, [folderKey, rootKey, loadFolder, loadFromRoot, setSourcePref]);
 
   /**
    * Play from this computer's copy of the team film folder (one tap): asks the browser once to read it
    * again, or, with none on this computer yet, opens the folder picker.
    */
   const playFromComputer = useCallback(async () => {
-    const handle = await recallFolder(ROOT_KEY);
+    const handle = await recallFolder(rootKey);
     if (!handle) return chooseFolder();
     if (!(await folderAccess(handle, true))) return;
     pending.current = '';
     setSourcePref('local');
     handPickedFor.current = '';
     setReloadTick((t) => t + 1);
-  }, [chooseFolder, setSourcePref]);
+  }, [rootKey, chooseFolder, setSourcePref]);
 
   /** Play from the team's Google Drive folder (signs in to Google first when needed). */
   const playFromDrive = useCallback(async () => {
@@ -398,9 +402,9 @@ export function useGameFilm(opts: {
     const key = pending.current || folderKey;
     const handle = key ? await recallFolder(key) : undefined;
     if (!handle || !(await folderAccess(handle, true))) return;
-    if (key === ROOT_KEY) await loadFromRoot(localFolderNode(handle));
+    if (key === rootKey) await loadFromRoot(localFolderNode(handle));
     else await loadFolder(handle);
-  }, [folderKey, loadFolder, loadFromRoot]);
+  }, [folderKey, rootKey, loadFolder, loadFromRoot]);
 
   /**
    * A folder picked on a tablet (its files handed over, for this visit): the team film folder (every game finds
@@ -463,7 +467,7 @@ export function useGameFilm(opts: {
       localFiles.current = all;
       viewClips.current = views.map((v) => v.clips);
       const names = views.map((v) => v.name);
-      const want = rememberedView().toLowerCase();
+      const want = rememberedView(viewStorageKey).toLowerCase();
       const view = Math.max(0, names.findIndex((n) => n.toLowerCase() === want));
       setFilm({
         status: 'ready',
@@ -475,7 +479,7 @@ export function useGameFilm(opts: {
         lists: viewClips.current,
       });
     },
-    [folderKey]
+    [folderKey, viewStorageKey]
   );
 
   /** Link a Google Drive folder: the shared film folder (every game finds its own), or one game's clips. */
@@ -517,9 +521,9 @@ export function useGameFilm(opts: {
   const unlink = useCallback(async () => {
     loadId.current++;
     localFiles.current = new Map();
-    const localRootShown = (film.status === 'ready' && film.viaRoot && film.kind !== 'drive') || (film.status === 'reconnect' && pending.current === ROOT_KEY);
+    const localRootShown = (film.status === 'ready' && film.viaRoot && film.kind !== 'drive') || (film.status === 'reconnect' && pending.current === rootKey);
     if (localRootShown) {
-      await forgetFolder(ROOT_KEY);
+      await forgetFolder(rootKey);
       setHasLocalRoot(false);
     } else if (film.status === 'ready' && film.viaRoot) setRootDrive(undefined);
     else if (film.status === 'ready' && film.kind === 'drive') setDrive(undefined);
@@ -527,7 +531,7 @@ export function useGameFilm(opts: {
     setFilm({ status: 'none' });
     handPickedFor.current = '';
     setReloadTick((t) => t + 1); // the other copy (if any) takes over
-  }, [film, folderKey, setDrive, setRootDrive]);
+  }, [film, folderKey, rootKey, setDrive, setRootDrive]);
 
   return {
     film, chooseFolder, reconnect, pickFiles, pickFolderFiles, linkDrive, signInToDrive, unlink, localFiles,

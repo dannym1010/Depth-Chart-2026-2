@@ -8,10 +8,13 @@ import {
 } from './basketballAnalytics.ts';
 import {
   DEFAULT_BASKETBALL_STATE,
+  bballAccessFromStaff,
   parseBasketballHudlCsv,
   possessionsToFootballPlays,
+  shouldRouteToBasketballOnLogin,
 } from './storage.ts';
-import type { BasketballGame } from './types.ts';
+import { normalizeWeek, weekKeyFromFolder } from '../filmroom/folderRoutes.ts';
+import type { BasketballGame, BasketballStaffMember } from './types.ts';
 
 const game1: BasketballGame = DEFAULT_BASKETBALL_STATE.teamData['bball-10u-boys'].games[0];
 const roster = DEFAULT_BASKETBALL_STATE.teamData['bball-10u-boys'].roster;
@@ -101,4 +104,138 @@ test('possessionsToFootballPlays adapts basketball possessions to Play objects',
   assert.equal(plays[0].odk, 'O');
   assert.equal(plays[1].odk, 'D');
   assert.deepEqual(plays[1].defPlay?.events, ['int']);
+});
+
+test('bball-10u-boys and bball-12u-gold have separate non-overlapping default rosters', () => {
+  const roster10u = DEFAULT_BASKETBALL_STATE.teamData['bball-10u-boys'].roster;
+  const roster12u = DEFAULT_BASKETBALL_STATE.teamData['bball-12u-gold'].roster;
+  assert.ok(roster10u.length > 0);
+  assert.ok(roster12u.length > 0);
+
+  const ids10u = new Set(roster10u.map((p) => p.id));
+  const names10u = new Set(roster10u.map((p) => `${p.firstName} ${p.lastName}|${p.num}`));
+  for (const player of roster12u) {
+    assert.equal(ids10u.has(player.id), false, `duplicate player id ${player.id}`);
+    assert.equal(
+      names10u.has(`${player.firstName} ${player.lastName}|${player.num}`),
+      false,
+      `duplicate player ${player.firstName} ${player.lastName} #${player.num}`
+    );
+  }
+});
+
+test('bballAccessFromStaff enforces owner admin, buckets roles cleanly, and excludes Pending users', () => {
+  const staff: BasketballStaffMember[] = [
+    {
+      id: 'st-admin',
+      name: 'Head Admin',
+      email: 'Admin.Coach@Example.com',
+      role: 'Admin',
+      status: 'Active',
+      teamIds: ['bball-10u-boys', 'bball-12u-gold'],
+      linkedPlayerNums: [],
+    },
+    {
+      id: 'st-coach',
+      name: 'Assistant Coach',
+      email: 'coach10@example.com',
+      role: 'Coach',
+      status: 'Active',
+      teamIds: ['bball-10u-boys'],
+      linkedPlayerNums: [],
+    },
+    {
+      id: 'st-player',
+      name: 'Player Account',
+      email: 'player12@example.com',
+      role: 'Player',
+      status: 'Active',
+      teamIds: ['bball-12u-gold'],
+      linkedPlayerNums: ['12'],
+    },
+    {
+      id: 'st-family-helper',
+      name: 'Family Helper',
+      email: 'family@example.com',
+      role: 'Family',
+      status: 'Active',
+      highlightAccess: 'helper',
+      teamIds: ['bball-10u-boys'],
+      linkedPlayerNums: ['23'],
+    },
+    {
+      id: 'st-pending',
+      name: 'Pending User',
+      email: 'pending@example.com',
+      role: 'Coach',
+      status: 'Pending',
+      teamIds: ['bball-10u-boys'],
+      linkedPlayerNums: [],
+    },
+  ];
+
+  const access = bballAccessFromStaff(staff);
+  assert.equal(access.admins['dannym1010@gmail.com'], true);
+  assert.equal(access.admins['admin.coach@example.com'], true);
+  assert.equal(access.coaches['coach10@example.com'], true);
+  assert.equal(access.viewers['player12@example.com'], true);
+  assert.equal(access.viewers['family@example.com'], true);
+  assert.equal(access.highlighters['family@example.com'], true);
+
+  assert.equal(access.admins['pending@example.com'], undefined);
+  assert.equal(access.coaches['pending@example.com'], undefined);
+  assert.equal(access.viewers['pending@example.com'], undefined);
+  assert.equal(access.highlighters['pending@example.com'], undefined);
+});
+
+test('shouldRouteToBasketballOnLogin respects owner, basketball-only coaches, and defaultSport preferences', () => {
+  const bballStaff: BasketballStaffMember[] = [
+    {
+      id: 'b1',
+      name: 'Hoops Only Coach',
+      email: 'hoops.coach@example.com',
+      role: 'Coach',
+      status: 'Active',
+      teamIds: ['bball-10u-boys'],
+      linkedPlayerNums: [],
+    },
+    {
+      id: 'b2',
+      name: 'Prefers Football',
+      email: 'prefer.fb@example.com',
+      role: 'Coach',
+      status: 'Active',
+      defaultSport: 'football',
+      teamIds: ['bball-12u-gold'],
+      linkedPlayerNums: [],
+    },
+    {
+      id: 'b3',
+      name: 'Dual Sport Prefers Hoops',
+      email: 'dual.hoops@example.com',
+      role: 'Coach',
+      status: 'Active',
+      defaultSport: 'basketball',
+      teamIds: ['bball-10u-boys'],
+      linkedPlayerNums: [],
+    },
+  ];
+  const footballStaff = [
+    { email: 'dual.hoops@example.com', role: 'Coach', status: 'Active' },
+    { email: 'dual.default@example.com', role: 'Coach', status: 'Active' },
+  ];
+
+  // Program owner stays on default flow (full dual-sport access, not auto-forced)
+  assert.equal(shouldRouteToBasketballOnLogin('dannym1010@gmail.com', bballStaff, footballStaff), false);
+  // Basketball-only coach routes directly into Basketball
+  assert.equal(shouldRouteToBasketballOnLogin('hoops.coach@example.com', bballStaff, footballStaff), true);
+  // Coach explicitly preferring Football is not forced to Basketball
+  assert.equal(shouldRouteToBasketballOnLogin('prefer.fb@example.com', bballStaff, footballStaff), false);
+  // Dual-sport coach with explicit basketball preference routes directly into Basketball
+  assert.equal(shouldRouteToBasketballOnLogin('dual.hoops@example.com', bballStaff, footballStaff), true);
+});
+
+test('folderRoutes handles Basketball Game folder naming cleanly alongside Football Week folders', () => {
+  assert.equal(weekKeyFromFolder('Game 1 - Yorktown'), '1');
+  assert.equal(normalizeWeek('Game 1'), '1');
 });

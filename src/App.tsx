@@ -202,6 +202,8 @@ import { FilmWindowHost } from './filmroom/FilmWindow';
 import { openScoutVersions, ScoutSafetyNet } from './components/ScoutSafetyNet';
 import { closeFilmWindow, filmWindowAutoOpen, openFilmWindow, setFilmWindowUpcoming, type FilmWindowRequest } from './filmroom/filmWindowStore';
 import { setDefenseRosterSource } from './utils/defenseRosterStore';
+import { fetchBasketballStateCloud, loadBasketballState, shouldRouteToBasketballOnLogin } from './basketball/storage';
+import { setActiveSport } from './sportMode';
 import { setReadOnlySession, setAccessPublisher, syncAccessDoc, requestSignup, listenSignups, clearSignup } from './services/storageService';
 import { DEFAULT_PLAYER_TABS, accountTabs, defaultTabsFor, firstPlayerScreen, highlightAccessOf, isFamilyRole, isViewOnlyRole, playerCanSee } from './utils/playerAccess';
 import { buildLibrary } from './filmroom/FilmLibrary';
@@ -4329,6 +4331,20 @@ export default function App() {
           const existingIdx = latestStaff.findIndex(
             (c) => c.email.toLowerCase().trim() === cleanEmail
           );
+
+          // Route Basketball coaches/viewers directly into Court Studio unless Football was explicitly requested.
+          const explicitFootball =
+            typeof window !== 'undefined' &&
+            new URLSearchParams(window.location.search).get('app')?.toLowerCase() === 'football';
+          if (!explicitFootball) {
+            const bballState = (await fetchBasketballStateCloud()) || loadBasketballState();
+            if (shouldRouteToBasketballOnLogin(cleanEmail, bballState.staff, latestStaff)) {
+              setIsPendingApproval(false);
+              setIsAuthModalOpen(false);
+              setActiveSport('basketball');
+              return;
+            }
+          }
 
           if (isProgramAdminEmail(cleanEmail)) {
             // The program owner: always in, full access to every team.

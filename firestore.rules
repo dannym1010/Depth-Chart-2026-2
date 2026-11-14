@@ -1,18 +1,69 @@
 rules_version = '2';
 
-// The database lock for the coaching app. Who may read and write is the access list teamData/access,
-// which a head coach / admin's app keeps in step with the staff list (src/services/storageService.ts,
-// syncAccessDoc). The program owner is written in here so the list can always be fixed.
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
 //
-//   admins   - head coaches / admins: everything, and the access list
-//   coaches  - read and write team data
-//   viewers  - players and families: read only (plus "who's online")
-//   highlighters - viewers who may also save the team's highlights and Media (Staff & access → Highlights: Helper)
-//   anyone else signed in with a verified email - may only ask to join (signups/<their email>)
+// Collection: teamData
+//   Document ID: access (Football role access map; synced by admin app via syncAccessDoc)
+//   Fields:
+//     - admins: map (optional, <= 500 entries) - lower-case email -> true
+//     - coaches: map (optional, <= 500 entries) - lower-case email -> true
+//     - viewers: map (optional, <= 500 entries) - lower-case email -> true
+//     - highlighters: map (optional, <= 500 entries) - lower-case email -> true
+//     - updatedAt: number | timestamp (optional)
+//
+//   Document ID: bball_access (Basketball / Court Studio role access map; synced via syncBasketballAccessDoc)
+//   Fields:
+//     - admins: map (optional, <= 500 entries) - lower-case email -> true
+//     - coaches: map (optional, <= 500 entries) - lower-case email -> true
+//     - viewers: map (optional, <= 500 entries) - lower-case email -> true
+//     - highlighters: map (optional, <= 500 entries) - lower-case email -> true
+//     - updatedAt: number | timestamp (optional)
+//
+//   Document ID: bball_studio_state (Basketball Court Studio program state)
+//   Fields:
+//     - teams: list (optional, <= 100 entries)
+//     - activeTeamId: string (optional, <= 150 chars)
+//     - activeGameIdByTeam: map (optional, <= 100 entries)
+//     - teamData: map (optional, <= 100 entries)
+//     - staff: list (optional, <= 500 entries; immutable for non-admin coaches on update)
+//     - darkMode: bool (optional)
+//     - updatedAt: number | timestamp (optional)
+//
+//   Document ID: filmroom_bball_.* (Basketball Film Room, Playlists, Highlights, Media, Family Sends, bball_program root)
+//   Subtypes:
+//     - filmroom_bball_<team>_hlsend_<YYYY>_<emailKey>:
+//       kind ('hlsend'), team (string starting with 'bball_'), season, email, name, kids, sent, deletedSent, updatedAt
+//     - filmroom_bball_<team>_highlights_<YYYY>:
+//       highlights, deletedHighlights, reels, deletedReels, settings, slideshows, deletedSlideshows, teamId, season, updatedAt
+//     - filmroom_bball_<team>_media_<YYYY>:
+//       folders, deletedFolders, photos, deletedPhotos, teamId, season, updatedAt
+//     - filmroom_bball_<team>_lists:
+//       favorites, deletedFavorites, playlists, deletedPlaylists, teamId, updatedAt
+//     - filmroom_bball_<team>_<gameKey> / filmroom_bball_program_root:
+//       notes, deletedNotes, drawings, drive, folderPick, clipPicks, removedClips, viewShift, timing, teamId, gameKey, updatedAt
+//
+//   Document ID: <other Football documents> (depthChartData, ops_*, hudlScout_*, diagram_*, filmroom_<football>_*)
+//   Fields: Football team state, presence (ops_presence), opponent scout reports (kind == 'opponent'),
+//           Football film room, highlights, media, and family sends (non-bball_ teams).
+//
+// Collection: signups
+//   Document ID: <lower-case email>
+//   Fields:
+//     - email: string (required, == document ID == me(), <= 320 chars)
+//     - displayName: string (optional, <= 200 chars)
+//     - requestedAt: number | timestamp (optional)
+//
+// ===============================================================
 //
 // Publish with: npx firebase-tools deploy --only firestore:rules,storage --project u-football-manager
 service cloud.firestore {
   match /databases/{database}/documents {
+    // ===============================================================
+    // Identity & Role Helper Functions
+    // ===============================================================
+
     // Google accounts, and email / password accounts that clicked their verification link.
     function verified() {
       return request.auth != null
@@ -22,9 +73,12 @@ service cloud.firestore {
     function me() {
       return request.auth.token.email.lower();
     }
+    // Program Owner: full Admin across both Football and Basketball.
     function owner() {
       return verified() && me() in ['dannym1010@gmail.com'];
     }
+
+    // Football access list & roles (teamData/access)
     function accessPath() {
       return /databases/$(database)/documents/teamData/access;
     }
@@ -43,6 +97,29 @@ service cloud.firestore {
       return coach() || listed('viewers');
     }
 
+    // Basketball access list & roles (teamData/bball_access)
+    function bballAccessPath() {
+      return /databases/$(database)/documents/teamData/bball_access;
+    }
+    function bballListed(group) {
+      return verified()
+        && exists(bballAccessPath())
+        && me() in get(bballAccessPath()).data.get(group, {});
+    }
+    function bballAdmin() {
+      return owner() || bballListed('admins');
+    }
+    function bballCoach() {
+      return bballAdmin() || bballListed('coaches');
+    }
+    function bballViewer() {
+      return bballCoach() || bballListed('viewers');
+    }
+
+    // ===============================================================
+    // Document Classification Helpers
+    // ===============================================================
+
     // A team's highlights and its Media (photo library) for a season (src/highlights/useHighlights.ts,
     // src/media/useMedia.ts): filmroom_<team>_highlights_<year>, filmroom_<team>_media_<year>.
     function highlightsDoc(docId) {
@@ -53,24 +130,232 @@ service cloud.firestore {
     function mySendsDoc(docId) {
       return docId.matches('filmroom_[A-Za-z0-9_-]+_hlsend_[0-9]{4}_' + me().replace('[^a-z0-9]', '_'));
     }
+    function isBballFilmDoc(docId) {
+      return docId.matches('filmroom_bball_.*');
+    }
+    function isBballDoc(docId) {
+      return docId == 'bball_access' || docId == 'bball_studio_state' || isBballFilmDoc(docId);
+    }
+
+    // ===============================================================
+    // Generic Schema Validation Helpers
+    // ===============================================================
+
+    function hasOnlyAllowedFields(data, fields) {
+      return data.keys().hasOnly(fields);
+    }
+    function isValidOptString(data, field, maxLen) {
+      return !(field in data) || (data[field] is string && data[field].size() <= maxLen);
+    }
+    function isValidOptList(data, field, maxSize) {
+      return !(field in data) || (data[field] is list && data[field].size() <= maxSize);
+    }
+    function isValidOptMap(data, field, maxSize) {
+      return !(field in data) || (data[field] is map && data[field].size() <= maxSize);
+    }
+    function isValidOptTimestampOrNum(data, field) {
+      return !(field in data) || data[field] is number || data[field] is timestamp;
+    }
+    function isValidEmail(email) {
+      return email is string
+        && email.size() <= 320
+        && email.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+    }
+
+    // ===============================================================
+    // Domain Validators (Called in both create and update)
+    // ===============================================================
+
+    function isValidAccessDoc(data) {
+      return data is map
+        && hasOnlyAllowedFields(data, ['admins', 'coaches', 'viewers', 'highlighters', 'updatedAt'])
+        && isValidOptMap(data, 'admins', 500)
+        && isValidOptMap(data, 'coaches', 500)
+        && isValidOptMap(data, 'viewers', 500)
+        && isValidOptMap(data, 'highlighters', 500)
+        && isValidOptTimestampOrNum(data, 'updatedAt');
+    }
+
+    function isValidBballStudioState(data) {
+      return data is map
+        && hasOnlyAllowedFields(data, ['teams', 'activeTeamId', 'activeGameIdByTeam', 'teamData', 'staff', 'darkMode', 'updatedAt'])
+        && isValidOptList(data, 'teams', 100)
+        && isValidOptString(data, 'activeTeamId', 150)
+        && isValidOptMap(data, 'activeGameIdByTeam', 100)
+        && isValidOptMap(data, 'teamData', 100)
+        && isValidOptList(data, 'staff', 500)
+        && (!('darkMode' in data) || data.darkMode is bool)
+        && isValidOptTimestampOrNum(data, 'updatedAt');
+    }
+
+    function isValidHlsendDoc(data, isBball) {
+      return data is map
+        && hasOnlyAllowedFields(data, ['kind', 'team', 'season', 'email', 'name', 'kids', 'sent', 'deletedSent', 'updatedAt'])
+        && (!('kind' in data) || data.kind == 'hlsend')
+        && (!('team' in data) || (data.team is string && data.team.size() <= 150 && (isBball ? data.team.matches('bball_.*') : !data.team.matches('bball_.*'))))
+        && isValidOptString(data, 'season', 20)
+        && isValidOptString(data, 'email', 320)
+        && isValidOptString(data, 'name', 120)
+        && isValidOptList(data, 'kids', 30)
+        && isValidOptList(data, 'sent', 200)
+        && isValidOptMap(data, 'deletedSent', 500)
+        && isValidOptTimestampOrNum(data, 'updatedAt');
+    }
+
+    function isValidHighlightsOrMediaDoc(docId, data, isBball) {
+      return data is map
+        && (!('teamId' in data) || (data.teamId is string && data.teamId.size() <= 150 && (isBball ? data.teamId.matches('bball_.*') : !data.teamId.matches('bball_.*'))))
+        && isValidOptString(data, 'season', 20)
+        && isValidOptTimestampOrNum(data, 'updatedAt')
+        && (
+          docId.matches('filmroom_[A-Za-z0-9_-]+_highlights_[0-9]{4}')
+            ? (hasOnlyAllowedFields(data, ['highlights', 'deletedHighlights', 'reels', 'deletedReels', 'settings', 'slideshows', 'deletedSlideshows', 'teamId', 'season', 'updatedAt'])
+              && isValidOptList(data, 'highlights', 2000)
+              && isValidOptMap(data, 'deletedHighlights', 5000)
+              && isValidOptList(data, 'reels', 200)
+              && isValidOptMap(data, 'deletedReels', 500)
+              && isValidOptMap(data, 'settings', 50)
+              && isValidOptList(data, 'slideshows', 200)
+              && isValidOptMap(data, 'deletedSlideshows', 500))
+            : (hasOnlyAllowedFields(data, ['folders', 'deletedFolders', 'photos', 'deletedPhotos', 'teamId', 'season', 'updatedAt'])
+              && isValidOptList(data, 'folders', 200)
+              && isValidOptMap(data, 'deletedFolders', 500)
+              && isValidOptList(data, 'photos', 5000)
+              && isValidOptMap(data, 'deletedPhotos', 5000))
+        );
+    }
+
+    function isValidFilmListsDoc(data, isBball) {
+      return data is map
+        && hasOnlyAllowedFields(data, ['favorites', 'deletedFavorites', 'playlists', 'deletedPlaylists', 'teamId', 'updatedAt'])
+        && isValidOptList(data, 'favorites', 1000)
+        && isValidOptMap(data, 'deletedFavorites', 2000)
+        && isValidOptList(data, 'playlists', 200)
+        && isValidOptMap(data, 'deletedPlaylists', 500)
+        && (!('teamId' in data) || (data.teamId is string && data.teamId.size() <= 150 && (isBball ? data.teamId.matches('bball_.*') : !data.teamId.matches('bball_.*'))))
+        && isValidOptTimestampOrNum(data, 'updatedAt');
+    }
+
+    function isValidSharedGameDoc(data, isBball) {
+      return data is map
+        && hasOnlyAllowedFields(data, ['notes', 'deletedNotes', 'drawings', 'drive', 'folderPick', 'clipPicks', 'removedClips', 'viewShift', 'timing', 'teamId', 'gameKey', 'updatedAt'])
+        && isValidOptList(data, 'notes', 5000)
+        && isValidOptMap(data, 'deletedNotes', 5000)
+        && isValidOptMap(data, 'drawings', 5000)
+        && isValidOptMap(data, 'drive', 20)
+        && isValidOptMap(data, 'folderPick', 20)
+        && isValidOptMap(data, 'clipPicks', 5000)
+        && isValidOptMap(data, 'removedClips', 5000)
+        && isValidOptMap(data, 'viewShift', 5000)
+        && isValidOptMap(data, 'timing', 5000)
+        && (!('teamId' in data) || (data.teamId is string && data.teamId.size() <= 150 && (isBball ? data.teamId.matches('bball_.*') : !data.teamId.matches('bball_.*'))))
+        && isValidOptString(data, 'gameKey', 200)
+        && isValidOptTimestampOrNum(data, 'updatedAt');
+    }
+
+    function isValidBballFilmDoc(docId, data) {
+      return docId.matches('filmroom_[A-Za-z0-9_-]+_hlsend_[0-9]{4}_[a-z0-9_]+')
+          ? (isValidHlsendDoc(data, true) && (bballCoach() || !('email' in data) || data.email == me()))
+        : highlightsDoc(docId)
+          ? isValidHighlightsOrMediaDoc(docId, data, true)
+        : docId.matches('filmroom_[A-Za-z0-9_-]+_lists')
+          ? isValidFilmListsDoc(data, true)
+        : isValidSharedGameDoc(data, true);
+    }
+
+    function isValidFootballDoc(docId, data) {
+      return docId == 'ops_presence'
+          ? (data is map && data.size() <= 500 && !('kind' in data))
+        : docId.matches('filmroom_[A-Za-z0-9_-]+_hlsend_[0-9]{4}_[a-z0-9_]+')
+          ? (isValidHlsendDoc(data, false) && (coach() || !('email' in data) || data.email == me()))
+        : highlightsDoc(docId)
+          ? isValidHighlightsOrMediaDoc(docId, data, false)
+        : (data is map
+          && data.size() <= 500
+          && (!('teamId' in data) || !(data.teamId is string) || !data.teamId.matches('bball_.*'))
+          && (!('team' in data) || !(data.team is string) || !data.team.matches('bball_.*')));
+    }
+
+    function isValidSignupDoc(email, data) {
+      return data is map
+        && hasOnlyAllowedFields(data, ['email', 'displayName', 'requestedAt'])
+        && email == me()
+        && 'email' in data
+        && isValidEmail(data.email)
+        && data.email == me()
+        && isValidOptString(data, 'displayName', 200)
+        && isValidOptTimestampOrNum(data, 'requestedAt');
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
 
     match /teamData/{docId} {
-      allow read: if viewer();
-      // The access list: admins only. Players and families only say they're online and send their own clips
-      // for a reel, and a family's "Highlights helper" also saves the team's highlights.
-      allow write: if docId == 'access'
-        ? admin()
-        : coach()
-          || (viewer() && docId == 'ops_presence')
-          || (listed('viewers') && mySendsDoc(docId))
-          || (listed('viewers') && listed('highlighters') && highlightsDoc(docId));
+      // Single-document reads are strictly partitioned between Football and Basketball.
+      allow get: if docId == 'access' ? viewer()
+        : isBballDoc(docId) ? bballViewer()
+        : viewer();
+
+      // Collection queries used by the app:
+      // 1) Football opponent scouting list: where('kind', '==', 'opponent')
+      // 2) Football / Basketball family clip inbox: where('kind', '==', 'hlsend').where('team', '==', ...).where('season', '==', ...)
+      allow list: if (viewer() && resource.data.kind == 'opponent')
+        || ((coach() || (listed('viewers') && listed('highlighters')))
+            && resource.data.kind == 'hlsend'
+            && (resource.data.team < 'bball_' || resource.data.team >= 'bball`'))
+        || ((bballCoach() || (bballListed('viewers') && bballListed('highlighters')))
+            && resource.data.kind == 'hlsend'
+            && resource.data.team >= 'bball_' && resource.data.team < 'bball`');
+
+      allow create: if docId == 'access'
+          ? (admin() && isValidAccessDoc(request.resource.data))
+        : docId == 'bball_access'
+          ? (bballAdmin() && isValidAccessDoc(request.resource.data))
+        : docId == 'bball_studio_state'
+          ? (bballCoach()
+             && isValidBballStudioState(request.resource.data)
+             && (bballAdmin() || !('staff' in request.resource.data)))
+        : isBballFilmDoc(docId)
+          ? (isValidBballFilmDoc(docId, request.resource.data)
+             && (bballCoach()
+               || (bballListed('viewers') && mySendsDoc(docId))
+               || (bballListed('viewers') && bballListed('highlighters') && highlightsDoc(docId))))
+        : (isValidFootballDoc(docId, request.resource.data)
+           && (coach()
+             || (viewer() && docId == 'ops_presence')
+             || (listed('viewers') && mySendsDoc(docId))
+             || (listed('viewers') && listed('highlighters') && highlightsDoc(docId))));
+
+      allow update: if docId == 'access'
+          ? (admin() && isValidAccessDoc(request.resource.data))
+        : docId == 'bball_access'
+          ? (bballAdmin() && isValidAccessDoc(request.resource.data))
+        : docId == 'bball_studio_state'
+          ? (bballCoach()
+             && isValidBballStudioState(request.resource.data)
+             && (bballAdmin() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['staff'])))
+        : isBballFilmDoc(docId)
+          ? (isValidBballFilmDoc(docId, request.resource.data)
+             && (bballCoach()
+               || (bballListed('viewers') && mySendsDoc(docId))
+               || (bballListed('viewers') && bballListed('highlighters') && highlightsDoc(docId))))
+        : (isValidFootballDoc(docId, request.resource.data)
+           && (coach()
+             || (viewer() && docId == 'ops_presence')
+             || (listed('viewers') && mySendsDoc(docId))
+             || (listed('viewers') && listed('highlighters') && highlightsDoc(docId))));
+
+      allow delete: if docId == 'access' ? admin()
+        : docId == 'bball_access' ? bballAdmin()
+        : docId == 'bball_studio_state' ? bballAdmin()
+        : isBballFilmDoc(docId) ? bballCoach()
+        : coach();
     }
 
     // A new account asks to join; an admin's app adds it to the staff list and clears the request.
     match /signups/{email} {
-      allow create, update: if verified()
-        && email == me()
-        && request.resource.data.email == me();
+      allow create, update: if verified() && isValidSignupDoc(email, request.resource.data);
       allow read, delete: if admin();
     }
 

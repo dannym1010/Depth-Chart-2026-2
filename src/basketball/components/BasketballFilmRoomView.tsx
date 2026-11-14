@@ -112,7 +112,7 @@ export const BasketballFilmRoomView: React.FC<BasketballFilmRoomViewProps> = ({
   }, [selectedGame]);
 
   const { shared, update } = useSharedGame(bballTeamId, filmGame?.key);
-  const root = useSharedGame('program', 'root');
+  const root = useSharedGame('bball_program', 'root');
   const setDrive = useCallback(
     (drive: typeof shared.drive) => update((s) => ({ ...s, drive: drive || { folderId: '', editedAt: Date.now() } })),
     [update]
@@ -547,6 +547,18 @@ export const BasketballFilmRoomView: React.FC<BasketballFilmRoomViewProps> = ({
           <span className="text-xs font-mono tabular-nums text-zinc-500 dark:text-zinc-400">
             {possessions.length} possessions · {clips.length} clips
           </span>
+
+          {(root.shared.drive?.folderName || (film.status === 'ready' && film.viaRoot)) && (
+            <span
+              title="Isolated Basketball Shared Film Folder"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+            >
+              <Film className="w-3 h-3" />
+              <span>
+                Basketball Film: {root.shared.drive?.folderName || (film.status === 'ready' ? film.label.split(' › ')[0] : 'Linked')}
+              </span>
+            </span>
+          )}
 
           {multiView && film.status === 'ready' && (
             <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden">

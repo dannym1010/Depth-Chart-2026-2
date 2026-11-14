@@ -3,13 +3,19 @@ import {
   BarChart3,
   Calendar,
   Film,
+  LogIn,
+  LogOut,
   Moon,
+  RefreshCw,
+  ShieldAlert,
   Sparkles,
   Sun,
   Users,
+  X,
 } from 'lucide-react';
-import { getFirebaseServices, isReadOnlySession } from '../services/storageService';
+import { getFirebaseServices, setReadOnlySession } from '../services/storageService';
 import { setActiveSport } from '../sportMode';
+import { isProgramAdminEmail } from '../utils/staffAccess';
 import { BasketballFilmRoomView } from './components/BasketballFilmRoomView';
 import { BasketballHighlightsView } from './components/BasketballHighlightsView';
 import { BasketballScheduleView } from './components/BasketballScheduleView';
@@ -17,8 +23,11 @@ import { BasketballScoutView } from './components/BasketballScoutView';
 import { BasketballUsersView } from './components/BasketballUsersView';
 import {
   DEFAULT_BASKETBALL_SETS,
+  fetchBasketballStateCloud,
   loadBasketballState,
   saveBasketballState,
+  subscribeBasketballStateCloud,
+  syncBasketballAccessDoc,
 } from './storage';
 import type {
   BasketballGame,
@@ -50,33 +59,62 @@ export const BasketballApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<BasketballTab>('schedule');
   const [focusPlayNumber, setFocusPlayNumber] = useState<number | undefined>(undefined);
   const [authUser, setAuthUser] = useState<{ email: string; displayName: string } | null>(null);
+  const [hasFirebaseAuth, setHasFirebaseAuth] = useState(false);
+  const [signInOpen, setSignInOpen] = useState(false);
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
 
-  // Track Firebase auth user if signed in; works seamlessly offline/local when unauthenticated.
+  const adoptRemoteState = useCallback((remote: BasketballState) => {
+    setState((prev) => ({
+      ...remote,
+      darkMode: prev.darkMode,
+      activeTeamId: remote.teams.some((t) => t.id === prev.activeTeamId)
+        ? prev.activeTeamId
+        : remote.activeTeamId,
+    }));
+  }, []);
+
+  // Track Firebase auth user; hydrate and subscribe to Basketball cloud state.
   useEffect(() => {
+    let unsubCloud: (() => void) | undefined;
+    let unsubAuth: (() => void) | undefined;
     try {
       const { auth } = getFirebaseServices();
-      if (!auth?.onAuthStateChanged) return;
-      const unsub = auth.onAuthStateChanged((user: any) => {
-        if (user?.email) {
-          setAuthUser({
-            email: String(user.email).toLowerCase().trim(),
-            displayName: String(user.displayName || user.email.split('@')[0] || 'Coach'),
-          });
-        } else {
-          setAuthUser(null);
-        }
-      });
-      return () => {
-        try {
-          unsub?.();
-        } catch {
-          /* ignore */
-        }
-      };
+      setHasFirebaseAuth(Boolean(auth?.onAuthStateChanged));
+      if (auth?.onAuthStateChanged) {
+        unsubAuth = auth.onAuthStateChanged(async (user: any) => {
+          if (user?.email) {
+            setAuthUser({
+              email: String(user.email).toLowerCase().trim(),
+              displayName: String(user.displayName || user.email.split('@')[0] || 'Coach'),
+            });
+            setSignInOpen(false);
+            const remote = await fetchBasketballStateCloud();
+            if (remote) adoptRemoteState(remote);
+          } else {
+            setAuthUser(null);
+          }
+        });
+      }
+      unsubCloud = subscribeBasketballStateCloud(adoptRemoteState);
     } catch {
-      return undefined;
+      /* offline / no firebase configured */
     }
-  }, []);
+    return () => {
+      try {
+        unsubAuth?.();
+      } catch {
+        /* ignore */
+      }
+      try {
+        unsubCloud?.();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [adoptRemoteState]);
 
   // Sync dark mode class on <html>
   useEffect(() => {
@@ -84,6 +122,45 @@ export const BasketballApp: React.FC = () => {
       document.documentElement.classList.toggle('dark', state.darkMode);
     }
   }, [state.darkMode]);
+
+  const signedInEmail = authUser?.email || '';
+  const isOwner = isProgramAdminEmail(signedInEmail);
+
+  const matchedMember = useMemo(
+    () =>
+      signedInEmail
+        ? state.staff.find((m) => m.email.toLowerCase().trim() === signedInEmail)
+        : undefined,
+    [state.staff, signedInEmail]
+  );
+
+  const isPendingUser = Boolean(
+    hasFirebaseAuth &&
+      authUser &&
+      !isOwner &&
+      (!matchedMember || matchedMember.status === 'Pending')
+  );
+
+  const isAdminUser =
+    !hasFirebaseAuth || isOwner || matchedMember?.role === 'Admin';
+  const isViewerRole =
+    !isOwner &&
+    (matchedMember?.role === 'Player' || matchedMember?.role === 'Family');
+  const readOnly = Boolean(
+    isViewerRole || (hasFirebaseAuth && (!authUser || isPendingUser))
+  );
+
+  // Align shared FilmRoom / Highlights / cloud writer lock with Basketball access role.
+  useEffect(() => {
+    setReadOnlySession(readOnly);
+  }, [readOnly]);
+
+  // Keep Firestore teamData/bball_access in sync whenever a Basketball Admin updates staff.
+  useEffect(() => {
+    if (isAdminUser && !readOnly && (!hasFirebaseAuth || authUser)) {
+      void syncBasketballAccessDoc(state.staff);
+    }
+  }, [state.staff, isAdminUser, readOnly, hasFirebaseAuth, authUser]);
 
   const commit = useCallback((updater: (prev: BasketballState) => BasketballState) => {
     setState((prev) => {
@@ -93,9 +170,18 @@ export const BasketballApp: React.FC = () => {
     });
   }, []);
 
+  // Filter visible Basketball teams to assigned teams for non-Admin users.
+  const visibleTeams = useMemo(() => {
+    if (isAdminUser || !matchedMember || !matchedMember.teamIds?.length) {
+      return state.teams;
+    }
+    const assigned = state.teams.filter((t) => matchedMember.teamIds.includes(t.id));
+    return assigned.length > 0 ? assigned : state.teams;
+  }, [state.teams, isAdminUser, matchedMember]);
+
   const activeTeam: BasketballTeam = useMemo(
-    () => state.teams.find((t) => t.id === state.activeTeamId) || state.teams[0],
-    [state.teams, state.activeTeamId]
+    () => visibleTeams.find((t) => t.id === state.activeTeamId) || visibleTeams[0],
+    [visibleTeams, state.activeTeamId]
   );
 
   const teamData: BasketballTeamData = useMemo(
@@ -114,19 +200,6 @@ export const BasketballApp: React.FC = () => {
     [teamData.games, activeGameId]
   );
 
-  const signedInEmail = authUser?.email || '';
-  const matchedMember = useMemo(
-    () =>
-      signedInEmail
-        ? state.staff.find((m) => m.email.toLowerCase().trim() === signedInEmail)
-        : undefined,
-    [state.staff, signedInEmail]
-  );
-
-  const isViewerRole =
-    matchedMember?.role === 'Player' || matchedMember?.role === 'Family';
-  const readOnly = Boolean(isViewerRole || isReadOnlySession());
-
   const visibleNavItems = useMemo(() => {
     if (!isViewerRole) return NAV_ITEMS;
     const allowed = new Set<BasketballTab>(
@@ -143,6 +216,51 @@ export const BasketballApp: React.FC = () => {
       setActiveTab(visibleNavItems[0].id);
     }
   }, [visibleNavItems, activeTab]);
+
+  const handleGoogleSignIn = async () => {
+    const { auth } = getFirebaseServices();
+    const fb = (window as any).firebase;
+    if (!auth || !fb?.auth?.GoogleAuthProvider) return;
+    setAuthError('');
+    setAuthBusy(true);
+    try {
+      const provider = new fb.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      await auth.signInWithPopup(provider);
+      setSignInOpen(false);
+    } catch (err: any) {
+      setAuthError(err?.message || 'Google sign-in failed.');
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handleEmailSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { auth } = getFirebaseServices();
+    if (!auth || !emailInput.trim() || !passwordInput) return;
+    setAuthError('');
+    setAuthBusy(true);
+    try {
+      await auth.signInWithEmailAndPassword(emailInput.trim(), passwordInput);
+      setSignInOpen(false);
+      setPasswordInput('');
+    } catch (err: any) {
+      setAuthError(err?.message || 'Email sign-in failed.');
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      const { auth } = getFirebaseServices();
+      await auth?.signOut?.();
+      setAuthUser(null);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const selectGame = useCallback(
     (gameId: string) => {
@@ -267,9 +385,23 @@ export const BasketballApp: React.FC = () => {
     }));
   };
 
+  const handleUpdateTeam = (teamId: string, updates: Partial<BasketballTeam>) => {
+    commit((prev) => ({
+      ...prev,
+      teams: prev.teams.map((t) => (t.id === teamId ? { ...t, ...updates } : t)),
+    }));
+  };
+
   const handleAddPlayer = (playerDraft: Omit<BasketballPlayer, 'id'>) => {
     const player: BasketballPlayer = { ...playerDraft, id: `bbp-${Date.now()}` };
     updateTeamData((td) => ({ ...td, roster: [...td.roster, player] }));
+  };
+
+  const handleUpdatePlayer = (playerId: string, updates: Partial<BasketballPlayer>) => {
+    updateTeamData((td) => ({
+      ...td,
+      roster: td.roster.map((p) => (p.id === playerId ? { ...p, ...updates } : p)),
+    }));
   };
 
   const handleDeletePlayer = (playerId: string) => {
@@ -308,6 +440,52 @@ export const BasketballApp: React.FC = () => {
 
   const authorName = matchedMember?.name || authUser?.displayName || 'Coach';
 
+  // Pending approval gate for authenticated accounts not yet added/activated in Basketball staff
+  if (isPendingUser) {
+    return (
+      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 flex items-center justify-center p-4">
+        <div className="max-w-md w-full rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 text-center space-y-4">
+          <ShieldAlert className="w-10 h-10 mx-auto text-amber-500" />
+          <div className="space-y-1">
+            <h1 className="text-lg font-bold">Basketball Access Pending</h1>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Signed in as <b className="text-zinc-800 dark:text-zinc-200">{signedInEmail}</b>. Ask a Basketball Admin ({isProgramAdminEmail('dannym1010@gmail.com') ? 'dannym1010@gmail.com' : 'Admin'}) to add or approve your email in <b>Team &amp; Users</b>.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+            <button
+              type="button"
+              onClick={async () => {
+                const remote = await fetchBasketballStateCloud();
+                if (remote) adoptRemoteState(remote);
+              }}
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-amber-500 text-zinc-950 text-xs font-bold cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Refresh Status
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSport('football')}
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs font-semibold cursor-pointer"
+            >
+              <span>🏈</span>
+              Try Football App
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSignOut()}
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-500 hover:text-rose-500 cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 flex flex-col">
       {/* Studio Top Bar */}
@@ -341,7 +519,7 @@ export const BasketballApp: React.FC = () => {
             aria-label="Active basketball team"
             className="h-8 px-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs font-semibold text-zinc-800 dark:text-zinc-100 max-w-[165px] sm:max-w-[220px] truncate"
           >
-            {state.teams.map((t) => (
+            {visibleTeams.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
               </option>
@@ -374,8 +552,35 @@ export const BasketballApp: React.FC = () => {
         <div className="flex items-center gap-2 shrink-0">
           {readOnly && (
             <span className="hidden sm:inline-flex items-center px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-300">
-              {matchedMember?.role || 'Viewer'} Mode
+              {matchedMember?.role || 'Read Only'}
             </span>
+          )}
+
+          {hasFirebaseAuth && (
+            authUser ? (
+              <div className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 h-8 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs">
+                <span className="hidden sm:inline max-w-[140px] truncate font-medium text-zinc-700 dark:text-zinc-200">
+                  {authorName}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void handleSignOut()}
+                  title={`Sign out (${authUser.email})`}
+                  className="inline-flex items-center justify-center w-6 h-6 rounded text-zinc-500 hover:text-rose-500 cursor-pointer"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setSignInOpen(true)}
+                className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg bg-amber-500 text-zinc-950 text-xs font-bold hover:bg-amber-400 cursor-pointer"
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>Sign In</span>
+              </button>
+            )
           )}
 
           <button
@@ -437,12 +642,12 @@ export const BasketballApp: React.FC = () => {
               Active Context
             </div>
             <div className="font-bold text-zinc-900 dark:text-zinc-100 truncate">
-              {activeTeam.season}
+              {activeTeam.name}
             </div>
             <div className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
               {activeGame
                 ? `${activeGame.weekLabel}: vs ${activeGame.opponent}`
-                : 'No active game'}
+                : activeTeam.season}
             </div>
             <div className="pt-1 flex items-center justify-between text-[11px] font-mono tabular-nums text-zinc-500 dark:text-zinc-400 border-t border-zinc-200 dark:border-zinc-800">
               <span>{teamData.roster.length} players</span>
@@ -516,6 +721,7 @@ export const BasketballApp: React.FC = () => {
                 myKids={matchedMember?.linkedPlayerNums}
                 level={matchedMember?.highlightAccess}
                 people={peopleMap}
+                seeAllReels={isAdminUser}
                 onOpenClipInFilmRoom={(gameId, playNumber) =>
                   openFilmRoomForGame(gameId, playNumber)
                 }
@@ -524,14 +730,16 @@ export const BasketballApp: React.FC = () => {
 
             {activeTab === 'users' && (
               <BasketballUsersView
-                teams={state.teams}
+                teams={visibleTeams}
                 activeTeamId={activeTeam.id}
                 roster={teamData.roster}
                 staff={state.staff}
                 readOnly={readOnly}
                 onSelectTeam={(teamId) => commit((prev) => ({ ...prev, activeTeamId: teamId }))}
                 onAddTeam={handleAddTeam}
+                onUpdateTeam={handleUpdateTeam}
                 onAddPlayer={handleAddPlayer}
+                onUpdatePlayer={handleUpdatePlayer}
                 onDeletePlayer={handleDeletePlayer}
                 onAddStaff={handleAddStaff}
                 onUpdateStaff={handleUpdateStaff}
@@ -541,6 +749,73 @@ export const BasketballApp: React.FC = () => {
           </div>
         </main>
       </div>
+
+      {/* Sign In Modal for Basketball Coaches & Families */}
+      {signInOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-50">
+                Sign In to Court Studio
+              </h2>
+              <button
+                type="button"
+                onClick={() => setSignInOpen(false)}
+                className="p-1 text-zinc-400 hover:text-zinc-200 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {authError && (
+              <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-xs text-rose-500">
+                {authError}
+              </div>
+            )}
+
+            <button
+              type="button"
+              disabled={authBusy}
+              onClick={() => void handleGoogleSignIn()}
+              className="w-full h-10 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-bold cursor-pointer disabled:opacity-60"
+            >
+              {authBusy ? 'Signing in…' : 'Continue with Google'}
+            </button>
+
+            <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-zinc-400">
+              <div className="flex-1 h-px bg-zinc-200 dark:bg-zinc-800" />
+              <span>or coach email</span>
+              <div className="flex-1 h-px bg-zinc-200 dark:bg-zinc-800" />
+            </div>
+
+            <form onSubmit={(e) => void handleEmailSignIn(e)} className="space-y-2.5">
+              <input
+                type="email"
+                required
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+                placeholder="Email"
+                className="w-full h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-xs"
+              />
+              <input
+                type="password"
+                required
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                placeholder="Password"
+                className="w-full h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-xs"
+              />
+              <button
+                type="submit"
+                disabled={authBusy}
+                className="w-full h-9 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-900 dark:bg-zinc-800 text-white text-xs font-semibold cursor-pointer"
+              >
+                Sign In with Email
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Mobile 5-Tab Bottom Dock */}
       <nav
