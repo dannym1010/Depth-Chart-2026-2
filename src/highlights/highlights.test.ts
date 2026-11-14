@@ -397,3 +397,37 @@ describe('exporting both cameras', () => {
     assert.match(toFcpxml(plan), /name="Play 7 \(Field\)"/);
   });
 });
+
+describe("exports on the film's own clock (camera timecode)", () => {
+  // A clip from 2 s to 10 s, slowed from 4 to 6 s, in a file whose clock starts at 14:22:10 (51730 s).
+  const a = hl('a', 1, 3, { slow: { from: 4, to: 6, speed: 0.5 } });
+  const reel = { ...newReel({ name: 'r', kind: 'custom', owner: 'x', highlightIds: ['a'] }), options: { intro: false, outro: 'none' } as any };
+  const segs = reelTimeline({ reel, highlights: [a], games: gameOrder([game(1)]), settings: s, roster, teamName: 'M', plays: [] });
+  const plan = buildPlan({ name: 'r', segments: segs, settings: s, mediaOf: (_h, view, clip) => ({ path: joinPath('J:\F', view, clip), durationSec: 20, tc: 51730 }), graphicsDir: 'J:\G' });
+
+  it('FCPXML: the asset starts at the timecode, and each piece at the timecode plus its own time', () => {
+    const x = toFcpxml(plan);
+    assert.match(x, /<asset id="m1"[^>]* start="310380000\/6000s"/);
+    // 2 s in = 51732 s; the slowed piece's time map runs 51734 → 51736 of film.
+    assert.match(x, /<asset-clip ref="m1"[^>]* start="310392000\/6000s"/);
+    assert.match(x, /<timept time="310404000\/6000s" value="310404000\/6000s" interp="linear"\/>\s*<timept time="310428000\/6000s" value="310416000\/6000s"/);
+    // The highlight's marker sits at the clip's own start.
+    assert.match(x, /<marker start="310392000\/6000s"/);
+  });
+
+  it('EDL, FCP7 XML and OTIO use it too', () => {
+    // 51732 s at 30 fps = 14:22:12:00.
+    assert.match(toEdl(plan), /^001 {2}AX {7}V {5}C {8}14:22:12:00 14:22:14:00 /m);
+    assert.match(toXmeml(plan), /<timecode><rate><timebase>30<\/timebase><ntsc>FALSE<\/ntsc><\/rate><string>14:22:10:00<\/string><frame>1551900<\/frame>/);
+    const otio = JSON.parse(toOtio(plan));
+    const clip = otio.tracks.children[0].children.find((c: any) => c.OTIO_SCHEMA === 'Clip.1' && /IMG_3/.test(c.media_reference?.target_url || ''));
+    assert.equal(clip.source_range.start_time.value, 51732 * 30);
+    assert.equal(clip.media_reference.available_range.start_time.value, 51730 * 30);
+  });
+
+  it('a file with no timecode stays at 0', () => {
+    const p = buildPlan({ name: 'r', segments: segs, settings: s, mediaOf: (_h, view, clip) => ({ path: joinPath('J:\F', view, clip) }), graphicsDir: 'J:\G' });
+    assert.match(toFcpxml(p), /<asset id="m1"[^>]* start="0\/6000s"/);
+    assert.ok(!/<timecode>/.test(toXmeml(p).split('<file id="fm1">')[1] || ''));
+  });
+});

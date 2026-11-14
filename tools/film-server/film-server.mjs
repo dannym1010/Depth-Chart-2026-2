@@ -78,7 +78,8 @@ const handler = (req, res) => {
   const url = new URL(req.url || '/', 'http://x');
   if (url.searchParams.get('key') !== KEY) return send(res, 403, { error: 'Wrong or missing key.' });
 
-  if (url.pathname === '/ping') return send(res, 200, { ok: true, name: path.basename(ROOT) });
+  // `root`: the folder's real path on this computer (the app's export for DaVinci Resolve on this computer uses it).
+  if (url.pathname === '/ping') return send(res, 200, { ok: true, name: path.basename(ROOT), root: ROOT });
 
   if (url.pathname === '/list') {
     const dir = inside(url.searchParams.get('path'));

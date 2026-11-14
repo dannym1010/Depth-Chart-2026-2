@@ -39,6 +39,10 @@ It shows an address like `https://your-pc.your-tailnet.ts.net`.
 Film Room → a game → **Link film** → **Team film server** → **Set up**: paste the https address and the key →
 **Connect**. Every game looks there first; its clips stream. Highlights has the same setup in its film bar.
 
+Highlights → a reel → **Export** (for DaVinci Resolve, on the computer the film server runs on) fills in the film
+folder's real path from the film server, so nothing has to be typed. That needs this version of `film-server.mjs`:
+copy it over the old one and start the film server again.
+
 ## Local mode: this network only (no internet, no Tailscale)
 
 The app only takes film from an **https** address. In local mode the film server gives itself a certificate for

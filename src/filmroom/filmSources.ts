@@ -179,6 +179,20 @@ export async function testFilmServer(s: FilmServer): Promise<string> {
   const r = await serverGet(s, 'ping');
   return String(r?.name || 'Film folder');
 }
+/**
+ * Where the film folder is on the computer the film server runs on ("E:\Mahopac Film"), when it says (an export for
+ * DaVinci Resolve on that computer needs the real path; a browser can't see one). '' when it doesn't.
+ */
+export async function filmServerRoot(): Promise<string> {
+  const s = filmServer();
+  if (!s) return '';
+  try {
+    const r = await serverGet(s, 'ping');
+    return typeof r?.root === 'string' ? r.root : '';
+  } catch {
+    return '';
+  }
+}
 /** A folder on the film server the film-folder finder can look inside ('' = the film folder itself). */
 export function serverFolderNode(s: FilmServer, path: string, name: string): FolderNode {
   return {
@@ -675,6 +689,15 @@ export async function listDriveClips(folderId: string): Promise<FilmClip[]> {
 // Clips fetched from Drive this visit (a few, newest kept), so stepping back and forth is instant.
 const driveCache = new Map<string, Promise<string>>();
 const DRIVE_CACHE_SIZE = 8;
+
+/** Some bytes of a Drive file (a clip's header, read without downloading the clip), and the file's size. */
+export async function driveBytes(fileId: string, offset: number, length: number): Promise<{ data: ArrayBuffer; size: number }> {
+  const res = await driveFetch(`${API}/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`, {
+    headers: { Range: `bytes=${offset}-${offset + Math.max(1, length) - 1}` },
+  });
+  const total = Number(String(res.headers.get('Content-Range') || '').split('/')[1]) || 0;
+  return { data: await res.arrayBuffer(), size: total };
+}
 
 /** A playable address for a Drive clip (downloaded once per visit). */
 export function driveClipUrl(fileId: string): Promise<string> {

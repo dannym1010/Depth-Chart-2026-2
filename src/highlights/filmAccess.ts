@@ -1,7 +1,8 @@
 // Film for Highlights: any of our games, opened from the shared film folder ("Mahopac Film"), this computer's copy
 // first, else the team's Google Drive copy. Reels mix games, so this opens games one after another (kept for the
 // visit) instead of one game at a time the way the Film Room does. Clips are found by camera view and file name.
-import { driveClipUrl, driveFolderNode, folderAccess, isDriveSignedIn, driveSignIn, listNodeClips, localFolderNode, filmServer, pickedFilmRoot, prepareDriveSignIn, recallFolder, serverFolderNode } from '../filmroom/filmSources';
+import { driveBytes, driveClipUrl, driveFolderNode, folderAccess, isDriveSignedIn, driveSignIn, listNodeClips, localFolderNode, filmServer, pickedFilmRoot, prepareDriveSignIn, recallFolder, serverFolderNode } from '../filmroom/filmSources';
+import { blobReader, rangeReader, rangeTotal, type ByteReader } from './sourceTimecode';
 import { gameViews, resolveGameFolder, type FolderNode } from '../filmroom/folderRoutes';
 import { matchClipsToPlays } from '../filmroom/clipMatching';
 import { hiddenNames, liveViewClips, picksForView } from '../filmroom/dualView';
@@ -16,6 +17,9 @@ export interface GameFilm {
   path: string[];
   /** Which copy it came from. */
   from: 'local' | 'drive';
+  /** The film folder's own name ("Mahopac Film"), and whether it's the team film server's. */
+  root?: string;
+  server?: boolean;
 }
 
 export type AccessState = 'ready' | 'ask' | 'signin' | 'none';
@@ -30,6 +34,8 @@ export interface FilmAccess {
   file(game: HighlightGame, view: string, clip: string): Promise<File>;
   /** Call release() when done with it. */
   url(game: HighlightGame, view: string, clip: string): Promise<{ url: string; release: () => void }>;
+  /** A clip's file read a piece at a time (its header, without loading the video). */
+  reader?(game: HighlightGame, view: string, clip: string): Promise<ByteReader>;
 }
 
 /** How long a clip runs (seconds), read from its file's header; undefined when it can't be read. */
@@ -136,7 +142,7 @@ export function realFilmAccess(opts: { teamName: string; rootDriveId?: string; r
         why = `No videos in ${found.path.join(' › ')}.`;
         continue;
       }
-      return { views, lists, path: found.path.slice(1), from, files };
+      return { views, lists, path: found.path.slice(1), from, files, root: found.path[0], server: Boolean(node.serverPath !== undefined) };
     }
     throw new Error(why || `No film found for ${game.name}.`);
   };
@@ -195,6 +201,19 @@ export function realFilmAccess(opts: { teamName: string; rootDriveId?: string; r
       const get = film.files.get(c.id);
       if (!get) throw new Error(`${clip} can't be read.`);
       return get();
+    },
+    reader: async (game, view, clip) => {
+      const { film, c } = await clipOf(game, view, clip);
+      if (c.kind === 'drive') return rangeReader((offset, length) => driveBytes(c.id, offset, length));
+      if (c.kind === 'url')
+        return rangeReader(async (offset, length) => {
+          const res = await fetch(c.id, { headers: { Range: `bytes=${offset}-${offset + length - 1}` } });
+          if (!res.ok) throw new Error(`Film server error ${res.status}.`);
+          return { data: await res.arrayBuffer(), size: rangeTotal(res.headers.get('Content-Range')) || Number(res.headers.get('Content-Length')) || 0 };
+        });
+      const get = film.files.get(c.id);
+      if (!get) throw new Error(`${clip} can't be read.`);
+      return blobReader(await get());
     },
     url: async (game, view, clip) => {
       const { film, c } = await clipOf(game, view, clip);

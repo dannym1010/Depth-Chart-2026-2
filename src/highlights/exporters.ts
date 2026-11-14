@@ -12,6 +12,11 @@ export interface PlanMedia {
   /** Full path on the editing computer ("J:\Mahopac Film\10U\Week 3 - Shrub Oak\Main\IMG_0001.MOV"). */
   path: string;
   durationSec?: number;
+  /**
+   * Where the file's own clock (camera timecode) starts, in seconds. An editor finds a clip's moments by that clock:
+   * the timeline says "14:22:12" for 2 s into a file that starts at 14:22:10, not "0:02" (which it can't find).
+   */
+  tcStart?: number;
 }
 
 export type GraphicSpec =
@@ -97,8 +102,11 @@ export function buildPlan(opts: {
   name: string;
   segments: Segment[];
   settings: HighlightSettings;
-  /** `base`: a cut copy starts this many seconds into the clip (the segments' times are already shifted by it). */
-  mediaOf: (h: Highlight, view: string, clip: string) => { path: string; durationSec?: number; base?: number };
+  /**
+   * `base`: a cut copy starts this many seconds into the clip (the segments' times are already shifted by it).
+   * `tc`: where the file's own clock starts (camera timecode), in seconds.
+   */
+  mediaOf: (h: Highlight, view: string, clip: string) => { path: string; durationSec?: number; base?: number; tc?: number };
   graphicsDir: string;
 }): ExportPlan {
   const { settings } = opts;
@@ -124,7 +132,7 @@ export function buildPlan(opts: {
     const key = where.path.toLowerCase();
     let m = media.get(key);
     if (!m) {
-      m = { id: `m${media.size + 1}`, name: clip, path: where.path, durationSec: where.durationSec };
+      m = { id: `m${media.size + 1}`, name: clip, path: where.path, durationSec: where.durationSec, ...(where.tc ? { tcStart: where.tc } : {}) };
       media.set(key, m);
     }
     return m.id;
@@ -214,9 +222,10 @@ const st = (sec: number) => `${Math.round(sec * 6000)}/6000s`;
  * A clip's zoom as Final Cut XML's transform (Resolve brings it in as the clip's Zoom and Position, keyframed where it
  * follows a kid). Film is taken as 16:9 (phones and cameras shoot it).
  */
-function fcpZoom(cam: PlanCam[] | undefined, W: number, H: number): string[] {
+function fcpZoom(cam: PlanCam[] | undefined, W: number, H: number, tc = 0): string[] {
   if (!cam?.length) return [];
-  const tf = cam.map((k) => ({ t: k.t, ...fcpTransform(k.cam, W, H) }));
+  // Keyframe times are the clip's own, which run on the file's clock (its timecode).
+  const tf = cam.map((k) => ({ t: tc + k.t, ...fcpTransform(k.cam, W, H) }));
   const first = tf[0];
   const attrs = `position="${first.x} ${first.y}" scale="${first.scale} ${first.scale}"`;
   if (tf.length === 1) return [`              <adjust-transform ${attrs}/>`];
@@ -245,7 +254,7 @@ export function toFcpxml(plan: ExportPlan): string {
   out.push(`    <format id="rs" name="FFVideoFormatRateUndefined" width="${plan.width}" height="${plan.height}"/>`);
   for (const m of plan.media) {
     out.push(
-      `    <asset id="${m.id}" name="${esc(m.name)}" start="0s" duration="${st(m.durationSec || 3600)}" hasVideo="1" hasAudio="1" audioSources="1" audioChannels="2" audioRate="48000">`,
+      `    <asset id="${m.id}" name="${esc(m.name)}" start="${st(m.tcStart || 0)}" duration="${st(m.durationSec || 3600)}" hasVideo="1" hasAudio="1" audioSources="1" audioChannels="2" audioRate="48000">`,
       `      <media-rep kind="original-media" src="${esc(fileUrl(m.path))}"/>`,
       '    </asset>'
     );
@@ -259,11 +268,14 @@ export function toFcpxml(plan: ExportPlan): string {
   }
   out.push('  </resources>', '  <library>', '    <event name="Mahopac Highlights">', `      <project name="${esc(plan.name)}">`);
   out.push(`        <sequence format="r0" duration="${rt(plan.total, fps)}" tcStart="0s" tcFormat="NDF" audioLayout="stereo" audioRate="48k">`, '          <spine>');
+  const tcOf = new Map(plan.media.map((m) => [m.id, m.tcStart || 0]));
   for (const c of plan.v1) {
     // Track 2 pictures and markers that start inside this piece ride on it (in its own time).
     const inside = (t: number) => t >= c.at && t < c.at + c.len;
+    // A film clip's own time is the file's clock (its timecode): it starts at the timecode plus `from`.
+    const tc = c.kind === 'clip' ? tcOf.get(c.media) || 0 : 0;
     // A clip's own time starts at its `from` and runs at the timeline's pace (slowed or not).
-    const local = (t: number) => (c.kind === 'clip' ? c.from : 0) + (t - c.at) / fps;
+    const local = (t: number) => tc + (c.kind === 'clip' ? c.from : 0) + (t - c.at) / fps;
     const kids: string[] = [];
     for (const g of plan.v2.filter((x) => inside(x.at)))
       kids.push(`              <video ref="${g.graphic}" lane="1" name="${esc(g.name)}" offset="${st(local(g.at))}" start="0s" duration="${rt(g.len, fps)}"/>`);
@@ -276,20 +288,20 @@ export function toFcpxml(plan: ExportPlan): string {
     }
     const volume = c.volumeDb ? `              <adjust-volume amount="${c.volumeDb}dB"/>` : '';
     if (c.speed === 1) {
-      out.push(`            <asset-clip ref="${c.media}" name="${esc(c.name)}" offset="${rt(c.at, fps)}" start="${st(c.from)}" duration="${rt(c.len, fps)}" tcFormat="NDF">`);
+      out.push(`            <asset-clip ref="${c.media}" name="${esc(c.name)}" offset="${rt(c.at, fps)}" start="${st(tc + c.from)}" duration="${rt(c.len, fps)}" tcFormat="NDF">`);
     } else {
       // Slowed down: the clip's own time runs from `from` at the timeline's pace; the time map says which film
       // time shows (its slope is the speed).
       const localEnd = c.from + c.len / fps;
       out.push(
-        `            <asset-clip ref="${c.media}" name="${esc(c.name)}" offset="${rt(c.at, fps)}" start="${st(c.from)}" duration="${rt(c.len, fps)}" tcFormat="NDF">`,
+        `            <asset-clip ref="${c.media}" name="${esc(c.name)}" offset="${rt(c.at, fps)}" start="${st(tc + c.from)}" duration="${rt(c.len, fps)}" tcFormat="NDF">`,
         '              <timeMap>',
-        `                <timept time="${st(c.from)}" value="${st(c.from)}" interp="linear"/>`,
-        `                <timept time="${st(localEnd)}" value="${st(c.to)}" interp="linear"/>`,
+        `                <timept time="${st(tc + c.from)}" value="${st(tc + c.from)}" interp="linear"/>`,
+        `                <timept time="${st(tc + localEnd)}" value="${st(tc + c.to)}" interp="linear"/>`,
         '              </timeMap>'
       );
     }
-    out.push(...fcpZoom(c.cam, plan.width, plan.height));
+    out.push(...fcpZoom(c.cam, plan.width, plan.height, tc));
     if (volume) out.push(volume);
     out.push(...kids, '            </asset-clip>');
   }
@@ -303,10 +315,13 @@ export function toXmeml(plan: ExportPlan): string {
   const rate = `<rate><timebase>${fps}</timebase><ntsc>FALSE</ntsc></rate>`;
   const out: string[] = [];
   const fileSeen = new Set<string>();
-  const fileEl = (id: string, name: string, path: string, frames: number, audio: boolean) => {
+  const fileEl = (id: string, name: string, path: string, frames: number, audio: boolean, tcSec = 0) => {
     if (fileSeen.has(id)) return `<file id="${id}"/>`;
     fileSeen.add(id);
-    return `<file id="${id}"><name>${esc(name)}</name><pathurl>${esc(fileUrl(path).replace('file:///', 'file://localhost/'))}</pathurl>${rate}<duration>${frames}</duration><media><video><samplecharacteristics>${rate}<width>${plan.width}</width><height>${plan.height}</height></samplecharacteristics></video>${audio ? '<audio><channelcount>2</channelcount></audio>' : ''}</media></file>`;
+    // The file's own clock (camera timecode), as Premiere writes it.
+    const tcFrames = Math.round(tcSec * fps);
+    const tcEl = tcFrames ? `<timecode>${rate}<string>${tc(tcFrames, fps)}</string><frame>${tcFrames}</frame><displayformat>NDF</displayformat></timecode>` : '';
+    return `<file id="${id}"><name>${esc(name)}</name><pathurl>${esc(fileUrl(path).replace('file:///', 'file://localhost/'))}</pathurl>${rate}<duration>${frames}</duration>${tcEl}<media><video><samplecharacteristics>${rate}<width>${plan.width}</width><height>${plan.height}</height></samplecharacteristics></video>${audio ? '<audio><channelcount>2</channelcount></audio>' : ''}</media></file>`;
   };
   const speedFilter = (speed: number) =>
     speed === 1
@@ -329,7 +344,7 @@ export function toXmeml(plan: ExportPlan): string {
     const inF = Math.round(c.from * fps);
     const outF = Math.max(inF + 1, Math.round(c.to * fps));
     const item = (id: string, kind: 'video' | 'audio') =>
-      `<clipitem id="${id}"><name>${esc(c.name)}</name><duration>${total}</duration>${rate}<start>${c.at}</start><end>${c.at + c.len}</end><in>${inF}</in><out>${outF}</out>${fileEl(`f${c.media}`, m.name, m.path, total, true)}${kind === 'video' ? speedFilter(c.speed) : c.volumeDb ? `<filter><effect><name>Audio Levels</name><effectid>audiolevels</effectid><effectcategory>audiolevels</effectcategory><effecttype>audiolevels</effecttype><mediatype>audio</mediatype><parameter><parameterid>level</parameterid><name>Level</name><value>${Math.pow(10, c.volumeDb / 20).toFixed(3)}</value></parameter></effect></filter>` : ''}${kind === 'audio' ? '<sourcetrack><mediatype>audio</mediatype><trackindex>1</trackindex></sourcetrack>' : ''}</clipitem>`;
+      `<clipitem id="${id}"><name>${esc(c.name)}</name><duration>${total}</duration>${rate}<start>${c.at}</start><end>${c.at + c.len}</end><in>${inF}</in><out>${outF}</out>${fileEl(`f${c.media}`, m.name, m.path, total, true, m.tcStart)}${kind === 'video' ? speedFilter(c.speed) : c.volumeDb ? `<filter><effect><name>Audio Levels</name><effectid>audiolevels</effectid><effectcategory>audiolevels</effectcategory><effecttype>audiolevels</effecttype><mediatype>audio</mediatype><parameter><parameterid>level</parameterid><name>Level</name><value>${Math.pow(10, c.volumeDb / 20).toFixed(3)}</value></parameter></effect></filter>` : ''}${kind === 'audio' ? '<sourcetrack><mediatype>audio</mediatype><trackindex>1</trackindex></sourcetrack>' : ''}</clipitem>`;
     v1.push(item(`v1-${i + 1}`, 'video'));
     // Slowed parts have no sound (it would be stretched).
     if (c.speed === 1 && c.volumeDb > -90) a1.push(item(`a1-${i + 1}`, 'audio'));
@@ -373,7 +388,8 @@ export function toEdl(plan: ExportPlan): string {
     if (c.kind !== 'clip') continue;
     n += 1;
     const m = mediaById.get(c.media)!;
-    const srcIn = Math.round(c.from * fps);
+    // Source times on the file's own clock (its camera timecode).
+    const srcIn = Math.round(((m.tcStart || 0) + c.from) * fps);
     const srcOut = srcIn + Math.round(c.len * c.speed);
     out.push(`${String(n).padStart(3, '0')}  AX       V     C        ${tc(srcIn, fps)} ${tc(srcOut, fps)} ${tc(c.at, fps)} ${tc(c.at + c.len, fps)}`);
     if (c.speed !== 1) out.push(`M2   AX       ${(fps * c.speed).toFixed(1).padStart(5, '0')}                ${tc(srcIn, fps)}`);
@@ -407,17 +423,19 @@ export function toOtio(plan: ExportPlan): string {
       return { at: c.at, len: c.len, json: { OTIO_SCHEMA: 'Clip.1', name: c.name, source_range: range(0, c.len), media_reference: ref(joinPath(plan.graphicsDir, g.file)), effects: [], markers: [], metadata: {} } };
     }
     const m = mediaById.get(c.media)!;
+    // On the file's own clock (its camera timecode).
+    const tcF = Math.round((m.tcStart || 0) * fps);
     const markers = plan.markers
       .filter((k) => k.at >= c.at && k.at < c.at + c.len)
-      .map((k) => ({ OTIO_SCHEMA: 'Marker.2', name: k.title, color: 'YELLOW', comment: k.note, marked_range: range(Math.round(c.from * fps) + (k.at - c.at), 0), metadata: {} }));
+      .map((k) => ({ OTIO_SCHEMA: 'Marker.2', name: k.title, color: 'YELLOW', comment: k.note, marked_range: range(tcF + Math.round(c.from * fps) + (k.at - c.at), 0), metadata: {} }));
     return {
       at: c.at,
       len: c.len,
       json: {
         OTIO_SCHEMA: 'Clip.1',
         name: c.name,
-        source_range: range(Math.round(c.from * fps), c.speed === 1 ? c.len : Math.round(c.len * c.speed)),
-        media_reference: ref(m.path),
+        source_range: range(tcF + Math.round(c.from * fps), c.speed === 1 ? c.len : Math.round(c.len * c.speed)),
+        media_reference: { ...ref(m.path), available_range: m.durationSec ? range(tcF, Math.round(m.durationSec * fps)) : null },
         effects: c.speed === 1 ? [] : [{ OTIO_SCHEMA: 'LinearTimeWarp.1', name: '', effect_name: 'LinearTimeWarp', time_scalar: c.speed, metadata: {} }],
         markers,
         metadata: {},
@@ -468,6 +486,9 @@ export function readMe(plan: ExportPlan, timelineFile: string): string {
     `Timeline: ${plan.width}x${plan.height}, ${plan.fps} frames a second, ${clock(plan.total / plan.fps)} long.`,
     'Track 1: the film, title cards and freeze frames. Track 2: titles and spotlights (see-through pictures).',
     'Each highlight has a marker with its title, kids, kind and rating.',
+    ...(plan.media.some((m) => m.tcStart)
+      ? ["Clips are placed by each camera file's own clock (its timecode), the way Resolve finds them."]
+      : []),
     ...(angleViews(plan).length
       ? [
           '',
