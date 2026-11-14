@@ -1193,6 +1193,7 @@ export const HighlightsView: React.FC<HighlightsViewProps> = ({ teamName, season
                   season={season}
                   me={me}
                   onOpenClip={openReelClip}
+                  loadShared={needShared}
                   onDelete={() => {
                     if (!window.confirm(`Delete the reel “${reel.name}”? Its highlights stay.`)) return;
                     update((d) => removeReel(d, reel.id));

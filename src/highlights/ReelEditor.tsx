@@ -1,7 +1,7 @@
 // One reel: its clips in the order it plays (moved by hand, or by game, kind, rating, or a top-10 countdown), what
 // goes around them (intro, game cards, a kid's stats, titles, score, the end card, replays, a song), its length
 // against a goal, and Play / Export.
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, Copy, Download, GripVertical, Instagram, Play as PlayIcon, Plus, Trash2, X } from 'lucide-react';
 import type { Play } from '../hudlScout/types/football';
 import type { FilmAccess } from './filmAccess';
@@ -17,6 +17,7 @@ import { addSentToReel, passSent, type InboxItem } from './familySends';
 import { tempReel } from './FamilyHighlights';
 import type { HighlightStore } from './useHighlights';
 import { useIsPhone } from './highlightsNav';
+import type { FilmGameShared } from '../filmroom/types';
 
 interface Props {
   reel: Reel;
@@ -37,11 +38,13 @@ interface Props {
   ownerLabel?: string;
   /** Clips families sent for this reel (when it takes them). */
   inbox?: InboxItem[];
+  /** A game's Film Room data (which clip on the other camera is the same play), for exporting both cameras. */
+  loadShared?: (gameKey: string) => Promise<Partial<FilmGameShared>>;
 }
 
 const MUSIC = /\.(mp3|m4a|aac|wav|ogg|flac)$/i;
 
-export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, roster, plays, teamName, season, me, onOpenClip, onDelete, openId, ownerLabel, inbox = [] }) => {
+export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, roster, plays, teamName, season, me, onOpenClip, onDelete, openId, ownerLabel, inbox = [], loadShared }) => {
   const ro = store.readOnly;
   const o = reelOptionsOf(reel);
   const settings = data.settings;
@@ -53,6 +56,11 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
 
   const list = useMemo(() => orderedHighlights(reel, data.highlights, games), [reel, data.highlights, games]);
   const segments = useMemo(() => reelTimeline({ reel, highlights: data.highlights, games, settings, roster, plays, teamName }), [reel, data.highlights, games, settings, roster, plays, teamName]);
+  // The reel with only some of its clips (Export lets you pick): its cards made again for them.
+  const segmentsFor = useCallback(
+    (keep: Set<string>) => reelTimeline({ reel: { ...reel, items: reel.items.filter((it) => keep.has(it.highlightId)) }, highlights: data.highlights, games, settings, roster, plays, teamName }),
+    [reel, data.highlights, games, settings, roster, plays, teamName]
+  );
   const seconds = timelineSeconds(segments);
   const [playing, setPlaying] = useState(false);
   // Play from this highlight (its ▶ in the list), else from the start.
@@ -667,7 +675,7 @@ export const ReelEditor: React.FC<Props> = ({ reel, data, store, access, games, 
           onClose={() => setSocial(false)}
         />
       )}
-      {exporting && <ExportPanel reelName={reel.name} segments={segments} access={access} settings={settings} logo={logo} data={data} teamName={teamName} season={season} onClose={() => setExporting(false)} />}
+      {exporting && <ExportPanel reelName={reel.name} segments={segments} clips={list} segmentsFor={segmentsFor} plays={plays} loadShared={loadShared} access={access} settings={settings} logo={logo} data={data} teamName={teamName} season={season} onClose={() => setExporting(false)} />}
     </div>
   );
 };

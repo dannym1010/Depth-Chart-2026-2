@@ -605,7 +605,8 @@ export interface Overlay {
 
 export type Segment =
   | { type: 'card'; card: CardSpec; seconds: number }
-  | { type: 'clip'; h: Highlight; view: string; clip: string; from: number; to: number; speed: number; part: 'main' | 'replay'; overlay?: Overlay }
+  /** `part`: the play, its replay, or (an export with both cameras) the same play from another camera. */
+  | { type: 'clip'; h: Highlight; view: string; clip: string; from: number; to: number; speed: number; part: 'main' | 'replay' | 'angle'; overlay?: Overlay }
   | { type: 'freeze'; h: Highlight; view: string; clip: string; at: number; seconds: number; overlay?: Overlay; /** A circle / arrow the play stops for (else the freeze frame's own spotlight). */ mark?: HighlightMark };
 
 export const segmentSeconds = (s: Segment) => (s.type === 'clip' ? (s.to - s.from) / s.speed : s.seconds);

@@ -5,7 +5,7 @@ import {
   highlightFromPlay, highlightSegments, kidCoverage, kidLabel, mergeHighlights, newReel, opponentOf, orderedHighlights, reelTimeline, removeHighlights,
   reasonsFor, recommendPlays, seasonOf, segmentSeconds, setSettings, snapWindow, statLines, suggestFromPlays, timelineSeconds, freezeSpotOf, marksOver, playLabel, reelOptionsOf,
 } from './highlightData.ts';
-import { buildPlan, fileUrl, joinPath, toCsv, toEdl, toFcpxml, toOtio, toXmeml } from './exporters.ts';
+import { angleWindow, buildPlan, fileUrl, joinPath, readMe, toCsv, toEdl, toFcpxml, toOtio, toXmeml, withAngles } from './exporters.ts';
 import type { Highlight } from './types.ts';
 
 const play = (n: number, extra: any = {}) =>
@@ -351,5 +351,49 @@ describe('lists and older reels', () => {
     assert.equal(reelOptionsOf(r).cardSeconds, 3);
     const segs = reelTimeline({ reel: r, highlights: [hl('a', 1, 7)], games: gameOrder([game(1)]), settings: defaultSettings(), roster: [], plays: [], teamName: 'Mahopac' });
     assert.ok(Number.isFinite(timelineSeconds(segs)) && timelineSeconds(segs) > 0, String(timelineSeconds(segs)));
+  });
+});
+
+describe('exporting both cameras', () => {
+  const a = hl('a', 1, 3, { replay: { view: 'Field', clip: 'GX_3.MP4', start: 1, end: 9, speed: 0.5 } });
+  const b = hl('b', 1, 7);
+  const reel = newReel({ name: 'Week 1 reel', kind: 'game', owner: 'x', highlightIds: ['a', 'b'] });
+  const segs = reelTimeline({ reel, highlights: [a, b], games: gameOrder([game(1)]), settings: s, roster, teamName: 'Mahopac', plays: [] });
+  const angle = (h: Highlight, clip: string) => ({ type: 'clip' as const, h, view: 'Field', clip, from: 0, to: 12, speed: 1, part: 'angle' as const });
+
+  it("takes the play's part of the other camera's clip, or all of it", () => {
+    // The coach's offset in the Film Room: the Field clip runs 1.5 s ahead.
+    assert.deepEqual(angleWindow({ start: 2, end: 10 }, 1.5, 20), { from: 3.5, to: 11.5 });
+    assert.deepEqual(angleWindow({ start: 2, end: 10 }, -3, 20), { from: 0, to: 7 });
+    assert.deepEqual(angleWindow({ start: 2, end: 10 }, 5, 12), { from: 7, to: 12 });
+    // No offset: each camera's clip is one play, so the whole clip.
+    assert.deepEqual(angleWindow({ start: 2, end: 10 }, undefined, 14.2), { from: 0, to: 14.2 });
+    assert.equal(angleWindow({ start: 2, end: 10 }, undefined, undefined), null);
+    assert.equal(angleWindow({ start: 2, end: 10 }, 30, 20), null);
+  });
+
+  it("puts each play's other camera right after it (after its replay), before the next card", () => {
+    const out = withAngles(segs, new Map([['a', [angle(a, 'GX_3b.MP4')]], ['b', [angle(b, 'GX_7.MP4')]]]));
+    const what = out.map((x) => (x.type === 'card' ? `card ${x.card.kind}` : `${x.h.id} ${x.type === 'clip' ? x.part : 'freeze'}`));
+    assert.deepEqual(what, ['card intro', 'a main', 'a replay', 'a angle', 'b main', 'b angle', 'card outro']);
+    assert.equal(withAngles(segs, new Map()), segs);
+  });
+
+  it('names the other camera and gives it no zoom, title or marker of its own', () => {
+    const zoomed = { ...b, zoom: { level: 2, x: 0.3, y: 0.4 } } as Highlight;
+    const out = withAngles(
+      reelTimeline({ reel, highlights: [a, zoomed], games: gameOrder([game(1)]), settings: s, roster, teamName: 'Mahopac', plays: [] }),
+      new Map([['b', [angle(zoomed, 'GX_7.MP4')]]])
+    );
+    const plan = buildPlan({ name: 'r', segments: out, settings: s, mediaOf: (_h, view, clip) => ({ path: joinPath('J:\F', view, clip) }), graphicsDir: 'J:\G' });
+    const clips = plan.v1.filter((c) => c.kind === 'clip');
+    const field = clips.find((c) => c.kind === 'clip' && c.angle);
+    assert.ok(field && field.kind === 'clip');
+    assert.equal(field.name, 'Play 7 (Field)');
+    assert.equal(field.cam, undefined);
+    assert.ok(clips.some((c) => c.kind === 'clip' && c.name === 'Play 7' && c.cam?.length));
+    assert.equal(plan.markers.length, 2);
+    assert.match(readMe(plan, 'r.fcpxml'), /Both cameras: right after each play is the same play from the Field camera/);
+    assert.match(toFcpxml(plan), /name="Play 7 \(Field\)"/);
   });
 });

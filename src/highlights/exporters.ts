@@ -37,7 +37,8 @@ export interface PlanGraphic {
 
 /** Track 1: film clips and full-frame pictures (cards, freezes). Times in frames at the timeline rate. */
 export type PlanV1 =
-  | { kind: 'clip'; media: string; from: number; to: number; speed: number; at: number; len: number; name: string; volumeDb: number; cam?: PlanCam[] }
+  /** `angle`: the camera this clip is the same play from (an export with both cameras). */
+  | { kind: 'clip'; media: string; from: number; to: number; speed: number; at: number; len: number; name: string; volumeDb: number; cam?: PlanCam[]; angle?: string }
   | { kind: 'still'; graphic: string; at: number; len: number; name: string };
 
 export interface PlanV2 {
@@ -156,13 +157,16 @@ export function buildPlan(opts: {
         const spot = freezeSpotOf(s);
         if (spot) v2.push({ graphic: graphic({ kind: 'spot', spot, ...(cam ? { cam } : {}) }, `spotlight ${s.h.title}`), at, len, name: 'Spotlight' });
       } else {
-        // The clip's zoom, from its own (unshifted) seconds, as keyframes in the piece's time.
-        const part = s.part === 'replay' && (s.clip !== s.h.clip || s.view !== s.h.view) ? 'replay' : 'main';
+        // The clip's zoom, from its own (unshifted) seconds, as keyframes in the piece's time (another camera's clip
+        // has none: the zoom was set on this one's picture).
+        const part = s.part === 'angle' || (s.part === 'replay' && (s.clip !== s.h.clip || s.view !== s.h.view)) ? 'replay' : 'main';
         const base = opts.mediaOf(s.h, s.view, s.clip).base || 0;
         const cam = cameraKeys(s.h, s.from + base, s.to + base, part).map((k) => ({ t: s.from + (k.t - base - s.from) / s.speed, cam: k.cam }));
+        const name = s.part === 'replay' ? `${s.h.title} (replay)` : s.part === 'angle' ? `${s.h.title} (${s.view || 'other camera'})` : s.h.title;
         v1.push({
-          kind: 'clip', media: mediaId(s.h, s.view, s.clip), from: s.from, to: s.to, speed: s.speed, at, len, name: s.part === 'replay' ? `${s.h.title} (replay)` : s.h.title, volumeDb,
+          kind: 'clip', media: mediaId(s.h, s.view, s.clip), from: s.from, to: s.to, speed: s.speed, at, len, name, volumeDb,
           ...(cam.length ? { cam } : {}),
+          ...(s.part === 'angle' ? { angle: s.view || 'other camera' } : {}),
         });
       }
       if (own && lower && lower.v2.graphic) lower.v2.len = at + len - lower.v2.at;
@@ -171,6 +175,32 @@ export function buildPlan(opts: {
   }
   // A spotlight sits on top of the lower third's track: keep both by putting the lower third first.
   return { name: opts.name, fps, width, height, v1, v2: v2.filter((x) => x.graphic && x.len > 0), markers, media: [...media.values()], graphics, graphicsDir: opts.graphicsDir, total: at };
+}
+
+/**
+ * The part of another camera's clip that is this play: the highlight's trim moved by the offset a coach set between the
+ * cameras in the Film Room; with no offset, the whole clip (each camera's clip is one play). Null when nothing is left.
+ */
+export function angleWindow(h: Pick<Highlight, 'start' | 'end'>, offset: number | undefined, clipLen: number | undefined): { from: number; to: number } | null {
+  const r = (n: number) => Math.round(n * 100) / 100;
+  if (offset === undefined || !Number.isFinite(offset)) return clipLen && clipLen > 0.2 ? { from: 0, to: r(clipLen) } : null;
+  const from = Math.max(0, h.start + offset);
+  const to = clipLen ? Math.min(clipLen, h.end + offset) : h.end + offset;
+  return to - from >= 0.2 ? { from: r(from), to: r(to) } : null;
+}
+
+/** The reel with each play's other camera(s) right after it (after its replay): `angles` by highlight id. */
+export function withAngles(segments: Segment[], angles: Map<string, Segment[]>): Segment[] {
+  if (!angles.size) return segments;
+  const out: Segment[] = [];
+  segments.forEach((s, i) => {
+    out.push(s);
+    if (s.type === 'card') return;
+    const next = segments[i + 1];
+    // The highlight's last piece: what follows is a card, another highlight, or the end.
+    if (!next || next.type === 'card' || next.h.id !== s.h.id) out.push(...(angles.get(s.h.id) || []));
+  });
+  return out;
 }
 
 const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -422,6 +452,9 @@ export function toCsv(plan: ExportPlan): string {
   return rows.join('\r\n');
 }
 
+/** The other cameras a both-cameras export has plays from ("Field"). */
+const angleViews = (plan: ExportPlan) => [...new Set(plan.v1.flatMap((c) => (c.kind === 'clip' && c.angle ? [c.angle] : [])))];
+
 /** How to open it in Resolve (written next to the timeline). */
 export function readMe(plan: ExportPlan, timelineFile: string): string {
   return [
@@ -435,6 +468,13 @@ export function readMe(plan: ExportPlan, timelineFile: string): string {
     `Timeline: ${plan.width}x${plan.height}, ${plan.fps} frames a second, ${clock(plan.total / plan.fps)} long.`,
     'Track 1: the film, title cards and freeze frames. Track 2: titles and spotlights (see-through pictures).',
     'Each highlight has a marker with its title, kids, kind and rating.',
+    ...(angleViews(plan).length
+      ? [
+          '',
+          `Both cameras: right after each play is the same play from the ${angleViews(plan).join(' / ')} camera (its name ends in "(${angleViews(plan)[0]})").`,
+          '  Keep the angle you like, or cut between them; delete the rest.',
+        ]
+      : []),
     ...(plan.v1.some((c) => c.kind === 'clip' && c.cam?.length)
       ? [
           '',
