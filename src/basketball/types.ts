@@ -53,10 +53,14 @@ export interface BasketballPossession {
   shooter?: string;
   assister?: string;
   rebounder?: string;
+  reboundType?: 'off' | 'def';
   defender?: string;
   notes?: string;
   isHighlight?: boolean;
   editedAt?: number;
+  videoClipName?: string;
+  videoClipIndex?: number;
+  videoTimeSec?: number;
 }
 
 export interface BasketballOpponentTendencies {

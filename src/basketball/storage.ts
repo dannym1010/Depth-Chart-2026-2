@@ -1716,6 +1716,155 @@ export function convertTeamSnapEventsToBasketballGames(
   return mode === 'replace' ? additions : [...existingGames, ...additions];
 }
 
+/** Format video seconds (e.g. 135.4) into M:SS (e.g. "2:15"). */
+export function formatVideoTimestamp(seconds?: number): string {
+  if (seconds === undefined || !Number.isFinite(seconds) || seconds < 0) return '0:00';
+  const totalSec = Math.floor(seconds);
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  return `${mins}:${String(secs).padStart(2, '0')}`;
+}
+
+const DEFAULT_POINTS_BY_RESULT: Record<PossessionResult, 0 | 1 | 2 | 3 | 4> = {
+  '2pt_make': 2,
+  '2pt_miss': 0,
+  '3pt_make': 3,
+  '3pt_miss': 0,
+  and_1: 3,
+  ft_trip: 2,
+  turnover: 0,
+  foul_drawn: 0,
+  def_stop: 0,
+  def_steal: 0,
+  def_block: 0,
+  def_reb: 0,
+};
+
+export interface TimestampedPossessionInput {
+  existingPossessions: BasketballPossession[];
+  period: 1 | 2 | 3 | 4 | 5;
+  teamSide: 'us' | 'opponent';
+  result: PossessionResult;
+  points?: 0 | 1 | 2 | 3 | 4;
+  phase?: PossessionPhase;
+  setCall?: string;
+  defenseFaced?: DefenseType;
+  shotZone?: ShotZone;
+  playerTag?: string;
+  assisterTag?: string;
+  rebounderTag?: string;
+  defenderTag?: string;
+  reboundType?: 'off' | 'def';
+  videoClipName?: string;
+  videoClipIndex?: number;
+  videoTimeSec?: number;
+  clock?: string;
+  notes?: string;
+  isHighlight?: boolean;
+}
+
+/**
+ * Create a new BasketballPossession anchored to the active video file and timestamp,
+ * routing player attribution automatically by stat/outcome type.
+ */
+export function createTimestampedPossession(input: TimestampedPossessionInput): BasketballPossession {
+  const existing = input.existingPossessions || [];
+  const playNumber = existing.reduce((max, p) => Math.max(max, Number(p.playNumber) || 0), 0) + 1;
+  const cleanPlayer = input.playerTag?.trim() || undefined;
+  const cleanAssister = input.assisterTag?.trim() || undefined;
+  const explicitRebounder = input.rebounderTag?.trim() || undefined;
+  const explicitDefender = input.defenderTag?.trim() || undefined;
+
+  let shooter: string | undefined;
+  let rebounder = explicitRebounder;
+  let defender = explicitDefender;
+
+  if (input.result === 'def_reb') {
+    rebounder = rebounder || cleanPlayer;
+  } else if (input.result === 'def_steal' || input.result === 'def_block') {
+    defender = defender || cleanPlayer;
+  } else {
+    shooter = cleanPlayer;
+  }
+
+  const videoTimeSec =
+    typeof input.videoTimeSec === 'number' && Number.isFinite(input.videoTimeSec)
+      ? Math.max(0, Math.round(input.videoTimeSec * 10) / 10)
+      : undefined;
+
+  const isDefenseEvent =
+    input.result === 'def_steal' ||
+    input.result === 'def_block' ||
+    input.result === 'def_stop' ||
+    input.result === 'def_reb';
+
+  const now = Date.now();
+  return {
+    id: `pos-${now}-${playNumber}`,
+    playNumber,
+    period: input.period,
+    clock: input.clock?.trim() || (videoTimeSec !== undefined ? formatVideoTimestamp(videoTimeSec) : undefined),
+    teamSide: input.teamSide,
+    phase: input.phase || (isDefenseEvent ? 'defense' : 'half_court'),
+    setCall: input.setCall?.trim() || (isDefenseEvent ? 'Defense / Live Tag' : 'Live Action'),
+    defenseFaced: input.defenseFaced || 'man',
+    result: input.result,
+    points: input.points !== undefined ? input.points : DEFAULT_POINTS_BY_RESULT[input.result],
+    ...(input.shotZone ? { shotZone: input.shotZone } : {}),
+    ...(shooter ? { shooter } : {}),
+    ...(cleanAssister ? { assister: cleanAssister } : {}),
+    ...(rebounder ? { rebounder } : {}),
+    ...(input.result === 'def_reb' || input.reboundType ? { reboundType: input.reboundType || 'def' } : {}),
+    ...(defender ? { defender } : {}),
+    ...(input.notes?.trim() ? { notes: input.notes.trim() } : {}),
+    ...(input.isHighlight ? { isHighlight: true } : {}),
+    ...(input.videoClipName ? { videoClipName: input.videoClipName } : {}),
+    ...(typeof input.videoClipIndex === 'number' ? { videoClipIndex: input.videoClipIndex } : {}),
+    ...(videoTimeSec !== undefined ? { videoTimeSec } : {}),
+    editedAt: now,
+  };
+}
+
+/**
+ * Resolve which segment clip index and seek timestamp (minus optional replay lead-in)
+ * corresponds to a possession across a multi-file game video.
+ */
+export function resolvePossessionVideoTarget(
+  possession: BasketballPossession,
+  clips: { name: string }[],
+  leadInSec: number = 0
+): { clipIndex: number; seekSec: number } | null {
+  if (!Array.isArray(clips) || clips.length === 0) return null;
+
+  let clipIndex = -1;
+  if (possession.videoClipName) {
+    const needle = possession.videoClipName.trim().toLowerCase();
+    clipIndex = clips.findIndex((c) => c.name.trim().toLowerCase() === needle);
+  }
+  if (
+    clipIndex < 0 &&
+    typeof possession.videoClipIndex === 'number' &&
+    Number.isInteger(possession.videoClipIndex) &&
+    possession.videoClipIndex >= 0 &&
+    possession.videoClipIndex < clips.length
+  ) {
+    clipIndex = possession.videoClipIndex;
+  }
+  if (clipIndex < 0 && clips.length === 1) {
+    clipIndex = 0;
+  }
+  if (clipIndex < 0) {
+    clipIndex = Math.min(clips.length - 1, Math.max(0, (Number(possession.playNumber) || 1) - 1));
+  }
+
+  const seekSec =
+    typeof possession.videoTimeSec === 'number' && Number.isFinite(possession.videoTimeSec)
+      ? Math.max(0, Math.round((possession.videoTimeSec - Math.max(0, leadInSec)) * 10) / 10)
+      : 0;
+
+  return { clipIndex, seekSec };
+}
+
 /** Determine whether a visitor may enter the Court Studio workspace or must see the sign-in / pending gate. */
 export function canAccessBasketballWorkspace(
   email: string | null | undefined,

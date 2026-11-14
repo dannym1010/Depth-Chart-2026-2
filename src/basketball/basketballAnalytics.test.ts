@@ -12,7 +12,9 @@ import {
   bballAccessFromStaff,
   canAccessBasketballWorkspace,
   convertTeamSnapEventsToBasketballGames,
+  createTimestampedPossession,
   filterBasketballScheduleEvents,
+  formatVideoTimestamp,
   inferSeasonYearForMonth,
   isBasketballGameEvent,
   parseBasketballHudlCsv,
@@ -21,6 +23,7 @@ import {
   parseTeamSnapApiEventsJson,
   possessionsToFootballPlays,
   resolveBasketballEventDate,
+  resolvePossessionVideoTarget,
   shouldRouteToBasketballOnLogin,
   stripLegacyDemoData,
   switchBasketballSeason,
@@ -623,4 +626,180 @@ test('parseTeamSnapApiEventsJson parses historical TeamSnap API v3 events/search
   assert.equal(games[1].homeAway, 'Away');
   assert.equal(games[1].ourScore, 35);
   assert.equal(games[1].opponentScore, 42);
+});
+
+test('createTimestampedPossession & formatVideoTimestamp anchor stats to active video segment', () => {
+  assert.equal(formatVideoTimestamp(0), '0:00');
+  assert.equal(formatVideoTimestamp(65.8), '1:05');
+  assert.equal(formatVideoTimestamp(undefined), '0:00');
+
+  const p1 = createTimestampedPossession({
+    existingPossessions: [],
+    period: 1,
+    teamSide: 'us',
+    result: '3pt_make',
+    playerTag: '#23 Mia Lopez',
+    assisterTag: '#11 Chloe Kim',
+    videoClipName: 'IMG_0001.MOV',
+    videoClipIndex: 0,
+    videoTimeSec: 125.44,
+  });
+  assert.equal(p1.playNumber, 1);
+  assert.equal(p1.points, 3);
+  assert.equal(p1.clock, '2:05');
+  assert.equal(p1.shooter, '#23 Mia Lopez');
+  assert.equal(p1.assister, '#11 Chloe Kim');
+  assert.equal(p1.videoClipName, 'IMG_0001.MOV');
+  assert.equal(p1.videoClipIndex, 0);
+  assert.equal(p1.videoTimeSec, 125.4);
+
+  const p2 = createTimestampedPossession({
+    existingPossessions: [p1],
+    period: 2,
+    teamSide: 'us',
+    result: 'def_reb',
+    reboundType: 'off',
+    playerTag: '#32 Nina Patel',
+    videoClipName: 'IMG_0002.MOV',
+    videoClipIndex: 1,
+    videoTimeSec: 42.1,
+  });
+  assert.equal(p2.playNumber, 2);
+  assert.equal(p2.rebounder, '#32 Nina Patel');
+  assert.equal(p2.reboundType, 'off');
+  assert.equal(p2.shooter, undefined);
+
+  const p3 = createTimestampedPossession({
+    existingPossessions: [p1, p2],
+    period: 2,
+    teamSide: 'us',
+    result: 'def_steal',
+    playerTag: '#11 Chloe Kim',
+    videoClipName: 'IMG_0002.MOV',
+    videoClipIndex: 1,
+    videoTimeSec: 59.0,
+  });
+  assert.equal(p3.playNumber, 3);
+  assert.equal(p3.defender, '#11 Chloe Kim');
+  assert.equal(p3.shooter, undefined);
+});
+
+test('resolvePossessionVideoTarget maps possessions across stop-and-start video segments with lead-in', () => {
+  const clips = [
+    { name: 'IMG_0001.MOV' },
+    { name: 'IMG_0002.MOV' },
+    { name: 'IMG_0003.MOV' },
+  ];
+
+  const byName = createTimestampedPossession({
+    existingPossessions: [],
+    period: 3,
+    teamSide: 'us',
+    result: '2pt_make',
+    videoClipName: 'img_0003.mov',
+    videoClipIndex: 0,
+    videoTimeSec: 88.5,
+  });
+  assert.deepEqual(resolvePossessionVideoTarget(byName, clips, 3), {
+    clipIndex: 2,
+    seekSec: 85.5,
+  });
+
+  // Lead-in clamps at 0
+  const nearStart = createTimestampedPossession({
+    existingPossessions: [],
+    period: 1,
+    teamSide: 'us',
+    result: 'def_block',
+    videoClipName: 'IMG_0002.MOV',
+    videoClipIndex: 1,
+    videoTimeSec: 1.5,
+  });
+  assert.deepEqual(resolvePossessionVideoTarget(nearStart, clips, 5), {
+    clipIndex: 1,
+    seekSec: 0,
+  });
+});
+
+test('computePlayerBoxStats tallies live-tagged scoring, standalone rebounds, assists, steals, blocks, and turnovers without double counting', () => {
+  const roster = [
+    {
+      id: 'p1',
+      num: '11',
+      firstName: 'Chloe',
+      lastName: 'Kim',
+      position: 'PG' as const,
+    },
+    {
+      id: 'p2',
+      num: '23',
+      firstName: 'Mia',
+      lastName: 'Lopez',
+      position: 'SF' as const,
+    },
+  ];
+
+  const pMake = createTimestampedPossession({
+    existingPossessions: [],
+    period: 1,
+    teamSide: 'us',
+    result: '2pt_make',
+    playerTag: '#23 Mia Lopez',
+    assisterTag: '#11 Chloe Kim',
+  });
+  const pDefReb = createTimestampedPossession({
+    existingPossessions: [pMake],
+    period: 1,
+    teamSide: 'us',
+    result: 'def_reb',
+    reboundType: 'def',
+    playerTag: '#23 Mia Lopez',
+    defenderTag: '#23 Mia Lopez',
+  });
+  const pOffReb = createTimestampedPossession({
+    existingPossessions: [pMake, pDefReb],
+    period: 1,
+    teamSide: 'us',
+    result: 'def_reb',
+    reboundType: 'off',
+    playerTag: '#11 Chloe Kim',
+  });
+  const pSteal = createTimestampedPossession({
+    existingPossessions: [pMake, pDefReb, pOffReb],
+    period: 1,
+    teamSide: 'us',
+    result: 'def_steal',
+    playerTag: '#11 Chloe Kim',
+  });
+  const pBlock = createTimestampedPossession({
+    existingPossessions: [pMake, pDefReb, pOffReb, pSteal],
+    period: 2,
+    teamSide: 'us',
+    result: 'def_block',
+    playerTag: '#23 Mia Lopez',
+  });
+  const pTo = createTimestampedPossession({
+    existingPossessions: [pMake, pDefReb, pOffReb, pSteal, pBlock],
+    period: 2,
+    teamSide: 'us',
+    result: 'turnover',
+    playerTag: '#11 Chloe Kim',
+  });
+
+  const rows = computePlayerBoxStats([pMake, pDefReb, pOffReb, pSteal, pBlock, pTo], roster, 'us');
+  const chloe = rows.find((r) => r.name.includes('Chloe Kim'));
+  const mia = rows.find((r) => r.name.includes('Mia Lopez'));
+
+  assert.ok(chloe);
+  assert.ok(mia);
+  assert.equal(mia.pts, 2);
+  assert.equal(mia.fgm, 1);
+  assert.equal(mia.fga, 1);
+  assert.equal(mia.reb, 1); // no double count even with both rebounderTag and defenderTag matching
+  assert.equal(mia.blk, 1);
+
+  assert.equal(chloe.ast, 1);
+  assert.equal(chloe.reb, 1);
+  assert.equal(chloe.stl, 1);
+  assert.equal(chloe.to, 1);
 });

@@ -57,6 +57,8 @@ interface FilmPlayerProps {
   fit?: boolean;
   /** Where a new clip starts (seconds): the same moment when switching camera view, else the top. */
   startAt?: number;
+  /** Optional callback fired when video metadata loads with the clip duration in seconds. */
+  onDuration?: (durationSec: number) => void;
   /** Keyboard shortcuts (space, arrows, D, S...). Off while a coach is working elsewhere on the page. */
   shortcuts?: boolean;
   /** Start with "Auto" (next play when a clip ends) on or off; off while breaking a game down. */
@@ -89,6 +91,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   fit = false,
   viewOnly = false,
   startAt = 0,
+  onDuration,
   shortcuts = true,
   autoNextDefault = true,
   playLines,
@@ -264,6 +267,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   const stageRef = useRef<HTMLDivElement>(null);
   const press = useRef<{ x: number; y: number; px: number; py: number; moved: boolean; touch?: boolean } | null>(null);
   const view = useRef({ zoom: 1, pan: { x: 0, y: 0 } });
+  const pendingStartRef = useRef<number>(startAt);
 
   apiRef.current = {
     speed: () => speed,
@@ -349,7 +353,11 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
       if (followerRef.current) return;
       const cachedSnap = fastCut ? snapTimeCache.get(src) : undefined;
       const initialStart = startAt > 0 ? startAt : cachedSnap && cachedSnap > 2 ? Math.max(0, cachedSnap - 2.0) : 0;
-      if (initialStart > 0) v.currentTime = initialStart;
+      pendingStartRef.current = initialStart;
+      if (initialStart > 0 && v.readyState >= 1) {
+        v.currentTime = initialStart;
+        pendingStartRef.current = 0;
+      }
       const keepGoing = playingRef.current || endedRef.current;
       endedRef.current = false;
       if (!holdStart || keepGoing) v.play().catch(() => setPlaying(false));
@@ -1156,7 +1164,15 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
               onPlay={() => setPlaying(true)}
               onPause={() => setPlaying(false)}
               onTimeUpdate={handleTimeUpdate}
-              onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
+              onLoadedMetadata={(e) => {
+                const dur = e.currentTarget.duration || 0;
+                setDuration(dur);
+                onDuration?.(dur);
+                if (pendingStartRef.current > 0) {
+                  e.currentTarget.currentTime = Math.min(dur || pendingStartRef.current, pendingStartRef.current);
+                  pendingStartRef.current = 0;
+                }
+              }}
               onEnded={onEnded}
             />
           )}

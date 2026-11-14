@@ -353,20 +353,24 @@ export function computePlayerBoxStats(
       }
     }
 
-    // Rebounds & defensive plays attributed across all possessions
+    // Rebounds & defensive plays attributed across all possessions without double-counting
     for (let i = 0; i < roster.length; i++) {
       const player = roster[i];
       const row = rows[i];
 
-      if (matchesRosterPlayer(p.rebounder, player)) {
+      const isRebounder =
+        matchesRosterPlayer(p.rebounder, player) ||
+        (p.result === 'def_reb' && matchesRosterPlayer(p.defender || p.shooter, player));
+      if (isRebounder) {
         row.reb++;
         addClip(row, p.playNumber);
       }
 
-      if (matchesRosterPlayer(p.defender, player)) {
-        if (p.result === 'def_steal') row.stl++;
-        else if (p.result === 'def_block') row.blk++;
-        else if (p.result === 'def_reb') row.reb++;
+      if (p.result === 'def_steal' && matchesRosterPlayer(p.defender || p.shooter, player)) {
+        row.stl++;
+        addClip(row, p.playNumber);
+      } else if (p.result === 'def_block' && matchesRosterPlayer(p.defender || p.shooter, player)) {
+        row.blk++;
         addClip(row, p.playNumber);
       }
     }
