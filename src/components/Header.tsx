@@ -28,6 +28,7 @@ import {
   Moon,
 } from 'lucide-react';
 import { UserRole, SeasonConfig, Team, formatWeekLabel } from '../types';
+import { setActiveSport } from '../sportMode';
 import { getAutoActiveWeek, getSeasonWeekList, getWeekDisplayLabelWithOpponent } from '../utils/seasonWeekUtils';
 
 const WEEK_PHASES = [
@@ -420,6 +421,16 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
+          <button
+            type="button"
+            onClick={() => setActiveSport('basketball')}
+            title="Switch to Court Studio (Basketball App)"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-colors bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25 hover:bg-amber-500/20"
+          >
+            <span>🏀</span>
+            <span className="hidden lg:inline">Basketball</span>
+          </button>
+
           {onOpenPreferencesModal && (
             <button
               type="button"
@@ -575,6 +586,20 @@ export const Header: React.FC<HeaderProps> = ({
                   <ChevronRight className="w-4 h-4 text-slate-400 dark:text-slate-500" />
                 </button>
               )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  setActiveSport('basketball');
+                }}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25"
+              >
+                <span className="flex items-center gap-2">
+                  <span>🏀</span>
+                  <span>Switch to Basketball (Court Studio)</span>
+                </span>
+              </button>
 
               {/* Quick Light / Dark Theme Mode Toggle (Mobile) */}
               {onToggleThemeMode && (
