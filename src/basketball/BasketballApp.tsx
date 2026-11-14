@@ -16,6 +16,7 @@ import {
 import { getFirebaseServices, setReadOnlySession } from '../services/storageService';
 import { setActiveSport } from '../sportMode';
 import { isProgramAdminEmail } from '../utils/staffAccess';
+import type { ParsedTeamSnapEvent } from '../utils/teamSnapSync';
 import { BasketballFilmRoomView } from './components/BasketballFilmRoomView';
 import { BasketballHighlightsView } from './components/BasketballHighlightsView';
 import { BasketballScheduleView } from './components/BasketballScheduleView';
@@ -23,6 +24,7 @@ import { BasketballScoutView } from './components/BasketballScoutView';
 import { BasketballUsersView } from './components/BasketballUsersView';
 import {
   DEFAULT_BASKETBALL_SETS,
+  convertTeamSnapEventsToBasketballGames,
   fetchBasketballStateCloud,
   loadBasketballState,
   saveBasketballState,
@@ -67,13 +69,22 @@ export const BasketballApp: React.FC = () => {
   const [authBusy, setAuthBusy] = useState(false);
 
   const adoptRemoteState = useCallback((remote: BasketballState) => {
-    setState((prev) => ({
-      ...remote,
-      darkMode: prev.darkMode,
-      activeTeamId: remote.teams.some((t) => t.id === prev.activeTeamId)
-        ? prev.activeTeamId
-        : remote.activeTeamId,
-    }));
+    setState((prev) => {
+      if (
+        typeof prev.updatedAt === 'number' &&
+        typeof remote.updatedAt === 'number' &&
+        remote.updatedAt < prev.updatedAt
+      ) {
+        return prev;
+      }
+      return {
+        ...remote,
+        darkMode: prev.darkMode,
+        activeTeamId: remote.teams.some((t) => t.id === prev.activeTeamId)
+          ? prev.activeTeamId
+          : remote.activeTeamId,
+      };
+    });
   }, []);
 
   // Track Firebase auth user; hydrate and subscribe to Basketball cloud state.
@@ -162,13 +173,17 @@ export const BasketballApp: React.FC = () => {
     }
   }, [state.staff, isAdminUser, readOnly, hasFirebaseAuth, authUser]);
 
-  const commit = useCallback((updater: (prev: BasketballState) => BasketballState) => {
-    setState((prev) => {
-      const next = updater(prev);
-      saveBasketballState(next);
-      return next;
-    });
-  }, []);
+  const commit = useCallback(
+    (updater: (prev: BasketballState) => BasketballState) => {
+      setReadOnlySession(readOnly);
+      setState((prev) => {
+        const next = updater(prev);
+        saveBasketballState(next);
+        return next;
+      });
+    },
+    [readOnly]
+  );
 
   // Filter visible Basketball teams to assigned teams for non-Admin users.
   const visibleTeams = useMemo(() => {
@@ -409,6 +424,73 @@ export const BasketballApp: React.FC = () => {
       ...td,
       roster: td.roster.filter((p) => p.id !== playerId),
     }));
+  };
+
+  const handleImportRoster = (
+    importedPlayers: Omit<BasketballPlayer, 'id'>[],
+    mode: 'replace' | 'append'
+  ) => {
+    const stamp = Date.now();
+    const created: BasketballPlayer[] = importedPlayers.map((p, idx) => ({
+      ...p,
+      id: `bbp-ts-${stamp}-${idx + 1}`,
+    }));
+    updateTeamData((td) => {
+      if (mode === 'replace') {
+        return { ...td, roster: created };
+      }
+      const existingKeys = new Set(
+        td.roster.map((p) => `${p.num}|${p.firstName.toLowerCase()}|${p.lastName.toLowerCase()}`)
+      );
+      const uniqueNew = created.filter(
+        (p) => !existingKeys.has(`${p.num}|${p.firstName.toLowerCase()}|${p.lastName.toLowerCase()}`)
+      );
+      return { ...td, roster: [...td.roster, ...uniqueNew] };
+    });
+  };
+
+  const handleClearRoster = () => {
+    updateTeamData((td) => ({ ...td, roster: [] }));
+  };
+
+  const handleImportSchedule = (
+    events: ParsedTeamSnapEvent[],
+    mode: 'replace' | 'append',
+    calendarUrl?: string
+  ) => {
+    commit((prev) => {
+      const current = prev.teamData[activeTeam.id] || EMPTY_TEAM_DATA;
+      const nextGames = convertTeamSnapEventsToBasketballGames(events, current.games, mode);
+      const nextTeams = calendarUrl
+        ? prev.teams.map((t) => (t.id === activeTeam.id ? { ...t, calendarUrl } : t))
+        : prev.teams;
+      return {
+        ...prev,
+        teams: nextTeams,
+        activeGameIdByTeam: {
+          ...prev.activeGameIdByTeam,
+          [activeTeam.id]: nextGames[0]?.id || '',
+        },
+        teamData: {
+          ...prev.teamData,
+          [activeTeam.id]: { ...current, games: nextGames },
+        },
+      };
+    });
+  };
+
+  const handleClearSchedule = () => {
+    commit((prev) => {
+      const current = prev.teamData[activeTeam.id] || EMPTY_TEAM_DATA;
+      return {
+        ...prev,
+        activeGameIdByTeam: { ...prev.activeGameIdByTeam, [activeTeam.id]: '' },
+        teamData: {
+          ...prev.teamData,
+          [activeTeam.id]: { ...current, games: [] },
+        },
+      };
+    });
   };
 
   const handleAddStaff = (memberDraft: Omit<BasketballStaffMember, 'id'>) => {
@@ -663,6 +745,7 @@ export const BasketballApp: React.FC = () => {
               <BasketballScheduleView
                 teamName={activeTeam.name}
                 season={activeTeam.season}
+                calendarUrl={activeTeam.calendarUrl}
                 games={teamData.games}
                 activeGameId={activeGameId}
                 readOnly={readOnly}
@@ -672,6 +755,8 @@ export const BasketballApp: React.FC = () => {
                 onAddGame={handleAddGame}
                 onUpdateGame={handleUpdateGame}
                 onDeleteGame={handleDeleteGame}
+                onImportSchedule={handleImportSchedule}
+                onClearSchedule={handleClearSchedule}
               />
             )}
 
@@ -741,6 +826,8 @@ export const BasketballApp: React.FC = () => {
                 onAddPlayer={handleAddPlayer}
                 onUpdatePlayer={handleUpdatePlayer}
                 onDeletePlayer={handleDeletePlayer}
+                onImportRoster={handleImportRoster}
+                onClearRoster={handleClearRoster}
                 onAddStaff={handleAddStaff}
                 onUpdateStaff={handleUpdateStaff}
                 onDeleteStaff={handleDeleteStaff}

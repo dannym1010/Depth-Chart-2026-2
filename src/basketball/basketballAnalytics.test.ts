@@ -8,17 +8,22 @@ import {
 } from './basketballAnalytics.ts';
 import {
   DEFAULT_BASKETBALL_STATE,
+  SAMPLE_BASKETBALL_STATE,
   bballAccessFromStaff,
+  convertTeamSnapEventsToBasketballGames,
   parseBasketballHudlCsv,
+  parseBasketballRosterInput,
   possessionsToFootballPlays,
   shouldRouteToBasketballOnLogin,
+  stripLegacyDemoData,
 } from './storage.ts';
 import { normalizeWeek, weekKeyFromFolder } from '../filmroom/folderRoutes.ts';
 import { detectSportFromUrl } from '../sportMode.ts';
+import type { ParsedTeamSnapEvent } from '../utils/teamSnapSync.ts';
 import type { BasketballGame, BasketballStaffMember } from './types.ts';
 
-const game1: BasketballGame = DEFAULT_BASKETBALL_STATE.teamData['bball-10u-boys'].games[0];
-const roster = DEFAULT_BASKETBALL_STATE.teamData['bball-10u-boys'].roster;
+const game1: BasketballGame = SAMPLE_BASKETBALL_STATE.teamData['bball-10u-boys'].games[0];
+const roster = SAMPLE_BASKETBALL_STATE.teamData['bball-10u-boys'].roster;
 
 test('computeTeamEfficiency computes PPP, FG%, 3P%, eFG%, and phase splits accurately', () => {
   const eff = computeTeamEfficiency(game1.possessions, 'us');
@@ -107,9 +112,14 @@ test('possessionsToFootballPlays adapts basketball possessions to Play objects',
   assert.deepEqual(plays[1].defPlay?.events, ['int']);
 });
 
-test('bball-10u-boys and bball-12u-gold have separate non-overlapping default rosters', () => {
-  const roster10u = DEFAULT_BASKETBALL_STATE.teamData['bball-10u-boys'].roster;
-  const roster12u = DEFAULT_BASKETBALL_STATE.teamData['bball-12u-gold'].roster;
+test('DEFAULT_BASKETBALL_STATE starts with clean empty rosters and schedules while SAMPLE_BASKETBALL_STATE rosters are separate', () => {
+  assert.equal(DEFAULT_BASKETBALL_STATE.teamData['bball-10u-boys'].roster.length, 0);
+  assert.equal(DEFAULT_BASKETBALL_STATE.teamData['bball-12u-gold'].roster.length, 0);
+  assert.equal(DEFAULT_BASKETBALL_STATE.teamData['bball-10u-boys'].games.length, 0);
+  assert.equal(DEFAULT_BASKETBALL_STATE.teamData['bball-12u-gold'].games.length, 0);
+
+  const roster10u = SAMPLE_BASKETBALL_STATE.teamData['bball-10u-boys'].roster;
+  const roster12u = SAMPLE_BASKETBALL_STATE.teamData['bball-12u-gold'].roster;
   assert.ok(roster10u.length > 0);
   assert.ok(roster12u.length > 0);
 
@@ -248,4 +258,108 @@ test('detectSportFromUrl routes dedicated domains, paths, and query overrides cl
   assert.equal(detectSportFromUrl('https://field-general.vercel.app/basketball'), 'basketball');
   assert.equal(detectSportFromUrl('https://court-studio.vercel.app/?app=football'), 'football');
   assert.equal(detectSportFromUrl('https://mahopac.vercel.app/', 'basketball'), 'basketball');
+});
+
+test('stripLegacyDemoData removes demo players/games/staff while preserving real TeamSnap data', () => {
+  const realPlayer = {
+    id: 'bbp-ts-1700000-1',
+    num: '12',
+    firstName: 'Jordan',
+    lastName: 'Smith',
+    position: 'PG' as const,
+  };
+  const realGame = {
+    id: 'bball-ts-1700000-1',
+    weekLabel: 'Game 1',
+    date: '2026-12-01',
+    time: '19:00',
+    opponent: 'Somers Tuskers',
+    location: 'Mahopac HS',
+    homeAway: 'Home' as const,
+    eventType: 'Game' as const,
+    possessions: [],
+  };
+
+  const { teamData, staff, strippedDemo } = stripLegacyDemoData(
+    {
+      'bball-10u-boys': {
+        roster: [...SAMPLE_BASKETBALL_STATE.teamData['bball-10u-boys'].roster, realPlayer],
+        games: [...SAMPLE_BASKETBALL_STATE.teamData['bball-10u-boys'].games, realGame],
+        customSets: ['5-Out Motion'],
+      },
+      'bball-12u-gold': {
+        roster: SAMPLE_BASKETBALL_STATE.teamData['bball-12u-gold'].roster,
+        games: SAMPLE_BASKETBALL_STATE.teamData['bball-12u-gold'].games,
+        customSets: ['5-Out Motion'],
+      },
+    },
+    SAMPLE_BASKETBALL_STATE.staff
+  );
+
+  assert.equal(strippedDemo, true);
+  assert.deepEqual(teamData['bball-10u-boys'].roster, [realPlayer]);
+  assert.deepEqual(teamData['bball-10u-boys'].games, [realGame]);
+  assert.deepEqual(teamData['bball-12u-gold'].roster, []);
+  assert.deepEqual(teamData['bball-12u-gold'].games, []);
+  assert.equal(staff.length, 1);
+  assert.equal(staff[0].email, 'dannym1010@gmail.com');
+});
+
+test('parseBasketballRosterInput parses TeamSnap CSV exports and skips coaches/parents', () => {
+  const csv = [
+    'Jersey Number,First Name,Last Name,Position,Member Type',
+    '23,Carter,Hayes,SG,Player',
+    ',Mason,Rivera,Point Guard,Player',
+    ',Coach,Mike,,Coach',
+    '5,Cole,Brennan,F,Player',
+  ].join('\n');
+
+  const res = parseBasketballRosterInput(csv);
+  assert.equal(res.skipped.length, 1);
+  assert.equal(res.players.length, 3);
+  assert.deepEqual(res.players[0], {
+    num: '23',
+    firstName: 'Carter',
+    lastName: 'Hayes',
+    position: 'SG',
+    height: undefined,
+    grade: undefined,
+  });
+  assert.equal(res.players[1].num, '00');
+  assert.equal(res.players[1].position, 'PG');
+  assert.equal(res.players[2].position, 'SF');
+});
+
+test('convertTeamSnapEventsToBasketballGames converts events and deduplicates in append mode', () => {
+  const events: ParsedTeamSnapEvent[] = [
+    {
+      type: 'game',
+      title: 'Mahopac vs Carmel',
+      opponent: 'Carmel Rams',
+      date: '2026-12-05',
+      startTime: '14:00',
+      location: 'Mahopac Middle School',
+      locationType: 'home',
+      week: '1',
+    },
+    {
+      type: 'practice',
+      title: 'Team Practice',
+      date: '2026-12-07',
+      startTime: '18:30',
+      location: 'Austin Road Gym',
+      locationType: 'home',
+      week: '2',
+    },
+  ];
+
+  const replaced = convertTeamSnapEventsToBasketballGames(events, [], 'replace');
+  assert.equal(replaced.length, 2);
+  assert.equal(replaced[0].weekLabel, 'Game 1');
+  assert.equal(replaced[0].eventType, 'Game');
+  assert.equal(replaced[0].opponent, 'Carmel Rams');
+  assert.equal(replaced[1].eventType, 'Practice');
+
+  const appended = convertTeamSnapEventsToBasketballGames(events, replaced, 'append');
+  assert.equal(appended.length, 2);
 });

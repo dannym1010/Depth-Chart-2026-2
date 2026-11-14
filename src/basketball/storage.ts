@@ -1,13 +1,17 @@
 import type { ScoutBundle } from '../hudlScout/scoutBundle';
 import type { Play } from '../hudlScout/types/football';
 import { cleanFirestoreData, getFirebaseServices, isFirestoreQuotaPaused, isReadOnlySession, parseCSV, safeJSONParse, safeJSONSet } from '../services/storageService';
+import { splitCsvLine } from '../utils/rosterCsv';
 import { isProgramAdminEmail, PROGRAM_ADMIN_EMAILS } from '../utils/staffAccess';
+import type { ParsedTeamSnapEvent } from '../utils/teamSnapSync';
 import type {
   BasketballGame,
   BasketballPlayer,
   BasketballPossession,
   BasketballStaffMember,
   BasketballState,
+  BasketballTeamData,
+  CourtPosition,
   DefenseType,
   PossessionPhase,
   PossessionResult,
@@ -18,6 +22,21 @@ const STORAGE_KEY = 'bball_studio_v1_state';
 const CLOUD_STATE_DOC = 'bball_studio_state';
 const CLOUD_ACCESS_DOC = 'bball_access';
 let lastBballAccessKey = '';
+let lastLocalSaveAt = 0;
+
+const LEGACY_DEMO_PLAYER_ID_RE = /^bbp(?:12)?-(?:[1-9]|10)$/;
+const LEGACY_DEMO_GAME_IDS = new Set([
+  'bball-g1',
+  'bball-g2',
+  'bball-g3',
+  'bball-p1',
+  'bball-t1',
+  'bball-12u-g1',
+]);
+const LEGACY_DEMO_STAFF_EMAILS = new Set([
+  'coach.mike@mahopachoops.org',
+  'brennan.family@gmail.com',
+]);
 
 export const DEFAULT_BASKETBALL_SETS = [
   '5-Out Motion',
@@ -84,7 +103,7 @@ const GAME_2_POSSESSIONS: BasketballPossession[] = [
   { id: 'gp2-6', playNumber: 6, period: 4, clock: '2:45', teamSide: 'us', phase: 'blob', setCall: 'Box BLOB', defenseFaced: 'man', result: '2pt_make', points: 2, shotZone: 'mid_left', shooter: '#41 Aiden Byrne', assister: '#22 Jaxson Pestone' },
 ];
 
-export const DEFAULT_BASKETBALL_STATE: BasketballState = {
+export const SAMPLE_BASKETBALL_STATE: BasketballState = {
   teams: [
     { id: 'bball-10u-boys', name: 'Mahopac 10U Travel', season: '2026-27 Winter', accentColor: '#f59e0b' },
     { id: 'bball-12u-gold', name: 'Mahopac 12U Gold', season: '2026-27 Winter', accentColor: '#2563eb' },
@@ -216,28 +235,138 @@ export const DEFAULT_BASKETBALL_STATE: BasketballState = {
   },
 };
 
-function normalizeBasketballState(raw: Partial<BasketballState> | null | undefined): BasketballState {
-  if (!raw || !Array.isArray(raw.teams) || raw.teams.length === 0) {
-    return DEFAULT_BASKETBALL_STATE;
+export const DEFAULT_BASKETBALL_STATE: BasketballState = {
+  teams: [
+    { id: 'bball-10u-boys', name: 'Mahopac 10U Travel', season: '2026-27 Winter', accentColor: '#f59e0b' },
+    { id: 'bball-12u-gold', name: 'Mahopac 12U Gold', season: '2026-27 Winter', accentColor: '#2563eb' },
+  ],
+  activeTeamId: 'bball-10u-boys',
+  activeGameIdByTeam: {},
+  darkMode: true,
+  staff: [
+    {
+      id: 'st-1',
+      name: 'Coach Danny',
+      email: 'dannym1010@gmail.com',
+      role: 'Admin',
+      status: 'Active',
+      teamIds: ['bball-10u-boys', 'bball-12u-gold'],
+      linkedPlayerNums: [],
+    },
+  ],
+  teamData: {
+    'bball-10u-boys': {
+      roster: [],
+      customSets: DEFAULT_BASKETBALL_SETS,
+      games: [],
+    },
+    'bball-12u-gold': {
+      roster: [],
+      customSets: DEFAULT_BASKETBALL_SETS,
+      games: [],
+    },
+  },
+};
+
+export function stripLegacyDemoData(
+  rawTeamData: Record<string, BasketballTeamData> = {},
+  rawStaff: BasketballStaffMember[] = []
+): {
+  teamData: Record<string, BasketballTeamData>;
+  staff: BasketballStaffMember[];
+  strippedDemo: boolean;
+} {
+  let strippedDemo = false;
+  const cleanedTeamData: Record<string, BasketballTeamData> = {};
+
+  for (const [teamId, td] of Object.entries(rawTeamData || {})) {
+    const origRoster = Array.isArray(td?.roster) ? td.roster : [];
+    const origGames = Array.isArray(td?.games) ? td.games : [];
+    const roster = origRoster.filter((p) => !LEGACY_DEMO_PLAYER_ID_RE.test(String(p?.id || '')));
+    const games = origGames.filter((g) => !LEGACY_DEMO_GAME_IDS.has(String(g?.id || '')));
+    if (roster.length !== origRoster.length || games.length !== origGames.length) {
+      strippedDemo = true;
+    }
+    cleanedTeamData[teamId] = {
+      roster,
+      games,
+      customSets:
+        Array.isArray(td?.customSets) && td.customSets.length > 0
+          ? td.customSets
+          : DEFAULT_BASKETBALL_SETS,
+    };
   }
+
+  for (const defaultTeam of DEFAULT_BASKETBALL_STATE.teams) {
+    if (!cleanedTeamData[defaultTeam.id]) {
+      cleanedTeamData[defaultTeam.id] = {
+        roster: [],
+        games: [],
+        customSets: DEFAULT_BASKETBALL_SETS,
+      };
+    }
+  }
+
+  const origStaff = Array.isArray(rawStaff) ? rawStaff : [];
+  const filteredStaff = origStaff.filter(
+    (s) => !LEGACY_DEMO_STAFF_EMAILS.has(String(s?.email || '').toLowerCase().trim())
+  );
+  if (filteredStaff.length !== origStaff.length) strippedDemo = true;
+
+  const staff =
+    filteredStaff.length > 0 ? filteredStaff : DEFAULT_BASKETBALL_STATE.staff;
+
+  return { teamData: cleanedTeamData, staff, strippedDemo };
+}
+
+function normalizeWithMeta(raw: Partial<BasketballState> | null | undefined): {
+  state: BasketballState;
+  strippedDemo: boolean;
+} {
+  if (!raw || !Array.isArray(raw.teams) || raw.teams.length === 0) {
+    return { state: DEFAULT_BASKETBALL_STATE, strippedDemo: false };
+  }
+  const { teamData, staff, strippedDemo } = stripLegacyDemoData(
+    raw.teamData || {},
+    Array.isArray(raw.staff) ? raw.staff : []
+  );
+
+  const activeGameIdByTeam: Record<string, string> = {};
+  for (const [tid, gid] of Object.entries(raw.activeGameIdByTeam || {})) {
+    const teamGames = teamData[tid]?.games || [];
+    if (gid && teamGames.some((g) => g.id === gid)) {
+      activeGameIdByTeam[tid] = gid;
+    }
+  }
+
   return {
-    ...DEFAULT_BASKETBALL_STATE,
-    ...raw,
-    activeGameIdByTeam: {
-      ...DEFAULT_BASKETBALL_STATE.activeGameIdByTeam,
-      ...(raw.activeGameIdByTeam || {}),
+    strippedDemo,
+    state: {
+      teams: raw.teams,
+      activeTeamId:
+        typeof raw.activeTeamId === 'string' && raw.teams.some((t) => t.id === raw.activeTeamId)
+          ? raw.activeTeamId
+          : raw.teams[0].id,
+      activeGameIdByTeam,
+      teamData,
+      staff,
+      darkMode: typeof raw.darkMode === 'boolean' ? raw.darkMode : DEFAULT_BASKETBALL_STATE.darkMode,
+      ...(typeof raw.updatedAt === 'number' ? { updatedAt: raw.updatedAt } : {}),
     },
-    teamData: {
-      ...DEFAULT_BASKETBALL_STATE.teamData,
-      ...(raw.teamData || {}),
-    },
-    staff: Array.isArray(raw.staff) && raw.staff.length > 0 ? raw.staff : DEFAULT_BASKETBALL_STATE.staff,
   };
+}
+
+function normalizeBasketballState(raw: Partial<BasketballState> | null | undefined): BasketballState {
+  return normalizeWithMeta(raw).state;
 }
 
 export function loadBasketballState(): BasketballState {
   const saved = safeJSONParse<BasketballState | null>(STORAGE_KEY, null);
-  return normalizeBasketballState(saved);
+  const { state, strippedDemo } = normalizeWithMeta(saved);
+  if (strippedDemo) {
+    safeJSONSet(STORAGE_KEY, state);
+  }
+  return state;
 }
 
 export interface BasketballCloudAccess {
@@ -284,13 +413,17 @@ export async function syncBasketballAccessDoc(staff: BasketballStaffMember[]): P
 }
 
 export function saveBasketballState(state: BasketballState): void {
-  safeJSONSet(STORAGE_KEY, state);
+  const now = Date.now();
+  lastLocalSaveAt = now;
+  const clean = normalizeBasketballState({ ...state, updatedAt: now });
+  const stamped: BasketballState = { ...clean, updatedAt: now };
+  safeJSONSet(STORAGE_KEY, stamped);
   if (isReadOnlySession()) return;
   try {
     const { db } = getFirebaseServices();
     if (db && !isFirestoreQuotaPaused()) {
-      const payload = cleanFirestoreData({ ...state, updatedAt: Date.now() });
-      db.collection('teamData').doc(CLOUD_STATE_DOC).set(payload, { merge: true }).catch(() => undefined);
+      const payload = cleanFirestoreData(stamped);
+      db.collection('teamData').doc(CLOUD_STATE_DOC).set(payload).catch(() => undefined);
     }
   } catch {
     /* local save already complete */
@@ -305,9 +438,37 @@ export async function fetchBasketballStateCloud(): Promise<BasketballState | nul
     if (!db) return null;
     const snap = await db.collection('teamData').doc(CLOUD_STATE_DOC).get();
     if (!snap?.exists) return null;
-    const normalized = normalizeBasketballState(snap.data());
-    safeJSONSet(STORAGE_KEY, normalized);
-    return normalized;
+
+    const local = safeJSONParse<BasketballState | null>(STORAGE_KEY, null);
+    const { state: remote, strippedDemo } = normalizeWithMeta(snap.data());
+
+    if (
+      local &&
+      typeof local.updatedAt === 'number' &&
+      typeof remote.updatedAt === 'number' &&
+      local.updatedAt > remote.updatedAt
+    ) {
+      const cleanedLocal = normalizeBasketballState(local);
+      if (!isReadOnlySession()) {
+        db.collection('teamData')
+          .doc(CLOUD_STATE_DOC)
+          .set(cleanFirestoreData(cleanedLocal))
+          .catch(() => undefined);
+      }
+      return cleanedLocal;
+    }
+
+    safeJSONSet(STORAGE_KEY, remote);
+    if (strippedDemo && !isReadOnlySession()) {
+      const cleanedRemote: BasketballState = { ...remote, updatedAt: Date.now() };
+      safeJSONSet(STORAGE_KEY, cleanedRemote);
+      db.collection('teamData')
+        .doc(CLOUD_STATE_DOC)
+        .set(cleanFirestoreData(cleanedRemote))
+        .catch(() => undefined);
+      return cleanedRemote;
+    }
+    return remote;
   } catch {
     return null;
   }
@@ -322,9 +483,31 @@ export function subscribeBasketballStateCloud(onChange: (state: BasketballState)
     const unsub = db.collection('teamData').doc(CLOUD_STATE_DOC).onSnapshot(
       (snap: any) => {
         if (!snap?.exists || snap.metadata?.hasPendingWrites) return;
-        const normalized = normalizeBasketballState(snap.data());
-        safeJSONSet(STORAGE_KEY, normalized);
-        onChange(normalized);
+        if (Date.now() - lastLocalSaveAt < 2500) return;
+
+        const { state: remote, strippedDemo } = normalizeWithMeta(snap.data());
+        const local = safeJSONParse<BasketballState | null>(STORAGE_KEY, null);
+        if (
+          local &&
+          typeof local.updatedAt === 'number' &&
+          typeof remote.updatedAt === 'number' &&
+          remote.updatedAt < local.updatedAt
+        ) {
+          return;
+        }
+
+        safeJSONSet(STORAGE_KEY, remote);
+        if (strippedDemo && !isReadOnlySession()) {
+          const cleanedRemote: BasketballState = { ...remote, updatedAt: Date.now() };
+          safeJSONSet(STORAGE_KEY, cleanedRemote);
+          db.collection('teamData')
+            .doc(CLOUD_STATE_DOC)
+            .set(cleanFirestoreData(cleanedRemote))
+            .catch(() => undefined);
+          onChange(cleanedRemote);
+          return;
+        }
+        onChange(remote);
       },
       (err: any) => console.warn('Basketball cloud listener error:', err?.code || err)
     );
@@ -565,4 +748,248 @@ export function parseBasketballHudlCsv(csvText: string): BasketballPossession[] 
       editedAt: Date.now(),
     };
   });
+}
+
+function normalizeCourtPosition(raw: string): CourtPosition {
+  const s = String(raw || '').trim().toUpperCase();
+  if (s === 'PG' || s.includes('POINT')) return 'PG';
+  if (s === 'SG' || s.includes('SHOOT')) return 'SG';
+  if (s === 'SF' || s.includes('SMALL') || s.includes('WING')) return 'SF';
+  if (s === 'PF' || s.includes('POWER')) return 'PF';
+  if (s === 'C' || s.includes('CENTER') || s.includes('POST')) return 'C';
+  if (s === 'G' || s.includes('GUARD')) return 'PG';
+  if (s === 'F' || s.includes('FORWARD')) return 'SF';
+  return 'PG';
+}
+
+const BB_JERSEY_COLS = ['jersey', 'jerseynumber', 'jerseyno', 'jersey#', 'number', 'num', 'no', '#', 'uniform', 'uniformnumber', 'playernumber'];
+const BB_FIRST_COLS = ['first', 'firstname', 'playerfirstname', 'fname'];
+const BB_LAST_COLS = ['last', 'lastname', 'playerlastname', 'lname', 'surname'];
+const BB_FULL_COLS = ['name', 'playername', 'player', 'fullname', 'membername', 'rostername'];
+const BB_POS_COLS = ['pos', 'position', 'primary', 'primaryposition'];
+const BB_HEIGHT_COLS = ['height', 'ht'];
+const BB_GRADE_COLS = ['grade', 'year', 'class', 'gradyear'];
+const BB_ROLE_COLS = ['role', 'type', 'membertype', 'isnonplayer', 'nonplayer', 'status'];
+
+/** Parse a TeamSnap roster CSV export or pasted player list into Court Studio players. */
+export function parseBasketballRosterInput(raw: string): {
+  players: Omit<BasketballPlayer, 'id'>[];
+  skipped: string[];
+} {
+  const lines = String(raw || '')
+    .replace(/^\uFEFF/, '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!lines.length) return { players: [], skipped: [] };
+
+  const normH = (h: string) => h.toLowerCase().replace(/[^a-z0-9#]/g, '');
+  const header = splitCsvLine(lines[0]).map(normH);
+  const find = (names: string[]) => header.findIndex((h) => names.includes(h));
+
+  const isHeader =
+    header.some(
+      (h) =>
+        BB_JERSEY_COLS.includes(h) ||
+        BB_FIRST_COLS.includes(h) ||
+        BB_LAST_COLS.includes(h) ||
+        BB_FULL_COLS.includes(h) ||
+        BB_POS_COLS.includes(h) ||
+        h.includes('jersey')
+    );
+
+  const jerseyIdx = find(BB_JERSEY_COLS);
+  const col = isHeader
+    ? {
+        jersey: jerseyIdx >= 0 ? jerseyIdx : header.findIndex((h) => h.includes('jersey')),
+        first: find(BB_FIRST_COLS),
+        last: find(BB_LAST_COLS),
+        full: find(BB_FULL_COLS),
+        pos: find(BB_POS_COLS),
+        height: find(BB_HEIGHT_COLS),
+        grade: find(BB_GRADE_COLS),
+        role: find(BB_ROLE_COLS),
+      }
+    : { jersey: 0, first: 1, last: 2, full: -1, pos: 3, height: 4, grade: 5, role: -1 };
+
+  const players: Omit<BasketballPlayer, 'id'>[] = [];
+  const skipped: string[] = [];
+
+  for (let i = isHeader ? 1 : 0; i < lines.length; i++) {
+    const line = lines[i];
+    const parts = splitCsvLine(line);
+    const at = (idx: number) => (idx >= 0 && idx < parts.length ? parts[idx].trim() : '');
+
+    // Check role / non-player column when header exists
+    if (isHeader && col.role >= 0) {
+      const roleVal = at(col.role).toLowerCase();
+      if (/coach|parent|guardian|manager|non-player|nonplayer|contact|true|staff|admin/.test(roleVal)) {
+        const who = at(col.full) || `${at(col.first)} ${at(col.last)}`.trim() || `Row ${i + 1}`;
+        skipped.push(`${who} (${roleVal || 'non-player'})`);
+        continue;
+      }
+    }
+
+    // Handle loose pasted lines like "#23 Carter Hayes PG" or "Carter Hayes #23" when single column
+    if (!isHeader && parts.length === 1) {
+      const cleanedLine = line.replace(/\b(player|member|active)\b/gi, '').trim();
+      const numMatch = cleanedLine.match(/(?:#|no\.?\s*)(\d{1,3})|^(\d{1,3})[\s,.-]+/i);
+      const num = numMatch ? (numMatch[1] || numMatch[2] || '00') : '00';
+      const withoutNum = cleanedLine
+        .replace(/(?:#|no\.?\s*)\d{1,3}/i, '')
+        .replace(/^\d{1,3}[\s,.-]+/, '')
+        .trim();
+      const words = withoutNum.split(/\s+/).filter(Boolean);
+      if (!words.length) continue;
+      let position: CourtPosition = 'PG';
+      const lastToken = words[words.length - 1];
+      if (/^(PG|SG|SF|PF|C|G|F)$/i.test(lastToken)) {
+        position = normalizeCourtPosition(lastToken);
+        words.pop();
+      }
+      if (!words.length) continue;
+      players.push({
+        num,
+        firstName: words[0],
+        lastName: words.slice(1).join(' '),
+        position,
+      });
+      continue;
+    }
+
+    let firstName = at(col.first);
+    let lastName = at(col.last);
+    if ((!firstName || !lastName) && at(col.full)) {
+      const bits = at(col.full).split(/\s+/);
+      firstName = firstName || bits[0] || '';
+      lastName = lastName || bits.slice(1).join(' ');
+    } else if (firstName && !lastName && col.last < 0 && firstName.includes(' ')) {
+      const bits = firstName.split(/\s+/);
+      firstName = bits[0] || '';
+      lastName = bits.slice(1).join(' ');
+    }
+
+    // Without headers, support "First Last" when column 0 is non-numeric
+    let rawNum = at(col.jersey);
+    if (!isHeader && rawNum && !/\d/.test(rawNum)) {
+      const bits = rawNum.split(/\s+/);
+      const col1 = at(1);
+      if (col1 && /\d/.test(col1) && col1.replace(/\D/g, '').length <= 3) {
+        firstName = bits[0] || '';
+        lastName = bits.slice(1).join(' ');
+        rawNum = col1;
+      } else {
+        firstName = firstName ? `${bits[0] || ''} ${firstName}`.trim() : bits[0] || '';
+        lastName = lastName || bits.slice(1).join(' ');
+        rawNum = '';
+      }
+    }
+
+    if (!firstName && !lastName) continue;
+    const digits = rawNum.replace(/\D/g, '');
+    const num = digits || '00';
+    players.push({
+      num,
+      firstName: firstName || 'Player',
+      lastName,
+      position: normalizeCourtPosition(at(col.pos)),
+      height: at(col.height) || undefined,
+      grade: at(col.grade) || undefined,
+    });
+  }
+
+  return { players, skipped };
+}
+
+/** Parse a TeamSnap API v3 Collection+JSON members search response into players. */
+export function parseTeamSnapMembersResponse(json: any): Omit<BasketballPlayer, 'id'>[] {
+  const items: any[] = json?.collection?.items;
+  if (!Array.isArray(items)) return [];
+  const out: Omit<BasketballPlayer, 'id'>[] = [];
+
+  for (const item of items) {
+    const fields: Record<string, any> = {};
+    for (const datum of item?.data || []) {
+      if (datum?.name) fields[String(datum.name)] = datum.value;
+    }
+    if (fields.is_non_player === true || fields.is_non_player === 'true') continue;
+    const firstName = String(fields.first_name || '').trim();
+    const lastName = String(fields.last_name || '').trim();
+    if (!firstName && !lastName) continue;
+    const jerseyRaw = String(fields.jersey_number ?? '').replace(/\D/g, '');
+    out.push({
+      num: jerseyRaw || '00',
+      firstName: firstName || 'Player',
+      lastName,
+      position: normalizeCourtPosition(String(fields.position || '')),
+    });
+  }
+  return out;
+}
+
+/** Convert parsed TeamSnap iCal/CSV events into Court Studio schedule games. */
+export function convertTeamSnapEventsToBasketballGames(
+  events: ParsedTeamSnapEvent[],
+  existingGames: BasketballGame[],
+  mode: 'replace' | 'append'
+): BasketballGame[] {
+  const existingKeys = new Set(
+    (mode === 'append' ? existingGames : []).map(
+      (g) => `${g.date}|${g.time}|${g.opponent.toLowerCase().trim()}`
+    )
+  );
+  let gameCounter =
+    mode === 'append'
+      ? existingGames.filter((g) => g.eventType === 'Game').length
+      : 0;
+
+  const additions: BasketballGame[] = [];
+  const stamp = Date.now();
+
+  for (let i = 0; i < events.length; i++) {
+    const ev = events[i];
+    const titleLower = `${ev.title || ''} ${ev.focusOrNotes || ''}`.toLowerCase();
+    const eventType: BasketballGame['eventType'] =
+      ev.type === 'game'
+        ? titleLower.includes('tournament')
+          ? 'Tournament'
+          : 'Game'
+        : ev.type === 'scrimmage'
+        ? 'Scrimmage'
+        : titleLower.includes('tournament')
+        ? 'Tournament'
+        : 'Practice';
+
+    const homeAway: BasketballGame['homeAway'] =
+      ev.locationType === 'away' ? 'Away' : ev.locationType === 'neutral' ? 'Neutral' : 'Home';
+    const opponent =
+      eventType === 'Game' || eventType === 'Scrimmage'
+        ? (ev.opponent || ev.title || 'TBD Opponent').trim()
+        : (ev.title || ev.opponent || 'Team Practice').trim();
+
+    const dedupeKey = `${ev.date}|${ev.startTime || '18:00'}|${opponent.toLowerCase().trim()}`;
+    if (existingKeys.has(dedupeKey)) continue;
+    existingKeys.add(dedupeKey);
+
+    let weekLabel: string = eventType;
+    if (eventType === 'Game') {
+      gameCounter += 1;
+      weekLabel = `Game ${gameCounter}`;
+    }
+
+    additions.push({
+      id: `bball-ts-${stamp}-${i + 1}`,
+      weekLabel,
+      date: ev.date,
+      time: ev.startTime || '18:00',
+      opponent,
+      location: ev.location || 'TBD Gym',
+      homeAway,
+      eventType,
+      scoutingNotes: ev.focusOrNotes || undefined,
+      possessions: [],
+    });
+  }
+
+  return mode === 'replace' ? additions : [...existingGames, ...additions];
 }

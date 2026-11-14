@@ -98,6 +98,7 @@ export interface BasketballTeam {
   name: string;
   season: string;
   accentColor: string;
+  calendarUrl?: string;
 }
 
 export interface BasketballStaffMember {
@@ -126,4 +127,5 @@ export interface BasketballState {
   teamData: Record<string, BasketballTeamData>;
   staff: BasketballStaffMember[];
   darkMode: boolean;
+  updatedAt?: number;
 }

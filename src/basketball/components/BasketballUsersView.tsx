@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from 'react';
-import { Check, Crown, Edit3, Plus, Shield, Trash2, UserPlus, X } from 'lucide-react';
+import React, { useMemo, useRef, useState } from 'react';
+import { Check, Crown, Download, Edit3, Plus, Shield, Trash2, Upload, UserPlus, X } from 'lucide-react';
 import { isProgramAdminEmail } from '../../utils/staffAccess';
+import { parseBasketballRosterInput, parseTeamSnapMembersResponse } from '../storage';
 import type {
   BasketballPlayer,
   BasketballStaffMember,
@@ -21,6 +22,8 @@ interface BasketballUsersViewProps {
   onAddPlayer: (player: Omit<BasketballPlayer, 'id'>) => void;
   onUpdatePlayer: (playerId: string, updates: Partial<BasketballPlayer>) => void;
   onDeletePlayer: (playerId: string) => void;
+  onImportRoster: (players: Omit<BasketballPlayer, 'id'>[], mode: 'replace' | 'append') => void;
+  onClearRoster: () => void;
   onAddStaff: (member: Omit<BasketballStaffMember, 'id'>) => void;
   onUpdateStaff: (memberId: string, updates: Partial<BasketballStaffMember>) => void;
   onDeleteStaff: (memberId: string) => void;
@@ -46,6 +49,8 @@ export const BasketballUsersView: React.FC<BasketballUsersViewProps> = ({
   onAddPlayer,
   onUpdatePlayer,
   onDeletePlayer,
+  onImportRoster,
+  onClearRoster,
   onAddStaff,
   onUpdateStaff,
   onDeleteStaff,
@@ -72,7 +77,20 @@ export const BasketballUsersView: React.FC<BasketballUsersViewProps> = ({
 
   const [newTeam, setNewTeam] = useState({ name: '', season: '2026-27 Winter' });
   const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
-  const [teamDraft, setTeamDraft] = useState({ name: '', season: '' });
+  const [teamDraft, setTeamDraft] = useState({ name: '', season: '', calendarUrl: '' });
+
+  // TeamSnap Roster Import modal state
+  const [showRosterImport, setShowRosterImport] = useState(false);
+  const [rosterTab, setRosterTab] = useState<'paste' | 'csv' | 'api'>('paste');
+  const [rosterText, setRosterText] = useState('');
+  const [rosterPreview, setRosterPreview] = useState<Omit<BasketballPlayer, 'id'>[]>([]);
+  const [rosterSkipped, setRosterSkipped] = useState<string[]>([]);
+  const [rosterMode, setRosterMode] = useState<'replace' | 'append'>('replace');
+  const [tsTeamId, setTsTeamId] = useState('');
+  const [tsToken, setTsToken] = useState('');
+  const [tsBusy, setTsBusy] = useState(false);
+  const [tsError, setTsError] = useState('');
+  const rosterFileRef = useRef<HTMLInputElement>(null);
 
   const [newStaff, setNewStaff] = useState({
     name: '',
@@ -170,6 +188,74 @@ export const BasketballUsersView: React.FC<BasketballUsersViewProps> = ({
     });
   };
 
+  const openRosterImportModal = () => {
+    setRosterText('');
+    setRosterPreview([]);
+    setRosterSkipped([]);
+    setTsError('');
+    setRosterMode(roster.length === 0 ? 'replace' : 'append');
+    setShowRosterImport(true);
+  };
+
+  const handleRosterTextChange = (text: string) => {
+    setRosterText(text);
+    const res = parseBasketballRosterInput(text);
+    setRosterPreview(res.players);
+    setRosterSkipped(res.skipped);
+    setTsError('');
+  };
+
+  const handleRosterFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = String(evt.target?.result || '');
+      handleRosterTextChange(text);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleFetchTeamSnapApiRoster = async () => {
+    if (!tsTeamId.trim() || !tsToken.trim()) {
+      setTsError('Enter both your TeamSnap Team ID and API Personal Access Token.');
+      return;
+    }
+    setTsBusy(true);
+    setTsError('');
+    try {
+      const res = await fetch(
+        `https://api.teamsnap.com/v3/members/search?team_id=${encodeURIComponent(tsTeamId.trim())}`,
+        {
+          headers: {
+            Authorization: `Bearer ${tsToken.trim()}`,
+            Accept: 'application/vnd.collection+json, application/json',
+          },
+        }
+      );
+      if (!res.ok) {
+        setTsError(`TeamSnap API returned HTTP ${res.status}. Double-check your Team ID / Token or paste/upload your CSV export.`);
+        return;
+      }
+      const json = await res.json();
+      const players = parseTeamSnapMembersResponse(json);
+      if (players.length === 0) {
+        setTsError('No active players found on that TeamSnap team.');
+      } else {
+        setRosterPreview(players);
+        setRosterSkipped([]);
+      }
+    } catch (err: any) {
+      setTsError(
+        err?.message?.includes('Failed to fetch')
+          ? 'Browser blocked direct TeamSnap API request (CORS). In TeamSnap Roster, click Export CSV or copy-paste your player list into the Paste tab.'
+          : err?.message || 'TeamSnap API request failed.'
+      );
+    } finally {
+      setTsBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -216,24 +302,52 @@ export const BasketballUsersView: React.FC<BasketballUsersViewProps> = ({
                 — Separate per team ({roster.length} players)
               </span>
             </div>
-            {teams.length > 1 && (
-              <div className="flex items-center gap-1.5">
-                {teams.map((t) => (
+            <div className="flex flex-wrap items-center gap-2">
+              {teams.length > 1 && (
+                <div className="flex items-center gap-1.5">
+                  {teams.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => onSelectTeam(t.id)}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border cursor-pointer transition-colors ${
+                        t.id === activeTeamId
+                          ? 'bg-amber-500 text-zinc-950 border-amber-500'
+                          : 'border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-300 hover:border-zinc-400'
+                      }`}
+                    >
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {!readOnly && (
+                <>
                   <button
-                    key={t.id}
                     type="button"
-                    onClick={() => onSelectTeam(t.id)}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border cursor-pointer transition-colors ${
-                      t.id === activeTeamId
-                        ? 'bg-amber-500 text-zinc-950 border-amber-500'
-                        : 'border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-300 hover:border-zinc-400'
-                    }`}
+                    onClick={openRosterImportModal}
+                    className="h-7 px-2.5 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
                   >
-                    {t.name}
+                    <Download className="w-3 h-3" />
+                    <span>Import TeamSnap Roster</span>
                   </button>
-                ))}
-              </div>
-            )}
+                  {roster.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm(`Clear all ${roster.length} players from ${activeTeam?.name || 'this team'}'s roster?`)) {
+                          onClearRoster();
+                        }
+                      }}
+                      className="h-7 px-2.5 rounded-md border border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>Clear Roster</span>
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
           </div>
 
           {!readOnly && (
@@ -833,13 +947,22 @@ export const BasketballUsersView: React.FC<BasketballUsersViewProps> = ({
                         type="text"
                         value={teamDraft.name}
                         onChange={(e) => setTeamDraft({ ...teamDraft, name: e.target.value })}
+                        placeholder="Team Name"
                         className="w-full h-8 px-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-xs font-semibold"
                       />
                       <input
                         type="text"
                         value={teamDraft.season}
                         onChange={(e) => setTeamDraft({ ...teamDraft, season: e.target.value })}
+                        placeholder="Season"
                         className="w-full h-8 px-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-xs"
+                      />
+                      <input
+                        type="text"
+                        value={teamDraft.calendarUrl}
+                        onChange={(e) => setTeamDraft({ ...teamDraft, calendarUrl: e.target.value })}
+                        placeholder="TeamSnap iCal Feed URL (optional)"
+                        className="w-full h-8 px-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-[11px]"
                       />
                       <div className="flex items-center gap-2 pt-1">
                         <button
@@ -849,6 +972,7 @@ export const BasketballUsersView: React.FC<BasketballUsersViewProps> = ({
                               onUpdateTeam(t.id, {
                                 name: teamDraft.name.trim(),
                                 season: teamDraft.season.trim() || t.season,
+                                calendarUrl: teamDraft.calendarUrl.trim() || undefined,
                               });
                             }
                             setEditingTeamId(null);
@@ -871,10 +995,10 @@ export const BasketballUsersView: React.FC<BasketballUsersViewProps> = ({
                       <button
                         type="button"
                         onClick={() => onSelectTeam(t.id)}
-                        className="flex-1 text-left cursor-pointer"
+                        className="flex-1 text-left cursor-pointer min-w-0"
                       >
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-sm text-zinc-900 dark:text-zinc-50">
+                          <span className="font-bold text-sm text-zinc-900 dark:text-zinc-50 truncate">
                             {t.name}
                           </span>
                           {active && (
@@ -884,15 +1008,24 @@ export const BasketballUsersView: React.FC<BasketballUsersViewProps> = ({
                           )}
                         </div>
                         <div className="text-xs text-zinc-500 mt-1">{t.season}</div>
+                        {t.calendarUrl && (
+                          <div className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1 truncate">
+                            TeamSnap iCal Linked
+                          </div>
+                        )}
                       </button>
                       {!readOnly && (
                         <button
                           type="button"
                           onClick={() => {
                             setEditingTeamId(t.id);
-                            setTeamDraft({ name: t.name, season: t.season });
+                            setTeamDraft({
+                              name: t.name,
+                              season: t.season,
+                              calendarUrl: t.calendarUrl || '',
+                            });
                           }}
-                          title="Rename team"
+                          title="Edit team & TeamSnap iCal URL"
                           className="p-1.5 text-zinc-400 hover:text-amber-500 cursor-pointer"
                         >
                           <Edit3 className="w-3.5 h-3.5" />
@@ -903,6 +1036,201 @@ export const BasketballUsersView: React.FC<BasketballUsersViewProps> = ({
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* TeamSnap Roster Import Modal */}
+      {showRosterImport && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5 space-y-4 shadow-2xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-50 flex items-center gap-2">
+                  <Download className="w-4 h-4 text-amber-500" />
+                  <span>Import TeamSnap Roster — {activeTeam?.name}</span>
+                </h2>
+                <p className="text-[11px] text-zinc-500 mt-0.5">
+                  Export your TeamSnap roster CSV (<b>Roster → Export</b>), copy-paste rows directly from TeamSnap, or sync via TeamSnap API.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRosterImport(false)}
+                className="p-1 text-zinc-400 hover:text-zinc-200 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-1.5 border-b border-zinc-200 dark:border-zinc-800 pb-2">
+              {(
+                [
+                  { id: 'paste', label: 'Paste from TeamSnap / Sheets' },
+                  { id: 'csv', label: 'Upload TeamSnap CSV' },
+                  { id: 'api', label: 'TeamSnap API Token' },
+                ] as const
+              ).map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => {
+                    setRosterTab(t.id);
+                    setTsError('');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${
+                    rosterTab === t.id
+                      ? 'bg-amber-500 text-zinc-950'
+                      : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {rosterTab === 'paste' && (
+              <textarea
+                rows={5}
+                value={rosterText}
+                onChange={(e) => handleRosterTextChange(e.target.value)}
+                placeholder={'Paste CSV or rows from TeamSnap Roster page, e.g.:\nJersey #, First Name, Last Name, Position\n23, Carter, Hayes, SG\n5, Cole, Brennan, PG'}
+                className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs font-mono"
+              />
+            )}
+
+            {rosterTab === 'csv' && (
+              <div>
+                <input
+                  ref={rosterFileRef}
+                  type="file"
+                  accept=".csv,.tsv,.txt"
+                  onChange={handleRosterFileUpload}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => rosterFileRef.current?.click()}
+                  className="w-full py-6 rounded-xl border border-dashed border-zinc-300 dark:border-zinc-700 hover:border-amber-500 text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 inline-flex flex-col items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Upload className="w-5 h-5 text-amber-500" />
+                  <span>Click to choose your TeamSnap Roster .csv file</span>
+                </button>
+              </div>
+            )}
+
+            {rosterTab === 'api' && (
+              <div className="space-y-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-medium text-zinc-500 mb-1">
+                      TeamSnap Team ID
+                    </label>
+                    <input
+                      type="text"
+                      value={tsTeamId}
+                      onChange={(e) => setTsTeamId(e.target.value)}
+                      placeholder="e.g. 12345678"
+                      className="w-full h-9 px-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-zinc-500 mb-1">
+                      Personal Access Token
+                    </label>
+                    <input
+                      type="password"
+                      value={tsToken}
+                      onChange={(e) => setTsToken(e.target.value)}
+                      placeholder="TeamSnap OAuth token"
+                      className="w-full h-9 px-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs"
+                    />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={tsBusy}
+                  onClick={() => void handleFetchTeamSnapApiRoster()}
+                  className="h-9 px-4 rounded-lg bg-zinc-900 dark:bg-amber-500 text-white dark:text-zinc-950 text-xs font-semibold disabled:opacity-50 cursor-pointer"
+                >
+                  {tsBusy ? 'Fetching Members...' : 'Load TeamSnap Roster'}
+                </button>
+              </div>
+            )}
+
+            {tsError && (
+              <div className="text-xs text-rose-500 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">
+                {tsError}
+              </div>
+            )}
+
+            {rosterSkipped.length > 0 && (
+              <div className="text-[11px] text-amber-600 dark:text-amber-400">
+                Skipped non-players: {rosterSkipped.slice(0, 5).join(', ')}
+                {rosterSkipped.length > 5 ? ` (+${rosterSkipped.length - 5} more)` : ''}
+              </div>
+            )}
+
+            {rosterPreview.length > 0 && (
+              <div className="flex-1 min-h-0 flex flex-col gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                    Ready to import {rosterPreview.length} players
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-zinc-500 text-[11px]">Mode:</span>
+                    {(['replace', 'append'] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setRosterMode(m)}
+                        className={`px-2.5 py-1 rounded text-[11px] font-semibold border cursor-pointer ${
+                          rosterMode === m
+                            ? 'bg-zinc-900 dark:bg-amber-500 text-white dark:text-zinc-950 border-transparent'
+                            : 'border-zinc-200 dark:border-zinc-700 text-zinc-500'
+                        }`}
+                      >
+                        {m === 'replace' ? 'Replace Current Roster' : 'Add to Roster'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto max-h-48 rounded-lg border border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-200 dark:divide-zinc-800 text-xs">
+                  {rosterPreview.map((p, idx) => (
+                    <div key={idx} className="px-3 py-1.5 flex items-center justify-between gap-2">
+                      <div>
+                        <span className="font-mono font-bold text-amber-500 mr-2">#{p.num}</span>
+                        <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                          {p.firstName} {p.lastName}
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-zinc-500">{p.position}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-zinc-200 dark:border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setShowRosterImport(false)}
+                className="h-9 px-3.5 rounded-lg border border-zinc-200 dark:border-zinc-800 text-xs font-medium cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={rosterPreview.length === 0}
+                onClick={() => {
+                  onImportRoster(rosterPreview, rosterMode);
+                  setShowRosterImport(false);
+                }}
+                className="h-9 px-4 rounded-lg bg-amber-500 text-zinc-950 text-xs font-bold disabled:opacity-40 cursor-pointer"
+              >
+                Import {rosterPreview.length || ''} Players
+              </button>
+            </div>
           </div>
         </div>
       )}

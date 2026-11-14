@@ -1,23 +1,33 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Calendar,
   Check,
   Edit3,
   Film,
+  Link2,
   MapPin,
   Plus,
   Printer,
+  RefreshCw,
   Search,
   Shield,
   Trash2,
   Trophy,
+  Upload,
   X,
 } from 'lucide-react';
+import {
+  parseTeamSnapCSV,
+  parseTeamSnapICS,
+  parseTeamSnapText,
+  type ParsedTeamSnapEvent,
+} from '../../utils/teamSnapSync';
 import type { BasketballGame } from '../types';
 
 interface BasketballScheduleViewProps {
   teamName: string;
   season: string;
+  calendarUrl?: string;
   games: BasketballGame[];
   activeGameId: string;
   readOnly?: boolean;
@@ -27,13 +37,80 @@ interface BasketballScheduleViewProps {
   onAddGame: (game: Omit<BasketballGame, 'id' | 'possessions'>) => void;
   onUpdateGame: (gameId: string, updates: Partial<BasketballGame>) => void;
   onDeleteGame: (gameId: string) => void;
+  onImportSchedule?: (
+    events: ParsedTeamSnapEvent[],
+    mode: 'replace' | 'append',
+    calendarUrl?: string
+  ) => void;
+  onClearSchedule?: () => void;
 }
 
 type EventFilter = 'ALL' | 'Game' | 'Practice' | 'Tournament' | 'Scrimmage';
+type SyncTab = 'url' | 'file' | 'paste';
+
+function decodeAllOriginsPayload(contents: string): string {
+  if (!contents) return '';
+  if (contents.startsWith('data:')) {
+    const commaIdx = contents.indexOf(',');
+    if (commaIdx !== -1) {
+      const meta = contents.slice(0, commaIdx);
+      const data = contents.slice(commaIdx + 1);
+      if (meta.includes('base64')) {
+        try {
+          return decodeURIComponent(
+            atob(data)
+              .split('')
+              .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+              .join('')
+          );
+        } catch {
+          return atob(data);
+        }
+      }
+      return decodeURIComponent(data);
+    }
+  }
+  return contents;
+}
+
+async function fetchIcalFeedText(rawUrl: string): Promise<string> {
+  const cleanUrl = rawUrl.trim().replace(/^["']|["']$/g, '').replace(/^webcal:\/\//i, 'https://');
+  const cacheBust = `${cleanUrl.includes('?') ? '&' : '?'}_t=${Date.now()}`;
+
+  try {
+    const res = await fetch('/api/teamsnap/fetch-ical', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+      body: JSON.stringify({ url: cleanUrl }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (typeof data?.icsContent === 'string' && data.icsContent.includes('BEGIN:VCALENDAR')) {
+        return data.icsContent;
+      }
+    }
+  } catch {
+    /* fall through to proxy */
+  }
+
+  try {
+    const proxyRes = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(cleanUrl + cacheBust)}`);
+    if (proxyRes.ok) {
+      const data = await proxyRes.json();
+      const decoded = decodeAllOriginsPayload(String(data?.contents || ''));
+      if (decoded.includes('BEGIN:VCALENDAR')) return decoded;
+    }
+  } catch {
+    /* fall through */
+  }
+
+  return '';
+}
 
 export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
   teamName,
   season,
+  calendarUrl = '',
   games,
   activeGameId,
   readOnly = false,
@@ -43,11 +120,24 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
   onAddGame,
   onUpdateGame,
   onDeleteGame,
+  onImportSchedule,
+  onClearSchedule,
 }) => {
   const [filter, setFilter] = useState<EventFilter>('ALL');
   const [query, setQuery] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // TeamSnap Schedule Sync modal state
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [syncTab, setSyncTab] = useState<SyncTab>('url');
+  const [feedUrl, setFeedUrl] = useState(calendarUrl);
+  const [pasteSchedule, setPasteSchedule] = useState('');
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncError, setSyncError] = useState('');
+  const [parsedEvents, setParsedEvents] = useState<ParsedTeamSnapEvent[]>([]);
+  const [syncMode, setSyncMode] = useState<'replace' | 'append'>('replace');
+  const scheduleFileRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({
     weekLabel: '',
@@ -159,6 +249,83 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
     setShowAdd(false);
   };
 
+  const openTeamSnapSync = () => {
+    setFeedUrl(calendarUrl || '');
+    setSyncError('');
+    setParsedEvents([]);
+    setSyncMode(games.length === 0 ? 'replace' : 'append');
+    setShowSyncModal(true);
+  };
+
+  const handleFetchIcalUrl = async () => {
+    if (!feedUrl.trim()) {
+      setSyncError('Paste your TeamSnap iCal / WebCal schedule URL first.');
+      return;
+    }
+    setSyncBusy(true);
+    setSyncError('');
+    try {
+      const ics = await fetchIcalFeedText(feedUrl);
+      if (!ics) {
+        setSyncError('Could not fetch that iCal link directly. Try downloading the .ics file from TeamSnap or pasting events.');
+        setSyncBusy(false);
+        return;
+      }
+      const res = parseTeamSnapICS(ics);
+      if (!res.success || res.events.length === 0) {
+        setSyncError(res.error || 'No calendar events found in that TeamSnap feed.');
+      } else {
+        setParsedEvents(res.events);
+      }
+    } catch (err: any) {
+      setSyncError(err?.message || 'TeamSnap feed fetch failed.');
+    } finally {
+      setSyncBusy(false);
+    }
+  };
+
+  const handleScheduleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSyncError('');
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const content = String(evt.target?.result || '');
+      const res = content.includes('BEGIN:VCALENDAR')
+        ? parseTeamSnapICS(content)
+        : file.name.toLowerCase().endsWith('.csv')
+        ? parseTeamSnapCSV(content)
+        : parseTeamSnapText(content);
+      if (!res.success || res.events.length === 0) {
+        setSyncError(res.error || 'No events found in this file.');
+        setParsedEvents([]);
+      } else {
+        setParsedEvents(res.events);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleParseScheduleText = () => {
+    setSyncError('');
+    if (!pasteSchedule.trim()) {
+      setSyncError('Paste schedule text or CSV/ICS content first.');
+      return;
+    }
+    const content = pasteSchedule.trim();
+    const res = content.includes('BEGIN:VCALENDAR')
+      ? parseTeamSnapICS(content)
+      : content.includes(',') && content.includes('\n')
+      ? parseTeamSnapCSV(content)
+      : parseTeamSnapText(content);
+    if (!res.success || res.events.length === 0) {
+      setSyncError(res.error || 'No schedule events could be parsed.');
+      setParsedEvents([]);
+    } else {
+      setParsedEvents(res.events);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header strip */}
@@ -171,7 +338,31 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
             {teamName} Schedule
           </h1>
         </div>
-        <div className="flex items-center gap-2 print:hidden">
+        <div className="flex flex-wrap items-center gap-2 print:hidden">
+          {!readOnly && onImportSchedule && (
+            <button
+              type="button"
+              onClick={openTeamSnapSync}
+              className="h-9 px-3 rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Sync TeamSnap</span>
+            </button>
+          )}
+          {!readOnly && onClearSchedule && games.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm(`Clear all ${games.length} scheduled events for ${teamName}?`)) {
+                  onClearSchedule();
+                }
+              }}
+              className="h-9 px-3 rounded-lg border border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Clear</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => window.print()}
@@ -553,6 +744,192 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* TeamSnap Schedule Sync Modal */}
+      {showSyncModal && onImportSchedule && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5 space-y-4 shadow-2xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-50 flex items-center gap-2">
+                  <RefreshCw className="w-4 h-4 text-amber-500" />
+                  <span>Sync TeamSnap Schedule — {teamName}</span>
+                </h2>
+                <p className="text-[11px] text-zinc-500 mt-0.5">
+                  In TeamSnap go to <b>Schedule → Subscribe / Export → Subscribe to iCal</b> and copy the feed link, or upload an .ics / .csv file.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSyncModal(false)}
+                className="p-1 text-zinc-400 hover:text-zinc-200 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex gap-1.5 border-b border-zinc-200 dark:border-zinc-800 pb-2">
+              {(
+                [
+                  { id: 'url', label: 'iCal / WebCal URL', icon: Link2 },
+                  { id: 'file', label: 'Upload .ics / .csv', icon: Upload },
+                  { id: 'paste', label: 'Paste Schedule Text', icon: Calendar },
+                ] as const
+              ).map((t) => {
+                const Icon = t.icon;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => {
+                      setSyncTab(t.id);
+                      setSyncError('');
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer ${
+                      syncTab === t.id
+                        ? 'bg-amber-500 text-zinc-950'
+                        : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{t.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {syncTab === 'url' && (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={feedUrl}
+                  onChange={(e) => setFeedUrl(e.target.value)}
+                  placeholder="https://ical-cdn.teamsnap.com/team_schedule/...ics or webcal://..."
+                  className="flex-1 h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs"
+                />
+                <button
+                  type="button"
+                  disabled={syncBusy}
+                  onClick={() => void handleFetchIcalUrl()}
+                  className="h-9 px-4 rounded-lg bg-zinc-900 dark:bg-amber-500 text-white dark:text-zinc-950 text-xs font-semibold disabled:opacity-50 cursor-pointer"
+                >
+                  {syncBusy ? 'Loading...' : 'Load Feed'}
+                </button>
+              </div>
+            )}
+
+            {syncTab === 'file' && (
+              <div>
+                <input
+                  ref={scheduleFileRef}
+                  type="file"
+                  accept=".ics,.csv,.txt"
+                  onChange={handleScheduleFileUpload}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => scheduleFileRef.current?.click()}
+                  className="w-full py-6 rounded-xl border border-dashed border-zinc-300 dark:border-zinc-700 hover:border-amber-500 text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 inline-flex flex-col items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Upload className="w-5 h-5 text-amber-500" />
+                  <span>Click to select a TeamSnap .ics or .csv schedule export</span>
+                </button>
+              </div>
+            )}
+
+            {syncTab === 'paste' && (
+              <div className="space-y-2">
+                <textarea
+                  rows={4}
+                  value={pasteSchedule}
+                  onChange={(e) => setPasteSchedule(e.target.value)}
+                  placeholder="Paste TeamSnap iCal contents, CSV export, or schedule lines..."
+                  className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={handleParseScheduleText}
+                  className="h-8 px-3.5 rounded-lg bg-zinc-900 dark:bg-amber-500 text-white dark:text-zinc-950 text-xs font-semibold cursor-pointer"
+                >
+                  Parse Pasted Events
+                </button>
+              </div>
+            )}
+
+            {syncError && (
+              <div className="text-xs text-rose-500 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">
+                {syncError}
+              </div>
+            )}
+
+            {parsedEvents.length > 0 && (
+              <div className="flex-1 min-h-0 flex flex-col gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                    Found {parsedEvents.length} TeamSnap events
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-zinc-500 text-[11px]">Import mode:</span>
+                    {(['replace', 'append'] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setSyncMode(m)}
+                        className={`px-2.5 py-1 rounded text-[11px] font-semibold cursor-pointer border ${
+                          syncMode === m
+                            ? 'bg-zinc-900 dark:bg-amber-500 text-white dark:text-zinc-950 border-transparent'
+                            : 'border-zinc-200 dark:border-zinc-700 text-zinc-500'
+                        }`}
+                      >
+                        {m === 'replace' ? 'Replace Schedule' : 'Add Missing Only'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto max-h-56 rounded-lg border border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-200 dark:divide-zinc-800 text-xs">
+                  {parsedEvents.map((ev, idx) => (
+                    <div key={idx} className="px-3 py-2 flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-zinc-900 dark:text-zinc-100 truncate">
+                          {ev.opponent || ev.title}
+                        </div>
+                        <div className="text-[11px] text-zinc-500 truncate">
+                          {ev.date} · {ev.startTime || 'TBD'} · {ev.location || 'TBD Gym'}
+                        </div>
+                      </div>
+                      <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 shrink-0">
+                        {ev.type}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-zinc-200 dark:border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setShowSyncModal(false)}
+                className="h-9 px-3.5 rounded-lg border border-zinc-200 dark:border-zinc-800 text-xs font-medium cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={parsedEvents.length === 0}
+                onClick={() => {
+                  onImportSchedule(parsedEvents, syncMode, feedUrl.trim() || undefined);
+                  setShowSyncModal(false);
+                }}
+                className="h-9 px-4 rounded-lg bg-amber-500 text-zinc-950 text-xs font-bold disabled:opacity-40 cursor-pointer"
+              >
+                Import {parsedEvents.length || ''} Events
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
